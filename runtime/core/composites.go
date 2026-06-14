@@ -81,7 +81,7 @@ func (f *fork) Process(ctx context.Context, msg *types.Message) (*types.Message,
 }
 
 //nolint:ireturn // builders intentionally return the MessageProcessor interface
-func buildScope(cfg types.BlockConfig, reg *BlockRegistry, p *pool) (MessageProcessor, error) {
+func (b *builder) scope(cfg types.BlockConfig) (MessageProcessor, error) {
 	if cfg.Main == nil {
 		return nil, errors.New("scope block requires a main flow")
 	}
@@ -89,14 +89,14 @@ func buildScope(cfg types.BlockConfig, reg *BlockRegistry, p *pool) (MessageProc
 		return nil, errors.New("scope block must not declare branches")
 	}
 
-	main, err := buildSubFlow(*cfg.Main, reg, p)
+	main, err := b.subFlow(*cfg.Main)
 	if err != nil {
 		return nil, fmt.Errorf("scope main: %w", err)
 	}
 
 	composite := &scope{main: main}
 	if cfg.Alternative != nil {
-		alternative, altErr := buildSubFlow(*cfg.Alternative, reg, p)
+		alternative, altErr := b.subFlow(*cfg.Alternative)
 		if altErr != nil {
 			return nil, fmt.Errorf("scope alternative: %w", altErr)
 		}
@@ -106,7 +106,7 @@ func buildScope(cfg types.BlockConfig, reg *BlockRegistry, p *pool) (MessageProc
 }
 
 //nolint:ireturn // builders intentionally return the MessageProcessor interface
-func buildFork(cfg types.BlockConfig, reg *BlockRegistry, p *pool) (MessageProcessor, error) {
+func (b *builder) fork(cfg types.BlockConfig) (MessageProcessor, error) {
 	if len(cfg.Branches) == 0 {
 		return nil, errors.New("fork block requires at least one branch")
 	}
@@ -116,11 +116,11 @@ func buildFork(cfg types.BlockConfig, reg *BlockRegistry, p *pool) (MessageProce
 
 	branches := make([]Flow, 0, len(cfg.Branches))
 	for i := range cfg.Branches {
-		branch, err := buildSubFlow(cfg.Branches[i], reg, p)
+		branch, err := b.subFlow(cfg.Branches[i])
 		if err != nil {
 			return nil, fmt.Errorf("fork branch %d: %w", i, err)
 		}
 		branches = append(branches, *branch)
 	}
-	return &fork{branches: branches, pool: p}, nil
+	return &fork{branches: branches, pool: b.pool}, nil
 }

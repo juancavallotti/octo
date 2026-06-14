@@ -43,13 +43,38 @@ func (f *Flow) Process(ctx context.Context, msg *types.Message) (*types.Message,
 	return current, nil
 }
 
-// buildFlow assembles a Flow from a FlowConfig's block chain. It does not look at
-// Source/Workers/Buffer/Pool; the caller decides whether those are allowed. The
-// shared pool is threaded down so composite blocks can schedule concurrent work.
-func buildFlow(cfg types.FlowConfig, reg *BlockRegistry, p *pool) (*Flow, error) {
+// builder threads the shared context needed to assemble a flow tree: the leaf
+// block registry, the shared worker pool composites schedule on, and the named
+// processor definitions blocks resolve through ref.
+type builder struct {
+	reg  *BlockRegistry
+	pool *pool
+	defs map[string]types.ProcessorConfig
+	deps BlockDeps
+}
+
+// processorDefs indexes named processor definitions by name, rejecting
+// duplicates so a ref resolves unambiguously.
+func processorDefs(configs []types.ProcessorConfig) (map[string]types.ProcessorConfig, error) {
+	defs := make(map[string]types.ProcessorConfig, len(configs))
+	for _, cfg := range configs {
+		if cfg.Name == "" {
+			return nil, errors.New("processor definition requires a name")
+		}
+		if _, dup := defs[cfg.Name]; dup {
+			return nil, fmt.Errorf("processor %q is defined more than once", cfg.Name)
+		}
+		defs[cfg.Name] = cfg
+	}
+	return defs, nil
+}
+
+// flow assembles a Flow from a FlowConfig's block chain. It does not look at
+// Source/Workers/Buffer/Pool; the caller decides whether those are allowed.
+func (b *builder) flow(cfg types.FlowConfig) (*Flow, error) {
 	blocks := make([]Block, 0, len(cfg.Process))
 	for i := range cfg.Process {
-		block, err := buildBlock(cfg.Process[i], reg, p)
+		block, err := b.block(cfg.Process[i])
 		if err != nil {
 			return nil, err
 		}
@@ -58,44 +83,86 @@ func buildFlow(cfg types.FlowConfig, reg *BlockRegistry, p *pool) (*Flow, error)
 	return &Flow{Name: cfg.Name, Blocks: blocks}, nil
 }
 
-// buildSubFlow builds a nested flow, rejecting root-only fields.
-func buildSubFlow(cfg types.FlowConfig, reg *BlockRegistry, p *pool) (*Flow, error) {
+// subFlow builds a nested flow, rejecting root-only fields.
+func (b *builder) subFlow(cfg types.FlowConfig) (*Flow, error) {
 	if cfg.Source != nil {
 		return nil, errors.New("sub-flow must not declare a source")
 	}
 	if cfg.Workers != 0 || cfg.Buffer != 0 || cfg.Pool != 0 {
 		return nil, errors.New("sub-flow must not declare workers, buffer, or pool")
 	}
-	return buildFlow(cfg, reg, p)
+	return b.flow(cfg)
 }
 
-// buildBlock dispatches on block type: composite kinds build their typed
-// sub-flows; any other type is a leaf resolved through the registry.
-func buildBlock(cfg types.BlockConfig, reg *BlockRegistry, p *pool) (Block, error) {
-	if cfg.Type == "" {
-		return Block{}, errors.New("block type is required")
+// block resolves a block's effective type and settings (applying ref), then
+// builds its processor. Composite kinds build their typed sub-flows; any other
+// type is a leaf resolved through the registry.
+func (b *builder) block(cfg types.BlockConfig) (Block, error) {
+	if cfg.Type == "" && cfg.Ref == "" {
+		return Block{}, errors.New("block requires a type or a ref")
 	}
 
-	processor, err := buildProcessor(cfg, reg, p)
+	effType, effSettings, err := b.resolve(cfg)
 	if err != nil {
-		return Block{}, fmt.Errorf("block %q: %w", blockLabel(cfg.Type, cfg.Name), err)
+		return Block{}, err
 	}
-	return Block{Name: cfg.Name, Type: cfg.Type, Processor: processor}, nil
+
+	processor, err := b.processor(cfg, effType, effSettings)
+	if err != nil {
+		return Block{}, fmt.Errorf("block %q: %w", blockLabel(effType, cfg.Name), err)
+	}
+	return Block{Name: cfg.Name, Type: effType, Processor: processor}, nil
+}
+
+// resolve applies a block's ref, returning the effective type and settings. When
+// ref is empty the block is inline. When set, the named definition supplies the
+// type and base settings; the block's own settings override them key-by-key.
+func (b *builder) resolve(cfg types.BlockConfig) (string, types.Settings, error) {
+	if cfg.Ref == "" {
+		return cfg.Type, cfg.Settings, nil
+	}
+	def, ok := b.defs[cfg.Ref]
+	if !ok {
+		return "", nil, fmt.Errorf("block ref %q is not a defined processor", cfg.Ref)
+	}
+	if cfg.Type != "" && cfg.Type != def.Type {
+		return "", nil, fmt.Errorf("block ref %q is type %q but declares type %q", cfg.Ref, def.Type, cfg.Type)
+	}
+	return def.Type, mergeSettings(def.Settings, cfg.Settings), nil
 }
 
 //nolint:ireturn // builders intentionally return the MessageProcessor interface
-func buildProcessor(cfg types.BlockConfig, reg *BlockRegistry, p *pool) (MessageProcessor, error) {
-	switch cfg.Type {
+func (b *builder) processor(
+	cfg types.BlockConfig, effType string, effSettings types.Settings,
+) (MessageProcessor, error) {
+	switch effType {
 	case blockKindScope:
-		return buildScope(cfg, reg, p)
+		return b.scope(cfg)
 	case blockKindFork:
-		return buildFork(cfg, reg, p)
+		return b.fork(cfg)
 	default:
 		if err := rejectCompositeSlots(cfg); err != nil {
 			return nil, err
 		}
-		return reg.New(cfg.Type, cfg.Settings)
+		return b.reg.New(effType, effSettings, b.deps)
 	}
+}
+
+// mergeSettings overlays override onto base without mutating either, with
+// override keys winning. It returns base unchanged when there is nothing to
+// overlay.
+func mergeSettings(base, override types.Settings) types.Settings {
+	if len(override) == 0 {
+		return base
+	}
+	merged := make(types.Settings, len(base)+len(override))
+	for k, v := range base {
+		merged[k] = v
+	}
+	for k, v := range override {
+		merged[k] = v
+	}
+	return merged
 }
 
 // rejectCompositeSlots fails if a leaf block carries composite-only fields.

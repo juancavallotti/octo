@@ -20,9 +20,9 @@ type FlowConfig struct {
 // connector-specific source type.
 type SourceConfig struct {
 	// Connector is the Name of a configured connector instance, not its Type.
-	Connector string         `yaml:"connector"`
-	Type      string         `yaml:"type"`
-	Settings  map[string]any `yaml:"settings,omitempty"`
+	Connector string   `yaml:"connector"`
+	Type      string   `yaml:"type"`
+	Settings  Settings `yaml:"settings,omitempty"`
 }
 
 // BlockConfig describes one step in a flow. Leaf blocks use only Type, Name, and
@@ -31,9 +31,16 @@ type SourceConfig struct {
 // recursion (FlowConfig.Process -> []BlockConfig -> Main/Alternative/Branches ->
 // FlowConfig) lets the parser build the whole tree in one pass.
 type BlockConfig struct {
-	Type     string         `yaml:"type"`
-	Name     string         `yaml:"name,omitempty"`
-	Settings map[string]any `yaml:"settings,omitempty"`
+	Type     string   `yaml:"type"`
+	Name     string   `yaml:"name,omitempty"`
+	Settings Settings `yaml:"settings,omitempty"`
+
+	// Ref names a reusable processor defined under Config.Processors. When set,
+	// the block takes its type and base settings from that definition; any
+	// Settings here override the referenced ones key-by-key. A block sets either
+	// Ref or Type, not both (an inline Type equal to the referenced type is the
+	// one allowed overlap).
+	Ref string `yaml:"ref,omitempty"`
 
 	// Main is the protected flow of a "scope" block.
 	Main *FlowConfig `yaml:"main,omitempty"`

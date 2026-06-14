@@ -1,0 +1,5 @@
+{
+  "go.delveConfig": {
+    "dlvToolPath": "/Users/juancavallotti/go/bin/dlv"
+  }
+}

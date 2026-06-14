@@ -26,7 +26,16 @@ type Block struct {
 	Processor MessageProcessor
 }
 
-// BlockFactory builds a leaf processor from its settings. Composite kinds (scope,
-// fork) are not built through the block registry; the flow builder recognizes
-// them and constructs their typed sub-flows directly.
-type BlockFactory func(settings map[string]any) (MessageProcessor, error)
+// BlockDeps carries build-time services a block factory may need beyond its
+// settings. Most blocks ignore it. Connector resolves a configured connector
+// instance by name so a block can use a capability that connector provides — for
+// example, a log block binding to a logger connector. ok is false when no
+// connector with that name is configured.
+type BlockDeps struct {
+	Connector func(name string) (connector Connector, ok bool)
+}
+
+// BlockFactory builds a leaf processor from its settings and build-time deps.
+// Composite kinds (scope, fork) are not built through the block registry; the
+// flow builder recognizes them and constructs their typed sub-flows directly.
+type BlockFactory func(settings types.Settings, deps BlockDeps) (MessageProcessor, error)

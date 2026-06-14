@@ -1,0 +1,24 @@
+{
+  "version": "0.2.0",
+  "inputs": [
+    {
+      "id": "sample",
+      "type": "pickString",
+      "description": "Which sample config should the runtime load?",
+      "options": ["hello-world", "heartbeat", "file-logger"],
+      "default": "hello-world"
+    }
+  ],
+  "configurations": [
+    {
+      "name": "Debug CLI with sample config",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceFolder}/runtime/cli",
+      "cwd": "${workspaceFolder}",
+      "args": ["-config", "${workspaceFolder}/samples/${input:sample}.yaml"],
+      "showLog": true
+    }
+  ]
+}

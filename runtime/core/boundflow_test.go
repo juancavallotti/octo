@@ -41,7 +41,7 @@ func newTestFlow(t *testing.T, blockType string, workers int, rec *recorder) *bo
 	bus := NewEventBus()
 	bus.Subscribe(rec.handle)
 	p := newPool(0, 0)
-	root, err := buildFlow(types.FlowConfig{Process: []types.BlockConfig{{Type: blockType}}}, testRegistry(), p)
+	root, err := (&builder{reg: testRegistry(), pool: p}).flow(types.FlowConfig{Process: []types.BlockConfig{{Type: blockType}}})
 	if err != nil {
 		t.Fatalf("buildFlow: %v", err)
 	}

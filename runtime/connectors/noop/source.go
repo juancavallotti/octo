@@ -2,7 +2,6 @@ package noop
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"sync"
 
@@ -10,8 +9,11 @@ import (
 	"github.com/juancavallotti/eip-go/types"
 )
 
-// settingCount names the number of messages a noop source emits before idling.
-const settingCount = "count"
+// settings is the noop source's typed configuration.
+type settings struct {
+	// Count is the number of messages to emit before idling (default 0).
+	Count int `json:"count"`
+}
 
 // source emits a fixed number of empty messages, then idles until stopped. It is
 // a reference MessageSource used for examples and tests.
@@ -22,16 +24,15 @@ type source struct {
 	wg    sync.WaitGroup
 }
 
-// NewSource builds a noop source. The optional "count" setting controls how many
-// messages it emits (default 0).
+// NewSource builds a noop source from its typed settings.
 //
 //nolint:ireturn // a SourceProvider returns the MessageSource interface
 func (c *Connector) NewSource(cfg types.SourceConfig, out chan<- *types.Message) (core.MessageSource, error) {
-	count, err := intSetting(cfg.Settings, settingCount)
-	if err != nil {
+	var set settings
+	if err := cfg.Settings.Decode(&set); err != nil {
 		return nil, err
 	}
-	return &source{out: out, count: count, done: make(chan struct{})}, nil
+	return &source{out: out, count: set.Count, done: make(chan struct{})}, nil
 }
 
 // Start launches the emit loop on its own goroutine.
@@ -64,24 +65,5 @@ func (s *source) run(ctx context.Context) {
 		case <-s.done:
 			return
 		}
-	}
-}
-
-// intSetting reads an integer setting, accepting the int and float64 forms a
-// YAML decoder may produce. A missing key returns 0.
-func intSetting(settings map[string]any, key string) (int, error) {
-	value, ok := settings[key]
-	if !ok {
-		return 0, nil
-	}
-	switch v := value.(type) {
-	case int:
-		return v, nil
-	case int64:
-		return int(v), nil
-	case float64:
-		return int(v), nil
-	default:
-		return 0, fmt.Errorf("setting %q must be an integer, got %T", key, value)
 	}
 }

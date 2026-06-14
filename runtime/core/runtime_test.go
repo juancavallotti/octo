@@ -75,7 +75,7 @@ func waitForCompleted(t *testing.T, rec *recorder, want int) {
 func TestServiceRunsFlowWithFork(t *testing.T) {
 	const count = 12
 
-	MustRegisterBlock("e2e.pass", func(map[string]any) (MessageProcessor, error) {
+	MustRegisterBlock("e2e.pass", func(types.Settings, BlockDeps) (MessageProcessor, error) {
 		return processorFunc(func(_ context.Context, msg *types.Message) (*types.Message, error) {
 			return msg, nil
 		}), nil

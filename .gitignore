@@ -7,3 +7,5 @@ dist/
 *.tmp
 *.swp
 .DS_Store
+__debug_bin*
+*.go.test

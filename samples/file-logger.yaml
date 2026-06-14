@@ -1,0 +1,31 @@
+service:
+  name: file-logger-demo
+
+connectors:
+  - name: ticker
+    type: cron
+  # A named logger connector. It owns its output file (opened on start, closed
+  # on shutdown). Any settings can be omitted to take the defaults
+  # (output: stdout, format: text, level: info).
+  - name: audit
+    type: logger
+    settings:
+      output: /tmp/eip-audit.log
+      format: json
+      level: info
+      addSource: false
+
+flows:
+  - name: audit-ticks
+    source:
+      connector: ticker
+      type: cron
+      settings:
+        schedule: "@every 2s"
+        payload: '{"date": string(now)}'
+    process:
+      # This log block writes through the named "audit" logger connector.
+      - type: log
+        settings:
+          logger: audit
+          message: '"tick at " + body.date'

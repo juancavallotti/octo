@@ -112,8 +112,17 @@ func (s *Service) buildFlow(cfg types.FlowConfig, byName map[string]Connector) (
 		return nil, err
 	}
 
+	defs, err := processorDefs(s.config.Processors)
+	if err != nil {
+		return nil, err
+	}
+
 	p := newPool(resolvePoolWorkers(cfg.Pool), defaultPoolQueue)
-	root, err := buildFlow(cfg, s.blocks, p)
+	deps := BlockDeps{Connector: func(name string) (Connector, bool) {
+		connector, ok := byName[name]
+		return connector, ok
+	}}
+	root, err := (&builder{reg: s.blocks, pool: p, defs: defs, deps: deps}).flow(cfg)
 	if err != nil {
 		return nil, err
 	}
