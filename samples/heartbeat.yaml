@@ -1,0 +1,26 @@
+service:
+  name: heartbeat
+
+connectors:
+  - name: ticker
+    type: cron
+
+# Named processor definitions. Flow blocks reference these by `ref`.
+processors:
+  - name: heartbeat-log
+    type: log
+    settings:
+      level: info
+      message: '"heartbeat fired at " + body.firedAt'
+
+flows:
+  - name: heartbeat
+    source:
+      connector: ticker
+      type: cron
+      settings:
+        # Descriptor schedule: fire every two seconds.
+        schedule: "@every 2s"
+        payload: '{"firedAt": string(now), "kind": "tick"}'
+    process:
+      - ref: heartbeat-log

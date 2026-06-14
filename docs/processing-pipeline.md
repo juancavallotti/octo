@@ -163,10 +163,92 @@ flows:
           - { name: audit,  process: [ { type: log } ] }
 ```
 
+### Named processors (`ref`)
+
+Reusable processor definitions live under the top-level `processors:` key, the
+same way connectors are declared once and referenced by name. Each definition has
+a `name`, a `type`, and `settings`. A flow block then references one with `ref`
+instead of an inline `type`:
+
+```yaml
+processors:
+  - name: audit-log
+    type: log
+    settings:
+      level: info
+      message: '"order " + body.id + " received"'
+
+flows:
+  - name: ingest
+    source: { connector: ticker, type: cron, settings: { schedule: "@every 5s" } }
+    process:
+      - ref: audit-log                      # reuse the named definition
+      - ref: audit-log                       # ...as many times as needed
+        settings: { level: debug }           # block settings override the ref, key-by-key
+```
+
+A block sets **either** `ref` **or** `type` (an inline `type` equal to the
+referenced type is the one allowed overlap). When `ref` is set, the block's own
+`settings` are shallow-merged over the referenced settings, so a shared definition
+can be tuned per use.
+
+### Settings
+
+Both `connectors[].settings` and a block's effective settings are a
+`types.Settings` map. A component reads them by projecting the whole map onto its
+own typed struct with `Settings.Decode(&cfg)` (mirroring `Message.DecodeBody`), so
+each connector and processor owns its settings shape and a mistyped value fails at
+startup. Typed accessors (`String`, `Int`, `Bool`, `Float`) are available for
+one-off reads.
+
+### Expressions (CEL)
+
+Expressions use [CEL](https://github.com/google/cel-go), wrapped by
+`core/expr`. An expression is compiled once at flow-build time (a malformed
+expression fails at startup) and evaluated per message against an **activation** —
+a map of variable names to values. Results come back as JSON-native Go values, so
+they slot straight into a message body. Each call site decides which variables it
+exposes:
+
+- **`log` block** (`message` setting) sees `body`, `vars`, `eventID`,
+  `correlationID`. With no `message` it logs the JSON body. `level` is one of
+  `debug`/`info`/`warn`/`error` (default `info`). It is a pass-through wire tap:
+  it logs and forwards the message unchanged.
+- **`cron` source** (`payload` setting) sees `now` (the fire time) and the
+  source's static `settings`. The result becomes the message body.
+
+### The `cron` source
+
+The `cron` connector emits a message on a schedule. Seconds are enabled, so a
+standard expression is **six fields** (`sec min hour dom mon dow`) and descriptors
+like `@every 2s` also work. Settings: `schedule` (required), `payload` (optional
+CEL expression for the body), and `correlationID` (optional).
+
+```yaml
+connectors:
+  - { name: ticker, type: cron }
+
+flows:
+  - name: greet
+    source:
+      connector: ticker
+      type: cron
+      settings:
+        schedule: "0,30 * * * * *"          # second 0 and 30 of every minute
+        payload: '{"date": string(now)}'
+    process:
+      - { type: log, settings: { message: '"hello world! the date is " + body.date' } }
+```
+
+Runnable samples live under [`samples/`](../samples); run one with
+`go run ./runtime/cli -config samples/hello-world.yaml` (or the **Debug sample**
+launch config in VS Code).
+
 ## Writing a connector source
 
 A connector becomes a source by implementing `core.SourceProvider`. The runtime
 hands the source the channel it should emit on; the source runs on its own
 goroutine and must not send after `Stop` returns. See
 [`runtime/connectors/noop/source.go`](../runtime/connectors/noop/source.go) for a
-minimal reference implementation.
+minimal reference implementation. A source reads its configuration from
+`cfg.Settings` (a `types.Settings`) by decoding it into a typed struct.

@@ -1,0 +1,29 @@
+service:
+  name: hello-world
+
+connectors:
+  - name: ticker
+    type: cron
+
+# Named processor definitions. Flow blocks reference these by `ref`.
+processors:
+  - name: greeter
+    type: log
+    settings:
+      level: info
+      # CEL expression rendered to the log line. It can read the message
+      # body/vars/eventID/correlationID.
+      message: '"hello world! the date is " + body.date'
+
+flows:
+  - name: greet
+    source:
+      connector: ticker
+      type: cron
+      settings:
+        # Six-field cron with seconds: fire at second 0 and 30 of every minute.
+        schedule: "0,30 * * * * *"
+        # CEL expression with `now` (fire time) available; sets the message body.
+        payload: '{"date": string(now)}'
+    process:
+      - ref: greeter
