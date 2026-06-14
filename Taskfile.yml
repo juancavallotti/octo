@@ -72,3 +72,9 @@ tasks:
     desc: Run the CLI with a config file
     cmds:
       - cd runtime/cli && {{.GO}} run . {{.CLI_ARGS}}
+
+  new-connector:
+    desc: Interactively scaffold a new connector
+    interactive: true
+    cmds:
+      - ./scripts/new-connector.sh {{.CLI_ARGS}}
