@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"flag"
-	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -14,10 +14,15 @@ import (
 )
 
 func main() {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	slog.SetDefault(logger)
+
 	if err := run(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		slog.Error("runtime stopped with error", "error", err)
 		os.Exit(1)
 	}
+
+	slog.Info("runtime stopped")
 }
 
 func run() error {
@@ -32,6 +37,8 @@ func run() error {
 	if err != nil {
 		return err
 	}
+
+	slog.Info("starting runtime", "connectors", len(config.Connectors))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

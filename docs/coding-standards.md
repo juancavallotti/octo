@@ -67,3 +67,4 @@ cannot follow a rule, document the reason in the code or the pull request.
 - Do not add new dependencies unless they solve a real problem.
 - Keep exported identifiers documented when they are part of the public surface.
 - Formatting is handled by `gofmt` / `go fmt`; do not hand-format.
+- Standardize structured logging on the Go standard library `log/slog` package.
