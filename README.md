@@ -17,6 +17,25 @@ Read [docs/release-process.md](docs/release-process.md) before release-related w
 
 The Go runtime workspace lives under [runtime/](runtime/).
 
+## Runtime architecture
+
+Read [docs/processing-pipeline.md](docs/processing-pipeline.md) for the runtime
+building blocks: connectors, message sources, flows, blocks/processors, composite
+blocks (`scope`/`fork`), the worker-pool concurrency model, the flow-event bus,
+and the start/stop lifecycle. A minimal flow looks like:
+
+```yaml
+flows:
+  - name: ingest-orders
+    workers: 8
+    source:
+      connector: orders-kafka
+      type: topic
+      settings: { topic: orders }
+    process:
+      - { type: validate, settings: { schema: order.schema.json } }
+```
+
 ## Tasks
 
 - `task fmt`
