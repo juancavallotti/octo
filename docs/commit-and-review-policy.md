@@ -11,16 +11,23 @@
   (`feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`, …). Release automation
   derives the changelog and version from these (see [release-process.md](release-process.md)).
 
-## Stop before committing — always
+## Commit atomically; review by history
 
-- **Agents must stop before every commit and wait for explicit review and approval.**
-  Do not run `git commit` (or `git push`) until the human has reviewed the staged
-  increment and confirmed.
-- Present each increment for review as: what changed, why, and what is covered by tests.
-- Reviewing increment by increment is intentional — it keeps changes understandable
-  and lets the reviewer follow how each step builds on the last. Do not batch
-  multiple planned commits together to "save time."
-- This rule applies even when the change looks trivial.
+- Agents create the planned commits as an atomic sequence, in dependency order,
+  **without pausing for approval before each one**. The human reviews the resulting
+  commit history — each commit is a self-contained, revertable step, so the
+  progression stays legible after the fact.
+- Each commit must build and pass its own tests, so the history stays bisectable.
+- Do **not** squash the sequence into one large commit "to save time" — the atomic
+  history is the point. Reviewing increment by increment is how the reviewer follows
+  how each step builds on the last.
+- After the commits are in place, present a short summary of the sequence: what each
+  commit does and what tests cover it.
+
+## Pushing still requires approval
+
+- Do not run `git push` or open a pull request until the human has reviewed the
+  committed history and confirmed.
 
 ## Review quality
 

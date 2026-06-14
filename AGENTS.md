@@ -21,3 +21,11 @@ Required reading:
 - Use Conventional Commit messages — release automation depends on them.
 
 The initial baseline is expected to be committed directly, not through a pull request.
+
+## Refactoring policy
+
+This project prefers **complete refactors over backwards compatibility.** When a change
+improves the design, update every call site, test, and document in the same change rather
+than introducing compatibility shims, deprecated aliases, or dual code paths. There is no
+external API stability guarantee yet: prefer one clean, fully-migrated implementation
+over preserving old behavior alongside the new.

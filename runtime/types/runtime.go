@@ -4,6 +4,7 @@ package types
 type Config struct {
 	Service    ServiceConfig     `yaml:"service"`
 	Connectors []ConnectorConfig `yaml:"connectors"`
+	Flows      []FlowConfig      `yaml:"flows,omitempty"`
 }
 
 // ServiceConfig describes the runtime service identity and environment.

@@ -1,5 +1,8 @@
 bin/
 dist/
+# Go build output left in a module dir by `go build` without -o (binary named
+# after the package dir, e.g. runtime/cli/cli). The canonical output is bin/.
+/runtime/cli/cli
 *.log
 *.tmp
 *.swp
