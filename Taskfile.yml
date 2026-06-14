@@ -1,0 +1,63 @@
+version: '3'
+
+vars:
+  GO: go
+
+tasks:
+  fmt:
+    desc: Format all Go modules
+    cmds:
+      - cd runtime/types && {{.GO}} fmt ./...
+      - cd runtime/core && {{.GO}} fmt ./...
+      - cd runtime/connectors && {{.GO}} fmt ./...
+      - cd runtime/cli && {{.GO}} fmt ./...
+
+  test:
+    desc: Run tests across all modules
+    cmds:
+      - cd runtime/types && {{.GO}} test ./...
+      - cd runtime/core && {{.GO}} test ./...
+      - cd runtime/connectors && {{.GO}} test ./...
+      - cd runtime/cli && {{.GO}} test ./...
+
+  build:
+    desc: Build the CLI binary
+    cmds:
+      - mkdir -p bin
+      - cd runtime/cli && {{.GO}} build -o ../../bin/eip-go .
+
+  tidy:
+    desc: Tidy all modules
+    cmds:
+      - cd runtime/types && {{.GO}} mod tidy
+      - cd runtime/core && {{.GO}} mod tidy
+      - cd runtime/connectors && {{.GO}} mod tidy
+      - cd runtime/cli && {{.GO}} mod tidy
+
+  lint-strict:
+    desc: Run strict lint checks
+    cmds:
+      - test -f runtime/.golangci.yml
+      - test -f docs/linting-policy.md
+
+  policy-check:
+    desc: Verify governance files exist
+    cmds:
+      - test -f AGENTS.md
+      - test -f docs/coding-standards.md
+      - test -f docs/linting-policy.md
+      - test -f docs/commit-and-review-policy.md
+      - test -f docs/release-process.md
+      - test -f runtime/go.work
+
+  release-check:
+    desc: Verify release readiness files exist
+    cmds:
+      - task: policy-check
+      - test -f .github/workflows/release.yml
+      - test -f README.md
+
+  run:
+    desc: Run the CLI with a config file
+    cmds:
+      - cd runtime/cli && {{.GO}} run . {{.CLI_ARGS}}
