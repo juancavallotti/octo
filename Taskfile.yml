@@ -34,8 +34,16 @@ tasks:
       - cd runtime/connectors && {{.GO}} mod tidy
       - cd runtime/cli && {{.GO}} mod tidy
 
+  lint:
+    desc: Run golangci-lint across all modules
+    cmds:
+      - cd runtime/types && golangci-lint run ./...
+      - cd runtime/core && golangci-lint run ./...
+      - cd runtime/connectors && golangci-lint run ./...
+      - cd runtime/cli && golangci-lint run ./...
+
   lint-strict:
-    desc: Run strict lint checks
+    desc: Verify lint configuration is present
     cmds:
       - test -f runtime/.golangci.yml
       - test -f docs/linting-policy.md
@@ -55,6 +63,9 @@ tasks:
     cmds:
       - task: policy-check
       - test -f .github/workflows/release.yml
+      - test -f .github/workflows/release-please.yml
+      - test -f release-please-config.json
+      - test -f .release-please-manifest.json
       - test -f README.md
 
   run:

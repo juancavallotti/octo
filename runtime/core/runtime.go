@@ -7,11 +7,13 @@ import (
 	"github.com/juancavallotti/eip-go/types"
 )
 
+// Service runs the configured connectors until its context is cancelled.
 type Service struct {
 	config   types.Config
 	registry *Registry
 }
 
+// NewService builds a Service, falling back to the default registry when registry is nil.
 func NewService(config types.Config, registry *Registry) *Service {
 	if registry == nil {
 		registry = DefaultRegistry()
@@ -20,6 +22,7 @@ func NewService(config types.Config, registry *Registry) *Service {
 	return &Service{config: config, registry: registry}
 }
 
+// Run starts all configured connectors and stops them when ctx is done.
 func (s *Service) Run(ctx context.Context) error {
 	running := make([]Connector, 0, len(s.config.Connectors))
 

@@ -1,11 +1,119 @@
+version: "2"
+
 run:
   timeout: 5m
 
 linters:
+  default: none
   enable:
+    # Correctness
     - errcheck
     - govet
     - staticcheck
     - ineffassign
+    - unused
+    - bodyclose
+    - nilerr
+    - noctx
+    - rowserrcheck
+    - sqlclosecheck
+    - copyloopvar
+    - usestdlibvars
+    # Error handling discipline
+    - errorlint
+    - wrapcheck
+    # Style / clarity
     - revive
     - gocritic
+    - unconvert
+    - unparam
+    - misspell
+    - whitespace
+    - predeclared
+    - nakedret
+    - prealloc
+    # Coding-standards enforcement (docs/coding-standards.md)
+    - mnd            # no magic numbers
+    - goconst        # repeated literals -> constants
+    - funlen         # small functions
+    - gocyclo        # cyclomatic complexity
+    - gocognit       # cognitive complexity
+    - cyclop         # per-package + per-func complexity
+    - nestif         # shallow nesting
+    - lll            # line length
+    - ireturn        # don't return interfaces (avoid interface pollution)
+    - interfacebloat # keep interfaces small
+    # Security
+    - gosec
+
+  settings:
+    funlen:
+      lines: 60
+      statements: 45
+      ignore-comments: true
+    gocyclo:
+      min-complexity: 12
+    cyclop:
+      max-complexity: 12
+    gocognit:
+      min-complexity: 20
+    nestif:
+      min-complexity: 4
+    lll:
+      line-length: 120
+    interfacebloat:
+      max: 5
+    goconst:
+      min-len: 3
+      min-occurrences: 3
+    wrapcheck:
+      # Wrap errors that cross into our code from stdlib / third parties.
+      # Internal propagation between our own packages does not need wrapping.
+      ignore-package-globs:
+        - github.com/juancavallotti/eip-go/*
+    mnd:
+      ignored-numbers:
+        - "0"
+        - "1"
+        - "2"
+    nakedret:
+      max-func-lines: 0
+    revive:
+      rules:
+        - name: exported
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: if-return
+        - name: var-declaration
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: indent-error-flow
+        - name: range
+        - name: receiver-naming
+        - name: time-naming
+        - name: unexported-return
+        - name: errorf
+        - name: unreachable-code
+        - name: redefines-builtin-id
+
+  exclusions:
+    rules:
+      # Tests get latitude: fixtures, long table-driven cases, repeated literals.
+      - path: _test\.go
+        linters:
+          - funlen
+          - mnd
+          - goconst
+          - gocyclo
+          - gocognit
+          - cyclop
+          - wrapcheck
+          - lll
+          - dupl
+
+formatters:
+  enable:
+    - gofmt
+    - goimports

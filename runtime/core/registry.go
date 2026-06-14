@@ -10,22 +10,27 @@ import (
 	"github.com/juancavallotti/eip-go/types"
 )
 
+// Connector is a runtime component that can be started and stopped.
 type Connector interface {
 	Start(ctx context.Context, config types.ConnectorConfig) error
 	Stop(ctx context.Context) error
 }
 
+// Factory constructs a new Connector instance.
 type Factory func() Connector
 
+// Registry holds connector factories keyed by connector type.
 type Registry struct {
 	mu        sync.RWMutex
 	factories map[string]Factory
 }
 
+// NewRegistry returns an empty connector registry.
 func NewRegistry() *Registry {
 	return &Registry{factories: make(map[string]Factory)}
 }
 
+// Register adds a factory under name, failing if name is empty or already taken.
 func (r *Registry) Register(name string, factory Factory) error {
 	if name == "" {
 		return errors.New("connector name is required")
@@ -45,12 +50,16 @@ func (r *Registry) Register(name string, factory Factory) error {
 	return nil
 }
 
+// MustRegister is like Register but panics if registration fails.
 func (r *Registry) MustRegister(name string, factory Factory) {
 	if err := r.Register(name, factory); err != nil {
 		panic(err)
 	}
 }
 
+// New constructs a Connector for the registered type name.
+//
+//nolint:ireturn // a factory intentionally returns the Connector interface
 func (r *Registry) New(name string) (Connector, error) {
 	r.mu.RLock()
 	factory, ok := r.factories[name]
@@ -61,6 +70,7 @@ func (r *Registry) New(name string) (Connector, error) {
 	return factory(), nil
 }
 
+// Names returns the registered connector type names in sorted order.
 func (r *Registry) Names() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -75,14 +85,17 @@ func (r *Registry) Names() []string {
 
 var defaultRegistry = NewRegistry()
 
+// DefaultRegistry returns the process-wide connector registry.
 func DefaultRegistry() *Registry {
 	return defaultRegistry
 }
 
+// RegisterConnector registers a factory on the default registry.
 func RegisterConnector(name string, factory Factory) error {
 	return defaultRegistry.Register(name, factory)
 }
 
+// MustRegisterConnector registers a factory on the default registry, panicking on failure.
 func MustRegisterConnector(name string, factory Factory) {
 	defaultRegistry.MustRegister(name, factory)
 }
