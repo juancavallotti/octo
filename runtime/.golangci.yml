@@ -66,6 +66,10 @@ linters:
     goconst:
       min-len: 3
       min-occurrences: 3
+      # Tests are already excluded from goconst issues below; don't let
+      # repeated literals in table-driven test cases push production strings
+      # over the threshold either.
+      ignore-tests: true
     wrapcheck:
       # Wrap errors that cross into our code from stdlib / third parties.
       # Internal propagation between our own packages does not need wrapping.

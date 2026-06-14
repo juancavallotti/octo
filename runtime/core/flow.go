@@ -132,7 +132,9 @@ func (b *builder) resolve(cfg types.BlockConfig) (string, types.Settings, error)
 }
 
 //nolint:ireturn // builders intentionally return the MessageProcessor interface
-func (b *builder) processor(cfg types.BlockConfig, effType string, effSettings types.Settings) (MessageProcessor, error) {
+func (b *builder) processor(
+	cfg types.BlockConfig, effType string, effSettings types.Settings,
+) (MessageProcessor, error) {
 	switch effType {
 	case blockKindScope:
 		return b.scope(cfg)

@@ -33,7 +33,7 @@ func TestLoggerWritesToFileAndClosesIt(t *testing.T) {
 		t.Fatalf("Stop: %v", err)
 	}
 
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // path is a t.TempDir() file the test just wrote
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}

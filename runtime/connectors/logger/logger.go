@@ -14,6 +14,10 @@ import (
 	"github.com/juancavallotti/eip-go/types"
 )
 
+// logFileMode is the permission applied to log files the connector creates.
+// Owner read/write only, since logs can carry sensitive payload data.
+const logFileMode = 0o600
+
 func init() {
 	core.MustRegisterConnector("logger", func() core.Connector {
 		return &Connector{}
@@ -79,7 +83,10 @@ func (c *Connector) Stop(context.Context) error {
 	}
 	err := c.file.Close()
 	c.file = nil
-	return err
+	if err != nil {
+		return fmt.Errorf("close log output: %w", err)
+	}
+	return nil
 }
 
 // Logger returns the configured logger. It is the capability a log block binds
@@ -101,7 +108,8 @@ func openOutput(output string) (io.Writer, *os.File, error) {
 	case "stderr":
 		return os.Stderr, nil, nil
 	default:
-		file, err := os.OpenFile(output, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+		//nolint:gosec // output is the operator-configured log destination from connector settings
+		file, err := os.OpenFile(output, os.O_CREATE|os.O_APPEND|os.O_WRONLY, logFileMode)
 		if err != nil {
 			return nil, nil, fmt.Errorf("open log output %q: %w", output, err)
 		}
