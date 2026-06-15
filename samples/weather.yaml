@@ -1,0 +1,79 @@
+service:
+  name: weather
+
+# This sample calls a public HTTP API from a flow. Every 30 seconds a cron tick
+# triggers the `rest` block, which GETs the current temperature from Open-Meteo
+# (a free, no-key forecast API) through an http-client connector, and a log block
+# prints it. It runs with zero setup:
+#
+#   task run:sample -- weather.yaml
+#
+# The http-client connector owns the client-wide policy: base URL, request
+# timeout, and an opt-in response cache. The cache here has a 60s TTL, so a tick
+# that lands within the TTL of a prior identical request is served from memory
+# rather than hitting the network again.
+#
+# Change the location by overriding the env vars (here or in a ./.env):
+#   WEATHER_LAT=40.71
+#   WEATHER_LON=-74.01
+#
+# Bearer / basic auth (not needed for Open-Meteo) is configured on the connector:
+#   settings:
+#     baseURL: https://api.example.com
+#     auth:
+#       type: bearer
+#       token: ${API_TOKEN}      # keep secrets in ./.env, not in the config
+#   # or:
+#     auth:
+#       type: basic
+#       username: ${API_USER}
+#       password: ${API_PASSWORD}
+
+env:
+  - name: WEATHER_LAT
+    default: "52.52"
+  - name: WEATHER_LON
+    default: "13.41"
+
+connectors:
+  - name: open-meteo
+    type: http-client
+    settings:
+      baseURL: https://api.open-meteo.com
+      timeout: 10s
+      cache:
+        enabled: true
+        ttl: 60s
+  - name: ticker
+    type: cron
+  - name: out
+    type: logger
+    settings:
+      format: json
+      level: info
+
+flows:
+  - name: weather
+    source:
+      connector: ticker
+      type: cron
+      settings:
+        schedule: "@every 30s"
+    process:
+      - type: rest
+        name: fetch-forecast
+        settings:
+          connector: open-meteo
+          method: GET
+          path: /v1/forecast
+          # Query values are CEL expressions; here they are constant strings
+          # produced by substituting the env vars above.
+          query:
+            latitude: '"${WEATHER_LAT}"'
+            longitude: '"${WEATHER_LON}"'
+            current: '"temperature_2m"'
+      - type: log
+        name: report
+        settings:
+          logger: out
+          message: '"current temperature: " + string(body.current.temperature_2m) + body.current_units.temperature_2m'

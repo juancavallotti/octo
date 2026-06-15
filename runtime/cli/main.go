@@ -15,11 +15,10 @@ import (
 	"time"
 
 	_ "github.com/juancavallotti/eip-go/connectors/cron"
-	_ "github.com/juancavallotti/eip-go/connectors/database"
+	_ "github.com/juancavallotti/eip-go/connectors/database" // registers the "database" connector and "sql" block
 	_ "github.com/juancavallotti/eip-go/connectors/http"
-	_ "github.com/juancavallotti/eip-go/connectors/logger"
-	_ "github.com/juancavallotti/eip-go/connectors/processors/log"
-	_ "github.com/juancavallotti/eip-go/connectors/processors/sql"
+	_ "github.com/juancavallotti/eip-go/connectors/httpclient" // registers the "http-client" connector and "rest" block
+	_ "github.com/juancavallotti/eip-go/connectors/logger"     // registers the "logger" connector and "log" block
 	"github.com/juancavallotti/eip-go/core"
 	"github.com/juancavallotti/eip-go/core/runtime"
 	"github.com/juancavallotti/eip-go/types"

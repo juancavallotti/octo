@@ -1,9 +1,9 @@
-package log
+package logger
 
 import (
-	"bytes"
 	"context"
-	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -70,26 +70,38 @@ func TestLogRejectsBadSettings(t *testing.T) {
 	}
 }
 
-// fakeLogger is a stand-in logger connector that satisfies the logProvider
-// capability with a logger writing to an in-memory buffer.
-type fakeLogger struct {
-	buf *bytes.Buffer
+// startFileLogger starts a real logger connector writing text records to a fresh
+// temp file and returns the connector plus the file path. The block now binds to
+// the connector by concrete type, so the test uses the real one rather than a
+// stand-in.
+func startFileLogger(t *testing.T) (*Connector, string) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "bound.log")
+	c := &Connector{}
+	cfg := types.ConnectorConfig{Name: "audit", Type: "logger", Settings: types.Settings{
+		"output": path,
+		"format": "text",
+		"level":  "debug",
+	}}
+	if err := c.Start(context.Background(), cfg); err != nil {
+		t.Fatalf("connector Start: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Stop(context.Background()) })
+	return c, path
 }
 
-func (f *fakeLogger) Start(context.Context, types.ConnectorConfig) error { return nil }
-func (f *fakeLogger) Stop(context.Context) error                         { return nil }
-func (f *fakeLogger) Logger() (*slog.Logger, error) {
-	return slog.New(slog.NewTextHandler(f.buf, nil)), nil
-}
-
-func TestLogBindsNamedLogger(t *testing.T) {
-	fake := &fakeLogger{buf: &bytes.Buffer{}}
-	deps := core.BlockDeps{Connector: func(name string) (core.Connector, bool) {
-		if name == "audit" {
-			return fake, true
+func depsFor(name string, c *Connector) core.BlockDeps {
+	return core.BlockDeps{Connector: func(n string) (core.Connector, bool) {
+		if n == name {
+			return c, true
 		}
 		return nil, false
 	}}
+}
+
+func TestLogBindsNamedLogger(t *testing.T) {
+	conn, path := startFileLogger(t)
+	deps := depsFor("audit", conn)
 
 	proc, err := newLog(map[string]any{"logger": "audit", "message": `"hi " + body.who`}, deps)
 	if err != nil {
@@ -105,21 +117,21 @@ func TestLogBindsNamedLogger(t *testing.T) {
 	if _, err := proc.Process(context.Background(), msg); err != nil {
 		t.Fatalf("Process: %v", err)
 	}
-	if got := fake.buf.String(); !strings.Contains(got, "hi world") {
+	// Close the connector to flush the file before reading it.
+	if err := conn.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	got := readFile(t, path)
+	if !strings.Contains(got, "hi world") {
 		t.Errorf("expected the bound logger to capture the line, got %q", got)
 	}
 }
 
 func TestLogFullDumpsMessage(t *testing.T) {
-	fake := &fakeLogger{buf: &bytes.Buffer{}}
-	deps := core.BlockDeps{Connector: func(name string) (core.Connector, bool) {
-		if name == "debug" {
-			return fake, true
-		}
-		return nil, false
-	}}
+	conn, path := startFileLogger(t)
+	deps := depsFor("audit", conn)
 
-	proc, err := newLog(map[string]any{"logger": "debug", "full": true}, deps)
+	proc, err := newLog(map[string]any{"logger": "audit", "full": true}, deps)
 	if err != nil {
 		t.Fatalf("newLog: %v", err)
 	}
@@ -134,13 +146,25 @@ func TestLogFullDumpsMessage(t *testing.T) {
 	if _, err := proc.Process(context.Background(), msg); err != nil {
 		t.Fatalf("Process: %v", err)
 	}
+	if err := conn.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
 
-	got := fake.buf.String()
+	got := readFile(t, path)
 	for _, want := range []string{"correlation_id=corr-1", "tenant", "event_id=" + msg.EventID} {
 		if !strings.Contains(got, want) {
 			t.Errorf("full dump missing %q, got %q", want, got)
 		}
 	}
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path) //nolint:gosec // path is a t.TempDir() file the test just wrote
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	return string(data)
 }
 
 func TestLogUnknownLoggerErrors(t *testing.T) {

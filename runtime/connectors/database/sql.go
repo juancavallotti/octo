@@ -1,11 +1,14 @@
-// Package sql provides the "sql" block: a processor that runs a SQL statement
-// against a database connector and folds the result into the message body. In
+// This file provides the "sql" block: a processor that runs a SQL statement
+// against this database connector and folds the result into the message body. In
 // query mode (the default) the body becomes an array of row objects, or a single
 // object when "single" is set; in exec mode the body becomes {"rowsAffected": N}.
 // Bind parameters come from CEL expressions evaluated against the message.
 //
 // Placeholder style is the driver's own: $1, $2 for Postgres and ? for SQLite.
-package sql
+//
+// The block lives in the connector's package: importing the connector registers
+// the block too, and it binds to the connector by concrete type.
+package database
 
 import (
 	"context"
@@ -22,15 +25,8 @@ func init() {
 	core.MustRegisterBlock("sql", newSQL)
 }
 
-// dbProvider is the capability a sql block needs from a database connector: a
-// database/sql pool to run statements through. It is matched structurally, so
-// the block stays decoupled from the connector implementation.
-type dbProvider interface {
-	DB() (*sql.DB, error)
-}
-
-// settings is the sql block's typed configuration.
-type settings struct {
+// sqlSettings is the sql block's typed configuration.
+type sqlSettings struct {
 	// Connector names the database connector to run against (required).
 	Connector string `json:"connector"`
 	// Query is the SQL statement. Placeholders follow the driver: $1.. for
@@ -62,7 +58,7 @@ type processor struct {
 //
 //nolint:ireturn // a BlockFactory returns the MessageProcessor interface
 func newSQL(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor, error) {
-	var cfg settings
+	var cfg sqlSettings
 	if err := raw.Decode(&cfg); err != nil {
 		return nil, err
 	}
@@ -99,7 +95,7 @@ func resolveDB(name string, deps core.BlockDeps) (*sql.DB, error) {
 	if !ok {
 		return nil, fmt.Errorf("sql block: database connector %q is not configured", name)
 	}
-	provider, ok := connector.(dbProvider)
+	provider, ok := connector.(*Connector)
 	if !ok {
 		return nil, fmt.Errorf("sql block: connector %q is not a database", name)
 	}

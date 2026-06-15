@@ -35,10 +35,10 @@ var driverNames = map[string]string{
 	"sqlite":   "sqlite",
 }
 
-// settings are the knobs the database connector exposes. Driver and DSN are
-// required; the pool tuning fields are optional and left at database/sql
+// connectorSettings are the knobs the database connector exposes. Driver and DSN
+// are required; the pool tuning fields are optional and left at database/sql
 // defaults when zero.
-type settings struct {
+type connectorSettings struct {
 	// Driver selects the flavor: "postgres" or "sqlite".
 	Driver string `json:"driver"`
 	// DSN is the data source name passed to the driver: a Postgres connection
@@ -62,7 +62,7 @@ type Connector struct {
 // Start parses the settings, opens the pool, applies tuning, and verifies the
 // connection so a bad DSN fails fast at startup rather than on first query.
 func (c *Connector) Start(ctx context.Context, config types.ConnectorConfig) error {
-	var set settings
+	var set connectorSettings
 	if err := config.Settings.Decode(&set); err != nil {
 		return err
 	}

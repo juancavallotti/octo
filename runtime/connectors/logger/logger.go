@@ -26,7 +26,7 @@ func init() {
 
 // settings are the common slog knobs the logger exposes. Every field has a
 // sensible default, so a logger connector can be declared with no settings.
-type settings struct {
+type connectorSettings struct {
 	// Output is "stdout" (default), "stderr", or a file path.
 	Output string `json:"output"`
 	// Format is "text" (default) or "json".
@@ -46,7 +46,7 @@ type Connector struct {
 
 // Start parses the settings, opens the output, and builds the slog logger.
 func (c *Connector) Start(_ context.Context, config types.ConnectorConfig) error {
-	var set settings
+	var set connectorSettings
 	if err := config.Settings.Decode(&set); err != nil {
 		return err
 	}

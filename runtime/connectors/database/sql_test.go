@@ -1,11 +1,10 @@
-package sql
+package database
 
 import (
 	"context"
 	"path/filepath"
 	"testing"
 
-	"github.com/juancavallotti/eip-go/connectors/database"
 	"github.com/juancavallotti/eip-go/core"
 	"github.com/juancavallotti/eip-go/types"
 )
@@ -16,7 +15,7 @@ import (
 func newDeps(t *testing.T) core.BlockDeps {
 	t.Helper()
 	dsn := "file:" + filepath.Join(t.TempDir(), "orders.db")
-	conn := &database.Connector{}
+	conn := &Connector{}
 	cfg := types.ConnectorConfig{
 		Name:     "orders-db",
 		Type:     "database",

@@ -1,10 +1,14 @@
-// Package log provides the "log" leaf block: a pass-through wire tap that logs a
+// This file provides the "log" leaf block: a pass-through wire tap that logs a
 // line for each message and forwards the message unchanged. The logged line is a
 // CEL expression evaluated against the message, or the JSON body when no
 // expression is configured. Setting "full" additionally attaches the whole
 // message (correlation id, variables, body, schema) as structured attributes for
 // debugging.
-package log
+//
+// The block lives in the logger connector's package: importing the connector
+// registers the block too. A named logger binds to the connector by concrete
+// type; with no name the process default logger is used.
+package logger
 
 import (
 	"context"
@@ -20,15 +24,8 @@ func init() {
 	core.MustRegisterBlock("log", newLog)
 }
 
-// logProvider is the capability a log block needs from a logger connector: a
-// configured slog.Logger to write through. It is matched structurally, so the
-// log block stays decoupled from any specific connector implementation.
-type logProvider interface {
-	Logger() (*slog.Logger, error)
-}
-
-// settings is the log block's typed configuration.
-type settings struct {
+// logSettings is the log block's typed configuration.
+type logSettings struct {
 	// Message is a CEL expression rendered to the log line. When empty the JSON
 	// body is logged.
 	Message string `json:"message"`
@@ -60,7 +57,7 @@ type processor struct {
 //
 //nolint:ireturn // a BlockFactory returns the MessageProcessor interface
 func newLog(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor, error) {
-	var cfg settings
+	var cfg logSettings
 	if err := raw.Decode(&cfg); err != nil {
 		return nil, err
 	}
@@ -100,7 +97,7 @@ func resolveLogger(name string, deps core.BlockDeps) (*slog.Logger, error) {
 	if !ok {
 		return nil, fmt.Errorf("logger connector %q is not configured", name)
 	}
-	provider, ok := connector.(logProvider)
+	provider, ok := connector.(*Connector)
 	if !ok {
 		return nil, fmt.Errorf("connector %q does not provide a logger", name)
 	}
