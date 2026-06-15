@@ -1,0 +1,102 @@
+service:
+  name: flow-to-flow-http
+
+# This sample shows one flow calling another over HTTP — a real network round
+# trip, not an in-process flow-ref. Two connectors cooperate:
+#   * api      (http)         — serves flow B as an endpoint.
+#   * internal (http-client)  — points back at that same server so flow A can
+#                               call flow B by URL.
+#
+# Flow A (caller)  : a cron tick builds a request and POSTs it to flow B through
+#                    the rest block, then logs flow B's JSON reply.
+# Flow B (service) : an HTTP endpoint that turns {"name": ...} into a greeting and
+#                    returns it; the http connector writes the final body back to
+#                    the caller as the HTTP response.
+#
+# Try it:
+#   task run:sample -- flow-to-flow-http.yaml
+# every few seconds you should see flow A log the greeting flow B returned. You
+# can also call flow B yourself:
+#   curl -s -X POST localhost:8080/api/v1/greet -d '{"name":"ada"}'
+#
+# Note: flow A's first tick fires a few seconds after startup, by which time the
+# HTTP server is already accepting requests. The internal client targets
+# 127.0.0.1 so it reaches this process's own server.
+
+env:
+  - name: HTTP_HOST
+    default: 0.0.0.0
+  - name: HTTP_PORT
+    default: "8080"
+  - name: HTTP_BASE_PATH
+    default: /api/v1
+
+connectors:
+  # The server that exposes flow B.
+  - name: api
+    type: http
+    settings:
+      host: ${HTTP_HOST}
+      port: ${HTTP_PORT}
+      basePath: ${HTTP_BASE_PATH}
+      requestTimeout: 5s
+
+  # The outbound client flow A uses to reach flow B. baseURL points at this
+  # process's own server (127.0.0.1, not 0.0.0.0, which is a bind address).
+  - name: internal
+    type: http-client
+    settings:
+      baseURL: http://127.0.0.1:${HTTP_PORT}${HTTP_BASE_PATH}
+      timeout: 5s
+
+  - name: ticker
+    type: cron
+
+  - name: out
+    type: logger
+    settings:
+      format: json
+      level: info
+
+flows:
+  # --- Flow A: caller. A cron tick POSTs to flow B and logs the reply. ---
+  - name: caller
+    source:
+      connector: ticker
+      type: cron
+      settings:
+        schedule: "@every 5s"
+        # The cron payload becomes the message body sent to flow B.
+        payload: '{"name": "world", "at": string(now)}'
+    process:
+      - type: rest
+        name: call-flow-b
+        settings:
+          connector: internal
+          method: POST
+          path: /greet
+          # Forward this message's body as the request body.
+          body: body
+          # Tag the call so flow B can echo a correlation id back.
+          headers:
+            X-Request-Id: eventID
+      - type: log
+        name: report-reply
+        settings:
+          logger: out
+          message: '"flow B replied: " + body.greeting'
+
+  # --- Flow B: service. Exposed at POST /greet; its final body is the HTTP
+  #     response the caller receives. ---
+  - name: greet-service
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /greet
+        correlationIdHeader: X-Request-Id
+    process:
+      - type: set-payload
+        name: build-greeting
+        settings:
+          value: '{"greeting": "Hello, " + body.name + "!", "requestId": correlationID}'
