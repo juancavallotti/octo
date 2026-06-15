@@ -1,0 +1,136 @@
+service:
+  name: db-orders
+
+# This sample wires an HTTP API to a SQL database. It defaults to SQLite, reading
+# and writing the committed samples/orders.db file, so it runs with zero setup.
+#
+# Try it:
+#   task run:sample -- db-orders.yaml
+#
+# POSTs persist into the committed samples/orders.db fixture; reset it any time
+# with `git checkout samples/orders.db`.
+#
+# The default DB_DSN below is relative to that command's working directory
+# (runtime/cli), hence the ../../ prefix to reach samples/orders.db at the repo
+# root. If you run the binary from somewhere else, override DB_DSN with a path
+# (or absolute path) that resolves from your working directory.
+#
+#   # read the seed row:
+#   curl -s localhost:8080/api/v1/orders/1
+#   # create an order (returns the stored row, with its generated id):
+#   curl -s -X POST localhost:8080/api/v1/orders \
+#     -H 'X-Request-Id: req-1' -d '{"item":"widget","amount":1500}'
+#
+# To run against Postgres instead, override the env vars (here or in a ./.env):
+#   DB_DRIVER=postgres
+#   DB_DSN=postgres://user:pw@localhost:5432/orders?sslmode=disable
+# bring one up with:
+#   docker run --rm -e POSTGRES_PASSWORD=pw -e POSTGRES_DB=orders -p 5432:5432 postgres
+# and create the table yourself (and swap the `?` placeholders below for $1/$2),
+# since Postgres uses numbered placeholders and its own schema:
+#   CREATE TABLE orders (id SERIAL PRIMARY KEY, item TEXT NOT NULL, amount REAL NOT NULL);
+
+env:
+  - name: HTTP_HOST
+    default: 0.0.0.0
+  - name: HTTP_PORT
+    default: "8080"
+  - name: HTTP_BASE_PATH
+    default: /api/v1
+  - name: DB_DRIVER
+    default: sqlite
+  - name: DB_DSN
+    # Relative to the run directory (runtime/cli under `task run:sample`). Override
+    # for Postgres, or to point at a different SQLite file.
+    default: file:../../samples/orders.db
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      host: ${HTTP_HOST}
+      port: ${HTTP_PORT}
+      basePath: ${HTTP_BASE_PATH}
+      requestTimeout: 5s
+  - name: orders-db
+    type: database
+    settings:
+      driver: ${DB_DRIVER}
+      dsn: ${DB_DSN}
+      maxOpenConns: 4
+  - name: debug
+    type: logger
+    settings:
+      format: json
+      level: debug
+
+flows:
+  # --- Collection: /orders. The same path serves POST (create) and GET (list);
+  #     net/http registers one pattern per path, so we route on the method here
+  #     rather than declaring two flows on the same path (which would collide on
+  #     the shared mux). The parameterized GET /orders/{id} lives in its own flow
+  #     below, since {id} makes it a distinct route. ---
+  - name: orders
+    workers: 4
+    buffer: 64
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /orders
+        correlationIdHeader: X-Request-Id
+    process:
+      - type: switch
+        name: route-by-method
+        cases:
+          # POST: insert a row and return it (RETURNING *).
+          - when: 'vars.method == "POST"'
+            process:
+              - type: log
+                settings:
+                  logger: debug
+                  level: debug
+                  message: '"creating order: " + body.item'
+              - type: sql
+                name: insert-order
+                settings:
+                  connector: orders-db
+                  query: "INSERT INTO orders (item, amount) VALUES (?, ?) RETURNING *"
+                  args:
+                    - body.item
+                    - body.amount
+                  single: true
+          # GET: list every order (no `single`, so the body is a JSON array).
+          - when: 'vars.method == "GET"'
+            process:
+              - type: sql
+                name: list-orders
+                settings:
+                  connector: orders-db
+                  query: "SELECT * FROM orders ORDER BY id"
+        default:
+          process:
+            - type: set-payload
+              name: method-not-supported
+              settings:
+                value: '{"error": "method " + vars.method + " not supported"}'
+
+  # --- Read: GET /orders/{id} returns the matching row, or null when absent ---
+  - name: orders-get
+    workers: 4
+    buffer: 64
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /orders/{id}
+        correlationIdHeader: X-Request-Id
+    process:
+      - type: sql
+        name: select-order
+        settings:
+          connector: orders-db
+          query: "SELECT * FROM orders WHERE id = ?"
+          args:
+            - vars.id
+          single: true

@@ -15,9 +15,11 @@ import (
 	"time"
 
 	_ "github.com/juancavallotti/eip-go/connectors/cron"
+	_ "github.com/juancavallotti/eip-go/connectors/database"
 	_ "github.com/juancavallotti/eip-go/connectors/http"
 	_ "github.com/juancavallotti/eip-go/connectors/logger"
 	_ "github.com/juancavallotti/eip-go/connectors/processors/log"
+	_ "github.com/juancavallotti/eip-go/connectors/processors/sql"
 	"github.com/juancavallotti/eip-go/core"
 	"github.com/juancavallotti/eip-go/core/runtime"
 	"github.com/juancavallotti/eip-go/types"
