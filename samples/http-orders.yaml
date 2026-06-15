@@ -15,13 +15,27 @@ service:
 #     -H 'X-Tenant: acme' -H 'X-Request-Id: req-1' \
 #     -d '{"item":"widget","amount":1500}'
 
+# Environment variables must be declared here before they can be referenced as
+# ${NAME} in any settings value below. Each resolves as
+# OS environment > .env file (./.env or $EIP_ENV_FILE) > the default declared here.
+# Override at startup without editing this file, e.g.:
+#   HTTP_PORT=9090 go run ./cli -config samples/http-orders.yaml
+# or put the same line in a ./.env file (it hot-reloads with --watch).
+env:
+  - name: HTTP_HOST
+    default: 0.0.0.0
+  - name: HTTP_PORT
+    default: "8080"
+  - name: HTTP_BASE_PATH
+    default: /api/v1
+
 connectors:
   - name: api
     type: http
     settings:
-      host: 0.0.0.0
-      port: 8080
-      basePath: /api/v1
+      host: ${HTTP_HOST}
+      port: ${HTTP_PORT}        # an exact ${VAR} keeps its type -> int 8080
+      basePath: ${HTTP_BASE_PATH}
       keepAlive: true
       requestTimeout: 5s        # how long a handler waits for the flow to finish
       readTimeout: 10s

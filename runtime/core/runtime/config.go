@@ -19,15 +19,34 @@ func LoadConfig(path string) (types.Config, error) {
 	if err != nil {
 		return types.Config{}, fmt.Errorf("stat config path %q: %w", path, err)
 	}
+
+	var cfg types.Config
 	if info.IsDir() {
-		return loadDir(path)
+		cfg, err = loadDir(path)
+	} else {
+		cfg, err = dsl.LoadFile(path)
 	}
-	return dsl.LoadFile(path)
+	if err != nil {
+		return types.Config{}, err
+	}
+
+	if err := applyEnv(&cfg); err != nil {
+		return types.Config{}, err
+	}
+	return cfg, nil
 }
 
-// ParseConfig parses the runtime config from raw config bytes.
+// ParseConfig parses the runtime config from raw config bytes, resolving declared
+// environment variables and substituting ${NAME} references.
 func ParseConfig(data []byte) (types.Config, error) {
-	return dsl.Parse(data)
+	cfg, err := dsl.Parse(data)
+	if err != nil {
+		return types.Config{}, err
+	}
+	if err := applyEnv(&cfg); err != nil {
+		return types.Config{}, err
+	}
+	return cfg, nil
 }
 
 // loadDir parses and merges every YAML config file in dir. Files are loaded in
@@ -88,6 +107,7 @@ type configMerger struct {
 	connectors map[string]struct{}
 	processors map[string]struct{}
 	flows      map[string]struct{}
+	env        map[string]struct{}
 }
 
 func newConfigMerger() *configMerger {
@@ -95,6 +115,7 @@ func newConfigMerger() *configMerger {
 		connectors: make(map[string]struct{}),
 		processors: make(map[string]struct{}),
 		flows:      make(map[string]struct{}),
+		env:        make(map[string]struct{}),
 	}
 }
 
@@ -103,6 +124,15 @@ func newConfigMerger() *configMerger {
 func (m *configMerger) add(cfg types.Config) error {
 	if err := m.addService(cfg.Service); err != nil {
 		return err
+	}
+	for _, e := range cfg.Env {
+		// Duplicate declarations across files are allowed (the same variable may be
+		// used in several configs); the first declaration wins.
+		if _, dup := m.env[e.Name]; dup {
+			continue
+		}
+		m.env[e.Name] = struct{}{}
+		m.merged.Env = append(m.merged.Env, e)
 	}
 	for _, c := range cfg.Connectors {
 		if err := claimName(m.connectors, c.Name, "connector"); err != nil {

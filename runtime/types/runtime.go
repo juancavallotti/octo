@@ -2,7 +2,10 @@ package types
 
 // Config is the top-level runtime configuration loaded from a config file.
 type Config struct {
-	Service    ServiceConfig     `yaml:"service"`
+	Service ServiceConfig `yaml:"service"`
+	// Env declares the environment variables this config may reference as ${NAME}
+	// in settings values. Referencing an undeclared variable is an error.
+	Env        []EnvVar          `yaml:"env,omitempty"`
 	Connectors []ConnectorConfig `yaml:"connectors"`
 	// Processors holds reusable, named processor definitions that flow blocks
 	// reference by name via BlockConfig.Ref, mirroring how Connectors are

@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+
+	"github.com/juancavallotti/eip-go/core/runtime"
 )
 
 // watchDebounce is how long to wait after the last filesystem event before
@@ -18,20 +20,48 @@ const watchDebounce = 200 * time.Millisecond
 // watchConfig watches the config path for changes, emitting on the returned
 // channel (debounced) whenever the file or directory contents change. When path
 // is a directory the directory itself is watched, so added/removed config files
-// are noticed too. The watcher runs until ctx is cancelled.
+// are noticed too. The .env files consulted during loading are watched as well, so
+// editing them triggers the same full restart as a config change. The watcher runs
+// until ctx is cancelled.
 func watchConfig(ctx context.Context, path string) (<-chan struct{}, error) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, fmt.Errorf("new watcher: %w", err)
 	}
-	if err := watcher.Add(watchTarget(path)); err != nil {
-		_ = watcher.Close()
-		return nil, fmt.Errorf("watch %q: %w", path, err)
+
+	// Register the config target plus each .env directory, deduping so a .env that
+	// sits beside the config does not error on a repeat Add.
+	targets := append([]string{watchTarget(path)}, dotEnvTargets()...)
+	added := make(map[string]struct{}, len(targets))
+	for _, target := range targets {
+		if _, dup := added[target]; dup {
+			continue
+		}
+		if err := watcher.Add(target); err != nil {
+			_ = watcher.Close()
+			return nil, fmt.Errorf("watch %q: %w", target, err)
+		}
+		added[target] = struct{}{}
 	}
 
 	changed := make(chan struct{}, 1)
 	go watchLoop(ctx, watcher, changed)
 	return changed, nil
+}
+
+// dotEnvTargets returns the directories to watch for .env changes, using the same
+// parent-directory trick as watchTarget so atomic-rename saves are observed. A path
+// whose parent directory does not exist is skipped (the file cannot appear there).
+func dotEnvTargets() []string {
+	var targets []string
+	for _, path := range runtime.DotEnvPaths() {
+		dir := filepath.Dir(path)
+		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+			continue
+		}
+		targets = append(targets, dir)
+	}
+	return targets
 }
 
 // watchTarget returns the path to register with the watcher. For a file we watch

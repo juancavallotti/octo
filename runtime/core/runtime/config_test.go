@@ -32,6 +32,20 @@ func TestMergeConfigsConcatenates(t *testing.T) {
 	}
 }
 
+func TestMergeConfigsDedupesEnv(t *testing.T) {
+	merged, err := MergeConfigs([]types.Config{
+		{Env: []types.EnvVar{{Name: "SHARED"}, {Name: "A"}}},
+		{Env: []types.EnvVar{{Name: "SHARED"}, {Name: "B"}}},
+	})
+	if err != nil {
+		t.Fatalf("MergeConfigs: %v", err)
+	}
+	// SHARED declared in both files is allowed and folded to one entry.
+	if len(merged.Env) != 3 {
+		t.Errorf("env count = %d, want 3 (SHARED, A, B): %v", len(merged.Env), merged.Env)
+	}
+}
+
 func TestMergeConfigsRejectsDuplicates(t *testing.T) {
 	tests := []struct {
 		name    string
