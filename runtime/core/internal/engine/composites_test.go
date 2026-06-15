@@ -1,18 +1,20 @@
-package core
+package engine
 
 import (
 	"context"
 	"strings"
 	"testing"
 
+	"github.com/juancavallotti/eip-go/core"
+	"github.com/juancavallotti/eip-go/core/internal/pool"
 	"github.com/juancavallotti/eip-go/types"
 )
 
 // forkRegistry extends the shared test registry with a "mutate" leaf that writes
 // to the message it receives, so tests can observe per-branch clone isolation.
-func forkRegistry() *BlockRegistry {
+func forkRegistry() *core.BlockRegistry {
 	reg := testRegistry()
-	reg.MustRegister("mutate", func(types.Settings, BlockDeps) (MessageProcessor, error) {
+	reg.MustRegister("mutate", func(types.Settings, core.BlockDeps) (core.MessageProcessor, error) {
 		return processorFunc(func(_ context.Context, msg *types.Message) (*types.Message, error) {
 			msg.Variables.Set("touched", true)
 			return msg, nil
@@ -21,7 +23,7 @@ func forkRegistry() *BlockRegistry {
 	return reg
 }
 
-func buildTestFork(t *testing.T, reg *BlockRegistry, p *pool, branches ...types.FlowConfig) *fork {
+func buildTestFork(t *testing.T, reg *core.BlockRegistry, p *pool.Pool, branches ...types.FlowConfig) *fork {
 	t.Helper()
 	proc, err := (&builder{reg: reg, pool: p}).fork(types.BlockConfig{Type: "fork", Branches: branches})
 	if err != nil {
@@ -36,9 +38,9 @@ func buildTestFork(t *testing.T, reg *BlockRegistry, p *pool, branches ...types.
 
 func TestForkAllBranchesSucceed(t *testing.T) {
 	reg := forkRegistry()
-	p := newPool(4, 64)
-	p.start()
-	defer p.stop()
+	p := pool.New(4, 64)
+	p.Start()
+	defer p.Stop()
 
 	f := buildTestFork(t, reg, p,
 		types.FlowConfig{Name: "notify", Process: []types.BlockConfig{{Type: "mutate"}}},
@@ -60,9 +62,9 @@ func TestForkAllBranchesSucceed(t *testing.T) {
 
 func TestForkBranchErrorAborts(t *testing.T) {
 	reg := forkRegistry()
-	p := newPool(4, 64)
-	p.start()
-	defer p.stop()
+	p := pool.New(4, 64)
+	p.Start()
+	defer p.Stop()
 
 	f := buildTestFork(t, reg, p,
 		types.FlowConfig{Name: "ok", Process: []types.BlockConfig{{Type: "pass"}}},
@@ -83,9 +85,9 @@ func TestForkBranchErrorAborts(t *testing.T) {
 
 func TestForkConcurrentBranchesAreIsolated(t *testing.T) {
 	reg := forkRegistry()
-	p := newPool(8, 128)
-	p.start()
-	defer p.stop()
+	p := pool.New(8, 128)
+	p.Start()
+	defer p.Stop()
 
 	const branches = 50
 	cfgs := make([]types.FlowConfig, branches)

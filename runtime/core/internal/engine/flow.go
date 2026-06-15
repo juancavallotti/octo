@@ -1,28 +1,38 @@
-package core
+// Package engine assembles and runs message-processing flows. It is the runtime's
+// pipeline implementation: the Flow type, the builder that turns a FlowConfig into
+// a tree of leaf and composite blocks, the composite kinds (scope, fork, if,
+// switch, foreach), and the built-in setter blocks. It is internal — callers wire
+// flows through the public core package and the runtime service.
+package engine
 
 import (
 	"context"
 	"errors"
 	"fmt"
 
+	"github.com/juancavallotti/eip-go/core"
+	"github.com/juancavallotti/eip-go/core/internal/pool"
 	"github.com/juancavallotti/eip-go/types"
 )
 
 // Block type names handled directly by the flow builder rather than the block
 // registry, because they compose sub-flows via typed config slots.
 const (
-	blockKindScope = "scope"
-	blockKindFork  = "fork"
+	blockKindScope   = "scope"
+	blockKindFork    = "fork"
+	blockKindIf      = "if"
+	blockKindSwitch  = "switch"
+	blockKindForeach = "foreach"
 )
 
-// Flow is an ordered sequence of blocks. It implements MessageProcessor by
+// Flow is an ordered sequence of blocks. It implements core.MessageProcessor by
 // running a message through each block in order, and is the reusable unit that
 // composite blocks embed. A Flow has no source; the runtime binds the root flow
 // to a source. A nil result from a block drops the message (the chain stops); an
 // error aborts it.
 type Flow struct {
 	Name   string
-	Blocks []Block
+	Blocks []core.Block
 }
 
 // Process runs msg through the flow's blocks in order. It returns the final
@@ -43,14 +53,31 @@ func (f *Flow) Process(ctx context.Context, msg *types.Message) (*types.Message,
 	return current, nil
 }
 
+// BuildRoot assembles the root Flow for a top-level flow config, resolving named
+// processor definitions and threading the shared pool and block deps used by leaf
+// and composite blocks.
+func BuildRoot(
+	cfg types.FlowConfig,
+	blocks *core.BlockRegistry,
+	p *pool.Pool,
+	processors []types.ProcessorConfig,
+	deps core.BlockDeps,
+) (*Flow, error) {
+	defs, err := processorDefs(processors)
+	if err != nil {
+		return nil, err
+	}
+	return (&builder{reg: blocks, pool: p, defs: defs, deps: deps}).flow(cfg)
+}
+
 // builder threads the shared context needed to assemble a flow tree: the leaf
 // block registry, the shared worker pool composites schedule on, and the named
 // processor definitions blocks resolve through ref.
 type builder struct {
-	reg  *BlockRegistry
-	pool *pool
+	reg  *core.BlockRegistry
+	pool *pool.Pool
 	defs map[string]types.ProcessorConfig
-	deps BlockDeps
+	deps core.BlockDeps
 }
 
 // processorDefs indexes named processor definitions by name, rejecting
@@ -72,7 +99,7 @@ func processorDefs(configs []types.ProcessorConfig) (map[string]types.ProcessorC
 // flow assembles a Flow from a FlowConfig's block chain. It does not look at
 // Source/Workers/Buffer/Pool; the caller decides whether those are allowed.
 func (b *builder) flow(cfg types.FlowConfig) (*Flow, error) {
-	blocks := make([]Block, 0, len(cfg.Process))
+	blocks := make([]core.Block, 0, len(cfg.Process))
 	for i := range cfg.Process {
 		block, err := b.block(cfg.Process[i])
 		if err != nil {
@@ -97,21 +124,21 @@ func (b *builder) subFlow(cfg types.FlowConfig) (*Flow, error) {
 // block resolves a block's effective type and settings (applying ref), then
 // builds its processor. Composite kinds build their typed sub-flows; any other
 // type is a leaf resolved through the registry.
-func (b *builder) block(cfg types.BlockConfig) (Block, error) {
+func (b *builder) block(cfg types.BlockConfig) (core.Block, error) {
 	if cfg.Type == "" && cfg.Ref == "" {
-		return Block{}, errors.New("block requires a type or a ref")
+		return core.Block{}, errors.New("block requires a type or a ref")
 	}
 
 	effType, effSettings, err := b.resolve(cfg)
 	if err != nil {
-		return Block{}, err
+		return core.Block{}, err
 	}
 
 	processor, err := b.processor(cfg, effType, effSettings)
 	if err != nil {
-		return Block{}, fmt.Errorf("block %q: %w", blockLabel(effType, cfg.Name), err)
+		return core.Block{}, fmt.Errorf("block %q: %w", blockLabel(effType, cfg.Name), err)
 	}
-	return Block{Name: cfg.Name, Type: effType, Processor: processor}, nil
+	return core.Block{Name: cfg.Name, Type: effType, Processor: processor}, nil
 }
 
 // resolve applies a block's ref, returning the effective type and settings. When
@@ -134,12 +161,18 @@ func (b *builder) resolve(cfg types.BlockConfig) (string, types.Settings, error)
 //nolint:ireturn // builders intentionally return the MessageProcessor interface
 func (b *builder) processor(
 	cfg types.BlockConfig, effType string, effSettings types.Settings,
-) (MessageProcessor, error) {
+) (core.MessageProcessor, error) {
 	switch effType {
 	case blockKindScope:
 		return b.scope(cfg)
 	case blockKindFork:
 		return b.fork(cfg)
+	case blockKindIf:
+		return b.ifBlock(cfg)
+	case blockKindSwitch:
+		return b.switchBlock(cfg)
+	case blockKindForeach:
+		return b.foreachBlock(cfg)
 	default:
 		if err := rejectCompositeSlots(cfg); err != nil {
 			return nil, err
@@ -165,10 +198,66 @@ func mergeSettings(base, override types.Settings) types.Settings {
 	return merged
 }
 
-// rejectCompositeSlots fails if a leaf block carries composite-only fields.
+// compositeSlots lists the composite-only fields a block config has set, by
+// their YAML names. It is the single source of truth for which slots exist, so
+// leaf and composite validation stay in sync as new composite kinds are added.
+func compositeSlots(cfg types.BlockConfig) []string {
+	var slots []string
+	if cfg.Main != nil {
+		slots = append(slots, "main")
+	}
+	if cfg.Alternative != nil {
+		slots = append(slots, "alternative")
+	}
+	if len(cfg.Branches) > 0 {
+		slots = append(slots, "branches")
+	}
+	if cfg.Condition != "" {
+		slots = append(slots, "condition")
+	}
+	if cfg.Then != nil {
+		slots = append(slots, "then")
+	}
+	if cfg.Else != nil {
+		slots = append(slots, "else")
+	}
+	if len(cfg.Cases) > 0 {
+		slots = append(slots, "cases")
+	}
+	if cfg.Default != nil {
+		slots = append(slots, "default")
+	}
+	if cfg.Items != "" {
+		slots = append(slots, "items")
+	}
+	if cfg.As != "" {
+		slots = append(slots, "as")
+	}
+	if cfg.Body != nil {
+		slots = append(slots, "body")
+	}
+	return slots
+}
+
+// rejectCompositeSlots fails if a leaf block carries any composite-only field.
 func rejectCompositeSlots(cfg types.BlockConfig) error {
-	if cfg.Main != nil || cfg.Alternative != nil || len(cfg.Branches) > 0 {
-		return fmt.Errorf("block %q is a leaf and must not declare main/alternative/branches", cfg.Type)
+	if slots := compositeSlots(cfg); len(slots) > 0 {
+		return fmt.Errorf("block %q is a leaf and must not declare composite slots %v", cfg.Type, slots)
+	}
+	return nil
+}
+
+// allowSlots restricts a composite to the given slots, rejecting any other
+// composite slot it carries. The kind labels the error.
+func allowSlots(cfg types.BlockConfig, kind string, allowed ...string) error {
+	permitted := make(map[string]bool, len(allowed))
+	for _, name := range allowed {
+		permitted[name] = true
+	}
+	for _, slot := range compositeSlots(cfg) {
+		if !permitted[slot] {
+			return fmt.Errorf("%s block must not declare %q", kind, slot)
+		}
 	}
 	return nil
 }

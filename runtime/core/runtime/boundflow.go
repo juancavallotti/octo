@@ -1,4 +1,4 @@
-package core
+package runtime
 
 import (
 	"context"
@@ -6,6 +6,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/juancavallotti/eip-go/core"
+	"github.com/juancavallotti/eip-go/core/internal/engine"
+	"github.com/juancavallotti/eip-go/core/internal/pool"
 	"github.com/juancavallotti/eip-go/types"
 )
 
@@ -19,12 +22,12 @@ const (
 // by the Service.
 type boundFlow struct {
 	name    string
-	source  MessageSource
-	root    *Flow
+	source  core.MessageSource
+	root    *engine.Flow
 	workers int
 	in      chan *types.Message
-	bus     *EventBus
-	pool    *pool
+	bus     *core.EventBus
+	pool    *pool.Pool
 	wg      sync.WaitGroup
 }
 
@@ -47,7 +50,7 @@ func resolveBuffer(configured int) int {
 // start starts the shared pool, spawns the worker pool, and then starts the
 // source. The pool and workers are ready before any message is produced.
 func (bf *boundFlow) start(ctx context.Context) error {
-	bf.pool.start()
+	bf.pool.Start()
 	bf.wg.Add(bf.workers)
 	for i := 0; i < bf.workers; i++ {
 		go bf.worker(ctx)
@@ -64,7 +67,7 @@ func (bf *boundFlow) stop(ctx context.Context) error {
 	}
 	close(bf.in)
 	bf.wg.Wait()
-	bf.pool.stop()
+	bf.pool.Stop()
 	return nil
 }
 

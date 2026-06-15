@@ -11,9 +11,9 @@ import (
 
 	_ "github.com/juancavallotti/eip-go/connectors/cron"
 	_ "github.com/juancavallotti/eip-go/connectors/logger"
-	_ "github.com/juancavallotti/eip-go/connectors/noop"
+	_ "github.com/juancavallotti/eip-go/connectors/processors/log"
 	"github.com/juancavallotti/eip-go/core"
-	_ "github.com/juancavallotti/eip-go/processors/log"
+	"github.com/juancavallotti/eip-go/core/runtime"
 )
 
 func main() {
@@ -36,7 +36,7 @@ func run() error {
 		return errors.New("config path is required")
 	}
 
-	config, err := core.LoadConfig(*configPath)
+	config, err := runtime.LoadConfig(*configPath)
 	if err != nil {
 		return err
 	}
@@ -46,7 +46,7 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	service := core.NewService(config, core.DefaultRegistry())
+	service := runtime.NewService(config, core.DefaultRegistry())
 	if err := service.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}

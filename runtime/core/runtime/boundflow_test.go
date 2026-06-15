@@ -1,12 +1,53 @@
-package core
+package runtime
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 
+	"github.com/juancavallotti/eip-go/core"
+	"github.com/juancavallotti/eip-go/core/internal/engine"
+	"github.com/juancavallotti/eip-go/core/internal/pool"
 	"github.com/juancavallotti/eip-go/types"
 )
+
+// processorFunc adapts a function to the core.MessageProcessor interface for tests.
+type processorFunc func(ctx context.Context, msg *types.Message) (*types.Message, error)
+
+func (f processorFunc) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
+	return f(ctx, msg)
+}
+
+func mustMessage(t *testing.T) *types.Message {
+	t.Helper()
+	msg, err := types.NewMessage("")
+	if err != nil {
+		t.Fatalf("NewMessage: %v", err)
+	}
+	return msg
+}
+
+// testBlocks returns a registry with pass/drop/fail leaf blocks for flow tests.
+func testBlocks() *core.BlockRegistry {
+	reg := core.NewBlockRegistry()
+	reg.MustRegister("pass", func(types.Settings, core.BlockDeps) (core.MessageProcessor, error) {
+		return processorFunc(func(_ context.Context, msg *types.Message) (*types.Message, error) {
+			return msg, nil
+		}), nil
+	})
+	reg.MustRegister("drop", func(types.Settings, core.BlockDeps) (core.MessageProcessor, error) {
+		return processorFunc(func(context.Context, *types.Message) (*types.Message, error) {
+			return nil, nil
+		}), nil
+	})
+	reg.MustRegister("fail", func(types.Settings, core.BlockDeps) (core.MessageProcessor, error) {
+		return processorFunc(func(context.Context, *types.Message) (*types.Message, error) {
+			return nil, errors.New("boom")
+		}), nil
+	})
+	return reg
+}
 
 // fakeSource is an inert MessageSource; tests feed the channel directly.
 type fakeSource struct{}
@@ -38,10 +79,13 @@ func (r *recorder) kinds() []types.FlowEventKind {
 
 func newTestFlow(t *testing.T, blockType string, workers int, rec *recorder) *boundFlow {
 	t.Helper()
-	bus := NewEventBus()
+	bus := core.NewEventBus()
 	bus.Subscribe(rec.handle)
-	p := newPool(0, 0)
-	root, err := (&builder{reg: testRegistry(), pool: p}).flow(types.FlowConfig{Process: []types.BlockConfig{{Type: blockType}}})
+	p := pool.New(0, 0)
+	root, err := engine.BuildRoot(
+		types.FlowConfig{Process: []types.BlockConfig{{Type: blockType}}},
+		testBlocks(), p, nil, core.BlockDeps{},
+	)
 	if err != nil {
 		t.Fatalf("buildFlow: %v", err)
 	}
