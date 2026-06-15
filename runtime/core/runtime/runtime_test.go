@@ -1,10 +1,11 @@
-package core
+package runtime
 
 import (
 	"context"
 	"testing"
 	"time"
 
+	"github.com/juancavallotti/eip-go/core"
 	"github.com/juancavallotti/eip-go/types"
 )
 
@@ -45,14 +46,14 @@ func (s *countingSource) Stop(context.Context) error {
 }
 
 // fakeConnector is a Connector that provides a countingSource, standing in for a
-// real connector (core cannot import the noop connector without a cycle).
+// real connector (the runtime package cannot import a connector without a cycle).
 type fakeConnector struct{ count int }
 
 func (c *fakeConnector) Start(context.Context, types.ConnectorConfig) error { return nil }
 func (c *fakeConnector) Stop(context.Context) error                         { return nil }
 
 //nolint:ireturn // satisfies the SourceProvider interface
-func (c *fakeConnector) NewSource(_ types.SourceConfig, out chan<- *types.Message) (MessageSource, error) {
+func (c *fakeConnector) NewSource(_ types.SourceConfig, out chan<- *types.Message) (core.MessageSource, error) {
 	return &countingSource{out: out, count: c.count, done: make(chan struct{})}, nil
 }
 
@@ -75,14 +76,14 @@ func waitForCompleted(t *testing.T, rec *recorder, want int) {
 func TestServiceRunsFlowWithFork(t *testing.T) {
 	const count = 12
 
-	MustRegisterBlock("e2e.pass", func(types.Settings, BlockDeps) (MessageProcessor, error) {
+	core.MustRegisterBlock("e2e.pass", func(types.Settings, core.BlockDeps) (core.MessageProcessor, error) {
 		return processorFunc(func(_ context.Context, msg *types.Message) (*types.Message, error) {
 			return msg, nil
 		}), nil
 	})
 
-	reg := NewRegistry()
-	reg.MustRegister("fake", func() Connector { return &fakeConnector{count: count} })
+	reg := core.NewRegistry()
+	reg.MustRegister("fake", func() core.Connector { return &fakeConnector{count: count} })
 
 	cfg := types.Config{
 		Connectors: []types.ConnectorConfig{{Name: "fake-conn", Type: "fake"}},
@@ -102,7 +103,7 @@ func TestServiceRunsFlowWithFork(t *testing.T) {
 	}
 
 	rec := &recorder{}
-	DefaultEventBus().Subscribe(rec.handle)
+	core.DefaultEventBus().Subscribe(rec.handle)
 
 	svc := NewService(cfg, reg)
 	ctx, cancel := context.WithCancel(context.Background())

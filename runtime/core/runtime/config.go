@@ -1,4 +1,4 @@
-package core
+package runtime
 
 import (
 	"github.com/juancavallotti/eip-go/core/internal/dsl"

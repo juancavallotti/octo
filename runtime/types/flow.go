@@ -27,9 +27,11 @@ type SourceConfig struct {
 
 // BlockConfig describes one step in a flow. Leaf blocks use only Type, Name, and
 // Settings. Composite kinds use explicit typed slots: a "scope" populates Main
-// and optionally Alternative; a "fork" populates Branches. The Flow<->Block
-// recursion (FlowConfig.Process -> []BlockConfig -> Main/Alternative/Branches ->
-// FlowConfig) lets the parser build the whole tree in one pass.
+// and optionally Alternative; a "fork" populates Branches; an "if" populates
+// Condition/Then/Else; a "switch" populates Cases and optionally Default; a
+// "foreach" populates Items/As/Body. The Flow<->Block recursion (FlowConfig.Process
+// -> []BlockConfig -> the composite slots -> FlowConfig) lets the parser build the
+// whole tree in one pass.
 type BlockConfig struct {
 	Type     string   `yaml:"type"`
 	Name     string   `yaml:"name,omitempty"`
@@ -48,4 +50,33 @@ type BlockConfig struct {
 	Alternative *FlowConfig `yaml:"alternative,omitempty"`
 	// Branches are the parallel flows of a "fork" block.
 	Branches []FlowConfig `yaml:"branches,omitempty"`
+
+	// Condition is the boolean expression of an "if" block.
+	Condition string `yaml:"condition,omitempty"`
+	// Then is the flow an "if" block runs when its condition is true.
+	Then *FlowConfig `yaml:"then,omitempty"`
+	// Else is the flow an "if" block runs when its condition is false (optional).
+	Else *FlowConfig `yaml:"else,omitempty"`
+
+	// Cases are the ordered, condition-guarded flows of a "switch" block.
+	Cases []CaseConfig `yaml:"cases,omitempty"`
+	// Default is the flow a "switch" block runs when no case matches (optional).
+	Default *FlowConfig `yaml:"default,omitempty"`
+
+	// Items is the expression a "foreach" block evaluates to the array it
+	// iterates.
+	Items string `yaml:"items,omitempty"`
+	// As is the variable name a "foreach" block binds each element to; it
+	// defaults to "item" when unset.
+	As string `yaml:"as,omitempty"`
+	// Body is the flow a "foreach" block runs once per element.
+	Body *FlowConfig `yaml:"body,omitempty"`
+}
+
+// CaseConfig is one branch of a "switch" block: a boolean When expression and an
+// inline flow (its process chain and optional name) to run when When is the first
+// case to evaluate true.
+type CaseConfig struct {
+	When string     `yaml:"when"`
+	Flow FlowConfig `yaml:",inline"`
 }

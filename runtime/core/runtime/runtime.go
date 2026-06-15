@@ -1,9 +1,16 @@
-package core
+// Package runtime is the application layer that wires configured connectors and
+// flows into a running service. It binds the public core contracts and registries
+// to the internal engine: building each flow's processing tree, starting its
+// source and workers, and tearing everything down on shutdown.
+package runtime
 
 import (
 	"context"
 	"fmt"
 
+	"github.com/juancavallotti/eip-go/core"
+	"github.com/juancavallotti/eip-go/core/internal/engine"
+	"github.com/juancavallotti/eip-go/core/internal/pool"
 	"github.com/juancavallotti/eip-go/types"
 )
 
@@ -11,23 +18,23 @@ import (
 // cancelled.
 type Service struct {
 	config   types.Config
-	registry *Registry
-	blocks   *BlockRegistry
-	bus      *EventBus
+	registry *core.Registry
+	blocks   *core.BlockRegistry
+	bus      *core.EventBus
 }
 
 // NewService builds a Service, falling back to the default registries and event
 // bus when registry is nil.
-func NewService(config types.Config, registry *Registry) *Service {
+func NewService(config types.Config, registry *core.Registry) *Service {
 	if registry == nil {
-		registry = DefaultRegistry()
+		registry = core.DefaultRegistry()
 	}
 
 	return &Service{
 		config:   config,
 		registry: registry,
-		blocks:   DefaultBlockRegistry(),
-		bus:      DefaultEventBus(),
+		blocks:   core.DefaultBlockRegistry(),
+		bus:      core.DefaultEventBus(),
 	}
 }
 
@@ -66,9 +73,9 @@ func (s *Service) Run(ctx context.Context) error {
 // startConnectors creates and starts each configured connector in order,
 // returning them both as an ordered slice (for reverse teardown) and keyed by
 // instance name (for flow binding).
-func (s *Service) startConnectors(ctx context.Context) ([]Connector, map[string]Connector, error) {
-	running := make([]Connector, 0, len(s.config.Connectors))
-	byName := make(map[string]Connector, len(s.config.Connectors))
+func (s *Service) startConnectors(ctx context.Context) ([]core.Connector, map[string]core.Connector, error) {
+	running := make([]core.Connector, 0, len(s.config.Connectors))
+	byName := make(map[string]core.Connector, len(s.config.Connectors))
 
 	for _, connectorConfig := range s.config.Connectors {
 		connector, err := s.registry.New(connectorConfig.Type)
@@ -89,7 +96,7 @@ func (s *Service) startConnectors(ctx context.Context) ([]Connector, map[string]
 
 // buildFlows assembles a boundFlow for each configured flow, resolving its source
 // connector and building its root block chain.
-func (s *Service) buildFlows(byName map[string]Connector) ([]*boundFlow, error) {
+func (s *Service) buildFlows(byName map[string]core.Connector) ([]*boundFlow, error) {
 	flows := make([]*boundFlow, 0, len(s.config.Flows))
 	for i := range s.config.Flows {
 		flow, err := s.buildFlow(s.config.Flows[i], byName)
@@ -101,7 +108,7 @@ func (s *Service) buildFlows(byName map[string]Connector) ([]*boundFlow, error) 
 	return flows, nil
 }
 
-func (s *Service) buildFlow(cfg types.FlowConfig, byName map[string]Connector) (*boundFlow, error) {
+func (s *Service) buildFlow(cfg types.FlowConfig, byName map[string]core.Connector) (*boundFlow, error) {
 	if cfg.Source == nil {
 		return nil, fmt.Errorf("flow %q requires a source", cfg.Name)
 	}
@@ -112,17 +119,12 @@ func (s *Service) buildFlow(cfg types.FlowConfig, byName map[string]Connector) (
 		return nil, err
 	}
 
-	defs, err := processorDefs(s.config.Processors)
-	if err != nil {
-		return nil, err
-	}
-
-	p := newPool(resolvePoolWorkers(cfg.Pool), defaultPoolQueue)
-	deps := BlockDeps{Connector: func(name string) (Connector, bool) {
+	p := pool.New(cfg.Pool, 0)
+	deps := core.BlockDeps{Connector: func(name string) (core.Connector, bool) {
 		connector, ok := byName[name]
 		return connector, ok
 	}}
-	root, err := (&builder{reg: s.blocks, pool: p, defs: defs, deps: deps}).flow(cfg)
+	root, err := engine.BuildRoot(cfg, s.blocks, p, s.config.Processors, deps)
 	if err != nil {
 		return nil, err
 	}
@@ -145,13 +147,13 @@ func (s *Service) buildFlow(cfg types.FlowConfig, byName map[string]Connector) (
 func (s *Service) newSource(
 	cfg types.SourceConfig,
 	in chan<- *types.Message,
-	byName map[string]Connector,
-) (MessageSource, error) {
+	byName map[string]core.Connector,
+) (core.MessageSource, error) {
 	connector, ok := byName[cfg.Connector]
 	if !ok {
 		return nil, fmt.Errorf("source connector %q is not configured", cfg.Connector)
 	}
-	provider, ok := connector.(SourceProvider)
+	provider, ok := connector.(core.SourceProvider)
 	if !ok {
 		return nil, fmt.Errorf("connector %q does not provide sources", cfg.Connector)
 	}
@@ -188,7 +190,7 @@ func stopFlows(ctx context.Context, flows []*boundFlow) error {
 }
 
 // stopConnectors stops connectors in reverse order, returning the first error.
-func stopConnectors(connectors []Connector) error {
+func stopConnectors(connectors []core.Connector) error {
 	var firstErr error
 	for i := len(connectors) - 1; i >= 0; i-- {
 		if err := connectors[i].Stop(context.Background()); err != nil && firstErr == nil {

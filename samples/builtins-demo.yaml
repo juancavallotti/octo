@@ -1,0 +1,72 @@
+service:
+  name: builtins-demo
+
+connectors:
+  - name: ticker
+    type: cron
+
+flows:
+  - name: demo
+    source:
+      connector: ticker
+      type: cron
+      settings:
+        # Fire every 3 seconds. `now` (the fire time) is available to the payload.
+        schedule: "@every 3s"
+        payload: '{"firedAt": string(now)}'
+    process:
+      # set-payload: replace the body with an object holding an orders array.
+      - type: set-payload
+        name: seed-orders
+        settings:
+          value: '{"firedAt": body.firedAt, "orders": [{"id": 1, "amount": 50}, {"id": 2, "amount": 250}]}'
+
+      # set-variable: stash a threshold the switch below compares against.
+      - type: set-variable
+        name: set-threshold
+        settings:
+          name: threshold
+          value: "100"
+
+      # if/else: branch on whether there is anything to process.
+      - type: if
+        name: any-orders
+        condition: "size(body.orders) > 0"
+        then:
+          process:
+            - type: log
+              settings:
+                message: '"processing " + string(size(body.orders)) + " orders at " + body.firedAt'
+        else:
+          process:
+            - type: log
+              settings:
+                message: '"no orders to process"'
+
+      # foreach: iterate the array, binding each element to `order`, with a
+      # nested switch classifying each one and logging the result.
+      - type: foreach
+        name: each-order
+        items: "body.orders"
+        as: order
+        body:
+          process:
+            - type: switch
+              name: classify-order
+              cases:
+                - when: "vars.order.amount >= vars.threshold"
+                  process:
+                    - type: log
+                      settings:
+                        message: '"HIGH order " + string(vars.order.id) + " amount=" + string(vars.order.amount)'
+              default:
+                process:
+                  - type: log
+                    settings:
+                      message: '"low  order " + string(vars.order.id) + " amount=" + string(vars.order.amount)'
+
+      # delete-variable: clean up the scratch variable.
+      - type: delete-variable
+        name: drop-threshold
+        settings:
+          name: threshold

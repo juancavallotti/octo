@@ -5,7 +5,7 @@
       "id": "sample",
       "type": "pickString",
       "description": "Which sample config should the runtime load?",
-      "options": ["hello-world", "heartbeat", "file-logger"],
+      "options": ["hello-world", "heartbeat", "file-logger", "builtins-demo"],
       "default": "hello-world"
     }
   ],

@@ -1,14 +1,16 @@
-package core
+package engine
 
 import (
 	"context"
 	"errors"
 	"testing"
 
+	"github.com/juancavallotti/eip-go/core"
+	"github.com/juancavallotti/eip-go/core/internal/pool"
 	"github.com/juancavallotti/eip-go/types"
 )
 
-// processorFunc adapts a function to the MessageProcessor interface for tests.
+// processorFunc adapts a function to the core.MessageProcessor interface for tests.
 type processorFunc func(ctx context.Context, msg *types.Message) (*types.Message, error)
 
 func (f processorFunc) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
@@ -16,19 +18,19 @@ func (f processorFunc) Process(ctx context.Context, msg *types.Message) (*types.
 }
 
 // testRegistry returns a registry with leaf blocks used across flow tests.
-func testRegistry() *BlockRegistry {
-	reg := NewBlockRegistry()
-	reg.MustRegister("pass", func(types.Settings, BlockDeps) (MessageProcessor, error) {
+func testRegistry() *core.BlockRegistry {
+	reg := core.NewBlockRegistry()
+	reg.MustRegister("pass", func(types.Settings, core.BlockDeps) (core.MessageProcessor, error) {
 		return processorFunc(func(_ context.Context, msg *types.Message) (*types.Message, error) {
 			return msg, nil
 		}), nil
 	})
-	reg.MustRegister("drop", func(types.Settings, BlockDeps) (MessageProcessor, error) {
+	reg.MustRegister("drop", func(types.Settings, core.BlockDeps) (core.MessageProcessor, error) {
 		return processorFunc(func(context.Context, *types.Message) (*types.Message, error) {
 			return nil, nil
 		}), nil
 	})
-	reg.MustRegister("fail", func(types.Settings, BlockDeps) (MessageProcessor, error) {
+	reg.MustRegister("fail", func(types.Settings, core.BlockDeps) (core.MessageProcessor, error) {
 		return processorFunc(func(context.Context, *types.Message) (*types.Message, error) {
 			return nil, errors.New("boom")
 		}), nil
@@ -61,7 +63,7 @@ func TestFlowProcessOutcomes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			flow, err := (&builder{reg: reg, pool: newPool(0, 0)}).flow(types.FlowConfig{Process: tt.blocks})
+			flow, err := (&builder{reg: reg, pool: pool.New(0, 0)}).flow(types.FlowConfig{Process: tt.blocks})
 			if err != nil {
 				t.Fatalf("buildFlow: %v", err)
 			}
@@ -105,7 +107,7 @@ func TestBuildBlockValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if _, err := (&builder{reg: reg, pool: newPool(0, 0)}).block(tt.block); err == nil {
+			if _, err := (&builder{reg: reg, pool: pool.New(0, 0)}).block(tt.block); err == nil {
 				t.Errorf("expected error for %s, got nil", tt.name)
 			}
 		})
@@ -122,7 +124,7 @@ func TestBuildCompositeDispatch(t *testing.T) {
 			Process: []types.BlockConfig{{Type: "pass"}},
 		},
 	}
-	block, err := (&builder{reg: reg, pool: newPool(0, 0)}).block(cfg)
+	block, err := (&builder{reg: reg, pool: pool.New(0, 0)}).block(cfg)
 	if err != nil {
 		t.Fatalf("buildBlock: %v", err)
 	}

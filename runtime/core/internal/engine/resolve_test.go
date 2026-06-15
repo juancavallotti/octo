@@ -1,17 +1,19 @@
-package core
+package engine
 
 import (
 	"context"
 	"testing"
 
+	"github.com/juancavallotti/eip-go/core"
+	"github.com/juancavallotti/eip-go/core/internal/pool"
 	"github.com/juancavallotti/eip-go/types"
 )
 
 // captureRegistry registers a leaf block that records the settings it was built
 // with, so tests can assert how a ref resolves to effective settings.
-func captureRegistry(into *types.Settings) *BlockRegistry {
-	reg := NewBlockRegistry()
-	reg.MustRegister("capture", func(settings types.Settings, _ BlockDeps) (MessageProcessor, error) {
+func captureRegistry(into *types.Settings) *core.BlockRegistry {
+	reg := core.NewBlockRegistry()
+	reg.MustRegister("capture", func(settings types.Settings, _ core.BlockDeps) (core.MessageProcessor, error) {
 		*into = settings
 		return processorFunc(func(_ context.Context, msg *types.Message) (*types.Message, error) {
 			return msg, nil
@@ -29,7 +31,7 @@ func TestBlockRefMergesSettings(t *testing.T) {
 		t.Fatalf("processorDefs: %v", err)
 	}
 
-	b := &builder{reg: captureRegistry(&got), pool: newPool(0, 0), defs: defs}
+	b := &builder{reg: captureRegistry(&got), pool: pool.New(0, 0), defs: defs}
 	block, err := b.block(types.BlockConfig{Ref: "base", Settings: map[string]any{"b": 99, "c": 3}})
 	if err != nil {
 		t.Fatalf("block: %v", err)
@@ -46,7 +48,7 @@ func TestBlockRefMergesSettings(t *testing.T) {
 
 func TestBlockRefErrors(t *testing.T) {
 	defs := map[string]types.ProcessorConfig{"base": {Name: "base", Type: "pass"}}
-	b := &builder{reg: testRegistry(), pool: newPool(0, 0), defs: defs}
+	b := &builder{reg: testRegistry(), pool: pool.New(0, 0), defs: defs}
 
 	tests := []struct {
 		name  string

@@ -5,7 +5,6 @@ go 1.23.0
 require (
 	github.com/juancavallotti/eip-go/connectors v0.0.0
 	github.com/juancavallotti/eip-go/core v0.0.0
-	github.com/juancavallotti/eip-go/processors v0.0.0
 )
 
 require (
@@ -25,7 +24,5 @@ require (
 replace github.com/juancavallotti/eip-go/connectors => ../connectors
 
 replace github.com/juancavallotti/eip-go/core => ../core
-
-replace github.com/juancavallotti/eip-go/processors => ../processors
 
 replace github.com/juancavallotti/eip-go/types => ../types
