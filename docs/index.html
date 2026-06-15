@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>eip-go — a cloud-native, AI-native integration runtime</title>
+<meta name="description" content="eip-go is a modern, cloud-native integration runtime: build enterprise integration flows in a familiar YAML language, with hot reload, a concurrent processing model, and a path to Kubernetes-native and AI-native." />
+<meta property="og:title" content="eip-go — a cloud-native, AI-native integration runtime" />
+<meta property="og:description" content="A modern ESB reimagined. Familiar flows, the enterprise integration patterns you know, a concurrent processing model, hot reload — built to go Kubernetes-native and AI-native." />
+<meta property="og:type" content="website" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" />
+<link rel="stylesheet" href="assets/styles.css" />
+</head>
+<body>
+
+<!-- ============================== NAV ============================== -->
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a class="brand" href="#top"><span class="dot"></span> eip-go</a>
+    <nav class="nav-links">
+      <a href="#concepts">Concepts</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#patterns">Patterns</a>
+      <a href="#samples">Samples</a>
+      <a href="#quickstart">Quickstart</a>
+      <a href="#roadmap">Roadmap</a>
+      <a href="#releases">Releases</a>
+      <a class="nav-gh" href="https://github.com/juancavallotti/eip-go" target="_blank" rel="noopener">GitHub ↗</a>
+    </nav>
+  </div>
+</header>
+
+<!-- ============================== HERO ============================== -->
+<a id="top"></a>
+<section class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <div class="badges">
+        <span class="badge">Go runtime</span>
+        <span class="badge">YAML flows</span>
+        <span class="badge">CEL expressions</span>
+        <span class="badge">hot reload</span>
+        <span class="badge">v<!-- x-release-please-start-version -->0.1.0<!-- x-release-please-end-version --></span>
+      </div>
+      <h1>The integration platform,<br /><span class="grad">reimagined for what comes next.</span></h1>
+      <p class="lead">
+        Build enterprise integration flows in a language you already know — then let a
+        modern, concurrent runtime carry them. Cloud-native today, AI-native by design.
+      </p>
+      <div class="cta">
+        <a class="btn btn-primary" href="#quickstart">Get started →</a>
+        <a class="btn btn-ghost" href="https://github.com/juancavallotti/eip-go" target="_blank" rel="noopener">★ Star on GitHub</a>
+      </div>
+    </div>
+    <div class="hero-card">
+      <div class="titlebar">
+        <span class="tdot"></span><span class="tdot"></span><span class="tdot"></span>
+        <span class="fname">greet.yaml</span>
+      </div>
+      <pre><code class="language-yaml" data-sample="hero"></code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== STORY ============================== -->
+<section class="alt">
+  <div class="wrap story">
+    <span class="eyebrow">Why this exists</span>
+    <p>
+      After ten years building integration software, I wanted to see how a
+      <strong style="color:var(--text)">cloud-native — and later, AI-native — integration platform</strong>
+      would really feel. So I dared to dream of a better, modern design that could survive the
+      needs of a new generation of infrastructure.
+    </p>
+    <p>
+      Structurally it stays familiar: you compose <strong style="color:var(--text)">flows</strong> in a
+      readable language, and every enterprise integration pattern you rely on is here. But the engine
+      underneath is new — built-in hot reload to make development a joy, flows you can call straight
+      from the CLI to make testing trivial, and a clean concurrency model at its core.
+    </p>
+    <p>
+      With this simple ESB working, the foundation is set. Now the real adventure begins:
+      making it Kubernetes-native and AI-native.
+    </p>
+    <div class="sig">— a lab, an experiment, and a love letter to integration. Many more features to come.</div>
+  </div>
+</section>
+
+<!-- ============================== FEATURES ============================== -->
+<section id="features">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">What's in the box</span>
+      <h2>A small, sharp runtime — with the ergonomics you wished for.</h2>
+      <p>Everything you need to model real integrations, and nothing that gets in your way.</p>
+    </div>
+    <div class="grid cols-3">
+      <div class="card"><div class="ic">🧩</div><h3>Familiar flow language</h3><p>Declare <code>connectors</code>, <code>flows</code>, and <code>processors</code> in YAML. A flow is an ordered list of blocks — and a flow is itself a processor, so composition is recursive.</p></div>
+      <div class="card"><div class="ic">♻️</div><h3>Hot reload</h3><p>Run with <code>--watch</code> and the runtime rebuilds on every config or <code>.env</code> change. Edit a flow, save, watch it take effect — no restart, no ceremony.</p></div>
+      <div class="card"><div class="ic">⚡</div><h3>Call flows from the CLI</h3><p><code>invoke</code> runs a single flow by name with JSON in and JSON out — no sources started, no ports bound. Testing a flow is one command.</p></div>
+      <div class="card"><div class="ic">🧵</div><h3>Concurrent by design</h3><p>Each flow runs on a dedicated worker pool reading a bounded channel. Backpressure is built in; FIFO is one setting away (<code>workers: 1</code>).</p></div>
+      <div class="card"><div class="ic">🔤</div><h3>CEL expressions</h3><p>Routing, transforms, and payloads are <a href="https://github.com/google/cel-go" target="_blank" rel="noopener">CEL</a> expressions, compiled once at build time so a typo fails at startup, not in production.</p></div>
+      <div class="card"><div class="ic">📡</div><h3>Observable</h3><p>Every message emits <code>started</code> then exactly one terminal event — <code>completed</code>, <code>dropped</code>, or <code>failed</code> — on a process-wide event bus for metrics and dead-lettering.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== CONCEPTS ============================== -->
+<section id="concepts" class="alt">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">The processing model</span>
+      <h2>From an external event to a processed message.</h2>
+      <p>A connector turns the outside world into messages; a source feeds them to a flow; the flow runs them through an ordered chain of blocks. That's the whole model — and it composes all the way down.</p>
+    </div>
+
+    <div class="diagram-stack">
+      <figure class="diagram">
+        <div class="mermaid">
+flowchart LR
+  EXT([external event]):::ext --> CONN["Connector<br/><small>owns connections, tx, clients</small>"]:::conn
+  CONN --> SRC["Message Source<br/><small>builds a Message</small>"]:::src
+  SRC --> CH{{"bounded channel<br/>(buffer)"}}:::ch
+  CH --> FLOW
+  subgraph FLOW["Flow — a MessageProcessor"]
+    direction LR
+    B1["block"]:::blk --> B2["block"]:::blk --> B3["block"]:::blk
+  end
+  FLOW --> OUT([terminal event]):::ext
+  classDef ext fill:#11161d,stroke:#36d399,color:#e6edf3;
+  classDef conn fill:#141b24,stroke:#4aa8ff,color:#e6edf3;
+  classDef src fill:#141b24,stroke:#4aa8ff,color:#e6edf3;
+  classDef ch fill:#1a232e,stroke:#f5b14c,color:#e6edf3;
+  classDef blk fill:#141b24,stroke:#b692ff,color:#e6edf3;
+        </div>
+        <figcaption class="diagram-cap">connector → source → flow → block → processor</figcaption>
+      </figure>
+
+      <div class="grid cols-2">
+        <figure class="diagram">
+          <div class="mermaid">
+flowchart TB
+  SRC["Source"]:::src --> CH{{"buffer<br/>bounded channel"}}:::ch
+  CH --> W1["worker 1"]:::w
+  CH --> W2["worker 2"]:::w
+  CH --> W3["worker N"]:::w
+  W1 --> RUN["run flow<br/>per message"]:::run
+  W2 --> RUN
+  W3 --> RUN
+  RUN -. "fork branches" .-> SP[("shared flow pool")]:::pool
+  classDef src fill:#141b24,stroke:#4aa8ff,color:#e6edf3;
+  classDef ch fill:#1a232e,stroke:#f5b14c,color:#e6edf3;
+  classDef w fill:#141b24,stroke:#36d399,color:#e6edf3;
+  classDef run fill:#141b24,stroke:#b692ff,color:#e6edf3;
+  classDef pool fill:#1a232e,stroke:#b692ff,color:#e6edf3;
+          </div>
+          <figcaption class="diagram-cap">Two levels of concurrency: a per-flow worker pool, plus a shared pool for parallel composites. Backpressure comes from the bounded channel.</figcaption>
+        </figure>
+
+        <figure class="diagram">
+          <div class="mermaid">
+stateDiagram-v2
+  direction LR
+  [*] --> started
+  started --> completed: returns a message
+  started --> dropped: returns (nil, nil)
+  started --> failed: returns an error
+  completed --> [*]
+  dropped --> [*]
+  failed --> [*]
+          </div>
+          <figcaption class="diagram-cap">Each message produces a <code>started</code> event, then exactly one terminal event on the flow-event bus.</figcaption>
+        </figure>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== ARCHITECTURE ============================== -->
+<section id="architecture">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">How the container works</span>
+      <h2>One process, one container, a clear lifecycle.</h2>
+      <p>A service owns the start/stop discipline: connectors acquire resources first, flows build and start, sources begin to emit. On shutdown everything unwinds in strict reverse — channels close, workers drain, connectors release.</p>
+    </div>
+
+    <div class="diagram-stack">
+      <figure class="diagram">
+        <div class="mermaid">
+flowchart TB
+  subgraph SVC["eip-go service · one process / one container"]
+    direction TB
+    subgraph CONN["Connectors — acquire resources on start"]
+      direction LR
+      C1["cron"]:::c
+      C2["http"]:::c
+      C3["http-client"]:::c
+      C4["database"]:::c
+      C5["logger"]:::c
+    end
+    subgraph FL["Flows — concurrent message processors"]
+      direction LR
+      F1["orders-api<br/><small>http source</small>"]:::f
+      F2["enrich-order<br/><small>sourceless · callable</small>"]:::f
+    end
+  end
+  C2 -->|"provides source"| F1
+  F1 -->|"flow-ref (sync)"| F2
+  C4 -. "sql block" .-> F1
+  C5 -. "log block" .-> F1
+  classDef c fill:#141b24,stroke:#4aa8ff,color:#e6edf3;
+  classDef f fill:#141b24,stroke:#36d399,color:#e6edf3;
+        </div>
+        <figcaption class="diagram-cap">Connectors own external resources and may <em>provide a source</em> to a flow. Blocks reach back into named connectors for capabilities (a logger, a DB, an HTTP client).</figcaption>
+      </figure>
+
+      <figure class="diagram">
+        <div class="mermaid">
+sequenceDiagram
+  autonumber
+  participant S as Service
+  participant C as Connectors
+  participant F as Flows
+  participant Src as Sources
+  S->>C: Start (acquire resources, in order)
+  S->>F: Build (resolve source, build block chain)
+  S->>F: Start worker pool + shared pool
+  F->>Src: Start — begin emitting messages
+  Note over S,Src: running — messages flow through workers
+  S-->>Src: ctx.Done() → Stop source
+  Src-->>F: close channel, drain workers
+  F-->>C: Stop connectors (strict reverse order)
+        </div>
+        <figcaption class="diagram-cap">The start/stop lifecycle. Whoever creates the channel closes it — after the source stops.</figcaption>
+      </figure>
+    </div>
+
+    <h3 style="margin-top:56px">Composite blocks — composition all the way down</h3>
+    <p style="max-width:720px">A composite block embeds sub-flows through explicit, typed slots. <code>scope</code> is the single-threaded half (an error / transaction boundary); <code>fork</code> is the concurrent half (scatter, then join). Both keep the one-in / one-out seam intact.</p>
+    <div class="grid cols-2" style="margin-top:22px">
+      <figure class="diagram">
+        <div class="mermaid">
+flowchart TB
+  IN([message]):::ext --> MAIN
+  subgraph SCOPE["scope — error / tx boundary · sequential"]
+    direction TB
+    MAIN["main flow"]:::blk -->|ok| OUT
+    MAIN -->|error| ALT["alternative flow<br/><small>catch · recover · compensate</small>"]:::alt --> OUT([continue]):::ext
+  end
+  classDef ext fill:#11161d,stroke:#36d399,color:#e6edf3;
+  classDef blk fill:#141b24,stroke:#b692ff,color:#e6edf3;
+  classDef alt fill:#141b24,stroke:#f5b14c,color:#e6edf3;
+        </div>
+        <figcaption class="diagram-cap"><code>scope</code> — try / catch, the recovery path.</figcaption>
+      </figure>
+      <figure class="diagram">
+        <div class="mermaid">
+flowchart TB
+  IN([message]):::ext --> FORK{{fork}}:::fork
+  FORK -->|clone| A["branch: notify"]:::blk
+  FORK -->|clone| B["branch: audit"]:::blk
+  FORK -->|clone| C["branch: index"]:::blk
+  A --> JOIN{{join}}:::fork
+  B --> JOIN
+  C --> JOIN
+  JOIN --> OUT([input passes through]):::ext
+  classDef ext fill:#11161d,stroke:#36d399,color:#e6edf3;
+  classDef fork fill:#1a232e,stroke:#4aa8ff,color:#e6edf3;
+  classDef blk fill:#141b24,stroke:#b692ff,color:#e6edf3;
+        </div>
+        <figcaption class="diagram-cap"><code>fork</code> — scatter-gather on the shared pool, joins before returning.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== PATTERNS ============================== -->
+<section id="patterns" class="alt">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">Enterprise integration patterns</span>
+      <h2>The patterns you know — each a first-class construct.</h2>
+      <p>Every classic EIP maps directly onto a block, a composite, or a connector capability. Nothing exotic to learn; just the vocabulary you already speak.</p>
+    </div>
+
+    <div class="sample-grid">
+      <table class="eip-table">
+        <thead><tr><th>Pattern</th><th>In eip-go</th></tr></thead>
+        <tbody>
+          <tr><td>Message</td><td>JSON body + <code>Variables</code> + <code>CorrelationID</code></td></tr>
+          <tr><td>Polling Consumer</td><td><code>cron</code> source</td></tr>
+          <tr><td>Request–Reply</td><td><code>http</code> source (sync response)</td></tr>
+          <tr><td>Content-Based Router</td><td><code>switch</code> block</td></tr>
+          <tr><td>Message Filter</td><td>processor returns <code>(nil, nil)</code></td></tr>
+          <tr><td>Message Translator</td><td><code>set-payload</code> / <code>transform</code></td></tr>
+          <tr><td>Content Enricher</td><td><code>flow-ref</code> (sync fold-back)</td></tr>
+          <tr><td>Splitter / Iterator</td><td><code>foreach</code> block</td></tr>
+          <tr><td>Scatter-Gather</td><td><code>fork</code> composite</td></tr>
+          <tr><td>Wire Tap</td><td><code>log</code> (pass-through)</td></tr>
+          <tr><td>Dead Letter Channel</td><td><code>scope</code> alternative</td></tr>
+          <tr><td>Process Manager</td><td>sourceless flow + <code>flow-ref</code></td></tr>
+        </tbody>
+      </table>
+
+      <div>
+        <figure class="diagram">
+          <div class="mermaid">
+flowchart TB
+  IN(["HTTP POST /orders/{id}"]):::ext --> WT["log · wire tap"]:::blk
+  WT --> AUD[/"flow-ref: audit<br/>one-way"/]:::async
+  WT --> SW{"switch<br/>content-based router"}:::route
+  SW -->|"method == POST"| ENR["flow-ref: enrich-order<br/><small>content enricher</small>"]:::blk
+  SW -->|"method == GET"| LK["set-payload<br/><small>translator</small>"]:::blk
+  SW -->|default| ERR["set-payload: error"]:::alt
+  ENR --> RESP([JSON 200]):::ext
+  LK --> RESP
+  ERR --> RESP
+  classDef ext fill:#11161d,stroke:#36d399,color:#e6edf3;
+  classDef blk fill:#141b24,stroke:#b692ff,color:#e6edf3;
+  classDef route fill:#1a232e,stroke:#4aa8ff,color:#e6edf3;
+  classDef async fill:#141b24,stroke:#f5b14c,color:#e6edf3;
+  classDef alt fill:#141b24,stroke:#ff6b6b,color:#e6edf3;
+          </div>
+          <figcaption class="diagram-cap">The <code>http-orders</code> sample, drawn: a wire tap, a one-way audit, content-based routing, and a synchronous content enricher.</figcaption>
+        </figure>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== SAMPLES ============================== -->
+<section id="samples">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">Show, don't tell</span>
+      <h2>Runnable samples.</h2>
+      <p>Every example below ships in the repo under <code>samples/</code> and runs with zero setup via <code>task run:sample</code>. Pick one and read the YAML.</p>
+    </div>
+
+    <div class="tabs" id="sample-tabs"></div>
+    <div id="sample-panels"></div>
+  </div>
+</section>
+
+<!-- ============================== QUICKSTART ============================== -->
+<section id="quickstart" class="alt">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">Quickstart</span>
+      <h2>Running in under a minute.</h2>
+    </div>
+    <div class="grid cols-2">
+      <div>
+        <h3>1 · Clone &amp; build</h3>
+        <div class="cmd"><span class="c"># requires Go 1.25+ and Task</span><br />git clone https://github.com/juancavallotti/eip-go<br /><span class="p">$</span> cd eip-go &amp;&amp; task build</div>
+
+        <h3 style="margin-top:28px">2 · Run a sample</h3>
+        <div class="cmd"><span class="p">$</span> task run:sample -- hello-world.yaml</div>
+        <p style="font-size:0.9rem">A cron tick logs a greeting every 30 seconds.</p>
+      </div>
+      <div>
+        <h3>3 · Call a flow directly (no ports, no sources)</h3>
+        <div class="cmd"><span class="p">$</span> go run ./cli invoke \<br />&nbsp;&nbsp;-config samples/hello-invoke.yaml -flow greet \<br />&nbsp;&nbsp;-data '{"name":"Ada"}'<br /><span class="c"># → {"greeting":"hello, Ada!"}</span></div>
+
+        <h3 style="margin-top:28px">4 · Develop with hot reload</h3>
+        <div class="cmd"><span class="p">$</span> go run ./cli -config samples/http-orders.yaml --watch</div>
+        <p style="font-size:0.9rem">Edit the YAML (or a <code>.env</code>), save, and the runtime rebuilds itself.</p>
+      </div>
+    </div>
+    <div class="note"><strong>Tip:</strong> sourceless flows (no <code>source:</code>) get an implicit source and become callable by name — ideal for <code>invoke</code> and for <code>flow-ref</code> sub-flows.</div>
+  </div>
+</section>
+
+<!-- ============================== ROADMAP ============================== -->
+<section id="roadmap">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">The vision</span>
+      <h2>A simple ESB today. A platform for what's next.</h2>
+      <p>With the integration core working, focus turns to the rest of the architecture: making the runtime Kubernetes-native, then AI-native.</p>
+    </div>
+
+    <figure class="diagram" style="margin-bottom:28px">
+      <div class="mermaid">
+flowchart LR
+  A["<b>v0.1 — Cloud-native ESB</b><br/>flows · connectors · EIPs<br/>hot reload · CLI invoke"]:::now
+  A --> B["<b>Kubernetes-native</b><br/>operator · CRDs<br/>scale-to-zero · GitOps"]:::next
+  B --> C["<b>AI-native</b><br/>agents &amp; tools as blocks<br/>semantic routing · LLM steps"]:::later
+  classDef now fill:#0f2a20,stroke:#36d399,color:#e6edf3;
+  classDef next fill:#11212e,stroke:#4aa8ff,color:#e6edf3;
+  classDef later fill:#1a142e,stroke:#b692ff,color:#e6edf3;
+      </div>
+    </figure>
+
+    <div class="roadmap">
+      <div class="phase now">
+        <span class="tag">● Now — shipping</span>
+        <h3>Cloud-native ESB</h3>
+        <ul>
+          <li>YAML flows &amp; recursive composition</li>
+          <li>cron · http · http-client · database · logger connectors</li>
+          <li>switch · if · foreach · scope · fork</li>
+          <li>Hot reload &amp; CLI invoke</li>
+          <li>Flow-event bus &amp; worker-pool concurrency</li>
+        </ul>
+      </div>
+      <div class="phase next">
+        <span class="tag">→ Next</span>
+        <h3>Kubernetes-native</h3>
+        <ul>
+          <li>An operator and flow CRDs</li>
+          <li>Config from ConfigMaps / Secrets</li>
+          <li>Health, readiness &amp; metrics endpoints</li>
+          <li>Autoscaling on backpressure</li>
+          <li>GitOps-friendly deployments</li>
+        </ul>
+      </div>
+      <div class="phase later">
+        <span class="tag">◇ Later</span>
+        <h3>AI-native</h3>
+        <ul>
+          <li>LLM &amp; agent blocks as first-class processors</li>
+          <li>Tools &amp; MCP connectors</li>
+          <li>Semantic, content-aware routing</li>
+          <li>Structured extraction &amp; enrichment steps</li>
+          <li>Flows that agents can call — and compose</li>
+        </ul>
+      </div>
+    </div>
+    <div class="note" style="margin-top:24px">This is a lab and an experiment — a dream of what a modern integration platform could be. Expectations welcome; many more features to come.</div>
+  </div>
+</section>
+
+<!-- ============================== RELEASES / CHANGELOG ============================== -->
+<section id="releases" class="alt">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">Releases</span>
+      <h2>What's new.</h2>
+      <p>
+        Versioning and release notes are automated with
+        <a href="https://github.com/googleapis/release-please" target="_blank" rel="noopener">release-please</a>
+        from Conventional Commits. The current docs build reflects
+        <strong>v<!-- x-release-please-start-version -->0.1.0<!-- x-release-please-end-version --></strong>,
+        kept in sync automatically on every release.
+      </p>
+    </div>
+    <div id="changelog" class="card" style="white-space:normal">
+      <p class="muted" id="changelog-status">Loading the latest changelog from GitHub…</p>
+    </div>
+    <p style="margin-top:18px">
+      <a class="btn btn-ghost" href="https://github.com/juancavallotti/eip-go/releases" target="_blank" rel="noopener">All releases ↗</a>
+      <a class="btn btn-ghost" href="https://github.com/juancavallotti/eip-go/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Full changelog ↗</a>
+    </p>
+  </div>
+</section>
+
+<!-- ============================== FOOTER ============================== -->
+<footer>
+  <div class="wrap foot-inner">
+    <div>
+      <a class="brand" href="#top"><span class="dot"></span> eip-go</a>
+      <div class="muted" style="margin-top:8px">A cloud-native, AI-native integration runtime. MIT licensed.</div>
+    </div>
+    <div class="foot-links">
+      <a href="https://github.com/juancavallotti/eip-go" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/juancavallotti/eip-go/tree/main/docs/processing-pipeline.md" target="_blank" rel="noopener">Architecture docs</a>
+      <a href="https://github.com/juancavallotti/eip-go/tree/main/samples" target="_blank" rel="noopener">Samples</a>
+      <a href="#top">Back to top ↑</a>
+    </div>
+  </div>
+</footer>
+
+<!-- ============================== SAMPLE SOURCES (raw, not HTML-parsed) ============================== -->
+<script type="text/plain" data-sample-src="hero">service:
+  name: hello-invoke
+
+# A sourceless flow is callable by name — perfect for the CLI:
+#   go run ./cli invoke -config greet.yaml -flow greet -data '{"name":"Ada"}'
+#   -> {"greeting":"hello, Ada!"}
+flows:
+  - name: greet
+    process:
+      - type: set-payload
+        name: build-greeting
+        settings:
+          value: '{"greeting": "hello, " + body.name + "!"}'
+</script>
+
+<script type="text/plain" data-sample-meta="hero"
+  data-title="hello-invoke" data-blurb="The smallest useful flow: no source, callable by name, JSON in / JSON out."
+  data-run="go run ./cli invoke -config samples/hello-invoke.yaml -flow greet -data '{&quot;name&quot;:&quot;Ada&quot;}'"
+  data-pills="set-payload|sourceless|invoke"></script>
+
+<div id="sample-data" hidden>
+  <!-- order here = tab order -->
+  <script type="text/plain" data-sample-meta="hello-world"
+    data-title="hello-world" data-blurb="A cron source fires on a schedule; a reusable named processor logs a CEL-rendered line."
+    data-run="task run:sample -- hello-world.yaml"
+    data-pills="cron|log|processors (ref)|CEL"></script>
+  <script type="text/plain" data-sample-src="hello-world">service:
+  name: hello-world
+
+connectors:
+  - name: ticker
+    type: cron
+
+# Named processor definitions. Flow blocks reference these by `ref`.
+processors:
+  - name: greeter
+    type: log
+    settings:
+      level: info
+      message: '"hello world! the date is " + body.date'
+
+flows:
+  - name: greet
+    source:
+      connector: ticker
+      type: cron
+      settings:
+        schedule: "0,30 * * * * *"     # second 0 and 30 of every minute
+        payload: '{"date": string(now)}'
+    process:
+      - ref: greeter
+</script>
+
+  <script type="text/plain" data-sample-meta="http-orders"
+    data-title="http-orders" data-blurb="An HTTP endpoint with content-based routing, a one-way audit (fire-and-forget), and a synchronous content-enricher sub-flow."
+    data-run="go run ./cli -config samples/http-orders.yaml"
+    data-pills="http|switch|flow-ref|if|set-payload"></script>
+  <script type="text/plain" data-sample-src="http-orders">service:
+  name: http-orders
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      basePath: /api/v1
+      port: 8080
+      requestTimeout: 5s
+
+flows:
+  - name: orders-api
+    workers: 8
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /orders/{id}            # {id} -> vars.id
+        correlationIdHeader: X-Request-Id
+        headers: [X-Tenant]           # captured as vars["X-Tenant"]
+    process:
+      - type: set-variable
+        name: resolve-currency
+        settings:
+          name: currency
+          value: 'has(vars.query.currency) ? vars.query.currency : "USD"'
+
+      # ONE-WAY flow-ref: fire-and-forget audit; the request keeps moving.
+      - type: flow-ref
+        name: audit-async
+        settings: { flow: audit, oneWay: true }
+
+      # Content-based routing on the HTTP method.
+      - type: switch
+        name: route-by-method
+        cases:
+          - when: 'vars.method == "POST"'
+            process:
+              - type: flow-ref
+                name: enrich-sync
+                settings: { flow: enrich-order }   # sync: result folds back in
+          - when: 'vars.method == "GET"'
+            process:
+              - type: set-payload
+                settings:
+                  value: '{"orderId": vars.id, "currency": vars.currency, "status": "found"}'
+        default:
+          process:
+            - type: set-payload
+              settings: { value: '{"error": "method " + vars.method + " not supported"}' }
+
+  # Sourceless, invoked one-way for its side effect.
+  - name: audit
+    process:
+      - type: log
+        settings:
+          message: '"AUDIT " + vars.method + " order " + vars.id'
+
+  # Sourceless, invoked synchronously: enrich + flag priority.
+  - name: enrich-order
+    process:
+      - type: if
+        name: priority-check
+        condition: 'body.amount >= 1000.0'
+        then:  { process: [ { type: set-variable, settings: { name: priority, value: '"high"' } } ] }
+        else:  { process: [ { type: set-variable, settings: { name: priority, value: '"normal"' } } ] }
+      - type: set-payload
+        settings:
+          value: '{"order": body, "priority": vars.priority, "status": "accepted"}'
+</script>
+
+  <script type="text/plain" data-sample-meta="db-orders"
+    data-title="db-orders" data-blurb="A REST API backed by SQL. Same path routes POST (insert + RETURNING) and GET (list); a second flow reads by id. SQLite by default, Postgres by env var."
+    data-run="task run:sample -- db-orders.yaml"
+    data-pills="http|database|sql|switch"></script>
+  <script type="text/plain" data-sample-src="db-orders">connectors:
+  - name: api
+    type: http
+    settings: { basePath: /api/v1, port: 8080 }
+  - name: orders-db
+    type: database
+    settings:
+      driver: ${DB_DRIVER}        # sqlite (default) or postgres
+      dsn: ${DB_DSN}
+      maxOpenConns: 4
+
+flows:
+  - name: orders
+    source:
+      connector: api
+      type: http
+      settings: { path: /orders, correlationIdHeader: X-Request-Id }
+    process:
+      - type: switch
+        name: route-by-method
+        cases:
+          - when: 'vars.method == "POST"'        # insert and return the row
+            process:
+              - type: sql
+                settings:
+                  connector: orders-db
+                  query: "INSERT INTO orders (item, amount) VALUES (?, ?) RETURNING *"
+                  args: [ body.item, body.amount ]
+                  single: true
+          - when: 'vars.method == "GET"'         # list every order (JSON array)
+            process:
+              - type: sql
+                settings:
+                  connector: orders-db
+                  query: "SELECT * FROM orders ORDER BY id"
+
+  - name: orders-get
+    source:
+      connector: api
+      type: http
+      settings: { path: /orders/{id} }
+    process:
+      - type: sql
+        settings:
+          connector: orders-db
+          query: "SELECT * FROM orders WHERE id = ?"
+          args: [ vars.id ]
+          single: true
+</script>
+
+  <script type="text/plain" data-sample-meta="weather"
+    data-title="weather" data-blurb="Call a public REST API from a flow. A cron tick GETs the current temperature through an http-client connector with an opt-in 60s response cache."
+    data-run="task run:sample -- weather.yaml"
+    data-pills="cron|http-client|rest|cache|env"></script>
+  <script type="text/plain" data-sample-src="weather">env:
+  - { name: WEATHER_LAT, default: "52.52" }
+  - { name: WEATHER_LON, default: "13.41" }
+
+connectors:
+  - name: open-meteo
+    type: http-client
+    settings:
+      baseURL: https://api.open-meteo.com
+      timeout: 10s
+      cache: { enabled: true, ttl: 60s }   # serve repeat calls from memory
+  - name: ticker
+    type: cron
+  - name: out
+    type: logger
+    settings: { format: json }
+
+flows:
+  - name: weather
+    source:
+      connector: ticker
+      type: cron
+      settings: { schedule: "@every 30s" }
+    process:
+      - type: rest
+        name: fetch-forecast
+        settings:
+          connector: open-meteo
+          method: GET
+          path: /v1/forecast
+          query:                       # values are CEL expressions
+            latitude: '"${WEATHER_LAT}"'
+            longitude: '"${WEATHER_LON}"'
+            current: '"temperature_2m"'
+      - type: log
+        settings:
+          logger: out
+          message: '"current temperature: " + string(body.current.temperature_2m)'
+</script>
+
+  <script type="text/plain" data-sample-meta="flow-to-flow"
+    data-title="flow-to-flow-http" data-blurb="One flow calls another over a real HTTP round trip. An http-client points back at this process's own http server, so flow A POSTs to flow B and logs the reply."
+    data-run="task run:sample -- flow-to-flow-http.yaml"
+    data-pills="http|http-client|rest|request-reply"></script>
+  <script type="text/plain" data-sample-src="flow-to-flow">connectors:
+  - name: api                       # serves flow B as an endpoint
+    type: http
+    settings: { port: 8080, basePath: /api/v1 }
+  - name: internal                  # outbound client, points back at our own server
+    type: http-client
+    settings: { baseURL: http://127.0.0.1:8080/api/v1, timeout: 5s }
+  - name: ticker
+    type: cron
+  - name: out
+    type: logger
+    settings: { format: json }
+
+flows:
+  # Flow A — a tick POSTs to flow B and logs the reply.
+  - name: caller
+    source:
+      connector: ticker
+      type: cron
+      settings:
+        schedule: "@every 5s"
+        payload: '{"name": "world", "at": string(now)}'
+    process:
+      - type: rest
+        name: call-flow-b
+        settings:
+          connector: internal
+          method: POST
+          path: /greet
+          body: body
+          headers: { X-Request-Id: eventID }
+      - type: log
+        settings: { logger: out, message: '"flow B replied: " + body.greeting' }
+
+  # Flow B — an endpoint; its final body becomes the HTTP response.
+  - name: greet-service
+    source:
+      connector: api
+      type: http
+      settings: { path: /greet, correlationIdHeader: X-Request-Id }
+    process:
+      - type: set-payload
+        settings:
+          value: '{"greeting": "Hello, " + body.name + "!", "requestId": correlationID}'
+</script>
+
+  <script type="text/plain" data-sample-meta="builtins"
+    data-title="builtins-demo" data-blurb="A tour of the control-flow blocks: set-payload / set-variable, if/else, a foreach splitter, and a nested switch classifying each item."
+    data-run="task run:sample -- builtins-demo.yaml"
+    data-pills="if|foreach|switch|set-variable"></script>
+  <script type="text/plain" data-sample-src="builtins">flows:
+  - name: demo
+    source:
+      connector: ticker
+      type: cron
+      settings: { schedule: "@every 3s", payload: '{"firedAt": string(now)}' }
+    process:
+      - type: set-payload
+        name: seed-orders
+        settings:
+          value: '{"orders": [{"id": 1, "amount": 50}, {"id": 2, "amount": 250}]}'
+      - type: set-variable
+        name: set-threshold
+        settings: { name: threshold, value: "100" }
+
+      - type: if
+        name: any-orders
+        condition: "size(body.orders) > 0"
+        then: { process: [ { type: log, settings: { message: '"processing orders"' } } ] }
+        else: { process: [ { type: log, settings: { message: '"nothing to process"' } } ] }
+
+      # Splitter: iterate the array, classify each element with a nested switch.
+      - type: foreach
+        name: each-order
+        items: "body.orders"
+        as: order
+        body:
+          process:
+            - type: switch
+              name: classify-order
+              cases:
+                - when: "vars.order.amount >= vars.threshold"
+                  process:
+                    - type: log
+                      settings: { message: '"HIGH order " + string(vars.order.id)' }
+              default:
+                process:
+                  - type: log
+                    settings: { message: '"low order " + string(vars.order.id)' }
+</script>
+</div>
+
+<!-- ============================== SCRIPTS ============================== -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
+<script src="assets/app.js" type="module"></script>
+</body>
+</html>

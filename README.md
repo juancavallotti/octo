@@ -2,6 +2,11 @@
 
 `eip-go` is a repository that will contain multiple stacks, including a Go workspace for a cloud-native integration runtime.
 
+**Website:** the project landing page — overview, architecture diagrams, the
+supported enterprise integration patterns, and runnable samples — is published
+with GitHub Pages from [`docs/`](docs/index.html) at
+<https://juancavallotti.github.io/eip-go/>.
+
 ## Layout
 
 - `runtime/`: active Go workspace for the runtime engine and CLI.
