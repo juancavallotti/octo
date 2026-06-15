@@ -17,7 +17,6 @@
     ".": {
       "package-name": "eip-go",
       "changelog-path": "CHANGELOG.md",
-      "release-as": "0.1.0",
       "extra-files": [
         "runtime/cli/version.go",
         "docs/index.html"
