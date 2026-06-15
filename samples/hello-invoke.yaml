@@ -1,0 +1,23 @@
+service:
+  name: hello-invoke
+
+# A minimal sourceless flow. With no `source:` it gets an implicit source and is
+# callable by name — perfect for direct invocation from the CLI:
+#
+#   go run ./cli invoke -config samples/hello-invoke.yaml -flow greet -data '{"name":"Ada"}'
+#   -> {"greeting":"hello, Ada!"}
+#
+# Or pipe the body in on stdin:
+#
+#   echo '{"name":"Grace"}' | go run ./cli invoke -config samples/hello-invoke.yaml -flow greet
+#
+# In invoke mode no sources are started, so nothing binds a port or fires a
+# schedule — only the requested flow runs.
+
+flows:
+  - name: greet
+    process:
+      - type: set-payload
+        name: build-greeting
+        settings:
+          value: '{"greeting": "hello, " + body.name + "!"}'

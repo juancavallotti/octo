@@ -1,6 +1,20 @@
 service:
   name: http-orders
 
+# This sample shows the flow-ref block in action. The HTTP-triggered flow
+# delegates to two sourceless flows (flows with no `source:` get an implicit
+# source and become callable by name):
+#   * audit        — invoked ONE-WAY (oneWay: true): fire-and-forget, the caller
+#                    does not wait for it and ignores its result.
+#   * enrich-order — invoked SYNC (the default): the caller waits and the called
+#                    flow's body + variables are folded back into the message.
+#
+# Try it:
+#   go run ./cli -config samples/http-orders.yaml
+#   curl -s -X POST localhost:8080/api/v1/orders/42 \
+#     -H 'X-Tenant: acme' -H 'X-Request-Id: req-1' \
+#     -d '{"item":"widget","amount":1500}'
+
 connectors:
   - name: api
     type: http
@@ -48,41 +62,27 @@ flows:
           name: currency
           value: 'has(vars.query.currency) ? vars.query.currency : "USD"'
 
+      # --- ONE-WAY flow-ref: fire-and-forget audit. We do not wait for `audit`
+      #     and its result is ignored; the request keeps moving immediately. ---
+      - type: flow-ref
+        name: audit-async
+        settings:
+          flow: audit
+          oneWay: true
+
       # --- Content-based routing on the HTTP method ---
       - type: switch
         name: route-by-method
         cases:
-          # Read POST data and transform it into a normalized order document.
+          # POST: delegate normalization to the `enrich-order` flow SYNCHRONOUSLY.
+          # The called flow runs, and its resulting body + variables are folded
+          # back into this message before we continue.
           - when: 'vars.method == "POST"'
             process:
-              - type: set-payload
-                name: normalize-order
+              - type: flow-ref
+                name: enrich-sync
                 settings:
-                  value: >
-                    {
-                      "orderId":   vars.id,
-                      "tenant":    vars["X-Tenant"],
-                      "item":      body.item,
-                      "amount":    body.amount,
-                      "currency":  vars.currency,
-                      "requestId": correlationID
-                    }
-              # Conditional transform: flag high-value orders.
-              - type: if
-                name: priority-check
-                condition: 'body.amount >= 1000.0'
-                then:
-                  process:
-                    - type: set-variable
-                      settings: { name: priority, value: '"high"' }
-                else:
-                  process:
-                    - type: set-variable
-                      settings: { name: priority, value: '"normal"' }
-              - type: set-payload
-                name: wrap-response
-                settings:
-                  value: '{"order": body, "priority": vars.priority, "status": "accepted"}'
+                  flow: enrich-order   # oneWay defaults to false -> wait for result
 
           # A GET reflects the path + resolved query back (a stub lookup).
           - when: 'vars.method == "GET"'
@@ -102,3 +102,47 @@ flows:
       - type: log
         settings:
           message: '"responding to " + vars.method + " /orders/" + vars.id'
+
+  # --- Sourceless flow, invoked ONE-WAY for its side effect (an audit log). ---
+  - name: audit
+    process:
+      - type: log
+        name: audit-log
+        settings:
+          logger: debug
+          level: info
+          message: '"AUDIT " + vars.method + " order " + vars.id + " req=" + correlationID'
+
+  # --- Sourceless flow, invoked SYNCHRONOUSLY. It receives a clone of the
+  #     caller's message (body + variables), normalizes the order, flags priority,
+  #     and returns the wrapped response. The caller folds this result back in. ---
+  - name: enrich-order
+    process:
+      - type: set-payload
+        name: normalize-order
+        settings:
+          value: >
+            {
+              "orderId":   vars.id,
+              "tenant":    vars["X-Tenant"],
+              "item":      body.item,
+              "amount":    body.amount,
+              "currency":  vars.currency,
+              "requestId": correlationID
+            }
+      # Conditional transform: flag high-value orders.
+      - type: if
+        name: priority-check
+        condition: 'body.amount >= 1000.0'
+        then:
+          process:
+            - type: set-variable
+              settings: { name: priority, value: '"high"' }
+        else:
+          process:
+            - type: set-variable
+              settings: { name: priority, value: '"normal"' }
+      - type: set-payload
+        name: wrap-response
+        settings:
+          value: '{"order": body, "priority": vars.priority, "status": "accepted"}'

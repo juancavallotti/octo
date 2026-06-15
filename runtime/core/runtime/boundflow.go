@@ -29,6 +29,13 @@ type boundFlow struct {
 	bus     *core.EventBus
 	pool    *pool.Pool
 	wg      sync.WaitGroup
+	// implicit is true when the flow is driven by an implicit source (it is
+	// callable by name and acquires no external resources). Implicit flows start
+	// before source-backed ones so they are registered before any real source
+	// begins admitting traffic that may flow-ref them.
+	implicit bool
+	// sourceDesc is a human-readable description of the flow's source, for logs.
+	sourceDesc string
 }
 
 // resolveWorkers returns the configured worker count or the default.

@@ -55,6 +55,19 @@ func NewMessage(correlationID string) (*Message, error) {
 	}, nil
 }
 
+// Rekey assigns the message a freshly generated EventID, returning the new ID.
+// It is used when a message is forwarded into another flow (e.g. by the flow-ref
+// block) so the sub-invocation correlates on its own ID rather than colliding
+// with the originating flow's terminal event, which keys on the original EventID.
+func (m *Message) Rekey() (string, error) {
+	id, err := newEventID()
+	if err != nil {
+		return "", err
+	}
+	m.EventID = id
+	return id, nil
+}
+
 // newEventID returns a random hex-encoded identifier using crypto/rand.
 func newEventID() (string, error) {
 	buf := make([]byte, eventIDBytes)

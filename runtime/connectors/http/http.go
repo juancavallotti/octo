@@ -69,9 +69,10 @@ type Connector struct {
 	basePath   string
 	reqTimeout time.Duration
 
-	serveOnce sync.Once
-	stopOnce  sync.Once
-	done      chan struct{}
+	serveOnce   sync.Once
+	stopOnce    sync.Once
+	done        chan struct{}
+	unsubscribe func()
 
 	mu      sync.Mutex
 	pending map[string]chan result
@@ -127,7 +128,7 @@ func (c *Connector) Start(ctx context.Context, config types.ConnectorConfig) err
 	c.pending = make(map[string]chan result)
 	c.routes = make(map[string]struct{})
 
-	core.DefaultEventBus().Subscribe(c.onFlowEvent)
+	c.unsubscribe = core.DefaultEventBus().Subscribe(c.onFlowEvent)
 	return nil
 }
 
@@ -135,6 +136,9 @@ func (c *Connector) Start(ctx context.Context, config types.ConnectorConfig) err
 // server down, draining in-flight requests within ctx's deadline.
 func (c *Connector) Stop(ctx context.Context) error {
 	c.stopOnce.Do(func() { close(c.done) })
+	if c.unsubscribe != nil {
+		c.unsubscribe()
+	}
 	if c.server == nil {
 		return nil
 	}
@@ -205,6 +209,15 @@ func (c *Connector) onFlowEvent(ev types.FlowEvent) {
 	case ch <- result{kind: ev.Kind, msg: ev.Result, err: ev.Err}:
 	default:
 	}
+}
+
+// endpointURL builds a best-effort browsable URL for a registered route pattern,
+// using the bound listener address. It is for logging only.
+func (c *Connector) endpointURL(pattern string) string {
+	if c.ln == nil {
+		return pattern
+	}
+	return "http://" + c.ln.Addr().String() + pattern
 }
 
 // normalizeBasePath trims a trailing slash and ensures a leading slash, so it

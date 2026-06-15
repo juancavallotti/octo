@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -93,6 +94,7 @@ func (c *Connector) NewSource(cfg types.SourceConfig, out chan<- *types.Message)
 	if err := c.registerRoute(pattern, s.handle); err != nil {
 		return nil, err
 	}
+	slog.Info("http endpoint available", "pattern", pattern, "url", c.endpointURL(pattern))
 	return s, nil
 }
 
