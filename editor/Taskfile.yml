@@ -1,0 +1,31 @@
+version: '3'
+
+# Tasks for the Octo editor (Next.js).
+# Included from the root Taskfile under the `editor:` namespace, with the
+# working directory set to editor/, so all commands run from it.
+
+tasks:
+  install:
+    desc: Install the Octo editor (Next.js) dependencies
+    cmds:
+      - npm install
+
+  dev:
+    desc: Run the Octo editor dev server
+    cmds:
+      - npm run dev
+
+  lint:
+    desc: Lint the Octo editor
+    cmds:
+      - npm run lint
+
+  test:
+    desc: Run the Octo editor unit tests
+    cmds:
+      - npm test
+
+  build:
+    desc: Build the Octo editor for production
+    cmds:
+      - npm run build
