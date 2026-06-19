@@ -9,6 +9,10 @@ The **octo release is owned by Terraform** (the Helm provider): the VM only
 bootstraps the cluster, and the chart is installed/upgraded by applying the
 `release/` root after images are published.
 
+> This README is the command quick-reference. For the full guide — architecture,
+> configuration reference, integration endpoints, operations and troubleshooting —
+> see [docs/deployment.md](../../docs/deployment.md).
+
 ## Layout
 
 | Dir | Purpose | Apply |

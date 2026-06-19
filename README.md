@@ -12,8 +12,15 @@ with GitHub Pages from [`docs/`](docs/index.html) at
 
 - `runtime/`: active Go workspace for the runtime engine and CLI.
 - `editor/`: **Octo**, the Next.js visual editor for integrations (standalone; run via npm). See [editor/README.md](editor/README.md).
-- `docs/`: coding standards, lint policy, review policy, and release process.
-- future top-level folders: `terraform/` and other stack-specific modules.
+- `orchestrator/`: Go API that deploys integrations as Kubernetes workloads.
+- `helm/`: Helm chart for the GCP deployment; `deploy/`: k8s manifests (local k3d) and Terraform (GCP).
+- `docs/`: coding standards, lint policy, review policy, release process, and the [deployment guide](docs/deployment.md).
+
+## Deployment
+
+To run Octo on GCP (single-node k3s, Traefik, free Let's Encrypt TLS, and
+per-integration subdomains), see the **[deployment guide](docs/deployment.md)**.
+For local development on k3d, use the `task cluster:*` targets.
 
 ## Working rules
 
