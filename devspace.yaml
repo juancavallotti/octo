@@ -1,0 +1,70 @@
+version: v2beta1
+name: octo
+
+# Local dev for the Octo stack on the k3d (k3s) cluster created by `task cluster:dev`.
+#
+# Image building is intentionally NOT done by DevSpace here: with k3d, DevSpace's
+# local-registry push (localhost:5000) is unreliable. Instead `task cluster:dev`
+# builds the images with Docker and loads them into the cluster with `k3d image
+# import` (see the cluster:images task). The manifests reference those fixed :dev
+# tags with imagePullPolicy: IfNotPresent, so DevSpace's only job is to apply them.
+
+deployments:
+  octo:
+    kubectl:
+      # Applied in order: namespace first, then Postgres, then the schema Job, then
+      # the apps. DevSpace rewrites the octo-* image names to the built+tagged refs.
+      manifests:
+        - deploy/k8s/namespace.yaml
+        - deploy/k8s/postgres.yaml
+        - deploy/k8s/postgres-schema-job.yaml
+        - deploy/k8s/editor.yaml
+        - deploy/k8s/orchestrator.yaml
+
+# `devspace dev` mode (task cluster:watch): swaps the editor/orchestrator pods for
+# their dev images, live-syncs source for hot reload, and tails all three pods'
+# logs to the terminal. No port forwards here — the k3d loadbalancer already
+# exposes the apps on localhost:3000 / :8090 (deploy/k3d/cluster.yaml), and the
+# replacement pods keep their app labels so the NodePort services still route.
+dev:
+  editor:
+    labelSelector:
+      app: editor
+    namespace: octo-dev
+    # Hot-reload image (next dev). Build+import with `task cluster:images:dev`.
+    devImage: octo-editor-dev:dev
+    command: ["npm", "run", "dev"]
+    sync:
+      - path: ./editor:/app
+        # These live only in the container, not the local tree; excluding them
+        # keeps DevSpace's initial mirror from deleting them. (The octo runtime
+        # lives at /usr/local/bin/octo, outside /app, so it's never synced.)
+        excludePaths:
+          - node_modules/
+          - .next/
+          - .octo-run/
+          - .git/
+    # Stream this pod's logs to the terminal.
+    logs: {}
+  orchestrator:
+    labelSelector:
+      app: orchestrator
+    namespace: octo-dev
+    devImage: octo-orchestrator-dev:dev
+    command: ["go", "run", "."]
+    workingDir: /src
+    sync:
+      - path: ./orchestrator:/src
+        excludePaths:
+          - .git/
+          - orchestrator
+        # Restart the container after each upload so `go run` recompiles.
+        onUpload:
+          restartContainer: true
+    logs: {}
+  # Postgres is not hot-reloaded; this entry only forwards its logs to the terminal.
+  postgres:
+    labelSelector:
+      app: postgres
+    namespace: octo-dev
+    logs: {}

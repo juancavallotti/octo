@@ -1,0 +1,26 @@
+# k3d cluster config for local dev (real k3s inside Docker).
+#
+# The host ./data volume mount is passed on the CLI by `task cluster:dev`
+# (--volume "$(pwd)/data:/var/lib/octo-data@server:0") because the host path is
+# dynamic; the Postgres hostPath PV (deploy/k8s/postgres.yaml) binds that node path.
+#
+# Port mappings route localhost -> the k3d loadbalancer -> NodePort services, so
+# the editor and orchestrator are reachable without a long-running port-forward.
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  name: octo
+servers: 1
+agents: 0
+ports:
+  # localhost:3000 -> editor NodePort (30030)
+  - port: 3000:30030
+    nodeFilters:
+      - loadbalancer
+  # localhost:8090 -> orchestrator NodePort (30090)
+  - port: 8090:30090
+    nodeFilters:
+      - loadbalancer
+options:
+  k3d:
+    wait: true

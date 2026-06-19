@@ -1,0 +1,52 @@
+# The orchestrator API (octo-orchestrator image). Listens on 8090 and reads
+# site_settings from Postgres via DATABASE_URL.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orchestrator
+  namespace: octo-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: orchestrator
+  template:
+    metadata:
+      labels:
+        app: orchestrator
+    spec:
+      containers:
+        - name: orchestrator
+          # Built by `task cluster:images` and loaded via `k3d image import`.
+          image: octo-orchestrator:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8090
+          env:
+            - name: PORT
+              value: "8090"
+            - name: DATABASE_URL
+              value: postgres://octo:octo@postgres:5432/octo?sslmode=disable
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8090
+            initialDelaySeconds: 3
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orchestrator
+  namespace: octo-dev
+spec:
+  # NodePort so the k3d loadbalancer mapping (localhost:8090 -> 30090) reaches it.
+  type: NodePort
+  selector:
+    app: orchestrator
+  ports:
+    - name: http
+      port: 8090
+      targetPort: 8090
+      nodePort: 30090

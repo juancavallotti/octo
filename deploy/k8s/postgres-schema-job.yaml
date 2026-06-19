@@ -1,0 +1,44 @@
+# Startup Job that applies sql/schema.sql to Postgres, creating site_settings and
+# seeding db_version. The schema is idempotent (IF NOT EXISTS / ON CONFLICT), so
+# DevSpace re-running this Job on every deploy is safe. The image (octo-schema)
+# is built from sql/Dockerfile and bundles schema.sql at /schema/schema.sql.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: postgres-schema
+  namespace: octo-dev
+spec:
+  backoffLimit: 10
+  template:
+    metadata:
+      labels:
+        app: postgres-schema
+    spec:
+      restartPolicy: OnFailure
+      # Wait for Postgres to accept connections before applying the schema.
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:16-alpine
+          env:
+            - name: PGPASSWORD
+              value: octo
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h postgres -p 5432 -U octo -d octo; do
+                echo "waiting for postgres..."
+                sleep 2
+              done
+      containers:
+        - name: apply-schema
+          # Built by `task cluster:images` and loaded via `k3d image import`.
+          image: octo-schema:dev
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PGPASSWORD
+              value: octo
+          command:
+            - sh
+            - -c
+            - psql -h postgres -p 5432 -U octo -d octo -v ON_ERROR_STOP=1 -f /schema/schema.sql

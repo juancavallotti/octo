@@ -1,0 +1,36 @@
+# Dev image for `devspace dev` (task cluster:watch). Runs `next dev` so the editor
+# hot-reloads as DevSpace syncs source from the host into /app. Still bundles the
+# octo binary so the RUN feature works in-cluster.
+#
+# Build context must be the repo ROOT (same as the prod editor image) so it can
+# reach runtime/ to build octo.
+
+# --- Stage 1: build the octo runtime binary ----------------------------------
+FROM golang:1.25-alpine AS runtime-build
+RUN apk add --no-cache git
+WORKDIR /src
+COPY runtime/ ./runtime/
+WORKDIR /src/runtime/cli
+RUN CGO_ENABLED=0 go build \
+    -ldflags "-X main.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    -o /out/octo .
+
+# --- Stage 2: editor dev server ----------------------------------------------
+FROM node:22-alpine
+WORKDIR /app
+ENV NODE_ENV=development \
+    PORT=3000 \
+    HOSTNAME=0.0.0.0 \
+    OCTO_BIN_PATH=/usr/local/bin/octo \
+    OCTO_RUN_DIR=/app/.octo-run
+# Install deps from the lockfile; source is layered on top and then live-synced
+# by DevSpace at runtime (node_modules/.next are excluded from the sync).
+COPY editor/package.json editor/package-lock.json* ./
+RUN npm ci
+COPY editor/ ./
+# octo lives OUTSIDE /app so DevSpace's source-sync (./editor <-> /app) can't
+# delete it during the initial mirror.
+COPY --from=runtime-build /out/octo /usr/local/bin/octo
+RUN mkdir -p /app/.octo-run
+EXPOSE 3000
+CMD ["npm", "run", "dev"]

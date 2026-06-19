@@ -1,0 +1,14 @@
+# Dev image for `devspace dev` (task cluster:watch). Runs the API with `go run .`
+# from source that DevSpace syncs in from the host. On each change DevSpace
+# restarts the container (devspace.yaml dev.orchestrator.sync.onUpload.
+# restartContainer), so `go run` recompiles — i.e. hot reload.
+FROM golang:1.25-alpine
+RUN apk add --no-cache git
+WORKDIR /src
+# Pre-download modules into the image cache so restarts only recompile our code.
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+ENV PORT=8090
+EXPOSE 8090
+CMD ["go", "run", "."]

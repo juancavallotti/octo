@@ -1,0 +1,98 @@
+# Postgres for the local dev cluster. Data is persisted to the host workspace's
+# ./data dir: deploy/k3d/cluster.yaml mounts ./data into the k3d node at
+# /var/lib/octo-data, and this hostPath PV binds that node path to the PVC the
+# StatefulSet mounts. So the database survives pod restarts and cluster recreates.
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: postgres-data
+  labels:
+    app: postgres
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  # Empty storageClassName opts out of k3d's dynamic local-path provisioner so
+  # this static PV is used instead.
+  storageClassName: ""
+  hostPath:
+    path: /var/lib/octo-data
+    type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data
+  namespace: octo-dev
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ""
+  # Bind specifically to the static PV above.
+  volumeName: postgres-data
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: octo-dev
+spec:
+  # Headless service: gives the StatefulSet stable DNS (postgres:5432) for clients.
+  clusterIP: None
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: octo-dev
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: octo
+            - name: POSTGRES_PASSWORD
+              value: octo
+            - name: POSTGRES_DB
+              value: octo
+            # Use a subdir of the mount as the data dir; avoids initdb complaints
+            # if the mount root ever contains other entries.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "octo", "-d", "octo"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: postgres-data
