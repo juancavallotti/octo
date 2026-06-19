@@ -12,11 +12,16 @@ function runnableDoc(): EditorDocument {
   const flow = emptyFlow("ticker");
   flow.source = {
     connector: "cron",
+    connectorRef: "clock",
     type: "cron",
     settings: { schedule: "@every 2s" },
   };
   flow.process = [newBlock("log")]; // log has no required fields
-  return { flows: [flow], connectors: [], processors: [] };
+  return {
+    flows: [flow],
+    connectors: [{ id: "c0", name: "clock", type: "cron", settings: {} }],
+    processors: [],
+  };
 }
 
 describe("validateDocument", () => {
@@ -83,12 +88,20 @@ describe("validateDocument", () => {
     expect(result.issues.some((i) => i.includes('"ghost"'))).toBe(true);
   });
 
+  it("flags an unbound flow source", () => {
+    const doc = runnableDoc();
+    doc.flows[0].source!.connectorRef = undefined;
+    const result = validateDocument(doc);
+    expect(result.ok).toBe(false);
+    expect(result.issues.some((i) => i.includes("needs a connection"))).toBe(true);
+  });
+
   it("flags duplicate connection names", () => {
     const doc = runnableDoc();
-    doc.connectors = [
+    doc.connectors.push(
       { id: "a", name: "db", type: "database", settings: { driver: "sqlite", dsn: "x" } },
       { id: "b", name: "db", type: "database", settings: { driver: "sqlite", dsn: "y" } },
-    ];
+    );
     const result = validateDocument(doc);
     expect(result.ok).toBe(false);
     expect(result.issues.some((i) => i.includes("used more than once"))).toBe(true);

@@ -79,8 +79,13 @@ function checkSource(
     return;
   }
   checkFields(spec.fields, source.settings, doc, `${label} source`, issues);
-  if (
-    source.connectorRef &&
+  // A flow source must bind a configured connector instance — the runtime fails
+  // to build the flow otherwise ("source connector X is not configured").
+  if (!source.connectorRef) {
+    issues.push(
+      `${label}: source needs a connection (bind a ${source.connector} connector).`,
+    );
+  } else if (
     !doc.connectors.some(
       (c) => c.name === source.connectorRef && c.type === source.connector,
     )
