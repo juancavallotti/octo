@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { Readable } from "node:stream";
+import { cachedVersion } from "./version";
 
 /**
  * Server-side singleton that owns the running `octo` process for the editor's dev
@@ -31,6 +32,8 @@ export interface RunStatus {
   /** Whether a runner binary is configured (OCTO_BIN_PATH set by `task dev`). */
   available: boolean;
   running: boolean;
+  /** The runner's `--version` line, probed once; null until known/if unavailable. */
+  version: string | null;
 }
 
 type Listener = (line: LogLine) => void;
@@ -69,7 +72,11 @@ function runDir(): string {
 }
 
 function statusOf(s: Session): RunStatus {
-  return { available: !!process.env.OCTO_BIN_PATH, running: s.proc !== null };
+  return {
+    available: !!process.env.OCTO_BIN_PATH,
+    running: s.proc !== null,
+    version: cachedVersion(),
+  };
 }
 
 export function status(): RunStatus {

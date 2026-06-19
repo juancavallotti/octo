@@ -15,7 +15,7 @@ const DEFAULT_HEIGHT = 200;
  * bottom while the user is already near it.
  */
 export default function LogPanel() {
-  const { available, running, logs, clearLogs } = useRun();
+  const { available, running, logs, version, clearLogs } = useRun();
   const [height, setHeight] = useState(DEFAULT_HEIGHT);
   // Collapsed by default and follows the run state (opens when running), until
   // the user overrides it with the toggle. Derived rather than synced in an
@@ -71,8 +71,21 @@ export default function LogPanel() {
         />
       )}
 
-      {/* Header */}
-      <div className="flex items-center gap-2 px-3 h-8 shrink-0 border-b border-black/5 dark:border-white/5">
+      {/* Header — clicking anywhere on it toggles the panel; the action buttons
+          stop propagation so they keep their own behavior. */}
+      <div
+        role="button"
+        tabIndex={0}
+        aria-label={collapsed ? "Expand log panel" : "Collapse log panel"}
+        onClick={() => setOverride(!collapsed)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setOverride(!collapsed);
+          }
+        }}
+        className="flex cursor-pointer items-center gap-2 px-3 h-8 shrink-0 border-b border-black/5 dark:border-white/5 select-none"
+      >
         <span
           aria-hidden
           className={`h-2 w-2 rounded-full ${running ? "bg-emerald-500" : "bg-zinc-400"}`}
@@ -80,10 +93,18 @@ export default function LogPanel() {
         <span className="text-xs font-medium tracking-tight">
           Runner logs{running ? " — running" : ""}
         </span>
+        {version && (
+          <span className="text-xs text-zinc-400 tabular-nums dark:text-zinc-500">
+            — {version}
+          </span>
+        )}
         <div className="ml-auto flex items-center gap-1">
           <button
             type="button"
-            onClick={clearLogs}
+            onClick={(e) => {
+              e.stopPropagation();
+              clearLogs();
+            }}
             aria-label="Clear logs"
             title="Clear logs"
             className="rounded p-1 text-zinc-500 hover:bg-black/5 dark:hover:bg-white/10"
@@ -92,7 +113,10 @@ export default function LogPanel() {
           </button>
           <button
             type="button"
-            onClick={() => setOverride(!collapsed)}
+            onClick={(e) => {
+              e.stopPropagation();
+              setOverride(!collapsed);
+            }}
             aria-label={collapsed ? "Expand log panel" : "Collapse log panel"}
             title={collapsed ? "Expand" : "Collapse"}
             className="rounded p-1 text-zinc-500 hover:bg-black/5 dark:hover:bg-white/10"

@@ -168,4 +168,28 @@ describe("serialize", () => {
     expect(node.settings.condition).toBe("x > 1");
     expect(node.slots!.then[0].process[0].type).toBe("set-payload");
   });
+
+  it("maps env declarations, dropping empty defaults and false required", () => {
+    const doc = emptyDocument();
+    doc.env = [
+      { name: "WEATHER_LAT", default: "52.52" },
+      { name: "API_KEY", required: true },
+      { name: "EMPTY", default: "", required: false },
+    ];
+    expect(toConfig(doc).env).toEqual([
+      { name: "WEATHER_LAT", default: "52.52" },
+      { name: "API_KEY", required: true },
+      { name: "EMPTY" },
+    ]);
+  });
+
+  it("omits env entirely when none are declared", () => {
+    expect(toConfig(emptyDocument()).env).toBeUndefined();
+  });
+
+  it("round-trips env declarations", () => {
+    const doc = emptyDocument();
+    doc.env = [{ name: "API_KEY", required: true }, { name: "LAT", default: "1" }];
+    expect(fromConfig(toConfig(doc)).env).toEqual(doc.env);
+  });
 });

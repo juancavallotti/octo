@@ -22,7 +22,7 @@ import { useEditorState } from "@/app/state/editorState";
  * share one connection and one source of truth.
  */
 
-const SYNC_DEBOUNCE_MS = 300;
+const SYNC_DEBOUNCE_MS = 2000;
 const MAX_CLIENT_LOGS = 5000;
 
 export interface RunLogLine {
@@ -33,6 +33,7 @@ export interface RunLogLine {
 interface RunStatusResponse {
   available: boolean;
   running: boolean;
+  version: string | null;
 }
 
 interface RunContextValue {
@@ -42,6 +43,8 @@ interface RunContextValue {
   error: string | null;
   logs: RunLogLine[];
   validation: ValidationResult;
+  /** The runner's `--version` line, or null when unknown/unavailable. */
+  version: string | null;
   start: () => Promise<void>;
   stop: () => Promise<void>;
   clearLogs: () => void;
@@ -55,6 +58,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
 
   const [available, setAvailable] = useState(false);
   const [running, setRunning] = useState(false);
+  const [version, setVersion] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [logs, setLogs] = useState<RunLogLine[]>([]);
@@ -98,6 +102,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
       .then((s) => {
         if (cancelled) return;
         setAvailable(s.available);
+        setVersion(s.version);
         if (s.running) {
           setRunning(true);
           openStream();
@@ -151,16 +156,21 @@ export function RunProvider({ children }: { children: ReactNode }) {
     }
   }, [closeStream]);
 
+  // Clear only the client-side display. We deliberately leave the open stream and
+  // `lastSeqRef` untouched: reconnecting would make the server replay its whole
+  // buffer, and resetting the seq cursor would let those replayed lines back in —
+  // so the cleared logs would immediately reappear while running. Keeping the
+  // cursor means any later replay (e.g. an auto-reconnect) stays deduped.
   const clearLogs = useCallback(() => {
     setLogs([]);
-    lastSeqRef.current = -1;
-    closeStream();
-    if (running) openStream();
-  }, [closeStream, openStream, running]);
+  }, []);
 
   // While running, push debounced edits to the watched config so octo reloads.
+  // Only valid documents are synced: pushing an invalid intermediate edit (e.g.
+  // mid-rename) would make the live runner fail its hot-reload. We hold the last
+  // valid config until the document is valid again, then push the difference.
   useEffect(() => {
-    if (!running) return;
+    if (!running || !validation.ok) return;
     const yaml = toRunnableYaml(doc);
     if (yaml === lastYamlRef.current) return;
     const t = setTimeout(() => {
@@ -172,7 +182,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
       }).catch(() => {});
     }, SYNC_DEBOUNCE_MS);
     return () => clearTimeout(t);
-  }, [doc, running]);
+  }, [doc, running, validation.ok]);
 
   const value: RunContextValue = {
     available,
@@ -181,6 +191,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
     error,
     logs,
     validation,
+    version,
     start,
     stop,
     clearLogs,

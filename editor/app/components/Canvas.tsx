@@ -2,6 +2,7 @@
 
 import FlowBoard from "./FlowBoard";
 import ConnectionsLauncher from "./ConnectionsLauncher";
+import EnvLauncher from "./EnvLauncher";
 
 /**
  * Canvas is the main flow-editing area: a scrollable dot-grid surface that hosts
@@ -15,8 +16,9 @@ export default function Canvas() {
       <main className="absolute inset-0 overflow-auto canvas-grid">
         <FlowBoard />
       </main>
-      <div className="absolute left-4 top-4 z-30">
+      <div className="absolute left-4 top-4 z-30 flex items-start gap-2">
         <ConnectionsLauncher />
+        <EnvLauncher />
       </div>
     </div>
   );

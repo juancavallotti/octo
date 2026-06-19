@@ -1,4 +1,4 @@
-import type { EditorDocument } from "@/app/model/document";
+import type { EditorDocument, EnvVar } from "@/app/model/document";
 
 /**
  * Editor reducer actions. The payload travels on the action's `data` field (per
@@ -48,6 +48,14 @@ export enum EditorActionType {
   UPDATE_CONNECTION_SETTING = "UPDATE_CONNECTION_SETTING",
   /** Remove a connection (by id). */
   REMOVE_CONNECTION = "REMOVE_CONNECTION",
+  /** Append a sub-flow to a composite block's list slot (switch case / fork branch). */
+  ADD_SLOT_FLOW = "ADD_SLOT_FLOW",
+  /** Remove a sub-flow from a composite block's list slot by id. */
+  REMOVE_SLOT_FLOW = "REMOVE_SLOT_FLOW",
+  /** Set a switch-case sub-flow's CEL `when` guard. */
+  SET_FLOW_WHEN = "SET_FLOW_WHEN",
+  /** Replace the document's declared environment variables. */
+  SET_ENV = "SET_ENV",
   /** Replace the whole document (file load or "new"). */
   LOAD_DOCUMENT = "LOAD_DOCUMENT",
   /** Highlight a palette component. */
@@ -160,6 +168,27 @@ export interface UpdateConnectionSettingPayload {
 
 export interface RemoveConnectionPayload {
   id: string;
+}
+
+export interface AddSlotFlowPayload {
+  blockId: string;
+  /** Slot field name on the block (e.g. "cases" or "branches"). */
+  field: string;
+}
+
+export interface RemoveSlotFlowPayload {
+  blockId: string;
+  field: string;
+  flowId: string;
+}
+
+export interface SetFlowWhenPayload {
+  flowId: string;
+  when: string;
+}
+
+export interface SetEnvPayload {
+  env: EnvVar[];
 }
 
 export interface LoadDocumentPayload {

@@ -1,13 +1,27 @@
 "use client";
 
+import { useState } from "react";
+import { Variable } from "lucide-react";
 import type { FieldSpec } from "@/app/schema/types";
 import StringListEditor from "./fields/StringListEditor";
 import StringMapEditor from "./fields/StringMapEditor";
 import ReferenceField from "./fields/ReferenceField";
+import EnvValueField, { isEnvRef } from "./fields/EnvValueField";
 
 /** Shared input styling, matching the sidebar filter input. */
 const INPUT =
   "w-full rounded-md border border-black/10 dark:border-white/15 bg-transparent px-2 py-1 text-sm outline-none focus:border-black/30 dark:focus:border-white/30";
+
+/**
+ * Single-value fields that can resolve to an env var. Numeric/boolean/enum inputs
+ * coerce their value so they can't hold the `${VAR}` syntax at all; string fields
+ * can, but get the same toggle for a consistent layout and a validated picker.
+ * These types get a toggle that swaps the input for an env-var picker. Reference
+ * fields are excluded — they're their own dropdown.
+ */
+const ENV_CAPABLE = new Set(["string", "number", "boolean", "enum"]);
+const canUseEnv = (field: FieldSpec) =>
+  !field.ref && ENV_CAPABLE.has(field.type);
 
 /**
  * Renders one block setting as a labelled, controlled input chosen by the
@@ -25,16 +39,49 @@ export default function SettingsField({
   value: unknown;
   onChange: (value: unknown) => void;
 }) {
+  const envCapable = canUseEnv(field);
+  // Seed env mode from the current value (a loaded `${VAR}`), then let the toggle
+  // drive it. Switching modes clears the value so the stale literal/ref is gone.
+  const [envMode, setEnvMode] = useState(() => envCapable && isEnvRef(value));
+
   return (
     <div className="flex flex-col gap-1">
-      <label
-        htmlFor={field.name}
-        className="text-xs font-medium text-zinc-600 dark:text-zinc-300"
-      >
-        {field.label}
-        {field.required && <span className="text-red-500"> *</span>}
-      </label>
-      {renderInput(field, value, onChange)}
+      <div className="flex items-center gap-1.5">
+        <label
+          htmlFor={field.name}
+          className="text-xs font-medium text-zinc-600 dark:text-zinc-300"
+        >
+          {field.label}
+          {field.required && <span className="text-red-500"> *</span>}
+        </label>
+        {envCapable && (
+          <button
+            type="button"
+            aria-label={
+              envMode ? "Use a literal value" : "Use an environment variable"
+            }
+            title={
+              envMode ? "Use a literal value" : "Use an environment variable"
+            }
+            onClick={() => {
+              setEnvMode((m) => !m);
+              onChange(undefined);
+            }}
+            className={`ml-auto rounded p-0.5 transition-colors ${
+              envMode
+                ? "text-sky-500"
+                : "text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+            }`}
+          >
+            <Variable size={14} />
+          </button>
+        )}
+      </div>
+      {envMode ? (
+        <EnvValueField value={value} onChange={onChange} />
+      ) : (
+        renderInput(field, value, onChange)
+      )}
       {field.description && (
         <p className="text-xs text-zinc-400 dark:text-zinc-500">
           {field.description}

@@ -21,6 +21,7 @@ function runnableDoc(): EditorDocument {
     flows: [flow],
     connectors: [{ id: "c0", name: "clock", type: "cron", settings: {} }],
     processors: [],
+    env: [],
   };
 }
 
@@ -38,7 +39,7 @@ describe("validateDocument", () => {
   it("flags a missing required setting", () => {
     const flow = emptyFlow("greet");
     flow.process = [newBlock("set-payload")]; // `value` is required, no default
-    const result = validateDocument({ flows: [flow], connectors: [], processors: [] });
+    const result = validateDocument({ flows: [flow], connectors: [], processors: [], env: [] });
     expect(result.ok).toBe(false);
     expect(result.issues.some((i) => i.includes("Value is required"))).toBe(true);
   });
@@ -48,7 +49,7 @@ describe("validateDocument", () => {
     rest.settings.connector = "nope";
     const flow = emptyFlow("caller");
     flow.process = [rest];
-    const result = validateDocument({ flows: [flow], connectors: [], processors: [] });
+    const result = validateDocument({ flows: [flow], connectors: [], processors: [], env: [] });
     expect(result.ok).toBe(false);
     expect(result.issues.some((i) => i.includes('"nope"'))).toBe(true);
   });
@@ -64,6 +65,7 @@ describe("validateDocument", () => {
         { id: "c1", name: "api", type: "http-client", settings: { baseURL: "http://x" } },
       ],
       processors: [],
+      env: [],
     });
     expect(result).toEqual({ ok: true, issues: [] });
   });
@@ -73,7 +75,7 @@ describe("validateDocument", () => {
     rest.settings.connector = "";
     const flow = emptyFlow("caller");
     flow.process = [rest];
-    const result = validateDocument({ flows: [flow], connectors: [], processors: [] });
+    const result = validateDocument({ flows: [flow], connectors: [], processors: [], env: [] });
     expect(result.ok).toBe(false);
     expect(result.issues.some((i) => i.includes("Connector is required"))).toBe(true);
   });
@@ -83,7 +85,7 @@ describe("validateDocument", () => {
     ref.settings.flow = "ghost";
     const flow = emptyFlow("caller");
     flow.process = [ref];
-    const result = validateDocument({ flows: [flow], connectors: [], processors: [] });
+    const result = validateDocument({ flows: [flow], connectors: [], processors: [], env: [] });
     expect(result.ok).toBe(false);
     expect(result.issues.some((i) => i.includes('"ghost"'))).toBe(true);
   });
@@ -126,7 +128,7 @@ describe("validateDocument", () => {
     const ifb = newBlock("if"); // seeds empty then/else sub-flows, no condition
     const flow = emptyFlow("router");
     flow.process = [ifb];
-    const result = validateDocument({ flows: [flow], connectors: [], processors: [] });
+    const result = validateDocument({ flows: [flow], connectors: [], processors: [], env: [] });
     expect(result.ok).toBe(false);
     expect(result.issues.some((i) => i.includes("Condition is required"))).toBe(true);
     expect(result.issues.some((i) => i.includes("needs at least one step"))).toBe(true);
@@ -140,7 +142,7 @@ describe("validateDocument", () => {
     ifb.slots!.then = [branch];
     const flow = emptyFlow("router");
     flow.process = [ifb];
-    expect(validateDocument({ flows: [flow], connectors: [], processors: [] })).toEqual({
+    expect(validateDocument({ flows: [flow], connectors: [], processors: [], env: [] })).toEqual({
       ok: true,
       issues: [],
     });

@@ -11,7 +11,7 @@ function doc(): EditorDocument {
     settings: { schedule: "@every 2s" },
   };
   flow.process = [newBlock("log")];
-  return { flows: [flow], connectors: [], processors: [] };
+  return { flows: [flow], connectors: [], processors: [], env: [] };
 }
 
 describe("toRunnableYaml", () => {

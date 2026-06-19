@@ -14,6 +14,7 @@ const doc: EditorDocument = {
     { id: "f2", name: "worker", process: [] },
   ],
   processors: [],
+  env: [],
 };
 
 vi.mock("@/app/state/editorState", () => ({
