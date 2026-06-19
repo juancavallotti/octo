@@ -12,6 +12,9 @@ import {
   RemoveSourcePayload,
   RenameBlockPayload,
   RenameFlowPayload,
+  AddSlotFlowPayload,
+  RemoveSlotFlowPayload,
+  SetFlowWhenPayload,
   SetEnvPayload,
   SelectBlockPayload,
   SelectSourcePayload,
@@ -29,6 +32,7 @@ import * as handlers from "./handlers";
 import * as sourceHandlers from "./sourceHandlers";
 import * as connectionHandlers from "./connectionHandlers";
 import * as envHandlers from "./envHandlers";
+import * as slotHandlers from "./slotHandlers";
 
 /**
  * Editor-wide state. EditorShell is a "large" component, so its state lives in a
@@ -155,6 +159,15 @@ export function reducer(
         state,
         action.data as RemoveConnectionPayload,
       );
+    case EditorActionType.ADD_SLOT_FLOW:
+      return slotHandlers.addSlotFlow(state, action.data as AddSlotFlowPayload);
+    case EditorActionType.REMOVE_SLOT_FLOW:
+      return slotHandlers.removeSlotFlow(
+        state,
+        action.data as RemoveSlotFlowPayload,
+      );
+    case EditorActionType.SET_FLOW_WHEN:
+      return slotHandlers.setFlowWhen(state, action.data as SetFlowWhenPayload);
     case EditorActionType.SET_ENV:
       return envHandlers.setEnv(state, action.data as SetEnvPayload);
     case EditorActionType.LOAD_DOCUMENT:

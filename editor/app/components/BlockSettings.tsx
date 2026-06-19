@@ -3,10 +3,14 @@
 import { createElement } from "react";
 import { X } from "lucide-react";
 import type { BlockNode } from "@/app/model/document";
-import { isSlotField } from "@/app/model/document";
+import { isSlotField, slotFields } from "@/app/model/document";
 import { getBlockSpec, resolveIcon } from "@/app/schema";
 import { useEditorState, EditorActionType } from "@/app/state/editorState";
 import SettingsField from "./SettingsField";
+import SlotListEditor from "./SlotListEditor";
+
+/** Slot fields holding a list of paths the panel can grow/shrink (cases/branches). */
+const LIST_SLOT_TYPES = new Set(["case-list", "flow-list"]);
 
 const INPUT =
   "w-full rounded-md border border-black/10 dark:border-white/15 bg-transparent px-2 py-1 text-sm outline-none focus:border-black/30 dark:focus:border-white/30";
@@ -29,6 +33,9 @@ export default function BlockSettings({ block }: { block: BlockNode }) {
   }
 
   const fields = spec.fields.filter((f) => !isSlotField(f));
+  const listSlots = slotFields(block.type).filter((f) =>
+    LIST_SLOT_TYPES.has(f.type),
+  );
 
   return (
     <>
@@ -78,7 +85,7 @@ export default function BlockSettings({ block }: { block: BlockNode }) {
           />
         </div>
 
-        {fields.length === 0 ? (
+        {fields.length === 0 && listSlots.length === 0 ? (
           <p className="text-xs text-zinc-400 dark:text-zinc-500">
             This component has no settings.
           </p>
@@ -97,6 +104,14 @@ export default function BlockSettings({ block }: { block: BlockNode }) {
             />
           ))
         )}
+
+        {listSlots.map((field) => (
+          <SlotListEditor
+            key={`${block.id}:${field.name}`}
+            block={block}
+            field={field}
+          />
+        ))}
       </div>
     </>
   );
