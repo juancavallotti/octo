@@ -39,17 +39,48 @@ func main() {
 
 // run dispatches to a subcommand. The default (no subcommand, or a leading flag)
 // is "run", so `cli -config x.yaml` keeps working.
+// usage is the top-level help page, printed for `octo`, `octo --help`, and a
+// subcommand's --help.
+const usage = `octo — run and invoke eip-go integration flows
+
+Usage:
+  octo [run] --config <path> [--watch]                       Start connectors and flows (default)
+  octo invoke --config <path> --flow <name> [--data <json>]  Call one flow and print its result
+  octo version                                               Print the version and build date
+  octo --help                                                Show this help
+
+Run flags:
+  --config <path>   path to the runtime config (file or directory)
+  --watch           reload the config when it changes
+
+Invoke flags:
+  --config <path>    path to the runtime config (file or directory)
+  --flow <name>      name of the flow to invoke
+  --data <json>      JSON request body (reads stdin when omitted)
+  --timeout <dur>    max time to wait for the flow (default 30s)
+
+Flags accept one or two dashes (--config or -config).`
+
 func run(args []string) error {
-	// Handle the version flag before subcommand dispatch: the run/invoke flagsets
-	// do not define it, so `cli --version` must be intercepted here. Go's flag
-	// package treats -x and --x alike, so honor both dash forms.
-	if len(args) == 1 && (args[0] == "--version" || args[0] == "-version") {
+	// Handle top-level help and version before subcommand dispatch: the run/invoke
+	// flagsets do not define them, so `octo --help` / `octo --version` must be
+	// intercepted here. Go's flag package treats -x and --x alike, so honor both
+	// dash forms.
+	if len(args) == 0 {
+		fmt.Println(usage)
+		return nil
+	}
+	switch args[0] {
+	case "-h", "-help", "--help", "help":
+		fmt.Println(usage)
+		return nil
+	case "-version", "--version", "version":
 		fmt.Println(versionLine())
 		return nil
 	}
 
 	cmd := "run"
-	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+	if !strings.HasPrefix(args[0], "-") {
 		cmd = args[0]
 		args = args[1:]
 	}
@@ -59,9 +90,6 @@ func run(args []string) error {
 		return runCommand(args)
 	case "invoke":
 		return invokeCommand(args)
-	case "version":
-		fmt.Println(versionLine())
-		return nil
 	default:
 		return fmt.Errorf("unknown command %q (expected \"run\", \"invoke\", or \"version\")", cmd)
 	}
@@ -71,9 +99,14 @@ func run(args []string) error {
 // --watch it reloads on config changes.
 func runCommand(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
+	fs.SetOutput(io.Discard) // suppress the default usage dump; we print our own
 	configPath := fs.String("config", "", "path to the runtime config (file or directory)")
 	watch := fs.Bool("watch", false, "reload the config when it changes")
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			fmt.Println(usage)
+			return nil
+		}
 		return fmt.Errorf("parse run flags: %w", err)
 	}
 	if *configPath == "" {
@@ -201,11 +234,16 @@ func waitForChange(ctx context.Context, changed <-chan struct{}) bool {
 // stdin), printing the result body as JSON. Sources are not started.
 func invokeCommand(args []string) error {
 	fs := flag.NewFlagSet("invoke", flag.ContinueOnError)
+	fs.SetOutput(io.Discard) // suppress the default usage dump; we print our own
 	configPath := fs.String("config", "", "path to the runtime config (file or directory)")
 	flowName := fs.String("flow", "", "name of the flow to invoke")
 	data := fs.String("data", "", "JSON request body (reads stdin when omitted)")
 	timeout := fs.Duration("timeout", defaultInvokeTimeout, "max time to wait for the flow")
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			fmt.Println(usage)
+			return nil
+		}
 		return fmt.Errorf("parse invoke flags: %w", err)
 	}
 	if *configPath == "" {

@@ -20,6 +20,24 @@ func TestRunVersion(t *testing.T) {
 	}
 }
 
+// TestRunHelp checks that every help form is handled in run() and returns nil
+// instead of falling through to a flagset (which would error on -help).
+func TestRunHelp(t *testing.T) {
+	for _, args := range [][]string{
+		{},
+		{"--help"},
+		{"-help"},
+		{"-h"},
+		{"help"},
+		{"run", "--help"},
+		{"invoke", "--help"},
+	} {
+		if err := run(args); err != nil {
+			t.Errorf("run(%q) = %v, want nil", args, err)
+		}
+	}
+}
+
 // TestVersionLine checks the python/java-style output: name and version always,
 // with a "(built ...)" suffix only when a build date is present.
 func TestVersionLine(t *testing.T) {
