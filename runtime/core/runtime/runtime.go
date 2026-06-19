@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 
 	"github.com/juancavallotti/eip-go/core"
 	"github.com/juancavallotti/eip-go/core/internal/engine"
@@ -84,43 +85,154 @@ func (s *Service) Run(ctx context.Context) error {
 	// accumulate stale handlers on the process-wide bus.
 	defer s.flows.close()
 
-	connectors, byName, err := s.startConnectors(ctx)
+	set, err := s.startConnectors(ctx)
 	if err != nil {
 		return err
 	}
 
-	flows, err := s.buildFlows(byName)
+	// buildFlows may start additional default connectors on demand to back
+	// sources without an explicit connector, appending them to set.running.
+	flows, err := s.buildFlows(ctx, set)
 	if err != nil {
-		_ = stopConnectors(connectors)
+		_ = stopConnectors(set.running)
 		return err
 	}
 
 	started, err := s.startFlows(ctx, flows)
 	if err != nil {
 		_ = stopFlows(ctx, started)
-		_ = stopConnectors(connectors)
+		_ = stopConnectors(set.running)
 		return err
 	}
 
 	close(s.ready)
-	slog.Info("runtime ready", "connectors", len(connectors), "flows", len(started))
+	slog.Info("runtime ready", "connectors", len(set.running), "flows", len(started))
 
 	<-ctx.Done()
 
 	flowErr := stopFlows(ctx, started)
-	connErr := stopConnectors(connectors)
+	connErr := stopConnectors(set.running)
 	if flowErr != nil {
 		return flowErr
 	}
 	return connErr
 }
 
+// connectorSet tracks the connectors a generation has started: those configured
+// explicitly plus any default connectors started on demand to back a source whose
+// connector was not explicitly configured. Its mutex serializes on-demand starts
+// so flows resolving the same default type share one instance instead of each
+// starting their own.
+type connectorSet struct {
+	mu       sync.Mutex
+	registry *core.Registry
+	configs  []types.ConnectorConfig // the generation's configured connectors
+	running  []core.Connector        // ordered, for reverse teardown
+	byName   map[string]core.Connector
+}
+
+// lookup returns a started connector by instance name, for block dependencies.
+//
+//nolint:ireturn // returns the Connector interface a block depends on
+func (set *connectorSet) lookup(name string) (core.Connector, bool) {
+	set.mu.Lock()
+	defer set.mu.Unlock()
+	c, ok := set.byName[name]
+	return c, ok
+}
+
+// resolveConnector finds or starts the connector backing a source. An explicit,
+// configured instance wins; otherwise a lone configured connector of the desired
+// type is used (several is ambiguous); otherwise a default instance of that type
+// is started on demand and shared under the type name. Connectors that genuinely
+// need settings fail in their own Start when started with defaults.
+//
+//nolint:ireturn // returns the Connector interface the source binds to
+func (set *connectorSet) resolveConnector(ctx context.Context, cfg types.SourceConfig) (core.Connector, error) {
+	set.mu.Lock()
+	defer set.mu.Unlock()
+
+	// 1. An explicit binding to a configured instance wins.
+	if cfg.Connector != "" {
+		if c, ok := set.byName[cfg.Connector]; ok {
+			return c, nil
+		}
+	}
+
+	// The desired connector type: an unresolved Connector that names a registered
+	// type (the editor's type-name fallback), else the source Type when it names
+	// one. Empty means the binding was neither a known instance nor a known type.
+	typeName := set.desiredType(cfg)
+	if typeName == "" {
+		return nil, fmt.Errorf("source connector %q is not configured", cfg.Connector)
+	}
+
+	// 2. A single configured connector of the type binds implicitly; several is
+	// genuinely ambiguous and the source must name one.
+	matches := set.configuredOfType(typeName)
+	if len(matches) > 1 {
+		return nil, fmt.Errorf(
+			"source connector is ambiguous: %d connectors of type %q are configured; set the source's connector explicitly",
+			len(matches), typeName)
+	}
+	if len(matches) == 1 {
+		if c, ok := set.byName[matches[0]]; ok {
+			return c, nil
+		}
+	}
+
+	// 3. No configured connector of the type: start a default instance on demand,
+	// sharing it under the type name so later sources of the same type reuse it.
+	if c, ok := set.byName[typeName]; ok {
+		return c, nil
+	}
+	connector, err := set.registry.New(typeName)
+	if err != nil {
+		return nil, err
+	}
+	slog.Info("starting implicit connector", "connector", typeName, "type", typeName)
+	if err := connector.Start(ctx, types.ConnectorConfig{Name: typeName, Type: typeName}); err != nil {
+		return nil, fmt.Errorf("start implicit connector %q: %w", typeName, err)
+	}
+	set.running = append(set.running, connector)
+	set.byName[typeName] = connector
+	return connector, nil
+}
+
+// desiredType derives the connector type a source wants: an unresolved Connector
+// naming a registered type, else the source Type when it names one.
+func (set *connectorSet) desiredType(cfg types.SourceConfig) string {
+	if cfg.Connector != "" && set.registry.Has(cfg.Connector) {
+		return cfg.Connector
+	}
+	if cfg.Type != "" && set.registry.Has(cfg.Type) {
+		return cfg.Type
+	}
+	return ""
+}
+
+// configuredOfType returns the names of configured connectors of the given type.
+func (set *connectorSet) configuredOfType(typeName string) []string {
+	var names []string
+	for _, c := range set.configs {
+		if c.Type == typeName {
+			names = append(names, c.Name)
+		}
+	}
+	return names
+}
+
 // startConnectors creates and starts each configured connector in order,
-// returning them both as an ordered slice (for reverse teardown) and keyed by
-// instance name (for flow binding).
-func (s *Service) startConnectors(ctx context.Context) ([]core.Connector, map[string]core.Connector, error) {
-	running := make([]core.Connector, 0, len(s.config.Connectors))
-	byName := make(map[string]core.Connector, len(s.config.Connectors))
+// returning a connectorSet that holds them as an ordered slice (for reverse
+// teardown) and keyed by instance name (for flow binding). The set also backs
+// on-demand default connectors started later during flow build.
+func (s *Service) startConnectors(ctx context.Context) (*connectorSet, error) {
+	set := &connectorSet{
+		registry: s.registry,
+		configs:  s.config.Connectors,
+		running:  make([]core.Connector, 0, len(s.config.Connectors)),
+		byName:   make(map[string]core.Connector, len(s.config.Connectors)),
+	}
 
 	// In invoke mode, connectors used only as a flow source acquire no resources
 	// (their sources are replaced by implicit sources), so skip starting them.
@@ -137,19 +249,19 @@ func (s *Service) startConnectors(ctx context.Context) ([]core.Connector, map[st
 		}
 		connector, err := s.registry.New(connectorConfig.Type)
 		if err != nil {
-			_ = stopConnectors(running)
-			return nil, nil, err
+			_ = stopConnectors(set.running)
+			return nil, err
 		}
 		slog.Info("starting connector", "connector", connectorConfig.Name, "type", connectorConfig.Type)
 		if err := connector.Start(ctx, connectorConfig); err != nil {
-			_ = stopConnectors(running)
-			return nil, nil, fmt.Errorf("start connector %q: %w", connectorConfig.Name, err)
+			_ = stopConnectors(set.running)
+			return nil, fmt.Errorf("start connector %q: %w", connectorConfig.Name, err)
 		}
-		running = append(running, connector)
-		byName[connectorConfig.Name] = connector
+		set.running = append(set.running, connector)
+		set.byName[connectorConfig.Name] = connector
 	}
 
-	return running, byName, nil
+	return set, nil
 }
 
 // sourceConnectorNames collects the names of connectors referenced as a flow's
@@ -165,11 +277,12 @@ func (s *Service) sourceConnectorNames() map[string]struct{} {
 }
 
 // buildFlows assembles a boundFlow for each configured flow, resolving its source
-// connector and building its root block chain.
-func (s *Service) buildFlows(byName map[string]core.Connector) ([]*boundFlow, error) {
+// connector (starting a default one on demand when needed) and building its root
+// block chain.
+func (s *Service) buildFlows(ctx context.Context, set *connectorSet) ([]*boundFlow, error) {
 	flows := make([]*boundFlow, 0, len(s.config.Flows))
 	for i := range s.config.Flows {
-		flow, err := s.buildFlow(s.config.Flows[i], byName)
+		flow, err := s.buildFlow(ctx, s.config.Flows[i], set)
 		if err != nil {
 			return nil, fmt.Errorf("build flow %q: %w", s.config.Flows[i].Name, err)
 		}
@@ -178,30 +291,31 @@ func (s *Service) buildFlows(byName map[string]core.Connector) ([]*boundFlow, er
 	return flows, nil
 }
 
-func (s *Service) buildFlow(cfg types.FlowConfig, byName map[string]core.Connector) (*boundFlow, error) {
+func (s *Service) buildFlow(ctx context.Context, cfg types.FlowConfig, set *connectorSet) (*boundFlow, error) {
 	in := make(chan *types.Message, resolveBuffer(cfg.Buffer))
 
 	// A flow with no configured source — or any flow in invoke mode — is driven
 	// by an implicit source: it acquires no resources and becomes callable by
 	// name through the flow registry.
 	implicit := cfg.Source == nil || s.invokeMode
-	source, err := s.buildSource(cfg, in, byName)
+	source, err := s.buildSource(ctx, cfg, in, set)
 	if err != nil {
 		return nil, err
 	}
 
 	sourceDesc := "implicit"
 	if !implicit {
-		sourceDesc = fmt.Sprintf("%s via connector %q", cfg.Source.Type, cfg.Source.Connector)
+		if cfg.Source.Connector != "" {
+			sourceDesc = fmt.Sprintf("%s via connector %q", cfg.Source.Type, cfg.Source.Connector)
+		} else {
+			sourceDesc = fmt.Sprintf("%s via default connector", cfg.Source.Type)
+		}
 	}
 
 	p := pool.New(cfg.Pool, 0)
 	deps := core.BlockDeps{
-		Connector: func(name string) (core.Connector, bool) {
-			connector, ok := byName[name]
-			return connector, ok
-		},
-		Flows: s.flows,
+		Connector: set.lookup,
+		Flows:     s.flows,
 	}
 	root, err := engine.BuildRoot(cfg, s.blocks, p, s.config.Processors, deps)
 	if err != nil {
@@ -227,9 +341,10 @@ func (s *Service) buildFlow(cfg types.FlowConfig, byName map[string]core.Connect
 //
 //nolint:ireturn // returns the MessageSource interface
 func (s *Service) buildSource(
+	ctx context.Context,
 	cfg types.FlowConfig,
 	in chan<- *types.Message,
-	byName map[string]core.Connector,
+	set *connectorSet,
 ) (core.MessageSource, error) {
 	if cfg.Source == nil || s.invokeMode {
 		if cfg.Name == "" {
@@ -237,25 +352,27 @@ func (s *Service) buildSource(
 		}
 		return newImplicitSource(cfg.Name, in, s.flows), nil
 	}
-	return s.newSource(*cfg.Source, in, byName)
+	return s.newSource(ctx, *cfg.Source, in, set)
 }
 
-// newSource resolves the source's connector and asks it to build a source that
-// emits on the provided channel.
+// newSource resolves the source's connector (binding a configured instance or
+// starting a default one on demand) and asks it to build a source that emits on
+// the provided channel.
 //
 //nolint:ireturn // returns the MessageSource interface a connector provides
 func (s *Service) newSource(
+	ctx context.Context,
 	cfg types.SourceConfig,
 	in chan<- *types.Message,
-	byName map[string]core.Connector,
+	set *connectorSet,
 ) (core.MessageSource, error) {
-	connector, ok := byName[cfg.Connector]
-	if !ok {
-		return nil, fmt.Errorf("source connector %q is not configured", cfg.Connector)
+	connector, err := set.resolveConnector(ctx, cfg)
+	if err != nil {
+		return nil, err
 	}
 	provider, ok := connector.(core.SourceProvider)
 	if !ok {
-		return nil, fmt.Errorf("connector %q does not provide sources", cfg.Connector)
+		return nil, fmt.Errorf("connector for source type %q does not provide sources", cfg.Type)
 	}
 
 	source, err := provider.NewSource(cfg, in)
