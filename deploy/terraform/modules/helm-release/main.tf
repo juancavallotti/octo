@@ -1,0 +1,64 @@
+# The octo Helm release, installed from the Artifact Registry OCI chart. The
+# kubernetes/helm providers are configured by the calling root (pointed at the
+# k3s API). Image pulls happen on the node, so the caller must ensure the images
+# for image_tag are present (the release root invokes octo-pull before this).
+
+resource "helm_release" "octo" {
+  name             = var.release_name
+  namespace        = var.namespace
+  create_namespace = true
+
+  # OCI chart in Artifact Registry: oci://{image_base} + chart name "octo".
+  repository          = "oci://${var.image_base}"
+  repository_username = var.registry_username
+  repository_password = var.registry_password
+  chart               = "octo"
+  version             = var.chart_version
+
+  wait    = true
+  timeout = var.timeout
+
+  # Image coordinates.
+  set {
+    name  = "image.registry"
+    value = var.image_base
+  }
+  set {
+    name  = "image.tag"
+    value = var.image_tag
+  }
+  set {
+    name  = "image.pullPolicy"
+    value = "IfNotPresent"
+  }
+
+  # Postgres credentials (chart creates the Secret + StatefulSet).
+  set_sensitive {
+    name  = "postgres.auth.password"
+    value = var.postgres_password
+  }
+
+  # Editor ingress + TLS.
+  set {
+    name  = "ingress.enabled"
+    value = "true"
+  }
+  set {
+    name  = "ingress.host"
+    value = var.domain
+  }
+  set {
+    name  = "ingress.tls.clusterIssuer"
+    value = var.cluster_issuer
+  }
+
+  # Per-integration external endpoints (Stage 2) live under *.{domain}.
+  set {
+    name  = "orchestrator.baseDomain"
+    value = var.domain
+  }
+  set {
+    name  = "orchestrator.clusterIssuer"
+    value = var.cluster_issuer
+  }
+}

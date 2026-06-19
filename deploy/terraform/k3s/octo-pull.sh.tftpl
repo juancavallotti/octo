@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Pull octo images for a tag into containerd so pods (imagePullPolicy IfNotPresent)
+# — including the per-integration runtime image the orchestrator deploys — find
+# them locally. Invoked over SSH by the release root before each `helm` apply, so
+# image pulls never depend on the (short-lived) boot token in registries.yaml.
+#
+# Installed at /usr/local/bin/octo-pull by the startup script (via metadata).
+# Rendered by Terraform: image_base is substituted; $VAR / $${VAR} are shell.
+# Usage (on the VM, as root): sudo octo-pull <image-tag>
+set -euo pipefail
+
+TAG="$${1:-latest}"
+
+# Fresh registry token from the VM's service account.
+TOKEN=$(curl -s -H "Metadata-Flavor: Google" \
+  "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" \
+  | jq -r .access_token)
+
+for img in octo-editor octo-orchestrator octo-schema octo-runtime; do
+  k3s ctr images pull --user "oauth2accesstoken:$TOKEN" "${image_base}/$img:$TAG"
+done
+echo "octo-pull: tag=$TAG done"

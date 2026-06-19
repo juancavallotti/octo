@@ -261,3 +261,21 @@ tasks:
         set -e
         VERSION="$(helm show chart helm | awk '/^version:/ {print $2}')"
         helm push "dist/octo-${VERSION}.tgz" "oci://{{.IMAGE_BASE}}"
+
+  deploy:kubeconfig:
+    desc: 'Fetch the k3s kubeconfig from the VM for the Terraform release root (set DOMAIN; optional INSTANCE, ZONE)'
+    requires:
+      vars: [DOMAIN]
+    vars:
+      INSTANCE: '{{.INSTANCE | default "octo"}}'
+      ZONE: '{{.ZONE | default "us-west1-a"}}'
+      OUT: '{{.OUT | default "deploy/terraform/k3s/kubeconfig.yaml"}}'
+    cmds:
+      # k3s writes the kubeconfig with server https://127.0.0.1:6443; rewrite it to
+      # the public domain (covered by the API cert via --tls-san) so the Terraform
+      # Helm provider can reach the cluster. The file is gitignored (cluster admin).
+      - |
+        set -e
+        gcloud compute ssh {{.INSTANCE}} --zone {{.ZONE}} --command 'sudo cat /etc/rancher/k3s/k3s.yaml' \
+          | sed "s#https://127.0.0.1:6443#https://{{.DOMAIN}}:6443#" > {{.OUT}}
+        echo "✓ wrote {{.OUT}} (server https://{{.DOMAIN}}:6443)"

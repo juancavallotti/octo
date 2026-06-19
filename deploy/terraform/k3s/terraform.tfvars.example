@@ -1,0 +1,24 @@
+# Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored.
+
+project_id       = "your-gcp-project-id"
+dns_managed_zone = "your-clouddns-zone-name" # e.g. "juancavallotti-com"
+
+# The hostname the editor is served on (per-integration subdomains live under
+# *.{domain}). Override to deploy under a different domain.
+domain = "octo.juancavallotti.com"
+
+# Lock SSH (port 22) and the k3s API (6443) to your IP (find it: curl ifconfig.me).
+# The Helm release root reaches the API over 6443, so restrict it in production.
+# ssh_source_ranges      = ["203.0.113.4/32"]
+# kube_api_source_ranges = ["203.0.113.4/32"]   # null = reuse ssh_source_ranges
+
+# Optional overrides (defaults shown):
+# region            = "us-west1"          # Oregon
+# zone              = "us-west1-a"
+# machine_type      = "e2-standard-2"     # 8GB; e2-medium (4GB) is tight
+# instance_name     = "octo"
+# repository_id     = "octo"
+# acme_email        = "juancavallotti@gmail.com"
+
+# Image tag + chart version live in the release root (deploy/terraform/release),
+# applied after images are published.

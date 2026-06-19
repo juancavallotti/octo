@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# First-boot bootstrap for the octo single-node k3s VM. It brings up the cluster
+# and its prerequisites only — the octo chart itself is installed/upgraded by the
+# Terraform Helm release (deploy/terraform/release), applied after images are
+# published. Rendered by Terraform (templatefile): registry_host, domain and
+# acme_email are substituted; plain $VAR tokens are shell. (No `set -x`: the
+# metadata token must not reach the serial console.)
+set -euo pipefail
+
+# GCE re-runs startup scripts on every boot; k3s's systemd service keeps the
+# cluster alive across reboots, so skip re-bootstrapping once it has succeeded.
+if [ -f /opt/octo/.provisioned ]; then
+  echo "already provisioned; nothing to do"
+  exit 0
+fi
+
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y jq curl ca-certificates
+
+mkdir -p /opt/octo /etc/rancher/k3s
+
+# A registry access token for the boot-time image pulls; the release root later
+# refreshes this per deploy via the octo-pull helper.
+TOKEN=$(curl -s -H "Metadata-Flavor: Google" \
+  "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" \
+  | jq -r .access_token)
+
+# Containerd auth for Artifact Registry (k3s reads this once at startup). Used as
+# a fallback during the boot window; steady-state pulls go through octo-pull.
+cat > /etc/rancher/k3s/registries.yaml <<EOF
+configs:
+  "${registry_host}":
+    auth:
+      username: oauth2accesstoken
+      password: "$TOKEN"
+EOF
+
+# --- Install k3s (Traefik + servicelb; Traefik serves 80/443). --tls-san adds
+# the domain to the API server cert so the Terraform Helm provider can reach
+# https://${domain}:6443 with a valid certificate. ---
+if ! command -v k3s >/dev/null 2>&1; then
+  curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--write-kubeconfig-mode 644 --tls-san ${domain}" sh -
+fi
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+export PATH=$PATH:/usr/local/bin
+
+until kubectl get nodes 2>/dev/null | grep -q ' Ready'; do
+  echo "waiting for k3s node..."
+  sleep 5
+done
+
+# --- Install the octo-pull helper (delivered via metadata) the release root
+# calls over SSH to pull images with a fresh token before each helm apply. ---
+curl -s -H "Metadata-Flavor: Google" \
+  "http://metadata.google.internal/computeMetadata/v1/instance/attributes/octo-pull-sh" \
+  > /usr/local/bin/octo-pull
+chmod +x /usr/local/bin/octo-pull
+
+# --- Install the Helm CLI (handy for debugging; the release is driven by the
+# Terraform Helm provider, not this binary). ---
+if ! command -v helm >/dev/null 2>&1; then
+  curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+fi
+
+# --- cert-manager (CRDs + controllers) ---
+helm repo add jetstack https://charts.jetstack.io
+helm repo update
+helm upgrade --install cert-manager jetstack/cert-manager \
+  --namespace cert-manager --create-namespace \
+  --set crds.enabled=true \
+  --wait --timeout 5m
+
+# --- Let's Encrypt production ClusterIssuer (HTTP-01 solved via Traefik) ---
+cat > /opt/octo/clusterissuer.yaml <<EOF
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: ${acme_email}
+    privateKeySecretRef:
+      name: letsencrypt-prod-account-key
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: traefik
+EOF
+# Retry: the cert-manager webhook may need a moment after --wait.
+for i in $(seq 1 12); do
+  kubectl apply -f /opt/octo/clusterissuer.yaml && break
+  echo "waiting for cert-manager webhook... ($i)"
+  sleep 10
+done
+
+touch /opt/octo/.provisioned
+echo "bootstrap complete; apply deploy/terraform/release to install octo"
