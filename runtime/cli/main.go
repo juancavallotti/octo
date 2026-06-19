@@ -140,7 +140,14 @@ func runWithReload(ctx context.Context, configPath string) error {
 
 		reload, runErr := runGeneration(ctx, config, changed)
 		if runErr != nil {
-			return runErr
+			// In watch mode a build/start failure is not fatal: keep the watcher
+			// alive and wait for the next change, same as a config load error, so
+			// fixing the file recovers without restarting the process.
+			slog.Error("runtime failed, waiting for next change", "error", runErr)
+			if !waitForChange(ctx, changed) {
+				return nil
+			}
+			continue
 		}
 		if !reload {
 			slog.Info("runtime stopped")
