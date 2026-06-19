@@ -133,6 +133,8 @@ export async function start(yaml: string): Promise<RunStatus> {
   await stop(); // tear down any previous generation first
 
   const s = session();
+  s.logs = []; // fresh buffer per run; seq stays monotonic so clients still dedupe
+
   const dir = runDir();
   await mkdir(dir, { recursive: true });
   const configPath = join(dir, `octo-editor-${randomUUID()}.yaml`);
