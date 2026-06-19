@@ -145,6 +145,31 @@ export function mapFlow(
   return { ...doc, flows: doc.flows.map((f) => mapFlowTree(f, flowId, fn)) };
 }
 
+/** Find a block by id anywhere in the tree (top-level or nested in a slot). */
+export function findBlock(
+  doc: EditorDocument,
+  blockId: string,
+): BlockNode | undefined {
+  const visit = (flow: FlowDoc): BlockNode | undefined => {
+    for (const block of flow.process) {
+      if (block.id === blockId) return block;
+      if (!block.slots) continue;
+      for (const subs of Object.values(block.slots)) {
+        for (const sub of subs) {
+          const hit = visit(sub);
+          if (hit) return hit;
+        }
+      }
+    }
+    return undefined;
+  };
+  for (const flow of doc.flows) {
+    const hit = visit(flow);
+    if (hit) return hit;
+  }
+  return undefined;
+}
+
 /** Find a flow by id anywhere in the tree (top-level or nested in a slot). */
 export function findFlow(
   doc: EditorDocument,

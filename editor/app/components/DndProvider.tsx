@@ -1,18 +1,21 @@
 "use client";
 
-import { ReactNode } from "react";
+import { ReactNode, useState } from "react";
 import {
   closestCenter,
   DndContext,
   DragEndEvent,
+  DragOverlay,
+  DragStartEvent,
   KeyboardSensor,
   PointerSensor,
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
-import { findFlow } from "@/app/model/document";
+import { findBlock, findFlow } from "@/app/model/document";
 import { useEditorState, EditorActionType } from "@/app/state/editorState";
 import { DragData, DropData } from "./dnd";
+import DragPreview from "./DragPreview";
 
 /**
  * A single DndContext spanning the editor body so the palette (drag sources) and
@@ -23,12 +26,24 @@ import { DragData, DropData } from "./dnd";
  */
 export default function DndProvider({ children }: { children: ReactNode }) {
   const { state, dispatch } = useEditorState();
+  const [draggingType, setDraggingType] = useState<string | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor),
   );
 
+  function handleDragStart(event: DragStartEvent) {
+    const data = event.active.data.current as DragData | undefined;
+    if (data?.source === "palette") {
+      setDraggingType(data.blockType);
+    } else {
+      const block = findBlock(state.document, String(event.active.id));
+      setDraggingType(block?.type ?? null);
+    }
+  }
+
   function handleDragEnd(event: DragEndEvent) {
+    setDraggingType(null);
     const { active, over } = event;
     if (!over) return;
     const data = active.data.current as DragData | undefined;
@@ -74,9 +89,14 @@ export default function DndProvider({ children }: { children: ReactNode }) {
     <DndContext
       sensors={sensors}
       collisionDetection={closestCenter}
+      onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
+      onDragCancel={() => setDraggingType(null)}
     >
       {children}
+      <DragOverlay dropAnimation={null}>
+        {draggingType ? <DragPreview blockType={draggingType} /> : null}
+      </DragOverlay>
     </DndContext>
   );
 }
