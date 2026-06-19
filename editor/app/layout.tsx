@@ -30,7 +30,7 @@ export default function RootLayout({
       {/* suppressHydrationWarning: browser extensions (e.g. Grammarly) inject
           data-* attributes on <body> that aren't present in the SSR markup. */}
       <body
-        className="min-h-full flex flex-col font-sans"
+        className="h-full overflow-hidden flex flex-col font-sans"
         suppressHydrationWarning
       >
         {children}
