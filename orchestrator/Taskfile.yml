@@ -1,0 +1,40 @@
+version: '3'
+
+# Tasks for the orchestrator API module. Included from the root Taskfile under
+# the `orchestrator:` namespace, with the working directory set to orchestrator/,
+# so all paths here are relative to it.
+
+vars:
+  GO: go
+
+tasks:
+  fmt:
+    desc: Format the orchestrator module
+    cmds:
+      - '{{.GO}} fmt ./...'
+
+  build:
+    desc: Build the orchestrator binary
+    cmds:
+      - mkdir -p ../bin
+      - '{{.GO}} build -trimpath -o ../bin/orchestrator .'
+
+  test:
+    desc: Run the orchestrator tests
+    cmds:
+      - '{{.GO}} test ./...'
+
+  lint:
+    desc: Run golangci-lint over the orchestrator module
+    cmds:
+      - golangci-lint run ./...
+
+  tidy:
+    desc: Tidy the orchestrator module
+    cmds:
+      - '{{.GO}} mod tidy'
+
+  run:
+    desc: Run the orchestrator locally (set DATABASE_URL/PORT as needed)
+    cmds:
+      - '{{.GO}} run . {{.CLI_ARGS}}'

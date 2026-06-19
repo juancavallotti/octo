@@ -1,0 +1,11 @@
+# Keep the Docker build context (repo root for the editor image) lean and avoid
+# copying host-built artifacts into images that build fresh.
+.git
+bin
+dist
+data
+.octo-run
+**/node_modules
+editor/.next
+**/*.log
+.DS_Store

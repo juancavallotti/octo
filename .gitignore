@@ -1,10 +1,17 @@
 bin/
 dist/
+# Postgres data dir for the local k3d dev cluster, host-mounted into the node
+# (see deploy/k3d/cluster.yaml). Keep the dir (data/.gitkeep) but never its data.
+/data/*
+!/data/.gitkeep
 # Rendered runtime configs the editor writes for `octo -watch` (dev RUN feature).
 /.octo-run/
 # Go build output left in a module dir by `go build` without -o (binary named
 # after the package dir, e.g. runtime/cli/cli). The canonical output is bin/.
 /runtime/cli/cli
+/orchestrator/orchestrator
+# DevSpace's local state/cache dir.
+/.devspace/
 *.log
 *.tmp
 *.swp

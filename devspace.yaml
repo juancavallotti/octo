@@ -1,0 +1,39 @@
+version: v2beta1
+name: octo
+
+# Local dev for the Octo stack on the k3d (k3s) cluster created by `task cluster:dev`.
+#
+# Image building is intentionally NOT done by DevSpace here: with k3d, DevSpace's
+# local-registry push (localhost:5000) is unreliable. Instead `task cluster:dev`
+# builds the images with Docker and loads them into the cluster with `k3d image
+# import` (see the cluster:images task). The manifests reference those fixed :dev
+# tags with imagePullPolicy: IfNotPresent, so DevSpace's only job is to apply them.
+
+deployments:
+  octo:
+    kubectl:
+      # Applied in order: namespace first, then Postgres, then the schema Job, then
+      # the apps. DevSpace rewrites the octo-* image names to the built+tagged refs.
+      manifests:
+        - deploy/k8s/namespace.yaml
+        - deploy/k8s/postgres.yaml
+        - deploy/k8s/postgres-schema-job.yaml
+        - deploy/k8s/editor.yaml
+        - deploy/k8s/orchestrator.yaml
+
+# `devspace dev` extras (optional). `task cluster:dev` uses `devspace deploy` and
+# relies on the k3d loadbalancer port mappings, but these forwards are handy when
+# iterating with `devspace dev`.
+dev:
+  editor:
+    labelSelector:
+      app: editor
+    namespace: octo-dev
+    ports:
+      - port: "3000:3000"
+  orchestrator:
+    labelSelector:
+      app: orchestrator
+    namespace: octo-dev
+    ports:
+      - port: "8090:8090"

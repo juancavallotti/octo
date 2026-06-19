@@ -11,6 +11,9 @@ includes:
   editor:
     taskfile: ./editor/Taskfile.yml
     dir: ./editor
+  orchestrator:
+    taskfile: ./orchestrator/Taskfile.yml
+    dir: ./orchestrator
 
 # Global env reaches every task, including those in included taskfiles (task-level
 # env does not propagate to called tasks). The editor reads these server-side to
@@ -27,18 +30,21 @@ tasks:
     desc: Format all Go modules
     cmds:
       - task: runtime:fmt
+      - task: orchestrator:fmt
 
   test:
-    desc: Run tests across all modules (runtime + editor)
+    desc: Run tests across all modules (runtime + editor + orchestrator)
     cmds:
       - task: runtime:test
       - task: editor:test
+      - task: orchestrator:test
 
   build:
-    desc: Build all modules (CLI binary + editor)
+    desc: Build all modules (CLI binary + editor + orchestrator)
     cmds:
       - task: runtime:build
       - task: editor:build
+      - task: orchestrator:build
 
   dev:
     desc: Build the runner, then run the editor dev server (RUN button enabled)
@@ -50,12 +56,14 @@ tasks:
     desc: Tidy all Go modules
     cmds:
       - task: runtime:tidy
+      - task: orchestrator:tidy
 
   lint:
-    desc: Lint all modules (runtime + editor)
+    desc: Lint all modules (runtime + editor + orchestrator)
     cmds:
       - task: runtime:lint
       - task: editor:lint
+      - task: orchestrator:lint
 
   run:
     desc: Run the CLI with a config file
@@ -98,3 +106,72 @@ tasks:
       - test -f release-please-config.json
       - test -f .release-please-manifest.json
       - test -f README.md
+
+  cluster:preflight:
+    desc: Verify docker, k3d and devspace are installed
+    silent: true
+    cmds:
+      - |
+        missing=
+        for tool in docker k3d devspace; do
+          command -v "$tool" >/dev/null 2>&1 || missing="$missing $tool"
+        done
+        if [ -n "$missing" ]; then
+          echo "✖ missing required tools:$missing" >&2
+          echo "  install hints:" >&2
+          echo "    docker   — Docker Desktop (https://www.docker.com)" >&2
+          echo "    k3d      — https://k3d.io  (brew install k3d)" >&2
+          echo "    devspace — https://devspace.sh  (brew install devspace)" >&2
+          exit 1
+        fi
+        echo "✓ docker, k3d, devspace present"
+
+  cluster:images:
+    desc: Build the dev images and load them into the k3d 'octo' cluster
+    cmds:
+      # Editor build context is the repo ROOT so its Dockerfile can reach both
+      # runtime/ (to build octo) and editor/ (the Next.js app).
+      - docker build -t octo-editor:dev -f editor/Dockerfile .
+      - docker build -t octo-orchestrator:dev -f orchestrator/Dockerfile ./orchestrator
+      - docker build -t octo-schema:dev -f sql/Dockerfile ./sql
+      # Load the images straight into the cluster's containerd (no registry needed).
+      - k3d image import octo-editor:dev octo-orchestrator:dev octo-schema:dev -c octo
+
+  cluster:dev:
+    desc: Spin up the local k3d (k3s) cluster and deploy editor, Postgres, orchestrator
+    cmds:
+      - task: cluster:preflight
+      - |
+        if k3d cluster list 2>/dev/null | grep -qw octo; then
+          echo "✓ k3d cluster 'octo' already exists"
+        else
+          echo "▶ creating k3d cluster 'octo' (Postgres data -> ./data)..."
+          mkdir -p data
+          k3d cluster create --config deploy/k3d/cluster.yaml \
+            --volume "$(pwd)/data:/var/lib/octo-data@server:0"
+        fi
+      # Build + load images, then apply deploy/k8s/ via DevSpace.
+      - task: cluster:images
+      - devspace deploy --namespace octo-dev
+      # Fixed :dev tags don't change between runs, so nudge the apps to pull the
+      # freshly imported images. Harmless on first run; ignored if not yet present.
+      - kubectl rollout restart deployment editor orchestrator -n octo-dev 2>/dev/null || true
+      - |
+        echo ""
+        echo "✓ cluster up:"
+        echo "    editor        http://localhost:3000"
+        echo "    orchestrator  http://localhost:8090/healthz  (and /db-version)"
+        echo "  pods: kubectl get pods -n octo-dev"
+
+  cluster:stop:
+    desc: Tear down the local k3d cluster and free resources (keeps ./data)
+    cmds:
+      - devspace purge --namespace octo-dev || true
+      - |
+        if k3d cluster list 2>/dev/null | grep -qw octo; then
+          k3d cluster delete octo
+          echo "✓ k3d cluster 'octo' deleted; Docker memory reclaimed"
+        else
+          echo "✓ no k3d cluster 'octo' to delete"
+        fi
+      - echo "ℹ Postgres data preserved in ./data — delete it manually to reset the DB"
