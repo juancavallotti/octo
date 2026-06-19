@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/juancavallotti/eip-go/orchestrator/internal/integration"
@@ -94,11 +95,14 @@ func (f *fakeKube) Delete(_ context.Context, _ string) error {
 	return f.deleteErr
 }
 
-func (f *fakeKube) InternalURL(slug string) string {
+func (f *fakeKube) InternalURL(slug string, port int) string {
 	if slug == "" {
 		return ""
 	}
-	return "http://octo-int-" + slug + ".octo-dev:8080"
+	if port < 1 {
+		port = 8080
+	}
+	return fmt.Sprintf("http://octo-int-%s.octo-dev:%d", slug, port)
 }
 
 func (f *fakeKube) DeleteInternalService(_ context.Context, slug string) error {
@@ -212,9 +216,13 @@ func TestUndeployKeepsInternalServiceWhenOthersRemain(t *testing.T) {
 	}
 }
 
+// exposableDef declares HTTP_PORT, which is what makes an integration externally
+// exposable; tests that exercise external endpoints use it as the definition.
+const exposableDef = "env:\n  - name: HTTP_PORT\n    default: \"9090\"\n"
+
 func TestDeployExternalThreadsIngress(t *testing.T) {
 	repo := &fakeRepo{created: Deployment{ID: "dep-1"}}
-	integrations := &fakeIntegrations{ret: integration.Integration{ID: "int-1", Name: "Orders"}}
+	integrations := &fakeIntegrations{ret: integration.Integration{ID: "int-1", Name: "Orders", Definition: exposableDef}}
 	kc := &fakeKube{status: kube.StatusPending, externalEnabled: true}
 	svc := NewService(repo, integrations, kc)
 
@@ -235,7 +243,7 @@ func TestDeployExternalThreadsIngress(t *testing.T) {
 
 func TestDeployExternalDefaultsSubdomainToName(t *testing.T) {
 	repo := &fakeRepo{created: Deployment{ID: "dep-1"}}
-	integrations := &fakeIntegrations{ret: integration.Integration{ID: "int-1", Name: "Orders API"}}
+	integrations := &fakeIntegrations{ret: integration.Integration{ID: "int-1", Name: "Orders API", Definition: exposableDef}}
 	kc := &fakeKube{status: kube.StatusPending, externalEnabled: true}
 	svc := NewService(repo, integrations, kc)
 
@@ -244,6 +252,45 @@ func TestDeployExternalDefaultsSubdomainToName(t *testing.T) {
 	}
 	if kc.gotSpec.Subdomain != "orders-api" {
 		t.Errorf("subdomain = %q, want orders-api (slug of name)", kc.gotSpec.Subdomain)
+	}
+}
+
+// TestDeployExternalThreadsPort checks the declared HTTP_PORT reaches the spec and
+// is supplied as an env var to the runtime container.
+func TestDeployExternalThreadsPort(t *testing.T) {
+	repo := &fakeRepo{created: Deployment{ID: "dep-1"}}
+	integrations := &fakeIntegrations{ret: integration.Integration{ID: "int-1", Name: "Orders", Definition: exposableDef}}
+	kc := &fakeKube{status: kube.StatusPending, externalEnabled: true}
+	svc := NewService(repo, integrations, kc)
+
+	if _, err := svc.Deploy(context.Background(), "int-1", Settings{Expose: ExposeExternal}); err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if kc.gotSpec.Port != 9090 {
+		t.Errorf("spec port = %d, want 9090", kc.gotSpec.Port)
+	}
+	if kc.gotSpec.Env[envHTTPPort] != "9090" {
+		t.Errorf("spec env %s = %q, want 9090", envHTTPPort, kc.gotSpec.Env[envHTTPPort])
+	}
+}
+
+// TestDeployExternalDowngradesWhenNotExposable verifies that requesting external
+// exposure for an integration that declares no HTTP_PORT silently falls back to
+// internal-only rather than erroring.
+func TestDeployExternalDowngradesWhenNotExposable(t *testing.T) {
+	repo := &fakeRepo{created: Deployment{ID: "dep-1"}}
+	integrations := &fakeIntegrations{ret: integration.Integration{ID: "int-1", Name: "Orders"}}
+	kc := &fakeKube{status: kube.StatusPending, externalEnabled: true}
+	svc := NewService(repo, integrations, kc)
+
+	if _, err := svc.Deploy(context.Background(), "int-1", Settings{Expose: ExposeExternal}); err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if kc.gotSpec.Expose {
+		t.Error("spec should not be exposed when the integration declares no HTTP_PORT")
+	}
+	if s := ParseSettings(repo.gotSettings); s.Expose == ExposeExternal {
+		t.Errorf("persisted settings should be internal-only, got %+v", s)
 	}
 }
 

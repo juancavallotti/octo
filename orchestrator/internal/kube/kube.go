@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -35,9 +36,10 @@ const (
 	configMountPath = "/etc/octo/integrations"
 	// configFileName is the single key/file written into the ConfigMap.
 	configFileName = "integration.yaml"
-	// runtimePort is the conventional port the Service targets. It is a
-	// placeholder until real per-integration port wiring + ingress arrive; the
-	// Service simply has no endpoints if the integration does not bind it.
+	// runtimePort is the default port the Service/Ingress target when a deployment
+	// declares no HTTP_PORT (Spec.Port == 0). An integration that declares
+	// HTTP_PORT overrides it; the Service simply has no endpoints if the runtime
+	// does not bind the resolved port.
 	runtimePort = 8080
 
 	labelManagedBy     = "app.kubernetes.io/managed-by"
@@ -48,13 +50,23 @@ const (
 
 // Spec describes the workload to create for one deployment.
 type Spec struct {
-	ID            string // deployment uuid; drives resource names and labels
-	IntegrationID string // owning integration uuid (label + internal Service selector)
-	Definition    string // runtime-loadable integration YAML
-	Replicas      int32  // desired replica count; <1 is treated as 1
-	Slug          string // integration name slug; names the stable internal Service ("" = none)
-	Expose        bool   // when true, also publish an external Ingress
-	Subdomain     string // external host label; the Ingress host is {Subdomain}.{baseDomain}
+	ID            string            // deployment uuid; drives resource names and labels
+	IntegrationID string            // owning integration uuid (label + internal Service selector)
+	Definition    string            // runtime-loadable integration YAML
+	Replicas      int32             // desired replica count; <1 is treated as 1
+	Slug          string            // integration name slug; names the stable internal Service ("" = none)
+	Port          int               // runtime HTTP port (from HTTP_PORT); <1 falls back to runtimePort
+	Env           map[string]string // env vars supplied to the runtime container (e.g. HTTP_HOST/HTTP_PORT)
+	Expose        bool              // when true, also publish an external Ingress
+	Subdomain     string            // external host label; the Ingress host is {Subdomain}.{baseDomain}
+}
+
+// port returns the resolved runtime port, defaulting to runtimePort when unset.
+func (s Spec) port() int32 {
+	if s.Port > 0 {
+		return int32(s.Port)
+	}
+	return runtimePort
 }
 
 // Client wraps a Kubernetes clientset scoped to one namespace and runtime image.
@@ -123,12 +135,17 @@ func resourceName(deploymentID string) string { return "octo-dep-" + deploymentI
 // chars; the caller bounds it) stays within the 63-char DNS-1123 label limit.
 func internalServiceName(slug string) string { return "octo-int-" + slug }
 
-// InternalURL is the in-cluster address of the stable internal Service for slug.
-func (c *Client) InternalURL(slug string) string {
+// InternalURL is the in-cluster address of the stable internal Service for slug,
+// on the deployment's runtime port (port <1 falls back to runtimePort).
+func (c *Client) InternalURL(slug string, port int) string {
 	if slug == "" {
 		return ""
 	}
-	return fmt.Sprintf("http://%s.%s:%d", internalServiceName(slug), c.namespace, runtimePort)
+	p := port
+	if p < 1 {
+		p = runtimePort
+	}
+	return fmt.Sprintf("http://%s.%s:%d", internalServiceName(slug), c.namespace, p)
 }
 
 func (c *Client) labels(spec Spec) map[string]string {
@@ -159,7 +176,7 @@ func (c *Client) Apply(ctx context.Context, spec Spec) error {
 	}
 
 	deps := c.clientset.AppsV1().Deployments(c.namespace)
-	if _, err := deps.Create(ctx, c.deployment(name, labels, spec.Replicas), metav1.CreateOptions{}); err != nil {
+	if _, err := deps.Create(ctx, c.deployment(name, labels, spec), metav1.CreateOptions{}); err != nil {
 		return fmt.Errorf("kube: create deployment: %w", err)
 	}
 
@@ -171,8 +188,8 @@ func (c *Client) Apply(ctx context.Context, spec Spec) error {
 			Selector: map[string]string{labelDeploymentID: spec.ID},
 			Ports: []corev1.ServicePort{{
 				Name:       "http",
-				Port:       runtimePort,
-				TargetPort: intstr.FromInt(runtimePort),
+				Port:       spec.port(),
+				TargetPort: intstr.FromInt(int(spec.port())),
 			}},
 		},
 	}, metav1.CreateOptions{}); err != nil {
@@ -226,7 +243,7 @@ func (c *Client) ingress(name string, labels map[string]string, spec Spec) *netw
 							Backend: networkingv1.IngressBackend{
 								Service: &networkingv1.IngressServiceBackend{
 									Name: name,
-									Port: networkingv1.ServiceBackendPort{Number: runtimePort},
+									Port: networkingv1.ServiceBackendPort{Number: spec.port()},
 								},
 							},
 						}},
@@ -257,8 +274,8 @@ func (c *Client) ensureInternalService(ctx context.Context, spec Spec) error {
 			Selector: map[string]string{labelIntegrationID: spec.IntegrationID},
 			Ports: []corev1.ServicePort{{
 				Name:       "http",
-				Port:       runtimePort,
-				TargetPort: intstr.FromInt(runtimePort),
+				Port:       spec.port(),
+				TargetPort: intstr.FromInt(int(spec.port())),
 			}},
 		},
 	}, metav1.CreateOptions{})
@@ -279,10 +296,11 @@ func (c *Client) DeleteInternalService(ctx context.Context, slug string) error {
 	return ignoreNotFound(err)
 }
 
-// deployment builds the Deployment object: `replicas` runtime pods (clamped to a
-// minimum of 1) with the integration ConfigMap mounted read-only at the config
-// path.
-func (c *Client) deployment(name string, labels map[string]string, replicas int32) *appsv1.Deployment {
+// deployment builds the Deployment object: spec.Replicas runtime pods (clamped to
+// a minimum of 1) with the integration ConfigMap mounted read-only at the config
+// path, the resolved runtime port declared, and any supplied env vars set.
+func (c *Client) deployment(name string, labels map[string]string, spec Spec) *appsv1.Deployment {
+	replicas := spec.Replicas
 	if replicas < 1 {
 		replicas = 1
 	}
@@ -300,6 +318,11 @@ func (c *Client) deployment(name string, labels map[string]string, replicas int3
 						Name:            "runtime",
 						Image:           c.runtimeImage,
 						ImagePullPolicy: corev1.PullIfNotPresent,
+						Env:             envVars(spec.Env),
+						Ports: []corev1.ContainerPort{{
+							Name:          "http",
+							ContainerPort: spec.port(),
+						}},
 						VolumeMounts: []corev1.VolumeMount{{
 							Name:      "integration",
 							MountPath: configMountPath,
@@ -318,6 +341,24 @@ func (c *Client) deployment(name string, labels map[string]string, replicas int3
 			},
 		},
 	}
+}
+
+// envVars converts the supplied env map into a deterministically-ordered slice of
+// container env vars (sorted by name so repeated Applies produce identical specs).
+func envVars(env map[string]string) []corev1.EnvVar {
+	if len(env) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(env))
+	for k := range env {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	out := make([]corev1.EnvVar, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, corev1.EnvVar{Name: k, Value: env[k]})
+	}
+	return out
 }
 
 // Status reports a coarse lifecycle status for a deployment, computed from the

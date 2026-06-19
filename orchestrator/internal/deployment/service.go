@@ -34,7 +34,7 @@ type kubeClient interface {
 	Apply(ctx context.Context, spec kube.Spec) error
 	Status(ctx context.Context, deploymentID string) (string, error)
 	Delete(ctx context.Context, deploymentID string) error
-	InternalURL(slug string) string
+	InternalURL(slug string, port int) string
 	DeleteInternalService(ctx context.Context, slug string) error
 	ExternalEnabled() bool
 	ExternalURL(subdomain string) string
@@ -76,6 +76,11 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 	}
 	slug := slugify(it.Name)
 
+	// The runtime port (and the env the orchestrator supplies to bind it) come from
+	// the integration's HTTP_PORT declaration; an integration is externally
+	// exposable only when it declares one.
+	port, runtimeEnv, exposable := resolveRuntimeEnv(it.Definition)
+
 	// Optional external endpoint: validate up front so a bad request fails before
 	// any row or resource is created.
 	external := settings.External()
@@ -85,15 +90,23 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 		if !s.kube.ExternalEnabled() {
 			return Deployment{}, ErrExternalUnavailable
 		}
-		want := settings.Subdomain
-		if want == "" {
-			want = it.Name
+		if !exposable {
+			// The integration declares no HTTP_PORT, so it cannot be reached from
+			// outside the cluster. Downgrade to internal-only rather than failing.
+			slog.Info("deployment not externally exposable; falling back to internal-only",
+				"integrationId", integrationID, "name", it.Name)
+			external = false
+		} else {
+			want := settings.Subdomain
+			if want == "" {
+				want = it.Name
+			}
+			subdomain = slugify(want)
+			if subdomain == "" {
+				return Deployment{}, ErrInvalidSubdomain
+			}
+			externalURL = s.kube.ExternalURL(subdomain)
 		}
-		subdomain = slugify(want)
-		if subdomain == "" {
-			return Deployment{}, ErrInvalidSubdomain
-		}
-		externalURL = s.kube.ExternalURL(subdomain)
 	}
 
 	persisted := Settings{Replicas: replicas}
@@ -108,7 +121,7 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 	metadata, err := json.Marshal(Metadata{
 		Name:        it.Name,
 		Slug:        slug,
-		InternalURL: s.kube.InternalURL(slug),
+		InternalURL: s.kube.InternalURL(slug, port),
 		ExternalURL: externalURL,
 	})
 	if err != nil {
@@ -126,6 +139,8 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 		Definition:    it.Definition,
 		Replicas:      int32(replicas),
 		Slug:          slug,
+		Port:          port,
+		Env:           runtimeEnv,
 		Expose:        external,
 		Subdomain:     subdomain,
 	}
