@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, Save } from "lucide-react";
 import { useEditorState, EditorActionType } from "@/app/state/editorState";
 import type { EditorDocument } from "@/app/model/document";
@@ -54,8 +54,8 @@ export default function SaveButton() {
     : saved
       ? "No changes to save"
       : id
-        ? "Save changes"
-        : "Save as a new integration";
+        ? "Save changes (⌘/Ctrl+S)"
+        : "Save as a new integration (⌘/Ctrl+S)";
 
   const save = async () => {
     setBusy(true);
@@ -94,6 +94,26 @@ export default function SaveButton() {
       setBusy(false);
     }
   };
+
+  // Cmd/Ctrl+S saves, mirroring the button's enabled state. The handler is kept
+  // in a ref so the window listener registers once but always sees the latest
+  // save closure and gate.
+  const triggerRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    triggerRef.current = () => {
+      if (!busy && !blocked) void save();
+    };
+  });
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        triggerRef.current();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   return (
     <div className="flex items-center gap-2">
