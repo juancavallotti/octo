@@ -16,7 +16,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/juancavallotti/eip-go/orchestrator/internal/db"
 )
 
 const (
@@ -44,22 +44,22 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	var pool *pgxpool.Pool
+	var database *db.DB
 	if dsn == "" {
 		// The service still serves /healthz without a database, which keeps it
 		// useful for liveness probes before Postgres is reachable.
 		slog.Warn("DATABASE_URL is not set; /db-version will report the DB as unavailable")
 	} else {
-		p, err := pgxpool.New(ctx, dsn)
+		d, err := db.New(ctx, dsn)
 		if err != nil {
 			return err
 		}
-		defer p.Close()
-		pool = p
+		defer d.Close()
+		database = d
 		slog.Info("connected to database pool")
 	}
 
-	srv := newServer(pool)
+	srv := newServer(database)
 	httpServer := &http.Server{
 		Addr:              ":" + port,
 		Handler:           srv,
@@ -86,8 +86,8 @@ func run() error {
 	}
 }
 
-// newServer wires the routes. pool may be nil when DATABASE_URL is unset.
-func newServer(pool *pgxpool.Pool) http.Handler {
+// newServer wires the routes. database may be nil when DATABASE_URL is unset.
+func newServer(database *db.DB) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -96,7 +96,7 @@ func newServer(pool *pgxpool.Pool) http.Handler {
 	})
 
 	mux.HandleFunc("GET /db-version", func(w http.ResponseWriter, r *http.Request) {
-		if pool == nil {
+		if database == nil {
 			http.Error(w, "database not configured", http.StatusServiceUnavailable)
 			return
 		}
@@ -106,7 +106,7 @@ func newServer(pool *pgxpool.Pool) http.Handler {
 		// site_settings.value is jsonb; scan it straight into raw JSON and pass it
 		// through unmodified so callers see exactly what was seeded.
 		var value json.RawMessage
-		err := pool.QueryRow(ctx,
+		err := database.Pool().QueryRow(ctx,
 			"SELECT value FROM site_settings WHERE key = $1", "db_version",
 		).Scan(&value)
 		if err != nil {
