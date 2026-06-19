@@ -62,14 +62,19 @@ describe("FlowBoard", () => {
     expect(within(stepsIn(flows()[1])).getAllByRole("listitem")).toHaveLength(1);
   });
 
-  it("adds a source to a flow with the Add source button", async () => {
+  it("picks a source from the Add source dropdown", async () => {
     renderEditor();
     await userEvent.click(screen.getByRole("button", { name: "Add flow" }));
     expect(
       screen.getByRole("button", { name: "Add source" }),
     ).toBeInTheDocument();
 
+    // Opening the dropdown reveals the available source types.
     await userEvent.click(screen.getByRole("button", { name: "Add source" }));
+    const option = screen.getByRole("button", { name: /Cron schedule/ });
+    await userEvent.click(option);
+
+    // Source attached → the picker is replaced by the source node.
     expect(
       screen.queryByRole("button", { name: "Add source" }),
     ).not.toBeInTheDocument();
