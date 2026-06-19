@@ -156,12 +156,14 @@ export function RunProvider({ children }: { children: ReactNode }) {
     }
   }, [closeStream]);
 
+  // Clear only the client-side display. We deliberately leave the open stream and
+  // `lastSeqRef` untouched: reconnecting would make the server replay its whole
+  // buffer, and resetting the seq cursor would let those replayed lines back in —
+  // so the cleared logs would immediately reappear while running. Keeping the
+  // cursor means any later replay (e.g. an auto-reconnect) stays deduped.
   const clearLogs = useCallback(() => {
     setLogs([]);
-    lastSeqRef.current = -1;
-    closeStream();
-    if (running) openStream();
-  }, [closeStream, openStream, running]);
+  }, []);
 
   // While running, push debounced edits to the watched config so octo reloads.
   useEffect(() => {
