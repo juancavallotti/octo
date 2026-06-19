@@ -15,9 +15,11 @@ import {
  * Persists the current document as an integration via the orchestrator. The
  * first save creates the row (and assigns any chosen folder); later saves update
  * it. Unlike the RUN control it does not require a valid document — a work in
- * progress can be saved at any time — but a name is still required since the
- * orchestrator rejects empty names.
+ * progress can be saved at any time. Save is disabled only when there is nothing
+ * to save (an empty document) or nothing has changed since the last save; an
+ * untitled integration is persisted as "Untitled integration".
  */
+const DEFAULT_NAME = "Untitled integration";
 export default function SaveButton() {
   const { state, dispatch } = useEditorState();
   const { id, name, folderId } = state.integration;
@@ -39,25 +41,33 @@ export default function SaveButton() {
     savedSnapshot.name === name &&
     savedSnapshot.folderId === folderId;
 
-  const trimmedName = name.trim();
-  const blocked = trimmedName === "";
+  // "Empty" = nothing worth persisting yet: no flow has a source or a step, and
+  // there are no connections or env vars.
+  const docEmpty =
+    doc.flows.every((f) => !f.source && f.process.length === 0) &&
+    doc.connectors.length === 0 &&
+    doc.env.length === 0;
+  const blocked = docEmpty || saved;
 
-  const title = blocked
-    ? "Name the integration to save"
-    : id
-      ? "Save changes"
-      : "Save as a new integration";
+  const title = docEmpty
+    ? "Nothing to save yet"
+    : saved
+      ? "No changes to save"
+      : id
+        ? "Save changes"
+        : "Save as a new integration";
 
   const save = async () => {
     setBusy(true);
     setError(null);
+    const saveName = name.trim() || DEFAULT_NAME;
     try {
-      const definition = toDefinitionYaml(doc, trimmedName);
+      const definition = toDefinitionYaml(doc, saveName);
       if (id) {
-        await updateIntegration(id, { name: trimmedName, definition });
+        await updateIntegration(id, { name: saveName, definition });
       } else {
         const created = await createIntegration({
-          name: trimmedName,
+          name: saveName,
           definition,
         });
         if (folderId) await assignIntegration(folderId, created.id);
@@ -69,7 +79,15 @@ export default function SaveButton() {
         // editor (Next syncs the router for manual history updates).
         window.history.replaceState(null, "", `/i/${created.id}`);
       }
-      setSavedSnapshot({ doc, name, folderId });
+      // Reflect a defaulted name in the title field so the UI matches what was
+      // stored (and so the saved-snapshot comparison holds).
+      if (saveName !== name) {
+        dispatch({
+          type: EditorActionType.SET_INTEGRATION_TITLE,
+          data: { name: saveName },
+        });
+      }
+      setSavedSnapshot({ doc, name: saveName, folderId });
     } catch (e) {
       setError((e as Error).message);
     } finally {
