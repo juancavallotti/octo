@@ -18,6 +18,15 @@ export type FieldType =
   | "flow-list"
   | "case-list";
 
+/**
+ * Describes that a (string) field holds a *reference* to another named entity in
+ * the document, so the editor can offer a dropdown of valid targets instead of a
+ * free-text input. A connector reference is narrowed to one connector type.
+ */
+export type ReferenceSpec =
+  | { kind: "connector"; connectorType: string }
+  | { kind: "flow" };
+
 /** A single configurable field (a block setting, source setting, etc.). */
 export interface FieldSpec {
   name: string;
@@ -27,6 +36,8 @@ export interface FieldSpec {
   default?: string | number | boolean;
   enum?: string[];
   description?: string;
+  /** When set, the field references a named connection/flow (rendered as a dropdown). */
+  ref?: ReferenceSpec;
 }
 
 /** Whether a block is a plain processor or a control-flow composite. */
@@ -47,6 +58,8 @@ export interface BlockSpec {
 export interface SourceSpec {
   type: string;
   label: string;
+  /** Name of a lucide icon, resolved to a component by the loader. */
+  icon?: string;
   fields: FieldSpec[];
 }
 
@@ -54,6 +67,8 @@ export interface SourceSpec {
 export interface ConnectorSpec {
   type: string;
   label: string;
+  /** Name of a lucide icon, resolved to a component by the loader. */
+  icon?: string;
   settings: FieldSpec[];
   sources: SourceSpec[];
 }

@@ -108,15 +108,42 @@ describe("editor reducer", () => {
     expect(next.activeFlowId).toBe(firstId);
   });
 
-  it("adds an empty source to a flow on demand", () => {
+  it("adds a typed source to a flow and selects it", () => {
     const withFlow = reducer(initialState, { type: EditorActionType.ADD_FLOW });
     const flowId = withFlow.document.flows[0].id;
     expect(withFlow.document.flows[0].source).toBeUndefined();
     const next = reducer(withFlow, {
       type: EditorActionType.ADD_SOURCE,
+      data: { flowId, connector: "cron", type: "cron" },
+    });
+    expect(next.document.flows[0].source).toMatchObject({
+      connector: "cron",
+      type: "cron",
+    });
+    expect(next.selectedSourceFlowId).toBe(flowId);
+    expect(next.selectedBlockId).toBeNull();
+  });
+
+  it("updates and removes a flow's source", () => {
+    const withFlow = reducer(initialState, { type: EditorActionType.ADD_FLOW });
+    const flowId = withFlow.document.flows[0].id;
+    const withSource = reducer(withFlow, {
+      type: EditorActionType.ADD_SOURCE,
+      data: { flowId, connector: "cron", type: "cron" },
+    });
+    const updated = reducer(withSource, {
+      type: EditorActionType.UPDATE_SOURCE_SETTING,
+      data: { flowId, field: "schedule", value: "@every 2s" },
+    });
+    expect(updated.document.flows[0].source?.settings.schedule).toBe(
+      "@every 2s",
+    );
+    const removed = reducer(updated, {
+      type: EditorActionType.REMOVE_SOURCE,
       data: { flowId },
     });
-    expect(next.document.flows[0].source).toEqual({ settings: {} });
+    expect(removed.document.flows[0].source).toBeUndefined();
+    expect(removed.selectedSourceFlowId).toBeNull();
   });
 
   it("adds a block into a nested composite sub-flow", () => {

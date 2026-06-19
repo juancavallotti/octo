@@ -3,6 +3,7 @@ import { EditorStateProvider } from "@/app/state/editorState";
 import DndProvider from "./DndProvider";
 import Sidebar from "./Sidebar";
 import Canvas from "./Canvas";
+import SettingsPanel from "./SettingsPanel";
 
 /**
  * EditorShell is the top-level layout for the Octo visual editor: a thin top
@@ -33,6 +34,7 @@ export default function EditorShell() {
           <div className="flex flex-1 min-h-0">
             <Sidebar />
             <Canvas />
+            <SettingsPanel />
           </div>
         </DndProvider>
       </div>

@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { emptyDocument, findBlock, findFlow, newBlock } from "./document";
+import {
+  defaultSourceSettings,
+  emptyDocument,
+  findBlock,
+  findFlow,
+  newBlock,
+} from "./document";
 
 describe("document tree helpers", () => {
   it("finds a block and a flow nested inside a composite slot", () => {
@@ -19,5 +25,14 @@ describe("document tree helpers", () => {
   it("returns undefined for an unknown id", () => {
     expect(findBlock(emptyDocument(), "nope")).toBeUndefined();
     expect(findFlow(emptyDocument(), "nope")).toBeUndefined();
+  });
+
+  it("seeds source settings from the schema field defaults", () => {
+    // http route declares a maxBodyBytes default; cron declares none.
+    expect(defaultSourceSettings("http", "http")).toMatchObject({
+      maxBodyBytes: 1048576,
+    });
+    expect(defaultSourceSettings("cron", "cron")).toEqual({});
+    expect(defaultSourceSettings("nope", "nope")).toEqual({});
   });
 });

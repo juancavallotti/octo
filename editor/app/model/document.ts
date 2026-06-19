@@ -1,4 +1,4 @@
-import { getBlockSpec } from "@/app/schema";
+import { getBlockSpec, getSourceSpec } from "@/app/schema";
 import type { FieldSpec } from "@/app/schema/types";
 
 /**
@@ -31,8 +31,18 @@ export interface BlockNode {
 }
 
 export interface SourceNode {
-  /** Name of a configured connector instance. */
+  /**
+   * Connector *type* that exposes this source (e.g. "http"), used to resolve the
+   * source spec and to constrain which connections can be bound. This is editor
+   * state; it is not serialized to the runtime (the runtime derives it from the
+   * bound connector instance).
+   */
   connector?: string;
+  /**
+   * Name of the bound connector instance (the runtime's `source.connector`). When
+   * empty the runtime falls back to its default connector of the matching type.
+   */
+  connectorRef?: string;
   /** Connector-specific source type. */
   type?: string;
   settings: Record<string, unknown>;
@@ -48,7 +58,12 @@ export interface FlowDoc {
 }
 
 /** Field types whose value is one or more nested sub-flows. */
-const SLOT_FIELD_TYPES = new Set(["flow", "flow-list", "case-list"]);
+export const SLOT_FIELD_TYPES = new Set(["flow", "flow-list", "case-list"]);
+
+/** Whether a field's value is a nested sub-flow (managed on the canvas, not in the panel). */
+export function isSlotField(field: FieldSpec): boolean {
+  return SLOT_FIELD_TYPES.has(field.type);
+}
 
 export interface ConnectorInstance {
   id: string;
@@ -72,6 +87,20 @@ export function newId(): string {
 /** Seed a block's settings from the schema's scalar field defaults. */
 export function defaultSettings(type: string): Record<string, unknown> {
   const spec = getBlockSpec(type);
+  if (!spec) return {};
+  const settings: Record<string, unknown> = {};
+  for (const field of spec.fields) {
+    if (field.default !== undefined) settings[field.name] = field.default;
+  }
+  return settings;
+}
+
+/** Seed a source's settings from its schema field defaults. */
+export function defaultSourceSettings(
+  connector: string,
+  type: string,
+): Record<string, unknown> {
+  const spec = getSourceSpec(connector, type);
   if (!spec) return {};
   const settings: Record<string, unknown> = {};
   for (const field of spec.fields) {
@@ -106,7 +135,7 @@ export function newBlock(type: string): BlockNode {
 }
 
 /** An empty flow with no source and no steps. */
-export function emptyFlow(name = "New flow"): FlowDoc {
+export function emptyFlow(name = "new-flow"): FlowDoc {
   return { id: newId(), name, process: [] };
 }
 
@@ -148,6 +177,34 @@ export function mapFlow(
   fn: FlowFn,
 ): EditorDocument {
   return { ...doc, flows: doc.flows.map((f) => mapFlowTree(f, flowId, fn)) };
+}
+
+type BlockFn = (block: BlockNode) => BlockNode;
+
+/** Apply `fn` to one block (by id) inside a flow tree, returning a copy. */
+function mapBlockTree(flow: FlowDoc, blockId: string, fn: BlockFn): FlowDoc {
+  const process = flow.process.map((block) => {
+    const next = block.id === blockId ? fn(block) : block;
+    if (!next.slots) return next;
+    const slots: Record<string, FlowDoc[]> = {};
+    for (const [name, subs] of Object.entries(next.slots)) {
+      slots[name] = subs.map((f) => mapBlockTree(f, blockId, fn));
+    }
+    return { ...next, slots };
+  });
+  return { ...flow, process };
+}
+
+/**
+ * Return a new document with `fn` applied to the block identified by `blockId`,
+ * wherever it lives — in a top-level flow or nested in a composite's slot.
+ */
+export function mapBlockById(
+  doc: EditorDocument,
+  blockId: string,
+  fn: BlockFn,
+): EditorDocument {
+  return { ...doc, flows: doc.flows.map((f) => mapBlockTree(f, blockId, fn)) };
 }
 
 /** Find a block by id anywhere in the tree (top-level or nested in a slot). */
