@@ -364,11 +364,14 @@ flowchart TB
       </div>
       <div>
         <h3>3 · Call a flow directly (no ports, no sources)</h3>
-        <div class="cmd"><span class="p">$</span> go run ./cli invoke \<br />&nbsp;&nbsp;-config samples/hello-invoke.yaml -flow greet \<br />&nbsp;&nbsp;-data '{"name":"Ada"}'<br /><span class="c"># → {"greeting":"hello, Ada!"}</span></div>
+        <div class="cmd"><span class="p">$</span> go run ./cli invoke \<br />&nbsp;&nbsp;--config samples/hello-invoke.yaml --flow greet \<br />&nbsp;&nbsp;--data '{"name":"Ada"}'<br /><span class="c"># → {"greeting":"hello, Ada!"}</span></div>
 
         <h3 style="margin-top:28px">4 · Develop with hot reload</h3>
-        <div class="cmd"><span class="p">$</span> go run ./cli -config samples/http-orders.yaml --watch</div>
+        <div class="cmd"><span class="p">$</span> go run ./cli --config samples/http-orders.yaml --watch</div>
         <p style="font-size:0.9rem">Edit the YAML (or a <code>.env</code>), save, and the runtime rebuilds itself.</p>
+
+        <h3 style="margin-top:28px">5 · Check the version</h3>
+        <div class="cmd"><span class="p">$</span> go run ./cli --version<br /><span class="c"># → octo 0.1.0 (built 2026-06-18T22:31:23Z)</span></div>
       </div>
     </div>
     <div class="note"><strong>Tip:</strong> sourceless flows (no <code>source:</code>) get an implicit source and become callable by name — ideal for <code>invoke</code> and for <code>flow-ref</code> sub-flows.</div>
@@ -480,7 +483,7 @@ flowchart LR
   name: hello-invoke
 
 # A sourceless flow is callable by name — perfect for the CLI:
-#   go run ./cli invoke -config greet.yaml -flow greet -data '{"name":"Ada"}'
+#   go run ./cli invoke --config greet.yaml --flow greet --data '{"name":"Ada"}'
 #   -> {"greeting":"hello, Ada!"}
 flows:
   - name: greet
@@ -493,7 +496,7 @@ flows:
 
 <script type="text/plain" data-sample-meta="hero"
   data-title="hello-invoke" data-blurb="The smallest useful flow: no source, callable by name, JSON in / JSON out."
-  data-run="go run ./cli invoke -config samples/hello-invoke.yaml -flow greet -data '{&quot;name&quot;:&quot;Ada&quot;}'"
+  data-run="go run ./cli invoke --config samples/hello-invoke.yaml --flow greet --data '{&quot;name&quot;:&quot;Ada&quot;}'"
   data-pills="set-payload|sourceless|invoke"></script>
 
 <div id="sample-data" hidden>
@@ -531,7 +534,7 @@ flows:
 
   <script type="text/plain" data-sample-meta="http-orders"
     data-title="http-orders" data-blurb="An HTTP endpoint with content-based routing, a one-way audit (fire-and-forget), and a synchronous content-enricher sub-flow."
-    data-run="go run ./cli -config samples/http-orders.yaml"
+    data-run="go run ./cli --config samples/http-orders.yaml"
     data-pills="http|switch|flow-ref|if|set-payload"></script>
   <script type="text/plain" data-sample-src="http-orders">service:
   name: http-orders

@@ -70,6 +70,14 @@ func (r *Registry) New(name string) (Connector, error) {
 	return factory(), nil
 }
 
+// Has reports whether a connector type is registered.
+func (r *Registry) Has(name string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	_, ok := r.factories[name]
+	return ok
+}
+
 // Names returns the registered connector type names in sorted order.
 func (r *Registry) Names() []string {
 	r.mu.RLock()
