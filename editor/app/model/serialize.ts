@@ -203,7 +203,11 @@ function sourceFromRuntime(
     type: source.type,
     settings: source.settings ?? {},
   };
-  if (name) out.connectorRef = name;
+  // Only treat `name` as an explicit binding when it names a real connection.
+  // When it's a type fallback (implicit default binding, no instance of that
+  // name), leave connectorRef unset — otherwise it reads as a dangling reference
+  // and the document round-trips into an invalid state.
+  if (connTypes.has(name)) out.connectorRef = name;
   return out;
 }
 

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { emptyDocument, newBlock } from "./document";
 import { fromConfig, toConfig } from "./serialize";
+import { validateDocument } from "./validate";
 
 describe("serialize", () => {
   it("maps a flow's leaf blocks to the runtime config shape", () => {
@@ -64,6 +65,21 @@ describe("serialize", () => {
       type: "cron",
       settings: { schedule: "@every 2s" },
     });
+  });
+
+  it("does not invent a connectorRef for an implicit-default source", () => {
+    const doc = emptyDocument();
+    doc.flows[0].source = {
+      connector: "cron",
+      type: "cron",
+      settings: { schedule: "@every 2s" },
+    };
+
+    // The type-name fallback ("cron") must not round-trip into an explicit
+    // binding, which would read as a dangling reference and fail validation.
+    const restored = fromConfig(toConfig(doc));
+    expect(restored.flows[0].source?.connectorRef).toBeUndefined();
+    expect(validateDocument(restored).ok).toBe(true);
   });
 
   it("round-trips through fromConfig with fresh ids", () => {

@@ -1,11 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Check, Save } from "lucide-react";
 import { useEditorState, EditorActionType } from "@/app/state/editorState";
 import type { EditorDocument } from "@/app/model/document";
 import { toDefinitionYaml } from "@/app/model/runConfig";
-import { validateDocument } from "@/app/model/validate";
 import {
   assignIntegration,
   createIntegration,
@@ -15,9 +14,9 @@ import {
 /**
  * Persists the current document as an integration via the orchestrator. The
  * first save creates the row (and assigns any chosen folder); later saves update
- * it. Like the RUN control, it gates on the document validity and surfaces the
- * blocking issues in its tooltip; a name is also required since the orchestrator
- * rejects empty names.
+ * it. Unlike the RUN control it does not require a valid document — a work in
+ * progress can be saved at any time — but a name is still required since the
+ * orchestrator rejects empty names.
  */
 export default function SaveButton() {
   const { state, dispatch } = useEditorState();
@@ -40,17 +39,14 @@ export default function SaveButton() {
     savedSnapshot.name === name &&
     savedSnapshot.folderId === folderId;
 
-  const validation = useMemo(() => validateDocument(doc), [doc]);
   const trimmedName = name.trim();
-  const blocked = !validation.ok || trimmedName === "";
+  const blocked = trimmedName === "";
 
-  const title = !validation.ok
-    ? `Fix before saving:\n• ${validation.issues.join("\n• ")}`
-    : trimmedName === ""
-      ? "Name the integration to save"
-      : id
-        ? "Save changes"
-        : "Save as a new integration";
+  const title = blocked
+    ? "Name the integration to save"
+    : id
+      ? "Save changes"
+      : "Save as a new integration";
 
   const save = async () => {
     setBusy(true);
