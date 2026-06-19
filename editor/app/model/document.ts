@@ -48,7 +48,12 @@ export interface FlowDoc {
 }
 
 /** Field types whose value is one or more nested sub-flows. */
-const SLOT_FIELD_TYPES = new Set(["flow", "flow-list", "case-list"]);
+export const SLOT_FIELD_TYPES = new Set(["flow", "flow-list", "case-list"]);
+
+/** Whether a field's value is a nested sub-flow (managed on the canvas, not in the panel). */
+export function isSlotField(field: FieldSpec): boolean {
+  return SLOT_FIELD_TYPES.has(field.type);
+}
 
 export interface ConnectorInstance {
   id: string;
@@ -148,6 +153,34 @@ export function mapFlow(
   fn: FlowFn,
 ): EditorDocument {
   return { ...doc, flows: doc.flows.map((f) => mapFlowTree(f, flowId, fn)) };
+}
+
+type BlockFn = (block: BlockNode) => BlockNode;
+
+/** Apply `fn` to one block (by id) inside a flow tree, returning a copy. */
+function mapBlockTree(flow: FlowDoc, blockId: string, fn: BlockFn): FlowDoc {
+  const process = flow.process.map((block) => {
+    const next = block.id === blockId ? fn(block) : block;
+    if (!next.slots) return next;
+    const slots: Record<string, FlowDoc[]> = {};
+    for (const [name, subs] of Object.entries(next.slots)) {
+      slots[name] = subs.map((f) => mapBlockTree(f, blockId, fn));
+    }
+    return { ...next, slots };
+  });
+  return { ...flow, process };
+}
+
+/**
+ * Return a new document with `fn` applied to the block identified by `blockId`,
+ * wherever it lives — in a top-level flow or nested in a composite's slot.
+ */
+export function mapBlockById(
+  doc: EditorDocument,
+  blockId: string,
+  fn: BlockFn,
+): EditorDocument {
+  return { ...doc, flows: doc.flows.map((f) => mapBlockTree(f, blockId, fn)) };
 }
 
 /** Find a block by id anywhere in the tree (top-level or nested in a slot). */

@@ -20,6 +20,10 @@ export enum EditorActionType {
   REMOVE_FLOW = "REMOVE_FLOW",
   /** Mark a canvas block as selected (or clear with null). */
   SELECT_BLOCK = "SELECT_BLOCK",
+  /** Update one setting field of a block (by id). */
+  UPDATE_BLOCK_SETTING = "UPDATE_BLOCK_SETTING",
+  /** Rename a block's step name (by id). */
+  RENAME_BLOCK = "RENAME_BLOCK",
   /** Switch which flow is active (the target for click-to-add). */
   SET_ACTIVE_FLOW = "SET_ACTIVE_FLOW",
   /** Give a flow an (empty) source so the source node appears. */
@@ -64,6 +68,17 @@ export interface RemoveFlowPayload {
 
 export interface SelectBlockPayload {
   blockId: string | null;
+}
+
+export interface UpdateBlockSettingPayload {
+  blockId: string;
+  field: string;
+  value: unknown;
+}
+
+export interface RenameBlockPayload {
+  blockId: string;
+  name: string;
 }
 
 export interface SetActiveFlowPayload {

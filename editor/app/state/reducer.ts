@@ -1,14 +1,5 @@
 import { ReducerAction } from "@eetr/react-reducer-utils";
-import {
-  EditorDocument,
-  FlowDoc,
-  blankDocument,
-  emptyFlow,
-  findBlock,
-  findFlow,
-  mapFlow,
-  newBlock,
-} from "@/app/model/document";
+import { EditorDocument, blankDocument } from "@/app/model/document";
 import {
   AddBlockPayload,
   AddSourcePayload,
@@ -18,15 +9,19 @@ import {
   MoveBlockPayload,
   RemoveBlockPayload,
   RemoveFlowPayload,
+  RenameBlockPayload,
   SelectBlockPayload,
   SetActiveFlowPayload,
+  UpdateBlockSettingPayload,
 } from "./actions";
+import * as handlers from "./handlers";
 
 /**
  * Editor-wide state. EditorShell is a "large" component, so its state lives in a
  * reducer (per the coding standards). The document is the in-memory editing model
  * (see app/model/document.ts); a file holds many flows, all editable at once.
  * `activeFlowId` is just the target for click-to-add and selection highlighting.
+ * The pure state transitions live in handlers.ts; this file wires them to actions.
  */
 export interface EditorState {
   document: EditorDocument;
@@ -49,151 +44,38 @@ function makeInitialState(): EditorState {
 
 export const initialState: EditorState = makeInitialState();
 
-/** Immutable move of one array element from one index to another. */
-function arrayMove<T>(items: T[], from: number, to: number): T[] {
-  const next = items.slice();
-  const [moved] = next.splice(from, 1);
-  next.splice(to, 0, moved);
-  return next;
-}
-
-/** Apply `fn` to one flow by id (at any depth), returning a new document. */
-function updateFlow(
-  state: EditorState,
-  flowId: string | null,
-  fn: (flow: FlowDoc) => FlowDoc,
-): EditorDocument {
-  if (!flowId) return state.document;
-  return mapFlow(state.document, flowId, fn);
-}
-
-function addFlow(state: EditorState): EditorState {
-  const flow = emptyFlow(`Flow ${state.document.flows.length + 1}`);
-  return {
-    ...state,
-    document: { ...state.document, flows: [...state.document.flows, flow] },
-    activeFlowId: flow.id,
-    selectedBlockId: null,
-  };
-}
-
-function addBlock(state: EditorState, p: AddBlockPayload): EditorState {
-  const block = newBlock(p.blockType);
-  const flowId = p.flowId ?? state.activeFlowId;
-
-  // No target flow yet (scratch document) — create one and start it with this block.
-  if (!flowId || !findFlow(state.document, flowId)) {
-    const flow = emptyFlow(`Flow ${state.document.flows.length + 1}`);
-    flow.process = [block];
-    const document = {
-      ...state.document,
-      flows: [...state.document.flows, flow],
-    };
-    return { ...state, document, activeFlowId: flow.id, selectedBlockId: block.id };
-  }
-
-  const document = updateFlow(state, flowId, (flow) => {
-    const process = flow.process.slice();
-    process.splice(p.index ?? process.length, 0, block);
-    return { ...flow, process };
-  });
-  return { ...state, document, activeFlowId: flowId, selectedBlockId: block.id };
-}
-
-function addSource(state: EditorState, p: AddSourcePayload): EditorState {
-  const document = updateFlow(state, p.flowId, (flow) =>
-    flow.source ? flow : { ...flow, source: { settings: {} } },
-  );
-  return { ...state, document };
-}
-
-function moveBlock(state: EditorState, p: MoveBlockPayload): EditorState {
-  const document = updateFlow(state, p.flowId, (flow) => ({
-    ...flow,
-    process: arrayMove(flow.process, p.fromIndex, p.toIndex),
-  }));
-  return { ...state, document };
-}
-
-function moveBlockAcross(
-  state: EditorState,
-  p: MoveBlockAcrossPayload,
-): EditorState {
-  if (p.fromFlowId === p.toFlowId) return state;
-  const fromFlow = findFlow(state.document, p.fromFlowId);
-  const block = fromFlow?.process.find((b) => b.id === p.blockId);
-  if (!block) return state;
-
-  const withoutBlock = mapFlow(state.document, p.fromFlowId, (flow) => ({
-    ...flow,
-    process: flow.process.filter((b) => b.id !== p.blockId),
-  }));
-  const document = mapFlow(withoutBlock, p.toFlowId, (flow) => {
-    const process = flow.process.slice();
-    process.splice(p.index ?? process.length, 0, block);
-    return { ...flow, process };
-  });
-  return { ...state, document, activeFlowId: p.toFlowId, selectedBlockId: block.id };
-}
-
-function removeBlock(state: EditorState, p: RemoveBlockPayload): EditorState {
-  const document = updateFlow(state, p.flowId, (flow) => ({
-    ...flow,
-    process: flow.process.filter((b) => b.id !== p.blockId),
-  }));
-  const selectedBlockId =
-    state.selectedBlockId === p.blockId ? null : state.selectedBlockId;
-  return { ...state, document, selectedBlockId };
-}
-
-function removeFlow(state: EditorState, p: RemoveFlowPayload): EditorState {
-  const document = {
-    ...state.document,
-    flows: state.document.flows.filter((f) => f.id !== p.flowId),
-  };
-  // Drop active/selection pointers that no longer resolve in the new document.
-  const activeFlowId =
-    state.activeFlowId && findFlow(document, state.activeFlowId)
-      ? state.activeFlowId
-      : null;
-  const selectedBlockId =
-    state.selectedBlockId && findBlock(document, state.selectedBlockId)
-      ? state.selectedBlockId
-      : null;
-  return { ...state, document, activeFlowId, selectedBlockId };
-}
-
-function loadDocument(state: EditorState, p: LoadDocumentPayload): EditorState {
-  return {
-    ...state,
-    document: p.document,
-    activeFlowId: p.document.flows[0]?.id ?? null,
-    selectedBlockId: null,
-  };
-}
-
 export function reducer(
   state: EditorState = initialState,
   action: ReducerAction<EditorActionType>,
 ): EditorState {
   switch (action.type) {
     case EditorActionType.ADD_FLOW:
-      return addFlow(state);
+      return handlers.addFlow(state);
     case EditorActionType.ADD_BLOCK:
-      return addBlock(state, action.data as AddBlockPayload);
+      return handlers.addBlock(state, action.data as AddBlockPayload);
     case EditorActionType.MOVE_BLOCK:
-      return moveBlock(state, action.data as MoveBlockPayload);
+      return handlers.moveBlock(state, action.data as MoveBlockPayload);
     case EditorActionType.MOVE_BLOCK_ACROSS:
-      return moveBlockAcross(state, action.data as MoveBlockAcrossPayload);
+      return handlers.moveBlockAcross(
+        state,
+        action.data as MoveBlockAcrossPayload,
+      );
     case EditorActionType.REMOVE_BLOCK:
-      return removeBlock(state, action.data as RemoveBlockPayload);
+      return handlers.removeBlock(state, action.data as RemoveBlockPayload);
     case EditorActionType.REMOVE_FLOW:
-      return removeFlow(state, action.data as RemoveFlowPayload);
+      return handlers.removeFlow(state, action.data as RemoveFlowPayload);
     case EditorActionType.SELECT_BLOCK:
       return {
         ...state,
         selectedBlockId: (action.data as SelectBlockPayload).blockId,
       };
+    case EditorActionType.UPDATE_BLOCK_SETTING:
+      return handlers.updateBlockSetting(
+        state,
+        action.data as UpdateBlockSettingPayload,
+      );
+    case EditorActionType.RENAME_BLOCK:
+      return handlers.renameBlock(state, action.data as RenameBlockPayload);
     case EditorActionType.SET_ACTIVE_FLOW:
       return {
         ...state,
@@ -201,9 +83,9 @@ export function reducer(
         selectedBlockId: null,
       };
     case EditorActionType.ADD_SOURCE:
-      return addSource(state, action.data as AddSourcePayload);
+      return handlers.addSource(state, action.data as AddSourcePayload);
     case EditorActionType.LOAD_DOCUMENT:
-      return loadDocument(state, action.data as LoadDocumentPayload);
+      return handlers.loadDocument(state, action.data as LoadDocumentPayload);
     case EditorActionType.SELECT_COMPONENT:
       return { ...state, selectedComponentId: action.data as string };
     case EditorActionType.CLEAR_SELECTION:
