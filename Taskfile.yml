@@ -198,4 +198,19 @@ tasks:
         else
           echo "✓ no k3d cluster 'octo' to delete"
         fi
-      - echo "ℹ Postgres data preserved in ./data — delete it manually to reset the DB"
+      - echo "ℹ Postgres data preserved in ./data — run 'task cluster:db:reset' to wipe it"
+
+  cluster:db:reset:
+    desc: Delete the local Postgres data dir (./data) so the DB is recreated fresh on next deploy
+    prompt: This permanently deletes ./data and all local Postgres data. Continue?
+    cmds:
+      # Postgres holds the data dir open while the cluster runs; deleting it then
+      # would corrupt the volume. Require the cluster down first.
+      - |
+        if k3d cluster list 2>/dev/null | grep -qw octo; then
+          echo "✖ k3d cluster 'octo' is running; stop it first so Postgres releases ./data:" >&2
+          echo "    task cluster:stop" >&2
+          exit 1
+        fi
+      - rm -rf data
+      - echo "✓ ./data removed; 'task cluster:deploy' will recreate Postgres and re-apply the schema fresh"
