@@ -22,7 +22,7 @@ import { useEditorState } from "@/app/state/editorState";
  * share one connection and one source of truth.
  */
 
-const SYNC_DEBOUNCE_MS = 300;
+const SYNC_DEBOUNCE_MS = 2000;
 const MAX_CLIENT_LOGS = 5000;
 
 export interface RunLogLine {
@@ -166,8 +166,11 @@ export function RunProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // While running, push debounced edits to the watched config so octo reloads.
+  // Only valid documents are synced: pushing an invalid intermediate edit (e.g.
+  // mid-rename) would make the live runner fail its hot-reload. We hold the last
+  // valid config until the document is valid again, then push the difference.
   useEffect(() => {
-    if (!running) return;
+    if (!running || !validation.ok) return;
     const yaml = toRunnableYaml(doc);
     if (yaml === lastYamlRef.current) return;
     const t = setTimeout(() => {
@@ -179,7 +182,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
       }).catch(() => {});
     }, SYNC_DEBOUNCE_MS);
     return () => clearTimeout(t);
-  }, [doc, running]);
+  }, [doc, running, validation.ok]);
 
   const value: RunContextValue = {
     available,
