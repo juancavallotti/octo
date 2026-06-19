@@ -16,6 +16,18 @@ npm run build    # production build
 
 From the repo root you can also use `task editor:install|dev|lint|test|build`.
 
+## Configuration
+
+| Env var            | Effect                                                                                                                                              |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OCTO_BIN_PATH`    | Path to the `octo` binary; enables the RUN feature.                                                                                                  |
+| `OCTO_RUN_DIR`     | Directory for rendered run configs (defaults to the OS temp dir).                                                                                    |
+| `ORCHESTRATOR_URL` | Base URL of the orchestrator API (e.g. `http://localhost:8090`). When set, the integration/folder management UI is enabled; when unset it is hidden. |
+
+The editor never calls the orchestrator from the browser: server-side proxy
+routes under `app/api` (the BFF) front every call, so the orchestrator needs no
+CORS and its URL stays server-only.
+
 ## Conventions
 
 Read [docs/editor-coding-standards.md](../docs/editor-coding-standards.md) before

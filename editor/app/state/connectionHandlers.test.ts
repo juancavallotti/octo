@@ -17,6 +17,7 @@ function baseState(): EditorState {
     selectedSourceFlowId: null,
     selectedConnectionId: null,
     selectedComponentId: null,
+    integration: { id: null, name: "", folderId: null },
   };
 }
 

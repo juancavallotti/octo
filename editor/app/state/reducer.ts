@@ -27,12 +27,17 @@ import {
   RenameConnectionPayload,
   SelectConnectionPayload,
   UpdateConnectionSettingPayload,
+  SetIntegrationIdPayload,
+  SetIntegrationTitlePayload,
+  SetIntegrationFolderPayload,
+  LoadIntegrationPayload,
 } from "./actions";
 import * as handlers from "./handlers";
 import * as sourceHandlers from "./sourceHandlers";
 import * as connectionHandlers from "./connectionHandlers";
 import * as envHandlers from "./envHandlers";
 import * as slotHandlers from "./slotHandlers";
+import * as integrationHandlers from "./integrationHandlers";
 
 /**
  * Editor-wide state. EditorShell is a "large" component, so its state lives in a
@@ -41,6 +46,17 @@ import * as slotHandlers from "./slotHandlers";
  * `activeFlowId` is just the target for click-to-add and selection highlighting.
  * The pure state transitions live in handlers.ts; this file wires them to actions.
  */
+/**
+ * The persisted-integration metadata the title bar binds to. `id` is null until
+ * the document has been saved to the orchestrator at least once; `folderId` is
+ * null when unfiled.
+ */
+export interface IntegrationMeta {
+  id: string | null;
+  name: string;
+  folderId: string | null;
+}
+
 export interface EditorState {
   document: EditorDocument;
   /** Target flow for click-to-add; also highlighted on the canvas. */
@@ -53,6 +69,8 @@ export interface EditorState {
   selectedConnectionId: string | null;
   /** Currently highlighted palette component id, or null. */
   selectedComponentId: string | null;
+  /** Metadata for the integration the document maps to (when saving is enabled). */
+  integration: IntegrationMeta;
 }
 
 function makeInitialState(): EditorState {
@@ -63,6 +81,7 @@ function makeInitialState(): EditorState {
     selectedSourceFlowId: null,
     selectedConnectionId: null,
     selectedComponentId: null,
+    integration: { id: null, name: "", folderId: null },
   };
 }
 
@@ -172,6 +191,28 @@ export function reducer(
       return envHandlers.setEnv(state, action.data as SetEnvPayload);
     case EditorActionType.LOAD_DOCUMENT:
       return handlers.loadDocument(state, action.data as LoadDocumentPayload);
+    case EditorActionType.SET_INTEGRATION_ID:
+      return integrationHandlers.setIntegrationId(
+        state,
+        action.data as SetIntegrationIdPayload,
+      );
+    case EditorActionType.SET_INTEGRATION_TITLE:
+      return integrationHandlers.setIntegrationTitle(
+        state,
+        action.data as SetIntegrationTitlePayload,
+      );
+    case EditorActionType.SET_INTEGRATION_FOLDER:
+      return integrationHandlers.setIntegrationFolder(
+        state,
+        action.data as SetIntegrationFolderPayload,
+      );
+    case EditorActionType.LOAD_INTEGRATION:
+      return integrationHandlers.loadIntegration(
+        state,
+        action.data as LoadIntegrationPayload,
+      );
+    case EditorActionType.NEW_INTEGRATION:
+      return integrationHandlers.newIntegration(state);
     case EditorActionType.SELECT_COMPONENT:
       return { ...state, selectedComponentId: action.data as string };
     case EditorActionType.CLEAR_SELECTION:

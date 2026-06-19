@@ -20,6 +20,7 @@ function stateWithSwitch(): { state: EditorState; blockId: string } {
     selectedSourceFlowId: null,
     selectedConnectionId: null,
     selectedComponentId: null,
+    integration: { id: null, name: "", folderId: null },
   };
   return { state, blockId: sw.id };
 }

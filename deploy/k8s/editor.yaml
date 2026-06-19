@@ -30,6 +30,10 @@ spec:
               value: /usr/local/bin/octo
             - name: OCTO_RUN_DIR
               value: /app/.octo-run
+            # Enables the integration/folder management UI; the editor's BFF
+            # proxy routes front the orchestrator (in-cluster service DNS).
+            - name: ORCHESTRATOR_URL
+              value: http://orchestrator.octo-dev:8090
           readinessProbe:
             httpGet:
               path: /
