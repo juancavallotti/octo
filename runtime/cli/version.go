@@ -9,7 +9,7 @@ import (
 // the published release via the extra-files updater in release-please-config.json
 // (the trailing annotation marks the line it rewrites). See docs/index.html for
 // the matching marker on the website.
-const Version = "0.1.0" // x-release-please-version
+const Version = "0.1.1" // x-release-please-version
 
 // BuildDate is the binary's build timestamp, stamped at link time via
 // -ldflags "-X main.BuildDate=...". The build task sets it for released and
