@@ -1,5 +1,63 @@
 # Changelog
 
+## [0.1.1](https://github.com/juancavallotti/eip-go/compare/v0.1.0...v0.1.1) (2026-06-19)
+
+
+### Features
+
+* **cli:** add --version flag with build date, standardize doc flags ([c2986d9](https://github.com/juancavallotti/eip-go/commit/c2986d9db3cb40d3558050e3ada8e7155346c6a3))
+* **cli:** add a top-level --help page ([8bf2e2a](https://github.com/juancavallotti/eip-go/commit/8bf2e2a12f7160cc8402b1d73cc9473d817383e6))
+* **editor:** add block settings + rename state actions ([23ee8f3](https://github.com/juancavallotti/eip-go/commit/23ee8f34714ae6e31560cdf839be32161d45bdb9))
+* **editor:** add component settings panel ([4f2cb0d](https://github.com/juancavallotti/eip-go/commit/4f2cb0d29a13bd41f84906c633838a10d1246191))
+* **editor:** add connections manager with referential integrity ([c6908c6](https://github.com/juancavallotti/eip-go/commit/c6908c649769f355576cae1761436416ed665efa))
+* **editor:** add in-memory flow document model and reducer ([402b6ff](https://github.com/juancavallotti/eip-go/commit/402b6ff24fab98917a04c7070205c3b5ce095a66))
+* **editor:** add runtime capability schema ([402ac09](https://github.com/juancavallotti/eip-go/commit/402ac0919edc3ee6c3268988a7474aedd0a8afe3))
+* **editor:** add shared drag-and-drop context ([313e5f1](https://github.com/juancavallotti/eip-go/commit/313e5f1beebd603433d1fb2b902fbd18585e377e))
+* **editor:** add source picker dropdown ([f20241c](https://github.com/juancavallotti/eip-go/commit/f20241c5a9b5f8cad3f3d0dd8f6cb643af6c93f1))
+* **editor:** add source schema accessors and icons ([9366fec](https://github.com/juancavallotti/eip-go/commit/9366feca98686a493bc9ad2d4960fff5eaa4788f))
+* **editor:** add source state (configure, select, edit, remove) ([38d17da](https://github.com/juancavallotti/eip-go/commit/38d17daed38ceb0630646833377113acbc4b4dff))
+* **editor:** add string-list and string-map setting editors ([d08b21d](https://github.com/juancavallotti/eip-go/commit/d08b21d1073722f556f2a5f0195bb831841a7260))
+* **editor:** allow deleting flows ([55146de](https://github.com/juancavallotti/eip-go/commit/55146def083c5e11e0deae1393e235ab78cc7e67))
+* **editor:** allow env vars in typed settings via a field toggle ([fd8321e](https://github.com/juancavallotti/eip-go/commit/fd8321e09d64d5853c7c0b4159cafa8abe0d5afe))
+* **editor:** author environment variables ([1d0a7ba](https://github.com/juancavallotti/eip-go/commit/1d0a7baf3097545152512e285cb97115bc84b9e1))
+* **editor:** bootstrap Octo Next.js visual editor module ([101b8fa](https://github.com/juancavallotti/eip-go/commit/101b8fab0584d47642c22a0696800d01d7891f32))
+* **editor:** bootstrap Octo Next.js visual editor module ([33b9b81](https://github.com/juancavallotti/eip-go/commit/33b9b81f8fd0430f54c480048a82858fdc0d4786))
+* **editor:** drag preview overlay ([b5e556e](https://github.com/juancavallotti/eip-go/commit/b5e556e1c62a68f4f8e2ba14cd5ff7a25305112a))
+* **editor:** edit flow name in settings panel ([5c4578a](https://github.com/juancavallotti/eip-go/commit/5c4578af54773b156a6eae289eeb6c4791fabc86))
+* **editor:** edit nested flows in the reducer ([8311445](https://github.com/juancavallotti/eip-go/commit/8311445abda5b2d6a45918d373f917e288917f7e))
+* **editor:** empty start and opt-in source ([d7eb096](https://github.com/juancavallotti/eip-go/commit/d7eb0969edeef56b276b270e05716a0fe1315e1b))
+* **editor:** gate live config sync on validation, lengthen debounce ([a44be19](https://github.com/juancavallotti/eip-go/commit/a44be19dae5516c225b8e77618c006542cf16bce))
+* **editor:** insertion drop targets ([36a7733](https://github.com/juancavallotti/eip-go/commit/36a7733cf65c6d2d52f5e16b1732fc40c2253ba6))
+* **editor:** make switch cases editable from the properties panel ([f6e0899](https://github.com/juancavallotti/eip-go/commit/f6e08998e214265e57cfe61f80ae9cd602a8f5e7))
+* **editor:** multi-flow stacked canvas with schema-driven palette ([0dcfcb1](https://github.com/juancavallotti/eip-go/commit/0dcfcb1cb6c0b7561955760d8037f98abebf6c4f))
+* **editor:** nested composites with drop-in scopes ([02ee38f](https://github.com/juancavallotti/eip-go/commit/02ee38fed1e418f7d7b8952e38e3d14fb295e679))
+* **editor:** recursive composite-slot model ([eb89005](https://github.com/juancavallotti/eip-go/commit/eb89005839440244200f62f088901828e818af4e))
+* **editor:** render connector/flow reference fields as dropdowns ([81618a2](https://github.com/juancavallotti/eip-go/commit/81618a2296d66b945caf1b487a06bd2588f9210b))
+* **editor:** RUN button and bottom log panel ([b1a7ba4](https://github.com/juancavallotti/eip-go/commit/b1a7ba43fd96aec23ebd56a387733738fc59560a))
+* **editor:** run session API with SSE log streaming ([eb5ed51](https://github.com/juancavallotti/eip-go/commit/eb5ed516e71c7873eafd9a2392fdbacf70ea31d8))
+* **editor:** runnable-config rendering and validity gate ([b910411](https://github.com/juancavallotti/eip-go/commit/b910411fffc9603d71746737c313f4384cf1d7f4))
+* **editor:** schema-driven recursive flow canvas ([a5d6b06](https://github.com/juancavallotti/eip-go/commit/a5d6b060ae221da63c467d538c89c5d0ad5734bb))
+* **editor:** schematic node visuals ([ca3326c](https://github.com/juancavallotti/eip-go/commit/ca3326c122350e1babb393f9741cdd16d15798d6))
+* **editor:** show runtime version in the log panel header ([3c96b53](https://github.com/juancavallotti/eip-go/commit/3c96b53c15f8d0b3b25192237bd5bc220a1c09e1))
+* **editor:** source connector binding and slug flow names ([3beab74](https://github.com/juancavallotti/eip-go/commit/3beab742030107127b695b691b1fdd603e59f56a))
+* **editor:** source settings panel and selectable source node ([8706bf3](https://github.com/juancavallotti/eip-go/commit/8706bf3f759ef2a17124c39f7fddd1cd6d4e831a))
+* **runtime:** start a default connector for sources with no explicit binding ([f45f9e3](https://github.com/juancavallotti/eip-go/commit/f45f9e36161ef4858d62068d576ca85b96778123))
+
+
+### Bug Fixes
+
+* **cli:** keep watch mode alive when a config fails to build or start ([80d4448](https://github.com/juancavallotti/eip-go/commit/80d44481a29d5ae751e01c9b040faf24dba3c194))
+* **editor:** constrain editor to viewport so canvas scrolls internally ([ab8948a](https://github.com/juancavallotti/eip-go/commit/ab8948a3d92b83cd9e3ee614b983e813ddaac2b3))
+* **editor:** make a source's connector binding optional for 0-1 connectors ([1593cc6](https://github.com/juancavallotti/eip-go/commit/1593cc6bb3713102397651ebb44f09a1a0890d5c))
+* **editor:** make the clear-logs button actually clear while running ([8e27502](https://github.com/juancavallotti/eip-go/commit/8e27502dec0d9ba746d4747cef1e32c31e395084))
+* **editor:** require a configured connector for flow sources ([06a7e9d](https://github.com/juancavallotti/eip-go/commit/06a7e9ddb0d07227badc76a1d139a7764c9b2fcc))
+* **editor:** resolve hydration warning and logo aspect-ratio warning ([1cf65f3](https://github.com/juancavallotti/eip-go/commit/1cf65f3d23fd0bd5e1d8ed5b95ddb72ead1ad3b5))
+
+
+### Documentation
+
+* add editor coding standards and register the editor module ([6053981](https://github.com/juancavallotti/eip-go/commit/6053981cf5099c27d6dea2aa805dab480136fe8a))
+
 ## 0.1.0 (2026-06-15)
 
 
