@@ -12,6 +12,8 @@ export enum EditorActionType {
   ADD_BLOCK = "ADD_BLOCK",
   /** Reorder a block within a flow's process chain. */
   MOVE_BLOCK = "MOVE_BLOCK",
+  /** Move a block from one flow to another (possibly nested) at an index. */
+  MOVE_BLOCK_ACROSS = "MOVE_BLOCK_ACROSS",
   /** Remove a block from a flow by id. */
   REMOVE_BLOCK = "REMOVE_BLOCK",
   /** Mark a canvas block as selected (or clear with null). */
@@ -37,6 +39,14 @@ export interface MoveBlockPayload {
   flowId: string;
   fromIndex: number;
   toIndex: number;
+}
+
+export interface MoveBlockAcrossPayload {
+  fromFlowId: string;
+  toFlowId: string;
+  blockId: string;
+  /** Insertion index in the target flow; appends when omitted. */
+  index?: number;
 }
 
 export interface RemoveBlockPayload {

@@ -114,3 +114,58 @@ export function emptyFlow(name = "New flow"): FlowDoc {
 export function emptyDocument(): EditorDocument {
   return { flows: [emptyFlow()], connectors: [], processors: [] };
 }
+
+/** Recursively transform a sub-flow inside a block's slots, returning a copy. */
+function mapBlock(block: BlockNode, flowId: string, fn: FlowFn): BlockNode {
+  if (!block.slots) return block;
+  const slots: Record<string, FlowDoc[]> = {};
+  for (const [name, subs] of Object.entries(block.slots)) {
+    slots[name] = subs.map((f) => mapFlowTree(f, flowId, fn));
+  }
+  return { ...block, slots };
+}
+
+type FlowFn = (flow: FlowDoc) => FlowDoc;
+
+/** Apply `fn` to the flow with `flowId` anywhere in the tree, returning a copy. */
+function mapFlowTree(flow: FlowDoc, flowId: string, fn: FlowFn): FlowDoc {
+  if (flow.id === flowId) return fn(flow);
+  return { ...flow, process: flow.process.map((b) => mapBlock(b, flowId, fn)) };
+}
+
+/**
+ * Return a new document with `fn` applied to the flow identified by `flowId`,
+ * wherever it lives — a top-level flow or one nested in a composite's slot.
+ */
+export function mapFlow(
+  doc: EditorDocument,
+  flowId: string,
+  fn: FlowFn,
+): EditorDocument {
+  return { ...doc, flows: doc.flows.map((f) => mapFlowTree(f, flowId, fn)) };
+}
+
+/** Find a flow by id anywhere in the tree (top-level or nested in a slot). */
+export function findFlow(
+  doc: EditorDocument,
+  flowId: string,
+): FlowDoc | undefined {
+  const visit = (flow: FlowDoc): FlowDoc | undefined => {
+    if (flow.id === flowId) return flow;
+    for (const block of flow.process) {
+      if (!block.slots) continue;
+      for (const subs of Object.values(block.slots)) {
+        for (const sub of subs) {
+          const hit = visit(sub);
+          if (hit) return hit;
+        }
+      }
+    }
+    return undefined;
+  };
+  for (const flow of doc.flows) {
+    const hit = visit(flow);
+    if (hit) return hit;
+  }
+  return undefined;
+}

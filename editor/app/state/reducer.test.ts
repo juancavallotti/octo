@@ -106,6 +106,45 @@ describe("editor reducer", () => {
     expect(next.activeFlowId).toBe(firstId);
   });
 
+  it("adds a block into a nested composite sub-flow", () => {
+    const withIf = reducer(initialState, {
+      type: EditorActionType.ADD_BLOCK,
+      data: { blockType: "if" },
+    });
+    const thenFlowId = activeFlow(withIf).process[0].slots!.then[0].id;
+    const next = reducer(withIf, {
+      type: EditorActionType.ADD_BLOCK,
+      data: { blockType: "log", flowId: thenFlowId },
+    });
+    const thenFlow = next.document.flows[0].process[0].slots!.then[0];
+    expect(thenFlow.process.map((b) => b.type)).toEqual(["log"]);
+  });
+
+  it("moves a block from a flow into a nested sub-flow", () => {
+    let state = reducer(initialState, {
+      type: EditorActionType.ADD_BLOCK,
+      data: { blockType: "if" },
+    });
+    state = reducer(state, {
+      type: EditorActionType.ADD_BLOCK,
+      data: { blockType: "log" },
+    });
+    const root = activeFlow(state);
+    const log = root.process.find((b) => b.type === "log")!;
+    const ifBlock = root.process.find((b) => b.type === "if")!;
+    const thenFlowId = ifBlock.slots!.then[0].id;
+
+    const next = reducer(state, {
+      type: EditorActionType.MOVE_BLOCK_ACROSS,
+      data: { fromFlowId: root.id, toFlowId: thenFlowId, blockId: log.id },
+    });
+    const nextRoot = next.document.flows[0];
+    expect(nextRoot.process.map((b) => b.type)).toEqual(["if"]);
+    const movedInto = nextRoot.process[0].slots!.then[0];
+    expect(movedInto.process[0].id).toBe(log.id);
+    expect(next.selectedBlockId).toBe(log.id);
+  });
+
   it("loads a document and activates its first flow", () => {
     const doc = emptyDocument();
     doc.flows[0].name = "imported";

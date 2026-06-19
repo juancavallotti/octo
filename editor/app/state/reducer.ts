@@ -4,12 +4,15 @@ import {
   FlowDoc,
   emptyDocument,
   emptyFlow,
+  findFlow,
+  mapFlow,
   newBlock,
 } from "@/app/model/document";
 import {
   AddBlockPayload,
   EditorActionType,
   LoadDocumentPayload,
+  MoveBlockAcrossPayload,
   MoveBlockPayload,
   RemoveBlockPayload,
   SelectBlockPayload,
@@ -52,18 +55,14 @@ function arrayMove<T>(items: T[], from: number, to: number): T[] {
   return next;
 }
 
-/** Apply `fn` to one flow by id, returning a new document. */
+/** Apply `fn` to one flow by id (at any depth), returning a new document. */
 function updateFlow(
   state: EditorState,
   flowId: string | null,
   fn: (flow: FlowDoc) => FlowDoc,
 ): EditorDocument {
-  return {
-    ...state.document,
-    flows: state.document.flows.map((flow) =>
-      flow.id === flowId ? fn(flow) : flow,
-    ),
-  };
+  if (!flowId) return state.document;
+  return mapFlow(state.document, flowId, fn);
 }
 
 function addFlow(state: EditorState): EditorState {
@@ -93,6 +92,27 @@ function moveBlock(state: EditorState, p: MoveBlockPayload): EditorState {
     process: arrayMove(flow.process, p.fromIndex, p.toIndex),
   }));
   return { ...state, document };
+}
+
+function moveBlockAcross(
+  state: EditorState,
+  p: MoveBlockAcrossPayload,
+): EditorState {
+  if (p.fromFlowId === p.toFlowId) return state;
+  const fromFlow = findFlow(state.document, p.fromFlowId);
+  const block = fromFlow?.process.find((b) => b.id === p.blockId);
+  if (!block) return state;
+
+  const withoutBlock = mapFlow(state.document, p.fromFlowId, (flow) => ({
+    ...flow,
+    process: flow.process.filter((b) => b.id !== p.blockId),
+  }));
+  const document = mapFlow(withoutBlock, p.toFlowId, (flow) => {
+    const process = flow.process.slice();
+    process.splice(p.index ?? process.length, 0, block);
+    return { ...flow, process };
+  });
+  return { ...state, document, activeFlowId: p.toFlowId, selectedBlockId: block.id };
 }
 
 function removeBlock(state: EditorState, p: RemoveBlockPayload): EditorState {
@@ -125,6 +145,8 @@ export function reducer(
       return addBlock(state, action.data as AddBlockPayload);
     case EditorActionType.MOVE_BLOCK:
       return moveBlock(state, action.data as MoveBlockPayload);
+    case EditorActionType.MOVE_BLOCK_ACROSS:
+      return moveBlockAcross(state, action.data as MoveBlockAcrossPayload);
     case EditorActionType.REMOVE_BLOCK:
       return removeBlock(state, action.data as RemoveBlockPayload);
     case EditorActionType.SELECT_BLOCK:
