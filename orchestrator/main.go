@@ -30,8 +30,12 @@ const (
 	// image integration pods are deployed; both are overridable via env.
 	defaultNamespace    = "octo-dev"
 	defaultRuntimeImage = "octo-runtime:dev"
-	shutdownTimeout     = 10 * time.Second
-	dbQueryTimeout      = 5 * time.Second
+	// defaultClusterIssuer is the cert-manager ClusterIssuer used for external
+	// per-integration TLS. defaultBaseDomain is empty: external endpoints stay
+	// disabled until BASE_DOMAIN is set.
+	defaultClusterIssuer = "letsencrypt-prod"
+	shutdownTimeout      = 10 * time.Second
+	dbQueryTimeout       = 5 * time.Second
 )
 
 func main() {
@@ -68,7 +72,12 @@ func run() error {
 		slog.Info("connected to database pool")
 	}
 
-	srv := newServer(database, envOr("KUBE_NAMESPACE", defaultNamespace), envOr("RUNTIME_IMAGE", defaultRuntimeImage))
+	srv := newServer(database, kubeConfig{
+		namespace:     envOr("KUBE_NAMESPACE", defaultNamespace),
+		runtimeImage:  envOr("RUNTIME_IMAGE", defaultRuntimeImage),
+		baseDomain:    os.Getenv("BASE_DOMAIN"),
+		clusterIssuer: envOr("CLUSTER_ISSUER", defaultClusterIssuer),
+	})
 	httpServer := httpx.NewServer(":"+port, srv)
 
 	errCh := make(chan error, 1)
@@ -91,10 +100,20 @@ func run() error {
 	}
 }
 
+// kubeConfig groups the deployment-management settings sourced from the
+// environment: where and from what image integration pods run, and the parent
+// domain + ClusterIssuer for optional per-integration external endpoints.
+type kubeConfig struct {
+	namespace     string
+	runtimeImage  string
+	baseDomain    string
+	clusterIssuer string
+}
+
 // newServer wires the routes. database may be nil when DATABASE_URL is unset.
-// kubeNamespace and runtimeImage configure deployment management, which is
-// enabled only when both a database and in-cluster Kubernetes access are present.
-func newServer(database *db.DB, kubeNamespace, runtimeImage string) http.Handler {
+// kube configures deployment management, which is enabled only when both a
+// database and in-cluster Kubernetes access are present.
+func newServer(database *db.DB, kc kubeConfig) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -141,14 +160,15 @@ func newServer(database *db.DB, kubeNamespace, runtimeImage string) http.Handler
 		// Deployment management needs both the database and in-cluster Kubernetes
 		// access. Outside a cluster (e.g. local `go run`) kube.New fails and the
 		// routes stay disabled, mirroring how the DB-less case disables the rest.
-		if kubeClient, err := kube.New(kubeNamespace, runtimeImage); err != nil {
+		if kubeClient, err := kube.New(kc.namespace, kc.runtimeImage, kc.baseDomain, kc.clusterIssuer); err != nil {
 			slog.Warn("kubernetes access unavailable; deployment routes disabled", "error", err)
 		} else {
 			deploymentSvc := deployment.NewService(
 				deployment.NewRepo(database.Pool()), integrationSvc, kubeClient)
 			deployment.NewHandler(deploymentSvc).Register(mux)
 			slog.Info("deployment routes registered",
-				"namespace", kubeClient.Namespace(), "runtimeImage", runtimeImage,
+				"namespace", kubeClient.Namespace(), "runtimeImage", kc.runtimeImage,
+				"baseDomain", kc.baseDomain, "externalEndpoints", kubeClient.ExternalEnabled(),
 				"endpoints", "POST/GET /integrations/{id}/deployments, GET/DELETE /deployments/{id}")
 		}
 	} else {

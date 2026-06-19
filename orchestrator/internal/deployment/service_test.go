@@ -76,6 +76,7 @@ type fakeKube struct {
 	deleteErr       error
 	internalDeleted bool
 	gotInternalSlug string
+	externalEnabled bool
 }
 
 func (f *fakeKube) Apply(_ context.Context, spec kube.Spec) error {
@@ -104,6 +105,15 @@ func (f *fakeKube) DeleteInternalService(_ context.Context, slug string) error {
 	f.internalDeleted = true
 	f.gotInternalSlug = slug
 	return nil
+}
+
+func (f *fakeKube) ExternalEnabled() bool { return f.externalEnabled }
+
+func (f *fakeKube) ExternalURL(subdomain string) string {
+	if !f.externalEnabled || subdomain == "" {
+		return ""
+	}
+	return "https://" + subdomain + ".octo.example.com"
 }
 
 func TestDeployHappyPath(t *testing.T) {
@@ -199,6 +209,56 @@ func TestUndeployKeepsInternalServiceWhenOthersRemain(t *testing.T) {
 	}
 	if kc.internalDeleted {
 		t.Error("internal service should be kept while other deployments of the integration remain")
+	}
+}
+
+func TestDeployExternalThreadsIngress(t *testing.T) {
+	repo := &fakeRepo{created: Deployment{ID: "dep-1"}}
+	integrations := &fakeIntegrations{ret: integration.Integration{ID: "int-1", Name: "Orders"}}
+	kc := &fakeKube{status: kube.StatusPending, externalEnabled: true}
+	svc := NewService(repo, integrations, kc)
+
+	if _, err := svc.Deploy(context.Background(), "int-1", Settings{Expose: ExposeExternal, Subdomain: "My Shop"}); err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if !kc.gotSpec.Expose || kc.gotSpec.Subdomain != "my-shop" {
+		t.Errorf("spec expose/subdomain = %v/%q, want true/my-shop", kc.gotSpec.Expose, kc.gotSpec.Subdomain)
+	}
+	meta := ParseMetadata(repo.gotMetadata)
+	if meta.ExternalURL == "" {
+		t.Error("metadata externalUrl should be set for an external deployment")
+	}
+	if s := ParseSettings(repo.gotSettings); s.Expose != ExposeExternal || s.Subdomain != "my-shop" {
+		t.Errorf("persisted settings = %+v, want expose external / subdomain my-shop", s)
+	}
+}
+
+func TestDeployExternalDefaultsSubdomainToName(t *testing.T) {
+	repo := &fakeRepo{created: Deployment{ID: "dep-1"}}
+	integrations := &fakeIntegrations{ret: integration.Integration{ID: "int-1", Name: "Orders API"}}
+	kc := &fakeKube{status: kube.StatusPending, externalEnabled: true}
+	svc := NewService(repo, integrations, kc)
+
+	if _, err := svc.Deploy(context.Background(), "int-1", Settings{Expose: ExposeExternal}); err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if kc.gotSpec.Subdomain != "orders-api" {
+		t.Errorf("subdomain = %q, want orders-api (slug of name)", kc.gotSpec.Subdomain)
+	}
+}
+
+func TestDeployExternalUnavailableWithoutBaseDomain(t *testing.T) {
+	repo := &fakeRepo{created: Deployment{ID: "dep-1"}}
+	integrations := &fakeIntegrations{ret: integration.Integration{ID: "int-1", Name: "Orders"}}
+	kc := &fakeKube{externalEnabled: false}
+	svc := NewService(repo, integrations, kc)
+
+	_, err := svc.Deploy(context.Background(), "int-1", Settings{Expose: ExposeExternal})
+	if !errors.Is(err, ErrExternalUnavailable) {
+		t.Errorf("got %v, want ErrExternalUnavailable", err)
+	}
+	if kc.applied {
+		t.Error("kube.Apply should not run when external is requested but unavailable")
 	}
 }
 

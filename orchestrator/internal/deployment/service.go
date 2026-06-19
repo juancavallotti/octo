@@ -36,6 +36,8 @@ type kubeClient interface {
 	Delete(ctx context.Context, deploymentID string) error
 	InternalURL(slug string) string
 	DeleteInternalService(ctx context.Context, slug string) error
+	ExternalEnabled() bool
+	ExternalURL(subdomain string) string
 }
 
 // Service holds deployment lifecycle logic: it persists deployment rows and
@@ -74,7 +76,32 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 	}
 	slug := slugify(it.Name)
 
-	settingsJSON, err := json.Marshal(Settings{Replicas: replicas})
+	// Optional external endpoint: validate up front so a bad request fails before
+	// any row or resource is created.
+	external := settings.External()
+	subdomain := ""
+	externalURL := ""
+	if external {
+		if !s.kube.ExternalEnabled() {
+			return Deployment{}, ErrExternalUnavailable
+		}
+		want := settings.Subdomain
+		if want == "" {
+			want = it.Name
+		}
+		subdomain = slugify(want)
+		if subdomain == "" {
+			return Deployment{}, ErrInvalidSubdomain
+		}
+		externalURL = s.kube.ExternalURL(subdomain)
+	}
+
+	persisted := Settings{Replicas: replicas}
+	if external {
+		persisted.Expose = ExposeExternal
+		persisted.Subdomain = subdomain
+	}
+	settingsJSON, err := json.Marshal(persisted)
 	if err != nil {
 		return Deployment{}, err
 	}
@@ -82,6 +109,7 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 		Name:        it.Name,
 		Slug:        slug,
 		InternalURL: s.kube.InternalURL(slug),
+		ExternalURL: externalURL,
 	})
 	if err != nil {
 		return Deployment{}, err
@@ -98,6 +126,8 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 		Definition:    it.Definition,
 		Replicas:      int32(replicas),
 		Slug:          slug,
+		Expose:        external,
+		Subdomain:     subdomain,
 	}
 	if err := s.kube.Apply(ctx, spec); err != nil {
 		// Roll back: remove any partially created resources and the row so the

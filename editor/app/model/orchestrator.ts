@@ -41,8 +41,24 @@ export interface Deployment {
   name: string;
   /** Cached lifecycle status; refreshed by the orchestrator on read. */
   status: DeploymentStatus;
+  /** Desired/served replica count. */
+  replicas: number;
+  /** In-cluster address other flows use to reach this integration, if any. */
+  internalUrl?: string;
+  /** Public https URL when the deployment is exposed externally. */
+  externalUrl?: string;
   /** RFC3339 timestamp of the last status/state update. */
   lastUpdated: string;
+}
+
+/** Per-deployment options sent when deploying an integration. */
+export interface DeploymentInput {
+  /** Runtime replicas; omitted/<=0 means a single replica. */
+  replicas?: number;
+  /** "external" publishes a {subdomain}.{baseDomain} endpoint with TLS. */
+  expose?: "external";
+  /** External host label; defaults to the integration slug when omitted. */
+  subdomain?: string;
 }
 
 /** Perform a JSON request against a BFF route, unwrapping the `{ error }` envelope. */
@@ -106,11 +122,14 @@ export function listDeployments(integrationId: string): Promise<Deployment[]> {
   );
 }
 
-/** Deploy an integration as a new workload. */
-export function createDeployment(integrationId: string): Promise<Deployment> {
+/** Deploy an integration as a new workload, optionally exposed externally. */
+export function createDeployment(
+  integrationId: string,
+  input: DeploymentInput = {},
+): Promise<Deployment> {
   return request<Deployment>(
     `/api/integrations/${encodeURIComponent(integrationId)}/deployments`,
-    { method: "POST" },
+    jsonBody(input),
   );
 }
 

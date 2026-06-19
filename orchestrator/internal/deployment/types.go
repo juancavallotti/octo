@@ -27,7 +27,19 @@ type Settings struct {
 	// Replicas is the desired runtime replica count; <1 is normalized to 1. The
 	// per-deployment Service load-balances across them for internal callers.
 	Replicas int `json:"replicas,omitempty"`
+	// Expose opts the deployment into an external HTTP endpoint. "external"
+	// publishes a {subdomain}.{baseDomain} Ingress with TLS; empty = internal only.
+	Expose string `json:"expose,omitempty"`
+	// Subdomain is the external host label; empty defaults to the integration
+	// slug. Only meaningful when Expose is "external".
+	Subdomain string `json:"subdomain,omitempty"`
 }
+
+// ExposeExternal is the Settings.Expose value that requests a public endpoint.
+const ExposeExternal = "external"
+
+// External reports whether these settings request an external endpoint.
+func (s Settings) External() bool { return s.Expose == ExposeExternal }
 
 // Metadata is the orchestrator-owned bookkeeping stored in deployment_metadata.
 type Metadata struct {
@@ -41,6 +53,9 @@ type Metadata struct {
 	// integration, load-balanced across replicas (and across deployments of the
 	// same integration). Empty when there is no slug.
 	InternalURL string `json:"internalUrl,omitempty"`
+	// ExternalURL is the public https://{subdomain}.{baseDomain} address when the
+	// deployment is exposed externally; empty for internal-only deployments.
+	ExternalURL string `json:"externalUrl,omitempty"`
 }
 
 // ParseMetadata unmarshals the metadata jsonb, returning a zero Metadata when

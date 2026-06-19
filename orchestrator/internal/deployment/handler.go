@@ -45,6 +45,7 @@ type deploymentResponse struct {
 	Status        string    `json:"status"`
 	Replicas      int       `json:"replicas"`
 	InternalURL   string    `json:"internalUrl,omitempty"`
+	ExternalURL   string    `json:"externalUrl,omitempty"`
 	LastUpdated   time.Time `json:"lastUpdated"`
 }
 
@@ -61,6 +62,7 @@ func toResponse(d Deployment) deploymentResponse {
 		Status:        d.Status,
 		Replicas:      replicas,
 		InternalURL:   meta.InternalURL,
+		ExternalURL:   meta.ExternalURL,
 		LastUpdated:   d.LastUpdated,
 	}
 }
@@ -133,6 +135,10 @@ func (h *Handler) writeError(w http.ResponseWriter, err error) {
 		httpx.WriteError(w, http.StatusNotFound, "integration not found")
 	case errors.Is(err, ErrUnavailable):
 		httpx.WriteError(w, http.StatusServiceUnavailable, "deployments are not available")
+	case errors.Is(err, ErrExternalUnavailable):
+		httpx.WriteError(w, http.StatusBadRequest, "external endpoints are not configured")
+	case errors.Is(err, ErrInvalidSubdomain):
+		httpx.WriteError(w, http.StatusBadRequest, "invalid external subdomain")
 	default:
 		slog.Error("deployment handler", "error", err)
 		httpx.WriteError(w, http.StatusInternalServerError, "internal error")

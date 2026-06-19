@@ -10,4 +10,10 @@ var (
 	// ErrUnavailable is returned when Kubernetes access is not configured, so
 	// deployments cannot be managed.
 	ErrUnavailable = errors.New("deployments unavailable")
+	// ErrExternalUnavailable is returned when an external endpoint is requested
+	// but no base domain is configured on the orchestrator.
+	ErrExternalUnavailable = errors.New("external endpoints unavailable: no base domain configured")
+	// ErrInvalidSubdomain is returned when a requested external subdomain has no
+	// usable DNS-1123 form.
+	ErrInvalidSubdomain = errors.New("invalid external subdomain")
 )

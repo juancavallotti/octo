@@ -13,6 +13,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -52,19 +53,24 @@ type Spec struct {
 	Definition    string // runtime-loadable integration YAML
 	Replicas      int32  // desired replica count; <1 is treated as 1
 	Slug          string // integration name slug; names the stable internal Service ("" = none)
+	Expose        bool   // when true, also publish an external Ingress
+	Subdomain     string // external host label; the Ingress host is {Subdomain}.{baseDomain}
 }
 
 // Client wraps a Kubernetes clientset scoped to one namespace and runtime image.
 type Client struct {
-	clientset    kubernetes.Interface
-	namespace    string
-	runtimeImage string
+	clientset     kubernetes.Interface
+	namespace     string
+	runtimeImage  string
+	baseDomain    string // parent domain for external endpoints ("" = disabled)
+	clusterIssuer string // cert-manager ClusterIssuer for external TLS
 }
 
 // New builds a Client from the in-cluster config. It returns an error when the
 // orchestrator is not running inside a cluster (e.g. local `go run`), letting the
-// caller disable deployment features rather than crash.
-func New(namespace, runtimeImage string) (*Client, error) {
+// caller disable deployment features rather than crash. baseDomain may be empty,
+// which disables external endpoints (Apply then ignores Spec.Expose).
+func New(namespace, runtimeImage, baseDomain, clusterIssuer string) (*Client, error) {
 	cfg, err := rest.InClusterConfig()
 	if err != nil {
 		return nil, fmt.Errorf("kube: in-cluster config: %w", err)
@@ -73,7 +79,36 @@ func New(namespace, runtimeImage string) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("kube: clientset: %w", err)
 	}
-	return &Client{clientset: cs, namespace: namespace, runtimeImage: runtimeImage}, nil
+	return &Client{
+		clientset:     cs,
+		namespace:     namespace,
+		runtimeImage:  runtimeImage,
+		baseDomain:    baseDomain,
+		clusterIssuer: clusterIssuer,
+	}, nil
+}
+
+// ExternalEnabled reports whether external endpoints can be published (a base
+// domain is configured).
+func (c *Client) ExternalEnabled() bool { return c.baseDomain != "" }
+
+// ExternalHost is the fully-qualified host for an external subdomain, or "" when
+// external endpoints are disabled or the subdomain is empty.
+func (c *Client) ExternalHost(subdomain string) string {
+	if c.baseDomain == "" || subdomain == "" {
+		return ""
+	}
+	return subdomain + "." + c.baseDomain
+}
+
+// ExternalURL is the public https URL for an external subdomain, or "" when not
+// applicable.
+func (c *Client) ExternalURL(subdomain string) string {
+	host := c.ExternalHost(subdomain)
+	if host == "" {
+		return ""
+	}
+	return "https://" + host
 }
 
 // Namespace returns the namespace the client operates in.
@@ -151,7 +186,55 @@ func (c *Client) Apply(ctx context.Context, spec Spec) error {
 	if err := c.ensureInternalService(ctx, spec); err != nil {
 		return fmt.Errorf("kube: ensure internal service: %w", err)
 	}
+
+	// Optional external endpoint: a per-deployment Traefik Ingress with
+	// cert-manager TLS at {subdomain}.{baseDomain}.
+	if spec.Expose && c.baseDomain != "" {
+		if _, err := c.clientset.NetworkingV1().Ingresses(c.namespace).Create(
+			ctx, c.ingress(name, labels, spec), metav1.CreateOptions{}); err != nil {
+			return fmt.Errorf("kube: create ingress: %w", err)
+		}
+	}
 	return nil
+}
+
+// ingress builds the per-deployment Traefik Ingress: host {subdomain}.{baseDomain}
+// routed to the deployment's Service, with cert-manager issuing the TLS cert.
+func (c *Client) ingress(name string, labels map[string]string, spec Spec) *networkingv1.Ingress {
+	host := c.ExternalHost(spec.Subdomain)
+	ingressClass := "traefik"
+	pathType := networkingv1.PathTypePrefix
+	return &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        name,
+			Labels:      labels,
+			Annotations: map[string]string{"cert-manager.io/cluster-issuer": c.clusterIssuer},
+		},
+		Spec: networkingv1.IngressSpec{
+			IngressClassName: &ingressClass,
+			TLS: []networkingv1.IngressTLS{{
+				Hosts:      []string{host},
+				SecretName: name + "-tls",
+			}},
+			Rules: []networkingv1.IngressRule{{
+				Host: host,
+				IngressRuleValue: networkingv1.IngressRuleValue{
+					HTTP: &networkingv1.HTTPIngressRuleValue{
+						Paths: []networkingv1.HTTPIngressPath{{
+							Path:     "/",
+							PathType: &pathType,
+							Backend: networkingv1.IngressBackend{
+								Service: &networkingv1.IngressServiceBackend{
+									Name: name,
+									Port: networkingv1.ServiceBackendPort{Number: runtimePort},
+								},
+							},
+						}},
+					},
+				},
+			}},
+		},
+	}
 }
 
 // ensureInternalService creates the stable "octo-int-{slug}" ClusterIP Service
@@ -286,6 +369,11 @@ func (c *Client) Delete(ctx context.Context, deploymentID string) error {
 	name := resourceName(deploymentID)
 	del := metav1.DeleteOptions{}
 	var errs []error
+	// Ingress is only present for externally-exposed deployments; NotFound is
+	// ignored, so deleting it unconditionally is safe.
+	if err := c.clientset.NetworkingV1().Ingresses(c.namespace).Delete(ctx, name, del); ignoreNotFound(err) != nil {
+		errs = append(errs, fmt.Errorf("delete ingress: %w", err))
+	}
 	if err := c.clientset.AppsV1().Deployments(c.namespace).Delete(ctx, name, del); ignoreNotFound(err) != nil {
 		errs = append(errs, fmt.Errorf("delete deployment: %w", err))
 	}
