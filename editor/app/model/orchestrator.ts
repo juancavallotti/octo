@@ -30,6 +30,21 @@ export interface IntegrationInput {
   definition: string;
 }
 
+/** Coarse lifecycle status of a deployment, cached from the live cluster. */
+export type DeploymentStatus = "pending" | "running" | "failed";
+
+/** One deployed instance of an integration running as its own workload. */
+export interface Deployment {
+  id: string;
+  integrationId: string;
+  /** Display name, captured from the integration at deploy time. */
+  name: string;
+  /** Cached lifecycle status; refreshed by the orchestrator on read. */
+  status: DeploymentStatus;
+  /** RFC3339 timestamp of the last status/state update. */
+  lastUpdated: string;
+}
+
 /** Perform a JSON request against a BFF route, unwrapping the `{ error }` envelope. */
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
@@ -78,6 +93,30 @@ export function updateIntegration(
 
 export function deleteIntegration(id: string): Promise<void> {
   return request<void>(`/api/integrations/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
+// --- Deployments ----------------------------------------------------------
+
+/** List the deployments of an integration (status refreshed server-side on read). */
+export function listDeployments(integrationId: string): Promise<Deployment[]> {
+  return request<Deployment[]>(
+    `/api/integrations/${encodeURIComponent(integrationId)}/deployments`,
+  );
+}
+
+/** Deploy an integration as a new workload. */
+export function createDeployment(integrationId: string): Promise<Deployment> {
+  return request<Deployment>(
+    `/api/integrations/${encodeURIComponent(integrationId)}/deployments`,
+    { method: "POST" },
+  );
+}
+
+/** Undeploy a deployment, removing its workload. */
+export function deleteDeployment(id: string): Promise<void> {
+  return request<void>(`/api/deployments/${encodeURIComponent(id)}`, {
     method: "DELETE",
   });
 }

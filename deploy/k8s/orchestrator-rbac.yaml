@@ -1,0 +1,37 @@
+# RBAC for the orchestrator so it can manage integration workloads in its own
+# namespace. The orchestrator creates one ConfigMap + Deployment + Service per
+# integration deployment and reads pod/deployment status to cache it; this Role
+# grants exactly those verbs, scoped to octo-dev (namespaced Role, not Cluster).
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: orchestrator
+  namespace: octo-dev
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: orchestrator
+  namespace: octo-dev
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps", "services", "pods"]
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: orchestrator
+  namespace: octo-dev
+subjects:
+  - kind: ServiceAccount
+    name: orchestrator
+    namespace: octo-dev
+roleRef:
+  kind: Role
+  name: orchestrator
+  apiGroup: rbac.authorization.k8s.io
