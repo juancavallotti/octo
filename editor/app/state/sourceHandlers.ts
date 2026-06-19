@@ -29,6 +29,7 @@ export function addSource(state: EditorState, p: AddSourcePayload): EditorState 
     activeFlowId: p.flowId,
     selectedBlockId: null,
     selectedSourceFlowId: p.flowId,
+    selectedConnectionId: null,
   };
 }
 
@@ -40,6 +41,7 @@ export function selectSource(
     ...state,
     selectedSourceFlowId: p.flowId,
     selectedBlockId: null,
+    selectedConnectionId: null,
     activeFlowId: p.flowId ?? state.activeFlowId,
   };
 }

@@ -17,9 +17,15 @@ import {
   SetActiveFlowPayload,
   UpdateBlockSettingPayload,
   UpdateSourceSettingPayload,
+  AddConnectionPayload,
+  RemoveConnectionPayload,
+  RenameConnectionPayload,
+  SelectConnectionPayload,
+  UpdateConnectionSettingPayload,
 } from "./actions";
 import * as handlers from "./handlers";
 import * as sourceHandlers from "./sourceHandlers";
+import * as connectionHandlers from "./connectionHandlers";
 
 /**
  * Editor-wide state. EditorShell is a "large" component, so its state lives in a
@@ -36,6 +42,8 @@ export interface EditorState {
   selectedBlockId: string | null;
   /** Flow whose source is currently selected (for source settings), or null. */
   selectedSourceFlowId: string | null;
+  /** Currently selected connection (for connection settings), or null. */
+  selectedConnectionId: string | null;
   /** Currently highlighted palette component id, or null. */
   selectedComponentId: string | null;
 }
@@ -46,6 +54,7 @@ function makeInitialState(): EditorState {
     activeFlowId: null,
     selectedBlockId: null,
     selectedSourceFlowId: null,
+    selectedConnectionId: null,
     selectedComponentId: null,
   };
 }
@@ -79,6 +88,7 @@ export function reducer(
         ...state,
         selectedBlockId: (action.data as SelectBlockPayload).blockId,
         selectedSourceFlowId: null,
+        selectedConnectionId: null,
       };
     case EditorActionType.UPDATE_BLOCK_SETTING:
       return handlers.updateBlockSetting(
@@ -93,6 +103,7 @@ export function reducer(
         activeFlowId: (action.data as SetActiveFlowPayload).flowId,
         selectedBlockId: null,
         selectedSourceFlowId: null,
+        selectedConnectionId: null,
       };
     case EditorActionType.ADD_SOURCE:
       return sourceHandlers.addSource(state, action.data as AddSourcePayload);
@@ -110,6 +121,31 @@ export function reducer(
       return sourceHandlers.removeSource(
         state,
         action.data as RemoveSourcePayload,
+      );
+    case EditorActionType.ADD_CONNECTION:
+      return connectionHandlers.addConnection(
+        state,
+        action.data as AddConnectionPayload,
+      );
+    case EditorActionType.SELECT_CONNECTION:
+      return connectionHandlers.selectConnection(
+        state,
+        action.data as SelectConnectionPayload,
+      );
+    case EditorActionType.RENAME_CONNECTION:
+      return connectionHandlers.renameConnection(
+        state,
+        action.data as RenameConnectionPayload,
+      );
+    case EditorActionType.UPDATE_CONNECTION_SETTING:
+      return connectionHandlers.updateConnectionSetting(
+        state,
+        action.data as UpdateConnectionSettingPayload,
+      );
+    case EditorActionType.REMOVE_CONNECTION:
+      return connectionHandlers.removeConnection(
+        state,
+        action.data as RemoveConnectionPayload,
       );
     case EditorActionType.LOAD_DOCUMENT:
       return handlers.loadDocument(state, action.data as LoadDocumentPayload);

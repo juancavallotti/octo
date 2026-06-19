@@ -56,6 +56,8 @@ export interface SourceSpec {
 export interface ConnectorSpec {
   type: string;
   label: string;
+  /** Name of a lucide icon, resolved to a component by the loader. */
+  icon?: string;
   settings: FieldSpec[];
   sources: SourceSpec[];
 }

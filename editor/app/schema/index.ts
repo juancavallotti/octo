@@ -57,6 +57,10 @@ export function getBlockSpec(type: string): BlockSpec | undefined {
   return CAPABILITIES.blocks.find((b) => b.type === type);
 }
 
+export function listConnectors(): ConnectorSpec[] {
+  return CAPABILITIES.connectors;
+}
+
 export function getConnectorSpec(type: string): ConnectorSpec | undefined {
   return CAPABILITIES.connectors.find((c) => c.type === type);
 }

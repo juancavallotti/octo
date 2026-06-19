@@ -2,10 +2,12 @@
 
 import { useState } from "react";
 import { findBlock, findFlow } from "@/app/model/document";
+import { findConnector } from "@/app/model/connectors";
 import { useEditorState } from "@/app/state/editorState";
 import BlockSettings from "./BlockSettings";
 import SourceSettings from "./SourceSettings";
 import FlowSettings from "./FlowSettings";
+import ConnectionSettings from "./ConnectionSettings";
 
 const MIN_WIDTH = 280;
 const MAX_WIDTH = 560;
@@ -22,15 +24,19 @@ export default function SettingsPanel() {
   const { state } = useEditorState();
   const [width, setWidth] = useState(DEFAULT_WIDTH);
 
-  const block = state.selectedBlockId
-    ? findBlock(state.document, state.selectedBlockId)
+  const connection = state.selectedConnectionId
+    ? findConnector(state.document, state.selectedConnectionId)
     : undefined;
+  const block =
+    !connection && state.selectedBlockId
+      ? findBlock(state.document, state.selectedBlockId)
+      : undefined;
   const sourceFlow =
-    !block && state.selectedSourceFlowId
+    !connection && !block && state.selectedSourceFlowId
       ? findFlow(state.document, state.selectedSourceFlowId)
       : undefined;
   const flow =
-    !block && !sourceFlow?.source && state.activeFlowId
+    !connection && !block && !sourceFlow?.source && state.activeFlowId
       ? findFlow(state.document, state.activeFlowId)
       : undefined;
 
@@ -65,7 +71,9 @@ export default function SettingsPanel() {
         className="absolute inset-y-0 left-0 w-1.5 -translate-x-1/2 cursor-col-resize hover:bg-sky-400/40"
       />
 
-      {block ? (
+      {connection ? (
+        <ConnectionSettings connection={connection} />
+      ) : block ? (
         <BlockSettings block={block} />
       ) : sourceFlow?.source ? (
         <SourceSettings flow={sourceFlow} />

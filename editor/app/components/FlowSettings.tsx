@@ -2,6 +2,7 @@
 
 import { Workflow } from "lucide-react";
 import type { FlowDoc } from "@/app/model/document";
+import { duplicateNames, flowNames, slugify } from "@/app/model/identity";
 import { useEditorState, EditorActionType } from "@/app/state/editorState";
 
 const INPUT =
@@ -12,7 +13,11 @@ const INPUT =
  * is added and configured from the source node on the canvas, not this panel.
  */
 export default function FlowSettings({ flow }: { flow: FlowDoc }) {
-  const { dispatch } = useEditorState();
+  const { state, dispatch } = useEditorState();
+
+  const duplicate =
+    !!flow.name &&
+    duplicateNames(flowNames(state.document)).has(flow.name);
 
   return (
     <>
@@ -36,11 +41,20 @@ export default function FlowSettings({ flow }: { flow: FlowDoc }) {
             onChange={(e) =>
               dispatch({
                 type: EditorActionType.RENAME_FLOW,
-                data: { flowId: flow.id, name: e.target.value },
+                data: { flowId: flow.id, name: slugify(e.target.value) },
               })
             }
             className={INPUT}
           />
+          {duplicate ? (
+            <p className="text-xs text-red-500">
+              Another flow already uses this name.
+            </p>
+          ) : (
+            <p className="text-xs text-zinc-400 dark:text-zinc-500">
+              Referenced by name from flow-ref blocks.
+            </p>
+          )}
         </div>
       </div>
     </>

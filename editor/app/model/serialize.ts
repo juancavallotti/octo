@@ -1,5 +1,6 @@
 import {
   BlockNode,
+  ConnectorInstance,
   EditorDocument,
   FlowDoc,
   SourceNode,
@@ -56,12 +57,36 @@ export interface RuntimeBlock {
   as?: unknown;
 }
 
+export interface RuntimeConnector {
+  name?: string;
+  type?: string;
+  settings?: Record<string, unknown>;
+}
+
 export interface RuntimeConfig {
+  connectors?: RuntimeConnector[];
   flows?: RuntimeFlow[];
 }
 
 function hasKeys(o: Record<string, unknown>): boolean {
   return Object.keys(o).length > 0;
+}
+
+function connectorToRuntime(c: ConnectorInstance): RuntimeConnector {
+  const out: RuntimeConnector = {};
+  if (c.name) out.name = c.name;
+  if (c.type) out.type = c.type;
+  if (hasKeys(c.settings)) out.settings = c.settings;
+  return out;
+}
+
+function connectorFromRuntime(c: RuntimeConnector): ConnectorInstance {
+  return {
+    id: newId(),
+    name: c.name ?? "",
+    type: c.type ?? "",
+    settings: c.settings ?? {},
+  };
 }
 
 function sourceToRuntime(source: SourceNode): RuntimeSource {
@@ -112,7 +137,12 @@ function blockToRuntime(block: BlockNode): RuntimeBlock {
 }
 
 export function toConfig(doc: EditorDocument): RuntimeConfig {
-  return { flows: doc.flows.map(flowToRuntime) };
+  const out: RuntimeConfig = {};
+  if (doc.connectors.length) {
+    out.connectors = doc.connectors.map(connectorToRuntime);
+  }
+  out.flows = doc.flows.map(flowToRuntime);
+  return out;
 }
 
 function blockFromRuntime(block: RuntimeBlock): BlockNode {
@@ -168,7 +198,8 @@ function caseFromRuntime(flow: RuntimeCase): FlowDoc {
 }
 
 export function fromConfig(config: RuntimeConfig): EditorDocument {
+  const connectors = (config.connectors ?? []).map(connectorFromRuntime);
   const flows = (config.flows ?? []).map(flowFromRuntime);
-  if (flows.length === 0) return emptyDocument();
-  return { flows, connectors: [], processors: [] };
+  if (flows.length === 0) return { ...emptyDocument(), connectors };
+  return { flows, connectors, processors: [] };
 }

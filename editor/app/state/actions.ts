@@ -36,6 +36,16 @@ export enum EditorActionType {
   UPDATE_SOURCE_SETTING = "UPDATE_SOURCE_SETTING",
   /** Remove a flow's source. */
   REMOVE_SOURCE = "REMOVE_SOURCE",
+  /** Add a connector instance ("connection") of the chosen type and select it. */
+  ADD_CONNECTION = "ADD_CONNECTION",
+  /** Mark a connection as selected (or clear with null). */
+  SELECT_CONNECTION = "SELECT_CONNECTION",
+  /** Rename a connection (by id). The name is the slug-style reference. */
+  RENAME_CONNECTION = "RENAME_CONNECTION",
+  /** Update one setting field of a connection. */
+  UPDATE_CONNECTION_SETTING = "UPDATE_CONNECTION_SETTING",
+  /** Remove a connection (by id). */
+  REMOVE_CONNECTION = "REMOVE_CONNECTION",
   /** Replace the whole document (file load or "new"). */
   LOAD_DOCUMENT = "LOAD_DOCUMENT",
   /** Highlight a palette component. */
@@ -118,6 +128,30 @@ export interface UpdateSourceSettingPayload {
 
 export interface RemoveSourcePayload {
   flowId: string;
+}
+
+export interface AddConnectionPayload {
+  /** Connector type to instantiate (matches a schema ConnectorSpec). */
+  type: string;
+}
+
+export interface SelectConnectionPayload {
+  id: string | null;
+}
+
+export interface RenameConnectionPayload {
+  id: string;
+  name: string;
+}
+
+export interface UpdateConnectionSettingPayload {
+  id: string;
+  field: string;
+  value: unknown;
+}
+
+export interface RemoveConnectionPayload {
+  id: string;
 }
 
 export interface LoadDocumentPayload {

@@ -65,6 +65,37 @@ describe("serialize", () => {
     expect(fromConfig({}).flows).toHaveLength(1);
   });
 
+  it("round-trips connector instances (connections)", () => {
+    const doc = emptyDocument();
+    doc.connectors = [
+      { id: "a", name: "primary-db", type: "database", settings: { dsn: "x" } },
+      { id: "b", name: "no-settings", type: "cron", settings: {} },
+    ];
+
+    const config = toConfig(doc);
+    expect(config.connectors).toEqual([
+      { name: "primary-db", type: "database", settings: { dsn: "x" } },
+      { name: "no-settings", type: "cron" }, // empty settings omitted
+    ]);
+
+    const restored = fromConfig(config);
+    expect(restored.connectors).toHaveLength(2);
+    expect(restored.connectors[0]).toMatchObject({
+      name: "primary-db",
+      type: "database",
+      settings: { dsn: "x" },
+    });
+    expect(restored.connectors[0].id).not.toBe("a"); // fresh client id
+  });
+
+  it("keeps connectors even when the config has no flows", () => {
+    const doc = fromConfig({
+      connectors: [{ name: "c1", type: "cron", settings: {} }],
+    });
+    expect(doc.connectors).toHaveLength(1);
+    expect(doc.connectors[0].name).toBe("c1");
+  });
+
   it("maps composite slots and scalars to runtime keys", () => {
     const doc = emptyDocument();
     const branch = newBlock("if"); // seeds then/else sub-flows + condition
