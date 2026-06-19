@@ -28,7 +28,8 @@ tasks:
     desc: Build the CLI binary
     cmds:
       - mkdir -p ../bin
-      - cd cli && {{.GO}} build -o ../../bin/octo .
+      # Stamp the build date into the binary so `octo --version` can report it.
+      - cd cli && {{.GO}} build -ldflags "-X main.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" -o ../../bin/octo .
 
   tidy:
     desc: Tidy all modules

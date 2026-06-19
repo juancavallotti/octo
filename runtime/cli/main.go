@@ -40,6 +40,14 @@ func main() {
 // run dispatches to a subcommand. The default (no subcommand, or a leading flag)
 // is "run", so `cli -config x.yaml` keeps working.
 func run(args []string) error {
+	// Handle the version flag before subcommand dispatch: the run/invoke flagsets
+	// do not define it, so `cli --version` must be intercepted here. Go's flag
+	// package treats -x and --x alike, so honor both dash forms.
+	if len(args) == 1 && (args[0] == "--version" || args[0] == "-version") {
+		fmt.Println(versionLine())
+		return nil
+	}
+
 	cmd := "run"
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		cmd = args[0]
@@ -51,8 +59,11 @@ func run(args []string) error {
 		return runCommand(args)
 	case "invoke":
 		return invokeCommand(args)
+	case "version":
+		fmt.Println(versionLine())
+		return nil
 	default:
-		return fmt.Errorf("unknown command %q (expected \"run\" or \"invoke\")", cmd)
+		return fmt.Errorf("unknown command %q (expected \"run\", \"invoke\", or \"version\")", cmd)
 	}
 }
 
