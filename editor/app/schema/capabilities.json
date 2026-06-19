@@ -367,6 +367,7 @@
         {
           "type": "cron",
           "label": "Cron schedule",
+          "icon": "Clock",
           "fields": [
             {
               "name": "schedule",
@@ -460,6 +461,7 @@
         {
           "type": "http",
           "label": "HTTP route",
+          "icon": "Webhook",
           "fields": [
             {
               "name": "path",

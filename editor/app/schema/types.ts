@@ -47,6 +47,8 @@ export interface BlockSpec {
 export interface SourceSpec {
   type: string;
   label: string;
+  /** Name of a lucide icon, resolved to a component by the loader. */
+  icon?: string;
   fields: FieldSpec[];
 }
 

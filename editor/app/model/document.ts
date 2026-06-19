@@ -1,4 +1,4 @@
-import { getBlockSpec } from "@/app/schema";
+import { getBlockSpec, getSourceSpec } from "@/app/schema";
 import type { FieldSpec } from "@/app/schema/types";
 
 /**
@@ -77,6 +77,20 @@ export function newId(): string {
 /** Seed a block's settings from the schema's scalar field defaults. */
 export function defaultSettings(type: string): Record<string, unknown> {
   const spec = getBlockSpec(type);
+  if (!spec) return {};
+  const settings: Record<string, unknown> = {};
+  for (const field of spec.fields) {
+    if (field.default !== undefined) settings[field.name] = field.default;
+  }
+  return settings;
+}
+
+/** Seed a source's settings from its schema field defaults. */
+export function defaultSourceSettings(
+  connector: string,
+  type: string,
+): Record<string, unknown> {
+  const spec = getSourceSpec(connector, type);
   if (!spec) return {};
   const settings: Record<string, unknown> = {};
   for (const field of spec.fields) {
