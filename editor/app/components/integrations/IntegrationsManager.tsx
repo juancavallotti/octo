@@ -158,7 +158,7 @@ export default function IntegrationsManager() {
         </Link>
         <span className="font-semibold tracking-tight">Integrations</span>
         <Link
-          href="/?new=1"
+          href="/"
           className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1 text-sm font-medium text-white hover:bg-sky-500"
         >
           <Plus size={15} />

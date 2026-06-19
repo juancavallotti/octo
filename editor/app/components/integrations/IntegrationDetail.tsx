@@ -91,9 +91,7 @@ export default function IntegrationDetail({
           {integration.name}
         </h2>
         <Link
-          href={`/?integration=${encodeURIComponent(integration.id)}${
-            folderId ? `&folder=${encodeURIComponent(folderId)}` : ""
-          }`}
+          href={`/i/${encodeURIComponent(integration.id)}`}
           className="inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1 text-sm font-medium text-white hover:bg-sky-500"
         >
           <ExternalLink size={14} />

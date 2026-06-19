@@ -65,6 +65,9 @@ export default function SaveButton() {
           type: EditorActionType.SET_INTEGRATION_ID,
           data: { id: created.id },
         });
+        // Promote the address bar to the bookmarkable URL without remounting the
+        // editor (Next syncs the router for manual history updates).
+        window.history.replaceState(null, "", `/i/${created.id}`);
       }
       setSavedSnapshot({ doc, name, folderId });
     } catch (e) {

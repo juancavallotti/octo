@@ -7,7 +7,6 @@ import IntegrationTitle from "./IntegrationTitle";
 import FolderPicker from "./FolderPicker";
 import SaveButton from "./SaveButton";
 import IntegrationsButton from "./IntegrationsButton";
-import IntegrationLoader from "./IntegrationLoader";
 
 /**
  * The editor's top bar. The integration controls (title, folder, Save, manage)
@@ -33,7 +32,6 @@ export default function EditorHeader() {
 
       {available && (
         <>
-          <IntegrationLoader />
           <span className="mx-1 h-5 w-px bg-black/10 dark:bg-white/10" />
           <IntegrationTitle />
           <FolderPicker />

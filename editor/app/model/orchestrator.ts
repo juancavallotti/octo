@@ -141,3 +141,28 @@ export function unassignIntegration(
     { method: "DELETE" },
   );
 }
+
+/** Collect every folder id in the tree, depth-first. */
+function folderIds(folders: Folder[]): string[] {
+  return folders.flatMap((f) => [f.id, ...folderIds(f.children ?? [])]);
+}
+
+/**
+ * Find which folder an integration belongs to, or null when unfiled. Integrations
+ * are single-membership but the integration record doesn't name its folder, so we
+ * scan folder memberships. Used when opening an integration by its bookmarkable
+ * URL, where the folder isn't otherwise known.
+ */
+export async function findIntegrationFolderId(
+  integrationId: string,
+): Promise<string | null> {
+  const ids = folderIds(await listFolders());
+  const matches = await Promise.all(
+    ids.map((id) =>
+      listFolderIntegrations(id).then((items) =>
+        items.some((i) => i.id === integrationId) ? id : null,
+      ),
+    ),
+  );
+  return matches.find((id): id is string => id !== null) ?? null;
+}
