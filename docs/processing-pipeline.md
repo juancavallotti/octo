@@ -251,7 +251,7 @@ connectors:
   - name: audit
     type: logger
     settings:
-      output: /tmp/eip-audit.log
+      output: /tmp/octo-audit.log
       format: json
 
 flows:

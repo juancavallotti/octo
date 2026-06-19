@@ -15,7 +15,7 @@ import (
 
 // envFileVar names the environment variable holding an extra .env file path,
 // loaded in addition to ./.env and overlaying it.
-const envFileVar = "EIP_ENV_FILE"
+const envFileVar = "OCTO_ENV_FILE"
 
 // defaultEnvFile is the .env path loaded relative to the working directory.
 const defaultEnvFile = ".env"
@@ -29,7 +29,7 @@ var placeholderPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 var exactPlaceholder = regexp.MustCompile(`^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$`)
 
 // DotEnvPaths returns the .env files consulted during config loading, in load
-// order: ./.env first, then $EIP_ENV_FILE (if set) which overlays it. Paths are
+// order: ./.env first, then $OCTO_ENV_FILE (if set) which overlays it. Paths are
 // returned whether or not they exist so callers (e.g. the file watcher) can watch
 // for a file being created later.
 func DotEnvPaths() []string {

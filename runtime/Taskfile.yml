@@ -28,7 +28,7 @@ tasks:
     desc: Build the CLI binary
     cmds:
       - mkdir -p ../bin
-      - cd cli && {{.GO}} build -o ../../bin/eip-go .
+      - cd cli && {{.GO}} build -o ../../bin/octo .
 
   tidy:
     desc: Tidy all modules

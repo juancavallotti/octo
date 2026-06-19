@@ -1,6 +1,6 @@
 # Octo — visual editor
 
-The **Octo** visual editor for EIP Go integrations: a standalone Next.js app
+The **Octo** visual editor for integrations: a standalone Next.js app
 (App Router, TypeScript, Tailwind v4). It is **not** embedded in or served by the
 Go binary — it builds and runs independently via npm.
 

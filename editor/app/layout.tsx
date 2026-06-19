@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Octo",
-  description: "Octo — visual editor for EIP Go integrations",
+  description: "Octo — visual editor for integrations",
 };
 
 export default function RootLayout({

@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>eip-go — a cloud-native, AI-native integration runtime</title>
-<meta name="description" content="eip-go is a modern, cloud-native integration runtime: build enterprise integration flows in a familiar YAML language, with hot reload, a concurrent processing model, and a path to Kubernetes-native and AI-native." />
-<meta property="og:title" content="eip-go — a cloud-native, AI-native integration runtime" />
+<title>Octo — a cloud-native, AI-native integration runtime</title>
+<meta name="description" content="Octo is a modern, cloud-native integration runtime: build enterprise integration flows in a familiar YAML language, with hot reload, a concurrent processing model, and a path to Kubernetes-native and AI-native." />
+<meta property="og:title" content="Octo — a cloud-native, AI-native integration runtime" />
 <meta property="og:description" content="A modern ESB reimagined. Familiar flows, the enterprise integration patterns you know, a concurrent processing model, hot reload — built to go Kubernetes-native and AI-native." />
 <meta property="og:type" content="website" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -19,7 +19,7 @@
 <!-- ============================== NAV ============================== -->
 <header class="nav">
   <div class="wrap nav-inner">
-    <a class="brand" href="#top"><span class="dot"></span> eip-go</a>
+    <a class="brand" href="#top"><span class="dot"></span> Octo</a>
     <nav class="nav-links">
       <a href="#concepts">Concepts</a>
       <a href="#architecture">Architecture</a>
@@ -192,7 +192,7 @@ stateDiagram-v2
       <figure class="diagram">
         <div class="mermaid">
 flowchart TB
-  subgraph SVC["eip-go service · one process / one container"]
+  subgraph SVC["Octo service · one process / one container"]
     direction TB
     subgraph CONN["Connectors — acquire resources on start"]
       direction LR
@@ -289,7 +289,7 @@ flowchart TB
 
     <div class="sample-grid">
       <table class="eip-table">
-        <thead><tr><th>Pattern</th><th>In eip-go</th></tr></thead>
+        <thead><tr><th>Pattern</th><th>In Octo</th></tr></thead>
         <tbody>
           <tr><td>Message</td><td>JSON body + <code>Variables</code> + <code>CorrelationID</code></td></tr>
           <tr><td>Polling Consumer</td><td><code>cron</code> source</td></tr>
@@ -463,7 +463,7 @@ flowchart LR
 <footer>
   <div class="wrap foot-inner">
     <div>
-      <a class="brand" href="#top"><span class="dot"></span> eip-go</a>
+      <a class="brand" href="#top"><span class="dot"></span> Octo</a>
       <div class="muted" style="margin-top:8px">A cloud-native, AI-native integration runtime. MIT licensed.</div>
     </div>
     <div class="foot-links">
