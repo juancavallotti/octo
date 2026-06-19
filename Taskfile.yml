@@ -1,46 +1,61 @@
 version: '3'
 
-vars:
-  GO: go
+# Module taskfiles live next to the code they drive and are imported here.
+# Their tasks are available under a namespace, e.g. `task runtime:test`,
+# `task editor:dev`. The thin aggregators below preserve the short top-level
+# targets (`task lint`, `task test`, ...) used by CI and day-to-day work.
+includes:
+  runtime:
+    taskfile: ./runtime/Taskfile.yml
+    dir: ./runtime
+  editor:
+    taskfile: ./editor/Taskfile.yml
+    dir: ./editor
 
 tasks:
   fmt:
     desc: Format all Go modules
     cmds:
-      - cd runtime/types && {{.GO}} fmt ./...
-      - cd runtime/core && {{.GO}} fmt ./...
-      - cd runtime/connectors && {{.GO}} fmt ./...
-      - cd runtime/cli && {{.GO}} fmt ./...
+      - task: runtime:fmt
 
   test:
-    desc: Run tests across all modules
+    desc: Run tests across all modules (runtime + editor)
     cmds:
-      - cd runtime/types && {{.GO}} test ./...
-      - cd runtime/core && {{.GO}} test ./...
-      - cd runtime/connectors && {{.GO}} test ./...
-      - cd runtime/cli && {{.GO}} test ./...
+      - task: runtime:test
+      - task: editor:test
 
   build:
-    desc: Build the CLI binary
+    desc: Build all modules (CLI binary + editor)
     cmds:
-      - mkdir -p bin
-      - cd runtime/cli && {{.GO}} build -o ../../bin/eip-go .
+      - task: runtime:build
+      - task: editor:build
 
   tidy:
-    desc: Tidy all modules
+    desc: Tidy all Go modules
     cmds:
-      - cd runtime/types && {{.GO}} mod tidy
-      - cd runtime/core && {{.GO}} mod tidy
-      - cd runtime/connectors && {{.GO}} mod tidy
-      - cd runtime/cli && {{.GO}} mod tidy
+      - task: runtime:tidy
 
   lint:
-    desc: Run golangci-lint across all modules
+    desc: Lint all modules (runtime + editor)
     cmds:
-      - cd runtime/types && golangci-lint run ./...
-      - cd runtime/core && golangci-lint run ./...
-      - cd runtime/connectors && golangci-lint run ./...
-      - cd runtime/cli && golangci-lint run ./...
+      - task: runtime:lint
+      - task: editor:lint
+
+  run:
+    desc: Run the CLI with a config file
+    cmds:
+      - task: runtime:run
+
+  run:sample:
+    desc: 'Run a config from samples/ (e.g. task run:sample -- heartbeat.yaml)'
+    cmds:
+      - task: runtime:run:sample
+
+  new-connector:
+    desc: Interactively scaffold a new connector
+    interactive: true
+    cmds:
+      - ./scripts/new-connector.sh {{.CLI_ARGS}}
 
   lint-strict:
     desc: Verify lint configuration is present
@@ -67,19 +82,3 @@ tasks:
       - test -f release-please-config.json
       - test -f .release-please-manifest.json
       - test -f README.md
-
-  run:
-    desc: Run the CLI with a config file
-    cmds:
-      - cd runtime/cli && {{.GO}} run . {{.CLI_ARGS}}
-
-  run:sample:
-    desc: 'Run a config from samples/ (e.g. task run:sample -- heartbeat.yaml)'
-    cmds:
-      - cd runtime/cli && {{.GO}} run . -config ../../samples/{{.CLI_ARGS}}
-
-  new-connector:
-    desc: Interactively scaffold a new connector
-    interactive: true
-    cmds:
-      - ./scripts/new-connector.sh {{.CLI_ARGS}}

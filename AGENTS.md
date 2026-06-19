@@ -2,11 +2,13 @@
 
 Before making code changes, read the files under `docs/` and follow them as the source of truth for coding standards, linting, review policy, and release expectations.
 
-The active Go workspace lives under `runtime/`.
+The active Go workspace lives under `runtime/`. The **Octo** visual editor — a
+standalone Next.js app — lives under `editor/` (see [editor/README.md](editor/README.md)).
 
 Required reading:
 
-- [docs/coding-standards.md](docs/coding-standards.md)
+- [docs/coding-standards.md](docs/coding-standards.md) — Go code
+- [docs/editor-coding-standards.md](docs/editor-coding-standards.md) — `editor/` (Next.js) code
 - [docs/linting-policy.md](docs/linting-policy.md)
 - [docs/commit-and-review-policy.md](docs/commit-and-review-policy.md)
 - [docs/release-process.md](docs/release-process.md)

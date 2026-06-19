@@ -10,8 +10,9 @@ with GitHub Pages from [`docs/`](docs/index.html) at
 ## Layout
 
 - `runtime/`: active Go workspace for the runtime engine and CLI.
+- `editor/`: **Octo**, the Next.js visual editor for integrations (standalone; run via npm). See [editor/README.md](editor/README.md).
 - `docs/`: coding standards, lint policy, review policy, and release process.
-- future top-level folders: `terraform/`, `ui/`, and other stack-specific modules.
+- future top-level folders: `terraform/` and other stack-specific modules.
 
 ## Working rules
 
@@ -50,3 +51,11 @@ flows:
 - `task lint-strict`
 - `task policy-check`
 - `task release-check`
+
+Octo editor (Next.js):
+
+- `task editor:install`
+- `task editor:dev`
+- `task editor:lint`
+- `task editor:test`
+- `task editor:build`

@@ -1,0 +1,626 @@
+{
+  "blocks": [
+    {
+      "type": "set-payload",
+      "label": "Set Payload",
+      "category": "processor",
+      "icon": "Wand2",
+      "description": "Replace the message body with the result of a CEL expression.",
+      "fields": [
+        {
+          "name": "value",
+          "label": "Value",
+          "type": "cel",
+          "required": true,
+          "description": "CEL expression. Sees body, vars, eventID, correlationID."
+        }
+      ]
+    },
+    {
+      "type": "set-variable",
+      "label": "Set Variable",
+      "category": "processor",
+      "icon": "Variable",
+      "description": "Store the result of a CEL expression in a named variable.",
+      "fields": [
+        {
+          "name": "name",
+          "label": "Name",
+          "type": "string",
+          "required": true,
+          "description": "Variable name to set."
+        },
+        {
+          "name": "value",
+          "label": "Value",
+          "type": "cel",
+          "required": true,
+          "description": "CEL expression evaluated and stored under the variable name."
+        }
+      ]
+    },
+    {
+      "type": "delete-variable",
+      "label": "Delete Variable",
+      "category": "processor",
+      "icon": "Trash2",
+      "description": "Remove a named variable from the message.",
+      "fields": [
+        {
+          "name": "name",
+          "label": "Name",
+          "type": "string",
+          "required": true,
+          "description": "Variable name to remove."
+        }
+      ]
+    },
+    {
+      "type": "log",
+      "label": "Log",
+      "category": "processor",
+      "icon": "ScrollText",
+      "description": "Wire-tap that logs the message and passes it through unchanged.",
+      "fields": [
+        {
+          "name": "message",
+          "label": "Message",
+          "type": "cel",
+          "required": false,
+          "description": "CEL expression to log. Defaults to the JSON body."
+        },
+        {
+          "name": "level",
+          "label": "Level",
+          "type": "enum",
+          "required": false,
+          "default": "info",
+          "enum": ["debug", "info", "warn", "error"],
+          "description": "Log level."
+        },
+        {
+          "name": "logger",
+          "label": "Logger",
+          "type": "string",
+          "required": false,
+          "description": "Optional named logger connector to write to."
+        },
+        {
+          "name": "full",
+          "label": "Full message",
+          "type": "boolean",
+          "required": false,
+          "default": false,
+          "description": "Attach the whole message (ids, vars, body) as structured log attributes."
+        }
+      ]
+    },
+    {
+      "type": "rest",
+      "label": "REST Call",
+      "category": "processor",
+      "icon": "Globe",
+      "description": "Make an HTTP request through an http-client connector.",
+      "fields": [
+        {
+          "name": "connector",
+          "label": "Connector",
+          "type": "string",
+          "required": true,
+          "description": "Name of the http-client connector to use."
+        },
+        {
+          "name": "method",
+          "label": "Method",
+          "type": "enum",
+          "required": false,
+          "default": "GET",
+          "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"],
+          "description": "HTTP method."
+        },
+        {
+          "name": "path",
+          "label": "Path",
+          "type": "string",
+          "required": false,
+          "description": "Path appended to the connector base URL."
+        },
+        {
+          "name": "query",
+          "label": "Query",
+          "type": "string-map",
+          "required": false,
+          "description": "Query params; each value is a CEL expression."
+        },
+        {
+          "name": "headers",
+          "label": "Headers",
+          "type": "string-map",
+          "required": false,
+          "description": "Request headers; each value is a CEL expression."
+        },
+        {
+          "name": "body",
+          "label": "Body",
+          "type": "cel",
+          "required": false,
+          "description": "CEL expression for the request body."
+        },
+        {
+          "name": "failOnError",
+          "label": "Fail on error",
+          "type": "boolean",
+          "required": false,
+          "default": true,
+          "description": "Turn a 400+ status into a flow error."
+        },
+        {
+          "name": "statusVar",
+          "label": "Status variable",
+          "type": "string",
+          "required": false,
+          "default": "statusCode",
+          "description": "Variable to store the response status code in."
+        }
+      ]
+    },
+    {
+      "type": "sql",
+      "label": "SQL",
+      "category": "processor",
+      "icon": "Database",
+      "description": "Execute a SQL statement against a database connector.",
+      "fields": [
+        {
+          "name": "connector",
+          "label": "Connector",
+          "type": "string",
+          "required": true,
+          "description": "Name of the database connector to use."
+        },
+        {
+          "name": "query",
+          "label": "Query",
+          "type": "string",
+          "required": true,
+          "description": "SQL statement with placeholders."
+        },
+        {
+          "name": "args",
+          "label": "Arguments",
+          "type": "string-list",
+          "required": false,
+          "description": "CEL expressions bound to the statement placeholders."
+        },
+        {
+          "name": "exec",
+          "label": "Exec mode",
+          "type": "boolean",
+          "required": false,
+          "default": false,
+          "description": "Use ExecContext (no result set); result becomes {rowsAffected: N}."
+        },
+        {
+          "name": "single",
+          "label": "Single row",
+          "type": "boolean",
+          "required": false,
+          "default": false,
+          "description": "In query mode, unwrap the result to the first row object."
+        }
+      ]
+    },
+    {
+      "type": "flow-ref",
+      "label": "Flow Reference",
+      "category": "processor",
+      "icon": "Webhook",
+      "description": "Invoke another flow by name.",
+      "fields": [
+        {
+          "name": "flow",
+          "label": "Flow",
+          "type": "string",
+          "required": true,
+          "description": "Name of the flow to invoke."
+        },
+        {
+          "name": "oneWay",
+          "label": "One-way",
+          "type": "boolean",
+          "required": false,
+          "default": false,
+          "description": "Fire-and-forget if true; otherwise wait and fold the result back in."
+        }
+      ]
+    },
+    {
+      "type": "scope",
+      "label": "Scope",
+      "category": "control-flow",
+      "icon": "ShieldCheck",
+      "description": "Error/transaction boundary; runs main, falls back to alternative on error.",
+      "fields": [
+        {
+          "name": "main",
+          "label": "Main",
+          "type": "flow",
+          "required": true,
+          "description": "The protected flow."
+        },
+        {
+          "name": "alternative",
+          "label": "Alternative",
+          "type": "flow",
+          "required": false,
+          "description": "Recovery flow run when main errors."
+        }
+      ]
+    },
+    {
+      "type": "fork",
+      "label": "Fork",
+      "category": "control-flow",
+      "icon": "GitFork",
+      "description": "Scatter the message across parallel branches, then join and pass through.",
+      "fields": [
+        {
+          "name": "branches",
+          "label": "Branches",
+          "type": "flow-list",
+          "required": true,
+          "description": "Parallel flows; each receives a clone of the message."
+        }
+      ]
+    },
+    {
+      "type": "if",
+      "label": "If",
+      "category": "control-flow",
+      "icon": "Split",
+      "description": "Conditional branching on a CEL boolean expression.",
+      "fields": [
+        {
+          "name": "condition",
+          "label": "Condition",
+          "type": "cel",
+          "required": true,
+          "description": "CEL boolean expression."
+        },
+        {
+          "name": "then",
+          "label": "Then",
+          "type": "flow",
+          "required": true,
+          "description": "Flow run when the condition is true."
+        },
+        {
+          "name": "else",
+          "label": "Else",
+          "type": "flow",
+          "required": false,
+          "description": "Flow run when the condition is false."
+        }
+      ]
+    },
+    {
+      "type": "switch",
+      "label": "Switch",
+      "category": "control-flow",
+      "icon": "Split",
+      "description": "Multi-case routing; runs the first matching case or the default.",
+      "fields": [
+        {
+          "name": "cases",
+          "label": "Cases",
+          "type": "case-list",
+          "required": true,
+          "description": "Ordered, condition-guarded flows (each has a CEL `when`)."
+        },
+        {
+          "name": "default",
+          "label": "Default",
+          "type": "flow",
+          "required": false,
+          "description": "Flow run when no case matches."
+        }
+      ]
+    },
+    {
+      "type": "foreach",
+      "label": "For Each",
+      "category": "control-flow",
+      "icon": "Repeat",
+      "description": "Sequentially iterate over an array, running the body per element.",
+      "fields": [
+        {
+          "name": "items",
+          "label": "Items",
+          "type": "cel",
+          "required": true,
+          "description": "CEL expression evaluating to the array to iterate."
+        },
+        {
+          "name": "as",
+          "label": "As",
+          "type": "string",
+          "required": false,
+          "default": "item",
+          "description": "Variable name bound to each element."
+        },
+        {
+          "name": "body",
+          "label": "Body",
+          "type": "flow",
+          "required": true,
+          "description": "Flow run once per element."
+        }
+      ]
+    }
+  ],
+  "connectors": [
+    {
+      "type": "cron",
+      "label": "Cron",
+      "settings": [],
+      "sources": [
+        {
+          "type": "cron",
+          "label": "Cron schedule",
+          "fields": [
+            {
+              "name": "schedule",
+              "label": "Schedule",
+              "type": "string",
+              "required": true,
+              "description": "Cron expression (6 fields with seconds) or descriptor like @every 2s."
+            },
+            {
+              "name": "payload",
+              "label": "Payload",
+              "type": "cel",
+              "required": false,
+              "description": "CEL expression for the message body; sees `now` (fire time)."
+            },
+            {
+              "name": "correlationID",
+              "label": "Correlation ID",
+              "type": "string",
+              "required": false,
+              "description": "Static correlation ID for emitted messages."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "http",
+      "label": "HTTP Server",
+      "settings": [
+        {
+          "name": "host",
+          "label": "Host",
+          "type": "string",
+          "required": false,
+          "description": "Bind address; empty binds all interfaces."
+        },
+        {
+          "name": "port",
+          "label": "Port",
+          "type": "number",
+          "required": false,
+          "default": 8080,
+          "description": "Bind port; 0 = OS-assigned."
+        },
+        {
+          "name": "basePath",
+          "label": "Base path",
+          "type": "string",
+          "required": false,
+          "description": "Prefix for all routes."
+        },
+        {
+          "name": "keepAlive",
+          "label": "Keep-alive",
+          "type": "boolean",
+          "required": false,
+          "description": "Enable HTTP keep-alives."
+        },
+        {
+          "name": "requestTimeout",
+          "label": "Request timeout",
+          "type": "string",
+          "required": false,
+          "default": "30s",
+          "description": "How long a handler waits for the flow to finish."
+        },
+        {
+          "name": "readTimeout",
+          "label": "Read timeout",
+          "type": "string",
+          "required": false,
+          "description": "Server read timeout."
+        },
+        {
+          "name": "writeTimeout",
+          "label": "Write timeout",
+          "type": "string",
+          "required": false,
+          "description": "Server write timeout."
+        },
+        {
+          "name": "idleTimeout",
+          "label": "Idle timeout",
+          "type": "string",
+          "required": false,
+          "description": "Server idle timeout."
+        }
+      ],
+      "sources": [
+        {
+          "type": "http",
+          "label": "HTTP route",
+          "fields": [
+            {
+              "name": "path",
+              "label": "Path",
+              "type": "string",
+              "required": true,
+              "description": "Route pattern; {name} params become vars.name."
+            },
+            {
+              "name": "headers",
+              "label": "Headers",
+              "type": "string-list",
+              "required": false,
+              "description": "Request header names to copy into variables."
+            },
+            {
+              "name": "correlationIdHeader",
+              "label": "Correlation ID header",
+              "type": "string",
+              "required": false,
+              "description": "Header to source the CorrelationID from."
+            },
+            {
+              "name": "timeout",
+              "label": "Timeout",
+              "type": "string",
+              "required": false,
+              "description": "Per-route wait for the flow; defaults to the connector request timeout."
+            },
+            {
+              "name": "maxBodyBytes",
+              "label": "Max body bytes",
+              "type": "number",
+              "required": false,
+              "default": 1048576,
+              "description": "Request body size cap."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "http-client",
+      "label": "HTTP Client",
+      "settings": [
+        {
+          "name": "baseURL",
+          "label": "Base URL",
+          "type": "string",
+          "required": true,
+          "description": "Prepended to each request path."
+        },
+        {
+          "name": "timeout",
+          "label": "Timeout",
+          "type": "string",
+          "required": false,
+          "default": "30s",
+          "description": "Bounds each request."
+        },
+        {
+          "name": "headers",
+          "label": "Headers",
+          "type": "string-map",
+          "required": false,
+          "description": "Applied to every request unless already set."
+        },
+        {
+          "name": "maxResponseBytes",
+          "label": "Max response bytes",
+          "type": "number",
+          "required": false,
+          "default": 1048576,
+          "description": "Response body size cap."
+        }
+      ],
+      "sources": []
+    },
+    {
+      "type": "database",
+      "label": "Database",
+      "settings": [
+        {
+          "name": "driver",
+          "label": "Driver",
+          "type": "enum",
+          "required": true,
+          "enum": ["postgres", "sqlite"],
+          "description": "Database driver."
+        },
+        {
+          "name": "dsn",
+          "label": "DSN",
+          "type": "string",
+          "required": true,
+          "description": "Data source name (Postgres connection string or SQLite file path)."
+        },
+        {
+          "name": "maxOpenConns",
+          "label": "Max open connections",
+          "type": "number",
+          "required": false,
+          "description": "Open connection pool cap (0 = unlimited)."
+        },
+        {
+          "name": "maxIdleConns",
+          "label": "Max idle connections",
+          "type": "number",
+          "required": false,
+          "description": "Idle connections kept in the pool."
+        },
+        {
+          "name": "connMaxLifetime",
+          "label": "Connection max lifetime",
+          "type": "string",
+          "required": false,
+          "description": "Duration bounding connection reuse (e.g. 5m)."
+        }
+      ],
+      "sources": []
+    },
+    {
+      "type": "logger",
+      "label": "Logger",
+      "settings": [
+        {
+          "name": "output",
+          "label": "Output",
+          "type": "string",
+          "required": false,
+          "default": "stdout",
+          "description": "stdout, stderr, or a file path."
+        },
+        {
+          "name": "format",
+          "label": "Format",
+          "type": "enum",
+          "required": false,
+          "default": "text",
+          "enum": ["text", "json"],
+          "description": "Log output format."
+        },
+        {
+          "name": "level",
+          "label": "Level",
+          "type": "enum",
+          "required": false,
+          "default": "info",
+          "enum": ["debug", "info", "warn", "error"],
+          "description": "Minimum log level."
+        },
+        {
+          "name": "addSource",
+          "label": "Add source",
+          "type": "boolean",
+          "required": false,
+          "default": false,
+          "description": "Include source file:line in log records."
+        }
+      ],
+      "sources": []
+    }
+  ]
+}

@@ -1,0 +1,65 @@
+/**
+ * Types describing the runtime capability schema. This is the editor-side mirror
+ * of what the CLI will eventually emit (see capabilities.json). The JSON is the
+ * source of truth for *data*; these types give it shape and the loader in
+ * index.ts resolves React-specific bits (icons).
+ */
+
+/** Kinds of configurable field a block or connector setting can expose. */
+export type FieldType =
+  | "string"
+  | "number"
+  | "boolean"
+  | "cel"
+  | "enum"
+  | "string-list"
+  | "string-map"
+  | "flow"
+  | "flow-list"
+  | "case-list";
+
+/** A single configurable field (a block setting, source setting, etc.). */
+export interface FieldSpec {
+  name: string;
+  label: string;
+  type: FieldType;
+  required: boolean;
+  default?: string | number | boolean;
+  enum?: string[];
+  description?: string;
+}
+
+/** Whether a block is a plain processor or a control-flow composite. */
+export type BlockCategory = "processor" | "control-flow";
+
+/** A block type the runtime supports as a step in a flow's process chain. */
+export interface BlockSpec {
+  type: string;
+  label: string;
+  category: BlockCategory;
+  /** Name of a lucide icon, resolved to a component by the loader. */
+  icon: string;
+  description: string;
+  fields: FieldSpec[];
+}
+
+/** A source type a connector can expose to drive a flow. */
+export interface SourceSpec {
+  type: string;
+  label: string;
+  fields: FieldSpec[];
+}
+
+/** A connector type the runtime supports. */
+export interface ConnectorSpec {
+  type: string;
+  label: string;
+  settings: FieldSpec[];
+  sources: SourceSpec[];
+}
+
+/** The full capability catalogue. */
+export interface Capabilities {
+  blocks: BlockSpec[];
+  connectors: ConnectorSpec[];
+}

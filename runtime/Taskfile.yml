@@ -1,0 +1,57 @@
+version: '3'
+
+# Tasks for the Go runtime workspace (types, core, connectors, cli).
+# Included from the root Taskfile under the `runtime:` namespace, with the
+# working directory set to runtime/, so all paths here are relative to it.
+
+vars:
+  GO: go
+
+tasks:
+  fmt:
+    desc: Format all Go modules
+    cmds:
+      - cd types && {{.GO}} fmt ./...
+      - cd core && {{.GO}} fmt ./...
+      - cd connectors && {{.GO}} fmt ./...
+      - cd cli && {{.GO}} fmt ./...
+
+  test:
+    desc: Run tests across all modules
+    cmds:
+      - cd types && {{.GO}} test ./...
+      - cd core && {{.GO}} test ./...
+      - cd connectors && {{.GO}} test ./...
+      - cd cli && {{.GO}} test ./...
+
+  build:
+    desc: Build the CLI binary
+    cmds:
+      - mkdir -p ../bin
+      - cd cli && {{.GO}} build -o ../../bin/eip-go .
+
+  tidy:
+    desc: Tidy all modules
+    cmds:
+      - cd types && {{.GO}} mod tidy
+      - cd core && {{.GO}} mod tidy
+      - cd connectors && {{.GO}} mod tidy
+      - cd cli && {{.GO}} mod tidy
+
+  lint:
+    desc: Run golangci-lint across all modules
+    cmds:
+      - cd types && golangci-lint run ./...
+      - cd core && golangci-lint run ./...
+      - cd connectors && golangci-lint run ./...
+      - cd cli && golangci-lint run ./...
+
+  run:
+    desc: Run the CLI with a config file
+    cmds:
+      - cd cli && {{.GO}} run . {{.CLI_ARGS}}
+
+  run:sample:
+    desc: 'Run a config from samples/ (e.g. task runtime:run:sample -- heartbeat.yaml)'
+    cmds:
+      - cd cli && {{.GO}} run . -config ../../samples/{{.CLI_ARGS}}
