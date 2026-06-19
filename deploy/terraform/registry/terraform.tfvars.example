@@ -1,0 +1,5 @@
+project_id = "your-gcp-project"
+
+# Optional overrides:
+# region        = "us-west1"   # Oregon (default)
+# repository_id = "octo"

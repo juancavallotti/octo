@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "octo.fullname" . }}-orchestrator
+  labels:
+    {{- include "octo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: orchestrator
+spec:
+  replicas: {{ .Values.orchestrator.replicas }}
+  selector:
+    matchLabels:
+      {{- include "octo.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: orchestrator
+  template:
+    metadata:
+      labels:
+        {{- include "octo.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: orchestrator
+    spec:
+      serviceAccountName: {{ include "octo.fullname" . }}-orchestrator
+      containers:
+        - name: orchestrator
+          image: {{ include "octo.image" (dict "root" $ "repo" .Values.orchestrator.repository) | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.orchestrator.service.port }}
+          env:
+            - name: PORT
+              value: {{ .Values.orchestrator.service.port | quote }}
+            - name: DATABASE_URL
+              value: {{ include "octo.databaseURL" . | quote }}
+            - name: KUBE_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            - name: RUNTIME_IMAGE
+              value: {{ include "octo.image" (dict "root" $ "repo" .Values.runtime.repository) | quote }}
+            {{- if .Values.orchestrator.baseDomain }}
+            - name: BASE_DOMAIN
+              value: {{ .Values.orchestrator.baseDomain | quote }}
+            {{- end }}
+            {{- if .Values.orchestrator.clusterIssuer }}
+            - name: CLUSTER_ISSUER
+              value: {{ .Values.orchestrator.clusterIssuer | quote }}
+            {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.orchestrator.service.port }}
+            initialDelaySeconds: 3
+            periodSeconds: 10

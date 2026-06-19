@@ -1,0 +1,41 @@
+# RBAC for the orchestrator: it creates one ConfigMap + Deployment + Service per
+# integration deployment and reads pod/deployment status. Scoped to the release
+# namespace (namespaced Role, not Cluster).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "octo.fullname" . }}-orchestrator
+  labels:
+    {{- include "octo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: orchestrator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "octo.fullname" . }}-orchestrator
+  labels:
+    {{- include "octo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: orchestrator
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps", "services", "pods"]
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "octo.fullname" . }}-orchestrator
+  labels:
+    {{- include "octo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: orchestrator
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "octo.fullname" . }}-orchestrator
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: {{ include "octo.fullname" . }}-orchestrator
+  apiGroup: rbac.authorization.k8s.io

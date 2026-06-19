@@ -19,7 +19,8 @@
       "changelog-path": "CHANGELOG.md",
       "extra-files": [
         "runtime/cli/version.go",
-        "docs/index.html"
+        "docs/index.html",
+        "helm/Chart.yaml"
       ]
     }
   }

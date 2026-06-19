@@ -1,0 +1,9 @@
+# Terraform state may contain secrets (e.g. the .env payload) — never commit it.
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+# Real variable files hold project-specific values; only the *.example is tracked.
+terraform.tfvars
+*.auto.tfvars
+crash.log

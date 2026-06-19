@@ -1,0 +1,29 @@
+octo {{ .Chart.AppVersion }} installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+{{- if .Values.ingress.enabled }}
+
+Editor URL:
+  https://{{ .Values.ingress.host }}
+
+{{- if .Values.ingress.tls.enabled }}
+TLS is issued by cert-manager via ClusterIssuer "{{ .Values.ingress.tls.clusterIssuer }}".
+The first request may 404/return a default cert for a minute while the HTTP-01
+challenge completes — confirm the DNS A record resolves to this node's IP first.
+{{- end }}
+{{- else }}
+
+Ingress is disabled. Reach the editor by port-forwarding:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "octo.editor.serviceName" . }} 3000:{{ .Values.editor.service.port }}
+{{- end }}
+
+Components:
+  editor        {{ include "octo.image" (dict "root" $ "repo" .Values.editor.repository) }}
+  orchestrator  {{ include "octo.image" (dict "root" $ "repo" .Values.orchestrator.repository) }}
+  runtime       {{ include "octo.image" (dict "root" $ "repo" .Values.runtime.repository) }}  (deployed per integration)
+
+Check status:
+  kubectl -n {{ .Release.Namespace }} get pods
+{{- if .Values.orchestrator.baseDomain }}
+
+Per-integration external endpoints are enabled under *.{{ .Values.orchestrator.baseDomain }}.
+{{- end }}

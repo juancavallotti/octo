@@ -217,3 +217,47 @@ tasks:
         fi
       - rm -rf data
       - echo "✓ ./data removed; 'task cluster:deploy' will recreate Postgres and re-apply the schema fresh"
+
+  # --- Publishing to Artifact Registry (for the GCP/k3s deployment) ---
+  # IMAGE_BASE is the repository path output by deploy/terraform/registry,
+  # e.g. us-central1-docker.pkg.dev/PROJECT/octo. The four images live under it
+  # (IMAGE_BASE/octo-editor:TAG ...) and the OCI chart under IMAGE_BASE/octo.
+
+  images:push:
+    desc: 'Build the four octo images and push them to Artifact Registry (set IMAGE_BASE and TAG; run `gcloud auth configure-docker <region>-docker.pkg.dev` first)'
+    requires:
+      vars: [IMAGE_BASE, TAG]
+    cmds:
+      # Same build contexts as cluster:images; the editor context is the repo root
+      # so its Dockerfile reaches both runtime/ and editor/.
+      - docker build -t {{.IMAGE_BASE}}/octo-editor:{{.TAG}} -f editor/Dockerfile .
+      - docker build -t {{.IMAGE_BASE}}/octo-orchestrator:{{.TAG}} -f orchestrator/Dockerfile ./orchestrator
+      - docker build -t {{.IMAGE_BASE}}/octo-schema:{{.TAG}} -f sql/Dockerfile ./sql
+      - docker build -t {{.IMAGE_BASE}}/octo-runtime:{{.TAG}} -f runtime/Dockerfile ./runtime
+      - docker push {{.IMAGE_BASE}}/octo-editor:{{.TAG}}
+      - docker push {{.IMAGE_BASE}}/octo-orchestrator:{{.TAG}}
+      - docker push {{.IMAGE_BASE}}/octo-schema:{{.TAG}}
+      - docker push {{.IMAGE_BASE}}/octo-runtime:{{.TAG}}
+
+  helm:lint:
+    desc: Lint the octo Helm chart
+    cmds:
+      - helm lint helm
+
+  helm:package:
+    desc: Lint and package the chart into dist/ (octo-<version>.tgz)
+    cmds:
+      - mkdir -p dist
+      - helm lint helm
+      - helm package helm -d dist
+
+  helm:push:
+    desc: 'Package and push the chart to Artifact Registry OCI (set IMAGE_BASE; run `helm registry login <region>-docker.pkg.dev` first)'
+    requires:
+      vars: [IMAGE_BASE]
+    cmds:
+      - task: helm:package
+      - |
+        set -e
+        VERSION="$(helm show chart helm | awk '/^version:/ {print $2}')"
+        helm push "dist/octo-${VERSION}.tgz" "oci://{{.IMAGE_BASE}}"

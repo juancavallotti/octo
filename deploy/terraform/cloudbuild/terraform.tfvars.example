@@ -1,0 +1,8 @@
+project_id = "your-gcp-project"
+
+# Optional overrides:
+# region        = "us-west1"      # Oregon (default)
+# repository_id = "octo"
+# github_owner  = "juancavallotti"
+# github_repo   = "eip-go"
+# tag_pattern   = "^v.*$"          # fire on version tags; e.g. "^main$"-style needs a branch trigger

@@ -1,0 +1,69 @@
+# Default values for the octo chart. The k3s Terraform renders an override
+# values.yaml on the VM (image registry/tag, domain, postgres password); these
+# defaults keep `helm template`/`helm lint` working and document every knob.
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Shared image coordinates. registry is the Artifact Registry base
+# (e.g. us-central1-docker.pkg.dev/PROJECT/octo); leave empty to use bare local
+# :dev image names. Per-component repository names are appended to it.
+image:
+  registry: ""
+  tag: dev
+  pullPolicy: IfNotPresent
+
+editor:
+  repository: octo-editor
+  replicas: 1
+  service:
+    port: 3000
+
+orchestrator:
+  repository: octo-orchestrator
+  replicas: 1
+  service:
+    port: 8090
+  # Stage 2 (per-integration external endpoints). When baseDomain is set the
+  # orchestrator creates a Traefik Ingress per externally-exposed deployment at
+  # {subdomain}.{baseDomain}, issuing TLS via clusterIssuer. Empty = internal only.
+  baseDomain: ""
+  clusterIssuer: ""
+
+# Generic runtime image the orchestrator deploys per integration. Passed to the
+# orchestrator as RUNTIME_IMAGE; pre-pulled into containerd at provision so
+# integration pods (imagePullPolicy IfNotPresent) never hit the registry later.
+runtime:
+  repository: octo-runtime
+
+# Schema applier image (built from sql/Dockerfile); run as a post-install/upgrade
+# hook job to apply sql/schema.sql idempotently.
+schema:
+  repository: octo-schema
+
+postgres:
+  image:
+    repository: postgres
+    tag: "16-alpine"
+    pullPolicy: IfNotPresent
+  auth:
+    username: octo
+    password: octo
+    database: octo
+  storage:
+    size: 5Gi
+    # Empty -> cluster default StorageClass (k3s ships local-path).
+    storageClassName: ""
+  service:
+    port: 5432
+  resources: {}
+
+ingress:
+  enabled: true
+  className: traefik
+  host: octo.juancavallotti.com
+  annotations: {}
+  tls:
+    enabled: true
+    secretName: octo-tls
+    clusterIssuer: letsencrypt-prod

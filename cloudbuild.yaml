@@ -1,0 +1,53 @@
+# Cloud Build pipeline: build the four octo images and the OCI Helm chart, then
+# push everything to Artifact Registry. Provisioned and triggered by
+# deploy/terraform/cloudbuild (fires on version tags by default); that trigger
+# supplies _IMAGE_BASE/_REGION and maps _TAG to the pushed git tag.
+#
+# Run manually:
+#   gcloud builds submit --config cloudbuild.yaml \
+#     --substitutions=_IMAGE_BASE=REGION-docker.pkg.dev/PROJECT/octo,_REGION=REGION,_TAG=dev
+
+substitutions:
+  _IMAGE_BASE: "" # e.g. us-central1-docker.pkg.dev/PROJECT/octo
+  _REGION: us-west1 # Artifact Registry docker host region (…-docker.pkg.dev)
+  _TAG: latest # image tag; the trigger overrides this with the git tag name
+
+options:
+  machineType: E2_HIGHCPU_8
+  logging: CLOUD_LOGGING_ONLY
+
+steps:
+  # Editor build context is the repo root so its Dockerfile reaches runtime/ + editor/.
+  - id: build-editor
+    name: gcr.io/cloud-builders/docker
+    args: ["build", "-t", "${_IMAGE_BASE}/octo-editor:${_TAG}", "-f", "editor/Dockerfile", "."]
+  - id: build-orchestrator
+    name: gcr.io/cloud-builders/docker
+    args: ["build", "-t", "${_IMAGE_BASE}/octo-orchestrator:${_TAG}", "-f", "orchestrator/Dockerfile", "./orchestrator"]
+  - id: build-schema
+    name: gcr.io/cloud-builders/docker
+    args: ["build", "-t", "${_IMAGE_BASE}/octo-schema:${_TAG}", "-f", "sql/Dockerfile", "./sql"]
+  - id: build-runtime
+    name: gcr.io/cloud-builders/docker
+    args: ["build", "-t", "${_IMAGE_BASE}/octo-runtime:${_TAG}", "-f", "runtime/Dockerfile", "./runtime"]
+  # Package + push the Helm chart (version comes from helm/Chart.yaml, not the git tag).
+  - id: push-helm-chart
+    name: gcr.io/cloud-builders/gcloud
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -e
+        curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+        helm registry login -u oauth2accesstoken -p "$(gcloud auth print-access-token)" "${_REGION}-docker.pkg.dev"
+        mkdir -p dist
+        helm package helm -d dist
+        VERSION="$(helm show chart helm | awk '/^version:/ {print $$2}')"
+        helm push "dist/octo-$${VERSION}.tgz" "oci://${_IMAGE_BASE}"
+
+# Built images are pushed after all steps succeed.
+images:
+  - "${_IMAGE_BASE}/octo-editor:${_TAG}"
+  - "${_IMAGE_BASE}/octo-orchestrator:${_TAG}"
+  - "${_IMAGE_BASE}/octo-schema:${_TAG}"
+  - "${_IMAGE_BASE}/octo-runtime:${_TAG}"

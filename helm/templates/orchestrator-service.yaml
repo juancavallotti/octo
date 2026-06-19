@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "octo.orchestrator.serviceName" . }}
+  labels:
+    {{- include "octo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: orchestrator
+spec:
+  # ClusterIP: the orchestrator stays internal; the editor's BFF proxy fronts it.
+  type: ClusterIP
+  selector:
+    {{- include "octo.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: orchestrator
+  ports:
+    - name: http
+      port: {{ .Values.orchestrator.service.port }}
+      targetPort: {{ .Values.orchestrator.service.port }}

@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "octo.editor.serviceName" . }}
+  labels:
+    {{- include "octo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: editor
+spec:
+  # ClusterIP: the editor is reached through the Ingress, not a NodePort.
+  type: ClusterIP
+  selector:
+    {{- include "octo.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: editor
+  ports:
+    - name: http
+      port: {{ .Values.editor.service.port }}
+      targetPort: {{ .Values.editor.service.port }}

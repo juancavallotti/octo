@@ -1,0 +1,41 @@
+{{- if .Values.ingress.enabled -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "octo.fullname" . }}-editor
+  labels:
+    {{- include "octo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: editor
+  {{- $ann := .Values.ingress.annotations | default dict }}
+  {{- $tls := .Values.ingress.tls | default dict }}
+  {{- if and $tls.enabled $tls.clusterIssuer }}
+  {{- $ann = merge (dict "cert-manager.io/cluster-issuer" $tls.clusterIssuer) $ann }}
+  {{- end }}
+  {{- if $ann }}
+  annotations:
+    {{- range $k, $v := $ann }}
+    {{ $k }}: {{ $v | quote }}
+    {{- end }}
+  {{- end }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className | quote }}
+  {{- end }}
+  {{- if $tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host | quote }}
+      secretName: {{ $tls.secretName | quote }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "octo.editor.serviceName" . }}
+                port:
+                  number: {{ .Values.editor.service.port }}
+{{- end }}

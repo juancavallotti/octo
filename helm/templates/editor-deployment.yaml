@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "octo.fullname" . }}-editor
+  labels:
+    {{- include "octo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: editor
+spec:
+  replicas: {{ .Values.editor.replicas }}
+  selector:
+    matchLabels:
+      {{- include "octo.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: editor
+  template:
+    metadata:
+      labels:
+        {{- include "octo.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: editor
+    spec:
+      containers:
+        - name: editor
+          image: {{ include "octo.image" (dict "root" $ "repo" .Values.editor.repository) | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.editor.service.port }}
+          env:
+            # Image defaults; OCTO_RUN_DIR is backed by the writable emptyDir below.
+            - name: OCTO_BIN_PATH
+              value: /usr/local/bin/octo
+            - name: OCTO_RUN_DIR
+              value: /app/.octo-run
+            # Enables the integration/folder management UI; the editor's BFF proxy
+            # fronts the orchestrator at its in-cluster Service DNS.
+            - name: ORCHESTRATOR_URL
+              value: "http://{{ include "octo.orchestrator.serviceName" . }}:{{ .Values.orchestrator.service.port }}"
+          readinessProbe:
+            httpGet:
+              path: /
+              port: {{ .Values.editor.service.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: octo-run
+              mountPath: /app/.octo-run
+      volumes:
+        - name: octo-run
+          emptyDir: {}
