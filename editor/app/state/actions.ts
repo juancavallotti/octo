@@ -58,6 +58,16 @@ export enum EditorActionType {
   SET_ENV = "SET_ENV",
   /** Replace the whole document (file load or "new"). */
   LOAD_DOCUMENT = "LOAD_DOCUMENT",
+  /** Record the persisted id after the integration is first saved. */
+  SET_INTEGRATION_ID = "SET_INTEGRATION_ID",
+  /** Set the current integration's display title. */
+  SET_INTEGRATION_TITLE = "SET_INTEGRATION_TITLE",
+  /** Set the current integration's folder (null = unfiled). */
+  SET_INTEGRATION_FOLDER = "SET_INTEGRATION_FOLDER",
+  /** Load a saved integration: replace the document and set its metadata. */
+  LOAD_INTEGRATION = "LOAD_INTEGRATION",
+  /** Start a fresh, unsaved integration (clear metadata + document). */
+  NEW_INTEGRATION = "NEW_INTEGRATION",
   /** Highlight a palette component. */
   SELECT_COMPONENT = "SELECT_COMPONENT",
   /** Clear the palette highlight. */
@@ -192,5 +202,24 @@ export interface SetEnvPayload {
 }
 
 export interface LoadDocumentPayload {
+  document: EditorDocument;
+}
+
+export interface SetIntegrationIdPayload {
+  id: string;
+}
+
+export interface SetIntegrationTitlePayload {
+  name: string;
+}
+
+export interface SetIntegrationFolderPayload {
+  folderId: string | null;
+}
+
+export interface LoadIntegrationPayload {
+  id: string;
+  name: string;
+  folderId: string | null;
   document: EditorDocument;
 }
