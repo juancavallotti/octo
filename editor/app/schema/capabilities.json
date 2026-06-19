@@ -83,7 +83,8 @@
           "label": "Logger",
           "type": "string",
           "required": false,
-          "description": "Optional named logger connector to write to."
+          "description": "Optional named logger connector to write to.",
+          "ref": { "kind": "connector", "connectorType": "logger" }
         },
         {
           "name": "full",
@@ -107,7 +108,8 @@
           "label": "Connector",
           "type": "string",
           "required": true,
-          "description": "Name of the http-client connector to use."
+          "description": "Name of the http-client connector to use.",
+          "ref": { "kind": "connector", "connectorType": "http-client" }
         },
         {
           "name": "method",
@@ -176,7 +178,8 @@
           "label": "Connector",
           "type": "string",
           "required": true,
-          "description": "Name of the database connector to use."
+          "description": "Name of the database connector to use.",
+          "ref": { "kind": "connector", "connectorType": "database" }
         },
         {
           "name": "query",
@@ -222,7 +225,8 @@
           "label": "Flow",
           "type": "string",
           "required": true,
-          "description": "Name of the flow to invoke."
+          "description": "Name of the flow to invoke.",
+          "ref": { "kind": "flow" }
         },
         {
           "name": "oneWay",

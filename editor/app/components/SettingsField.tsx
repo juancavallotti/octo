@@ -3,6 +3,7 @@
 import type { FieldSpec } from "@/app/schema/types";
 import StringListEditor from "./fields/StringListEditor";
 import StringMapEditor from "./fields/StringMapEditor";
+import ReferenceField from "./fields/ReferenceField";
 
 /** Shared input styling, matching the sidebar filter input. */
 const INPUT =
@@ -48,6 +49,19 @@ function renderInput(
   value: unknown,
   onChange: (value: unknown) => void,
 ) {
+  // A reference field (to a connection/flow) renders as a dropdown of valid
+  // targets regardless of its underlying scalar type.
+  if (field.ref) {
+    return (
+      <ReferenceField
+        spec={field.ref}
+        value={value}
+        required={field.required}
+        onChange={onChange}
+      />
+    );
+  }
+
   switch (field.type) {
     case "boolean":
       return (

@@ -92,4 +92,10 @@ export function getSourceSpec(
 }
 
 export type { BlockSpec, ConnectorSpec, Capabilities } from "./types";
-export type { FieldSpec, FieldType, SourceSpec, BlockCategory } from "./types";
+export type {
+  FieldSpec,
+  FieldType,
+  SourceSpec,
+  BlockCategory,
+  ReferenceSpec,
+} from "./types";
