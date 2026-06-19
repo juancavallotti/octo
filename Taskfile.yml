@@ -133,15 +133,18 @@ tasks:
         echo "✓ docker, k3d, devspace present"
 
   cluster:images:
-    desc: Build the editor/orchestrator/schema images and load them into the k3d 'octo' cluster
+    desc: Build the editor/orchestrator/schema/runtime images and load them into the k3d 'octo' cluster
     cmds:
       # Editor build context is the repo ROOT so its Dockerfile can reach both
       # runtime/ (to build octo) and editor/ (the Next.js app).
       - docker build -t octo-editor:dev -f editor/Dockerfile .
       - docker build -t octo-orchestrator:dev -f orchestrator/Dockerfile ./orchestrator
       - docker build -t octo-schema:dev -f sql/Dockerfile ./sql
+      # Generic runtime image the orchestrator deploys per integration (build
+      # context is the runtime workspace).
+      - docker build -t octo-runtime:dev -f runtime/Dockerfile ./runtime
       # Load the images straight into the cluster's containerd (no registry needed).
-      - k3d image import octo-editor:dev octo-orchestrator:dev octo-schema:dev -c octo
+      - k3d image import octo-editor:dev octo-orchestrator:dev octo-schema:dev octo-runtime:dev -c octo
 
   cluster:images:dev:
     desc: Build + load the dev (hot-reload) images into the k3d 'octo' cluster
