@@ -72,11 +72,24 @@ export interface ConnectorInstance {
   settings: Record<string, unknown>;
 }
 
+/**
+ * A declared environment variable (the runtime's top-level `env:` list). Values
+ * are referenced from settings as `${NAME}`; the runtime resolves them from the OS
+ * env / .env file, falling back to `default`. See runtime/types/env.go.
+ */
+export interface EnvVar {
+  name: string;
+  default?: string;
+  required?: boolean;
+}
+
 export interface EditorDocument {
   flows: FlowDoc[];
   connectors: ConnectorInstance[];
   /** Reusable processors referenced by name from a flow's process chain. */
   processors: BlockNode[];
+  /** Declared environment variables (the runtime's top-level `env:`). */
+  env: EnvVar[];
 }
 
 /** Generate a stable client id. */
@@ -141,12 +154,12 @@ export function emptyFlow(name = "new-flow"): FlowDoc {
 
 /** A document with a single empty flow — the "new file" template / test baseline. */
 export function emptyDocument(): EditorDocument {
-  return { flows: [emptyFlow()], connectors: [], processors: [] };
+  return { flows: [emptyFlow()], connectors: [], processors: [], env: [] };
 }
 
 /** A truly empty document — no flows at all (the editor's scratch start state). */
 export function blankDocument(): EditorDocument {
-  return { flows: [], connectors: [], processors: [] };
+  return { flows: [], connectors: [], processors: [], env: [] };
 }
 
 /** Recursively transform a sub-flow inside a block's slots, returning a copy. */

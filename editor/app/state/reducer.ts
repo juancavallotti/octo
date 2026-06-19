@@ -12,6 +12,7 @@ import {
   RemoveSourcePayload,
   RenameBlockPayload,
   RenameFlowPayload,
+  SetEnvPayload,
   SelectBlockPayload,
   SelectSourcePayload,
   SetActiveFlowPayload,
@@ -27,6 +28,7 @@ import {
 import * as handlers from "./handlers";
 import * as sourceHandlers from "./sourceHandlers";
 import * as connectionHandlers from "./connectionHandlers";
+import * as envHandlers from "./envHandlers";
 
 /**
  * Editor-wide state. EditorShell is a "large" component, so its state lives in a
@@ -153,6 +155,8 @@ export function reducer(
         state,
         action.data as RemoveConnectionPayload,
       );
+    case EditorActionType.SET_ENV:
+      return envHandlers.setEnv(state, action.data as SetEnvPayload);
     case EditorActionType.LOAD_DOCUMENT:
       return handlers.loadDocument(state, action.data as LoadDocumentPayload);
     case EditorActionType.SELECT_COMPONENT:

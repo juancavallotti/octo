@@ -1,4 +1,4 @@
-import type { EditorDocument } from "@/app/model/document";
+import type { EditorDocument, EnvVar } from "@/app/model/document";
 
 /**
  * Editor reducer actions. The payload travels on the action's `data` field (per
@@ -48,6 +48,8 @@ export enum EditorActionType {
   UPDATE_CONNECTION_SETTING = "UPDATE_CONNECTION_SETTING",
   /** Remove a connection (by id). */
   REMOVE_CONNECTION = "REMOVE_CONNECTION",
+  /** Replace the document's declared environment variables. */
+  SET_ENV = "SET_ENV",
   /** Replace the whole document (file load or "new"). */
   LOAD_DOCUMENT = "LOAD_DOCUMENT",
   /** Highlight a palette component. */
@@ -160,6 +162,10 @@ export interface UpdateConnectionSettingPayload {
 
 export interface RemoveConnectionPayload {
   id: string;
+}
+
+export interface SetEnvPayload {
+  env: EnvVar[];
 }
 
 export interface LoadDocumentPayload {

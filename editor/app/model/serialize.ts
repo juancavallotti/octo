@@ -9,6 +9,7 @@ import {
   newId,
 } from "./document";
 import { connectorResolver, type ConnectorResolver } from "./connectors";
+import { envFromRuntime, envToRuntime, type RuntimeEnv } from "./serializeEnv";
 import { getBlockSpec } from "@/app/schema";
 
 /**
@@ -65,13 +66,13 @@ export interface RuntimeConnector {
 }
 
 export interface RuntimeConfig {
+  env?: RuntimeEnv[];
   connectors?: RuntimeConnector[];
   flows?: RuntimeFlow[];
 }
 
-function hasKeys(o: Record<string, unknown>): boolean {
-  return Object.keys(o).length > 0;
-}
+const hasKeys = (o: Record<string, unknown>): boolean =>
+  Object.keys(o).length > 0;
 
 function connectorToRuntime(c: ConnectorInstance): RuntimeConnector {
   const out: RuntimeConnector = {};
@@ -146,6 +147,7 @@ function blockToRuntime(
 
 export function toConfig(doc: EditorDocument): RuntimeConfig {
   const out: RuntimeConfig = {};
+  if (doc.env.length) out.env = doc.env.map(envToRuntime);
   if (doc.connectors.length) {
     out.connectors = doc.connectors.map(connectorToRuntime);
   }
@@ -226,9 +228,10 @@ function caseFromRuntime(
 }
 
 export function fromConfig(config: RuntimeConfig): EditorDocument {
+  const env = (config.env ?? []).map(envFromRuntime);
   const connectors = (config.connectors ?? []).map(connectorFromRuntime);
   const connTypes = new Map(connectors.map((c) => [c.name, c.type]));
   const flows = (config.flows ?? []).map((f) => flowFromRuntime(f, connTypes));
-  if (flows.length === 0) return { ...emptyDocument(), connectors };
-  return { flows, connectors, processors: [] };
+  if (flows.length === 0) return { ...emptyDocument(), connectors, env };
+  return { flows, connectors, env, processors: [] };
 }
