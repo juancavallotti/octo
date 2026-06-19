@@ -44,6 +44,15 @@ CREATE TABLE IF NOT EXISTS integration_deployments (
 CREATE INDEX IF NOT EXISTS idx_integration_deployments_integration
     ON integration_deployments (integration_id);
 
+-- deployment_metadata holds orchestrator-owned bookkeeping about the live
+-- Kubernetes resources (e.g. display name, last-observed pod conditions/URLs),
+-- kept separate from `settings` which carries user-supplied per-deployment
+-- config. Kubernetes resource identity is NOT stored: resources are named
+-- deterministically from this row's id and resolved by the octo.dev/deployment-id
+-- label. Added via ALTER so the idempotent schema upgrades existing tables.
+ALTER TABLE integration_deployments
+    ADD COLUMN IF NOT EXISTS deployment_metadata jsonb NOT NULL DEFAULT '{}'::jsonb;
+
 -- integration_idx_structure is a folder tree organizing integrations. `parent_id` is
 -- self-referencing and NULL for root folders.
 CREATE TABLE IF NOT EXISTS integration_idx_structure (

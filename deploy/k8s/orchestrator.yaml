@@ -16,6 +16,9 @@ spec:
       labels:
         app: orchestrator
     spec:
+      # Bound to the orchestrator Role (deploy/k8s/orchestrator-rbac.yaml) so the
+      # service can create/inspect/delete integration workloads in this namespace.
+      serviceAccountName: orchestrator
       containers:
         - name: orchestrator
           # Built by `task cluster:images` and loaded via `k3d image import`.
@@ -28,6 +31,11 @@ spec:
               value: "8090"
             - name: DATABASE_URL
               value: postgres://octo:octo@postgres:5432/octo?sslmode=disable
+            # Namespace and image used when deploying integration pods.
+            - name: KUBE_NAMESPACE
+              value: octo-dev
+            - name: RUNTIME_IMAGE
+              value: octo-runtime:dev
           readinessProbe:
             httpGet:
               path: /healthz
