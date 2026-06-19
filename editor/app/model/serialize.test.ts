@@ -41,4 +41,32 @@ describe("serialize", () => {
   it("falls back to an empty document for a config with no flows", () => {
     expect(fromConfig({}).flows).toHaveLength(1);
   });
+
+  it("maps composite slots and scalars to runtime keys", () => {
+    const doc = emptyDocument();
+    const branch = newBlock("if"); // seeds then/else sub-flows + condition
+    branch.settings.condition = "body.ok";
+    branch.slots!.then[0].process = [newBlock("log")];
+    doc.flows[0].process = [branch];
+
+    const block = toConfig(doc).flows![0].process![0];
+    expect(block.condition).toBe("body.ok");
+    expect(block.settings).toBeUndefined(); // scalars are lifted, not in settings
+    expect(block.then!.process![0].type).toBe("log");
+    expect(block.else!.process).toEqual([]);
+  });
+
+  it("round-trips a composite back into slots", () => {
+    const doc = emptyDocument();
+    const branch = newBlock("if");
+    branch.settings.condition = "x > 1";
+    branch.slots!.then[0].process = [newBlock("set-payload")];
+    doc.flows[0].process = [branch];
+
+    const restored = fromConfig(toConfig(doc));
+    const node = restored.flows[0].process[0];
+    expect(node.type).toBe("if");
+    expect(node.settings.condition).toBe("x > 1");
+    expect(node.slots!.then[0].process[0].type).toBe("set-payload");
+  });
 });

@@ -1,10 +1,15 @@
 import { getBlockSpec } from "@/app/schema";
+import type { FieldSpec } from "@/app/schema/types";
 
 /**
  * The in-memory editing model. These are editor-side types: every node carries a
  * stable client `id` (distinct from the runtime config, which is keyed by name
  * and order). The reducer mutates this document; serialize.ts maps it to/from the
  * runtime YAML/JSON config shape.
+ *
+ * The model is recursive, mirroring the runtime (FlowConfig -> []BlockConfig ->
+ * composite slots -> FlowConfig): a composite block holds nested sub-flows in
+ * `slots`, keyed by the slot's field name.
  */
 
 export interface BlockNode {
@@ -14,8 +19,15 @@ export interface BlockNode {
   type: string;
   /** Optional human-readable step name. */
   name?: string;
-  /** Block settings keyed by field name. Composite slots are added later. */
+  /** Block settings keyed by field name. */
   settings: Record<string, unknown>;
+  /**
+   * Nested sub-flows for composite blocks, keyed by the slot field name
+   * (then/else/main/alternative/body/default/branches/cases). Every slot is a
+   * list for uniformity: single-flow slots hold 0–1 entries, flow-list/case-list
+   * hold N.
+   */
+  slots?: Record<string, FlowDoc[]>;
 }
 
 export interface SourceNode {
@@ -31,7 +43,12 @@ export interface FlowDoc {
   name: string;
   source?: SourceNode;
   process: BlockNode[];
+  /** CEL guard for a switch-case sub-flow (the case's `when`). */
+  when?: string;
 }
+
+/** Field types whose value is one or more nested sub-flows. */
+const SLOT_FIELD_TYPES = new Set(["flow", "flow-list", "case-list"]);
 
 export interface ConnectorInstance {
   id: string;
@@ -63,9 +80,29 @@ export function defaultSettings(type: string): Record<string, unknown> {
   return settings;
 }
 
-/** Create a fresh block of the given type with default settings. */
+/** The slot fields (nested sub-flows) of a block type, in schema order. */
+export function slotFields(type: string): FieldSpec[] {
+  const spec = getBlockSpec(type);
+  if (!spec) return [];
+  return spec.fields.filter((f) => SLOT_FIELD_TYPES.has(f.type));
+}
+
+/** Whether a block type nests sub-flows (if/switch/foreach/fork/scope). */
+export function isComposite(type: string): boolean {
+  return slotFields(type).length > 0;
+}
+
+/** Create a fresh block of the given type, seeding settings and composite slots. */
 export function newBlock(type: string): BlockNode {
-  return { id: newId(), type, settings: defaultSettings(type) };
+  const block: BlockNode = { id: newId(), type, settings: defaultSettings(type) };
+  const fields = slotFields(type);
+  if (fields.length > 0) {
+    const slots: Record<string, FlowDoc[]> = {};
+    // Seed every slot with one empty sub-flow so there is somewhere to drop.
+    for (const field of fields) slots[field.name] = [emptyFlow("")];
+    block.slots = slots;
+  }
+  return block;
 }
 
 /** An empty flow with no source and no steps. */
