@@ -248,6 +248,10 @@ func (s *Service) resolveEnvBindings(ctx context.Context, runtimeEnv map[string]
 type DeployOptions struct {
 	Networked     bool
 	SuggestedSlug string
+	// EnvVars are the integration's declared environment variables (excluding the
+	// orchestrator-managed HTTP_PORT/HTTP_HOST), for the modal to prompt on. Present
+	// regardless of networked status.
+	EnvVars []EnvVarDecl
 	// Populated only when a candidate slug was supplied.
 	SlugChecked   bool
 	Slug          string // normalized (slugified) candidate
@@ -268,7 +272,7 @@ func (s *Service) DeployOptions(ctx context.Context, integrationID, candidate st
 		return DeployOptions{}, err
 	}
 	_, _, networked := resolveRuntimeEnv(it.Definition)
-	opts := DeployOptions{Networked: networked}
+	opts := DeployOptions{Networked: networked, EnvVars: declaredEnvVars(it.Definition)}
 	if !networked {
 		return opts, nil
 	}
