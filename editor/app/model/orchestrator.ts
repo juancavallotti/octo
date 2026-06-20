@@ -101,7 +101,7 @@ export interface DeployOptions {
 }
 
 /** Perform a JSON request against a BFF route, unwrapping the `{ error }` envelope. */
-async function request<T>(url: string, init?: RequestInit): Promise<T> {
+export async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -112,7 +112,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
-function jsonBody(data: unknown): RequestInit {
+export function jsonBody(data: unknown): RequestInit {
   return {
     method: "POST",
     headers: { "Content-Type": "application/json" },

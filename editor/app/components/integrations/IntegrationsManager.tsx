@@ -20,6 +20,8 @@ import { flatten, type Bucket, type FlatFolder } from "./model";
 import FolderTree from "./FolderTree";
 import IntegrationList from "./IntegrationList";
 import IntegrationDetail from "./IntegrationDetail";
+import SecretsManager from "./SecretsManager";
+import ViewTabs, { type ManagementView } from "./ViewTabs";
 
 /** The data behind the management view, fetched together so it can be refreshed atomically. */
 interface Data {
@@ -58,6 +60,7 @@ async function loadData(): Promise<Data> {
  */
 export default function IntegrationsManager() {
   const [data, setData] = useState<Data>(EMPTY);
+  const [view, setView] = useState<ManagementView>("integrations");
   const [bucket, setBucket] = useState<Bucket>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -156,14 +159,16 @@ export default function IntegrationsManager() {
           <ArrowLeft size={16} />
           Editor
         </Link>
-        <span className="font-semibold tracking-tight">Integrations</span>
-        <Link
-          href="/"
-          className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1 text-sm font-medium text-white hover:bg-sky-500"
-        >
-          <Plus size={15} />
-          New integration
-        </Link>
+        <ViewTabs view={view} onChange={setView} />
+        {view === "integrations" && (
+          <Link
+            href="/"
+            className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1 text-sm font-medium text-white hover:bg-sky-500"
+          >
+            <Plus size={15} />
+            New integration
+          </Link>
+        )}
       </header>
 
       {error && (
@@ -172,7 +177,12 @@ export default function IntegrationsManager() {
         </p>
       )}
 
-      <div className="flex min-h-0 flex-1">
+      {view === "secrets" ? (
+        <div className="min-h-0 flex-1">
+          <SecretsManager />
+        </div>
+      ) : (
+        <div className="flex min-h-0 flex-1">
         <FolderTree
           folders={flat}
           bucket={bucket}
@@ -208,7 +218,8 @@ export default function IntegrationsManager() {
             </div>
           )}
         </div>
-      </div>
+        </div>
+      )}
     </div>
   );
 }
