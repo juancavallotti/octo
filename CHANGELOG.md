@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.1.3](https://github.com/juancavallotti/eip-go/compare/v0.1.2...v0.1.3) (2026-06-20)
+
+
+### Features
+
+* **deploy:** wildcard TLS cert via DNS-01 for integration subdomains ([#37](https://github.com/juancavallotti/eip-go/issues/37)) ([df99674](https://github.com/juancavallotti/eip-go/commit/df9967417edbdfedcdfbf4086d433fae6cd9778d))
+* **editor:** allocate a port and inject HTTP_PORT for networked runs ([#36](https://github.com/juancavallotti/eip-go/issues/36) 2/5) ([86627f2](https://github.com/juancavallotti/eip-go/commit/86627f2ee9fce14dacdeaff4fab11bf7b7c418d1))
+* **editor:** namespace editor runs per user ([#36](https://github.com/juancavallotti/eip-go/issues/36) 1/5) ([443247e](https://github.com/juancavallotti/eip-go/commit/443247eba505573a011ce7479b09a13712bba209))
+* **editor:** reap idle namespaced runs after 1h ([#36](https://github.com/juancavallotti/eip-go/issues/36) 5/5) ([114c4da](https://github.com/juancavallotti/eip-go/commit/114c4da282f4043b8f40dff6693179f0e45927ea))
+* **editor:** reverse-proxy networked runs at /editor/runs/&lt;ns&gt;/ ([#36](https://github.com/juancavallotti/eip-go/issues/36) 3/5) ([82e2f16](https://github.com/juancavallotti/eip-go/commit/82e2f163553ef29ee0053de7f8c076bc0a440b20))
+* **editor:** surface the run test URL in the log panel ([#36](https://github.com/juancavallotti/eip-go/issues/36) 4/5) ([7477b89](https://github.com/juancavallotti/eip-go/commit/7477b899bdaa9d27d65a05b70209af8bfc7f044d))
+* **runtime:** expose declared env vars to CEL as env.NAME ([#34](https://github.com/juancavallotti/eip-go/issues/34)) ([8e7e48c](https://github.com/juancavallotti/eip-go/commit/8e7e48cc988e29eebe2b2813116632999701d08b))
+
+
+### Bug Fixes
+
+* **helm:** grant orchestrator RBAC to manage secrets ([#33](https://github.com/juancavallotti/eip-go/issues/33)) ([72e60de](https://github.com/juancavallotti/eip-go/commit/72e60de8ea01a5dd1f86cf52419ebe4c180718aa))
+* **http:** release listener on Stop to fix hot-reload port leak ([#22](https://github.com/juancavallotti/eip-go/issues/22)) ([7c66b56](https://github.com/juancavallotti/eip-go/commit/7c66b56d93f2f5bf2fb6ae2ff4ac432f8c80d9f4))
+* **infra:** order deploy secret IAM grant after the secret exists ([648d3a0](https://github.com/juancavallotti/eip-go/commit/648d3a0c99a264413e93e4322b3edf59a23db7de))
+
+
+### Refactoring
+
+* **deploy:** collapse to a single octo.tfvars; drop bootstrap root ([6b3febd](https://github.com/juancavallotti/eip-go/commit/6b3febd584e50f3596e00986f8a4273946856f02))
+* **deploy:** one combined infra root + Cloud Build-driven releases ([d905733](https://github.com/juancavallotti/eip-go/commit/d9057333845e94bfa036c060fb761bc3802aea00))
+
 ## [0.1.2](https://github.com/juancavallotti/eip-go/compare/v0.1.1...v0.1.2) (2026-06-20)
 
 

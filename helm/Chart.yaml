@@ -5,5 +5,5 @@ description: >-
   orchestrator API, and the editor UI, with a Traefik Ingress + cert-manager TLS
   for the editor.
 type: application
-version: 0.1.2
+version: 0.1.3
 appVersion: 0.1.1
