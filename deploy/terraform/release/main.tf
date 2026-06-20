@@ -1,17 +1,19 @@
-# The octo Helm release, owned by Terraform. Apply this right after publishing
-# images (Cloud Build on a tag, or `task images:push` + `task helm:push`):
+# The octo Helm release, owned by Terraform. Cloud Build applies this on a version
+# tag (_DEPLOY=true); to run it by hand use `task deploy TAG=v0.1.1` (which derives
+# chart_version from helm/Chart.yaml), or apply directly:
 #
-#   terraform -chdir=deploy/terraform/release apply -var image_tag=v0.1.1
+#   terraform -chdir=deploy/terraform/release apply \
+#     -var-file=../octo.tfvars -var image_tag=v0.1.1 -var chart_version=0.1.2
 #
 # It pulls the target tag onto the node (fresh token, via octo-pull over SSH),
 # then installs/upgrades the chart through the Helm provider. A changed image_tag
-# rolls the Deployments. Prereqs: deploy/terraform/k3s applied, and
+# rolls the Deployments. Prereqs: deploy/terraform/infra applied, and
 # `task deploy:kubeconfig` has produced the kubeconfig.
 
 locals {
   image_base = "${var.region}-docker.pkg.dev/${var.project_id}/${var.repository_id}"
   secret_id  = coalesce(var.secret_id, "${var.instance_name}-postgres")
-  kubeconfig = var.kubeconfig != "" ? var.kubeconfig : "${path.module}/../k3s/kubeconfig.yaml"
+  kubeconfig = var.kubeconfig != "" ? var.kubeconfig : "${path.module}/../infra/kubeconfig.yaml"
 }
 
 # Operator access token for pulling the OCI chart from Artifact Registry.
@@ -33,7 +35,10 @@ resource "null_resource" "pull_images" {
 
   provisioner "local-exec" {
     interpreter = ["bash", "-c"]
-    command     = "gcloud compute ssh ${var.instance_name} --zone ${var.zone} --project ${var.project_id} --command 'sudo octo-pull ${var.image_tag}'"
+    # --tunnel-through-iap so this works the same from a laptop and from the Cloud
+    # Build deploy step (whose egress IP is dynamic); the IAP range reaches SSH via
+    # the existing firewall.
+    command = "gcloud compute ssh ${var.instance_name} --zone ${var.zone} --project ${var.project_id} --tunnel-through-iap --quiet --command 'sudo octo-pull ${var.image_tag}'"
   }
 }
 

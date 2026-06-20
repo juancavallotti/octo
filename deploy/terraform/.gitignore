@@ -5,6 +5,7 @@
 .terraform.lock.hcl
 # Real variable files hold project-specific values; only the *.example is tracked.
 terraform.tfvars
+octo.tfvars
 *.auto.tfvars
 crash.log
 # Fetched k3s kubeconfig (cluster admin credentials) — never commit.

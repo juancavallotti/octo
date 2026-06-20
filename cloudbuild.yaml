@@ -1,23 +1,30 @@
-# Cloud Build pipeline: build the four octo images and the OCI Helm chart, then
-# push everything to Artifact Registry. Provisioned and triggered by
-# deploy/terraform/cloudbuild (fires on version tags by default); that trigger
-# supplies _IMAGE_BASE/_REGION and maps _TAG to the pushed git tag.
+# Cloud Build pipeline: build the four octo images and the OCI Helm chart, push
+# everything to Artifact Registry, then (optionally) roll the cluster by applying the
+# Terraform release root. Provisioned and triggered by deploy/terraform/infra
+# (enable_cloudbuild=true); the trigger supplies _IMAGE_BASE/_REGION, maps _TAG to the
+# pushed git tag, and sets _DEPLOY/_INSTANCE/_ZONE/_DOMAIN.
 #
-# Run manually:
+# Run manually (build + push only):
 #   gcloud builds submit --config cloudbuild.yaml \
 #     --substitutions=_IMAGE_BASE=REGION-docker.pkg.dev/PROJECT/octo,_REGION=REGION,_TAG=dev
+# Add _DEPLOY=true,_DOMAIN=...  to also roll the cluster.
 
 substitutions:
   _IMAGE_BASE: "" # e.g. us-west1-docker.pkg.dev/PROJECT/octo
   _REGION: us-west1 # Artifact Registry docker host region (…-docker.pkg.dev)
   _TAG: latest # image tag; the trigger overrides this with the git tag name
+  # Deploy step (off by default; the trigger flips _DEPLOY to "true").
+  _DEPLOY: "false"
+  _INSTANCE: octo
+  _ZONE: us-west1-a
+  _DOMAIN: octo.juancavallotti.com
 
 options:
   machineType: E2_HIGHCPU_8
   logging: CLOUD_LOGGING_ONLY
 
-# Each image is tagged with both _TAG (the git tag) and 'latest' so the k3s
-# deployment can default image_tag to "latest".
+# Each image is tagged with both _TAG (the git tag) and 'latest' so the deployment can
+# default image_tag to "latest".
 steps:
   # Editor build context is the repo root so its Dockerfile reaches runtime/ + editor/.
   - id: build-editor
@@ -32,10 +39,28 @@ steps:
   - id: build-runtime
     name: gcr.io/cloud-builders/docker
     args: ["build", "-t", "${_IMAGE_BASE}/octo-runtime:${_TAG}", "-t", "${_IMAGE_BASE}/octo-runtime:latest", "-f", "runtime/Dockerfile", "./runtime"]
+
+  # Push the images explicitly (not via the trailing `images:` block) so they are in
+  # the registry *before* the deploy step's octo-pull reads them by tag.
+  - id: push-images
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    waitFor: ["build-editor", "build-orchestrator", "build-schema", "build-runtime"]
+    args:
+      - -c
+      - |
+        set -e
+        for img in octo-editor octo-orchestrator octo-schema octo-runtime; do
+          for t in "${_TAG}" latest; do
+            docker push "${_IMAGE_BASE}/$img:$t"
+          done
+        done
+
   # Package + push the Helm chart (version comes from helm/Chart.yaml, not the git tag).
   - id: push-helm-chart
     name: gcr.io/cloud-builders/gcloud
     entrypoint: bash
+    waitFor: ["-"]
     args:
       - -c
       - |
@@ -47,13 +72,35 @@ steps:
         VERSION="$(helm show chart helm | awk '/^version:/ {print $$2}')"
         helm push "dist/octo-$${VERSION}.tgz" "oci://${_IMAGE_BASE}"
 
-# Built images are pushed after all steps succeed (both tags).
-images:
-  - "${_IMAGE_BASE}/octo-editor:${_TAG}"
-  - "${_IMAGE_BASE}/octo-editor:latest"
-  - "${_IMAGE_BASE}/octo-orchestrator:${_TAG}"
-  - "${_IMAGE_BASE}/octo-orchestrator:latest"
-  - "${_IMAGE_BASE}/octo-schema:${_TAG}"
-  - "${_IMAGE_BASE}/octo-schema:latest"
-  - "${_IMAGE_BASE}/octo-runtime:${_TAG}"
-  - "${_IMAGE_BASE}/octo-runtime:latest"
+  # Roll the cluster: apply the Terraform release root (Helm provider). Gated on
+  # _DEPLOY so a build can publish without deploying. Runs after the images AND the
+  # chart are in the registry. terraform is installed here the same way helm is above;
+  # gcloud (this image) covers the SSH octo-pull, the GCS backend, and the google data
+  # sources in release/.
+  - id: deploy
+    name: gcr.io/cloud-builders/gcloud
+    entrypoint: bash
+    waitFor: ["push-images", "push-helm-chart"]
+    args:
+      - -c
+      - |
+        set -e
+        if [ "${_DEPLOY}" != "true" ]; then
+          echo "deploy disabled (_DEPLOY=${_DEPLOY}); build + push only"
+          exit 0
+        fi
+        TF_VERSION=1.9.8
+        curl -fsSL "https://releases.hashicorp.com/terraform/$${TF_VERSION}/terraform_$${TF_VERSION}_linux_amd64.zip" -o /tmp/tf.zip
+        (cd /usr/local/bin && unzip -o /tmp/tf.zip)
+        # Fetch the cluster kubeconfig over IAP (server rewritten to the public API
+        # endpoint, which the k3s cert covers via --tls-san).
+        gcloud compute ssh "${_INSTANCE}" --zone "${_ZONE}" --tunnel-through-iap --quiet \
+          --command 'sudo cat /etc/rancher/k3s/k3s.yaml' \
+          | sed "s#https://127.0.0.1:6443#https://${_DOMAIN}:6443#" > /workspace/kubeconfig.yaml
+        CHART_VERSION="$(awk '/^version:/ {print $$2}' helm/Chart.yaml)"
+        terraform -chdir=deploy/terraform/release init -input=false
+        terraform -chdir=deploy/terraform/release apply -auto-approve -input=false \
+          -var-file=../octo.tfvars \
+          -var image_tag="${_TAG}" \
+          -var chart_version="$${CHART_VERSION}" \
+          -var kubeconfig=/workspace/kubeconfig.yaml

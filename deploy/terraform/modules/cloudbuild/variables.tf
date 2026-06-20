@@ -44,3 +44,47 @@ variable "build_config" {
   description = "Path to the Cloud Build config in the repo."
   default     = "cloudbuild.yaml"
 }
+
+# --- Deploy step (the build rolls the cluster after publishing) ---
+
+variable "enable_deploy" {
+  type        = bool
+  description = "Whether the build's deploy step runs (sets the _DEPLOY substitution) and the build SA gets the deploy permissions. The cluster (infra) must exist first."
+  default     = false
+}
+
+variable "instance_name" {
+  type        = string
+  description = "k3s VM name the deploy step SSHes to (passed as _INSTANCE)."
+  default     = "octo"
+}
+
+variable "zone" {
+  type        = string
+  description = "Zone of the k3s VM (passed as _ZONE)."
+  default     = "us-west1-a"
+}
+
+variable "domain" {
+  type        = string
+  description = "Editor hostname; the deploy step rewrites the kubeconfig server to https://{domain}:6443 (passed as _DOMAIN)."
+  default     = "octo.juancavallotti.com"
+}
+
+variable "deploy_secret_id" {
+  type        = string
+  description = "Secret Manager secret holding the Postgres password the release reads. Required when enable_deploy = true."
+  default     = ""
+}
+
+variable "state_bucket" {
+  type        = string
+  description = "GCS bucket backing the release Terraform state (objectAdmin granted to the build SA). Required when enable_deploy = true."
+  default     = ""
+}
+
+variable "vm_service_account_email" {
+  type        = string
+  description = "Email of the k3s VM service account; the build SA is granted serviceAccountUser on it for SSH. Required when enable_deploy = true."
+  default     = ""
+}

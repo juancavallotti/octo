@@ -78,13 +78,19 @@ Under [deploy/terraform/](../deploy/terraform/):
 
 | Root | What it creates | When to apply |
 |---|---|---|
-| `registry/` | Artifact Registry repo (`octo`) for images **and** the OCI Helm chart | once |
-| `cloudbuild/` | Cloud Build trigger + writer IAM (build/push on version tags) | once (optional) |
-| `k3s/` | VM, static IP, firewall, DNS records, Secret Manager Postgres password, k3s bootstrap | once per cluster |
+| `infra/` | Artifact Registry repo (`octo`); VM, static IP, firewall, DNS records, Secret Manager Postgres password, k3s bootstrap; and (optional) the Cloud Build trigger + IAM | once per cluster |
 | `release/` | The Octo Helm release (image tag + chart version) | every deploy/upgrade |
 
-State holds secrets (the generated Postgres password) and the fetched kubeconfig
-holds cluster-admin credentials — both are gitignored. Keep your state private.
+The three one-time pieces are composed in a single `infra/` root. **There is one
+tfvars file** — `octo.tfvars` — read by both roots (per-deploy `image_tag`/
+`chart_version` come from the command line). `release/` stays separate because it runs
+on every deploy — on a version tag Cloud Build applies it for you, or run `task deploy`
+by hand.
+
+`release/` state lives in a GCS bucket (created once with `task state:bucket`, so Cloud
+Build and your laptop share it); `infra/` keeps local state. State holds secrets (the
+generated Postgres password) and the fetched kubeconfig holds cluster-admin
+credentials — both are gitignored. Keep your state private.
 
 ---
 
@@ -93,34 +99,29 @@ holds cluster-admin credentials — both are gitignored. Keep your state private
 ```sh
 gcloud auth application-default login
 
-# 1. Artifact Registry (images + OCI chart)
-cd deploy/terraform/registry
-cp terraform.tfvars.example terraform.tfvars      # set project_id
-terraform init && terraform apply
-terraform output image_base                        # e.g. us-west1-docker.pkg.dev/PROJECT/octo
+# 1. Fill in the one tfvars file (project_id, domain, dns_managed_zone)
+cd deploy/terraform
+cp octo.tfvars.example octo.tfvars
 
-# 2. (Optional) Cloud Build automation.
-#    First connect the GitHub repo once in the console:
-#    Cloud Build → Triggers → Connect repository (installs the GitHub App).
-cd ../cloudbuild
-cp terraform.tfvars.example terraform.tfvars       # set project_id
-terraform init && terraform apply
+# 2. Remote state bucket for the release root (run once)
+task state:bucket PROJECT=<your-project>
 
-# 3. The VM + cluster bootstrap
-cd ../k3s
-cp terraform.tfvars.example terraform.tfvars       # project_id, dns_managed_zone, domain
-terraform init && terraform apply
-terraform output                                   # static_ip, url, kube_api_endpoint
+# 3. Everything one-time: registry + VM + k3s bootstrap (+ optional Cloud Build).
+#    Leave enable_cloudbuild unset for the first apply.
+task infra:apply
+terraform -chdir=infra output                      # image_base, static_ip, url, kube_api_endpoint
 
-# 4. Fetch the cluster kubeconfig for the release root
-#    (rewrites the server to https://{domain}:6443, covered by the API cert)
-cd ../../..
-task deploy:kubeconfig DOMAIN=octo.juancavallotti.com
+# 4. (Optional) Cloud Build automation. Connect the GitHub repo once in the console
+#    (Cloud Build → Triggers → Connect repository — installs the GitHub App), then
+#    set enable_cloudbuild=true in octo.tfvars and re-run:
+task infra:apply
 ```
 
 > **Restrict access in production.** SSH (22) and the k3s API (6443) default to
-> open. Set `ssh_source_ranges` and `kube_api_source_ranges` in the `k3s` tfvars
-> to your IP. The release root needs 6443 reachable from where you run Terraform.
+> open. Set `ssh_source_ranges` and `kube_api_source_ranges` in `octo.tfvars`
+> to your IP — but include the IAP range `35.235.240.0/20` so the Cloud Build deploy
+> step (dynamic egress IP) can still SSH and reach 6443. The release apply needs 6443
+> reachable from where Terraform runs.
 
 ---
 
@@ -150,14 +151,22 @@ with the repo release by release-please); image tags are whatever you push.
 
 ## Deploying and rolling upgrades
 
-Apply the `release` root right after publishing — set `image_tag` (and
-`chart_version` if the chart changed):
+On a version tag, Cloud Build runs the release automatically (the `deploy` step in
+[cloudbuild.yaml](../cloudbuild.yaml), gated on `_DEPLOY`). To deploy a published tag
+by hand — fetches the kubeconfig and derives `chart_version` from `helm/Chart.yaml`:
 
 ```sh
+task deploy TAG=v0.1.1            # optional: DOMAIN=… INSTANCE=… ZONE=…
+```
+
+Or apply the `release` root directly (state is in GCS, so `init` picks up the shared
+state):
+
+```sh
+task deploy:kubeconfig DOMAIN=octo.juancavallotti.com
 cd deploy/terraform/release
-cp terraform.tfvars.example terraform.tfvars        # project_id, domain
 terraform init
-terraform apply -var image_tag=v0.1.1 -var chart_version=0.1.1
+terraform apply -var-file=../octo.tfvars -var image_tag=v0.1.1 -var chart_version=0.1.2
 ```
 
 Each apply:
@@ -222,29 +231,31 @@ the same host route ambiguously.
 
 ## Configuration reference
 
-### `k3s` root variables
+All settings live in the single `octo.tfvars`, read by both roots. Per-deploy values
+(`image_tag`, `chart_version`) come from the command line instead.
+
+### `infra` variables (set in `octo.tfvars`)
 
 | Variable | Default | Notes |
 |---|---|---|
 | `project_id` | – | required |
+| `domain` | `octo.juancavallotti.com` | editor host; subdomains under `*.{domain}` |
 | `dns_managed_zone` | – | required; Cloud DNS zone name |
-| `domain` | `octo.juancavallotti.com` | editor host; subdomains live under `*.{domain}` |
-| `region` / `zone` | `us-west1` / `us-west1-a` | Oregon |
 | `machine_type` | `e2-standard-2` | 8 GB; `e2-medium` (4 GB) is tight |
-| `ssh_source_ranges` | `["0.0.0.0/0"]` | restrict in production |
+| `ssh_source_ranges` | `["0.0.0.0/0"]` | restrict in production (keep the IAP range) |
 | `kube_api_source_ranges` | `null` (= SSH ranges) | who can reach 6443 |
-| `repository_id` | `octo` | Artifact Registry repo |
 | `acme_email` | `juancavallotti@gmail.com` | Let's Encrypt account |
+| `enable_cloudbuild` | `false` | create the trigger (needs GitHub App connected first) |
+| `cloudbuild_auto_deploy` | `true` | also roll the cluster on a tag (`_DEPLOY=true` + deploy IAM) |
 
 ### `release` root variables
 
 | Variable | Default | Notes |
 |---|---|---|
-| `project_id` | – | required |
-| `domain` | `octo.juancavallotti.com` | must match the `k3s` deployment |
 | `image_tag` | `latest` | bump to roll an upgrade |
-| `chart_version` | `0.1.1` | must match the published `helm/Chart.yaml` |
-| `kubeconfig` | `../k3s/kubeconfig.yaml` | from `task deploy:kubeconfig` |
+| `chart_version` | – (required) | must match the published `helm/Chart.yaml`; derived by Cloud Build / `task deploy` |
+| `cluster_issuer` | `letsencrypt-prod` | cert-manager issuer |
+| `kubeconfig` | `../infra/kubeconfig.yaml` | from `task deploy:kubeconfig` |
 
 ### Orchestrator environment (set by the chart)
 

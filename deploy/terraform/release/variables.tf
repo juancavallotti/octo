@@ -41,8 +41,7 @@ variable "image_tag" {
 
 variable "chart_version" {
   type        = string
-  description = "Version of the octo chart in Artifact Registry OCI (matches helm/Chart.yaml at the published release)."
-  default     = "0.1.1"
+  description = "Version of the octo chart in Artifact Registry OCI. Must match helm/Chart.yaml at the published release; derived from it by Cloud Build and `task deploy`, so it is required (no default) to avoid drift."
 }
 
 variable "cluster_issuer" {
@@ -61,4 +60,18 @@ variable "secret_id" {
   type        = string
   description = "Secret Manager secret holding the Postgres password. null = {instance_name}-postgres."
   default     = null
+}
+
+# Declared (unused here) so the single shared octo.tfvars — which carries these for
+# the infra root — does not emit "undeclared variable" warnings on a release apply.
+variable "dns_managed_zone" {
+  type        = string
+  description = "Infra-only (Cloud DNS zone name); ignored by the release root."
+  default     = ""
+}
+
+variable "enable_cloudbuild" {
+  type        = bool
+  description = "Infra-only (creates the Cloud Build trigger); ignored by the release root."
+  default     = false
 }

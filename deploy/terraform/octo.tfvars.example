@@ -1,0 +1,31 @@
+# The one tfvars file. Copy to octo.tfvars (gitignored) and fill it in; both the
+# infra and release roots read it with -var-file=../octo.tfvars (the `task` targets
+# pass that for you). image_tag / chart_version are per-deploy and come from the
+# command line (`task deploy TAG=...`), so they are not here.
+
+# --- Required ---
+project_id       = "your-gcp-project-id"
+domain           = "octo.juancavallotti.com" # editor host; subdomains live under *.{domain}
+dns_managed_zone = "your-clouddns-zone-name"  # Cloud DNS zone NAME, e.g. "juancavallotti-com"
+
+# --- Cloud Build (optional) ---
+# Connect the GitHub repo to Cloud Build once (console: Cloud Build -> Triggers ->
+# Connect repository), then set this true and re-apply infra. On a version tag the
+# build then publishes AND rolls the cluster.
+# enable_cloudbuild = true
+
+# --- Optional overrides (defaults shown) ---
+# region        = "us-west1"
+# zone          = "us-west1-a"
+# instance_name = "octo"
+# repository_id = "octo"
+# cluster_issuer = "letsencrypt-prod"
+#
+# Infra-only knobs (uncommenting these is fine; a `terraform apply` on the release
+# root may print a harmless "undeclared variable" note for them — the `task` targets
+# pass -compact-warnings):
+# machine_type           = "e2-standard-2"
+# acme_email             = "you@example.com"
+# boot_disk_size_gb      = 30
+# ssh_source_ranges      = ["203.0.113.4/32"] # keep 35.235.240.0/20 for IAP/Cloud Build
+# kube_api_source_ranges = ["203.0.113.4/32"]
