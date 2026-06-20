@@ -1,5 +1,64 @@
 # Changelog
 
+## [0.1.2](https://github.com/juancavallotti/eip-go/compare/v0.1.1...v0.1.2) (2026-06-20)
+
+
+### Features
+
+* **cluster:** add DevSpace dev mode with hot reload and log tailing ([158dcc5](https://github.com/juancavallotti/eip-go/commit/158dcc52d44823fb8b340843205629c33accaecb))
+* **cluster:** add local k3d dev cluster via DevSpace ([7d65b9f](https://github.com/juancavallotti/eip-go/commit/7d65b9fced2dad4c9c8bb0c11ba7bd68767eca00))
+* **cluster:** local k3d dev cluster via DevSpace (editor+runtime, orchestrator, sql) ([e9cf2a2](https://github.com/juancavallotti/eip-go/commit/e9cf2a2bf36937e030ab929a9082e60c80618a18))
+* deploy integrations as Kubernetes pods ([f1d9f7d](https://github.com/juancavallotti/eip-go/commit/f1d9f7d1bded654686b7e3e5a6f8d5f1c9ea0cd3))
+* **deploy:** Helm chart, Artifact Registry + Cloud Build for GCP ([b81e9aa](https://github.com/juancavallotti/eip-go/commit/b81e9aa32bd2f3687293271bd0581b45329ac840))
+* **deploy:** single-node k3s VM + Terraform-owned Helm release ([bd5f9f0](https://github.com/juancavallotti/eip-go/commit/bd5f9f0681e96e36f5fc07311288f7067984e268))
+* **editor:** bookmarkable /i/[id] route for opening integrations ([5e74c70](https://github.com/juancavallotti/eip-go/commit/5e74c7087887f3c83f254e75398acd12aabf3918))
+* **editor:** deploy and manage integrations from the management UI ([dc0d992](https://github.com/juancavallotti/eip-go/commit/dc0d992442183f833cbc93a34a6617e67baa5707))
+* **editor:** deployment UX — formatting, icons, modal, and scaling ([815700b](https://github.com/juancavallotti/eip-go/commit/815700bd84eb66e43752916fdde2f8040bbd26cc))
+* **editor:** editable title, folder picker and save in title bar ([9705b1b](https://github.com/juancavallotti/eip-go/commit/9705b1b3ee16b917f17fc0f407484b8d08ed6ecf))
+* **editor:** integrate orchestrator integrations & folders ([6dae196](https://github.com/juancavallotti/eip-go/commit/6dae196c15cc31ccce41c3859eba52495a9682bd))
+* **editor:** integrations management route with folder CRUD and detail panel ([a29c13d](https://github.com/juancavallotti/eip-go/commit/a29c13d7eb1346d3f10dc5c075d7bbb5120c4561))
+* **editor:** live deployment status over SSE with a polling fallback ([e3afb57](https://github.com/juancavallotti/eip-go/commit/e3afb577ed8fd64d535bb9a7849b9702bc18b642))
+* **editor:** orchestrator API client and proxy routes ([94e0504](https://github.com/juancavallotti/eip-go/commit/94e0504f5b102d84f1c32c490b0325548ec8978d))
+* **editor:** save the integration with Cmd/Ctrl+S ([4306e07](https://github.com/juancavallotti/eip-go/commit/4306e079794f96d4da6b870ac0e757db11e91558))
+* **editor:** user-chosen deployment slug with live validation ([af17454](https://github.com/juancavallotti/eip-go/commit/af1745435c5de8018d679be9cce025342f8e3ae7))
+* **orchestrator,editor:** external per-integration subdomains ([6dfb6d0](https://github.com/juancavallotti/eip-go/commit/6dfb6d087cd472675e77918a0c3af199c5b01b73))
+* **orchestrator,editor:** richer deployment status ([2451c4f](https://github.com/juancavallotti/eip-go/commit/2451c4ff4e81ed6e65bc2f25701f4b06a4092657))
+* **orchestrator:** add integration repository layer ([7f24c0e](https://github.com/juancavallotti/eip-go/commit/7f24c0eed16995f129d609f96068622cf7fea4f1))
+* **orchestrator:** add integration REST endpoints ([7991942](https://github.com/juancavallotti/eip-go/commit/7991942c25412bff8d75a550e635aadc2436a21b))
+* **orchestrator:** add integration service layer ([8932127](https://github.com/juancavallotti/eip-go/commit/8932127f7b1f59e051f9c3d7d50757011ba5ac76))
+* **orchestrator:** add integrations datamodel to schema ([8712255](https://github.com/juancavallotti/eip-go/commit/8712255042ec56ec8d60a7d8b0873b0f93d0dd70))
+* **orchestrator:** deploy integrations as Kubernetes workloads ([3eae392](https://github.com/juancavallotti/eip-go/commit/3eae3923dde52d4fb990c89b1521b159936eae18))
+* **orchestrator:** folder HTTP API and route wiring ([b5b9544](https://github.com/juancavallotti/eip-go/commit/b5b9544c284371402db0eb54b24448945ce8d713))
+* **orchestrator:** folder repo, types and DB tests ([61f333e](https://github.com/juancavallotti/eip-go/commit/61f333e1844b423fb4183fb43a3c00b95b016fd0))
+* **orchestrator:** folder service with validation and tree assembly ([d6cec19](https://github.com/juancavallotti/eip-go/commit/d6cec1954970a085521b92c741f8593683a720d9))
+* **orchestrator:** HTTP_PORT drives external exposability + port wiring ([0fbb9c2](https://github.com/juancavallotti/eip-go/commit/0fbb9c222fa61b23203decb01e4cc77ba3f9a077))
+* **orchestrator:** integrations + folders datamodel and layered CRUD API ([fd1e864](https://github.com/juancavallotti/eip-go/commit/fd1e864a1136b725395bfc51a85cdddc23687cd5))
+* **orchestrator:** internal endpoints — replicas + stable per-integration Service ([6c10924](https://github.com/juancavallotti/eip-go/commit/6c10924e5dd16b8748fa85cb85abc6e5afd2c440))
+* **orchestrator:** reject duplicate slugs/subdomains across integrations ([f22b7fc](https://github.com/juancavallotti/eip-go/commit/f22b7fca19bb44960beb3b0800380236c1edaeed))
+* **orchestrator:** scale an existing deployment ([e9c0084](https://github.com/juancavallotti/eip-go/commit/e9c00847937cb8e300dfe840bba1db888864b03e))
+* **orchestrator:** single-folder membership schema + db reset task ([c14396b](https://github.com/juancavallotti/eip-go/commit/c14396bc3315eae2b92a47d41228d8d31b24927a))
+* **orchestrator:** unique per-deployment slugs + user-chosen, validated addresses ([986ee8b](https://github.com/juancavallotti/eip-go/commit/986ee8b5acfac90eb5ac8cfc2857251e14dca438))
+* **orchestrator:** watch the cluster via informers and push status over SSE ([02d7ec7](https://github.com/juancavallotti/eip-go/commit/02d7ec7f39b53fc614da7649aff952bcbe227137))
+* **runtime:** standalone octo-runtime image for per-integration pods ([3f23849](https://github.com/juancavallotti/eip-go/commit/3f23849f41b02c6d23dfab0c43b57c45d84dec8f))
+
+
+### Bug Fixes
+
+* **deploy:** grant orchestrator patch on deployments so scaling works ([3e78ec6](https://github.com/juancavallotti/eip-go/commit/3e78ec6f26691e5e18db07f6a159ac06940c485e))
+* **editor:** allow saving any state and keep loaded integrations valid ([ff80de6](https://github.com/juancavallotti/eip-go/commit/ff80de6872c572aba9b98c8313c341b8fd76bcbe))
+* **editor:** gate Save on empty/unchanged, not on a missing name ([1065e86](https://github.com/juancavallotti/eip-go/commit/1065e86f7394678e91157c74c4b3f1d863917bde))
+* **editor:** raise folder picker popover above canvas launchers ([57d5425](https://github.com/juancavallotti/eip-go/commit/57d542554e2c7f9cd25eca57ad2ba19e33d192f4))
+
+
+### Refactoring
+
+* **orchestrator:** extract pool lifecycle into internal/db ([8189b5f](https://github.com/juancavallotti/eip-go/commit/8189b5f23e6d25bcd5f2c67dcbe08399955f51cc))
+
+
+### Documentation
+
+* **deploy:** document the GCP deployment process ([1b62c59](https://github.com/juancavallotti/eip-go/commit/1b62c594b3f1a81bb327ca8d5652b324f347e9fa))
+
 ## [0.1.1](https://github.com/juancavallotti/eip-go/compare/v0.1.0...v0.1.1) (2026-06-19)
 
 
