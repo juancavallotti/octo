@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Globe, Rocket } from "lucide-react";
 import {
   createDeployment,
@@ -12,14 +12,14 @@ import DeploymentRow from "./DeploymentRow";
 
 /**
  * Deployments for one integration: a one-click Deploy plus a list of live
- * deployments with their status and an Undeploy action. The orchestrator
- * refreshes each deployment's status from the cluster on read, so the list is
- * re-fetched on mount and on a light interval while shown — no client-side
- * status tracking. Mutations refresh immediately, mirroring IntegrationsManager.
+ * deployments with their status and an Undeploy action. The orchestrator pushes
+ * status changes over SSE (it watches the cluster), so the list updates live; if
+ * the stream is unavailable we fall back to gentle polling. Mutations refresh
+ * immediately, mirroring IntegrationsManager.
  */
 
-// Status is refreshed server-side on read; poll gently so pending->running shows.
-const REFRESH_MS = 4000;
+// Polling cadence used only as a fallback when the SSE stream is unavailable.
+const FALLBACK_POLL_MS = 5000;
 
 export default function DeploymentsSection({
   integrationId,
@@ -49,11 +49,40 @@ export default function DeploymentsSection({
     [integrationId],
   );
 
+  // Live updates over SSE, with a polling fallback that engages only while the
+  // stream is erroring (e.g. orchestrator without informer support).
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => {
-    refresh();
-    const timer = setInterval(refresh, REFRESH_MS);
-    return () => clearInterval(timer);
-  }, [refresh]);
+    const stopPoll = () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+    refresh(); // first paint, independent of the stream connecting
+    const es = new EventSource(
+      `/api/integrations/${encodeURIComponent(integrationId)}/deployments/events`,
+    );
+    es.onmessage = (ev) => {
+      try {
+        setDeployments(JSON.parse(ev.data) as Deployment[]);
+        setError(null);
+      } catch {
+        /* ignore a malformed frame; the next one replaces it */
+      }
+    };
+    es.onopen = stopPoll; // stream healthy → no need to poll
+    es.onerror = () => {
+      // Stream dropped or unavailable; keep the list fresh until it recovers.
+      if (!pollRef.current) {
+        pollRef.current = setInterval(refresh, FALLBACK_POLL_MS);
+      }
+    };
+    return () => {
+      es.close();
+      stopPoll();
+    };
+  }, [integrationId, refresh]);
 
   /** Run a mutation, then refresh; surface failures inline. */
   const run = useCallback(

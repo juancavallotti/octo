@@ -60,6 +60,48 @@ export async function forward(
 }
 
 /**
+ * Stream a Server-Sent Events response from `path` on the orchestrator straight
+ * through to the caller (unlike `forward`, which buffers the body). The caller's
+ * AbortSignal is forwarded, so when the browser closes the EventSource the
+ * upstream connection is torn down too. Returns 503 when no orchestrator is
+ * configured and 502 when it is unreachable; a non-streamable upstream response
+ * is relayed with its status so the client's EventSource sees the error.
+ */
+export async function stream(
+  path: string,
+  signal?: AbortSignal,
+): Promise<Response> {
+  const base = baseUrl();
+  if (!base) return notConfigured();
+
+  let res: Response;
+  try {
+    res = await fetch(`${base}${path}`, {
+      signal,
+      headers: { Accept: "text/event-stream" },
+    });
+  } catch (err) {
+    return Response.json(
+      { error: `orchestrator unreachable: ${(err as Error).message}` },
+      { status: 502 },
+    );
+  }
+
+  if (!res.ok || !res.body) {
+    return new Response(null, { status: res.status });
+  }
+  return new Response(res.body, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    },
+  });
+}
+
+/**
  * Proxy the incoming editor request to `path` on the orchestrator, preserving the
  * method and (for POST/PUT/PATCH) the JSON body.
  */
