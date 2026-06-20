@@ -128,6 +128,22 @@ func (r *Repo) UpdateStatus(ctx context.Context, id, status string) error {
 	return nil
 }
 
+// UpdateSettings replaces the settings jsonb and stamps last_updated. Returns
+// ErrNotFound if id does not exist.
+func (r *Repo) UpdateSettings(ctx context.Context, id string, settings json.RawMessage) error {
+	tag, err := r.pool.Exec(ctx,
+		`UPDATE integration_deployments SET settings = $2, last_updated = now() WHERE id = $1`,
+		id, settings,
+	)
+	if err != nil {
+		return fmt.Errorf("deployment repo: update settings: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // Delete removes the deployment. Returns ErrNotFound if no row was deleted.
 func (r *Repo) Delete(ctx context.Context, id string) error {
 	tag, err := r.pool.Exec(ctx, `DELETE FROM integration_deployments WHERE id = $1`, id)

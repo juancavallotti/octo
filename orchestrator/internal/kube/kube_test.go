@@ -290,6 +290,51 @@ func TestDeleteIgnoresMissing(t *testing.T) {
 	}
 }
 
+func TestScaleUpdatesReplicas(t *testing.T) {
+	c := testClient()
+	ctx := context.Background()
+	spec := Spec{ID: "d1", IntegrationID: "int-1", Definition: "x: 1", Replicas: 1, Slug: "orders"}
+	if err := c.Apply(ctx, spec); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	if err := c.Scale(ctx, "d1", 5); err != nil {
+		t.Fatalf("Scale: %v", err)
+	}
+	dep, err := c.clientset.AppsV1().Deployments(testNamespace).Get(ctx, resourceName("d1"), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get deployment: %v", err)
+	}
+	if dep.Spec.Replicas == nil || *dep.Spec.Replicas != 5 {
+		t.Errorf("replicas = %v, want 5", dep.Spec.Replicas)
+	}
+}
+
+func TestScaleNormalizesBelowOne(t *testing.T) {
+	c := testClient()
+	ctx := context.Background()
+	if err := c.Apply(ctx, Spec{ID: "d1", IntegrationID: "int-1", Definition: "x: 1", Replicas: 3}); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if err := c.Scale(ctx, "d1", 0); err != nil {
+		t.Fatalf("Scale: %v", err)
+	}
+	dep, err := c.clientset.AppsV1().Deployments(testNamespace).Get(ctx, resourceName("d1"), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get deployment: %v", err)
+	}
+	if dep.Spec.Replicas == nil || *dep.Spec.Replicas != 1 {
+		t.Errorf("replicas = %v, want normalized to 1", dep.Spec.Replicas)
+	}
+}
+
+func TestScaleMissingDeployment(t *testing.T) {
+	c := testClient()
+	if err := c.Scale(context.Background(), "ghost", 2); err == nil {
+		t.Error("Scale of a missing deployment should error")
+	}
+}
+
 func TestEnsureInternalServiceIdempotent(t *testing.T) {
 	c := testClient()
 	ctx := context.Background()

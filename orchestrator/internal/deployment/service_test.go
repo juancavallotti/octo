@@ -21,9 +21,10 @@ type fakeRepo struct {
 	getErr      error
 	listRet     []Deployment
 	listErr     error
-	statusCalls int
-	deleted     bool
-	deleteErr   error
+	statusCalls       int
+	updateSettingsErr error
+	deleted           bool
+	deleteErr         error
 	// slugOwner/subdomainOwner stand in for an existing deployment claiming a
 	// slug/subdomain; empty means "not found".
 	slugOwner      string
@@ -63,6 +64,11 @@ func (f *fakeRepo) UpdateStatus(_ context.Context, _, _ string) error {
 	return nil
 }
 
+func (f *fakeRepo) UpdateSettings(_ context.Context, _ string, settings json.RawMessage) error {
+	f.gotSettings = settings
+	return f.updateSettingsErr
+}
+
 func (f *fakeRepo) Delete(_ context.Context, _ string) error {
 	f.deleted = true
 	return f.deleteErr
@@ -85,6 +91,9 @@ type fakeKube struct {
 	gotSpec         kube.Spec
 	status          string
 	statusErr       error
+	scaled          bool
+	gotReplicas     int32
+	scaleErr        error
 	deleted         bool
 	deleteErr       error
 	internalDeleted bool
@@ -100,6 +109,12 @@ func (f *fakeKube) Apply(_ context.Context, spec kube.Spec) error {
 
 func (f *fakeKube) Status(_ context.Context, _ string) (kube.Status, error) {
 	return kube.Status{Phase: f.status}, f.statusErr
+}
+
+func (f *fakeKube) Scale(_ context.Context, _ string, replicas int32) error {
+	f.scaled = true
+	f.gotReplicas = replicas
+	return f.scaleErr
 }
 
 func (f *fakeKube) Delete(_ context.Context, _ string) error {
@@ -130,6 +145,56 @@ func (f *fakeKube) ExternalURL(subdomain string) string {
 		return ""
 	}
 	return "https://" + subdomain + ".octo.example.com"
+}
+
+func TestScaleUpdatesClusterAndSettings(t *testing.T) {
+	repo := &fakeRepo{
+		getRet: Deployment{ID: "dep-1", Settings: json.RawMessage(`{"replicas":1,"expose":"external","subdomain":"orders"}`)},
+	}
+	kc := &fakeKube{status: kube.StatusRunning}
+	svc := NewService(repo, &fakeIntegrations{}, kc)
+
+	d, err := svc.Scale(context.Background(), "dep-1", 4)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if !kc.scaled || kc.gotReplicas != 4 {
+		t.Errorf("kube.Scale not called with 4: scaled=%v replicas=%d", kc.scaled, kc.gotReplicas)
+	}
+	// The new count is persisted while expose/subdomain are preserved.
+	got := ParseSettings(repo.gotSettings)
+	if got.Replicas != 4 || got.Expose != ExposeExternal || got.Subdomain != "orders" {
+		t.Errorf("persisted settings = %+v, want replicas=4 and external/orders preserved", got)
+	}
+	if d.Status != kube.StatusRunning {
+		t.Errorf("status = %q, want refreshed to running", d.Status)
+	}
+}
+
+func TestScaleNormalizesBelowOne(t *testing.T) {
+	repo := &fakeRepo{getRet: Deployment{ID: "dep-1", Settings: json.RawMessage(`{"replicas":3}`)}}
+	kc := &fakeKube{status: kube.StatusPending}
+	svc := NewService(repo, &fakeIntegrations{}, kc)
+
+	if _, err := svc.Scale(context.Background(), "dep-1", 0); err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if kc.gotReplicas != 1 {
+		t.Errorf("replicas = %d, want normalized to 1", kc.gotReplicas)
+	}
+}
+
+func TestScaleUnknownDeployment(t *testing.T) {
+	repo := &fakeRepo{getErr: ErrNotFound}
+	kc := &fakeKube{}
+	svc := NewService(repo, &fakeIntegrations{}, kc)
+
+	if _, err := svc.Scale(context.Background(), "missing", 2); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+	if kc.scaled {
+		t.Error("kube.Scale should not be called for an unknown deployment")
+	}
 }
 
 func TestDeployHappyPath(t *testing.T) {

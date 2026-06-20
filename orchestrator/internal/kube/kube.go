@@ -20,6 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
@@ -303,6 +304,22 @@ func (c *Client) ensureInternalService(ctx context.Context, spec Spec) error {
 		return nil
 	}
 	return err
+}
+
+// Scale updates the desired replica count of a deployment's workload via a merge
+// patch on the Deployment. replicas <1 is treated as 1. A missing Deployment
+// surfaces a NotFound error for the caller to handle.
+func (c *Client) Scale(ctx context.Context, deploymentID string, replicas int32) error {
+	if replicas < 1 {
+		replicas = 1
+	}
+	patch := []byte(fmt.Sprintf(`{"spec":{"replicas":%d}}`, replicas))
+	_, err := c.clientset.AppsV1().Deployments(c.namespace).Patch(
+		ctx, resourceName(deploymentID), types.MergePatchType, patch, metav1.PatchOptions{})
+	if err != nil {
+		return fmt.Errorf("kube: scale deployment: %w", err)
+	}
+	return nil
 }
 
 // DeleteInternalService removes the stable internal Service for slug. Callers

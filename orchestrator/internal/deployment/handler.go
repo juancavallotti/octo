@@ -39,6 +39,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /integrations/{id}/deployments", h.deploy)
 	mux.HandleFunc("GET /integrations/{id}/deployments", h.listByIntegration)
 	mux.HandleFunc("GET /deployments/{id}", h.get)
+	mux.HandleFunc("PATCH /deployments/{id}", h.scale)
 	mux.HandleFunc("DELETE /deployments/{id}", h.undeploy)
 	if h.hub != nil {
 		mux.HandleFunc("GET /integrations/{id}/deployments/events", h.events)
@@ -213,6 +214,28 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	d, err := h.svc.Get(ctx, r.PathValue("id"))
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, toResponse(d))
+}
+
+// scaleRequest is the body of a scale request: the new desired replica count.
+type scaleRequest struct {
+	Replicas int `json:"replicas"`
+}
+
+func (h *Handler) scale(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+
+	var req scaleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	d, err := h.svc.Scale(ctx, r.PathValue("id"), req.Replicas)
 	if err != nil {
 		h.writeError(w, err)
 		return

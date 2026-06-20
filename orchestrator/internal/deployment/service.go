@@ -21,6 +21,7 @@ type repository interface {
 	IntegrationIDBySlug(ctx context.Context, slug string) (string, bool, error)
 	IntegrationIDBySubdomain(ctx context.Context, subdomain string) (string, bool, error)
 	UpdateStatus(ctx context.Context, id, status string) error
+	UpdateSettings(ctx context.Context, id string, settings json.RawMessage) error
 	Delete(ctx context.Context, id string) error
 }
 
@@ -35,6 +36,7 @@ type integrationStore interface {
 type kubeClient interface {
 	Apply(ctx context.Context, spec kube.Spec) error
 	Status(ctx context.Context, deploymentID string) (kube.Status, error)
+	Scale(ctx context.Context, deploymentID string, replicas int32) error
 	Delete(ctx context.Context, deploymentID string) error
 	InternalURL(slug string, port int) string
 	DeleteInternalService(ctx context.Context, slug string) error
@@ -192,6 +194,41 @@ func (s *Service) ensureUnique(ctx context.Context, integrationID, slug, subdoma
 		}
 	}
 	return nil
+}
+
+// Scale changes the desired replica count of an existing deployment: it updates
+// the cluster workload, then persists the new count in the settings so reads and
+// the SSE snapshot reflect it. replicas <1 is normalized to 1. The returned
+// Deployment carries its freshly refreshed live status.
+func (s *Service) Scale(ctx context.Context, id string, replicas int) (Deployment, error) {
+	if s.kube == nil {
+		return Deployment{}, ErrUnavailable
+	}
+	if replicas < 1 {
+		replicas = 1
+	}
+	dep, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return Deployment{}, err
+	}
+	if err := s.kube.Scale(ctx, id, int32(replicas)); err != nil {
+		return Deployment{}, err
+	}
+
+	// Persist the new replica count, preserving the rest of the settings.
+	settings := ParseSettings(dep.Settings)
+	settings.Replicas = replicas
+	raw, err := json.Marshal(settings)
+	if err != nil {
+		return Deployment{}, err
+	}
+	if err := s.repo.UpdateSettings(ctx, id, raw); err != nil {
+		return Deployment{}, err
+	}
+	dep.Settings = raw
+
+	s.applyRefresh(ctx, &dep)
+	return dep, nil
 }
 
 // Get returns a deployment with its status refreshed from the cluster.
