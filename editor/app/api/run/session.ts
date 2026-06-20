@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { cachedVersion } from "./version";
 import { allocatePort, isExposable, releasePort } from "./ports";
 import { LogBuffer, type LogLine } from "./logbuffer";
+import { ensureReaper } from "./reaper";
 
 /**
  * Server-side manager that owns the running `octo` processes for the editor's dev
@@ -38,9 +39,11 @@ export interface RunStatus {
   testPath: string | null;
 }
 
-interface Session {
+export interface Session {
   /** The namespace slug this session belongs to (also its key in the map). */
   namespace: string;
+  /** Epoch ms of the last activity for this namespace; drives the idle reaper. */
+  lastActivity: number;
   proc: ChildProcess | null;
   /** Resolves when the current process has fully exited (used by stop/restart). */
   exit: Promise<void> | null;
@@ -57,18 +60,22 @@ const store = globalThis as unknown as {
   __octoRunKillHook?: boolean;
 };
 
-function sessions(): Map<string, Session> {
+/** The full namespace→session map (used by the reaper to sweep idle runs). */
+export function allSessions(): Map<string, Session> {
   if (!store.__octoRunSessions) store.__octoRunSessions = new Map();
   return store.__octoRunSessions;
 }
 
-/** Get-or-create the session for a namespace. */
+/** Get-or-create the session for a namespace, renewing its activity timestamp so
+ * any manager call (status, start, sync, logs, proxy) counts as activity and keeps
+ * the idle reaper from collecting it. */
 function session(ns: string): Session {
-  const map = sessions();
+  const map = allSessions();
   let s = map.get(ns);
   if (!s) {
     s = {
       namespace: ns,
+      lastActivity: Date.now(),
       proc: null,
       exit: null,
       configPath: null,
@@ -77,26 +84,21 @@ function session(ns: string): Session {
       exposable: false,
     };
     map.set(ns, s);
+    ensureReaper();
   }
+  s.lastActivity = Date.now();
   return s;
 }
 
-function runDir(): string {
-  return process.env.OCTO_RUN_DIR || tmpdir();
-}
-
-/** Per-namespace directory holding that user's rendered config file. */
+/** Per-namespace directory holding that user's rendered config file, under
+ * OCTO_RUN_DIR (set by `task dev`) or the system temp dir. */
 function namespaceDir(ns: string): string {
-  return join(runDir(), ns);
-}
-
-/** The BFF path that proxies to a namespace's running networked integration. The
- * proxy resolves the actual port server-side, so the path is port-independent. */
-export function testPath(ns: string): string {
-  return `/editor/runs/${ns}/`;
+  return join(process.env.OCTO_RUN_DIR || tmpdir(), ns);
 }
 
 function statusOf(s: Session): RunStatus {
+  // The proxy resolves the actual port server-side, so the test path is
+  // port-independent — just the namespace.
   const networked = s.proc !== null && s.exposable && s.port !== null;
   return {
     available: !!process.env.OCTO_BIN_PATH,
@@ -104,7 +106,7 @@ function statusOf(s: Session): RunStatus {
     version: cachedVersion(),
     exposable: s.exposable,
     port: s.port,
-    testPath: networked ? testPath(s.namespace) : null,
+    testPath: networked ? `/editor/runs/${s.namespace}/` : null,
   };
 }
 
@@ -166,7 +168,7 @@ export async function start(ns: string, yaml: string): Promise<RunStatus> {
 
   s.logs.push(`▶ starting octo — ${configPath}`);
   if (port !== null) {
-    s.logs.push(`🔗 test your integration at ${testPath(ns)}`);
+    s.logs.push(`🔗 test your integration at /editor/runs/${ns}/`);
   }
   const proc = spawn(bin, ["run", "-config", configPath, "-watch"], {
     stdio: ["ignore", "pipe", "pipe"],
@@ -262,7 +264,7 @@ function ensureKillOnExit(): void {
   if (store.__octoRunKillHook) return;
   store.__octoRunKillHook = true;
   process.once("exit", () => {
-    for (const s of sessions().values()) {
+    for (const s of allSessions().values()) {
       if (s.proc) {
         try {
           s.proc.kill("SIGKILL");
