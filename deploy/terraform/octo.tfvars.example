@@ -1,0 +1,18 @@
+# Shared values for both the infra and release roots. Copy to octo.tfvars
+# (gitignored) and pass with -var-file=../octo.tfvars from either root.
+#
+# Infra-only values are NOT here — they live in infra/terraform.tfvars so the
+# release root doesn't warn about undeclared variables. That includes the
+# REQUIRED Cloud DNS zone name:
+#   dns_managed_zone  = "your-clouddns-zone-name"   # e.g. "juancavallotti-com"
+#   enable_cloudbuild = false
+# See infra/terraform.tfvars.example for the full list.
+
+project_id = "your-gcp-project-id"
+domain     = "octo.juancavallotti.com"
+
+# Optional overrides (defaults shown):
+# region        = "us-west1"
+# zone          = "us-west1-a"
+# instance_name = "octo"
+# repository_id = "octo"

@@ -41,8 +41,7 @@ variable "image_tag" {
 
 variable "chart_version" {
   type        = string
-  description = "Version of the octo chart in Artifact Registry OCI (matches helm/Chart.yaml at the published release)."
-  default     = "0.1.1"
+  description = "Version of the octo chart in Artifact Registry OCI. Must match helm/Chart.yaml at the published release; derived from it by Cloud Build and `task deploy`, so it is required (no default) to avoid drift."
 }
 
 variable "cluster_issuer" {

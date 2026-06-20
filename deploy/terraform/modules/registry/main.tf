@@ -1,7 +1,6 @@
 # Artifact Registry that hosts octo's container images and the OCI Helm chart.
-# Applied once (independently of the k3s deployment); `task images:push` and
-# `task helm:push` publish into it, and the k3s variant grants the VM service
-# account read access (see deploy/terraform/k3s).
+# `task images:push` / `task helm:push` (and the Cloud Build trigger) publish into it;
+# the VM service account is granted read access by the caller (see the infra root).
 
 resource "google_project_service" "artifactregistry" {
   service            = "artifactregistry.googleapis.com"

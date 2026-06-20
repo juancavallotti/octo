@@ -1,3 +1,8 @@
+output "image_base" {
+  description = "Artifact Registry base for image refs and the OCI chart, e.g. us-west1-docker.pkg.dev/PROJECT/octo."
+  value       = local.image_base
+}
+
 output "static_ip" {
   description = "External static IP of the VM (the A record points here)."
   value       = module.base.static_ip
@@ -23,7 +28,12 @@ output "secret_id" {
   value       = module.base.secret_id
 }
 
-output "image_base" {
-  description = "Artifact Registry base the VM pulls from."
-  value       = local.image_base
+output "service_account_email" {
+  description = "Email of the VM's service account."
+  value       = module.base.service_account_email
+}
+
+output "cloudbuild_trigger_id" {
+  description = "ID of the Cloud Build trigger (null when enable_cloudbuild = false)."
+  value       = var.enable_cloudbuild ? module.cloudbuild[0].trigger_id : null
 }

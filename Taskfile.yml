@@ -219,7 +219,7 @@ tasks:
       - echo "✓ ./data removed; 'task cluster:deploy' will recreate Postgres and re-apply the schema fresh"
 
   # --- Publishing to Artifact Registry (for the GCP/k3s deployment) ---
-  # IMAGE_BASE is the repository path output by deploy/terraform/registry,
+  # IMAGE_BASE is the repository path output by deploy/terraform/infra (image_base),
   # e.g. us-central1-docker.pkg.dev/PROJECT/octo. The four images live under it
   # (IMAGE_BASE/octo-editor:TAG ...) and the OCI chart under IMAGE_BASE/octo.
 
@@ -269,13 +269,35 @@ tasks:
     vars:
       INSTANCE: '{{.INSTANCE | default "octo"}}'
       ZONE: '{{.ZONE | default "us-west1-a"}}'
-      OUT: '{{.OUT | default "deploy/terraform/k3s/kubeconfig.yaml"}}'
+      OUT: '{{.OUT | default "deploy/terraform/infra/kubeconfig.yaml"}}'
     cmds:
       # k3s writes the kubeconfig with server https://127.0.0.1:6443; rewrite it to
       # the public domain (covered by the API cert via --tls-san) so the Terraform
       # Helm provider can reach the cluster. The file is gitignored (cluster admin).
       - |
         set -e
-        gcloud compute ssh {{.INSTANCE}} --zone {{.ZONE}} --command 'sudo cat /etc/rancher/k3s/k3s.yaml' \
+        gcloud compute ssh {{.INSTANCE}} --zone {{.ZONE}} --tunnel-through-iap --quiet --command 'sudo cat /etc/rancher/k3s/k3s.yaml' \
           | sed "s#https://127.0.0.1:6443#https://{{.DOMAIN}}:6443#" > {{.OUT}}
         echo "✓ wrote {{.OUT}} (server https://{{.DOMAIN}}:6443)"
+
+  deploy:
+    desc: 'Deploy/upgrade the octo release on the cluster from an already-published tag (set TAG; optional DOMAIN, INSTANCE, ZONE). Same path Cloud Build runs on a version tag.'
+    requires:
+      vars: [TAG]
+    vars:
+      DOMAIN: '{{.DOMAIN | default "octo.juancavallotti.com"}}'
+      INSTANCE: '{{.INSTANCE | default "octo"}}'
+      ZONE: '{{.ZONE | default "us-west1-a"}}'
+    cmds:
+      # Fetch a fresh kubeconfig (-> deploy/terraform/infra/kubeconfig.yaml), then
+      # apply the release root with the chart version derived from helm/Chart.yaml.
+      - task: deploy:kubeconfig
+        vars: { DOMAIN: '{{.DOMAIN}}', INSTANCE: '{{.INSTANCE}}', ZONE: '{{.ZONE}}' }
+      - |
+        set -e
+        CHART_VERSION="$(helm show chart helm | awk '/^version:/ {print $2}')"
+        terraform -chdir=deploy/terraform/release init -input=false
+        terraform -chdir=deploy/terraform/release apply -auto-approve \
+          -var-file=../octo.tfvars \
+          -var image_tag={{.TAG}} \
+          -var chart_version="${CHART_VERSION}"

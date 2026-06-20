@@ -1,0 +1,21 @@
+# Infra-only values. Copy to terraform.tfvars (gitignored). The shared values
+# (project_id, region, repository_id, domain, instance_name, zone) live in
+# ../octo.tfvars and are passed with -var-file=../octo.tfvars.
+
+dns_managed_zone = "your-clouddns-zone-name" # e.g. "juancavallotti-com"
+
+# Connect the GitHub repo to Cloud Build (console: Cloud Build -> Triggers ->
+# Connect repository) once, then flip this to true and re-apply.
+enable_cloudbuild = false
+
+# Lock SSH (22) and the k3s API (6443) to your IP (find it: curl ifconfig.me).
+# The release root / Cloud Build reach the API over 6443.
+# ssh_source_ranges      = ["203.0.113.4/32"]
+# kube_api_source_ranges = ["203.0.113.4/32"]   # null = reuse ssh_source_ranges
+
+# Optional overrides (defaults shown):
+# machine_type      = "e2-standard-2"     # 8GB; e2-medium (4GB) is tight
+# acme_email        = "juancavallotti@gmail.com"
+# boot_disk_size_gb = 30
+# github_owner      = "juancavallotti"
+# github_repo       = "eip-go"
