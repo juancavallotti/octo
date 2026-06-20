@@ -34,6 +34,7 @@ interface RunStatusResponse {
   available: boolean;
   running: boolean;
   version: string | null;
+  testPath: string | null;
 }
 
 interface RunContextValue {
@@ -45,6 +46,8 @@ interface RunContextValue {
   validation: ValidationResult;
   /** The runner's `--version` line, or null when unknown/unavailable. */
   version: string | null;
+  /** Absolute URL that proxies to the running networked integration, or null. */
+  testUrl: string | null;
   start: () => Promise<void>;
   stop: () => Promise<void>;
   clearLogs: () => void;
@@ -62,6 +65,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [logs, setLogs] = useState<RunLogLine[]>([]);
+  const [testPath, setTestPath] = useState<string | null>(null);
 
   const sourceRef = useRef<EventSource | null>(null);
   const lastSeqRef = useRef<number>(-1);
@@ -103,6 +107,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
         setAvailable(s.available);
         setVersion(s.version);
+        setTestPath(s.testPath);
         if (s.running) {
           setRunning(true);
           openStream();
@@ -127,13 +132,14 @@ export function RunProvider({ children }: { children: ReactNode }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ yaml }),
       });
+      const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
         throw new Error(body.error ?? `start failed (${res.status})`);
       }
       lastYamlRef.current = yaml;
       setLogs([]); // the server starts a fresh buffer for this run
       setRunning(true);
+      setTestPath((body as RunStatusResponse).testPath ?? null);
       openStream();
     } catch (e) {
       setError((e as Error).message);
@@ -151,10 +157,22 @@ export function RunProvider({ children }: { children: ReactNode }) {
       setError((e as Error).message);
     } finally {
       setRunning(false);
+      setTestPath(null);
       closeStream();
       setBusy(false);
     }
   }, [closeStream]);
+
+  // Resolve the BFF-relative test path to an absolute URL for display/linking. It
+  // works under both local dev and the in-cluster /editor mount because it is
+  // computed from the current origin.
+  const testUrl = useMemo(
+    () =>
+      testPath && typeof window !== "undefined"
+        ? new URL(testPath, window.location.origin).href
+        : null,
+    [testPath],
+  );
 
   // Clear only the client-side display. We deliberately leave the open stream and
   // `lastSeqRef` untouched: reconnecting would make the server replay its whole
@@ -192,6 +210,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
     logs,
     validation,
     version,
+    testUrl,
     start,
     stop,
     clearLogs,
