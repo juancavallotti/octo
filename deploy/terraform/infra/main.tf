@@ -102,7 +102,9 @@ module "cloudbuild" {
   instance_name            = var.instance_name
   zone                     = var.zone
   domain                   = var.domain
-  deploy_secret_id         = local.secret_id
+  # Reference the base module's output (not local.secret_id) so the deploy IAM grant
+  # is ordered after the secret is created.
+  deploy_secret_id         = module.base.secret_id
   state_bucket             = local.state_bucket
   vm_service_account_email = module.base.service_account_email
 }
