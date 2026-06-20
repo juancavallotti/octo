@@ -91,7 +91,9 @@ steps:
         fi
         TF_VERSION=1.9.8
         curl -fsSL "https://releases.hashicorp.com/terraform/$${TF_VERSION}/terraform_$${TF_VERSION}_linux_amd64.zip" -o /tmp/tf.zip
-        (cd /usr/local/bin && unzip -o /tmp/tf.zip)
+        # The gcloud image has no `unzip`, but it ships python3; extract with stdlib.
+        python3 -c "import zipfile; zipfile.ZipFile('/tmp/tf.zip').extractall('/usr/local/bin')"
+        chmod +x /usr/local/bin/terraform
         # Fetch the cluster kubeconfig over IAP (server rewritten to the public API
         # endpoint, which the k3s cert covers via --tls-san).
         gcloud compute ssh "${_INSTANCE}" --zone "${_ZONE}" --tunnel-through-iap --quiet \
