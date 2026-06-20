@@ -94,6 +94,7 @@ type ifBlock struct {
 	condition *expr.Program
 	then      *Flow
 	els       *Flow
+	env       map[string]any
 }
 
 // switchCase pairs a compiled boolean guard with the flow to run when it is the
@@ -109,6 +110,7 @@ type switchCase struct {
 type switchBlock struct {
 	cases []switchCase
 	def   *Flow
+	env   map[string]any
 }
 
 // foreachBlock is a composite that runs its body once per element of the array
@@ -118,12 +120,13 @@ type foreachBlock struct {
 	items *expr.Program
 	as    string
 	body  *Flow
+	env   map[string]any
 }
 
 // evalCondition evaluates a boolean expression against the message, erroring if
 // the result is not a bool.
-func evalCondition(program *expr.Program, msg *types.Message) (bool, error) {
-	value, err := program.Eval(messageActivation(msg))
+func evalCondition(program *expr.Program, msg *types.Message, env map[string]any) (bool, error) {
+	value, err := program.Eval(messageActivation(msg, env))
 	if err != nil {
 		return false, err
 	}
@@ -137,7 +140,7 @@ func evalCondition(program *expr.Program, msg *types.Message) (bool, error) {
 // Process runs the then flow when the condition holds, otherwise the else flow
 // (or passes the message through when there is none).
 func (i *ifBlock) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
-	match, err := evalCondition(i.condition, msg)
+	match, err := evalCondition(i.condition, msg, i.env)
 	if err != nil {
 		return nil, err
 	}
@@ -154,7 +157,7 @@ func (i *ifBlock) Process(ctx context.Context, msg *types.Message) (*types.Messa
 // passes the message through when nothing matches.
 func (s *switchBlock) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
 	for i := range s.cases {
-		match, err := evalCondition(s.cases[i].when, msg)
+		match, err := evalCondition(s.cases[i].when, msg, s.env)
 		if err != nil {
 			return nil, fmt.Errorf("switch case %d: %w", i, err)
 		}
@@ -173,7 +176,7 @@ func (s *switchBlock) Process(ctx context.Context, msg *types.Message) (*types.M
 // the loop; an error aborts it. The loop variable is restored to its pre-loop
 // state before the message passes through.
 func (f *foreachBlock) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
-	value, err := f.items.Eval(messageActivation(msg))
+	value, err := f.items.Eval(messageActivation(msg, f.env))
 	if err != nil {
 		return nil, fmt.Errorf("foreach items: %w", err)
 	}
@@ -270,7 +273,7 @@ func (b *builder) ifBlock(cfg types.BlockConfig) (core.MessageProcessor, error) 
 		return nil, fmt.Errorf("if then: %w", err)
 	}
 
-	block := &ifBlock{condition: condition, then: then}
+	block := &ifBlock{condition: condition, then: then, env: envActivation(b.deps.Env)}
 	if cfg.Else != nil {
 		els, elseErr := b.subFlow(*cfg.Else)
 		if elseErr != nil {
@@ -307,7 +310,7 @@ func (b *builder) switchBlock(cfg types.BlockConfig) (core.MessageProcessor, err
 		cases = append(cases, switchCase{when: when, flow: flow})
 	}
 
-	block := &switchBlock{cases: cases}
+	block := &switchBlock{cases: cases, env: envActivation(b.deps.Env)}
 	if cfg.Default != nil {
 		def, err := b.subFlow(*cfg.Default)
 		if err != nil {
@@ -343,5 +346,5 @@ func (b *builder) foreachBlock(cfg types.BlockConfig) (core.MessageProcessor, er
 	if as == "" {
 		as = defaultForeachVar
 	}
-	return &foreachBlock{items: items, as: as, body: body}, nil
+	return &foreachBlock{items: items, as: as, body: body, env: envActivation(b.deps.Env)}, nil
 }

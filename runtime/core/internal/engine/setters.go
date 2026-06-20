@@ -31,10 +31,11 @@ type setPayloadSettings struct {
 // expression against the message.
 type setPayload struct {
 	value *expr.Program
+	env   map[string]any
 }
 
 //nolint:ireturn // a BlockFactory returns the MessageProcessor interface
-func newSetPayload(raw types.Settings, _ core.BlockDeps) (core.MessageProcessor, error) {
+func newSetPayload(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor, error) {
 	var cfg setPayloadSettings
 	if err := raw.Decode(&cfg); err != nil {
 		return nil, err
@@ -46,12 +47,12 @@ func newSetPayload(raw types.Settings, _ core.BlockDeps) (core.MessageProcessor,
 	if err != nil {
 		return nil, err
 	}
-	return &setPayload{value: program}, nil
+	return &setPayload{value: program, env: envActivation(deps.Env)}, nil
 }
 
 // Process sets the message body to the evaluated value and forwards the message.
 func (p *setPayload) Process(_ context.Context, msg *types.Message) (*types.Message, error) {
-	value, err := p.value.Eval(messageActivation(msg))
+	value, err := p.value.Eval(messageActivation(msg, p.env))
 	if err != nil {
 		return nil, fmt.Errorf("set-payload value: %w", err)
 	}
@@ -71,10 +72,11 @@ type setVariableSettings struct {
 type setVariable struct {
 	name  string
 	value *expr.Program
+	env   map[string]any
 }
 
 //nolint:ireturn // a BlockFactory returns the MessageProcessor interface
-func newSetVariable(raw types.Settings, _ core.BlockDeps) (core.MessageProcessor, error) {
+func newSetVariable(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor, error) {
 	var cfg setVariableSettings
 	if err := raw.Decode(&cfg); err != nil {
 		return nil, err
@@ -89,12 +91,12 @@ func newSetVariable(raw types.Settings, _ core.BlockDeps) (core.MessageProcessor
 	if err != nil {
 		return nil, err
 	}
-	return &setVariable{name: cfg.Name, value: program}, nil
+	return &setVariable{name: cfg.Name, value: program, env: envActivation(deps.Env)}, nil
 }
 
 // Process evaluates the value expression and stores it under the variable name.
 func (p *setVariable) Process(_ context.Context, msg *types.Message) (*types.Message, error) {
-	value, err := p.value.Eval(messageActivation(msg))
+	value, err := p.value.Eval(messageActivation(msg, p.env))
 	if err != nil {
 		return nil, fmt.Errorf("set-variable %q value: %w", p.name, err)
 	}

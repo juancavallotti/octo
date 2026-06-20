@@ -12,6 +12,11 @@ type Config struct {
 	// declared once and referenced by a flow's source.
 	Processors []ProcessorConfig `yaml:"processors,omitempty"`
 	Flows      []FlowConfig      `yaml:"flows,omitempty"`
+
+	// ResolvedEnv holds the declared environment variables resolved to their
+	// values (the same map used for ${NAME} substitution), so expressions can
+	// read them as env.NAME. Populated during config load; not serialized.
+	ResolvedEnv map[string]string `yaml:"-"`
 }
 
 // ServiceConfig describes the runtime service identity and environment.

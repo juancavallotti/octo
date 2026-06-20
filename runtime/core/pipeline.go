@@ -31,10 +31,13 @@ type Block struct {
 // instance by name so a block can use a capability that connector provides — for
 // example, a log block binding to a logger connector. ok is false when no
 // connector with that name is configured. Flows lets a block call another flow by
-// name (used by the flow-ref block); it is nil when no flow caller is wired.
+// name (used by the flow-ref block); it is nil when no flow caller is wired. Env
+// holds the config's resolved environment variables so a block can expose them
+// to its expressions as env.NAME; it is nil when none are declared.
 type BlockDeps struct {
 	Connector func(name string) (connector Connector, ok bool)
 	Flows     FlowCaller
+	Env       map[string]string
 }
 
 // BlockFactory builds a leaf processor from its settings and build-time deps.

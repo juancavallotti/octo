@@ -316,6 +316,7 @@ func (s *Service) buildFlow(ctx context.Context, cfg types.FlowConfig, set *conn
 	deps := core.BlockDeps{
 		Connector: set.lookup,
 		Flows:     s.flows,
+		Env:       s.config.ResolvedEnv,
 	}
 	root, err := engine.BuildRoot(cfg, s.blocks, p, s.config.Processors, deps)
 	if err != nil {
