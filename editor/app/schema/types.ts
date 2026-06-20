@@ -16,7 +16,10 @@ export type FieldType =
   | "string-map"
   | "flow"
   | "flow-list"
-  | "case-list";
+  | "case-list"
+  // A bare block chain (not wrapped in a sub-flow), serialized directly as a
+  // list of blocks under its field name — e.g. handle-errors' process/error.
+  | "block-list";
 
 /**
  * Describes that a (string) field holds a *reference* to another named entity in

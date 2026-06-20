@@ -22,7 +22,7 @@ import DragPreview from "./DragPreview";
  * every flow's blocks (drag sources) share one drag session with the insertion
  * gaps (drop targets). onDragEnd is the one place a drop becomes a reducer
  * action: a palette drag inserts a new block at the gap's index; a canvas drag
- * reorders within its flow or moves across flows (including into nested scopes).
+ * reorders within its flow or moves across flows (including into nested slots).
  */
 export default function DndProvider({ children }: { children: ReactNode }) {
   const { state, dispatch } = useEditorState();
@@ -59,7 +59,7 @@ export default function DndProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    // Moving an existing block across flows (or nested scopes).
+    // Moving an existing block across flows (or nested slots).
     if (data.flowId !== flowId) {
       dispatch({
         type: EditorActionType.MOVE_BLOCK_ACROSS,

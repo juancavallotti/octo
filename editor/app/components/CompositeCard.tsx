@@ -16,7 +16,7 @@ function slotLabel(field: FieldSpec, index: number): string {
 }
 
 /**
- * A control-flow block (if/switch/foreach/fork/scope) drawn as a node with its
+ * A control-flow block (if/switch/foreach/fork/handle-errors) drawn as a node with its
  * nested sub-flows laid out side by side beneath it. Each slot is a SubFlow whose
  * FlowView recurses, so the whole tree is editable and the parent grows to fit.
  */

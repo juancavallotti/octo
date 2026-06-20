@@ -185,6 +185,34 @@ describe("serialize", () => {
     expect(node.slots!.then[0].process[0].type).toBe("set-payload");
   });
 
+  it("serializes handle-errors process/error as bare block lists", () => {
+    const doc = emptyDocument();
+    const he = newBlock("handle-errors"); // seeds process/error block-list slots
+    he.slots!.process[0].process = [newBlock("rest")];
+    he.slots!.error[0].process = [newBlock("set-payload")];
+    doc.flows[0].process = [he];
+
+    const block = toConfig(doc).flows![0].process![0];
+    // Bare block lists, not wrapped flow objects.
+    expect(block.process![0].type).toBe("rest");
+    expect(block.error![0].type).toBe("set-payload");
+    expect(block.settings).toBeUndefined();
+  });
+
+  it("round-trips handle-errors back into block-list slots", () => {
+    const doc = emptyDocument();
+    const he = newBlock("handle-errors");
+    he.slots!.process[0].process = [newBlock("log")];
+    he.slots!.error[0].process = [newBlock("set-payload")];
+    doc.flows[0].process = [he];
+
+    const restored = fromConfig(toConfig(doc));
+    const node = restored.flows[0].process[0];
+    expect(node.type).toBe("handle-errors");
+    expect(node.slots!.process[0].process[0].type).toBe("log");
+    expect(node.slots!.error[0].process[0].type).toBe("set-payload");
+  });
+
   it("maps env declarations, dropping empty defaults and false required", () => {
     const doc = emptyDocument();
     doc.env = [

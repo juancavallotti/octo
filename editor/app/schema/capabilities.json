@@ -239,25 +239,25 @@
       ]
     },
     {
-      "type": "scope",
-      "label": "Scope",
+      "type": "handle-errors",
+      "label": "Handle Errors",
       "category": "control-flow",
-      "icon": "ShieldCheck",
-      "description": "Error/transaction boundary; runs main, falls back to alternative on error.",
+      "icon": "ShieldAlert",
+      "description": "Run the process chain; on error, expose vars.error and run the error chain (recovery).",
       "fields": [
         {
-          "name": "main",
-          "label": "Main",
-          "type": "flow",
+          "name": "process",
+          "label": "Process",
+          "type": "block-list",
           "required": true,
-          "description": "The protected flow."
+          "description": "The happy-path chain."
         },
         {
-          "name": "alternative",
-          "label": "Alternative",
-          "type": "flow",
-          "required": false,
-          "description": "Recovery flow run when main errors."
+          "name": "error",
+          "label": "Error",
+          "type": "block-list",
+          "required": true,
+          "description": "Runs when the process chain errors; reads vars.error."
         }
       ]
     },

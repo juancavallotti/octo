@@ -23,9 +23,9 @@ export interface BlockNode {
   settings: Record<string, unknown>;
   /**
    * Nested sub-flows for composite blocks, keyed by the slot field name
-   * (then/else/main/alternative/body/default/branches/cases). Every slot is a
-   * list for uniformity: single-flow slots hold 0–1 entries, flow-list/case-list
-   * hold N.
+   * (then/else/body/default/branches/cases, and handle-errors' process/error).
+   * Every slot is a list for uniformity: single-flow and block-list slots hold
+   * 0–1 entries, flow-list/case-list hold N.
    */
   slots?: Record<string, FlowDoc[]>;
 }
@@ -57,8 +57,13 @@ export interface FlowDoc {
   when?: string;
 }
 
-/** Field types whose value is one or more nested sub-flows. */
-export const SLOT_FIELD_TYPES = new Set(["flow", "flow-list", "case-list"]);
+/** Field types whose value is one or more nested sub-flows (or block chains). */
+export const SLOT_FIELD_TYPES = new Set([
+  "flow",
+  "flow-list",
+  "case-list",
+  "block-list",
+]);
 
 /** Whether a field's value is a nested sub-flow (managed on the canvas, not in the panel). */
 export function isSlotField(field: FieldSpec): boolean {
@@ -129,7 +134,7 @@ export function slotFields(type: string): FieldSpec[] {
   return spec.fields.filter((f) => SLOT_FIELD_TYPES.has(f.type));
 }
 
-/** Whether a block type nests sub-flows (if/switch/foreach/fork/scope). */
+/** Whether a block type nests sub-flows (if/switch/foreach/fork/handle-errors). */
 export function isComposite(type: string): boolean {
   return slotFields(type).length > 0;
 }
