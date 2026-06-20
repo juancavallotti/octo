@@ -125,6 +125,102 @@ func TestApplyDeclaredPortAndEnv(t *testing.T) {
 	}
 }
 
+// TestContainerEnvMergesLiteralsAndSecrets verifies the container env combines
+// literal values and secretKeyRef references into one slice sorted by name, with
+// the secret refs pointing at the shared cluster-secrets Secret.
+func TestContainerEnvMergesLiteralsAndSecrets(t *testing.T) {
+	spec := Spec{
+		Env:       map[string]string{"HTTP_PORT": "9090", "DB_HOST": "db"},
+		SecretEnv: map[string]string{"API_KEY": "API_KEY", "TOKEN": "SHARED_TOKEN"},
+	}
+	env := containerEnv(spec)
+	if len(env) != 4 {
+		t.Fatalf("env len = %d, want 4: %+v", len(env), env)
+	}
+	// Sorted by name: API_KEY, DB_HOST, HTTP_PORT, TOKEN.
+	wantOrder := []string{"API_KEY", "DB_HOST", "HTTP_PORT", "TOKEN"}
+	for i, name := range wantOrder {
+		if env[i].Name != name {
+			t.Errorf("env[%d] = %q, want %q (not sorted): %+v", i, env[i].Name, name, env)
+		}
+	}
+	// DB_HOST / HTTP_PORT are literals.
+	if env[1].Value != "db" || env[1].ValueFrom != nil {
+		t.Errorf("DB_HOST should be a literal, got %+v", env[1])
+	}
+	// API_KEY / TOKEN are secretKeyRefs into octo-secrets, key = mapped value.
+	ref := env[0].ValueFrom
+	if ref == nil || ref.SecretKeyRef == nil {
+		t.Fatalf("API_KEY should be a secretKeyRef, got %+v", env[0])
+	}
+	if ref.SecretKeyRef.Name != secretsName || ref.SecretKeyRef.Key != "API_KEY" {
+		t.Errorf("API_KEY ref = %s/%s, want %s/API_KEY", ref.SecretKeyRef.Name, ref.SecretKeyRef.Key, secretsName)
+	}
+	if ref.SecretKeyRef.Optional == nil || *ref.SecretKeyRef.Optional {
+		t.Error("secret ref should be Optional=false (fail loud on missing key)")
+	}
+	if env[3].ValueFrom.SecretKeyRef.Key != "SHARED_TOKEN" {
+		t.Errorf("TOKEN should map to key SHARED_TOKEN, got %q", env[3].ValueFrom.SecretKeyRef.Key)
+	}
+	if containerEnv(Spec{}) != nil {
+		t.Error("empty spec should yield nil env")
+	}
+}
+
+// TestSecretLifecycle exercises set/list/exists/delete on the shared Secret.
+func TestSecretLifecycle(t *testing.T) {
+	c := testClient()
+	ctx := context.Background()
+
+	if names, err := c.ListSecretNames(ctx); err != nil || len(names) != 0 {
+		t.Fatalf("empty list = %v, %v; want none", names, err)
+	}
+	if ok, _ := c.SecretKeyExists(ctx, "API_KEY"); ok {
+		t.Error("key should not exist before set")
+	}
+
+	// First set creates the Secret; second set adds a key; third overwrites.
+	if err := c.SetSecret(ctx, "API_KEY", "v1"); err != nil {
+		t.Fatalf("set API_KEY: %v", err)
+	}
+	if err := c.SetSecret(ctx, "TOKEN", "t1"); err != nil {
+		t.Fatalf("set TOKEN: %v", err)
+	}
+	if err := c.SetSecret(ctx, "API_KEY", "v2"); err != nil {
+		t.Fatalf("overwrite API_KEY: %v", err)
+	}
+
+	sec, err := c.clientset.CoreV1().Secrets(testNamespace).Get(ctx, secretsName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get secret: %v", err)
+	}
+	if string(sec.Data["API_KEY"]) != "v2" {
+		t.Errorf("API_KEY = %q, want overwritten v2", sec.Data["API_KEY"])
+	}
+
+	names, err := c.ListSecretNames(ctx)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(names) != 2 || names[0] != "API_KEY" || names[1] != "TOKEN" {
+		t.Errorf("names = %v, want sorted [API_KEY TOKEN]", names)
+	}
+	if ok, _ := c.SecretKeyExists(ctx, "API_KEY"); !ok {
+		t.Error("API_KEY should exist after set")
+	}
+
+	if err := c.DeleteSecretKey(ctx, "API_KEY"); err != nil {
+		t.Fatalf("delete API_KEY: %v", err)
+	}
+	if ok, _ := c.SecretKeyExists(ctx, "API_KEY"); ok {
+		t.Error("API_KEY should be gone after delete")
+	}
+	// Deleting a missing key and a key from a present Secret are both no-ops.
+	if err := c.DeleteSecretKey(ctx, "API_KEY"); err != nil {
+		t.Errorf("delete missing key should be a no-op, got %v", err)
+	}
+}
+
 func TestApplyCreatesIngressWhenExposed(t *testing.T) {
 	c := testClient()
 	ctx := context.Background()
