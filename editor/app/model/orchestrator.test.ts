@@ -7,6 +7,7 @@ import {
   listIntegrations,
   updateIntegration,
 } from "./orchestrator";
+import { deleteSecret, listSecrets, setSecret } from "./secrets";
 
 /** Build a fetch stub that records its calls and returns the given response. */
 function stubFetch(res: {
@@ -67,6 +68,43 @@ describe("orchestrator client", () => {
     expect(fetchFn).toHaveBeenCalledWith(
       "/api/folders/f1/integrations/i1",
       expect.objectContaining({ method: "PUT" }),
+    );
+  });
+
+  it("lists secrets from the BFF route", async () => {
+    const fetchFn = stubFetch({ body: [{ name: "API_KEY" }] });
+    const out = await listSecrets();
+    expect(out).toEqual([{ name: "API_KEY" }]);
+    expect(fetchFn).toHaveBeenCalledWith("/api/secrets", undefined);
+  });
+
+  it("sets a secret via PUT with a value body and encoded name", async () => {
+    const fetchFn = stubFetch({ body: { name: "API_KEY" } });
+    await setSecret("API_KEY", "shh");
+    const [url, init] = (fetchFn as unknown as ReturnType<typeof vi.fn>).mock
+      .calls[0];
+    expect(url).toBe("/api/secrets/API_KEY");
+    expect(init).toMatchObject({
+      method: "PUT",
+      body: JSON.stringify({ value: "shh" }),
+    });
+  });
+
+  it("deletes a secret, passing force as a query param", async () => {
+    const fetchFn = stubFetch({ status: 204 });
+    await deleteSecret("API_KEY", true);
+    expect(fetchFn).toHaveBeenCalledWith(
+      "/api/secrets/API_KEY?force=true",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
+  it("deletes a secret without force by default", async () => {
+    const fetchFn = stubFetch({ status: 204 });
+    await deleteSecret("API_KEY");
+    expect(fetchFn).toHaveBeenCalledWith(
+      "/api/secrets/API_KEY",
+      expect.objectContaining({ method: "DELETE" }),
     );
   });
 

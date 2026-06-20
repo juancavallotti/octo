@@ -1,6 +1,9 @@
 package deployment
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestResolveRuntimeEnv(t *testing.T) {
 	tests := []struct {
@@ -69,6 +72,50 @@ func TestResolveRuntimeEnv(t *testing.T) {
 			}
 			if tt.wantHost && env[envHTTPHost] != bindAllHost {
 				t.Errorf("%s = %q, want %q (bind-all)", envHTTPHost, env[envHTTPHost], bindAllHost)
+			}
+		})
+	}
+}
+
+func TestDeclaredEnvVars(t *testing.T) {
+	tests := []struct {
+		name       string
+		definition string
+		want       []EnvVarDecl
+	}{
+		{
+			name: "excludes HTTP_PORT/HTTP_HOST, sorts, reads default+required",
+			definition: "env:\n" +
+				"  - name: HTTP_PORT\n    default: \"9090\"\n" +
+				"  - name: LOG_LEVEL\n    default: info\n" +
+				"  - name: API_KEY\n    required: true\n" +
+				"  - name: HTTP_HOST\n    default: \"0.0.0.0\"\n",
+			want: []EnvVarDecl{
+				{Name: "API_KEY", Required: true},
+				{Name: "LOG_LEVEL", Default: "info"},
+			},
+		},
+		{
+			name:       "no env",
+			definition: "service:\n  name: orders\n",
+			want:       []EnvVarDecl{},
+		},
+		{
+			name:       "only orchestrator-managed vars yields none",
+			definition: "env:\n  - name: HTTP_PORT\n    default: \"8080\"\n",
+			want:       []EnvVarDecl{},
+		},
+		{
+			name:       "malformed yaml yields nil",
+			definition: "env: [this is not valid",
+			want:       nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := declaredEnvVars(tt.definition)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("declaredEnvVars = %+v, want %+v", got, tt.want)
 			}
 		})
 	}

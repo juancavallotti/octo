@@ -125,11 +125,20 @@ func (h *Handler) deploy(w http.ResponseWriter, r *http.Request) {
 // deployOptionsResponse is the wire form of the deploy choices for an integration.
 // The slug* fields are populated only when the request carried a candidate slug.
 type deployOptionsResponse struct {
-	Networked     bool   `json:"networked"`
-	SuggestedSlug string `json:"suggestedSlug,omitempty"`
-	Slug          string `json:"slug,omitempty"`
-	SlugValid     bool   `json:"slugValid"`
-	SlugAvailable bool   `json:"slugAvailable"`
+	Networked     bool             `json:"networked"`
+	SuggestedSlug string           `json:"suggestedSlug,omitempty"`
+	EnvVars       []envVarResponse `json:"envVars,omitempty"`
+	Slug          string           `json:"slug,omitempty"`
+	SlugValid     bool             `json:"slugValid"`
+	SlugAvailable bool             `json:"slugAvailable"`
+}
+
+// envVarResponse is the wire form of one declared environment variable the modal
+// prompts the operator to fill.
+type envVarResponse struct {
+	Name     string `json:"name"`
+	Default  string `json:"default,omitempty"`
+	Required bool   `json:"required,omitempty"`
 }
 
 // deployOptions backs the deploy modal: with no slug query it reports whether the
@@ -145,9 +154,14 @@ func (h *Handler) deployOptions(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
+	envVars := make([]envVarResponse, 0, len(opts.EnvVars))
+	for _, e := range opts.EnvVars {
+		envVars = append(envVars, envVarResponse(e))
+	}
 	httpx.WriteJSON(w, http.StatusOK, deployOptionsResponse{
 		Networked:     opts.Networked,
 		SuggestedSlug: opts.SuggestedSlug,
+		EnvVars:       envVars,
 		Slug:          opts.Slug,
 		SlugValid:     opts.SlugValid,
 		SlugAvailable: opts.SlugAvailable,
@@ -307,6 +321,10 @@ func (h *Handler) writeError(w http.ResponseWriter, err error) {
 		httpx.WriteError(w, http.StatusConflict, "deployment slug already in use")
 	case errors.Is(err, ErrSubdomainTaken):
 		httpx.WriteError(w, http.StatusConflict, "external subdomain already in use by another integration")
+	case errors.Is(err, ErrSecretNotFound):
+		httpx.WriteError(w, http.StatusBadRequest, "a referenced secret does not exist")
+	case errors.Is(err, ErrReservedEnvVar):
+		httpx.WriteError(w, http.StatusBadRequest, "HTTP_PORT and HTTP_HOST are managed by the orchestrator")
 	default:
 		slog.Error("deployment handler", "error", err)
 		httpx.WriteError(w, http.StatusInternalServerError, "internal error")

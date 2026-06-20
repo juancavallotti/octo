@@ -112,6 +112,28 @@ func (r *Repo) integrationIDByMetaField(ctx context.Context, column, field, valu
 	return integrationID, true, nil
 }
 
+// SecretReferenced reports whether any deployment's settings bind an env var to
+// the cluster secret name. Used to refuse deleting a secret that a live workload
+// still references. The settings jsonb shape is {"env": {"VAR": {"secret": name}}};
+// the jsonpath iterates env entries and matches the secret reference.
+func (r *Repo) SecretReferenced(ctx context.Context, name string) (bool, error) {
+	if name == "" {
+		return false, nil
+	}
+	var exists bool
+	err := r.pool.QueryRow(ctx,
+		`SELECT EXISTS (
+			SELECT 1 FROM integration_deployments
+			WHERE jsonb_path_exists(settings, '$.env.* ? (@.secret == $name)', jsonb_build_object('name', $1::text))
+		)`,
+		name,
+	).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("deployment repo: secret referenced: %w", err)
+	}
+	return exists, nil
+}
+
 // UpdateStatus stamps a new cached status and last_updated. It is a no-op match
 // returning ErrNotFound if id does not exist.
 func (r *Repo) UpdateStatus(ctx context.Context, id, status string) error {

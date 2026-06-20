@@ -43,6 +43,7 @@ type kubeClient interface {
 	DeleteInternalService(ctx context.Context, slug string) error
 	ExternalEnabled() bool
 	ExternalURL(subdomain string) string
+	SecretKeyExists(ctx context.Context, name string) (bool, error)
 }
 
 // Service holds deployment lifecycle logic: it persists deployment rows and
@@ -86,6 +87,16 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 	// Service, a unique internal slug/URL and the option of external exposure.
 	// Anything else (a timer, a scheduled job) runs as a bare workload, no Service.
 	port, runtimeEnv, networked := resolveRuntimeEnv(it.Definition)
+
+	// Resolve the per-deployment env bindings into the two maps the kube spec needs:
+	// literal values (the orchestrator-supplied HTTP_PORT/HTTP_HOST stay authoritative
+	// and cannot be overridden) and secret references (env var name → cluster-secret
+	// key). Referenced secrets are validated to exist before anything is persisted, so
+	// a dangling reference fails the deploy cleanly rather than leaving a broken pod.
+	literalEnv, secretEnv, err := s.resolveEnvBindings(ctx, runtimeEnv, settings.Env)
+	if err != nil {
+		return Deployment{}, err
+	}
 
 	// A networked deployment gets a slug unique across all deployments, so its
 	// internal Service (octo-int-{slug}) — and thus its internal URL — never
@@ -138,6 +149,9 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 		persisted.Expose = ExposeExternal
 		persisted.Subdomain = subdomain
 	}
+	// Persist the env bindings so reads, the SSE snapshot and the in-use check see
+	// them. Literal values are stored as-is; secret bindings hold only the name.
+	persisted.Env = settings.Env
 	settingsJSON, err := json.Marshal(persisted)
 	if err != nil {
 		return Deployment{}, err
@@ -164,7 +178,8 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 		Replicas:      int32(replicas),
 		Slug:          slug,
 		Port:          port,
-		Env:           runtimeEnv,
+		Env:           literalEnv,
+		SecretEnv:     secretEnv,
 		Expose:        external,
 		Subdomain:     subdomain,
 	}
@@ -191,6 +206,41 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 	return dep, nil
 }
 
+// resolveEnvBindings splits the user's per-deployment env bindings into the literal
+// and secret-reference maps the kube spec needs. It starts the literal map from the
+// orchestrator-supplied runtimeEnv (HTTP_PORT/HTTP_HOST), which is authoritative —
+// a binding that targets those is rejected. A binding with a non-empty Secret is a
+// reference (validated to exist in the cluster); otherwise it is a literal value.
+func (s *Service) resolveEnvBindings(ctx context.Context, runtimeEnv map[string]string, bindings map[string]EnvBinding) (literal, secret map[string]string, err error) {
+	literal = map[string]string{}
+	for k, v := range runtimeEnv {
+		literal[k] = v
+	}
+	for name, b := range bindings {
+		if name == envHTTPPort || name == envHTTPHost {
+			return nil, nil, ErrReservedEnvVar
+		}
+		if b.Secret != "" {
+			if secret == nil {
+				secret = map[string]string{}
+			}
+			secret[name] = b.Secret
+			continue
+		}
+		literal[name] = b.Value
+	}
+	for _, key := range secret {
+		ok, exErr := s.kube.SecretKeyExists(ctx, key)
+		if exErr != nil {
+			return nil, nil, exErr
+		}
+		if !ok {
+			return nil, nil, ErrSecretNotFound
+		}
+	}
+	return literal, secret, nil
+}
+
 // DeployOptions reports the choices for a new deployment of an integration: whether
 // it is networked (has an HTTP source, so it gets a slug and can be exposed) and a
 // suggested free slug to prefill. When candidate is non-empty it instead validates
@@ -198,6 +248,10 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 type DeployOptions struct {
 	Networked     bool
 	SuggestedSlug string
+	// EnvVars are the integration's declared environment variables (excluding the
+	// orchestrator-managed HTTP_PORT/HTTP_HOST), for the modal to prompt on. Present
+	// regardless of networked status.
+	EnvVars []EnvVarDecl
 	// Populated only when a candidate slug was supplied.
 	SlugChecked   bool
 	Slug          string // normalized (slugified) candidate
@@ -218,7 +272,7 @@ func (s *Service) DeployOptions(ctx context.Context, integrationID, candidate st
 		return DeployOptions{}, err
 	}
 	_, _, networked := resolveRuntimeEnv(it.Definition)
-	opts := DeployOptions{Networked: networked}
+	opts := DeployOptions{Networked: networked, EnvVars: declaredEnvVars(it.Definition)}
 	if !networked {
 		return opts, nil
 	}

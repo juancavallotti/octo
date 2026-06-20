@@ -44,6 +44,20 @@ type Settings struct {
 	// Subdomain is the external host label; empty defaults to the integration
 	// slug. Only meaningful when Expose is "external".
 	Subdomain string `json:"subdomain,omitempty"`
+	// Env binds the integration's declared environment variables for this
+	// deployment, keyed by env var name. Each binding is either a literal value or a
+	// reference to a cluster secret. HTTP_PORT/HTTP_HOST are orchestrator-managed and
+	// cannot be bound here. Literal values are persisted as-is; secret bindings
+	// persist only the secret name, never its value.
+	Env map[string]EnvBinding `json:"env,omitempty"`
+}
+
+// EnvBinding is how one declared environment variable is filled at deploy time:
+// either a literal Value or a reference to a cluster Secret (by name). A binding is
+// a secret reference iff Secret is non-empty (Secret then wins over Value).
+type EnvBinding struct {
+	Value  string `json:"value,omitempty"`
+	Secret string `json:"secret,omitempty"`
 }
 
 // ExposeExternal is the Settings.Expose value that requests a public endpoint.

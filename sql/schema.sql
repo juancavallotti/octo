@@ -53,6 +53,16 @@ CREATE INDEX IF NOT EXISTS idx_integration_deployments_integration
 ALTER TABLE integration_deployments
     ADD COLUMN IF NOT EXISTS deployment_metadata jsonb NOT NULL DEFAULT '{}'::jsonb;
 
+-- cluster_secrets is the catalog of cluster-wide secret names. The VALUES live in a
+-- single Kubernetes Secret (octo-secrets), never in the database; this table only
+-- records each name and its timestamps so the UI can list secrets and show when
+-- they were last set. `last_updated` is stamped by the application on every set.
+CREATE TABLE IF NOT EXISTS cluster_secrets (
+    name         varchar PRIMARY KEY,
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    last_updated timestamptz NOT NULL DEFAULT now()
+);
+
 -- integration_idx_structure is a folder tree organizing integrations. `parent_id` is
 -- self-referencing and NULL for root folders.
 CREATE TABLE IF NOT EXISTS integration_idx_structure (

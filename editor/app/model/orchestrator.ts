@@ -5,6 +5,8 @@
  * `{ error }` envelope on failure, the same convention RunContext uses.
  */
 
+import { jsonBody, request } from "./bff";
+
 /** A stored integration: a named flow definition (YAML) plus bookkeeping. */
 export interface Integration {
   id: string;
@@ -70,6 +72,12 @@ export interface Deployment {
   lastUpdated: string;
 }
 
+/** How one declared env var is filled at deploy: a literal value or a secret ref. */
+export interface EnvBindingInput {
+  value?: string;
+  secret?: string;
+}
+
 /** Per-deployment options sent when deploying an integration. */
 export interface DeploymentInput {
   /** Runtime replicas; omitted/<=0 means a single replica. */
@@ -80,6 +88,15 @@ export interface DeploymentInput {
   expose?: "external";
   /** External host label; defaults to the slug when omitted. */
   subdomain?: string;
+  /** Bindings for the integration's declared env vars, keyed by var name. */
+  env?: Record<string, EnvBindingInput>;
+}
+
+/** An environment variable an integration declares, for the modal to prompt on. */
+export interface DeployEnvVar {
+  name: string;
+  default?: string;
+  required?: boolean;
 }
 
 /**
@@ -92,32 +109,14 @@ export interface DeployOptions {
   networked: boolean;
   /** A free slug to prefill the field with (only when no candidate was checked). */
   suggestedSlug?: string;
+  /** The integration's declared env vars (excluding orchestrator-managed ones). */
+  envVars?: DeployEnvVar[];
   /** Normalized form of the checked candidate. */
   slug?: string;
   /** The candidate has a usable form. */
   slugValid: boolean;
   /** The candidate is not already claimed (subdomain too, when external). */
   slugAvailable: boolean;
-}
-
-/** Perform a JSON request against a BFF route, unwrapping the `{ error }` envelope. */
-async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init);
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error ?? `request failed (${res.status})`);
-  }
-  // 204 No Content (delete / folder assignment) carries no body.
-  if (res.status === 204) return undefined as T;
-  return (await res.json()) as T;
-}
-
-function jsonBody(data: unknown): RequestInit {
-  return {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  };
 }
 
 // --- Integrations ---------------------------------------------------------

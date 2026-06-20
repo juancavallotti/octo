@@ -28,4 +28,10 @@ var (
 	// ErrSubdomainTaken is returned when the requested external subdomain is
 	// already in use by a different integration.
 	ErrSubdomainTaken = errors.New("external subdomain already in use")
+	// ErrSecretNotFound is returned when an env binding references a cluster secret
+	// that does not exist.
+	ErrSecretNotFound = errors.New("referenced secret not found")
+	// ErrReservedEnvVar is returned when an env binding targets an
+	// orchestrator-managed variable (HTTP_PORT/HTTP_HOST).
+	ErrReservedEnvVar = errors.New("environment variable is reserved")
 )

@@ -8,6 +8,9 @@ import {
   type DeployOptions,
 } from "@/app/model/orchestrator";
 import SlugField from "./SlugField";
+import DeployEnvFields from "./DeployEnvFields";
+import { useDeployEnv } from "./useDeployEnv";
+import Field from "./Field";
 
 /**
  * Modal that collects per-deploy options and creates a deployment. It holds scale
@@ -22,27 +25,6 @@ import SlugField from "./SlugField";
 
 const INPUT =
   "rounded-md border border-black/10 dark:border-white/15 bg-transparent px-2 py-1 text-sm outline-none focus:border-black/30 dark:focus:border-white/30";
-
-/** A labelled group of fields; the unit future deploy options plug into. */
-function Field({
-  label,
-  children,
-  hint,
-}: {
-  label: string;
-  children: React.ReactNode;
-  hint?: string;
-}) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <span className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
-        {label}
-      </span>
-      {children}
-      {hint && <span className="text-xs text-zinc-400">{hint}</span>}
-    </div>
-  );
-}
 
 export default function DeployModal({
   integrationId,
@@ -64,9 +46,13 @@ export default function DeployModal({
   const [slug, setSlug] = useState("");
   const [slugOk, setSlugOk] = useState(false);
   const [opts, setOpts] = useState<DeployOptions | null>(null);
+  // Environment-variable bindings (and the secret picker) live in a dedicated hook.
+  const { envVars, bindings, secretNames, setBinding, complete: envComplete, build: buildEnv } =
+    useDeployEnv(opts);
 
-  // Load deploy options once: whether the integration is networked, and a free
-  // slug to prefill. On failure assume non-networked (deploy still works).
+  // Load deploy options once: whether the integration is networked, a free slug to
+  // prefill, and the declared env vars to prompt for. On failure assume
+  // non-networked (deploy still works).
   useEffect(() => {
     let active = true;
     getDeployOptions(integrationId).then(
@@ -92,14 +78,17 @@ export default function DeployModal({
   }, [busy, onClose]);
 
   const networked = opts?.networked ?? false;
-  const canDeploy = !busy && opts !== null && (!networked || slugOk);
+  const canDeploy =
+    !busy && opts !== null && (!networked || slugOk) && envComplete;
 
   const submit = () => {
     if (!canDeploy) return;
+    const env = buildEnv();
     onSubmit({
       replicas,
       ...(networked ? { slug: slug.trim() } : {}),
       ...(networked && expose ? { expose: "external" } : {}),
+      ...(Object.keys(env).length ? { env } : {}),
     });
   };
 
@@ -180,6 +169,21 @@ export default function DeployModal({
               No HTTP source — this integration runs as an internal workload with no
               address.
             </p>
+          )}
+
+          {envVars.length > 0 && (
+            <Field
+              label="Environment"
+              hint="Fill each variable with a value or a cluster secret. Required ones are marked *."
+            >
+              <DeployEnvFields
+                envVars={envVars}
+                bindings={bindings}
+                secretNames={secretNames}
+                busy={busy}
+                onChange={setBinding}
+              />
+            </Field>
           )}
 
           {error && <p className="text-sm text-red-500">{error}</p>}

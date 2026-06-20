@@ -1,6 +1,7 @@
 package deployment
 
 import (
+	"sort"
 	"strconv"
 	"strings"
 
@@ -23,9 +24,43 @@ const (
 // keep the orchestrator decoupled from the runtime's full schema.
 type envDecl struct {
 	Env []struct {
-		Name    string  `yaml:"name"`
-		Default *string `yaml:"default"`
+		Name     string  `yaml:"name"`
+		Default  *string `yaml:"default"`
+		Required bool    `yaml:"required"`
 	} `yaml:"env"`
+}
+
+// EnvVarDecl is one environment variable an integration declares, surfaced to the
+// deploy modal so it can prompt the operator to fill it (with a literal value or a
+// cluster secret). The orchestrator-managed HTTP_PORT/HTTP_HOST are never included.
+type EnvVarDecl struct {
+	Name     string
+	Default  string
+	Required bool
+}
+
+// declaredEnvVars lists the environment variables an integration declares, sorted
+// by name and excluding the orchestrator-managed HTTP_PORT/HTTP_HOST. A malformed
+// definition yields no vars (the runtime validates the full document at load time).
+func declaredEnvVars(definition string) []EnvVarDecl {
+	var decl envDecl
+	if err := yaml.Unmarshal([]byte(definition), &decl); err != nil {
+		return nil
+	}
+	out := make([]EnvVarDecl, 0, len(decl.Env))
+	for _, e := range decl.Env {
+		name := strings.TrimSpace(e.Name)
+		if name == "" || name == envHTTPPort || name == envHTTPHost {
+			continue
+		}
+		d := ""
+		if e.Default != nil {
+			d = *e.Default
+		}
+		out = append(out, EnvVarDecl{Name: name, Default: d, Required: e.Required})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
 }
 
 // resolveRuntimeEnv inspects an integration definition for an HTTP_PORT (and

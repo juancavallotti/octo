@@ -101,6 +101,10 @@ type fakeKube struct {
 	internalDeleted bool
 	gotInternalSlug string
 	externalEnabled bool
+	// existingSecrets is the set of cluster-secret keys SecretKeyExists reports as
+	// present; secretChecks records the keys it was asked about.
+	existingSecrets map[string]bool
+	secretChecks    []string
 }
 
 func (f *fakeKube) Apply(_ context.Context, spec kube.Spec) error {
@@ -140,6 +144,11 @@ func (f *fakeKube) DeleteInternalService(_ context.Context, slug string) error {
 	return nil
 }
 
+func (f *fakeKube) SecretKeyExists(_ context.Context, name string) (bool, error) {
+	f.secretChecks = append(f.secretChecks, name)
+	return f.existingSecrets[name], nil
+}
+
 func (f *fakeKube) ExternalEnabled() bool { return f.externalEnabled }
 
 func (f *fakeKube) ExternalURL(subdomain string) string {
@@ -170,6 +179,27 @@ func TestScaleUpdatesClusterAndSettings(t *testing.T) {
 	}
 	if d.Status != kube.StatusRunning {
 		t.Errorf("status = %q, want refreshed to running", d.Status)
+	}
+}
+
+// TestScalePreservesEnvBindings verifies a scale round-trips the env bindings
+// (they live in the same Settings jsonb) rather than dropping them.
+func TestScalePreservesEnvBindings(t *testing.T) {
+	repo := &fakeRepo{
+		getRet: Deployment{ID: "dep-1", Settings: json.RawMessage(`{"replicas":1,"env":{"TOKEN":{"secret":"API_KEY"},"LOG":{"value":"info"}}}`)},
+	}
+	kc := &fakeKube{status: kube.StatusRunning}
+	svc := NewService(repo, &fakeIntegrations{}, kc)
+
+	if _, err := svc.Scale(context.Background(), "dep-1", 2); err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	got := ParseSettings(repo.gotSettings)
+	if got.Replicas != 2 {
+		t.Errorf("replicas = %d, want 2", got.Replicas)
+	}
+	if got.Env["TOKEN"].Secret != "API_KEY" || got.Env["LOG"].Value != "info" {
+		t.Errorf("env bindings not preserved through scale: %+v", got.Env)
 	}
 }
 
@@ -247,6 +277,94 @@ func TestDeployThreadsReplicasAndSlug(t *testing.T) {
 		t.Errorf("metadata slug/url not set: %+v", meta)
 	}
 	_ = d
+}
+
+// TestDeployBindsLiteralEnv verifies a literal env binding lands in spec.Env
+// alongside the orchestrator-supplied vars and is persisted.
+func TestDeployBindsLiteralEnv(t *testing.T) {
+	repo := &fakeRepo{created: Deployment{ID: "dep-1"}}
+	integrations := &fakeIntegrations{ret: integration.Integration{ID: "int-1", Name: "Orders"}}
+	kc := &fakeKube{status: kube.StatusPending}
+	svc := NewService(repo, integrations, kc)
+
+	settings := Settings{Env: map[string]EnvBinding{"LOG_LEVEL": {Value: "debug"}}}
+	if _, err := svc.Deploy(context.Background(), "int-1", settings); err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if kc.gotSpec.Env["LOG_LEVEL"] != "debug" {
+		t.Errorf("spec env LOG_LEVEL = %q, want debug", kc.gotSpec.Env["LOG_LEVEL"])
+	}
+	if len(kc.gotSpec.SecretEnv) != 0 {
+		t.Errorf("no secret refs expected, got %v", kc.gotSpec.SecretEnv)
+	}
+	got := ParseSettings(repo.gotSettings).Env["LOG_LEVEL"]
+	if got.Value != "debug" {
+		t.Errorf("persisted binding = %+v, want literal debug", got)
+	}
+}
+
+// TestDeployBindsSecretEnv verifies a secret binding becomes a secretKeyRef (in
+// spec.SecretEnv), is validated to exist, and persists only the secret name.
+func TestDeployBindsSecretEnv(t *testing.T) {
+	repo := &fakeRepo{created: Deployment{ID: "dep-1"}}
+	integrations := &fakeIntegrations{ret: integration.Integration{ID: "int-1", Name: "Orders"}}
+	kc := &fakeKube{status: kube.StatusPending, existingSecrets: map[string]bool{"API_KEY": true}}
+	svc := NewService(repo, integrations, kc)
+
+	settings := Settings{Env: map[string]EnvBinding{"TOKEN": {Secret: "API_KEY"}}}
+	if _, err := svc.Deploy(context.Background(), "int-1", settings); err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if kc.gotSpec.SecretEnv["TOKEN"] != "API_KEY" {
+		t.Errorf("spec secret env TOKEN = %q, want API_KEY", kc.gotSpec.SecretEnv["TOKEN"])
+	}
+	if _, ok := kc.gotSpec.Env["TOKEN"]; ok {
+		t.Error("a secret binding must not appear in literal Env")
+	}
+	if len(kc.secretChecks) != 1 || kc.secretChecks[0] != "API_KEY" {
+		t.Errorf("secret existence checks = %v, want [API_KEY]", kc.secretChecks)
+	}
+	got := ParseSettings(repo.gotSettings).Env["TOKEN"]
+	if got.Secret != "API_KEY" || got.Value != "" {
+		t.Errorf("persisted binding = %+v, want secret API_KEY with no value", got)
+	}
+}
+
+// TestDeployRejectsMissingSecret verifies a binding to a nonexistent secret fails
+// before any row or cluster resource is created.
+func TestDeployRejectsMissingSecret(t *testing.T) {
+	repo := &fakeRepo{created: Deployment{ID: "dep-1"}}
+	integrations := &fakeIntegrations{ret: integration.Integration{ID: "int-1", Name: "Orders"}}
+	kc := &fakeKube{status: kube.StatusPending} // no existing secrets
+	svc := NewService(repo, integrations, kc)
+
+	settings := Settings{Env: map[string]EnvBinding{"TOKEN": {Secret: "MISSING"}}}
+	if _, err := svc.Deploy(context.Background(), "int-1", settings); !errors.Is(err, ErrSecretNotFound) {
+		t.Fatalf("err = %v, want ErrSecretNotFound", err)
+	}
+	if kc.applied {
+		t.Error("kube.Apply should not run when a referenced secret is missing")
+	}
+	if repo.gotSettings != nil {
+		t.Error("no row should be created when a referenced secret is missing")
+	}
+}
+
+// TestDeployRejectsReservedEnvVar verifies a binding to HTTP_PORT/HTTP_HOST is
+// rejected (those are orchestrator-managed).
+func TestDeployRejectsReservedEnvVar(t *testing.T) {
+	repo := &fakeRepo{created: Deployment{ID: "dep-1"}}
+	integrations := &fakeIntegrations{ret: integration.Integration{ID: "int-1", Name: "Orders", Definition: exposableDef}}
+	kc := &fakeKube{status: kube.StatusPending}
+	svc := NewService(repo, integrations, kc)
+
+	settings := Settings{Env: map[string]EnvBinding{envHTTPPort: {Value: "1234"}}}
+	if _, err := svc.Deploy(context.Background(), "int-1", settings); !errors.Is(err, ErrReservedEnvVar) {
+		t.Fatalf("err = %v, want ErrReservedEnvVar", err)
+	}
+	if kc.applied {
+		t.Error("kube.Apply should not run when a reserved env var is bound")
+	}
 }
 
 func TestDeployDefaultsReplicasToOne(t *testing.T) {

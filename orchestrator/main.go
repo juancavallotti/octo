@@ -22,6 +22,7 @@ import (
 	httpx "github.com/juancavallotti/eip-go/orchestrator/internal/http"
 	"github.com/juancavallotti/eip-go/orchestrator/internal/integration"
 	"github.com/juancavallotti/eip-go/orchestrator/internal/kube"
+	"github.com/juancavallotti/eip-go/orchestrator/internal/secret"
 )
 
 const (
@@ -164,8 +165,8 @@ func newServer(ctx context.Context, database *db.DB, kc kubeConfig) http.Handler
 		if kubeClient, err := kube.New(kc.namespace, kc.runtimeImage, kc.baseDomain, kc.clusterIssuer); err != nil {
 			slog.Warn("kubernetes access unavailable; deployment routes disabled", "error", err)
 		} else {
-			deploymentSvc := deployment.NewService(
-				deployment.NewRepo(database.Pool()), integrationSvc, kubeClient)
+			deploymentRepo := deployment.NewRepo(database.Pool())
+			deploymentSvc := deployment.NewService(deploymentRepo, integrationSvc, kubeClient)
 			// Watch the cluster and push status changes to SSE subscribers; the
 			// informers also back the status read path, so list/stream reads hit a
 			// local cache rather than the API server.
@@ -177,6 +178,14 @@ func newServer(ctx context.Context, database *db.DB, kc kubeConfig) http.Handler
 				"baseDomain", kc.baseDomain, "externalEndpoints", kubeClient.ExternalEnabled(),
 				"endpoints", "POST/GET /integrations/{id}/deployments, "+
 					"GET /integrations/{id}/deployments/events (SSE), GET/DELETE /deployments/{id}")
+
+			// Cluster-wide secrets share the kube client (values live in the shared
+			// octo-secrets Secret) and the deployment repo (to refuse deleting a
+			// secret a deployment still references).
+			secretSvc := secret.NewService(secret.NewRepo(database.Pool()), kubeClient, deploymentRepo)
+			secret.NewHandler(secretSvc).Register(mux)
+			slog.Info("secret routes registered",
+				"endpoints", "GET /secrets, PUT/DELETE /secrets/{name}")
 		}
 	} else {
 		slog.Warn("DATABASE_URL not set; integration, folder and deployment routes disabled")
