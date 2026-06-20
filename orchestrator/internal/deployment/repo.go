@@ -76,6 +76,42 @@ func (r *Repo) ListByIntegration(ctx context.Context, integrationID string) ([]D
 	return items, nil
 }
 
+// IntegrationIDBySlug returns the integration id of any deployment whose metadata
+// slug matches, and whether one was found. Used to keep the internal Service name
+// (octo-int-{slug}) unique across integrations. If several match (the same
+// integration redeployed), any one is returned — they share an integration id.
+func (r *Repo) IntegrationIDBySlug(ctx context.Context, slug string) (string, bool, error) {
+	return r.integrationIDByMetaField(ctx, "deployment_metadata", "slug", slug)
+}
+
+// IntegrationIDBySubdomain returns the integration id of any deployment using the
+// given external subdomain, and whether one was found. Used to keep external
+// hosts unique across integrations.
+func (r *Repo) IntegrationIDBySubdomain(ctx context.Context, subdomain string) (string, bool, error) {
+	return r.integrationIDByMetaField(ctx, "settings", "subdomain", subdomain)
+}
+
+// integrationIDByMetaField looks up the integration id of any deployment whose
+// jsonb column->>field equals value. column and field are package-internal
+// literals (never user input), so interpolating them into the query is safe.
+func (r *Repo) integrationIDByMetaField(ctx context.Context, column, field, value string) (string, bool, error) {
+	if value == "" {
+		return "", false, nil
+	}
+	var integrationID string
+	err := r.pool.QueryRow(ctx,
+		fmt.Sprintf(`SELECT integration_id FROM integration_deployments WHERE %s->>'%s' = $1 LIMIT 1`, column, field),
+		value,
+	).Scan(&integrationID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", false, nil
+		}
+		return "", false, fmt.Errorf("deployment repo: lookup by %s: %w", field, err)
+	}
+	return integrationID, true, nil
+}
+
 // UpdateStatus stamps a new cached status and last_updated. It is a no-op match
 // returning ErrNotFound if id does not exist.
 func (r *Repo) UpdateStatus(ctx context.Context, id, status string) error {
@@ -85,6 +121,22 @@ func (r *Repo) UpdateStatus(ctx context.Context, id, status string) error {
 	)
 	if err != nil {
 		return fmt.Errorf("deployment repo: update status: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// UpdateSettings replaces the settings jsonb and stamps last_updated. Returns
+// ErrNotFound if id does not exist.
+func (r *Repo) UpdateSettings(ctx context.Context, id string, settings json.RawMessage) error {
+	tag, err := r.pool.Exec(ctx,
+		`UPDATE integration_deployments SET settings = $2, last_updated = now() WHERE id = $1`,
+		id, settings,
+	)
+	if err != nil {
+		return fmt.Errorf("deployment repo: update settings: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrNotFound

@@ -72,7 +72,7 @@ func run() error {
 		slog.Info("connected to database pool")
 	}
 
-	srv := newServer(database, kubeConfig{
+	srv := newServer(ctx, database, kubeConfig{
 		namespace:     envOr("KUBE_NAMESPACE", defaultNamespace),
 		runtimeImage:  envOr("RUNTIME_IMAGE", defaultRuntimeImage),
 		baseDomain:    os.Getenv("BASE_DOMAIN"),
@@ -112,8 +112,9 @@ type kubeConfig struct {
 
 // newServer wires the routes. database may be nil when DATABASE_URL is unset.
 // kube configures deployment management, which is enabled only when both a
-// database and in-cluster Kubernetes access are present.
-func newServer(database *db.DB, kc kubeConfig) http.Handler {
+// database and in-cluster Kubernetes access are present. ctx bounds the lifetime
+// of background work started here (the deployment status informers).
+func newServer(ctx context.Context, database *db.DB, kc kubeConfig) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -165,11 +166,17 @@ func newServer(database *db.DB, kc kubeConfig) http.Handler {
 		} else {
 			deploymentSvc := deployment.NewService(
 				deployment.NewRepo(database.Pool()), integrationSvc, kubeClient)
-			deployment.NewHandler(deploymentSvc).Register(mux)
+			// Watch the cluster and push status changes to SSE subscribers; the
+			// informers also back the status read path, so list/stream reads hit a
+			// local cache rather than the API server.
+			hub := deployment.NewHub()
+			kubeClient.StartInformers(ctx, hub.Notify)
+			deployment.NewHandler(deploymentSvc, hub).Register(mux)
 			slog.Info("deployment routes registered",
 				"namespace", kubeClient.Namespace(), "runtimeImage", kc.runtimeImage,
 				"baseDomain", kc.baseDomain, "externalEndpoints", kubeClient.ExternalEnabled(),
-				"endpoints", "POST/GET /integrations/{id}/deployments, GET/DELETE /deployments/{id}")
+				"endpoints", "POST/GET /integrations/{id}/deployments, "+
+					"GET /integrations/{id}/deployments/events (SSE), GET/DELETE /deployments/{id}")
 		}
 	} else {
 		slog.Warn("DATABASE_URL not set; integration, folder and deployment routes disabled")

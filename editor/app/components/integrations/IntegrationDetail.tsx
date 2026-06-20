@@ -153,6 +153,7 @@ export default function IntegrationDetail({
           <DeploymentsSection
             key={integration.id}
             integrationId={integration.id}
+            integrationName={integration.name}
           />
         </Section>
       </div>

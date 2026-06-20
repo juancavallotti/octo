@@ -10,15 +10,24 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
+	appslisters "k8s.io/client-go/listers/apps/v1"
+	corelisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/cache"
 )
 
 // Status values cached for a deployment. They are intentionally coarse — enough
@@ -35,9 +44,10 @@ const (
 	configMountPath = "/etc/octo/integrations"
 	// configFileName is the single key/file written into the ConfigMap.
 	configFileName = "integration.yaml"
-	// runtimePort is the conventional port the Service targets. It is a
-	// placeholder until real per-integration port wiring + ingress arrive; the
-	// Service simply has no endpoints if the integration does not bind it.
+	// runtimePort is the default port the Service/Ingress target when a deployment
+	// declares no HTTP_PORT (Spec.Port == 0). An integration that declares
+	// HTTP_PORT overrides it; the Service simply has no endpoints if the runtime
+	// does not bind the resolved port.
 	runtimePort = 8080
 
 	labelManagedBy     = "app.kubernetes.io/managed-by"
@@ -48,14 +58,35 @@ const (
 
 // Spec describes the workload to create for one deployment.
 type Spec struct {
-	ID            string // deployment uuid; drives resource names and labels
-	IntegrationID string // owning integration uuid (label + internal Service selector)
-	Definition    string // runtime-loadable integration YAML
-	Replicas      int32  // desired replica count; <1 is treated as 1
-	Slug          string // integration name slug; names the stable internal Service ("" = none)
-	Expose        bool   // when true, also publish an external Ingress
-	Subdomain     string // external host label; the Ingress host is {Subdomain}.{baseDomain}
+	ID            string            // deployment uuid; drives resource names and labels
+	IntegrationID string            // owning integration uuid (label + internal Service selector)
+	Definition    string            // runtime-loadable integration YAML
+	Replicas      int32             // desired replica count; <1 is treated as 1
+	Slug          string            // unique slug naming this deployment's internal Service ("" = none)
+	Port          int               // runtime HTTP port (from HTTP_PORT); 0 means no HTTP source (no Service)
+	Env           map[string]string // env vars supplied to the runtime container (e.g. HTTP_HOST/HTTP_PORT)
+	Expose        bool              // when true, also publish an external Ingress
+	Subdomain     string            // external host label; the Ingress host is {Subdomain}.{baseDomain}
 }
+
+// port returns the resolved runtime port, defaulting to runtimePort when unset.
+func (s Spec) port() int32 {
+	if s.Port > 0 {
+		return int32(s.Port)
+	}
+	return runtimePort
+}
+
+// networked reports whether the deployment serves HTTP on a port — i.e. its
+// integration declared HTTP_PORT. Only networked deployments get Services (a
+// per-deployment one, a stable internal one) and the option of an Ingress; a
+// deployment with no HTTP source (a timer, a scheduled job) runs as a bare
+// workload with no Service at all.
+func (s Spec) networked() bool { return s.Port > 0 }
+
+// informerResync is the periodic full relist interval; it backstops any missed
+// watch events without making the cache stale in normal operation.
+const informerResync = 5 * time.Minute
 
 // Client wraps a Kubernetes clientset scoped to one namespace and runtime image.
 type Client struct {
@@ -64,7 +95,16 @@ type Client struct {
 	runtimeImage  string
 	baseDomain    string // parent domain for external endpoints ("" = disabled)
 	clusterIssuer string // cert-manager ClusterIssuer for external TLS
+
+	// Informer-backed read path, populated by StartInformers. When synced reports
+	// true, Status reads from these caches instead of hitting the API server.
+	depLister corelisterDeployments
+	podLister corelisters.PodNamespaceLister
+	synced    func() bool
 }
+
+// corelisterDeployments aliases the namespaced Deployment lister for brevity.
+type corelisterDeployments = appslisters.DeploymentNamespaceLister
 
 // New builds a Client from the in-cluster config. It returns an error when the
 // orchestrator is not running inside a cluster (e.g. local `go run`), letting the
@@ -118,17 +158,23 @@ func (c *Client) Namespace() string { return c.namespace }
 // "octo-dep-" + a uuid stays within the 63-char DNS-1123 label limit.
 func resourceName(deploymentID string) string { return "octo-dep-" + deploymentID }
 
-// internalServiceName is the stable, integration-scoped Service name other flows
-// address regardless of which deployment is current. "octo-int-" + a slug (≤54
-// chars; the caller bounds it) stays within the 63-char DNS-1123 label limit.
+// internalServiceName is the stable, per-deployment Service name other flows
+// address to reach a deployment by a constant name. The slug is unique per
+// deployment; "octo-int-" + a slug (≤54 chars; the caller bounds it) stays within
+// the 63-char DNS-1123 label limit.
 func internalServiceName(slug string) string { return "octo-int-" + slug }
 
-// InternalURL is the in-cluster address of the stable internal Service for slug.
-func (c *Client) InternalURL(slug string) string {
+// InternalURL is the in-cluster address of the stable internal Service for slug,
+// on the deployment's runtime port (port <1 falls back to runtimePort).
+func (c *Client) InternalURL(slug string, port int) string {
 	if slug == "" {
 		return ""
 	}
-	return fmt.Sprintf("http://%s.%s:%d", internalServiceName(slug), c.namespace, runtimePort)
+	p := port
+	if p < 1 {
+		p = runtimePort
+	}
+	return fmt.Sprintf("http://%s.%s:%d", internalServiceName(slug), c.namespace, p)
 }
 
 func (c *Client) labels(spec Spec) map[string]string {
@@ -159,8 +205,14 @@ func (c *Client) Apply(ctx context.Context, spec Spec) error {
 	}
 
 	deps := c.clientset.AppsV1().Deployments(c.namespace)
-	if _, err := deps.Create(ctx, c.deployment(name, labels, spec.Replicas), metav1.CreateOptions{}); err != nil {
+	if _, err := deps.Create(ctx, c.deployment(name, labels, spec), metav1.CreateOptions{}); err != nil {
 		return fmt.Errorf("kube: create deployment: %w", err)
+	}
+
+	// A deployment with no HTTP source listens on nothing, so it needs no Service,
+	// no internal endpoint and no Ingress: the workload alone is the whole deploy.
+	if !spec.networked() {
+		return nil
 	}
 
 	svcs := c.clientset.CoreV1().Services(c.namespace)
@@ -171,18 +223,17 @@ func (c *Client) Apply(ctx context.Context, spec Spec) error {
 			Selector: map[string]string{labelDeploymentID: spec.ID},
 			Ports: []corev1.ServicePort{{
 				Name:       "http",
-				Port:       runtimePort,
-				TargetPort: intstr.FromInt(runtimePort),
+				Port:       spec.port(),
+				TargetPort: intstr.FromInt(int(spec.port())),
 			}},
 		},
 	}, metav1.CreateOptions{}); err != nil {
 		return fmt.Errorf("kube: create service: %w", err)
 	}
 
-	// Stable, integration-scoped Service so other flows can reach this
-	// integration by a constant name regardless of deployment id, load-balanced
-	// across all its replicas. Idempotent: a prior deployment of the same
-	// integration may already own it.
+	// Stable internal Service so other flows can reach this deployment by a constant
+	// name (octo-int-{slug}), load-balanced across its replicas. The slug is unique
+	// per deployment, so each deployment has its own internal address.
 	if err := c.ensureInternalService(ctx, spec); err != nil {
 		return fmt.Errorf("kube: ensure internal service: %w", err)
 	}
@@ -226,7 +277,7 @@ func (c *Client) ingress(name string, labels map[string]string, spec Spec) *netw
 							Backend: networkingv1.IngressBackend{
 								Service: &networkingv1.IngressServiceBackend{
 									Name: name,
-									Port: networkingv1.ServiceBackendPort{Number: runtimePort},
+									Port: networkingv1.ServiceBackendPort{Number: spec.port()},
 								},
 							},
 						}},
@@ -238,27 +289,25 @@ func (c *Client) ingress(name string, labels map[string]string, spec Spec) *netw
 }
 
 // ensureInternalService creates the stable "octo-int-{slug}" ClusterIP Service
-// that selects every pod of the integration (by integration-id label). It is a
-// no-op when the deployment has no slug or the Service already exists.
+// that selects this deployment's pods (by deployment-id label). The slug is unique
+// per deployment, so the Service name is too. It is a no-op when the deployment has
+// no slug or the Service already exists.
 func (c *Client) ensureInternalService(ctx context.Context, spec Spec) error {
 	if spec.Slug == "" {
 		return nil
 	}
 	_, err := c.clientset.CoreV1().Services(c.namespace).Create(ctx, &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: internalServiceName(spec.Slug),
-			Labels: map[string]string{
-				labelManagedBy:     managedByValue,
-				labelIntegrationID: spec.IntegrationID,
-			},
+			Name:   internalServiceName(spec.Slug),
+			Labels: c.labels(spec),
 		},
 		Spec: corev1.ServiceSpec{
 			Type:     corev1.ServiceTypeClusterIP,
-			Selector: map[string]string{labelIntegrationID: spec.IntegrationID},
+			Selector: map[string]string{labelDeploymentID: spec.ID},
 			Ports: []corev1.ServicePort{{
 				Name:       "http",
-				Port:       runtimePort,
-				TargetPort: intstr.FromInt(runtimePort),
+				Port:       spec.port(),
+				TargetPort: intstr.FromInt(int(spec.port())),
 			}},
 		},
 	}, metav1.CreateOptions{})
@@ -266,6 +315,22 @@ func (c *Client) ensureInternalService(ctx context.Context, spec Spec) error {
 		return nil
 	}
 	return err
+}
+
+// Scale updates the desired replica count of a deployment's workload via a merge
+// patch on the Deployment. replicas <1 is treated as 1. A missing Deployment
+// surfaces a NotFound error for the caller to handle.
+func (c *Client) Scale(ctx context.Context, deploymentID string, replicas int32) error {
+	if replicas < 1 {
+		replicas = 1
+	}
+	patch := []byte(fmt.Sprintf(`{"spec":{"replicas":%d}}`, replicas))
+	_, err := c.clientset.AppsV1().Deployments(c.namespace).Patch(
+		ctx, resourceName(deploymentID), types.MergePatchType, patch, metav1.PatchOptions{})
+	if err != nil {
+		return fmt.Errorf("kube: scale deployment: %w", err)
+	}
+	return nil
 }
 
 // DeleteInternalService removes the stable internal Service for slug. Callers
@@ -279,12 +344,18 @@ func (c *Client) DeleteInternalService(ctx context.Context, slug string) error {
 	return ignoreNotFound(err)
 }
 
-// deployment builds the Deployment object: `replicas` runtime pods (clamped to a
-// minimum of 1) with the integration ConfigMap mounted read-only at the config
-// path.
-func (c *Client) deployment(name string, labels map[string]string, replicas int32) *appsv1.Deployment {
+// deployment builds the Deployment object: spec.Replicas runtime pods (clamped to
+// a minimum of 1) with the integration ConfigMap mounted read-only at the config
+// path, any supplied env vars set, and the runtime port declared only when the
+// integration has an HTTP source (a non-networked workload exposes no port).
+func (c *Client) deployment(name string, labels map[string]string, spec Spec) *appsv1.Deployment {
+	replicas := spec.Replicas
 	if replicas < 1 {
 		replicas = 1
+	}
+	var ports []corev1.ContainerPort
+	if spec.networked() {
+		ports = []corev1.ContainerPort{{Name: "http", ContainerPort: spec.port()}}
 	}
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Labels: labels},
@@ -300,6 +371,8 @@ func (c *Client) deployment(name string, labels map[string]string, replicas int3
 						Name:            "runtime",
 						Image:           c.runtimeImage,
 						ImagePullPolicy: corev1.PullIfNotPresent,
+						Env:             envVars(spec.Env),
+						Ports:           ports,
 						VolumeMounts: []corev1.VolumeMount{{
 							Name:      "integration",
 							MountPath: configMountPath,
@@ -320,36 +393,189 @@ func (c *Client) deployment(name string, labels map[string]string, replicas int3
 	}
 }
 
-// Status reports a coarse lifecycle status for a deployment, computed from the
-// live Deployment and its pods. A missing Deployment reads as failed: the row
-// exists but its workload is gone.
-func (c *Client) Status(ctx context.Context, deploymentID string) (string, error) {
+// envVars converts the supplied env map into a deterministically-ordered slice of
+// container env vars (sorted by name so repeated Applies produce identical specs).
+func envVars(env map[string]string) []corev1.EnvVar {
+	if len(env) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(env))
+	for k := range env {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	out := make([]corev1.EnvVar, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, corev1.EnvVar{Name: k, Value: env[k]})
+	}
+	return out
+}
+
+// PodStatus is the live state of one runtime pod.
+type PodStatus struct {
+	Name     string // pod name
+	Phase    string // Pending/Running/Succeeded/Failed/Unknown
+	Ready    bool   // the pod's Ready condition is true
+	Restarts int32  // total container restarts across the pod
+}
+
+// Status is the live status of a deployment, computed from the Deployment and its
+// pods. Phase is the coarse value cached in the database; the rest is detail for
+// the UI and is not persisted.
+type Status struct {
+	Phase           string      // pending|running|failed
+	DesiredReplicas int32       // spec replica count
+	ReadyReplicas   int32       // ready replica count
+	Reason          string      // terminal failure reason (e.g. ImagePullBackOff), when failed
+	CreatedAt       time.Time   // Deployment creation timestamp (workload age)
+	Pods            []PodStatus // per-pod detail
+}
+
+// Status reports the live status for a deployment, computed from the Deployment
+// and its pods. A missing Deployment reads as failed: the row exists but its
+// workload is gone. Reads come from the informer caches when they are synced,
+// falling back to direct API calls otherwise.
+func (c *Client) Status(ctx context.Context, deploymentID string) (Status, error) {
+	dep, pods, err := c.fetchWorkload(ctx, deploymentID)
+	if err != nil {
+		return Status{}, err
+	}
+	if dep == nil {
+		return Status{Phase: StatusFailed}, nil
+	}
+	return computeStatus(dep, pods), nil
+}
+
+// fetchWorkload returns the Deployment and its pods for a deployment id, or a nil
+// Deployment when it does not exist. It prefers the informer cache (when synced)
+// and falls back to direct API reads.
+func (c *Client) fetchWorkload(ctx context.Context, deploymentID string) (*appsv1.Deployment, []*corev1.Pod, error) {
 	name := resourceName(deploymentID)
+	if c.synced != nil && c.synced() {
+		dep, err := c.depLister.Get(name)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				return nil, nil, nil
+			}
+			return nil, nil, fmt.Errorf("kube: lister get deployment: %w", err)
+		}
+		pods, err := c.podLister.List(labels.Set{labelDeploymentID: deploymentID}.AsSelector())
+		if err != nil {
+			return nil, nil, fmt.Errorf("kube: lister list pods: %w", err)
+		}
+		return dep, pods, nil
+	}
+
 	dep, err := c.clientset.AppsV1().Deployments(c.namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			return StatusFailed, nil
+			return nil, nil, nil
 		}
-		return "", fmt.Errorf("kube: get deployment: %w", err)
+		return nil, nil, fmt.Errorf("kube: get deployment: %w", err)
 	}
-	if dep.Status.ReadyReplicas >= 1 {
-		return StatusRunning, nil
-	}
-	// Not ready yet: surface a terminal pull/crash failure quickly rather than
-	// reporting pending forever.
-	pods, err := c.clientset.CoreV1().Pods(c.namespace).List(ctx,
+	list, err := c.clientset.CoreV1().Pods(c.namespace).List(ctx,
 		metav1.ListOptions{LabelSelector: selector(deploymentID)})
 	if err != nil {
-		return "", fmt.Errorf("kube: list pods: %w", err)
+		return nil, nil, fmt.Errorf("kube: list pods: %w", err)
 	}
-	for i := range pods.Items {
-		for _, cs := range pods.Items[i].Status.ContainerStatuses {
-			if w := cs.State.Waiting; w != nil && isTerminalWaiting(w.Reason) {
-				return StatusFailed, nil
+	pods := make([]*corev1.Pod, len(list.Items))
+	for i := range list.Items {
+		pods[i] = &list.Items[i]
+	}
+	return dep, pods, nil
+}
+
+// computeStatus derives a Status from a Deployment and its pods. Pure (no I/O) so
+// it serves both the cache and direct-read paths identically.
+func computeStatus(dep *appsv1.Deployment, pods []*corev1.Pod) Status {
+	st := Status{
+		Phase:         StatusPending,
+		ReadyReplicas: dep.Status.ReadyReplicas,
+		CreatedAt:     dep.CreationTimestamp.Time,
+	}
+	if dep.Spec.Replicas != nil {
+		st.DesiredReplicas = *dep.Spec.Replicas
+	}
+	for _, p := range pods {
+		ps := PodStatus{Name: p.Name, Phase: string(p.Status.Phase), Ready: podReady(p)}
+		for _, cs := range p.Status.ContainerStatuses {
+			ps.Restarts += cs.RestartCount
+			if w := cs.State.Waiting; w != nil && isTerminalWaiting(w.Reason) && st.Reason == "" {
+				st.Reason = w.Reason
+				if w.Message != "" {
+					st.Reason = w.Reason + ": " + w.Message
+				}
 			}
 		}
+		st.Pods = append(st.Pods, ps)
 	}
-	return StatusPending, nil
+	switch {
+	case dep.Status.ReadyReplicas >= 1:
+		st.Phase = StatusRunning
+	case st.Reason != "":
+		// A terminal pull/crash failure: surface it rather than reporting pending
+		// forever.
+		st.Phase = StatusFailed
+	}
+	return st
+}
+
+// StartInformers begins watching the orchestrator-managed Deployments and Pods in
+// the namespace and invokes onChange(integrationID) whenever one changes, so the
+// caller can push live updates. It also wires the lister-backed read path used by
+// Status. The informers run until ctx is cancelled.
+func (c *Client) StartInformers(ctx context.Context, onChange func(integrationID string)) {
+	factory := informers.NewSharedInformerFactoryWithOptions(
+		c.clientset, informerResync,
+		informers.WithNamespace(c.namespace),
+		informers.WithTweakListOptions(func(o *metav1.ListOptions) {
+			o.LabelSelector = labelManagedBy + "=" + managedByValue
+		}),
+	)
+	depInformer := factory.Apps().V1().Deployments()
+	podInformer := factory.Core().V1().Pods()
+	c.depLister = depInformer.Lister().Deployments(c.namespace)
+	c.podLister = podInformer.Lister().Pods(c.namespace)
+
+	handler := cache.ResourceEventHandlerFuncs{
+		AddFunc:    func(obj any) { notifyIntegration(obj, onChange) },
+		UpdateFunc: func(_, obj any) { notifyIntegration(obj, onChange) },
+		DeleteFunc: func(obj any) { notifyIntegration(obj, onChange) },
+	}
+	// AddEventHandler can only fail before the informer starts; ignore the
+	// registration handle since handlers live for the informer's lifetime.
+	_, _ = depInformer.Informer().AddEventHandler(handler)
+	_, _ = podInformer.Informer().AddEventHandler(handler)
+
+	factory.Start(ctx.Done())
+	c.synced = func() bool {
+		return depInformer.Informer().HasSynced() && podInformer.Informer().HasSynced()
+	}
+}
+
+// notifyIntegration extracts the integration-id label from a changed object (or
+// the wrapped object of a delete tombstone) and reports it.
+func notifyIntegration(obj any, onChange func(string)) {
+	if tombstone, ok := obj.(cache.DeletedFinalStateUnknown); ok {
+		obj = tombstone.Obj
+	}
+	m, err := meta.Accessor(obj)
+	if err != nil {
+		return
+	}
+	if id := m.GetLabels()[labelIntegrationID]; id != "" {
+		onChange(id)
+	}
+}
+
+// podReady reports whether the pod's Ready condition is true.
+func podReady(p *corev1.Pod) bool {
+	for _, cond := range p.Status.Conditions {
+		if cond.Type == corev1.PodReady {
+			return cond.Status == corev1.ConditionTrue
+		}
+	}
+	return false
 }
 
 // isTerminalWaiting reports whether a container's waiting reason means the pod

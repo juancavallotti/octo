@@ -7,6 +7,8 @@ package deployment
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/juancavallotti/eip-go/orchestrator/internal/kube"
 )
 
 // Deployment is one deployed instance of an integration. IDs are UUIDs in
@@ -19,6 +21,9 @@ type Deployment struct {
 	Settings      json.RawMessage
 	Metadata      json.RawMessage
 	LastUpdated   time.Time
+	// Detail is the live cluster status populated on read (replicas, pods,
+	// failure reason). Not persisted; the coarse Status string is the cached value.
+	Detail kube.Status
 }
 
 // Settings is the user-supplied per-deployment config stored in the settings
@@ -27,6 +32,12 @@ type Settings struct {
 	// Replicas is the desired runtime replica count; <1 is normalized to 1. The
 	// per-deployment Service load-balances across them for internal callers.
 	Replicas int `json:"replicas,omitempty"`
+	// Slug is the user-chosen internal address label for a networked deployment
+	// (the internal Service is octo-int-{slug}). It must be unique across
+	// deployments; empty asks the orchestrator to allocate a free one. Ignored for
+	// integrations with no HTTP source. Input only — the resolved slug lives in
+	// Metadata.
+	Slug string `json:"slug,omitempty"`
 	// Expose opts the deployment into an external HTTP endpoint. "external"
 	// publishes a {subdomain}.{baseDomain} Ingress with TLS; empty = internal only.
 	Expose string `json:"expose,omitempty"`
@@ -46,12 +57,14 @@ type Metadata struct {
 	// Name is a human-facing label for the deployment, captured from the
 	// integration's name at deploy time.
 	Name string `json:"name,omitempty"`
-	// Slug is the DNS-1123 slug of the integration name; it names the stable
-	// internal Service (octo-int-{slug}). Empty when the name has no usable slug.
+	// Slug is the DNS-1123 slug naming this deployment's internal Service
+	// (octo-int-{slug}). It is unique across deployments — derived from the
+	// integration name with a -NNN suffix on collision. Empty for deployments with
+	// no HTTP source (no Service is created for those).
 	Slug string `json:"slug,omitempty"`
 	// InternalURL is the in-cluster address other flows use to reach this
-	// integration, load-balanced across replicas (and across deployments of the
-	// same integration). Empty when there is no slug.
+	// deployment, load-balanced across its replicas. Empty when there is no slug
+	// (the integration declares no HTTP source).
 	InternalURL string `json:"internalUrl,omitempty"`
 	// ExternalURL is the public https://{subdomain}.{baseDomain} address when the
 	// deployment is exposed externally; empty for internal-only deployments.

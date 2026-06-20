@@ -16,4 +16,16 @@ var (
 	// ErrInvalidSubdomain is returned when a requested external subdomain has no
 	// usable DNS-1123 form.
 	ErrInvalidSubdomain = errors.New("invalid external subdomain")
+	// ErrInvalidSlug is returned when a user-supplied slug has no usable DNS-1123
+	// form.
+	ErrInvalidSlug = errors.New("invalid deployment slug")
+	// ErrSlugTaken is returned when a user-supplied slug is already claimed by an
+	// existing deployment (slugs are unique across deployments).
+	ErrSlugTaken = errors.New("deployment slug already in use")
+	// ErrSlugExhausted is returned when no free internal slug could be allocated
+	// after exhausting the numeric suffix range (practically unreachable).
+	ErrSlugExhausted = errors.New("could not allocate a unique deployment slug")
+	// ErrSubdomainTaken is returned when the requested external subdomain is
+	// already in use by a different integration.
+	ErrSubdomainTaken = errors.New("external subdomain already in use")
 )

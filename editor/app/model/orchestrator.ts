@@ -33,6 +33,15 @@ export interface IntegrationInput {
 /** Coarse lifecycle status of a deployment, cached from the live cluster. */
 export type DeploymentStatus = "pending" | "running" | "failed";
 
+/** Live state of one runtime pod backing a deployment. */
+export interface PodStatus {
+  name: string;
+  /** Pending/Running/Succeeded/Failed/Unknown. */
+  phase: string;
+  ready: boolean;
+  restarts: number;
+}
+
 /** One deployed instance of an integration running as its own workload. */
 export interface Deployment {
   id: string;
@@ -41,12 +50,22 @@ export interface Deployment {
   name: string;
   /** Cached lifecycle status; refreshed by the orchestrator on read. */
   status: DeploymentStatus;
-  /** Desired/served replica count. */
+  /** Desired/served replica count (from settings). */
   replicas: number;
+  /** Ready replica count, live from the cluster. */
+  readyReplicas: number;
+  /** Desired replica count, live from the cluster's Deployment spec. */
+  desiredReplicas: number;
+  /** Terminal failure reason (e.g. ImagePullBackOff), when failed. */
+  reason?: string;
+  /** Per-pod live detail. */
+  pods?: PodStatus[];
   /** In-cluster address other flows use to reach this integration, if any. */
   internalUrl?: string;
   /** Public https URL when the deployment is exposed externally. */
   externalUrl?: string;
+  /** RFC3339 timestamp of the workload's creation (age anchor), if known. */
+  createdAt?: string;
   /** RFC3339 timestamp of the last status/state update. */
   lastUpdated: string;
 }
@@ -55,10 +74,30 @@ export interface Deployment {
 export interface DeploymentInput {
   /** Runtime replicas; omitted/<=0 means a single replica. */
   replicas?: number;
-  /** "external" publishes a {subdomain}.{baseDomain} endpoint with TLS. */
+  /** User-chosen internal address slug; omitted asks the orchestrator to allocate. */
+  slug?: string;
+  /** "external" publishes a {slug}.{baseDomain} endpoint with TLS. */
   expose?: "external";
-  /** External host label; defaults to the integration slug when omitted. */
+  /** External host label; defaults to the slug when omitted. */
   subdomain?: string;
+}
+
+/**
+ * Deploy choices for an integration, backing the deploy modal. When fetched with a
+ * candidate slug the `slug*` fields validate it (for the requested exposure);
+ * otherwise `suggestedSlug` carries a free default to prefill.
+ */
+export interface DeployOptions {
+  /** Whether the integration has an HTTP source (so it gets a slug and can expose). */
+  networked: boolean;
+  /** A free slug to prefill the field with (only when no candidate was checked). */
+  suggestedSlug?: string;
+  /** Normalized form of the checked candidate. */
+  slug?: string;
+  /** The candidate has a usable form. */
+  slugValid: boolean;
+  /** The candidate is not already claimed (subdomain too, when external). */
+  slugAvailable: boolean;
 }
 
 /** Perform a JSON request against a BFF route, unwrapping the `{ error }` envelope. */
@@ -122,6 +161,26 @@ export function listDeployments(integrationId: string): Promise<Deployment[]> {
   );
 }
 
+/**
+ * Fetch deploy options for an integration. With no `slug` it returns whether the
+ * integration is networked plus a suggested free slug; with a `slug` it validates
+ * that candidate for the given exposure (external also checks the subdomain).
+ */
+export function getDeployOptions(
+  integrationId: string,
+  opts: { slug?: string; expose?: "external" } = {},
+): Promise<DeployOptions> {
+  const qs = new URLSearchParams();
+  if (opts.slug) qs.set("slug", opts.slug);
+  if (opts.expose) qs.set("expose", opts.expose);
+  const query = qs.toString();
+  return request<DeployOptions>(
+    `/api/integrations/${encodeURIComponent(integrationId)}/deployments/options${
+      query ? `?${query}` : ""
+    }`,
+  );
+}
+
 /** Deploy an integration as a new workload, optionally exposed externally. */
 export function createDeployment(
   integrationId: string,
@@ -131,6 +190,17 @@ export function createDeployment(
     `/api/integrations/${encodeURIComponent(integrationId)}/deployments`,
     jsonBody(input),
   );
+}
+
+/** Scale an existing deployment to a new desired replica count. */
+export function scaleDeployment(
+  id: string,
+  replicas: number,
+): Promise<Deployment> {
+  return request<Deployment>(`/api/deployments/${encodeURIComponent(id)}`, {
+    ...jsonBody({ replicas }),
+    method: "PATCH",
+  });
 }
 
 /** Undeploy a deployment, removing its workload. */
