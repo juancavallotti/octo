@@ -181,6 +181,20 @@ func (s *source) awaitResult(w http.ResponseWriter, r *http.Request, ch chan res
 	}
 }
 
+// httpStatusVar is the message variable a flow may set to choose the HTTP
+// response status; when absent or out of range the default status is used.
+const httpStatusVar = "httpStatus"
+
+// statusFor returns the response status for a completed flow: the message's
+// httpStatus variable when it is a valid HTTP status code, otherwise fallback.
+// This lets a flow (or its error path) set vars.httpStatus to control the code.
+func statusFor(msg *types.Message, fallback int) int {
+	if code, ok := msg.Variables.Int(httpStatusVar); ok && code >= 100 && code <= 599 {
+		return code
+	}
+	return fallback
+}
+
 // writeResult maps a flow outcome to an HTTP response.
 func (s *source) writeResult(w http.ResponseWriter, res result) {
 	switch res.kind {
@@ -191,7 +205,7 @@ func (s *source) writeResult(w http.ResponseWriter, res result) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
+		w.WriteHeader(statusFor(res.msg, http.StatusOK))
 		_, _ = w.Write(raw)
 	case types.FlowEventDropped:
 		w.WriteHeader(http.StatusNoContent)
