@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -21,14 +22,18 @@ const (
 // by a dedicated pool of workers all reading the same channel. It is assembled
 // by the Service.
 type boundFlow struct {
-	name    string
-	source  core.MessageSource
-	root    *engine.Flow
-	workers int
-	in      chan *types.Message
-	bus     *core.EventBus
-	pool    *pool.Pool
-	wg      sync.WaitGroup
+	name   string
+	source core.MessageSource
+	root   *engine.Flow
+	// errorPath is the flow-level error chain, run when root fails. It is nil when
+	// the flow declares no error path. On success its output becomes the result
+	// (recovery); the failing error is exposed to it as vars.error.
+	errorPath *engine.Flow
+	workers   int
+	in        chan *types.Message
+	bus       *core.EventBus
+	pool      *pool.Pool
+	wg        sync.WaitGroup
 	// implicit is true when the flow is driven by an implicit source (it is
 	// callable by name and acquires no external resources). Implicit flows start
 	// before source-backed ones so they are registered before any real source
@@ -93,6 +98,21 @@ func (bf *boundFlow) handle(ctx context.Context, msg *types.Message) {
 	bf.publish(types.FlowEventStarted, msg.EventID, nil, nil)
 
 	out, err := bf.root.Process(ctx, msg)
+	if err != nil && bf.errorPath != nil {
+		// Recovery: expose the failure as vars.error and run the error path. On
+		// success its output replaces the result; if it also fails, that error
+		// stands and the flow is reported failed.
+		//
+		// Error handling is optional: a flow with no error path (errorPath nil)
+		// behaves like an empty error handler — the error propagates and the flow
+		// is reported failed, the default below.
+		engine.SetErrorVariable(msg, bf.name, err)
+		if recovered, altErr := bf.errorPath.Process(ctx, msg); altErr != nil {
+			err = fmt.Errorf("error path: %w", altErr)
+		} else {
+			out, err = recovered, nil
+		}
+	}
 	switch {
 	case err != nil:
 		slog.Error("flow processing failed", "flow", bf.name, "event_id", msg.EventID, "error", err)

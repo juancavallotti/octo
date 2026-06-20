@@ -323,10 +323,24 @@ func (s *Service) buildFlow(ctx context.Context, cfg types.FlowConfig, set *conn
 		return nil, err
 	}
 
+	var errorPath *engine.Flow
+	if len(cfg.Error) > 0 {
+		// The error path is a root-level chain (it owns the same pool/deps); build
+		// it from a synthetic flow carrying only the error blocks.
+		errorPath, err = engine.BuildRoot(
+			types.FlowConfig{Name: cfg.Name, Process: cfg.Error},
+			s.blocks, p, s.config.Processors, deps,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("flow %q error path: %w", cfg.Name, err)
+		}
+	}
+
 	return &boundFlow{
 		name:       cfg.Name,
 		source:     source,
 		root:       root,
+		errorPath:  errorPath,
 		workers:    resolveWorkers(cfg.Workers),
 		in:         in,
 		bus:        s.bus,

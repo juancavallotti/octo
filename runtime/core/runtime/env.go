@@ -169,6 +169,11 @@ func (s *substitutor) flow(cfg *types.FlowConfig) error {
 			return err
 		}
 	}
+	for i := range cfg.Error {
+		if err := s.block(&cfg.Error[i]); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

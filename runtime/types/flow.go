@@ -3,11 +3,16 @@ package types
 // FlowConfig is the recursive unit of pipeline composition. The root flow,
 // listed under Config.Flows, binds a Source and a worker-pool size; sub-flows
 // nested inside a composite block reuse the same shape but must not set Source,
-// Workers, or Buffer (the core builder validates this).
+// Workers, Buffer, Pool, or Error (the core builder validates this).
 type FlowConfig struct {
 	Name    string        `yaml:"name,omitempty"`
 	Source  *SourceConfig `yaml:"source,omitempty"`
 	Process []BlockConfig `yaml:"process"`
+	// Error is the root flow's error path: when the Process chain returns an
+	// error, the runtime exposes it as vars.error and runs this chain; on success
+	// its output becomes the flow's result (recovery). It is a bare block chain,
+	// like Process. Root flows only.
+	Error   []BlockConfig `yaml:"error,omitempty"`
 	Workers int           `yaml:"workers,omitempty"`
 	Buffer  int           `yaml:"buffer,omitempty"`
 	// Pool sizes the shared worker pool the root flow owns and passes down to

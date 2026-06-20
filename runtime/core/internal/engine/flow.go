@@ -131,6 +131,9 @@ func (b *builder) subFlow(cfg types.FlowConfig) (*Flow, error) {
 	if cfg.Workers != 0 || cfg.Buffer != 0 || cfg.Pool != 0 {
 		return nil, errors.New("sub-flow must not declare workers, buffer, or pool")
 	}
+	if len(cfg.Error) > 0 {
+		return nil, errors.New("sub-flow must not declare an error path")
+	}
 	return b.flow(cfg)
 }
 
