@@ -46,8 +46,14 @@ variable "chart_version" {
 
 variable "cluster_issuer" {
   type        = string
-  description = "cert-manager ClusterIssuer created by the k3s bootstrap."
+  description = "Per-host (HTTP-01) cert-manager ClusterIssuer created by the k3s bootstrap; used when wildcard_tls is false."
   default     = "letsencrypt-prod"
+}
+
+variable "wildcard_tls" {
+  type        = bool
+  description = "Issue one *.{domain} wildcard cert via DNS-01 and share it across the editor + per-integration ingresses, so subdomains validate. Requires the bootstrap's DNS-01 ClusterIssuer."
+  default     = true
 }
 
 variable "kubeconfig" {

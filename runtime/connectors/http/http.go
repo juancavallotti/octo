@@ -142,6 +142,14 @@ func (c *Connector) Stop(ctx context.Context) error {
 	if c.server == nil {
 		return nil
 	}
+	// Close the listener explicitly. Serving is deferred until the first source
+	// calls ensureServing, so on a failed config reload (connectors started but
+	// no request yet) server.Shutdown never sees the listener and the port would
+	// leak. If serving did start, Shutdown already closed it and this is a no-op
+	// "use of closed network connection" we ignore.
+	if c.ln != nil {
+		_ = c.ln.Close()
+	}
 	if err := c.server.Shutdown(ctx); err != nil {
 		return fmt.Errorf("http connector shutdown: %w", err)
 	}

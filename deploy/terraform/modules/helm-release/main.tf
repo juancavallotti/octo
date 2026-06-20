@@ -61,4 +61,16 @@ resource "helm_release" "octo" {
     name  = "orchestrator.clusterIssuer"
     value = var.cluster_issuer
   }
+
+  # Shared wildcard cert (DNS-01) so per-integration subdomains validate without a
+  # cert per subdomain. When on, the editor + per-integration ingresses reference
+  # the one wildcard Secret instead of issuing per-host certs via cluster_issuer.
+  set {
+    name  = "wildcardTLS.enabled"
+    value = var.wildcard_tls
+  }
+  set {
+    name  = "wildcardTLS.clusterIssuer"
+    value = var.wildcard_cluster_issuer
+  }
 }

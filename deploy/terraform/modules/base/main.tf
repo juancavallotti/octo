@@ -39,6 +39,16 @@ resource "google_secret_manager_secret_iam_member" "vm_access" {
   member    = "serviceAccount:${google_service_account.vm.email}"
 }
 
+# cert-manager (running on the node, using the VM SA via ambient credentials)
+# solves the DNS-01 challenge for the *.{domain} wildcard cert by writing TXT
+# records into the managed zone, so it needs DNS admin on the project.
+resource "google_project_iam_member" "vm_dns" {
+  count   = var.wildcard_dns ? 1 : 0
+  project = var.project_id
+  role    = "roles/dns.admin"
+  member  = "serviceAccount:${google_service_account.vm.email}"
+}
+
 # --- Networking ---
 resource "google_compute_address" "static" {
   name       = "${var.instance_name}-ip"
@@ -138,7 +148,8 @@ resource "google_dns_record_set" "a" {
 }
 
 # Wildcard so per-integration subdomains ({slug}.{domain}) resolve to the same
-# node; cert-manager then issues a per-host cert via HTTP-01 (Stage 2).
+# node; cert-manager issues a single *.{domain} wildcard cert via DNS-01 that all
+# subdomains share (Stage 2).
 resource "google_dns_record_set" "wildcard" {
   count        = var.wildcard_dns ? 1 : 0
   name         = "*.${var.domain}."

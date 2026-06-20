@@ -50,8 +50,20 @@ variable "postgres_password" {
 
 variable "cluster_issuer" {
   type        = string
-  description = "cert-manager ClusterIssuer for editor + per-integration TLS."
+  description = "cert-manager ClusterIssuer for per-host (HTTP-01) TLS, used when wildcard_tls is false."
   default     = "letsencrypt-prod"
+}
+
+variable "wildcard_tls" {
+  type        = bool
+  description = "Issue one *.{domain} wildcard cert via DNS-01 and have the editor + per-integration ingresses share it (so subdomains validate). Requires the DNS-01 ClusterIssuer and DNS admin on the zone."
+  default     = true
+}
+
+variable "wildcard_cluster_issuer" {
+  type        = string
+  description = "DNS-01 cert-manager ClusterIssuer that issues the wildcard cert (created by the VM bootstrap)."
+  default     = "letsencrypt-dns"
 }
 
 variable "timeout" {

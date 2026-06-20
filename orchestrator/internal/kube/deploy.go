@@ -117,22 +117,35 @@ func (c *Client) Apply(ctx context.Context, spec Spec) error {
 }
 
 // ingress builds the per-deployment Traefik Ingress: host {subdomain}.{baseDomain}
-// routed to the deployment's Service, with cert-manager issuing the TLS cert.
+// routed to the deployment's Service. TLS comes from the shared wildcard Secret
+// when one is configured, otherwise cert-manager issues a per-host cert via the
+// ClusterIssuer annotation.
 func (c *Client) ingress(name string, labels map[string]string, spec Spec) *networkingv1.Ingress {
 	host := c.ExternalHost(spec.Subdomain)
 	ingressClass := "traefik"
 	pathType := networkingv1.PathTypePrefix
+
+	tlsSecret := name + "-tls"
+	var annotations map[string]string
+	if c.wildcardTLSSecret != "" {
+		// The wildcard cert already covers {subdomain}.{baseDomain}; reference its
+		// Secret and add no cert-manager annotation so no per-host cert is issued.
+		tlsSecret = c.wildcardTLSSecret
+	} else {
+		annotations = map[string]string{"cert-manager.io/cluster-issuer": c.clusterIssuer}
+	}
+
 	return &networkingv1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,
 			Labels:      labels,
-			Annotations: map[string]string{"cert-manager.io/cluster-issuer": c.clusterIssuer},
+			Annotations: annotations,
 		},
 		Spec: networkingv1.IngressSpec{
 			IngressClassName: &ingressClass,
 			TLS: []networkingv1.IngressTLS{{
 				Hosts:      []string{host},
-				SecretName: name + "-tls",
+				SecretName: tlsSecret,
 			}},
 			Rules: []networkingv1.IngressRule{{
 				Host: host,

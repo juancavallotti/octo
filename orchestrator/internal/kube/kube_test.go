@@ -249,6 +249,33 @@ func TestApplyCreatesIngressWhenExposed(t *testing.T) {
 	}
 }
 
+func TestApplyIngressUsesWildcardSecret(t *testing.T) {
+	c := newClient("octo.example.com")
+	c.wildcardTLSSecret = "octo-wildcard-tls"
+	ctx := context.Background()
+	spec := Spec{ID: "d1", IntegrationID: "int-1", Definition: "x: 1", Replicas: 1, Slug: "orders", Port: 9090, Expose: true, Subdomain: "shop"}
+
+	if err := c.Apply(ctx, spec); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	ing, err := c.clientset.NetworkingV1().Ingresses(testNamespace).Get(ctx, resourceName("d1"), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get ingress: %v", err)
+	}
+	// The wildcard cert is managed by a standalone Certificate, so the per-host
+	// cert-manager annotation must be absent and TLS must reference the shared Secret.
+	if _, ok := ing.Annotations["cert-manager.io/cluster-issuer"]; ok {
+		t.Errorf("wildcard mode must not set the cluster-issuer annotation: %v", ing.Annotations)
+	}
+	if got := ing.Spec.TLS[0].SecretName; got != "octo-wildcard-tls" {
+		t.Errorf("TLS secret = %q, want octo-wildcard-tls", got)
+	}
+	if ing.Spec.TLS[0].Hosts[0] != "shop.octo.example.com" {
+		t.Errorf("TLS host = %v, want shop.octo.example.com", ing.Spec.TLS)
+	}
+}
+
 func TestApplyNoIngressWithoutBaseDomain(t *testing.T) {
 	c := newClient("") // external disabled
 	ctx := context.Background()

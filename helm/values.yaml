@@ -67,3 +67,14 @@ ingress:
     enabled: true
     secretName: octo-tls
     clusterIssuer: letsencrypt-prod
+
+# Shared wildcard TLS cert for the apex host and *.{ingress.host}, issued once by
+# cert-manager via DNS-01 (the only ACME method that can mint a wildcard). When
+# enabled, the editor ingress and every per-integration ingress reference this one
+# secret instead of issuing a per-host cert via HTTP-01 — so per-integration
+# subdomains validate without a cert per subdomain. Requires the DNS-01
+# ClusterIssuer (provisioned by the VM bootstrap) and DNS admin on the zone.
+wildcardTLS:
+  enabled: false
+  secretName: octo-wildcard-tls
+  clusterIssuer: letsencrypt-dns

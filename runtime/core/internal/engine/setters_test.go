@@ -34,6 +34,24 @@ func TestSetPayloadReplacesBody(t *testing.T) {
 	}
 }
 
+func TestSetPayloadReadsEnv(t *testing.T) {
+	proc, err := newSetPayload(
+		types.Settings{"value": `"region: " + env.REGION`},
+		core.BlockDeps{Env: map[string]string{"REGION": "us-east"}},
+	)
+	if err != nil {
+		t.Fatalf("newSetPayload: %v", err)
+	}
+
+	msg := mustMessage(t)
+	if _, err := proc.Process(context.Background(), msg); err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	if msg.Body != "region: us-east" {
+		t.Errorf("body = %v, want %q", msg.Body, "region: us-east")
+	}
+}
+
 func TestSetVariableStoresValue(t *testing.T) {
 	proc, err := newSetVariable(types.Settings{"name": "threshold", "value": "100"}, core.BlockDeps{})
 	if err != nil {

@@ -34,7 +34,11 @@ type Client struct {
 	namespace     string
 	runtimeImage  string
 	baseDomain    string // parent domain for external endpoints ("" = disabled)
-	clusterIssuer string // cert-manager ClusterIssuer for external TLS
+	clusterIssuer string // cert-manager ClusterIssuer for per-host external TLS
+	// wildcardTLSSecret, when set, is a pre-issued *.{baseDomain} TLS Secret that
+	// every per-integration ingress references instead of issuing a per-host cert
+	// via clusterIssuer. Empty = per-host issuance (the clusterIssuer path).
+	wildcardTLSSecret string
 
 	// Informer-backed read path, populated by StartInformers. When synced reports
 	// true, Status reads from these caches instead of hitting the API server.
@@ -50,7 +54,7 @@ type corelisterDeployments = appslisters.DeploymentNamespaceLister
 // orchestrator is not running inside a cluster (e.g. local `go run`), letting the
 // caller disable deployment features rather than crash. baseDomain may be empty,
 // which disables external endpoints (Apply then ignores Spec.Expose).
-func New(namespace, runtimeImage, baseDomain, clusterIssuer string) (*Client, error) {
+func New(namespace, runtimeImage, baseDomain, clusterIssuer, wildcardTLSSecret string) (*Client, error) {
 	cfg, err := rest.InClusterConfig()
 	if err != nil {
 		return nil, fmt.Errorf("kube: in-cluster config: %w", err)
@@ -60,11 +64,12 @@ func New(namespace, runtimeImage, baseDomain, clusterIssuer string) (*Client, er
 		return nil, fmt.Errorf("kube: clientset: %w", err)
 	}
 	return &Client{
-		clientset:     cs,
-		namespace:     namespace,
-		runtimeImage:  runtimeImage,
-		baseDomain:    baseDomain,
-		clusterIssuer: clusterIssuer,
+		clientset:         cs,
+		namespace:         namespace,
+		runtimeImage:      runtimeImage,
+		baseDomain:        baseDomain,
+		clusterIssuer:     clusterIssuer,
+		wildcardTLSSecret: wildcardTLSSecret,
 	}, nil
 }
 

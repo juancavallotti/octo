@@ -31,7 +31,7 @@ const defaultStatusVar = "statusCode"
 
 // exprVars are the names a rest expression can reference, matching the other
 // CEL-driven blocks.
-var exprVars = []string{"body", "vars", "eventID", "correlationID"}
+var exprVars = []string{"body", "vars", "eventID", "correlationID", "env"}
 
 // restSettings is the rest block's typed configuration.
 type restSettings struct {
@@ -66,6 +66,7 @@ type processor struct {
 	body        *expr.Program
 	failOnError bool
 	statusVar   string
+	env         map[string]any
 }
 
 // newREST builds a rest processor, resolving its connector and compiling the
@@ -122,6 +123,7 @@ func newREST(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor, er
 		body:        body,
 		failOnError: failOnError,
 		statusVar:   statusVar,
+		env:         envActivation(deps.Env),
 	}, nil
 }
 
@@ -164,7 +166,7 @@ func compileMap(in map[string]string) (map[string]*expr.Program, error) {
 // connector, stores the status in a variable, and folds the response body into
 // the message body.
 func (p *processor) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
-	activation := messageActivation(msg)
+	activation := messageActivation(msg, p.env)
 
 	target, err := p.buildURL(activation)
 	if err != nil {
@@ -276,14 +278,26 @@ func foldResponse(msg *types.Message, body []byte) error {
 	return nil
 }
 
-// messageActivation maps a message onto the variables an expression can reference.
-func messageActivation(msg *types.Message) map[string]any {
+// messageActivation maps a message (and the block's resolved env) onto the
+// variables an expression can reference.
+func messageActivation(msg *types.Message, env map[string]any) map[string]any {
 	return map[string]any{
 		"body":          msg.Body,
 		"vars":          map[string]any(msg.Variables),
 		"eventID":       msg.EventID,
 		"correlationID": msg.CorrelationID,
+		"env":           env,
 	}
+}
+
+// envActivation materializes a resolved env map into the form CEL expects once
+// at build time, so it is shared across every message the block processes.
+func envActivation(env map[string]string) map[string]any {
+	out := make(map[string]any, len(env))
+	for k, v := range env {
+		out[k] = v
+	}
+	return out
 }
 
 // snippet returns a short, single-line preview of a response body for errors.

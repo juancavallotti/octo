@@ -64,14 +64,21 @@ if ! command -v helm >/dev/null 2>&1; then
 fi
 
 # --- cert-manager (CRDs + controllers) ---
+# --cluster-issuer-ambient-credentials lets the DNS-01 ClusterIssuer below solve
+# Cloud DNS challenges with the VM's service account (via the metadata server)
+# instead of a mounted key Secret.
 helm repo add jetstack https://charts.jetstack.io
 helm repo update
 helm upgrade --install cert-manager jetstack/cert-manager \
   --namespace cert-manager --create-namespace \
   --set crds.enabled=true \
+  --set "extraArgs={--cluster-issuer-ambient-credentials=true}" \
   --wait --timeout 5m
 
-# --- Let's Encrypt production ClusterIssuer (HTTP-01 solved via Traefik) ---
+# --- Let's Encrypt ClusterIssuers ---
+# letsencrypt-prod: HTTP-01 via Traefik, for the apex host and any per-host certs.
+# letsencrypt-dns:  DNS-01 via Cloud DNS (ambient creds), the only ACME method
+#                   that can issue the *.{domain} wildcard cert.
 cat > /opt/octo/clusterissuer.yaml <<EOF
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
@@ -87,6 +94,21 @@ spec:
       - http01:
           ingress:
             ingressClassName: traefik
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-dns
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: ${acme_email}
+    privateKeySecretRef:
+      name: letsencrypt-dns-account-key
+    solvers:
+      - dns01:
+          cloudDNS:
+            project: ${project_id}
 EOF
 # Retry: the cert-manager webhook may need a moment after --wait.
 for i in $(seq 1 12); do

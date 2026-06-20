@@ -41,6 +41,12 @@ spec:
             - name: CLUSTER_ISSUER
               value: {{ .Values.orchestrator.clusterIssuer | quote }}
             {{- end }}
+            {{- if .Values.wildcardTLS.enabled }}
+            # Per-integration ingresses reference the shared wildcard Secret
+            # instead of issuing a per-host cert via CLUSTER_ISSUER.
+            - name: WILDCARD_TLS_SECRET
+              value: {{ .Values.wildcardTLS.secretName | quote }}
+            {{- end }}
           readinessProbe:
             httpGet:
               path: /healthz

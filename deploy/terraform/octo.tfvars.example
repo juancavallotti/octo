@@ -20,6 +20,8 @@ dns_managed_zone = "your-clouddns-zone-name"  # Cloud DNS zone NAME, e.g. "juanc
 # instance_name = "octo"
 # repository_id = "octo"
 # cluster_issuer = "letsencrypt-prod"
+# wildcard_tls   = true # one *.{domain} cert via DNS-01, shared by all subdomains
+#                       # (set false to fall back to per-host HTTP-01 certs)
 #
 # Infra-only knobs (uncommenting these is fine; a `terraform apply` on the release
 # root may print a harmless "undeclared variable" note for them — the `task` targets

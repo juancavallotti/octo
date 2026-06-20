@@ -20,6 +20,11 @@ rules:
   - apiGroups: [""]
     resources: ["configmaps", "services", "pods"]
     verbs: ["get", "list", "watch", "create", "update", "delete"]
+  # Shared cluster secrets: the orchestrator manages the single octo-secrets
+  # Secret (get to read, create on first write, update to add/remove keys).
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create", "update"]
   - apiGroups: ["apps"]
     resources: ["deployments"]
     # patch is required to scale an existing deployment (merge-patch on spec.replicas).

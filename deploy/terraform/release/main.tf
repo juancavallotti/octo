@@ -52,6 +52,7 @@ module "octo" {
   domain            = var.domain
   postgres_password = data.google_secret_manager_secret_version.postgres.secret_data
   cluster_issuer    = var.cluster_issuer
+  wildcard_tls      = var.wildcard_tls
 
   depends_on = [null_resource.pull_images]
 }

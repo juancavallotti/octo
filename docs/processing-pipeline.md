@@ -208,7 +208,17 @@ Expressions use [CEL](https://github.com/google/cel-go), wrapped by
 expression fails at startup) and evaluated per message against an **activation** —
 a map of variable names to values. Results come back as JSON-native Go values, so
 they slot straight into a message body. Each call site decides which variables it
-exposes:
+exposes.
+
+The message-driven blocks — `set-payload`, `set-variable`, the `if`/`switch`/`foreach`
+guards, and the `rest` block — all see the same surface: `body`, `vars`, `eventID`,
+`correlationID`, and `env`. The `env` object holds the config's declared
+environment variables resolved to their values (the same ones available for
+`${NAME}` substitution), so `env.HTTP_PORT` reads a declared variable at runtime —
+e.g. `'"listening on " + env.HTTP_PORT'`. Only **declared** variables appear;
+referencing an undeclared key is a CEL no-such-key error.
+
+Other call sites expose their own variables:
 
 - **`log` block** (`message` setting) sees `body`, `vars`, `eventID`,
   `correlationID`. With no `message` it logs the JSON body. `level` is the level

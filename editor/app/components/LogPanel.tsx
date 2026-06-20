@@ -15,7 +15,7 @@ const DEFAULT_HEIGHT = 200;
  * bottom while the user is already near it.
  */
 export default function LogPanel() {
-  const { available, running, logs, version, clearLogs } = useRun();
+  const { available, running, logs, version, testUrl, clearLogs } = useRun();
   const [height, setHeight] = useState(DEFAULT_HEIGHT);
   // Collapsed by default and follows the run state (opens when running), until
   // the user overrides it with the toggle. Derived rather than synced in an
@@ -97,6 +97,18 @@ export default function LogPanel() {
           <span className="text-xs text-zinc-400 tabular-nums dark:text-zinc-500">
             — {version}
           </span>
+        )}
+        {running && testUrl && (
+          <a
+            href={testUrl}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            title="Open your running integration"
+            className="truncate text-xs text-sky-600 hover:underline dark:text-sky-400"
+          >
+            🔗 {testUrl}
+          </a>
         )}
         <div className="ml-auto flex items-center gap-1">
           <button

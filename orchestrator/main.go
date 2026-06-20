@@ -74,10 +74,11 @@ func run() error {
 	}
 
 	srv := newServer(ctx, database, kubeConfig{
-		namespace:     envOr("KUBE_NAMESPACE", defaultNamespace),
-		runtimeImage:  envOr("RUNTIME_IMAGE", defaultRuntimeImage),
-		baseDomain:    os.Getenv("BASE_DOMAIN"),
-		clusterIssuer: envOr("CLUSTER_ISSUER", defaultClusterIssuer),
+		namespace:         envOr("KUBE_NAMESPACE", defaultNamespace),
+		runtimeImage:      envOr("RUNTIME_IMAGE", defaultRuntimeImage),
+		baseDomain:        os.Getenv("BASE_DOMAIN"),
+		clusterIssuer:     envOr("CLUSTER_ISSUER", defaultClusterIssuer),
+		wildcardTLSSecret: os.Getenv("WILDCARD_TLS_SECRET"),
 	})
 	httpServer := httpx.NewServer(":"+port, srv)
 
@@ -105,10 +106,11 @@ func run() error {
 // environment: where and from what image integration pods run, and the parent
 // domain + ClusterIssuer for optional per-integration external endpoints.
 type kubeConfig struct {
-	namespace     string
-	runtimeImage  string
-	baseDomain    string
-	clusterIssuer string
+	namespace         string
+	runtimeImage      string
+	baseDomain        string
+	clusterIssuer     string
+	wildcardTLSSecret string
 }
 
 // newServer wires the routes. database may be nil when DATABASE_URL is unset.
@@ -162,7 +164,7 @@ func newServer(ctx context.Context, database *db.DB, kc kubeConfig) http.Handler
 		// Deployment management needs both the database and in-cluster Kubernetes
 		// access. Outside a cluster (e.g. local `go run`) kube.New fails and the
 		// routes stay disabled, mirroring how the DB-less case disables the rest.
-		if kubeClient, err := kube.New(kc.namespace, kc.runtimeImage, kc.baseDomain, kc.clusterIssuer); err != nil {
+		if kubeClient, err := kube.New(kc.namespace, kc.runtimeImage, kc.baseDomain, kc.clusterIssuer, kc.wildcardTLSSecret); err != nil {
 			slog.Warn("kubernetes access unavailable; deployment routes disabled", "error", err)
 		} else {
 			deploymentRepo := deployment.NewRepo(database.Pool())

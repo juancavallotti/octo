@@ -1,0 +1,21 @@
+{{- if .Values.wildcardTLS.enabled -}}
+# One cert-manager Certificate covering the apex host and every subdomain, issued
+# via the DNS-01 ClusterIssuer. The resulting Secret is referenced by the editor
+# ingress and by the per-integration ingresses the orchestrator creates, so every
+# {slug}.{host} validates against this shared wildcard cert.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "octo.fullname" . }}-wildcard
+  labels:
+    {{- include "octo.labels" . | nindent 4 }}
+spec:
+  secretName: {{ .Values.wildcardTLS.secretName | quote }}
+  dnsNames:
+    - {{ .Values.ingress.host | quote }}
+    - {{ printf "*.%s" .Values.ingress.host | quote }}
+  issuerRef:
+    name: {{ .Values.wildcardTLS.clusterIssuer | quote }}
+    kind: ClusterIssuer
+    group: cert-manager.io
+{{- end }}

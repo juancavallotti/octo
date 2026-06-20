@@ -1,4 +1,6 @@
-import { snapshot, subscribe, type LogLine } from "../session";
+import { snapshot, subscribe } from "../session";
+import { type LogLine } from "../logbuffer";
+import { ensureNamespace } from "../namespace";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -7,11 +9,12 @@ export const dynamic = "force-dynamic";
 const KEEPALIVE_MS = 15000;
 
 /**
- * GET /api/run/logs — Server-Sent Events stream of runner log lines. On connect it
- * replays the buffered lines, then streams new ones live until the client
- * disconnects (which cancels the stream and unsubscribes).
+ * GET /api/run/logs — Server-Sent Events stream of this user's runner log lines.
+ * On connect it replays the namespace's buffered lines, then streams new ones live
+ * until the client disconnects (which cancels the stream and unsubscribes).
  */
-export function GET() {
+export function GET(req: Request) {
+  const { ns, setCookie } = ensureNamespace(req);
   const encoder = new TextEncoder();
   let cleanup = () => {};
 
@@ -22,8 +25,8 @@ export function GET() {
           encoder.encode(`id: ${line.seq}\ndata: ${line.text}\n\n`),
         );
       };
-      for (const line of snapshot()) send(line);
-      const unsubscribe = subscribe(send);
+      for (const line of snapshot(ns)) send(line);
+      const unsubscribe = subscribe(ns, send);
       const ping = setInterval(() => {
         controller.enqueue(encoder.encode(`: keep-alive\n\n`));
       }, KEEPALIVE_MS);
@@ -37,12 +40,12 @@ export function GET() {
     },
   });
 
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache, no-transform",
-      Connection: "keep-alive",
-      "X-Accel-Buffering": "no",
-    },
-  });
+  const headers: Record<string, string> = {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no",
+  };
+  if (setCookie) headers["Set-Cookie"] = setCookie;
+  return new Response(stream, { headers });
 }

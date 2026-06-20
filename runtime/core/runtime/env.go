@@ -59,6 +59,9 @@ func applyEnv(cfg *types.Config) error {
 	if len(declared) > 0 {
 		slog.Info("resolved environment variables", "count", len(resolved), "declared", sortedKeys(declared))
 	}
+	// Keep the resolved values so expressions can read them as env.NAME, not just
+	// the ${NAME} substitution below.
+	cfg.ResolvedEnv = resolved
 	return substituteConfig(cfg, resolved, declared)
 }
 

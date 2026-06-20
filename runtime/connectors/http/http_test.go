@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"testing"
 	"time"
@@ -157,6 +158,49 @@ func TestMalformedBodyRejected(t *testing.T) {
 	if resp.status != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400; body=%s", resp.status, resp.body)
 	}
+}
+
+// TestStopReleasesPortWithoutServing reproduces the hot-reload "address already
+// in use" leak: a connector binds its port in Start but defers serving until a
+// source calls ensureServing. If the config reload fails before any request, the
+// listener must still be released by Stop so the next generation can re-bind the
+// same port.
+func TestStopReleasesPortWithoutServing(t *testing.T) {
+	port := freePort(t)
+	settings := map[string]any{"host": "127.0.0.1", "port": port}
+
+	first := &Connector{}
+	if err := first.Start(context.Background(), types.ConnectorConfig{Settings: settings}); err != nil {
+		t.Fatalf("first Start: %v", err)
+	}
+	// Stop without ever serving — mirrors a failed reload after connectors start.
+	if err := first.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+
+	second := &Connector{}
+	if err := second.Start(context.Background(), types.ConnectorConfig{Settings: settings}); err != nil {
+		t.Fatalf("re-bind %d after Stop: %v", port, err)
+	}
+	if err := second.Stop(context.Background()); err != nil {
+		t.Fatalf("second Stop: %v", err)
+	}
+}
+
+// freePort binds an ephemeral loopback port, closes it, and returns the number
+// so a test can re-bind it deterministically.
+func freePort(t *testing.T) int {
+	t.Helper()
+	var lc net.ListenConfig
+	ln, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	if err := ln.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	return port
 }
 
 type response struct {

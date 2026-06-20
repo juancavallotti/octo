@@ -8,7 +8,13 @@ metadata:
     app.kubernetes.io/component: editor
   {{- $ann := .Values.ingress.annotations | default dict }}
   {{- $tls := .Values.ingress.tls | default dict }}
-  {{- if and $tls.enabled $tls.clusterIssuer }}
+  {{- $wildcard := .Values.wildcardTLS | default dict }}
+  {{- $tlsSecret := $tls.secretName }}
+  {{- if $wildcard.enabled }}
+  {{- /* The wildcard Certificate owns issuance; reference its Secret and drop the
+         per-host cert-manager annotation so ingress-shim doesn't issue a second cert. */}}
+  {{- $tlsSecret = $wildcard.secretName }}
+  {{- else if and $tls.enabled $tls.clusterIssuer }}
   {{- $ann = merge (dict "cert-manager.io/cluster-issuer" $tls.clusterIssuer) $ann }}
   {{- end }}
   {{- if $ann }}
@@ -25,7 +31,7 @@ spec:
   tls:
     - hosts:
         - {{ .Values.ingress.host | quote }}
-      secretName: {{ $tls.secretName | quote }}
+      secretName: {{ $tlsSecret | quote }}
   {{- end }}
   rules:
     - host: {{ .Values.ingress.host | quote }}
