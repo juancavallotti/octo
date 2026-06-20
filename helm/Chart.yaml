@@ -1,12 +1,9 @@
 apiVersion: v2
 name: octo
 description: >-
-  octo enterprise-integration platform — Postgres (StatefulSet), the orchestrator
-  API, and the editor UI, with a Traefik Ingress + cert-manager TLS for the editor.
+  octo enterprise-integration platform — Postgres (StatefulSet), the
+  orchestrator API, and the editor UI, with a Traefik Ingress + cert-manager TLS
+  for the editor.
 type: application
-# version (chart SemVer) and appVersion track the eip-go release: release-please
-# rewrites the annotated lines from .release-please-manifest.json (the file is
-# listed under extra-files in release-please-config.json). The k3s Terraform pins
-# chart_version to this value. Keep both in step with the repo release.
-version: 0.1.1 # x-release-please-version
-appVersion: "0.1.1" # x-release-please-version
+version: 0.1.2
+appVersion: 0.1.1
