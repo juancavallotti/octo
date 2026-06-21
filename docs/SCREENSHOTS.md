@@ -54,9 +54,9 @@ straight into `docs/assets/screenshots/`.
 
 ## Checklist
 
-- [ ] 1. `01-flow-canvas.png` (auto)
-- [ ] 2. `02-error-flow.png` (auto)
-- [ ] 3. `03-flow-overview.png` (auto)
+- [x] 1. `01-flow-canvas.png` (auto) — generated + placed in What's New
+- [x] 2. `02-error-flow.png` (auto) — generated + placed in What's New
+- [x] 3. `03-flow-overview.png` (auto) — generated (spare; not yet placed)
 - [ ] 4. `04-block-palette.png` (manual)
 - [ ] 5. `05-ai-settings.png` (manual)
 - [ ] 6. `06-oidc-signin.png` (manual)
