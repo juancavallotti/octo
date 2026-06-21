@@ -360,6 +360,104 @@
           "description": "Flow run once per element."
         }
       ]
+    },
+    {
+      "type": "ai-mapping",
+      "label": "AI Mapping",
+      "category": "processor",
+      "icon": "Sparkles",
+      "description": "Reshape the message body to a target shape described by a prompt; validates against an optional output schema and errors on failure.",
+      "fields": [
+        {
+          "name": "connector",
+          "label": "Connector",
+          "type": "string",
+          "required": true,
+          "description": "Name of the LLM connector to use.",
+          "ref": { "kind": "connector", "connectorCategory": "llm" }
+        },
+        {
+          "name": "prompt",
+          "label": "Prompt",
+          "type": "string",
+          "required": true,
+          "description": "Instruction describing how to reshape the body."
+        },
+        {
+          "name": "inputExample",
+          "label": "Input example",
+          "type": "string",
+          "required": false,
+          "description": "Example input payload that guides recognition (JSON)."
+        },
+        {
+          "name": "outputExample",
+          "label": "Output example",
+          "type": "string",
+          "required": false,
+          "description": "Example output payload that shapes the result (JSON)."
+        },
+        {
+          "name": "outputSchema",
+          "label": "Output schema",
+          "type": "string",
+          "required": false,
+          "description": "JSON Schema the result is validated against; a failure errors the block."
+        },
+        {
+          "name": "maxTokens",
+          "label": "Max tokens",
+          "type": "number",
+          "required": false,
+          "description": "Response token cap for this call (0 = connector default)."
+        }
+      ]
+    },
+    {
+      "type": "ai-retry",
+      "label": "AI Retry",
+      "category": "control-flow",
+      "icon": "RefreshCw",
+      "description": "Run the process chain; on error, let the LLM inspect vars.error, revise the message, and retry up to maxAttempts, then run the error chain.",
+      "fields": [
+        {
+          "name": "connector",
+          "label": "Connector",
+          "type": "string",
+          "required": true,
+          "description": "Name of the LLM connector that revises the message between attempts.",
+          "ref": { "kind": "connector", "connectorCategory": "llm" }
+        },
+        {
+          "name": "prompt",
+          "label": "Prompt",
+          "type": "string",
+          "required": true,
+          "description": "Instruction for repairing the message from vars.error before a retry."
+        },
+        {
+          "name": "maxAttempts",
+          "label": "Max attempts",
+          "type": "number",
+          "required": false,
+          "default": 3,
+          "description": "How many times to revise and re-run the process chain."
+        },
+        {
+          "name": "process",
+          "label": "Process",
+          "type": "block-list",
+          "required": true,
+          "description": "The protected chain, re-run after each revision."
+        },
+        {
+          "name": "error",
+          "label": "Error",
+          "type": "block-list",
+          "required": false,
+          "description": "Runs when attempts are exhausted; reads vars.error."
+        }
+      ]
     }
   ],
   "connectors": [
@@ -629,6 +727,121 @@
           "required": false,
           "default": false,
           "description": "Include source file:line in log records."
+        }
+      ],
+      "sources": []
+    },
+    {
+      "type": "llm-anthropic",
+      "label": "Anthropic",
+      "icon": "Sparkles",
+      "category": "llm",
+      "settings": [
+        {
+          "name": "apiKey",
+          "label": "API key",
+          "type": "string",
+          "required": true,
+          "description": "Authenticates with the Anthropic API; source from ${ANTHROPIC_API_KEY}. Never logged."
+        },
+        {
+          "name": "model",
+          "label": "Model",
+          "type": "string",
+          "required": false,
+          "default": "claude-sonnet-4-6",
+          "description": "Model id."
+        },
+        {
+          "name": "maxTokens",
+          "label": "Max tokens",
+          "type": "number",
+          "required": false,
+          "default": 4096,
+          "description": "Default response token cap; a request may override it."
+        },
+        {
+          "name": "baseURL",
+          "label": "Base URL",
+          "type": "string",
+          "required": false,
+          "description": "Overrides the API endpoint (for proxies or testing)."
+        }
+      ],
+      "sources": []
+    },
+    {
+      "type": "llm-openai",
+      "label": "OpenAI",
+      "icon": "Sparkles",
+      "category": "llm",
+      "settings": [
+        {
+          "name": "apiKey",
+          "label": "API key",
+          "type": "string",
+          "required": true,
+          "description": "Authenticates with the OpenAI API; source from ${OPENAI_API_KEY}. Never logged."
+        },
+        {
+          "name": "model",
+          "label": "Model",
+          "type": "string",
+          "required": false,
+          "default": "gpt-5.4",
+          "description": "Model id."
+        },
+        {
+          "name": "maxTokens",
+          "label": "Max tokens",
+          "type": "number",
+          "required": false,
+          "description": "Default response token cap (0 = the model default); a request may override it."
+        },
+        {
+          "name": "baseURL",
+          "label": "Base URL",
+          "type": "string",
+          "required": false,
+          "description": "Overrides the API endpoint (for proxies, Azure, or OpenAI-compatible servers)."
+        }
+      ],
+      "sources": []
+    },
+    {
+      "type": "llm-gemini",
+      "label": "Gemini",
+      "icon": "Sparkles",
+      "category": "llm",
+      "settings": [
+        {
+          "name": "apiKey",
+          "label": "API key",
+          "type": "string",
+          "required": true,
+          "description": "Authenticates with the Gemini API; source from ${GEMINI_API_KEY}. Never logged."
+        },
+        {
+          "name": "model",
+          "label": "Model",
+          "type": "string",
+          "required": false,
+          "default": "gemini-3.5-flash",
+          "description": "Model id."
+        },
+        {
+          "name": "maxTokens",
+          "label": "Max tokens",
+          "type": "number",
+          "required": false,
+          "description": "Default response token cap (0 = the model default); a request may override it."
+        },
+        {
+          "name": "baseURL",
+          "label": "Base URL",
+          "type": "string",
+          "required": false,
+          "description": "Overrides the API endpoint (for proxies or testing)."
         }
       ],
       "sources": []

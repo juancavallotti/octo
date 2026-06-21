@@ -24,10 +24,12 @@ export type FieldType =
 /**
  * Describes that a (string) field holds a *reference* to another named entity in
  * the document, so the editor can offer a dropdown of valid targets instead of a
- * free-text input. A connector reference is narrowed to one connector type.
+ * free-text input. A connector reference is narrowed either to one connector type
+ * or to a connector *category* (e.g. any "llm" provider), or it points at a flow.
  */
 export type ReferenceSpec =
   | { kind: "connector"; connectorType: string }
+  | { kind: "connector"; connectorCategory: string }
   | { kind: "flow" };
 
 /** A single configurable field (a block setting, source setting, etc.). */
@@ -72,6 +74,12 @@ export interface ConnectorSpec {
   label: string;
   /** Name of a lucide icon, resolved to a component by the loader. */
   icon?: string;
+  /**
+   * Optional grouping so a field can reference any connector in a family rather
+   * than one exact type — e.g. the LLM providers all carry `category: "llm"` so
+   * the AI blocks accept any of them.
+   */
+  category?: string;
   settings: FieldSpec[];
   sources: SourceSpec[];
 }

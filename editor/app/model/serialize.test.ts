@@ -213,6 +213,33 @@ describe("serialize", () => {
     expect(node.slots!.error[0].process[0].type).toBe("set-payload");
   });
 
+  it("round-trips ai-retry: scalar AI fields plus block-list process/error", () => {
+    const doc = emptyDocument();
+    const retry = newBlock("ai-retry"); // seeds process/error block-list slots
+    retry.settings.connector = "claude";
+    retry.settings.prompt = "Fix the body from vars.error.";
+    retry.settings.maxAttempts = 5;
+    retry.slots!.process[0].process = [newBlock("rest")];
+    retry.slots!.error[0].process = [newBlock("set-payload")];
+    doc.flows[0].process = [retry];
+
+    const block = toConfig(doc).flows![0].process![0];
+    // Scalar AI fields hoist to top-level keys; process/error are bare block lists.
+    expect(block.connector).toBe("claude");
+    expect(block.prompt).toBe("Fix the body from vars.error.");
+    expect(block.maxAttempts).toBe(5);
+    expect(block.process![0].type).toBe("rest");
+    expect(block.error![0].type).toBe("set-payload");
+    expect(block.settings).toBeUndefined();
+
+    const node = fromConfig(toConfig(doc)).flows[0].process[0];
+    expect(node.type).toBe("ai-retry");
+    expect(node.settings.connector).toBe("claude");
+    expect(node.settings.maxAttempts).toBe(5);
+    expect(node.slots!.process[0].process[0].type).toBe("rest");
+    expect(node.slots!.error[0].process[0].type).toBe("set-payload");
+  });
+
   it("serializes a flow-level error path as a bare block list", () => {
     const doc = emptyDocument();
     doc.flows[0].process = [newBlock("log")];
