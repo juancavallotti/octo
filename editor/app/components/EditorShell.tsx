@@ -17,17 +17,21 @@ import UserMenu from "./UserMenu";
  *
  * When rendered from the `/i/[id]` route it receives that integration id and
  * loads it into the editor (see IntegrationLoader); the bare `/` route opens a
- * fresh document.
+ * fresh document. `loader` is an optional extra in-provider slot used by the
+ * dev-only `/preview` route to inject its own sample loader.
  */
 export default function EditorShell({
   integrationId,
+  loader,
 }: {
   integrationId?: string;
+  loader?: React.ReactNode;
 }) {
   return (
     <EditorStateProvider>
       <RunProvider>
         <IntegrationLoader integrationId={integrationId} />
+        {loader}
         <div className="flex flex-1 flex-col h-full">
           {/* Top bar — UserMenu is a server component passed in as a slot. */}
           <EditorHeader userMenu={<UserMenu />} />

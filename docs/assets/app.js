@@ -80,6 +80,12 @@ function buildSamples() {
         </div>
         <div class="sample-meta">
           <h3>${title}</h3>
+          <figure class="sample-shot">
+            <img src="assets/screenshots/sample-${id}.png" loading="lazy"
+                 alt="The ${title} flow rendered in the Octo visual editor"
+                 onerror="this.closest('.sample-shot').remove()" />
+            <figcaption>Rendered in the visual editor</figcaption>
+          </figure>
           <p>${blurb}</p>
           <div class="pill-row">${pills.map((p) => `<span class="pill">${p}</span>`).join('')}</div>
           <div class="run-label">Run it</div>
@@ -125,6 +131,13 @@ async function loadChangelog() {
 // page dependency-free (no markdown library) while staying readable.
 function renderChangelog(md) {
   const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  // Minimal inline markdown: links, bold, and inline code. release-please lines
+  // like `**deploy:** wire X ([#42](url))` need this or the markup shows raw.
+  const inline = (s) =>
+    esc(s)
+      .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/`([^`]+)`/g, '<code>$1</code>');
   const lines = md.split('\n');
   const out = [];
   let releases = 0;
@@ -133,11 +146,11 @@ function renderChangelog(md) {
     if (/^##\s+/.test(line)) {
       releases++;
       if (releases > 3) break;
-      out.push(`<h3 style="color:var(--text);margin-top:${releases === 1 ? 0 : 22}px">${esc(line.replace(/^##\s+/, ''))}</h3>`);
+      out.push(`<h3 style="color:var(--text);margin-top:${releases === 1 ? 0 : 22}px">${inline(line.replace(/^##\s+/, ''))}</h3>`);
     } else if (/^###\s+/.test(line)) {
-      out.push(`<div style="font-family:var(--mono);font-size:0.78rem;letter-spacing:0.06em;text-transform:uppercase;color:var(--accent);margin:14px 0 6px">${esc(line.replace(/^###\s+/, ''))}</div>`);
+      out.push(`<div style="font-family:var(--mono);font-size:0.78rem;letter-spacing:0.06em;text-transform:uppercase;color:var(--accent);margin:14px 0 6px">${inline(line.replace(/^###\s+/, ''))}</div>`);
     } else if (/^\*\s+/.test(line) || /^-\s+/.test(line)) {
-      out.push(`<div style="color:var(--text-dim);font-size:0.93rem;padding-left:14px">• ${esc(line.replace(/^[\*-]\s+/, ''))}</div>`);
+      out.push(`<div style="color:var(--text-dim);font-size:0.93rem;padding-left:14px">• ${inline(line.replace(/^[\*-]\s+/, ''))}</div>`);
     }
   }
   return out.length ? out.join('\n') : '<p class="muted">Changelog is empty.</p>';

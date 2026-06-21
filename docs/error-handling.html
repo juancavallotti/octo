@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Error handling — Octo</title>
+<meta name="description" content="How errors work in Octo: the handle-errors block, flow-level error paths, the vars.error structure, vars.httpStatus, and self-healing with ai-retry." />
+<link rel="icon" type="image/png" href="assets/octo.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" />
+<link rel="stylesheet" href="assets/styles.css" />
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a class="brand" href="index.html"><img class="logo" src="assets/octo.png" alt="" /> Octo</a>
+    <nav class="nav-links">
+      <a href="index.html">Home</a>
+      <a href="connectors.html">Connectors</a>
+      <a href="cel.html">CEL</a>
+      <a href="error-handling.html">Error handling</a>
+      <a href="deployment.html">Deploy</a>
+      <a href="index.html#samples">Samples</a>
+      <a class="nav-gh" href="https://github.com/juancavallotti/eip-go" target="_blank" rel="noopener">GitHub ↗</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero" style="padding:72px 0 48px">
+  <div class="wrap">
+    <span class="eyebrow">Guide</span>
+    <h1 style="font-size:clamp(2rem,4vw,2.8rem)">Error handling</h1>
+    <p class="lead" style="max-width:62ch">
+      When a block fails, a flow has two ways to recover: wrap a section in a
+      <code>handle-errors</code> block for inline recovery, or give the whole flow a sibling
+      <code>error:</code> chain as a last resort. Both run a recovery chain that sees the failure
+      as <code>vars.error</code>. Anything you don't catch ends the message as <em>failed</em>.
+    </p>
+    <p style="max-width:62ch"><a class="btn btn-ghost" href="index.html#samples">Open the error-handling sample ↗</a></p>
+  </div>
+</section>
+
+<!-- handle-errors -->
+<section id="handle-errors">
+  <div class="wrap">
+    <div class="section-head"><span class="eyebrow">Inline recovery</span><h2>The <code>handle-errors</code> block</h2>
+      <p>A composite with two slots: a <code>process</code> chain and an <code>error</code> chain. The process chain runs; if any block in it fails, the error chain runs instead, with <code>vars.error</code> set. If the error chain succeeds, <strong>the flow continues normally</strong> — the failure is recovered. The error chain sees the message as it entered the block.</p>
+    </div>
+    <div class="sample-grid">
+      <div>
+<pre><code class="language-yaml">- type: handle-errors
+  name: charge
+  process:
+    - type: rest
+      name: call-charge
+      settings:
+        connector: payments
+        method: POST
+        path: /charges
+        body: '{"amount": body.amount}'
+  error:
+    # runs only if the process chain failed
+    - type: set-payload
+      settings:
+        value: '{"status": "degraded", "reason": vars.error.message}'</code></pre>
+      </div>
+      <div class="sample-meta">
+        <p>Here the upstream charge call fails. Because the <code>error</code> chain succeeds, the message recovers and the flow completes normally (an HTTP source would return <strong>200</strong> with the degraded body).</p>
+        <div class="note"><strong>Nesting.</strong> <code>handle-errors</code> can nest inside other composites and inside other <code>handle-errors</code> blocks. Each one sets its own <code>vars.error</code> when its process chain fails.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- flow-level -->
+<section id="flow-error" class="alt">
+  <div class="wrap">
+    <div class="section-head"><span class="eyebrow">Last-resort recovery</span><h2>Flow-level <code>error:</code> chain</h2>
+      <p>A root flow may declare an <code>error:</code> chain as a sibling of <code>process</code>. If the process chain fails and nothing caught it, the message is handed to the error chain with <code>vars.error</code> set; its output becomes the flow's result. It's the difference between a per-section <em>try/catch</em> (<code>handle-errors</code>) and a whole-flow safety net.</p>
+    </div>
+    <div class="sample-grid">
+      <div>
+<pre><code class="language-yaml">flows:
+  - name: charge-flowlevel
+    source: { connector: api, type: http, settings: { path: /flowlevel } }
+    process:
+      - type: rest
+        name: call-charge
+        settings: { connector: payments, method: POST, path: /charges, body: '{"amount": body.amount}' }
+    error:
+      - type: set-variable
+        settings: { name: httpStatus, value: "502" }
+      - type: set-payload
+        settings:
+          value: >
+            {
+              "error":       vars.error.message,
+              "failedBlock": vars.error.block,
+              "flow":        vars.error.flow
+            }</code></pre>
+      </div>
+      <div class="sample-meta">
+        <p>The call fails, nothing caught it, so the error chain runs: it sets a <strong>502</strong> status and returns the error detail to the caller.</p>
+        <div class="note"><strong>Root only.</strong> Only top-level flows may declare <code>error:</code>. Sub-flows inside composites must not — wrap them in a <code>handle-errors</code> block instead.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- vars.error -->
+<section id="vars-error">
+  <div class="wrap">
+    <div class="section-head"><span class="eyebrow">Recovery context</span><h2><code>vars.error</code></h2>
+      <p>Both recovery chains receive a structured error on the message:</p>
+    </div>
+    <table class="eip-table">
+      <thead><tr><th>Field</th><th>Contains</th></tr></thead>
+      <tbody>
+        <tr><td><code>vars.error.message</code></td><td>The failing block's error string.</td></tr>
+        <tr><td><code>vars.error.flow</code></td><td>The enclosing flow (or <code>handle-errors</code> block) name.</td></tr>
+        <tr><td><code>vars.error.block</code></td><td>The failing block's label; empty if it didn't originate in a leaf block.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- httpStatus + propagation -->
+<section id="status" class="alt">
+  <div class="wrap">
+    <div class="section-head"><span class="eyebrow">HTTP</span><h2>Status codes &amp; uncaught errors</h2>
+      <p>For flows fronted by an <code>http</code> source, set <code>vars.httpStatus</code> (100–599) to control the response code. If you never set it, the status follows the flow outcome.</p>
+    </div>
+    <div class="grid cols-2">
+      <div>
+        <h3>Set a status</h3>
+<pre><code class="language-yaml">- type: set-variable
+  settings: { name: httpStatus, value: "502" }</code></pre>
+        <p style="font-size:0.9rem">Read just before the response is written; an out-of-range or unset value falls back to the outcome default.</p>
+      </div>
+      <div>
+        <h3>Outcome → status</h3>
+        <table class="eip-table">
+          <tbody>
+            <tr><td>completed</td><td>200 (or your <code>vars.httpStatus</code>)</td></tr>
+            <tr><td>dropped</td><td>204 No Content</td></tr>
+            <tr><td><strong>failed (uncaught)</strong></td><td><strong>500</strong> with <code>{"error": …}</code></td></tr>
+            <tr><td>timed out</td><td>504 Gateway Timeout</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="note"><strong>Uncaught errors.</strong> If neither a <code>handle-errors</code> block nor a flow <code>error:</code> chain catches the failure, the message ends as <em>failed</em> — a terminal event on the flow-event bus — and an HTTP source returns 500.</div>
+  </div>
+</section>
+
+<!-- ai-retry -->
+<section id="ai-retry">
+  <div class="wrap">
+    <div class="section-head"><span class="eyebrow">Self-healing</span><h2><code>ai-retry</code></h2>
+      <p>For failures an LLM can fix, <code>ai-retry</code> runs a protected <code>process</code> chain and, on error, lets the model inspect <code>vars.error</code> and the message, revise the body, and re-run the chain up to <code>maxAttempts</code>. When attempts are exhausted it falls through to the optional <code>error</code> chain. It pairs naturally with <code>ai-mapping</code>, which errors on schema-validation failure.</p>
+    </div>
+<pre><code class="language-yaml">- type: ai-retry
+  name: resilient-charge
+  connector: claude
+  maxAttempts: 3
+  prompt: >
+    Inspect vars.error and the body, correct it (e.g. fix a malformed amount),
+    and produce a revised message to retry.
+  process:
+    - type: ai-mapping
+      settings: { connector: claude, prompt: "Build a charge request.", outputSchema: "…" }
+  error:
+    - type: set-payload
+      settings: { value: '{"status": "degraded", "reason": vars.error.message}' }</code></pre>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap foot-inner">
+    <div>
+      <a class="brand" href="index.html"><img class="logo" src="assets/octo.png" alt="" /> Octo</a>
+      <div class="muted" style="margin-top:8px">A cloud-native, AI-native integration runtime. MIT licensed.</div>
+    </div>
+    <div class="foot-links">
+      <a href="connectors.html">Connectors</a>
+      <a href="deployment.html">Deploy</a>
+      <a href="index.html#samples">Samples</a>
+      <a href="index.html">Home ↑</a>
+    </div>
+  </div>
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
+<script>document.querySelectorAll('pre code').forEach((el) => { if (window.hljs) hljs.highlightElement(el); });</script>
+</body>
+</html>

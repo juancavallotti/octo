@@ -66,7 +66,7 @@ header.nav {
 .nav-inner { display: flex; align-items: center; gap: 28px; height: 64px; }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; letter-spacing: -0.03em; font-size: 1.1rem; color: var(--text); }
 .brand:hover { text-decoration: none; }
-.brand .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 14px var(--accent); }
+.brand .logo { width: 26px; height: 26px; object-fit: contain; filter: drop-shadow(0 0 10px rgba(74, 168, 255, 0.45)); }
 .nav-links { display: flex; gap: 22px; margin-left: auto; align-items: center; }
 .nav-links a { color: var(--text-dim); font-size: 0.92rem; font-weight: 500; }
 .nav-links a:hover { color: var(--text); text-decoration: none; }
@@ -88,6 +88,10 @@ header.nav {
 }
 .hero-grid { display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 56px; align-items: center; position: relative; }
 @media (max-width: 900px) { .hero-grid { grid-template-columns: 1fr; gap: 36px; } }
+.hero-logo {
+  width: 84px; height: 84px; object-fit: contain; margin: 0 0 18px;
+  filter: drop-shadow(0 8px 28px rgba(74, 168, 255, 0.4));
+}
 .hero h1 { font-size: clamp(2.4rem, 5.2vw, 3.6rem); margin: 0 0 18px; }
 .hero h1 .grad {
   background: linear-gradient(120deg, var(--accent), var(--accent-2) 60%, var(--accent-3));
@@ -161,6 +165,17 @@ pre code.hljs { background: transparent; padding: 0; }
 .diagram .mermaid { text-align: center; }
 .diagram-cap { color: var(--text-faint); font-size: 0.86rem; margin: 14px 4px 0; text-align: center; }
 .diagram-stack { display: grid; gap: 22px; }
+/* Screenshot images render edge-to-edge inside a .diagram figure. */
+.diagram img.shot { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--border-soft); }
+
+/* ---------- screenshot placeholders (swapped for <img class="shot"> later) ---------- */
+.shot-placeholder {
+  display: grid; place-items: center; text-align: center;
+  aspect-ratio: 16 / 9; padding: 24px;
+  background: var(--bg-elev); border: 1px dashed var(--border);
+  border-radius: 10px; color: var(--text-faint);
+  font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
+}
 
 /* ---------- EIP table ---------- */
 .eip-table { width: 100%; border-collapse: collapse; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
@@ -182,8 +197,15 @@ pre code.hljs { background: transparent; padding: 0; }
 .sample-panel { display: none; }
 .sample-panel.active { display: block; }
 .sample-grid { display: grid; grid-template-columns: 1fr 0.85fr; gap: 22px; align-items: start; }
+/* Let both columns shrink below their content so a long YAML line or run command
+   scrolls inside its box instead of stretching the whole page. */
+.sample-grid > * { min-width: 0; }
 @media (max-width: 920px) { .sample-grid { grid-template-columns: 1fr; } }
 .sample-meta h3 { color: var(--text); }
+/* Per-sample editor screenshot shown alongside the YAML. */
+.sample-shot { margin: 14px 0 20px; background: var(--bg-elev); border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
+.sample-shot img { display: block; width: 100%; height: auto; max-height: 460px; object-fit: contain; object-position: top; border-radius: 6px; }
+.sample-shot figcaption { color: var(--text-faint); font-size: 0.78rem; margin-top: 10px; text-align: center; }
 .sample-meta p { font-size: 0.95rem; }
 .sample-meta .run-label { font-family: var(--mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-faint); margin: 22px 0 8px; }
 .pill-row { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 16px; }

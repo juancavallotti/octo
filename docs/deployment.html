@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Deployment — Octo</title>
+<meta name="description" content="How to run and deploy Octo: local CLI, the editor in Docker, a local k3d cluster, and managed GCP via Terraform + Helm — including public vs private exposure, OIDC SSO, TLS, and secrets." />
+<link rel="icon" type="image/png" href="assets/octo.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" />
+<link rel="stylesheet" href="assets/styles.css" />
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a class="brand" href="index.html"><img class="logo" src="assets/octo.png" alt="" /> Octo</a>
+    <nav class="nav-links">
+      <a href="index.html">Home</a>
+      <a href="connectors.html">Connectors</a>
+      <a href="cel.html">CEL</a>
+      <a href="error-handling.html">Error handling</a>
+      <a href="deployment.html">Deploy</a>
+      <a href="index.html#samples">Samples</a>
+      <a class="nav-gh" href="https://github.com/juancavallotti/eip-go" target="_blank" rel="noopener">GitHub ↗</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero" style="padding:72px 0 48px">
+  <div class="wrap">
+    <span class="eyebrow">Guide</span>
+    <h1 style="font-size:clamp(2rem,4vw,2.8rem)">Deployment</h1>
+    <p class="lead" style="max-width:64ch">
+      Run a flow from the CLI on your laptop, ship the editor as a container, spin up a local
+      Kubernetes cluster, or stand up the full managed stack on GCP with one Terraform apply.
+      This guide covers each path and how an integration's endpoints become public or stay private.
+    </p>
+    <p style="max-width:64ch"><a class="btn btn-ghost" href="https://github.com/juancavallotti/eip-go/blob/main/docs/deployment.md" target="_blank" rel="noopener">Full deployment.md ↗</a></p>
+  </div>
+</section>
+
+<!-- targets -->
+<section id="targets">
+  <div class="wrap">
+    <div class="section-head"><span class="eyebrow">Where it runs</span><h2>Four ways to run Octo.</h2>
+      <p>From smallest to largest. The runtime is a single Go binary; the editor and orchestrator are the platform around it.</p>
+    </div>
+    <div class="grid cols-2">
+      <div class="card"><div class="ic">⌨️</div><h3>Local CLI</h3>
+        <p>Build the binary once, then run any config with it — no Go toolchain at run time, no cluster, no editor. Great for developing a flow.</p>
+<pre><code class="language-bash">task build    # compiles ./bin/octo
+./bin/octo --config samples/http-orders.yaml --watch</code></pre>
+      </div>
+      <div class="card"><div class="ic">🐳</div><h3>Editor in Docker</h3>
+        <p>The editor image bundles the Next.js app and the <code>octo</code> binary, so the RUN feature works in-container.</p>
+<pre><code class="language-bash"># builds from the repo root (runtime + editor)
+docker build -f editor/Dockerfile -t octo-editor .
+docker run -p 3000:3000 octo-editor</code></pre>
+      </div>
+      <div class="card"><div class="ic">☸️</div><h3>Local k3d</h3>
+        <p>A local Kubernetes cluster with the full stack (editor + orchestrator + Postgres) via DevSpace, with optional hot reload.</p>
+<pre><code class="language-bash">task cluster:deploy   # bring up k3d + apply manifests
+task cluster:dev      # add hot reload</code></pre>
+      </div>
+      <div class="card"><div class="ic">☁️</div><h3>Managed GCP</h3>
+        <p>Terraform stands up a single-node k3s VM, DNS, TLS, and installs the Helm chart. Releases are a tagged Helm upgrade.</p>
+<pre><code class="language-bash">task state:bucket PROJECT=&lt;project&gt;   # once
+task infra:apply                      # VM, DNS, certs
+task deploy TAG=v0.1.4                 # Helm release</code></pre>
+      </div>
+    </div>
+    <div class="note"><strong>What Terraform owns.</strong> The VM only bootstraps k3s, cert-manager, and the ingress controller (Traefik). Terraform — not the VM — owns the Helm release, so a deploy is a declarative upgrade and state lives in a GCS bucket.</div>
+  </div>
+</section>
+
+<!-- workflow -->
+<section id="workflow" class="alt">
+  <div class="wrap">
+    <div class="section-head"><span class="eyebrow">On a running platform</span><h2>Shipping an integration.</h2>
+      <p>On a running Octo platform the editor and orchestrator are the control plane (backed by Postgres); deploying an integration turns its YAML into running pods. Four steps:</p>
+    </div>
+    <div class="grid cols-2">
+      <div class="card"><div class="ic">①</div><h3>Create the integration</h3>
+        <p>Author flows in the editor and save. The integration — a <code>name</code> + the definition YAML — is stored by the orchestrator in Postgres and reopens at <code>/i/&lt;id&gt;</code>.</p></div>
+      <div class="card"><div class="ic">②</div><h3>Add secrets</h3>
+        <p>Create cluster secrets (UPPER_SNAKE_CASE) in the editor. Values are written straight into one Kubernetes Secret (<code>octo-secrets</code>) and are <strong>never read back</strong> — the catalog keeps only names and timestamps.</p></div>
+      <div class="card"><div class="ic">③</div><h3>Configure &amp; deploy</h3>
+        <p>In the deploy dialog choose <code>replicas</code>, an internal <code>slug</code>, and whether to expose it. Bind each declared env var to a <strong>literal value</strong> or a <strong>secret</strong>. <code>HTTP_PORT</code> / <code>HTTP_HOST</code> are managed for you.</p></div>
+      <div class="card"><div class="ic">④</div><h3>It becomes pods</h3>
+        <p>The orchestrator renders Kubernetes objects and streams status back live. Scale by changing <code>replicas</code>; undeploy tears everything down.</p></div>
+    </div>
+
+    <h3 style="margin-top:40px">What a deploy creates</h3>
+    <p style="max-width:760px">For a deployment <code>&lt;id&gt;</code> with slug <code>&lt;slug&gt;</code>, the orchestrator applies:</p>
+    <table class="eip-table">
+      <thead><tr><th>Object</th><th>Name</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td>ConfigMap</td><td><code>octo-dep-&lt;id&gt;</code></td><td>Holds your integration YAML, mounted read-only at <code>/etc/octo/integrations</code> — the runtime loads every file there.</td></tr>
+        <tr><td>Deployment</td><td><code>octo-dep-&lt;id&gt;</code></td><td>Runs the Octo runtime image; <code>replicas</code> → that many pods. Env is injected as literal values or <code>secretKeyRef</code>s into <code>octo-secrets</code>.</td></tr>
+        <tr><td>Service (ClusterIP)</td><td><code>octo-dep-&lt;id&gt;</code></td><td>Fronts this deployment's pods.</td></tr>
+        <tr><td>Service (ClusterIP)</td><td><code>octo-int-&lt;slug&gt;</code></td><td>A stable in-cluster address other flows call by name.</td></tr>
+        <tr><td>Ingress</td><td><code>octo-dep-&lt;id&gt;</code></td><td>Only when exposed externally: host <code>&lt;subdomain&gt;.&lt;base-domain&gt;</code>, TLS via cert-manager.</td></tr>
+      </tbody>
+    </table>
+    <div class="note"><strong>Env bindings.</strong> Each declared <code>env:</code> entry is bound at deploy time to a literal value or a cluster secret (the secret reference wins). <code>required</code> vars must be bound. <code>HTTP_PORT</code> (which marks the integration as a network service) and <code>HTTP_HOST</code> (<code>0.0.0.0</code>) are supplied by the orchestrator and can't be set by hand. Deploys stream live status over server-sent events, so the editor shows pods going ready in real time.</div>
+  </div>
+</section>
+
+<!-- exposure -->
+<section id="exposure">
+  <div class="wrap">
+    <div class="section-head"><span class="eyebrow">Public vs private</span><h2>Exposing an integration.</h2>
+      <p>Deployed integrations are <strong>private by default</strong> — reachable only inside the cluster. Going public is an explicit opt-in per integration.</p>
+    </div>
+    <div class="grid cols-2">
+      <div>
+        <h3>🔒 Private (default)</h3>
+        <p>The orchestrator gives every deployment a <code>ClusterIP</code> Service, plus a stable per-integration Service that load-balances across its deployments:</p>
+<pre><code class="language-bash">http://octo-int-&lt;slug&gt;.octo-dev:8080</code></pre>
+        <p style="font-size:0.92rem">No load balancer, no public DNS — other in-cluster flows and services can reach it, the internet can't.</p>
+      </div>
+      <div>
+        <h3>🌐 Public (opt-in)</h3>
+        <p>An integration becomes externally reachable when all of these hold:</p>
+        <ul style="color:var(--text-dim);font-size:0.95rem;padding-left:18px">
+          <li>it declares an <code>HTTP_PORT</code> env var (so it serves HTTP),</li>
+          <li>you toggle <em>Expose externally</em> in the editor,</li>
+          <li>the platform has a <code>BASE_DOMAIN</code> configured.</li>
+        </ul>
+        <p style="font-size:0.92rem">The orchestrator then creates a Traefik <code>Ingress</code> at <code>&lt;subdomain&gt;.&lt;base-domain&gt;</code> pointing at the deployment's Service.</p>
+      </div>
+    </div>
+    <div class="note"><strong>HTTP_PORT / HTTP_HOST are managed.</strong> The orchestrator supplies these to a deployment (HTTP_HOST is <code>0.0.0.0</code>); you can't bind them yourself. Declaring <code>HTTP_PORT</code> in the integration's <code>env:</code> is what marks it as a network service eligible for exposure.</div>
+  </div>
+</section>
+
+<!-- TLS + SSO -->
+<section id="tls-sso">
+  <div class="wrap">
+    <div class="grid cols-2">
+      <div>
+        <div class="section-head" style="margin-bottom:20px"><span class="eyebrow">TLS &amp; domains</span><h2>Certificates.</h2></div>
+        <p>cert-manager issues Let's Encrypt certificates. Two modes:</p>
+        <ul style="color:var(--text-dim);font-size:0.95rem;padding-left:18px">
+          <li><strong>Wildcard via DNS-01</strong> — one cert for <code>*.&lt;domain&gt;</code> (and the apex), issued once via Cloud DNS and shared by the editor and every integration subdomain. Enable with <code>wildcardTLS.enabled</code>.</li>
+          <li><strong>Per-host via HTTP-01</strong> — when wildcard is off, each ingress gets its own cert via the <code>letsencrypt-prod</code> cluster issuer.</li>
+        </ul>
+        <p style="font-size:0.92rem">DNS: an A record for the apex plus a wildcard A record point every <code>&lt;slug&gt;.&lt;domain&gt;</code> at the node's static IP → Traefik → the integration's Service.</p>
+      </div>
+      <div>
+        <div class="section-head" style="margin-bottom:20px"><span class="eyebrow">Access control</span><h2>OIDC SSO.</h2></div>
+        <p>SSO is <strong>opt-in</strong> (<code>auth.oidc.enabled</code>); local runs stay open. When enabled it gates <em>the editor</em> via Auth.js (the eetr OIDC provider):</p>
+        <ul style="color:var(--text-dim);font-size:0.95rem;padding-left:18px">
+          <li>browser requests without a session are redirected to sign-in; unauthenticated <code>/api</code> calls get 401,</li>
+          <li>write routes can require roles via <code>AUTH_WRITE_ROLES</code> (read from a configurable id-token claim),</li>
+          <li>the <strong>orchestrator stays internal and unauthenticated</strong> — only the editor's server-side BFF talks to it, in-cluster.</li>
+        </ul>
+        <p style="font-size:0.92rem">Register the redirect URI <code>https://&lt;domain&gt;/api/auth/callback/eetr</code> on the identity provider.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- secrets -->
+<section id="secrets" class="alt">
+  <div class="wrap">
+    <div class="section-head"><span class="eyebrow">Config &amp; secrets</span><h2>Two kinds of secrets.</h2>
+      <p>Keep platform credentials separate from the secrets your integrations consume.</p>
+    </div>
+    <div class="grid cols-2">
+      <div>
+        <h3>Platform credentials</h3>
+        <p>The Postgres password, the Auth.js session secret, and the OIDC client secret are generated into the <strong>bucket-backed Terraform release state</strong> — not a separate secret manager — and the Helm chart materializes them as Kubernetes Secrets for the editor and orchestrator.</p>
+        <div class="note" style="margin-top:14px"><strong>Lock down the state bucket.</strong> Because these credentials live in release state, the GCS bucket must have versioning on and access tightly restricted.</div>
+      </div>
+      <div>
+        <h3>Integration secrets</h3>
+        <p>The secrets your flows use (API keys, DSNs) are <strong>cluster secrets</strong> you manage in the editor. Values are written into one Kubernetes Secret (<code>octo-secrets</code>) and never read back; a deployment's env binding references one by key. An integration declares the env it expects — <code>required</code> vars must be bound at deploy time:</p>
+<pre><code class="language-yaml">env:
+  - { name: API_KEY, required: true }
+  - { name: HTTP_PORT, default: "8080" }   # marks it a network service</code></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="status">
+  <div class="wrap">
+    <div class="note" style="border-left-color:var(--warn)">
+      <strong>Implemented vs. roadmap.</strong> Everything above ships today: GCP via Terraform + Helm on k3s, Traefik ingress, cert-manager (HTTP-01 and wildcard DNS-01), the create → secrets → deploy workflow with live status, per-deployment and stable internal Services, opt-in public ingress, OIDC SSO for the editor, and state-backed secrets. Each deploy is independent — <strong>integration versioning and promote/rollback are coming soon</strong>; scaling (replica count) is the only in-place change today. Cloud Run, IAP, and API-gateway policies are <em>not</em> part of the current stack.
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap foot-inner">
+    <div>
+      <a class="brand" href="index.html"><img class="logo" src="assets/octo.png" alt="" /> Octo</a>
+      <div class="muted" style="margin-top:8px">A cloud-native, AI-native integration runtime. MIT licensed.</div>
+    </div>
+    <div class="foot-links">
+      <a href="connectors.html">Connectors</a>
+      <a href="error-handling.html">Error handling</a>
+      <a href="index.html#samples">Samples</a>
+      <a href="index.html">Home ↑</a>
+    </div>
+  </div>
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
+<script>document.querySelectorAll('pre code').forEach((el) => { if (window.hljs) hljs.highlightElement(el); });</script>
+</body>
+</html>

@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Connectors — Octo</title>
+<meta name="description" content="Reference for Octo's connectors: cron, http, http-client, database, logger, and the LLM connectors — what each does, the blocks they provide, and their settings." />
+<link rel="icon" type="image/png" href="assets/octo.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" />
+<link rel="stylesheet" href="assets/styles.css" />
+</head>
+<body>
+
+<!-- ============================== NAV ============================== -->
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a class="brand" href="index.html"><img class="logo" src="assets/octo.png" alt="" /> Octo</a>
+    <nav class="nav-links">
+      <a href="index.html">Home</a>
+      <a href="connectors.html">Connectors</a>
+      <a href="cel.html">CEL</a>
+      <a href="error-handling.html">Error handling</a>
+      <a href="deployment.html">Deploy</a>
+      <a href="index.html#samples">Samples</a>
+      <a class="nav-gh" href="https://github.com/juancavallotti/eip-go" target="_blank" rel="noopener">GitHub ↗</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero" style="padding:72px 0 48px">
+  <div class="wrap">
+    <span class="eyebrow">Guide</span>
+    <h1 style="font-size:clamp(2rem,4vw,2.8rem)">Connectors</h1>
+    <p class="lead" style="max-width:60ch">
+      A connector owns a piece of the outside world — a socket, a client, a pool, a file —
+      and acquires it on start, releases it on stop. Connectors do two things: some
+      <strong>provide a source</strong> that feeds messages into a flow, and some
+      <strong>provide a block</strong> that a flow calls by name (a logger, a DB, an HTTP client, an LLM).
+    </p>
+  </div>
+</section>
+
+<section style="padding-top:0">
+  <div class="wrap">
+    <table class="eip-table">
+      <thead><tr><th>Connector</th><th>Source?</th><th>Provides block</th><th>What it is</th></tr></thead>
+      <tbody>
+        <tr><td><code>cron</code></td><td>yes</td><td>—</td><td>Fires a message on a schedule.</td></tr>
+        <tr><td><code>http</code></td><td>yes</td><td>—</td><td>An HTTP server; each request is a message, the reply is the flow's result.</td></tr>
+        <tr><td><code>http-client</code></td><td>—</td><td><code>rest</code></td><td>An outbound HTTP client with base URL, auth, and optional caching.</td></tr>
+        <tr><td><code>database</code></td><td>—</td><td><code>sql</code></td><td>A connection pool for Postgres or SQLite.</td></tr>
+        <tr><td><code>logger</code></td><td>—</td><td><code>log</code></td><td>A configured structured logger (stdout/stderr/file).</td></tr>
+        <tr><td><code>llm-anthropic</code></td><td>—</td><td><code>ai-mapping</code> + AI composites</td><td>Anthropic Claude client.</td></tr>
+        <tr><td><code>llm-openai</code></td><td>—</td><td><code>ai-mapping</code> + AI composites</td><td>OpenAI client.</td></tr>
+        <tr><td><code>llm-gemini</code></td><td>—</td><td><code>ai-mapping</code> + AI composites</td><td>Google Gemini client.</td></tr>
+      </tbody>
+    </table>
+    <div class="note"><strong>Referencing connectors.</strong> A block names the connector it uses via a <code>connector:</code> (or <code>logger:</code>) setting. A flow's <code>source:</code> names its connector with <code>connector:</code> and a <code>type:</code>. Settings accept <code>${ENV_VAR}</code> interpolation from the flow's declared <code>env:</code>.</div>
+  </div>
+</section>
+
+<!-- ============================== CRON ============================== -->
+<section id="cron" class="alt">
+  <div class="wrap">
+    <div class="section-head"><span class="eyebrow">Source</span><h2><code>cron</code></h2>
+      <p>Emits a message on a schedule. Supports six-field cron (seconds enabled, e.g. <code>0,30 * * * * *</code>) and descriptors like <code>@every 30s</code>. The <code>payload</code> expression builds the body and can read <code>now</code> (the fire time).</p>
+    </div>
+    <div class="sample-grid">
+      <table class="eip-table">
+        <thead><tr><th>Setting</th><th>Type</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td><code>schedule</code></td><td>string</td><td>Required. Cron expression or <code>@every &lt;dur&gt;</code>.</td></tr>
+          <tr><td><code>payload</code></td><td>string (CEL)</td><td>Builds the message body. Sees <code>now</code>. Empty → null body.</td></tr>
+          <tr><td><code>correlationID</code></td><td>string</td><td>Optional; set on every emitted message.</td></tr>
+        </tbody>
+      </table>
+      <div>
+<pre><code class="language-yaml">source:
+  connector: ticker
+  type: cron
+  settings:
+    schedule: "@every 30s"
+    payload: '{"firedAt": string(now)}'</code></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== HTTP ============================== -->
+<section id="http">
+  <div class="wrap">
+    <div class="section-head"><span class="eyebrow">Source</span><h2><code>http</code></h2>
+      <p>One server per connector. Each source registers a route; a request becomes a message, the flow runs, and its final body is written back as JSON. The connector holds server-wide settings; the source holds the route.</p>
+    </div>
+    <div class="grid cols-2">
+      <div>
+        <h3>Connector settings (the server)</h3>
+        <table class="eip-table">
+          <thead><tr><th>Setting</th><th>Default</th></tr></thead>
+          <tbody>
+            <tr><td><code>port</code></td><td>8080 (<code>0</code> = OS-assigned)</td></tr>
+            <tr><td><code>host</code></td><td>all interfaces</td></tr>
+            <tr><td><code>basePath</code></td><td>—  (prefix for every route)</td></tr>
+            <tr><td><code>requestTimeout</code></td><td>30s</td></tr>
+            <tr><td><code>readTimeout</code> / <code>writeTimeout</code> / <code>idleTimeout</code></td><td>unset</td></tr>
+            <tr><td><code>keepAlive</code></td><td>Go default</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <h3>Source settings (the route)</h3>
+        <table class="eip-table">
+          <thead><tr><th>Setting</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td><code>path</code></td><td>Required. e.g. <code>/orders/{id}</code>; <code>{id}</code> → <code>vars.id</code>.</td></tr>
+            <tr><td><code>headers</code></td><td>List of request headers to capture as <code>vars["X-…"]</code>.</td></tr>
+            <tr><td><code>correlationIdHeader</code></td><td>Header to read the message's <code>correlationID</code> from.</td></tr>
+            <tr><td><code>timeout</code></td><td>Per-route wait; defaults to <code>requestTimeout</code>.</td></tr>
+            <tr><td><code>maxBodyBytes</code></td><td>Request body cap. Default 1 MiB.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="grid cols-2" style="margin-top:22px">
+      <div>
+        <h3>What a request puts on the message</h3>
+        <table class="eip-table">
+          <tbody>
+            <tr><td><code>body</code></td><td>The JSON request body (400 if not valid JSON; empty is allowed).</td></tr>
+            <tr><td><code>vars.method</code></td><td>"GET", "POST", …</td></tr>
+            <tr><td><code>vars.query</code></td><td>Always a map (empty if no query string).</td></tr>
+            <tr><td><code>vars.&lt;param&gt;</code></td><td>Each <code>{param}</code> in the path.</td></tr>
+            <tr><td><code>vars["X-Header"]</code></td><td>Each header listed in <code>headers</code> (empty string if absent).</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <h3>How the flow result becomes a response</h3>
+        <table class="eip-table">
+          <thead><tr><th>Flow outcome</th><th>HTTP status</th></tr></thead>
+          <tbody>
+            <tr><td>completed</td><td>200 (override with <code>vars.httpStatus</code>)</td></tr>
+            <tr><td>dropped (nil)</td><td>204 No Content</td></tr>
+            <tr><td>failed</td><td>500 Internal Server Error</td></tr>
+            <tr><td>timed out</td><td>504 Gateway Timeout</td></tr>
+          </tbody>
+        </table>
+        <p style="font-size:0.9rem">See <a href="error-handling.html">Error handling</a> for setting <code>vars.httpStatus</code> and recovering from failures.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== HTTP-CLIENT ============================== -->
+<section id="http-client" class="alt">
+  <div class="wrap">
+    <div class="section-head"><span class="eyebrow">Block · <code>rest</code></span><h2><code>http-client</code></h2>
+      <p>An outbound HTTP client that provides the <code>rest</code> block. It concentrates client-wide policy — base URL, default headers, auth, timeout, and an opt-in in-memory GET cache.</p>
+    </div>
+    <div class="grid cols-2">
+      <div>
+        <h3>Connector settings</h3>
+        <table class="eip-table">
+          <thead><tr><th>Setting</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td><code>baseURL</code></td><td>Required, absolute. Prepended to request paths.</td></tr>
+            <tr><td><code>timeout</code></td><td>Per-request. Default 30s.</td></tr>
+            <tr><td><code>headers</code></td><td>Map applied to every request (unless the request sets it).</td></tr>
+            <tr><td><code>auth</code></td><td><code>type</code>: <code>bearer</code> (+<code>token</code>) or <code>basic</code> (+<code>username</code>/<code>password</code>).</td></tr>
+            <tr><td><code>cache</code></td><td><code>enabled</code>, <code>ttl</code> (60s), <code>maxEntries</code> (256). GET only.</td></tr>
+            <tr><td><code>maxResponseBytes</code></td><td>Response cap. Default 1 MiB.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <h3>The <code>rest</code> block</h3>
+        <table class="eip-table">
+          <thead><tr><th>Setting</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td><code>connector</code></td><td>Required. The http-client to use.</td></tr>
+            <tr><td><code>method</code> / <code>path</code></td><td>Method (default GET) and path appended to <code>baseURL</code>.</td></tr>
+            <tr><td><code>query</code> / <code>headers</code></td><td>Maps of name → CEL expression.</td></tr>
+            <tr><td><code>body</code></td><td>CEL expression (write methods). Strings sent as-is; else JSON.</td></tr>
+            <tr><td><code>failOnError</code></td><td>Status ≥ 400 → error. Default true.</td></tr>
+            <tr><td><code>statusVar</code></td><td>Variable for the response status. Default <code>statusCode</code>.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+<pre style="margin-top:22px"><code class="language-yaml">- type: rest
+  settings:
+    connector: open-meteo
+    method: GET
+    path: /v1/forecast
+    query: { latitude: '"52.52"', current: '"temperature_2m"' }</code></pre>
+  </div>
+</section>
+
+<!-- ============================== DATABASE ============================== -->
+<section id="database">
+  <div class="wrap">
+    <div class="section-head"><span class="eyebrow">Block · <code>sql</code></span><h2><code>database</code></h2>
+      <p>A connection pool for Postgres (pgx) or SQLite — both pure Go, no CGO. Provides the <code>sql</code> block. Use the driver's native placeholders: <code>$1, $2</code> for Postgres, <code>?</code> for SQLite.</p>
+    </div>
+    <div class="grid cols-2">
+      <div>
+        <h3>Connector settings</h3>
+        <table class="eip-table">
+          <tbody>
+            <tr><td><code>driver</code></td><td>Required. <code>postgres</code> or <code>sqlite</code>.</td></tr>
+            <tr><td><code>dsn</code></td><td>Required. Connection string / file path.</td></tr>
+            <tr><td><code>maxOpenConns</code> / <code>maxIdleConns</code></td><td>Pool sizing.</td></tr>
+            <tr><td><code>connMaxLifetime</code></td><td>e.g. <code>5m</code>.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <h3>The <code>sql</code> block</h3>
+        <table class="eip-table">
+          <tbody>
+            <tr><td><code>connector</code></td><td>Required. The database to use.</td></tr>
+            <tr><td><code>query</code></td><td>Required. SQL with placeholders.</td></tr>
+            <tr><td><code>args</code></td><td>List of CEL expressions for bind params.</td></tr>
+            <tr><td><code>exec</code></td><td>No result set → <code>{"rowsAffected": N}</code>.</td></tr>
+            <tr><td><code>single</code></td><td>Return the first row (object) instead of an array.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+<pre style="margin-top:22px"><code class="language-yaml">- type: sql
+  settings:
+    connector: orders-db
+    query: "INSERT INTO orders (item, amount) VALUES (?, ?) RETURNING *"
+    args: [ body.item, body.amount ]
+    single: true</code></pre>
+  </div>
+</section>
+
+<!-- ============================== LOGGER ============================== -->
+<section id="logger" class="alt">
+  <div class="wrap">
+    <div class="section-head"><span class="eyebrow">Block · <code>log</code></span><h2><code>logger</code></h2>
+      <p>A configured structured logger providing the <code>log</code> block — a wire tap that logs and passes the message through unchanged. A file logger opens on start and closes on stop.</p>
+    </div>
+    <div class="grid cols-2">
+      <div>
+        <h3>Connector settings</h3>
+        <table class="eip-table">
+          <tbody>
+            <tr><td><code>output</code></td><td><code>stdout</code> (default), <code>stderr</code>, or a file path.</td></tr>
+            <tr><td><code>format</code></td><td><code>text</code> (default) or <code>json</code>.</td></tr>
+            <tr><td><code>level</code></td><td><code>debug</code> / <code>info</code> (default) / <code>warn</code> / <code>error</code>.</td></tr>
+            <tr><td><code>addSource</code></td><td>Include source file:line. Default false.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <h3>The <code>log</code> block</h3>
+        <table class="eip-table">
+          <tbody>
+            <tr><td><code>message</code></td><td>CEL expression for the line. Sees <code>body</code>, <code>vars</code>, <code>eventID</code>, <code>correlationID</code>.</td></tr>
+            <tr><td><code>level</code></td><td>Emission level for this block.</td></tr>
+            <tr><td><code>logger</code></td><td>Connector name (empty = process default).</td></tr>
+            <tr><td><code>full</code></td><td>Attach the whole message as structured attributes.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== LLM ============================== -->
+<section id="llm">
+  <div class="wrap">
+    <div class="section-head"><span class="eyebrow">Blocks · <code>ai-mapping</code> · <code>ai-router</code> · <code>ai-agent</code> · <code>ai-retry</code></span>
+      <h2>LLM connectors</h2>
+      <p>Three providers behind one provider-agnostic interface: <code>llm-anthropic</code>, <code>llm-openai</code>, and <code>llm-gemini</code>. Any of them backs the AI blocks. The settings are identical across providers; only the default model differs.</p>
+    </div>
+    <div class="sample-grid">
+      <table class="eip-table">
+        <thead><tr><th>Setting</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td><code>apiKey</code></td><td>Required. Use <code>${ANTHROPIC_API_KEY}</code> etc.</td></tr>
+          <tr><td><code>model</code></td><td>Defaults per provider: Anthropic <code>claude-sonnet-4-6</code>, OpenAI <code>gpt-5.4</code>, Gemini <code>gemini-3.5-flash</code>.</td></tr>
+          <tr><td><code>maxTokens</code></td><td>Response cap (Anthropic default 4096; others use the model default).</td></tr>
+          <tr><td><code>baseURL</code></td><td>Endpoint override (proxies, Azure, testing).</td></tr>
+        </tbody>
+      </table>
+      <div>
+<pre><code class="language-yaml">connectors:
+  - name: claude
+    type: llm-anthropic
+    settings:
+      apiKey: ${ANTHROPIC_API_KEY}
+      # model defaults to claude-sonnet-4-6</code></pre>
+      </div>
+    </div>
+    <div class="grid cols-2" style="margin-top:22px">
+      <div class="card"><div class="ic">🗺️</div><h3><code>ai-mapping</code></h3><p>Reshape the body to a target shape from a prompt, optional examples, and an optional output JSON Schema. On a schema-validation failure it errors — so it composes with <code>ai-retry</code> / <code>handle-errors</code>.</p></div>
+      <div class="card"><div class="ic">🔀</div><h3><code>ai-router</code></h3><p>The model picks one of several named, described routes per message. A <code>guardrail</code> describes when to fall through to the <code>default</code> path.</p></div>
+      <div class="card"><div class="ic">🛠️</div><h3><code>ai-agent</code></h3><p>The model accomplishes a task by calling your sub-flows as tools in a loop, up to <code>maxIterations</code>, then returns a result.</p></div>
+      <div class="card"><div class="ic">♻️</div><h3><code>ai-retry</code></h3><p>Runs a protected chain; on failure the model inspects <code>vars.error</code>, revises the message, and retries up to <code>maxAttempts</code> before falling to the error chain.</p></div>
+    </div>
+    <p style="margin-top:22px"><a class="btn btn-ghost" href="index.html#samples">See the AI samples ↗</a></p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap foot-inner">
+    <div>
+      <a class="brand" href="index.html"><img class="logo" src="assets/octo.png" alt="" /> Octo</a>
+      <div class="muted" style="margin-top:8px">A cloud-native, AI-native integration runtime. MIT licensed.</div>
+    </div>
+    <div class="foot-links">
+      <a href="error-handling.html">Error handling</a>
+      <a href="deployment.html">Deploy</a>
+      <a href="index.html#samples">Samples</a>
+      <a href="index.html">Home ↑</a>
+    </div>
+  </div>
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
+<script>document.querySelectorAll('pre code').forEach((el) => { if (window.hljs) hljs.highlightElement(el); });</script>
+</body>
+</html>

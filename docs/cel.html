@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CEL cheat sheet — Octo</title>
+<meta name="description" content="A practical CEL (Common Expression Language) cheat sheet for Octo flows: the variables in scope, what sources expose, and copy-paste recipes for routing, transforms, and payloads." />
+<link rel="icon" type="image/png" href="assets/octo.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" />
+<link rel="stylesheet" href="assets/styles.css" />
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a class="brand" href="index.html"><img class="logo" src="assets/octo.png" alt="" /> Octo</a>
+    <nav class="nav-links">
+      <a href="index.html">Home</a>
+      <a href="connectors.html">Connectors</a>
+      <a href="cel.html">CEL</a>
+      <a href="error-handling.html">Error handling</a>
+      <a href="deployment.html">Deploy</a>
+      <a href="index.html#samples">Samples</a>
+      <a class="nav-gh" href="https://github.com/juancavallotti/eip-go" target="_blank" rel="noopener">GitHub ↗</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero" style="padding:72px 0 48px">
+  <div class="wrap">
+    <span class="eyebrow">Guide</span>
+    <h1 style="font-size:clamp(2rem,4vw,2.8rem)">CEL cheat sheet</h1>
+    <p class="lead" style="max-width:64ch">
+      Routing, transforms, conditions, and payloads are
+      <a href="https://github.com/google/cel-go" target="_blank" rel="noopener">CEL</a> expressions
+      (Google's Common Expression Language). They compile once when the flow builds — so a typo
+      fails at startup, not in production — and run read-only over each message. The upstream spec
+      is terse; here's everything you actually need.
+    </p>
+  </div>
+</section>
+
+<section id="scope" style="padding-top:0">
+  <div class="wrap">
+    <div class="section-head"><span class="eyebrow">In scope</span><h2>What an expression can see.</h2>
+      <p>Every message-driven block evaluates against the same activation. These are the variables in scope:</p>
+    </div>
+    <table class="eip-table">
+      <thead><tr><th>Variable</th><th>Type</th><th>What it is</th></tr></thead>
+      <tbody>
+        <tr><td><code>body</code></td><td>JSON value</td><td>The decoded message body — usually a map, sometimes a list/scalar. Rewritten by <code>set-payload</code>.</td></tr>
+        <tr><td><code>vars</code></td><td>map</td><td>Per-message variables. Read here; write with <code>set-variable</code>. Sources seed it (see below).</td></tr>
+        <tr><td><code>env</code></td><td>map</td><td>Resolved values of the flow's declared <code>env:</code> entries — e.g. <code>env.HTTP_PORT</code>. Only declared keys exist.</td></tr>
+        <tr><td><code>eventID</code></td><td>string</td><td>Stable unique id for this message.</td></tr>
+        <tr><td><code>correlationID</code></td><td>string</td><td>Caller-supplied id for grouping related messages (optional).</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="sources" class="alt">
+  <div class="wrap">
+    <div class="section-head"><span class="eyebrow">From the source</span><h2>What sources put in <code>vars</code>.</h2></div>
+    <table class="eip-table">
+      <thead><tr><th>From</th><th>Variable</th><th>Example</th></tr></thead>
+      <tbody>
+        <tr><td>http source</td><td><code>vars.method</code></td><td><code>vars.method == "POST"</code></td></tr>
+        <tr><td>http source</td><td><code>vars.query</code> (always a map)</td><td><code>has(vars.query.currency)</code></td></tr>
+        <tr><td>http path <code>/orders/{id}</code></td><td><code>vars.&lt;param&gt;</code></td><td><code>vars.id</code></td></tr>
+        <tr><td>http captured header</td><td><code>vars["X-Header"]</code></td><td><code>vars["X-Tenant"]</code></td></tr>
+        <tr><td>cron source payload</td><td><code>now</code></td><td><code>string(now)</code></td></tr>
+        <tr><td>error path</td><td><code>vars.error</code></td><td><code>vars.error.message</code> · <code>.flow</code> · <code>.block</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="recipes">
+  <div class="wrap">
+    <div class="section-head"><span class="eyebrow">Copy-paste</span><h2>Recipes.</h2>
+      <p>Every snippet below is lifted from a working sample in <code>samples/</code>.</p>
+    </div>
+    <div class="grid cols-2">
+      <div>
+        <div class="sample-meta"><p class="run-label">Build a string · coerce types</p></div>
+        <pre><code class="language-yaml">"hello, " + body.name + "!"
+"processing " + string(size(body.orders)) + " orders"</code></pre>
+      </div>
+      <div>
+        <div class="sample-meta"><p class="run-label">Safe access with a default</p></div>
+        <pre><code class="language-yaml">has(vars.query.currency) ? vars.query.currency : "USD"</code></pre>
+      </div>
+      <div>
+        <div class="sample-meta"><p class="run-label">Route on method or value (switch / if)</p></div>
+        <pre><code class="language-yaml">vars.method == "POST"
+body.amount &gt;= 1000.0
+size(body.orders) &gt; 0</code></pre>
+      </div>
+      <div>
+        <div class="sample-meta"><p class="run-label">Build a JSON object (set-payload)</p></div>
+        <pre><code class="language-yaml">{"orderId": vars.id, "currency": vars.currency, "status": "found"}</code></pre>
+      </div>
+      <div>
+        <div class="sample-meta"><p class="run-label">Reach into nested fields &amp; dashed headers</p></div>
+        <pre><code class="language-yaml">body.current.temperature_2m
+vars["X-Tenant"]</code></pre>
+      </div>
+      <div>
+        <div class="sample-meta"><p class="run-label">Read environment variables</p></div>
+        <pre><code class="language-yaml">"listening on " + env.HTTP_PORT</code></pre>
+      </div>
+      <div>
+        <div class="sample-meta"><p class="run-label">Iterate a list (foreach)</p></div>
+        <pre><code class="language-yaml">items: body.orders        # the list to split
+as: order                 # each item -> vars.order
+vars.order.amount &gt;= vars.threshold</code></pre>
+      </div>
+      <div>
+        <div class="sample-meta"><p class="run-label">Recover from an error (error path)</p></div>
+        <pre><code class="language-yaml">{"error": vars.error.message,
+ "failedBlock": vars.error.block,
+ "flow": vars.error.flow}</code></pre>
+      </div>
+    </div>
+
+    <div class="note" style="margin-top:32px">
+      <strong>Gotchas worth knowing.</strong>
+      JSON numbers are always <code>double</code> (float) — wrap with <code>int(...)</code> when you need a whole number.
+      Use <code>has(map.key)</code> before reading a key that might be missing, or the expression errors.
+      Only <code>env:</code> entries you declare are in scope — an undeclared <code>env.X</code> fails at build time.
+      Expressions never mutate state: read <code>vars</code>/<code>body</code> here, and change them with
+      <code>set-variable</code> / <code>set-payload</code>. Use bracket syntax (<code>vars["X-Tenant"]</code>) for keys with dashes.
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap foot-inner">
+    <div>
+      <a class="brand" href="index.html"><img class="logo" src="assets/octo.png" alt="" /> Octo</a>
+      <div class="muted" style="margin-top:8px">A cloud-native, AI-native integration runtime. MIT licensed.</div>
+    </div>
+    <div class="foot-links">
+      <a href="connectors.html">Connectors</a>
+      <a href="error-handling.html">Error handling</a>
+      <a href="deployment.html">Deploy</a>
+      <a href="index.html">Home ↑</a>
+    </div>
+  </div>
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
+<script>document.querySelectorAll('pre code').forEach((el) => { if (window.hljs) hljs.highlightElement(el); });</script>
+</body>
+</html>

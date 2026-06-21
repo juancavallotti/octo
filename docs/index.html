@@ -11,6 +11,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<link rel="icon" type="image/png" href="assets/octo.png" />
+<meta property="og:image" content="assets/octo.png" />
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" />
 <link rel="stylesheet" href="assets/styles.css" />
 </head>
@@ -19,13 +21,16 @@
 <!-- ============================== NAV ============================== -->
 <header class="nav">
   <div class="wrap nav-inner">
-    <a class="brand" href="#top"><span class="dot"></span> Octo</a>
+    <a class="brand" href="#top"><img class="logo" src="assets/octo.png" alt="" /> Octo</a>
     <nav class="nav-links">
       <a href="#concepts">Concepts</a>
       <a href="#architecture">Architecture</a>
       <a href="#patterns">Patterns</a>
+      <a href="cel.html">CEL</a>
       <a href="#samples">Samples</a>
+      <a href="#guides">Guides</a>
       <a href="#quickstart">Quickstart</a>
+      <a href="#whats-new">What's New</a>
       <a href="#roadmap">Roadmap</a>
       <a href="#releases">Releases</a>
       <a class="nav-gh" href="https://github.com/juancavallotti/eip-go" target="_blank" rel="noopener">GitHub ↗</a>
@@ -38,12 +43,13 @@
 <section class="hero">
   <div class="wrap hero-grid">
     <div>
+      <img class="hero-logo" src="assets/octo.png" alt="Octo logo" />
       <div class="badges">
         <span class="badge">Go runtime</span>
         <span class="badge">YAML flows</span>
         <span class="badge">CEL expressions</span>
         <span class="badge">hot reload</span>
-        <span class="badge">v<!-- x-release-please-start-version -->0.1.0<!-- x-release-please-end-version --></span>
+        <span class="badge">v<!-- x-release-please-start-version -->0.1.4<!-- x-release-please-end-version --></span>
       </div>
       <h1>The integration platform,<br /><span class="grad">reimagined for what comes next.</span></h1>
       <p class="lead">
@@ -275,6 +281,39 @@ flowchart TB
         <figcaption class="diagram-cap"><code>fork</code> — scatter-gather on the shared pool, joins before returning.</figcaption>
       </figure>
     </div>
+
+    <h3 style="margin-top:56px">The platform — native on Kubernetes</h3>
+    <p style="max-width:760px">That runtime is one process. The platform around it is cloud-native: a <strong>control plane</strong> — the editor (with OIDC SSO) and the orchestrator, backed by Postgres — and a <strong>data plane</strong> where every integration you deploy becomes its own Kubernetes Deployment of the very same runtime image. Replicas are pods; a Service gives each a stable in-cluster address; an Ingress makes it public when you ask. See the <a href="deployment.html">deployment guide</a>.</p>
+    <figure class="diagram" style="margin-top:22px">
+      <div class="mermaid">
+flowchart TB
+  USER([you · browser]):::ext --> ED
+  subgraph CP["Control plane"]
+    direction LR
+    ED["Editor<br/><small>Next.js · OIDC SSO</small>"]:::conn -->|BFF| OR["Orchestrator"]:::conn
+    OR --> PG[("Postgres<br/><small>integrations · deployments · secrets</small>")]:::pool
+  end
+  OR -->|"applies manifests"| K8S{{"Kubernetes API"}}:::ch
+  subgraph DP["Data plane — one Deployment per integration"]
+    direction LR
+    P1["pod<br/><small>octo runtime + your flows</small>"]:::f
+    P2["pod<br/><small>octo runtime</small>"]:::f
+  end
+  K8S --> P1
+  K8S --> P2
+  NET([public traffic]):::ext --> ING["Traefik Ingress<br/><small>slug.your-domain</small>"]:::src
+  ING --> SVC["Service<br/><small>octo-int-slug</small>"]:::src
+  SVC --> P1
+  SVC --> P2
+  classDef ext fill:#11161d,stroke:#36d399,color:#e6edf3;
+  classDef conn fill:#141b24,stroke:#4aa8ff,color:#e6edf3;
+  classDef src fill:#141b24,stroke:#f5b14c,color:#e6edf3;
+  classDef f fill:#141b24,stroke:#36d399,color:#e6edf3;
+  classDef ch fill:#1a232e,stroke:#b692ff,color:#e6edf3;
+  classDef pool fill:#1a232e,stroke:#4aa8ff,color:#e6edf3;
+      </div>
+      <figcaption class="diagram-cap">The iPaaS, native on Kubernetes: the editor + orchestrator + Postgres control plane provisions one Deployment per integration; pods run the same runtime, behind a Service and an optional Ingress.</figcaption>
+    </figure>
   </div>
 </section>
 
@@ -283,26 +322,27 @@ flowchart TB
   <div class="wrap">
     <div class="section-head">
       <span class="eyebrow">Enterprise integration patterns</span>
-      <h2>The patterns you know — each a first-class construct.</h2>
-      <p>Every classic EIP maps directly onto a block, a composite, or a connector capability. Nothing exotic to learn; just the vocabulary you already speak.</p>
+      <h2>The patterns you know — mapped to real blocks.</h2>
+      <p>Many classic EIPs map onto a block, a composite, or a connector capability that ships today. Every entry below names a construct you can actually write in a flow — nothing aspirational.</p>
     </div>
 
     <div class="sample-grid">
       <table class="eip-table">
         <thead><tr><th>Pattern</th><th>In Octo</th></tr></thead>
         <tbody>
-          <tr><td>Message</td><td>JSON body + <code>Variables</code> + <code>CorrelationID</code></td></tr>
+          <tr><td>Message</td><td>JSON body + <code>vars</code> + <code>correlationID</code></td></tr>
           <tr><td>Polling Consumer</td><td><code>cron</code> source</td></tr>
-          <tr><td>Request–Reply</td><td><code>http</code> source (sync response)</td></tr>
+          <tr><td>Request–Reply</td><td><code>http</code> source (synchronous response)</td></tr>
           <tr><td>Content-Based Router</td><td><code>switch</code> block</td></tr>
-          <tr><td>Message Filter</td><td>processor returns <code>(nil, nil)</code></td></tr>
-          <tr><td>Message Translator</td><td><code>set-payload</code> / <code>transform</code></td></tr>
-          <tr><td>Content Enricher</td><td><code>flow-ref</code> (sync fold-back)</td></tr>
-          <tr><td>Splitter / Iterator</td><td><code>foreach</code> block</td></tr>
+          <tr><td>Conditional branch</td><td><code>if</code> block</td></tr>
+          <tr><td>Message Translator</td><td><code>set-payload</code> (CEL) · <code>ai-mapping</code> (LLM)</td></tr>
+          <tr><td>Content Enricher</td><td><code>flow-ref</code> (synchronous; result folds back)</td></tr>
+          <tr><td>Splitter</td><td><code>foreach</code> block</td></tr>
           <tr><td>Scatter-Gather</td><td><code>fork</code> composite</td></tr>
-          <tr><td>Wire Tap</td><td><code>log</code> (pass-through)</td></tr>
-          <tr><td>Dead Letter Channel</td><td><code>handle-errors</code> / flow <code>error</code> path</td></tr>
+          <tr><td>Wire Tap</td><td><code>log</code> block (passes the message through)</td></tr>
+          <tr><td>Dead Letter / recovery</td><td><code>handle-errors</code> block · flow <code>error:</code> chain</td></tr>
           <tr><td>Process Manager</td><td>sourceless flow + <code>flow-ref</code></td></tr>
+          <tr><td>Content-based routing (LLM)</td><td><code>ai-router</code> composite</td></tr>
         </tbody>
       </table>
 
@@ -346,8 +386,41 @@ flowchart TB
   </div>
 </section>
 
+<!-- ============================== GUIDES ============================== -->
+<section id="guides" class="alt">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">Go deeper</span>
+      <h2>Guides.</h2>
+      <p>Beyond the landing tour: reference pages for the pieces you'll reach for most. More to come.</p>
+    </div>
+    <div class="grid cols-2">
+      <a class="card" href="connectors.html" style="text-decoration:none">
+        <div class="ic">🔌</div>
+        <h3>Connectors</h3>
+        <p>Every connector — cron, http, http-client, database, logger, and the LLM providers — the blocks they provide, and their settings.</p>
+      </a>
+      <a class="card" href="cel.html" style="text-decoration:none">
+        <div class="ic">🔤</div>
+        <h3>CEL cheat sheet</h3>
+        <p>The variables in scope, what each source exposes, and copy-paste recipes for routing, transforms, payloads, and error recovery.</p>
+      </a>
+      <a class="card" href="error-handling.html" style="text-decoration:none">
+        <div class="ic">🧯</div>
+        <h3>Error handling</h3>
+        <p>The <code>handle-errors</code> block, flow-level <code>error:</code> paths, <code>vars.error</code>, HTTP status codes, and self-healing with <code>ai-retry</code>.</p>
+      </a>
+      <a class="card" href="deployment.html" style="text-decoration:none">
+        <div class="ic">🚀</div>
+        <h3>Deployment</h3>
+        <p>Run locally, in Docker, on k3d, or managed on GCP — plus public vs private exposure, OIDC SSO, TLS, and secrets.</p>
+      </a>
+    </div>
+  </div>
+</section>
+
 <!-- ============================== QUICKSTART ============================== -->
-<section id="quickstart" class="alt">
+<section id="quickstart">
   <div class="wrap">
     <div class="section-head">
       <span class="eyebrow">Quickstart</span>
@@ -364,17 +437,80 @@ flowchart TB
       </div>
       <div>
         <h3>3 · Call a flow directly (no ports, no sources)</h3>
-        <div class="cmd"><span class="p">$</span> go run ./cli invoke \<br />&nbsp;&nbsp;--config samples/hello-invoke.yaml --flow greet \<br />&nbsp;&nbsp;--data '{"name":"Ada"}'<br /><span class="c"># → {"greeting":"hello, Ada!"}</span></div>
+        <div class="cmd"><span class="p">$</span> ./bin/octo invoke \<br />&nbsp;&nbsp;--config samples/hello-invoke.yaml --flow greet \<br />&nbsp;&nbsp;--data '{"name":"Ada"}'<br /><span class="c"># → {"greeting":"hello, Ada!"}</span></div>
 
         <h3 style="margin-top:28px">4 · Develop with hot reload</h3>
-        <div class="cmd"><span class="p">$</span> go run ./cli --config samples/http-orders.yaml --watch</div>
+        <div class="cmd"><span class="p">$</span> ./bin/octo --config samples/http-orders.yaml --watch</div>
         <p style="font-size:0.9rem">Edit the YAML (or a <code>.env</code>), save, and the runtime rebuilds itself.</p>
 
         <h3 style="margin-top:28px">5 · Check the version</h3>
-        <div class="cmd"><span class="p">$</span> go run ./cli --version<br /><span class="c"># → octo 0.1.4 (built 2026-06-18T22:31:23Z)</span></div>
+        <div class="cmd"><span class="p">$</span> ./bin/octo --version<br /><span class="c"># → octo 0.1.4 (built 2026-06-18T22:31:23Z)</span></div>
       </div>
     </div>
     <div class="note"><strong>Tip:</strong> sourceless flows (no <code>source:</code>) get an implicit source and become callable by name — ideal for <code>invoke</code> and for <code>flow-ref</code> sub-flows.</div>
+  </div>
+</section>
+
+<!-- ============================== WHAT'S NEW ============================== -->
+<section id="whats-new">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">Recently shipped</span>
+      <h2>What's new.</h2>
+      <p>The latest releases brought AI blocks, single sign-on for the editor, first-class error handling, and a friendlier developer console. Here's the tour.</p>
+    </div>
+
+    <div class="grid cols-2">
+      <div class="card">
+        <div class="ic">🤖</div>
+        <h3>AI blocks &amp; LLM connectors</h3>
+        <p>
+          Connect Anthropic, OpenAI, or Gemini, then drop in
+          <a href="#samples">AI blocks</a>: <code>ai-router</code> (an LLM picks a route),
+          <code>ai-agent</code> (calls your sub-flows as tools), <code>ai-mapping</code>
+          (reshapes a payload to a schema), and <code>ai-retry</code> (self-healing recovery).
+        </p>
+      </div>
+      <div class="card">
+        <div class="ic">🔐</div>
+        <h3>Single sign-on for the editor</h3>
+        <p>
+          The visual editor now supports OIDC SSO (Auth.js). Backend routes are role-gated from an
+          id-token claim, sessions are stateless JWTs, and credentials moved out of Secret Manager.
+          SSO is opt-in — local <code>task dev</code> runs stay unauthenticated.
+        </p>
+      </div>
+      <div class="card">
+        <div class="ic">🧯</div>
+        <h3>First-class error handling</h3>
+        <p>
+          Wrap steps in a <code>handle-errors</code> block for inline recovery, or give a flow a
+          sibling <code>error:</code> chain. The recovery path sees
+          <code>vars.error.{message, flow, block}</code>, and <code>vars.httpStatus</code> sets the
+          response code. See the <a href="#samples">error-handling</a> sample.
+        </p>
+      </div>
+      <div class="card">
+        <div class="ic">🖥️</div>
+        <h3>A friendlier dev console</h3>
+        <p>
+          The editor's bottom panel is now tabbed — <strong>Logs</strong> alongside a
+          <strong>Dev .env</strong> editor for local secrets and variables — and a run's test URL is
+          surfaced right in the log panel so you can hit your endpoint in one click.
+        </p>
+      </div>
+    </div>
+
+    <div class="grid cols-2" style="margin-top:22px">
+      <figure class="diagram">
+        <img class="shot" src="assets/screenshots/sample-ai-router.png" alt="An ai-router flow on the Octo editor canvas: an AI Router block fanning out to billing, technical, and default routes." />
+        <figcaption class="diagram-cap">An <code>ai-router</code> flow rendered in the visual editor.</figcaption>
+      </figure>
+      <figure class="diagram">
+        <img class="shot" src="assets/screenshots/sample-error-handling.png" alt="The error-handling sample on the canvas: a handle-errors block with a recovery lane, and a flow-level error path." />
+        <figcaption class="diagram-cap">A flow's recovery path: the <code>error:</code> chain that sees <code>vars.error</code>.</figcaption>
+      </figure>
+    </div>
   </div>
 </section>
 
@@ -383,16 +519,16 @@ flowchart TB
   <div class="wrap">
     <div class="section-head">
       <span class="eyebrow">The vision</span>
-      <h2>A simple ESB today. A platform for what's next.</h2>
-      <p>With the integration core working, focus turns to the rest of the architecture: making the runtime Kubernetes-native, then AI-native.</p>
+      <h2>An AI-native iPaaS, running on Kubernetes — today.</h2>
+      <p>The cloud-native ESB, the AI blocks, and the Kubernetes-native platform are all shipping now. Focus turns next to clustering, stateful primitives, and a richer integration lifecycle.</p>
     </div>
 
     <figure class="diagram" style="margin-bottom:28px">
       <div class="mermaid">
 flowchart LR
-  A["<b>v0.1 — Cloud-native ESB</b><br/>flows · connectors · EIPs<br/>hot reload · CLI invoke"]:::now
-  A --> B["<b>Kubernetes-native</b><br/>operator · CRDs<br/>scale-to-zero · GitOps"]:::next
-  B --> C["<b>AI-native</b><br/>agents &amp; tools as blocks<br/>semantic routing · LLM steps"]:::later
+  A["<b>Shipping now</b><br/>cloud-native ESB · AI blocks<br/>Kubernetes-native platform"]:::now
+  A --> B["<b>Next</b><br/>clustering · KV state<br/>integration versioning · MCP"]:::next
+  B --> C["<b>Later</b><br/>autoscaling · operator &amp; CRDs<br/>GitOps · deeper agents"]:::later
   classDef now fill:#0f2a20,stroke:#36d399,color:#e6edf3;
   classDef next fill:#11212e,stroke:#4aa8ff,color:#e6edf3;
   classDef later fill:#1a142e,stroke:#b692ff,color:#e6edf3;
@@ -402,35 +538,35 @@ flowchart LR
     <div class="roadmap">
       <div class="phase now">
         <span class="tag">● Now — shipping</span>
-        <h3>Cloud-native ESB</h3>
+        <h3>ESB · AI · Platform</h3>
         <ul>
-          <li>YAML flows &amp; recursive composition</li>
-          <li>cron · http · http-client · database · logger connectors</li>
-          <li>switch · if · foreach · handle-errors · fork</li>
-          <li>Hot reload &amp; CLI invoke</li>
-          <li>Flow-event bus &amp; worker-pool concurrency</li>
+          <li>YAML flows, recursive composition &amp; the EIP blocks (switch · if · foreach · fork · handle-errors)</li>
+          <li>cron · http · http-client · database · logger connectors; hot reload &amp; CLI invoke</li>
+          <li>AI blocks: Anthropic / OpenAI / Gemini + ai-router · ai-agent · ai-mapping · ai-retry</li>
+          <li>Visual editor + orchestrator that deploy integrations as Kubernetes pods</li>
+          <li>OIDC SSO, public ingress &amp; automatic TLS</li>
         </ul>
       </div>
       <div class="phase next">
-        <span class="tag">→ Next</span>
-        <h3>Kubernetes-native</h3>
+        <span class="tag">→ Next — in progress</span>
+        <h3>Clustering &amp; state</h3>
         <ul>
-          <li>An operator and flow CRDs</li>
-          <li>Config from ConfigMaps / Secrets</li>
-          <li>Health, readiness &amp; metrics endpoints</li>
-          <li>Autoscaling on backpressure</li>
-          <li>GitOps-friendly deployments</li>
+          <li>Cluster leader election</li>
+          <li>Integration- &amp; cluster-level key–value storage</li>
+          <li>Integration versioning</li>
+          <li>Promote / rollback between deployments</li>
+          <li>Building integrations with MCP</li>
         </ul>
       </div>
       <div class="phase later">
         <span class="tag">◇ Later</span>
-        <h3>AI-native</h3>
+        <h3>Scale &amp; ecosystem</h3>
         <ul>
-          <li>LLM &amp; agent blocks as first-class processors</li>
-          <li>Tools &amp; MCP connectors</li>
-          <li>Semantic, content-aware routing</li>
-          <li>Structured extraction &amp; enrichment steps</li>
-          <li>Flows that agents can call — and compose</li>
+          <li>Autoscaling on backpressure</li>
+          <li>An operator and flow CRDs</li>
+          <li>GitOps-friendly deployments</li>
+          <li>Health, readiness &amp; metrics endpoints</li>
+          <li>Deeper agentic composition &amp; more connectors</li>
         </ul>
       </div>
     </div>
@@ -466,7 +602,7 @@ flowchart LR
 <footer>
   <div class="wrap foot-inner">
     <div>
-      <a class="brand" href="#top"><span class="dot"></span> Octo</a>
+      <a class="brand" href="#top"><img class="logo" src="assets/octo.png" alt="" /> Octo</a>
       <div class="muted" style="margin-top:8px">A cloud-native, AI-native integration runtime. MIT licensed.</div>
     </div>
     <div class="foot-links">
@@ -496,7 +632,7 @@ flows:
 
 <script type="text/plain" data-sample-meta="hero"
   data-title="hello-invoke" data-blurb="The smallest useful flow: no source, callable by name, JSON in / JSON out."
-  data-run="go run ./cli invoke --config samples/hello-invoke.yaml --flow greet --data '{&quot;name&quot;:&quot;Ada&quot;}'"
+  data-run="./bin/octo invoke --config samples/hello-invoke.yaml --flow greet --data '{&quot;name&quot;:&quot;Ada&quot;}'"
   data-pills="set-payload|sourceless|invoke"></script>
 
 <div id="sample-data" hidden>
@@ -534,7 +670,7 @@ flows:
 
   <script type="text/plain" data-sample-meta="http-orders"
     data-title="http-orders" data-blurb="An HTTP endpoint with content-based routing, a one-way audit (fire-and-forget), and a synchronous content-enricher sub-flow."
-    data-run="go run ./cli --config samples/http-orders.yaml"
+    data-run="./bin/octo --config samples/http-orders.yaml"
     data-pills="http|switch|flow-ref|if|set-payload"></script>
   <script type="text/plain" data-sample-src="http-orders">service:
   name: http-orders
@@ -800,11 +936,345 @@ flows:
                   - type: log
                     settings: { message: '"low order " + string(vars.order.id)' }
 </script>
+
+  <script type="text/plain" data-sample-meta="ai-router"
+    data-title="ai-router" data-blurb="An LLM picks one of several named, described routes for each message. The default path is the guardrail, taken when the model isn't confident. Needs ANTHROPIC_API_KEY."
+    data-run="./bin/octo invoke --config samples/ai-router.yaml --flow triage --data '{&quot;subject&quot;:&quot;double charged&quot;}'"
+    data-pills="ai|llm-anthropic|router|guardrail"></script>
+  <script type="text/plain" data-sample-src="ai-router">service:
+  name: ai-router
+
+env:
+  - name: ANTHROPIC_API_KEY
+    required: true
+
+connectors:
+  - name: claude
+    type: llm-anthropic
+    settings:
+      apiKey: ${ANTHROPIC_API_KEY}
+
+flows:
+  - name: triage
+    process:
+      - type: ai-router
+        name: triage-ticket
+        connector: claude
+        prompt: >
+          Read the support ticket in the message body and route it to the team
+          best suited to handle it.
+        guardrail: >
+          If the ticket is ambiguous, spans multiple areas, or you are not
+          confident, take the default (human triage) path.
+        routes:
+          - name: billing
+            description: Payment failures, refunds, invoices, subscription changes.
+            process:
+              - type: set-payload
+                settings: { value: '{"team": "billing"}' }
+          - name: technical
+            description: Bugs, outages, API errors, integration problems.
+            process:
+              - type: set-payload
+                settings: { value: '{"team": "technical"}' }
+        default:
+          process:
+            - type: set-payload
+              settings: { value: '{"team": "human-triage"}' }
+</script>
+
+  <script type="text/plain" data-sample-meta="ai-agent"
+    data-title="ai-agent" data-blurb="An LLM accomplishes a task by calling your sub-flows as tools in a loop — each tool's args arrive as the branch body, its output returns to the model. Needs ANTHROPIC_API_KEY."
+    data-run="./bin/octo invoke --config samples/ai-agent.yaml --flow enrich --data '{&quot;company&quot;:&quot;Acme&quot;,&quot;domain&quot;:&quot;acme.example&quot;}'"
+    data-pills="ai|llm-anthropic|agent|tools"></script>
+  <script type="text/plain" data-sample-src="ai-agent">service:
+  name: ai-agent
+
+env:
+  - name: ANTHROPIC_API_KEY
+    required: true
+
+connectors:
+  - name: claude
+    type: llm-anthropic
+    settings:
+      apiKey: ${ANTHROPIC_API_KEY}
+
+flows:
+  - name: enrich
+    process:
+      - type: ai-agent
+        name: enrich-lead
+        connector: claude
+        maxIterations: 6
+        prompt: >
+          Enrich the inbound lead. Classify the company size and decide whether
+          it is a good fit. Call the tools as needed, then respond with a JSON
+          object {"tier": "...", "fit": true|false}.
+        guardrail: >
+          If you cannot classify the lead with confidence, take the default path.
+        tools:
+          - name: classify_size
+            description: Classify a company's size tier from its name and domain.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["company"],
+                "properties": {
+                  "company": { "type": "string" },
+                  "domain":  { "type": "string" }
+                }
+              }
+            process:
+              - type: set-payload
+                settings: { value: '{"tier": "smb"}' }
+        default:
+          process:
+            - type: set-payload
+              settings: { value: '{"status": "needs-manual-review"}' }
+</script>
+
+  <script type="text/plain" data-sample-meta="ai-mapping"
+    data-title="ai-mapping" data-blurb="Reshape a message body to a target shape from a prompt, optional examples, and an output JSON Schema (validated). On a bad shape it errors — so it composes with ai-retry / handle-errors. Needs ANTHROPIC_API_KEY."
+    data-run="./bin/octo invoke --config samples/ai-mapping.yaml --flow normalize-contact --data '{&quot;name&quot;:&quot;Ada Lovelace&quot;,&quot;tel&quot;:&quot;(415) 555-0132&quot;}'"
+    data-pills="ai|llm-anthropic|transform|schema"></script>
+  <script type="text/plain" data-sample-src="ai-mapping">service:
+  name: ai-mapping
+
+env:
+  - name: ANTHROPIC_API_KEY
+    required: true
+
+connectors:
+  - name: claude
+    type: llm-anthropic
+    settings:
+      apiKey: ${ANTHROPIC_API_KEY}
+      # model defaults to claude-sonnet-4-6
+
+flows:
+  - name: normalize-contact
+    process:
+      - type: ai-mapping
+        name: normalize
+        settings:
+          connector: claude
+          prompt: >
+            Map the raw contact payload to our canonical contact shape.
+            Split the full name into firstName and lastName. Lowercase the email.
+            Normalize the phone number to E.164.
+          inputExample: |
+            { "name": "Ada Lovelace", "tel": "(415) 555-0132", "email": "ADA@EX.COM" }
+          outputExample: |
+            { "firstName": "Ada", "lastName": "Lovelace", "email": "ada@ex.com", "phone": "+14155550132" }
+          outputSchema: |
+            {
+              "type": "object",
+              "required": ["firstName", "lastName", "email"],
+              "properties": {
+                "firstName": { "type": "string" },
+                "lastName":  { "type": "string" },
+                "email":     { "type": "string" },
+                "phone":     { "type": "string" }
+              }
+            }
+</script>
+
+  <script type="text/plain" data-sample-meta="ai-retry"
+    data-title="ai-retry" data-blurb="Runs a protected chain and, on failure, lets an LLM inspect vars.error, revise the message, and re-run up to maxAttempts before falling through to the error chain. Self-healing. Needs ANTHROPIC_API_KEY."
+    data-run="./bin/octo invoke --config samples/ai-retry.yaml --flow charge --data '{&quot;order&quot;:{&quot;total&quot;:&quot;42.00&quot;,&quot;currency&quot;:&quot;usd&quot;}}'"
+    data-pills="ai|llm-anthropic|self-healing|errors"></script>
+  <script type="text/plain" data-sample-src="ai-retry">service:
+  name: ai-retry
+
+env:
+  - name: ANTHROPIC_API_KEY
+    required: true
+
+connectors:
+  - name: claude
+    type: llm-anthropic
+    settings:
+      apiKey: ${ANTHROPIC_API_KEY}
+
+flows:
+  - name: charge
+    process:
+      - type: ai-retry
+        name: resilient-charge
+        connector: claude
+        maxAttempts: 3
+        prompt: >
+          A step failed building the charge request. Inspect vars.error and the
+          message body, correct the body (for example, fix a malformed amount or
+          a missing currency), and produce a revised message to retry.
+        process:
+          # ai-mapping validates against outputSchema and errors on a bad shape,
+          # giving ai-retry something to recover from.
+          - type: ai-mapping
+            name: build-charge
+            settings:
+              connector: claude
+              prompt: "Build a Stripe charge request from the order."
+              outputSchema: |
+                {
+                  "type": "object",
+                  "required": ["amount", "currency"],
+                  "properties": {
+                    "amount":   { "type": "integer" },
+                    "currency": { "type": "string" }
+                  }
+                }
+        error:
+          - type: set-payload
+            settings:
+              value: '{"status": "degraded", "reason": vars.error.message}'
+</script>
+
+  <script type="text/plain" data-sample-meta="error-handling"
+    data-title="error-handling" data-blurb="Two recovery styles in one file: an inline handle-errors block (HTTP 200, degraded body) and a flow-level error: path (sets vars.httpStatus 502, returns vars.error). No external server needed."
+    data-run="./bin/octo --config samples/error-handling.yaml"
+    data-pills="handle-errors|error path|vars.error|httpStatus"></script>
+  <script type="text/plain" data-sample-src="error-handling">service:
+  name: error-handling
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      port: 8080
+  - name: payments
+    type: http-client
+    settings:
+      baseURL: http://127.0.0.1:9   # discard port -> every call fails to connect
+      timeout: 1s
+
+flows:
+  # 1. Inline recovery with handle-errors. The charge fails, so the error chain
+  #    runs, reads vars.error.message, and returns a friendly body (HTTP 200).
+  - name: charge-inline
+    source:
+      connector: api
+      type: http
+      settings: { path: /inline }
+    process:
+      - type: handle-errors
+        name: charge
+        process:
+          - type: rest
+            name: call-charge
+            settings:
+              connector: payments
+              method: POST
+              path: /charges
+              body: '{"amount": body.amount}'
+        error:
+          - type: set-payload
+            settings:
+              value: '{"status": "degraded", "reason": vars.error.message}'
+
+  # 2. Flow-level error path. No handle-errors: the rest call errors, so the
+  #    message is redirected to the flow error: chain, which sets a 502 status
+  #    and an error body the caller receives.
+  - name: charge-flowlevel
+    source:
+      connector: api
+      type: http
+      settings: { path: /flowlevel }
+    process:
+      - type: rest
+        name: call-charge
+        settings:
+          connector: payments
+          method: POST
+          path: /charges
+          body: '{"amount": body.amount}'
+    error:
+      - type: set-variable
+        settings: { name: httpStatus, value: "502" }
+      - type: set-payload
+        settings:
+          value: >
+            {
+              "error":       vars.error.message,
+              "failedBlock": vars.error.block,
+              "flow":        vars.error.flow
+            }
+</script>
+
+  <script type="text/plain" data-sample-meta="file-logger"
+    data-title="file-logger" data-blurb="A named logger connector owns its own output file (opened on start, closed on shutdown). A cron tick writes a JSON audit line through it."
+    data-run="task run:sample -- file-logger.yaml"
+    data-pills="cron|logger|file|json"></script>
+  <script type="text/plain" data-sample-src="file-logger">service:
+  name: file-logger-demo
+
+connectors:
+  - name: ticker
+    type: cron
+  # A named logger connector. It owns its output file (opened on start, closed
+  # on shutdown). Any settings can be omitted to take the defaults
+  # (output: stdout, format: text, level: info).
+  - name: audit
+    type: logger
+    settings:
+      output: /tmp/octo-audit.log
+      format: json
+      level: info
+      addSource: false
+
+flows:
+  - name: audit-ticks
+    source:
+      connector: ticker
+      type: cron
+      settings:
+        schedule: "@every 2s"
+        payload: '{"date": string(now)}'
+    process:
+      # This log block writes through the named "audit" logger connector.
+      - type: log
+        settings:
+          logger: audit
+          message: '"tick at " + body.date'
+</script>
+
+  <script type="text/plain" data-sample-meta="heartbeat"
+    data-title="heartbeat" data-blurb="The minimal cron flow: a ticker fires on a schedule and a reusable named processor logs a CEL-rendered heartbeat line."
+    data-run="task run:sample -- heartbeat.yaml"
+    data-pills="cron|log|processors (ref)"></script>
+  <script type="text/plain" data-sample-src="heartbeat">service:
+  name: heartbeat
+
+connectors:
+  - name: ticker
+    type: cron
+
+# Named processor definitions. Flow blocks reference these by `ref`.
+processors:
+  - name: heartbeat-log
+    type: log
+    settings:
+      level: info
+      message: '"heartbeat fired at " + body.firedAt'
+
+flows:
+  - name: heartbeat
+    source:
+      connector: ticker
+      type: cron
+      settings:
+        # Descriptor schedule: fire every two seconds.
+        schedule: "@every 2s"
+        payload: '{"firedAt": string(now), "kind": "tick"}'
+    process:
+      - ref: heartbeat-log
+</script>
 </div>
 
 <!-- ============================== SCRIPTS ============================== -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
-<script src="assets/app.js" type="module"></script>
+<script src="assets/app.js?v=2" type="module"></script>
 </body>
 </html>
