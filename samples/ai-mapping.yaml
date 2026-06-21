@@ -23,7 +23,7 @@ connectors:
     type: llm-anthropic
     settings:
       apiKey: ${ANTHROPIC_API_KEY}
-      # model defaults to claude-opus-4-8
+      # model defaults to claude-sonnet-4-6
 
 flows:
   - name: normalize-contact

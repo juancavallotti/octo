@@ -27,14 +27,14 @@ func init() {
 	})
 }
 
-const defaultModel = "gpt-4.1"
+const defaultModel = "gpt-5.4"
 
 // connectorSettings is the configuration decoded from the connector's settings.
 type connectorSettings struct {
 	// APIKey authenticates with the OpenAI API (required). Source it from an
 	// environment variable via ${OPENAI_API_KEY}; it is never logged.
 	APIKey string `json:"apiKey"`
-	// Model is the model id (default gpt-4.1).
+	// Model is the model id (default gpt-5.4).
 	Model string `json:"model"`
 	// MaxTokens is the default response token cap (0 = the model default). A
 	// request may override it.

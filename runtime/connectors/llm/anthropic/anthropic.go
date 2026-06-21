@@ -31,7 +31,7 @@ func init() {
 }
 
 const (
-	defaultModel     = "claude-opus-4-8"
+	defaultModel     = "claude-sonnet-4-6"
 	defaultMaxTokens = 4096
 )
 
@@ -40,7 +40,7 @@ type connectorSettings struct {
 	// APIKey authenticates with the Anthropic API (required). Source it from an
 	// environment variable via ${ANTHROPIC_API_KEY}; it is never logged.
 	APIKey string `json:"apiKey"`
-	// Model is the model id (default claude-opus-4-8).
+	// Model is the model id (default claude-sonnet-4-6).
 	Model string `json:"model"`
 	// MaxTokens is the default response token cap (default 4096). A request may
 	// override it.
