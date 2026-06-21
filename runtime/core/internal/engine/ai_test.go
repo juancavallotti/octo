@@ -82,7 +82,7 @@ func toolBranch(name, desc string, settings types.Settings) types.ToolConfig {
 	return types.ToolConfig{
 		Name:        name,
 		Description: desc,
-		Flow:        types.FlowConfig{Process: []types.BlockConfig{{Type: "tool", Settings: settings}}},
+		Process:     []types.BlockConfig{{Type: "tool", Settings: settings}},
 	}
 }
 
@@ -160,8 +160,8 @@ func routerConfig(withGuardrail bool) types.BlockConfig {
 		Connector: "claude",
 		Prompt:    "route the ticket",
 		Routes: []types.RouteConfig{
-			{Name: "billing", Description: "billing and refunds", Flow: tagFlow("billing")},
-			{Name: "tech", Description: "technical issues", Flow: tagFlow("tech")},
+			{Name: "billing", Description: "billing and refunds", Process: tagFlow("billing").Process},
+			{Name: "tech", Description: "technical issues", Process: tagFlow("tech").Process},
 		},
 	}
 	if withGuardrail {
@@ -282,7 +282,7 @@ func TestAIRouterBuildValidation(t *testing.T) {
 
 	base := func() types.BlockConfig {
 		return types.BlockConfig{Type: "ai-router", Connector: "claude", Prompt: "x",
-			Routes: []types.RouteConfig{{Name: "a", Description: "d", Flow: tagFlow("a")}}}
+			Routes: []types.RouteConfig{{Name: "a", Description: "d", Process: tagFlow("a").Process}}}
 	}
 
 	if err := build(types.BlockConfig{Type: "ai-router", Connector: "claude", Prompt: "x"}); err == nil {
@@ -304,7 +304,7 @@ func TestAIRouterBuildValidation(t *testing.T) {
 		t.Error("expected error with a route missing a description")
 	}
 	dup := base()
-	dup.Routes = append(dup.Routes, types.RouteConfig{Name: "a", Description: "d2", Flow: tagFlow("a2")})
+	dup.Routes = append(dup.Routes, types.RouteConfig{Name: "a", Description: "d2", Process: tagFlow("a2").Process})
 	if err := build(dup); err == nil {
 		t.Error("expected error with duplicate route names")
 	}
@@ -517,8 +517,13 @@ func TestAIRetryRevisesThenSucceeds(t *testing.T) {
 		t.Errorf("calls = %d, want 1 (one revision)", len(fake.calls))
 	}
 	// The revise request should carry the error so the model can react.
-	if !strings.Contains(fake.calls[0].Messages[0].Text, "amount") {
-		t.Errorf("revise request missing error context: %q", fake.calls[0].Messages[0].Text)
+	prompt := fake.calls[0].Messages[0].Text
+	if !strings.Contains(prompt, "amount") {
+		t.Errorf("revise request missing error context: %q", prompt)
+	}
+	// ...and the current variables, so the model can heal by setting a missing one.
+	if !strings.Contains(prompt, "Current message variables") {
+		t.Errorf("revise request missing variables context: %q", prompt)
 	}
 }
 

@@ -116,21 +116,26 @@ type CaseConfig struct {
 }
 
 // RouteConfig is one branch of an "ai-router" block: a Name and a Description the
-// model uses to choose, plus the inline flow to run when it is chosen.
+// model uses to choose, plus the Process chain to run when it is chosen. Process
+// is a bare block list (not an inline FlowConfig) so the route's own Name does not
+// collide with FlowConfig's name field on decode; a route never needs the other
+// flow-level fields (source, workers, error).
 type RouteConfig struct {
-	Name        string     `yaml:"name"`
-	Description string     `yaml:"description"`
-	Flow        FlowConfig `yaml:",inline"`
+	Name        string        `yaml:"name"`
+	Description string        `yaml:"description"`
+	Process     []BlockConfig `yaml:"process"`
 }
 
 // ToolConfig is one branch of an "ai-agent" block, wired to the model as a
 // callable function. Name and Description tell the model what the tool does;
 // InputSchema is the JSON Schema for its arguments (a JSON document, written
-// inline as a string); the inline flow runs the tool, its arguments arriving as
+// inline as a string); the Process chain runs the tool, its arguments arriving as
 // the message body and its output body returned to the model as the result.
+// Process is a bare block list (not an inline FlowConfig) for the same
+// name-collision reason as RouteConfig.
 type ToolConfig struct {
-	Name        string     `yaml:"name"`
-	Description string     `yaml:"description"`
-	InputSchema string     `yaml:"inputSchema,omitempty"`
-	Flow        FlowConfig `yaml:",inline"`
+	Name        string        `yaml:"name"`
+	Description string        `yaml:"description"`
+	InputSchema string        `yaml:"inputSchema,omitempty"`
+	Process     []BlockConfig `yaml:"process"`
 }

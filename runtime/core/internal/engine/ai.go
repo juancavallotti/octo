@@ -5,12 +5,64 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 
 	"github.com/juancavallotti/eip-go/core"
 	"github.com/juancavallotti/eip-go/types"
 )
+
+// logMaxLen caps prompt/response strings in debug logs so a long body or system
+// prompt stays readable in the log stream.
+const logMaxLen = 2000
+
+// truncForLog shortens s for logging, marking where it was cut.
+func truncForLog(s string) string {
+	if len(s) > logMaxLen {
+		return s[:logMaxLen] + "…(truncated)"
+	}
+	return s
+}
+
+// toolCallNames lists the tool names in a set of calls for concise logging.
+func toolCallNames(calls []core.LLMToolCall) []string {
+	names := make([]string, len(calls))
+	for i, c := range calls {
+		names[i] = c.Name
+	}
+	return names
+}
+
+// logModelCall traces an outgoing model request at debug: the component (kind +
+// block name + connector), the message/tool counts, the tool choice, and the
+// system prompt, so the prompt the model sees is visible with LOG_LEVEL=debug.
+func logModelCall(kind, name, connector string, req core.LLMRequest) {
+	slog.Debug(kind+" calling model",
+		"block", name, "connector", connector,
+		"messages", len(req.Messages), "tools", len(req.Tools),
+		"toolChoice", req.ToolChoice.Mode, "system", truncForLog(req.System),
+		"lastUser", truncForLog(lastUserText(req.Messages)))
+}
+
+// lastUserText returns the text of the most recent user message, for logging the
+// concrete prompt (with error/body/variables context) the model is given.
+func lastUserText(msgs []core.LLMMessage) string {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == core.LLMRoleUser {
+			return msgs[i].Text
+		}
+	}
+	return ""
+}
+
+// logModelResp traces a model reply at debug: the stop reason, any free text, and
+// the names of the tools it chose to call.
+func logModelResp(kind, name string, resp *core.LLMResponse) {
+	slog.Debug(kind+" model replied",
+		"block", name, "stop", resp.StopReason,
+		"text", truncForLog(resp.Text), "toolCalls", toolCallNames(resp.ToolCalls))
+}
 
 // routeGuardrailSentinel is the route name the model selects to fall back to the
 // guardrail (Default) path when it is not confident in any named route.
@@ -31,6 +83,8 @@ type aiRouter struct {
 	routes    map[string]*Flow
 	guardrail *Flow
 	maxRounds int
+	name      string
+	connector string
 }
 
 //nolint:ireturn // builders intentionally return the MessageProcessor interface
@@ -63,7 +117,7 @@ func (b *builder) aiRouter(cfg types.BlockConfig) (core.MessageProcessor, error)
 		if _, dup := routes[route.Name]; dup {
 			return nil, fmt.Errorf("ai-router route %q is defined more than once", route.Name)
 		}
-		flow, flowErr := b.subFlow(route.Flow)
+		flow, flowErr := b.subFlow(types.FlowConfig{Process: route.Process})
 		if flowErr != nil {
 			return nil, fmt.Errorf("ai-router route %q: %w", route.Name, flowErr)
 		}
@@ -77,6 +131,8 @@ func (b *builder) aiRouter(cfg types.BlockConfig) (core.MessageProcessor, error)
 		tools:     routerTools(names),
 		routes:    routes,
 		maxRounds: defaultRouterRounds,
+		name:      cfg.Name,
+		connector: cfg.Connector,
 	}
 	if cfg.Default != nil {
 		guardrail, defErr := b.subFlow(*cfg.Default)
@@ -98,15 +154,18 @@ func (r *aiRouter) Process(ctx context.Context, msg *types.Message) (*types.Mess
 	}}
 
 	for round := 0; round < r.maxRounds; round++ {
-		resp, err := r.client.Complete(ctx, core.LLMRequest{
+		req := core.LLMRequest{
 			System:     r.system,
 			Messages:   messages,
 			Tools:      r.tools,
 			ToolChoice: core.LLMToolChoice{Mode: core.LLMToolChoiceAny},
-		})
+		}
+		logModelCall(blockKindAIRouter, r.name, r.connector, req)
+		resp, err := r.client.Complete(ctx, req)
 		if err != nil {
 			return nil, fmt.Errorf("ai-router: %w", err)
 		}
+		logModelResp(blockKindAIRouter, r.name, resp)
 		messages = append(messages, resp.Raw)
 		if len(resp.ToolCalls) == 0 {
 			break // model produced no decision; fall back to the guardrail
@@ -130,8 +189,10 @@ func (r *aiRouter) Process(ctx context.Context, msg *types.Message) (*types.Mess
 // is no guardrail (mirroring switch's nil-default behavior).
 func (r *aiRouter) dispatch(ctx context.Context, route string, msg *types.Message) (*types.Message, error) {
 	if flow, ok := r.routes[route]; ok {
+		slog.Info("ai-router selected route", "block", r.name, "connector", r.connector, "route", route)
 		return flow.Process(ctx, msg)
 	}
+	slog.Info("ai-router taking guardrail", "block", r.name, "connector", r.connector, "route", route)
 	if r.guardrail != nil {
 		return r.guardrail.Process(ctx, msg)
 	}
@@ -140,6 +201,7 @@ func (r *aiRouter) dispatch(ctx context.Context, route string, msg *types.Messag
 
 // inspect serves a read-only inspection tool call against the message.
 func (r *aiRouter) inspect(call core.LLMToolCall, msg *types.Message) core.LLMToolResult {
+	slog.Debug("ai-router inspection tool", "block", r.name, "tool", call.Name, "input", truncForLog(string(call.Input)))
 	switch call.Name {
 	case "get_body":
 		body, err := msg.BodyJSON()
@@ -201,6 +263,7 @@ type aiRetry struct {
 	alternative *Flow
 	maxAttempts int
 	name        string
+	connector   string
 }
 
 //nolint:ireturn // builders intentionally return the MessageProcessor interface
@@ -237,6 +300,7 @@ func (b *builder) aiRetry(cfg types.BlockConfig) (core.MessageProcessor, error) 
 		main:        main,
 		maxAttempts: maxAttempts,
 		name:        cfg.Name,
+		connector:   cfg.Connector,
 	}
 	if len(cfg.Error) > 0 {
 		alternative, altErr := b.flow(types.FlowConfig{Process: cfg.Error})
@@ -256,18 +320,40 @@ func (r *aiRetry) Process(ctx context.Context, msg *types.Message) (*types.Messa
 	if err == nil {
 		return out, nil
 	}
+	slog.Info("ai-retry chain failed, starting retry loop",
+		"block", r.name, "connector", r.connector, "maxAttempts", r.maxAttempts, "error", err)
+
+	SetErrorVariable(msg, r.name, err)
+	convo := []core.LLMMessage{{Role: core.LLMRoleUser, Text: "The step failed.\n" + r.stateText(msg) +
+		"\nCall revise_message to retry. Fix the body and/or set any missing variables the failing " +
+		"step needs (e.g. a variable referenced as vars.<name> that is absent above) via the " +
+		`"variables" field.`}}
 
 	for attempt := 0; attempt < r.maxAttempts; attempt++ {
-		SetErrorVariable(msg, r.name, err)
-		if reviseErr := r.revise(ctx, msg); reviseErr != nil {
-			break // cannot get a usable revision; stop retrying
+		call, reviseErr := r.revise(ctx, &convo)
+		if reviseErr != nil {
+			slog.Warn("ai-retry could not revise", "block", r.name, "attempt", attempt+1, "error", reviseErr)
+			break
+		}
+		if applyErr := applyRevision(msg, call.Input); applyErr != nil {
+			slog.Warn("ai-retry could not apply revision", "block", r.name, "attempt", attempt+1, "error", applyErr)
+			break
 		}
 		out, err = r.main.Process(ctx, msg)
 		if err == nil {
+			slog.Info("ai-retry recovered", "block", r.name, "attempt", attempt+1)
 			return out, nil
 		}
+		slog.Info("ai-retry attempt failed", "block", r.name, "attempt", attempt+1, "error", err)
+		SetErrorVariable(msg, r.name, err)
+		convo = append(convo, core.LLMMessage{Role: core.LLMRoleTool, ToolResults: []core.LLMToolResult{{
+			ToolCallID: call.ID, IsError: true,
+			Content: "That revision did not fix it; the step failed again.\n" + r.stateText(msg) +
+				"\nCall revise_message again with a different fix.",
+		}}})
 	}
 
+	slog.Warn("ai-retry exhausted attempts", "block", r.name, "maxAttempts", r.maxAttempts, "error", err)
 	if r.alternative != nil {
 		SetErrorVariable(msg, r.name, err)
 		recovered, altErr := r.alternative.Process(ctx, msg)
@@ -279,34 +365,45 @@ func (r *aiRetry) Process(ctx context.Context, msg *types.Message) (*types.Messa
 	return nil, err
 }
 
-// revise asks the model for a corrected message and applies it. vars.error must
-// already be set on the message.
-func (r *aiRetry) revise(ctx context.Context, msg *types.Message) error {
-	body, err := msg.BodyJSON()
-	if err != nil {
-		return fmt.Errorf("ai-retry: encode body: %w", err)
-	}
+// stateText renders the current error, body, and variables for the repair model,
+// so it can see both what failed and what state it has to work with. vars.error
+// must already be set on the message.
+func (r *aiRetry) stateText(msg *types.Message) string {
+	body, _ := msg.BodyJSON()
 	errInfo, _ := json.Marshal(msg.Variables[errorVarName])
+	vars, _ := json.Marshal(msg.Variables)
+	return fmt.Sprintf("Error: %s\nCurrent message body:\n%s\n"+
+		"Current message variables (referenced as vars.<name> in the flow):\n%s", errInfo, body, vars)
+}
 
-	resp, err := r.client.Complete(ctx, core.LLMRequest{
-		System: r.system,
-		Messages: []core.LLMMessage{{
-			Role: core.LLMRoleUser,
-			Text: fmt.Sprintf("The step failed.\nError: %s\nCurrent message body:\n%s\n"+
-				"Call revise_message with a corrected message to retry.", errInfo, body),
-		}},
-		Tools:      reviseTools(),
-		ToolChoice: core.LLMToolChoice{Mode: core.LLMToolChoiceTool, Name: reviseToolName},
-	})
-	if err != nil {
-		return fmt.Errorf("ai-retry: %w", err)
+// revise runs one turn of the repair conversation: it sends the accumulated
+// dialog (forcing a revise_message call), appends the model's reply, and returns
+// the revise call so the caller can apply it and feed back the outcome.
+func (r *aiRetry) revise(ctx context.Context, convo *[]core.LLMMessage) (core.LLMToolCall, error) {
+	req := core.LLMRequest{
+		System:   r.system,
+		Messages: *convo,
+		Tools:    reviseTools(),
+		// Auto (not forced): forcing the tool makes some providers (Gemini 3.x) skip
+		// their reasoning step and emit an empty call. The system prompt already
+		// instructs the model to call revise_message, so auto keeps the reasoning.
+		ToolChoice: core.LLMToolChoice{Mode: core.LLMToolChoiceAuto},
 	}
+	logModelCall(blockKindAIRetry, r.name, r.connector, req)
+	resp, err := r.client.Complete(ctx, req)
+	if err != nil {
+		return core.LLMToolCall{}, fmt.Errorf("ai-retry: %w", err)
+	}
+	logModelResp(blockKindAIRetry, r.name, resp)
+	*convo = append(*convo, resp.Raw)
 	for _, call := range resp.ToolCalls {
 		if call.Name == reviseToolName {
-			return applyRevision(msg, call.Input)
+			slog.Debug("ai-retry applying revision",
+				"block", r.name, "revision", truncForLog(string(call.Input)))
+			return call, nil
 		}
 	}
-	return errors.New("ai-retry: model did not produce a revision")
+	return core.LLMToolCall{}, errors.New("ai-retry: model did not produce a revision")
 }
 
 // applyRevision sets the message body and merges any variables from a
@@ -333,11 +430,14 @@ func applyRevision(msg *types.Message, raw json.RawMessage) error {
 // reviseTools is the single revise_message tool the retry loop forces.
 func reviseTools() []core.LLMTool {
 	return []core.LLMTool{{
-		Name:        reviseToolName,
-		Description: "Provide a corrected message to retry the failed step.",
+		Name: reviseToolName,
+		Description: "Provide a corrected message to retry the failed step. Use this to " +
+			"fix the body and/or supply variables the step needs.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{` +
 			`"body":{"description":"The corrected message body."},` +
-			`"variables":{"type":"object","description":"Variables to set or override."}},` +
+			`"variables":{"type":"object","description":"Message variables to set or override ` +
+			`(referenced as vars.<name> in the flow). Set any variable the failing step needs ` +
+			`but that is missing."}},` +
 			`"required":["body"]}`),
 	}}
 }
@@ -345,8 +445,11 @@ func reviseTools() []core.LLMTool {
 // buildRetrySystem assembles the repair system prompt.
 func buildRetrySystem(prompt string) string {
 	var b strings.Builder
-	b.WriteString("A step in a processing pipeline failed. Inspect the error and the current ")
-	b.WriteString("message, then call revise_message with a corrected message to retry.\n\n")
+	b.WriteString("A step in a processing pipeline failed. Inspect the error, the current ")
+	b.WriteString("message body, and the current variables, then call revise_message to retry. ")
+	b.WriteString("The failing step may reference variables as vars.<name>; if such a variable ")
+	b.WriteString("is missing or wrong, set it via the revise_message \"variables\" field. ")
+	b.WriteString("Fixing only the body will not help when the step reads from variables.\n\n")
 	b.WriteString(strings.TrimSpace(prompt))
 	return b.String()
 }
@@ -368,6 +471,8 @@ type aiAgent struct {
 	branches      map[string]*Flow
 	guardrail     *Flow
 	maxIterations int
+	name          string
+	connector     string
 }
 
 //nolint:ireturn // builders intentionally return the MessageProcessor interface
@@ -404,6 +509,8 @@ func (b *builder) aiAgent(cfg types.BlockConfig) (core.MessageProcessor, error) 
 		tools:         tools,
 		branches:      branches,
 		maxIterations: maxIterations,
+		name:          cfg.Name,
+		connector:     cfg.Connector,
 	}
 	if cfg.Default != nil {
 		guardrail, defErr := b.subFlow(*cfg.Default)
@@ -435,7 +542,7 @@ func (b *builder) agentTools(configs []types.ToolConfig) (map[string]*Flow, []co
 		if err != nil {
 			return nil, nil, err
 		}
-		flow, err := b.subFlow(tool.Flow)
+		flow, err := b.subFlow(types.FlowConfig{Process: tool.Process})
 		if err != nil {
 			return nil, nil, fmt.Errorf("ai-agent tool %q: %w", tool.Name, err)
 		}
@@ -461,21 +568,25 @@ func (a *aiAgent) Process(ctx context.Context, msg *types.Message) (*types.Messa
 
 	current := msg
 	for iter := 0; iter < a.maxIterations; iter++ {
-		resp, completeErr := a.client.Complete(ctx, core.LLMRequest{
+		req := core.LLMRequest{
 			System:     a.system,
 			Messages:   messages,
 			Tools:      a.tools,
 			ToolChoice: core.LLMToolChoice{Mode: core.LLMToolChoiceAuto},
-		})
+		}
+		logModelCall(blockKindAIAgent, a.name, a.connector, req)
+		resp, completeErr := a.client.Complete(ctx, req)
 		if completeErr != nil {
 			return nil, fmt.Errorf("ai-agent: %w", completeErr)
 		}
+		logModelResp(blockKindAIAgent, a.name, resp)
 		messages = append(messages, resp.Raw)
 
 		if resp.StopReason == core.LLMStopRefusal {
 			return a.fallback(ctx, current, "model refused")
 		}
 		if len(resp.ToolCalls) == 0 {
+			slog.Info("ai-agent finished", "block", a.name, "iterations", iter+1)
 			return foldResult(current, resp.Text), nil
 		}
 
@@ -499,6 +610,8 @@ func (a *aiAgent) Process(ctx context.Context, msg *types.Message) (*types.Messa
 func (a *aiAgent) runTool(
 	ctx context.Context, call core.LLMToolCall, current *types.Message,
 ) (core.LLMToolResult, *types.Message) {
+	slog.Info("ai-agent tool call", "block", a.name, "tool", call.Name)
+	slog.Debug("ai-agent tool input", "block", a.name, "tool", call.Name, "input", truncForLog(string(call.Input)))
 	flow, ok := a.branches[call.Name]
 	if !ok {
 		return errorResult(call.ID, fmt.Sprintf("unknown tool %q", call.Name)), current
@@ -527,6 +640,7 @@ func (a *aiAgent) runTool(
 // fallback runs the guardrail flow, or errors when none is configured so the
 // failure propagates to a recovery path.
 func (a *aiAgent) fallback(ctx context.Context, msg *types.Message, reason string) (*types.Message, error) {
+	slog.Warn("ai-agent taking guardrail", "block", a.name, "connector", a.connector, "reason", reason)
 	if a.guardrail != nil {
 		return a.guardrail.Process(ctx, msg)
 	}

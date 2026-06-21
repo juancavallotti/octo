@@ -32,8 +32,12 @@ import (
 const defaultInvokeTimeout = 30 * time.Second
 
 func main() {
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	level, levelErr := core.ParseLevel(os.Getenv("LOG_LEVEL"))
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 	slog.SetDefault(logger)
+	if levelErr != nil {
+		slog.Warn("invalid LOG_LEVEL, defaulting to info", "error", levelErr)
+	}
 
 	if err := run(os.Args[1:]); err != nil {
 		slog.Error("cli stopped with error", "error", err)
