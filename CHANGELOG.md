@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.1.5](https://github.com/juancavallotti/eip-go/compare/v0.1.4...v0.1.5) (2026-06-21)
+
+
+### Bug Fixes
+
+* **deploy:** make the Cloud Build deploy step self-sufficient ([2c5a71d](https://github.com/juancavallotti/eip-go/commit/2c5a71dd2dec0dac3ec704e56448e281b75f0fae))
+* **deploy:** make the Cloud Build deploy step self-sufficient ([cd582cb](https://github.com/juancavallotti/eip-go/commit/cd582cbc9ca057895c34d44b1ce3e640976a07fb))
+* **site:** render inline markdown in the changelog feed ([307d7c0](https://github.com/juancavallotti/eip-go/commit/307d7c0ca26b72f84c0355e4e658c831087f5048))
+
+
+### Documentation
+
+* refresh landing page + add Connectors/CEL/Error-handling/Deployment guides ([0aac8a5](https://github.com/juancavallotti/eip-go/commit/0aac8a522c1a7f9dc0d62ec4694cb093a9c1875c))
+* **site:** add Connectors, CEL, Error handling & Deployment guide pages ([dffb2f2](https://github.com/juancavallotti/eip-go/commit/dffb2f259feb4c4834c192b9e50067571e38d6d3))
+* **site:** add editor flow screenshots to What's New ([939f0db](https://github.com/juancavallotti/eip-go/commit/939f0dbc5bb9a351d0d4b0905ec25e8122c62fc7))
+* **site:** add What's New, CEL cheat sheet, AI/error samples, logo ([628f24f](https://github.com/juancavallotti/eip-go/commit/628f24f7c2ef7bca63793258f16a08c3701cdd4f))
+* **site:** cache-bust app.js so the changelog markdown fix loads ([56fa760](https://github.com/juancavallotti/eip-go/commit/56fa7600c243dcadb1bf4f55b0a9bb342c9cc7b0))
+* **site:** document the deploy workflow, k8s platform, refresh roadmap ([0784468](https://github.com/juancavallotti/eip-go/commit/0784468895cfa108246761dcd5b37bca2a42cd85))
+* **site:** run the built ./bin/octo, not `go run`, in quickstart & samples ([5551f35](https://github.com/juancavallotti/eip-go/commit/5551f357a8b40747c9681fd44452be02c645098c))
+* **site:** show an editor screenshot in every sample + fix layout ([11ded96](https://github.com/juancavallotti/eip-go/commit/11ded964c37a2332d540f213e3b39b3be328824c))
+* **site:** sync stale hero version badge to 0.1.4 ([7bcff4c](https://github.com/juancavallotti/eip-go/commit/7bcff4c8d73d782d17a22f73b42ca4d0679bf93e))
+
 ## [0.1.4](https://github.com/juancavallotti/eip-go/compare/v0.1.3...v0.1.4) (2026-06-21)
 
 
