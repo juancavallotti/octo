@@ -1,7 +1,8 @@
 // This file provides the "log" leaf block: a pass-through wire tap that logs a
 // line for each message and forwards the message unchanged. The logged line is a
-// CEL expression evaluated against the message, or the JSON body when no
-// expression is configured. Setting "full" additionally attaches the whole
+// CEL expression evaluated against the message, or a JSON object with the body
+// and variables when no expression is configured. Setting "full" additionally
+// attaches the whole
 // message (correlation id, variables, body, schema) as structured attributes for
 // debugging.
 //
@@ -12,6 +13,7 @@ package logger
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 
@@ -23,6 +25,9 @@ import (
 func init() {
 	core.MustRegisterBlock("log", newLog)
 }
+
+// bodyKey is the attribute/field name the body is logged under.
+const bodyKey = "body"
 
 // logSettings is the log block's typed configuration.
 type logSettings struct {
@@ -119,9 +124,11 @@ func (p *processor) Process(ctx context.Context, msg *types.Message) (*types.Mes
 	return msg, nil
 }
 
-// render evaluates the message expression, or falls back to the JSON body when
-// no expression is configured. In full mode without an expression the line is a
-// fixed label, since the body is already attached as a structured attribute.
+// render evaluates the message expression, or falls back to a JSON object with
+// the message body and variables when no expression is configured (so a bare log
+// block surfaces both, not just the body). In full mode without an expression the
+// line is a fixed label, since the whole message is already attached as a
+// structured attribute.
 func (p *processor) render(msg *types.Message) (string, error) {
 	if p.message != nil {
 		return p.message.EvalString(activation(msg))
@@ -129,9 +136,12 @@ func (p *processor) render(msg *types.Message) (string, error) {
 	if p.full {
 		return "message", nil
 	}
-	raw, err := msg.BodyJSON()
+	raw, err := json.Marshal(map[string]any{
+		bodyKey: msg.Body,
+		"vars":  map[string]any(msg.Variables),
+	})
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("marshal log message: %w", err)
 	}
 	return string(raw), nil
 }
@@ -142,7 +152,7 @@ func messageAttrs(msg *types.Message) []any {
 	attrs := []any{
 		"correlation_id", msg.CorrelationID,
 		"variables", map[string]any(msg.Variables),
-		"body", msg.Body,
+		bodyKey, msg.Body,
 	}
 	if len(msg.BodySchema) > 0 {
 		attrs = append(attrs, "body_schema", string(msg.BodySchema))
@@ -153,7 +163,7 @@ func messageAttrs(msg *types.Message) []any {
 // activation maps a message onto the variables a log expression can reference.
 func activation(msg *types.Message) map[string]any {
 	return map[string]any{
-		"body":          msg.Body,
+		bodyKey:         msg.Body,
 		"vars":          map[string]any(msg.Variables),
 		"eventID":       msg.EventID,
 		"correlationID": msg.CorrelationID,
