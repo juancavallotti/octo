@@ -20,6 +20,7 @@ import (
 	_ "github.com/juancavallotti/eip-go/connectors/httpclient"    // registers the "http-client" connector and "rest" block
 	_ "github.com/juancavallotti/eip-go/connectors/llm/aiblocks"  // registers the "ai-mapping" block
 	_ "github.com/juancavallotti/eip-go/connectors/llm/anthropic" // registers the "llm-anthropic" connector
+	_ "github.com/juancavallotti/eip-go/connectors/llm/openai"    // registers the "llm-openai" connector
 	_ "github.com/juancavallotti/eip-go/connectors/logger"        // registers the "logger" connector and "log" block
 	"github.com/juancavallotti/eip-go/core"
 	"github.com/juancavallotti/eip-go/core/runtime"

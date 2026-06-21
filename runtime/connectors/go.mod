@@ -7,6 +7,7 @@ require (
 	github.com/jackc/pgx/v5 v5.7.5
 	github.com/juancavallotti/eip-go/core v0.0.0
 	github.com/juancavallotti/eip-go/types v0.0.0
+	github.com/openai/openai-go/v2 v2.7.1
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
 	modernc.org/sqlite v1.38.0
