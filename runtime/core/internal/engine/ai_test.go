@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -11,6 +12,29 @@ import (
 	"github.com/juancavallotti/eip-go/core/internal/pool"
 	"github.com/juancavallotti/eip-go/types"
 )
+
+// retryRegistry layers a "validate" leaf onto recordRegistry. The leaf errors
+// unless the message body has the required field set, so a retry test can model a
+// failure the model fixes by revising the body.
+func retryRegistry(seen *[]any) *core.BlockRegistry {
+	reg := recordRegistry(seen)
+	reg.MustRegister("validate", func(s types.Settings, _ core.BlockDeps) (core.MessageProcessor, error) {
+		field, _ := s.String("require")
+		return processorFunc(func(_ context.Context, msg *types.Message) (*types.Message, error) {
+			body, ok := msg.Body.(map[string]any)
+			if !ok || body[field] == nil {
+				return nil, fmt.Errorf("missing required field %q", field)
+			}
+			return msg, nil
+		}), nil
+	})
+	return reg
+}
+
+// reviseResp builds a forced revise_message tool-call response.
+func reviseResp(input string) *core.LLMResponse {
+	return toolCallResp("revise_message", input)
+}
 
 // endTurnResp builds a final (no-tool) assistant response.
 func endTurnResp(text string) *core.LLMResponse {
@@ -458,4 +482,125 @@ func TestAIAgentBuildValidation(t *testing.T) {
 	if err := build(badSchema); err == nil {
 		t.Error("expected error with an invalid inputSchema")
 	}
+}
+
+func retryConfig(maxAttempts int, withErrorPath bool) types.BlockConfig {
+	cfg := types.BlockConfig{
+		Type: "ai-retry", Connector: "claude", Prompt: "fix the body", MaxAttempts: maxAttempts,
+		Process: []types.BlockConfig{{Type: "validate", Settings: types.Settings{"require": "amount"}}},
+	}
+	if withErrorPath {
+		cfg.Error = []types.BlockConfig{{Type: "record", Settings: types.Settings{"tag": "recovered"}}}
+	}
+	return cfg
+}
+
+func TestAIRetryRevisesThenSucceeds(t *testing.T) {
+	var seen []any
+	reg := retryRegistry(&seen)
+	fake := &scriptedLLM{responses: []*core.LLMResponse{
+		reviseResp(`{"body":{"amount":42},"variables":{"fixed":true}}`),
+	}}
+
+	out, err := mustBuildAI(t, reg, depsLLM(fake), retryConfig(3, false)).
+		Process(context.Background(), newMessageBody(t, `{}`))
+	if err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	if body, ok := out.Body.(map[string]any); !ok || body["amount"] != float64(42) {
+		t.Errorf("revised body not applied: %#v", out.Body)
+	}
+	if out.Variables["fixed"] != true {
+		t.Errorf("revision variables not merged: %#v", out.Variables)
+	}
+	if len(fake.calls) != 1 {
+		t.Errorf("calls = %d, want 1 (one revision)", len(fake.calls))
+	}
+	// The revise request should carry the error so the model can react.
+	if !strings.Contains(fake.calls[0].Messages[0].Text, "amount") {
+		t.Errorf("revise request missing error context: %q", fake.calls[0].Messages[0].Text)
+	}
+}
+
+func TestAIRetryExhaustsToErrorPath(t *testing.T) {
+	var seen []any
+	reg := retryRegistry(&seen)
+	// Every revision still lacks "amount", so the chain keeps failing.
+	fake := &scriptedLLM{repeat: reviseResp(`{"body":{"other":1}}`)}
+
+	out, err := mustBuildAI(t, reg, depsLLM(fake), retryConfig(2, true)).
+		Process(context.Background(), newMessageBody(t, `{}`))
+	if err != nil {
+		t.Fatalf("process should recover via the error path: %v", err)
+	}
+	if out == nil {
+		t.Fatal("expected a recovered message")
+	}
+	if len(seen) != 1 || seen[0] != "recovered" {
+		t.Errorf("error path did not run: %v", seen)
+	}
+	if len(fake.calls) != 2 {
+		t.Errorf("calls = %d, want 2 (maxAttempts revisions)", len(fake.calls))
+	}
+}
+
+func TestAIRetryExhaustsWithoutErrorPathReturnsError(t *testing.T) {
+	var seen []any
+	reg := retryRegistry(&seen)
+	fake := &scriptedLLM{repeat: reviseResp(`{"body":{"other":1}}`)}
+
+	_, err := mustBuildAI(t, reg, depsLLM(fake), retryConfig(2, false)).
+		Process(context.Background(), newMessageBody(t, `{}`))
+	if err == nil {
+		t.Error("expected the last error to propagate when no error path is configured")
+	}
+}
+
+func TestAIRetryPassesThroughOnSuccess(t *testing.T) {
+	var seen []any
+	reg := retryRegistry(&seen)
+	fake := &scriptedLLM{}
+
+	// Body already valid: the chain succeeds on the first run, no LLM call.
+	out, err := mustBuildAI(t, reg, depsLLM(fake), retryConfig(3, true)).
+		Process(context.Background(), newMessageBody(t, `{"amount":7}`))
+	if err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	if out == nil || len(fake.calls) != 0 {
+		t.Errorf("expected success with no revision; calls=%d", len(fake.calls))
+	}
+}
+
+func TestAIRetryBuildValidation(t *testing.T) {
+	reg := retryRegistry(&[]any{})
+	deps := depsLLM(&scriptedLLM{})
+	build := func(cfg types.BlockConfig) error {
+		_, err := (&builder{reg: reg, pool: pool.New(0, 0), deps: deps}).block(cfg)
+		return err
+	}
+
+	if err := build(types.BlockConfig{Type: "ai-retry", Connector: "claude", Prompt: "x"}); err == nil {
+		t.Error("expected error with no process chain")
+	}
+	if err := build(types.BlockConfig{Type: "ai-retry", Connector: "claude",
+		Process: []types.BlockConfig{{Type: "validate"}}}); err == nil {
+		t.Error("expected error with no prompt")
+	}
+	if err := build(types.BlockConfig{Type: "ai-retry", Prompt: "x",
+		Process: []types.BlockConfig{{Type: "validate"}}}); err == nil {
+		t.Error("expected error with no connector")
+	}
+}
+
+func newMessageBody(t *testing.T, body string) *types.Message {
+	t.Helper()
+	msg, err := types.NewMessage("")
+	if err != nil {
+		t.Fatalf("new message: %v", err)
+	}
+	if err := msg.SetBodyJSON([]byte(body)); err != nil {
+		t.Fatalf("set body: %v", err)
+	}
+	return msg
 }

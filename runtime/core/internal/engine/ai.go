@@ -182,6 +182,175 @@ func routeFromCall(call core.LLMToolCall) string {
 	return args.Route
 }
 
+// defaultRetryAttempts caps how many times ai-retry re-runs its process chain
+// after an LLM-driven revision before falling through to the error path.
+const defaultRetryAttempts = 3
+
+// reviseToolName is the tool the retry loop forces the model to call.
+const reviseToolName = "revise_message"
+
+// aiRetry is a composite that protects a process chain with an LLM-driven retry
+// loop. When the chain fails, the model inspects the error (vars.error) and the
+// message, revises the message, and the chain is re-run, up to maxAttempts. After
+// the attempts are exhausted it falls through to the error chain (if any),
+// otherwise the last error propagates.
+type aiRetry struct {
+	client      core.LLMClient
+	system      string
+	main        *Flow
+	alternative *Flow
+	maxAttempts int
+	name        string
+}
+
+//nolint:ireturn // builders intentionally return the MessageProcessor interface
+func (b *builder) aiRetry(cfg types.BlockConfig) (core.MessageProcessor, error) {
+	if len(cfg.Process) == 0 {
+		return nil, errors.New("ai-retry block requires a process chain")
+	}
+	if strings.TrimSpace(cfg.Prompt) == "" {
+		return nil, errors.New("ai-retry block requires a prompt")
+	}
+	if err := allowSlots(cfg, blockKindAIRetry,
+		"process", "error", "connector", "prompt", "maxAttempts"); err != nil {
+		return nil, err
+	}
+
+	client, err := resolveLLM(blockKindAIRetry, cfg.Connector, b.deps)
+	if err != nil {
+		return nil, err
+	}
+
+	main, err := b.flow(types.FlowConfig{Process: cfg.Process})
+	if err != nil {
+		return nil, fmt.Errorf("ai-retry process: %w", err)
+	}
+
+	maxAttempts := cfg.MaxAttempts
+	if maxAttempts <= 0 {
+		maxAttempts = defaultRetryAttempts
+	}
+
+	block := &aiRetry{
+		client:      client,
+		system:      buildRetrySystem(cfg.Prompt),
+		main:        main,
+		maxAttempts: maxAttempts,
+		name:        cfg.Name,
+	}
+	if len(cfg.Error) > 0 {
+		alternative, altErr := b.flow(types.FlowConfig{Process: cfg.Error})
+		if altErr != nil {
+			return nil, fmt.Errorf("ai-retry error: %w", altErr)
+		}
+		block.alternative = alternative
+	}
+	return block, nil
+}
+
+// Process runs the protected chain; on failure it lets the model revise the
+// message and re-runs the chain up to maxAttempts, then falls through to the
+// error chain (or returns the last error when none is configured).
+func (r *aiRetry) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
+	out, err := r.main.Process(ctx, msg)
+	if err == nil {
+		return out, nil
+	}
+
+	for attempt := 0; attempt < r.maxAttempts; attempt++ {
+		SetErrorVariable(msg, r.name, err)
+		if reviseErr := r.revise(ctx, msg); reviseErr != nil {
+			break // cannot get a usable revision; stop retrying
+		}
+		out, err = r.main.Process(ctx, msg)
+		if err == nil {
+			return out, nil
+		}
+	}
+
+	if r.alternative != nil {
+		SetErrorVariable(msg, r.name, err)
+		recovered, altErr := r.alternative.Process(ctx, msg)
+		if altErr != nil {
+			return nil, fmt.Errorf("ai-retry error path: %w", altErr)
+		}
+		return recovered, nil
+	}
+	return nil, err
+}
+
+// revise asks the model for a corrected message and applies it. vars.error must
+// already be set on the message.
+func (r *aiRetry) revise(ctx context.Context, msg *types.Message) error {
+	body, err := msg.BodyJSON()
+	if err != nil {
+		return fmt.Errorf("ai-retry: encode body: %w", err)
+	}
+	errInfo, _ := json.Marshal(msg.Variables[errorVarName])
+
+	resp, err := r.client.Complete(ctx, core.LLMRequest{
+		System: r.system,
+		Messages: []core.LLMMessage{{
+			Role: core.LLMRoleUser,
+			Text: fmt.Sprintf("The step failed.\nError: %s\nCurrent message body:\n%s\n"+
+				"Call revise_message with a corrected message to retry.", errInfo, body),
+		}},
+		Tools:      reviseTools(),
+		ToolChoice: core.LLMToolChoice{Mode: core.LLMToolChoiceTool, Name: reviseToolName},
+	})
+	if err != nil {
+		return fmt.Errorf("ai-retry: %w", err)
+	}
+	for _, call := range resp.ToolCalls {
+		if call.Name == reviseToolName {
+			return applyRevision(msg, call.Input)
+		}
+	}
+	return errors.New("ai-retry: model did not produce a revision")
+}
+
+// applyRevision sets the message body and merges any variables from a
+// revise_message tool call.
+func applyRevision(msg *types.Message, raw json.RawMessage) error {
+	var rev struct {
+		Body      json.RawMessage `json:"body"`
+		Variables map[string]any  `json:"variables"`
+	}
+	if err := json.Unmarshal(raw, &rev); err != nil {
+		return fmt.Errorf("ai-retry: invalid revision: %w", err)
+	}
+	if len(rev.Body) > 0 {
+		if err := msg.SetBodyJSON(rev.Body); err != nil {
+			return fmt.Errorf("ai-retry: revised body: %w", err)
+		}
+	}
+	for k, v := range rev.Variables {
+		msg.Variables.Set(k, v)
+	}
+	return nil
+}
+
+// reviseTools is the single revise_message tool the retry loop forces.
+func reviseTools() []core.LLMTool {
+	return []core.LLMTool{{
+		Name:        reviseToolName,
+		Description: "Provide a corrected message to retry the failed step.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{` +
+			`"body":{"description":"The corrected message body."},` +
+			`"variables":{"type":"object","description":"Variables to set or override."}},` +
+			`"required":["body"]}`),
+	}}
+}
+
+// buildRetrySystem assembles the repair system prompt.
+func buildRetrySystem(prompt string) string {
+	var b strings.Builder
+	b.WriteString("A step in a processing pipeline failed. Inspect the error and the current ")
+	b.WriteString("message, then call revise_message with a corrected message to retry.\n\n")
+	b.WriteString(strings.TrimSpace(prompt))
+	return b.String()
+}
+
 // defaultAgentIterations caps how many tool-calling turns an agent runs before
 // falling back to the guardrail. Each turn is one model call.
 const defaultAgentIterations = 8
