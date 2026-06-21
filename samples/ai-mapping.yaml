@@ -1,0 +1,53 @@
+service:
+  name: ai-mapping
+
+# Demonstrates the ai-mapping block: it reshapes the message body to a target
+# shape described by a prompt, optional input/output examples, and an optional
+# output JSON Schema (validated). On a validation failure the block errors, so it
+# composes with ai-retry or handle-errors for self-healing.
+#
+# Set the API key, then invoke the flow:
+#
+#   export ANTHROPIC_API_KEY=sk-ant-...
+#   go run ./cli invoke -config ../samples/ai-mapping.yaml -flow normalize-contact \
+#     -data '{"name":"Ada Lovelace","tel":"(415) 555-0132","email":"ADA@EX.COM"}'
+#
+#   -> {"firstName":"Ada","lastName":"Lovelace","email":"ada@ex.com","phone":"+14155550132"}
+
+env:
+  - name: ANTHROPIC_API_KEY
+    required: true
+
+connectors:
+  - name: claude
+    type: llm-anthropic
+    settings:
+      apiKey: ${ANTHROPIC_API_KEY}
+      # model defaults to claude-sonnet-4-6
+
+flows:
+  - name: normalize-contact
+    process:
+      - type: ai-mapping
+        name: normalize
+        settings:
+          connector: claude
+          prompt: >
+            Map the raw contact payload to our canonical contact shape.
+            Split the full name into firstName and lastName. Lowercase the email.
+            Normalize the phone number to E.164.
+          inputExample: |
+            { "name": "Ada Lovelace", "tel": "(415) 555-0132", "email": "ADA@EX.COM" }
+          outputExample: |
+            { "firstName": "Ada", "lastName": "Lovelace", "email": "ada@ex.com", "phone": "+14155550132" }
+          outputSchema: |
+            {
+              "type": "object",
+              "required": ["firstName", "lastName", "email"],
+              "properties": {
+                "firstName": { "type": "string" },
+                "lastName":  { "type": "string" },
+                "email":     { "type": "string" },
+                "phone":     { "type": "string" }
+              }
+            }

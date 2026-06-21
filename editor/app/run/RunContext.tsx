@@ -13,6 +13,7 @@ import {
 import { toRunnableYaml } from "@/app/model/runConfig";
 import { validateDocument, type ValidationResult } from "@/app/model/validate";
 import { useEditorState } from "@/app/state/editorState";
+import { loadDevEnv } from "@/app/state/devEnv";
 
 /**
  * Owns the editor's RUN feature client-side: it tracks whether a runner is
@@ -58,6 +59,7 @@ const RunContext = createContext<RunContextValue | null>(null);
 export function RunProvider({ children }: { children: ReactNode }) {
   const { state } = useEditorState();
   const doc = state.document;
+  const integrationId = state.integration.id;
 
   const [available, setAvailable] = useState(false);
   const [running, setRunning] = useState(false);
@@ -127,10 +129,19 @@ export function RunProvider({ children }: { children: ReactNode }) {
     setError(null);
     try {
       const yaml = toRunnableYaml(doc);
+      // Dev .env values for the declared variables, injected into the runner's
+      // environment for this run only (never serialized into the YAML). Scoped by
+      // the open integration id; blanks are dropped so the runtime default applies.
+      const stored = loadDevEnv(integrationId);
+      const devEnv: Record<string, string> = {};
+      for (const v of doc.env) {
+        const val = stored[v.name];
+        if (val) devEnv[v.name] = val;
+      }
       const res = await fetch("/api/run/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ yaml }),
+        body: JSON.stringify({ yaml, devEnv }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -146,7 +157,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
     } finally {
       setBusy(false);
     }
-  }, [doc, openStream]);
+  }, [doc, integrationId, openStream]);
 
   const stop = useCallback(async () => {
     setBusy(true);

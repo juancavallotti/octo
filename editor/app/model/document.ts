@@ -62,6 +62,10 @@ export interface FlowDoc {
   error?: FlowDoc;
   /** CEL guard for a switch-case sub-flow (the case's `when`). */
   when?: string;
+  /** Human description of an ai-router route / ai-agent tool the model reads to choose it. */
+  description?: string;
+  /** JSON Schema for an ai-agent tool's arguments (written inline as a string). */
+  inputSchema?: string;
 }
 
 /** Field types whose value is one or more nested sub-flows (or block chains). */
@@ -69,6 +73,8 @@ export const SLOT_FIELD_TYPES = new Set([
   "flow",
   "flow-list",
   "case-list",
+  "route-list",
+  "tool-list",
   "block-list",
 ]);
 
@@ -174,8 +180,7 @@ export function withErrorChain(flow: FlowDoc): FlowDoc {
 
 /** A document with a single empty flow — the "new file" template / test baseline. */
 export function emptyDocument(): EditorDocument {
-  const flows = [withErrorChain(emptyFlow())];
-  return { flows, connectors: [], processors: [], env: [] };
+  return { ...blankDocument(), flows: [withErrorChain(emptyFlow())] };
 }
 
 /** A truly empty document — no flows at all (the editor's scratch start state). */

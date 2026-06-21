@@ -1,0 +1,60 @@
+service:
+  name: ai-agent
+
+# Demonstrates the ai-agent block: an LLM accomplishes a task by calling its
+# branches as tools, one or more times, in a loop. Each tool's arguments arrive
+# as the branch's message body and the branch's output body is returned to the
+# model as the tool result. Tool branches share the message, so variables they
+# set accumulate across the loop. The default path is the guardrail, taken when
+# the model refuses or never finishes within maxIterations.
+#
+#   export ANTHROPIC_API_KEY=sk-ant-...
+#   go run ./cli invoke -config ../samples/ai-agent.yaml -flow enrich \
+#     -data '{"company":"Acme","domain":"acme.example"}'
+
+env:
+  - name: ANTHROPIC_API_KEY
+    required: true
+
+connectors:
+  - name: claude
+    type: llm-anthropic
+    settings:
+      apiKey: ${ANTHROPIC_API_KEY}
+
+flows:
+  - name: enrich
+    process:
+      - type: ai-agent
+        name: enrich-lead
+        connector: claude
+        maxIterations: 6
+        prompt: >
+          Enrich the inbound lead. Classify the company size and decide whether
+          it is a good fit. Call the tools as needed, then respond with a JSON
+          object {"tier": "...", "fit": true|false}.
+        guardrail: >
+          If you cannot classify the lead with confidence, take the default path.
+        tools:
+          - name: classify_size
+            description: Classify a company's size tier from its name and domain.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["company"],
+                "properties": {
+                  "company": { "type": "string" },
+                  "domain":  { "type": "string" }
+                }
+              }
+            process:
+              # A real tool would call an API; here we just echo a tier so the
+              # sample runs without external dependencies.
+              - type: set-payload
+                settings:
+                  value: '{"tier": "smb"}'
+        default:
+          process:
+            - type: set-payload
+              settings:
+                value: '{"status": "needs-manual-review"}'

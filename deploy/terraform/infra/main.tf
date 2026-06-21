@@ -13,7 +13,6 @@
 locals {
   registry_host = "${var.region}-docker.pkg.dev"
   image_base    = "${local.registry_host}/${var.project_id}/${module.registry.repository_id}"
-  secret_id     = "${var.instance_name}-postgres"
   state_bucket  = coalesce(var.state_bucket, "octo-tfstate-${var.project_id}")
   # API reachable by the release root; default to the SSH ranges so the kube API is
   # no more exposed than SSH already is.
@@ -30,14 +29,8 @@ module "registry" {
 }
 
 # --- k3s VM + cluster bootstrap ---
-
-# Postgres password: generated once, kept in state, stored in Secret Manager so the
-# release root can read it (data source) and pass it to the chart. Alphanumeric only
-# so it is safe inside the DATABASE_URL.
-resource "random_password" "postgres" {
-  length  = 24
-  special = false
-}
+# The Postgres password is generated and held by the release root (in the bucket-
+# backed state), not here — there are no Secret Manager secrets in this setup.
 
 module "base" {
   source = "../modules/base"
@@ -56,9 +49,6 @@ module "base" {
   # Traefik (k3s built-in) serves 80/443; 6443 is opened separately by the module.
   web_tcp_ports = ["80", "443"]
 
-  secret_id   = local.secret_id
-  secret_data = random_password.postgres.result
-
   startup_script = templatefile("${path.module}/startup.sh.tftpl", {
     registry_host = local.registry_host
     domain        = var.domain
@@ -74,6 +64,10 @@ module "base" {
     })
   }
 }
+
+# No Secret Manager: all credentials (Postgres password, OIDC client secret, Auth.js
+# session secret) are produced and consumed by the release root and live in its
+# bucket-backed state — see deploy/terraform/release.
 
 # Let the VM's service account pull images and the chart from Artifact Registry.
 # Referencing module.registry.repository_id orders this after the repo exists.
@@ -102,9 +96,6 @@ module "cloudbuild" {
   instance_name            = var.instance_name
   zone                     = var.zone
   domain                   = var.domain
-  # Reference the base module's output (not local.secret_id) so the deploy IAM grant
-  # is ordered after the secret is created.
-  deploy_secret_id         = module.base.secret_id
   state_bucket             = local.state_bucket
   vm_service_account_email = module.base.service_account_email
 }

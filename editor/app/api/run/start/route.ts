@@ -1,12 +1,29 @@
 import { NextResponse } from "next/server";
 import { start, status } from "../session";
 import { ensureNamespace } from "../namespace";
+import { withAuth, writeRoles } from "@/app/auth/guard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** POST /api/run/start { yaml } — render the config and (re)start this user's runner. */
-export async function POST(req: Request) {
+const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/** Validate the optional `devEnv` map: a plain object of valid env names → string
+ * values. Returns the sanitized map, or null if the shape is invalid. */
+function parseDevEnv(value: unknown): Record<string, string> | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+  const out: Record<string, string> = {};
+  for (const [name, val] of Object.entries(value as Record<string, unknown>)) {
+    if (!ENV_NAME.test(name) || typeof val !== "string") return null;
+    out[name] = val;
+  }
+  return out;
+}
+
+/** POST /api/run/start { yaml, devEnv? } — render the config and (re)start this user's runner. */
+export const POST = withAuth(async (req: Request) => {
   const { ns, setCookie } = ensureNamespace(req);
   const withCookie = (res: NextResponse) => {
     if (setCookie) res.headers.set("Set-Cookie", setCookie);
@@ -21,20 +38,33 @@ export async function POST(req: Request) {
       ),
     );
   }
-  let yaml: unknown;
+  let body: { yaml?: unknown; devEnv?: unknown };
   try {
-    yaml = (await req.json())?.yaml;
+    body = (await req.json()) ?? {};
   } catch {
     return withCookie(NextResponse.json({ error: "invalid JSON body" }, { status: 400 }));
   }
+  const yaml = body.yaml;
   if (typeof yaml !== "string" || yaml.trim() === "") {
     return withCookie(NextResponse.json({ error: "missing `yaml`" }, { status: 400 }));
   }
+  // Optional dev environment values, injected into the runner's process env for
+  // this run only (never written to the config file).
+  let devEnv: Record<string, string> | undefined;
+  if (body.devEnv !== undefined) {
+    const parsed = parseDevEnv(body.devEnv);
+    if (!parsed) {
+      return withCookie(
+        NextResponse.json({ error: "invalid `devEnv`" }, { status: 400 }),
+      );
+    }
+    devEnv = parsed;
+  }
   try {
-    return withCookie(NextResponse.json(await start(ns, yaml)));
+    return withCookie(NextResponse.json(await start(ns, yaml, devEnv)));
   } catch (err) {
     return withCookie(
       NextResponse.json({ error: (err as Error).message }, { status: 500 }),
     );
   }
-}
+}, { roles: writeRoles });

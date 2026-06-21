@@ -7,6 +7,7 @@ import SettingsPanel from "./SettingsPanel";
 import EditorHeader from "./EditorHeader";
 import IntegrationLoader from "./IntegrationLoader";
 import LogPanel from "./LogPanel";
+import UserMenu from "./UserMenu";
 
 /**
  * EditorShell is the top-level layout for the Octo visual editor: a thin top
@@ -28,8 +29,8 @@ export default function EditorShell({
       <RunProvider>
         <IntegrationLoader integrationId={integrationId} />
         <div className="flex flex-1 flex-col h-full">
-          {/* Top bar */}
-          <EditorHeader />
+          {/* Top bar — UserMenu is a server component passed in as a slot. */}
+          <EditorHeader userMenu={<UserMenu />} />
 
           {/* Body: sidebar + canvas (one drag-and-drop session) above the logs */}
           <div className="flex flex-1 min-h-0 flex-col">

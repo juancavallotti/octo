@@ -62,15 +62,6 @@ resource "google_cloudbuild_trigger" "publish" {
 # --- Permissions the build's deploy step needs (only when enable_deploy) ---
 # Least-privilege, gated so a publish-only setup stays minimal.
 
-# Read the Postgres password (release data source).
-resource "google_secret_manager_secret_iam_member" "deploy_secret" {
-  count     = var.enable_deploy ? 1 : 0
-  project   = var.project_id
-  secret_id = var.deploy_secret_id
-  role      = "roles/secretmanager.secretAccessor"
-  member    = local.cloudbuild_sa
-}
-
 # Read/write the release Terraform state in GCS.
 resource "google_storage_bucket_iam_member" "deploy_state" {
   count  = var.enable_deploy ? 1 : 0

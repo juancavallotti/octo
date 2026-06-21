@@ -1,0 +1,54 @@
+service:
+  name: ai-router
+
+# Demonstrates the ai-router block: an LLM picks one of several named, described
+# routes for each message. It is given read-only tools to inspect the body and
+# variables before deciding. The default path is the guardrail, taken when the
+# model is not confident; the guardrail field describes when to use it.
+#
+#   export ANTHROPIC_API_KEY=sk-ant-...
+#   go run ./cli invoke -config ../samples/ai-router.yaml -flow triage \
+#     -data '{"subject":"I was double charged","body":"Please refund the extra charge."}'
+#
+#   -> {"team":"billing"}
+
+env:
+  - name: ANTHROPIC_API_KEY
+    required: true
+
+connectors:
+  - name: claude
+    type: llm-anthropic
+    settings:
+      apiKey: ${ANTHROPIC_API_KEY}
+
+flows:
+  - name: triage
+    process:
+      - type: ai-router
+        name: triage-ticket
+        connector: claude
+        prompt: >
+          Read the support ticket in the message body and route it to the team
+          best suited to handle it.
+        guardrail: >
+          If the ticket is ambiguous, spans multiple areas, or you are not
+          confident, take the default (human triage) path.
+        routes:
+          - name: billing
+            description: Payment failures, refunds, invoices, subscription changes.
+            process:
+              - type: set-payload
+                settings:
+                  value: '{"team": "billing"}'
+          - name: technical
+            description: Bugs, outages, API errors, integration problems.
+            process:
+              - type: set-payload
+                settings:
+                  value: '{"team": "technical"}'
+        default:
+          process:
+            - type: set-payload
+              settings:
+                value: '{"team": "human-triage"}'

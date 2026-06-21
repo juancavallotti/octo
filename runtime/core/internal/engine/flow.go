@@ -23,6 +23,9 @@ const (
 	blockKindIf           = "if"
 	blockKindSwitch       = "switch"
 	blockKindForeach      = "foreach"
+	blockKindAIRouter     = "ai-router"
+	blockKindAIAgent      = "ai-agent"
+	blockKindAIRetry      = "ai-retry"
 )
 
 // blockError wraps the error a block returns with the block's label. It keeps the
@@ -189,6 +192,12 @@ func (b *builder) processor(
 		return b.switchBlock(cfg)
 	case blockKindForeach:
 		return b.foreachBlock(cfg)
+	case blockKindAIRouter:
+		return b.aiRouter(cfg)
+	case blockKindAIAgent:
+		return b.aiAgent(cfg)
+	case blockKindAIRetry:
+		return b.aiRetry(cfg)
 	default:
 		if err := rejectCompositeSlots(cfg); err != nil {
 			return nil, err
@@ -235,6 +244,13 @@ func compositeSlots(cfg types.BlockConfig) []string {
 	add(cfg.Items != "", "items")
 	add(cfg.As != "", "as")
 	add(cfg.Body != nil, "body")
+	add(cfg.Connector != "", "connector")
+	add(cfg.Prompt != "", "prompt")
+	add(cfg.Guardrail != "", "guardrail")
+	add(len(cfg.Routes) > 0, "routes")
+	add(len(cfg.Tools) > 0, "tools")
+	add(cfg.MaxIterations != 0, "maxIterations")
+	add(cfg.MaxAttempts != 0, "maxAttempts")
 	return slots
 }
 

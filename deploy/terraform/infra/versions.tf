@@ -6,6 +6,8 @@ terraform {
       source  = "hashicorp/google"
       version = "~> 5.0"
     }
+    # Retained so Terraform can cleanly destroy the now-removed random_password.postgres
+    # / Secret Manager secret left in existing state. Safe to drop once applied.
     random = {
       source  = "hashicorp/random"
       version = "~> 3.0"

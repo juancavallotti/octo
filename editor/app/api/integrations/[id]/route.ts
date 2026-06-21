@@ -1,4 +1,5 @@
 import { proxy } from "../../orchestrator/client";
+import { withAuth, writeRoles } from "@/app/auth/guard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,13 +13,13 @@ export async function GET(req: Request, { params }: Params) {
 }
 
 /** PUT /api/integrations/:id { name, definition } — update an integration. */
-export async function PUT(req: Request, { params }: Params) {
+export const PUT = withAuth(async (req: Request, { params }: Params) => {
   const { id } = await params;
   return proxy(req, `/integrations/${encodeURIComponent(id)}`);
-}
+}, { roles: writeRoles });
 
 /** DELETE /api/integrations/:id — delete an integration. */
-export async function DELETE(req: Request, { params }: Params) {
+export const DELETE = withAuth(async (req: Request, { params }: Params) => {
   const { id } = await params;
   return proxy(req, `/integrations/${encodeURIComponent(id)}`);
-}
+}, { roles: writeRoles });

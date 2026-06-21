@@ -1,4 +1,5 @@
 import type { ReferenceSpec } from "@/app/schema/types";
+import { getConnectorSpec } from "@/app/schema";
 import type { EditorDocument, FlowDoc } from "./document";
 
 /**
@@ -70,9 +71,12 @@ export function referenceOptions(
   spec: ReferenceSpec,
 ): string[] {
   if (spec.kind === "connector") {
-    return doc.connectors
-      .filter((c) => c.type === spec.connectorType && c.name)
-      .map((c) => c.name);
+    const matches =
+      "connectorCategory" in spec
+        ? (type: string) =>
+            getConnectorSpec(type)?.category === spec.connectorCategory
+        : (type: string) => type === spec.connectorType;
+    return doc.connectors.filter((c) => matches(c.type) && c.name).map((c) => c.name);
   }
   return Array.from(new Set(flowNames(doc)));
 }

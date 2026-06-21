@@ -13,7 +13,12 @@ import IntegrationsButton from "./IntegrationsButton";
  * only appear when an orchestrator is configured (`useOrchestrator().available`);
  * otherwise the bar is just the logo and the RUN control, exactly as before.
  */
-export default function EditorHeader() {
+export default function EditorHeader({
+  userMenu,
+}: {
+  /** Account control slot (server-rendered UserMenu); only visible when SSO is on. */
+  userMenu?: React.ReactNode;
+}) {
   const { available } = useOrchestrator();
 
   return (
@@ -35,15 +40,19 @@ export default function EditorHeader() {
           <span className="mx-1 h-5 w-px bg-black/10 dark:bg-white/10" />
           <IntegrationTitle />
           <FolderPicker />
-          <div className="ml-auto flex items-center gap-2">
-            <IntegrationsButton />
-            <SaveButton />
-            <RunBar />
-          </div>
         </>
       )}
 
-      {!available && <RunBar />}
+      <div className="ml-auto flex items-center gap-2">
+        {available && (
+          <>
+            <IntegrationsButton />
+            <SaveButton />
+          </>
+        )}
+        <RunBar />
+        {userMenu}
+      </div>
     </header>
   );
 }

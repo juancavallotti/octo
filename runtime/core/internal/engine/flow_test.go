@@ -94,6 +94,10 @@ func TestBuildBlockValidation(t *testing.T) {
 		{name: "empty type", block: types.BlockConfig{}},
 		{name: "unregistered leaf", block: types.BlockConfig{Type: "nope"}},
 		{name: "leaf with slots", block: types.BlockConfig{Type: "pass", Branches: []types.FlowConfig{{}}}},
+		{name: "leaf with routes slot", block: types.BlockConfig{Type: "pass", Routes: []types.RouteConfig{{Name: "x"}}}},
+		{name: "leaf with tools slot", block: types.BlockConfig{Type: "pass", Tools: []types.ToolConfig{{Name: "x"}}}},
+		{name: "leaf with connector slot", block: types.BlockConfig{Type: "pass", Connector: "claude"}},
+		{name: "leaf with prompt slot", block: types.BlockConfig{Type: "pass", Prompt: "do it"}},
 		{name: "handle-errors without chains", block: types.BlockConfig{Type: "handle-errors"}},
 		{name: "fork without branches", block: types.BlockConfig{Type: "fork"}},
 		{

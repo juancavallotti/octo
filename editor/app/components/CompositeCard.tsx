@@ -1,7 +1,7 @@
 "use client";
 
 import { createElement } from "react";
-import type { BlockNode } from "@/app/model/document";
+import type { BlockNode, FlowDoc } from "@/app/model/document";
 import { slotFields } from "@/app/model/document";
 import { getBlockSpec, resolveIcon } from "@/app/schema";
 import type { FieldSpec } from "@/app/schema/types";
@@ -9,9 +9,12 @@ import NodeShell from "./NodeShell";
 import SubFlow from "./SubFlow";
 
 /** A human label for one entry of a composite slot. */
-function slotLabel(field: FieldSpec, index: number): string {
+function slotLabel(field: FieldSpec, index: number, sub: FlowDoc): string {
   if (field.type === "flow-list") return `Branch ${index + 1}`;
   if (field.type === "case-list") return `Case ${index + 1}`;
+  // Routes/tools are identified by their model-facing name; fall back to a number.
+  if (field.type === "route-list") return sub.name || `Route ${index + 1}`;
+  if (field.type === "tool-list") return sub.name || `Tool ${index + 1}`;
   return field.label;
 }
 
@@ -44,7 +47,7 @@ export default function CompositeCard({
       <div className="mt-2 flex flex-wrap items-start justify-center gap-3">
         {slotFields(block.type).flatMap((field) =>
           (block.slots?.[field.name] ?? []).map((sub, i) => (
-            <SubFlow key={sub.id} label={slotLabel(field, i)} flow={sub} />
+            <SubFlow key={sub.id} label={slotLabel(field, i, sub)} flow={sub} />
           )),
         )}
       </div>

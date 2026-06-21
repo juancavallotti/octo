@@ -23,11 +23,6 @@ output "kube_api_endpoint" {
   value       = "https://${var.domain}:6443"
 }
 
-output "secret_id" {
-  description = "Secret Manager secret holding the generated Postgres password."
-  value       = module.base.secret_id
-}
-
 output "service_account_email" {
   description = "Email of the VM's service account."
   value       = module.base.service_account_email

@@ -6,7 +6,7 @@ import {
   newBlock,
 } from "@/app/model/document";
 import type { EditorState } from "./reducer";
-import { addSlotFlow, removeSlotFlow, setFlowWhen } from "./slotHandlers";
+import { addSlotFlow, removeSlotFlow, setFlowMeta } from "./slotHandlers";
 
 /** A state holding one flow with a single switch block (seeded with one case). */
 function stateWithSwitch(): { state: EditorState; blockId: string } {
@@ -43,7 +43,11 @@ describe("slotHandlers", () => {
     const { state, blockId } = stateWithSwitch();
     const caseFlow = cases(state, blockId)[0];
 
-    const next = setFlowWhen(state, { flowId: caseFlow.id, when: "vars.x == 1" });
+    const next = setFlowMeta(state, {
+      flowId: caseFlow.id,
+      field: "when",
+      value: "vars.x == 1",
+    });
     expect(cases(next, blockId)[0].when).toBe("vars.x == 1");
   });
 

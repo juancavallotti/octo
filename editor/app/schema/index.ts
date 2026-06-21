@@ -11,6 +11,10 @@ import {
   Split,
   Repeat,
   Clock,
+  Sparkles,
+  RefreshCw,
+  Route,
+  Bot,
   Box,
   type LucideIcon,
 } from "lucide-react";
@@ -42,6 +46,10 @@ const ICONS: Record<string, LucideIcon> = {
   Split,
   Repeat,
   Clock,
+  Sparkles,
+  RefreshCw,
+  Route,
+  Bot,
 };
 
 /** Resolve a block's icon name to a component, falling back to a generic box. */

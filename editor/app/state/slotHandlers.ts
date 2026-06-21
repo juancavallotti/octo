@@ -11,7 +11,7 @@ import type { EditorState } from "./reducer";
 import type {
   AddSlotFlowPayload,
   RemoveSlotFlowPayload,
-  SetFlowWhenPayload,
+  SetFlowMetaPayload,
 } from "./actions";
 
 /**
@@ -20,6 +20,20 @@ import type {
  * the canvas (CompositeCard renders one SubFlow per slot entry); each case flow
  * carries a CEL `when` guard. Kept apart from handlers.ts to keep files focused.
  */
+
+/**
+ * Starter JSON Schema seeded into a new ai-agent tool's `inputSchema`, so the
+ * user edits a working object-schema template instead of an empty box. The tool's
+ * arguments arrive as the message body, so these properties become `body.<name>`
+ * inside the tool's steps.
+ */
+const DEFAULT_TOOL_INPUT_SCHEMA = `{
+  "type": "object",
+  "properties": {
+    "param": { "type": "string", "description": "Describe this parameter." }
+  },
+  "required": ["param"]
+}`;
 
 /** Append an empty sub-flow to a block's list slot (seeding `when` for cases). */
 export function addSlotFlow(
@@ -31,6 +45,11 @@ export function addSlotFlow(
     const fieldSpec = spec?.fields.find((f) => f.name === p.field);
     const sub: FlowDoc = emptyFlow("");
     if (fieldSpec?.type === "case-list") sub.when = "";
+    else if (fieldSpec?.type === "route-list") sub.description = "";
+    else if (fieldSpec?.type === "tool-list") {
+      sub.description = "";
+      sub.inputSchema = DEFAULT_TOOL_INPUT_SCHEMA;
+    }
     const slots = { ...(block.slots ?? {}) };
     slots[p.field] = [...(slots[p.field] ?? []), sub];
     return { ...block, slots };
@@ -70,14 +89,18 @@ export function removeSlotFlow(
   };
 }
 
-/** Set a switch-case sub-flow's CEL `when` guard. */
-export function setFlowWhen(
+/**
+ * Set one per-entry metadata field on a sub-flow: a switch-case's CEL `when`
+ * guard, an ai-router route / ai-agent tool's `description`, or a tool's
+ * `inputSchema`. The steps inside the sub-flow are edited on the canvas.
+ */
+export function setFlowMeta(
   state: EditorState,
-  p: SetFlowWhenPayload,
+  p: SetFlowMetaPayload,
 ): EditorState {
   const document = mapFlow(state.document, p.flowId, (flow) => ({
     ...flow,
-    when: p.when,
+    [p.field]: p.value,
   }));
   return { ...state, document };
 }

@@ -71,12 +71,6 @@ variable "domain" {
   default     = "octo.juancavallotti.com"
 }
 
-variable "deploy_secret_id" {
-  type        = string
-  description = "Secret Manager secret holding the Postgres password the release reads. Required when enable_deploy = true."
-  default     = ""
-}
-
 variable "state_bucket" {
   type        = string
   description = "GCS bucket backing the release Terraform state (objectAdmin granted to the build SA). Required when enable_deploy = true."

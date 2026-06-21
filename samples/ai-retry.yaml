@@ -1,0 +1,55 @@
+service:
+  name: ai-retry
+
+# Demonstrates the ai-retry block: it runs a protected process chain and, on
+# failure, lets an LLM inspect the error (vars.error) and the message, revise the
+# message, and re-run the chain up to maxAttempts. After the attempts are
+# exhausted it falls through to the error chain. It composes with ai-mapping
+# (which errors on schema-validation failure) for self-healing.
+#
+#   export ANTHROPIC_API_KEY=sk-ant-...
+#   go run ./cli invoke -config ../samples/ai-retry.yaml -flow charge \
+#     -data '{"order":{"total":"42.00","currency":"usd"}}'
+
+env:
+  - name: ANTHROPIC_API_KEY
+    required: true
+
+connectors:
+  - name: claude
+    type: llm-anthropic
+    settings:
+      apiKey: ${ANTHROPIC_API_KEY}
+
+flows:
+  - name: charge
+    process:
+      - type: ai-retry
+        name: resilient-charge
+        connector: claude
+        maxAttempts: 3
+        prompt: >
+          A step failed building the charge request. Inspect vars.error and the
+          message body, correct the body (for example, fix a malformed amount or
+          a missing currency), and produce a revised message to retry.
+        process:
+          # ai-mapping validates against outputSchema and errors on a bad shape,
+          # giving ai-retry something to recover from.
+          - type: ai-mapping
+            name: build-charge
+            settings:
+              connector: claude
+              prompt: "Build a Stripe charge request from the order."
+              outputSchema: |
+                {
+                  "type": "object",
+                  "required": ["amount", "currency"],
+                  "properties": {
+                    "amount":   { "type": "integer" },
+                    "currency": { "type": "string" }
+                  }
+                }
+        error:
+          - type: set-payload
+            settings:
+              value: '{"status": "degraded", "reason": vars.error.message}'

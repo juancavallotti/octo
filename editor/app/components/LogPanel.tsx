@@ -3,19 +3,24 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, Trash2 } from "lucide-react";
 import { useRun } from "@/app/run/RunContext";
+import DevEnvPanel from "./DevEnvPanel";
 
 const MIN_HEIGHT = 120;
 const MAX_HEIGHT = 480;
 const DEFAULT_HEIGHT = 200;
 
+type ConsoleTab = "logs" | "env";
+
 /**
- * Docked bottom panel that streams the runner's logs. It only renders when a
- * runner is available. The height is adjustable by dragging the top divider, and
- * the panel can be collapsed to just its header. New lines auto-scroll to the
- * bottom while the user is already near it.
+ * Docked bottom panel with a tabbed console: the runner's live log stream and a
+ * "Dev .env" editor for local secret values. It only renders when a runner is
+ * available. The height is adjustable by dragging the top divider, and the panel
+ * can be collapsed to just its header. Log lines auto-scroll to the bottom while
+ * the user is already near it.
  */
 export default function LogPanel() {
   const { available, running, logs, version, testUrl, clearLogs } = useRun();
+  const [tab, setTab] = useState<ConsoleTab>("logs");
   const [height, setHeight] = useState(DEFAULT_HEIGHT);
   // Collapsed by default and follows the run state (opens when running), until
   // the user overrides it with the toggle. Derived rather than synced in an
@@ -26,10 +31,10 @@ export default function LogPanel() {
   const pinnedRef = useRef(true);
 
   useEffect(() => {
-    if (collapsed) return;
+    if (collapsed || tab !== "logs") return;
     const el = scrollRef.current;
     if (el && pinnedRef.current) el.scrollTop = el.scrollHeight;
-  }, [logs, collapsed]);
+  }, [logs, collapsed, tab]);
 
   if (!available) return null;
 
@@ -90,15 +95,38 @@ export default function LogPanel() {
           aria-hidden
           className={`h-2 w-2 rounded-full ${running ? "bg-emerald-500" : "bg-zinc-400"}`}
         />
-        <span className="text-xs font-medium tracking-tight">
-          Runner logs{running ? " — running" : ""}
-        </span>
-        {version && (
+        <div className="flex items-center gap-0.5">
+          {(
+            [
+              ["logs", `Logs${running ? " — running" : ""}`],
+              ["env", "Dev .env"],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              aria-pressed={tab === key}
+              onClick={(e) => {
+                e.stopPropagation();
+                setTab(key);
+                if (collapsed) setOverride(false);
+              }}
+              className={`rounded px-2 py-0.5 text-xs font-medium tracking-tight transition-colors ${
+                tab === key
+                  ? "bg-black/[0.06] text-zinc-800 dark:bg-white/10 dark:text-zinc-100"
+                  : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {tab === "logs" && version && (
           <span className="text-xs text-zinc-400 tabular-nums dark:text-zinc-500">
             — {version}
           </span>
         )}
-        {running && testUrl && (
+        {tab === "logs" && running && testUrl && (
           <a
             href={testUrl}
             target="_blank"
@@ -111,18 +139,20 @@ export default function LogPanel() {
           </a>
         )}
         <div className="ml-auto flex items-center gap-1">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              clearLogs();
-            }}
-            aria-label="Clear logs"
-            title="Clear logs"
-            className="rounded p-1 text-zinc-500 hover:bg-black/5 dark:hover:bg-white/10"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
+          {tab === "logs" && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                clearLogs();
+              }}
+              aria-label="Clear logs"
+              title="Clear logs"
+              className="rounded p-1 text-zinc-500 hover:bg-black/5 dark:hover:bg-white/10"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          )}
           <button
             type="button"
             onClick={(e) => {
@@ -143,7 +173,8 @@ export default function LogPanel() {
       </div>
 
       {/* Body */}
-      {!collapsed && (
+      {!collapsed &&
+        (tab === "logs" ? (
         <div
           ref={scrollRef}
           onScroll={onScroll}
@@ -161,7 +192,9 @@ export default function LogPanel() {
             ))
           )}
         </div>
-      )}
+        ) : (
+          <DevEnvPanel />
+        ))}
     </section>
   );
 }

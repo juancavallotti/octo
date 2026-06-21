@@ -1,4 +1,5 @@
 import { proxy } from "../orchestrator/client";
+import { withAuth, writeRoles } from "@/app/auth/guard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,6 +10,6 @@ export function GET(req: Request) {
 }
 
 /** POST /api/folders { name, parentId } — create a folder. */
-export function POST(req: Request) {
-  return proxy(req, "/folders");
-}
+export const POST = withAuth((req: Request) => proxy(req, "/folders"), {
+  roles: writeRoles,
+});

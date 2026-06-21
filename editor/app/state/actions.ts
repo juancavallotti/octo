@@ -52,8 +52,8 @@ export enum EditorActionType {
   ADD_SLOT_FLOW = "ADD_SLOT_FLOW",
   /** Remove a sub-flow from a composite block's list slot by id. */
   REMOVE_SLOT_FLOW = "REMOVE_SLOT_FLOW",
-  /** Set a switch-case sub-flow's CEL `when` guard. */
-  SET_FLOW_WHEN = "SET_FLOW_WHEN",
+  /** Set a sub-flow's per-entry metadata: a case's `when`, a route/tool's description, a tool's inputSchema. */
+  SET_FLOW_META = "SET_FLOW_META",
   /** Replace the document's declared environment variables. */
   SET_ENV = "SET_ENV",
   /** Replace the whole document (file load or "new"). */
@@ -192,9 +192,11 @@ export interface RemoveSlotFlowPayload {
   flowId: string;
 }
 
-export interface SetFlowWhenPayload {
+export interface SetFlowMetaPayload {
   flowId: string;
-  when: string;
+  /** Which per-entry metadata field to set on the sub-flow. */
+  field: "when" | "description" | "inputSchema";
+  value: string;
 }
 
 export interface SetEnvPayload {
