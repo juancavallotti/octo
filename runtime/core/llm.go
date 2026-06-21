@@ -111,6 +111,13 @@ type LLMToolCall struct {
 	ID    string
 	Name  string
 	Input json.RawMessage
+	// Signature is an opaque, provider-specific continuation token the model
+	// attaches to a tool call that must be echoed back verbatim on the next turn
+	// for a multi-turn tool conversation to stay valid (Gemini 3.x thought
+	// signatures). It is empty for providers that do not use one; callers treat it
+	// as opaque and never inspect or construct it — they only carry it back via
+	// LLMResponse.Raw.
+	Signature []byte
 }
 
 // LLMToolResult is the outcome of a tool call fed back to the model. ToolCallID

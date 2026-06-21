@@ -150,7 +150,11 @@ func toContents(msgs []core.LLMMessage) ([]*genai.Content, error) {
 				parts = append(parts, genai.NewPartFromText(m.Text))
 			}
 			for _, tc := range m.ToolCalls {
-				parts = append(parts, genai.NewPartFromFunctionCall(tc.Name, argsToMap(tc.Input)))
+				part := genai.NewPartFromFunctionCall(tc.Name, argsToMap(tc.Input))
+				// Replay the thought signature Gemini 3.x attaches to a function call;
+				// it is required on the echoed call for the next turn to be accepted.
+				part.ThoughtSignature = tc.Signature
+				parts = append(parts, part)
 			}
 			out = append(out, genai.NewContentFromParts(parts, genai.RoleModel))
 		case core.LLMRoleTool:
@@ -222,13 +226,18 @@ func translateResponse(resp *genai.GenerateContentResponse) *core.LLMResponse {
 
 	var text strings.Builder
 	var calls []core.LLMToolCall
+	var sig []byte // most recent thought signature; may sit on a thought part before the call
 	for _, part := range cand.Content.Parts {
+		if len(part.ThoughtSignature) > 0 {
+			sig = part.ThoughtSignature
+		}
 		if part.Text != "" {
 			text.WriteString(part.Text)
 		}
 		if fc := part.FunctionCall; fc != nil {
 			input, _ := json.Marshal(fc.Args)
-			calls = append(calls, core.LLMToolCall{ID: fc.Name, Name: fc.Name, Input: input})
+			calls = append(calls, core.LLMToolCall{ID: fc.Name, Name: fc.Name, Input: input, Signature: sig})
+			sig = nil // consumed by this call
 		}
 	}
 
