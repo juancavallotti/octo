@@ -78,7 +78,7 @@ Under [deploy/terraform/](../deploy/terraform/):
 
 | Root | What it creates | When to apply |
 |---|---|---|
-| `infra/` | Artifact Registry repo (`octo`); VM, static IP, firewall, DNS records, Secret Manager Postgres password, k3s bootstrap; and (optional) the Cloud Build trigger + IAM | once per cluster |
+| `infra/` | Artifact Registry repo (`octo`); VM, static IP, firewall, DNS records, k3s bootstrap; and (optional) the Cloud Build trigger + IAM | once per cluster |
 | `release/` | The Octo Helm release (image tag + chart version) | every deploy/upgrade |
 
 The three one-time pieces are composed in a single `infra/` root. **There is one
@@ -88,9 +88,10 @@ on every deploy — on a version tag Cloud Build applies it for you, or run `tas
 by hand.
 
 `release/` state lives in a GCS bucket (created once with `task state:bucket`, so Cloud
-Build and your laptop share it); `infra/` keeps local state. State holds secrets (the
-generated Postgres password) and the fetched kubeconfig holds cluster-admin
-credentials — both are gitignored. Keep your state private.
+Build and your laptop share it); `infra/` keeps local state. The `release/` state holds
+the generated secrets (the Postgres password, and — with SSO — the OIDC client secret
+and Auth.js session secret), and the fetched kubeconfig holds cluster-admin
+credentials — both are gitignored. Keep your state bucket locked down.
 
 ---
 
@@ -174,8 +175,8 @@ Each apply:
 1. Runs `octo-pull` on the node over SSH (a fresh registry token) to pull the
    target image tag into containerd — so the chart's pods (`imagePullPolicy:
    IfNotPresent`), including the per-integration runtime image, find it locally.
-2. Installs/upgrades the chart through the Helm provider, reading the Postgres
-   password from Secret Manager and authenticating the OCI chart pull with your
+2. Installs/upgrades the chart through the Helm provider, passing the Postgres
+   password it holds in state and authenticating the OCI chart pull with your
    GCP token.
 
 A changed `image_tag` rewrites the pod templates, so the editor/orchestrator
@@ -247,6 +248,12 @@ All settings live in the single `octo.tfvars`, read by both roots. Per-deploy va
 | `acme_email` | `juancavallotti@gmail.com` | Let's Encrypt account |
 | `enable_cloudbuild` | `false` | create the trigger (needs GitHub App connected first) |
 | `cloudbuild_auto_deploy` | `true` | also roll the cluster on a tag (`_DEPLOY=true` + deploy IAM) |
+| `oidc_enabled` | `false` | gate the editor behind eetr SSO (consumed by the `release` root) |
+| `oidc_client_id` | `""` | IdP client id (non-secret) |
+| `oidc_client_secret` | `""` | IdP client secret (kept in release state, not Secret Manager) |
+| `oidc_issuer` | `https://auth.eetr.app` | OIDC issuer |
+| `oidc_write_roles` | `""` | roles allowed to write; empty = any signed-in user |
+| `oidc_roles_claim` | `""` | id-token claim for roles (Auth.js default `roles`) |
 
 ### `release` root variables
 
@@ -256,6 +263,23 @@ All settings live in the single `octo.tfvars`, read by both roots. Per-deploy va
 | `chart_version` | – (required) | must match the published `helm/Chart.yaml`; derived by Cloud Build / `task deploy` |
 | `cluster_issuer` | `letsencrypt-prod` | cert-manager issuer |
 | `kubeconfig` | `../infra/kubeconfig.yaml` | from `task deploy:kubeconfig` |
+
+### Editor SSO (OIDC, optional)
+
+Set `oidc_enabled = true` plus `oidc_client_id` / `oidc_client_secret` in `octo.tfvars`.
+The `release` root consumes these directly (this setup uses no Secret Manager — all
+generated credentials live in the bucket-backed release state) and generates the
+Auth.js session secret. The
+chart creates the `{release}-auth` Secret for the client secret + session secret, and
+the editor gets `AUTH_EETR_ISSUER`, `AUTH_EETR_CLIENT_ID` (plain), `AUTH_EETR_CLIENT_SECRET`,
+`AUTH_SECRET` (from the Secret), plus `AUTH_URL` and `AUTH_TRUST_HOST`. Auth turns on
+automatically once those are present; with `oidc_enabled = false` the editor stays open.
+
+The client secret and session secret live in the release Terraform state (the GCS
+bucket), consistent with the Postgres password — keep the state bucket locked down.
+Register the redirect URI on the IdP: `https://{domain}/api/auth/callback/eetr`. The
+orchestrator stays in-cluster only and is reached solely through the editor's
+authenticated BFF (no separate token).
 
 ### Orchestrator environment (set by the chart)
 
@@ -289,8 +313,8 @@ sudo k3s kubectl logs -n octo-dev deploy/octo-orchestrator
 - **Re-bootstrap the VM:** the startup script is guarded by `/opt/octo/.provisioned`.
   To re-run it: `sudo rm /opt/octo/.provisioned && sudo reboot`.
 - **Postgres data** lives on the boot disk (k3s `local-path`); it survives reboots
-  but is destroyed if the VM is destroyed. The password is in Secret Manager
-  (`{instance}-postgres`).
+  but is destroyed if the VM is destroyed. The password is generated and held in the
+  `release` Terraform state (the GCS bucket) — `terraform output` it if you need it.
 - **Re-pull a tag manually on the node:** `sudo octo-pull v0.1.2`.
 
 ---

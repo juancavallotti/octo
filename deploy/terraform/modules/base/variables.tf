@@ -70,17 +70,6 @@ variable "boot_disk_size_gb" {
   default     = 30
 }
 
-variable "secret_id" {
-  type        = string
-  description = "Secret Manager secret ID to create for the .env."
-}
-
-variable "secret_data" {
-  type        = string
-  description = "Full contents of the .env stored as the secret value."
-  sensitive   = true
-}
-
 variable "startup_script" {
   type        = string
   description = "Rendered startup script the VM runs on first boot."

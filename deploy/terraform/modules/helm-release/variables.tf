@@ -71,3 +71,49 @@ variable "timeout" {
   description = "Helm install/upgrade timeout in seconds."
   default     = 600
 }
+
+# --- OIDC SSO ---
+
+variable "oidc_enabled" {
+  type        = bool
+  description = "Enable OIDC SSO in the chart (creates the auth Secret + editor env)."
+  default     = false
+}
+
+variable "oidc_issuer" {
+  type        = string
+  description = "OIDC issuer URL passed to the editor (AUTH_EETR_ISSUER)."
+  default     = "https://auth.eetr.app"
+}
+
+variable "oidc_client_id" {
+  type        = string
+  description = "OIDC client id (non-secret)."
+  default     = ""
+}
+
+variable "oidc_client_secret" {
+  type        = string
+  description = "OIDC client secret."
+  default     = ""
+  sensitive   = true
+}
+
+variable "auth_secret" {
+  type        = string
+  description = "Auth.js session secret (AUTH_SECRET)."
+  default     = ""
+  sensitive   = true
+}
+
+variable "oidc_write_roles" {
+  type        = string
+  description = "Comma-separated roles allowed to perform writes; empty = any signed-in user."
+  default     = ""
+}
+
+variable "oidc_roles_claim" {
+  type        = string
+  description = "id-token claim carrying roles (Auth.js default \"roles\")."
+  default     = ""
+}

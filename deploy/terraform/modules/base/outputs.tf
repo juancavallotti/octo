@@ -13,11 +13,6 @@ output "ssh_command" {
   value       = "gcloud compute ssh ${var.instance_name} --zone ${var.zone} --project ${var.project_id}"
 }
 
-output "secret_id" {
-  description = "Secret Manager secret holding the .env."
-  value       = google_secret_manager_secret.env.secret_id
-}
-
 output "service_account_email" {
   description = "Email of the VM's service account."
   value       = google_service_account.vm.email

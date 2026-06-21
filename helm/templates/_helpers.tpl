@@ -45,6 +45,10 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{ include "octo.fullname" . }}-editor
 {{- end }}
 
+{{- define "octo.auth.secretName" -}}
+{{ include "octo.fullname" . }}-auth
+{{- end }}
+
 {{/*
   Build a fully-qualified image reference. Call with a dict carrying the chart
   root and the component repository, e.g.:
