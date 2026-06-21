@@ -73,4 +73,38 @@ resource "helm_release" "octo" {
     name  = "wildcardTLS.clusterIssuer"
     value = var.wildcard_cluster_issuer
   }
+
+  # OIDC SSO for the editor. When enabled the chart creates the auth Secret and the
+  # editor mounts AUTH_EETR_* / AUTH_SECRET. Sensitive values go through
+  # set_sensitive so they are not printed in plans/logs.
+  set {
+    name  = "auth.oidc.enabled"
+    value = var.oidc_enabled
+  }
+
+  dynamic "set" {
+    for_each = var.oidc_enabled ? merge(
+      {
+        "auth.oidc.issuer"   = var.oidc_issuer
+        "auth.oidc.clientId" = var.oidc_client_id
+      },
+      var.oidc_write_roles != "" ? { "auth.writeRoles" = var.oidc_write_roles } : {},
+      var.oidc_roles_claim != "" ? { "auth.rolesClaim" = var.oidc_roles_claim } : {},
+    ) : {}
+    content {
+      name  = set.key
+      value = set.value
+    }
+  }
+
+  dynamic "set_sensitive" {
+    for_each = var.oidc_enabled ? {
+      "auth.oidc.clientSecret" = var.oidc_client_secret
+      "auth.secret"            = var.auth_secret
+    } : {}
+    content {
+      name  = set_sensitive.key
+      value = set_sensitive.value
+    }
+  }
 }

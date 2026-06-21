@@ -101,3 +101,44 @@ variable "state_bucket" {
   description = "GCS bucket backing the release Terraform state (created by `task state:bucket`). Empty -> octo-tfstate-{project_id}. Used to scope the build SA's storage access."
   default     = ""
 }
+
+# --- OIDC SSO (consumed by the release root) ---
+# Declared here only so the shared octo.tfvars carries them without "undeclared
+# variable" warnings on an infra apply; the infra root creates nothing for SSO.
+
+variable "oidc_enabled" {
+  type        = bool
+  description = "Release-only: enable OIDC SSO for the editor. Ignored by the infra root."
+  default     = false
+}
+
+variable "oidc_issuer" {
+  type        = string
+  description = "Release-only: OIDC issuer URL (eetr). Ignored by the infra root."
+  default     = "https://auth.eetr.app"
+}
+
+variable "oidc_client_id" {
+  type        = string
+  description = "Release-only: OIDC client id (non-secret). Ignored by the infra root."
+  default     = ""
+}
+
+variable "oidc_client_secret" {
+  type        = string
+  description = "Release-only: OIDC client secret. Ignored by the infra root."
+  default     = ""
+  sensitive   = true
+}
+
+variable "oidc_write_roles" {
+  type        = string
+  description = "Release-only: comma-separated roles allowed to write; empty = any signed-in user. Ignored by the infra root."
+  default     = ""
+}
+
+variable "oidc_roles_claim" {
+  type        = string
+  description = "Release-only: id-token claim carrying roles. Ignored by the infra root."
+  default     = ""
+}

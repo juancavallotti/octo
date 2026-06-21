@@ -1,6 +1,6 @@
 variable "project_id" {
   type        = string
-  description = "GCP project (for the OCI chart token, the Postgres-password secret, and SSH image pulls)."
+  description = "GCP project (for the OCI chart token and SSH image pulls)."
 }
 
 variable "region" {
@@ -17,7 +17,7 @@ variable "zone" {
 
 variable "instance_name" {
   type        = string
-  description = "Name of the k3s VM (for SSH) and the source of the Postgres-password secret id."
+  description = "Name of the k3s VM (for the SSH image pull)."
   default     = "octo"
 }
 
@@ -62,12 +62,6 @@ variable "kubeconfig" {
   default     = ""
 }
 
-variable "secret_id" {
-  type        = string
-  description = "Secret Manager secret holding the Postgres password. null = {instance_name}-postgres."
-  default     = null
-}
-
 # Declared (unused here) so the single shared octo.tfvars — which carries these for
 # the infra root — does not emit "undeclared variable" warnings on a release apply.
 variable "dns_managed_zone" {
@@ -80,4 +74,43 @@ variable "enable_cloudbuild" {
   type        = bool
   description = "Infra-only (creates the Cloud Build trigger); ignored by the release root."
   default     = false
+}
+
+# --- OIDC SSO (shared octo.tfvars) ---
+
+variable "oidc_enabled" {
+  type        = bool
+  description = "Enable OIDC single sign-on for the editor."
+  default     = false
+}
+
+variable "oidc_issuer" {
+  type        = string
+  description = "OIDC issuer URL (the eetr identity provider)."
+  default     = "https://auth.eetr.app"
+}
+
+variable "oidc_write_roles" {
+  type        = string
+  description = "Comma-separated roles allowed to perform writes; empty = any signed-in user."
+  default     = ""
+}
+
+variable "oidc_roles_claim" {
+  type        = string
+  description = "id-token claim carrying roles (Auth.js default \"roles\")."
+  default     = ""
+}
+
+variable "oidc_client_id" {
+  type        = string
+  description = "OIDC client id from the IdP (non-secret); passed to the chart."
+  default     = ""
+}
+
+variable "oidc_client_secret" {
+  type        = string
+  description = "OIDC client secret from the IdP; passed to the chart (lands in release state, not Secret Manager)."
+  default     = ""
+  sensitive   = true
 }

@@ -14,7 +14,7 @@ import {
   RenameFlowPayload,
   AddSlotFlowPayload,
   RemoveSlotFlowPayload,
-  SetFlowWhenPayload,
+  SetFlowMetaPayload,
   SetEnvPayload,
   SelectBlockPayload,
   SelectSourcePayload,
@@ -185,8 +185,8 @@ export function reducer(
         state,
         action.data as RemoveSlotFlowPayload,
       );
-    case EditorActionType.SET_FLOW_WHEN:
-      return slotHandlers.setFlowWhen(state, action.data as SetFlowWhenPayload);
+    case EditorActionType.SET_FLOW_META:
+      return slotHandlers.setFlowMeta(state, action.data as SetFlowMetaPayload);
     case EditorActionType.SET_ENV:
       return envHandlers.setEnv(state, action.data as SetEnvPayload);
     case EditorActionType.LOAD_DOCUMENT:

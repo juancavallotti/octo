@@ -33,6 +33,38 @@ spec:
             # fronts the orchestrator at its in-cluster Service DNS.
             - name: ORCHESTRATOR_URL
               value: "http://{{ include "octo.orchestrator.serviceName" . }}:{{ .Values.orchestrator.service.port }}"
+            {{- if .Values.auth.oidc.enabled }}
+            # OIDC SSO (Auth.js). The presence of AUTH_EETR_ISSUER + AUTH_SECRET
+            # turns auth on in the editor. Issuer and client id are non-secret plain
+            # values; the client secret and session secret come from the auth Secret.
+            - name: AUTH_EETR_ISSUER
+              value: {{ .Values.auth.oidc.issuer | quote }}
+            - name: AUTH_EETR_CLIENT_ID
+              value: {{ .Values.auth.oidc.clientId | quote }}
+            - name: AUTH_EETR_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "octo.auth.secretName" . }}
+                  key: oidc-client-secret
+            - name: AUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "octo.auth.secretName" . }}
+                  key: auth-secret
+            # Callback/cookie URL behind the ingress (auth-code redirect target).
+            - name: AUTH_URL
+              value: "https://{{ .Values.ingress.host }}"
+            - name: AUTH_TRUST_HOST
+              value: "true"
+            {{- with .Values.auth.writeRoles }}
+            - name: AUTH_WRITE_ROLES
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.auth.rolesClaim }}
+            - name: AUTH_ROLES_CLAIM
+              value: {{ . | quote }}
+            {{- end }}
+            {{- end }}
           readinessProbe:
             httpGet:
               path: /

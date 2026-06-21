@@ -9,8 +9,13 @@ import { useEditorState, EditorActionType } from "@/app/state/editorState";
 import SettingsField from "./SettingsField";
 import SlotListEditor from "./SlotListEditor";
 
-/** Slot fields holding a list of paths the panel can grow/shrink (cases/branches). */
-const LIST_SLOT_TYPES = new Set(["case-list", "flow-list"]);
+/** Slot fields holding a list of paths the panel can grow/shrink (cases/branches/routes/tools). */
+const LIST_SLOT_TYPES = new Set([
+  "case-list",
+  "flow-list",
+  "route-list",
+  "tool-list",
+]);
 
 const INPUT =
   "w-full rounded-md border border-black/10 dark:border-white/15 bg-transparent px-2 py-1 text-sm outline-none focus:border-black/30 dark:focus:border-white/30";

@@ -17,8 +17,12 @@ import (
 	_ "github.com/juancavallotti/eip-go/connectors/cron"
 	_ "github.com/juancavallotti/eip-go/connectors/database" // registers the "database" connector and "sql" block
 	_ "github.com/juancavallotti/eip-go/connectors/http"
-	_ "github.com/juancavallotti/eip-go/connectors/httpclient" // registers the "http-client" connector and "rest" block
-	_ "github.com/juancavallotti/eip-go/connectors/logger"     // registers the "logger" connector and "log" block
+	_ "github.com/juancavallotti/eip-go/connectors/httpclient"    // registers the "http-client" connector and "rest" block
+	_ "github.com/juancavallotti/eip-go/connectors/llm/aiblocks"  // registers the "ai-mapping" block
+	_ "github.com/juancavallotti/eip-go/connectors/llm/anthropic" // registers the "llm-anthropic" connector
+	_ "github.com/juancavallotti/eip-go/connectors/llm/gemini"    // registers the "llm-gemini" connector
+	_ "github.com/juancavallotti/eip-go/connectors/llm/openai"    // registers the "llm-openai" connector
+	_ "github.com/juancavallotti/eip-go/connectors/logger"        // registers the "logger" connector and "log" block
 	"github.com/juancavallotti/eip-go/core"
 	"github.com/juancavallotti/eip-go/core/runtime"
 	"github.com/juancavallotti/eip-go/types"
@@ -28,8 +32,12 @@ import (
 const defaultInvokeTimeout = 30 * time.Second
 
 func main() {
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	level, levelErr := core.ParseLevel(os.Getenv("LOG_LEVEL"))
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 	slog.SetDefault(logger)
+	if levelErr != nil {
+		slog.Warn("invalid LOG_LEVEL, defaulting to info", "error", levelErr)
+	}
 
 	if err := run(os.Args[1:]); err != nil {
 		slog.Error("cli stopped with error", "error", err)

@@ -1,4 +1,5 @@
 import { proxy } from "../../orchestrator/client";
+import { withAuth, writeRoles } from "@/app/auth/guard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,13 +13,13 @@ export async function GET(req: Request, { params }: Params) {
 }
 
 /** PATCH /api/deployments/:id — scale (change the desired replica count). */
-export async function PATCH(req: Request, { params }: Params) {
+export const PATCH = withAuth(async (req: Request, { params }: Params) => {
   const { id } = await params;
   return proxy(req, `/deployments/${encodeURIComponent(id)}`);
-}
+}, { roles: writeRoles });
 
 /** DELETE /api/deployments/:id — undeploy. */
-export async function DELETE(req: Request, { params }: Params) {
+export const DELETE = withAuth(async (req: Request, { params }: Params) => {
   const { id } = await params;
   return proxy(req, `/deployments/${encodeURIComponent(id)}`);
-}
+}, { roles: writeRoles });

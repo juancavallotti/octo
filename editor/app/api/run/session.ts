@@ -133,8 +133,13 @@ async function writeConfig(path: string, yaml: string): Promise<void> {
   await rename(tmp, path);
 }
 
-/** Start (or restart) the namespace's runner with the given rendered config YAML. */
-export async function start(ns: string, yaml: string): Promise<RunStatus> {
+/**
+ * Start (or restart) the namespace's runner with the given rendered config YAML.
+ * `devEnv` (the editor's "Dev .env" values) is injected into the spawned process's
+ * environment below and never written to disk — the `env` object is local to this
+ * call. The Go runtime resolves OS env before declared defaults, so this suffices.
+ */
+export async function start(ns: string, yaml: string, devEnv?: Record<string, string>): Promise<RunStatus> {
   const bin = process.env.OCTO_BIN_PATH;
   if (!bin) {
     throw new Error("OCTO_BIN_PATH is not set; launch the editor with `task dev`.");
@@ -160,7 +165,9 @@ export async function start(ns: string, yaml: string): Promise<RunStatus> {
   s.exposable = exposable;
   s.port = port;
 
-  const env = { ...process.env };
+  // Base process env, then the dev env values; HTTP_PORT/HTTP_HOST are applied
+  // last so a stray dev value can't clobber the proxy wiring.
+  const env: NodeJS.ProcessEnv = { ...process.env, ...(devEnv ?? {}) };
   if (port !== null) {
     env.HTTP_PORT = String(port);
     env.HTTP_HOST = "127.0.0.1";

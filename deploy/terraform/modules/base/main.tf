@@ -1,12 +1,11 @@
-# Shared single-VM infrastructure: APIs, service account, .env secret, static
-# IP, firewall, the instance itself, and the DNS A record(s). The workload (what
-# actually runs on the VM) is injected via var.startup_script + var.metadata.
+# Shared single-VM infrastructure: APIs, service account, static IP, firewall, the
+# instance itself, and the DNS A record(s). The workload (what actually runs on the
+# VM) is injected via var.startup_script + var.metadata.
 
 resource "google_project_service" "apis" {
   for_each = toset([
     "compute.googleapis.com",
     "dns.googleapis.com",
-    "secretmanager.googleapis.com",
   ])
   service            = each.value
   disable_on_destroy = false
@@ -15,28 +14,6 @@ resource "google_project_service" "apis" {
 resource "google_service_account" "vm" {
   account_id   = "${var.instance_name}-vm"
   display_name = "octo VM (${var.instance_name})"
-}
-
-# --- Secret: the whole .env stored as one unit ---
-resource "google_secret_manager_secret" "env" {
-  secret_id = var.secret_id
-
-  replication {
-    auto {}
-  }
-
-  depends_on = [google_project_service.apis]
-}
-
-resource "google_secret_manager_secret_version" "env" {
-  secret      = google_secret_manager_secret.env.id
-  secret_data = var.secret_data
-}
-
-resource "google_secret_manager_secret_iam_member" "vm_access" {
-  secret_id = google_secret_manager_secret.env.id
-  role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${google_service_account.vm.email}"
 }
 
 # cert-manager (running on the node, using the VM SA via ambient credentials)
@@ -127,11 +104,7 @@ resource "google_compute_instance" "vm" {
   metadata                = var.metadata
   metadata_startup_script = var.startup_script
 
-  depends_on = [
-    google_secret_manager_secret_version.env,
-    google_secret_manager_secret_iam_member.vm_access,
-    google_project_service.apis,
-  ]
+  depends_on = [google_project_service.apis]
 }
 
 # --- DNS A records ---

@@ -14,6 +14,18 @@ dns_managed_zone = "your-clouddns-zone-name"  # Cloud DNS zone NAME, e.g. "juanc
 # build then publishes AND rolls the cluster.
 # enable_cloudbuild = true
 
+# --- SSO / OIDC (optional) ---
+# Gate the editor behind eetr single sign-on (consumed by the release root). The
+# client secret is kept in the release Terraform state (the GCS bucket), and the
+# Auth.js session secret is generated automatically — no Secret Manager. Register the
+# redirect URI https://{domain}/api/auth/callback/eetr on the IdP.
+# oidc_enabled       = true
+# oidc_client_id     = "eetr_xxxxxxxxxxxxxxxxxxxxxxxx"
+# oidc_client_secret = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+# oidc_issuer        = "https://auth.eetr.app" # default
+# oidc_write_roles   = ""                       # e.g. "admin,operator" to gate writes; empty = any signed-in user
+# oidc_roles_claim   = ""                       # override if the IdP uses a non-"roles" claim
+
 # --- Optional overrides (defaults shown) ---
 # region        = "us-west1"
 # zone          = "us-west1-a"

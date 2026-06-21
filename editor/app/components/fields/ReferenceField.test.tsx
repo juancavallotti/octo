@@ -8,6 +8,8 @@ const doc: EditorDocument = {
     { id: "c1", name: "main-http", type: "http", settings: {} },
     { id: "c2", name: "api-client", type: "http-client", settings: {} },
     { id: "c3", name: "other-client", type: "http-client", settings: {} },
+    { id: "c4", name: "claude", type: "llm-anthropic", settings: {} },
+    { id: "c5", name: "gpt", type: "llm-openai", settings: {} },
   ],
   flows: [
     { id: "f1", name: "main", process: [] },
@@ -37,6 +39,21 @@ describe("ReferenceField", () => {
     expect(screen.getByRole("option", { name: "other-client" })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: "main-http" })).toBeNull();
     expect(screen.getByRole("option", { name: "— (default)" })).toBeInTheDocument();
+  });
+
+  it("renders any connector in the category for a category reference", () => {
+    render(
+      <ReferenceField
+        spec={{ kind: "connector", connectorCategory: "llm" }}
+        value=""
+        required={false}
+        onChange={() => {}}
+      />,
+    );
+    // Every llm-* provider, regardless of exact type; nothing outside the category.
+    expect(screen.getByRole("option", { name: "claude" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "gpt" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "api-client" })).toBeNull();
   });
 
   it("renders a dropdown of flow names for a flow reference", () => {

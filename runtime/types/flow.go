@@ -34,9 +34,12 @@ type SourceConfig struct {
 // Settings. Composite kinds use explicit typed slots: a "handle-errors" populates
 // Process and Error; a "fork" populates Branches; an "if" populates
 // Condition/Then/Else; a "switch" populates Cases and optionally Default; a
-// "foreach" populates Items/As/Body. The Flow<->Block recursion (FlowConfig.Process
-// -> []BlockConfig -> the composite slots -> FlowConfig) lets the parser build the
-// whole tree in one pass.
+// "foreach" populates Items/As/Body. The AI composites use Connector/Prompt and
+// their own slots: an "ai-router" populates Routes (+ Default as the guardrail);
+// an "ai-agent" populates Tools (+ Default), MaxIterations; an "ai-retry"
+// populates Process/Error and MaxAttempts. The Flow<->Block recursion
+// (FlowConfig.Process -> []BlockConfig -> the composite slots -> FlowConfig) lets
+// the parser build the whole tree in one pass.
 type BlockConfig struct {
 	Type     string   `yaml:"type"`
 	Name     string   `yaml:"name,omitempty"`
@@ -79,6 +82,29 @@ type BlockConfig struct {
 	As string `yaml:"as,omitempty"`
 	// Body is the flow a "foreach" block runs once per element.
 	Body *FlowConfig `yaml:"body,omitempty"`
+
+	// Connector names the LLM connector the AI composites (ai-router, ai-agent,
+	// ai-retry) call through.
+	Connector string `yaml:"connector,omitempty"`
+	// Prompt is the routing/task/repair instruction given to the model by the AI
+	// composites.
+	Prompt string `yaml:"prompt,omitempty"`
+	// Guardrail describes when the model should fall back to the Default path; it
+	// is used by ai-router and ai-agent.
+	Guardrail string `yaml:"guardrail,omitempty"`
+	// Routes are the named, described branches of an "ai-router" block. The model
+	// picks one; Default is the guardrail taken when it is not confident.
+	Routes []RouteConfig `yaml:"routes,omitempty"`
+	// Tools are the named, described branches of an "ai-agent" block, each wired
+	// to the model as a callable function.
+	Tools []ToolConfig `yaml:"tools,omitempty"`
+	// MaxIterations caps how many tool-calling turns an "ai-agent" runs before
+	// falling back to the guardrail (default applied by the builder).
+	MaxIterations int `yaml:"maxIterations,omitempty"`
+	// MaxAttempts caps how many times an "ai-retry" re-runs its Process chain
+	// after an LLM-driven revision before falling through to Error (default
+	// applied by the builder).
+	MaxAttempts int `yaml:"maxAttempts,omitempty"`
 }
 
 // CaseConfig is one branch of a "switch" block: a boolean When expression and an
@@ -87,4 +113,29 @@ type BlockConfig struct {
 type CaseConfig struct {
 	When string     `yaml:"when"`
 	Flow FlowConfig `yaml:",inline"`
+}
+
+// RouteConfig is one branch of an "ai-router" block: a Name and a Description the
+// model uses to choose, plus the Process chain to run when it is chosen. Process
+// is a bare block list (not an inline FlowConfig) so the route's own Name does not
+// collide with FlowConfig's name field on decode; a route never needs the other
+// flow-level fields (source, workers, error).
+type RouteConfig struct {
+	Name        string        `yaml:"name"`
+	Description string        `yaml:"description"`
+	Process     []BlockConfig `yaml:"process"`
+}
+
+// ToolConfig is one branch of an "ai-agent" block, wired to the model as a
+// callable function. Name and Description tell the model what the tool does;
+// InputSchema is the JSON Schema for its arguments (a JSON document, written
+// inline as a string); the Process chain runs the tool, its arguments arriving as
+// the message body and its output body returned to the model as the result.
+// Process is a bare block list (not an inline FlowConfig) for the same
+// name-collision reason as RouteConfig.
+type ToolConfig struct {
+	Name        string        `yaml:"name"`
+	Description string        `yaml:"description"`
+	InputSchema string        `yaml:"inputSchema,omitempty"`
+	Process     []BlockConfig `yaml:"process"`
 }

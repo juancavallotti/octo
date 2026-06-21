@@ -1,4 +1,5 @@
 import { proxy } from "../../../orchestrator/client";
+import { withAuth, writeRoles } from "@/app/auth/guard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,7 +13,7 @@ export async function GET(req: Request, { params }: Params) {
 }
 
 /** POST /api/integrations/:id/deployments — deploy the integration. */
-export async function POST(req: Request, { params }: Params) {
+export const POST = withAuth(async (req: Request, { params }: Params) => {
   const { id } = await params;
   return proxy(req, `/integrations/${encodeURIComponent(id)}/deployments`);
-}
+}, { roles: writeRoles });
