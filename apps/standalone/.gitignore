@@ -1,0 +1,30 @@
+# dependencies
+/node_modules
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# testing
+/coverage
+/test-results/
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+*.log
+
+# env files
+.env*
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# local flows dir (default OCTO_FS_DIR for `next dev`)
+/flows/

@@ -1,0 +1,31 @@
+@import "tailwindcss";
+/* Editor canvas styles (e.g. .canvas-grid), shared by every embedding app. */
+@import "@octo/editor/styles/editor.css";
+
+/* The editor library lives outside this app's module graph; scan its source so
+   Tailwind includes the utility classes used by its components. */
+@source "../../../packages/editor/src";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
