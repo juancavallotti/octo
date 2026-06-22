@@ -10,9 +10,12 @@ import { useRun } from "@/app/run/RunContext";
  * the button's tooltip.
  */
 export default function RunBar() {
-  const { available, running, busy, validation, error, start, stop } = useRun();
+  const run = useRun();
 
-  if (!available) return null;
+  // No RunProvider mounted, or no runner available => no RUN control.
+  if (!run || !run.available) return null;
+
+  const { running, busy, validation, error, start, stop } = run;
 
   if (running) {
     return (

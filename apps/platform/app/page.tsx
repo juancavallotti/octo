@@ -1,5 +1,6 @@
-import EditorShell from "./components/EditorShell";
+import PlatformEditor from "./components/PlatformEditor";
+import UserMenu from "./components/UserMenu";
 
 export default function Home() {
-  return <EditorShell />;
+  return <PlatformEditor userMenu={<UserMenu />} />;
 }

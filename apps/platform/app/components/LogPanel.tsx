@@ -2,12 +2,15 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, Trash2 } from "lucide-react";
-import { useRun } from "@/app/run/RunContext";
+import { useRun, type RunLogLine } from "@/app/run/RunContext";
 import DevEnvPanel from "./DevEnvPanel";
 
 const MIN_HEIGHT = 120;
 const MAX_HEIGHT = 480;
 const DEFAULT_HEIGHT = 200;
+// Stable reference for the no-capability case so the scroll effect's deps don't
+// change every render.
+const NO_LOGS: RunLogLine[] = [];
 
 type ConsoleTab = "logs" | "env";
 
@@ -19,13 +22,16 @@ type ConsoleTab = "logs" | "env";
  * the user is already near it.
  */
 export default function LogPanel() {
-  const { available, running, logs, version, testUrl, clearLogs } = useRun();
+  const run = useRun();
   const [tab, setTab] = useState<ConsoleTab>("logs");
   const [height, setHeight] = useState(DEFAULT_HEIGHT);
   // Collapsed by default and follows the run state (opens when running), until
   // the user overrides it with the toggle. Derived rather than synced in an
   // effect so a run starting auto-expands the panel without a state write.
   const [override, setOverride] = useState<boolean | null>(null);
+  // Safe reads so all hooks run unconditionally even with no run capability.
+  const running = run?.running ?? false;
+  const logs = run?.logs ?? NO_LOGS;
   const collapsed = override ?? !running;
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true);
@@ -36,7 +42,9 @@ export default function LogPanel() {
     if (el && pinnedRef.current) el.scrollTop = el.scrollHeight;
   }, [logs, collapsed, tab]);
 
-  if (!available) return null;
+  // No RunProvider mounted, or no runner available => no log panel.
+  if (!run || !run.available) return null;
+  const { version, testUrl, clearLogs } = run;
 
   function startResize(e: React.PointerEvent) {
     e.preventDefault();

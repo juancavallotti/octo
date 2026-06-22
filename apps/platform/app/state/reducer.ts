@@ -40,7 +40,7 @@ import * as slotHandlers from "./slotHandlers";
 import * as integrationHandlers from "./integrationHandlers";
 
 /**
- * Editor-wide state. EditorShell is a "large" component, so its state lives in a
+ * Editor-wide state. EditorRoot is a "large" component, so its state lives in a
  * reducer (per the coding standards). The document is the in-memory editing model
  * (see app/model/document.ts); a file holds many flows, all editable at once.
  * `activeFlowId` is just the target for click-to-add and selection highlighting.

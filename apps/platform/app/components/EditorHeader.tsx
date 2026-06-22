@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useOrchestrator } from "@/app/run/OrchestratorContext";
+import { useFileSystem } from "@/app/providers/FileSystemProvider";
 import RunBar from "./RunBar";
 import IntegrationTitle from "./IntegrationTitle";
 import FolderPicker from "./FolderPicker";
@@ -10,8 +10,8 @@ import IntegrationsButton from "./IntegrationsButton";
 
 /**
  * The editor's top bar. The integration controls (title, folder, Save, manage)
- * only appear when an orchestrator is configured (`useOrchestrator().available`);
- * otherwise the bar is just the logo and the RUN control, exactly as before.
+ * only appear when a filesystem capability is present (`useFileSystem()`);
+ * otherwise the bar is just the logo and the RUN control.
  */
 export default function EditorHeader({
   userMenu,
@@ -19,7 +19,7 @@ export default function EditorHeader({
   /** Account control slot (server-rendered UserMenu); only visible when SSO is on. */
   userMenu?: React.ReactNode;
 }) {
-  const { available } = useOrchestrator();
+  const available = useFileSystem() !== null;
 
   return (
     <header className="flex items-center gap-2 border-b border-black/10 dark:border-white/10 px-4 h-12 shrink-0">

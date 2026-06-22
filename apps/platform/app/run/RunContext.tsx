@@ -216,8 +216,10 @@ export function RunProvider({
   return <RunContext.Provider value={value}>{children}</RunContext.Provider>;
 }
 
-export function useRun(): RunContextValue {
-  const ctx = useContext(RunContext);
-  if (!ctx) throw new Error("useRun must be used within a RunProvider");
-  return ctx;
+/**
+ * The current run capability, or null when no RunProvider is mounted (the RUN
+ * capability is absent). Consumers render their run controls only when non-null.
+ */
+export function useRun(): RunContextValue | null {
+  return useContext(RunContext);
 }

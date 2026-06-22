@@ -1,4 +1,5 @@
-import EditorShell from "@/app/components/EditorShell";
+import PlatformEditor from "@/app/components/PlatformEditor";
+import UserMenu from "@/app/components/UserMenu";
 
 /**
  * Bookmarkable editor route for a saved integration: `/i/<id>` opens that
@@ -11,5 +12,5 @@ export default async function IntegrationEditorPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  return <EditorShell integrationId={id} />;
+  return <PlatformEditor integrationId={id} userMenu={<UserMenu />} />;
 }
