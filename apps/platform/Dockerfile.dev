@@ -28,8 +28,11 @@ ENV NODE_ENV=development \
 # live-synced by DevSpace at runtime (node_modules/.next are excluded).
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY apps/platform/package.json ./apps/platform/
+COPY packages/editor/package.json ./packages/editor/
+COPY packages/run-host/package.json ./packages/run-host/
 RUN pnpm install --frozen-lockfile
 COPY tsconfig.base.json ./
+COPY packages/ ./packages/
 COPY apps/platform/ ./apps/platform/
 # octo lives OUTSIDE /app so DevSpace's source-sync can't delete it.
 COPY --from=runtime-build /out/octo /usr/local/bin/octo

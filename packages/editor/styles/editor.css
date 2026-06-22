@@ -1,0 +1,16 @@
+/**
+ * Editor-specific styles shared by every app that embeds @octo/editor. Import it
+ * from the app's global stylesheet. It references the app-defined --foreground
+ * custom property (so the grid contrasts with the app's theme), which each app
+ * sets in its own globals.
+ */
+
+/* Dot-grid background for the flow canvas. */
+.canvas-grid {
+  background-image: radial-gradient(
+    color-mix(in srgb, var(--foreground) 18%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: 20px 20px;
+  background-position: -10px -10px;
+}

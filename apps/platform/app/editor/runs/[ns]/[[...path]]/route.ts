@@ -1,5 +1,4 @@
-import { runningPort } from "../../../../api/run/session";
-import { isValidNamespace } from "../../../../api/run/namespace";
+import { runningPort, isValidNamespace } from "@octo/run-host";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { start, status } from "../session";
-import { ensureNamespace } from "../namespace";
+import { start, status, ensureNamespace } from "@octo/run-host";
 import { withAuth, writeRoles } from "@/app/auth/guard";
 
 export const runtime = "nodejs";

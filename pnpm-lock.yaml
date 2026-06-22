@@ -25,6 +25,9 @@ importers:
       '@octo/editor':
         specifier: workspace:*
         version: link:../../packages/editor
+      '@octo/run-host':
+        specifier: workspace:*
+        version: link:../../packages/run-host
       lucide-react:
         specifier: 1.21.0
         version: 1.21.0(react@19.2.4)
@@ -150,6 +153,22 @@ importers:
       react-dom:
         specifier: 19.2.4
         version: 19.2.4(react@19.2.4)
+      typescript:
+        specifier: ^5
+        version: 5.9.3
+      vitest:
+        specifier: 4.1.9
+        version: 4.1.9(@types/node@20.19.43)(jsdom@29.1.1)(vite@8.0.16(@types/node@20.19.43)(jiti@2.7.0)(yaml@2.9.0))
+
+  packages/run-host:
+    dependencies:
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
+    devDependencies:
+      '@types/node':
+        specifier: ^20
+        version: 20.19.43
       typescript:
         specifier: ^5
         version: 5.9.3

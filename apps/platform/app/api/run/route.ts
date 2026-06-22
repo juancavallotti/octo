@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
-import { status } from "./session";
-import { probeVersion } from "./version";
-import { ensureNamespace } from "./namespace";
+import { status, probeVersion, ensureNamespace } from "@octo/run-host";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

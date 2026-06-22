@@ -26,10 +26,15 @@ WORKDIR /app
 # Install deps from the workspace lockfile; manifests first for layer caching.
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY apps/platform/package.json ./apps/platform/
+COPY packages/editor/package.json ./packages/editor/
+COPY packages/run-host/package.json ./packages/run-host/
 RUN pnpm install --frozen-lockfile
-# Shared base tsconfig + app source, then build (standalone output traces the
-# workspace root, so the server lands at apps/platform/.next/standalone/...).
+# Shared base tsconfig + workspace source (the app consumes @octo/editor and
+# @octo/run-host as TS source via transpilePackages), then build. The standalone
+# output traces the workspace root, so the server lands at
+# apps/platform/.next/standalone/apps/platform/server.js.
 COPY tsconfig.base.json ./
+COPY packages/ ./packages/
 COPY apps/platform/ ./apps/platform/
 RUN pnpm --filter platform build
 

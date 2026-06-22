@@ -1,4 +1,6 @@
 @import "tailwindcss";
+/* Editor canvas styles (e.g. .canvas-grid), shared by every embedding app. */
+@import "@octo/editor/styles/editor.css";
 
 /* The editor library lives outside this app's module graph; scan its source so
    Tailwind includes the utility classes used by its components. */
@@ -26,14 +28,4 @@
 body {
   background: var(--background);
   color: var(--foreground);
-}
-
-/* Dot-grid background for the flow canvas. */
-.canvas-grid {
-  background-image: radial-gradient(
-    color-mix(in srgb, var(--foreground) 18%, transparent) 1px,
-    transparent 1px
-  );
-  background-size: 20px 20px;
-  background-position: -10px -10px;
 }

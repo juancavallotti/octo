@@ -10,8 +10,8 @@ const nextConfig: NextConfig = {
   // standalone bundle picks up the hoisted (symlinked) node_modules and the
   // server is emitted at .next/standalone/apps/platform/server.js.
   outputFileTracingRoot: path.join(__dirname, "../../"),
-  // The editor ships as untranspiled TS/TSX source; let Next compile it.
-  transpilePackages: ["@octo/editor"],
+  // Workspace packages ship as untranspiled TS source; let Next compile them.
+  transpilePackages: ["@octo/editor", "@octo/run-host"],
 };
 
 export default nextConfig;
