@@ -3,20 +3,28 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, Save } from "lucide-react";
 import { useEditorState, EditorActionType } from "../state/editorState";
-import { useFileSystem } from "../providers/FileSystemProvider";
+import {
+  useFileSystem,
+  type StoredDocument,
+} from "../providers/FileSystemProvider";
 import type { EditorDocument } from "../model/document";
 import { toDefinitionYaml } from "../model/runConfig";
 
 /**
- * Persists the current document as an integration via the orchestrator. The
- * first save creates the row (and assigns any chosen folder); later saves update
- * it. Unlike the RUN control it does not require a valid document — a work in
- * progress can be saved at any time. Save is disabled only when there is nothing
- * to save (an empty document) or nothing has changed since the last save; an
- * untitled integration is persisted as "Untitled integration".
+ * Persists the current document through the filesystem capability. The first save
+ * creates it; later saves update it. Unlike the RUN control it does not require a
+ * valid document — a work in progress can be saved at any time. Save is disabled
+ * only when there is nothing to save (an empty document) or nothing has changed
+ * since the last save; an untitled document is persisted as "Untitled
+ * integration". `onSaved` lets the host react to a save (e.g. promote the URL to
+ * the newly created document) without coupling the editor to any app's routing.
  */
 const DEFAULT_NAME = "Untitled integration";
-export default function SaveButton() {
+export default function SaveButton({
+  onSaved,
+}: {
+  onSaved?: (stored: StoredDocument) => void;
+}) {
   const { state, dispatch } = useEditorState();
   const fs = useFileSystem();
   const { id, name, folderId } = state.integration;
@@ -71,9 +79,6 @@ export default function SaveButton() {
           type: EditorActionType.SET_INTEGRATION_ID,
           data: { id: stored.id },
         });
-        // Promote the address bar to the bookmarkable URL without remounting the
-        // editor (Next syncs the router for manual history updates).
-        window.history.replaceState(null, "", `/i/${stored.id}`);
       }
       // Reflect a defaulted name in the title field so the UI matches what was
       // stored (and so the saved-snapshot comparison holds).
@@ -84,6 +89,8 @@ export default function SaveButton() {
         });
       }
       setSavedSnapshot({ doc, name: saveName, folderId });
+      // Let the host promote its URL / reflect the (possibly new) id.
+      onSaved?.(stored);
     } catch (e) {
       setError((e as Error).message);
     } finally {
