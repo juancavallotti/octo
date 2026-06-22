@@ -28,9 +28,9 @@ options:
 steps:
   # Platform build context is the repo root so its Dockerfile reaches runtime/ +
   # the pnpm workspace (apps/platform).
-  - id: build-editor
+  - id: build-platform
     name: gcr.io/cloud-builders/docker
-    args: ["build", "-t", "${_IMAGE_BASE}/octo-editor:${_TAG}", "-t", "${_IMAGE_BASE}/octo-editor:latest", "-f", "apps/platform/Dockerfile", "."]
+    args: ["build", "-t", "${_IMAGE_BASE}/octo-platform:${_TAG}", "-t", "${_IMAGE_BASE}/octo-platform:latest", "-f", "apps/platform/Dockerfile", "."]
   - id: build-orchestrator
     name: gcr.io/cloud-builders/docker
     args: ["build", "-t", "${_IMAGE_BASE}/octo-orchestrator:${_TAG}", "-t", "${_IMAGE_BASE}/octo-orchestrator:latest", "-f", "orchestrator/Dockerfile", "./orchestrator"]
@@ -46,12 +46,12 @@ steps:
   - id: push-images
     name: gcr.io/cloud-builders/docker
     entrypoint: bash
-    waitFor: ["build-editor", "build-orchestrator", "build-schema", "build-runtime"]
+    waitFor: ["build-platform", "build-orchestrator", "build-schema", "build-runtime"]
     args:
       - -c
       - |
         set -e
-        for img in octo-editor octo-orchestrator octo-schema octo-runtime; do
+        for img in octo-platform octo-orchestrator octo-schema octo-runtime; do
           for t in "${_TAG}" latest; do
             docker push "${_IMAGE_BASE}/$img:$t"
           done

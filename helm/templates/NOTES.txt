@@ -13,11 +13,11 @@ challenge completes — confirm the DNS A record resolves to this node's IP firs
 {{- else }}
 
 Ingress is disabled. Reach the editor by port-forwarding:
-  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "octo.editor.serviceName" . }} 3000:{{ .Values.editor.service.port }}
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "octo.platform.serviceName" . }} 3000:{{ .Values.platform.service.port }}
 {{- end }}
 
 Components:
-  editor        {{ include "octo.image" (dict "root" $ "repo" .Values.editor.repository) }}
+  platform      {{ include "octo.image" (dict "root" $ "repo" .Values.platform.repository) }}
   orchestrator  {{ include "octo.image" (dict "root" $ "repo" .Values.orchestrator.repository) }}
   runtime       {{ include "octo.image" (dict "root" $ "repo" .Values.runtime.repository) }}  (deployed per integration)
 

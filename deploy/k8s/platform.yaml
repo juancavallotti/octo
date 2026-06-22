@@ -1,25 +1,25 @@
-# The bundled editor + runtime (octo-editor image). The Next.js server runs on
-# 3000 and spawns the bundled octo binary via OCTO_BIN_PATH for the RUN feature.
+# The bundled platform app + runtime (octo-platform image). The Next.js server runs
+# on 3000 and spawns the bundled octo binary via OCTO_BIN_PATH for the RUN feature.
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: editor
+  name: platform
   namespace: octo-dev
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: editor
+      app: platform
   template:
     metadata:
       labels:
-        app: editor
+        app: platform
     spec:
       containers:
-        - name: editor
+        - name: platform
           # Built by `task cluster:images` and loaded via `k3d image import`.
-          image: octo-editor:dev
+          image: octo-platform:dev
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3000
@@ -58,13 +58,13 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: editor
+  name: platform
   namespace: octo-dev
 spec:
   # NodePort so the k3d loadbalancer mapping (localhost:3000 -> 30030) reaches it.
   type: NodePort
   selector:
-    app: editor
+    app: platform
   ports:
     - name: http
       port: 3000

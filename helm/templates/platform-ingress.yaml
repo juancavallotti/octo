@@ -2,10 +2,10 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ include "octo.fullname" . }}-editor
+  name: {{ include "octo.fullname" . }}-platform
   labels:
     {{- include "octo.labels" . | nindent 4 }}
-    app.kubernetes.io/component: editor
+    app.kubernetes.io/component: platform
   {{- $ann := .Values.ingress.annotations | default dict }}
   {{- $tls := .Values.ingress.tls | default dict }}
   {{- $wildcard := .Values.wildcardTLS | default dict }}
@@ -41,7 +41,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: {{ include "octo.editor.serviceName" . }}
+                name: {{ include "octo.platform.serviceName" . }}
                 port:
-                  number: {{ .Values.editor.service.port }}
+                  number: {{ .Values.platform.service.port }}
 {{- end }}
