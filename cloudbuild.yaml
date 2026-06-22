@@ -96,13 +96,17 @@ steps:
         python3 -c "import zipfile; zipfile.ZipFile('/tmp/tf.zip').extractall('/usr/local/bin')"
         chmod +x /usr/local/bin/terraform
         # Fetch the cluster kubeconfig over IAP (server rewritten to the public API
-        # endpoint, which the k3s cert covers via --tls-san). Retried because the
-        # first SSH after the build's key is pushed often fails with "Connection
-        # closed ... port 65535" until the key propagates; pipefail + the -s check
-        # keep a half-written kubeconfig from counting as success.
+        # endpoint, which the k3s cert covers via --tls-san). SSH as a NON-root user:
+        # the build's gcloud container runs as root, so an unqualified `compute ssh`
+        # connects as root — which GCE rejects ("Permission denied (publickey)")
+        # because the guest agent only provisions metadata SSH keys for non-root
+        # users (and grants them passwordless sudo via google-sudoers). Retried
+        # because the first SSH after the key is pushed fails until it propagates;
+        # pipefail + the -s check keep a half-written kubeconfig from counting as
+        # success.
         set -o pipefail
         for i in 1 2 3 4 5; do
-          if gcloud compute ssh "${_INSTANCE}" --zone "${_ZONE}" --tunnel-through-iap --quiet \
+          if gcloud compute ssh "octodeploy@${_INSTANCE}" --zone "${_ZONE}" --tunnel-through-iap --quiet \
                --command 'sudo cat /etc/rancher/k3s/k3s.yaml' \
                | sed "s#https://127.0.0.1:6443#https://${_DOMAIN}:6443#" > /workspace/kubeconfig.yaml \
              && [ -s /workspace/kubeconfig.yaml ]; then
