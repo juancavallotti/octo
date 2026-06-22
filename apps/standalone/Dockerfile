@@ -48,6 +48,7 @@ ENV NODE_ENV=production \
 # The monorepo standalone nests under apps/standalone/.
 COPY --from=app-build /app/apps/standalone/.next/standalone ./
 COPY --from=app-build /app/apps/standalone/.next/static ./apps/standalone/.next/static
+COPY --from=app-build /app/apps/standalone/public ./apps/standalone/public
 # The octo runtime the RUN feature spawns.
 COPY --from=runtime-build /out/octo /usr/local/bin/octo
 
