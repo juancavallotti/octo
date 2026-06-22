@@ -7,10 +7,21 @@
 # metadata token must not reach the serial console.)
 set -euo pipefail
 
+# Refresh the octo-pull helper from its (Terraform-managed) metadata on EVERY boot,
+# before the first-boot guard below — so changes to the helper (e.g. an image
+# rename) propagate to an already-provisioned VM on reboot instead of going stale.
+# Guarded on curl (preinstalled on the base image; the first-boot path below also
+# (re)installs it after apt) and `|| true` so it can never fail the bootstrap.
+if command -v curl >/dev/null 2>&1; then
+  curl -s -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/octo-pull-sh" \
+    > /usr/local/bin/octo-pull 2>/dev/null && chmod +x /usr/local/bin/octo-pull || true
+fi
+
 # GCE re-runs startup scripts on every boot; k3s's systemd service keeps the
 # cluster alive across reboots, so skip re-bootstrapping once it has succeeded.
 if [ -f /opt/octo/.provisioned ]; then
-  echo "already provisioned; nothing to do"
+  echo "already provisioned; octo-pull refreshed; nothing else to do"
   exit 0
 fi
 

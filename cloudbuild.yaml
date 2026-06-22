@@ -100,22 +100,28 @@ steps:
         # the build's gcloud container runs as root, so an unqualified `compute ssh`
         # connects as root — which GCE rejects ("Permission denied (publickey)")
         # because the guest agent only provisions metadata SSH keys for non-root
-        # users (and grants them passwordless sudo via google-sudoers). Retried
-        # because the first SSH after the key is pushed fails until it propagates;
-        # pipefail + the -s check keep a half-written kubeconfig from counting as
-        # success.
+        # users (and grants them passwordless sudo via google-sudoers).
+        #
+        # `sed -n '/^apiVersion:/,$$p'` drops any leading gcloud/IAP chatter (e.g. the
+        # "install NumPy" tunnel WARNING, which can land on stdout in the build env)
+        # so only the real kubeconfig YAML is written — otherwise Helm fails parsing
+        # it ("mapping values are not allowed in this context"). Retried because the
+        # first SSH after the key is pushed fails until it propagates; pipefail + the
+        # apiVersion guard keep a chatter-only/half-written file from counting as success.
         set -o pipefail
         for i in 1 2 3 4 5; do
           if gcloud compute ssh "octodeploy@${_INSTANCE}" --zone "${_ZONE}" --tunnel-through-iap --quiet \
                --command 'sudo cat /etc/rancher/k3s/k3s.yaml' \
+               | sed -n '/^apiVersion:/,$$p' \
                | sed "s#https://127.0.0.1:6443#https://${_DOMAIN}:6443#" > /workspace/kubeconfig.yaml \
-             && [ -s /workspace/kubeconfig.yaml ]; then
+             && head -1 /workspace/kubeconfig.yaml | grep -q '^apiVersion:'; then
             break
           fi
           echo "kubeconfig SSH attempt $$i failed; retrying in 15s" >&2
           sleep 15
         done
-        [ -s /workspace/kubeconfig.yaml ]
+        # Hard-fail the build if every attempt produced no valid kubeconfig.
+        head -1 /workspace/kubeconfig.yaml | grep -q '^apiVersion:'
         # octo.tfvars is gitignored, so it is absent in the build checkout. Pass the
         # config via -var from substitutions ($PROJECT_ID is a Cloud Build built-in);
         # repository_id/namespace/wildcard_tls/cluster_issuer use their (correct)
