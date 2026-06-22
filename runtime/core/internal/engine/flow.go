@@ -10,9 +10,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/juancavallotti/eip-go/core"
-	"github.com/juancavallotti/eip-go/core/internal/pool"
-	"github.com/juancavallotti/eip-go/types"
+	"github.com/juancavallotti/octo/core"
+	"github.com/juancavallotti/octo/core/internal/pool"
+	"github.com/juancavallotti/octo/types"
 )
 
 // Block type names handled directly by the flow builder rather than the block

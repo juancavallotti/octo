@@ -20,7 +20,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 readonly CONNECTORS_DIR="${REPO_ROOT}/runtime/connectors"
 readonly CLI_MAIN="${REPO_ROOT}/runtime/cli/main.go"
-readonly MODULE_PREFIX="github.com/juancavallotti/eip-go/connectors"
+readonly MODULE_PREFIX="github.com/juancavallotti/octo/connectors"
 readonly NAME_PATTERN='^[a-z][a-z0-9]*$'
 
 err() { printf 'error: %s\n' "$1" >&2; }
@@ -52,8 +52,8 @@ package ${name}
 import (
 	"context"
 
-	"github.com/juancavallotti/eip-go/core"
-	"github.com/juancavallotti/eip-go/types"
+	"github.com/juancavallotti/octo/core"
+	"github.com/juancavallotti/octo/types"
 )
 
 // Connector is the ${name} connector.
@@ -86,8 +86,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/juancavallotti/eip-go/core"
-	"github.com/juancavallotti/eip-go/types"
+	"github.com/juancavallotti/octo/core"
+	"github.com/juancavallotti/octo/types"
 )
 
 func TestConnectorStartStop(t *testing.T) {

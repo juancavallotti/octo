@@ -1,6 +1,6 @@
 package engine
 
-import "github.com/juancavallotti/eip-go/types"
+import "github.com/juancavallotti/octo/types"
 
 // exprVarNames are the variable names every message-evaluated expression in the
 // engine may reference: the decoded body, the message variables, the two

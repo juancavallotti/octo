@@ -20,8 +20,8 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/anthropics/anthropic-sdk-go/packages/param"
 
-	"github.com/juancavallotti/eip-go/core"
-	"github.com/juancavallotti/eip-go/types"
+	"github.com/juancavallotti/octo/core"
+	"github.com/juancavallotti/octo/types"
 )
 
 func init() {

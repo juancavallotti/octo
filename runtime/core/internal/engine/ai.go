@@ -9,8 +9,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/juancavallotti/eip-go/core"
-	"github.com/juancavallotti/eip-go/types"
+	"github.com/juancavallotti/octo/core"
+	"github.com/juancavallotti/octo/types"
 )
 
 // logMaxLen caps prompt/response strings in debug logs so a long body or system

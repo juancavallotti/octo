@@ -1,10 +1,10 @@
-// eip-go landing site — no framework, no build. Wires up diagrams, the samples
+// octo landing site — no framework, no build. Wires up diagrams, the samples
 // gallery, YAML highlighting, and the release-please changelog feed.
 
 import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
 
 const GH_OWNER = 'juancavallotti';
-const GH_REPO = 'eip-go';
+const GH_REPO = 'octo';
 
 /* ---------- Mermaid ---------- */
 mermaid.initialize({

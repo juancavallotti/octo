@@ -24,7 +24,7 @@ variable "github_owner" {
 variable "github_repo" {
   type        = string
   description = "GitHub repository name the trigger watches."
-  default     = "eip-go"
+  default     = "octo"
 }
 
 variable "tag_pattern" {

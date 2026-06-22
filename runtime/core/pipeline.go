@@ -3,7 +3,7 @@ package core
 import (
 	"context"
 
-	"github.com/juancavallotti/eip-go/types"
+	"github.com/juancavallotti/octo/types"
 )
 
 // MessageProcessor transforms a single message. It is the unit of work a Block

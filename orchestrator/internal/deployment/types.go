@@ -8,7 +8,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/juancavallotti/eip-go/orchestrator/internal/kube"
+	"github.com/juancavallotti/octo/orchestrator/internal/kube"
 )
 
 // Deployment is one deployed instance of an integration. IDs are UUIDs in

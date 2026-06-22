@@ -3,7 +3,7 @@ package engine
 import (
 	"errors"
 
-	"github.com/juancavallotti/eip-go/types"
+	"github.com/juancavallotti/octo/types"
 )
 
 // errorVarName is the message variable under which a processing error is exposed

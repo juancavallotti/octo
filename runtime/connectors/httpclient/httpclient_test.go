@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/juancavallotti/eip-go/types"
+	"github.com/juancavallotti/octo/types"
 )
 
 // startConnector starts an http-client connector with the given settings and

@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/juancavallotti/eip-go/types"
+	"github.com/juancavallotti/octo/types"
 )
 
 // startSQLite starts a database connector backed by a fresh temp-file SQLite

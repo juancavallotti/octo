@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/juancavallotti/eip-go/orchestrator/internal/integration"
+	"github.com/juancavallotti/octo/orchestrator/internal/integration"
 )
 
 // folderColumns is the canonical column list (and order) that scanFolder expects,

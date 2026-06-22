@@ -18,8 +18,8 @@ import (
 
 	"github.com/santhosh-tekuri/jsonschema/v5"
 
-	"github.com/juancavallotti/eip-go/core"
-	"github.com/juancavallotti/eip-go/types"
+	"github.com/juancavallotti/octo/core"
+	"github.com/juancavallotti/octo/types"
 )
 
 func init() {

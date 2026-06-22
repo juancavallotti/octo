@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/juancavallotti/eip-go/orchestrator/internal/integration"
+	"github.com/juancavallotti/octo/orchestrator/internal/integration"
 )
 
 // maxNameLen bounds a folder name; the column is unconstrained varchar so the

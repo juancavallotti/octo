@@ -74,7 +74,7 @@ linters:
       # Wrap errors that cross into our code from stdlib / third parties.
       # Internal propagation between our own packages does not need wrapping.
       ignore-package-globs:
-        - github.com/juancavallotti/eip-go/*
+        - github.com/juancavallotti/octo/*
     mnd:
       ignored-numbers:
         - "0"

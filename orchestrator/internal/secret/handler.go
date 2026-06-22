@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	httpx "github.com/juancavallotti/eip-go/orchestrator/internal/http"
+	httpx "github.com/juancavallotti/octo/orchestrator/internal/http"
 )
 
 // requestTimeout bounds the database + Kubernetes work behind a single request.

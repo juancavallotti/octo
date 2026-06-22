@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juancavallotti/eip-go/types"
+	"github.com/juancavallotti/octo/types"
 )
 
 func TestCronSourceEmitsPayload(t *testing.T) {

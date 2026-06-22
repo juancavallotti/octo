@@ -9,8 +9,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/juancavallotti/eip-go/core/internal/dsl"
-	"github.com/juancavallotti/eip-go/types"
+	"github.com/juancavallotti/octo/core/internal/dsl"
+	"github.com/juancavallotti/octo/types"
 )
 
 // envFileVar names the environment variable holding an extra .env file path,

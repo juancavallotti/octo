@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/juancavallotti/eip-go/core"
-	"github.com/juancavallotti/eip-go/types"
+	"github.com/juancavallotti/octo/core"
+	"github.com/juancavallotti/octo/types"
 )
 
 // fakeLLM is a core.Connector + core.LLMClient that returns a canned response

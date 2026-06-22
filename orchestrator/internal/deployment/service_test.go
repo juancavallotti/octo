@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/juancavallotti/eip-go/orchestrator/internal/integration"
-	"github.com/juancavallotti/eip-go/orchestrator/internal/kube"
+	"github.com/juancavallotti/octo/orchestrator/internal/integration"
+	"github.com/juancavallotti/octo/orchestrator/internal/kube"
 )
 
 // fakeRepo is an in-memory deployment repository stand-in.

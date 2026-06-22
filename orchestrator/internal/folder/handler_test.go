@@ -10,7 +10,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/juancavallotti/eip-go/orchestrator/internal/integration"
+	"github.com/juancavallotti/octo/orchestrator/internal/integration"
 )
 
 // memRepo is an in-memory repository for handler tests: it exercises the real

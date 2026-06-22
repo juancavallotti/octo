@@ -3,7 +3,7 @@ package core
 import (
 	"sync"
 
-	"github.com/juancavallotti/eip-go/types"
+	"github.com/juancavallotti/octo/types"
 )
 
 // FlowEventHandler reacts to a published flow event. Handlers must not block;

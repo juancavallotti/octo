@@ -14,18 +14,18 @@ import (
 	"syscall"
 	"time"
 
-	_ "github.com/juancavallotti/eip-go/connectors/cron"
-	_ "github.com/juancavallotti/eip-go/connectors/database" // registers the "database" connector and "sql" block
-	_ "github.com/juancavallotti/eip-go/connectors/http"
-	_ "github.com/juancavallotti/eip-go/connectors/httpclient"    // registers the "http-client" connector and "rest" block
-	_ "github.com/juancavallotti/eip-go/connectors/llm/aiblocks"  // registers the "ai-mapping" block
-	_ "github.com/juancavallotti/eip-go/connectors/llm/anthropic" // registers the "llm-anthropic" connector
-	_ "github.com/juancavallotti/eip-go/connectors/llm/gemini"    // registers the "llm-gemini" connector
-	_ "github.com/juancavallotti/eip-go/connectors/llm/openai"    // registers the "llm-openai" connector
-	_ "github.com/juancavallotti/eip-go/connectors/logger"        // registers the "logger" connector and "log" block
-	"github.com/juancavallotti/eip-go/core"
-	"github.com/juancavallotti/eip-go/core/runtime"
-	"github.com/juancavallotti/eip-go/types"
+	_ "github.com/juancavallotti/octo/connectors/cron"
+	_ "github.com/juancavallotti/octo/connectors/database" // registers the "database" connector and "sql" block
+	_ "github.com/juancavallotti/octo/connectors/http"
+	_ "github.com/juancavallotti/octo/connectors/httpclient"    // registers the "http-client" connector and "rest" block
+	_ "github.com/juancavallotti/octo/connectors/llm/aiblocks"  // registers the "ai-mapping" block
+	_ "github.com/juancavallotti/octo/connectors/llm/anthropic" // registers the "llm-anthropic" connector
+	_ "github.com/juancavallotti/octo/connectors/llm/gemini"    // registers the "llm-gemini" connector
+	_ "github.com/juancavallotti/octo/connectors/llm/openai"    // registers the "llm-openai" connector
+	_ "github.com/juancavallotti/octo/connectors/logger"        // registers the "logger" connector and "log" block
+	"github.com/juancavallotti/octo/core"
+	"github.com/juancavallotti/octo/core/runtime"
+	"github.com/juancavallotti/octo/types"
 )
 
 // defaultInvokeTimeout bounds how long `invoke` waits for the flow by default.
@@ -49,7 +49,7 @@ func main() {
 // is "run", so `cli -config x.yaml` keeps working.
 // usage is the top-level help page, printed for `octo`, `octo --help`, and a
 // subcommand's --help.
-const usage = `octo — run and invoke eip-go integration flows
+const usage = `octo — run and invoke octo integration flows
 
 Usage:
   octo [run] --config <path> [--watch]                       Start connectors and flows (default)

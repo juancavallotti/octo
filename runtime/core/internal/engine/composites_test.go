@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/juancavallotti/eip-go/core"
-	"github.com/juancavallotti/eip-go/core/internal/pool"
-	"github.com/juancavallotti/eip-go/types"
+	"github.com/juancavallotti/octo/core"
+	"github.com/juancavallotti/octo/core/internal/pool"
+	"github.com/juancavallotti/octo/types"
 )
 
 // forkRegistry extends the shared test registry with a "mutate" leaf that writes

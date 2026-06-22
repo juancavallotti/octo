@@ -1,12 +1,12 @@
-module github.com/juancavallotti/eip-go/cli
+module github.com/juancavallotti/octo/cli
 
 go 1.25.0
 
 require (
 	github.com/fsnotify/fsnotify v1.10.1
-	github.com/juancavallotti/eip-go/connectors v0.0.0-00010101000000-000000000000
-	github.com/juancavallotti/eip-go/core v0.0.0
-	github.com/juancavallotti/eip-go/types v0.0.0
+	github.com/juancavallotti/octo/connectors v0.0.0-00010101000000-000000000000
+	github.com/juancavallotti/octo/core v0.0.0
+	github.com/juancavallotti/octo/types v0.0.0
 )
 
 require (
@@ -64,8 +64,8 @@ require (
 	modernc.org/sqlite v1.38.0 // indirect
 )
 
-replace github.com/juancavallotti/eip-go/connectors => ../connectors
+replace github.com/juancavallotti/octo/connectors => ../connectors
 
-replace github.com/juancavallotti/eip-go/core => ../core
+replace github.com/juancavallotti/octo/core => ../core
 
-replace github.com/juancavallotti/eip-go/types => ../types
+replace github.com/juancavallotti/octo/types => ../types

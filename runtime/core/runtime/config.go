@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/juancavallotti/eip-go/core/internal/dsl"
-	"github.com/juancavallotti/eip-go/types"
+	"github.com/juancavallotti/octo/core/internal/dsl"
+	"github.com/juancavallotti/octo/types"
 )
 
 // LoadConfig reads and parses the runtime config at path. When path is a

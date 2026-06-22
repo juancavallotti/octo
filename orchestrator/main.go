@@ -16,13 +16,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/juancavallotti/eip-go/orchestrator/internal/db"
-	"github.com/juancavallotti/eip-go/orchestrator/internal/deployment"
-	"github.com/juancavallotti/eip-go/orchestrator/internal/folder"
-	httpx "github.com/juancavallotti/eip-go/orchestrator/internal/http"
-	"github.com/juancavallotti/eip-go/orchestrator/internal/integration"
-	"github.com/juancavallotti/eip-go/orchestrator/internal/kube"
-	"github.com/juancavallotti/eip-go/orchestrator/internal/secret"
+	"github.com/juancavallotti/octo/orchestrator/internal/db"
+	"github.com/juancavallotti/octo/orchestrator/internal/deployment"
+	"github.com/juancavallotti/octo/orchestrator/internal/folder"
+	httpx "github.com/juancavallotti/octo/orchestrator/internal/http"
+	"github.com/juancavallotti/octo/orchestrator/internal/integration"
+	"github.com/juancavallotti/octo/orchestrator/internal/kube"
+	"github.com/juancavallotti/octo/orchestrator/internal/secret"
 )
 
 const (

@@ -10,10 +10,10 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/juancavallotti/eip-go/core"
-	"github.com/juancavallotti/eip-go/core/internal/engine"
-	"github.com/juancavallotti/eip-go/core/internal/pool"
-	"github.com/juancavallotti/eip-go/types"
+	"github.com/juancavallotti/octo/core"
+	"github.com/juancavallotti/octo/core/internal/engine"
+	"github.com/juancavallotti/octo/core/internal/pool"
+	"github.com/juancavallotti/octo/types"
 )
 
 // Service runs the configured connectors and flows until its context is

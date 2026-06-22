@@ -87,7 +87,7 @@ variable "github_owner" {
 variable "github_repo" {
   type        = string
   description = "GitHub repository name the Cloud Build trigger watches."
-  default     = "eip-go"
+  default     = "octo"
 }
 
 variable "cloudbuild_auto_deploy" {

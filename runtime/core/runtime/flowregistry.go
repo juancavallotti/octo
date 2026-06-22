@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/juancavallotti/eip-go/core"
-	"github.com/juancavallotti/eip-go/types"
+	"github.com/juancavallotti/octo/core"
+	"github.com/juancavallotti/octo/types"
 )
 
 // errFlowGone reports a send to a flow whose input channel was closed mid-send

@@ -15,7 +15,7 @@
   ],
   "packages": {
     ".": {
-      "package-name": "eip-go",
+      "package-name": "octo",
       "changelog-path": "CHANGELOG.md",
       "extra-files": [
         "runtime/cli/version.go",

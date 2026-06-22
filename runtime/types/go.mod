@@ -1,3 +1,3 @@
-module github.com/juancavallotti/eip-go/types
+module github.com/juancavallotti/octo/types
 
 go 1.22

@@ -8,7 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/juancavallotti/eip-go/orchestrator/internal/integration"
+	"github.com/juancavallotti/octo/orchestrator/internal/integration"
 )
 
 // nonexistentID is a valid UUID that gen_random_uuid never produces, used for

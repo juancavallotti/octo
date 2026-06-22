@@ -1,4 +1,4 @@
-module github.com/juancavallotti/eip-go/orchestrator
+module github.com/juancavallotti/octo/orchestrator
 
 go 1.25.0
 

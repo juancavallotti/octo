@@ -10,7 +10,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
-	"github.com/juancavallotti/eip-go/core/runtime"
+	"github.com/juancavallotti/octo/core/runtime"
 )
 
 // watchDebounce is how long to wait after the last filesystem event before

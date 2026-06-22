@@ -1,9 +1,9 @@
-module github.com/juancavallotti/eip-go/core
+module github.com/juancavallotti/octo/core
 
 go 1.23.0
 
 require (
-	github.com/juancavallotti/eip-go/types v0.0.0
+	github.com/juancavallotti/octo/types v0.0.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -18,4 +18,4 @@ require (
 	google.golang.org/protobuf v1.36.10
 )
 
-replace github.com/juancavallotti/eip-go/types => ../types
+replace github.com/juancavallotti/octo/types => ../types

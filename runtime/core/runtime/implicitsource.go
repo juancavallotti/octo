@@ -3,7 +3,7 @@ package runtime
 import (
 	"context"
 
-	"github.com/juancavallotti/eip-go/types"
+	"github.com/juancavallotti/octo/types"
 )
 
 // implicitSource is the entry point for a flow that has no external source. It

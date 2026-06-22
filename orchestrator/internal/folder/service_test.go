@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/juancavallotti/eip-go/orchestrator/internal/integration"
+	"github.com/juancavallotti/octo/orchestrator/internal/integration"
 )
 
 // fakeRepo is a hand-written repository for service unit tests: it captures the

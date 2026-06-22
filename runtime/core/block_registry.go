@@ -6,7 +6,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/juancavallotti/eip-go/types"
+	"github.com/juancavallotti/octo/types"
 )
 
 // BlockRegistry holds leaf block factories keyed by block type. Composite kinds

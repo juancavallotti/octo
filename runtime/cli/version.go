@@ -5,7 +5,7 @@ import (
 	"runtime/debug"
 )
 
-// Version is the eip-go release version. release-please keeps this in sync with
+// Version is the octo release version. release-please keeps this in sync with
 // the published release via the extra-files updater in release-please-config.json
 // (the trailing annotation marks the line it rewrites). See docs/index.html for
 // the matching marker on the website.

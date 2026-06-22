@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juancavallotti/eip-go/core"
-	"github.com/juancavallotti/eip-go/types"
+	"github.com/juancavallotti/octo/core"
+	"github.com/juancavallotti/octo/types"
 )
 
 // startInvokeService runs svc in invoke mode and waits until it is ready, returning

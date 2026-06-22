@@ -8,8 +8,8 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/juancavallotti/eip-go/orchestrator/internal/integration"
-	"github.com/juancavallotti/eip-go/orchestrator/internal/kube"
+	"github.com/juancavallotti/octo/orchestrator/internal/integration"
+	"github.com/juancavallotti/octo/orchestrator/internal/kube"
 )
 
 // repository is the persistence surface the service needs. Declared in the

@@ -7,7 +7,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/juancavallotti/eip-go/types"
+	"github.com/juancavallotti/octo/types"
 )
 
 // Connector is a runtime component that can be started and stopped.

@@ -10,8 +10,8 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/juancavallotti/eip-go/core"
-	"github.com/juancavallotti/eip-go/types"
+	"github.com/juancavallotti/octo/core"
+	"github.com/juancavallotti/octo/types"
 )
 
 // logFileMode is the permission applied to log files the connector creates.

@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/juancavallotti/eip-go/core"
-	"github.com/juancavallotti/eip-go/core/internal/engine"
-	"github.com/juancavallotti/eip-go/core/internal/pool"
-	"github.com/juancavallotti/eip-go/types"
+	"github.com/juancavallotti/octo/core"
+	"github.com/juancavallotti/octo/core/internal/engine"
+	"github.com/juancavallotti/octo/core/internal/pool"
+	"github.com/juancavallotti/octo/types"
 )
 
 // newErrorPathFlow builds a boundFlow whose root runs rootType and whose

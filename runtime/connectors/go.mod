@@ -1,12 +1,12 @@
-module github.com/juancavallotti/eip-go/connectors
+module github.com/juancavallotti/octo/connectors
 
 go 1.25.0
 
 require (
 	github.com/anthropics/anthropic-sdk-go v1.51.0
 	github.com/jackc/pgx/v5 v5.7.5
-	github.com/juancavallotti/eip-go/core v0.0.0
-	github.com/juancavallotti/eip-go/types v0.0.0
+	github.com/juancavallotti/octo/core v0.0.0
+	github.com/juancavallotti/octo/types v0.0.0
 	github.com/openai/openai-go/v2 v2.7.1
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
@@ -63,6 +63,6 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 )
 
-replace github.com/juancavallotti/eip-go/core => ../core
+replace github.com/juancavallotti/octo/core => ../core
 
-replace github.com/juancavallotti/eip-go/types => ../types
+replace github.com/juancavallotti/octo/types => ../types

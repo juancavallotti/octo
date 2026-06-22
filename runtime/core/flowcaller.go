@@ -3,7 +3,7 @@ package core
 import (
 	"context"
 
-	"github.com/juancavallotti/eip-go/types"
+	"github.com/juancavallotti/octo/types"
 )
 
 // FlowCaller invokes a registered flow by name. It is the contract behind direct

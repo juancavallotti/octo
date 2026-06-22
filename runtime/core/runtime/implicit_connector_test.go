@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/juancavallotti/eip-go/core"
-	"github.com/juancavallotti/eip-go/types"
+	"github.com/juancavallotti/octo/core"
+	"github.com/juancavallotti/octo/types"
 )
 
 // newFakeSet builds a connectorSet over a registry with "fake" registered and the

@@ -1,12 +1,12 @@
 # Octo
 
-**Octo** is a cloud-native integration runtime. The `eip-go` repository holds its
+**Octo** is a cloud-native integration runtime. The `octo` repository holds its
 stacks, including a Go workspace for the runtime engine and CLI.
 
 **Website:** the project landing page — overview, architecture diagrams, the
 supported enterprise integration patterns, and runnable samples — is published
 with GitHub Pages from [`docs/`](docs/index.html) at
-<https://juancavallotti.github.io/eip-go/>.
+<https://juancavallotti.github.io/octo/>.
 
 ## Layout
 

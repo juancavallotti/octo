@@ -3,7 +3,7 @@ package core
 import (
 	"context"
 
-	"github.com/juancavallotti/eip-go/types"
+	"github.com/juancavallotti/octo/types"
 )
 
 // MessageSource is a flow's entry point, created and owned by a connector. It

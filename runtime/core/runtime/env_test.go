@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/juancavallotti/eip-go/types"
+	"github.com/juancavallotti/octo/types"
 )
 
 func strptr(s string) *string { return &s }

@@ -11,8 +11,8 @@ import (
 
 	"google.golang.org/genai"
 
-	"github.com/juancavallotti/eip-go/core"
-	"github.com/juancavallotti/eip-go/types"
+	"github.com/juancavallotti/octo/core"
+	"github.com/juancavallotti/octo/types"
 )
 
 func TestStartRequiresAPIKey(t *testing.T) {
