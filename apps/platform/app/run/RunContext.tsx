@@ -14,13 +14,15 @@ import { toRunnableYaml } from "@/app/model/runConfig";
 import { validateDocument, type ValidationResult } from "@/app/model/validate";
 import { useEditorState } from "@/app/state/editorState";
 import { loadDevEnv } from "@/app/state/devEnv";
+import { bffRunTransport, type RunTransport } from "./transport";
 
 /**
  * Owns the editor's RUN feature client-side: it tracks whether a runner is
- * available, starts/stops it via the run API, streams its logs over SSE, and —
+ * available, starts/stops it via the injected transport, streams its logs, and —
  * while running — debounces document edits into config re-writes so the runner
  * hot-reloads. A single provider holds this so the RUN button and the log panel
- * share one connection and one source of truth.
+ * share one connection and one source of truth. The transport (how the runner is
+ * reached) is pluggable; everything else here is backend-agnostic client policy.
  */
 
 const SYNC_DEBOUNCE_MS = 2000;
@@ -29,13 +31,6 @@ const MAX_CLIENT_LOGS = 5000;
 export interface RunLogLine {
   seq: number;
   text: string;
-}
-
-interface RunStatusResponse {
-  available: boolean;
-  running: boolean;
-  version: string | null;
-  testPath: string | null;
 }
 
 interface RunContextValue {
@@ -56,7 +51,13 @@ interface RunContextValue {
 
 const RunContext = createContext<RunContextValue | null>(null);
 
-export function RunProvider({ children }: { children: ReactNode }) {
+export function RunProvider({
+  transport = bffRunTransport,
+  children,
+}: {
+  transport?: RunTransport;
+  children: ReactNode;
+}) {
   const { state } = useEditorState();
   const doc = state.document;
   const integrationId = state.integration.id;
@@ -69,42 +70,39 @@ export function RunProvider({ children }: { children: ReactNode }) {
   const [logs, setLogs] = useState<RunLogLine[]>([]);
   const [testPath, setTestPath] = useState<string | null>(null);
 
-  const sourceRef = useRef<EventSource | null>(null);
+  const unsubscribeRef = useRef<(() => void) | null>(null);
   const lastSeqRef = useRef<number>(-1);
   const lastYamlRef = useRef<string | null>(null);
 
   const validation = useMemo(() => validateDocument(doc), [doc]);
 
   const closeStream = useCallback(() => {
-    sourceRef.current?.close();
-    sourceRef.current = null;
+    unsubscribeRef.current?.();
+    unsubscribeRef.current = null;
   }, []);
 
   const openStream = useCallback(() => {
-    if (sourceRef.current) return;
-    const es = new EventSource("/api/run/logs");
-    es.onmessage = (ev) => {
-      const seq = Number(ev.lastEventId);
+    if (unsubscribeRef.current) return;
+    unsubscribeRef.current = transport.subscribeLogs((seq, text) => {
       // The server replays its whole buffer on connect (and on auto-reconnect),
       // so drop anything we've already shown.
       if (Number.isFinite(seq) && seq <= lastSeqRef.current) return;
       if (Number.isFinite(seq)) lastSeqRef.current = seq;
       setLogs((prev) => {
-        const next = [...prev, { seq, text: ev.data }];
+        const next = [...prev, { seq, text }];
         return next.length > MAX_CLIENT_LOGS
           ? next.slice(next.length - MAX_CLIENT_LOGS)
           : next;
       });
-    };
-    sourceRef.current = es;
-  }, []);
+    });
+  }, [transport]);
 
   // On mount, learn whether RUN is available and reattach if a runner is already
   // live (e.g. after a page reload).
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/run")
-      .then((r) => r.json() as Promise<RunStatusResponse>)
+    transport
+      .status()
       .then((s) => {
         if (cancelled) return;
         setAvailable(s.available);
@@ -119,7 +117,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [openStream]);
+  }, [transport, openStream]);
 
   // Tear the stream down if the provider unmounts.
   useEffect(() => closeStream, [closeStream]);
@@ -138,32 +136,24 @@ export function RunProvider({ children }: { children: ReactNode }) {
         const val = stored[v.name];
         if (val) devEnv[v.name] = val;
       }
-      const res = await fetch("/api/run/start", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ yaml, devEnv }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(body.error ?? `start failed (${res.status})`);
-      }
+      const snapshot = await transport.start({ yaml, devEnv });
       lastYamlRef.current = yaml;
       setLogs([]); // the server starts a fresh buffer for this run
       setRunning(true);
-      setTestPath((body as RunStatusResponse).testPath ?? null);
+      setTestPath(snapshot.testPath ?? null);
       openStream();
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
     }
-  }, [doc, integrationId, openStream]);
+  }, [doc, integrationId, openStream, transport]);
 
   const stop = useCallback(async () => {
     setBusy(true);
     setError(null);
     try {
-      await fetch("/api/run/stop", { method: "POST" });
+      await transport.stop();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -172,7 +162,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
       closeStream();
       setBusy(false);
     }
-  }, [closeStream]);
+  }, [closeStream, transport]);
 
   // Resolve the BFF-relative test path to an absolute URL for display/linking. It
   // works under both local dev and the in-cluster /editor mount because it is
@@ -204,14 +194,10 @@ export function RunProvider({ children }: { children: ReactNode }) {
     if (yaml === lastYamlRef.current) return;
     const t = setTimeout(() => {
       lastYamlRef.current = yaml;
-      fetch("/api/run/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ yaml }),
-      }).catch(() => {});
+      transport.sync({ yaml }).catch(() => {});
     }, SYNC_DEBOUNCE_MS);
     return () => clearTimeout(t);
-  }, [doc, running, validation.ok]);
+  }, [doc, running, validation.ok, transport]);
 
   const value: RunContextValue = {
     available,
