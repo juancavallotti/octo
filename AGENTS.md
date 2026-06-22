@@ -2,13 +2,15 @@
 
 Before making code changes, read the files under `docs/` and follow them as the source of truth for coding standards, linting, review policy, and release expectations.
 
-The active Go workspace lives under `runtime/`. The **Octo** visual editor — a
-standalone Next.js app — lives under `editor/` (see [editor/README.md](editor/README.md)).
+The active Go workspace lives under `runtime/`. The Next.js webapps live under
+`apps/` as a pnpm workspace: **`apps/platform`** is the orchestrator-backed Octo
+app (see [apps/platform/README.md](apps/platform/README.md)). Run `pnpm install`
+at the repo root to install all workspace dependencies.
 
 Required reading:
 
 - [docs/coding-standards.md](docs/coding-standards.md) — Go code
-- [docs/editor-coding-standards.md](docs/editor-coding-standards.md) — `editor/` (Next.js) code
+- [docs/editor-coding-standards.md](docs/editor-coding-standards.md) — `apps/` (Next.js) code
 - [docs/linting-policy.md](docs/linting-policy.md)
 - [docs/commit-and-review-policy.md](docs/commit-and-review-policy.md)
 - [docs/release-process.md](docs/release-process.md)

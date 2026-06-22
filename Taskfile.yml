@@ -2,24 +2,24 @@ version: '3'
 
 # Module taskfiles live next to the code they drive and are imported here.
 # Their tasks are available under a namespace, e.g. `task runtime:test`,
-# `task editor:dev`. The thin aggregators below preserve the short top-level
+# `task platform:dev`. The thin aggregators below preserve the short top-level
 # targets (`task lint`, `task test`, ...) used by CI and day-to-day work.
 includes:
   runtime:
     taskfile: ./runtime/Taskfile.yml
     dir: ./runtime
-  editor:
-    taskfile: ./editor/Taskfile.yml
-    dir: ./editor
+  platform:
+    taskfile: ./apps/platform/Taskfile.yml
+    dir: ./apps/platform
   orchestrator:
     taskfile: ./orchestrator/Taskfile.yml
     dir: ./orchestrator
 
 # Global env reaches every task, including those in included taskfiles (task-level
-# env does not propagate to called tasks). The editor reads these server-side to
-# enable its dev RUN feature: OCTO_BIN_PATH is the runner spawned on RUN, and
+# env does not propagate to called tasks). The platform app reads these server-side
+# to enable its dev RUN feature: OCTO_BIN_PATH is the runner spawned on RUN, and
 # OCTO_RUN_DIR is where the rendered config is written for `octo -watch`. Running
-# the editor directly inside the module (bypassing this root Taskfile) leaves them
+# the app directly inside the module (bypassing this root Taskfile) leaves them
 # unset, which simply disables RUN.
 env:
   OCTO_BIN_PATH: '{{.ROOT_DIR}}/bin/octo'
@@ -39,24 +39,24 @@ tasks:
       - task: orchestrator:fmt
 
   test:
-    desc: Run tests across all modules (runtime + editor + orchestrator)
+    desc: Run tests across all modules (runtime + platform + orchestrator)
     cmds:
       - task: runtime:test
-      - task: editor:test
+      - task: platform:test
       - task: orchestrator:test
 
   build:
-    desc: Build all modules (CLI binary + editor + orchestrator)
+    desc: Build all modules (CLI binary + platform + orchestrator)
     cmds:
       - task: runtime:build
-      - task: editor:build
+      - task: platform:build
       - task: orchestrator:build
 
   dev:
-    desc: Build the runner, then run the editor dev server (RUN button enabled)
+    desc: Build the runner, then run the platform dev server (RUN button enabled)
     cmds:
       - task: runtime:build
-      - task: editor:dev
+      - task: platform:dev
 
   tidy:
     desc: Tidy all Go modules
@@ -65,10 +65,10 @@ tasks:
       - task: orchestrator:tidy
 
   lint:
-    desc: Lint all modules (runtime + editor + orchestrator)
+    desc: Lint all modules (runtime + platform + orchestrator)
     cmds:
       - task: runtime:lint
-      - task: editor:lint
+      - task: platform:lint
       - task: orchestrator:lint
 
   run:

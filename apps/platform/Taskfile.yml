@@ -1,0 +1,33 @@
+version: '3'
+
+# Tasks for the Octo platform app (Next.js).
+# Included from the root Taskfile under the `platform:` namespace, with the
+# working directory set to apps/platform/, so all commands run from it.
+# Dependencies are installed at the workspace root via pnpm (`pnpm install`).
+
+tasks:
+  install:
+    desc: Install the workspace dependencies (pnpm, run from the repo root)
+    dir: '{{.ROOT_DIR}}'
+    cmds:
+      - pnpm install
+
+  dev:
+    desc: Run the Octo platform dev server (use root `task dev` to build the runner + enable RUN)
+    cmds:
+      - pnpm run dev
+
+  lint:
+    desc: Lint the Octo platform app
+    cmds:
+      - pnpm run lint
+
+  test:
+    desc: Run the Octo platform unit tests
+    cmds:
+      - pnpm run test
+
+  build:
+    desc: Build the Octo platform app for production
+    cmds:
+      - pnpm run build

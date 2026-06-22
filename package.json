@@ -1,0 +1,10 @@
+{
+  "name": "octo",
+  "private": true,
+  "packageManager": "pnpm@10.32.1",
+  "scripts": {
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint",
+    "build": "pnpm -r build"
+  }
+}

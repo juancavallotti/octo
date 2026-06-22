@@ -18,3 +18,4 @@ dist/
 .DS_Store
 __debug_bin*
 *.go.test
+node_modules
