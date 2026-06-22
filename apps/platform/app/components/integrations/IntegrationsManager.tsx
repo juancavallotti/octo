@@ -2,54 +2,24 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
+import AppHeader from "@/app/components/AppHeader";
+import { useOrchestrator } from "@/app/run/OrchestratorContext";
 import {
   assignIntegration,
   createFolder,
   deleteFolder,
   deleteIntegration,
-  listFolderIntegrations,
-  listFolders,
-  listIntegrations,
   renameFolder,
   unassignIntegration,
-  type Folder,
-  type Integration,
 } from "@/app/model/orchestrator";
 import { flatten, type Bucket, type FlatFolder } from "./model";
+import { EMPTY, loadData, type Data } from "./managerData";
 import FolderTree from "./FolderTree";
 import IntegrationList from "./IntegrationList";
 import IntegrationDetail from "./IntegrationDetail";
 import SecretsManager from "./SecretsManager";
 import ViewTabs, { type ManagementView } from "./ViewTabs";
-
-/** The data behind the management view, fetched together so it can be refreshed atomically. */
-interface Data {
-  folders: Folder[];
-  integrations: Integration[];
-  /** integrationId -> folderId, for every filed integration. */
-  membership: Map<string, string>;
-}
-
-const EMPTY: Data = { folders: [], integrations: [], membership: new Map() };
-
-/** Fetch the folder tree, all integrations, and derive folder membership. */
-async function loadData(): Promise<Data> {
-  const [folders, integrations] = await Promise.all([
-    listFolders(),
-    listIntegrations(),
-  ]);
-  const lists = await Promise.all(
-    flatten(folders).map((f) =>
-      listFolderIntegrations(f.id).then((items) =>
-        items.map((i) => [i.id, f.id] as const),
-      ),
-    ),
-  );
-  const membership = new Map<string, string>();
-  for (const list of lists) for (const [iid, fid] of list) membership.set(iid, fid);
-  return { folders, integrations, membership };
-}
 
 /**
  * The `/integrations` management view: a folder tree (with full CRUD) on the
@@ -58,11 +28,23 @@ async function loadData(): Promise<Data> {
  * client and refresh the view. Folder membership is single-folder, derived by
  * querying each folder's members.
  */
-export default function IntegrationsManager() {
+export default function IntegrationsManager({
+  initialView = "integrations",
+  initialSelectedId = null,
+  userMenu,
+}: {
+  /** Which top-level view to open on (e.g. "secrets" from the dashboard shortcut). */
+  initialView?: ManagementView;
+  /** Integration to preselect on open (e.g. a dashboard tile's "Manage"). */
+  initialSelectedId?: string | null;
+  /** Server-rendered account tile, shown in the shared header. */
+  userMenu?: React.ReactNode;
+} = {}) {
+  const { available, ready } = useOrchestrator();
   const [data, setData] = useState<Data>(EMPTY);
-  const [view, setView] = useState<ManagementView>("integrations");
+  const [view, setView] = useState<ManagementView>(initialView);
   const [bucket, setBucket] = useState<Bucket>("all");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -73,8 +55,8 @@ export default function IntegrationsManager() {
   );
 
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    if (available) refresh();
+  }, [available, refresh]);
 
   /** Run a mutation, then refresh; surface failures inline. */
   const run = useCallback(
@@ -149,27 +131,43 @@ export default function IntegrationsManager() {
     run(() => deleteIntegration(id));
   };
 
+  // Avoid flashing the "unavailable" message before the probe resolves.
+  if (!ready) return null;
+
+  if (!available) {
+    return (
+      <div className="flex h-full flex-col">
+        <AppHeader userMenu={userMenu} />
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+          <p className="text-sm text-zinc-500">
+            Integration management is unavailable. Set{" "}
+            <code className="rounded bg-black/[0.06] px-1 dark:bg-white/10">
+              ORCHESTRATOR_URL
+            </code>{" "}
+            to enable it.
+          </p>
+          <Link href="/platform" className="text-sm text-sky-600 hover:underline">
+            Back to dashboard
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center gap-3 border-b border-black/10 px-4 h-12 shrink-0 dark:border-white/10">
-        <Link
-          href="/"
-          className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-zinc-600 transition-colors hover:bg-black/[0.04] dark:text-zinc-300 dark:hover:bg-white/[0.06]"
-        >
-          <ArrowLeft size={16} />
-          Editor
-        </Link>
+      <AppHeader userMenu={userMenu}>
         <ViewTabs view={view} onChange={setView} />
         {view === "integrations" && (
           <Link
-            href="/"
+            href="/platform/new"
             className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1 text-sm font-medium text-white hover:bg-sky-500"
           >
             <Plus size={15} />
             New integration
           </Link>
         )}
-      </header>
+      </AppHeader>
 
       {error && (
         <p className="border-b border-red-500/20 bg-red-500/5 px-4 py-2 text-sm text-red-500">

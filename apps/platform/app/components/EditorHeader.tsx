@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import {
   useFileSystem,
   RunBar,
@@ -8,6 +7,7 @@ import {
   FolderPicker,
   SaveButton,
 } from "@octo/editor";
+import AppLogo from "./AppLogo";
 import IntegrationsButton from "./IntegrationsButton";
 
 /**
@@ -25,17 +25,7 @@ export default function EditorHeader({
 
   return (
     <header className="flex items-center gap-2 border-b border-black/10 dark:border-white/10 px-4 h-12 shrink-0">
-      {/* h-6 w-auto controls both axes so Tailwind's `img { height: auto }`
-          reset doesn't trigger Next's aspect-ratio warning. */}
-      <Image
-        src="/octo-logo.png"
-        alt="Octo logo"
-        width={24}
-        height={24}
-        className="h-6 w-auto"
-        priority
-      />
-      <span className="font-semibold tracking-tight">Octo</span>
+      <AppLogo />
 
       {available && (
         <>

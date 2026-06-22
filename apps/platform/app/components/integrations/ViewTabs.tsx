@@ -1,8 +1,8 @@
 "use client";
 
-/** The top-level views of the management page. */
-export const MANAGEMENT_VIEWS = ["integrations", "secrets"] as const;
-export type ManagementView = (typeof MANAGEMENT_VIEWS)[number];
+import { MANAGEMENT_VIEWS, type ManagementView } from "./views";
+
+export { MANAGEMENT_VIEWS, type ManagementView };
 
 /** A small segmented control switching the management page between its views. */
 export default function ViewTabs({

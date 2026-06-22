@@ -30,7 +30,7 @@ function rolesFrom(value: unknown): string[] {
 export const authConfig: NextAuthConfig = {
   trustHost: true,
   session: { strategy: "jwt" },
-  pages: { signIn: "/auth/signin" },
+  pages: { signIn: "/" },
   providers: [
     {
       id: "eetr",

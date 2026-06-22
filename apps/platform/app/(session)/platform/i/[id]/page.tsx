@@ -2,9 +2,9 @@ import PlatformEditor from "@/app/components/PlatformEditor";
 import UserMenu from "@/app/components/UserMenu";
 
 /**
- * Bookmarkable editor route for a saved integration: `/i/<id>` opens that
- * integration in the editor (loaded client-side by IntegrationLoader). The bare
- * `/` route opens a fresh document.
+ * Bookmarkable editor route for a saved integration: `/platform/i/<id>` opens that
+ * integration in the editor (loaded client-side by IntegrationLoader).
+ * `/platform/new` opens a fresh document.
  */
 export default async function IntegrationEditorPage({
   params,

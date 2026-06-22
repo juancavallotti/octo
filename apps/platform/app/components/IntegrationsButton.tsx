@@ -7,7 +7,7 @@ import { LayoutGrid } from "lucide-react";
 export default function IntegrationsButton() {
   return (
     <Link
-      href="/integrations"
+      href="/platform/integrations"
       title="Manage integrations"
       className="inline-flex items-center gap-1.5 rounded-md border border-black/10 px-3 py-1 text-sm font-medium text-zinc-600 transition-colors hover:bg-black/[0.04] hover:text-zinc-900 dark:border-white/15 dark:text-zinc-300 dark:hover:bg-white/[0.06] dark:hover:text-zinc-100"
     >

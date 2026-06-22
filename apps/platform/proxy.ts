@@ -12,11 +12,11 @@ import { auth, authEnabled } from "@/auth";
  * Per-route role checks live in the route handlers via withAuth (app/auth/guard.ts).
  */
 
-/** Paths reachable without a session (auth endpoints, the sign-in page, assets). */
+/** Paths reachable without a session (auth endpoints, the welcome page, assets). */
 function isPublic(pathname: string): boolean {
   return (
+    pathname === "/" ||
     pathname.startsWith("/api/auth") ||
-    pathname.startsWith("/auth/signin") ||
     pathname === "/octo-logo.png" ||
     pathname === "/icon.png"
   );
@@ -28,7 +28,9 @@ const gate = auth((req) => {
   if (pathname.startsWith("/api/")) {
     return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
   }
-  const url = new URL("/auth/signin", req.nextUrl.origin);
+  // Send unauthenticated browser navigations to the public welcome page, carrying
+  // the original path so sign-in can return there.
+  const url = new URL("/", req.nextUrl.origin);
   url.searchParams.set("callbackUrl", `${pathname}${search}`);
   return NextResponse.redirect(url);
 });
