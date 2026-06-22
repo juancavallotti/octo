@@ -1,5 +1,49 @@
 # Changelog
 
+## [0.1.5](https://github.com/juancavallotti/octo/compare/v0.1.4...v0.1.5) (2026-06-22)
+
+
+### Features
+
+* **platform:** unified navigation — welcome, dashboard, consistent chrome ([c1e450d](https://github.com/juancavallotti/octo/commit/c1e450d92c0c9b3f698baf25527f829bc22086b7))
+* **standalone:** add Octo branding logo and favicon ([56f8772](https://github.com/juancavallotti/octo/commit/56f8772dfd7951eb5008cb3d0d30951db7182f75))
+* **standalone:** local-disk filesystem (open/save flows) ([b3e3d4d](https://github.com/juancavallotti/octo/commit/b3e3d4d0bc871e57aac7c8558eaa4c74b0b6c795))
+* **standalone:** public Docker image + release publish ([f0b0d1c](https://github.com/juancavallotti/octo/commit/f0b0d1cac7ca5b31d96603fd0fb3efc1b7e68b42))
+* **standalone:** real file management — name→filename, rename, new, save-opens ([0522388](https://github.com/juancavallotti/octo/commit/0522388e385bb86d685167388f8cf13ee6c1d12a))
+* **standalone:** scaffold local app embedding the editor + run ([1e6fd3f](https://github.com/juancavallotti/octo/commit/1e6fd3f0664faa7ddb50225a546aa4dd24007baa))
+
+
+### Bug Fixes
+
+* **deploy:** make the Cloud Build deploy step self-sufficient ([2c5a71d](https://github.com/juancavallotti/octo/commit/2c5a71dd2dec0dac3ec704e56448e281b75f0fae))
+* **deploy:** make the Cloud Build deploy step self-sufficient ([cd582cb](https://github.com/juancavallotti/octo/commit/cd582cbc9ca057895c34d44b1ce3e640976a07fb))
+* **site:** render inline markdown in the changelog feed ([307d7c0](https://github.com/juancavallotti/octo/commit/307d7c0ca26b72f84c0355e4e658c831087f5048))
+
+
+### Refactoring
+
+* **build:** point Docker/CI/deploy at apps/platform with pnpm ([0f756fd](https://github.com/juancavallotti/octo/commit/0f756fd2aaa4ba9db29929f92d112c7dbdd380a3))
+* convert to pnpm workspace and move editor to apps/platform ([4042fd6](https://github.com/juancavallotti/octo/commit/4042fd6af46f0197c2a36ac64dcbb156a91df32c))
+* **editor:** carve packages/editor reusable library ([7515bf6](https://github.com/juancavallotti/octo/commit/7515bf667e11b41ccd9a88d4b75dca0957e4277c))
+* **editor:** make fs/run capabilities optional via EditorRoot ([f778677](https://github.com/juancavallotti/octo/commit/f778677fab154e0f52d0e802f0c3308db61a9eac))
+* **fs:** route load/save through a FileSystemCapability ([4d18210](https://github.com/juancavallotti/octo/commit/4d182104714b224554caf9098301dba4ec4e5b26))
+* **run:** extract @octo/run-host shared package ([9122fbd](https://github.com/juancavallotti/octo/commit/9122fbdfd45fbcbb9d36bf0873469109496dbf89))
+* **run:** inject a RunTransport into RunProvider ([09f3861](https://github.com/juancavallotti/octo/commit/09f38611b1a5992ccb20fa3c3c860dc14ab3c925))
+* **standalone:** move /preview + screenshot e2e; task dev -&gt; standalone ([2ef01b4](https://github.com/juancavallotti/octo/commit/2ef01b4bb6b8586f990526e47fd010522321ed93))
+
+
+### Documentation
+
+* refresh landing page + add Connectors/CEL/Error-handling/Deployment guides ([0aac8a5](https://github.com/juancavallotti/octo/commit/0aac8a522c1a7f9dc0d62ec4694cb093a9c1875c))
+* **site:** add Connectors, CEL, Error handling & Deployment guide pages ([dffb2f2](https://github.com/juancavallotti/octo/commit/dffb2f259feb4c4834c192b9e50067571e38d6d3))
+* **site:** add editor flow screenshots to What's New ([939f0db](https://github.com/juancavallotti/octo/commit/939f0dbc5bb9a351d0d4b0905ec25e8122c62fc7))
+* **site:** add What's New, CEL cheat sheet, AI/error samples, logo ([628f24f](https://github.com/juancavallotti/octo/commit/628f24f7c2ef7bca63793258f16a08c3701cdd4f))
+* **site:** cache-bust app.js so the changelog markdown fix loads ([56fa760](https://github.com/juancavallotti/octo/commit/56fa7600c243dcadb1bf4f55b0a9bb342c9cc7b0))
+* **site:** document the deploy workflow, k8s platform, refresh roadmap ([0784468](https://github.com/juancavallotti/octo/commit/0784468895cfa108246761dcd5b37bca2a42cd85))
+* **site:** run the built ./bin/octo, not `go run`, in quickstart & samples ([5551f35](https://github.com/juancavallotti/octo/commit/5551f357a8b40747c9681fd44452be02c645098c))
+* **site:** show an editor screenshot in every sample + fix layout ([11ded96](https://github.com/juancavallotti/octo/commit/11ded964c37a2332d540f213e3b39b3be328824c))
+* **site:** sync stale hero version badge to 0.1.4 ([7bcff4c](https://github.com/juancavallotti/octo/commit/7bcff4c8d73d782d17a22f73b42ca4d0679bf93e))
+
 ## [0.1.4](https://github.com/juancavallotti/octo/compare/v0.1.3...v0.1.4) (2026-06-21)
 
 
