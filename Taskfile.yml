@@ -141,25 +141,25 @@ tasks:
         echo "✓ docker, k3d, devspace present"
 
   cluster:images:
-    desc: Build the editor/orchestrator/schema/runtime images and load them into the k3d 'octo' cluster
+    desc: Build the platform/orchestrator/schema/runtime images and load them into the k3d 'octo' cluster
     cmds:
       # Platform build context is the repo ROOT so its Dockerfile can reach both
       # runtime/ (to build octo) and the pnpm workspace (apps/platform).
-      - docker build -t octo-editor:dev -f apps/platform/Dockerfile .
+      - docker build -t octo-platform:dev -f apps/platform/Dockerfile .
       - docker build -t octo-orchestrator:dev -f orchestrator/Dockerfile ./orchestrator
       - docker build -t octo-schema:dev -f sql/Dockerfile ./sql
       # Generic runtime image the orchestrator deploys per integration (build
       # context is the runtime workspace).
       - docker build -t octo-runtime:dev -f runtime/Dockerfile ./runtime
       # Load the images straight into the cluster's containerd (no registry needed).
-      - k3d image import octo-editor:dev octo-orchestrator:dev octo-schema:dev octo-runtime:dev -c octo
+      - k3d image import octo-platform:dev octo-orchestrator:dev octo-schema:dev octo-runtime:dev -c octo
 
   cluster:images:dev:
     desc: Build + load the dev (hot-reload) images into the k3d 'octo' cluster
     cmds:
-      - docker build -t octo-editor-dev:dev -f apps/platform/Dockerfile.dev .
+      - docker build -t octo-platform-dev:dev -f apps/platform/Dockerfile.dev .
       - docker build -t octo-orchestrator-dev:dev -f orchestrator/Dockerfile.dev ./orchestrator
-      - k3d image import octo-editor-dev:dev octo-orchestrator-dev:dev -c octo
+      - k3d image import octo-platform-dev:dev octo-orchestrator-dev:dev -c octo
 
   cluster:dev:
     desc: Bring up the cluster, then run DevSpace dev mode (hot reload + tailed logs)
@@ -173,7 +173,7 @@ tasks:
       - devspace dev --kube-context {{.KCTX}} --namespace octo-dev
 
   cluster:deploy:
-    desc: Spin up the local k3d (k3s) cluster and deploy editor, Postgres, orchestrator
+    desc: Spin up the local k3d (k3s) cluster and deploy platform, Postgres, orchestrator
     cmds:
       - task: cluster:preflight
       - |
@@ -190,11 +190,11 @@ tasks:
       - devspace deploy --kube-context {{.KCTX}} --namespace octo-dev
       # Fixed :dev tags don't change between runs, so nudge the apps to pull the
       # freshly imported images. Harmless on first run; ignored if not yet present.
-      - kubectl --context {{.KCTX}} rollout restart deployment editor orchestrator -n octo-dev 2>/dev/null || true
+      - kubectl --context {{.KCTX}} rollout restart deployment platform orchestrator -n octo-dev 2>/dev/null || true
       - |
         echo ""
         echo "✓ cluster up:"
-        echo "    editor        http://localhost:3000"
+        echo "    platform      http://localhost:3000"
         echo "    orchestrator  http://localhost:8090/healthz  (and /db-version)"
         echo "  pods: kubectl get pods -n octo-dev"
 
@@ -229,7 +229,7 @@ tasks:
   # --- Publishing to Artifact Registry (for the GCP/k3s deployment) ---
   # IMAGE_BASE is the repository path output by deploy/terraform/infra (image_base),
   # e.g. us-central1-docker.pkg.dev/PROJECT/octo. The four images live under it
-  # (IMAGE_BASE/octo-editor:TAG ...) and the OCI chart under IMAGE_BASE/octo.
+  # (IMAGE_BASE/octo-platform:TAG ...) and the OCI chart under IMAGE_BASE/octo.
 
   images:push:
     desc: 'Build the four octo images and push them to Artifact Registry (set IMAGE_BASE and TAG; run `gcloud auth configure-docker <region>-docker.pkg.dev` first)'
@@ -238,11 +238,11 @@ tasks:
     cmds:
       # Same build contexts as cluster:images; the platform context is the repo
       # root so its Dockerfile reaches both runtime/ and the pnpm workspace.
-      - docker build -t {{.IMAGE_BASE}}/octo-editor:{{.TAG}} -f apps/platform/Dockerfile .
+      - docker build -t {{.IMAGE_BASE}}/octo-platform:{{.TAG}} -f apps/platform/Dockerfile .
       - docker build -t {{.IMAGE_BASE}}/octo-orchestrator:{{.TAG}} -f orchestrator/Dockerfile ./orchestrator
       - docker build -t {{.IMAGE_BASE}}/octo-schema:{{.TAG}} -f sql/Dockerfile ./sql
       - docker build -t {{.IMAGE_BASE}}/octo-runtime:{{.TAG}} -f runtime/Dockerfile ./runtime
-      - docker push {{.IMAGE_BASE}}/octo-editor:{{.TAG}}
+      - docker push {{.IMAGE_BASE}}/octo-platform:{{.TAG}}
       - docker push {{.IMAGE_BASE}}/octo-orchestrator:{{.TAG}}
       - docker push {{.IMAGE_BASE}}/octo-schema:{{.TAG}}
       - docker push {{.IMAGE_BASE}}/octo-runtime:{{.TAG}}

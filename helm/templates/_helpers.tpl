@@ -41,8 +41,8 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{ include "octo.fullname" . }}-orchestrator
 {{- end }}
 
-{{- define "octo.editor.serviceName" -}}
-{{ include "octo.fullname" . }}-editor
+{{- define "octo.platform.serviceName" -}}
+{{ include "octo.fullname" . }}-platform
 {{- end }}
 
 {{- define "octo.auth.secretName" -}}
@@ -52,7 +52,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{/*
   Build a fully-qualified image reference. Call with a dict carrying the chart
   root and the component repository, e.g.:
-    include "octo.image" (dict "root" $ "repo" .Values.editor.repository)
+    include "octo.image" (dict "root" $ "repo" .Values.platform.repository)
   When .Values.image.registry is set it is prefixed; otherwise the repo is used
   bare (local :dev images). Tag falls back to the shared .Values.image.tag.
 */}}

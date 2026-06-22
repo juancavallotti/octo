@@ -1,28 +1,28 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "octo.fullname" . }}-editor
+  name: {{ include "octo.fullname" . }}-platform
   labels:
     {{- include "octo.labels" . | nindent 4 }}
-    app.kubernetes.io/component: editor
+    app.kubernetes.io/component: platform
 spec:
-  replicas: {{ .Values.editor.replicas }}
+  replicas: {{ .Values.platform.replicas }}
   selector:
     matchLabels:
       {{- include "octo.selectorLabels" . | nindent 6 }}
-      app.kubernetes.io/component: editor
+      app.kubernetes.io/component: platform
   template:
     metadata:
       labels:
         {{- include "octo.selectorLabels" . | nindent 8 }}
-        app.kubernetes.io/component: editor
+        app.kubernetes.io/component: platform
     spec:
       containers:
-        - name: editor
-          image: {{ include "octo.image" (dict "root" $ "repo" .Values.editor.repository) | quote }}
+        - name: platform
+          image: {{ include "octo.image" (dict "root" $ "repo" .Values.platform.repository) | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
-            - containerPort: {{ .Values.editor.service.port }}
+            - containerPort: {{ .Values.platform.service.port }}
           env:
             # Image defaults; OCTO_RUN_DIR is backed by the writable emptyDir below.
             - name: OCTO_BIN_PATH
@@ -68,7 +68,7 @@ spec:
           readinessProbe:
             httpGet:
               path: /
-              port: {{ .Values.editor.service.port }}
+              port: {{ .Values.platform.service.port }}
             initialDelaySeconds: 5
             periodSeconds: 10
           volumeMounts:

@@ -59,10 +59,12 @@ resource "null_resource" "pull_images" {
     interpreter = ["bash", "-c"]
     # --tunnel-through-iap so this works the same from a laptop and from the Cloud
     # Build deploy step (whose egress IP is dynamic); the IAP range reaches SSH via
-    # the existing firewall. Retried because the first SSH after the build's key is
-    # pushed often fails with "Connection closed ... port 65535" until the key
-    # propagates to the instance.
-    command = "for i in $(seq 1 5); do gcloud compute ssh ${var.instance_name} --zone ${var.zone} --project ${var.project_id} --tunnel-through-iap --quiet --command 'sudo octo-pull ${var.image_tag}' && exit 0; echo \"octo-pull SSH attempt $i failed; retrying in 15s\" >&2; sleep 15; done; exit 1"
+    # the existing firewall. SSH as a NON-root user (octodeploy): the Cloud Build
+    # gcloud container runs as root, and GCE rejects metadata-key root SSH
+    # ("Permission denied (publickey)") because the guest agent only provisions
+    # keys for non-root users (with passwordless sudo). Retried because the first
+    # SSH after the key is pushed fails until it propagates to the instance.
+    command = "for i in $(seq 1 5); do gcloud compute ssh octodeploy@${var.instance_name} --zone ${var.zone} --project ${var.project_id} --tunnel-through-iap --quiet --command 'sudo octo-pull ${var.image_tag}' && exit 0; echo \"octo-pull SSH attempt $i failed; retrying in 15s\" >&2; sleep 15; done; exit 1"
   }
 }
 

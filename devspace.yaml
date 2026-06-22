@@ -18,7 +18,7 @@ deployments:
         - deploy/k8s/namespace.yaml
         - deploy/k8s/postgres.yaml
         - deploy/k8s/postgres-schema-job.yaml
-        - deploy/k8s/editor.yaml
+        - deploy/k8s/platform.yaml
         - deploy/k8s/orchestrator-rbac.yaml
         - deploy/k8s/orchestrator.yaml
 
@@ -28,12 +28,12 @@ deployments:
 # exposes the apps on localhost:3000 / :8090 (deploy/k3d/cluster.yaml), and the
 # replacement pods keep their app labels so the NodePort services still route.
 dev:
-  editor:
+  platform:
     labelSelector:
-      app: editor
+      app: platform
     namespace: octo-dev
     # Hot-reload image (next dev). Build+import with `task cluster:images:dev`.
-    devImage: octo-editor-dev:dev
+    devImage: octo-platform-dev:dev
     command: ["pnpm", "run", "dev"]
     workingDir: /app/apps/platform
     sync:

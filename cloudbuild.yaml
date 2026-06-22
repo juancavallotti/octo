@@ -28,9 +28,9 @@ options:
 steps:
   # Platform build context is the repo root so its Dockerfile reaches runtime/ +
   # the pnpm workspace (apps/platform).
-  - id: build-editor
+  - id: build-platform
     name: gcr.io/cloud-builders/docker
-    args: ["build", "-t", "${_IMAGE_BASE}/octo-editor:${_TAG}", "-t", "${_IMAGE_BASE}/octo-editor:latest", "-f", "apps/platform/Dockerfile", "."]
+    args: ["build", "-t", "${_IMAGE_BASE}/octo-platform:${_TAG}", "-t", "${_IMAGE_BASE}/octo-platform:latest", "-f", "apps/platform/Dockerfile", "."]
   - id: build-orchestrator
     name: gcr.io/cloud-builders/docker
     args: ["build", "-t", "${_IMAGE_BASE}/octo-orchestrator:${_TAG}", "-t", "${_IMAGE_BASE}/octo-orchestrator:latest", "-f", "orchestrator/Dockerfile", "./orchestrator"]
@@ -46,12 +46,12 @@ steps:
   - id: push-images
     name: gcr.io/cloud-builders/docker
     entrypoint: bash
-    waitFor: ["build-editor", "build-orchestrator", "build-schema", "build-runtime"]
+    waitFor: ["build-platform", "build-orchestrator", "build-schema", "build-runtime"]
     args:
       - -c
       - |
         set -e
-        for img in octo-editor octo-orchestrator octo-schema octo-runtime; do
+        for img in octo-platform octo-orchestrator octo-schema octo-runtime; do
           for t in "${_TAG}" latest; do
             docker push "${_IMAGE_BASE}/$img:$t"
           done
@@ -96,13 +96,17 @@ steps:
         python3 -c "import zipfile; zipfile.ZipFile('/tmp/tf.zip').extractall('/usr/local/bin')"
         chmod +x /usr/local/bin/terraform
         # Fetch the cluster kubeconfig over IAP (server rewritten to the public API
-        # endpoint, which the k3s cert covers via --tls-san). Retried because the
-        # first SSH after the build's key is pushed often fails with "Connection
-        # closed ... port 65535" until the key propagates; pipefail + the -s check
-        # keep a half-written kubeconfig from counting as success.
+        # endpoint, which the k3s cert covers via --tls-san). SSH as a NON-root user:
+        # the build's gcloud container runs as root, so an unqualified `compute ssh`
+        # connects as root — which GCE rejects ("Permission denied (publickey)")
+        # because the guest agent only provisions metadata SSH keys for non-root
+        # users (and grants them passwordless sudo via google-sudoers). Retried
+        # because the first SSH after the key is pushed fails until it propagates;
+        # pipefail + the -s check keep a half-written kubeconfig from counting as
+        # success.
         set -o pipefail
         for i in 1 2 3 4 5; do
-          if gcloud compute ssh "${_INSTANCE}" --zone "${_ZONE}" --tunnel-through-iap --quiet \
+          if gcloud compute ssh "octodeploy@${_INSTANCE}" --zone "${_ZONE}" --tunnel-through-iap --quiet \
                --command 'sudo cat /etc/rancher/k3s/k3s.yaml' \
                | sed "s#https://127.0.0.1:6443#https://${_DOMAIN}:6443#" > /workspace/kubeconfig.yaml \
              && [ -s /workspace/kubeconfig.yaml ]; then

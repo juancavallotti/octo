@@ -13,8 +13,8 @@ image:
   tag: dev
   pullPolicy: IfNotPresent
 
-editor:
-  repository: octo-editor
+platform:
+  repository: octo-platform
   replicas: 1
   service:
     port: 3000

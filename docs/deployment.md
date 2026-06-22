@@ -43,8 +43,8 @@ troubleshooting). For local development on k3d instead, see
 
 | Component | Image | Port | Exposure |
 |---|---|---|---|
-| Editor (Next.js + bundled runtime) | `octo-editor` | 3000 | Ingress → your domain |
-| Orchestrator (deploys integrations via the k8s API) | `octo-orchestrator` | 8090 | ClusterIP (internal; editor proxies it) |
+| Platform (Next.js + bundled runtime) | `octo-platform` | 3000 | Ingress → your domain |
+| Orchestrator (deploys integrations via the k8s API) | `octo-orchestrator` | 8090 | ClusterIP (internal; the platform proxies it) |
 | Postgres | stock `postgres:16-alpine` | 5432 | ClusterIP (headless) |
 | Schema applier (Helm hook job) | `octo-schema` | – | runs once per install/upgrade |
 | Integration runtime (one pod set per deployment) | `octo-runtime` | 8080 | ClusterIP, optional Ingress |
@@ -305,8 +305,8 @@ gcloud compute ssh octo --zone us-west1-a
 gcloud compute ssh octo --zone us-west1-a -- sudo k3s kubectl get pods -n octo-dev
 gcloud compute ssh octo --zone us-west1-a -- sudo k3s kubectl get ingress,certificate -n octo-dev
 
-# Editor / orchestrator logs
-sudo k3s kubectl logs -n octo-dev deploy/octo-editor
+# Platform / orchestrator logs
+sudo k3s kubectl logs -n octo-dev deploy/octo-platform
 sudo k3s kubectl logs -n octo-dev deploy/octo-orchestrator
 ```
 
