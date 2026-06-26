@@ -34,4 +34,12 @@ var (
 	// ErrReservedEnvVar is returned when an env binding targets an
 	// orchestrator-managed variable (HTTP_PORT/HTTP_HOST).
 	ErrReservedEnvVar = errors.New("environment variable is reserved")
+	// ErrSnapshotRequired is returned when a deploy omits the version tag while the
+	// service enforces tagged deploys (a snapshot store is configured).
+	ErrSnapshotRequired = errors.New("a version tag is required to deploy")
+	// ErrSnapshotNotFound is returned when the selected snapshot does not exist.
+	ErrSnapshotNotFound = errors.New("selected version tag not found")
+	// ErrSnapshotMismatch is returned when the selected snapshot belongs to a
+	// different integration than the one being deployed.
+	ErrSnapshotMismatch = errors.New("version tag does not belong to this integration")
 )

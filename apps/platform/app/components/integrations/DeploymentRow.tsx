@@ -8,6 +8,7 @@ import {
   Copy,
   ExternalLink,
   RotateCcw,
+  Tag,
   Trash2,
 } from "lucide-react";
 import type { Deployment, DeploymentStatus } from "@/app/model/orchestrator";
@@ -142,6 +143,15 @@ export default function DeploymentRow({
         <span className="font-mono text-xs text-zinc-500">
           {d.id.slice(0, 8)}
         </span>
+        {d.tag && (
+          <span
+            className="inline-flex items-center gap-1 rounded-full bg-sky-500/15 px-2 py-0.5 text-xs font-medium text-sky-600 dark:text-sky-400"
+            title={`Version ${d.tag}`}
+          >
+            <Tag size={10} />
+            {d.tag}
+          </span>
+        )}
         <ReplicaStepper
           desired={desired}
           busy={busy}

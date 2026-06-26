@@ -219,7 +219,10 @@ func newServer(ctx context.Context, database *db.DB, kc kubeConfig) (http.Handle
 		} else {
 			deploymentRepo := deployment.NewRepo(database.Pool())
 			deploymentSvc := deployment.NewService(deploymentRepo, integrationSvc, kubeClient,
-				deployment.WithStoreCleaner(kvSvc))
+				deployment.WithStoreCleaner(kvSvc),
+				// Enforce tagged deploys: a deploy must reference a snapshot and ships
+				// its frozen definition.
+				deployment.WithSnapshots(snapshotSvc))
 			// Watch the cluster and push status changes to SSE subscribers; the
 			// informers also back the status read path, so list/stream reads hit a
 			// local cache rather than the API server.

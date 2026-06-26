@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Globe, Rocket, X } from "lucide-react";
+import { Globe, Rocket, Tag, X } from "lucide-react";
 import {
   getDeployOptions,
+  listSnapshots,
   type DeploymentInput,
   type DeployOptions,
+  type Snapshot,
 } from "@/app/model/orchestrator";
 import SlugField from "./SlugField";
 import DeployEnvFields from "./DeployEnvFields";
@@ -46,16 +48,39 @@ export default function DeployModal({
   const [slug, setSlug] = useState("");
   const [slugOk, setSlugOk] = useState(false);
   const [opts, setOpts] = useState<DeployOptions | null>(null);
+  // Version tags: a deploy must select one, and its frozen definition drives the
+  // options below. snapshots === null means "still loading".
+  const [snapshots, setSnapshots] = useState<Snapshot[] | null>(null);
+  const [snapshotId, setSnapshotId] = useState("");
   // Environment-variable bindings (and the secret picker) live in a dedicated hook.
   const { envVars, bindings, secretNames, setBinding, complete: envComplete, build: buildEnv } =
     useDeployEnv(opts);
 
-  // Load deploy options once: whether the integration is networked, a free slug to
-  // prefill, and the declared env vars to prompt for. On failure assume
-  // non-networked (deploy still works).
+  // Load the integration's tags once; default to the newest so a deploy is one
+  // click when tags exist.
   useEffect(() => {
     let active = true;
-    getDeployOptions(integrationId).then(
+    listSnapshots(integrationId).then(
+      (items) => {
+        if (!active) return;
+        setSnapshots(items);
+        setSnapshotId(items[0]?.id ?? "");
+      },
+      () => active && setSnapshots([]),
+    );
+    return () => {
+      active = false;
+    };
+  }, [integrationId]);
+
+  // Load deploy options for the selected tag: whether its frozen definition is
+  // networked, a free slug to prefill, and the env vars to prompt for. Re-runs when
+  // the tag changes so the prompts always match what will deploy. On failure assume
+  // non-networked.
+  useEffect(() => {
+    if (!snapshotId) return;
+    let active = true;
+    getDeployOptions(integrationId, { snapshotId }).then(
       (o) => {
         if (!active) return;
         setOpts(o);
@@ -66,7 +91,7 @@ export default function DeployModal({
     return () => {
       active = false;
     };
-  }, [integrationId]);
+  }, [integrationId, snapshotId]);
 
   // Close on Escape, mirroring the editor's other overlays.
   useEffect(() => {
@@ -78,13 +103,19 @@ export default function DeployModal({
   }, [busy, onClose]);
 
   const networked = opts?.networked ?? false;
+  const hasTags = (snapshots?.length ?? 0) > 0;
   const canDeploy =
-    !busy && opts !== null && (!networked || slugOk) && envComplete;
+    !busy &&
+    snapshotId !== "" &&
+    opts !== null &&
+    (!networked || slugOk) &&
+    envComplete;
 
   const submit = () => {
     if (!canDeploy) return;
     const env = buildEnv();
     onSubmit({
+      snapshotId,
       replicas,
       ...(networked ? { slug: slug.trim() } : {}),
       ...(networked && expose ? { expose: "external" } : {}),
@@ -121,6 +152,33 @@ export default function DeployModal({
         </header>
 
         <div className="flex max-h-[70vh] flex-col gap-5 overflow-y-auto px-4 py-4">
+          <Field
+            label="Version"
+            hint="Deploys ship a tagged snapshot's frozen definition. Tag a version on the integration first if there are none."
+          >
+            {snapshots === null ? (
+              <p className="text-sm text-zinc-400">Loading versions…</p>
+            ) : hasTags ? (
+              <select
+                value={snapshotId}
+                disabled={busy}
+                onChange={(e) => setSnapshotId(e.target.value)}
+                className={`${INPUT} w-full`}
+              >
+                {snapshots.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.tag}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <p className="inline-flex items-center gap-1.5 text-sm text-amber-600 dark:text-amber-400">
+                <Tag size={14} />
+                No version tags yet — create one before deploying.
+              </p>
+            )}
+          </Field>
+
           <Field label="Scale" hint="Runtime pods load-balanced behind the service.">
             <label className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-300">
               Replicas
@@ -137,7 +195,7 @@ export default function DeployModal({
             </label>
           </Field>
 
-          {opts === null ? (
+          {!hasTags ? null : opts === null ? (
             <p className="text-sm text-zinc-400">Loading options…</p>
           ) : networked ? (
             <Field

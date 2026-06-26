@@ -62,6 +62,7 @@ type deploymentResponse struct {
 	ID              string        `json:"id"`
 	IntegrationID   string        `json:"integrationId"`
 	Name            string        `json:"name"`
+	Tag             string        `json:"tag,omitempty"`
 	Status          string        `json:"status"`
 	Replicas        int           `json:"replicas"`
 	ReadyReplicas   int32         `json:"readyReplicas"`
@@ -84,6 +85,7 @@ func toResponse(d Deployment) deploymentResponse {
 		ID:              d.ID,
 		IntegrationID:   d.IntegrationID,
 		Name:            meta.Name,
+		Tag:             meta.Tag,
 		Status:          d.Status,
 		Replicas:        replicas,
 		ReadyReplicas:   d.Detail.ReadyReplicas,
@@ -149,7 +151,8 @@ func (h *Handler) deployOptions(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	external := r.URL.Query().Get("expose") == ExposeExternal
-	opts, err := h.svc.DeployOptions(ctx, r.PathValue("id"), r.URL.Query().Get("slug"), external)
+	snapshotID := r.URL.Query().Get("snapshotId")
+	opts, err := h.svc.DeployOptions(ctx, r.PathValue("id"), r.URL.Query().Get("slug"), external, snapshotID)
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -325,6 +328,12 @@ func (h *Handler) writeError(w http.ResponseWriter, err error) {
 		httpx.WriteError(w, http.StatusBadRequest, "a referenced secret does not exist")
 	case errors.Is(err, ErrReservedEnvVar):
 		httpx.WriteError(w, http.StatusBadRequest, "HTTP_PORT and HTTP_HOST are managed by the orchestrator")
+	case errors.Is(err, ErrSnapshotRequired):
+		httpx.WriteError(w, http.StatusBadRequest, "a version tag is required to deploy")
+	case errors.Is(err, ErrSnapshotNotFound):
+		httpx.WriteError(w, http.StatusBadRequest, "the selected version tag was not found")
+	case errors.Is(err, ErrSnapshotMismatch):
+		httpx.WriteError(w, http.StatusBadRequest, "the selected version tag does not belong to this integration")
 	default:
 		slog.Error("deployment handler", "error", err)
 		httpx.WriteError(w, http.StatusInternalServerError, "internal error")

@@ -59,6 +59,8 @@ export interface Deployment {
   integrationId: string;
   /** Display name, captured from the integration at deploy time. */
   name: string;
+  /** The version tag this deployment was created from; absent on legacy deployments. */
+  tag?: string;
   /** Cached lifecycle status; refreshed by the orchestrator on read. */
   status: DeploymentStatus;
   /** Desired/served replica count (from settings). */
@@ -89,6 +91,8 @@ export interface EnvBindingInput {
 
 /** Per-deployment options sent when deploying an integration. */
 export interface DeploymentInput {
+  /** The version tag (snapshot id) to deploy; required by the orchestrator. */
+  snapshotId?: string;
   /** Runtime replicas; omitted/<=0 means a single replica. */
   replicas?: number;
   /** User-chosen internal address slug; omitted asks the orchestrator to allocate. */
@@ -176,11 +180,12 @@ export function listDeployments(integrationId: string): Promise<Deployment[]> {
  */
 export function getDeployOptions(
   integrationId: string,
-  opts: { slug?: string; expose?: "external" } = {},
+  opts: { slug?: string; expose?: "external"; snapshotId?: string } = {},
 ): Promise<DeployOptions> {
   const qs = new URLSearchParams();
   if (opts.slug) qs.set("slug", opts.slug);
   if (opts.expose) qs.set("expose", opts.expose);
+  if (opts.snapshotId) qs.set("snapshotId", opts.snapshotId);
   const query = qs.toString();
   return request<DeployOptions>(
     `/api/integrations/${encodeURIComponent(integrationId)}/deployments/options${

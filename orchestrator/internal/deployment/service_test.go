@@ -9,18 +9,19 @@ import (
 
 	"github.com/juancavallotti/octo/orchestrator/internal/integration"
 	"github.com/juancavallotti/octo/orchestrator/internal/kube"
+	"github.com/juancavallotti/octo/orchestrator/internal/snapshot"
 )
 
 // fakeRepo is an in-memory deployment repository stand-in.
 type fakeRepo struct {
-	created     Deployment
-	createErr   error
-	gotSettings json.RawMessage
-	gotMetadata json.RawMessage
-	getRet      Deployment
-	getErr      error
-	listRet     []Deployment
-	listErr     error
+	created           Deployment
+	createErr         error
+	gotSettings       json.RawMessage
+	gotMetadata       json.RawMessage
+	getRet            Deployment
+	getErr            error
+	listRet           []Deployment
+	listErr           error
 	statusCalls       int
 	updateSettingsErr error
 	deleted           bool
@@ -83,6 +84,19 @@ type fakeIntegrations struct {
 }
 
 func (f *fakeIntegrations) Get(_ context.Context, _ string) (integration.Integration, error) {
+	return f.ret, f.err
+}
+
+// fakeSnapshots returns a preset snapshot or error, recording the id it was asked
+// for. Used to drive the tagged-deploy path (WithSnapshots).
+type fakeSnapshots struct {
+	ret   snapshot.Snapshot
+	err   error
+	gotID string
+}
+
+func (f *fakeSnapshots) Get(_ context.Context, id string) (snapshot.Snapshot, error) {
+	f.gotID = id
 	return f.ret, f.err
 }
 
@@ -639,7 +653,7 @@ func TestDeployOptionsSuggestsFreeSlug(t *testing.T) {
 	integrations := &fakeIntegrations{ret: integration.Integration{ID: "int-1", Name: "Orders", Definition: exposableDef}}
 	svc := NewService(repo, integrations, &fakeKube{})
 
-	opts, err := svc.DeployOptions(context.Background(), "int-1", "", false)
+	opts, err := svc.DeployOptions(context.Background(), "int-1", "", false, "")
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -655,7 +669,7 @@ func TestDeployOptionsValidatesSubdomainOnlyWhenExternal(t *testing.T) {
 	integrations := &fakeIntegrations{ret: integration.Integration{ID: "int-1", Name: "Orders", Definition: exposableDef}}
 	svc := NewService(repo, integrations, &fakeKube{})
 
-	internal, err := svc.DeployOptions(context.Background(), "int-1", "orders", false)
+	internal, err := svc.DeployOptions(context.Background(), "int-1", "orders", false, "")
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -663,7 +677,7 @@ func TestDeployOptionsValidatesSubdomainOnlyWhenExternal(t *testing.T) {
 		t.Errorf("internal opts = %+v, want available (subdomain irrelevant)", internal)
 	}
 
-	external, err := svc.DeployOptions(context.Background(), "int-1", "orders", true)
+	external, err := svc.DeployOptions(context.Background(), "int-1", "orders", true, "")
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -679,7 +693,7 @@ func TestDeployOptionsNonNetworked(t *testing.T) {
 	integrations := &fakeIntegrations{ret: integration.Integration{ID: "int-1", Name: "Daily Job", Definition: "service:\n  name: daily\n"}}
 	svc := NewService(repo, integrations, &fakeKube{})
 
-	opts, err := svc.DeployOptions(context.Background(), "int-1", "", false)
+	opts, err := svc.DeployOptions(context.Background(), "int-1", "", false, "")
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -736,5 +750,68 @@ func TestUndeployMissing(t *testing.T) {
 	}
 	if kc.deleted {
 		t.Error("kube.Delete should not run for an unknown deployment")
+	}
+}
+
+// TestDeployWithSnapshotShipsFrozenDefinition verifies that, with a snapshot store
+// wired, a deploy ships the snapshot's frozen definition (not the live one) and
+// records the tag in metadata.
+func TestDeployWithSnapshotShipsFrozenDefinition(t *testing.T) {
+	repo := &fakeRepo{created: Deployment{ID: "dep-1"}}
+	// Live integration differs from the frozen snapshot so we can tell them apart:
+	// the live one is non-networked, the snapshot declares HTTP_PORT (networked).
+	integrations := &fakeIntegrations{ret: integration.Integration{ID: "int-1", Name: "Orders", Definition: "service:\n  name: live\n"}}
+	snaps := &fakeSnapshots{ret: snapshot.Snapshot{ID: "snap-1", IntegrationID: "int-1", Tag: "v1.0", Definition: exposableDef}}
+	kc := &fakeKube{status: kube.StatusRunning}
+	svc := NewService(repo, integrations, kc, WithSnapshots(snaps))
+
+	if _, err := svc.Deploy(context.Background(), "int-1", Settings{SnapshotID: "snap-1"}); err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if snaps.gotID != "snap-1" {
+		t.Errorf("snapshot requested = %q, want snap-1", snaps.gotID)
+	}
+	if kc.gotSpec.Definition != exposableDef {
+		t.Errorf("spec definition = %q, want the frozen snapshot definition", kc.gotSpec.Definition)
+	}
+	// exposableDef declares HTTP_PORT, so the deploy is networked and gets a slug.
+	if kc.gotSpec.Slug == "" {
+		t.Error("expected a networked deploy (slug) from the frozen definition")
+	}
+	if meta := ParseMetadata(repo.gotMetadata); meta.Tag != "v1.0" || meta.SnapshotID != "snap-1" {
+		t.Errorf("metadata tag/snapshot = %q/%q, want v1.0/snap-1", meta.Tag, meta.SnapshotID)
+	}
+}
+
+func TestDeployRequiresSnapshotWhenWired(t *testing.T) {
+	repo := &fakeRepo{created: Deployment{ID: "dep-1"}}
+	integrations := &fakeIntegrations{ret: integration.Integration{ID: "int-1", Name: "Orders"}}
+	snaps := &fakeSnapshots{}
+	svc := NewService(repo, integrations, &fakeKube{}, WithSnapshots(snaps))
+
+	if _, err := svc.Deploy(context.Background(), "int-1", Settings{}); !errors.Is(err, ErrSnapshotRequired) {
+		t.Errorf("got %v, want ErrSnapshotRequired", err)
+	}
+}
+
+func TestDeployRejectsSnapshotFromAnotherIntegration(t *testing.T) {
+	repo := &fakeRepo{created: Deployment{ID: "dep-1"}}
+	integrations := &fakeIntegrations{ret: integration.Integration{ID: "int-1", Name: "Orders"}}
+	snaps := &fakeSnapshots{ret: snapshot.Snapshot{ID: "snap-1", IntegrationID: "other-int", Definition: exposableDef}}
+	svc := NewService(repo, integrations, &fakeKube{}, WithSnapshots(snaps))
+
+	if _, err := svc.Deploy(context.Background(), "int-1", Settings{SnapshotID: "snap-1"}); !errors.Is(err, ErrSnapshotMismatch) {
+		t.Errorf("got %v, want ErrSnapshotMismatch", err)
+	}
+}
+
+func TestDeployMapsMissingSnapshot(t *testing.T) {
+	repo := &fakeRepo{created: Deployment{ID: "dep-1"}}
+	integrations := &fakeIntegrations{ret: integration.Integration{ID: "int-1", Name: "Orders"}}
+	snaps := &fakeSnapshots{err: snapshot.ErrNotFound}
+	svc := NewService(repo, integrations, &fakeKube{}, WithSnapshots(snaps))
+
+	if _, err := svc.Deploy(context.Background(), "int-1", Settings{SnapshotID: "gone"}); !errors.Is(err, ErrSnapshotNotFound) {
+		t.Errorf("got %v, want ErrSnapshotNotFound", err)
 	}
 }
