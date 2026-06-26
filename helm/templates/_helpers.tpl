@@ -50,6 +50,22 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
+  ServiceAccount the deployed runtime pods run as. It grants the coordination.k8s.io
+  leases RBAC the runtime's k8s services module needs for leader election.
+*/}}
+{{- define "octo.runtime.serviceAccountName" -}}
+{{ include "octo.fullname" . }}-runtime
+{{- end }}
+
+{{/*
+  In-cluster URL of the orchestrator KV API, injected into runtime pods as
+  ORCHESTRATOR_URL so the k8s services module can reach the deployment-scoped store.
+*/}}
+{{- define "octo.orchestrator.url" -}}
+{{- printf "http://%s.%s:%d" (include "octo.orchestrator.serviceName" .) .Release.Namespace (int .Values.orchestrator.service.port) -}}
+{{- end }}
+
+{{/*
   Build a fully-qualified image reference. Call with a dict carrying the chart
   root and the component repository, e.g.:
     include "octo.image" (dict "root" $ "repo" .Values.platform.repository)

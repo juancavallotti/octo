@@ -26,6 +26,16 @@ const (
 	// HTTP_PORT overrides it; the Service simply has no endpoints if the runtime
 	// does not bind the resolved port.
 	runtimePort = 8080
+
+	// Runtime-services env var names injected into each deployed pod. They mirror
+	// the constants the runtime's k8s services module reads (RUNTIME_SERVICES_MODULE
+	// selects the backend; the rest identify the deployment and the KV endpoint, with
+	// POD_NAME/POD_NAMESPACE sourced from the downward API).
+	envServicesModule = "RUNTIME_SERVICES_MODULE"
+	envDeploymentID   = "OCTO_DEPLOYMENT_ID"
+	envOrchestrator   = "ORCHESTRATOR_URL"
+	envPodName        = "POD_NAME"
+	envPodNamespace   = "POD_NAMESPACE"
 )
 
 // Spec describes the workload to create for one deployment.
@@ -247,11 +257,14 @@ func (c *Client) deployment(name string, labels map[string]string, spec Spec) *a
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: labels},
 				Spec: corev1.PodSpec{
+					// Empty when runtime services are not wired; an empty name leaves the
+					// pod on the namespace's default ServiceAccount.
+					ServiceAccountName: c.runtimeServices.ServiceAccount,
 					Containers: []corev1.Container{{
 						Name:            "runtime",
 						Image:           c.runtimeImage,
 						ImagePullPolicy: corev1.PullIfNotPresent,
-						Env:             containerEnv(spec),
+						Env:             c.podEnv(spec),
 						Ports:           ports,
 						VolumeMounts: []corev1.VolumeMount{{
 							Name:      "integration",
@@ -271,6 +284,41 @@ func (c *Client) deployment(name string, labels map[string]string, spec Spec) *a
 			},
 		},
 	}
+}
+
+// podEnv is the full runtime container env: the orchestrator-injected runtime-
+// services vars (when wired) followed by the user's literal/secret bindings. The
+// two groups are each deterministic, so repeated Applies produce identical specs.
+// When neither group has entries the result is nil, matching a bare workload.
+func (c *Client) podEnv(spec Spec) []corev1.EnvVar {
+	rs := c.runtimeServicesEnv(spec)
+	user := containerEnv(spec)
+	if len(rs) == 0 {
+		return user
+	}
+	return append(rs, user...)
+}
+
+// runtimeServicesEnv builds the env the runtime's k8s services module reads:
+// the selected backend, the deployment id and orchestrator KV URL, plus POD_NAME/
+// POD_NAMESPACE from the downward API. It is empty unless a module is configured,
+// so deployments stay unchanged until the runtime-services env is wired in.
+func (c *Client) runtimeServicesEnv(spec Spec) []corev1.EnvVar {
+	if c.runtimeServices.Module == "" {
+		return nil
+	}
+	return []corev1.EnvVar{
+		{Name: envServicesModule, Value: c.runtimeServices.Module},
+		{Name: envDeploymentID, Value: spec.ID},
+		{Name: envOrchestrator, Value: c.runtimeServices.OrchestratorURL},
+		{Name: envPodName, ValueFrom: fieldRef("metadata.name")},
+		{Name: envPodNamespace, ValueFrom: fieldRef("metadata.namespace")},
+	}
+}
+
+// fieldRef is a downward-API env source reading a pod field (e.g. metadata.name).
+func fieldRef(path string) *corev1.EnvVarSource {
+	return &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: path}}
 }
 
 // containerEnv builds the runtime container's env from the literal values in

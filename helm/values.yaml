@@ -35,6 +35,11 @@ orchestrator:
 # integration pods (imagePullPolicy IfNotPresent) never hit the registry later.
 runtime:
   repository: octo-runtime
+  # Runtime-services backend the orchestrator injects into each deployed runtime
+  # pod (RUNTIME_SERVICES_MODULE). "k8s" = Lease-based leader election (so a cron
+  # connector fires on one replica) + the orchestrator-backed KV store; "standalone"
+  # = in-process noop. Cluster deploys want "k8s".
+  servicesModule: k8s
 
 # Schema applier image (built from sql/Dockerfile); run as a post-install/upgrade
 # hook job to apply sql/schema.sql idempotently.

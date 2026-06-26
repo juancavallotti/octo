@@ -28,6 +28,17 @@ const (
 	managedByValue     = "orchestrator"
 )
 
+// RuntimeServices configures the runtime-services environment the orchestrator
+// injects into each deployed runtime pod so the runtime's k8s services module can
+// reach Lease-based leader election and the orchestrator KV API. Module empty
+// disables injection entirely (the runtime then falls back to its standalone
+// default), which keeps the feature inert until the deploy is wired for it.
+type RuntimeServices struct {
+	Module          string // RUNTIME_SERVICES_MODULE for runtime pods ("" = no injection)
+	OrchestratorURL string // in-cluster URL of the orchestrator KV API
+	ServiceAccount  string // pod serviceAccountName granting leases RBAC ("" = default SA)
+}
+
 // Client wraps a Kubernetes clientset scoped to one namespace and runtime image.
 type Client struct {
 	clientset     kubernetes.Interface
@@ -39,6 +50,9 @@ type Client struct {
 	// every per-integration ingress references instead of issuing a per-host cert
 	// via clusterIssuer. Empty = per-host issuance (the clusterIssuer path).
 	wildcardTLSSecret string
+	// runtimeServices is the env the orchestrator injects so deployed runtime pods
+	// can reach leader election + the KV API. Zero value disables injection.
+	runtimeServices RuntimeServices
 
 	// Informer-backed read path, populated by StartInformers. When synced reports
 	// true, Status reads from these caches instead of hitting the API server.
@@ -53,8 +67,9 @@ type corelisterDeployments = appslisters.DeploymentNamespaceLister
 // New builds a Client from the in-cluster config. It returns an error when the
 // orchestrator is not running inside a cluster (e.g. local `go run`), letting the
 // caller disable deployment features rather than crash. baseDomain may be empty,
-// which disables external endpoints (Apply then ignores Spec.Expose).
-func New(namespace, runtimeImage, baseDomain, clusterIssuer, wildcardTLSSecret string) (*Client, error) {
+// which disables external endpoints (Apply then ignores Spec.Expose). rs carries
+// the runtime-services env injected into deployed pods; its zero value disables it.
+func New(namespace, runtimeImage, baseDomain, clusterIssuer, wildcardTLSSecret string, rs RuntimeServices) (*Client, error) {
 	cfg, err := rest.InClusterConfig()
 	if err != nil {
 		return nil, fmt.Errorf("kube: in-cluster config: %w", err)
@@ -70,6 +85,7 @@ func New(namespace, runtimeImage, baseDomain, clusterIssuer, wildcardTLSSecret s
 		baseDomain:        baseDomain,
 		clusterIssuer:     clusterIssuer,
 		wildcardTLSSecret: wildcardTLSSecret,
+		runtimeServices:   rs,
 	}, nil
 }
 

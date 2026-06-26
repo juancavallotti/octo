@@ -1,0 +1,43 @@
+# RBAC for deployed runtime pods. The orchestrator runs each integration as its
+# own Deployment and sets the pod's serviceAccountName to this account; the
+# runtime's k8s services module uses it to run Lease-based leader election so a
+# connector (e.g. a cron schedule) fires on exactly one replica. Scoped to the
+# release namespace (namespaced Role), where the orchestrator creates the Leases
+# alongside the runtime pods.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "octo.runtime.serviceAccountName" . }}
+  labels:
+    {{- include "octo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: runtime
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "octo.runtime.serviceAccountName" . }}
+  labels:
+    {{- include "octo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: runtime
+rules:
+  # Leader election: each replica creates/renews a coordination Lease and watches
+  # the holder, so only the current holder acts.
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "octo.runtime.serviceAccountName" . }}
+  labels:
+    {{- include "octo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: runtime
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "octo.runtime.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: {{ include "octo.runtime.serviceAccountName" . }}
+  apiGroup: rbac.authorization.k8s.io

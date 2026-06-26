@@ -82,6 +82,7 @@ func run() error {
 		baseDomain:        os.Getenv("BASE_DOMAIN"),
 		clusterIssuer:     envOr("CLUSTER_ISSUER", defaultClusterIssuer),
 		wildcardTLSSecret: os.Getenv("WILDCARD_TLS_SECRET"),
+		runtimeServices:   runtimeServicesConfig(),
 	})
 	if err != nil {
 		return err
@@ -117,6 +118,27 @@ type kubeConfig struct {
 	baseDomain        string
 	clusterIssuer     string
 	wildcardTLSSecret string
+	// runtimeServices is injected into each deployed runtime pod so it can reach
+	// leader election + the KV API. Disabled (zero value) when ORCHESTRATOR_URL is
+	// unset, so the feature stays inert until the deploy is wired for it.
+	runtimeServices kube.RuntimeServices
+}
+
+// runtimeServicesConfig reads the runtime-services env injected into deployed
+// runtime pods. The orchestrator URL is the linchpin: without it the runtime has
+// no KV endpoint, so an empty URL disables injection entirely (Module left empty)
+// and the runtime falls back to its standalone default. With a URL set, the module
+// defaults to k8s (Lease-based leader election + orchestrator KV).
+func runtimeServicesConfig() kube.RuntimeServices {
+	orchestratorURL := os.Getenv("ORCHESTRATOR_URL")
+	if orchestratorURL == "" {
+		return kube.RuntimeServices{}
+	}
+	return kube.RuntimeServices{
+		Module:          envOr("RUNTIME_SERVICES_MODULE", "k8s"),
+		OrchestratorURL: orchestratorURL,
+		ServiceAccount:  os.Getenv("RUNTIME_SERVICE_ACCOUNT"),
+	}
 }
 
 // newServer wires the routes. database may be nil when DATABASE_URL is unset.
@@ -183,7 +205,7 @@ func newServer(ctx context.Context, database *db.DB, kc kubeConfig) (http.Handle
 		// Deployment management needs both the database and in-cluster Kubernetes
 		// access. Outside a cluster (e.g. local `go run`) kube.New fails and the
 		// routes stay disabled, mirroring how the DB-less case disables the rest.
-		if kubeClient, err := kube.New(kc.namespace, kc.runtimeImage, kc.baseDomain, kc.clusterIssuer, kc.wildcardTLSSecret); err != nil {
+		if kubeClient, err := kube.New(kc.namespace, kc.runtimeImage, kc.baseDomain, kc.clusterIssuer, kc.wildcardTLSSecret, kc.runtimeServices); err != nil {
 			slog.Warn("kubernetes access unavailable; deployment routes disabled", "error", err)
 		} else {
 			deploymentRepo := deployment.NewRepo(database.Pool())
