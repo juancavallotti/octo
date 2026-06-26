@@ -17,6 +17,15 @@ export interface Integration {
   lastUpdated: string;
 }
 
+/** A version tag: a frozen snapshot of an integration's definition. */
+export interface Snapshot {
+  id: string;
+  integrationId: string;
+  tag: string;
+  /** RFC3339 timestamp of when the tag was created. */
+  createdAt: string;
+}
+
 /** A folder in the single-membership organization tree. */
 export interface Folder {
   id: string;
@@ -289,6 +298,33 @@ export function reorderFolderIntegrations(
     `/api/folders/${encodeURIComponent(folderId)}/integration-order`,
     { ...jsonBody({ integrationIds }), method: "PUT" },
   );
+}
+
+// --- Snapshots (version tags) ---------------------------------------------
+
+/** List an integration's version tags, newest first. */
+export function listSnapshots(integrationId: string): Promise<Snapshot[]> {
+  return request<Snapshot[]>(
+    `/api/integrations/${encodeURIComponent(integrationId)}/snapshots`,
+  );
+}
+
+/** Freeze the integration's current definition under a new tag. */
+export function createSnapshot(
+  integrationId: string,
+  tag: string,
+): Promise<Snapshot> {
+  return request<Snapshot>(
+    `/api/integrations/${encodeURIComponent(integrationId)}/snapshots`,
+    jsonBody({ tag }),
+  );
+}
+
+/** Delete a version tag. */
+export function deleteSnapshot(id: string): Promise<void> {
+  return request<void>(`/api/snapshots/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
 }
 
 /** Collect every folder id in the tree, depth-first. */

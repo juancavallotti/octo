@@ -6,6 +6,7 @@ import { ExternalLink, Trash2 } from "lucide-react";
 import { fromDefinitionYaml } from "@octo/editor";
 import type { Integration } from "@/app/model/orchestrator";
 import DeploymentsSection from "./DeploymentsSection";
+import SnapshotsSection from "./SnapshotsSection";
 
 /**
  * Read-only operating details for the selected integration, plus its primary
@@ -146,6 +147,11 @@ export default function IntegrationDetail({
           ) : (
             <p className="text-sm text-zinc-400">Definition could not be parsed.</p>
           )}
+        </Section>
+
+        <Section title="Versions">
+          {/* Keyed by integration id so switching selection resets its state. */}
+          <SnapshotsSection key={integration.id} integrationId={integration.id} />
         </Section>
 
         <Section title="Deployments">
