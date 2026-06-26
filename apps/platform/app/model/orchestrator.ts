@@ -205,6 +205,17 @@ export function createDeployment(
   );
 }
 
+/** Roll a live deployment over to a different version tag (rolling update). */
+export function rolloutDeployment(
+  id: string,
+  snapshotId: string,
+): Promise<Deployment> {
+  return request<Deployment>(
+    `/api/deployments/${encodeURIComponent(id)}/rollout`,
+    { ...jsonBody({ snapshotId }), method: "POST" },
+  );
+}
+
 /** Scale an existing deployment to a new desired replica count. */
 export function scaleDeployment(
   id: string,

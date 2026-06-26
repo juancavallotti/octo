@@ -13,6 +13,7 @@ import {
 } from "@dnd-kit/core";
 import { Folder as FolderIcon, Plus, Workflow } from "lucide-react";
 import AppHeader from "@/app/components/AppHeader";
+import { useConfirm } from "@/app/components/ConfirmDialog";
 import { useOrchestrator } from "@/app/run/OrchestratorContext";
 import { arrayMove } from "@dnd-kit/sortable";
 import {
@@ -59,6 +60,7 @@ export default function IntegrationsManager({
   /** Server-rendered account tile, shown in the shared header. */
   userMenu?: React.ReactNode;
 } = {}) {
+  const confirm = useConfirm();
   const { available, ready } = useOrchestrator();
   const [data, setData] = useState<Data>(EMPTY);
   const [view, setView] = useState<ManagementView>(initialView);
@@ -141,26 +143,26 @@ export default function IntegrationsManager({
   const renameFolderTo = (f: FlatFolder, name: string) =>
     run(() => renameFolder(f.id, name, f.parentId));
 
-  const removeFolder = (f: FlatFolder) => {
-    if (!confirm(`Delete folder "${f.name}"? Its integrations become unfiled.`))
-      return;
+  const removeFolder = async (f: FlatFolder) => {
+    const ok = await confirm({
+      title: `Delete folder "${f.name}"?`,
+      body: "Its integrations become unfiled.",
+      confirmLabel: "Delete",
+      danger: true,
+    });
+    if (!ok) return;
     if (typeof bucket === "object" && bucket.folder === f.id) setBucket("all");
     run(() => deleteFolder(f.id));
   };
 
-  const moveSelected = (folderId: string | null) => {
-    if (!selectedId) return;
-    const current = membership.get(selectedId) ?? null;
-    if (folderId === current) return;
-    run(async () => {
-      if (folderId) await assignIntegration(folderId, selectedId);
-      else if (current) await unassignIntegration(current, selectedId);
-    });
-  };
-
-  const removeSelected = () => {
+  const removeSelected = async () => {
     if (!selected) return;
-    if (!confirm(`Delete integration "${selected.name}"?`)) return;
+    const ok = await confirm({
+      title: `Delete integration "${selected.name}"?`,
+      confirmLabel: "Delete",
+      danger: true,
+    });
+    if (!ok) return;
     const id = selected.id;
     setSelectedId(null);
     run(() => deleteIntegration(id));
@@ -332,7 +334,6 @@ export default function IntegrationsManager({
                   folders={flat}
                   folderId={selectedFolderId}
                   busy={busy}
-                  onMove={moveSelected}
                   onDelete={removeSelected}
                 />
               ) : (
@@ -343,7 +344,10 @@ export default function IntegrationsManager({
             </div>
           </div>
 
-          <DragOverlay>
+          {/* No drop animation: a successful move/reorder lands the item in its new
+              place via the refresh, so animating the overlay back to its origin
+              would read as a (misleading) snap-back. */}
+          <DragOverlay dropAnimation={null}>
             {activeDrag ? (
               <div className="flex items-center gap-2 rounded-md border border-black/10 bg-white px-3 py-1.5 text-sm shadow-lg dark:border-white/15 dark:bg-zinc-900">
                 {activeDrag.kind === "folder" ? (

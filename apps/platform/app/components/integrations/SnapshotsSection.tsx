@@ -1,45 +1,34 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { Tag, Trash2 } from "lucide-react";
+import { useConfirm } from "@/app/components/ConfirmDialog";
 import {
   createSnapshot,
   deleteSnapshot,
-  listSnapshots,
   type Snapshot,
 } from "@/app/model/orchestrator";
 
 /**
  * Version tags for one integration: a create field plus the list of existing
  * tags. A tag freezes the integration's current definition; tags are immutable,
- * so the only mutations are create and delete. Deploys pick a tag, so this is
- * where versions are minted before deploying.
+ * so the only mutations are create and delete. The list is owned by the parent
+ * (so the Deployments section's change-version menu stays in sync); this section
+ * performs the mutations and asks the parent to reload via `onChanged`.
  */
 export default function SnapshotsSection({
   integrationId,
+  snapshots,
+  onChanged,
 }: {
   integrationId: string;
+  snapshots: Snapshot[];
+  onChanged: () => void;
 }) {
-  const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
+  const confirm = useConfirm();
   const [tag, setTag] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const refresh = useCallback(
-    () =>
-      listSnapshots(integrationId).then(
-        (items) => {
-          setSnapshots(items);
-          setError(null);
-        },
-        (e) => setError((e as Error).message),
-      ),
-    [integrationId],
-  );
-
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
 
   const create = async () => {
     const name = tag.trim();
@@ -49,7 +38,7 @@ export default function SnapshotsSection({
     try {
       await createSnapshot(integrationId, name);
       setTag("");
-      await refresh();
+      onChanged();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -58,12 +47,17 @@ export default function SnapshotsSection({
   };
 
   const remove = async (s: Snapshot) => {
-    if (!confirm(`Delete tag "${s.tag}"?`)) return;
+    const ok = await confirm({
+      title: `Delete tag "${s.tag}"?`,
+      confirmLabel: "Delete",
+      danger: true,
+    });
+    if (!ok) return;
     setBusy(true);
     setError(null);
     try {
       await deleteSnapshot(s.id);
-      await refresh();
+      onChanged();
     } catch (e) {
       setError((e as Error).message);
     } finally {

@@ -1,10 +1,14 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ExternalLink, Trash2 } from "lucide-react";
 import { fromDefinitionYaml } from "@octo/editor";
-import type { Integration } from "@/app/model/orchestrator";
+import {
+  listSnapshots,
+  type Integration,
+  type Snapshot,
+} from "@/app/model/orchestrator";
 import DeploymentsSection from "./DeploymentsSection";
 import SnapshotsSection from "./SnapshotsSection";
 
@@ -18,16 +22,16 @@ import SnapshotsSection from "./SnapshotsSection";
 interface FlatFolder {
   id: string;
   name: string;
+  parentId: string | null;
 }
 
 interface Props {
   integration: Integration;
-  /** Flattened folders for the move control. */
+  /** Flattened folders, used to render the current folder's path. */
   folders: FlatFolder[];
   /** The folder the integration currently belongs to, or null when unfiled. */
   folderId: string | null;
   busy: boolean;
-  onMove: (folderId: string | null) => void;
   onDelete: () => void;
 }
 
@@ -63,9 +67,32 @@ export default function IntegrationDetail({
   folders,
   folderId,
   busy,
-  onMove,
   onDelete,
 }: Props) {
+  // The integration's version tags, owned here so creating/deleting one in the
+  // Versions section immediately updates the Deployments section's change-version
+  // menu (the two sections render side by side).
+  const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
+  const reloadSnapshots = useCallback(() => {
+    listSnapshots(integration.id).then(setSnapshots, () => setSnapshots([]));
+  }, [integration.id]);
+  useEffect(() => {
+    reloadSnapshots();
+  }, [reloadSnapshots]);
+
+  // The folder path ("Parent / Child"), or "No folder" when unfiled. Moving is done
+  // by drag & drop in the tree, so this is read-only.
+  const folderPath = useMemo(() => {
+    if (!folderId) return "No folder";
+    const byId = new Map(folders.map((f) => [f.id, f]));
+    const parts: string[] = [];
+    let cur: FlatFolder | undefined = byId.get(folderId);
+    while (cur) {
+      parts.unshift(cur.name);
+      cur = cur.parentId ? byId.get(cur.parentId) : undefined;
+    }
+    return parts.join(" / ") || "No folder";
+  }, [folders, folderId]);
   // Summarize the stored definition; tolerate definitions we can't parse.
   const summary = useMemo(() => {
     try {
@@ -112,24 +139,7 @@ export default function IntegrationDetail({
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <Section title="Details">
-          <Row
-            label="Folder"
-            value={
-              <select
-                value={folderId ?? ""}
-                disabled={busy}
-                onChange={(e) => onMove(e.target.value || null)}
-                className="max-w-[12rem] rounded-md border border-black/10 bg-transparent px-2 py-0.5 text-sm dark:border-white/15"
-              >
-                <option value="">No folder</option>
-                {folders.map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.name}
-                  </option>
-                ))}
-              </select>
-            }
-          />
+          <Row label="Folder" value={folderPath} />
           <Row label="Last updated" value={updatedLabel} />
           <Row
             label="ID"
@@ -150,8 +160,11 @@ export default function IntegrationDetail({
         </Section>
 
         <Section title="Versions">
-          {/* Keyed by integration id so switching selection resets its state. */}
-          <SnapshotsSection key={integration.id} integrationId={integration.id} />
+          <SnapshotsSection
+            integrationId={integration.id}
+            snapshots={snapshots}
+            onChanged={reloadSnapshots}
+          />
         </Section>
 
         <Section title="Deployments">
@@ -160,6 +173,7 @@ export default function IntegrationDetail({
             key={integration.id}
             integrationId={integration.id}
             integrationName={integration.name}
+            snapshots={snapshots}
           />
         </Section>
       </div>
