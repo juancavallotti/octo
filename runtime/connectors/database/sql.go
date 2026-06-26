@@ -15,6 +15,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/juancavallotti/octo/core"
 	"github.com/juancavallotti/octo/core/expr"
@@ -73,7 +74,7 @@ func newSQL(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor, err
 
 	args := make([]*expr.Program, 0, len(cfg.Args))
 	for _, e := range cfg.Args {
-		program, compileErr := expr.Compile(e, "body", "vars", "eventID", "correlationID")
+		program, compileErr := expr.Compile(e, "body", "vars", "eventID", "correlationID", "now")
 		if compileErr != nil {
 			return nil, compileErr
 		}
@@ -171,6 +172,7 @@ func (p *processor) evalArgs(msg *types.Message) ([]any, error) {
 		"vars":          map[string]any(msg.Variables),
 		"eventID":       msg.EventID,
 		"correlationID": msg.CorrelationID,
+		"now":           time.Now(),
 	}
 	args := make([]any, 0, len(p.args))
 	for _, program := range p.args {

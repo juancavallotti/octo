@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/juancavallotti/octo/core"
 	"github.com/juancavallotti/octo/core/expr"
@@ -79,7 +80,7 @@ func newLog(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor, err
 
 	p := &processor{level: level, logger: logger, full: cfg.Full}
 	if cfg.Message != "" {
-		program, compileErr := expr.Compile(cfg.Message, "body", "vars", "eventID", "correlationID")
+		program, compileErr := expr.Compile(cfg.Message, "body", "vars", "eventID", "correlationID", "now")
 		if compileErr != nil {
 			return nil, compileErr
 		}
@@ -167,5 +168,6 @@ func activation(msg *types.Message) map[string]any {
 		"vars":          map[string]any(msg.Variables),
 		"eventID":       msg.EventID,
 		"correlationID": msg.CorrelationID,
+		"now":           time.Now(),
 	}
 }

@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/juancavallotti/octo/core"
 	"github.com/juancavallotti/octo/core/expr"
@@ -31,7 +32,7 @@ const defaultStatusVar = "statusCode"
 
 // exprVars are the names a rest expression can reference, matching the other
 // CEL-driven blocks.
-var exprVars = []string{"body", "vars", "eventID", "correlationID", "env"}
+var exprVars = []string{"body", "vars", "eventID", "correlationID", "env", "now"}
 
 // restSettings is the rest block's typed configuration.
 type restSettings struct {
@@ -287,6 +288,7 @@ func messageActivation(msg *types.Message, env map[string]any) map[string]any {
 		"eventID":       msg.EventID,
 		"correlationID": msg.CorrelationID,
 		"env":           env,
+		"now":           time.Now(),
 	}
 }
 
