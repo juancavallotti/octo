@@ -33,11 +33,14 @@ type Block struct {
 // connector with that name is configured. Flows lets a block call another flow by
 // name (used by the flow-ref block); it is nil when no flow caller is wired. Env
 // holds the config's resolved environment variables so a block can expose them
-// to its expressions as env.NAME; it is nil when none are declared.
+// to its expressions as env.NAME; it is nil when none are declared. Services
+// exposes the runtime services (leader election, KV) to a block; it is nil for
+// callers that do not wire them, so a block must guard against that.
 type BlockDeps struct {
 	Connector func(name string) (connector Connector, ok bool)
 	Flows     FlowCaller
 	Env       map[string]string
+	Services  RuntimeServices
 }
 
 // BlockFactory builds a leaf processor from its settings and build-time deps.
