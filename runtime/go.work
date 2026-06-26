@@ -4,5 +4,6 @@ use (
 	./cli
 	./connectors
 	./core
+	./services
 	./types
 )
