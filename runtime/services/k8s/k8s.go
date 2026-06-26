@@ -80,9 +80,13 @@ func New(_ context.Context) (core.RuntimeServices, error) {
 	}, nil
 }
 
+// LeaderElection returns the Lease-based leader election.
+//
 //nolint:ireturn // satisfies core.RuntimeServices
 func (s *Services) LeaderElection() core.LeaderElection { return s.le }
 
+// KV returns the orchestrator-backed key/value store.
+//
 //nolint:ireturn // satisfies core.RuntimeServices
 func (s *Services) KV() core.KV { return s.kv }
 

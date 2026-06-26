@@ -38,9 +38,13 @@ func New() *Services {
 //nolint:ireturn // satisfies core.RuntimeServices
 func (s *Services) LeaderElection() core.LeaderElection { return core.NoopLeaderElection() }
 
+// KV returns the in-memory key/value store.
+//
 //nolint:ireturn // satisfies core.RuntimeServices
 func (s *Services) KV() core.KV { return s.kv }
 
+// Secrets returns the secret store layered over the in-memory KV.
+//
 //nolint:ireturn // satisfies core.RuntimeServices
 func (s *Services) Secrets() core.SecretStore { return core.NewSecretStore(s.kv) }
 

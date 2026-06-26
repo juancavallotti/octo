@@ -15,10 +15,16 @@ import (
 	"github.com/juancavallotti/octo/core"
 )
 
-// headerVersion carries the object version both ways: the server returns the
-// current version on reads and the new version on writes; the client sends the
-// expected version on writes for the optimistic-concurrency check.
-const headerVersion = "X-Object-Version"
+const (
+	// headerVersion carries the object version both ways: the server returns the
+	// current version on reads and the new version on writes; the client sends the
+	// expected version on writes for the optimistic-concurrency check.
+	headerVersion = "X-Object-Version"
+	// httpTimeout bounds each KV request to the orchestrator.
+	httpTimeout = 10 * time.Second
+	// errorBodySnippet caps how much of an error response body we read for context.
+	errorBodySnippet = 512
+)
 
 // httpStore is the deployment-scoped KV store backed by the orchestrator endpoint.
 // The secret store rides on top of it (core.NewSecretStore) by writing to encrypted
@@ -36,7 +42,7 @@ func newHTTPStore(baseURL, deploymentID, token string) *httpStore {
 		baseURL:      strings.TrimRight(baseURL, "/"),
 		deploymentID: deploymentID,
 		token:        token,
-		http:         &http.Client{Timeout: 10 * time.Second},
+		http:         &http.Client{Timeout: httpTimeout},
 	}
 }
 
@@ -55,11 +61,11 @@ func (c *httpStore) endpoint(namespace, key string) string {
 func (c *httpStore) Get(ctx context.Context, namespace, key string) (core.Entry, bool, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.endpoint(namespace, key), nil)
 	if err != nil {
-		return core.Entry{}, false, err
+		return core.Entry{}, false, fmt.Errorf("kv get: new request: %w", err)
 	}
 	c.authorize(req)
 
-	resp, err := c.http.Do(req)
+	resp, err := c.http.Do(req) //nolint:bodyclose // drainClose (deferred below) closes the body
 	if err != nil {
 		return core.Entry{}, false, fmt.Errorf("kv get: %w", err)
 	}
@@ -87,7 +93,7 @@ func (c *httpStore) Set(
 ) (int64, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, c.endpoint(namespace, key), bytes.NewReader(value))
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("kv set: new request: %w", err)
 	}
 	req.Header.Set(headerVersion, strconv.FormatInt(expectedVersion, 10))
 	req.Header.Set("Content-Type", "application/octet-stream")
@@ -96,7 +102,7 @@ func (c *httpStore) Set(
 	slog.Debug("store set", "namespace", namespace, "key", key,
 		"expectedVersion", expectedVersion, "bytes", len(value))
 
-	resp, err := c.http.Do(req)
+	resp, err := c.http.Do(req) //nolint:bodyclose // drainClose (deferred below) closes the body
 	if err != nil {
 		return 0, fmt.Errorf("kv set: %w", err)
 	}
@@ -118,14 +124,14 @@ func (c *httpStore) Set(
 func (c *httpStore) Delete(ctx context.Context, namespace, key string, expectedVersion int64) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.endpoint(namespace, key), nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("kv delete: new request: %w", err)
 	}
 	req.Header.Set(headerVersion, strconv.FormatInt(expectedVersion, 10))
 	c.authorize(req)
 
 	slog.Debug("store delete", "namespace", namespace, "key", key, "expectedVersion", expectedVersion)
 
-	resp, err := c.http.Do(req)
+	resp, err := c.http.Do(req) //nolint:bodyclose // drainClose (deferred below) closes the body
 	if err != nil {
 		return fmt.Errorf("kv delete: %w", err)
 	}
@@ -151,7 +157,7 @@ func (c *httpStore) authorize(req *http.Request) {
 // statusError builds an error from an unexpected response, including a short snippet
 // of the body for context.
 func (c *httpStore) statusError(op string, resp *http.Response) error {
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, errorBodySnippet))
 	msg := strings.TrimSpace(string(body))
 	if msg == "" {
 		return fmt.Errorf("kv %s: unexpected status %s", op, resp.Status)
