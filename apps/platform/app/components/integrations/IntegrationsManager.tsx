@@ -22,6 +22,7 @@ import {
   deleteIntegration,
   renameFolder,
   reorderFolderIntegrations,
+  reorderFolders,
   unassignIntegration,
 } from "@/app/model/orchestrator";
 import {
@@ -207,14 +208,45 @@ export default function IntegrationsManager({
       return; // dropping on "All" (root) is a no-op for integrations
     }
 
-    // Folder reparent: "folder" nests under it, "root" lifts to the top level;
-    // "unfiled" is not a folder target.
-    const target = o.kind === "folder" ? o.id : o.kind === "root" ? null : undefined;
-    if (target === undefined) return;
-    if (o.kind === "folder" && isDescendant(flat, o.id, a.id)) return;
+    // Folder dragged.
     const f = flat.find((x) => x.id === a.id);
-    if (!f || (f.parentId ?? null) === target) return;
-    run(() => renameFolder(a.id, f.name, target));
+    if (!f) return;
+
+    if (o.kind === "folder") {
+      if (o.id === a.id) return;
+      const target = flat.find((x) => x.id === o.id);
+      if (!target) return;
+      // Onto a sibling: reorder within the group. Onto a folder in another group:
+      // reparent under it (unless that would nest the folder inside itself).
+      if ((target.parentId ?? null) === (f.parentId ?? null)) {
+        reorderSiblings(f.parentId ?? null, a.id, o.id);
+      } else if (!isDescendant(flat, o.id, a.id)) {
+        run(() => renameFolder(a.id, f.name, o.id));
+      }
+      return;
+    }
+
+    // Onto the "All" bucket: lift to the top level (no-op if already a root).
+    if (o.kind === "root" && (f.parentId ?? null) !== null) {
+      run(() => renameFolder(a.id, f.name, null));
+    }
+  };
+
+  // Persist a new order for the folders sharing a parent. Folders live in the tree
+  // (not a flat order map), so a refresh — not an optimistic edit — reflects it;
+  // the sortable animation covers the brief gap.
+  const reorderSiblings = (
+    parentId: string | null,
+    activeId: string,
+    overId: string,
+  ) => {
+    const siblings = flat
+      .filter((x) => (x.parentId ?? null) === parentId)
+      .map((x) => x.id);
+    const from = siblings.indexOf(activeId);
+    const to = siblings.indexOf(overId);
+    if (from === -1 || to === -1 || from === to) return;
+    run(() => reorderFolders(parentId, arrayMove(siblings, from, to)));
   };
 
   // Avoid flashing the "unavailable" message before the probe resolves.

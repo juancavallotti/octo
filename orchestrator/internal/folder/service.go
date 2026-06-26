@@ -25,6 +25,7 @@ type repository interface {
 	RemoveIntegration(ctx context.Context, folderID, integrationID string) error
 	ListIntegrations(ctx context.Context, folderID string) ([]integration.Integration, error)
 	ReorderIntegrations(ctx context.Context, folderID string, integrationIDs []string) error
+	ReorderFolders(ctx context.Context, parentID *string, folderIDs []string) error
 }
 
 // Service holds folder business logic: name validation, cycle-safe moves and
@@ -54,7 +55,7 @@ func (s *Service) Get(ctx context.Context, id string) (Folder, error) {
 
 // Tree returns the folders assembled into a nested forest: root folders, each
 // carrying its descendants in Children. Sibling order follows the repository's
-// name ordering.
+// (position, name) ordering.
 func (s *Service) Tree(ctx context.Context) ([]Folder, error) {
 	flat, err := s.repo.List(ctx)
 	if err != nil {
@@ -107,6 +108,15 @@ func (s *Service) ReorderIntegrations(ctx context.Context, folderID string, inte
 	return s.repo.ReorderIntegrations(ctx, folderID, integrationIDs)
 }
 
+// ReorderFolders persists the manual order of the folders under parentID (nil for
+// the root level). An empty list is a no-op.
+func (s *Service) ReorderFolders(ctx context.Context, parentID *string, folderIDs []string) error {
+	if len(folderIDs) == 0 {
+		return nil
+	}
+	return s.repo.ReorderFolders(ctx, parentID, folderIDs)
+}
+
 // checkMove rejects reparenting id under newParentID when that would create a
 // cycle: either id is its own new parent, or newParentID lies within id's
 // subtree. A missing newParentID is left to the repository's foreign-key check.
@@ -139,7 +149,8 @@ func (s *Service) checkMove(ctx context.Context, id, newParentID string) error {
 	return nil
 }
 
-// buildTree assembles a flat, name-ordered folder list into a nested forest.
+// buildTree assembles a flat, (position, name)-ordered folder list into a nested
+// forest, preserving the input order within each parent's children.
 func buildTree(flat []Folder) []Folder {
 	childrenOf := make(map[string][]Folder)
 	roots := make([]Folder, 0)

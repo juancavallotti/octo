@@ -121,6 +121,10 @@ func (m *memRepo) ReorderIntegrations(_ context.Context, _ string, _ []string) e
 	return nil
 }
 
+func (m *memRepo) ReorderFolders(_ context.Context, _ *string, _ []string) error {
+	return nil
+}
+
 // seedIntegration registers an integration so membership operations can target
 // it, mimicking a row created via the integrations API.
 func (m *memRepo) seedIntegration(id, name string) {

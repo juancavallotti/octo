@@ -1,7 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useDraggable, useDroppable } from "@dnd-kit/core";
+import { useDroppable } from "@dnd-kit/core";
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import {
   ChevronRight,
   FolderPlus,
@@ -74,6 +80,10 @@ export default function FolderTree({
   useEffect(() => {
     try {
       const raw = localStorage.getItem(COLLAPSED_KEY);
+      // Loading persisted UI state on mount is intentional: reading localStorage
+      // during render would mismatch the server-rendered (empty) markup, so it has
+      // to happen in an effect after hydration.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       if (raw) setCollapsed(new Set(JSON.parse(raw) as string[]));
     } catch {
       // ignore malformed/blocked storage
@@ -114,6 +124,7 @@ export default function FolderTree({
     }
     return true;
   };
+  const visible = folders.filter(isVisible);
 
   const submitCreate = () => {
     const name = draftName.trim();
@@ -169,28 +180,33 @@ export default function FolderTree({
           <span className="text-xs text-zinc-400">{unfiledCount}</span>
         </BucketRow>
 
-        {folders.filter(isVisible).map((f) => (
-          <FolderRow
-            key={f.id}
-            f={f}
-            expandable={hasChildren.has(f.id)}
-            collapsed={collapsed.has(f.id)}
-            selected={isFolderBucket(bucket, f.id)}
-            count={folderCount(f.id)}
-            editing={editingId === f.id}
-            editName={editName}
-            onEditNameChange={setEditName}
-            onSubmitRename={() => submitRename(f)}
-            onCancelRename={() => setEditingId(null)}
-            onToggle={() => toggle(f.id)}
-            onSelect={() => onSelect({ folder: f.id })}
-            onStartRename={() => {
-              setEditingId(f.id);
-              setEditName(f.name);
-            }}
-            onDelete={() => onDelete(f)}
-          />
-        ))}
+        <SortableContext
+          items={visible.map((f) => `folder:${f.id}`)}
+          strategy={verticalListSortingStrategy}
+        >
+          {visible.map((f) => (
+            <FolderRow
+              key={f.id}
+              f={f}
+              expandable={hasChildren.has(f.id)}
+              collapsed={collapsed.has(f.id)}
+              selected={isFolderBucket(bucket, f.id)}
+              count={folderCount(f.id)}
+              editing={editingId === f.id}
+              editName={editName}
+              onEditNameChange={setEditName}
+              onSubmitRename={() => submitRename(f)}
+              onCancelRename={() => setEditingId(null)}
+              onToggle={() => toggle(f.id)}
+              onSelect={() => onSelect({ folder: f.id })}
+              onStartRename={() => {
+                setEditingId(f.id);
+                setEditName(f.name);
+              }}
+              onDelete={() => onDelete(f)}
+            />
+          ))}
+        </SortableContext>
 
         {creating && (
           <li>
@@ -286,17 +302,19 @@ function FolderRow({
   // Indent by depth; the chevron column (1rem) keeps folder icons aligned whether
   // or not a row is expandable.
   const indent = `${0.75 + f.depth * 0.85}rem`;
-  const dragData: DragData = { kind: "folder", id: f.id, name: f.name };
-  const { setNodeRef: setDropRef, isOver } = useDroppable({
-    id: `folder-drop:${f.id}`,
-    data: { kind: "folder", id: f.id } satisfies DropData,
-  });
+  // The row is both a sortable item (reorder among siblings) and a drop target
+  // (file an integration here, or reparent a folder dragged from another group).
+  const data: DragData = { kind: "folder", id: f.id, name: f.name };
   const {
     attributes,
     listeners,
-    setNodeRef: setDragRef,
+    setNodeRef,
+    transform,
+    transition,
     isDragging,
-  } = useDraggable({ id: `folder-drag:${f.id}`, data: dragData });
+    isOver,
+  } = useSortable({ id: `folder:${f.id}`, data });
+  const sortableStyle = { transform: CSS.Transform.toString(transform), transition };
 
   if (editing) {
     return (
@@ -318,9 +336,8 @@ function FolderRow({
   }
 
   return (
-    <li className="group/row relative">
+    <li ref={setNodeRef} style={sortableStyle} className="group/row relative">
       <div
-        ref={setDropRef}
         className={`flex w-full items-center pr-14 text-sm ${
           isDragging ? "opacity-40" : ""
         } ${
@@ -347,7 +364,6 @@ function FolderRow({
           <span className="h-4 w-4 shrink-0" aria-hidden />
         )}
         <button
-          ref={setDragRef}
           type="button"
           onClick={onSelect}
           {...attributes}

@@ -239,6 +239,17 @@ export function deleteFolder(id: string): Promise<void> {
   });
 }
 
+/** Persist the order of the folders under a parent (null for the root level). */
+export function reorderFolders(
+  parentId: string | null,
+  folderIds: string[],
+): Promise<void> {
+  return request<void>("/api/folders/reorder", {
+    ...jsonBody({ parentId, folderIds }),
+    method: "PUT",
+  });
+}
+
 export function listFolderIntegrations(
   folderId: string,
 ): Promise<Integration[]> {
