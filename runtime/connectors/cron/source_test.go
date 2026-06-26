@@ -15,6 +15,7 @@ type fakeServices struct{ leader bool }
 
 func (f fakeServices) LeaderElection() core.LeaderElection { return fakeLeaderElection(f) }
 func (fakeServices) KV() core.KV                           { return nil }
+func (fakeServices) Secrets() core.SecretStore             { return nil }
 func (fakeServices) Close() error                          { return nil }
 
 type fakeLeaderElection struct{ leader bool }

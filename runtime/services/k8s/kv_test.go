@@ -13,13 +13,12 @@ import (
 	"github.com/juancavallotti/octo/core"
 )
 
-// kvServer is a minimal in-memory stand-in for the orchestrator KV API, enough to
-// exercise the client's request shaping and status handling.
+// kvServer is a minimal in-memory stand-in for the orchestrator store API, enough
+// to exercise the client's request shaping and status handling.
 type kvServer struct {
 	value   []byte
 	version int64
 	exists  bool
-	secret  bool // records whether the last write requested encryption
 	lastReq *http.Request
 }
 
@@ -48,7 +47,6 @@ func (s *kvServer) handler() http.HandlerFunc {
 			s.value = body
 			s.version = current + 1
 			s.exists = true
-			s.secret = r.URL.Query().Get("secret") == "true"
 			w.Header().Set(headerVersion, strconv.FormatInt(s.version, 10))
 			w.WriteHeader(http.StatusOK)
 		case http.MethodDelete:
@@ -58,11 +56,11 @@ func (s *kvServer) handler() http.HandlerFunc {
 	}
 }
 
-func newTestClient(t *testing.T, srv *kvServer) *kvClient {
+func newTestClient(t *testing.T, srv *kvServer) *httpStore {
 	t.Helper()
 	ts := httptest.NewServer(srv.handler())
 	t.Cleanup(ts.Close)
-	return newKVClient(ts.URL, "dep-123", "")
+	return newHTTPStore(ts.URL, "dep-123", "")
 }
 
 func TestKVGetMissing(t *testing.T) {
@@ -88,9 +86,6 @@ func TestKVSetThenGet(t *testing.T) {
 	if v != 1 {
 		t.Fatalf("version = %d, want 1", v)
 	}
-	if srv.secret {
-		t.Fatal("plain Set should not request encryption")
-	}
 
 	entry, ok, err := c.Get(ctx, core.NamespaceUser, "k")
 	if err != nil || !ok {
@@ -101,14 +96,19 @@ func TestKVSetThenGet(t *testing.T) {
 	}
 }
 
-func TestKVSetSecretRequestsEncryption(t *testing.T) {
+func TestSecretsRouteToEncryptedNamespace(t *testing.T) {
+	// The SecretStore wrapper routes to the KV /kv endpoint under the secret
+	// namespace, so the orchestrator encrypts it.
 	srv := &kvServer{}
-	c := newTestClient(t, srv)
-	if _, err := c.SetSecret(context.Background(), core.NamespaceSystem, "token", []byte("s"), 0); err != nil {
-		t.Fatalf("SetSecret: %v", err)
+	ts := httptest.NewServer(srv.handler())
+	t.Cleanup(ts.Close)
+	store := newHTTPStore(ts.URL, "dep-123", "")
+	secrets := core.NewSecretStore(store)
+	if _, err := secrets.Set(context.Background(), core.NamespaceSystem, "token", []byte("s"), 0); err != nil {
+		t.Fatalf("Set: %v", err)
 	}
-	if !srv.secret {
-		t.Fatal("SetSecret should request encryption (secret=true)")
+	if !strings.Contains(srv.lastReq.URL.Path, "/kv/"+core.NamespaceSystemSecrets+"/") {
+		t.Fatalf("path %q does not target the %q namespace", srv.lastReq.URL.Path, core.NamespaceSystemSecrets)
 	}
 }
 
@@ -157,7 +157,7 @@ func TestKVTokenAuth(t *testing.T) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	t.Cleanup(ts.Close)
-	c := newKVClient(ts.URL, "dep-123", "tok-abc")
+	c := newHTTPStore(ts.URL, "dep-123", "tok-abc")
 	if _, _, err := c.Get(context.Background(), core.NamespaceUser, "k"); err != nil {
 		t.Fatalf("Get: %v", err)
 	}

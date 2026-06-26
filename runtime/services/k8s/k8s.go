@@ -39,7 +39,7 @@ func init() {
 // Services is the Kubernetes runtime-services provider.
 type Services struct {
 	le *leaderElection
-	kv *kvClient
+	kv *httpStore
 }
 
 // New builds the k8s provider from the in-cluster config and the orchestrator-
@@ -76,7 +76,7 @@ func New(_ context.Context) (core.RuntimeServices, error) {
 
 	return &Services{
 		le: newLeaderElection(cs.CoordinationV1(), namespace, identity, deploymentID),
-		kv: newKVClient(orchestrator, deploymentID, os.Getenv(envOrchestrToken)),
+		kv: newHTTPStore(orchestrator, deploymentID, os.Getenv(envOrchestrToken)),
 	}, nil
 }
 
@@ -86,7 +86,12 @@ func (s *Services) LeaderElection() core.LeaderElection { return s.le }
 //nolint:ireturn // satisfies core.RuntimeServices
 func (s *Services) KV() core.KV { return s.kv }
 
-// Close releases the KV client's idle connections. Leader-election campaigns are
+// Secrets routes through the same KV store to the encrypted secret namespaces.
+//
+//nolint:ireturn // satisfies core.RuntimeServices
+func (s *Services) Secrets() core.SecretStore { return core.NewSecretStore(s.kv) }
+
+// Close releases the store client's idle connections. Leader-election campaigns are
 // bound to the context passed to Acquire and stop when the runtime stops.
 func (s *Services) Close() error {
 	s.kv.close()

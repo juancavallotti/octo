@@ -20,12 +20,14 @@ func init() {
 	})
 }
 
-// Services is the standalone runtime-services module.
+// Services is the standalone runtime-services module. One in-memory store backs
+// both KV and secrets: the secret store routes to dedicated namespaces, and a single
+// process has nothing to encrypt them against.
 type Services struct {
 	kv *store
 }
 
-// New returns a standalone services module with an empty in-memory KV store.
+// New returns a standalone services module with an empty in-memory store.
 func New() *Services {
 	return &Services{kv: newStore()}
 }
@@ -38,6 +40,9 @@ func (s *Services) LeaderElection() core.LeaderElection { return core.NoopLeader
 
 //nolint:ireturn // satisfies core.RuntimeServices
 func (s *Services) KV() core.KV { return s.kv }
+
+//nolint:ireturn // satisfies core.RuntimeServices
+func (s *Services) Secrets() core.SecretStore { return core.NewSecretStore(s.kv) }
 
 // Close releases resources. The standalone module holds none.
 func (s *Services) Close() error { return nil }

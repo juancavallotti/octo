@@ -7,12 +7,13 @@ import (
 	"github.com/juancavallotti/octo/core"
 )
 
-// store is an in-memory, versioned KV store with optimistic concurrency. Entries
-// are held in a map of namespace -> key -> entry, so each namespace is a separate
-// keyspace. A single mutex serializes every operation, so the compare-and-bump on a
-// write is atomic and concurrent writers to the same key cannot lose an update.
-// SetSecret stores the value like any other: nothing leaves process memory, so
-// encryption would add no protection.
+// store is an in-memory, versioned store with optimistic concurrency, used for both
+// the KV and secret stores in the standalone module (separate instances, separate
+// keyspaces). Entries are held in a map of namespace -> key -> entry, so each
+// namespace is a separate keyspace. A single mutex serializes every operation, so
+// the compare-and-bump on a write is atomic and concurrent writers to the same key
+// cannot lose an update. Secrets are stored plainly: nothing leaves process memory,
+// so encryption would add no protection.
 type store struct {
 	mu sync.Mutex
 	ns map[string]map[string]core.Entry
@@ -34,10 +35,6 @@ func (s *store) Get(_ context.Context, namespace, key string) (core.Entry, bool,
 }
 
 func (s *store) Set(_ context.Context, namespace, key string, value []byte, expectedVersion int64) (int64, error) {
-	return s.write(namespace, key, value, expectedVersion)
-}
-
-func (s *store) SetSecret(_ context.Context, namespace, key string, value []byte, expectedVersion int64) (int64, error) {
 	return s.write(namespace, key, value, expectedVersion)
 }
 

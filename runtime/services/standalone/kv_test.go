@@ -110,18 +110,32 @@ func TestKVNamespacesAreIsolated(t *testing.T) {
 	}
 }
 
-func TestKVSetSecretStoresAndReads(t *testing.T) {
-	kv := newStore()
+func TestKVAndSecretsDoNotCollide(t *testing.T) {
+	svc := New()
 	ctx := context.Background()
-	if _, err := kv.SetSecret(ctx, ns, "token", []byte("s3cr3t"), 0); err != nil {
-		t.Fatalf("SetSecret: %v", err)
+
+	if _, err := svc.KV().Set(ctx, core.NamespaceUser, "k", []byte("kv-value"), 0); err != nil {
+		t.Fatalf("KV Set: %v", err)
 	}
-	entry, ok, err := kv.Get(ctx, ns, "token")
-	if err != nil || !ok {
-		t.Fatalf("Get: ok=%v err=%v", ok, err)
+	if _, err := svc.Secrets().Set(ctx, core.NamespaceUser, "k", []byte("secret-value"), 0); err != nil {
+		t.Fatalf("Secrets Set: %v", err)
 	}
-	if string(entry.Value) != "s3cr3t" {
-		t.Fatalf("Get = %q, want \"s3cr3t\"", entry.Value)
+
+	// The same key holds its own value in each store: the secret store routes to a
+	// dedicated namespace, so they share the table without colliding.
+	kvEntry, ok, _ := svc.KV().Get(ctx, core.NamespaceUser, "k")
+	if !ok || string(kvEntry.Value) != "kv-value" {
+		t.Fatalf("KV Get = %q ok=%v, want \"kv-value\"", kvEntry.Value, ok)
+	}
+	secretEntry, ok, _ := svc.Secrets().Get(ctx, core.NamespaceUser, "k")
+	if !ok || string(secretEntry.Value) != "secret-value" {
+		t.Fatalf("Secrets Get = %q ok=%v, want \"secret-value\"", secretEntry.Value, ok)
+	}
+
+	// The secret landed under the user_secrets namespace in the shared store.
+	raw, ok, _ := svc.KV().Get(ctx, core.NamespaceUserSecrets, "k")
+	if !ok || string(raw.Value) != "secret-value" {
+		t.Fatalf("secret not stored under %q", core.NamespaceUserSecrets)
 	}
 }
 
