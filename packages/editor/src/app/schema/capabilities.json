@@ -558,7 +558,7 @@
     },
     {
       "type": "cache-scope",
-      "label": "Cache Scope",
+      "label": "Cache",
       "category": "control-flow",
       "icon": "Clock",
       "description": "Memoize the body flow's result in the runtime store, keyed by a CEL expression.",

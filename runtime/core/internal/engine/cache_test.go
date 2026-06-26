@@ -25,13 +25,14 @@ func countingRegistry(counter *int) *core.BlockRegistry {
 	return reg
 }
 
-func buildCacheScope(t *testing.T, reg *core.BlockRegistry, settings types.Settings) *cacheScope {
+func buildCacheScope(t *testing.T, reg *core.BlockRegistry, key, ttl string) *cacheScope {
 	t.Helper()
 	body := types.FlowConfig{Process: []types.BlockConfig{{Type: "count"}}}
 	proc, err := (&builder{reg: reg}).cacheScope(types.BlockConfig{
-		Type:     blockKindCacheScope,
-		Settings: settings,
-		Body:     &body,
+		Type: blockKindCacheScope,
+		Key:  key,
+		TTL:  ttl,
+		Body: &body,
 	})
 	if err != nil {
 		t.Fatalf("build cache-scope: %v", err)
@@ -58,7 +59,7 @@ func bodyN(t *testing.T, msg *types.Message) float64 {
 
 func TestCacheScopeStoresAndServes(t *testing.T) {
 	count := 0
-	cs := buildCacheScope(t, countingRegistry(&count), types.Settings{"key": `"k"`, "ttl": "1m"})
+	cs := buildCacheScope(t, countingRegistry(&count), `"k"`, "1m")
 	ctx, _ := withFakeServices(context.Background())
 
 	first, err := cs.Process(ctx, mustMessage(t))
@@ -84,7 +85,7 @@ func TestCacheScopeStoresAndServes(t *testing.T) {
 func TestCacheScopeKeyVaries(t *testing.T) {
 	count := 0
 	// Key off the body so two different inputs land under different cache keys.
-	cs := buildCacheScope(t, countingRegistry(&count), types.Settings{"key": "body.id"})
+	cs := buildCacheScope(t, countingRegistry(&count), "body.id", "")
 	ctx, _ := withFakeServices(context.Background())
 
 	a := mustMessage(t)
@@ -105,7 +106,7 @@ func TestCacheScopeKeyVaries(t *testing.T) {
 
 func TestCacheScopeExpiredEntryRecomputes(t *testing.T) {
 	count := 0
-	cs := buildCacheScope(t, countingRegistry(&count), types.Settings{"key": `"k"`, "ttl": "1m"})
+	cs := buildCacheScope(t, countingRegistry(&count), `"k"`, "1m")
 	ctx, kv := withFakeServices(context.Background())
 
 	// Seed an already-expired envelope so the scope must treat it as a miss.
@@ -134,7 +135,7 @@ func TestCacheScopeExpiredEntryRecomputes(t *testing.T) {
 }
 
 func TestCacheScopeTTLZeroNeverExpires(t *testing.T) {
-	cs := buildCacheScope(t, countingRegistry(new(int)), types.Settings{"key": `"k"`, "ttl": "0"})
+	cs := buildCacheScope(t, countingRegistry(new(int)), `"k"`, "0")
 	ctx, kv := withFakeServices(context.Background())
 
 	if _, err := cs.Process(ctx, mustMessage(t)); err != nil {
@@ -156,7 +157,7 @@ func TestCacheScopeTTLZeroNeverExpires(t *testing.T) {
 func TestInvalidateCacheForcesRecompute(t *testing.T) {
 	count := 0
 	reg := countingRegistry(&count)
-	cs := buildCacheScope(t, reg, types.Settings{"key": `"k"`, "ttl": "1m"})
+	cs := buildCacheScope(t, reg, `"k"`, "1m")
 	ctx, _ := withFakeServices(context.Background())
 
 	if _, err := cs.Process(ctx, mustMessage(t)); err != nil {
@@ -192,15 +193,15 @@ func TestCacheScopeBuildValidation(t *testing.T) {
 		name string
 		cfg  types.BlockConfig
 	}{
-		{name: "no body", cfg: types.BlockConfig{Type: blockKindCacheScope, Settings: types.Settings{"key": `"k"`}}},
+		{name: "no body", cfg: types.BlockConfig{Type: blockKindCacheScope, Key: `"k"`}},
 		{name: "no key", cfg: types.BlockConfig{Type: blockKindCacheScope, Body: &body}},
 		{
 			name: "bad key expr",
-			cfg:  types.BlockConfig{Type: blockKindCacheScope, Settings: types.Settings{"key": "body."}, Body: &body},
+			cfg:  types.BlockConfig{Type: blockKindCacheScope, Key: "body.", Body: &body},
 		},
 		{
 			name: "bad ttl",
-			cfg:  types.BlockConfig{Type: blockKindCacheScope, Settings: types.Settings{"key": `"k"`, "ttl": "soon"}, Body: &body},
+			cfg:  types.BlockConfig{Type: blockKindCacheScope, Key: `"k"`, TTL: "soon", Body: &body},
 		},
 	}
 	for _, tt := range tests {

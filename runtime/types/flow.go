@@ -80,8 +80,15 @@ type BlockConfig struct {
 	// As is the variable name a "foreach" block binds each element to; it
 	// defaults to "item" when unset.
 	As string `yaml:"as,omitempty"`
-	// Body is the flow a "foreach" block runs once per element.
+	// Body is the flow a "foreach" or "cache-scope" block runs; foreach runs it
+	// once per element, cache-scope runs it on a cache miss.
 	Body *FlowConfig `yaml:"body,omitempty"`
+
+	// Key is the cache-key expression of a "cache-scope" block (evaluated per
+	// message). TTL is how long a cached entry stays fresh, a duration string
+	// ("5m"); empty uses the default and "0" never expires.
+	Key string `yaml:"key,omitempty"`
+	TTL string `yaml:"ttl,omitempty"`
 
 	// Connector names the LLM connector the AI composites (ai-router, ai-agent,
 	// ai-retry) call through.

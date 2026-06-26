@@ -45,16 +45,6 @@ func cacheKey(raw string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// cacheScopeSettings configures the cache-scope composite. The wrapped flow comes
-// from the block's body slot; these scalars come from its settings.
-type cacheScopeSettings struct {
-	// Key is a CEL expression evaluated to the cache key (required).
-	Key string `json:"key"`
-	// TTL is how long a cached entry stays fresh, as a duration string ("5m").
-	// Empty defaults to defaultCacheTTL; "0" caches without expiry.
-	TTL string `json:"ttl"`
-}
-
 // cacheScope memoizes the body its wrapped flow produces, keyed by an evaluated
 // expression. On a fresh hit it restores the cached body and skips the flow.
 type cacheScope struct {
@@ -65,30 +55,24 @@ type cacheScope struct {
 }
 
 // cacheScope builds the composite from the block's body slot and its key/ttl
-// settings, compiling the key expression once so a bad expression fails at
-// startup.
+// fields, compiling the key expression once so a bad expression fails at startup.
 //
 //nolint:ireturn // builders intentionally return the MessageProcessor interface
 func (b *builder) cacheScope(cfg types.BlockConfig) (core.MessageProcessor, error) {
 	if cfg.Body == nil {
 		return nil, errors.New("cache-scope block requires a body flow")
 	}
-	if err := allowSlots(cfg, blockKindCacheScope, "body"); err != nil {
+	if err := allowSlots(cfg, blockKindCacheScope, "body", "key", "ttl"); err != nil {
 		return nil, err
 	}
-
-	var set cacheScopeSettings
-	if err := cfg.Settings.Decode(&set); err != nil {
-		return nil, err
-	}
-	if set.Key == "" {
+	if cfg.Key == "" {
 		return nil, errors.New("cache-scope block requires a key expression")
 	}
-	key, err := expr.Compile(set.Key, exprVarNames...)
+	key, err := expr.Compile(cfg.Key, exprVarNames...)
 	if err != nil {
 		return nil, err
 	}
-	ttl, err := resolveCacheTTL(set.TTL)
+	ttl, err := resolveCacheTTL(cfg.TTL)
 	if err != nil {
 		return nil, err
 	}

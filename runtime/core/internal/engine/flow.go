@@ -247,6 +247,8 @@ func compositeSlots(cfg types.BlockConfig) []string {
 	add(cfg.Items != "", "items")
 	add(cfg.As != "", "as")
 	add(cfg.Body != nil, "body")
+	add(cfg.Key != "", "key")
+	add(cfg.TTL != "", "ttl")
 	add(cfg.Connector != "", "connector")
 	add(cfg.Prompt != "", "prompt")
 	add(cfg.Guardrail != "", "guardrail")

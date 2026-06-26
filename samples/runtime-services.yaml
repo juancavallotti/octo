@@ -75,9 +75,8 @@ flows:
           value: vars.counter
       - type: cache-scope
         name: cached-report
-        settings:
-          key: '"report"'
-          ttl: 1m
+        key: '"report"'
+        ttl: 1m
         body:
           process:
             - type: log
