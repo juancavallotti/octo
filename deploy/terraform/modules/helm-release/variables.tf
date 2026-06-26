@@ -117,3 +117,10 @@ variable "oidc_roles_claim" {
   description = "id-token claim carrying roles (Auth.js default \"roles\")."
   default     = ""
 }
+
+variable "kv_encryption_key" {
+  type        = string
+  description = "Base64-encoded 32-byte AES-256 key for encrypting KV secret namespaces at rest. Empty disables encryption (secret writes rejected, plain KV still works)."
+  default     = ""
+  sensitive   = true
+}

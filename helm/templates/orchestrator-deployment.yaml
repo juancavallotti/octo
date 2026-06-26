@@ -33,6 +33,25 @@ spec:
               value: {{ .Release.Namespace | quote }}
             - name: RUNTIME_IMAGE
               value: {{ include "octo.image" (dict "root" $ "repo" .Values.runtime.repository) | quote }}
+            # Runtime-services env the orchestrator injects into every deployed runtime
+            # pod: the backend module, the in-cluster KV URL (this orchestrator), and the
+            # ServiceAccount granting leases RBAC. ORCHESTRATOR_URL being set is what
+            # enables the injection.
+            - name: RUNTIME_SERVICES_MODULE
+              value: {{ .Values.runtime.servicesModule | quote }}
+            - name: ORCHESTRATOR_URL
+              value: {{ include "octo.orchestrator.url" . | quote }}
+            - name: RUNTIME_SERVICE_ACCOUNT
+              value: {{ include "octo.runtime.serviceAccountName" . | quote }}
+            {{- if .Values.kv.encryptionKey }}
+            # AES-256 key for encrypting KV secret namespaces at rest. Absent =>
+            # secret writes rejected, plain KV still works.
+            - name: KV_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "octo.kv.secretName" . }}
+                  key: kv-encryption-key
+            {{- end }}
             {{- if .Values.orchestrator.baseDomain }}
             - name: BASE_DOMAIN
               value: {{ .Values.orchestrator.baseDomain | quote }}

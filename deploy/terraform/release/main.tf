@@ -47,6 +47,18 @@ resource "random_password" "auth_secret" {
   special = false
 }
 
+# KV secret-namespace encryption key: 32 random bytes (AES-256), base64-encoded for
+# the chart. Held in the release state and stable across applies — rotating it would
+# orphan existing secret ciphertext, so the generation input is ignored (as with the
+# postgres password).
+resource "random_bytes" "kv_encryption_key" {
+  length = 32
+
+  lifecycle {
+    ignore_changes = [length]
+  }
+}
+
 # Pull the target tag onto the node with a fresh token so the chart's pods
 # (imagePullPolicy IfNotPresent) find the images locally. Re-runs when the tag
 # changes; the chart install/upgrade depends on it.
@@ -128,6 +140,9 @@ module "octo" {
   auth_secret        = local.oidc_enabled_eff ? random_password.auth_secret[0].result : ""
   oidc_write_roles   = local.oidc_write_roles_eff
   oidc_roles_claim   = local.oidc_roles_claim_eff
+
+  # KV secret-namespace encryption key (base64), generated above and held in state.
+  kv_encryption_key = random_bytes.kv_encryption_key.base64
 
   depends_on = [null_resource.pull_images]
 }

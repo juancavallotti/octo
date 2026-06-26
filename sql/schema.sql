@@ -63,6 +63,25 @@ CREATE TABLE IF NOT EXISTS cluster_secrets (
     last_updated timestamptz NOT NULL DEFAULT now()
 );
 
+-- kv_store is the deployment-scoped key/value store the runtime services (the k8s
+-- module) use for small state, including secrets. Keys are namespaced (e.g. system
+-- vs user) so internal state stays isolated from user-configured blocks, and
+-- `version` drives optimistic concurrency. Values in a secret namespace (a "_secrets"
+-- suffix, e.g. system_secrets / user_secrets) are encrypted at rest by the
+-- orchestrator with AES-GCM (KV_ENCRYPTION_KEY); plain namespaces are stored as-is,
+-- so ordinary KV traffic pays no encryption cost. Rows are scoped by deployment_id
+-- with no foreign key — cleanup is best-effort on undeploy — and the primary key's
+-- leading deployment_id column lets a deployment's entries be dropped together.
+CREATE TABLE IF NOT EXISTS kv_store (
+    deployment_id uuid NOT NULL,
+    namespace     varchar NOT NULL,
+    key           varchar NOT NULL,
+    value         bytea NOT NULL,
+    version       bigint NOT NULL,
+    updated_at    timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (deployment_id, namespace, key)
+);
+
 -- integration_idx_structure is a folder tree organizing integrations. `parent_id` is
 -- self-referencing and NULL for root folders.
 CREATE TABLE IF NOT EXISTS integration_idx_structure (

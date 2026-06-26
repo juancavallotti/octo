@@ -167,6 +167,77 @@ func TestContainerEnvMergesLiteralsAndSecrets(t *testing.T) {
 	}
 }
 
+// TestRuntimeServicesEnvInjected verifies that, when the client is configured with
+// runtime services, every deployed pod gets the backend selector, the deployment id
+// and orchestrator URL as literals, POD_NAME/POD_NAMESPACE from the downward API,
+// and the runtime ServiceAccount — all ahead of the user's own env.
+func TestRuntimeServicesEnvInjected(t *testing.T) {
+	c := newClient("")
+	c.runtimeServices = RuntimeServices{
+		Module:          "k8s",
+		OrchestratorURL: "http://octo-orchestrator.octo-dev:8090",
+		ServiceAccount:  "octo-runtime",
+	}
+	ctx := context.Background()
+	spec := Spec{ID: "d1", IntegrationID: "int-1", Definition: "x: 1", Replicas: 1, Env: map[string]string{"LOG_LEVEL": "debug"}}
+	if err := c.Apply(ctx, spec); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	dep, err := c.clientset.AppsV1().Deployments(testNamespace).Get(ctx, resourceName("d1"), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get deployment: %v", err)
+	}
+	if got := dep.Spec.Template.Spec.ServiceAccountName; got != "octo-runtime" {
+		t.Errorf("serviceAccountName = %q, want octo-runtime", got)
+	}
+
+	env := dep.Spec.Template.Spec.Containers[0].Env
+	byName := map[string]corev1.EnvVar{}
+	for _, e := range env {
+		byName[e.Name] = e
+	}
+	if byName[envServicesModule].Value != "k8s" {
+		t.Errorf("%s = %q, want k8s", envServicesModule, byName[envServicesModule].Value)
+	}
+	if byName[envDeploymentID].Value != "d1" {
+		t.Errorf("%s = %q, want d1", envDeploymentID, byName[envDeploymentID].Value)
+	}
+	if byName[envOrchestrator].Value != "http://octo-orchestrator.octo-dev:8090" {
+		t.Errorf("%s = %q, want the orchestrator URL", envOrchestrator, byName[envOrchestrator].Value)
+	}
+	for _, name := range []string{envPodName, envPodNamespace} {
+		ref := byName[name].ValueFrom
+		if ref == nil || ref.FieldRef == nil {
+			t.Errorf("%s should be a downward-API fieldRef, got %+v", name, byName[name])
+		}
+	}
+	if byName[envPodName].ValueFrom.FieldRef.FieldPath != "metadata.name" {
+		t.Errorf("%s fieldPath = %q, want metadata.name", envPodName, byName[envPodName].ValueFrom.FieldRef.FieldPath)
+	}
+	// Injected vars precede the user's own env so the spec is deterministic.
+	if env[len(env)-1].Name != "LOG_LEVEL" {
+		t.Errorf("user env should come last, got order %v", env)
+	}
+}
+
+// TestRuntimeServicesEnvDisabledByDefault verifies the zero-value config injects
+// nothing: no runtime-services env and the default ServiceAccount.
+func TestRuntimeServicesEnvDisabledByDefault(t *testing.T) {
+	c := newClient("")
+	ctx := context.Background()
+	if err := c.Apply(ctx, Spec{ID: "d1", IntegrationID: "int-1", Definition: "x: 1", Replicas: 1}); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	dep, _ := c.clientset.AppsV1().Deployments(testNamespace).Get(ctx, resourceName("d1"), metav1.GetOptions{})
+	if got := dep.Spec.Template.Spec.ServiceAccountName; got != "" {
+		t.Errorf("serviceAccountName = %q, want empty (default SA)", got)
+	}
+	if env := dep.Spec.Template.Spec.Containers[0].Env; len(env) != 0 {
+		t.Errorf("expected no env without runtime services, got %v", env)
+	}
+}
+
 // TestSecretLifecycle exercises set/list/exists/delete on the shared Secret.
 func TestSecretLifecycle(t *testing.T) {
 	c := testClient()

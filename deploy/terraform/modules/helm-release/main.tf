@@ -107,4 +107,15 @@ resource "helm_release" "octo" {
       value = set_sensitive.value
     }
   }
+
+  # KV secret-namespace encryption key. Supplied only when set so a key-less install
+  # leaves encryption disabled (plain KV still works). set_sensitive keeps it out of
+  # plans/logs.
+  dynamic "set_sensitive" {
+    for_each = var.kv_encryption_key != "" ? { "kv.encryptionKey" = var.kv_encryption_key } : {}
+    content {
+      name  = set_sensitive.key
+      value = set_sensitive.value
+    }
+  }
 }

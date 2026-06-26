@@ -20,7 +20,9 @@ rules:
     verbs: ["get", "list", "watch", "create", "update", "delete"]
   - apiGroups: ["apps"]
     resources: ["deployments"]
-    verbs: ["get", "list", "watch", "create", "update", "delete"]
+    # patch is required to scale an existing deployment (merge-patch on spec.replicas),
+    # e.g. to test the cron-fires-once-across-replicas leader election locally.
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # Per-integration external endpoints (Stage 2): the orchestrator creates an
   # Ingress per externally-exposed deployment.
   - apiGroups: ["networking.k8s.io"]

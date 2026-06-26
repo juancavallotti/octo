@@ -46,18 +46,39 @@ type kubeClient interface {
 	SecretKeyExists(ctx context.Context, name string) (bool, error)
 }
 
+// storeCleaner removes a deployment's entries from a deployment-scoped store
+// (the KV store and the secret store each implement it), wired via WithStoreCleaner.
+type storeCleaner interface {
+	DeleteByDeployment(ctx context.Context, deploymentID string) error
+}
+
 // Service holds deployment lifecycle logic: it persists deployment rows and
 // reconciles them with cluster resources via the kube client.
 type Service struct {
 	repo         repository
 	integrations integrationStore
 	kube         kubeClient
+	cleaners     []storeCleaner
+}
+
+// Option customizes a Service at construction.
+type Option func(*Service)
+
+// WithStoreCleaner adds a store cleaner so Undeploy drops a deployment's entries
+// from that store (best-effort). It may be called more than once to clean several
+// stores (e.g. the KV store and the secret store).
+func WithStoreCleaner(c storeCleaner) Option {
+	return func(s *Service) { s.cleaners = append(s.cleaners, c) }
 }
 
 // NewService returns a Service. kube may be nil, in which case all operations
 // return ErrUnavailable (the caller should not register the routes then).
-func NewService(repo repository, integrations integrationStore, kube kubeClient) *Service {
-	return &Service{repo: repo, integrations: integrations, kube: kube}
+func NewService(repo repository, integrations integrationStore, kube kubeClient, opts ...Option) *Service {
+	s := &Service{repo: repo, integrations: integrations, kube: kube}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 // Deploy creates a deployment of integrationID with the given settings: it
@@ -467,6 +488,15 @@ func (s *Service) Undeploy(ctx context.Context, id string) error {
 	if slug := ParseMetadata(dep.Metadata).Slug; slug != "" {
 		if err := s.kube.DeleteInternalService(ctx, slug); err != nil {
 			slog.Error("undeploy: delete internal service", "slug", slug, "error", err)
+		}
+	}
+
+	// Best-effort: drop this deployment's KV and secret entries. A failure here must
+	// not fail the undeploy — the rows are harmless orphans, scoped to a now-gone
+	// deployment.
+	for _, c := range s.cleaners {
+		if err := c.DeleteByDeployment(ctx, id); err != nil {
+			slog.Error("undeploy: store cleanup", "deployment", id, "error", err)
 		}
 	}
 	return nil

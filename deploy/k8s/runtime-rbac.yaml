@@ -1,0 +1,38 @@
+# RBAC for deployed runtime pods (local dev mirror of helm/templates/runtime-rbac.yaml).
+# The orchestrator runs each integration as its own Deployment and sets the pod's
+# serviceAccountName to this account (RUNTIME_SERVICE_ACCOUNT below); the runtime's
+# k8s services module uses it to run Lease-based leader election so a connector
+# (e.g. a cron schedule) fires on exactly one replica. Scoped to octo-dev, where the
+# orchestrator creates the runtime pods and their Leases.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: octo-runtime
+  namespace: octo-dev
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: octo-runtime
+  namespace: octo-dev
+rules:
+  # Leader election: each replica creates/renews a coordination Lease and watches
+  # the holder, so only the current holder acts.
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: octo-runtime
+  namespace: octo-dev
+subjects:
+  - kind: ServiceAccount
+    name: octo-runtime
+    namespace: octo-dev
+roleRef:
+  kind: Role
+  name: octo-runtime
+  apiGroup: rbac.authorization.k8s.io

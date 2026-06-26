@@ -25,6 +25,9 @@ import (
 	_ "github.com/juancavallotti/octo/connectors/logger"        // registers the "logger" connector and "log" block
 	"github.com/juancavallotti/octo/core"
 	"github.com/juancavallotti/octo/core/runtime"
+	"github.com/juancavallotti/octo/services"
+	_ "github.com/juancavallotti/octo/services/k8s"        // registers the "k8s" services provider
+	_ "github.com/juancavallotti/octo/services/standalone" // registers the "standalone" services provider (default)
 	"github.com/juancavallotti/octo/types"
 )
 
@@ -124,21 +127,31 @@ func runCommand(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if *watch {
-		return runWithReload(ctx, *configPath)
+	// Build the runtime services once and reuse them across watch-mode reloads, so
+	// leases and connections are not churned on every config change. The CLI owns
+	// their lifecycle; each Service generation only borrows them.
+	svc, err := services.New(ctx)
+	if err != nil {
+		return fmt.Errorf("init runtime services: %w", err)
 	}
-	return runOnce(ctx, *configPath)
+	defer func() { _ = svc.Close() }()
+	slog.Info("runtime services ready", "module", services.Module())
+
+	if *watch {
+		return runWithReload(ctx, *configPath, svc)
+	}
+	return runOnce(ctx, *configPath, svc)
 }
 
 // runOnce loads the config and runs a single service generation.
-func runOnce(ctx context.Context, configPath string) error {
+func runOnce(ctx context.Context, configPath string, svc core.RuntimeServices) error {
 	config, err := runtime.LoadConfig(configPath)
 	if err != nil {
 		return err
 	}
 	slog.Info("starting runtime", "version", Version, "connectors", len(config.Connectors), "flows", len(config.Flows))
 
-	service := runtime.NewService(config, core.DefaultRegistry())
+	service := runtime.NewService(config, core.DefaultRegistry(), runtime.WithRuntimeServices(svc))
 	go announceWhenReady(ctx, service)
 	if err := service.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		return err
@@ -162,7 +175,7 @@ func announceWhenReady(ctx context.Context, service *runtime.Service) {
 // runWithReload runs the service, tearing it down and rebuilding from the config
 // whenever the watched path changes, until ctx is cancelled. A config that fails
 // to load leaves the previous generation stopped and waits for the next change.
-func runWithReload(ctx context.Context, configPath string) error {
+func runWithReload(ctx context.Context, configPath string, svc core.RuntimeServices) error {
 	changed, err := watchConfig(ctx, configPath)
 	if err != nil {
 		return fmt.Errorf("watch config: %w", err)
@@ -179,7 +192,7 @@ func runWithReload(ctx context.Context, configPath string) error {
 			continue
 		}
 
-		reload, runErr := runGeneration(ctx, config, changed)
+		reload, runErr := runGeneration(ctx, config, changed, svc)
 		if runErr != nil {
 			// In watch mode a build/start failure is not fatal: keep the watcher
 			// alive and wait for the next change, same as a config load error, so
@@ -199,12 +212,14 @@ func runWithReload(ctx context.Context, configPath string) error {
 
 // runGeneration runs one service generation and returns whether the caller should
 // reload (rebuild from config) or stop.
-func runGeneration(ctx context.Context, config types.Config, changed <-chan struct{}) (bool, error) {
+func runGeneration(
+	ctx context.Context, config types.Config, changed <-chan struct{}, svc core.RuntimeServices,
+) (bool, error) {
 	slog.Info("starting runtime", "version", Version, "connectors", len(config.Connectors), "flows", len(config.Flows))
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	done := make(chan error, 1)
-	service := runtime.NewService(config, core.DefaultRegistry())
+	service := runtime.NewService(config, core.DefaultRegistry(), runtime.WithRuntimeServices(svc))
 	go announceWhenReady(runCtx, service)
 	go func() { done <- service.Run(runCtx) }()
 
@@ -273,7 +288,13 @@ func invokeCommand(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	result, err := invokeFlow(ctx, config, *flowName, body, *timeout)
+	svc, err := services.New(ctx)
+	if err != nil {
+		return fmt.Errorf("init runtime services: %w", err)
+	}
+	defer func() { _ = svc.Close() }()
+
+	result, err := invokeFlow(ctx, config, *flowName, body, *timeout, svc)
 	if err != nil {
 		return err
 	}
@@ -295,8 +316,10 @@ func invokeCommand(args []string) error {
 // (nil when the flow dropped the message).
 func invokeFlow(
 	ctx context.Context, config types.Config, flowName string, body []byte, timeout time.Duration,
+	svc core.RuntimeServices,
 ) (*types.Message, error) {
-	service := runtime.NewService(config, core.DefaultRegistry(), runtime.WithInvokeMode())
+	service := runtime.NewService(config, core.DefaultRegistry(),
+		runtime.WithInvokeMode(), runtime.WithRuntimeServices(svc))
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan error, 1)
 	go func() { done <- service.Run(runCtx) }()

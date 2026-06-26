@@ -35,6 +35,19 @@ orchestrator:
 # integration pods (imagePullPolicy IfNotPresent) never hit the registry later.
 runtime:
   repository: octo-runtime
+  # Runtime-services backend the orchestrator injects into each deployed runtime
+  # pod (RUNTIME_SERVICES_MODULE). "k8s" = Lease-based leader election (so a cron
+  # connector fires on one replica) + the orchestrator-backed KV store; "standalone"
+  # = in-process noop. Cluster deploys want "k8s".
+  servicesModule: k8s
+
+# Deployment-scoped KV store the orchestrator serves for the runtime. encryptionKey
+# is a base64-encoded 32-byte (AES-256) key used to encrypt values in secret
+# namespaces (*_secrets) at rest; plain namespaces are stored as-is (no crypto cost).
+# Empty disables encryption: secret-namespace writes are rejected, plain KV still
+# works. Terraform generates and supplies it on the platform (held in release state).
+kv:
+  encryptionKey: ""
 
 # Schema applier image (built from sql/Dockerfile); run as a post-install/upgrade
 # hook job to apply sql/schema.sql idempotently.

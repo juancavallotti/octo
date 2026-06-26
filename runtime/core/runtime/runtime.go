@@ -24,6 +24,7 @@ type Service struct {
 	blocks     *core.BlockRegistry
 	bus        *core.EventBus
 	flows      *flowRegistry
+	services   core.RuntimeServices
 	invokeMode bool
 	ready      chan struct{}
 }
@@ -37,6 +38,15 @@ type ServiceOption func(*Service)
 // sources (no ports bound, no schedules fired).
 func WithInvokeMode() ServiceOption {
 	return func(s *Service) { s.invokeMode = true }
+}
+
+// WithRuntimeServices wires the runtime services (leader election, KV) this
+// generation exposes to connectors and blocks. The services are injected into the
+// run context and the block dependencies. They are owned by the caller (the CLI
+// constructs them once and reuses them across watch-mode reloads), so the Service
+// never closes them. When unset, the no-op services apply.
+func WithRuntimeServices(svc core.RuntimeServices) ServiceOption {
+	return func(s *Service) { s.services = svc }
 }
 
 // NewService builds a Service, falling back to the default registries and event
@@ -84,6 +94,11 @@ func (s *Service) Run(ctx context.Context) error {
 	// a hot-reloading embedder that builds a fresh Service per reload does not
 	// accumulate stale handlers on the process-wide bus.
 	defer s.flows.close()
+
+	// Carry the runtime services on the context so connector and source Start calls
+	// (which both receive this ctx) can reach leader election and the KV store. The
+	// services are owned by the caller; the Service does not close them.
+	ctx = core.ContextWithRuntimeServices(ctx, s.services)
 
 	set, err := s.startConnectors(ctx)
 	if err != nil {
@@ -317,6 +332,7 @@ func (s *Service) buildFlow(ctx context.Context, cfg types.FlowConfig, set *conn
 		Connector: set.lookup,
 		Flows:     s.flows,
 		Env:       s.config.ResolvedEnv,
+		Services:  s.services,
 	}
 	root, err := engine.BuildRoot(cfg, s.blocks, p, s.config.Processors, deps)
 	if err != nil {
