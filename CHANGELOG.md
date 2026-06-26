@@ -1,5 +1,55 @@
 # Changelog
 
+## [0.1.7](https://github.com/juancavallotti/octo/compare/v0.1.6...v0.1.7) (2026-06-26)
+
+
+### Features
+
+* **blocks:** cache-scope and invalidate-cache ([95df7cd](https://github.com/juancavallotti/octo/commit/95df7cd615852acdd0cde726646ea8a9be8b10c6))
+* **blocks:** object-read and object-write blocks ([6ad428d](https://github.com/juancavallotti/octo/commit/6ad428d4b8f82914c6de8e677bd0de4a84fb0db1))
+* **cli:** select and wire the runtime services module at startup ([734b52a](https://github.com/juancavallotti/octo/commit/734b52a974d430cca60cbe579dbf2e7f9a8e51e7))
+* **core:** add runtime services interfaces (leader election + KV) ([be9e30d](https://github.com/juancavallotti/octo/commit/be9e30dde634c67fb2f7d7aae6b873f37d293058))
+* **cron:** fire a schedule once across replicas via leader election ([db837d7](https://github.com/juancavallotti/octo/commit/db837d78469b2ae3e2184cfd67cf757192a2e13d))
+* **deploy:** generate and wire the KV encryption key ([b3207b8](https://github.com/juancavallotti/octo/commit/b3207b8e70f8e231d8db279b3a80efea9ea11e5d))
+* **deploy:** inject k8s runtime services into deployed pods ([8970f0a](https://github.com/juancavallotti/octo/commit/8970f0ab4ae84137354de70ef0324b1ccf6dea3f))
+* **deploy:** require a version tag and deploy its frozen definition ([8f8ca5a](https://github.com/juancavallotti/octo/commit/8f8ca5aea4c131beeb0e7ca8f7c5f2033e81b027))
+* **deploy:** roll out a live deployment between version tags ([2c3b061](https://github.com/juancavallotti/octo/commit/2c3b0610eef4cdf0d5d4de967a3814c9fcd1f889))
+* **editor:** catalog the cache/object blocks and http-client OAuth2 auth ([1672008](https://github.com/juancavallotti/octo/commit/1672008a247f654308f161b8b4358e373734fc65))
+* **expr:** expose now (evaluation time) to block CEL expressions ([b10c7de](https://github.com/juancavallotti/octo/commit/b10c7def1f79e7401e43a07347862f6290db8db5))
+* **httpclient:** OAuth 2.0 client-credentials auth ([03f6c33](https://github.com/juancavallotti/octo/commit/03f6c33814f960ad6b65b80b52aa8a63bc5a338e))
+* **integrations:** collapsible folder tree ([fe4e94c](https://github.com/juancavallotti/octo/commit/fe4e94cc597886b8906464417e35a044ebbe124e))
+* **integrations:** drag integrations into folders & reparent folders ([8cc77ee](https://github.com/juancavallotti/octo/commit/8cc77ee073a5eaf5e7d34990b53c1108b4adfb4e))
+* **integrations:** reorder folder siblings ([91fa86a](https://github.com/juancavallotti/octo/commit/91fa86a671a2e07ec0d51f1dcf7c15357d8f4a3e))
+* **integrations:** reorder integrations within a folder ([b478651](https://github.com/juancavallotti/octo/commit/b478651e4b691f6723839c61a198d7078be53073))
+* **orchestrator:** deployment-scoped KV store with encrypted secret namespaces ([c84262c](https://github.com/juancavallotti/octo/commit/c84262c7c353d7b8b663a17b4baab3e6823e419f))
+* **platform:** always show an account indicator in the header ([5952f57](https://github.com/juancavallotti/octo/commit/5952f574102361791f428137d359d17d85a8b271))
+* **platform:** rollout control, in-app confirm dialog & integrations UX polish ([19c2bf5](https://github.com/juancavallotti/octo/commit/19c2bf5f190353b3d5678f9240bcb825070ae461))
+* runtime services — keyed leader election + KV store ([5125144](https://github.com/juancavallotti/octo/commit/51251440100457675988832960b8679ec07186f9))
+* **runtime:** inject runtime services into the execution context ([505e09e](https://github.com/juancavallotti/octo/commit/505e09e1f10d9edb96f8164547c560e5366965e3))
+* **services:** add a secret store over the KV store via secret namespaces ([8b549a4](https://github.com/juancavallotti/octo/commit/8b549a4b758ba49a0810a8d3ad1f00fac78332ba))
+* **services:** add k8s runtime services provider ([04f8c08](https://github.com/juancavallotti/octo/commit/04f8c08a139238cdc2ff1d21e99257705753e243))
+* **services:** standalone runtime services provider + selection registry ([e155aca](https://github.com/juancavallotti/octo/commit/e155aca1b7eaa3d0a502e35ca4ff2b01ca26d033))
+* **snapshots:** create/list/delete version tags from the page & editor ([79b66fd](https://github.com/juancavallotti/octo/commit/79b66fd12e53177a4f23c2473248909fb03bf871))
+* **snapshots:** integration snapshot table & orchestrator module ([90becaf](https://github.com/juancavallotti/octo/commit/90becaf48758909dd8b07e18c1e9cebcaebc6632))
+
+
+### Bug Fixes
+
+* **blocks:** read cache-scope key/ttl as block fields, not settings ([1e808a1](https://github.com/juancavallotti/octo/commit/1e808a122e98516fc53b9d3fe53524d1fa0a0635))
+* **deploy:** refresh octo-pull from metadata on every boot ([fa0a873](https://github.com/juancavallotti/octo/commit/fa0a873baf60b480a427916f4061b60f4aa31ad3))
+* **deploy:** strip gcloud chatter from the fetched kubeconfig ([ffa1ea3](https://github.com/juancavallotti/octo/commit/ffa1ea309624c212b17843ad874d95e9468cf456))
+
+
+### Refactoring
+
+* **core:** export NoopLeaderElection and reuse it in standalone ([cdf444f](https://github.com/juancavallotti/octo/commit/cdf444fbee16b30d1f320da94f66923b70568a24))
+* **core:** namespace KV keys and add preset system/user namespaces ([aa48a43](https://github.com/juancavallotti/octo/commit/aa48a43ae6f3f2eec034e31af3c755c4b6a0b6cd))
+
+
+### Documentation
+
+* **samples:** runtime-services demo flow ([6651e4d](https://github.com/juancavallotti/octo/commit/6651e4dcd0fab68dd9293fb5bfb0a8188741f356))
+
 ## [0.1.6](https://github.com/juancavallotti/octo/compare/v0.1.5...v0.1.6) (2026-06-22)
 
 
