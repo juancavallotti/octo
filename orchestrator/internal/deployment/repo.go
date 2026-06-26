@@ -166,6 +166,23 @@ func (r *Repo) UpdateSettings(ctx context.Context, id string, settings json.RawM
 	return nil
 }
 
+// UpdateMetadata replaces the deployment_metadata jsonb and stamps last_updated.
+// Returns ErrNotFound if id does not exist. Used by a rollout to record the new
+// version tag.
+func (r *Repo) UpdateMetadata(ctx context.Context, id string, metadata json.RawMessage) error {
+	tag, err := r.pool.Exec(ctx,
+		`UPDATE integration_deployments SET deployment_metadata = $2, last_updated = now() WHERE id = $1`,
+		id, metadata,
+	)
+	if err != nil {
+		return fmt.Errorf("deployment repo: update metadata: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // Delete removes the deployment. Returns ErrNotFound if no row was deleted.
 func (r *Repo) Delete(ctx context.Context, id string) error {
 	tag, err := r.pool.Exec(ctx, `DELETE FROM integration_deployments WHERE id = $1`, id)

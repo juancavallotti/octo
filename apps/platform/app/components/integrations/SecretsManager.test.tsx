@@ -13,6 +13,16 @@ vi.mock("@/app/model/secrets", () => ({
 }));
 
 import SecretsManager from "./SecretsManager";
+import { ConfirmProvider } from "@/app/components/ConfirmDialog";
+
+/** Render inside a ConfirmProvider so useConfirm() has its context. */
+function renderManager() {
+  return render(
+    <ConfirmProvider>
+      <SecretsManager />
+    </ConfirmProvider>,
+  );
+}
 
 describe("SecretsManager", () => {
   beforeEach(() => {
@@ -29,12 +39,12 @@ describe("SecretsManager", () => {
   });
 
   it("lists existing secrets (name only, never a value)", async () => {
-    render(<SecretsManager />);
+    renderManager();
     expect(await screen.findByText("API_KEY")).toBeInTheDocument();
   });
 
   it("creates a secret via setSecret and clears the form", async () => {
-    render(<SecretsManager />);
+    renderManager();
     await screen.findByText("API_KEY");
 
     await userEvent.type(screen.getByPlaceholderText("SECRET_NAME"), "db_url");
@@ -46,7 +56,7 @@ describe("SecretsManager", () => {
   });
 
   it("blocks adding when the name is not UPPER_SNAKE_CASE", async () => {
-    render(<SecretsManager />);
+    renderManager();
     await screen.findByText("API_KEY");
 
     // A digit-leading name is invalid; the Add button stays disabled.
@@ -59,12 +69,17 @@ describe("SecretsManager", () => {
     deleteSecret
       .mockRejectedValueOnce(new Error("secret is in use by a deployment"))
       .mockResolvedValueOnce(undefined);
-    vi.spyOn(window, "confirm").mockReturnValue(true);
 
-    render(<SecretsManager />);
+    renderManager();
     await screen.findByText("API_KEY");
 
+    // Open the row's delete confirm, accept it, then accept the force-delete
+    // dialog that appears once the orchestrator reports the secret is in use.
     await userEvent.click(screen.getByRole("button", { name: "Delete API_KEY" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Delete" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Force delete" }),
+    );
 
     await waitFor(() => {
       expect(deleteSecret).toHaveBeenNthCalledWith(1, "API_KEY", undefined);

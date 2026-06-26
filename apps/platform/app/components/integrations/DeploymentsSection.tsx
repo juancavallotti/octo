@@ -2,13 +2,16 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Rocket } from "lucide-react";
+import { useConfirm } from "@/app/components/ConfirmDialog";
 import {
   createDeployment,
   deleteDeployment,
   listDeployments,
+  rolloutDeployment,
   scaleDeployment,
   type Deployment,
   type DeploymentInput,
+  type Snapshot,
 } from "@/app/model/orchestrator";
 import DeploymentRow from "./DeploymentRow";
 import DeployModal from "./DeployModal";
@@ -27,10 +30,14 @@ const FALLBACK_POLL_MS = 5000;
 export default function DeploymentsSection({
   integrationId,
   integrationName,
+  snapshots,
 }: {
   integrationId: string;
   integrationName: string;
+  /** The integration's tags (owned by the parent), for the change-version menu. */
+  snapshots: Snapshot[];
 }) {
+  const confirm = useConfirm();
   const [deployments, setDeployments] = useState<Deployment[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -129,9 +136,17 @@ export default function DeploymentsSection({
   const scale = (d: Deployment, replicas: number) =>
     run(() => scaleDeployment(d.id, replicas));
 
-  const undeploy = (d: Deployment) => {
-    if (!confirm(`Undeploy "${d.name}" (${d.id.slice(0, 8)})?`)) return;
-    run(() => deleteDeployment(d.id));
+  const rollout = (d: Deployment, snapshotId: string) =>
+    run(() => rolloutDeployment(d.id, snapshotId));
+
+  const undeploy = async (d: Deployment) => {
+    const ok = await confirm({
+      title: `Undeploy "${d.name}"?`,
+      body: `Deployment ${d.id.slice(0, 8)} will be removed from the cluster.`,
+      confirmLabel: "Undeploy",
+      danger: true,
+    });
+    if (ok) run(() => deleteDeployment(d.id));
   };
 
   return (
@@ -160,7 +175,9 @@ export default function DeploymentsSection({
               key={d.id}
               deployment={d}
               busy={busy}
+              snapshots={snapshots}
               onScale={scale}
+              onRollout={rollout}
               onUndeploy={undeploy}
             />
           ))}

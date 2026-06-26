@@ -10,6 +10,7 @@ import (
 
 	"github.com/juancavallotti/octo/orchestrator/internal/integration"
 	"github.com/juancavallotti/octo/orchestrator/internal/kube"
+	"github.com/juancavallotti/octo/orchestrator/internal/snapshot"
 )
 
 // repository is the persistence surface the service needs. Declared in the
@@ -23,19 +24,29 @@ type repository interface {
 	IntegrationIDBySubdomain(ctx context.Context, subdomain string) (string, bool, error)
 	UpdateStatus(ctx context.Context, id, status string) error
 	UpdateSettings(ctx context.Context, id string, settings json.RawMessage) error
+	UpdateMetadata(ctx context.Context, id string, metadata json.RawMessage) error
 	Delete(ctx context.Context, id string) error
 }
 
 // integrationStore is the slice of the integration repository the service needs
-// to fetch the definition to deploy. *integration.Repo satisfies it.
+// to fetch the integration name (and, without a snapshot store, the definition).
+// *integration.Repo satisfies it.
 type integrationStore interface {
 	Get(ctx context.Context, id string) (integration.Integration, error)
+}
+
+// snapshotStore reads a version tag's frozen definition. *snapshot.Service
+// satisfies it. When wired (WithSnapshots), deploys must reference a snapshot and
+// ship its frozen definition instead of the live one.
+type snapshotStore interface {
+	Get(ctx context.Context, id string) (snapshot.Snapshot, error)
 }
 
 // kubeClient is the Kubernetes surface the service drives. *kube.Client
 // satisfies it.
 type kubeClient interface {
 	Apply(ctx context.Context, spec kube.Spec) error
+	Rollout(ctx context.Context, spec kube.Spec) error
 	Status(ctx context.Context, deploymentID string) (kube.Status, error)
 	Scale(ctx context.Context, deploymentID string, replicas int32) error
 	Delete(ctx context.Context, deploymentID string) error
@@ -57,6 +68,7 @@ type storeCleaner interface {
 type Service struct {
 	repo         repository
 	integrations integrationStore
+	snapshots    snapshotStore
 	kube         kubeClient
 	cleaners     []storeCleaner
 }
@@ -69,6 +81,14 @@ type Option func(*Service)
 // stores (e.g. the KV store and the secret store).
 func WithStoreCleaner(c storeCleaner) Option {
 	return func(s *Service) { s.cleaners = append(s.cleaners, c) }
+}
+
+// WithSnapshots wires the snapshot store, switching the service into tagged-deploy
+// mode: every deploy must reference a snapshot (version tag) and ships its frozen
+// definition. Without it, deploys fall back to the integration's live definition
+// (used only in tests; the production wiring always supplies a store).
+func WithSnapshots(s snapshotStore) Option {
+	return func(svc *Service) { svc.snapshots = s }
 }
 
 // NewService returns a Service. kube may be nil, in which case all operations
@@ -97,17 +117,30 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 		return Deployment{}, err
 	}
 
+	// Resolve which definition to deploy. With a snapshot store wired (production),
+	// a version tag is required and its frozen definition is shipped; the resolved
+	// tag is recorded in metadata. Without one (tests), the live definition is used.
+	definition := it.Definition
+	var snapID, snapTag string
+	if s.snapshots != nil {
+		snap, err := s.resolveSnapshot(ctx, integrationID, settings.SnapshotID)
+		if err != nil {
+			return Deployment{}, err
+		}
+		definition, snapID, snapTag = snap.Definition, snap.ID, snap.Tag
+	}
+
 	replicas := settings.Replicas
 	if replicas < 1 {
 		replicas = 1
 	}
 
 	// The runtime port (and the env the orchestrator supplies to bind it) come from
-	// the integration's HTTP_PORT declaration. Only an integration that declares one
-	// has an HTTP source listening on a port — those are "networked" and get a
-	// Service, a unique internal slug/URL and the option of external exposure.
-	// Anything else (a timer, a scheduled job) runs as a bare workload, no Service.
-	port, runtimeEnv, networked := resolveRuntimeEnv(it.Definition)
+	// the deployed definition's HTTP_PORT declaration. Only a definition that
+	// declares one has an HTTP source listening on a port — those are "networked"
+	// and get a Service, a unique internal slug/URL and the option of external
+	// exposure. Anything else (a timer, a scheduled job) runs as a bare workload.
+	port, runtimeEnv, networked := resolveRuntimeEnv(definition)
 
 	// Resolve the per-deployment env bindings into the two maps the kube spec needs:
 	// literal values (the orchestrator-supplied HTTP_PORT/HTTP_HOST stay authoritative
@@ -173,6 +206,7 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 	// Persist the env bindings so reads, the SSE snapshot and the in-use check see
 	// them. Literal values are stored as-is; secret bindings hold only the name.
 	persisted.Env = settings.Env
+	persisted.SnapshotID = snapID
 	settingsJSON, err := json.Marshal(persisted)
 	if err != nil {
 		return Deployment{}, err
@@ -182,6 +216,8 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 		Slug:        slug,
 		InternalURL: internalURL,
 		ExternalURL: externalURL,
+		SnapshotID:  snapID,
+		Tag:         snapTag,
 	})
 	if err != nil {
 		return Deployment{}, err
@@ -195,7 +231,7 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 	spec := kube.Spec{
 		ID:            dep.ID,
 		IntegrationID: integrationID,
-		Definition:    it.Definition,
+		Definition:    definition,
 		Replicas:      int32(replicas),
 		Slug:          slug,
 		Port:          port,
@@ -225,6 +261,26 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 	// Reflect the freshly observed status (typically still pending) in the cache.
 	s.applyRefresh(ctx, &dep)
 	return dep, nil
+}
+
+// resolveSnapshot loads the snapshot a deploy targets and verifies it belongs to
+// integrationID. An empty id means the caller did not pick a version tag. The
+// caller must only invoke this when a snapshot store is wired.
+func (s *Service) resolveSnapshot(ctx context.Context, integrationID, snapshotID string) (snapshot.Snapshot, error) {
+	if snapshotID == "" {
+		return snapshot.Snapshot{}, ErrSnapshotRequired
+	}
+	snap, err := s.snapshots.Get(ctx, snapshotID)
+	if err != nil {
+		if errors.Is(err, snapshot.ErrNotFound) {
+			return snapshot.Snapshot{}, ErrSnapshotNotFound
+		}
+		return snapshot.Snapshot{}, err
+	}
+	if snap.IntegrationID != integrationID {
+		return snapshot.Snapshot{}, ErrSnapshotMismatch
+	}
+	return snap, nil
 }
 
 // resolveEnvBindings splits the user's per-deployment env bindings into the literal
@@ -282,9 +338,11 @@ type DeployOptions struct {
 
 // DeployOptions resolves the deploy choices for integrationID. With an empty
 // candidate it suggests a free slug; with a candidate it validates it for the given
-// exposure (external also requires the subdomain to be free). It is read-only, so
-// it does not require Kubernetes access.
-func (s *Service) DeployOptions(ctx context.Context, integrationID, candidate string, external bool) (DeployOptions, error) {
+// exposure (external also requires the subdomain to be free). When a snapshot
+// (version tag) is selected its frozen definition drives networked-ness and the
+// declared env vars, so the modal prompts match exactly what will deploy. It is
+// read-only, so it does not require Kubernetes access.
+func (s *Service) DeployOptions(ctx context.Context, integrationID, candidate string, external bool, snapshotID string) (DeployOptions, error) {
 	it, err := s.integrations.Get(ctx, integrationID)
 	if err != nil {
 		if errors.Is(err, integration.ErrNotFound) {
@@ -292,8 +350,18 @@ func (s *Service) DeployOptions(ctx context.Context, integrationID, candidate st
 		}
 		return DeployOptions{}, err
 	}
-	_, _, networked := resolveRuntimeEnv(it.Definition)
-	opts := DeployOptions{Networked: networked, EnvVars: declaredEnvVars(it.Definition)}
+	// Prefer the selected snapshot's frozen definition; fall back to the live one
+	// (no tag selected, or no snapshot store wired).
+	definition := it.Definition
+	if s.snapshots != nil && snapshotID != "" {
+		snap, err := s.resolveSnapshot(ctx, integrationID, snapshotID)
+		if err != nil {
+			return DeployOptions{}, err
+		}
+		definition = snap.Definition
+	}
+	_, _, networked := resolveRuntimeEnv(definition)
+	opts := DeployOptions{Networked: networked, EnvVars: declaredEnvVars(definition)}
 	if !networked {
 		return opts, nil
 	}
@@ -437,6 +505,96 @@ func (s *Service) Scale(ctx context.Context, id string, replicas int) (Deploymen
 		return Deployment{}, err
 	}
 	dep.Settings = raw
+
+	s.applyRefresh(ctx, &dep)
+	return dep, nil
+}
+
+// Rollout upgrades a live deployment to a different version tag in place: it ships
+// the new snapshot's frozen definition as a rolling update, preserving the
+// deployment's id, address (slug/URLs), scale and env bindings, and records the new
+// tag. A tag that changes the integration's HTTP source (networked vs not) would
+// change the Service/Ingress topology, which a rolling update cannot express, so it
+// is rejected — undeploy and redeploy instead.
+func (s *Service) Rollout(ctx context.Context, id, snapshotID string) (Deployment, error) {
+	if s.kube == nil {
+		return Deployment{}, ErrUnavailable
+	}
+	if s.snapshots == nil {
+		return Deployment{}, ErrSnapshotRequired
+	}
+	dep, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return Deployment{}, err
+	}
+	snap, err := s.resolveSnapshot(ctx, dep.IntegrationID, snapshotID)
+	if err != nil {
+		return Deployment{}, err
+	}
+
+	settings := ParseSettings(dep.Settings)
+	meta := ParseMetadata(dep.Metadata)
+
+	// The runtime port/env come from the new frozen definition. A networked
+	// deployment has a slug (and Service); flipping networked-ness would add or
+	// remove that Service/Ingress, so reject it.
+	port, runtimeEnv, networked := resolveRuntimeEnv(snap.Definition)
+	if networked != (meta.Slug != "") {
+		return Deployment{}, ErrRolloutTopologyChange
+	}
+
+	literalEnv, secretEnv, err := s.resolveEnvBindings(ctx, runtimeEnv, settings.Env)
+	if err != nil {
+		return Deployment{}, err
+	}
+
+	replicas := settings.Replicas
+	if replicas < 1 {
+		replicas = 1
+	}
+
+	// Same id/slug/exposure as the existing deployment, so its address and Services
+	// are untouched; only the mounted definition (and any env/port it implies)
+	// changes. NOTE: a tag that changes HTTP_PORT updates the container port but not
+	// the existing Service's targetPort — tags of one integration normally share a
+	// port, so this edge is left for a future enhancement.
+	spec := kube.Spec{
+		ID:            dep.ID,
+		IntegrationID: dep.IntegrationID,
+		Definition:    snap.Definition,
+		Replicas:      int32(replicas),
+		Slug:          meta.Slug,
+		Port:          port,
+		Env:           literalEnv,
+		SecretEnv:     secretEnv,
+		Expose:        settings.External(),
+		Subdomain:     settings.Subdomain,
+	}
+	if err := s.kube.Rollout(ctx, spec); err != nil {
+		return Deployment{}, err
+	}
+
+	// Record the new tag in metadata (and mirror the snapshot id into settings, as
+	// Deploy does) so reads and the SSE snapshot reflect what is now running.
+	meta.SnapshotID = snap.ID
+	meta.Tag = snap.Tag
+	metaJSON, err := json.Marshal(meta)
+	if err != nil {
+		return Deployment{}, err
+	}
+	if err := s.repo.UpdateMetadata(ctx, id, metaJSON); err != nil {
+		return Deployment{}, err
+	}
+	dep.Metadata = metaJSON
+
+	settings.SnapshotID = snap.ID
+	if settingsJSON, mErr := json.Marshal(settings); mErr == nil {
+		if err := s.repo.UpdateSettings(ctx, id, settingsJSON); err != nil {
+			slog.Error("rollout: persist settings snapshot id", "id", id, "error", err)
+		} else {
+			dep.Settings = settingsJSON
+		}
+	}
 
 	s.applyRefresh(ctx, &dep)
 	return dep, nil

@@ -1,16 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   Check,
   Clock,
   Copy,
   ExternalLink,
+  GitBranch,
   RotateCcw,
+  Tag,
   Trash2,
 } from "lucide-react";
-import type { Deployment, DeploymentStatus } from "@/app/model/orchestrator";
+import type {
+  Deployment,
+  DeploymentStatus,
+  Snapshot,
+} from "@/app/model/orchestrator";
+import { useConfirm } from "@/app/components/ConfirmDialog";
 import ReplicaStepper from "./ReplicaStepper";
 
 /**
@@ -117,15 +124,104 @@ function AddressLine({
   );
 }
 
+/**
+ * Compact "change version" menu: lists the integration's tags and rolls the
+ * deployment over to the picked one (a rolling update). Hidden when there are no
+ * tags; the current tag is shown but not actionable.
+ */
+function RolloutMenu({
+  deployment: d,
+  snapshots,
+  busy,
+  onRollout,
+}: {
+  deployment: Deployment;
+  snapshots: Snapshot[];
+  busy: boolean;
+  onRollout: (d: Deployment, snapshotId: string) => void;
+}) {
+  const confirm = useConfirm();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  if (snapshots.length === 0) return null;
+
+  const pick = async (s: Snapshot) => {
+    setOpen(false);
+    if (s.tag === d.tag) return;
+    const ok = await confirm({
+      title: `Roll to ${s.tag}?`,
+      body: `"${d.name}" (${d.id.slice(0, 8)}) will roll from ${d.tag ?? "its current version"} to ${s.tag}.`,
+      confirmLabel: "Roll out",
+    });
+    if (ok) onRollout(d, s.id);
+  };
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => setOpen((o) => !o)}
+        title="Change version"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="rounded-md p-1 text-zinc-400 transition-colors hover:bg-black/[0.06] hover:text-zinc-600 disabled:opacity-50 dark:hover:bg-white/[0.08] dark:hover:text-zinc-300"
+      >
+        <GitBranch size={14} />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 top-full z-20 mt-1 max-h-56 w-40 overflow-y-auto rounded-md border border-black/10 bg-white py-1 shadow-lg dark:border-white/10 dark:bg-zinc-900"
+        >
+          {snapshots.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              role="menuitem"
+              onClick={() => pick(s)}
+              className={`flex w-full items-center gap-1.5 px-2.5 py-1 text-left text-xs ${
+                s.tag === d.tag
+                  ? "font-medium text-sky-600 dark:text-sky-400"
+                  : "hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
+              }`}
+            >
+              <Tag size={11} className="shrink-0" />
+              <span className="truncate">{s.tag}</span>
+              {s.tag === d.tag && (
+                <span className="ml-auto text-[10px] text-zinc-400">current</span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function DeploymentRow({
   deployment: d,
   busy,
+  snapshots = [],
   onScale,
+  onRollout,
   onUndeploy,
 }: {
   deployment: Deployment;
   busy: boolean;
+  /** The integration's version tags, for the change-version menu. */
+  snapshots?: Snapshot[];
   onScale: (d: Deployment, replicas: number) => void;
+  onRollout?: (d: Deployment, snapshotId: string) => void;
   onUndeploy: (d: Deployment) => void;
 }) {
   const age = relativeAge(d.createdAt);
@@ -142,6 +238,15 @@ export default function DeploymentRow({
         <span className="font-mono text-xs text-zinc-500">
           {d.id.slice(0, 8)}
         </span>
+        {d.tag && (
+          <span
+            className="inline-flex items-center gap-1 rounded-full bg-sky-500/15 px-2 py-0.5 text-xs font-medium text-sky-600 dark:text-sky-400"
+            title={`Version ${d.tag}`}
+          >
+            <Tag size={10} />
+            {d.tag}
+          </span>
+        )}
         <ReplicaStepper
           desired={desired}
           busy={busy}
@@ -171,15 +276,25 @@ export default function DeploymentRow({
             {age}
           </span>
         )}
-        <button
-          type="button"
-          onClick={() => onUndeploy(d)}
-          disabled={busy}
-          aria-label="Undeploy"
-          className="ml-auto rounded-md p-1 text-zinc-400 transition-colors hover:bg-red-500/10 hover:text-red-500 disabled:opacity-50"
-        >
-          <Trash2 size={14} />
-        </button>
+        <div className="ml-auto flex items-center gap-1">
+          {onRollout && (
+            <RolloutMenu
+              deployment={d}
+              snapshots={snapshots}
+              busy={busy}
+              onRollout={onRollout}
+            />
+          )}
+          <button
+            type="button"
+            onClick={() => onUndeploy(d)}
+            disabled={busy}
+            aria-label="Undeploy"
+            className="rounded-md p-1 text-zinc-400 transition-colors hover:bg-red-500/10 hover:text-red-500 disabled:opacity-50"
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
       </div>
 
       {d.reason && (

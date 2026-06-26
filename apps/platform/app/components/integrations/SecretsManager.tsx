@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Plus } from "lucide-react";
+import { useConfirm } from "@/app/components/ConfirmDialog";
 import {
   deleteSecret,
   listSecrets,
@@ -30,6 +31,7 @@ const INPUT =
 const NAME_RE = /^[A-Z_][A-Z0-9_]*$/;
 
 export default function SecretsManager() {
+  const confirm = useConfirm();
   const [secrets, setSecrets] = useState<ClusterSecret[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -79,23 +81,31 @@ export default function SecretsManager() {
   const setValueFor = (target: string, next: string) =>
     run(() => setSecret(target, next));
 
-  const remove = (target: string) => {
-    if (!confirm(`Delete secret "${target}"?`)) return;
+  const remove = async (target: string) => {
+    const ok = await confirm({
+      title: `Delete secret "${target}"?`,
+      confirmLabel: "Delete",
+      danger: true,
+    });
+    if (!ok) return;
     run(async () => {
       try {
         await deleteSecret(target);
       } catch (e) {
         const msg = (e as Error).message;
-        if (
-          /in use/i.test(msg) &&
-          confirm(
-            `${msg}.\n\nForce delete anyway? Deployments referencing it will fail on their next restart.`,
-          )
-        ) {
-          await deleteSecret(target, true);
-        } else {
-          throw e;
+        if (/in use/i.test(msg)) {
+          const force = await confirm({
+            title: "Secret is in use",
+            body: `${msg}. Force delete anyway? Deployments referencing it will fail on their next restart.`,
+            confirmLabel: "Force delete",
+            danger: true,
+          });
+          if (force) {
+            await deleteSecret(target, true);
+            return;
+          }
         }
+        throw e;
       }
     });
   };

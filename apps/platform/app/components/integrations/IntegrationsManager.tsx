@@ -2,18 +2,38 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Plus } from "lucide-react";
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
+import { Folder as FolderIcon, Plus, Workflow } from "lucide-react";
 import AppHeader from "@/app/components/AppHeader";
+import { useConfirm } from "@/app/components/ConfirmDialog";
 import { useOrchestrator } from "@/app/run/OrchestratorContext";
+import { arrayMove } from "@dnd-kit/sortable";
 import {
   assignIntegration,
   createFolder,
   deleteFolder,
   deleteIntegration,
   renameFolder,
+  reorderFolderIntegrations,
+  reorderFolders,
   unassignIntegration,
 } from "@/app/model/orchestrator";
-import { flatten, type Bucket, type FlatFolder } from "./model";
+import {
+  flatten,
+  isDescendant,
+  type Bucket,
+  type DragData,
+  type DropData,
+  type FlatFolder,
+} from "./model";
 import { EMPTY, loadData, type Data } from "./managerData";
 import FolderTree from "./FolderTree";
 import IntegrationList from "./IntegrationList";
@@ -40,6 +60,7 @@ export default function IntegrationsManager({
   /** Server-rendered account tile, shown in the shared header. */
   userMenu?: React.ReactNode;
 } = {}) {
+  const confirm = useConfirm();
   const { available, ready } = useOrchestrator();
   const [data, setData] = useState<Data>(EMPTY);
   const [view, setView] = useState<ManagementView>(initialView);
@@ -47,6 +68,12 @@ export default function IntegrationsManager({
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activeDrag, setActiveDrag] = useState<DragData | null>(null);
+
+  // A small activation distance keeps a plain click (select) distinct from a drag.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+  );
 
   const refresh = useCallback(
     () =>
@@ -75,15 +102,25 @@ export default function IntegrationsManager({
     [refresh],
   );
 
-  const { folders, integrations, membership } = data;
+  const { folders, integrations, membership, order } = data;
   const flat = useMemo(() => flatten(folders), [folders]);
 
   const shown = useMemo(() => {
     if (bucket === "all") return integrations;
     if (bucket === "unfiled")
       return integrations.filter((i) => !membership.has(i.id));
-    return integrations.filter((i) => membership.get(i.id) === bucket.folder);
-  }, [bucket, integrations, membership]);
+    const inFolder = integrations.filter(
+      (i) => membership.get(i.id) === bucket.folder,
+    );
+    // Honor the folder's stored order; ids missing from it (e.g. just assigned)
+    // sort to the end by their natural list position.
+    const pos = new Map((order.get(bucket.folder) ?? []).map((id, i) => [id, i]));
+    return [...inFolder].sort(
+      (a, b) =>
+        (pos.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
+        (pos.get(b.id) ?? Number.MAX_SAFE_INTEGER),
+    );
+  }, [bucket, integrations, membership, order]);
 
   const unfiledCount = useMemo(
     () => integrations.filter((i) => !membership.has(i.id)).length,
@@ -106,29 +143,112 @@ export default function IntegrationsManager({
   const renameFolderTo = (f: FlatFolder, name: string) =>
     run(() => renameFolder(f.id, name, f.parentId));
 
-  const removeFolder = (f: FlatFolder) => {
-    if (!confirm(`Delete folder "${f.name}"? Its integrations become unfiled.`))
-      return;
+  const removeFolder = async (f: FlatFolder) => {
+    const ok = await confirm({
+      title: `Delete folder "${f.name}"?`,
+      body: "Its integrations become unfiled.",
+      confirmLabel: "Delete",
+      danger: true,
+    });
+    if (!ok) return;
     if (typeof bucket === "object" && bucket.folder === f.id) setBucket("all");
     run(() => deleteFolder(f.id));
   };
 
-  const moveSelected = (folderId: string | null) => {
-    if (!selectedId) return;
-    const current = membership.get(selectedId) ?? null;
-    if (folderId === current) return;
-    run(async () => {
-      if (folderId) await assignIntegration(folderId, selectedId);
-      else if (current) await unassignIntegration(current, selectedId);
-    });
-  };
-
-  const removeSelected = () => {
+  const removeSelected = async () => {
     if (!selected) return;
-    if (!confirm(`Delete integration "${selected.name}"?`)) return;
+    const ok = await confirm({
+      title: `Delete integration "${selected.name}"?`,
+      confirmLabel: "Delete",
+      danger: true,
+    });
+    if (!ok) return;
     const id = selected.id;
     setSelectedId(null);
     run(() => deleteIntegration(id));
+  };
+
+  const onDragStart = (e: DragStartEvent) =>
+    setActiveDrag((e.active.data.current as DragData | undefined) ?? null);
+
+  // Persist a new order for the folder currently shown, optimistically reflecting
+  // it so the list doesn't snap back before the refresh lands.
+  const reorderShown = (activeId: string, overId: string) => {
+    if (typeof bucket !== "object") return;
+    const folderId = bucket.folder;
+    const ids = shown.map((i) => i.id);
+    const from = ids.indexOf(activeId);
+    const to = ids.indexOf(overId);
+    if (from === -1 || to === -1 || from === to) return;
+    const next = arrayMove(ids, from, to);
+    setData((d) => ({ ...d, order: new Map(d.order).set(folderId, next) }));
+    run(() => reorderFolderIntegrations(folderId, next));
+  };
+
+  // Resolve a drop. Integrations file/unfile (onto a folder/Unfiled) or reorder
+  // (onto a peer inside a folder); folders reparent (blocked from landing on
+  // themselves or a descendant). No-op moves and unsupported pairs are ignored.
+  const onDragEnd = (e: DragEndEvent) => {
+    setActiveDrag(null);
+    const a = e.active.data.current as DragData | undefined;
+    // `over` is a drop zone (DropData) or, for the sortable list, a peer card (DragData).
+    const o = e.over?.data.current as DropData | DragData | undefined;
+    if (!a || !o) return;
+
+    if (a.kind === "integration") {
+      // Dropped on a peer card: reorder within the current folder.
+      if (o.kind === "integration") {
+        if (o.id !== a.id) reorderShown(a.id, o.id);
+        return;
+      }
+      const current = membership.get(a.id) ?? null;
+      if (o.kind === "folder" && o.id !== current) {
+        run(() => assignIntegration(o.id, a.id));
+      } else if (o.kind === "unfiled" && current) {
+        run(() => unassignIntegration(current, a.id));
+      }
+      return; // dropping on "All" (root) is a no-op for integrations
+    }
+
+    // Folder dragged.
+    const f = flat.find((x) => x.id === a.id);
+    if (!f) return;
+
+    if (o.kind === "folder") {
+      if (o.id === a.id) return;
+      const target = flat.find((x) => x.id === o.id);
+      if (!target) return;
+      // Onto a sibling: reorder within the group. Onto a folder in another group:
+      // reparent under it (unless that would nest the folder inside itself).
+      if ((target.parentId ?? null) === (f.parentId ?? null)) {
+        reorderSiblings(f.parentId ?? null, a.id, o.id);
+      } else if (!isDescendant(flat, o.id, a.id)) {
+        run(() => renameFolder(a.id, f.name, o.id));
+      }
+      return;
+    }
+
+    // Onto the "All" bucket: lift to the top level (no-op if already a root).
+    if (o.kind === "root" && (f.parentId ?? null) !== null) {
+      run(() => renameFolder(a.id, f.name, null));
+    }
+  };
+
+  // Persist a new order for the folders sharing a parent. Folders live in the tree
+  // (not a flat order map), so a refresh — not an optimistic edit — reflects it;
+  // the sortable animation covers the brief gap.
+  const reorderSiblings = (
+    parentId: string | null,
+    activeId: string,
+    overId: string,
+  ) => {
+    const siblings = flat
+      .filter((x) => (x.parentId ?? null) === parentId)
+      .map((x) => x.id);
+    const from = siblings.indexOf(activeId);
+    const to = siblings.indexOf(overId);
+    if (from === -1 || to === -1 || from === to) return;
+    run(() => reorderFolders(parentId, arrayMove(siblings, from, to)));
   };
 
   // Avoid flashing the "unavailable" message before the probe resolves.
@@ -180,43 +300,66 @@ export default function IntegrationsManager({
           <SecretsManager />
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1">
-        <FolderTree
-          folders={flat}
-          bucket={bucket}
-          total={integrations.length}
-          unfiledCount={unfiledCount}
-          folderCount={folderCount}
-          nesting={createParent !== null}
-          onSelect={setBucket}
-          onCreate={createFolderHere}
-          onRename={renameFolderTo}
-          onDelete={removeFolder}
-        />
-
-        <IntegrationList
-          integrations={shown}
-          selectedId={selectedId}
-          onSelect={setSelectedId}
-        />
-
-        <div className="min-w-0 flex-1">
-          {selected ? (
-            <IntegrationDetail
-              integration={selected}
+        <DndContext
+          sensors={sensors}
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+          onDragCancel={() => setActiveDrag(null)}
+        >
+          <div className="flex min-h-0 flex-1">
+            <FolderTree
               folders={flat}
-              folderId={selectedFolderId}
-              busy={busy}
-              onMove={moveSelected}
-              onDelete={removeSelected}
+              bucket={bucket}
+              total={integrations.length}
+              unfiledCount={unfiledCount}
+              folderCount={folderCount}
+              nesting={createParent !== null}
+              onSelect={setBucket}
+              onCreate={createFolderHere}
+              onRename={renameFolderTo}
+              onDelete={removeFolder}
             />
-          ) : (
-            <div className="flex h-full items-center justify-center px-6 text-center text-sm text-zinc-400">
-              Select an integration to see its details.
+
+            <IntegrationList
+              integrations={shown}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+              reorderable={typeof bucket === "object"}
+            />
+
+            <div className="min-w-0 flex-1">
+              {selected ? (
+                <IntegrationDetail
+                  integration={selected}
+                  folders={flat}
+                  folderId={selectedFolderId}
+                  busy={busy}
+                  onDelete={removeSelected}
+                />
+              ) : (
+                <div className="flex h-full items-center justify-center px-6 text-center text-sm text-zinc-400">
+                  Select an integration to see its details.
+                </div>
+              )}
             </div>
-          )}
-        </div>
-        </div>
+          </div>
+
+          {/* No drop animation: a successful move/reorder lands the item in its new
+              place via the refresh, so animating the overlay back to its origin
+              would read as a (misleading) snap-back. */}
+          <DragOverlay dropAnimation={null}>
+            {activeDrag ? (
+              <div className="flex items-center gap-2 rounded-md border border-black/10 bg-white px-3 py-1.5 text-sm shadow-lg dark:border-white/15 dark:bg-zinc-900">
+                {activeDrag.kind === "folder" ? (
+                  <FolderIcon size={15} className="text-zinc-400" />
+                ) : (
+                  <Workflow size={15} className="text-zinc-400" />
+                )}
+                <span className="max-w-48 truncate">{activeDrag.name}</span>
+              </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
       )}
     </div>
   );

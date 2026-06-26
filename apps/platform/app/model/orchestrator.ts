@@ -17,6 +17,15 @@ export interface Integration {
   lastUpdated: string;
 }
 
+/** A version tag: a frozen snapshot of an integration's definition. */
+export interface Snapshot {
+  id: string;
+  integrationId: string;
+  tag: string;
+  /** RFC3339 timestamp of when the tag was created. */
+  createdAt: string;
+}
+
 /** A folder in the single-membership organization tree. */
 export interface Folder {
   id: string;
@@ -50,6 +59,8 @@ export interface Deployment {
   integrationId: string;
   /** Display name, captured from the integration at deploy time. */
   name: string;
+  /** The version tag this deployment was created from; absent on legacy deployments. */
+  tag?: string;
   /** Cached lifecycle status; refreshed by the orchestrator on read. */
   status: DeploymentStatus;
   /** Desired/served replica count (from settings). */
@@ -80,6 +91,8 @@ export interface EnvBindingInput {
 
 /** Per-deployment options sent when deploying an integration. */
 export interface DeploymentInput {
+  /** The version tag (snapshot id) to deploy; required by the orchestrator. */
+  snapshotId?: string;
   /** Runtime replicas; omitted/<=0 means a single replica. */
   replicas?: number;
   /** User-chosen internal address slug; omitted asks the orchestrator to allocate. */
@@ -167,11 +180,12 @@ export function listDeployments(integrationId: string): Promise<Deployment[]> {
  */
 export function getDeployOptions(
   integrationId: string,
-  opts: { slug?: string; expose?: "external" } = {},
+  opts: { slug?: string; expose?: "external"; snapshotId?: string } = {},
 ): Promise<DeployOptions> {
   const qs = new URLSearchParams();
   if (opts.slug) qs.set("slug", opts.slug);
   if (opts.expose) qs.set("expose", opts.expose);
+  if (opts.snapshotId) qs.set("snapshotId", opts.snapshotId);
   const query = qs.toString();
   return request<DeployOptions>(
     `/api/integrations/${encodeURIComponent(integrationId)}/deployments/options${
@@ -188,6 +202,17 @@ export function createDeployment(
   return request<Deployment>(
     `/api/integrations/${encodeURIComponent(integrationId)}/deployments`,
     jsonBody(input),
+  );
+}
+
+/** Roll a live deployment over to a different version tag (rolling update). */
+export function rolloutDeployment(
+  id: string,
+  snapshotId: string,
+): Promise<Deployment> {
+  return request<Deployment>(
+    `/api/deployments/${encodeURIComponent(id)}/rollout`,
+    { ...jsonBody({ snapshotId }), method: "POST" },
   );
 }
 
@@ -239,6 +264,17 @@ export function deleteFolder(id: string): Promise<void> {
   });
 }
 
+/** Persist the order of the folders under a parent (null for the root level). */
+export function reorderFolders(
+  parentId: string | null,
+  folderIds: string[],
+): Promise<void> {
+  return request<void>("/api/folders/reorder", {
+    ...jsonBody({ parentId, folderIds }),
+    method: "PUT",
+  });
+}
+
 export function listFolderIntegrations(
   folderId: string,
 ): Promise<Integration[]> {
@@ -267,6 +303,44 @@ export function unassignIntegration(
     `/api/folders/${encodeURIComponent(folderId)}/integrations/${encodeURIComponent(integrationId)}`,
     { method: "DELETE" },
   );
+}
+
+/** Persist the manual order of a folder's integrations (full list, in order). */
+export function reorderFolderIntegrations(
+  folderId: string,
+  integrationIds: string[],
+): Promise<void> {
+  return request<void>(
+    `/api/folders/${encodeURIComponent(folderId)}/integration-order`,
+    { ...jsonBody({ integrationIds }), method: "PUT" },
+  );
+}
+
+// --- Snapshots (version tags) ---------------------------------------------
+
+/** List an integration's version tags, newest first. */
+export function listSnapshots(integrationId: string): Promise<Snapshot[]> {
+  return request<Snapshot[]>(
+    `/api/integrations/${encodeURIComponent(integrationId)}/snapshots`,
+  );
+}
+
+/** Freeze the integration's current definition under a new tag. */
+export function createSnapshot(
+  integrationId: string,
+  tag: string,
+): Promise<Snapshot> {
+  return request<Snapshot>(
+    `/api/integrations/${encodeURIComponent(integrationId)}/snapshots`,
+    jsonBody({ tag }),
+  );
+}
+
+/** Delete a version tag. */
+export function deleteSnapshot(id: string): Promise<void> {
+  return request<void>(`/api/snapshots/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
 }
 
 /** Collect every folder id in the tree, depth-first. */

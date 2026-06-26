@@ -34,4 +34,16 @@ var (
 	// ErrReservedEnvVar is returned when an env binding targets an
 	// orchestrator-managed variable (HTTP_PORT/HTTP_HOST).
 	ErrReservedEnvVar = errors.New("environment variable is reserved")
+	// ErrSnapshotRequired is returned when a deploy omits the version tag while the
+	// service enforces tagged deploys (a snapshot store is configured).
+	ErrSnapshotRequired = errors.New("a version tag is required to deploy")
+	// ErrSnapshotNotFound is returned when the selected snapshot does not exist.
+	ErrSnapshotNotFound = errors.New("selected version tag not found")
+	// ErrSnapshotMismatch is returned when the selected snapshot belongs to a
+	// different integration than the one being deployed.
+	ErrSnapshotMismatch = errors.New("version tag does not belong to this integration")
+	// ErrRolloutTopologyChange is returned when a rollout's target tag changes the
+	// integration's HTTP source (networked vs not), which a rolling update cannot
+	// express; the caller should undeploy and redeploy instead.
+	ErrRolloutTopologyChange = errors.New("version tag changes the HTTP source; undeploy and redeploy instead")
 )

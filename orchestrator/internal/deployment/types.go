@@ -50,6 +50,11 @@ type Settings struct {
 	// cannot be bound here. Literal values are persisted as-is; secret bindings
 	// persist only the secret name, never its value.
 	Env map[string]EnvBinding `json:"env,omitempty"`
+	// SnapshotID is the version tag (snapshot) to deploy. When the service is wired
+	// with a snapshot store (the production path) it is required, and the deploy
+	// ships that snapshot's frozen definition rather than the live one. Input only —
+	// the resolved snapshot id/tag are recorded in Metadata.
+	SnapshotID string `json:"snapshotId,omitempty"`
 }
 
 // EnvBinding is how one declared environment variable is filled at deploy time:
@@ -83,6 +88,11 @@ type Metadata struct {
 	// ExternalURL is the public https://{subdomain}.{baseDomain} address when the
 	// deployment is exposed externally; empty for internal-only deployments.
 	ExternalURL string `json:"externalUrl,omitempty"`
+	// SnapshotID is the snapshot (version tag) this deployment was created from, and
+	// Tag its human-facing label, captured at deploy/rollout time. Empty on
+	// deployments created before version tags existed.
+	SnapshotID string `json:"snapshotId,omitempty"`
+	Tag        string `json:"tag,omitempty"`
 }
 
 // ParseMetadata unmarshals the metadata jsonb, returning a zero Metadata when

@@ -2,6 +2,8 @@ package kube
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"sort"
@@ -221,6 +223,57 @@ func (c *Client) Scale(ctx context.Context, deploymentID string, replicas int32)
 		return fmt.Errorf("kube: scale deployment: %w", err)
 	}
 	return nil
+}
+
+// configHashAnnotation carries a digest of the mounted definition on the pod
+// template. Bumping it on a rollout changes the pod spec, so Kubernetes performs a
+// rolling update even when only the ConfigMap content changed (a ConfigMap data
+// change alone does not restart pods).
+const configHashAnnotation = "octo.dev/config-hash"
+
+// Rollout updates a live deployment to a new definition in place: it rewrites the
+// ConfigMap and updates the Deployment to the rebuilt spec, stamping a fresh config
+// hash on the pod template so Kubernetes rolls the pods. Resource names, the
+// Selector and the Services are unchanged, so the deployment keeps its address and
+// identity. A missing Deployment/ConfigMap surfaces an error for the caller.
+func (c *Client) Rollout(ctx context.Context, spec Spec) error {
+	name := resourceName(spec.ID)
+	labels := c.labels(spec)
+
+	cms := c.clientset.CoreV1().ConfigMaps(c.namespace)
+	cm, err := cms.Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("kube: rollout get configmap: %w", err)
+	}
+	cm.Data = map[string]string{configFileName: spec.Definition}
+	if _, err := cms.Update(ctx, cm, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("kube: rollout update configmap: %w", err)
+	}
+
+	deps := c.clientset.AppsV1().Deployments(c.namespace)
+	existing, err := deps.Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("kube: rollout get deployment: %w", err)
+	}
+	desired := c.deployment(name, labels, spec)
+	// Carry the resourceVersion so the update is a clean replace of the existing
+	// object (the Selector is unchanged, so the immutable field is preserved).
+	desired.ResourceVersion = existing.ResourceVersion
+	if desired.Spec.Template.ObjectMeta.Annotations == nil {
+		desired.Spec.Template.ObjectMeta.Annotations = map[string]string{}
+	}
+	desired.Spec.Template.ObjectMeta.Annotations[configHashAnnotation] = configHash(spec.Definition)
+	if _, err := deps.Update(ctx, desired, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("kube: rollout update deployment: %w", err)
+	}
+	return nil
+}
+
+// configHash returns a short digest of a definition, used to force a pod-template
+// change (and thus a rolling update) when the definition changes.
+func configHash(definition string) string {
+	sum := sha256.Sum256([]byte(definition))
+	return hex.EncodeToString(sum[:8])
 }
 
 // DeleteInternalService removes the stable internal Service for slug. Callers

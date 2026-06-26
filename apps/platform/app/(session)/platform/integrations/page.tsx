@@ -1,4 +1,5 @@
 import UserMenu from "@/app/components/UserMenu";
+import { ConfirmProvider } from "@/app/components/ConfirmDialog";
 import IntegrationsManager from "@/app/components/integrations/IntegrationsManager";
 import {
   MANAGEMENT_VIEWS,
@@ -22,10 +23,12 @@ export default async function IntegrationsPage({
     ? (view as ManagementView)
     : "integrations";
   return (
-    <IntegrationsManager
-      initialView={initialView}
-      initialSelectedId={integration ?? null}
-      userMenu={<UserMenu />}
-    />
+    <ConfirmProvider>
+      <IntegrationsManager
+        initialView={initialView}
+        initialSelectedId={integration ?? null}
+        userMenu={<UserMenu />}
+      />
+    </ConfirmProvider>
   );
 }

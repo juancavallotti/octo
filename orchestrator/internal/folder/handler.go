@@ -27,10 +27,12 @@ func NewHandler(svc *Service) *Handler {
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /folders", h.create)
 	mux.HandleFunc("GET /folders", h.list)
+	mux.HandleFunc("PUT /folders/reorder", h.reorderFolders)
 	mux.HandleFunc("GET /folders/{id}", h.get)
 	mux.HandleFunc("PUT /folders/{id}", h.update)
 	mux.HandleFunc("DELETE /folders/{id}", h.delete)
 	mux.HandleFunc("GET /folders/{id}/integrations", h.listIntegrations)
+	mux.HandleFunc("PUT /folders/{id}/integration-order", h.reorderIntegrations)
 	mux.HandleFunc("PUT /folders/{id}/integrations/{integrationId}", h.addIntegration)
 	mux.HandleFunc("DELETE /folders/{id}/integrations/{integrationId}", h.removeIntegration)
 }
@@ -162,6 +164,53 @@ func (h *Handler) listIntegrations(w http.ResponseWriter, r *http.Request) {
 		out = append(out, integrationResponse(it))
 	}
 	httpx.WriteJSON(w, http.StatusOK, out)
+}
+
+// reorderRequest is the body of a reorder request: the integration ids in the
+// desired order within the folder.
+type reorderRequest struct {
+	IntegrationIDs []string `json:"integrationIds"`
+}
+
+// reorderFoldersRequest is the body of a folder-reorder request: the folder ids in
+// the desired order, scoped to one parent (null for the root level).
+type reorderFoldersRequest struct {
+	ParentID  *string  `json:"parentId"`
+	FolderIDs []string `json:"folderIds"`
+}
+
+func (h *Handler) reorderFolders(w http.ResponseWriter, r *http.Request) {
+	var req reorderFoldersRequest
+	if err := httpx.DecodeJSON(w, r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+
+	if err := h.svc.ReorderFolders(ctx, req.ParentID, req.FolderIDs); err != nil {
+		h.writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) reorderIntegrations(w http.ResponseWriter, r *http.Request) {
+	var req reorderRequest
+	if err := httpx.DecodeJSON(w, r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+
+	if err := h.svc.ReorderIntegrations(ctx, r.PathValue("id"), req.IntegrationIDs); err != nil {
+		h.writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handler) addIntegration(w http.ResponseWriter, r *http.Request) {

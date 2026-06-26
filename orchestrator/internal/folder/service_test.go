@@ -29,6 +29,14 @@ type fakeRepo struct {
 	removeErr        error
 	listIntErr       error
 	listIntegrations []integration.Integration
+
+	reorderFolderID string
+	reorderIDs      []string
+	reorderErr      error
+
+	reorderParentID   *string
+	reorderFolderIDs  []string
+	reorderFoldersErr error
 }
 
 func (f *fakeRepo) Create(_ context.Context, name string, parentID *string) (Folder, error) {
@@ -63,6 +71,73 @@ func (f *fakeRepo) RemoveIntegration(_ context.Context, _, _ string) error {
 
 func (f *fakeRepo) ListIntegrations(_ context.Context, _ string) ([]integration.Integration, error) {
 	return f.listIntegrations, f.listIntErr
+}
+
+func (f *fakeRepo) ReorderIntegrations(_ context.Context, folderID string, ids []string) error {
+	f.reorderFolderID = folderID
+	f.reorderIDs = ids
+	return f.reorderErr
+}
+
+func (f *fakeRepo) ReorderFolders(_ context.Context, parentID *string, ids []string) error {
+	f.reorderParentID = parentID
+	f.reorderFolderIDs = ids
+	return f.reorderFoldersErr
+}
+
+func TestReorderIntegrations(t *testing.T) {
+	t.Run("passes the order through to the repository", func(t *testing.T) {
+		repo := &fakeRepo{}
+		svc := NewService(repo)
+		ids := []string{"a", "b", "c"}
+		if err := svc.ReorderIntegrations(context.Background(), "folder-1", ids); err != nil {
+			t.Fatalf("ReorderIntegrations: %v", err)
+		}
+		if repo.reorderFolderID != "folder-1" {
+			t.Errorf("folder id = %q, want folder-1", repo.reorderFolderID)
+		}
+		if len(repo.reorderIDs) != 3 || repo.reorderIDs[0] != "a" || repo.reorderIDs[2] != "c" {
+			t.Errorf("ids = %v, want [a b c]", repo.reorderIDs)
+		}
+	})
+
+	t.Run("an empty list is a no-op", func(t *testing.T) {
+		repo := &fakeRepo{reorderErr: errors.New("should not be called")}
+		svc := NewService(repo)
+		if err := svc.ReorderIntegrations(context.Background(), "folder-1", nil); err != nil {
+			t.Fatalf("empty reorder should be a no-op, got %v", err)
+		}
+		if repo.reorderIDs != nil {
+			t.Errorf("repo should not have been called, got ids %v", repo.reorderIDs)
+		}
+	})
+}
+
+func TestReorderFolders(t *testing.T) {
+	t.Run("passes the parent and order through to the repository", func(t *testing.T) {
+		repo := &fakeRepo{}
+		svc := NewService(repo)
+		if err := svc.ReorderFolders(context.Background(), ptr("p1"), []string{"a", "b"}); err != nil {
+			t.Fatalf("ReorderFolders: %v", err)
+		}
+		if repo.reorderParentID == nil || *repo.reorderParentID != "p1" {
+			t.Errorf("parent id = %v, want p1", repo.reorderParentID)
+		}
+		if len(repo.reorderFolderIDs) != 2 || repo.reorderFolderIDs[0] != "a" {
+			t.Errorf("ids = %v, want [a b]", repo.reorderFolderIDs)
+		}
+	})
+
+	t.Run("an empty list is a no-op", func(t *testing.T) {
+		repo := &fakeRepo{reorderFoldersErr: errors.New("should not be called")}
+		svc := NewService(repo)
+		if err := svc.ReorderFolders(context.Background(), nil, nil); err != nil {
+			t.Fatalf("empty reorder should be a no-op, got %v", err)
+		}
+		if repo.reorderFolderIDs != nil {
+			t.Errorf("repo should not have been called, got %v", repo.reorderFolderIDs)
+		}
+	})
 }
 
 func ptr(s string) *string { return &s }

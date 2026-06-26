@@ -9,17 +9,21 @@ import {
 } from "@octo/editor";
 import AppLogo from "./AppLogo";
 import IntegrationsButton from "./IntegrationsButton";
+import TagButton from "./TagButton";
 
 /**
- * The editor's top bar. The integration controls (title, folder, Save, manage)
- * only appear when a filesystem capability is present (`useFileSystem()`);
+ * The editor's top bar. The integration controls (title, folder, Tag, Save,
+ * manage) only appear when a filesystem capability is present (`useFileSystem()`);
  * otherwise the bar is just the logo and the RUN control.
  */
 export default function EditorHeader({
   userMenu,
+  getIntegrationId,
 }: {
   /** Account control slot (server-rendered UserMenu); only visible when SSO is on. */
   userMenu?: React.ReactNode;
+  /** Reads the authoritative integration id (updated on save) for tagging. */
+  getIntegrationId: () => string | null;
 }) {
   const available = useFileSystem() !== null;
 
@@ -39,6 +43,7 @@ export default function EditorHeader({
         {available && (
           <>
             <IntegrationsButton />
+            <TagButton getIntegrationId={getIntegrationId} />
             <SaveButton />
           </>
         )}

@@ -34,8 +34,8 @@ func NewRepo(pool *pgxpool.Pool) *Repo {
 // stored row; id is populated by the database via RETURNING.
 func (r *Repo) Create(ctx context.Context, name string, parentID *string) (Folder, error) {
 	row := r.pool.QueryRow(ctx,
-		`INSERT INTO integration_idx_structure (parent_id, name)
-		 VALUES ($1, $2)
+		`INSERT INTO integration_idx_structure (parent_id, name, position)
+		 VALUES ($1, $2, COALESCE((SELECT MAX(position) + 1 FROM integration_idx_structure WHERE parent_id IS NOT DISTINCT FROM $1), 0))
 		 RETURNING `+folderColumns,
 		parentID, name,
 	)
@@ -68,7 +68,7 @@ func (r *Repo) Get(ctx context.Context, id string) (Folder, error) {
 // tree by the service.
 func (r *Repo) List(ctx context.Context) ([]Folder, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT `+folderColumns+` FROM integration_idx_structure ORDER BY name`,
+		`SELECT `+folderColumns+` FROM integration_idx_structure ORDER BY position, name`,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("folder repo: list: %w", err)
@@ -123,9 +123,10 @@ func (r *Repo) Delete(ctx context.Context, id string) error {
 // folder or integration surfaces as ErrNotFound.
 func (r *Repo) AddIntegration(ctx context.Context, folderID, integrationID string) error {
 	_, err := r.pool.Exec(ctx,
-		`INSERT INTO integration_folder_members (integration_id, folder_id)
-		 VALUES ($1, $2)
-		 ON CONFLICT (integration_id) DO UPDATE SET folder_id = EXCLUDED.folder_id`,
+		`INSERT INTO integration_folder_members (integration_id, folder_id, position)
+		 VALUES ($1, $2, COALESCE((SELECT MAX(position) + 1 FROM integration_folder_members WHERE folder_id = $2), 0))
+		 ON CONFLICT (integration_id) DO UPDATE
+		   SET folder_id = EXCLUDED.folder_id, position = EXCLUDED.position`,
 		integrationID, folderID,
 	)
 	if err != nil {
@@ -133,6 +134,41 @@ func (r *Repo) AddIntegration(ctx context.Context, folderID, integrationID strin
 			return ErrNotFound
 		}
 		return fmt.Errorf("folder repo: add integration: %w", err)
+	}
+	return nil
+}
+
+// ReorderFolders sets the stored order of the folders directly under parentID
+// (nil for the root level) to the given sequence (position = 1-based index). Ids
+// whose parent differs are ignored, so a reorder cannot move a folder between
+// parents.
+func (r *Repo) ReorderFolders(ctx context.Context, parentID *string, folderIDs []string) error {
+	_, err := r.pool.Exec(ctx,
+		`UPDATE integration_idx_structure AS f
+		 SET position = o.ord
+		 FROM unnest($2::uuid[]) WITH ORDINALITY AS o(id, ord)
+		 WHERE f.id = o.id AND f.parent_id IS NOT DISTINCT FROM $1`,
+		parentID, folderIDs,
+	)
+	if err != nil {
+		return fmt.Errorf("folder repo: reorder folders: %w", err)
+	}
+	return nil
+}
+
+// ReorderIntegrations sets the stored order of integrations within folderID to the
+// given sequence (position = 1-based index). Ids not belonging to the folder are
+// ignored; ids omitted keep their prior position (the caller sends the full list).
+func (r *Repo) ReorderIntegrations(ctx context.Context, folderID string, integrationIDs []string) error {
+	_, err := r.pool.Exec(ctx,
+		`UPDATE integration_folder_members AS m
+		 SET position = o.ord
+		 FROM unnest($2::uuid[]) WITH ORDINALITY AS o(integration_id, ord)
+		 WHERE m.folder_id = $1 AND m.integration_id = o.integration_id`,
+		folderID, integrationIDs,
+	)
+	if err != nil {
+		return fmt.Errorf("folder repo: reorder integrations: %w", err)
 	}
 	return nil
 }
@@ -161,7 +197,7 @@ func (r *Repo) ListIntegrations(ctx context.Context, folderID string) ([]integra
 		 FROM integrations i
 		 JOIN integration_folder_members m ON m.integration_id = i.id
 		 WHERE m.folder_id = $1
-		 ORDER BY i.name`,
+		 ORDER BY m.position, i.name`,
 		folderID,
 	)
 	if err != nil {

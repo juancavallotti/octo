@@ -3,9 +3,11 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 const getDeployOptions = vi.fn();
+const listSnapshots = vi.fn();
 const listSecrets = vi.fn();
 vi.mock("@/app/model/orchestrator", () => ({
   getDeployOptions: () => getDeployOptions(),
+  listSnapshots: () => listSnapshots(),
 }));
 vi.mock("@/app/model/secrets", () => ({ listSecrets: () => listSecrets() }));
 
@@ -37,6 +39,9 @@ describe("DeployModal environment section", () => {
         { name: "LOG_LEVEL", default: "info" },
       ],
     });
+    listSnapshots.mockResolvedValue([
+      { id: "snap-1", integrationId: "int-1", tag: "v1.0", createdAt: "" },
+    ]);
     listSecrets.mockResolvedValue([
       { name: "DB_PASSWORD", createdAt: "", lastUpdated: "" },
     ]);
@@ -60,17 +65,18 @@ describe("DeployModal environment section", () => {
     const deploy = screen.getByRole("button", { name: "Deploy" });
     expect(deploy).toBeDisabled(); // API_KEY is required and unset
 
-    // Switch API_KEY (first row) to Secret mode and pick the cluster secret.
+    // Switch API_KEY (first row) to Secret mode and pick the cluster secret. There
+    // are now two comboboxes (the Version selector and the secret picker); the
+    // secret picker is the one that just appeared.
     await userEvent.click(screen.getAllByRole("button", { name: "secret" })[0]);
-    await userEvent.selectOptions(
-      await screen.findByRole("combobox"),
-      "DB_PASSWORD",
-    );
+    const combos = await screen.findAllByRole("combobox");
+    await userEvent.selectOptions(combos[combos.length - 1], "DB_PASSWORD");
 
     await waitFor(() => expect(deploy).toBeEnabled());
     await userEvent.click(deploy);
 
     expect(onSubmit).toHaveBeenCalledWith({
+      snapshotId: "snap-1",
       replicas: 1,
       env: { API_KEY: { secret: "DB_PASSWORD" } },
     });

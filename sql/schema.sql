@@ -93,6 +93,11 @@ CREATE TABLE IF NOT EXISTS integration_idx_structure (
 CREATE INDEX IF NOT EXISTS idx_integration_idx_structure_parent
     ON integration_idx_structure (parent_id);
 
+-- Manual ordering of folders among their siblings. New folders are appended
+-- (assigned MAX(position)+1 within the parent); the tree lists by (position, name).
+ALTER TABLE integration_idx_structure
+    ADD COLUMN IF NOT EXISTS position int NOT NULL DEFAULT 0;
+
 -- integration_folder_members maps which folder holds which integrations. An
 -- integration lives in at most one folder, so integration_id is the primary key;
 -- adding it to a folder moves it. The folder_id index serves "list a folder's
@@ -104,3 +109,23 @@ CREATE TABLE IF NOT EXISTS integration_folder_members (
 
 CREATE INDEX IF NOT EXISTS idx_integration_folder_members_folder
     ON integration_folder_members (folder_id);
+
+-- Manual ordering of integrations within a folder. New members are appended
+-- (assigned MAX(position)+1); the middle column orders by (position, name).
+ALTER TABLE integration_folder_members
+    ADD COLUMN IF NOT EXISTS position int NOT NULL DEFAULT 0;
+
+-- integration_snapshots freezes an integration's definition under a named tag.
+-- Tags are immutable (no update path) and unique per integration; a deploy
+-- references a snapshot so it ships a frozen definition rather than the live one.
+CREATE TABLE IF NOT EXISTS integration_snapshots (
+    id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    integration_id uuid NOT NULL REFERENCES integrations (id) ON DELETE CASCADE,
+    tag            varchar NOT NULL,
+    definition     text NOT NULL,
+    created_at     timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (integration_id, tag)
+);
+
+CREATE INDEX IF NOT EXISTS idx_integration_snapshots_integration
+    ON integration_snapshots (integration_id);
