@@ -102,6 +102,33 @@ func (r *Repo) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+// DeploymentsUsingSnapshot returns the human-facing labels (slug, falling back
+// to name, then deployment id) of every deployment for integrationID that still
+// references snapshotID. The snapshot id is recorded in two jsonb columns at
+// deploy time — settings->>'snapshotId' and deployment_metadata->>'snapshotId' —
+// so a match in either counts. Used to refuse deleting a tag that is live.
+func (r *Repo) DeploymentsUsingSnapshot(ctx context.Context, integrationID, snapshotID string) ([]string, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT COALESCE(
+			NULLIF(deployment_metadata->>'slug', ''),
+			NULLIF(deployment_metadata->>'name', ''),
+			id::text
+		 )
+		 FROM integration_deployments
+		 WHERE integration_id = $1
+		   AND $2 IN (settings->>'snapshotId', deployment_metadata->>'snapshotId')`,
+		integrationID, snapshotID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("snapshot repo: deployments using snapshot: %w", err)
+	}
+	labels, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, fmt.Errorf("snapshot repo: deployments using snapshot: %w", err)
+	}
+	return labels, nil
+}
+
 // scanSnapshot reads one row in snapshotColumns order.
 func scanSnapshot(row pgx.Row) (Snapshot, error) {
 	var s Snapshot

@@ -3,6 +3,7 @@ package snapshot
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/juancavallotti/octo/orchestrator/internal/integration"
@@ -17,6 +18,14 @@ type fakeRepo struct {
 	createErr           error
 
 	listResult []Snapshot
+
+	getResult Snapshot
+	getErr    error
+
+	deployedLabels []string
+	deployedErr    error
+	deleteErr      error
+	deleteCalled   bool
 }
 
 func (f *fakeRepo) Create(_ context.Context, integrationID, tag, definition string) (Snapshot, error) {
@@ -30,6 +39,12 @@ func (f *fakeRepo) Create(_ context.Context, integrationID, tag, definition stri
 }
 
 func (f *fakeRepo) Get(_ context.Context, id string) (Snapshot, error) {
+	if f.getErr != nil {
+		return Snapshot{}, f.getErr
+	}
+	if f.getResult.ID != "" {
+		return f.getResult, nil
+	}
 	return Snapshot{ID: id}, nil
 }
 
@@ -37,7 +52,14 @@ func (f *fakeRepo) ListByIntegration(_ context.Context, _ string) ([]Snapshot, e
 	return f.listResult, nil
 }
 
-func (f *fakeRepo) Delete(_ context.Context, _ string) error { return nil }
+func (f *fakeRepo) DeploymentsUsingSnapshot(_ context.Context, _, _ string) ([]string, error) {
+	return f.deployedLabels, f.deployedErr
+}
+
+func (f *fakeRepo) Delete(_ context.Context, _ string) error {
+	f.deleteCalled = true
+	return f.deleteErr
+}
 
 // fakeIntegrations is a stub integration store returning a canned integration.
 type fakeIntegrations struct {
@@ -95,6 +117,48 @@ func TestCreate(t *testing.T) {
 		svc := NewService(repo, fakeIntegrations{it: integration.Integration{ID: "int-1"}})
 		if _, err := svc.Create(context.Background(), "int-1", "v1"); !errors.Is(err, ErrTagExists) {
 			t.Errorf("error = %v, want ErrTagExists", err)
+		}
+	})
+}
+
+func TestDelete(t *testing.T) {
+	t.Run("deletes a snapshot that is not deployed", func(t *testing.T) {
+		repo := &fakeRepo{getResult: Snapshot{ID: "snap-1", IntegrationID: "int-1"}}
+		svc := NewService(repo, fakeIntegrations{})
+		if err := svc.Delete(context.Background(), "snap-1"); err != nil {
+			t.Fatalf("Delete: %v", err)
+		}
+		if !repo.deleteCalled {
+			t.Error("repo.Delete was not called")
+		}
+	})
+
+	t.Run("refuses to delete a deployed snapshot and names the environments", func(t *testing.T) {
+		repo := &fakeRepo{
+			getResult:      Snapshot{ID: "snap-1", IntegrationID: "int-1"},
+			deployedLabels: []string{"prod", "staging"},
+		}
+		svc := NewService(repo, fakeIntegrations{})
+		err := svc.Delete(context.Background(), "snap-1")
+		if !errors.Is(err, ErrSnapshotInUse) {
+			t.Fatalf("error = %v, want ErrSnapshotInUse", err)
+		}
+		if !strings.Contains(err.Error(), "prod") || !strings.Contains(err.Error(), "staging") {
+			t.Errorf("error %q should name the deployed environments", err)
+		}
+		if repo.deleteCalled {
+			t.Error("repo.Delete must not be called when the snapshot is deployed")
+		}
+	})
+
+	t.Run("returns ErrNotFound when the snapshot does not exist", func(t *testing.T) {
+		repo := &fakeRepo{getErr: ErrNotFound}
+		svc := NewService(repo, fakeIntegrations{})
+		if err := svc.Delete(context.Background(), "nope"); !errors.Is(err, ErrNotFound) {
+			t.Errorf("error = %v, want ErrNotFound", err)
+		}
+		if repo.deleteCalled {
+			t.Error("repo.Delete must not be called for a missing snapshot")
 		}
 	})
 }

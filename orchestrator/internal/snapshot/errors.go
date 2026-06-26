@@ -14,4 +14,8 @@ var (
 	// ErrIntegrationNotFound is returned when the integration to snapshot does not
 	// exist.
 	ErrIntegrationNotFound = errors.New("integration not found")
+	// ErrSnapshotInUse is returned when a snapshot cannot be deleted because one or
+	// more deployments still reference it. Deleting it would leave those
+	// deployments pinned to a version that no longer exists.
+	ErrSnapshotInUse = errors.New("snapshot is currently deployed")
 )

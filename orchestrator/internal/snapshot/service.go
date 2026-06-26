@@ -20,6 +20,7 @@ type repository interface {
 	Create(ctx context.Context, integrationID, tag, definition string) (Snapshot, error)
 	Get(ctx context.Context, id string) (Snapshot, error)
 	ListByIntegration(ctx context.Context, integrationID string) ([]Snapshot, error)
+	DeploymentsUsingSnapshot(ctx context.Context, integrationID, snapshotID string) ([]string, error)
 	Delete(ctx context.Context, id string) error
 }
 
@@ -69,9 +70,23 @@ func (s *Service) ListByIntegration(ctx context.Context, integrationID string) (
 	return s.repo.ListByIntegration(ctx, integrationID)
 }
 
-// Delete removes a snapshot. Existing deployments keep the tag they recorded, so
-// deleting a snapshot does not affect what is already running.
+// Delete removes a snapshot, refusing if it is still deployed. A deployment pins
+// the snapshot it was created from (its definition is resolved from the tag), so
+// deleting a live tag would leave that deployment referencing a version that no
+// longer exists. Returns ErrNotFound for an unknown id and ErrSnapshotInUse,
+// naming the offending environment(s), when one or more deployments reference it.
 func (s *Service) Delete(ctx context.Context, id string) error {
+	snap, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	envs, err := s.repo.DeploymentsUsingSnapshot(ctx, snap.IntegrationID, id)
+	if err != nil {
+		return err
+	}
+	if len(envs) > 0 {
+		return fmt.Errorf("%w: deployed to %s", ErrSnapshotInUse, strings.Join(envs, ", "))
+	}
 	return s.repo.Delete(ctx, id)
 }
 

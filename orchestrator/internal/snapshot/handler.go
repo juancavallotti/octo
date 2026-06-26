@@ -113,6 +113,8 @@ func (h *Handler) writeError(w http.ResponseWriter, err error) {
 		httpx.WriteError(w, http.StatusNotFound, "integration not found")
 	case errors.Is(err, ErrNotFound):
 		httpx.WriteError(w, http.StatusNotFound, "snapshot not found")
+	case errors.Is(err, ErrSnapshotInUse):
+		httpx.WriteError(w, http.StatusConflict, err.Error())
 	default:
 		slog.Error("snapshot handler", "error", err)
 		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
