@@ -26,6 +26,7 @@ import (
 	"github.com/juancavallotti/octo/orchestrator/internal/kube"
 	"github.com/juancavallotti/octo/orchestrator/internal/kv"
 	"github.com/juancavallotti/octo/orchestrator/internal/secret"
+	"github.com/juancavallotti/octo/orchestrator/internal/snapshot"
 )
 
 const (
@@ -188,6 +189,14 @@ func newServer(ctx context.Context, database *db.DB, kc kubeConfig) (http.Handle
 		slog.Info("folder routes registered",
 			"endpoints", "POST/GET /folders, GET/PUT/DELETE /folders/{id}, "+
 				"GET /folders/{id}/integrations, PUT/DELETE /folders/{id}/integrations/{integrationId}")
+
+		// Version tags. Snapshotting needs only the database (not Kubernetes), so it
+		// is registered outside the deployment/kube gate below — tags can be created
+		// and managed even where deploys are unavailable.
+		snapshotSvc := snapshot.NewService(snapshot.NewRepo(database.Pool()), integrationSvc)
+		snapshot.NewHandler(snapshotSvc).Register(mux)
+		slog.Info("snapshot routes registered",
+			"endpoints", "POST/GET /integrations/{id}/snapshots, DELETE /snapshots/{id}")
 
 		// Deployment-scoped KV store the runtime's k8s services module calls. Values
 		// in a secret namespace are encrypted with KV_ENCRYPTION_KEY; without the key,
