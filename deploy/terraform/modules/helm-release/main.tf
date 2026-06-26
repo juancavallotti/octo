@@ -97,14 +97,17 @@ resource "helm_release" "octo" {
     }
   }
 
+  # for_each iterates over the (non-sensitive) Helm key names; the sensitive values
+  # are looked up inside content so the collection itself isn't sensitive — Terraform
+  # rejects sensitive values as for_each arguments.
   dynamic "set_sensitive" {
-    for_each = var.oidc_enabled ? {
-      "auth.oidc.clientSecret" = var.oidc_client_secret
-      "auth.secret"            = var.auth_secret
-    } : {}
+    for_each = var.oidc_enabled ? toset(["auth.oidc.clientSecret", "auth.secret"]) : toset([])
     content {
-      name  = set_sensitive.key
-      value = set_sensitive.value
+      name = set_sensitive.value
+      value = {
+        "auth.oidc.clientSecret" = var.oidc_client_secret
+        "auth.secret"            = var.auth_secret
+      }[set_sensitive.value]
     }
   }
 
@@ -112,10 +115,10 @@ resource "helm_release" "octo" {
   # leaves encryption disabled (plain KV still works). set_sensitive keeps it out of
   # plans/logs.
   dynamic "set_sensitive" {
-    for_each = var.kv_encryption_key != "" ? { "kv.encryptionKey" = var.kv_encryption_key } : {}
+    for_each = var.kv_encryption_key != "" ? toset(["kv.encryptionKey"]) : toset([])
     content {
-      name  = set_sensitive.key
-      value = set_sensitive.value
+      name  = set_sensitive.value
+      value = var.kv_encryption_key
     }
   }
 }
