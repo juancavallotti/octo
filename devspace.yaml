@@ -20,6 +20,7 @@ deployments:
         - deploy/k8s/postgres-schema-job.yaml
         - deploy/k8s/platform.yaml
         - deploy/k8s/orchestrator-rbac.yaml
+        - deploy/k8s/runtime-rbac.yaml
         - deploy/k8s/orchestrator.yaml
 
 # `devspace dev` mode (task cluster:watch): swaps the editor/orchestrator pods for

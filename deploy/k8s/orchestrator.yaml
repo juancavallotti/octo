@@ -36,6 +36,21 @@ spec:
               value: octo-dev
             - name: RUNTIME_IMAGE
               value: octo-runtime:dev
+            # Runtime-services env injected into each deployed runtime pod so its k8s
+            # services module can reach Lease-based leader election + the KV API.
+            # ORCHESTRATOR_URL being set is what enables the injection; it points at
+            # this orchestrator's in-cluster Service.
+            - name: RUNTIME_SERVICES_MODULE
+              value: k8s
+            - name: ORCHESTRATOR_URL
+              value: http://orchestrator.octo-dev:8090
+            - name: RUNTIME_SERVICE_ACCOUNT
+              value: octo-runtime
+            # Dev-only throwaway AES-256 key (base64) so KV secret namespaces work
+            # locally. The platform generates a real key via Terraform; never reuse
+            # this one outside the local k3d cluster.
+            - name: KV_ENCRYPTION_KEY
+              value: RwbauJ1U7IvkOl8IZsNCQNShHGA/sqP+TQymYAkOFQ8=
           readinessProbe:
             httpGet:
               path: /healthz
