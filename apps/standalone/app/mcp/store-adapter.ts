@@ -1,4 +1,5 @@
-import type { IntegrationStore } from "@octo/mcp";
+import type { IntegrationRecord, IntegrationStore } from "@octo/mcp";
+import { publish } from "@octo/events";
 import * as store from "../api/fs/store";
 
 /**
@@ -8,12 +9,25 @@ import * as store from "../api/fs/store";
  * name, and definition uniformly. `update` renames on disk when a new name's slug
  * differs (matching the editor's save), otherwise overwrites in place.
  */
+
+/**
+ * Announce a write on the in-process bus so an editor with this file open can
+ * live-reload it (see @octo/events). Returns the record for call-site convenience.
+ */
+function announce(rec: IntegrationRecord): IntegrationRecord {
+  publish({ type: "integration.updated", id: rec.id, name: rec.name });
+  return rec;
+}
+
 export const fsIntegrationStore: IntegrationStore = {
   list: () => store.listFlows(),
   get: (id) => store.readFlow(id),
-  create: (name, definition) => store.createFlow(name, definition),
-  update: (id, name, definition) =>
-    name === undefined
-      ? store.writeFlow(id, definition)
-      : store.updateFlow(id, name, definition),
+  create: async (name, definition) =>
+    announce(await store.createFlow(name, definition)),
+  update: async (id, name, definition) =>
+    announce(
+      name === undefined
+        ? await store.writeFlow(id, definition)
+        : await store.updateFlow(id, name, definition),
+    ),
 };

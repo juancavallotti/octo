@@ -33,8 +33,8 @@ COPY packages/mcp/package.json ./packages/mcp/
 COPY packages/run-host/package.json ./packages/run-host/
 RUN pnpm install --frozen-lockfile
 # Shared base tsconfig + workspace source (the app consumes @octo/editor,
-# @octo/http, @octo/mcp and @octo/run-host as TS source via transpilePackages),
-# then build. The standalone
+# @octo/events, @octo/http, @octo/mcp and @octo/run-host as TS source via
+# transpilePackages), then build. The standalone
 # output traces the workspace root, so the server lands at
 # apps/platform/.next/standalone/apps/platform/server.js.
 COPY tsconfig.base.json ./

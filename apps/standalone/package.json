@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@octo/editor": "workspace:*",
+    "@octo/events": "workspace:*",
     "@octo/http": "workspace:*",
     "@octo/mcp": "workspace:*",
     "@octo/run-host": "workspace:*",
