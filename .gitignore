@@ -21,3 +21,4 @@ dist/
 __debug_bin*
 *.go.test
 node_modules
+*.tsbuildinfo
