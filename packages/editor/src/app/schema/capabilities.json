@@ -648,6 +648,22 @@
           "description": "CEL expression for the value to store; empty stores the whole body."
         }
       ]
+    },
+    {
+      "type": "object-delete",
+      "label": "Object Delete",
+      "category": "processor",
+      "icon": "Trash2",
+      "description": "Delete an object from the runtime store by key.",
+      "fields": [
+        {
+          "name": "key",
+          "label": "Key",
+          "type": "cel",
+          "required": true,
+          "description": "CEL expression evaluated to the object key."
+        }
+      ]
     }
   ],
   "connectors": [

@@ -29,6 +29,7 @@ const objectWriteAttempts = 5
 func init() {
 	core.MustRegisterBlock("object-read", newObjectRead)
 	core.MustRegisterBlock("object-write", newObjectWrite)
+	core.MustRegisterBlock("object-delete", newObjectDelete)
 }
 
 // objectWriteSettings configures the object-write block.
@@ -175,6 +176,50 @@ func (p *objectRead) Process(ctx context.Context, msg *types.Message) (*types.Me
 	}
 	if setErr := msg.SetBodyJSON(entry.Value); setErr != nil {
 		return nil, fmt.Errorf("object-read %q: %w", key, setErr)
+	}
+	return msg, nil
+}
+
+// objectDeleteSettings configures the object-delete block.
+type objectDeleteSettings struct {
+	// Key is a CEL expression evaluated to the object key (required).
+	Key string `json:"key"`
+}
+
+// objectDelete removes an object from the user KV namespace by evaluated key.
+type objectDelete struct {
+	key *expr.Program
+	env map[string]any
+}
+
+//nolint:ireturn // a BlockFactory returns the MessageProcessor interface
+func newObjectDelete(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor, error) {
+	var cfg objectDeleteSettings
+	if err := raw.Decode(&cfg); err != nil {
+		return nil, err
+	}
+	if cfg.Key == "" {
+		return nil, errors.New("object-delete requires a key expression")
+	}
+	key, err := expr.Compile(cfg.Key, exprVarNames...)
+	if err != nil {
+		return nil, err
+	}
+	return &objectDelete{key: key, env: envActivation(deps.Env)}, nil
+}
+
+// Process evaluates the key and deletes the object unconditionally (version 0), so
+// the delete is idempotent: a missing key is not an error. The message passes
+// through unchanged.
+func (p *objectDelete) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
+	key, err := p.key.EvalString(messageActivation(msg, p.env))
+	if err != nil {
+		return nil, fmt.Errorf("object-delete key: %w", err)
+	}
+
+	kv := core.RuntimeServicesFromContext(ctx).KV()
+	if err := kv.Delete(ctx, core.NamespaceUser, key, 0); err != nil {
+		return nil, fmt.Errorf("object-delete %q: %w", key, err)
 	}
 	return msg, nil
 }

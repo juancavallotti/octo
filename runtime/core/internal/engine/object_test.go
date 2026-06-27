@@ -166,6 +166,51 @@ func TestObjectReadMissingKey(t *testing.T) {
 	})
 }
 
+func TestObjectDeleteRemovesKey(t *testing.T) {
+	ctx, kv := withFakeServices(context.Background())
+
+	writer, err := newObjectWrite(types.Settings{"key": `"order:" + body.id`}, core.BlockDeps{})
+	if err != nil {
+		t.Fatalf("newObjectWrite: %v", err)
+	}
+	deleter, err := newObjectDelete(types.Settings{"key": `"order:" + body.id`}, core.BlockDeps{})
+	if err != nil {
+		t.Fatalf("newObjectDelete: %v", err)
+	}
+
+	msg := mustMessage(t)
+	msg.Body = map[string]any{"id": "7"}
+	if _, err = writer.Process(ctx, msg); err != nil {
+		t.Fatalf("write Process: %v", err)
+	}
+
+	del := mustMessage(t)
+	del.Body = map[string]any{"id": "7"}
+	out, err := deleter.Process(ctx, del)
+	if err != nil {
+		t.Fatalf("delete Process: %v", err)
+	}
+	if out != del {
+		t.Error("delete should pass the message through unchanged")
+	}
+
+	if _, ok, getErr := kv.Get(ctx, core.NamespaceUser, "order:7"); getErr != nil || ok {
+		t.Errorf("Get after delete: ok=%v err=%v, want the key gone", ok, getErr)
+	}
+}
+
+func TestObjectDeleteMissingKeyIsNoop(t *testing.T) {
+	ctx, _ := withFakeServices(context.Background())
+
+	deleter, err := newObjectDelete(types.Settings{"key": `"absent"`}, core.BlockDeps{})
+	if err != nil {
+		t.Fatalf("newObjectDelete: %v", err)
+	}
+	if _, err := deleter.Process(ctx, mustMessage(t)); err != nil {
+		t.Errorf("deleting a missing key should be a no-op, got: %v", err)
+	}
+}
+
 func TestObjectWriteFailsWithoutStore(t *testing.T) {
 	// No services on the context: the noop KV rejects writes, and the block
 	// surfaces that rather than silently dropping the value.
@@ -189,6 +234,8 @@ func TestObjectBuildValidation(t *testing.T) {
 		{name: "object-write without key", factory: newObjectWrite, raw: nil},
 		{name: "object-write bad key expr", factory: newObjectWrite, raw: types.Settings{"key": "body."}},
 		{name: "object-write bad value expr", factory: newObjectWrite, raw: types.Settings{"key": `"k"`, "value": "body."}},
+		{name: "object-delete without key", factory: newObjectDelete, raw: nil},
+		{name: "object-delete bad key expr", factory: newObjectDelete, raw: types.Settings{"key": "body."}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
