@@ -7,12 +7,13 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { orchestratorAvailable } from "@/app/actions/orchestrator";
 
 /**
- * Exposes whether the orchestrator integration features are available, by
- * probing the BFF's `/api/orchestrator` route once on mount (mirroring how
- * RunContext probes `/api/run`). It is mounted high in the tree (app/layout) so
- * both the editor and the `/integrations` route share one answer.
+ * Exposes whether the orchestrator integration features are available, by calling
+ * the `orchestratorAvailable` server action once on mount. It is mounted high in
+ * the tree (app/layout) so both the editor and the `/integrations` route share one
+ * answer.
  *
  * Availability is opt-in: when `ORCHESTRATOR_URL` is unset the probe reports
  * false and the integration UI stays hidden, leaving the editor unchanged.
@@ -33,10 +34,9 @@ export function OrchestratorProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/orchestrator")
-      .then((r) => r.json() as Promise<{ available: boolean }>)
-      .then((s) => {
-        if (!cancelled) setAvailable(s.available);
+    orchestratorAvailable()
+      .then((ok) => {
+        if (!cancelled) setAvailable(ok);
       })
       .catch(() => {})
       .finally(() => {

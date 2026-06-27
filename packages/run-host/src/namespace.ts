@@ -9,8 +9,11 @@ import { randomBytes } from "node:crypto";
  * identity automatically.
  */
 
-/** Cookie name holding the run namespace slug. */
-const COOKIE = "octo_ns";
+/** Cookie name holding the run namespace slug. Exported so an app that mints the
+ * cookie from a server action (via its framework's own cookie store) stays in
+ * sync with what {@link readNamespace} and the SSE/proxy routes expect. */
+export const NAMESPACE_COOKIE = "octo_ns";
+const COOKIE = NAMESPACE_COOKIE;
 
 /** Slug alphabet/shape: lowercase alphanumerics only, so it is safe as both a
  * filesystem directory name and a URL path segment. */
@@ -18,8 +21,10 @@ const SLUG_RE = /^[a-z0-9]{8}$/;
 const ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
 
 /** Keep the namespace cookie around across reloads; idle processes are reaped
- * server-side, so the identity can outlive any single run. */
-const MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
+ * server-side, so the identity can outlive any single run. Exported alongside
+ * {@link NAMESPACE_COOKIE} for server-action cookie minting. */
+export const NAMESPACE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
+const MAX_AGE_SECONDS = NAMESPACE_MAX_AGE_SECONDS;
 
 /** isValidNamespace reports whether a slug is well-formed (used to validate a
  * namespace taken from a URL path before it reaches the session manager). */

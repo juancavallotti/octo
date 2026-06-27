@@ -31,17 +31,30 @@ export default function DeploymentsSection({
   integrationId,
   integrationName,
   snapshots,
+  onDeploymentsChange,
 }: {
   integrationId: string;
   integrationName: string;
   /** The integration's tags (owned by the parent), for the change-version menu. */
   snapshots: Snapshot[];
+  /**
+   * Notifies the parent whenever the live deployment list changes, so it can tell
+   * the Versions section which tags are deployed (and therefore undeletable).
+   */
+  onDeploymentsChange?: (deployments: Deployment[]) => void;
 }) {
   const confirm = useConfirm();
   const [deployments, setDeployments] = useState<Deployment[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+
+  // Mirror the live list up to the parent (for the Versions section's deployed-tag
+  // hint). Effect-driven so it stays in sync regardless of which path — first
+  // paint, SSE frame, or poll — last set the list.
+  useEffect(() => {
+    onDeploymentsChange?.(deployments);
+  }, [deployments, onDeploymentsChange]);
 
   // A then-chain (not an async body) so the effect's call doesn't setState
   // synchronously — same shape as IntegrationsManager's refresh.

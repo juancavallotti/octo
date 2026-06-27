@@ -15,6 +15,8 @@ import (
 type memRepo struct {
 	snapshots map[string]Snapshot
 	seq       int
+	// deployed maps a snapshot id to the environment labels referencing it.
+	deployed map[string][]string
 }
 
 func newMemRepo() *memRepo { return &memRepo{snapshots: make(map[string]Snapshot)} }
@@ -47,6 +49,12 @@ func (m *memRepo) ListByIntegration(_ context.Context, integrationID string) ([]
 		}
 	}
 	return out, nil
+}
+
+// deployed maps a snapshot id to the environment labels referencing it; an entry
+// makes DeploymentsUsingSnapshot report the snapshot as in use.
+func (m *memRepo) DeploymentsUsingSnapshot(_ context.Context, _, snapshotID string) ([]string, error) {
+	return m.deployed[snapshotID], nil
 }
 
 func (m *memRepo) Delete(_ context.Context, id string) error {

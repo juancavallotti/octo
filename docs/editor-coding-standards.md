@@ -1,8 +1,50 @@
 # Octo Editor — Coding Standards
 
-Conventions for the `editor/` module (the **Octo** Next.js visual editor). These
+Conventions for the Next.js code under `apps/` (the **Octo** visual editor and its
+hosts, `apps/platform` and `apps/standalone`) and the shared `packages/`. These
 complement the Go [coding-standards.md](coding-standards.md). Keep this in sync
-with `editor/eslint.config.mjs`, which enforces the mechanical parts.
+with each app's `eslint.config.mjs`, which enforces the mechanical parts.
+
+## Data access: server actions over API routes
+
+Use **Next.js server actions** as the default for all request/response data access
+— reads and mutations alike. Reach for an API **route handler** only when a server
+action genuinely can't serve the need:
+
+- **Streaming / SSE** — anything backing an `EventSource` (deployment event
+  streams, run log streams). Server actions can't stream.
+- **Framework / external endpoints** — NextAuth (`/api/auth/...`), inbound
+  webhooks, an MCP endpoint, or anything a third party must call by URL.
+- **Truly framework-agnostic consumers** — e.g. a reverse proxy.
+
+Everything else (CRUD, list/get, deploy/scale/rollout, secrets, run control, the
+editor's load/save via injected capabilities) is a server action.
+
+**Layering.** Keep three thin layers; never skip straight to `fetch`:
+
+```
+serverAction (auth boundary)  →  high-level typed client  →  fetch abstraction
+  listFolders()                   listFolders()  (no verbs)    @octo/http requestJson()
+```
+
+- **`@octo/http`** is the only place that touches `fetch`; it returns a discriminated
+  `ActionResult<T>` (`{ ok, data } | { ok, error }`).
+- The **high-level client** is a typed, domain-oriented lib (`listFolders()`,
+  `deleteSnapshot()`). It must **not expose HTTP verbs** to consumers — paths,
+  methods, JSON, base URLs, and secrets stay internal.
+- The **server action** is the trust boundary: it authorizes (session for reads,
+  write roles for mutations) and delegates to the client. For an **in-process**
+  backend (local disk, the in-process run host) the action calls that module
+  directly — there is no fetch layer, but the same "no HTTP verbs leak, return
+  `ActionResult`" rules apply.
+
+**Return `ActionResult`, don't throw across the boundary.** Next.js redacts thrown
+server-action error messages in production, so actions return a result and the
+caller (the browser model or an editor capability provider) unwraps it back into
+value-or-throw, preserving the real error message.
+
+**Keep the orchestrator/secret URLs server-only.** They live in the action layer
+(env vars), never in client code.
 
 ## File size
 

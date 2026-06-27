@@ -1,11 +1,12 @@
 /**
- * Browser-side client for cluster-wide secrets, talking to the editor's BFF proxy
- * routes under `/api/secrets`. Shares the request/envelope helpers with the rest of
- * the orchestrator client. Values are write-only: there is no read-value call here
- * by design — only listing names and setting/deleting.
+ * Browser-side client for cluster-wide secrets. Backed by server actions in
+ * `app/actions/secrets.ts`; these wrappers unwrap the ActionResult so callers keep
+ * a value-or-throw contract. Values are write-only: there is no read-value call
+ * here by design — only listing names and setting/deleting.
  */
 
-import { jsonBody, request } from "./bff";
+import * as secretActions from "@/app/actions/secrets";
+import { unwrap } from "./bff";
 
 /**
  * A cluster-wide secret, as the catalog exposes it. The value is write-only and
@@ -20,25 +21,22 @@ export interface ClusterSecret {
 }
 
 /** List the cluster secrets (names + timestamps; values are never returned). */
-export function listSecrets(): Promise<ClusterSecret[]> {
-  return request<ClusterSecret[]>("/api/secrets");
+export async function listSecrets(): Promise<ClusterSecret[]> {
+  return unwrap(await secretActions.listSecrets());
 }
 
 /** Create or overwrite a secret's value (write-only). */
-export function setSecret(name: string, value: string): Promise<ClusterSecret> {
-  return request<ClusterSecret>(`/api/secrets/${encodeURIComponent(name)}`, {
-    ...jsonBody({ value }),
-    method: "PUT",
-  });
+export async function setSecret(
+  name: string,
+  value: string,
+): Promise<ClusterSecret> {
+  return unwrap(await secretActions.setSecret(name, value));
 }
 
 /**
  * Delete a secret. The orchestrator refuses (409) when a deployment still
  * references it; pass force to override.
  */
-export function deleteSecret(name: string, force = false): Promise<void> {
-  return request<void>(
-    `/api/secrets/${encodeURIComponent(name)}${force ? "?force=true" : ""}`,
-    { method: "DELETE" },
-  );
+export async function deleteSecret(name: string, force = false): Promise<void> {
+  return unwrap(await secretActions.deleteSecret(name, force));
 }

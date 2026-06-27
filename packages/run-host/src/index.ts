@@ -22,5 +22,7 @@ export {
   isValidNamespace,
   readNamespace,
   newNamespace,
+  NAMESPACE_COOKIE,
+  NAMESPACE_MAX_AGE_SECONDS,
 } from "./namespace";
 export { type LogLine } from "./logbuffer";

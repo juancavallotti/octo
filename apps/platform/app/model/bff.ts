@@ -1,27 +1,17 @@
 /**
- * Browser-side helpers for the editor's BFF proxy routes under `/api`. Every
- * orchestrator client call goes through these so the orchestrator's URL stays a
- * server-only secret (see `app/api/orchestrator/client.ts`). Failures unwrap the
- * orchestrator's `{ error }` envelope.
+ * Bridges the browser-side model to the server actions: the model calls an action
+ * (which returns a discriminated {@link ActionResult}) and unwraps it here back
+ * into value-or-throw, so existing callers keep their try/catch.
  */
 
-/** Perform a JSON request against a BFF route, unwrapping the `{ error }` envelope. */
-export async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init);
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error ?? `request failed (${res.status})`);
-  }
-  // 204 No Content (delete / folder assignment) carries no body.
-  if (res.status === 204) return undefined as T;
-  return (await res.json()) as T;
-}
+import type { ActionResult } from "@/app/actions/_client";
 
-/** Build a POST RequestInit with a JSON body. */
-export function jsonBody(data: unknown): RequestInit {
-  return {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  };
+/**
+ * Turn a server action's {@link ActionResult} into a value or a thrown Error.
+ * Server actions can't throw readable errors across the boundary in production,
+ * so they return a result and the model unwraps it here.
+ */
+export function unwrap<T>(result: ActionResult<T>): T {
+  if (!result.ok) throw new Error(result.error);
+  return result.data;
 }

@@ -6,6 +6,7 @@ import { ExternalLink, Trash2 } from "lucide-react";
 import { fromDefinitionYaml } from "@octo/editor";
 import {
   listSnapshots,
+  type Deployment,
   type Integration,
   type Snapshot,
 } from "@/app/model/orchestrator";
@@ -79,6 +80,22 @@ export default function IntegrationDetail({
   useEffect(() => {
     reloadSnapshots();
   }, [reloadSnapshots]);
+
+  // Tags currently deployed (by tag string, which is unique per integration),
+  // derived from the live deployment list owned by the Deployments section. The
+  // Versions section uses this to disable delete on a deployed tag.
+  const [deployedTags, setDeployedTags] = useState<ReadonlySet<string>>(
+    new Set(),
+  );
+  const onDeploymentsChange = useCallback((deployments: Deployment[]) => {
+    setDeployedTags(
+      new Set(
+        deployments
+          .map((d) => d.tag)
+          .filter((t): t is string => Boolean(t)),
+      ),
+    );
+  }, []);
 
   // The folder path ("Parent / Child"), or "No folder" when unfiled. Moving is done
   // by drag & drop in the tree, so this is read-only.
@@ -163,6 +180,7 @@ export default function IntegrationDetail({
           <SnapshotsSection
             integrationId={integration.id}
             snapshots={snapshots}
+            deployedTags={deployedTags}
             onChanged={reloadSnapshots}
           />
         </Section>
@@ -174,6 +192,7 @@ export default function IntegrationDetail({
             integrationId={integration.id}
             integrationName={integration.name}
             snapshots={snapshots}
+            onDeploymentsChange={onDeploymentsChange}
           />
         </Section>
       </div>

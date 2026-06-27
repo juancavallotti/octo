@@ -19,10 +19,18 @@ import {
 export default function SnapshotsSection({
   integrationId,
   snapshots,
+  deployedTags,
   onChanged,
 }: {
   integrationId: string;
   snapshots: Snapshot[];
+  /**
+   * Tags currently deployed to one or more environments. Their delete button is
+   * disabled, because the orchestrator refuses to delete a deployed tag (it would
+   * leave the deployment pinned to a version that no longer exists). The backend
+   * is the authority; this is just an upfront hint.
+   */
+  deployedTags?: ReadonlySet<string>;
   onChanged: () => void;
 }) {
   const confirm = useConfirm();
@@ -95,27 +103,42 @@ export default function SnapshotsSection({
         <p className="text-sm text-zinc-400">No tags yet.</p>
       ) : (
         <ul className="space-y-1.5">
-          {snapshots.map((s) => (
-            <li
-              key={s.id}
-              className="flex items-center gap-2 rounded-md border border-black/10 px-2.5 py-1.5 text-sm dark:border-white/10"
-            >
-              <Tag size={14} className="shrink-0 text-zinc-400" />
-              <span className="min-w-0 flex-1 truncate font-medium">{s.tag}</span>
-              <span className="shrink-0 text-xs text-zinc-400">
-                {new Date(s.createdAt).toLocaleDateString()}
-              </span>
-              <button
-                type="button"
-                onClick={() => remove(s)}
-                disabled={busy}
-                aria-label={`Delete tag ${s.tag}`}
-                className="rounded p-1 text-zinc-400 transition-colors hover:bg-red-500/10 hover:text-red-500 disabled:opacity-50"
+          {snapshots.map((s) => {
+            const deployed = deployedTags?.has(s.tag) ?? false;
+            return (
+              <li
+                key={s.id}
+                className="flex items-center gap-2 rounded-md border border-black/10 px-2.5 py-1.5 text-sm dark:border-white/10"
               >
-                <Trash2 size={13} />
-              </button>
-            </li>
-          ))}
+                <Tag size={14} className="shrink-0 text-zinc-400" />
+                <span className="min-w-0 flex-1 truncate font-medium">
+                  {s.tag}
+                </span>
+                {deployed && (
+                  <span className="shrink-0 rounded bg-emerald-500/10 px-1.5 py-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                    Deployed
+                  </span>
+                )}
+                <span className="shrink-0 text-xs text-zinc-400">
+                  {new Date(s.createdAt).toLocaleDateString()}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => remove(s)}
+                  disabled={busy || deployed}
+                  aria-label={`Delete tag ${s.tag}`}
+                  title={
+                    deployed
+                      ? "Deployed — undeploy everywhere before deleting"
+                      : undefined
+                  }
+                  className="rounded p-1 text-zinc-400 transition-colors hover:bg-red-500/10 hover:text-red-500 disabled:opacity-50"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </li>
+            );
+          })}
         </ul>
       )}
     </>
