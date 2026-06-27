@@ -1,7 +1,8 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { EditorRoot } from "@octo/editor";
+import { subscribeIntegrationEvents } from "@octo/events";
 import { useOrchestrator } from "@/app/run/OrchestratorContext";
 import { orchestratorFileSystem } from "@/app/providers/orchestratorFileSystem";
 import { bffRunTransport } from "@/app/run/transport";
@@ -27,9 +28,20 @@ export default function PlatformEditor({
   // (the first save mints it). TagButton reads it through getIntegrationId so it
   // never tags against a stale id captured before the save resolved.
   const idRef = useRef<string | null>(integrationId ?? null);
+  // Bumped when the MCP server writes the file we currently have open, so the
+  // editor live-reloads it (a clean editor silently, a dirty one via a banner).
+  const [reloadToken, setReloadToken] = useState(0);
+  useEffect(
+    () =>
+      subscribeIntegrationEvents((event) => {
+        if (event.id === idRef.current) setReloadToken((n) => n + 1);
+      }),
+    [],
+  );
   return (
     <EditorRoot
       integrationId={integrationId}
+      reloadToken={reloadToken}
       header={
         <EditorHeader
           userMenu={userMenu}

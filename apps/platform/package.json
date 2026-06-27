@@ -16,6 +16,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@eetr/react-reducer-utils": "0.1.1",
     "@octo/editor": "workspace:*",
+    "@octo/events": "workspace:*",
     "@octo/http": "workspace:*",
     "@octo/mcp": "workspace:*",
     "@octo/run-host": "workspace:*",

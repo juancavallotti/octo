@@ -25,6 +25,9 @@ importers:
       '@octo/editor':
         specifier: workspace:*
         version: link:../../packages/editor
+      '@octo/events':
+        specifier: workspace:*
+        version: link:../../packages/events
       '@octo/http':
         specifier: workspace:*
         version: link:../../packages/http

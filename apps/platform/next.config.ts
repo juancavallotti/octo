@@ -13,6 +13,7 @@ const nextConfig: NextConfig = {
   // Workspace packages ship as untranspiled TS source; let Next compile them.
   transpilePackages: [
     "@octo/editor",
+    "@octo/events",
     "@octo/http",
     "@octo/mcp",
     "@octo/run-host",
