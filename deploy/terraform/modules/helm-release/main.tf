@@ -115,7 +115,7 @@ resource "helm_release" "octo" {
   # leaves encryption disabled (plain KV still works). set_sensitive keeps it out of
   # plans/logs.
   dynamic "set_sensitive" {
-    for_each = var.kv_encryption_key != "" ? toset(["kv.encryptionKey"]) : toset([])
+    for_each = nonsensitive(var.kv_encryption_key != "") ? toset(["kv.encryptionKey"]) : toset([])
     content {
       name  = set_sensitive.value
       value = var.kv_encryption_key
