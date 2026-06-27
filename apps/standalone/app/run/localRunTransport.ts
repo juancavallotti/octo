@@ -1,47 +1,29 @@
 /**
- * The standalone transport: talks to this app's local `/api/run` routes (backed
- * by @octo/run-host, which spawns the bundled `octo` binary) and streams logs
- * over SSE. Same wire shape as the platform transport — only the backend differs.
+ * The standalone transport: drives the RUN server actions (`app/actions/run.ts`,
+ * backed by @octo/run-host spawning the bundled `octo` binary) and streams logs
+ * over SSE. The log stream stays an EventSource — server actions can't back
+ * streaming — pointed at the surviving `/api/run/logs` route.
  */
 
 import type { RunStatusSnapshot, RunTransport } from "@octo/editor";
-
-interface RunStatusResponse {
-  available: boolean;
-  running: boolean;
-  version: string | null;
-  testPath: string | null;
-}
+import { runStart, runStatus, runStop, runSync } from "../actions/run";
+import { unwrap } from "../actions/result";
 
 export const localRunTransport: RunTransport = {
   async status(): Promise<RunStatusSnapshot> {
-    const r = await fetch("/api/run");
-    return (await r.json()) as RunStatusResponse;
+    return unwrap(await runStatus());
   },
 
   async start({ yaml, devEnv }): Promise<RunStatusSnapshot> {
-    const res = await fetch("/api/run/start", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ yaml, devEnv }),
-    });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      throw new Error(body.error ?? `start failed (${res.status})`);
-    }
-    return body as RunStatusResponse;
+    return unwrap(await runStart(yaml, devEnv));
   },
 
   async stop() {
-    await fetch("/api/run/stop", { method: "POST" });
+    unwrap(await runStop());
   },
 
   async sync({ yaml }) {
-    await fetch("/api/run/sync", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ yaml }),
-    });
+    unwrap(await runSync(yaml));
   },
 
   subscribeLogs(onLine) {
