@@ -32,6 +32,7 @@ import LogPanel from "./LogPanel";
  */
 export default function EditorRoot({
   integrationId,
+  reloadToken,
   loader,
   header,
   fs,
@@ -39,6 +40,12 @@ export default function EditorRoot({
   onSaved,
 }: {
   integrationId?: string;
+  /**
+   * Bumped by the host to request a live reload of the open file after an
+   * external write (see @octo/events); a clean editor reloads silently, a dirty
+   * one shows a reload banner. Omit when the host has no event stream.
+   */
+  reloadToken?: string | number;
   loader?: React.ReactNode;
   /** App-owned top bar; composes editor controls (e.g. via PlatformEditor). */
   header?: React.ReactNode;
@@ -51,10 +58,15 @@ export default function EditorRoot({
 }) {
   let tree = (
     <>
-      <IntegrationLoader integrationId={integrationId} />
       {loader}
       <div className="flex flex-1 flex-col h-full">
         {header}
+        {/* The loader lives under the header so its external-write reload banner
+            appears between the top bar and the canvas. */}
+        <IntegrationLoader
+          integrationId={integrationId}
+          reloadToken={reloadToken}
+        />
 
         {/* Body: sidebar + canvas (one drag-and-drop session) above the logs */}
         <div className="flex flex-1 min-h-0 flex-col">
