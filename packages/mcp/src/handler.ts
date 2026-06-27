@@ -51,7 +51,7 @@ export function createOctoMcpHandler(
       registerRunTools(server, config, runHost, resolveNamespace);
       registerRuntimeSchemaResource(server, config);
       registerExampleResources(server);
-      registerPrompts(server);
+      registerPrompts(server, config);
     },
     {
       capabilities: {

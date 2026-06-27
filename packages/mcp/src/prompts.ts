@@ -1,13 +1,15 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { OctoMcpConfig } from "./backend";
 import { EXAMPLES_INDEX_URI, RUNTIME_SCHEMA_URI } from "./resource";
 
 /**
  * Authoring guidance surfaced as an MCP prompt. `create-integration` walks a
  * consumer LLM through building and testing an integration end to end, pointing it
- * at the runtime-schema and worked-example resources rather than guessing syntax.
+ * at the runtime-schema and worked-example resources (and the human docs, when the
+ * host configures `docsUrl`) rather than guessing syntax.
  */
-export function registerPrompts(server: McpServer): void {
+export function registerPrompts(server: McpServer, config: OctoMcpConfig): void {
   server.registerPrompt(
     "create-integration",
     {
@@ -25,16 +27,22 @@ export function registerPrompts(server: McpServer): void {
       messages: [
         {
           role: "user",
-          content: { type: "text", text: createIntegrationGuide(goal) },
+          content: {
+            type: "text",
+            text: createIntegrationGuide(goal, config.docsUrl),
+          },
         },
       ],
     }),
   );
 }
 
-function createIntegrationGuide(goal?: string): string {
+function createIntegrationGuide(goal?: string, docsUrl?: string): string {
   const objective = goal?.trim()
     ? `Your objective: ${goal.trim()}\n\n`
+    : "";
+  const docs = docsUrl?.trim()
+    ? `\n\nReference documentation: ${docsUrl.trim()} — CEL expression syntax, the full block & connector reference, and connector configuration. Consult it when the runtime schema or examples don't make a field's meaning clear.`
     : "";
   return `You are authoring an Octo integration through this MCP server. An integration is a runtime-YAML document with these top-level keys:
 
@@ -57,5 +65,5 @@ ${objective}Follow this loop:
 Tips:
 - To make an integration testable over HTTP, add an \`http\` connector and declare HTTP_PORT in \`env\`; use that connector as a flow's source.
 - Keep \`service.name\` stable; renaming may change the integration's id.
-- CEL expressions (e.g. log messages, payloads) can read body, vars, eventID, and correlationID.`;
+- CEL expressions (e.g. log messages, payloads) can read body, vars, eventID, and correlationID.${docs}`;
 }

@@ -28,7 +28,14 @@ function validate(definition: string): { valid: boolean; errors: string[] } {
 }
 
 const handler = createOctoMcpHandler(
-  { store: fsIntegrationStore, validate, runtimeSchema: CAPABILITIES },
+  {
+    store: fsIntegrationStore,
+    validate,
+    runtimeSchema: CAPABILITIES,
+    // Point the authoring prompt at the human docs (CEL, block reference) when
+    // configured. Set OCTO_DOCS_URL to your documentation site.
+    docsUrl: process.env.OCTO_DOCS_URL,
+  },
   { basePath: "" }, // route lives at /mcp, so the streamable endpoint is /mcp
 );
 

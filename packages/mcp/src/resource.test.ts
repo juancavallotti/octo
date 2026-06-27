@@ -29,7 +29,7 @@ async function connect(runtimeSchema: unknown): Promise<Client> {
   const server = new McpServer({ name: "octo-test", version: "0.0.0" });
   registerRuntimeSchemaResource(server, config);
   registerExampleResources(server);
-  registerPrompts(server);
+  registerPrompts(server, config);
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "test-client", version: "0.0.0" });
   await Promise.all([server.connect(serverT), client.connect(clientT)]);
@@ -100,4 +100,32 @@ describe("prompts", () => {
     expect(text).toContain(RUNTIME_SCHEMA_URI);
     expect(text).toContain(EXAMPLES_INDEX_URI);
   });
+
+  it("includes the docs URL only when the host configures one", async () => {
+    const withoutDocs = await getGuide({});
+    expect(withoutDocs).not.toContain("Reference documentation");
+
+    const withDocs = await getGuide({ docsUrl: "https://docs.example.dev" });
+    expect(withDocs).toContain("Reference documentation: https://docs.example.dev");
+  });
 });
+
+/** Render the create-integration guide for a config (docsUrl etc.). */
+async function getGuide(over: Partial<OctoMcpConfig>): Promise<string> {
+  const config: OctoMcpConfig = {
+    store: noopStore,
+    validate: () => ({ valid: true, errors: [] }),
+    runtimeSchema: {},
+    ...over,
+  };
+  const server = new McpServer({ name: "octo-test", version: "0.0.0" });
+  registerPrompts(server, config);
+  const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "test-client", version: "0.0.0" });
+  await Promise.all([server.connect(serverT), client.connect(clientT)]);
+  const res = await client.getPrompt({
+    name: "create-integration",
+    arguments: {},
+  });
+  return (res.messages[0].content as { text: string }).text;
+}

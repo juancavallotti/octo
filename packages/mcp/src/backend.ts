@@ -58,4 +58,10 @@ export interface OctoMcpConfig {
    * returned and the consumer joins it with the app origin itself.
    */
   baseUrl?: string;
+  /**
+   * Base URL of the human documentation (CEL expression syntax, the block and
+   * connector reference, connector configuration). When set, the
+   * `create-integration` prompt points the LLM at it. Omit to leave it out.
+   */
+  docsUrl?: string;
 }
