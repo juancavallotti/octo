@@ -1,52 +1,28 @@
 /**
- * The standalone FileSystemCapability: load/save flows against this app's local
- * `/api/fs` routes, which read and write `*.yaml` files in a local directory.
- * Flat storage, so no folder capability — the editor's folder UI stays hidden.
+ * The standalone FileSystemCapability: load/save flows via server actions that
+ * read and write `*.yaml` files in a local directory. Flat storage, so no folder
+ * capability — the editor's folder UI stays hidden.
  */
 
-import type {
-  FileSystemCapability,
-  StoredDocument,
-} from "@octo/editor";
-
-async function json<T>(res: Response): Promise<T> {
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error((body as { error?: string }).error ?? res.statusText);
-  }
-  return body as T;
-}
+import type { FileSystemCapability, StoredDocument } from "@octo/editor";
+import { createFlow, listFlows, loadFlow, saveFlow } from "../actions/fs";
+import { unwrap } from "../actions/result";
 
 export const localDiskFileSystem: FileSystemCapability = {
   async load(id) {
-    const res = await fetch(`/api/fs/file?path=${encodeURIComponent(id)}`);
-    return json<StoredDocument>(res);
+    return unwrap(await loadFlow(id));
   },
 
   async save(id, input) {
-    if (id) {
-      // Send the name too: the store renames the file when its slug changes, so
-      // the response may carry a new id (the editor adopts it).
-      const res = await fetch(`/api/fs/file?path=${encodeURIComponent(id)}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: input.name,
-          definition: input.definition,
-        }),
-      });
-      return json<StoredDocument>(res);
-    }
-    const res = await fetch("/api/fs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: input.name, definition: input.definition }),
-    });
-    return json<StoredDocument>(res);
+    // With an id the store may rename the file when the slug changes, so the
+    // result can carry a new id (the editor adopts it); without one we create.
+    return id
+      ? unwrap(await saveFlow(id, input.name, input.definition))
+      : unwrap(await createFlow(input.name, input.definition));
   },
 
   async list() {
-    const res = await fetch("/api/fs");
-    return json<StoredDocument[]>(res);
+    // The list carries id + name only (no definition); the editor uses just those.
+    return unwrap(await listFlows()) as unknown as StoredDocument[];
   },
 };

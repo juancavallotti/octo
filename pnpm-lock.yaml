@@ -101,6 +101,9 @@ importers:
       '@octo/editor':
         specifier: workspace:*
         version: link:../../packages/editor
+      '@octo/http':
+        specifier: workspace:*
+        version: link:../../packages/http
       '@octo/run-host':
         specifier: workspace:*
         version: link:../../packages/run-host
