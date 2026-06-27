@@ -5,10 +5,11 @@
  * `{ error }` envelope on failure, the same convention RunContext uses.
  */
 
+import * as deploymentActions from "@/app/actions/deployments";
 import * as folderActions from "@/app/actions/folders";
 import * as integrationActions from "@/app/actions/integrations";
 import * as snapshotActions from "@/app/actions/snapshots";
-import { jsonBody, request, unwrap } from "./bff";
+import { unwrap } from "./bff";
 
 /** A stored integration: a named flow definition (YAML) plus bookkeeping. */
 export interface Integration {
@@ -165,12 +166,14 @@ export async function deleteIntegration(id: string): Promise<void> {
 }
 
 // --- Deployments ----------------------------------------------------------
+// Backed by server actions in `app/actions/deployments.ts`. The live event stream
+// stays an SSE route (DeploymentsSection subscribes via EventSource).
 
 /** List the deployments of an integration (status refreshed server-side on read). */
-export function listDeployments(integrationId: string): Promise<Deployment[]> {
-  return request<Deployment[]>(
-    `/api/integrations/${encodeURIComponent(integrationId)}/deployments`,
-  );
+export async function listDeployments(
+  integrationId: string,
+): Promise<Deployment[]> {
+  return unwrap(await deploymentActions.listDeployments(integrationId));
 }
 
 /**
@@ -178,60 +181,40 @@ export function listDeployments(integrationId: string): Promise<Deployment[]> {
  * integration is networked plus a suggested free slug; with a `slug` it validates
  * that candidate for the given exposure (external also checks the subdomain).
  */
-export function getDeployOptions(
+export async function getDeployOptions(
   integrationId: string,
   opts: { slug?: string; expose?: "external"; snapshotId?: string } = {},
 ): Promise<DeployOptions> {
-  const qs = new URLSearchParams();
-  if (opts.slug) qs.set("slug", opts.slug);
-  if (opts.expose) qs.set("expose", opts.expose);
-  if (opts.snapshotId) qs.set("snapshotId", opts.snapshotId);
-  const query = qs.toString();
-  return request<DeployOptions>(
-    `/api/integrations/${encodeURIComponent(integrationId)}/deployments/options${
-      query ? `?${query}` : ""
-    }`,
-  );
+  return unwrap(await deploymentActions.getDeployOptions(integrationId, opts));
 }
 
 /** Deploy an integration as a new workload, optionally exposed externally. */
-export function createDeployment(
+export async function createDeployment(
   integrationId: string,
   input: DeploymentInput = {},
 ): Promise<Deployment> {
-  return request<Deployment>(
-    `/api/integrations/${encodeURIComponent(integrationId)}/deployments`,
-    jsonBody(input),
-  );
+  return unwrap(await deploymentActions.createDeployment(integrationId, input));
 }
 
 /** Roll a live deployment over to a different version tag (rolling update). */
-export function rolloutDeployment(
+export async function rolloutDeployment(
   id: string,
   snapshotId: string,
 ): Promise<Deployment> {
-  return request<Deployment>(
-    `/api/deployments/${encodeURIComponent(id)}/rollout`,
-    { ...jsonBody({ snapshotId }), method: "POST" },
-  );
+  return unwrap(await deploymentActions.rolloutDeployment(id, snapshotId));
 }
 
 /** Scale an existing deployment to a new desired replica count. */
-export function scaleDeployment(
+export async function scaleDeployment(
   id: string,
   replicas: number,
 ): Promise<Deployment> {
-  return request<Deployment>(`/api/deployments/${encodeURIComponent(id)}`, {
-    ...jsonBody({ replicas }),
-    method: "PATCH",
-  });
+  return unwrap(await deploymentActions.scaleDeployment(id, replicas));
 }
 
 /** Undeploy a deployment, removing its workload. */
-export function deleteDeployment(id: string): Promise<void> {
-  return request<void>(`/api/deployments/${encodeURIComponent(id)}`, {
-    method: "DELETE",
-  });
+export async function deleteDeployment(id: string): Promise<void> {
+  return unwrap(await deploymentActions.deleteDeployment(id));
 }
 
 // --- Folders --------------------------------------------------------------

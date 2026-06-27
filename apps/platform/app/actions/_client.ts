@@ -15,6 +15,9 @@
 
 import { requestJson, type ActionResult } from "@octo/http";
 import type {
+  Deployment,
+  DeploymentInput,
+  DeployOptions,
   Folder,
   Integration,
   IntegrationInput,
@@ -165,4 +168,63 @@ export function createSnapshot(
 
 export function deleteSnapshot(id: string): Promise<ActionResult<void>> {
   return call<void>("DELETE", `/snapshots/${enc(id)}`);
+}
+
+// --- Deployments ----------------------------------------------------------
+
+export function listDeployments(
+  integrationId: string,
+): Promise<ActionResult<Deployment[]>> {
+  return call<Deployment[]>(
+    "GET",
+    `/integrations/${enc(integrationId)}/deployments`,
+  );
+}
+
+export function getDeployOptions(
+  integrationId: string,
+  opts: { slug?: string; expose?: "external"; snapshotId?: string } = {},
+): Promise<ActionResult<DeployOptions>> {
+  const qs = new URLSearchParams();
+  if (opts.slug) qs.set("slug", opts.slug);
+  if (opts.expose) qs.set("expose", opts.expose);
+  if (opts.snapshotId) qs.set("snapshotId", opts.snapshotId);
+  const query = qs.toString();
+  return call<DeployOptions>(
+    "GET",
+    `/integrations/${enc(integrationId)}/deployments/options${
+      query ? `?${query}` : ""
+    }`,
+  );
+}
+
+export function createDeployment(
+  integrationId: string,
+  input: DeploymentInput,
+): Promise<ActionResult<Deployment>> {
+  return call<Deployment>(
+    "POST",
+    `/integrations/${enc(integrationId)}/deployments`,
+    input,
+  );
+}
+
+export function rolloutDeployment(
+  id: string,
+  snapshotId: string,
+): Promise<ActionResult<Deployment>> {
+  return call<Deployment>("POST", `/deployments/${enc(id)}/rollout`, {
+    snapshotId,
+  });
+}
+
+export function scaleDeployment(
+  id: string,
+  replicas: number,
+): Promise<ActionResult<Deployment>> {
+  return call<Deployment>("PATCH", `/deployments/${enc(id)}`, { replicas });
+}
+
+export function deleteDeployment(id: string): Promise<ActionResult<void>> {
+  return call<void>("DELETE", `/deployments/${enc(id)}`);
 }
