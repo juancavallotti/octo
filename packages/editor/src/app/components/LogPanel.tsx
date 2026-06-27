@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, ChevronUp, Trash2 } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Copy, Trash2 } from "lucide-react";
 import { useRun, type RunLogLine } from "../run/RunContext";
 import DevEnvPanel from "./DevEnvPanel";
 
@@ -29,6 +29,12 @@ export default function LogPanel() {
   // the user overrides it with the toggle. Derived rather than synced in an
   // effect so a run starting auto-expands the panel without a state write.
   const [override, setOverride] = useState<boolean | null>(null);
+  // Brief "copied" confirmation on the test-URL copy button.
+  const [copied, setCopied] = useState(false);
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (copiedTimer.current) clearTimeout(copiedTimer.current);
+  }, []);
   // Safe reads so all hooks run unconditionally even with no run capability.
   const running = run?.running ?? false;
   const logs = run?.logs ?? NO_LOGS;
@@ -135,16 +141,38 @@ export default function LogPanel() {
           </span>
         )}
         {tab === "logs" && running && testUrl && (
-          <a
-            href={testUrl}
-            target="_blank"
-            rel="noreferrer"
-            onClick={(e) => e.stopPropagation()}
-            title="Open your running integration"
-            className="truncate text-xs text-sky-600 hover:underline dark:text-sky-400"
-          >
-            🔗 {testUrl}
-          </a>
+          <>
+            <a
+              href={testUrl}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              title="Open your running integration"
+              className="truncate text-xs text-sky-600 hover:underline dark:text-sky-400"
+            >
+              🔗 {testUrl}
+            </a>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                navigator.clipboard.writeText(testUrl).then(() => {
+                  setCopied(true);
+                  if (copiedTimer.current) clearTimeout(copiedTimer.current);
+                  copiedTimer.current = setTimeout(() => setCopied(false), 1500);
+                });
+              }}
+              aria-label="Copy test URL"
+              title={copied ? "Copied!" : "Copy test URL"}
+              className="rounded p-1 text-zinc-500 hover:bg-black/5 dark:hover:bg-white/10"
+            >
+              {copied ? (
+                <Check className="h-3.5 w-3.5 text-emerald-500" />
+              ) : (
+                <Copy className="h-3.5 w-3.5" />
+              )}
+            </button>
+          </>
         )}
         <div className="ml-auto flex items-center gap-1">
           {tab === "logs" && (
