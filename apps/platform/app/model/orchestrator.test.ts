@@ -1,4 +1,13 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+
+// The model now delegates to server actions, which authorize via the auth guard
+// (`@/auth`). next-auth can't load in the vitest environment, so stub the guard's
+// dependency: auth disabled → every action authorizes with the local session.
+vi.mock("@/auth", () => ({
+  authEnabled: false,
+  auth: async () => null,
+}));
+
 import {
   assignIntegration,
   createIntegration,
@@ -24,16 +33,26 @@ function stubFetch(res: {
   return fn;
 }
 
+// Integration/folder actions call the orchestrator directly at ORCHESTRATOR_URL;
+// secrets still go through the BFF `/api/secrets` routes (not yet migrated).
+const ORCH = "http://orchestrator.test";
+
+beforeAll(() => {
+  process.env.ORCHESTRATOR_URL = ORCH;
+});
+
 describe("orchestrator client", () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("lists integrations from the BFF route", async () => {
+  it("lists integrations from the orchestrator", async () => {
     const fetchFn = stubFetch({ body: [{ id: "1", name: "a" }] });
     const out = await listIntegrations();
     expect(out).toEqual([{ id: "1", name: "a" }]);
-    expect(fetchFn).toHaveBeenCalledWith("/api/integrations", undefined);
+    expect(fetchFn).toHaveBeenCalledWith(`${ORCH}/integrations`, {
+      method: "GET",
+    });
   });
 
   it("posts a JSON body when creating", async () => {
@@ -41,7 +60,7 @@ describe("orchestrator client", () => {
     await createIntegration({ name: "n", definition: "yaml" });
     const [url, init] = (fetchFn as unknown as ReturnType<typeof vi.fn>).mock
       .calls[0];
-    expect(url).toBe("/api/integrations");
+    expect(url).toBe(`${ORCH}/integrations`);
     expect(init).toMatchObject({
       method: "POST",
       body: JSON.stringify({ name: "n", definition: "yaml" }),
@@ -53,7 +72,7 @@ describe("orchestrator client", () => {
     await updateIntegration("a/b", { name: "n", definition: "y" });
     const [url, init] = (fetchFn as unknown as ReturnType<typeof vi.fn>).mock
       .calls[0];
-    expect(url).toBe("/api/integrations/a%2Fb");
+    expect(url).toBe(`${ORCH}/integrations/a%2Fb`);
     expect(init).toMatchObject({ method: "PUT" });
   });
 
@@ -66,10 +85,17 @@ describe("orchestrator client", () => {
     const fetchFn = stubFetch({ status: 204 });
     await assignIntegration("f1", "i1");
     expect(fetchFn).toHaveBeenCalledWith(
-      "/api/folders/f1/integrations/i1",
+      `${ORCH}/folders/f1/integrations/i1`,
       expect.objectContaining({ method: "PUT" }),
     );
   });
+
+  it("unwraps the { error } envelope on failure", async () => {
+    stubFetch({ ok: false, status: 400, body: { error: "bad name" } });
+    await expect(listFolders()).rejects.toThrow("bad name");
+  });
+
+  // --- Secrets (still via the BFF /api/secrets routes) ---------------------
 
   it("lists secrets from the BFF route", async () => {
     const fetchFn = stubFetch({ body: [{ name: "API_KEY" }] });
@@ -106,10 +132,5 @@ describe("orchestrator client", () => {
       "/api/secrets/API_KEY",
       expect.objectContaining({ method: "DELETE" }),
     );
-  });
-
-  it("unwraps the { error } envelope on failure", async () => {
-    stubFetch({ ok: false, status: 400, body: { error: "bad name" } });
-    await expect(listFolders()).rejects.toThrow("bad name");
   });
 });

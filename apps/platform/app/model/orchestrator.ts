@@ -5,7 +5,10 @@
  * `{ error }` envelope on failure, the same convention RunContext uses.
  */
 
-import { jsonBody, request } from "./bff";
+import * as folderActions from "@/app/actions/folders";
+import * as integrationActions from "@/app/actions/integrations";
+import * as snapshotActions from "@/app/actions/snapshots";
+import { jsonBody, request, unwrap } from "./bff";
 
 /** A stored integration: a named flow definition (YAML) plus bookkeeping. */
 export interface Integration {
@@ -133,35 +136,32 @@ export interface DeployOptions {
 }
 
 // --- Integrations ---------------------------------------------------------
+// Backed by server actions in `app/actions/integrations.ts`; these wrappers unwrap
+// the ActionResult so callers keep a value-or-throw contract.
 
-export function listIntegrations(): Promise<Integration[]> {
-  return request<Integration[]>("/api/integrations");
+export async function listIntegrations(): Promise<Integration[]> {
+  return unwrap(await integrationActions.listIntegrations());
 }
 
-export function getIntegration(id: string): Promise<Integration> {
-  return request<Integration>(`/api/integrations/${encodeURIComponent(id)}`);
+export async function getIntegration(id: string): Promise<Integration> {
+  return unwrap(await integrationActions.getIntegration(id));
 }
 
-export function createIntegration(
+export async function createIntegration(
   input: IntegrationInput,
 ): Promise<Integration> {
-  return request<Integration>("/api/integrations", jsonBody(input));
+  return unwrap(await integrationActions.createIntegration(input));
 }
 
-export function updateIntegration(
+export async function updateIntegration(
   id: string,
   input: IntegrationInput,
 ): Promise<Integration> {
-  return request<Integration>(`/api/integrations/${encodeURIComponent(id)}`, {
-    ...jsonBody(input),
-    method: "PUT",
-  });
+  return unwrap(await integrationActions.updateIntegration(id, input));
 }
 
-export function deleteIntegration(id: string): Promise<void> {
-  return request<void>(`/api/integrations/${encodeURIComponent(id)}`, {
-    method: "DELETE",
-  });
+export async function deleteIntegration(id: string): Promise<void> {
+  return unwrap(await integrationActions.deleteIntegration(id));
 }
 
 // --- Deployments ----------------------------------------------------------
@@ -235,112 +235,95 @@ export function deleteDeployment(id: string): Promise<void> {
 }
 
 // --- Folders --------------------------------------------------------------
+// Backed by server actions in `app/actions/folders.ts`; these wrappers unwrap the
+// ActionResult so callers keep a value-or-throw contract.
 
-export function listFolders(): Promise<Folder[]> {
-  return request<Folder[]>("/api/folders");
+export async function listFolders(): Promise<Folder[]> {
+  return unwrap(await folderActions.listFolders());
 }
 
-export function createFolder(
+export async function createFolder(
   name: string,
   parentId: string | null = null,
 ): Promise<Folder> {
-  return request<Folder>("/api/folders", jsonBody({ name, parentId }));
+  return unwrap(await folderActions.createFolder(name, parentId));
 }
 
-export function renameFolder(
+export async function renameFolder(
   id: string,
   name: string,
   parentId: string | null,
 ): Promise<Folder> {
-  return request<Folder>(`/api/folders/${encodeURIComponent(id)}`, {
-    ...jsonBody({ name, parentId }),
-    method: "PUT",
-  });
+  return unwrap(await folderActions.renameFolder(id, name, parentId));
 }
 
-export function deleteFolder(id: string): Promise<void> {
-  return request<void>(`/api/folders/${encodeURIComponent(id)}`, {
-    method: "DELETE",
-  });
+export async function deleteFolder(id: string): Promise<void> {
+  return unwrap(await folderActions.deleteFolder(id));
 }
 
 /** Persist the order of the folders under a parent (null for the root level). */
-export function reorderFolders(
+export async function reorderFolders(
   parentId: string | null,
   folderIds: string[],
 ): Promise<void> {
-  return request<void>("/api/folders/reorder", {
-    ...jsonBody({ parentId, folderIds }),
-    method: "PUT",
-  });
+  return unwrap(await folderActions.reorderFolders(parentId, folderIds));
 }
 
-export function listFolderIntegrations(
+export async function listFolderIntegrations(
   folderId: string,
 ): Promise<Integration[]> {
-  return request<Integration[]>(
-    `/api/folders/${encodeURIComponent(folderId)}/integrations`,
-  );
+  return unwrap(await folderActions.listFolderIntegrations(folderId));
 }
 
 /** Add an integration to a folder (single-membership: replaces any prior folder). */
-export function assignIntegration(
+export async function assignIntegration(
   folderId: string,
   integrationId: string,
 ): Promise<void> {
-  return request<void>(
-    `/api/folders/${encodeURIComponent(folderId)}/integrations/${encodeURIComponent(integrationId)}`,
-    { method: "PUT" },
-  );
+  return unwrap(await folderActions.assignIntegration(folderId, integrationId));
 }
 
 /** Remove an integration from a folder. */
-export function unassignIntegration(
+export async function unassignIntegration(
   folderId: string,
   integrationId: string,
 ): Promise<void> {
-  return request<void>(
-    `/api/folders/${encodeURIComponent(folderId)}/integrations/${encodeURIComponent(integrationId)}`,
-    { method: "DELETE" },
+  return unwrap(
+    await folderActions.unassignIntegration(folderId, integrationId),
   );
 }
 
 /** Persist the manual order of a folder's integrations (full list, in order). */
-export function reorderFolderIntegrations(
+export async function reorderFolderIntegrations(
   folderId: string,
   integrationIds: string[],
 ): Promise<void> {
-  return request<void>(
-    `/api/folders/${encodeURIComponent(folderId)}/integration-order`,
-    { ...jsonBody({ integrationIds }), method: "PUT" },
+  return unwrap(
+    await folderActions.reorderFolderIntegrations(folderId, integrationIds),
   );
 }
 
 // --- Snapshots (version tags) ---------------------------------------------
+// Backed by server actions in `app/actions/snapshots.ts`.
 
 /** List an integration's version tags, newest first. */
-export function listSnapshots(integrationId: string): Promise<Snapshot[]> {
-  return request<Snapshot[]>(
-    `/api/integrations/${encodeURIComponent(integrationId)}/snapshots`,
-  );
+export async function listSnapshots(
+  integrationId: string,
+): Promise<Snapshot[]> {
+  return unwrap(await snapshotActions.listSnapshots(integrationId));
 }
 
 /** Freeze the integration's current definition under a new tag. */
-export function createSnapshot(
+export async function createSnapshot(
   integrationId: string,
   tag: string,
 ): Promise<Snapshot> {
-  return request<Snapshot>(
-    `/api/integrations/${encodeURIComponent(integrationId)}/snapshots`,
-    jsonBody({ tag }),
-  );
+  return unwrap(await snapshotActions.createSnapshot(integrationId, tag));
 }
 
-/** Delete a version tag. */
-export function deleteSnapshot(id: string): Promise<void> {
-  return request<void>(`/api/snapshots/${encodeURIComponent(id)}`, {
-    method: "DELETE",
-  });
+/** Delete a version tag (refused by the orchestrator if currently deployed). */
+export async function deleteSnapshot(id: string): Promise<void> {
+  return unwrap(await snapshotActions.deleteSnapshot(id));
 }
 
 /** Collect every folder id in the tree, depth-first. */
