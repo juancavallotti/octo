@@ -5,7 +5,10 @@ import type { RunHostPort } from "./run-host";
 import { createNamespaceResolver } from "./namespace";
 import { registerIntegrationTools } from "./tools/integration";
 import { registerRunTools } from "./tools/run";
-import { registerRuntimeSchemaResource } from "./resource";
+import {
+  registerExampleResources,
+  registerRuntimeSchemaResource,
+} from "./resource";
 import { registerPrompts } from "./prompts";
 
 /** Knobs for the MCP route handler beyond the backend {@link OctoMcpConfig}. */
@@ -47,6 +50,7 @@ export function createOctoMcpHandler(
       registerIntegrationTools(server, config);
       registerRunTools(server, config, runHost, resolveNamespace);
       registerRuntimeSchemaResource(server, config);
+      registerExampleResources(server);
       registerPrompts(server);
     },
     {

@@ -2,8 +2,15 @@ import { describe, expect, it } from "vitest";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { registerRuntimeSchemaResource, RUNTIME_SCHEMA_URI } from "./resource";
+import {
+  EXAMPLES_INDEX_URI,
+  exampleUri,
+  registerExampleResources,
+  registerRuntimeSchemaResource,
+  RUNTIME_SCHEMA_URI,
+} from "./resource";
 import { registerPrompts } from "./prompts";
+import { EXAMPLES } from "./examples";
 import type { OctoMcpConfig } from "./backend";
 
 const noopStore: OctoMcpConfig["store"] = {
@@ -21,11 +28,16 @@ async function connect(runtimeSchema: unknown): Promise<Client> {
   };
   const server = new McpServer({ name: "octo-test", version: "0.0.0" });
   registerRuntimeSchemaResource(server, config);
+  registerExampleResources(server);
   registerPrompts(server);
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "test-client", version: "0.0.0" });
   await Promise.all([server.connect(serverT), client.connect(clientT)]);
   return client;
+}
+
+function textOf(read: { contents: unknown[] }): string {
+  return (read.contents[0] as { text: string }).text;
 }
 
 describe("runtime schema resource", () => {
@@ -41,16 +53,42 @@ describe("runtime schema resource", () => {
   });
 });
 
-describe("prompts", () => {
-  it("exposes create-integration and integration-examples", async () => {
+describe("example resources", () => {
+  it("lists an index plus one resource per example", async () => {
     const client = await connect({});
-    const names = (await client.listPrompts()).prompts.map((p) => p.name);
-    expect(names).toEqual(
-      expect.arrayContaining(["create-integration", "integration-examples"]),
-    );
+    const uris = (await client.listResources()).resources.map((r) => r.uri);
+    expect(uris).toContain(EXAMPLES_INDEX_URI);
+    for (const e of EXAMPLES) expect(uris).toContain(exampleUri(e.slug));
   });
 
-  it("weaves the goal into the create-integration guide and references the loop", async () => {
+  it("the index lists each example's blocks and resource URI", async () => {
+    const client = await connect({});
+    const index = JSON.parse(textOf(await client.readResource({ uri: EXAMPLES_INDEX_URI })));
+    expect(index).toHaveLength(EXAMPLES.length);
+    const builtins = index.find((e: { slug: string }) => e.slug === "builtins");
+    expect(builtins.uri).toBe(exampleUri("builtins"));
+    expect(builtins.blocks).toEqual(expect.arrayContaining(["foreach", "switch"]));
+  });
+
+  it("serves a self-describing YAML definition per example", async () => {
+    const client = await connect({});
+    const read = await client.readResource({ uri: exampleUri("http-orders") });
+    const content = read.contents[0] as { mimeType: string; text: string };
+    expect(content.mimeType).toBe("application/yaml");
+    expect(content.text).toContain("Demonstrates:"); // header comment
+    expect(content.text).toContain("flow-ref"); // the block it showcases
+    expect(content.text).toContain("HTTP_PORT"); // networked
+  });
+});
+
+describe("prompts", () => {
+  it("exposes create-integration", async () => {
+    const client = await connect({});
+    const names = (await client.listPrompts()).prompts.map((p) => p.name);
+    expect(names).toContain("create-integration");
+  });
+
+  it("weaves the goal into the guide and points at the schema + examples resources", async () => {
     const client = await connect({});
     const res = await client.getPrompt({
       name: "create-integration",
@@ -60,13 +98,6 @@ describe("prompts", () => {
     expect(text).toContain("poll a weather API every minute");
     expect(text).toContain("can_start_integration");
     expect(text).toContain(RUNTIME_SCHEMA_URI);
-  });
-
-  it("returns runnable example definitions", async () => {
-    const client = await connect({});
-    const res = await client.getPrompt({ name: "integration-examples" });
-    const text = (res.messages[0].content as { text: string }).text;
-    expect(text).toContain("service:");
-    expect(text).toContain("HTTP_PORT");
+    expect(text).toContain(EXAMPLES_INDEX_URI);
   });
 });
