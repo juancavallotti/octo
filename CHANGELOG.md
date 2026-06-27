@@ -1,5 +1,63 @@
 # Changelog
 
+## [0.1.8](https://github.com/juancavallotti/octo/compare/v0.1.7...v0.1.8) (2026-06-27)
+
+
+### Features
+
+* **core:** add an object-delete block ([7bcb535](https://github.com/juancavallotti/octo/commit/7bcb53571d5185115ffdab36418328be45116ae5))
+* **editor:** add a copy button for the running test URL ([d9b4d5b](https://github.com/juancavallotti/octo/commit/d9b4d5bda7459625a3377256c88a322c9934b158))
+* **editor:** live-reload the open file on an external write ([9d56a9a](https://github.com/juancavallotti/octo/commit/9d56a9a81249e9e5ac37aa96a413935cd7b17a58))
+* **editor:** render scopes as a single compact box ([efba420](https://github.com/juancavallotti/octo/commit/efba420d2f81b1831128bf596f51cf5cb23f788c))
+* **events:** add @octo/events in-process bus + SSE plumbing ([833c68a](https://github.com/juancavallotti/octo/commit/833c68ac52f6bd3fae70a383708173ee52fac3ec))
+* **http:** add @octo/http fetch-to-result abstraction ([617a308](https://github.com/juancavallotti/octo/commit/617a308d0a40c59da812292fcb1e0f5c47779abd))
+* **mcp:** add validate_definition tool ([b3990a7](https://github.com/juancavallotti/octo/commit/b3990a7b07ed94222b84262e88ea1d3d91d5b82c))
+* **mcp:** handler factory via mcp-handler ([d5cd4b1](https://github.com/juancavallotti/octo/commit/d5cd4b18abf930397a78ebef87420ee473c3168a))
+* **mcp:** integration CRUD tools ([453d396](https://github.com/juancavallotti/octo/commit/453d396867a7fc07ec34a4030dfaf92a0be8238d))
+* **mcp:** point the authoring prompt at the docs ([81b4c7e](https://github.com/juancavallotti/octo/commit/81b4c7e532d7ca4567a18cf289afa5a4a397d529))
+* **mcp:** run-control tools and per-session namespace ([e7d8a05](https://github.com/juancavallotti/octo/commit/e7d8a05ec96cb18219ecf86efce1bef23dda7535))
+* **mcp:** runtime-schema resource and authoring prompts ([70677b4](https://github.com/juancavallotti/octo/commit/70677b4c34386478c54e09de3723f848ef4f45e3))
+* **mcp:** scaffold @octo/mcp package ([be37192](https://github.com/juancavallotti/octo/commit/be371926230bb25b2cf86729278e6d9aec66840c))
+* **mcp:** serve worked examples as resources ([e974123](https://github.com/juancavallotti/octo/commit/e9741236568116d8c1e38756db6a097e1fa203cd))
+* **orchestrator:** add users and per-user API keys ([257a9bd](https://github.com/juancavallotti/octo/commit/257a9bd9a245596a0b30e486ff14d8f4eb240491))
+* **platform:** add an Account API keys management page ([9e8fdf7](https://github.com/juancavallotti/octo/commit/9e8fdf7d690002571202d2d0ea165cb366753e96))
+* **platform:** add API-key server actions and orchestrator client ([30fbee6](https://github.com/juancavallotti/octo/commit/30fbee6ab6c5fde87f890bfc91b86c318287a2d6))
+* **platform:** bootstrap a user on sign-in and expose session.user.id ([a333971](https://github.com/juancavallotti/octo/commit/a3339713ec8e19b4115121ccb9c052d88afc414a))
+* **platform:** disable delete for deployed version tags ([f1f6b9c](https://github.com/juancavallotti/octo/commit/f1f6b9c8bb0d652e335be795cc0942784e8c09c8))
+* **platform:** expose MCP at /mcp behind per-user API keys ([716f85a](https://github.com/juancavallotti/octo/commit/716f85a3eab46be3b4dc4d3273c9221066052e2e))
+* **platform:** expose the MCP server at /mcp behind an API key ([37d528b](https://github.com/juancavallotti/octo/commit/37d528bb09b633b4bbf9677c35b85a2483d62b7c))
+* **platform:** high-level orchestrator client and auth gates ([2726130](https://github.com/juancavallotti/octo/commit/27261309de65ab7edd2c9c37848b4b8d640bba77))
+* **platform:** publish + stream integration writes for live reload ([c25e8b3](https://github.com/juancavallotti/octo/commit/c25e8b3b6559fb0143e8b98ba6333edd059db5b4))
+* reusable MCP server for Octo integrations (standalone) ([914945b](https://github.com/juancavallotti/octo/commit/914945b872565dc0d19b1988d15ddf27ebef22d2))
+* **standalone:** expose the integration MCP server at /mcp ([520fa4f](https://github.com/juancavallotti/octo/commit/520fa4feaca87e36f0c1034722f78a0145fdf4c6))
+* **standalone:** publish + stream integration writes for live reload ([1f373eb](https://github.com/juancavallotti/octo/commit/1f373eb6115992d960a80d7eac1c44bb46371954))
+
+
+### Bug Fixes
+
+* **deploy:** avoid sensitive values in helm_release for_each ([08d7466](https://github.com/juancavallotti/octo/commit/08d7466e79b38ac70ed6b744353952a6493a688d))
+* **deploy:** avoid sensitive values in helm_release for_each ([16c484f](https://github.com/juancavallotti/octo/commit/16c484f45c027de1f98edc092690ea6d49570f94))
+* **docker:** link @octo/mcp and @octo/http manifests for the image build ([87a9355](https://github.com/juancavallotti/octo/commit/87a93556820f7f0533d9ad115cda106417cef60c))
+* **mcp:** treat validation as advisory, don't gate runs on it ([7719d77](https://github.com/juancavallotti/octo/commit/7719d779a031778f9bfbcf396925ba7117b14124))
+* **platform:** orchestrator availability probe on non-JSON /healthz ([6f5010f](https://github.com/juancavallotti/octo/commit/6f5010ffcfbce303ec286aafe42142655dfd5c2f))
+* **snapshot:** block deleting a tag that is currently deployed ([5db4e0e](https://github.com/juancavallotti/octo/commit/5db4e0ed68556705c59f82c4aa64616c45b9f0ce))
+
+
+### Refactoring
+
+* **platform:** availability via action; retire forward()/proxy() ([53b3df2](https://github.com/juancavallotti/octo/commit/53b3df2fc9173c349d88cad8f28dbf0933092cd3))
+* **platform:** deployments via server actions ([df4055d](https://github.com/juancavallotti/octo/commit/df4055dea5fca948ca3702c63caebb094e21d022))
+* **platform:** folders, integrations, snapshots via server actions ([634cf99](https://github.com/juancavallotti/octo/commit/634cf99a254b2a8dc79572ce30c77a320c203016))
+* **platform:** run-control via server actions ([a5dc2cd](https://github.com/juancavallotti/octo/commit/a5dc2cd6ab0aa141e88299f449bf086a003eeecb))
+* **platform:** secrets via server actions ([3584420](https://github.com/juancavallotti/octo/commit/3584420085ff49a77767b2dfe8b57ccfdbd48a1a))
+* **standalone:** filesystem via server actions ([4befb8e](https://github.com/juancavallotti/octo/commit/4befb8e5ef66935e76d9544e5701d416a714fc62))
+* **standalone:** run-control via server actions ([d4cf1bc](https://github.com/juancavallotti/octo/commit/d4cf1bc25fdc280c3b60ddd943b334d845fbc40c))
+
+
+### Documentation
+
+* prefer server actions over API routes for Next.js apps ([9b805e7](https://github.com/juancavallotti/octo/commit/9b805e761e0097dc0ce6159c0f2a579b72f9472d))
+
 ## [0.1.7](https://github.com/juancavallotti/octo/compare/v0.1.6...v0.1.7) (2026-06-26)
 
 
