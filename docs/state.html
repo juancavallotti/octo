@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>State &amp; clustering — Octo</title>
+<meta name="description" content="Octo's runtime services: a key–value store and secret store, leader election, and distributed cron — how stateful flows run safely across replicas, and how the standalone vs Kubernetes providers differ." />
+<link rel="icon" type="image/png" href="assets/octo.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" />
+<link rel="stylesheet" href="assets/styles.css" />
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a class="brand" href="index.html"><img class="logo" src="assets/octo.png" alt="" /> Octo</a>
+    <nav class="nav-links">
+      <a href="index.html">Home</a>
+      <a href="connectors.html">Connectors</a>
+      <a href="cel.html">CEL</a>
+      <a href="state.html">State</a>
+      <a href="mcp.html">MCP</a>
+      <a href="error-handling.html">Error handling</a>
+      <a href="deployment.html">Deploy</a>
+      <a class="nav-gh" href="https://github.com/juancavallotti/octo" target="_blank" rel="noopener">GitHub ↗</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero" style="padding:72px 0 48px">
+  <div class="wrap">
+    <span class="eyebrow">Guide</span>
+    <h1 style="font-size:clamp(2rem,4vw,2.8rem)">State &amp; clustering</h1>
+    <p class="lead" style="max-width:64ch">
+      Flows are stateless by default — but real integrations need to remember a cursor, cache an
+      expensive call, hold a token, or make sure a scheduled job fires <em>once</em> even when the
+      integration runs as several replicas. Octo's <strong>runtime services</strong> give blocks a
+      key–value store, an encrypted secret store, and leader election, behind one interface that
+      works the same in a single process and across a cluster.
+    </p>
+  </div>
+</section>
+
+<!-- overview -->
+<section id="overview">
+  <div class="wrap">
+    <div class="section-head"><span class="eyebrow">What you get</span><h2>Three primitives.</h2>
+      <p>Runtime services are injected into every flow's execution context. Blocks reach them through stable interfaces, so a flow doesn't know — or care — whether it's running on your laptop or in Kubernetes.</p>
+    </div>
+    <div class="grid cols-3">
+      <div class="card"><div class="ic">🗃️</div><h3>Key–value store</h3>
+        <p>Versioned <code>Get</code> / <code>Set</code> / <code>Delete</code> with optimistic concurrency. The <code>object-*</code> and cache blocks build on it; you rarely touch it directly.</p></div>
+      <div class="card"><div class="ic">🔐</div><h3>Secret store</h3>
+        <p>The same KV API, but routed to <strong>encrypted</strong> namespaces. The http-client OAuth2 token cache lives here; so can anything a connector must keep private.</p></div>
+      <div class="card"><div class="ic">👑</div><h3>Leader election</h3>
+        <p>Acquire a key and ask <code>IsLeader()</code>. Exactly one replica wins per key — the basis for distributed cron and any run-once work.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- KV store -->
+<section id="kv" class="alt">
+  <div class="wrap">
+    <div class="section-head"><span class="eyebrow">The store</span><h2>Key–value, namespaced &amp; versioned.</h2>
+      <p>Keys live in <strong>namespaces</strong> that isolate concerns. Your flows touch the <code>user</code> space through the store blocks; the runtime keeps its own state in <code>system</code>; secrets ride in encrypted <code>*_secrets</code> twins of each.</p>
+    </div>
+    <div class="grid cols-2">
+      <div>
+        <h3>Namespaces</h3>
+        <table class="eip-table">
+          <thead><tr><th>Namespace</th><th>For</th></tr></thead>
+          <tbody>
+            <tr><td><code>user</code></td><td>Your flow state — the <code>object-read/write/delete</code> and cache blocks.</td></tr>
+            <tr><td><code>system</code></td><td>Internal runtime &amp; connector state. User blocks must not read it.</td></tr>
+            <tr><td><code>user_secrets</code></td><td>Encrypted user secrets.</td></tr>
+            <tr><td><code>system_secrets</code></td><td>Encrypted internal secrets (e.g. cached OAuth2 tokens).</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <h3>How writes stay consistent</h3>
+        <p style="font-size:0.95rem">Every entry carries a <code>version</code>. A write passes the version it expects: <code>0</code> creates, a positive value updates only if it still matches. A mismatch returns a version conflict, so two replicas racing on the same key can't silently clobber each other — <code>object-write</code> retries the read-modify-write for you.</p>
+        <p style="font-size:0.95rem">The store has no native TTL. The <code>cache-scope</code> block layers expiry on top by stamping a deadline into the value it stores, and treating expired entries as a miss.</p>
+      </div>
+    </div>
+    <div class="note"><strong>Block reference.</strong> The <code>object-read</code>, <code>object-write</code>, <code>object-delete</code>, <code>cache-scope</code>, and <code>invalidate-cache</code> blocks — with their settings — are documented under <a href="connectors.html#state-blocks">State &amp; cache blocks</a>.</div>
+  </div>
+</section>
+
+<!-- secrets -->
+<section id="secrets">
+  <div class="wrap">
+    <div class="section-head"><span class="eyebrow">Encrypted at rest</span><h2>The secret store.</h2>
+      <p>The secret store is the same KV interface with one twist: it transparently rewrites a namespace to its <code>*_secrets</code> counterpart and encrypts values before they're persisted. Plain KV traffic pays no encryption cost; secrets are never written in the clear.</p>
+    </div>
+    <div class="grid cols-2">
+      <div class="card"><div class="ic">🔑</div><h3>The encryption key</h3>
+        <p>On the platform the orchestrator owns the cipher. It reads a base64 <code>KV_ENCRYPTION_KEY</code> (16/24/32 bytes → AES-128/192/256-GCM) and encrypts every value bound for a secret namespace. The deploy tooling generates and wires this key for you. If it's absent, secret namespaces are disabled and writes to them fail loudly.</p></div>
+      <div class="card"><div class="ic">♻️</div><h3>Who uses it</h3>
+        <p>The http-client <a href="connectors.html#http-client">OAuth 2.0</a> auth mode caches its access/refresh tokens here, keyed per connector, so tokens survive restarts without ever appearing in logs or config. Connectors that must persist credentials use the same path.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- leader election / cron -->
+<section id="leader" class="alt">
+  <div class="wrap">
+    <div class="section-head"><span class="eyebrow">Run exactly once</span><h2>Leader election &amp; distributed cron.</h2>
+      <p>Scale an integration to three replicas and a naive <code>cron</code> source would fire three times. Octo prevents that with leader election: the cron source campaigns for a per-schedule key and only the leader emits a tick — the others skip it.</p>
+    </div>
+    <div class="grid cols-2">
+      <div>
+        <h3>The pattern</h3>
+        <p style="font-size:0.95rem">Acquire a <code>Leadership</code> handle for a key once, then gate exclusive work on a cheap, cached <code>IsLeader()</code> check. The cron source does exactly this — keyed by its connector name — so the schedule fires once cluster-wide regardless of replica count.</p>
+      </div>
+      <div>
+        <h3>Under the hood</h3>
+        <p style="font-size:0.95rem">In the Kubernetes provider, leadership is backed by a <code>coordination/v1</code> Lease per key, scoped to the deployment (15s lease, 10s renew, 2s retry). In standalone mode a single process is always the leader — same code, no coordination needed.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- providers -->
+<section id="providers">
+  <div class="wrap">
+    <div class="section-head"><span class="eyebrow">Same interface, two backends</span><h2>Standalone vs Kubernetes.</h2>
+      <p>The active provider is chosen at startup by <code>RUNTIME_SERVICES_MODULE</code> (default <code>standalone</code>). The CLI builds services once and reuses them across hot-reloads, so leases and connections aren't churned.</p>
+    </div>
+    <table class="eip-table">
+      <thead><tr><th></th><th><code>standalone</code> (default)</th><th><code>k8s</code></th></tr></thead>
+      <tbody>
+        <tr><td>KV store</td><td>In-process map. Nothing leaves memory.</td><td>HTTP calls to the orchestrator's per-deployment KV API.</td></tr>
+        <tr><td>Secrets</td><td>In-memory (no encryption — never persisted).</td><td>Encrypted at rest with <code>KV_ENCRYPTION_KEY</code>.</td></tr>
+        <tr><td>Leader election</td><td>Always leader (single process).</td><td>Kubernetes Leases, one per key, per deployment.</td></tr>
+        <tr><td>Scope</td><td>This process / sample run.</td><td>Per deployment (<code>OCTO_DEPLOYMENT_ID</code>), shared across replicas.</td></tr>
+      </tbody>
+    </table>
+    <h3 style="margin-top:32px">Wiring (Kubernetes)</h3>
+    <p style="max-width:760px">The orchestrator injects these into each deployed pod when runtime services are enabled (set its <code>ORCHESTRATOR_URL</code> to turn the feature on; the module then defaults to <code>k8s</code>):</p>
+    <table class="eip-table">
+      <tbody>
+        <tr><td><code>RUNTIME_SERVICES_MODULE</code></td><td><code>k8s</code></td></tr>
+        <tr><td><code>OCTO_DEPLOYMENT_ID</code></td><td>Scopes every KV key and Lease to this deployment.</td></tr>
+        <tr><td><code>ORCHESTRATOR_URL</code></td><td>The KV API endpoint the provider calls.</td></tr>
+        <tr><td><code>POD_NAME</code> / <code>POD_NAMESPACE</code></td><td>Pod identity (downward API), used by leader election.</td></tr>
+      </tbody>
+    </table>
+    <div class="note"><strong>It degrades gracefully.</strong> If no provider is wired, blocks fall back to a no-op store (writes vanish) and always-leader election. That keeps a flow runnable anywhere; just don't rely on persistence until a real provider is in place.</div>
+  </div>
+</section>
+
+<!-- sample -->
+<section id="sample" class="alt">
+  <div class="wrap">
+    <div class="section-head"><span class="eyebrow">Try it</span><h2>The runtime-services sample.</h2>
+      <p><code>samples/runtime-services.yaml</code> ties it together: a 5-second ticker reads a counter from the store, bumps it, writes it back, then produces a report inside a <code>cache-scope</code> so the body is computed once and served from cache until its 1m TTL lapses. A <code>reset</code> flow invalidates the cache; a <code>fetch</code> flow calls an OAuth2-protected API through the secret-store-backed token cache.</p>
+    </div>
+<pre><code class="language-bash"># Run it (standalone services, in-process store)
+task run:sample -- runtime-services.yaml
+
+# Bust the cache so the next tick recomputes
+./bin/octo invoke --config samples/runtime-services.yaml --flow reset</code></pre>
+    <p style="margin-top:22px"><a class="btn btn-ghost" href="connectors.html#state-blocks">State &amp; cache blocks ↗</a> <a class="btn btn-ghost" href="deployment.html">Deploy on Kubernetes ↗</a></p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap foot-inner">
+    <div>
+      <a class="brand" href="index.html"><img class="logo" src="assets/octo.png" alt="" /> Octo</a>
+      <div class="muted" style="margin-top:8px">A cloud-native, AI-native integration runtime. MIT licensed.</div>
+    </div>
+    <div class="foot-links">
+      <a href="connectors.html">Connectors</a>
+      <a href="mcp.html">MCP</a>
+      <a href="deployment.html">Deploy</a>
+      <a href="index.html">Home ↑</a>
+    </div>
+  </div>
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/bash.min.js"></script>
+<script>document.querySelectorAll('pre code').forEach((el) => { if (window.hljs) hljs.highlightElement(el); });</script>
+</body>
+</html>

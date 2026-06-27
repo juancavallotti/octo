@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MCP — authoring with AI assistants — Octo</title>
+<meta name="description" content="Octo's Model Context Protocol (MCP) server lets an AI assistant author, validate, run, and iterate on integrations over a single /mcp endpoint, authenticated with per-user API keys." />
+<link rel="icon" type="image/png" href="assets/octo.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" />
+<link rel="stylesheet" href="assets/styles.css" />
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a class="brand" href="index.html"><img class="logo" src="assets/octo.png" alt="" /> Octo</a>
+    <nav class="nav-links">
+      <a href="index.html">Home</a>
+      <a href="connectors.html">Connectors</a>
+      <a href="cel.html">CEL</a>
+      <a href="state.html">State</a>
+      <a href="mcp.html">MCP</a>
+      <a href="error-handling.html">Error handling</a>
+      <a href="deployment.html">Deploy</a>
+      <a class="nav-gh" href="https://github.com/juancavallotti/octo" target="_blank" rel="noopener">GitHub ↗</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero" style="padding:72px 0 48px">
+  <div class="wrap">
+    <span class="eyebrow">Guide</span>
+    <h1 style="font-size:clamp(2rem,4vw,2.8rem)">Authoring with AI assistants</h1>
+    <p class="lead" style="max-width:64ch">
+      Octo ships a <strong>Model Context Protocol (MCP)</strong> server. Point any MCP-capable
+      assistant — Claude, an IDE agent, your own client — at the <code>/mcp</code> endpoint and it can
+      read the runtime's block catalogue, study worked examples, draft and validate a definition,
+      create the integration, run it in a dev runner, read the logs, and iterate — all without leaving
+      the conversation.
+    </p>
+  </div>
+</section>
+
+<!-- why -->
+<section id="why">
+  <div class="wrap">
+    <div class="section-head"><span class="eyebrow">The idea</span><h2>A grounded authoring loop.</h2>
+      <p>An assistant guesses badly when it has to invent a YAML schema from memory. The MCP server hands it the ground truth — the live capability catalogue and real examples — and a <code>validate</code> tool to check its work, so it converges on a definition that actually builds.</p>
+    </div>
+    <div class="grid cols-3">
+      <div class="card"><div class="ic">📚</div><h3>Grounded</h3><p>The exact blocks, connectors, and fields the runtime supports — served as a resource the model reads before authoring.</p></div>
+      <div class="card"><div class="ic">✅</div><h3>Validated</h3><p>A draft is checked against the runtime schema before it's ever saved. Validation is advisory — it guides, it doesn't gate a run.</p></div>
+      <div class="card"><div class="ic">▶️</div><h3>Runnable</h3><p>The assistant starts the integration in a per-session dev runner, gets a test URL back, and tails the logs to debug.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- tools -->
+<section id="tools" class="alt">
+  <div class="wrap">
+    <div class="section-head"><span class="eyebrow">What the server exposes</span><h2>Tools.</h2>
+      <p>Two families: authoring tools that read and write integration definitions, and run-control tools that drive a dev runner scoped to the client's session.</p>
+    </div>
+    <div class="grid cols-2">
+      <div>
+        <h3>Authoring</h3>
+        <table class="eip-table">
+          <tbody>
+            <tr><td><code>list_integrations</code></td><td>List saved integrations as <code>{id, name}</code>.</td></tr>
+            <tr><td><code>open_integration</code></td><td>Read one by id → <code>{id, name, definition}</code> (the runtime YAML).</td></tr>
+            <tr><td><code>validate_definition</code></td><td>Check a draft YAML against the runtime schema <em>without</em> saving; returns descriptive errors.</td></tr>
+            <tr><td><code>create_integration</code></td><td>Create from a name + definition. Returns the created record.</td></tr>
+            <tr><td><code>update_integration</code></td><td>Overwrite a definition (and optionally rename).</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <h3>Run control (per session)</h3>
+        <table class="eip-table">
+          <tbody>
+            <tr><td><code>can_start_integration</code></td><td>Is a runner available and does the definition validate? → <code>{available, valid, errors}</code>.</td></tr>
+            <tr><td><code>run_integration</code></td><td>Start (or restart) the integration in the dev runner, optionally injecting env vars. Returns a test URL.</td></tr>
+            <tr><td><code>get_run_logs</code></td><td>Read this session's runner log buffer, oldest line first.</td></tr>
+            <tr><td><code>stop_integration</code></td><td>Stop this session's run and free its resources.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="note"><strong>Session isolation.</strong> Each client gets its own runner and log buffer, keyed by the MCP session. Two assistants connected at once won't trample each other's runs. A test URL is only returned when the integration declares an <code>HTTP_PORT</code> (i.e. it's a network service); otherwise the run is internal-only.</div>
+  </div>
+</section>
+
+<!-- resources & prompts -->
+<section id="resources">
+  <div class="wrap">
+    <div class="section-head"><span class="eyebrow">Context the model reads</span><h2>Resources &amp; prompts.</h2>
+      <p>Beyond tools, the server publishes resources the assistant pulls into context, and a guided prompt that walks it through the whole loop.</p>
+    </div>
+    <div class="grid cols-2">
+      <div>
+        <h3>Resources</h3>
+        <table class="eip-table">
+          <thead><tr><th>URI</th><th>What</th></tr></thead>
+          <tbody>
+            <tr><td><code>octo://runtime/schema</code></td><td>The catalogue of blocks &amp; connectors with their configurable fields. Read this first.</td></tr>
+            <tr><td><code>octo://examples</code></td><td>Index of worked examples — each lists the blocks it shows and its read URI.</td></tr>
+            <tr><td><code>octo://examples/&lt;slug&gt;</code></td><td>A complete example definition. Slugs: <code>hello-world</code>, <code>builtins</code>, <code>http-orders</code>, <code>error-handling</code>, <code>ai-router</code>.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <h3>Prompt</h3>
+        <p style="font-size:0.95rem"><code>create-integration</code> — a step-by-step prompt (with an optional <code>goal</code> argument) that tells the assistant how to do this well: read the schema, study an example, draft and <code>validate_definition</code>, create or update, then <code>run_integration</code> and iterate from <code>get_run_logs</code>. Selecting it primes the model with the right sequence.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- endpoint & auth -->
+<section id="endpoint" class="alt">
+  <div class="wrap">
+    <div class="section-head"><span class="eyebrow">Connecting</span><h2>The <code>/mcp</code> endpoint.</h2>
+      <p>Both the hosted platform and the standalone app expose the server at <code>/mcp</code> over the streamable-HTTP transport. The difference is authentication.</p>
+    </div>
+    <div class="grid cols-2">
+      <div class="card"><div class="ic">🌐</div><h3>Platform — API-key gated</h3>
+        <p>The hosted app authenticates each request with a <strong>per-user API key</strong> as a bearer token. The route owns its own auth and bypasses the OIDC session gate; an invalid or missing key gets a <code>401</code> with a bearer challenge.</p>
+<pre><code class="language-bash">https://&lt;your-platform-host&gt;/mcp
+Authorization: Bearer octo_xxxxxxxx…</code></pre>
+      </div>
+      <div class="card"><div class="ic">💻</div><h3>Standalone — local &amp; open</h3>
+        <p>The standalone app serves <code>/mcp</code> unauthenticated for local use — point your client at <code>http://localhost:3000/mcp</code> and go. No keys, no accounts; ideal for a desktop authoring loop.</p>
+<pre><code class="language-bash">http://localhost:3000/mcp
+# no auth header needed</code></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- api keys -->
+<section id="api-keys">
+  <div class="wrap">
+    <div class="section-head"><span class="eyebrow">On the platform</span><h2>Users &amp; API keys.</h2>
+      <p>The platform bootstraps a user account on first sign-in. From there you mint the keys that authenticate MCP clients.</p>
+    </div>
+    <div class="grid cols-2">
+      <div>
+        <h3>Managing keys</h3>
+        <p style="font-size:0.95rem">The <strong>Account → API keys</strong> page lists your active keys (name, prefix, last-4, created/expiry, last-used) and lets you create and revoke them. A new key's full token is shown <strong>once</strong> at creation and never again — copy it into your MCP client then.</p>
+      </div>
+      <div>
+        <h3>How a key is checked</h3>
+        <p style="font-size:0.95rem">On each request the platform verifies the bearer token against the orchestrator, which resolves it to its owner before the request reaches the MCP layer. Keys can carry an expiry; revoking one takes effect immediately.</p>
+      </div>
+    </div>
+    <div class="note"><strong>Wiring.</strong> The platform MCP route needs <code>ORCHESTRATOR_URL</code> (for integration CRUD and key verification) and <code>OCTO_BIN_PATH</code> (so the run-control tools have an <code>octo</code> binary to launch). Set <code>OCTO_DOCS_URL</code> to have the authoring prompt link back to these docs.</div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap foot-inner">
+    <div>
+      <a class="brand" href="index.html"><img class="logo" src="assets/octo.png" alt="" /> Octo</a>
+      <div class="muted" style="margin-top:8px">A cloud-native, AI-native integration runtime. MIT licensed.</div>
+    </div>
+    <div class="foot-links">
+      <a href="connectors.html">Connectors</a>
+      <a href="state.html">State</a>
+      <a href="deployment.html">Deploy</a>
+      <a href="index.html">Home ↑</a>
+    </div>
+  </div>
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/bash.min.js"></script>
+<script>document.querySelectorAll('pre code').forEach((el) => { if (window.hljs) hljs.highlightElement(el); });</script>
+</body>
+</html>
