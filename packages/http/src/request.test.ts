@@ -1,12 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { requestJson } from "./request";
+import { requestJson, requestOk } from "./request";
 
-/** A fetch stub returning the given response shape. */
+/** A fetch stub returning the given response shape. `json` rejects when `body` is
+ * the sentinel NON_JSON, to model a non-JSON (e.g. plain-text) response. */
+const NON_JSON = Symbol("non-json");
 function stubFetch(res: { ok?: boolean; status?: number; body?: unknown }) {
   const fn = vi.fn(async () => ({
     ok: res.ok ?? true,
     status: res.status ?? 200,
-    json: async () => res.body,
+    json: async () => {
+      if (res.body === NON_JSON) throw new SyntaxError("Unexpected token 'o'");
+      return res.body;
+    },
   })) as unknown as typeof fetch;
   global.fetch = fn;
   return fn;
@@ -61,5 +66,33 @@ describe("requestJson", () => {
     }) as unknown as typeof fetch;
     const res = await requestJson("GET", "http://x/thing");
     expect(res).toEqual({ ok: false, error: "request failed: ECONNREFUSED" });
+  });
+
+  it("returns an error result (does not throw) on a non-JSON 2xx body", async () => {
+    stubFetch({ status: 200, body: NON_JSON });
+    const res = await requestJson("GET", "http://x/thing");
+    expect(res).toEqual({ ok: false, error: "invalid JSON response (200)" });
+  });
+});
+
+describe("requestOk", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("reports true for a 2xx (even a non-JSON body) without parsing it", async () => {
+    const fetchFn = stubFetch({ status: 200, body: NON_JSON });
+    await expect(requestOk("GET", "http://x/healthz")).resolves.toBe(true);
+    expect(fetchFn).toHaveBeenCalledWith("http://x/healthz", { method: "GET" });
+  });
+
+  it("reports false for a non-2xx", async () => {
+    stubFetch({ ok: false, status: 503 });
+    await expect(requestOk("GET", "http://x/healthz")).resolves.toBe(false);
+  });
+
+  it("reports false on a network error", async () => {
+    global.fetch = vi.fn(async () => {
+      throw new Error("ECONNREFUSED");
+    }) as unknown as typeof fetch;
+    await expect(requestOk("GET", "http://x/healthz")).resolves.toBe(false);
   });
 });

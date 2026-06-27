@@ -11,6 +11,5 @@
 import * as client from "./_client";
 
 export async function orchestratorAvailable(): Promise<boolean> {
-  const res = await client.checkHealth();
-  return res.ok;
+  return client.checkHealth();
 }

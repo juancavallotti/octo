@@ -35,5 +35,26 @@ export async function requestJson<T>(
   }
   // 204 No Content carries no body.
   if (res.status === 204) return { ok: true, data: undefined as T };
-  return { ok: true, data: (await res.json()) as T };
+  try {
+    return { ok: true, data: (await res.json()) as T };
+  } catch {
+    // A 2xx with a non-JSON body (e.g. a plain-text health probe). Surface it as
+    // an error result rather than throwing — a thrown server-action error is
+    // redacted in production. Use requestOk for endpoints that aren't JSON.
+    return { ok: false, error: `invalid JSON response (${res.status})` };
+  }
+}
+
+/**
+ * Perform `method url` and report only whether it succeeded (2xx), without reading
+ * the body. For liveness/health probes whose response may not be JSON. Never
+ * throws — a network error is reported as `false`.
+ */
+export async function requestOk(method: string, url: string): Promise<boolean> {
+  try {
+    const res = await fetch(url, { method });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }

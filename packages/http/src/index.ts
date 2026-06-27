@@ -10,4 +10,4 @@
  */
 
 export type { ActionResult } from "./result";
-export { requestJson } from "./request";
+export { requestJson, requestOk } from "./request";

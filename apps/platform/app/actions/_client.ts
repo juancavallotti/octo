@@ -13,7 +13,7 @@
  * can't throw readable errors in production); the model layer unwraps it.
  */
 
-import { requestJson, type ActionResult } from "@octo/http";
+import { requestJson, requestOk, type ActionResult } from "@octo/http";
 import type {
   Deployment,
   DeploymentInput,
@@ -56,9 +56,15 @@ function call<T>(
 
 // --- Health ---------------------------------------------------------------
 
-/** Probe the orchestrator's health check (used by the availability action). */
-export function checkHealth(): Promise<ActionResult<unknown>> {
-  return call<unknown>("GET", "/healthz");
+/**
+ * Whether the orchestrator is configured and answers its health check. Uses a
+ * body-less probe (the `/healthz` response is plain text "ok", not JSON), so it
+ * doesn't go through the JSON client.
+ */
+export function checkHealth(): Promise<boolean> {
+  const base = baseUrl();
+  if (!base) return Promise.resolve(false);
+  return requestOk("GET", `${base}/healthz`);
 }
 
 // --- Integrations ---------------------------------------------------------
