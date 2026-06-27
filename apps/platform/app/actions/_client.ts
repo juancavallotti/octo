@@ -22,6 +22,7 @@ import type {
   Integration,
   IntegrationInput,
   Snapshot,
+  User,
 } from "@/app/model/orchestrator";
 import type { ClusterSecret } from "@/app/model/secrets";
 
@@ -65,6 +66,21 @@ export function checkHealth(): Promise<boolean> {
   const base = baseUrl();
   if (!base) return Promise.resolve(false);
   return requestOk("GET", `${base}/healthz`);
+}
+
+// --- Users ----------------------------------------------------------------
+
+/**
+ * Provision (or refresh) the user identified by the OIDC subject, returning the
+ * row with its durable id. Called from the auth layer on sign-in; idempotent, so
+ * later logins just sync email/name.
+ */
+export function bootstrapUser(
+  subject: string,
+  email: string,
+  name: string,
+): Promise<ActionResult<User>> {
+  return call<User>("POST", "/users/bootstrap", { subject, email, name });
 }
 
 // --- Integrations ---------------------------------------------------------

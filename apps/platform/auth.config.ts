@@ -1,4 +1,5 @@
 import type { NextAuthConfig } from "next-auth";
+import { bootstrapUser } from "@/app/actions/_client";
 
 /**
  * Edge-safe Auth.js configuration shared by the middleware and the full `auth.ts`.
@@ -27,6 +28,11 @@ function rolesFrom(value: unknown): string[] {
   return [];
 }
 
+/** Narrow an unknown claim to a non-empty string, or undefined. */
+function asString(value: unknown): string | undefined {
+  return typeof value === "string" && value !== "" ? value : undefined;
+}
+
 export const authConfig: NextAuthConfig = {
   trustHost: true,
   session: { strategy: "jwt" },
@@ -45,17 +51,31 @@ export const authConfig: NextAuthConfig = {
     },
   ],
   callbacks: {
-    // Copy the IdP's role claim into the JWT on sign-in so it rides along without
-    // a session lookup.
-    jwt({ token, profile }) {
+    // On sign-in, copy the IdP's role claim into the JWT and bootstrap the user
+    // row so both ride along without a per-request lookup. `profile` is present
+    // only on sign-in, so the fetch fires once per session, not per request.
+    async jwt({ token, profile }) {
       if (profile) {
-        token.roles = rolesFrom((profile as Record<string, unknown>)[rolesClaim]);
+        const claims = profile as Record<string, unknown>;
+        token.roles = rolesFrom(claims[rolesClaim]);
+        const subject = token.sub ?? asString(claims.sub);
+        const email = asString(claims.email) ?? token.email ?? undefined;
+        if (subject && email) {
+          // Best-effort: the client never throws (it returns an error result when
+          // the orchestrator is unreachable), so a bootstrap failure leaves userId
+          // unset rather than blocking sign-in. The API-key actions then surface a
+          // clean "user not provisioned" error.
+          const res = await bootstrapUser(subject, email, asString(claims.name) ?? "");
+          token.userId = res.ok ? res.data.id : undefined;
+        }
       }
       return token;
     },
-    // Expose roles (and the stable subject) on the session for guards/UI.
+    // Expose roles and the durable user id on the session for guards/UI/actions.
     session({ session, token }) {
       session.user.roles = (token.roles as string[] | undefined) ?? [];
+      const userId = token.userId as string | undefined;
+      if (userId) session.user.id = userId;
       return session;
     },
   },

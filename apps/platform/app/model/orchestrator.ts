@@ -30,6 +30,18 @@ export interface Snapshot {
   createdAt: string;
 }
 
+/** An authenticated principal, provisioned from the OIDC identity on first sign-in. */
+export interface User {
+  /** The durable orchestrator id; the stable handle per-user data is scoped by. */
+  id: string;
+  email: string;
+  name: string;
+  /** RFC3339 timestamp of when the user was first provisioned. */
+  createdAt: string;
+  /** RFC3339 timestamp of the most recent sign-in. */
+  lastLoginAt: string;
+}
+
 /** A folder in the single-membership organization tree. */
 export interface Folder {
   id: string;
