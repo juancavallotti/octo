@@ -21,6 +21,8 @@
       <a href="index.html">Home</a>
       <a href="connectors.html">Connectors</a>
       <a href="cel.html">CEL</a>
+      <a href="state.html">State</a>
+      <a href="mcp.html">MCP</a>
       <a href="error-handling.html">Error handling</a>
       <a href="deployment.html">Deploy</a>
       <a href="index.html#samples">Samples</a>
@@ -56,6 +58,7 @@
         <tr><td><code>env</code></td><td>map</td><td>Resolved values of the flow's declared <code>env:</code> entries — e.g. <code>env.HTTP_PORT</code>. Only declared keys exist.</td></tr>
         <tr><td><code>eventID</code></td><td>string</td><td>Stable unique id for this message.</td></tr>
         <tr><td><code>correlationID</code></td><td>string</td><td>Caller-supplied id for grouping related messages (optional).</td></tr>
+        <tr><td><code>now</code></td><td>timestamp</td><td>The evaluation time, available to every block expression (not just the cron payload). Wrap with <code>string(now)</code> for an RFC 3339 string.</td></tr>
       </tbody>
     </table>
   </div>

@@ -21,6 +21,8 @@
       <a href="index.html">Home</a>
       <a href="connectors.html">Connectors</a>
       <a href="cel.html">CEL</a>
+      <a href="state.html">State</a>
+      <a href="mcp.html">MCP</a>
       <a href="error-handling.html">Error handling</a>
       <a href="deployment.html">Deploy</a>
       <a href="index.html#samples">Samples</a>
@@ -87,8 +89,8 @@ task deploy TAG=v0.1.4                 # Helm release</code></pre>
         <p>Author flows in the editor and save. The integration — a <code>name</code> + the definition YAML — is stored by the orchestrator in Postgres and reopens at <code>/i/&lt;id&gt;</code>.</p></div>
       <div class="card"><div class="ic">②</div><h3>Add secrets</h3>
         <p>Create cluster secrets (UPPER_SNAKE_CASE) in the editor. Values are written straight into one Kubernetes Secret (<code>octo-secrets</code>) and are <strong>never read back</strong> — the catalog keeps only names and timestamps.</p></div>
-      <div class="card"><div class="ic">③</div><h3>Configure &amp; deploy</h3>
-        <p>In the deploy dialog choose <code>replicas</code>, an internal <code>slug</code>, and whether to expose it. Bind each declared env var to a <strong>literal value</strong> or a <strong>secret</strong>. <code>HTTP_PORT</code> / <code>HTTP_HOST</code> are managed for you.</p></div>
+      <div class="card"><div class="ic">③</div><h3>Tag &amp; deploy</h3>
+        <p>Tag a <a href="#versioning">version</a>, then in the deploy dialog pick that tag and choose <code>replicas</code>, an internal <code>slug</code>, and whether to expose it. Bind each declared env var to a <strong>literal value</strong> or a <strong>secret</strong>. <code>HTTP_PORT</code> / <code>HTTP_HOST</code> are managed for you.</p></div>
       <div class="card"><div class="ic">④</div><h3>It becomes pods</h3>
         <p>The orchestrator renders Kubernetes objects and streams status back live. Scale by changing <code>replicas</code>; undeploy tears everything down.</p></div>
     </div>
@@ -106,6 +108,24 @@ task deploy TAG=v0.1.4                 # Helm release</code></pre>
       </tbody>
     </table>
     <div class="note"><strong>Env bindings.</strong> Each declared <code>env:</code> entry is bound at deploy time to a literal value or a cluster secret (the secret reference wins). <code>required</code> vars must be bound. <code>HTTP_PORT</code> (which marks the integration as a network service) and <code>HTTP_HOST</code> (<code>0.0.0.0</code>) are supplied by the orchestrator and can't be set by hand. Deploys stream live status over server-sent events, so the editor shows pods going ready in real time.</div>
+  </div>
+</section>
+
+<!-- versioning -->
+<section id="versioning">
+  <div class="wrap">
+    <div class="section-head"><span class="eyebrow">Version tags &amp; rollout</span><h2>Deploy a frozen version.</h2>
+      <p>Deployments don't ship your live, mutating definition — they ship a <strong>version tag</strong>: a named, immutable snapshot of the integration's YAML. You tag a version, deploy that tag, and later roll the running deployment from one tag to another. Editing the integration never disturbs what's already running.</p>
+    </div>
+    <div class="grid cols-3">
+      <div class="card"><div class="ic">🏷️</div><h3>Tag a version</h3>
+        <p>In the integration's <strong>Versions</strong> section, name a tag (e.g. <code>v1.0</code>) and create it. It freezes the current definition. Tags are unique per integration and never change once created.</p></div>
+      <div class="card"><div class="ic">🚀</div><h3>Deploy a tag</h3>
+        <p>The deploy dialog requires you to pick a tag — its frozen definition is what runs. No tags yet means no deploy; create one first. The deployment remembers which tag it's on.</p></div>
+      <div class="card"><div class="ic">🔀</div><h3>Roll out</h3>
+        <p>From a running deployment, <strong>change version</strong> to a different tag and confirm. It's an in-place rolling update: the id, address, scale, and env bindings stay put — only the definition changes.</p></div>
+    </div>
+    <div class="note" style="margin-top:24px"><strong>Two guardrails.</strong> You can't delete a tag while any deployment runs it — undeploy everywhere first. And a rollout that would change the HTTP source mode (a network service ↔ a non-networked flow) is refused, because that adds or removes a Service/Ingress and can't be expressed as a rolling update — undeploy and redeploy instead.</div>
   </div>
 </section>
 

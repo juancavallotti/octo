@@ -22,6 +22,8 @@
       <a href="index.html">Home</a>
       <a href="connectors.html">Connectors</a>
       <a href="cel.html">CEL</a>
+      <a href="state.html">State</a>
+      <a href="mcp.html">MCP</a>
       <a href="error-handling.html">Error handling</a>
       <a href="deployment.html">Deploy</a>
       <a href="index.html#samples">Samples</a>
@@ -170,7 +172,7 @@
             <tr><td><code>baseURL</code></td><td>Required, absolute. Prepended to request paths.</td></tr>
             <tr><td><code>timeout</code></td><td>Per-request. Default 30s.</td></tr>
             <tr><td><code>headers</code></td><td>Map applied to every request (unless the request sets it).</td></tr>
-            <tr><td><code>auth</code></td><td><code>type</code>: <code>bearer</code> (+<code>token</code>) or <code>basic</code> (+<code>username</code>/<code>password</code>).</td></tr>
+            <tr><td><code>auth</code></td><td><code>type</code>: <code>bearer</code> (+<code>token</code>), <code>basic</code> (+<code>username</code>/<code>password</code>), or <code>oauth2</code> (see below).</td></tr>
             <tr><td><code>cache</code></td><td><code>enabled</code>, <code>ttl</code> (60s), <code>maxEntries</code> (256). GET only.</td></tr>
             <tr><td><code>maxResponseBytes</code></td><td>Response cap. Default 1 MiB.</td></tr>
           </tbody>
@@ -197,6 +199,91 @@
     method: GET
     path: /v1/forecast
     query: { latitude: '"52.52"', current: '"temperature_2m"' }</code></pre>
+
+    <div class="grid cols-2" style="margin-top:22px">
+      <div>
+        <h3>OAuth 2.0 client-credentials</h3>
+        <p style="font-size:0.95rem">Set <code>auth.type: oauth2</code> and the connector mints an access token from your
+        token endpoint on the first request, caches it in memory, refreshes it ~30s before expiry, and persists it
+        best-effort in the runtime <a href="state.html">secret store</a> so it survives restarts. The token request
+        uses HTTP Basic auth with the client id/secret.</p>
+        <table class="eip-table">
+          <thead><tr><th>Setting</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td><code>type</code></td><td>Required. <code>oauth2</code>.</td></tr>
+            <tr><td><code>tokenURL</code></td><td>Required. The token endpoint (POST target).</td></tr>
+            <tr><td><code>clientID</code> / <code>clientSecret</code></td><td>Required. Sent via HTTP Basic auth.</td></tr>
+            <tr><td><code>scopes</code></td><td>Optional list; space-joined into the <code>scope</code> request.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+<pre><code class="language-yaml">connectors:
+  - name: secure-api
+    type: http-client
+    settings:
+      baseURL: https://api.example.com
+      auth:
+        type: oauth2
+        tokenURL: https://auth.example.com/oauth/token
+        clientID: ${API_CLIENT_ID}
+        clientSecret: ${API_CLIENT_SECRET}
+        scopes:
+          - read</code></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== STATE & CACHE ============================== -->
+<section id="state-blocks">
+  <div class="wrap">
+    <div class="section-head"><span class="eyebrow">Built-in · <code>object-read</code> · <code>object-write</code> · <code>object-delete</code> · <code>cache-scope</code> · <code>invalidate-cache</code></span>
+      <h2>State &amp; cache blocks</h2>
+      <p>These blocks aren't provided by a connector — they're built in, and read and write the runtime
+      <strong>key–value store</strong>. In standalone runs the store is in-process; deployed on the platform it's a
+      per-deployment store shared across replicas. See the <a href="state.html">State &amp; clustering</a> guide for how
+      the store is provisioned. Every key/value field is a <strong>CEL expression</strong> and sees the usual
+      <code>body</code>, <code>vars</code>, <code>env</code>, <code>now</code>, <code>eventID</code>, <code>correlationID</code>.</p>
+    </div>
+    <div class="grid cols-2">
+      <div>
+        <h3>Store blocks (the <code>user</code> namespace)</h3>
+        <table class="eip-table">
+          <thead><tr><th>Block</th><th>Settings</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td><code>object-read</code></td><td><code>key</code>, <code>as</code></td><td>Reads the object at <code>key</code>. With <code>as</code> it lands in <code>vars.&lt;as&gt;</code>; without, it replaces the body. A missing key yields null / leaves the var unset.</td></tr>
+            <tr><td><code>object-write</code></td><td><code>key</code>, <code>value</code></td><td>Stores <code>value</code> (or the whole body if omitted) at <code>key</code> with optimistic concurrency (auto-retries on conflict). Passes the message through.</td></tr>
+            <tr><td><code>object-delete</code></td><td><code>key</code></td><td>Removes the object at <code>key</code>. Idempotent — deleting a missing key is not an error.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <h3>Cache blocks</h3>
+        <table class="eip-table">
+          <thead><tr><th>Block</th><th>Settings</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td><code>cache-scope</code></td><td><code>key</code>, <code>ttl</code>, <code>body</code></td><td>Composite. Memoizes the body its wrapped flow produces, keyed by <code>key</code>. A fresh hit restores the body and skips the flow. <code>ttl</code> is a Go duration (default <code>60s</code>; <code>0</code> never expires).</td></tr>
+            <tr><td><code>invalidate-cache</code></td><td><code>key</code></td><td>Evicts the entry a <code>cache-scope</code> stored under the same <code>key</code> so the next run recomputes.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+<pre style="margin-top:22px"><code class="language-yaml"># Read a counter, bump it, write it back — then cache a sub-flow's result for 1m.
+- type: object-read
+  settings: { key: '"counter"', as: counter }
+- type: set-variable
+  settings: { name: counter, value: "has(vars.counter) ? vars.counter + 1.0 : 1.0" }
+- type: object-write
+  settings: { key: '"counter"', value: vars.counter }
+- type: cache-scope
+  key: '"report"'
+  ttl: 1m
+  body:
+    process:
+      - type: log
+        settings: { logger: out, message: '"cache MISS — generating report"' }</code></pre>
+    <div class="note"><strong>Needs runtime services.</strong> Without a runtime store wired (standalone provides one in-process), these blocks operate against a no-op store and won't persist. On the platform the store is encrypted and scoped per deployment — see the <a href="state.html">State &amp; clustering</a> guide.</div>
   </div>
 </section>
 
