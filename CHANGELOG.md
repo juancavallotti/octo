@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.1.9](https://github.com/juancavallotti/octo/compare/v0.1.8...v0.1.9) (2026-06-27)
+
+
+### Bug Fixes
+
+* **terraform:** avoid sensitive for_each in kv encryption block ([f409e5e](https://github.com/juancavallotti/octo/commit/f409e5e09beb20deceb9af335e4f8b79cf9cd184))
+* **terraform:** avoid sensitive for_each in kv encryption block ([b4a1884](https://github.com/juancavallotti/octo/commit/b4a1884311ca65948fb56fd577672c96c2336864))
+
+
+### Documentation
+
+* **site:** add State & clustering and MCP authoring guides ([b2b7275](https://github.com/juancavallotti/octo/commit/b2b72751b634a9e7693861cde5e53c54fe2e16c2))
+* **site:** document state/cache blocks, OAuth2, version tags & global now ([f996609](https://github.com/juancavallotti/octo/commit/f99660944f0302bb91b459d5e727e879c766cf1a))
+* **site:** document the 0.1.7–0.1.8 features (state, versioning, MCP) ([aa4ca66](https://github.com/juancavallotti/octo/commit/aa4ca66eb674284c24f1a1b4346264b6cdc9734c))
+* **site:** refresh landing page for the 0.1.7–0.1.8 wave ([47d7f23](https://github.com/juancavallotti/octo/commit/47d7f237e192db964e0824b4bc78e312b166f466))
+
 ## [0.1.8](https://github.com/juancavallotti/octo/compare/v0.1.7...v0.1.8) (2026-06-27)
 
 
