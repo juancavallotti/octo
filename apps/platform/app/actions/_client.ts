@@ -24,6 +24,11 @@ import type {
   Snapshot,
   User,
 } from "@/app/model/orchestrator";
+import type {
+  ApiKey,
+  CreatedApiKey,
+  VerifiedApiKey,
+} from "@/app/model/apikeys";
 import type { ClusterSecret } from "@/app/model/secrets";
 
 export type { ActionResult } from "@octo/http";
@@ -81,6 +86,40 @@ export function bootstrapUser(
   name: string,
 ): Promise<ActionResult<User>> {
   return call<User>("POST", "/users/bootstrap", { subject, email, name });
+}
+
+// --- API keys -------------------------------------------------------------
+// Per-user bearer tokens, nested under their owner so the owner id never travels
+// in a header. createApiKey is the only call that returns the plaintext token.
+
+export function listApiKeys(userId: string): Promise<ActionResult<ApiKey[]>> {
+  return call<ApiKey[]>("GET", `/users/${enc(userId)}/apikeys`);
+}
+
+export function createApiKey(
+  userId: string,
+  name: string,
+  ttlSeconds: number,
+): Promise<ActionResult<CreatedApiKey>> {
+  return call<CreatedApiKey>("POST", `/users/${enc(userId)}/apikeys`, {
+    name,
+    ttlSeconds,
+  });
+}
+
+export function deleteApiKey(
+  userId: string,
+  id: string,
+): Promise<ActionResult<void>> {
+  return call<void>("DELETE", `/users/${enc(userId)}/apikeys/${enc(id)}`);
+}
+
+/** Resolve a presented bearer token to its owner, or an error result if it is
+ * unknown, revoked, or expired. Used by the `/mcp` route to authenticate. */
+export function verifyApiKey(
+  token: string,
+): Promise<ActionResult<VerifiedApiKey>> {
+  return call<VerifiedApiKey>("POST", "/apikeys/verify", { token });
 }
 
 // --- Integrations ---------------------------------------------------------
