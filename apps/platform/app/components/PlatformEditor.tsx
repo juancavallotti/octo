@@ -6,6 +6,7 @@ import { subscribeIntegrationEvents } from "@octo/events";
 import { useOrchestrator } from "@/app/run/OrchestratorContext";
 import { orchestratorFileSystem } from "@/app/providers/orchestratorFileSystem";
 import { bffRunTransport } from "@/app/run/transport";
+import { bffDevEnvStore } from "@/app/run/devEnvStore";
 import EditorHeader from "./EditorHeader";
 
 /**
@@ -50,6 +51,7 @@ export default function PlatformEditor({
       }
       fs={available ? orchestratorFileSystem : null}
       run={bffRunTransport}
+      devEnv={available ? bffDevEnvStore : null}
       onSaved={(stored) => {
         idRef.current = stored.id;
         // Promote the address bar to the bookmarkable /platform/i/<id> URL

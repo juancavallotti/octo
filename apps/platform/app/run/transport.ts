@@ -14,8 +14,8 @@ export const bffRunTransport: RunTransport = {
     return unwrap(await runStatus());
   },
 
-  async start({ yaml, devEnv, integrationId }): Promise<RunStatusSnapshot> {
-    return unwrap(await runStart(yaml, devEnv, integrationId));
+  async start({ yaml, integrationId }): Promise<RunStatusSnapshot> {
+    return unwrap(await runStart(yaml, integrationId));
   },
 
   async stop() {

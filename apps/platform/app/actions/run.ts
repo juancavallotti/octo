@@ -22,24 +22,6 @@ function resourcesFor(integrationId?: unknown) {
   return orchestratorResourceProvider(integrationId);
 }
 
-const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
-
-/**
- * Validate the optional dev-env map: a plain object of valid env names to string
- * values. Returns the sanitized map, or null if the shape is invalid.
- */
-function parseDevEnv(value: unknown): Record<string, string> | null {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return null;
-  }
-  const out: Record<string, string> = {};
-  for (const [name, val] of Object.entries(value as Record<string, unknown>)) {
-    if (!ENV_NAME.test(name) || typeof val !== "string") return null;
-    out[name] = val;
-  }
-  return out;
-}
-
 /** Whether RUN is available, whether this browser's runner is live, and its version. */
 export async function runStatus(): Promise<ActionResult<RunStatusSnapshot>> {
   return withRead(async () => {
@@ -52,7 +34,6 @@ export async function runStatus(): Promise<ActionResult<RunStatusSnapshot>> {
 /** Render the config and (re)start this browser's runner. */
 export async function runStart(
   yaml: string,
-  devEnv?: unknown,
   integrationId?: string,
 ): Promise<ActionResult<RunStatusSnapshot>> {
   return withWrite(async () => {
@@ -63,16 +44,12 @@ export async function runStart(
     if (typeof yaml !== "string" || yaml.trim() === "") {
       return { ok: false, error: "missing `yaml`" };
     }
-    let env: Record<string, string> | undefined;
-    if (devEnv !== undefined) {
-      const parsed = parseDevEnv(devEnv);
-      if (!parsed) return { ok: false, error: "invalid `devEnv`" };
-      env = parsed;
-    }
     try {
       return {
         ok: true,
-        data: await start(ns, yaml, env, { resources: resourcesFor(integrationId) }),
+        data: await start(ns, yaml, undefined, {
+          resources: resourcesFor(integrationId),
+        }),
       };
     } catch (err) {
       return { ok: false, error: (err as Error).message };

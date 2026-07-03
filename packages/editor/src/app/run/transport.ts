@@ -24,11 +24,11 @@ export interface RunTransport {
   /**
    * Start a runner for the given config; resolves to the new state. `integrationId`
    * identifies the open integration so the host can resolve its resources (env
-   * files, templates) from its backend; absent for an unsaved draft.
+   * files, templates, and the dev-env `.env.dev`) from its backend; absent for an
+   * unsaved draft.
    */
   start(args: {
     yaml: string;
-    devEnv: Record<string, string>;
     integrationId?: string;
   }): Promise<RunStatusSnapshot>;
   /** Stop the current runner. */

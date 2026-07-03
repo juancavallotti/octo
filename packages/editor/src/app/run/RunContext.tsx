@@ -13,7 +13,6 @@ import {
 import { toRunnableYaml } from "../model/runConfig";
 import { validateDocument, type ValidationResult } from "../model/validate";
 import { useEditorState } from "../state/editorState";
-import { loadDevEnv } from "../state/devEnv";
 import { type RunTransport } from "./transport";
 
 /**
@@ -127,18 +126,11 @@ export function RunProvider({
     setError(null);
     try {
       const yaml = toRunnableYaml(doc);
-      // Dev .env values for the declared variables, injected into the runner's
-      // environment for this run only (never serialized into the YAML). Scoped by
-      // the open integration id; blanks are dropped so the runtime default applies.
-      const stored = loadDevEnv(integrationId);
-      const devEnv: Record<string, string> = {};
-      for (const v of doc.env) {
-        const val = stored[v.name];
-        if (val) devEnv[v.name] = val;
-      }
+      // Dev-env values are no longer sent from the browser: run-host stages the
+      // integration's `.env.dev` resource (edited in the Dev .env panel) and the
+      // runtime loads it, so a run reads its credentials from the host's store.
       const snapshot = await transport.start({
         yaml,
-        devEnv,
         integrationId: integrationId ?? undefined,
       });
       lastYamlRef.current = yaml;

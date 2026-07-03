@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { EditorRoot } from "@octo/editor";
 import { subscribeIntegrationEvents } from "@octo/events";
 import { localRunTransport } from "@/app/run/localRunTransport";
+import { localDevEnvStore } from "@/app/run/devEnvStore";
 import { localDiskFileSystem } from "@/app/providers/localDiskFileSystem";
 import StandaloneHeader from "./StandaloneHeader";
 
@@ -39,6 +40,7 @@ export default function StandaloneEditor({ file }: { file?: string }) {
       reloadToken={reloadToken}
       fs={localDiskFileSystem}
       run={localRunTransport}
+      devEnv={localDevEnvStore}
       header={<StandaloneHeader />}
       onSaved={(stored) => {
         // Reflect the open file in the URL so a reload reopens it; the header

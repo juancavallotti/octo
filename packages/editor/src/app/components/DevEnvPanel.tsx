@@ -1,13 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Eye, EyeOff, Plus, X } from "lucide-react";
 import type { EnvVar } from "../model/document";
 import { useEditorState, EditorActionType } from "../state/editorState";
-import { loadDevEnv, saveDevEnv, type DevEnvMap } from "../state/devEnv";
+import {
+  parseDotEnv,
+  serializeDotEnv,
+  useDevEnvStore,
+  type DevEnvMap,
+  type DevEnvStore,
+} from "../state/devEnvStore";
 
 const INPUT =
   "w-full rounded-md border border-black/10 dark:border-white/15 bg-transparent px-2 py-1 text-sm outline-none focus:border-black/30 dark:focus:border-white/30";
+
+/** Debounce for persisting edits to the backend as the user types. */
+const SAVE_DEBOUNCE_MS = 600;
 
 /**
  * The "Dev .env" console tab. Its rows mirror the document's declared `env:`
@@ -15,44 +24,87 @@ const INPUT =
  * sync (both read and write `state.document.env`). Here you can add a variable and
  * supply each one's value; name/default/required are still edited in the launcher.
  *
- * Values are masked by default and persisted in localStorage scoped by the open
- * integration's id (see state/devEnv.ts) — they never touch the document, the
- * rendered YAML, or any server file. They are injected into the runner's
- * environment at run time and discarded; a variable left blank falls back to its
- * declared default at runtime.
+ * Values are masked by default and persisted as the integration's `.env.dev`
+ * resource in the host's backend (see state/devEnvStore.ts) — not in the browser,
+ * so credentials never live client-side and an MCP run can read them from the
+ * store. run-host stages `.env.dev` into the run and the runtime loads it; a
+ * variable left blank falls back to its declared default at runtime.
  *
- * Keyed by integration id so switching files remounts with the right value bucket
- * (initialized lazily, no setState-in-effect).
+ * Keyed by integration id so switching files remounts with the right values.
  */
 export default function DevEnvPanel() {
   const { state } = useEditorState();
   const id = state.integration.id;
-  return <DevEnvEditor key={id ?? "__draft__"} id={id} />;
+  const store = useDevEnvStore();
+  return <DevEnvEditor key={id ?? "__draft__"} id={id} store={store} />;
 }
 
-function DevEnvEditor({ id }: { id: string | null }) {
+function DevEnvEditor({
+  id,
+  store,
+}: {
+  id: string | null;
+  store: DevEnvStore | null;
+}) {
   const { state, dispatch } = useEditorState();
   const vars = state.document.env;
-  const [values, setValues] = useState<DevEnvMap>(() => loadDevEnv(id));
+  const editable = !!store && store.canEdit(id);
+  // null while the .env.dev content is still loading from the backend.
+  const [values, setValues] = useState<DevEnvMap | null>(editable ? null : {});
   const [reveal, setReveal] = useState(false);
   const [newName, setNewName] = useState("");
   const [newValue, setNewValue] = useState("");
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Load the stored values once per integration (the panel remounts on id change).
+  useEffect(() => {
+    if (!editable || !store) return;
+    let cancelled = false;
+    store
+      .load(id)
+      .then((content) => {
+        if (!cancelled) setValues(parseDotEnv(content));
+      })
+      .catch(() => {
+        if (!cancelled) setValues({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [editable, store, id]);
+
+  // Flush any pending debounced save when the panel unmounts.
+  useEffect(
+    () => () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+    },
+    [],
+  );
+
+  /** Persist the given map to the backend, debounced. */
+  function persist(next: DevEnvMap) {
+    if (!store) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      void store.save(id, serializeDotEnv(next)).catch(() => {});
+    }, SAVE_DEBOUNCE_MS);
+  }
 
   const setEnv = (env: EnvVar[]) =>
     dispatch({ type: EditorActionType.SET_ENV, data: { env } });
 
   function setValue(name: string, value: string) {
-    const next = { ...values, [name]: value };
+    const next = { ...(values ?? {}), [name]: value };
     setValues(next);
-    saveDevEnv(id, next);
+    persist(next);
   }
 
   function removeVar(name: string) {
     setEnv(vars.filter((v) => v.name !== name));
-    const next = { ...values };
+    const next = { ...(values ?? {}) };
     delete next[name];
     setValues(next);
-    saveDevEnv(id, next);
+    persist(next);
   }
 
   function addVar() {
@@ -64,12 +116,23 @@ function DevEnvEditor({ id }: { id: string | null }) {
     setNewValue("");
   }
 
+  // Draft (no id) on a backend that needs a saved integration: nothing to edit yet.
+  if (!editable) {
+    return (
+      <div className="flex flex-1 flex-col overflow-auto px-3 py-2 text-xs text-zinc-400 dark:text-zinc-500">
+        Save the integration first to set its dev environment values.
+      </div>
+    );
+  }
+
+  const loaded = values ?? {};
+
   return (
     <div className="flex flex-1 flex-col overflow-auto">
       <div className="flex items-center gap-2 px-3 py-2 text-xs text-zinc-400 dark:text-zinc-500">
         <span>
-          Values for the declared environment variables, injected into the runner at
-          start — never written to the config. Changes apply on the next Run.
+          Values for the declared environment variables, stored as this
+          integration&apos;s <code>.env.dev</code> resource. Changes apply on the next Run.
         </span>
         {vars.length > 0 && (
           <button
@@ -99,7 +162,7 @@ function DevEnvEditor({ id }: { id: string | null }) {
             </span>
             <input
               type={reveal ? "text" : "password"}
-              value={values[v.name] ?? ""}
+              value={loaded[v.name] ?? ""}
               placeholder={v.default ? `default: ${v.default}` : "value"}
               autoComplete="off"
               spellCheck={false}

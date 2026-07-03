@@ -14,8 +14,8 @@ export const localRunTransport: RunTransport = {
     return unwrap(await runStatus());
   },
 
-  async start({ yaml, devEnv }): Promise<RunStatusSnapshot> {
-    return unwrap(await runStart(yaml, devEnv));
+  async start({ yaml }): Promise<RunStatusSnapshot> {
+    return unwrap(await runStart(yaml));
   },
 
   async stop() {

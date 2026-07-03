@@ -20,6 +20,7 @@ export {
   type RunResourceOptions,
 } from "./session";
 export {
+  DEV_ENV_RESOURCE,
   type ResourceFile,
   type ResourceProvider,
 } from "./resources";
