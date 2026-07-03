@@ -3,9 +3,12 @@ module github.com/juancavallotti/octo/core
 go 1.23.0
 
 require (
+	github.com/fsnotify/fsnotify v1.10.1
 	github.com/juancavallotti/octo/types v0.0.0
 	gopkg.in/yaml.v3 v3.0.1
 )
+
+require golang.org/x/sys v0.21.0 // indirect
 
 require (
 	cel.dev/expr v0.25.1 // indirect
