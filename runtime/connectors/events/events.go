@@ -14,7 +14,6 @@ package events
 
 import (
 	"context"
-	"time"
 
 	"github.com/juancavallotti/octo/core"
 	"github.com/juancavallotti/octo/types"
@@ -26,10 +25,6 @@ func init() {
 	})
 }
 
-// exprVars are the names a publish-event expression can reference, matching the
-// other CEL-driven blocks.
-var exprVars = []string{"body", "vars", "eventID", "correlationID", "env", "now"}
-
 // Connector holds no shared resources: each source subscribes to the core topics
 // service (from the context at start) and the publish-event block publishes onto
 // it, so there is nothing to own here.
@@ -40,26 +35,3 @@ func (c *Connector) Start(context.Context, types.ConnectorConfig) error { return
 
 // Stop does nothing and always succeeds.
 func (c *Connector) Stop(context.Context) error { return nil }
-
-// messageActivation maps a message (and the block's resolved env) onto the
-// variables a CEL expression can reference.
-func messageActivation(msg *types.Message, env map[string]any) map[string]any {
-	return map[string]any{
-		"body":          msg.Body,
-		"vars":          map[string]any(msg.Variables),
-		"eventID":       msg.EventID,
-		"correlationID": msg.CorrelationID,
-		"env":           env,
-		"now":           time.Now(),
-	}
-}
-
-// envActivation materializes a resolved env map into the form CEL expects once at
-// build time, so it is shared across every message the block processes.
-func envActivation(env map[string]string) map[string]any {
-	out := make(map[string]any, len(env))
-	for k, v := range env {
-		out[k] = v
-	}
-	return out
-}

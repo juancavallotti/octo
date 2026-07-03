@@ -13,10 +13,37 @@ type Config struct {
 	Processors []ProcessorConfig `yaml:"processors,omitempty"`
 	Flows      []FlowConfig      `yaml:"flows,omitempty"`
 
+	// Resources declares the external resources this config imports: the
+	// .env-convention files combined into the runtime environment, and the template
+	// resources aliased for reference from blocks and CEL. Declared resources are
+	// loaded when the config loads, so a missing or malformed one fails at
+	// deployment rather than when a message first references it.
+	Resources ResourcesConfig `yaml:"resources,omitempty"`
+
 	// ResolvedEnv holds the declared environment variables resolved to their
 	// values (the same map used for ${NAME} substitution), so expressions can
 	// read them as env.NAME. Populated during config load; not serialized.
 	ResolvedEnv map[string]string `yaml:"-"`
+}
+
+// ResourcesConfig declares the external resources a config imports. Env lists the
+// ids of .env-convention resources to combine into the runtime environment, in
+// order (later ids overlay earlier ones). Templates declares the template
+// resources this config uses, each optionally given a short alias for reference.
+type ResourcesConfig struct {
+	Env       []string           `yaml:"env,omitempty"`
+	Templates []TemplateResource `yaml:"templates,omitempty"`
+}
+
+// TemplateResource declares a template resource. Resource is the resource id (a
+// path under the config directory). As is an optional alias: when set, blocks and
+// CEL can reference the template by the alias — e.g. templateResource("welcome") —
+// instead of the full path; when empty the template is referenced by its resource
+// id. Every declared template is loaded and parsed at config load, so a missing or
+// malformed one fails at deployment rather than when a message first renders it.
+type TemplateResource struct {
+	Resource string `yaml:"resource"`
+	As       string `yaml:"as,omitempty"`
 }
 
 // ServiceConfig describes the runtime service identity and environment.

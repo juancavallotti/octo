@@ -75,18 +75,18 @@ func newLookupUser(raw types.Settings, deps core.BlockDeps) (core.MessageProcess
 		conn:        conn,
 		resultVar:   orDefault(cfg.ResultVar, defaultUserVar),
 		failOnError: failOnErrorDefault(cfg.FailOnError),
-		env:         envActivation(deps.Env),
+		env:         expr.EnvActivation(deps.Env),
 	}
 
 	switch orDefault(cfg.By, lookupByEmail) {
 	case lookupByEmail:
-		arg, argErr := compileRequired("slack-lookup-user", "email", cfg.Email)
+		arg, argErr := compileRequired(deps.Resources, "slack-lookup-user", "email", cfg.Email)
 		if argErr != nil {
 			return nil, argErr
 		}
 		block.method, block.param, block.arg = "users.lookupByEmail", "email", arg
 	case lookupByID:
-		arg, argErr := compileRequired("slack-lookup-user", "user", cfg.User)
+		arg, argErr := compileRequired(deps.Resources, "slack-lookup-user", "user", cfg.User)
 		if argErr != nil {
 			return nil, argErr
 		}
@@ -100,7 +100,7 @@ func newLookupUser(raw types.Settings, deps core.BlockDeps) (core.MessageProcess
 // Process resolves the argument (email or user id) and folds the returned user
 // object into the result variable.
 func (p *lookupProcessor) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
-	arg, err := p.arg.EvalString(messageActivation(msg, p.env))
+	arg, err := p.arg.EvalString(expr.MessageActivation(msg, p.env))
 	if err != nil {
 		return nil, fmt.Errorf("slack-lookup-user %s: %w", p.param, err)
 	}

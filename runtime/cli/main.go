@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -152,8 +153,9 @@ func runCommand(args []string) error {
 
 	// Build the runtime services once and reuse them across watch-mode reloads, so
 	// leases and connections are not churned on every config change. The CLI owns
-	// their lifecycle; each Service generation only borrows them.
-	svc, err := services.New(ctx)
+	// their lifecycle; each Service generation only borrows them. The resource root
+	// (the config directory) roots the standalone module's resource loader.
+	svc, err := services.New(ctx, services.Options{ResourceRoot: configDir(*configPath)})
 	if err != nil {
 		return fmt.Errorf("init runtime services: %w", err)
 	}
@@ -167,9 +169,19 @@ func runCommand(args []string) error {
 	return runOnce(ctx, *configPath, svc)
 }
 
+// configDir returns the directory a config path is rooted at — the directory
+// itself when path is a config directory, else the config file's parent. It is
+// the resource root handed to the runtime-services provider.
+func configDir(configPath string) string {
+	if info, err := os.Stat(configPath); err == nil && !info.IsDir() {
+		return filepath.Dir(configPath)
+	}
+	return configPath
+}
+
 // runOnce loads the config and runs a single service generation.
 func runOnce(ctx context.Context, configPath string, svc core.RuntimeServices) error {
-	config, err := runtime.LoadConfig(configPath)
+	config, err := runtime.LoadConfig(configPath, svc.Resources())
 	if err != nil {
 		return err
 	}
@@ -200,14 +212,17 @@ func announceWhenReady(ctx context.Context, service *runtime.Service) {
 // whenever the watched path changes, until ctx is cancelled. A config that fails
 // to load leaves the previous generation stopped and waits for the next change.
 func runWithReload(ctx context.Context, configPath string, svc core.RuntimeServices) error {
-	changed, err := watchConfig(ctx, configPath)
+	// The services' resource loader backs env-resource combination during load and
+	// the blocks' resource reads, and (as a ResourceWatcher) drives reloads.
+	loader := svc.Resources()
+	changed, err := watchConfig(ctx, configPath, loader)
 	if err != nil {
 		return fmt.Errorf("watch config: %w", err)
 	}
 	slog.Info("watching config for changes", "path", configPath)
 
 	for {
-		config, loadErr := runtime.LoadConfig(configPath)
+		config, loadErr := runtime.LoadConfig(configPath, loader)
 		if loadErr != nil {
 			slog.Error("config load failed, waiting for next change", "error", loadErr)
 			if !waitForChange(ctx, changed) {
@@ -304,20 +319,23 @@ func invokeCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	config, err := runtime.LoadConfig(*configPath)
-	if err != nil {
-		return err
-	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	svc, err := services.New(ctx)
+	// Build services first: their resource loader (rooted at the config directory)
+	// is needed to load the config's env resources.
+	svc, err := services.New(ctx, services.Options{ResourceRoot: configDir(*configPath)})
 	if err != nil {
 		return fmt.Errorf("init runtime services: %w", err)
 	}
 	defer func() { _ = svc.Close() }()
 	teeDefaultLoggerToSink(svc)
+
+	config, err := runtime.LoadConfig(*configPath, svc.Resources())
+	if err != nil {
+		return err
+	}
 
 	result, err := invokeFlow(ctx, config, *flowName, body, *timeout, svc)
 	if err != nil {

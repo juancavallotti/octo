@@ -29,24 +29,35 @@ type Program struct {
 
 // Compile checks and compiles expression, declaring each name in vars as a
 // dynamically typed variable available to the expression. It returns an error
-// the caller can surface at startup when the expression is malformed.
+// the caller can surface at startup when the expression is malformed. Message
+// expressions should use CompileMessage instead, which adds the standard message
+// variables plus the registered extensions (e.g. templateResource).
 func Compile(expression string, vars ...string) (*Program, error) {
-	options := make([]cel.EnvOption, 0, len(vars))
+	return CompileWithOptions(expression, vars)
+}
+
+// CompileWithOptions compiles expression declaring each name in vars as a
+// dynamically typed variable and applying any extra environment options (custom
+// functions, macros). It is the single low-level compile path; Compile and
+// CompileMessage are thin wrappers over it.
+func CompileWithOptions(expression string, vars []string, opts ...cel.EnvOption) (*Program, error) {
+	options := make([]cel.EnvOption, 0, len(vars)+len(opts))
 	for _, name := range vars {
 		options = append(options, cel.Variable(name, cel.DynType))
 	}
+	options = append(options, opts...)
 
 	env, err := cel.NewEnv(options...)
 	if err != nil {
 		return nil, fmt.Errorf("build expression env: %w", err)
 	}
 
-	ast, issues := env.Compile(expression)
+	checked, issues := env.Compile(expression)
 	if issues != nil && issues.Err() != nil {
 		return nil, fmt.Errorf("compile expression %q: %w", expression, issues.Err())
 	}
 
-	program, err := env.Program(ast)
+	program, err := env.Program(checked)
 	if err != nil {
 		return nil, fmt.Errorf("plan expression %q: %w", expression, err)
 	}

@@ -17,7 +17,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/juancavallotti/octo/core"
 	"github.com/juancavallotti/octo/core/expr"
@@ -29,10 +28,6 @@ func init() {
 }
 
 const defaultStatusVar = "statusCode"
-
-// exprVars are the names a rest expression can reference, matching the other
-// CEL-driven blocks.
-var exprVars = []string{"body", "vars", "eventID", "correlationID", "env", "now"}
 
 // restSettings is the rest block's typed configuration.
 type restSettings struct {
@@ -86,17 +81,17 @@ func newREST(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor, er
 		return nil, err
 	}
 
-	query, err := compileMap(cfg.Query)
+	query, err := compileMap(deps.Resources, cfg.Query)
 	if err != nil {
 		return nil, err
 	}
-	headers, err := compileMap(cfg.Headers)
+	headers, err := compileMap(deps.Resources, cfg.Headers)
 	if err != nil {
 		return nil, err
 	}
 	var body *expr.Program
 	if cfg.Body != "" {
-		body, err = expr.Compile(cfg.Body, exprVars...)
+		body, err = expr.CompileMessage(deps.Resources, cfg.Body)
 		if err != nil {
 			return nil, err
 		}
@@ -124,7 +119,7 @@ func newREST(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor, er
 		body:        body,
 		failOnError: failOnError,
 		statusVar:   statusVar,
-		env:         envActivation(deps.Env),
+		env:         expr.EnvActivation(deps.Env),
 	}, nil
 }
 
@@ -147,14 +142,14 @@ func resolveConnector(name string, deps core.BlockDeps) (*Connector, error) {
 	return conn, nil
 }
 
-// compileMap compiles each value of a name->expression map into a program.
-func compileMap(in map[string]string) (map[string]*expr.Program, error) {
+// compileMap compiles each value of a name->expression map into a message program.
+func compileMap(res core.ResourceLoader, in map[string]string) (map[string]*expr.Program, error) {
 	if len(in) == 0 {
 		return nil, nil
 	}
 	out := make(map[string]*expr.Program, len(in))
 	for name, e := range in {
-		program, err := expr.Compile(e, exprVars...)
+		program, err := expr.CompileMessage(res, e)
 		if err != nil {
 			return nil, fmt.Errorf("rest block: compile %q: %w", name, err)
 		}
@@ -167,7 +162,7 @@ func compileMap(in map[string]string) (map[string]*expr.Program, error) {
 // connector, stores the status in a variable, and folds the response body into
 // the message body.
 func (p *processor) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
-	activation := messageActivation(msg, p.env)
+	activation := expr.MessageActivation(msg, p.env)
 
 	target, err := p.buildURL(activation)
 	if err != nil {
@@ -277,29 +272,6 @@ func foldResponse(msg *types.Message, body []byte) error {
 	}
 	msg.Body = string(body)
 	return nil
-}
-
-// messageActivation maps a message (and the block's resolved env) onto the
-// variables an expression can reference.
-func messageActivation(msg *types.Message, env map[string]any) map[string]any {
-	return map[string]any{
-		"body":          msg.Body,
-		"vars":          map[string]any(msg.Variables),
-		"eventID":       msg.EventID,
-		"correlationID": msg.CorrelationID,
-		"env":           env,
-		"now":           time.Now(),
-	}
-}
-
-// envActivation materializes a resolved env map into the form CEL expects once
-// at build time, so it is shared across every message the block processes.
-func envActivation(env map[string]string) map[string]any {
-	out := make(map[string]any, len(env))
-	for k, v := range env {
-		out[k] = v
-	}
-	return out
 }
 
 // snippet returns a short, single-line preview of a response body for errors.

@@ -23,6 +23,7 @@ import {
   Inbox,
   Layers,
   Radio,
+  FileText,
   Box,
   type LucideIcon,
 } from "lucide-react";
@@ -67,6 +68,7 @@ const ICONS: Record<string, LucideIcon> = {
   Inbox,
   Layers,
   Radio,
+  FileText,
   Slack: SlackIcon,
 };
 

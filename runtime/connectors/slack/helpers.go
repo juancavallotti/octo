@@ -6,16 +6,11 @@ package slack
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/juancavallotti/octo/core"
 	"github.com/juancavallotti/octo/core/expr"
 	"github.com/juancavallotti/octo/types"
 )
-
-// exprVars are the names a slack block's CEL expressions can reference, matching
-// the other CEL-driven blocks.
-var exprVars = []string{"body", "vars", "eventID", "correlationID", "env", "now"}
 
 // fieldChannel is the Slack Web API request field naming a channel or user ID,
 // shared by the blocks that post to or act on a conversation.
@@ -40,13 +35,14 @@ func resolveConnector(name string, deps core.BlockDeps) (*Connector, error) {
 	return conn, nil
 }
 
-// compileOptional compiles a CEL expression, returning a nil program for an
-// empty source so callers can treat "unset" as "skip".
-func compileOptional(src string) (*expr.Program, error) {
+// compileOptional compiles a message CEL expression, returning a nil program for
+// an empty source so callers can treat "unset" as "skip". res may be nil (e.g. a
+// source filter with no resource loader).
+func compileOptional(res core.ResourceLoader, src string) (*expr.Program, error) {
 	if strings.TrimSpace(src) == "" {
 		return nil, nil
 	}
-	return expr.Compile(src, exprVars...)
+	return expr.CompileMessage(res, src)
 }
 
 // orDefault returns value when it is non-empty, otherwise fallback.
@@ -57,13 +53,13 @@ func orDefault(value, fallback string) string {
 	return value
 }
 
-// compileRequired compiles a required CEL expression, erroring with a block- and
-// field-labelled message when it is empty or malformed.
-func compileRequired(block, field, src string) (*expr.Program, error) {
+// compileRequired compiles a required message CEL expression, erroring with a
+// block- and field-labelled message when it is empty or malformed.
+func compileRequired(res core.ResourceLoader, block, field, src string) (*expr.Program, error) {
 	if strings.TrimSpace(src) == "" {
 		return nil, fmt.Errorf("%s requires a %q expression", block, field)
 	}
-	program, err := expr.Compile(src, exprVars...)
+	program, err := expr.CompileMessage(res, src)
 	if err != nil {
 		return nil, fmt.Errorf("%s: compile %s: %w", block, field, err)
 	}
@@ -87,27 +83,4 @@ func onCallError(msg *types.Message, err error, failOnError bool) (*types.Messag
 		return nil, err
 	}
 	return msg, nil
-}
-
-// messageActivation maps a message (and the block's resolved env) onto the
-// variables a CEL expression can reference.
-func messageActivation(msg *types.Message, env map[string]any) map[string]any {
-	return map[string]any{
-		"body":          msg.Body,
-		"vars":          map[string]any(msg.Variables),
-		"eventID":       msg.EventID,
-		"correlationID": msg.CorrelationID,
-		"env":           env,
-		"now":           time.Now(),
-	}
-}
-
-// envActivation materializes a resolved env map into the form CEL expects once
-// at build time, so it is shared across every message a block processes.
-func envActivation(env map[string]string) map[string]any {
-	out := make(map[string]any, len(env))
-	for k, v := range env {
-		out[k] = v
-	}
-	return out
 }

@@ -112,6 +112,27 @@ export interface EnvVar {
   required?: boolean;
 }
 
+/**
+ * A declared template resource (an entry of the runtime's `resources.templates`).
+ * `resource` is the template file's id (its path under the config dir); `as` is an
+ * optional alias the `template-resource` block and `templateResource()` CEL
+ * function reference it by. See runtime/types/runtime.go.
+ */
+export interface TemplateResource {
+  resource: string;
+  as?: string;
+}
+
+/**
+ * The document's declared resources (the runtime's top-level `resources:`). `env`
+ * lists `.env`-convention files combined into the environment; `templates` lists
+ * the template files this config renders. See runtime/types/runtime.go.
+ */
+export interface Resources {
+  env: string[];
+  templates: TemplateResource[];
+}
+
 export interface EditorDocument {
   flows: FlowDoc[];
   connectors: ConnectorInstance[];
@@ -119,6 +140,13 @@ export interface EditorDocument {
   processors: BlockNode[];
   /** Declared environment variables (the runtime's top-level `env:`). */
   env: EnvVar[];
+  /**
+   * Declared resources (the runtime's top-level `resources:`): env-file resources
+   * combined into the environment and template resources rendered by the
+   * `template-resource` block. Optional so older document literals stay valid; a
+   * fresh document seeds an empty one (see blankDocument).
+   */
+  resources?: Resources;
 }
 
 /** Generate a stable client id. */
@@ -196,7 +224,13 @@ export function emptyDocument(): EditorDocument {
 
 /** A truly empty document — no flows at all (the editor's scratch start state). */
 export function blankDocument(): EditorDocument {
-  return { flows: [], connectors: [], processors: [], env: [] };
+  return {
+    flows: [],
+    connectors: [],
+    processors: [],
+    env: [],
+    resources: { env: [], templates: [] },
+  };
 }
 
 /** Recursively transform a sub-flow inside a block's slots, returning a copy. */

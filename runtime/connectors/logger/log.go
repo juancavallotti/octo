@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/juancavallotti/octo/core"
 	"github.com/juancavallotti/octo/core/expr"
@@ -55,6 +54,7 @@ type processor struct {
 	message *expr.Program
 	logger  *slog.Logger
 	full    bool
+	env     map[string]any
 }
 
 // newLog builds a log processor, resolving its logger and compiling the optional
@@ -78,9 +78,9 @@ func newLog(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor, err
 		return nil, err
 	}
 
-	p := &processor{level: level, logger: logger, full: cfg.Full}
+	p := &processor{level: level, logger: logger, full: cfg.Full, env: expr.EnvActivation(deps.Env)}
 	if cfg.Message != "" {
-		program, compileErr := expr.Compile(cfg.Message, "body", "vars", "eventID", "correlationID", "now")
+		program, compileErr := expr.CompileMessage(deps.Resources, cfg.Message)
 		if compileErr != nil {
 			return nil, compileErr
 		}
@@ -132,7 +132,7 @@ func (p *processor) Process(ctx context.Context, msg *types.Message) (*types.Mes
 // structured attribute.
 func (p *processor) render(msg *types.Message) (string, error) {
 	if p.message != nil {
-		return p.message.EvalString(activation(msg))
+		return p.message.EvalString(expr.MessageActivation(msg, p.env))
 	}
 	if p.full {
 		return "message", nil
@@ -159,15 +159,4 @@ func messageAttrs(msg *types.Message) []any {
 		attrs = append(attrs, "body_schema", string(msg.BodySchema))
 	}
 	return attrs
-}
-
-// activation maps a message onto the variables a log expression can reference.
-func activation(msg *types.Message) map[string]any {
-	return map[string]any{
-		bodyKey:         msg.Body,
-		"vars":          map[string]any(msg.Variables),
-		"eventID":       msg.EventID,
-		"correlationID": msg.CorrelationID,
-		"now":           time.Now(),
-	}
 }

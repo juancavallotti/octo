@@ -69,7 +69,30 @@
   </div>
 </section>
 
-<section id="recipes">
+<section id="functions">
+  <div class="wrap">
+    <div class="section-head"><span class="eyebrow">Custom functions</span><h2>Beyond the CEL standard library.</h2>
+      <p>On top of CEL's built-ins, Octo registers functions that are available in every message
+        expression — no per-block wiring.</p>
+    </div>
+    <table class="eip-table">
+      <thead><tr><th>Function</th><th>Returns</th><th>What it does</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>templateResource(id)</code></td>
+          <td>string</td>
+          <td>Renders a declared <a href="https://github.com/juancavallotti/octo/blob/main/docs/processing-pipeline.md#resources" target="_blank" rel="noopener">template resource</a> against the
+            current message and returns the text. <code>id</code> is the template's <code>resources.templates</code>
+            alias (its <code>as</code>) or its resource path. The template's own <code>{{ … }}</code> inner
+            expressions see the same <code>body</code>/<code>vars</code>/<code>env</code>/<code>now</code> surface.
+            The same rendering is available as the <code>template-resource</code> block.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="recipes" class="alt">
   <div class="wrap">
     <div class="section-head"><span class="eyebrow">Copy-paste</span><h2>Recipes.</h2>
       <p>Every snippet below is lifted from a working sample in <code>samples/</code>.</p>
@@ -102,6 +125,10 @@ vars["X-Tenant"]</code></pre>
       <div>
         <div class="sample-meta"><p class="run-label">Read environment variables</p></div>
         <pre><code class="language-yaml">"listening on " + env.HTTP_PORT</code></pre>
+      </div>
+      <div>
+        <div class="sample-meta"><p class="run-label">Render a declared template (templateResource)</p></div>
+        <pre><code class="language-yaml">templateResource("welcome")</code></pre>
       </div>
       <div>
         <div class="sample-meta"><p class="run-label">Iterate a list (foreach)</p></div>

@@ -68,7 +68,7 @@ func (b *builder) cacheScope(cfg types.BlockConfig) (core.MessageProcessor, erro
 	if cfg.Key == "" {
 		return nil, errors.New("cache-scope block requires a key expression")
 	}
-	key, err := expr.Compile(cfg.Key, exprVarNames...)
+	key, err := expr.CompileMessage(b.deps.Resources, cfg.Key)
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +81,7 @@ func (b *builder) cacheScope(cfg types.BlockConfig) (core.MessageProcessor, erro
 	if err != nil {
 		return nil, fmt.Errorf("cache-scope body: %w", err)
 	}
-	return &cacheScope{body: body, key: key, ttl: ttl, env: envActivation(b.deps.Env)}, nil
+	return &cacheScope{body: body, key: key, ttl: ttl, env: expr.EnvActivation(b.deps.Env)}, nil
 }
 
 // resolveCacheTTL parses the ttl setting: empty uses the default, otherwise a Go
@@ -105,7 +105,7 @@ func resolveCacheTTL(raw string) (time.Duration, error) {
 // (another worker cached first) or an absent store leaves the result correct, just
 // uncached.
 func (c *cacheScope) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
-	keyValue, err := c.key.EvalString(messageActivation(msg, c.env))
+	keyValue, err := c.key.EvalString(expr.MessageActivation(msg, c.env))
 	if err != nil {
 		return nil, fmt.Errorf("cache-scope key: %w", err)
 	}
@@ -189,17 +189,17 @@ func newInvalidateCache(raw types.Settings, deps core.BlockDeps) (core.MessagePr
 	if cfg.Key == "" {
 		return nil, errors.New("invalidate-cache requires a key expression")
 	}
-	key, err := expr.Compile(cfg.Key, exprVarNames...)
+	key, err := expr.CompileMessage(deps.Resources, cfg.Key)
 	if err != nil {
 		return nil, err
 	}
-	return &invalidateCache{key: key, env: envActivation(deps.Env)}, nil
+	return &invalidateCache{key: key, env: expr.EnvActivation(deps.Env)}, nil
 }
 
 // Process evicts the entry for the evaluated key (unconditionally, ignoring the
 // version) and forwards the message unchanged.
 func (p *invalidateCache) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
-	keyValue, err := p.key.EvalString(messageActivation(msg, p.env))
+	keyValue, err := p.key.EvalString(expr.MessageActivation(msg, p.env))
 	if err != nil {
 		return nil, fmt.Errorf("invalidate-cache key: %w", err)
 	}

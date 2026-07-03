@@ -64,19 +64,21 @@ func newMultiTransform(raw types.Settings, deps core.BlockDeps) (core.MessagePro
 
 	steps := make([]transformStep, 0, len(cfg.Transforms))
 	for i, step := range cfg.Transforms {
-		compiled, err := compileTransformStep(i, step)
+		compiled, err := compileTransformStep(deps.Resources, i, step)
 		if err != nil {
 			return nil, err
 		}
 		steps = append(steps, compiled)
 	}
-	return &multiTransform{steps: steps, env: envActivation(deps.Env)}, nil
+	return &multiTransform{steps: steps, env: expr.EnvActivation(deps.Env)}, nil
 }
 
 // compileTransformStep validates one step (exactly one of setBody/setVar, and a
 // value for setVar) and compiles its expression once, so a malformed expression
 // fails at startup.
-func compileTransformStep(index int, step transformStepSettings) (transformStep, error) {
+func compileTransformStep(
+	res core.ResourceLoader, index int, step transformStepSettings,
+) (transformStep, error) {
 	hasBody := step.SetBody != ""
 	hasVar := step.SetVar != ""
 	switch {
@@ -95,7 +97,7 @@ func compileTransformStep(index int, step transformStepSettings) (transformStep,
 	if hasVar {
 		source = step.Value
 	}
-	program, err := expr.Compile(source, exprVarNames...)
+	program, err := expr.CompileMessage(res, source)
 	if err != nil {
 		return transformStep{}, fmt.Errorf("multi-transform step %d: %w", index, err)
 	}
@@ -107,7 +109,7 @@ func compileTransformStep(index int, step transformStepSettings) (transformStep,
 // variable, both visible to the expressions that follow.
 func (p *multiTransform) Process(_ context.Context, msg *types.Message) (*types.Message, error) {
 	for i, step := range p.steps {
-		value, err := step.program.Eval(messageActivation(msg, p.env))
+		value, err := step.program.Eval(expr.MessageActivation(msg, p.env))
 		if err != nil {
 			return nil, fmt.Errorf("multi-transform step %d: %w", i, err)
 		}

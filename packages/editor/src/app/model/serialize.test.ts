@@ -363,4 +363,47 @@ describe("serialize", () => {
     doc.env = [{ name: "API_KEY", required: true }, { name: "LAT", default: "1" }];
     expect(fromConfig(toConfig(doc)).env).toEqual(doc.env);
   });
+
+  it("maps resources, dropping the empty alias and blank entries", () => {
+    const doc = emptyDocument();
+    doc.resources = {
+      env: [".env.dev", "  ", ".env.local"],
+      templates: [
+        { resource: "templates/welcome.tmpl", as: "welcome" },
+        { resource: "templates/plain.tmpl" },
+        { resource: "" }, // blank resource: dropped
+      ],
+    };
+    expect(toConfig(doc).resources).toEqual({
+      env: [".env.dev", ".env.local"],
+      templates: [
+        { resource: "templates/welcome.tmpl", as: "welcome" },
+        { resource: "templates/plain.tmpl" }, // no alias key
+      ],
+    });
+  });
+
+  it("omits resources entirely when none are declared", () => {
+    expect(toConfig(emptyDocument()).resources).toBeUndefined();
+    // A document that never touched resources still emits nothing.
+    const doc = emptyDocument();
+    doc.resources = { env: [], templates: [] };
+    expect(toConfig(doc).resources).toBeUndefined();
+  });
+
+  it("round-trips resources", () => {
+    const doc = emptyDocument();
+    doc.resources = {
+      env: [".env.dev"],
+      templates: [
+        { resource: "templates/welcome.tmpl", as: "welcome" },
+        { resource: "templates/plain.tmpl" },
+      ],
+    };
+    expect(fromConfig(toConfig(doc)).resources).toEqual(doc.resources);
+  });
+
+  it("defaults resources to empty when the config declares none", () => {
+    expect(fromConfig({}).resources).toEqual({ env: [], templates: [] });
+  });
 });

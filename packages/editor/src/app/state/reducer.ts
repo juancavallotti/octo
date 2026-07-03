@@ -16,6 +16,7 @@ import {
   RemoveSlotFlowPayload,
   SetFlowMetaPayload,
   SetEnvPayload,
+  SetResourcesPayload,
   SelectBlockPayload,
   SelectSourcePayload,
   SetActiveFlowPayload,
@@ -196,6 +197,11 @@ export function reducer(
       return slotHandlers.setFlowMeta(state, action.data as SetFlowMetaPayload);
     case EditorActionType.SET_ENV:
       return envHandlers.setEnv(state, action.data as SetEnvPayload);
+    case EditorActionType.SET_RESOURCES:
+      return envHandlers.setResources(
+        state,
+        action.data as SetResourcesPayload,
+      );
     case EditorActionType.LOAD_DOCUMENT:
       return handlers.loadDocument(state, action.data as LoadDocumentPayload);
     case EditorActionType.SET_INTEGRATION_ID:

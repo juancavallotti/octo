@@ -78,6 +78,9 @@ func (f fakeServices) Queues() core.Queues { return core.NoopQueues() }
 //nolint:ireturn // satisfies core.RuntimeServices
 func (f fakeServices) Topics() core.Topics { return f.topics }
 
+//nolint:ireturn // satisfies core.RuntimeServices
+func (f fakeServices) Resources() core.ResourceLoader { return core.NoopResourceLoader{} }
+
 func (f fakeServices) Close() error { return nil }
 
 func contextWithTopics(t *fakeTopics) context.Context {

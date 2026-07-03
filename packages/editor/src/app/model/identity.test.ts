@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { slugify, uniqueSlug, duplicateNames, flowNames } from "./identity";
+import {
+  slugify,
+  uniqueSlug,
+  duplicateNames,
+  flowNames,
+  referenceOptions,
+} from "./identity";
 import { emptyDocument, newBlock } from "./document";
 
 describe("slugify", () => {
@@ -47,5 +53,27 @@ describe("flowNames", () => {
     doc.flows[0].process = [branch];
 
     expect(flowNames(doc).sort()).toEqual(["main", "on-true"]);
+  });
+});
+
+describe("referenceOptions", () => {
+  it("offers each declared template by its alias, or path when unaliased", () => {
+    const doc = emptyDocument();
+    doc.resources = {
+      env: [],
+      templates: [
+        { resource: "templates/welcome.tmpl", as: "welcome" },
+        { resource: "templates/footer.tmpl" },
+        { resource: "" }, // blank: not offered
+      ],
+    };
+    expect(referenceOptions(doc, { kind: "template" })).toEqual([
+      "welcome",
+      "templates/footer.tmpl",
+    ]);
+  });
+
+  it("returns no template options when none are declared", () => {
+    expect(referenceOptions(emptyDocument(), { kind: "template" })).toEqual([]);
   });
 });

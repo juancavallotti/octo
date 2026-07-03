@@ -15,7 +15,7 @@ func TestNewSelectsDefaultModule(t *testing.T) {
 		t.Fatalf("Module() = %q, want default %q", services.Module(), services.DefaultModule)
 	}
 
-	svc, err := services.New(context.Background())
+	svc, err := services.New(context.Background(), services.Options{})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

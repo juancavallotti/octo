@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -9,6 +11,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/juancavallotti/octo/core"
 	"github.com/juancavallotti/octo/core/internal/dsl"
 	"github.com/juancavallotti/octo/types"
 )
@@ -42,11 +45,19 @@ func DotEnvPaths() []string {
 
 // applyEnv resolves the config's declared environment variables and substitutes
 // ${NAME} references throughout its settings. It is a no-op for a config with no
-// env declarations and no references.
-func applyEnv(cfg *types.Config) error {
+// env declarations and no references. loader supplies the declared env resources
+// (section resources.env) combined on top of the built-in .env chain.
+func applyEnv(cfg *types.Config, loader core.ResourceLoader) error {
 	dotenv, err := loadDotEnv()
 	if err != nil {
 		return err
+	}
+	// Overlay declared env resources on the built-in ./.env + $OCTO_ENV_FILE chain,
+	// in listed order. A missing resource is skipped; one that fails to load or
+	// parse is warned and skipped so the runtime falls back to the env it already
+	// has. A genuinely missing required variable is still caught by resolveEnv below.
+	for k, v := range loadEnvResources(loader, cfg.Resources.Env) {
+		dotenv[k] = v
 	}
 	resolved, err := resolveEnv(cfg.Env, dotenv)
 	if err != nil {
@@ -88,6 +99,36 @@ func loadDotEnv() (map[string]string, error) {
 		slog.Info("loaded .env file", "path", path, "variables", len(values))
 	}
 	return merged, nil
+}
+
+// loadEnvResources reads the declared env resources through loader and merges them
+// so a later id overlays an earlier one. It never returns an error: a missing
+// resource is skipped silently (a missing env file is never a runtime error), and
+// a resource that fails to load or parse is logged and skipped so a broken import
+// cannot take down the runtime as long as required variables are otherwise
+// satisfied.
+func loadEnvResources(loader core.ResourceLoader, ids []string) map[string]string {
+	merged := make(map[string]string)
+	ctx := context.Background()
+	for _, id := range ids {
+		data, err := loader.Load(ctx, core.ResourceKindEnv, id)
+		if err != nil {
+			if !errors.Is(err, core.ErrResourceNotFound) {
+				slog.Warn("skipping env resource that failed to load", "id", id, "error", err)
+			}
+			continue
+		}
+		values, parseErr := dsl.ParseDotEnv(data)
+		if parseErr != nil {
+			slog.Warn("skipping env resource that failed to parse", "id", id, "error", parseErr)
+			continue
+		}
+		for k, v := range values {
+			merged[k] = v
+		}
+		slog.Info("loaded env resource", "id", id, "variables", len(values))
+	}
+	return merged
 }
 
 // resolveEnv resolves each declared variable to a value using the precedence OS

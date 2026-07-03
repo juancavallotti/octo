@@ -41,6 +41,10 @@ type BlockDeps struct {
 	Flows     FlowCaller
 	Env       map[string]string
 	Services  RuntimeServices
+	// Resources loads resources (templates, env files) a block may need, e.g. the
+	// template-resource block reading a template by id. It is nil when no loader is
+	// wired; a block must guard against that (or the caller supplies a Noop).
+	Resources ResourceLoader
 }
 
 // BlockFactory builds a leaf processor from its settings and build-time deps.

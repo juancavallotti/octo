@@ -7,14 +7,18 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/juancavallotti/octo/core"
 	"github.com/juancavallotti/octo/core/internal/dsl"
 	"github.com/juancavallotti/octo/types"
 )
 
 // LoadConfig reads and parses the runtime config at path. When path is a
 // directory, every *.yaml/*.yml file in it is parsed and merged into one config
-// (see MergeConfigs); otherwise the single file is parsed.
-func LoadConfig(path string) (types.Config, error) {
+// (see MergeConfigs); otherwise the single file is parsed. loader supplies the
+// declared env resources (resources.env) combined into the environment; it is
+// the runtime-services resource loader (rooted at the config directory in the
+// standalone module).
+func LoadConfig(path string, loader core.ResourceLoader) (types.Config, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		return types.Config{}, fmt.Errorf("stat config path %q: %w", path, err)
@@ -30,7 +34,12 @@ func LoadConfig(path string) (types.Config, error) {
 		return types.Config{}, err
 	}
 
-	if err := applyEnv(&cfg); err != nil {
+	if err := applyEnv(&cfg, loader); err != nil {
+		return types.Config{}, err
+	}
+	// Load and parse declared templates now so a missing or malformed one fails at
+	// deployment, not when a message first renders it.
+	if err := warmTemplates(loader, cfg.Resources.Templates); err != nil {
 		return types.Config{}, err
 	}
 	return cfg, nil
@@ -43,7 +52,9 @@ func ParseConfig(data []byte) (types.Config, error) {
 	if err != nil {
 		return types.Config{}, err
 	}
-	if err := applyEnv(&cfg); err != nil {
+	// The byte-parse entrypoint has no config directory, so declared env resources
+	// cannot be resolved; the no-op loader reports them missing (which is skipped).
+	if err := applyEnv(&cfg, core.NoopResourceLoader{}); err != nil {
 		return types.Config{}, err
 	}
 	return cfg, nil
@@ -108,6 +119,8 @@ type configMerger struct {
 	processors map[string]struct{}
 	flows      map[string]struct{}
 	env        map[string]struct{}
+	envRes     map[string]struct{}
+	tplRes     map[string]struct{}
 }
 
 func newConfigMerger() *configMerger {
@@ -116,6 +129,8 @@ func newConfigMerger() *configMerger {
 		processors: make(map[string]struct{}),
 		flows:      make(map[string]struct{}),
 		env:        make(map[string]struct{}),
+		envRes:     make(map[string]struct{}),
+		tplRes:     make(map[string]struct{}),
 	}
 }
 
@@ -125,15 +140,8 @@ func (m *configMerger) add(cfg types.Config) error {
 	if err := m.addService(cfg.Service); err != nil {
 		return err
 	}
-	for _, e := range cfg.Env {
-		// Duplicate declarations across files are allowed (the same variable may be
-		// used in several configs); the first declaration wins.
-		if _, dup := m.env[e.Name]; dup {
-			continue
-		}
-		m.env[e.Name] = struct{}{}
-		m.merged.Env = append(m.merged.Env, e)
-	}
+	m.addEnv(cfg.Env)
+	m.addResources(cfg.Resources)
 	for _, c := range cfg.Connectors {
 		if err := claimName(m.connectors, c.Name, "connector"); err != nil {
 			return err
@@ -155,6 +163,45 @@ func (m *configMerger) add(cfg types.Config) error {
 		m.merged.Flows = append(m.merged.Flows, f)
 	}
 	return nil
+}
+
+// addEnv folds a config's declared env variables into the merge. Duplicate
+// declarations across files are allowed (the same variable may be used in several
+// configs); the first declaration wins.
+func (m *configMerger) addEnv(env []types.EnvVar) {
+	for _, e := range env {
+		if _, dup := m.env[e.Name]; dup {
+			continue
+		}
+		m.env[e.Name] = struct{}{}
+		m.merged.Env = append(m.merged.Env, e)
+	}
+}
+
+// addResources folds a config's declared resources (env + template resources) into
+// the merge, de-duplicating so the same resource declared in several files folds to
+// one. Env resources keep first-seen order (the combined load order is
+// deterministic); templates dedup by their reference name — the alias, or the
+// resource id when unaliased — so a repeated alias keeps its first declaration.
+func (m *configMerger) addResources(res types.ResourcesConfig) {
+	for _, id := range res.Env {
+		if _, dup := m.envRes[id]; dup {
+			continue
+		}
+		m.envRes[id] = struct{}{}
+		m.merged.Resources.Env = append(m.merged.Resources.Env, id)
+	}
+	for _, t := range res.Templates {
+		key := t.As
+		if key == "" {
+			key = t.Resource
+		}
+		if _, dup := m.tplRes[key]; dup {
+			continue
+		}
+		m.tplRes[key] = struct{}{}
+		m.merged.Resources.Templates = append(m.merged.Resources.Templates, t)
+	}
 }
 
 // addService records the service identity, rejecting a second declaration.

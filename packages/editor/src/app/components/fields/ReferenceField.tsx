@@ -9,12 +9,12 @@ const INPUT =
 
 /**
  * A dropdown for a setting that references another named entity in the document:
- * a connection (optionally narrowed to one connector type) or a flow. The options
- * are the matching names currently in the document. Connector references always
- * allow an empty choice (falls back to the runtime's default connector); flow
- * references only when the field is optional. A current value that no longer
- * matches anything is still shown, flagged as missing, so dangling references
- * surface instead of silently vanishing.
+ * a connection (optionally narrowed to one connector type), a flow, or a declared
+ * template resource. The options are the matching names currently in the document.
+ * Connector references always allow an empty choice (falls back to the runtime's
+ * default connector); flow and template references only when the field is optional.
+ * A current value that no longer matches anything is still shown, flagged as
+ * missing, so dangling references surface instead of silently vanishing.
  */
 export default function ReferenceField({
   spec,

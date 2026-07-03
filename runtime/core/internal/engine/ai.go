@@ -521,7 +521,7 @@ func (b *builder) aiAgent(cfg types.BlockConfig) (core.MessageProcessor, error) 
 		maxIterations: maxIterations,
 		name:          cfg.Name,
 		connector:     cfg.Connector,
-		env:           envActivation(b.deps.Env),
+		env:           expr.EnvActivation(b.deps.Env),
 	}
 	if err := b.configureAgentMemory(block, cfg); err != nil {
 		return nil, err
@@ -543,7 +543,7 @@ func (b *builder) configureAgentMemory(block *aiAgent, cfg types.BlockConfig) er
 	if cfg.MemoryThreadID == "" {
 		return nil
 	}
-	threadID, err := expr.Compile(cfg.MemoryThreadID, exprVarNames...)
+	threadID, err := expr.CompileMessage(b.deps.Resources, cfg.MemoryThreadID)
 	if err != nil {
 		return err
 	}
@@ -673,7 +673,7 @@ func (a *aiAgent) loadHistory(ctx context.Context, msg *types.Message) (string, 
 	if a.memoryThreadID == nil {
 		return "", nil, nil
 	}
-	threadID, err := a.memoryThreadID.EvalString(messageActivation(msg, a.env))
+	threadID, err := a.memoryThreadID.EvalString(expr.MessageActivation(msg, a.env))
 	if err != nil {
 		return "", nil, fmt.Errorf("ai-agent memory threadId: %w", err)
 	}

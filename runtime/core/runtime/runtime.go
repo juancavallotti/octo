@@ -71,6 +71,19 @@ func NewService(config types.Config, registry *core.Registry, opts ...ServiceOpt
 	return s
 }
 
+// resourceLoader returns the resource loader blocks use: the wired runtime
+// services' loader (or the no-op loader when no services are set), wrapped so
+// declared template aliases resolve to their underlying resource id.
+//
+//nolint:ireturn // returns the ResourceLoader interface a block depends on
+func (s *Service) resourceLoader() core.ResourceLoader {
+	var base core.ResourceLoader = core.NoopResourceLoader{}
+	if s.services != nil {
+		base = s.services.Resources()
+	}
+	return withTemplateAliases(base, s.config.Resources.Templates)
+}
+
 // Flows returns the flow caller for this service, letting an embedder invoke a
 // flow by name (the CLI uses this in invoke mode). Calls only resolve once Run
 // has started the flows; use Started to wait for that.
@@ -333,6 +346,7 @@ func (s *Service) buildFlow(ctx context.Context, cfg types.FlowConfig, set *conn
 		Flows:     s.flows,
 		Env:       s.config.ResolvedEnv,
 		Services:  s.services,
+		Resources: s.resourceLoader(),
 	}
 	root, err := engine.BuildRoot(cfg, s.blocks, p, s.config.Processors, deps)
 	if err != nil {

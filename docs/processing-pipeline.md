@@ -254,6 +254,42 @@ referenced type is the one allowed overlap). When `ref` is set, the block's own
 `settings` are shallow-merged over the referenced settings, so a shared definition
 can be tuned per use.
 
+### Resources
+
+The top-level `resources:` key declares the resource files a config imports. Every
+resource id is a path resolved **relative to the config directory** (the directory
+of the config file, or the directory itself when a directory is loaded), so a
+resource lives beside the config or in a subfolder. Two kinds are declared:
+
+```yaml
+resources:
+  env:
+    - .env.dev
+    - .env.local
+  templates:
+    - resource: templates/welcome.tmpl
+      as: welcome                       # optional alias
+    - resource: templates/footer.tmpl   # unaliased — referenced by its path
+```
+
+**`resources.env`** — `.env`-convention files whose values are combined into the
+runtime environment, overlaid **in listed order** on top of the built-in `.env` /
+`$OCTO_ENV_FILE`. They feed both `${NAME}` substitution and the CEL `env` object,
+exactly like the top-level `env:` declarations they supply. The load is lenient: a
+**missing** env resource is silently skipped (a missing env file is never an
+error), and one that is present but unreadable/unparseable logs a warning and is
+skipped. Startup only fails when a **declared, required** variable (a top-level
+`env:` entry marked `required: true`) is ultimately unset.
+
+**`resources.templates`** — the template files this config renders (see the
+[`template-resource` block](#the-template-resource-block) and the
+`templateResource()` CEL function). Each entry names a `resource` (the
+template's path) and an optional `as` alias; without an alias the template is
+referenced by its path. Unlike env resources, templates are **loaded and parsed at
+config load** — the philosophy is to fail on deployment, so a missing or malformed
+declared template aborts startup then, rather than when a message first renders it.
+See `samples/resources-demo/`.
+
 ### Settings
 
 Both `connectors[].settings` and a block's effective settings are a
@@ -279,6 +315,13 @@ environment variables resolved to their values (the same ones available for
 `${NAME}` substitution), so `env.HTTP_PORT` reads a declared variable at runtime —
 e.g. `'"listening on " + env.HTTP_PORT'`. Only **declared** variables appear;
 referencing an undeclared key is a CEL no-such-key error.
+
+Every message expression also gets the **`templateResource(id)`** function, which
+renders a declared [template resource](#resources) against the current message and
+returns the resulting string — e.g. `templateResource("welcome")`. It is registered
+once as a message-CEL extension, so it is available at every call site above with
+no per-block wiring. The template's own `{{ … }}` inner expressions see the same
+`body`/`vars`/`env`/`now` surface.
 
 The **`multi-transform`** block folds a whole chain of `set-payload` /
 `set-variable` steps into one: its `transforms` setting is an **ordered list** of
@@ -309,6 +352,40 @@ Other call sites expose their own variables:
   that variable a boolean (true on a hit), so a flow can branch without a second
   read. When `existsVar` is omitted no such variable is written (the prior
   behavior). See `samples/object-store.yaml`.
+
+### The `template-resource` block
+
+The `template-resource` block renders a declared [template resource](#resources)
+against the current message. A template is text with embedded `{{ … }}` CEL
+expressions that see the message surface (`body`, `vars`, `eventID`,
+`correlationID`, `env`, `now`); the block concatenates the literal spans with each
+expression's result. Settings:
+
+| setting  | notes                                                                       |
+| -------- | --------------------------------------------------------------------------- |
+| `id`     | Required. The template's `resources.templates` alias (its `as`), or its resource path when unaliased. |
+| `target` | Optional variable name to store the rendered text in. When omitted, the block replaces the message body (mirroring `set-payload` vs `set-variable`). |
+
+Because the template is a **declared** resource, it is parsed at config load, so a
+bad template fails at deployment, not here. The same rendering is available inline
+in any CEL expression via `templateResource(id)`.
+
+```yaml
+resources:
+  templates:
+    - resource: templates/welcome.tmpl
+      as: welcome
+
+flows:
+  - name: greet
+    process:
+      - type: template-resource
+        settings:
+          id: welcome           # the alias above (or a resource path)
+          target: rendered      # writes vars.rendered; omit to replace the body
+```
+
+See `samples/resources-demo/`.
 
 ### The `log` block and `logger` connectors
 

@@ -1,4 +1,4 @@
-import type { EditorDocument, EnvVar } from "../model/document";
+import type { EditorDocument, EnvVar, Resources } from "../model/document";
 
 /**
  * Editor reducer actions. The payload travels on the action's `data` field (per
@@ -56,6 +56,8 @@ export enum EditorActionType {
   SET_FLOW_META = "SET_FLOW_META",
   /** Replace the document's declared environment variables. */
   SET_ENV = "SET_ENV",
+  /** Replace the document's declared resources (env-file + template resources). */
+  SET_RESOURCES = "SET_RESOURCES",
   /** Replace the whole document (file load or "new"). */
   LOAD_DOCUMENT = "LOAD_DOCUMENT",
   /** Record the persisted id after the integration is first saved. */
@@ -211,6 +213,10 @@ export type SetViewModePayload = "canvas" | "yaml";
 
 export interface SetEnvPayload {
   env: EnvVar[];
+}
+
+export interface SetResourcesPayload {
+  resources: Resources;
 }
 
 export interface LoadDocumentPayload {

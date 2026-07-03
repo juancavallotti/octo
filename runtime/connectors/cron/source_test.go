@@ -27,7 +27,10 @@ func (fakeServices) Queues() core.Queues { return core.NoopQueues() }
 
 //nolint:ireturn // implements core.RuntimeServices
 func (fakeServices) Topics() core.Topics { return core.NoopTopics() }
-func (fakeServices) Close() error        { return nil }
+
+//nolint:ireturn // implements core.RuntimeServices
+func (fakeServices) Resources() core.ResourceLoader { return core.NoopResourceLoader{} }
+func (fakeServices) Close() error                   { return nil }
 
 type fakeLeaderElection struct{ leader bool }
 

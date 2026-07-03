@@ -79,6 +79,7 @@
       </div>
     </div>
     <div class="note"><strong>Session isolation.</strong> Each client gets its own runner and log buffer, keyed by the MCP session. Two assistants connected at once won't trample each other's runs. A test URL is only returned when the integration declares an <code>HTTP_PORT</code> (i.e. it's a network service); otherwise the run is internal-only.</div>
+    <div class="note"><strong>Resource tooling (planned).</strong> An optional resources backend adds two authoring tools for a host that supplies it — <code>write_env_resource(id, content)</code> to write an <a href="https://github.com/juancavallotti/octo/blob/main/docs/processing-pipeline.md#resources" target="_blank" rel="noopener">env resource</a> file, and <code>list_env_keys()</code> to list the environment variable <em>names</em> combined from the declared env resources (<strong>names only — never values</strong>). Both degrade gracefully: a host without the backend simply doesn't expose them. The runtime itself only ever <em>reads</em> resources, so writing and listing are host-side, not runtime operations.</div>
   </div>
 </section>
 

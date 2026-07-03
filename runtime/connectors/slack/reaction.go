@@ -52,15 +52,15 @@ func newAddReaction(raw types.Settings, deps core.BlockDeps) (core.MessageProces
 	if err != nil {
 		return nil, fmt.Errorf("slack-add-reaction: %w", err)
 	}
-	channel, err := compileRequired("slack-add-reaction", "channel", cfg.Channel)
+	channel, err := compileRequired(deps.Resources, "slack-add-reaction", "channel", cfg.Channel)
 	if err != nil {
 		return nil, err
 	}
-	timestamp, err := compileRequired("slack-add-reaction", "timestamp", cfg.Timestamp)
+	timestamp, err := compileRequired(deps.Resources, "slack-add-reaction", "timestamp", cfg.Timestamp)
 	if err != nil {
 		return nil, err
 	}
-	emoji, err := compileRequired("slack-add-reaction", "emoji", cfg.Emoji)
+	emoji, err := compileRequired(deps.Resources, "slack-add-reaction", "emoji", cfg.Emoji)
 	if err != nil {
 		return nil, err
 	}
@@ -70,13 +70,13 @@ func newAddReaction(raw types.Settings, deps core.BlockDeps) (core.MessageProces
 		timestamp:   timestamp,
 		emoji:       emoji,
 		failOnError: failOnErrorDefault(cfg.FailOnError),
-		env:         envActivation(deps.Env),
+		env:         expr.EnvActivation(deps.Env),
 	}, nil
 }
 
 // Process evaluates the target and reaction and calls reactions.add.
 func (p *reactionProcessor) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
-	activation := messageActivation(msg, p.env)
+	activation := expr.MessageActivation(msg, p.env)
 
 	channel, err := p.channel.EvalString(activation)
 	if err != nil {

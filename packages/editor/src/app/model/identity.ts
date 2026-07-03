@@ -62,9 +62,9 @@ export function flowNames(doc: EditorDocument): string[] {
 
 /**
  * The valid targets a reference field can resolve to: the names of connections of
- * the referenced type, or every flow name. Shared by the settings dropdown and the
- * validity check so "what the UI offers" and "what counts as resolvable" stay in
- * lockstep.
+ * the referenced type, every flow name, or every declared template's reference
+ * name. Shared by the settings dropdown and the validity check so "what the UI
+ * offers" and "what counts as resolvable" stay in lockstep.
  */
 export function referenceOptions(
   doc: EditorDocument,
@@ -77,6 +77,14 @@ export function referenceOptions(
             getConnectorSpec(type)?.category === spec.connectorCategory
         : (type: string) => type === spec.connectorType;
     return doc.connectors.filter((c) => matches(c.type) && c.name).map((c) => c.name);
+  }
+  if (spec.kind === "template") {
+    // A template is referenced by its alias, or its resource path when unaliased —
+    // the same key the runtime resolves and the config merge dedups by.
+    const names = (doc.resources?.templates ?? [])
+      .map((t) => t.as || t.resource)
+      .filter((name) => name !== "");
+    return Array.from(new Set(names));
   }
   return Array.from(new Set(flowNames(doc)));
 }
