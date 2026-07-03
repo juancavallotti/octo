@@ -71,15 +71,17 @@ func NewService(config types.Config, registry *core.Registry, opts ...ServiceOpt
 	return s
 }
 
-// resourceLoader returns the resource loader from the wired runtime services, or
-// the no-op loader when no services are set — so blocks always get a usable value.
+// resourceLoader returns the resource loader blocks use: the wired runtime
+// services' loader (or the no-op loader when no services are set), wrapped so
+// declared template aliases resolve to their underlying resource id.
 //
 //nolint:ireturn // returns the ResourceLoader interface a block depends on
 func (s *Service) resourceLoader() core.ResourceLoader {
-	if s.services == nil {
-		return core.NoopResourceLoader{}
+	var base core.ResourceLoader = core.NoopResourceLoader{}
+	if s.services != nil {
+		base = s.services.Resources()
 	}
-	return s.services.Resources()
+	return withTemplateAliases(base, s.config.Resources.Templates)
 }
 
 // Flows returns the flow caller for this service, letting an embedder invoke a

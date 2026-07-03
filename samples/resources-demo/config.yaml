@@ -8,29 +8,35 @@ env:
   - name: GREETING
     required: true
 
-# Resources imported by this config. Env resources are .env-convention files,
-# resolved relative to this config's directory, combined into the environment.
+# Resources imported by this config, resolved relative to this directory and
+# loaded when the config loads (a missing or malformed one fails at deployment,
+# not at message time). Env resources are .env-convention files combined into the
+# environment. Templates declare the template files this config renders, each with
+# an optional `as` alias for easy reference.
 resources:
   env:
     - .env.dev
+  templates:
+    - resource: templates/welcome.tmpl
+      as: welcome
 
 flows:
   # A source-less flow is callable by name:
   #   octo invoke --config samples/resources-demo --flow greet --data '{"name":"World"}'
   - name: greet
     process:
-      # 1) The template-resource block renders templates/welcome.tmpl into a
-      #    variable. The template embeds {{ }} CEL expressions over the message.
+      # 1) The template-resource block renders the "welcome" template (declared
+      #    above) into a variable. The template embeds {{ }} CEL over the message.
       - type: template-resource
         settings:
-          id: templates/welcome.tmpl
+          id: welcome
           target: rendered
-      # 2) templateResource(id) renders the same template inline in a CEL
+      # 2) templateResource(alias) renders the same template inline in a CEL
       #    expression, using the current message as context. Both paths agree.
       - type: set-payload
         settings:
           value: |
             {
               "viaBlock": vars.rendered,
-              "viaCel": templateResource("templates/welcome.tmpl")
+              "viaCel": templateResource("welcome")
             }

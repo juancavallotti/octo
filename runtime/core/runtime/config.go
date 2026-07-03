@@ -37,6 +37,11 @@ func LoadConfig(path string, loader core.ResourceLoader) (types.Config, error) {
 	if err := applyEnv(&cfg, loader); err != nil {
 		return types.Config{}, err
 	}
+	// Load and parse declared templates now so a missing or malformed one fails at
+	// deployment, not when a message first renders it.
+	if err := warmTemplates(loader, cfg.Resources.Templates); err != nil {
+		return types.Config{}, err
+	}
 	return cfg, nil
 }
 
@@ -115,6 +120,7 @@ type configMerger struct {
 	flows      map[string]struct{}
 	env        map[string]struct{}
 	envRes     map[string]struct{}
+	tplRes     map[string]struct{}
 }
 
 func newConfigMerger() *configMerger {
@@ -124,6 +130,7 @@ func newConfigMerger() *configMerger {
 		flows:      make(map[string]struct{}),
 		env:        make(map[string]struct{}),
 		envRes:     make(map[string]struct{}),
+		tplRes:     make(map[string]struct{}),
 	}
 }
 
@@ -150,6 +157,20 @@ func (m *configMerger) add(cfg types.Config) error {
 		}
 		m.envRes[id] = struct{}{}
 		m.merged.Resources.Env = append(m.merged.Resources.Env, id)
+	}
+	for _, t := range cfg.Resources.Templates {
+		// Dedup by the reference name (the alias, or the id when unaliased) so the
+		// same template declared in several files folds to one and a repeated alias
+		// keeps its first declaration.
+		key := t.As
+		if key == "" {
+			key = t.Resource
+		}
+		if _, dup := m.tplRes[key]; dup {
+			continue
+		}
+		m.tplRes[key] = struct{}{}
+		m.merged.Resources.Templates = append(m.merged.Resources.Templates, t)
 	}
 	for _, c := range cfg.Connectors {
 		if err := claimName(m.connectors, c.Name, "connector"); err != nil {
