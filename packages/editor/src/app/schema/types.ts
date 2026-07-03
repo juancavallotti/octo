@@ -53,7 +53,10 @@ export interface ShowIf {
 export type ReferenceSpec =
   | { kind: "connector"; connectorType: string }
   | { kind: "connector"; connectorCategory: string }
-  | { kind: "flow" };
+  | { kind: "flow" }
+  // A declared template resource (resources.templates): the dropdown offers each
+  // template's alias, or its resource path when unaliased.
+  | { kind: "template" };
 
 /** A single configurable field (a block setting, source setting, etc.). */
 export interface FieldSpec {

@@ -10,6 +10,7 @@ import {
   withErrorChain,
 } from "./document";
 import { envFromRuntime } from "./serializeEnv";
+import { resourcesFromRuntime } from "./serializeResources";
 import {
   type RuntimeBlock,
   type RuntimeCase,
@@ -159,6 +160,7 @@ function toolFromRuntime(
 
 export function fromConfig(config: RuntimeConfig): EditorDocument {
   const env = (config.env ?? []).map(envFromRuntime);
+  const resources = resourcesFromRuntime(config.resources);
   const connectors = (config.connectors ?? []).map(connectorFromRuntime);
   const connTypes = new Map(connectors.map((c) => [c.name, c.type]));
   // Top-level flows always carry an error chain so the canvas shows the lane;
@@ -166,6 +168,7 @@ export function fromConfig(config: RuntimeConfig): EditorDocument {
   const flows = (config.flows ?? []).map((f) =>
     withErrorChain(flowFromRuntime(f, connTypes)),
   );
-  if (flows.length === 0) return { ...emptyDocument(), connectors, env };
-  return { flows, connectors, env, processors: [] };
+  if (flows.length === 0)
+    return { ...emptyDocument(), connectors, env, resources };
+  return { flows, connectors, env, resources, processors: [] };
 }

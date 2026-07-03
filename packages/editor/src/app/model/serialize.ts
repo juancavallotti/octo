@@ -8,6 +8,7 @@ import {
 } from "./document";
 import { connectorResolver, type ConnectorResolver } from "./connectors";
 import { envToRuntime } from "./serializeEnv";
+import { resourcesToRuntime } from "./serializeResources";
 import {
   type RuntimeBlock,
   type RuntimeCase,
@@ -146,6 +147,8 @@ function blockToRuntime(
 export function toConfig(doc: EditorDocument): RuntimeConfig {
   const out: RuntimeConfig = {};
   if (doc.env.length) out.env = doc.env.map(envToRuntime);
+  const resources = resourcesToRuntime(doc.resources);
+  if (resources) out.resources = resources;
   if (doc.connectors.length) {
     out.connectors = doc.connectors.map(connectorToRuntime);
   }

@@ -76,6 +76,31 @@
       ]
     },
     {
+      "type": "template-resource",
+      "label": "Template Resource",
+      "category": "processor",
+      "group": "Data",
+      "icon": "FileText",
+      "description": "Render a declared template resource against the current message. Writes the rendered text to the message body by default, or to a variable when a target is set. The template is declared under resources.templates and embeds {{ CEL }} over body, vars, env, now.",
+      "fields": [
+        {
+          "name": "id",
+          "label": "Template",
+          "type": "string",
+          "required": true,
+          "ref": { "kind": "template" },
+          "description": "The template to render: its resources.templates alias (the `as`), or its resource path when unaliased."
+        },
+        {
+          "name": "target",
+          "label": "Target variable",
+          "type": "string",
+          "required": false,
+          "description": "Variable to store the rendered text in. Leave empty to replace the message body."
+        }
+      ]
+    },
+    {
       "type": "log",
       "label": "Log",
       "category": "processor",

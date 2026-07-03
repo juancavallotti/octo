@@ -1,4 +1,5 @@
 import type { RuntimeEnv } from "./serializeEnv";
+import type { RuntimeResources } from "./serializeResources";
 
 /**
  * The runtime config shape (the YAML/JSON the runtime loads — see
@@ -76,6 +77,7 @@ export interface RuntimeConnector {
 
 export interface RuntimeConfig {
   env?: RuntimeEnv[];
+  resources?: RuntimeResources;
   connectors?: RuntimeConnector[];
   flows?: RuntimeFlow[];
 }
