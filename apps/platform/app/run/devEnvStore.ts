@@ -1,7 +1,13 @@
 import type { DevEnvStore } from "@octo/editor";
-import { DEV_ENV_RESOURCE } from "@octo/run-host";
 import { listResources, upsertResource } from "@/app/actions/resources";
 import { unwrap } from "@/app/model/bff";
+
+/**
+ * The dev-env resource name (mirrors run-host's DEV_ENV_RESOURCE). Inlined rather
+ * than imported so this client-reachable module doesn't pull the Node-only
+ * `@octo/run-host` barrel (child_process) into the browser bundle.
+ */
+const DEV_ENV_RESOURCE = ".env.dev";
 
 /**
  * The platform dev-env store: the editor's Dev .env panel reads and writes the
