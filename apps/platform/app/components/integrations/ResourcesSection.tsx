@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { FileText, Plus, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { FileText, Trash2, Upload } from "lucide-react";
 import { useConfirm } from "@/app/components/ConfirmDialog";
 import {
   createResource,
@@ -11,11 +11,12 @@ import {
 } from "@/app/model/orchestrator";
 
 /**
- * Resources (env files, templates) for one integration: an add form plus the
- * list of existing resources. This is the minimal upload surface — a resource's
- * content is set on create and it can be deleted; richer editing is left to the
- * (future) editor story. The section owns its own data, loading it by
- * integration id.
+ * Resources (env files, templates) for one integration: upload a file plus the
+ * list of existing resources. Content always comes from an uploaded file rather
+ * than being authored inline; the name is prefilled from the file (editable, so a
+ * relative path can be set) and the kind is guessed from the name. Richer editing
+ * is left to the (future) editor story. The section owns its own data, loading it
+ * by integration id.
  */
 
 const KINDS = ["env", "template"] as const;
@@ -38,9 +39,11 @@ export default function ResourcesSection({
   const [name, setName] = useState("");
   const [kind, setKind] = useState<Kind>("env");
   const [kindTouched, setKindTouched] = useState(false);
-  const [content, setContent] = useState("");
+  // The uploaded file's text, or null until a file has been read.
+  const [content, setContent] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
 
   const reload = useCallback(() => {
     listResources(integrationId).then(setResources, () => setResources([]));
@@ -51,17 +54,35 @@ export default function ResourcesSection({
 
   // Until the user picks a kind explicitly, follow the name's convention.
   const effectiveKind = kindTouched ? kind : guessKind(name);
+  const ready = name.trim() !== "" && content !== null && !busy;
 
-  const add = async () => {
-    const trimmed = name.trim();
-    if (!trimmed || busy) return;
+  const onFile = async (file: File | undefined) => {
+    if (!file) return;
+    setError(null);
+    try {
+      const text = await file.text();
+      setContent(text);
+      // Prefill the name from the file only when the user hasn't typed one.
+      setName((prev) => (prev.trim() === "" ? file.name : prev));
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  const reset = () => {
+    setName("");
+    setContent(null);
+    setKindTouched(false);
+    if (fileInput.current) fileInput.current.value = "";
+  };
+
+  const upload = async () => {
+    if (!ready || content === null) return;
     setBusy(true);
     setError(null);
     try {
-      await createResource(integrationId, effectiveKind, trimmed, content);
-      setName("");
-      setContent("");
-      setKindTouched(false);
+      await createResource(integrationId, effectiveKind, name.trim(), content);
+      reset();
       reload();
     } catch (e) {
       setError((e as Error).message);
@@ -92,6 +113,13 @@ export default function ResourcesSection({
   return (
     <>
       <div className="mb-2 space-y-2">
+        <input
+          ref={fileInput}
+          type="file"
+          disabled={busy}
+          onChange={(e) => onFile(e.target.files?.[0])}
+          className="block w-full text-sm text-zinc-500 file:mr-3 file:rounded-md file:border-0 file:bg-black/5 file:px-3 file:py-1 file:text-sm file:font-medium file:text-zinc-700 hover:file:bg-black/10 dark:text-zinc-400 dark:file:bg-white/10 dark:file:text-zinc-200 dark:hover:file:bg-white/15"
+        />
         <div className="flex gap-2">
           <input
             value={name}
@@ -117,22 +145,14 @@ export default function ResourcesSection({
             ))}
           </select>
         </div>
-        <textarea
-          value={content}
-          disabled={busy}
-          rows={4}
-          placeholder="Content"
-          onChange={(e) => setContent(e.target.value)}
-          className="w-full resize-y rounded-md border border-black/10 bg-transparent px-2 py-1 font-mono text-xs outline-none focus:border-black/30 dark:border-white/15 dark:focus:border-white/30"
-        />
         <button
           type="button"
-          onClick={add}
-          disabled={busy || !name.trim()}
+          onClick={upload}
+          disabled={!ready}
           className="inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1 text-sm font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-50"
         >
-          <Plus size={14} />
-          Add resource
+          <Upload size={14} />
+          Upload
         </button>
       </div>
 
