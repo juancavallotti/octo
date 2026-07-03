@@ -106,7 +106,7 @@ func newSendMessage(raw types.Settings, deps core.BlockDeps) (core.MessageProces
 		threadTS:    threadTS,
 		blocks:      blocks,
 		failOnError: failOnError,
-		env:         envActivation(deps.Env),
+		env:         expr.EnvActivation(deps.Env),
 	}, nil
 }
 
@@ -114,7 +114,7 @@ func newSendMessage(raw types.Settings, deps core.BlockDeps) (core.MessageProces
 // channel and timestamp into variables. On a Slack error it aborts when
 // failOnError is set, otherwise it passes the message through unchanged.
 func (p *sendProcessor) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
-	payload, err := p.buildPayload(messageActivation(msg, p.env))
+	payload, err := p.buildPayload(expr.MessageActivation(msg, p.env))
 	if err != nil {
 		return nil, err
 	}

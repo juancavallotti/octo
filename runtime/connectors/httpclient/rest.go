@@ -17,7 +17,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/juancavallotti/octo/core"
 	"github.com/juancavallotti/octo/core/expr"
@@ -120,7 +119,7 @@ func newREST(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor, er
 		body:        body,
 		failOnError: failOnError,
 		statusVar:   statusVar,
-		env:         envActivation(deps.Env),
+		env:         expr.EnvActivation(deps.Env),
 	}, nil
 }
 
@@ -163,7 +162,7 @@ func compileMap(res core.ResourceLoader, in map[string]string) (map[string]*expr
 // connector, stores the status in a variable, and folds the response body into
 // the message body.
 func (p *processor) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
-	activation := messageActivation(msg, p.env)
+	activation := expr.MessageActivation(msg, p.env)
 
 	target, err := p.buildURL(activation)
 	if err != nil {
@@ -273,29 +272,6 @@ func foldResponse(msg *types.Message, body []byte) error {
 	}
 	msg.Body = string(body)
 	return nil
-}
-
-// messageActivation maps a message (and the block's resolved env) onto the
-// variables an expression can reference.
-func messageActivation(msg *types.Message, env map[string]any) map[string]any {
-	return map[string]any{
-		"body":          msg.Body,
-		"vars":          map[string]any(msg.Variables),
-		"eventID":       msg.EventID,
-		"correlationID": msg.CorrelationID,
-		"env":           env,
-		"now":           time.Now(),
-	}
-}
-
-// envActivation materializes a resolved env map into the form CEL expects once
-// at build time, so it is shared across every message the block processes.
-func envActivation(env map[string]string) map[string]any {
-	out := make(map[string]any, len(env))
-	for k, v := range env {
-		out[k] = v
-	}
-	return out
 }
 
 // snippet returns a short, single-line preview of a response body for errors.

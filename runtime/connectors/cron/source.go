@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/juancavallotti/octo/core"
 	"github.com/juancavallotti/octo/core/expr"
@@ -81,7 +80,7 @@ func (c *Connector) NewSource(cfg types.SourceConfig, out chan<- *types.Message)
 	}
 
 	if set.Payload != "" {
-		program, compileErr := expr.Compile(set.Payload, "now", "settings")
+		program, compileErr := expr.CompileSourcePayload(set.Payload)
 		if compileErr != nil {
 			return nil, compileErr
 		}
@@ -160,10 +159,7 @@ func (s *source) setBody(msg *types.Message) error {
 	if s.payload == nil {
 		return nil
 	}
-	value, err := s.payload.Eval(map[string]any{
-		"now":      time.Now(),
-		"settings": map[string]any(s.settings),
-	})
+	value, err := s.payload.Eval(expr.SourcePayloadActivation(map[string]any(s.settings)))
 	if err != nil {
 		return err
 	}

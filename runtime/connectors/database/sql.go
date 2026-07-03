@@ -15,7 +15,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/juancavallotti/octo/core"
 	"github.com/juancavallotti/octo/core/expr"
@@ -51,6 +50,7 @@ type processor struct {
 	args   []*expr.Program
 	exec   bool
 	single bool
+	env    map[string]any
 }
 
 // newSQL builds a sql processor, resolving its database connector and compiling
@@ -81,7 +81,10 @@ func newSQL(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor, err
 		args = append(args, program)
 	}
 
-	return &processor{db: db, query: cfg.Query, args: args, exec: cfg.Exec, single: cfg.Single}, nil
+	return &processor{
+		db: db, query: cfg.Query, args: args, exec: cfg.Exec, single: cfg.Single,
+		env: expr.EnvActivation(deps.Env),
+	}, nil
 }
 
 // resolveDB binds the block to its database connector by name.
@@ -167,13 +170,7 @@ func (p *processor) evalArgs(msg *types.Message) ([]any, error) {
 	if len(p.args) == 0 {
 		return nil, nil
 	}
-	activation := map[string]any{
-		"body":          msg.Body,
-		"vars":          map[string]any(msg.Variables),
-		"eventID":       msg.EventID,
-		"correlationID": msg.CorrelationID,
-		"now":           time.Now(),
-	}
+	activation := expr.MessageActivation(msg, p.env)
 	args := make([]any, 0, len(p.args))
 	for _, program := range p.args {
 		value, err := program.Eval(activation)

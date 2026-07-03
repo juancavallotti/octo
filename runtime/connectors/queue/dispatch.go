@@ -62,7 +62,7 @@ func newDispatch(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor
 		subject:    program,
 		awaitReply: cfg.AwaitReply,
 		timeout:    time.Duration(cfg.Timeout),
-		env:        envActivation(deps.Env),
+		env:        expr.EnvActivation(deps.Env),
 	}, nil
 }
 
@@ -71,7 +71,7 @@ func newDispatch(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor
 // terminal event) to the queue. The default publishes and returns the message
 // unchanged; awaitReply requests a reply and folds its body and variables back in.
 func (d *dispatch) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
-	subject, err := d.subject.EvalString(messageActivation(msg, d.env))
+	subject, err := d.subject.EvalString(expr.MessageActivation(msg, d.env))
 	if err != nil {
 		return nil, fmt.Errorf("queue-dispatch subject: %w", err)
 	}
@@ -107,27 +107,4 @@ func (d *dispatch) Process(ctx context.Context, msg *types.Message) (*types.Mess
 		msg.Variables.Set(k, v)
 	}
 	return msg, nil
-}
-
-// messageActivation maps a message (and the block's resolved env) onto the
-// variables a subject expression can reference.
-func messageActivation(msg *types.Message, env map[string]any) map[string]any {
-	return map[string]any{
-		"body":          msg.Body,
-		"vars":          map[string]any(msg.Variables),
-		"eventID":       msg.EventID,
-		"correlationID": msg.CorrelationID,
-		"env":           env,
-		"now":           time.Now(),
-	}
-}
-
-// envActivation materializes a resolved env map into the form CEL expects once at
-// build time, so it is shared across every message the block processes.
-func envActivation(env map[string]string) map[string]any {
-	out := make(map[string]any, len(env))
-	for k, v := range env {
-		out[k] = v
-	}
-	return out
 }

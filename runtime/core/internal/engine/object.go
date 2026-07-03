@@ -62,7 +62,7 @@ func newObjectWrite(raw types.Settings, deps core.BlockDeps) (core.MessageProces
 		return nil, err
 	}
 
-	block := &objectWrite{key: key, env: envActivation(deps.Env)}
+	block := &objectWrite{key: key, env: expr.EnvActivation(deps.Env)}
 	if cfg.Value != "" {
 		value, valueErr := expr.CompileMessage(deps.Resources, cfg.Value)
 		if valueErr != nil {
@@ -77,7 +77,7 @@ func newObjectWrite(raw types.Settings, deps core.BlockDeps) (core.MessageProces
 // key using optimistic concurrency (re-reading the version and retrying on a
 // conflict). The message passes through unchanged.
 func (p *objectWrite) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
-	activation := messageActivation(msg, p.env)
+	activation := expr.MessageActivation(msg, p.env)
 	key, err := p.key.EvalString(activation)
 	if err != nil {
 		return nil, fmt.Errorf("object-write key: %w", err)
@@ -153,7 +153,7 @@ func newObjectRead(raw types.Settings, deps core.BlockDeps) (core.MessageProcess
 		return nil, err
 	}
 
-	block := &objectRead{key: key, as: cfg.As, existsVar: cfg.ExistsVar, env: envActivation(deps.Env)}
+	block := &objectRead{key: key, as: cfg.As, existsVar: cfg.ExistsVar, env: expr.EnvActivation(deps.Env)}
 	if cfg.Default != "" {
 		defaultProg, defErr := expr.CompileMessage(deps.Resources, cfg.Default)
 		if defErr != nil {
@@ -170,7 +170,7 @@ func newObjectRead(raw types.Settings, deps core.BlockDeps) (core.MessageProcess
 // one is configured; otherwise it keeps the legacy behavior (null body / unset
 // variable).
 func (p *objectRead) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
-	activation := messageActivation(msg, p.env)
+	activation := expr.MessageActivation(msg, p.env)
 	key, err := p.key.EvalString(activation)
 	if err != nil {
 		return nil, fmt.Errorf("object-read key: %w", err)
@@ -250,14 +250,14 @@ func newObjectDelete(raw types.Settings, deps core.BlockDeps) (core.MessageProce
 	if err != nil {
 		return nil, err
 	}
-	return &objectDelete{key: key, env: envActivation(deps.Env)}, nil
+	return &objectDelete{key: key, env: expr.EnvActivation(deps.Env)}, nil
 }
 
 // Process evaluates the key and deletes the object unconditionally (version 0), so
 // the delete is idempotent: a missing key is not an error. The message passes
 // through unchanged.
 func (p *objectDelete) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
-	key, err := p.key.EvalString(messageActivation(msg, p.env))
+	key, err := p.key.EvalString(expr.MessageActivation(msg, p.env))
 	if err != nil {
 		return nil, fmt.Errorf("object-delete key: %w", err)
 	}

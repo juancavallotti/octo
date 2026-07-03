@@ -218,14 +218,14 @@ func newClearAgentMemory(raw types.Settings, deps core.BlockDeps) (core.MessageP
 	if err != nil {
 		return nil, err
 	}
-	return &clearAgentMemory{threadID: threadID, env: envActivation(deps.Env)}, nil
+	return &clearAgentMemory{threadID: threadID, env: expr.EnvActivation(deps.Env)}, nil
 }
 
 // Process evaluates the thread id and deletes its memory unconditionally (version
 // 0), so the clear is idempotent: a missing thread is not an error. The message
 // passes through unchanged.
 func (p *clearAgentMemory) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
-	threadID, err := p.threadID.EvalString(messageActivation(msg, p.env))
+	threadID, err := p.threadID.EvalString(expr.MessageActivation(msg, p.env))
 	if err != nil {
 		return nil, fmt.Errorf("clear-agent-memory threadId: %w", err)
 	}

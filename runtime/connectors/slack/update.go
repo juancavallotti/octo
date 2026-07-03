@@ -83,13 +83,13 @@ func newUpdateMessage(raw types.Settings, deps core.BlockDeps) (core.MessageProc
 		text:        text,
 		blocks:      blocks,
 		failOnError: failOnErrorDefault(cfg.FailOnError),
-		env:         envActivation(deps.Env),
+		env:         expr.EnvActivation(deps.Env),
 	}, nil
 }
 
 // Process builds the chat.update payload and edits the message.
 func (p *updateProcessor) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
-	payload, err := p.buildPayload(messageActivation(msg, p.env))
+	payload, err := p.buildPayload(expr.MessageActivation(msg, p.env))
 	if err != nil {
 		return nil, err
 	}

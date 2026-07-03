@@ -70,7 +70,7 @@ func newMultiTransform(raw types.Settings, deps core.BlockDeps) (core.MessagePro
 		}
 		steps = append(steps, compiled)
 	}
-	return &multiTransform{steps: steps, env: envActivation(deps.Env)}, nil
+	return &multiTransform{steps: steps, env: expr.EnvActivation(deps.Env)}, nil
 }
 
 // compileTransformStep validates one step (exactly one of setBody/setVar, and a
@@ -109,7 +109,7 @@ func compileTransformStep(
 // variable, both visible to the expressions that follow.
 func (p *multiTransform) Process(_ context.Context, msg *types.Message) (*types.Message, error) {
 	for i, step := range p.steps {
-		value, err := step.program.Eval(messageActivation(msg, p.env))
+		value, err := step.program.Eval(expr.MessageActivation(msg, p.env))
 		if err != nil {
 			return nil, fmt.Errorf("multi-transform step %d: %w", i, err)
 		}

@@ -6,7 +6,6 @@ package slack
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/juancavallotti/octo/core"
 	"github.com/juancavallotti/octo/core/expr"
@@ -84,27 +83,4 @@ func onCallError(msg *types.Message, err error, failOnError bool) (*types.Messag
 		return nil, err
 	}
 	return msg, nil
-}
-
-// messageActivation maps a message (and the block's resolved env) onto the
-// variables a CEL expression can reference.
-func messageActivation(msg *types.Message, env map[string]any) map[string]any {
-	return map[string]any{
-		"body":          msg.Body,
-		"vars":          map[string]any(msg.Variables),
-		"eventID":       msg.EventID,
-		"correlationID": msg.CorrelationID,
-		"env":           env,
-		"now":           time.Now(),
-	}
-}
-
-// envActivation materializes a resolved env map into the form CEL expects once
-// at build time, so it is shared across every message a block processes.
-func envActivation(env map[string]string) map[string]any {
-	out := make(map[string]any, len(env))
-	for k, v := range env {
-		out[k] = v
-	}
-	return out
 }

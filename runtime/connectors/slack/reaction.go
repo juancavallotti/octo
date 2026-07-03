@@ -70,13 +70,13 @@ func newAddReaction(raw types.Settings, deps core.BlockDeps) (core.MessageProces
 		timestamp:   timestamp,
 		emoji:       emoji,
 		failOnError: failOnErrorDefault(cfg.FailOnError),
-		env:         envActivation(deps.Env),
+		env:         expr.EnvActivation(deps.Env),
 	}, nil
 }
 
 // Process evaluates the target and reaction and calls reactions.add.
 func (p *reactionProcessor) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
-	activation := messageActivation(msg, p.env)
+	activation := expr.MessageActivation(msg, p.env)
 
 	channel, err := p.channel.EvalString(activation)
 	if err != nil {

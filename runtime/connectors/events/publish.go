@@ -54,7 +54,7 @@ func newPublish(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor,
 		return nil, fmt.Errorf("publish-event: compile subject: %w", err)
 	}
 
-	block := &publish{subject: subject, env: envActivation(deps.Env)}
+	block := &publish{subject: subject, env: expr.EnvActivation(deps.Env)}
 	if cfg.Value != "" {
 		value, valueErr := expr.CompileMessage(deps.Resources, cfg.Value)
 		if valueErr != nil {
@@ -69,7 +69,7 @@ func newPublish(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor,
 // optionally replaced by the value expression, and rekeyed), and broadcasts it on
 // the topics service. The current message passes through unchanged.
 func (p *publish) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
-	activation := messageActivation(msg, p.env)
+	activation := expr.MessageActivation(msg, p.env)
 	subject, err := p.subject.EvalString(activation)
 	if err != nil {
 		return nil, fmt.Errorf("publish-event subject: %w", err)

@@ -47,12 +47,12 @@ func newSetPayload(raw types.Settings, deps core.BlockDeps) (core.MessageProcess
 	if err != nil {
 		return nil, err
 	}
-	return &setPayload{value: program, env: envActivation(deps.Env)}, nil
+	return &setPayload{value: program, env: expr.EnvActivation(deps.Env)}, nil
 }
 
 // Process sets the message body to the evaluated value and forwards the message.
 func (p *setPayload) Process(_ context.Context, msg *types.Message) (*types.Message, error) {
-	value, err := p.value.Eval(messageActivation(msg, p.env))
+	value, err := p.value.Eval(expr.MessageActivation(msg, p.env))
 	if err != nil {
 		return nil, fmt.Errorf("set-payload value: %w", err)
 	}
@@ -91,12 +91,12 @@ func newSetVariable(raw types.Settings, deps core.BlockDeps) (core.MessageProces
 	if err != nil {
 		return nil, err
 	}
-	return &setVariable{name: cfg.Name, value: program, env: envActivation(deps.Env)}, nil
+	return &setVariable{name: cfg.Name, value: program, env: expr.EnvActivation(deps.Env)}, nil
 }
 
 // Process evaluates the value expression and stores it under the variable name.
 func (p *setVariable) Process(_ context.Context, msg *types.Message) (*types.Message, error) {
-	value, err := p.value.Eval(messageActivation(msg, p.env))
+	value, err := p.value.Eval(expr.MessageActivation(msg, p.env))
 	if err != nil {
 		return nil, fmt.Errorf("set-variable %q value: %w", p.name, err)
 	}

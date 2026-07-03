@@ -45,7 +45,7 @@ func newTemplateResource(raw types.Settings, deps core.BlockDeps) (core.MessageP
 		id:       cfg.ID,
 		target:   cfg.Target,
 		registry: expr.NewTemplateRegistry(deps.Resources),
-		env:      envActivation(deps.Env),
+		env:      expr.EnvActivation(deps.Env),
 	}, nil
 }
 
@@ -56,7 +56,7 @@ func (p *templateResourceBlock) Process(ctx context.Context, msg *types.Message)
 	if err != nil {
 		return nil, err
 	}
-	rendered, err := tpl.Render(messageActivation(msg, p.env))
+	rendered, err := tpl.Render(expr.MessageActivation(msg, p.env))
 	if err != nil {
 		return nil, fmt.Errorf("template-resource %q: %w", p.id, err)
 	}

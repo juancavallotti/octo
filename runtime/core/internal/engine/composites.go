@@ -155,7 +155,7 @@ func (e *enrichScope) Process(ctx context.Context, msg *types.Message) (*types.M
 		return nil, nil
 	}
 
-	activation := messageActivation(out, e.env)
+	activation := expr.MessageActivation(out, e.env)
 	if e.setBody != nil {
 		value, evalErr := e.setBody.Eval(activation)
 		if evalErr != nil {
@@ -176,7 +176,7 @@ func (e *enrichScope) Process(ctx context.Context, msg *types.Message) (*types.M
 // evalCondition evaluates a boolean expression against the message, erroring if
 // the result is not a bool.
 func evalCondition(program *expr.Program, msg *types.Message, env map[string]any) (bool, error) {
-	value, err := program.Eval(messageActivation(msg, env))
+	value, err := program.Eval(expr.MessageActivation(msg, env))
 	if err != nil {
 		return false, err
 	}
@@ -226,7 +226,7 @@ func (s *switchBlock) Process(ctx context.Context, msg *types.Message) (*types.M
 // the loop; an error aborts it. The loop variable is restored to its pre-loop
 // state before the message passes through.
 func (f *foreachBlock) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
-	value, err := f.items.Eval(messageActivation(msg, f.env))
+	value, err := f.items.Eval(expr.MessageActivation(msg, f.env))
 	if err != nil {
 		return nil, fmt.Errorf("foreach items: %w", err)
 	}
@@ -334,7 +334,7 @@ func (b *builder) ifBlock(cfg types.BlockConfig) (core.MessageProcessor, error) 
 		return nil, fmt.Errorf("if then: %w", err)
 	}
 
-	block := &ifBlock{condition: condition, then: then, env: envActivation(b.deps.Env)}
+	block := &ifBlock{condition: condition, then: then, env: expr.EnvActivation(b.deps.Env)}
 	if cfg.Else != nil {
 		els, elseErr := b.subFlow(*cfg.Else)
 		if elseErr != nil {
@@ -371,7 +371,7 @@ func (b *builder) switchBlock(cfg types.BlockConfig) (core.MessageProcessor, err
 		cases = append(cases, switchCase{when: when, flow: flow})
 	}
 
-	block := &switchBlock{cases: cases, env: envActivation(b.deps.Env)}
+	block := &switchBlock{cases: cases, env: expr.EnvActivation(b.deps.Env)}
 	if cfg.Default != nil {
 		def, err := b.subFlow(*cfg.Default)
 		if err != nil {
@@ -396,7 +396,7 @@ func (b *builder) enrich(cfg types.BlockConfig) (core.MessageProcessor, error) {
 		return nil, fmt.Errorf("enrich body: %w", err)
 	}
 
-	block := &enrichScope{body: body, env: envActivation(b.deps.Env)}
+	block := &enrichScope{body: body, env: expr.EnvActivation(b.deps.Env)}
 	if cfg.SetBody != "" {
 		setBody, compileErr := expr.CompileMessage(b.deps.Resources, cfg.SetBody)
 		if compileErr != nil {
@@ -442,5 +442,5 @@ func (b *builder) foreachBlock(cfg types.BlockConfig) (core.MessageProcessor, er
 	if as == "" {
 		as = defaultForeachVar
 	}
-	return &foreachBlock{items: items, as: as, body: body, env: envActivation(b.deps.Env)}, nil
+	return &foreachBlock{items: items, as: as, body: body, env: expr.EnvActivation(b.deps.Env)}, nil
 }
