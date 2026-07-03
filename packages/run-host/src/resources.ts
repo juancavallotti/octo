@@ -30,6 +30,14 @@ export interface ResourceFile {
  */
 export type ResourceProvider = (names: string[]) => Promise<ResourceFile[]>;
 
+/**
+ * The dev-env resource. An integration's dev credentials live here (in the host's
+ * resource store) instead of the browser, so an editor or MCP run reads them from
+ * the store rather than from caller-supplied env. run-host always requests it and
+ * declares it in the run config, so a run picks it up transparently.
+ */
+export const DEV_ENV_RESOURCE = ".env.dev";
+
 interface resourcesDecl {
   resources?: {
     env?: unknown;
@@ -75,6 +83,40 @@ export function sameNameSet(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false;
   const set = new Set(a);
   return b.every((n) => set.has(n));
+}
+
+/**
+ * The resource names a run effectively loads: those the config declares plus the
+ * always-present {@link DEV_ENV_RESOURCE}. Used both to request files from the
+ * provider and to detect a resource-list change on sync.
+ */
+export function effectiveResourceNames(yaml: string): string[] {
+  const declared = parseDeclaredResources(yaml);
+  return declared.includes(DEV_ENV_RESOURCE)
+    ? declared
+    : [...declared, DEV_ENV_RESOURCE];
+}
+
+/**
+ * Append {@link DEV_ENV_RESOURCE} to a config's `resources.env` (last, so dev
+ * values override other env resources and declared defaults) unless already
+ * present, returning the re-rendered YAML. The run config is machine-rendered and
+ * ephemeral, so re-stringifying (which may drop comments/reorder) is harmless. A
+ * malformed config is returned untouched for the runtime to report.
+ */
+export function injectDevEnvResource(yaml: string): string {
+  let doc: Record<string, unknown>;
+  try {
+    doc = (YAML.parse(yaml) ?? {}) as Record<string, unknown>;
+  } catch {
+    return yaml;
+  }
+  if (doc === null || typeof doc !== "object" || Array.isArray(doc)) return yaml;
+  const resources = (doc.resources ??= {}) as { env?: unknown };
+  const env = Array.isArray(resources.env) ? [...(resources.env as unknown[])] : [];
+  if (!env.includes(DEV_ENV_RESOURCE)) env.push(DEV_ENV_RESOURCE);
+  resources.env = env;
+  return YAML.stringify(doc);
 }
 
 /**
@@ -133,8 +175,8 @@ export async function resolveAndStage(
   yaml: string,
   provider: ResourceProvider | undefined,
 ): Promise<{ declared: string[]; staged: string[] }> {
-  const declared = parseDeclaredResources(yaml);
-  if (!provider || declared.length === 0) return { declared, staged: [] };
+  const declared = effectiveResourceNames(yaml);
+  if (!provider) return { declared, staged: [] };
   const files = await provider(declared);
   const staged = await stageResources(dir, files, declared);
   return { declared, staged };

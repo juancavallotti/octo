@@ -4,6 +4,9 @@ import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  DEV_ENV_RESOURCE,
+  effectiveResourceNames,
+  injectDevEnvResource,
   parseDeclaredResources,
   sameNameSet,
   stageResources,
@@ -11,6 +14,7 @@ import {
   resolveAndStage,
   type ResourceFile,
 } from "./resources";
+import YAML from "yaml";
 
 describe("parseDeclaredResources", () => {
   it("collects env ids and template resource ids in order, de-duped", () => {
@@ -136,13 +140,70 @@ describe("resolveAndStage", () => {
     expect(await readFile(join(dir, ".env.dev"), "utf8")).toBe("A=1");
   });
 
-  it("stages nothing when there is no provider or nothing is declared", async () => {
-    const noProvider = await resolveAndStage(dir, "resources:\n  env:\n    - .env.dev\n", undefined);
+  it("stages nothing when there is no provider", async () => {
+    const noProvider = await resolveAndStage(
+      dir,
+      "resources:\n  env:\n    - .env.dev\n",
+      undefined,
+    );
     expect(noProvider.staged).toEqual([]);
-    const nothing = await resolveAndStage(dir, "service:\n  name: t\n", async () => [
-      { name: "x", content: "y" },
+  });
+
+  it("always requests .env.dev, even for a config that declares no resources", async () => {
+    let asked: string[] = [];
+    const { declared, staged } = await resolveAndStage(
+      dir,
+      "service:\n  name: t\n",
+      async (names) => {
+        asked = names;
+        return []; // host has no dev env for this run
+      },
+    );
+    expect(asked).toEqual([DEV_ENV_RESOURCE]);
+    expect(declared).toEqual([DEV_ENV_RESOURCE]);
+    expect(staged).toEqual([]);
+  });
+});
+
+describe("effectiveResourceNames", () => {
+  it("appends .env.dev to the declared names", () => {
+    expect(effectiveResourceNames("service:\n  name: t\n")).toEqual([DEV_ENV_RESOURCE]);
+    expect(
+      effectiveResourceNames("resources:\n  templates:\n    - resource: t.tmpl\n"),
+    ).toEqual(["t.tmpl", DEV_ENV_RESOURCE]);
+  });
+
+  it("does not duplicate an explicitly declared .env.dev", () => {
+    expect(effectiveResourceNames("resources:\n  env:\n    - .env.dev\n")).toEqual([
+      DEV_ENV_RESOURCE,
     ]);
-    expect(nothing.declared).toEqual([]);
-    expect(nothing.staged).toEqual([]);
+  });
+});
+
+describe("injectDevEnvResource", () => {
+  it("appends .env.dev last in resources.env", () => {
+    const out = YAML.parse(
+      injectDevEnvResource("resources:\n  env:\n    - .env.shared\n"),
+    );
+    expect(out.resources.env).toEqual([".env.shared", DEV_ENV_RESOURCE]);
+  });
+
+  it("adds a resources.env to a config that has none", () => {
+    const out = YAML.parse(injectDevEnvResource("service:\n  name: t\n"));
+    expect(out.service.name).toBe("t");
+    expect(out.resources.env).toEqual([DEV_ENV_RESOURCE]);
+  });
+
+  it("is idempotent when .env.dev is already declared", () => {
+    const once = injectDevEnvResource("resources:\n  env:\n    - .env.dev\n");
+    expect(YAML.parse(once).resources.env).toEqual([DEV_ENV_RESOURCE]);
+    expect(YAML.parse(injectDevEnvResource(once)).resources.env).toEqual([
+      DEV_ENV_RESOURCE,
+    ]);
+  });
+
+  it("leaves a malformed config untouched", () => {
+    const bad = "resources: : :\n  bad";
+    expect(injectDevEnvResource(bad)).toBe(bad);
   });
 });

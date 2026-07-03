@@ -174,14 +174,18 @@ describe("run session", () => {
       process.env.OCTO_BIN_PATH = await fakeBin(dir, "octo-sleep", "echo ready\nsleep 3");
       const provider = async (names: string[]) =>
         names.map((name) => ({ name, content: `${name}=1` }));
-      await start(NS, yamlWith([".env.dev"]), undefined, { resources: provider });
+      // Declare an extra env resource alongside the always-present .env.dev.
+      await start(NS, yamlWith([".env.dev", ".env.extra"]), undefined, {
+        resources: provider,
+      });
       await vi.waitFor(() => expect(texts()).toContain("ready"), { timeout: 4000 });
-      expect(await readdir(join(dir, NS))).toContain(".env.dev");
+      expect(await readdir(join(dir, NS))).toContain(".env.extra");
 
-      await sync(NS, yamlWith([".env.other"]), { resources: provider });
+      // Drop .env.extra; .env.dev stays (it is always effectively declared).
+      await sync(NS, yamlWith([".env.dev"]), { resources: provider });
       const left = await readdir(join(dir, NS));
-      expect(left).toContain(".env.other");
-      expect(left).not.toContain(".env.dev"); // no-longer-declared file pruned
+      expect(left).toContain(".env.dev");
+      expect(left).not.toContain(".env.extra"); // no-longer-declared file pruned
     });
   });
 

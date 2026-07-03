@@ -8,7 +8,8 @@ import { allocatePort, isExposable, releasePort } from "./ports";
 import { LogBuffer, type LogLine } from "./logbuffer";
 import { ensureReaper } from "./reaper";
 import {
-  parseDeclaredResources,
+  effectiveResourceNames,
+  injectDevEnvResource,
   resolveAndStage,
   sameNameSet,
   stageResources,
@@ -213,7 +214,7 @@ export async function start(
   s.declaredResources = declared;
 
   const configPath = join(dir, `octo-editor-${randomUUID()}.yaml`);
-  await writeConfig(configPath, yaml);
+  await writeConfig(configPath, injectDevEnvResource(yaml));
   s.configPath = configPath;
 
   // A networked integration (one that declares HTTP_PORT) gets a real port from
@@ -290,7 +291,7 @@ export async function sync(
   const s = session(ns);
   if (!s.proc || !s.configPath) return statusOf(s);
 
-  const declared = parseDeclaredResources(yaml);
+  const declared = effectiveResourceNames(yaml);
   if (opts?.resources && !sameNameSet(declared, s.declaredResources)) {
     const dir = namespaceDir(ns);
     const files = await opts.resources(declared);
@@ -304,7 +305,7 @@ export async function sync(
     s.declaredResources = declared;
   }
 
-  await writeConfig(s.configPath, yaml);
+  await writeConfig(s.configPath, injectDevEnvResource(yaml));
   return statusOf(s);
 }
 
@@ -344,7 +345,7 @@ export async function invoke(
   await mkdir(invokeDir, { recursive: true });
   await resolveAndStage(invokeDir, yaml, opts?.resources);
   const configPath = join(invokeDir, "octo-invoke.yaml");
-  await writeConfig(configPath, yaml);
+  await writeConfig(configPath, injectDevEnvResource(yaml));
 
   const timeoutMs = opts?.timeoutMs ?? INVOKE_DEFAULT_TIMEOUT_MS;
   const args = [
