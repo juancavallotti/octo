@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { EditorRoot } from "@octo/editor";
 import { subscribeIntegrationEvents } from "@octo/events";
 import { useOrchestrator } from "@/app/run/OrchestratorContext";
 import { orchestratorFileSystem } from "@/app/providers/orchestratorFileSystem";
 import { bffRunTransport } from "@/app/run/transport";
 import { bffDevEnvStore } from "@/app/run/devEnvStore";
+import { makeResourceStore } from "@/app/run/resourceStore";
 import EditorHeader from "./EditorHeader";
 
 /**
@@ -32,6 +33,9 @@ export default function PlatformEditor({
   // Bumped when the MCP server writes the file we currently have open, so the
   // editor live-reloads it (a clean editor silently, a dirty one via a banner).
   const [reloadToken, setReloadToken] = useState(0);
+  // Reads the live integration id (idRef) so the store keeps working after the
+  // first save mints one, without remounting the editor.
+  const resourceStore = useMemo(() => makeResourceStore(() => idRef.current), []);
   useEffect(
     () =>
       subscribeIntegrationEvents((event) => {
@@ -52,6 +56,7 @@ export default function PlatformEditor({
       fs={available ? orchestratorFileSystem : null}
       run={bffRunTransport}
       devEnv={available ? bffDevEnvStore : null}
+      resources={available ? resourceStore : null}
       onSaved={(stored) => {
         idRef.current = stored.id;
         // Promote the address bar to the bookmarkable /platform/i/<id> URL
