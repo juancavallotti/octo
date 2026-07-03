@@ -104,6 +104,7 @@ flows:                        # one or more root flows
           <tr><td><code>set-payload</code></td><td>Transform</td><td>Replace the message body from a CEL expression.</td></tr>
           <tr><td><code>set-variable</code></td><td>Transform</td><td>Set or update a message variable from CEL.</td></tr>
           <tr><td><code>delete-variable</code></td><td>Transform</td><td>Remove a message variable.</td></tr>
+          <tr><td><code>template-resource</code></td><td>Transform</td><td>Render a declared template resource (<code>{{ CEL }}</code> over the message) into the body or a variable.</td></tr>
           <tr><td><code>ai-mapping</code></td><td>Transform</td><td>Reshape the body with an LLM, with optional JSON-schema validation.</td></tr>
           <tr><td><code>rest</code></td><td>I/O</td><td>Outbound HTTP request via the <a href="connectors.html#http-client">http-client</a> connector.</td></tr>
           <tr><td><code>sql</code></td><td>I/O</td><td>Run a query via the <a href="connectors.html#database">database</a> connector.</td></tr>
