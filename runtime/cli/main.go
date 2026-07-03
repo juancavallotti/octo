@@ -200,7 +200,7 @@ func announceWhenReady(ctx context.Context, service *runtime.Service) {
 // whenever the watched path changes, until ctx is cancelled. A config that fails
 // to load leaves the previous generation stopped and waits for the next change.
 func runWithReload(ctx context.Context, configPath string, svc core.RuntimeServices) error {
-	changed, err := watchConfig(ctx, configPath)
+	changed, err := watchConfig(ctx, configPath, core.NoopResourceLoader{})
 	if err != nil {
 		return fmt.Errorf("watch config: %w", err)
 	}

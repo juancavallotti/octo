@@ -46,6 +46,44 @@ func TestMergeConfigsDedupesEnv(t *testing.T) {
 	}
 }
 
+func TestMergeConfigsDedupesEnvResources(t *testing.T) {
+	merged, err := MergeConfigs([]types.Config{
+		{Resources: types.ResourcesConfig{Env: []string{".env.dev", ".env.local"}}},
+		{Resources: types.ResourcesConfig{Env: []string{".env.dev", ".env.prod"}}},
+	})
+	if err != nil {
+		t.Fatalf("MergeConfigs: %v", err)
+	}
+	// The same id in both files folds to one entry, first-seen order preserved.
+	want := []string{".env.dev", ".env.local", ".env.prod"}
+	if got := merged.Resources.Env; len(got) != len(want) {
+		t.Fatalf("env resources = %v, want %v", got, want)
+	}
+	for i, id := range want {
+		if merged.Resources.Env[i] != id {
+			t.Errorf("env resource[%d] = %q, want %q", i, merged.Resources.Env[i], id)
+		}
+	}
+}
+
+func TestParseConfigDecodesResources(t *testing.T) {
+	cfg, err := ParseConfig([]byte(`
+service:
+  name: demo
+resources:
+  env:
+    - .env.dev
+    - .env.local
+`))
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	want := []string{".env.dev", ".env.local"}
+	if got := cfg.Resources.Env; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("resources.env = %v, want %v", got, want)
+	}
+}
+
 func TestMergeConfigsRejectsDuplicates(t *testing.T) {
 	tests := []struct {
 		name    string

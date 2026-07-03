@@ -10,6 +10,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
+	"github.com/juancavallotti/octo/core"
 	"github.com/juancavallotti/octo/core/runtime"
 )
 
@@ -21,9 +22,11 @@ const watchDebounce = 200 * time.Millisecond
 // channel (debounced) whenever the file or directory contents change. When path
 // is a directory the directory itself is watched, so added/removed config files
 // are noticed too. The .env files consulted during loading are watched as well, so
-// editing them triggers the same full restart as a config change. The watcher runs
-// until ctx is cancelled.
-func watchConfig(ctx context.Context, path string) (<-chan struct{}, error) {
+// editing them triggers the same full restart as a config change. When resources
+// is non-nil and supports change notification, its resource edits feed the same
+// debounced channel, so an imported env file or template change reloads too. The
+// watcher runs until ctx is cancelled.
+func watchConfig(ctx context.Context, path string, resources core.ResourceLoader) (<-chan struct{}, error) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, fmt.Errorf("new watcher: %w", err)
@@ -45,7 +48,20 @@ func watchConfig(ctx context.Context, path string) (<-chan struct{}, error) {
 	}
 
 	changed := make(chan struct{}, 1)
-	go watchLoop(ctx, watcher, changed)
+
+	// A resource loader that opts into change notification feeds its events into a
+	// side channel the watch loop debounces alongside filesystem events. A loader
+	// that is not a ResourceWatcher (e.g. the k8s no-op) contributes nothing.
+	var resourceCh chan struct{}
+	if w, ok := resources.(core.ResourceWatcher); ok {
+		resourceCh = make(chan struct{}, 1)
+		if err := w.OnChange(ctx, func(core.ResourceKind, string) { notify(resourceCh) }); err != nil {
+			_ = watcher.Close()
+			return nil, fmt.Errorf("watch resources: %w", err)
+		}
+	}
+
+	go watchLoop(ctx, watcher, resourceCh, changed)
 	return changed, nil
 }
 
@@ -76,8 +92,12 @@ func watchTarget(path string) string {
 }
 
 // watchLoop forwards debounced change notifications until ctx is cancelled or the
-// watcher closes, then closes the watcher.
-func watchLoop(ctx context.Context, watcher *fsnotify.Watcher, changed chan<- struct{}) {
+// watcher closes, then closes the watcher. Filesystem events and resource-change
+// events (resourceCh, nil when no ResourceWatcher is wired) share one debounce
+// timer, so a burst across both coalesces into a single reload.
+func watchLoop(
+	ctx context.Context, watcher *fsnotify.Watcher, resourceCh <-chan struct{}, changed chan<- struct{},
+) {
 	defer func() { _ = watcher.Close() }()
 	var timer *time.Timer
 	var timerC <-chan time.Time
@@ -89,6 +109,8 @@ func watchLoop(ctx context.Context, watcher *fsnotify.Watcher, changed chan<- st
 			if !ok {
 				return
 			}
+			timer, timerC = armDebounce(timer)
+		case <-resourceCh:
 			timer, timerC = armDebounce(timer)
 		case err, ok := <-watcher.Errors:
 			if !ok {

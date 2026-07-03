@@ -108,6 +108,7 @@ type configMerger struct {
 	processors map[string]struct{}
 	flows      map[string]struct{}
 	env        map[string]struct{}
+	envRes     map[string]struct{}
 }
 
 func newConfigMerger() *configMerger {
@@ -116,6 +117,7 @@ func newConfigMerger() *configMerger {
 		processors: make(map[string]struct{}),
 		flows:      make(map[string]struct{}),
 		env:        make(map[string]struct{}),
+		envRes:     make(map[string]struct{}),
 	}
 }
 
@@ -133,6 +135,15 @@ func (m *configMerger) add(cfg types.Config) error {
 		}
 		m.env[e.Name] = struct{}{}
 		m.merged.Env = append(m.merged.Env, e)
+	}
+	for _, id := range cfg.Resources.Env {
+		// Declaring the same env resource in several files is allowed; keep the
+		// first occurrence so the combined load order stays deterministic.
+		if _, dup := m.envRes[id]; dup {
+			continue
+		}
+		m.envRes[id] = struct{}{}
+		m.merged.Resources.Env = append(m.merged.Resources.Env, id)
 	}
 	for _, c := range cfg.Connectors {
 		if err := claimName(m.connectors, c.Name, "connector"); err != nil {
