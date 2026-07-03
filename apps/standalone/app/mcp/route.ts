@@ -4,6 +4,7 @@ import {
   fromDefinitionYaml,
   validateDocument,
 } from "@octo/editor/runtime";
+import { fsResourceProvider } from "../run/resources";
 import { fsIntegrationStore } from "./store-adapter";
 
 /**
@@ -32,6 +33,9 @@ const handler = createOctoMcpHandler(
     store: fsIntegrationStore,
     validate,
     runtimeSchema: CAPABILITIES,
+    // Stage a run's resources from the flat flows dir; shared across integrations,
+    // so the id is ignored (a run with an inline definition still gets them).
+    resources: () => fsResourceProvider,
     // Point the authoring prompt at the human docs (CEL, block reference) when
     // configured. Set OCTO_DOCS_URL to your documentation site.
     docsUrl: process.env.OCTO_DOCS_URL,

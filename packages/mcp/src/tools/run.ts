@@ -73,7 +73,9 @@ export function registerRunTools(
           if (!sane) return errorResult("invalid env (names must match [A-Za-z_][A-Za-z0-9_]* with string values)");
           parsedEnv = sane;
         }
-        const st = await runHost.start(ns, rec.definition, parsedEnv);
+        const st = await runHost.start(ns, rec.definition, parsedEnv, {
+          resources: config.resources?.(id),
+        });
         const testUrl = buildTestUrl(config, st);
         return jsonResult({
           running: st.running,
@@ -142,6 +144,9 @@ export function registerRunTools(
           data,
           env: parsedEnv,
           timeoutMs,
+          // `id` is undefined for an inline definition; the host decides what that
+          // yields (the platform: no resources; standalone: its shared files).
+          resources: config.resources?.(id),
         });
         return jsonResult({
           ok: r.ok,
