@@ -16,53 +16,78 @@
 }
 
 /**
- * Prism syntax-highlighting tokens for the read-only YAML preview (YamlPreview).
- * We theme only the tokens the `yaml` grammar emits, using the Tailwind palette,
- * instead of importing a full Prism theme. Colors auto-adapt to dark mode.
+ * Prism syntax-highlighting tokens shared by the read-only YAML preview
+ * (YamlPreview, `.octo-yaml-preview`) and the Resources tab code editor
+ * (`.octo-code`, env/json/html/xml/yaml). We theme only the tokens those grammars
+ * emit, using the Tailwind palette, instead of importing a full Prism theme.
+ * Colors auto-adapt to dark mode.
  */
-.octo-yaml-preview .token.key,
-.octo-yaml-preview .token.atrule {
+:is(.octo-yaml-preview, .octo-code) .token.key,
+:is(.octo-yaml-preview, .octo-code) .token.atrule,
+:is(.octo-yaml-preview, .octo-code) .token.property,
+:is(.octo-yaml-preview, .octo-code) .token.attr-name {
   color: #0284c7; /* sky-600 */
 }
-.octo-yaml-preview .token.string {
+:is(.octo-yaml-preview, .octo-code) .token.string,
+:is(.octo-yaml-preview, .octo-code) .token.attr-value {
   color: #059669; /* emerald-600 */
 }
-.octo-yaml-preview .token.number,
-.octo-yaml-preview .token.boolean {
+:is(.octo-yaml-preview, .octo-code) .token.number,
+:is(.octo-yaml-preview, .octo-code) .token.boolean,
+:is(.octo-yaml-preview, .octo-code) .token.null,
+:is(.octo-yaml-preview, .octo-code) .token.constant {
   color: #d97706; /* amber-600 */
 }
-.octo-yaml-preview .token.comment {
+:is(.octo-yaml-preview, .octo-code) .token.comment,
+:is(.octo-yaml-preview, .octo-code) .token.doctype,
+:is(.octo-yaml-preview, .octo-code) .token.prolog,
+:is(.octo-yaml-preview, .octo-code) .token.cdata {
   color: #a1a1aa; /* zinc-400 */
   font-style: italic;
 }
-.octo-yaml-preview .token.punctuation {
+:is(.octo-yaml-preview, .octo-code) .token.punctuation {
   color: #71717a; /* zinc-500 */
 }
-.octo-yaml-preview .token.tag,
-.octo-yaml-preview .token.important {
+:is(.octo-yaml-preview, .octo-code) .token.tag,
+:is(.octo-yaml-preview, .octo-code) .token.important {
   color: #db2777; /* pink-600 */
+}
+:is(.octo-yaml-preview, .octo-code) .token.handlebars {
+  color: #7c3aed; /* violet-600 */
+  font-weight: 600;
 }
 
 @media (prefers-color-scheme: dark) {
-  .octo-yaml-preview .token.key,
-  .octo-yaml-preview .token.atrule {
+  :is(.octo-yaml-preview, .octo-code) .token.key,
+  :is(.octo-yaml-preview, .octo-code) .token.atrule,
+  :is(.octo-yaml-preview, .octo-code) .token.property,
+  :is(.octo-yaml-preview, .octo-code) .token.attr-name {
     color: #38bdf8; /* sky-400 */
   }
-  .octo-yaml-preview .token.string {
+  :is(.octo-yaml-preview, .octo-code) .token.string,
+  :is(.octo-yaml-preview, .octo-code) .token.attr-value {
     color: #34d399; /* emerald-400 */
   }
-  .octo-yaml-preview .token.number,
-  .octo-yaml-preview .token.boolean {
+  :is(.octo-yaml-preview, .octo-code) .token.number,
+  :is(.octo-yaml-preview, .octo-code) .token.boolean,
+  :is(.octo-yaml-preview, .octo-code) .token.null,
+  :is(.octo-yaml-preview, .octo-code) .token.constant {
     color: #fbbf24; /* amber-400 */
   }
-  .octo-yaml-preview .token.comment {
+  :is(.octo-yaml-preview, .octo-code) .token.comment,
+  :is(.octo-yaml-preview, .octo-code) .token.doctype,
+  :is(.octo-yaml-preview, .octo-code) .token.prolog,
+  :is(.octo-yaml-preview, .octo-code) .token.cdata {
     color: #71717a; /* zinc-500 */
   }
-  .octo-yaml-preview .token.punctuation {
+  :is(.octo-yaml-preview, .octo-code) .token.punctuation {
     color: #a1a1aa; /* zinc-400 */
   }
-  .octo-yaml-preview .token.tag,
-  .octo-yaml-preview .token.important {
+  :is(.octo-yaml-preview, .octo-code) .token.tag,
+  :is(.octo-yaml-preview, .octo-code) .token.important {
     color: #f472b6; /* pink-400 */
+  }
+  :is(.octo-yaml-preview, .octo-code) .token.handlebars {
+    color: #a78bfa; /* violet-400 */
   }
 }
