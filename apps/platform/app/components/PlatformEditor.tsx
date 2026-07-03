@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { EditorRoot } from "@octo/editor";
 import { subscribeIntegrationEvents } from "@octo/events";
 import { useOrchestrator } from "@/app/run/OrchestratorContext";
@@ -33,9 +33,11 @@ export default function PlatformEditor({
   // Bumped when the MCP server writes the file we currently have open, so the
   // editor live-reloads it (a clean editor silently, a dirty one via a banner).
   const [reloadToken, setReloadToken] = useState(0);
-  // Reads the live integration id (idRef) so the store keeps working after the
-  // first save mints one, without remounting the editor.
-  const resourceStore = useMemo(() => makeResourceStore(() => idRef.current), []);
+  // Created once and kept across renders; onSaved pushes the minted id in so the
+  // store keeps working after the first save without remounting the editor.
+  const [resourceStore] = useState(() =>
+    makeResourceStore(integrationId ?? null),
+  );
   useEffect(
     () =>
       subscribeIntegrationEvents((event) => {
@@ -59,6 +61,7 @@ export default function PlatformEditor({
       resources={available ? resourceStore : null}
       onSaved={(stored) => {
         idRef.current = stored.id;
+        resourceStore.setIntegrationId(stored.id);
         // Promote the address bar to the bookmarkable /platform/i/<id> URL
         // without remounting the editor (Next syncs the router for manual updates).
         window.history.replaceState(null, "", `/platform/i/${stored.id}`);

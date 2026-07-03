@@ -11,11 +11,16 @@ import type { Resource } from "@/app/model/orchestrator";
 /**
  * The platform resource store: backs the editor's Resources tab with the
  * integration's resources in the orchestrator, through the auth-gated resource
- * actions. A resource needs an owning integration, so the id is read lazily via a
- * getter — the same one TagButton uses — so it survives the mint-on-first-save
- * flow (an unsaved draft has no id). Until an id exists, `list()` is empty and
+ * actions. A resource needs an owning integration, so the store owns the id
+ * mutably and exposes `setIntegrationId` — the first save mints one and pushes it
+ * in — so the store survives the mint-on-first-save flow without being recreated
+ * (an unsaved draft has no id). Until an id exists, `list()` is empty and
  * mutations throw a readable error rather than hitting the orchestrator.
  */
+export interface PlatformResourceStore extends ResourceStore {
+  /** Point the store at the integration whose resources it manages. */
+  setIntegrationId(id: string | null): void;
+}
 
 function toStored(r: Resource): StoredResource {
   return {
@@ -27,17 +32,22 @@ function toStored(r: Resource): StoredResource {
 }
 
 export function makeResourceStore(
-  getIntegrationId: () => string | null,
-): ResourceStore {
+  initialIntegrationId: string | null,
+): PlatformResourceStore {
+  let integrationId = initialIntegrationId;
   const requireId = () => {
-    const id = getIntegrationId();
-    if (!id) throw new Error("Save the integration before managing resources.");
-    return id;
+    if (!integrationId)
+      throw new Error("Save the integration before managing resources.");
+    return integrationId;
   };
 
   return {
+    setIntegrationId(id) {
+      integrationId = id;
+    },
+
     async list() {
-      const id = getIntegrationId();
+      const id = integrationId;
       if (!id) return [];
       return unwrap(await listResources(id)).map(toStored);
     },
