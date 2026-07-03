@@ -5,7 +5,7 @@ import {
   validateDocument,
 } from "@octo/editor/runtime";
 import { fsResourceProvider } from "../run/resources";
-import { fsIntegrationStore } from "./store-adapter";
+import { fsIntegrationStore, fsResourceStore } from "./store-adapter";
 
 /**
  * GET/POST/DELETE /mcp — the standalone app's Model Context Protocol endpoint
@@ -36,6 +36,9 @@ const handler = createOctoMcpHandler(
     // Stage a run's resources from the flat flows dir; shared across integrations,
     // so the id is ignored (a run with an inline definition still gets them).
     resources: () => fsResourceProvider,
+    // Full CRUD over resources on the flat local-disk store (shared across flows,
+    // so the integration id is echoed but not used to locate files).
+    resourceStore: fsResourceStore,
     // Point the authoring prompt at the human docs (CEL, block reference) when
     // configured. Set OCTO_DOCS_URL to your documentation site.
     docsUrl: process.env.OCTO_DOCS_URL,
