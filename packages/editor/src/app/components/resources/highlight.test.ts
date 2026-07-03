@@ -26,6 +26,16 @@ describe("highlight", () => {
   it("escapes plain text rather than interpreting markup", () => {
     expect(highlight("<b>&x", "notes.txt")).toBe("&lt;b&gt;&amp;x");
   });
+
+  it("marks {{ }} handlebars expressions in every language, including plain", () => {
+    expect(highlight("Hello {{ user.name }}", "notes.txt")).toContain(
+      "token handlebars",
+    );
+    expect(highlight('{"a": "{{ x }}"}', "x.json")).toContain(
+      "token handlebars",
+    );
+    expect(highlight("<p>{{ x }}</p>", "x.html")).toContain("token handlebars");
+  });
 });
 
 describe("languageLabel", () => {

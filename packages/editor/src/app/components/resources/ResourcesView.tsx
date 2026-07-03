@@ -609,8 +609,18 @@ function ResourceEditor({
           padding={12}
           textareaClassName="octo-code-textarea"
           preClassName="octo-code"
-          className="octo-code min-h-full font-mono text-xs leading-relaxed"
-          style={{ fontFamily: "inherit", minHeight: "100%" }}
+          className="octo-code min-h-full"
+          // Set the mono font via style, not a class: react-simple-code-editor
+          // copies these onto both the textarea and the highlight <pre> so their
+          // glyph metrics line up exactly. An "inherit" here would fall back to the
+          // app's sans font — it must read as code.
+          style={{
+            fontFamily:
+              "ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace",
+            fontSize: 12,
+            lineHeight: 1.6,
+            minHeight: "100%",
+          }}
         />
       </div>
       <SaveStatus state={saveState} error={error} />

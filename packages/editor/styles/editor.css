@@ -52,6 +52,10 @@
 :is(.octo-yaml-preview, .octo-code) .token.important {
   color: #db2777; /* pink-600 */
 }
+:is(.octo-yaml-preview, .octo-code) .token.handlebars {
+  color: #7c3aed; /* violet-600 */
+  font-weight: 600;
+}
 
 @media (prefers-color-scheme: dark) {
   :is(.octo-yaml-preview, .octo-code) .token.key,
@@ -82,5 +86,8 @@
   :is(.octo-yaml-preview, .octo-code) .token.tag,
   :is(.octo-yaml-preview, .octo-code) .token.important {
     color: #f472b6; /* pink-400 */
+  }
+  :is(.octo-yaml-preview, .octo-code) .token.handlebars {
+    color: #a78bfa; /* violet-400 */
   }
 }

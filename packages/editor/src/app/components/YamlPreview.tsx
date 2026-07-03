@@ -18,7 +18,13 @@ export default function YamlPreview() {
 
   const html = useMemo(() => {
     const yaml = toDefinitionYaml(state.document, state.integration.name);
-    return Prism.highlight(yaml, Prism.languages.yaml, "yaml");
+    // Overlay the handlebars token so `{{ }}` template expressions stand out here
+    // too, consistent with the Resources editors.
+    const grammar = {
+      handlebars: { pattern: /\{\{[\s\S]*?\}\}/, greedy: true },
+      ...Prism.languages.yaml,
+    };
+    return Prism.highlight(yaml, grammar, "yaml");
   }, [state.document, state.integration.name]);
 
   return (
