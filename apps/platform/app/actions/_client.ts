@@ -258,6 +258,16 @@ export function listResources(
   return call<Resource[]>("GET", `/integrations/${enc(integrationId)}/resources`);
 }
 
+export function getResource(
+  integrationId: string,
+  id: string,
+): Promise<ActionResult<Resource>> {
+  return call<Resource>(
+    "GET",
+    `/integrations/${enc(integrationId)}/resources/${enc(id)}`,
+  );
+}
+
 export function createResource(
   integrationId: string,
   kind: string,

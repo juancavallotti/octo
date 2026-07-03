@@ -6,7 +6,10 @@ import {
 } from "@octo/editor/runtime";
 import { verifyApiKey } from "@/app/actions/_client";
 import { orchestratorResourceProvider } from "@/app/lib/runResources";
-import { orchestratorIntegrationStore } from "./store-adapter";
+import {
+  orchestratorIntegrationStore,
+  orchestratorResourceStore,
+} from "./store-adapter";
 
 /**
  * GET/POST/DELETE /mcp — the platform's Model Context Protocol endpoint
@@ -45,6 +48,8 @@ const handler = createOctoMcpHandler(
     // Stage a run's resources from the orchestrator; an inline definition (no id)
     // has none, so a run without a saved integration gets no resources.
     resources: (id) => (id ? orchestratorResourceProvider(id) : undefined),
+    // Full CRUD over an integration's stored resources (env files, templates).
+    resourceStore: orchestratorResourceStore,
     // Absolutize a run's test URL when the public origin is known (Auth.js's
     // canonical var); otherwise the bare /editor/runs/<ns>/ path is returned.
     baseUrl: process.env.AUTH_URL,
