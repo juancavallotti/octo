@@ -26,9 +26,16 @@ const ModuleEnvVar = "RUNTIME_SERVICES_MODULE"
 // single-process, no-dependency default.
 const DefaultModule = "standalone"
 
+// Options carries construction inputs a provider may need beyond the context.
+// ResourceRoot roots the standalone module's filesystem resource loader (the
+// config directory); providers that resolve resources elsewhere (k8s) ignore it.
+type Options struct {
+	ResourceRoot string
+}
+
 // Factory constructs a runtime services provider. Construction may do real work
 // (e.g. building an in-cluster Kubernetes client) and so may fail.
-type Factory func(ctx context.Context) (core.RuntimeServices, error)
+type Factory func(ctx context.Context, opts Options) (core.RuntimeServices, error)
 
 // selected is the module name chosen by the environment, resolved once. Because
 // every provider package imports this package, this initializes before any
@@ -76,7 +83,7 @@ func Register(module string, factory Factory) {
 // services are owned by the caller, which must Close them on shutdown.
 //
 //nolint:ireturn // returns the RuntimeServices interface the caller wires in
-func New(ctx context.Context) (core.RuntimeServices, error) {
+func New(ctx context.Context, opts Options) (core.RuntimeServices, error) {
 	mu.Lock()
 	factory := active
 	mu.Unlock()
@@ -85,5 +92,5 @@ func New(ctx context.Context) (core.RuntimeServices, error) {
 			"no runtime services provider registered for module %q "+
 				"(set %s to a built-in module and ensure its package is imported)", selected, ModuleEnvVar)
 	}
-	return factory(ctx)
+	return factory(ctx, opts)
 }

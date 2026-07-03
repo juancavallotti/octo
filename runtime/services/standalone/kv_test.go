@@ -111,7 +111,7 @@ func TestKVNamespacesAreIsolated(t *testing.T) {
 }
 
 func TestKVAndSecretsDoNotCollide(t *testing.T) {
-	svc := New()
+	svc := New("")
 	ctx := context.Background()
 
 	if _, err := svc.KV().Set(ctx, core.NamespaceUser, "k", []byte("kv-value"), 0); err != nil {
@@ -189,7 +189,7 @@ func TestGetReturnsCopy(t *testing.T) {
 }
 
 func TestLeaderElectionAlwaysLeader(t *testing.T) {
-	svc := New()
+	svc := New("")
 	lease, err := svc.LeaderElection().Acquire(context.Background(), "any-key")
 	if err != nil {
 		t.Fatalf("Acquire: %v", err)

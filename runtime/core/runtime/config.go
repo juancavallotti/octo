@@ -7,14 +7,18 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/juancavallotti/octo/core"
 	"github.com/juancavallotti/octo/core/internal/dsl"
 	"github.com/juancavallotti/octo/types"
 )
 
 // LoadConfig reads and parses the runtime config at path. When path is a
 // directory, every *.yaml/*.yml file in it is parsed and merged into one config
-// (see MergeConfigs); otherwise the single file is parsed.
-func LoadConfig(path string) (types.Config, error) {
+// (see MergeConfigs); otherwise the single file is parsed. loader supplies the
+// declared env resources (resources.env) combined into the environment; it is
+// the runtime-services resource loader (rooted at the config directory in the
+// standalone module).
+func LoadConfig(path string, loader core.ResourceLoader) (types.Config, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		return types.Config{}, fmt.Errorf("stat config path %q: %w", path, err)
@@ -30,7 +34,7 @@ func LoadConfig(path string) (types.Config, error) {
 		return types.Config{}, err
 	}
 
-	if err := applyEnv(&cfg); err != nil {
+	if err := applyEnv(&cfg, loader); err != nil {
 		return types.Config{}, err
 	}
 	return cfg, nil
@@ -43,7 +47,9 @@ func ParseConfig(data []byte) (types.Config, error) {
 	if err != nil {
 		return types.Config{}, err
 	}
-	if err := applyEnv(&cfg); err != nil {
+	// The byte-parse entrypoint has no config directory, so declared env resources
+	// cannot be resolved; the no-op loader reports them missing (which is skipped).
+	if err := applyEnv(&cfg, core.NoopResourceLoader{}); err != nil {
 		return types.Config{}, err
 	}
 	return cfg, nil

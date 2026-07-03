@@ -1,4 +1,4 @@
-package resources
+package standalone
 
 import (
 	"context"
@@ -11,11 +11,11 @@ import (
 	"github.com/juancavallotti/octo/core"
 )
 
-func TestStandaloneLoadExisting(t *testing.T) {
+func TestResourceLoaderLoadExisting(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, ".env.dev"), "A=1")
 
-	loader := NewStandalone(root)
+	loader := newResourceLoader(root)
 	data, err := loader.Load(context.Background(), core.ResourceKindEnv, ".env.dev")
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -25,11 +25,11 @@ func TestStandaloneLoadExisting(t *testing.T) {
 	}
 }
 
-func TestStandaloneLoadSubfolder(t *testing.T) {
+func TestResourceLoaderLoadSubfolder(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "templates", "welcome.tmpl"), "hi")
 
-	loader := NewStandalone(root)
+	loader := newResourceLoader(root)
 	data, err := loader.Load(context.Background(), core.ResourceKindTemplate, "templates/welcome.tmpl")
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -39,15 +39,15 @@ func TestStandaloneLoadSubfolder(t *testing.T) {
 	}
 }
 
-func TestStandaloneLoadMissing(t *testing.T) {
-	loader := NewStandalone(t.TempDir())
+func TestResourceLoaderLoadMissing(t *testing.T) {
+	loader := newResourceLoader(t.TempDir())
 	_, err := loader.Load(context.Background(), core.ResourceKindEnv, ".env.nope")
 	if !errors.Is(err, core.ErrResourceNotFound) {
 		t.Fatalf("Load missing err = %v, want ErrResourceNotFound", err)
 	}
 }
 
-func TestStandaloneRejectsTraversal(t *testing.T) {
+func TestResourceLoaderRejectsTraversal(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "cfg")
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
@@ -55,13 +55,13 @@ func TestStandaloneRejectsTraversal(t *testing.T) {
 	// A secret sitting outside the root must not be reachable via "..".
 	writeFile(t, filepath.Join(filepath.Dir(root), "secret"), "top")
 
-	loader := NewStandalone(root)
+	loader := newResourceLoader(root)
 	if _, err := loader.Load(context.Background(), core.ResourceKindEnv, "../secret"); err == nil {
 		t.Fatal("expected traversal to be rejected")
 	}
 }
 
-func TestStandaloneOnChangeFires(t *testing.T) {
+func TestResourceLoaderOnChangeFires(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, ".env.dev"), "A=1")
 
@@ -69,7 +69,7 @@ func TestStandaloneOnChangeFires(t *testing.T) {
 	defer cancel()
 
 	changes := make(chan core.ResourceKind, 8)
-	loader := NewStandalone(root)
+	loader := newResourceLoader(root)
 	if err := loader.OnChange(ctx, func(kind core.ResourceKind, _ string) { changes <- kind }); err != nil {
 		t.Fatalf("OnChange: %v", err)
 	}

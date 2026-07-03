@@ -66,6 +66,9 @@ func (f fakeServices) Queues() core.Queues { return f.q }
 //nolint:ireturn // satisfies the RuntimeServices interface
 func (f fakeServices) Topics() core.Topics { return core.NoopTopics() }
 
+//nolint:ireturn // satisfies the RuntimeServices interface
+func (f fakeServices) Resources() core.ResourceLoader { return core.NoopResourceLoader{} }
+
 func (f fakeServices) Close() error { return nil }
 
 // build builds the dispatch block from raw settings.

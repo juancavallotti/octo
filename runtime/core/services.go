@@ -159,6 +159,8 @@ type RuntimeServices interface {
 	Queues() Queues
 	//nolint:ireturn // returns the Topics interface a connector depends on
 	Topics() Topics
+	//nolint:ireturn // returns the ResourceLoader interface blocks and env loading depend on
+	Resources() ResourceLoader
 	Close() error
 }
 
@@ -181,6 +183,9 @@ func (noopRuntimeServices) Queues() Queues { return noopQueues{} }
 
 //nolint:ireturn // satisfies the RuntimeServices interface
 func (noopRuntimeServices) Topics() Topics { return noopTopics{} }
+
+//nolint:ireturn // satisfies the RuntimeServices interface
+func (noopRuntimeServices) Resources() ResourceLoader { return NoopResourceLoader{} }
 
 func (noopRuntimeServices) Close() error { return nil }
 

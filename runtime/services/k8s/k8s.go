@@ -56,7 +56,7 @@ type Services struct {
 // first use.
 //
 //nolint:ireturn // satisfies services.Factory (returns core.RuntimeServices)
-func New(_ context.Context) (core.RuntimeServices, error) {
+func New(_ context.Context, _ services.Options) (core.RuntimeServices, error) {
 	identity := os.Getenv(envPodName)
 	namespace := os.Getenv(envPodNamespace)
 	deploymentID := os.Getenv(envDeploymentID)
@@ -124,6 +124,13 @@ func (s *Services) Queues() core.Queues { return s.q }
 //
 //nolint:ireturn // satisfies core.RuntimeServices
 func (s *Services) Topics() core.Topics { return s.t }
+
+// Resources returns the no-op resource loader: k8s-backed resources (ConfigMaps,
+// a template store) are implemented in a later PR, so every resource reports
+// missing for now.
+//
+//nolint:ireturn // satisfies core.RuntimeServices
+func (s *Services) Resources() core.ResourceLoader { return core.NoopResourceLoader{} }
 
 // LogSink returns the handler that ships log records to the shared internal.logs
 // subject, satisfying core.LogShipper so the runtime tees its loggers through it.
