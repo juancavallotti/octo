@@ -10,7 +10,7 @@
  * per-integration partition on local disk), so these are addressed by name alone.
  */
 
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fsRoot } from "./store";
 
@@ -44,4 +44,52 @@ export async function writeResource(name: string, content: string): Promise<void
   const full = resolveResource(name);
   await mkdir(path.dirname(full), { recursive: true });
   await writeFile(full, content, "utf8");
+}
+
+/** Delete a resource file; a missing file is a no-op. */
+export async function deleteResource(name: string): Promise<void> {
+  await rm(resolveResource(name), { force: true });
+}
+
+/** A resource file on disk: its path-like name and content. */
+export interface ResourceEntry {
+  name: string;
+  content: string;
+}
+
+/**
+ * List the resource files under the flows root, depth-first. Flows themselves —
+ * top-level single-segment `*.yaml`/`*.yml` files (see store.ts) — are excluded,
+ * as are dot-directories and node_modules; dotfiles like `.env.dev` are kept.
+ * Names are returned posix-style (with `/`) regardless of platform.
+ */
+export async function listResources(): Promise<ResourceEntry[]> {
+  const root = path.resolve(fsRoot());
+  const out: ResourceEntry[] = [];
+
+  const walk = async (dir: string, rel: string): Promise<void> => {
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return; // dir not created yet
+    }
+    for (const entry of entries) {
+      const childRel = rel ? `${rel}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
+        await walk(path.join(dir, entry.name), childRel);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      // A top-level *.yaml/*.yml is a flow document, not a resource.
+      if (rel === "" && /\.ya?ml$/i.test(entry.name)) continue;
+      const content = (await readResource(childRel)) ?? "";
+      out.push({ name: childRel, content });
+    }
+  };
+
+  await walk(root, "");
+  out.sort((a, b) => a.name.localeCompare(b.name));
+  return out;
 }
