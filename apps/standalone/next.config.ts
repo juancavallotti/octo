@@ -14,6 +14,13 @@ const nextConfig: NextConfig = {
     "@octo/http",
     "@octo/run-host",
   ],
+  // Don't 308-redirect trailing slashes away. The run reverse proxy
+  // (app/editor/runs/[ns]/[[...path]]) advertises its test URL *with* a trailing
+  // slash (`/editor/runs/<ns>/`) so relative links in a served integration
+  // resolve under the run prefix. With the default redirect, Next strips that
+  // slash at the routing layer before the proxy handler runs, so the advertised
+  // URL never reaches the integration. Let the proxy own trailing slashes.
+  skipTrailingSlashRedirect: true,
 };
 
 export default nextConfig;
