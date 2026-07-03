@@ -37,6 +37,7 @@ const (
 	envDeploymentID   = "OCTO_DEPLOYMENT_ID"
 	envDeploymentName = "OCTO_DEPLOYMENT_NAME"
 	envDeploymentVer  = "OCTO_DEPLOYMENT_VERSION"
+	envSnapshotID     = "OCTO_SNAPSHOT_ID"
 	envOrchestrator   = "ORCHESTRATOR_URL"
 	envNATSURL        = "NATS_URL"
 	envPodName        = "POD_NAME"
@@ -49,6 +50,7 @@ type Spec struct {
 	IntegrationID string            // owning integration uuid (label + internal Service selector)
 	Name          string            // deployment display name, stamped onto shipped logs
 	Version       string            // deployment tag/version, stamped onto shipped logs ("" = untagged)
+	SnapshotID    string            // snapshot the definition/resources were frozen under ("" = untagged); the runtime loads its frozen resources by it
 	Definition    string            // runtime-loadable integration YAML
 	Replicas      int32             // desired replica count; <1 is treated as 1
 	Slug          string            // unique slug naming this deployment's internal Service ("" = none)
@@ -384,6 +386,12 @@ func (c *Client) runtimeServicesEnv(spec Spec) []corev1.EnvVar {
 	}
 	if spec.Version != "" {
 		env = append(env, corev1.EnvVar{Name: envDeploymentVer, Value: spec.Version})
+	}
+	// The snapshot id lets the runtime's resource loader fetch this deployment's
+	// frozen resources from the orchestrator. Emitted only for tagged deploys;
+	// without it the runtime falls back to loading no resources.
+	if spec.SnapshotID != "" {
+		env = append(env, corev1.EnvVar{Name: envSnapshotID, Value: spec.SnapshotID})
 	}
 	return env
 }
