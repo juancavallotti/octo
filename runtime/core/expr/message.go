@@ -8,12 +8,17 @@ import (
 	"github.com/juancavallotti/octo/core"
 )
 
+// nowVar is the CEL variable holding the evaluation (or trigger) time. Named once
+// so the message and source-payload variable lists and their activations reference
+// a single literal rather than repeating it.
+const nowVar = "now"
+
 // MessageVars is the canonical set of variables every message expression may
 // reference: the decoded body, the message variables, the two identifiers, the
 // resolved environment, and the evaluation time. Blocks and connectors compile
 // message expressions through CompileMessage rather than naming these themselves,
 // so the set stays defined in exactly one place.
-var MessageVars = []string{"body", "vars", "eventID", "correlationID", "env", "now"}
+var MessageVars = []string{"body", "vars", "eventID", "correlationID", "env", nowVar}
 
 // MessageContext carries the per-compile inputs a message extension may need.
 type MessageContext struct {
@@ -49,7 +54,7 @@ func CompileMessage(res core.ResourceLoader, expression string) (*Program, error
 		res = core.NoopResourceLoader{}
 	}
 	mc := MessageContext{Resources: res}
-	var opts []cel.EnvOption
+	opts := make([]cel.EnvOption, 0, len(messageExtensions))
 	for _, ext := range messageExtensions {
 		opts = append(opts, ext(mc)...)
 	}

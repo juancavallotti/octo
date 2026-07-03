@@ -49,7 +49,7 @@ func TestResourceLoaderLoadMissing(t *testing.T) {
 
 func TestResourceLoaderRejectsTraversal(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "cfg")
-	if err := os.MkdirAll(root, 0o755); err != nil {
+	if err := os.MkdirAll(root, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	// A secret sitting outside the root must not be reachable via "..".
@@ -90,7 +90,7 @@ func TestResourceLoaderOnChangeFires(t *testing.T) {
 
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {

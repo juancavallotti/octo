@@ -20,6 +20,7 @@ func (fakeResourceWatcher) Load(context.Context, core.ResourceKind, string) ([]b
 	return nil, core.ErrResourceNotFound
 }
 
+//nolint:unparam // implements core.ResourceWatcher; the fake never fails but the interface returns an error
 func (f *fakeResourceWatcher) OnChange(_ context.Context, fn core.ChangeFunc) error {
 	f.fn = fn
 	return nil

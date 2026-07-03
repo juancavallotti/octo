@@ -140,38 +140,8 @@ func (m *configMerger) add(cfg types.Config) error {
 	if err := m.addService(cfg.Service); err != nil {
 		return err
 	}
-	for _, e := range cfg.Env {
-		// Duplicate declarations across files are allowed (the same variable may be
-		// used in several configs); the first declaration wins.
-		if _, dup := m.env[e.Name]; dup {
-			continue
-		}
-		m.env[e.Name] = struct{}{}
-		m.merged.Env = append(m.merged.Env, e)
-	}
-	for _, id := range cfg.Resources.Env {
-		// Declaring the same env resource in several files is allowed; keep the
-		// first occurrence so the combined load order stays deterministic.
-		if _, dup := m.envRes[id]; dup {
-			continue
-		}
-		m.envRes[id] = struct{}{}
-		m.merged.Resources.Env = append(m.merged.Resources.Env, id)
-	}
-	for _, t := range cfg.Resources.Templates {
-		// Dedup by the reference name (the alias, or the id when unaliased) so the
-		// same template declared in several files folds to one and a repeated alias
-		// keeps its first declaration.
-		key := t.As
-		if key == "" {
-			key = t.Resource
-		}
-		if _, dup := m.tplRes[key]; dup {
-			continue
-		}
-		m.tplRes[key] = struct{}{}
-		m.merged.Resources.Templates = append(m.merged.Resources.Templates, t)
-	}
+	m.addEnv(cfg.Env)
+	m.addResources(cfg.Resources)
 	for _, c := range cfg.Connectors {
 		if err := claimName(m.connectors, c.Name, "connector"); err != nil {
 			return err
@@ -193,6 +163,45 @@ func (m *configMerger) add(cfg types.Config) error {
 		m.merged.Flows = append(m.merged.Flows, f)
 	}
 	return nil
+}
+
+// addEnv folds a config's declared env variables into the merge. Duplicate
+// declarations across files are allowed (the same variable may be used in several
+// configs); the first declaration wins.
+func (m *configMerger) addEnv(env []types.EnvVar) {
+	for _, e := range env {
+		if _, dup := m.env[e.Name]; dup {
+			continue
+		}
+		m.env[e.Name] = struct{}{}
+		m.merged.Env = append(m.merged.Env, e)
+	}
+}
+
+// addResources folds a config's declared resources (env + template resources) into
+// the merge, de-duplicating so the same resource declared in several files folds to
+// one. Env resources keep first-seen order (the combined load order is
+// deterministic); templates dedup by their reference name — the alias, or the
+// resource id when unaliased — so a repeated alias keeps its first declaration.
+func (m *configMerger) addResources(res types.ResourcesConfig) {
+	for _, id := range res.Env {
+		if _, dup := m.envRes[id]; dup {
+			continue
+		}
+		m.envRes[id] = struct{}{}
+		m.merged.Resources.Env = append(m.merged.Resources.Env, id)
+	}
+	for _, t := range res.Templates {
+		key := t.As
+		if key == "" {
+			key = t.Resource
+		}
+		if _, dup := m.tplRes[key]; dup {
+			continue
+		}
+		m.tplRes[key] = struct{}{}
+		m.merged.Resources.Templates = append(m.merged.Resources.Templates, t)
+	}
 }
 
 // addService records the service identity, rejecting a second declaration.

@@ -142,7 +142,7 @@ func kindForID(id string) core.ResourceKind {
 // addTree registers root and every subdirectory under it with the watcher, so
 // changes anywhere in the subtree are observed (fsnotify watches are not recursive).
 func addTree(watcher *fsnotify.Watcher, root string) error {
-	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -154,4 +154,8 @@ func addTree(watcher *fsnotify.Watcher, root string) error {
 		}
 		return nil
 	})
+	if err != nil {
+		return fmt.Errorf("walk resource tree %q: %w", root, err)
+	}
+	return nil
 }

@@ -38,8 +38,8 @@ type aliasingLoader struct {
 
 func (a aliasingLoader) Load(ctx context.Context, kind core.ResourceKind, id string) ([]byte, error) {
 	if kind == core.ResourceKindTemplate {
-		if real, ok := a.aliases[id]; ok {
-			id = real
+		if target, ok := a.aliases[id]; ok {
+			id = target
 		}
 	}
 	return a.base.Load(ctx, kind, id)

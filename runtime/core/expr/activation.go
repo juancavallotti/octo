@@ -19,7 +19,7 @@ func MessageActivation(msg *types.Message, env map[string]any) map[string]any {
 		"eventID":       msg.EventID,
 		"correlationID": msg.CorrelationID,
 		"env":           env,
-		"now":           time.Now(),
+		nowVar:          time.Now(),
 	}
 }
 
@@ -40,7 +40,7 @@ func EnvActivation(env map[string]string) map[string]any {
 // definition of the source-payload activation shape (paired with SourcePayloadVars).
 func SourcePayloadActivation(settings map[string]any) map[string]any {
 	return map[string]any{
-		"now":      time.Now(),
+		nowVar:     time.Now(),
 		"settings": settings,
 	}
 }
