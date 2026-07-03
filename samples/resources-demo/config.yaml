@@ -1,0 +1,36 @@
+service:
+  name: resources-demo
+
+# GREETING is required and is supplied by the .env.dev resource below. Delete the
+# resource (or the variable) and the runtime fails fast — a required variable must
+# be set. A missing env resource file, on its own, is never an error.
+env:
+  - name: GREETING
+    required: true
+
+# Resources imported by this config. Env resources are .env-convention files,
+# resolved relative to this config's directory, combined into the environment.
+resources:
+  env:
+    - .env.dev
+
+flows:
+  # A source-less flow is callable by name:
+  #   octo invoke --config samples/resources-demo --flow greet --data '{"name":"World"}'
+  - name: greet
+    process:
+      # 1) The template-resource block renders templates/welcome.tmpl into a
+      #    variable. The template embeds {{ }} CEL expressions over the message.
+      - type: template-resource
+        settings:
+          id: templates/welcome.tmpl
+          target: rendered
+      # 2) templateResource(id) renders the same template inline in a CEL
+      #    expression, using the current message as context. Both paths agree.
+      - type: set-payload
+        settings:
+          value: |
+            {
+              "viaBlock": vars.rendered,
+              "viaCel": templateResource("templates/welcome.tmpl")
+            }
