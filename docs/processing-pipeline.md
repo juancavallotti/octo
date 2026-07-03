@@ -304,6 +304,29 @@ instead of the filesystem. The runtime never sees the difference: it asks its
 resource loader for a resource by kind and id, and the standalone (filesystem) and
 cloud (orchestrator) loaders answer the same way.
 
+**Resources in editor and MCP dev runs.** When the editor's RUN button (or an MCP
+`run_integration`/`invoke_flow`) starts an integration, it spawns the standalone
+`octo` binary through `@octo/run-host`, which writes the config into a
+per-namespace run directory. Because the standalone loader roots at the config
+directory, run-host first **stages the declared resources into that directory** so
+they resolve: the host supplies a `ResourceProvider` (the standalone app reads the
+flows dir; the platform fetches from the orchestrator), run-host writes each
+declared resource beside the config, and removes them when the run stops. Editing
+the resource *list* while a run is live re-stages; a resource's *content* is picked
+up on the next Run.
+
+**The `.env.dev` dev-env resource.** The values for a run's declared environment
+variables are stored as a special env resource named `.env.dev`, edited in the
+editor's "Dev .env" panel. Rather than living in the browser and being injected as
+process env, they are persisted to the host's resource store (the standalone flows
+dir, the platform's orchestrator DB) so credentials stay server-side — and an MCP
+run reads them from the store without the caller supplying anything. run-host
+always requests `.env.dev` from the provider and declares it last in the run
+config's `resources.env` (so its values override other env resources and declared
+defaults, while still yielding to real OS environment variables). It is a dev-run
+convenience: `.env.dev` is not part of the saved document, so it never ships in a
+cloud snapshot.
+
 ### Settings
 
 Both `connectors[].settings` and a block's effective settings are a
