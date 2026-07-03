@@ -1,0 +1,105 @@
+service:
+  name: ai-quote-cache
+
+# Demonstrates composing an LLM call with caching and transforms behind an HTTP
+# endpoint:
+#   - ai-mapping     — Gemini produces a Seneca quote (validated against a schema)
+#   - cache-scope    — memoizes that (slow, paid) call under a constant key, so
+#                      only the first request within the TTL hits the model
+#   - multi-transform — derives fields from the cached quote (later steps read
+#                      what earlier ones set)
+#
+# Set the API key and run the server:
+#
+#   export GEMINI_API_KEY=...
+#   go run ./cli -config ../samples/ai-quote-cache.yaml
+#
+# Then hit it — the first call is a MISS (calls Gemini, ~seconds), later calls
+# within the 5m TTL are HITs (cached, sub-millisecond) and return the same quote:
+#
+#   curl -s localhost:8080/quote
+#   # -> {"author":"Seneca","charCount":57,"quote":"Difficulties strengthen the
+#   #     mind, as labor does the body.","servedBy":"cache-scope + multi-transform"}
+
+env:
+  - name: HTTP_HOST
+    default: 0.0.0.0
+  - name: HTTP_PORT
+    default: "8080"
+  - name: GEMINI_API_KEY
+    required: true
+
+connectors:
+  - name: gemini
+    type: llm-gemini
+    settings:
+      apiKey: ${GEMINI_API_KEY}
+  - name: api
+    type: http
+    settings:
+      host: ${HTTP_HOST}
+      port: ${HTTP_PORT}
+      requestTimeout: 30s
+  - name: log
+    type: logger
+    settings:
+      format: json
+      level: info
+
+flows:
+  - name: quote-api
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /quote
+        timeout: 30s
+    process:
+      # Memoize the slow/paid Gemini call under a constant key. The first request
+      # is a MISS (logs + calls the model); requests within the 5m TTL replay the
+      # cached quote with no model call.
+      - type: cache-scope
+        name: cached-quote
+        key: '"seneca:quote"'
+        ttl: 5m
+        body:
+          process:
+            - type: log
+              name: cache-miss
+              settings:
+                logger: log
+                message: '"cache MISS — calling Gemini"'
+            - type: ai-mapping
+              name: seneca
+              settings:
+                connector: gemini
+                prompt: >
+                  Ignore the input entirely. Produce a single, genuine quotation
+                  from the Stoic philosopher Seneca (Lucius Annaeus Seneca the
+                  Younger). Return only the mapped object.
+                outputExample: |
+                  { "quote": "We suffer more often in imagination than in reality.", "author": "Seneca" }
+                outputSchema: |
+                  {
+                    "type": "object",
+                    "required": ["quote", "author"],
+                    "properties": {
+                      "quote":  { "type": "string" },
+                      "author": { "type": "string" }
+                    }
+                  }
+      # Derive fields from the (possibly cached) quote. The last step reads the
+      # variable the first step set — additive edits accumulate in one block.
+      - type: multi-transform
+        name: enrich
+        settings:
+          transforms:
+            - setVar: charCount
+              value: size(body.quote)
+            - setBody: >
+                {
+                  "quote": body.quote,
+                  "author": body.author,
+                  "charCount": vars.charCount,
+                  "servedBy": "cache-scope + multi-transform"
+                }
