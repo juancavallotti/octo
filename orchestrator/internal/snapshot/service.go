@@ -22,6 +22,8 @@ type repository interface {
 	ListByIntegration(ctx context.Context, integrationID string) ([]Snapshot, error)
 	DeploymentsUsingSnapshot(ctx context.Context, integrationID, snapshotID string) ([]string, error)
 	Delete(ctx context.Context, id string) error
+	ListResources(ctx context.Context, snapshotID string) ([]Resource, error)
+	ResourceContent(ctx context.Context, snapshotID, kind, name string) ([]byte, bool, error)
 }
 
 // integrationStore is the slice of the integration repository the service needs
@@ -88,6 +90,17 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 		return fmt.Errorf("%w: deployed to %s", ErrSnapshotInUse, strings.Join(envs, ", "))
 	}
 	return s.repo.Delete(ctx, id)
+}
+
+// ListResources returns the resources frozen under a snapshot.
+func (s *Service) ListResources(ctx context.Context, snapshotID string) ([]Resource, error) {
+	return s.repo.ListResources(ctx, snapshotID)
+}
+
+// ResourceContent returns the raw bytes of one frozen resource; found is false
+// when no such resource exists under the snapshot.
+func (s *Service) ResourceContent(ctx context.Context, snapshotID, kind, name string) ([]byte, bool, error) {
+	return s.repo.ResourceContent(ctx, snapshotID, kind, name)
 }
 
 // validateTag enforces a non-empty, length-bounded tag drawn from a safe set of

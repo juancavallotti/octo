@@ -204,7 +204,8 @@ func newServer(ctx context.Context, database *db.DB, kc kubeConfig) (http.Handle
 		snapshotSvc := snapshot.NewService(snapshot.NewRepo(database.Pool()), integrationSvc)
 		snapshot.NewHandler(snapshotSvc).Register(mux)
 		slog.Info("snapshot routes registered",
-			"endpoints", "POST/GET /integrations/{id}/snapshots, DELETE /snapshots/{id}")
+			"endpoints", "POST/GET /integrations/{id}/snapshots, DELETE /snapshots/{id}, "+
+				"GET /snapshots/{id}/resources, GET /snapshots/{id}/resources/content")
 
 		// Integration resources (env files, templates). CRUD needs only the
 		// database, so it is registered outside the deployment/kube gate below.

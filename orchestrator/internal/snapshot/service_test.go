@@ -61,6 +61,14 @@ func (f *fakeRepo) Delete(_ context.Context, _ string) error {
 	return f.deleteErr
 }
 
+func (f *fakeRepo) ListResources(_ context.Context, _ string) ([]Resource, error) {
+	return nil, nil
+}
+
+func (f *fakeRepo) ResourceContent(_ context.Context, _, _, _ string) ([]byte, bool, error) {
+	return nil, false, nil
+}
+
 // fakeIntegrations is a stub integration store returning a canned integration.
 type fakeIntegrations struct {
 	it  integration.Integration

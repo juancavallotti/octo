@@ -17,9 +17,13 @@ type memRepo struct {
 	seq       int
 	// deployed maps a snapshot id to the environment labels referencing it.
 	deployed map[string][]string
+	// resources maps a snapshot id to its frozen resources.
+	resources map[string][]Resource
 }
 
-func newMemRepo() *memRepo { return &memRepo{snapshots: make(map[string]Snapshot)} }
+func newMemRepo() *memRepo {
+	return &memRepo{snapshots: make(map[string]Snapshot), resources: make(map[string][]Resource)}
+}
 
 func (m *memRepo) Create(_ context.Context, integrationID, tag, definition string) (Snapshot, error) {
 	for _, s := range m.snapshots {
@@ -65,6 +69,19 @@ func (m *memRepo) Delete(_ context.Context, id string) error {
 	return nil
 }
 
+func (m *memRepo) ListResources(_ context.Context, snapshotID string) ([]Resource, error) {
+	return m.resources[snapshotID], nil
+}
+
+func (m *memRepo) ResourceContent(_ context.Context, snapshotID, kind, name string) ([]byte, bool, error) {
+	for _, res := range m.resources[snapshotID] {
+		if res.Kind == kind && res.Name == name {
+			return []byte(res.Content), true, nil
+		}
+	}
+	return nil, false, nil
+}
+
 func idFromSeq(n int) string { return "snap-" + string(rune('0'+n)) }
 
 func newTestHandler(it integration.Integration) (*http.ServeMux, *memRepo) {
@@ -107,5 +124,32 @@ func TestHandlerListAndDelete(t *testing.T) {
 	}
 	if rec := do(mux, "DELETE", "/snapshots/missing", ""); rec.Code != http.StatusNotFound {
 		t.Errorf("delete missing: status = %d, want 404", rec.Code)
+	}
+}
+
+func TestHandlerFrozenResources(t *testing.T) {
+	mux, repo := newTestHandler(integration.Integration{ID: "int-1", Definition: "yaml"})
+	repo.resources["snap-1"] = []Resource{
+		{SnapshotID: "snap-1", Kind: "env", Name: ".env.dev", Content: "GREETING=hi"},
+		{SnapshotID: "snap-1", Kind: "template", Name: "templates/welcome.tmpl", Content: "hi {{name}}"},
+	}
+
+	if rec := do(mux, "GET", "/snapshots/snap-1/resources", ""); rec.Code != http.StatusOK {
+		t.Errorf("list: status = %d, want 200", rec.Code)
+	}
+
+	rec := do(mux, "GET", "/snapshots/snap-1/resources/content?kind=env&name=.env.dev", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("content: status = %d, want 200", rec.Code)
+	}
+	if rec.Body.String() != "GREETING=hi" {
+		t.Errorf("content body = %q, want the frozen bytes", rec.Body.String())
+	}
+
+	if rec := do(mux, "GET", "/snapshots/snap-1/resources/content?kind=env&name=missing", ""); rec.Code != http.StatusNotFound {
+		t.Errorf("missing content: status = %d, want 404", rec.Code)
+	}
+	if rec := do(mux, "GET", "/snapshots/snap-1/resources/content?kind=env", ""); rec.Code != http.StatusBadRequest {
+		t.Errorf("no name: status = %d, want 400", rec.Code)
 	}
 }
