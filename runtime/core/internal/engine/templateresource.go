@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/juancavallotti/octo/core"
+	"github.com/juancavallotti/octo/core/expr"
 	"github.com/juancavallotti/octo/types"
 )
 
@@ -27,7 +28,7 @@ type templateResourceSettings struct {
 type templateResourceBlock struct {
 	id       string
 	target   string
-	registry *templateRegistry
+	registry *expr.TemplateRegistry
 	env      map[string]any
 }
 
@@ -43,7 +44,7 @@ func newTemplateResource(raw types.Settings, deps core.BlockDeps) (core.MessageP
 	return &templateResourceBlock{
 		id:       cfg.ID,
 		target:   cfg.Target,
-		registry: newTemplateRegistry(deps.Resources),
+		registry: expr.NewTemplateRegistry(deps.Resources),
 		env:      envActivation(deps.Env),
 	}, nil
 }
@@ -51,11 +52,11 @@ func newTemplateResource(raw types.Settings, deps core.BlockDeps) (core.MessageP
 // Process renders the template and stores the result in the target variable, or
 // replaces the message body when no target is set.
 func (p *templateResourceBlock) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
-	tpl, err := p.registry.get(ctx, p.id)
+	tpl, err := p.registry.Get(ctx, p.id)
 	if err != nil {
 		return nil, err
 	}
-	rendered, err := tpl.render(messageActivation(msg, p.env))
+	rendered, err := tpl.Render(messageActivation(msg, p.env))
 	if err != nil {
 		return nil, fmt.Errorf("template-resource %q: %w", p.id, err)
 	}

@@ -52,15 +52,15 @@ func newAddReaction(raw types.Settings, deps core.BlockDeps) (core.MessageProces
 	if err != nil {
 		return nil, fmt.Errorf("slack-add-reaction: %w", err)
 	}
-	channel, err := compileRequired("slack-add-reaction", "channel", cfg.Channel)
+	channel, err := compileRequired(deps.Resources, "slack-add-reaction", "channel", cfg.Channel)
 	if err != nil {
 		return nil, err
 	}
-	timestamp, err := compileRequired("slack-add-reaction", "timestamp", cfg.Timestamp)
+	timestamp, err := compileRequired(deps.Resources, "slack-add-reaction", "timestamp", cfg.Timestamp)
 	if err != nil {
 		return nil, err
 	}
-	emoji, err := compileRequired("slack-add-reaction", "emoji", cfg.Emoji)
+	emoji, err := compileRequired(deps.Resources, "slack-add-reaction", "emoji", cfg.Emoji)
 	if err != nil {
 		return nil, err
 	}

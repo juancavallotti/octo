@@ -74,7 +74,7 @@ func newSQL(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor, err
 
 	args := make([]*expr.Program, 0, len(cfg.Args))
 	for _, e := range cfg.Args {
-		program, compileErr := expr.Compile(e, "body", "vars", "eventID", "correlationID", "now")
+		program, compileErr := expr.CompileMessage(deps.Resources, e)
 		if compileErr != nil {
 			return nil, compileErr
 		}

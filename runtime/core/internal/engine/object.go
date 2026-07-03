@@ -57,14 +57,14 @@ func newObjectWrite(raw types.Settings, deps core.BlockDeps) (core.MessageProces
 	if cfg.Key == "" {
 		return nil, errors.New("object-write requires a key expression")
 	}
-	key, err := expr.Compile(cfg.Key, exprVarNames...)
+	key, err := expr.CompileMessage(deps.Resources, cfg.Key)
 	if err != nil {
 		return nil, err
 	}
 
 	block := &objectWrite{key: key, env: envActivation(deps.Env)}
 	if cfg.Value != "" {
-		value, valueErr := expr.Compile(cfg.Value, exprVarNames...)
+		value, valueErr := expr.CompileMessage(deps.Resources, cfg.Value)
 		if valueErr != nil {
 			return nil, valueErr
 		}
@@ -148,14 +148,14 @@ func newObjectRead(raw types.Settings, deps core.BlockDeps) (core.MessageProcess
 	if cfg.Key == "" {
 		return nil, errors.New("object-read requires a key expression")
 	}
-	key, err := expr.Compile(cfg.Key, exprVarNames...)
+	key, err := expr.CompileMessage(deps.Resources, cfg.Key)
 	if err != nil {
 		return nil, err
 	}
 
 	block := &objectRead{key: key, as: cfg.As, existsVar: cfg.ExistsVar, env: envActivation(deps.Env)}
 	if cfg.Default != "" {
-		defaultProg, defErr := expr.Compile(cfg.Default, exprVarNames...)
+		defaultProg, defErr := expr.CompileMessage(deps.Resources, cfg.Default)
 		if defErr != nil {
 			return nil, defErr
 		}
@@ -246,7 +246,7 @@ func newObjectDelete(raw types.Settings, deps core.BlockDeps) (core.MessageProce
 	if cfg.Key == "" {
 		return nil, errors.New("object-delete requires a key expression")
 	}
-	key, err := expr.Compile(cfg.Key, exprVarNames...)
+	key, err := expr.CompileMessage(deps.Resources, cfg.Key)
 	if err != nil {
 		return nil, err
 	}

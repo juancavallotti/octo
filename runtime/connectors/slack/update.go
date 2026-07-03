@@ -57,22 +57,22 @@ func newUpdateMessage(raw types.Settings, deps core.BlockDeps) (core.MessageProc
 	if err != nil {
 		return nil, fmt.Errorf("slack-update-message: %w", err)
 	}
-	channel, err := compileRequired("slack-update-message", "channel", cfg.Channel)
+	channel, err := compileRequired(deps.Resources, "slack-update-message", "channel", cfg.Channel)
 	if err != nil {
 		return nil, err
 	}
-	timestamp, err := compileRequired("slack-update-message", "timestamp", cfg.Timestamp)
+	timestamp, err := compileRequired(deps.Resources, "slack-update-message", "timestamp", cfg.Timestamp)
 	if err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(cfg.Text) == "" && strings.TrimSpace(cfg.Blocks) == "" {
 		return nil, errors.New("slack-update-message requires \"text\" or \"blocks\"")
 	}
-	text, err := compileOptional(cfg.Text)
+	text, err := compileOptional(deps.Resources, cfg.Text)
 	if err != nil {
 		return nil, fmt.Errorf("slack-update-message: compile text: %w", err)
 	}
-	blocks, err := compileOptional(cfg.Blocks)
+	blocks, err := compileOptional(deps.Resources, cfg.Blocks)
 	if err != nil {
 		return nil, fmt.Errorf("slack-update-message: compile blocks: %w", err)
 	}

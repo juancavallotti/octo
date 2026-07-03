@@ -325,7 +325,7 @@ func (b *builder) ifBlock(cfg types.BlockConfig) (core.MessageProcessor, error) 
 		return nil, err
 	}
 
-	condition, err := expr.Compile(cfg.Condition, exprVarNames...)
+	condition, err := expr.CompileMessage(b.deps.Resources, cfg.Condition)
 	if err != nil {
 		return nil, err
 	}
@@ -360,7 +360,7 @@ func (b *builder) switchBlock(cfg types.BlockConfig) (core.MessageProcessor, err
 		if c.When == "" {
 			return nil, fmt.Errorf("switch case %d requires a when condition", i)
 		}
-		when, err := expr.Compile(c.When, exprVarNames...)
+		when, err := expr.CompileMessage(b.deps.Resources, c.When)
 		if err != nil {
 			return nil, err
 		}
@@ -398,7 +398,7 @@ func (b *builder) enrich(cfg types.BlockConfig) (core.MessageProcessor, error) {
 
 	block := &enrichScope{body: body, env: envActivation(b.deps.Env)}
 	if cfg.SetBody != "" {
-		setBody, compileErr := expr.Compile(cfg.SetBody, exprVarNames...)
+		setBody, compileErr := expr.CompileMessage(b.deps.Resources, cfg.SetBody)
 		if compileErr != nil {
 			return nil, fmt.Errorf("enrich setBody: %w", compileErr)
 		}
@@ -407,7 +407,7 @@ func (b *builder) enrich(cfg types.BlockConfig) (core.MessageProcessor, error) {
 	if len(cfg.SetVars) > 0 {
 		block.setVars = make(map[string]*expr.Program, len(cfg.SetVars))
 		for name, expression := range cfg.SetVars {
-			program, compileErr := expr.Compile(expression, exprVarNames...)
+			program, compileErr := expr.CompileMessage(b.deps.Resources, expression)
 			if compileErr != nil {
 				return nil, fmt.Errorf("enrich setVars[%q]: %w", name, compileErr)
 			}
@@ -429,7 +429,7 @@ func (b *builder) foreachBlock(cfg types.BlockConfig) (core.MessageProcessor, er
 		return nil, err
 	}
 
-	items, err := expr.Compile(cfg.Items, exprVarNames...)
+	items, err := expr.CompileMessage(b.deps.Resources, cfg.Items)
 	if err != nil {
 		return nil, err
 	}

@@ -26,10 +26,6 @@ func init() {
 	})
 }
 
-// exprVars are the names a publish-event expression can reference, matching the
-// other CEL-driven blocks.
-var exprVars = []string{"body", "vars", "eventID", "correlationID", "env", "now"}
-
 // Connector holds no shared resources: each source subscribes to the core topics
 // service (from the context at start) and the publish-event block publishes onto
 // it, so there is nothing to own here.

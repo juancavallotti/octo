@@ -80,7 +80,7 @@ func newLog(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor, err
 
 	p := &processor{level: level, logger: logger, full: cfg.Full}
 	if cfg.Message != "" {
-		program, compileErr := expr.Compile(cfg.Message, "body", "vars", "eventID", "correlationID", "now")
+		program, compileErr := expr.CompileMessage(deps.Resources, cfg.Message)
 		if compileErr != nil {
 			return nil, compileErr
 		}

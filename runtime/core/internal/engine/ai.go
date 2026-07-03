@@ -543,7 +543,7 @@ func (b *builder) configureAgentMemory(block *aiAgent, cfg types.BlockConfig) er
 	if cfg.MemoryThreadID == "" {
 		return nil
 	}
-	threadID, err := expr.Compile(cfg.MemoryThreadID, exprVarNames...)
+	threadID, err := expr.CompileMessage(b.deps.Resources, cfg.MemoryThreadID)
 	if err != nil {
 		return err
 	}

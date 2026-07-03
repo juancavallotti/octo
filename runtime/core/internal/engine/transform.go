@@ -64,7 +64,7 @@ func newMultiTransform(raw types.Settings, deps core.BlockDeps) (core.MessagePro
 
 	steps := make([]transformStep, 0, len(cfg.Transforms))
 	for i, step := range cfg.Transforms {
-		compiled, err := compileTransformStep(i, step)
+		compiled, err := compileTransformStep(deps.Resources, i, step)
 		if err != nil {
 			return nil, err
 		}
@@ -76,7 +76,9 @@ func newMultiTransform(raw types.Settings, deps core.BlockDeps) (core.MessagePro
 // compileTransformStep validates one step (exactly one of setBody/setVar, and a
 // value for setVar) and compiles its expression once, so a malformed expression
 // fails at startup.
-func compileTransformStep(index int, step transformStepSettings) (transformStep, error) {
+func compileTransformStep(
+	res core.ResourceLoader, index int, step transformStepSettings,
+) (transformStep, error) {
 	hasBody := step.SetBody != ""
 	hasVar := step.SetVar != ""
 	switch {
@@ -95,7 +97,7 @@ func compileTransformStep(index int, step transformStepSettings) (transformStep,
 	if hasVar {
 		source = step.Value
 	}
-	program, err := expr.Compile(source, exprVarNames...)
+	program, err := expr.CompileMessage(res, source)
 	if err != nil {
 		return transformStep{}, fmt.Errorf("multi-transform step %d: %w", index, err)
 	}

@@ -52,7 +52,7 @@ func newEvent(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor, e
 			allow[t] = struct{}{}
 		}
 	}
-	filter, err := compileOptional(cfg.Filter)
+	filter, err := compileOptional(deps.Resources, cfg.Filter)
 	if err != nil {
 		return nil, fmt.Errorf("slack-event: compile filter: %w", err)
 	}

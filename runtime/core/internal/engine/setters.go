@@ -43,7 +43,7 @@ func newSetPayload(raw types.Settings, deps core.BlockDeps) (core.MessageProcess
 	if cfg.Value == "" {
 		return nil, errors.New("set-payload requires a value expression")
 	}
-	program, err := expr.Compile(cfg.Value, exprVarNames...)
+	program, err := expr.CompileMessage(deps.Resources, cfg.Value)
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +87,7 @@ func newSetVariable(raw types.Settings, deps core.BlockDeps) (core.MessageProces
 	if cfg.Value == "" {
 		return nil, errors.New("set-variable requires a value expression")
 	}
-	program, err := expr.Compile(cfg.Value, exprVarNames...)
+	program, err := expr.CompileMessage(deps.Resources, cfg.Value)
 	if err != nil {
 		return nil, err
 	}

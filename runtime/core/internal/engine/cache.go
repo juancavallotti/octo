@@ -68,7 +68,7 @@ func (b *builder) cacheScope(cfg types.BlockConfig) (core.MessageProcessor, erro
 	if cfg.Key == "" {
 		return nil, errors.New("cache-scope block requires a key expression")
 	}
-	key, err := expr.Compile(cfg.Key, exprVarNames...)
+	key, err := expr.CompileMessage(b.deps.Resources, cfg.Key)
 	if err != nil {
 		return nil, err
 	}
@@ -189,7 +189,7 @@ func newInvalidateCache(raw types.Settings, deps core.BlockDeps) (core.MessagePr
 	if cfg.Key == "" {
 		return nil, errors.New("invalidate-cache requires a key expression")
 	}
-	key, err := expr.Compile(cfg.Key, exprVarNames...)
+	key, err := expr.CompileMessage(deps.Resources, cfg.Key)
 	if err != nil {
 		return nil, err
 	}

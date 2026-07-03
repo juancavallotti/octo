@@ -77,19 +77,19 @@ func newSendMessage(raw types.Settings, deps core.BlockDeps) (core.MessageProces
 		return nil, errors.New("slack-send-message requires \"text\" or \"blocks\"")
 	}
 
-	target, err := expr.Compile(cfg.Target, exprVars...)
+	target, err := expr.CompileMessage(deps.Resources, cfg.Target)
 	if err != nil {
 		return nil, fmt.Errorf("slack-send-message: compile target: %w", err)
 	}
-	text, err := compileOptional(cfg.Text)
+	text, err := compileOptional(deps.Resources, cfg.Text)
 	if err != nil {
 		return nil, fmt.Errorf("slack-send-message: compile text: %w", err)
 	}
-	threadTS, err := compileOptional(cfg.ThreadTS)
+	threadTS, err := compileOptional(deps.Resources, cfg.ThreadTS)
 	if err != nil {
 		return nil, fmt.Errorf("slack-send-message: compile threadTs: %w", err)
 	}
-	blocks, err := compileOptional(cfg.Blocks)
+	blocks, err := compileOptional(deps.Resources, cfg.Blocks)
 	if err != nil {
 		return nil, fmt.Errorf("slack-send-message: compile blocks: %w", err)
 	}

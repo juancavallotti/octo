@@ -214,7 +214,7 @@ func newClearAgentMemory(raw types.Settings, deps core.BlockDeps) (core.MessageP
 	if cfg.ThreadID == "" {
 		return nil, errors.New("clear-agent-memory requires a threadId expression")
 	}
-	threadID, err := expr.Compile(cfg.ThreadID, exprVarNames...)
+	threadID, err := expr.CompileMessage(deps.Resources, cfg.ThreadID)
 	if err != nil {
 		return nil, err
 	}

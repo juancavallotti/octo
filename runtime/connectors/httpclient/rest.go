@@ -30,10 +30,6 @@ func init() {
 
 const defaultStatusVar = "statusCode"
 
-// exprVars are the names a rest expression can reference, matching the other
-// CEL-driven blocks.
-var exprVars = []string{"body", "vars", "eventID", "correlationID", "env", "now"}
-
 // restSettings is the rest block's typed configuration.
 type restSettings struct {
 	// Connector names the http-client connector to call through (required).
@@ -86,17 +82,17 @@ func newREST(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor, er
 		return nil, err
 	}
 
-	query, err := compileMap(cfg.Query)
+	query, err := compileMap(deps.Resources, cfg.Query)
 	if err != nil {
 		return nil, err
 	}
-	headers, err := compileMap(cfg.Headers)
+	headers, err := compileMap(deps.Resources, cfg.Headers)
 	if err != nil {
 		return nil, err
 	}
 	var body *expr.Program
 	if cfg.Body != "" {
-		body, err = expr.Compile(cfg.Body, exprVars...)
+		body, err = expr.CompileMessage(deps.Resources, cfg.Body)
 		if err != nil {
 			return nil, err
 		}
@@ -147,14 +143,14 @@ func resolveConnector(name string, deps core.BlockDeps) (*Connector, error) {
 	return conn, nil
 }
 
-// compileMap compiles each value of a name->expression map into a program.
-func compileMap(in map[string]string) (map[string]*expr.Program, error) {
+// compileMap compiles each value of a name->expression map into a message program.
+func compileMap(res core.ResourceLoader, in map[string]string) (map[string]*expr.Program, error) {
 	if len(in) == 0 {
 		return nil, nil
 	}
 	out := make(map[string]*expr.Program, len(in))
 	for name, e := range in {
-		program, err := expr.Compile(e, exprVars...)
+		program, err := expr.CompileMessage(res, e)
 		if err != nil {
 			return nil, fmt.Errorf("rest block: compile %q: %w", name, err)
 		}

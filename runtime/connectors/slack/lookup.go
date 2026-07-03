@@ -80,13 +80,13 @@ func newLookupUser(raw types.Settings, deps core.BlockDeps) (core.MessageProcess
 
 	switch orDefault(cfg.By, lookupByEmail) {
 	case lookupByEmail:
-		arg, argErr := compileRequired("slack-lookup-user", "email", cfg.Email)
+		arg, argErr := compileRequired(deps.Resources, "slack-lookup-user", "email", cfg.Email)
 		if argErr != nil {
 			return nil, argErr
 		}
 		block.method, block.param, block.arg = "users.lookupByEmail", "email", arg
 	case lookupByID:
-		arg, argErr := compileRequired("slack-lookup-user", "user", cfg.User)
+		arg, argErr := compileRequired(deps.Resources, "slack-lookup-user", "user", cfg.User)
 		if argErr != nil {
 			return nil, argErr
 		}

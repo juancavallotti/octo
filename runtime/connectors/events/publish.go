@@ -49,14 +49,14 @@ func newPublish(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor,
 	if strings.TrimSpace(cfg.Subject) == "" {
 		return nil, errors.New("publish-event requires a \"subject\" expression")
 	}
-	subject, err := expr.Compile(cfg.Subject, exprVars...)
+	subject, err := expr.CompileMessage(deps.Resources, cfg.Subject)
 	if err != nil {
 		return nil, fmt.Errorf("publish-event: compile subject: %w", err)
 	}
 
 	block := &publish{subject: subject, env: envActivation(deps.Env)}
 	if cfg.Value != "" {
-		value, valueErr := expr.Compile(cfg.Value, exprVars...)
+		value, valueErr := expr.CompileMessage(deps.Resources, cfg.Value)
 		if valueErr != nil {
 			return nil, fmt.Errorf("publish-event: compile value: %w", valueErr)
 		}

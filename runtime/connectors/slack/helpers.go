@@ -13,10 +13,6 @@ import (
 	"github.com/juancavallotti/octo/types"
 )
 
-// exprVars are the names a slack block's CEL expressions can reference, matching
-// the other CEL-driven blocks.
-var exprVars = []string{"body", "vars", "eventID", "correlationID", "env", "now"}
-
 // fieldChannel is the Slack Web API request field naming a channel or user ID,
 // shared by the blocks that post to or act on a conversation.
 const fieldChannel = "channel"
@@ -40,13 +36,14 @@ func resolveConnector(name string, deps core.BlockDeps) (*Connector, error) {
 	return conn, nil
 }
 
-// compileOptional compiles a CEL expression, returning a nil program for an
-// empty source so callers can treat "unset" as "skip".
-func compileOptional(src string) (*expr.Program, error) {
+// compileOptional compiles a message CEL expression, returning a nil program for
+// an empty source so callers can treat "unset" as "skip". res may be nil (e.g. a
+// source filter with no resource loader).
+func compileOptional(res core.ResourceLoader, src string) (*expr.Program, error) {
 	if strings.TrimSpace(src) == "" {
 		return nil, nil
 	}
-	return expr.Compile(src, exprVars...)
+	return expr.CompileMessage(res, src)
 }
 
 // orDefault returns value when it is non-empty, otherwise fallback.
@@ -57,13 +54,13 @@ func orDefault(value, fallback string) string {
 	return value
 }
 
-// compileRequired compiles a required CEL expression, erroring with a block- and
-// field-labelled message when it is empty or malformed.
-func compileRequired(block, field, src string) (*expr.Program, error) {
+// compileRequired compiles a required message CEL expression, erroring with a
+// block- and field-labelled message when it is empty or malformed.
+func compileRequired(res core.ResourceLoader, block, field, src string) (*expr.Program, error) {
 	if strings.TrimSpace(src) == "" {
 		return nil, fmt.Errorf("%s requires a %q expression", block, field)
 	}
-	program, err := expr.Compile(src, exprVars...)
+	program, err := expr.CompileMessage(res, src)
 	if err != nil {
 		return nil, fmt.Errorf("%s: compile %s: %w", block, field, err)
 	}

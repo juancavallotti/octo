@@ -23,10 +23,6 @@ func init() {
 	core.MustRegisterBlock("queue-dispatch", newDispatch)
 }
 
-// exprVars are the names a queue-dispatch subject expression can reference,
-// matching the other CEL-driven blocks.
-var exprVars = []string{"body", "vars", "eventID", "correlationID", "env", "now"}
-
 // dispatchSettings is the queue-dispatch block's typed configuration.
 type dispatchSettings struct {
 	// Subject is a CEL expression producing the queue subject to send to (required).
@@ -58,7 +54,7 @@ func newDispatch(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor
 	if strings.TrimSpace(cfg.Subject) == "" {
 		return nil, errors.New("queue-dispatch requires a \"subject\" expression")
 	}
-	program, err := expr.Compile(cfg.Subject, exprVars...)
+	program, err := expr.CompileMessage(deps.Resources, cfg.Subject)
 	if err != nil {
 		return nil, fmt.Errorf("queue-dispatch: compile subject: %w", err)
 	}

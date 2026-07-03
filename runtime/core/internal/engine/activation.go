@@ -6,18 +6,12 @@ import (
 	"github.com/juancavallotti/octo/types"
 )
 
-// exprVarNames are the variable names every message-evaluated expression in the
-// engine may reference: the decoded body, the message variables, the two
-// identifiers, the resolved environment, and the evaluation time. Blocks compile
-// their expressions with these names and evaluate them against messageActivation
-// so the expression surface stays uniform across the setters and the control-flow
-// composites.
-var exprVarNames = []string{"body", "vars", "eventID", "correlationID", "env", "now"}
-
 // messageActivation maps a message (and the block's resolved env) onto the
-// variables an expression compiled with exprVarNames can reference. now is the
-// time of evaluation, matching the cron source's now (use string(now) to render
-// it in a JSON body).
+// variables an expression compiled with expr.CompileMessage (expr.MessageVars)
+// can reference: the decoded body, the message variables, the two identifiers,
+// the resolved environment, and the evaluation time. now is the time of
+// evaluation, matching the cron source's now (use string(now) to render it in a
+// JSON body).
 func messageActivation(msg *types.Message, env map[string]any) map[string]any {
 	return map[string]any{
 		"body":          msg.Body,
