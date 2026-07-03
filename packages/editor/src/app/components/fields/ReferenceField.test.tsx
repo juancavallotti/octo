@@ -69,6 +69,31 @@ describe("ReferenceField", () => {
     expect(screen.getByRole("option", { name: "worker" })).toBeInTheDocument();
   });
 
+  it("shows a select placeholder for a required reference with nothing chosen", () => {
+    // Without a placeholder the browser would show the first real option as
+    // selected while the model value stays empty, so picking it never fires
+    // onChange and the setting is never stored. The placeholder is the selected
+    // row instead, forcing an actual change.
+    render(
+      <ReferenceField spec={{ kind: "flow" }} value="" required onChange={() => {}} />,
+    );
+    const placeholder = screen.getByRole("option", { name: "— select —" });
+    expect(placeholder).toBeInTheDocument();
+    expect((placeholder as HTMLOptionElement).selected).toBe(true);
+  });
+
+  it("omits the placeholder once a required reference has a value", () => {
+    render(
+      <ReferenceField
+        spec={{ kind: "flow" }}
+        value="main"
+        required
+        onChange={() => {}}
+      />,
+    );
+    expect(screen.queryByRole("option", { name: "— select —" })).toBeNull();
+  });
+
   it("surfaces a value that no longer resolves as missing", () => {
     render(
       <ReferenceField

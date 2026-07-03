@@ -290,6 +290,20 @@ config load** — the philosophy is to fail on deployment, so a missing or malfo
 declared template aborts startup then, rather than when a message first renders it.
 See `samples/resources-demo/`.
 
+**Resources in the cloud.** The `resources:` declarations above are the same
+everywhere; only *where the bytes come from* differs by how the runtime is run.
+Standalone reads each resource from the config directory on disk. In the cloud the
+bytes live in the orchestrator: resources are authored per integration (the
+integration manager's Resources panel, or the orchestrator's resource API), and
+**freeze with the integration when it is tagged** — creating a version tag copies
+the current resources into an immutable snapshot alongside the frozen definition,
+so a deploy of that tag always ships the resources that matched it. A deployed
+runtime then loads each declared resource from the orchestrator by its snapshot
+(the `k8s` runtime-services module's resource loader, keyed by `OCTO_SNAPSHOT_ID`)
+instead of the filesystem. The runtime never sees the difference: it asks its
+resource loader for a resource by kind and id, and the standalone (filesystem) and
+cloud (orchestrator) loaders answer the same way.
+
 ### Settings
 
 Both `connectors[].settings` and a block's effective settings are a

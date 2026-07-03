@@ -8,6 +8,7 @@
 import * as deploymentActions from "@/app/actions/deployments";
 import * as folderActions from "@/app/actions/folders";
 import * as integrationActions from "@/app/actions/integrations";
+import * as resourceActions from "@/app/actions/resources";
 import * as snapshotActions from "@/app/actions/snapshots";
 import { unwrap } from "./bff";
 
@@ -28,6 +29,20 @@ export interface Snapshot {
   tag: string;
   /** RFC3339 timestamp of when the tag was created. */
   createdAt: string;
+}
+
+/** An integration resource: an env file or text template the runtime loads. */
+export interface Resource {
+  id: string;
+  integrationId: string;
+  /** "env" or "template". */
+  kind: string;
+  /** The path-like id the config references (e.g. ".env.dev", "templates/welcome.tmpl"). */
+  name: string;
+  content: string;
+  /** RFC3339 timestamps. */
+  createdAt: string;
+  lastUpdated: string;
 }
 
 /** An authenticated principal, provisioned from the OIDC identity on first sign-in. */
@@ -341,6 +356,36 @@ export async function createSnapshot(
 /** Delete a version tag (refused by the orchestrator if currently deployed). */
 export async function deleteSnapshot(id: string): Promise<void> {
   return unwrap(await snapshotActions.deleteSnapshot(id));
+}
+
+// --- Resources ------------------------------------------------------------
+// Backed by server actions in `app/actions/resources.ts`.
+
+/** List an integration's resources (env files, templates). */
+export async function listResources(
+  integrationId: string,
+): Promise<Resource[]> {
+  return unwrap(await resourceActions.listResources(integrationId));
+}
+
+/** Create a resource under an integration. */
+export async function createResource(
+  integrationId: string,
+  kind: string,
+  name: string,
+  content: string,
+): Promise<Resource> {
+  return unwrap(
+    await resourceActions.createResource(integrationId, kind, name, content),
+  );
+}
+
+/** Delete an integration's resource. */
+export async function deleteResource(
+  integrationId: string,
+  id: string,
+): Promise<void> {
+  return unwrap(await resourceActions.deleteResource(integrationId, id));
 }
 
 /** Collect every folder id in the tree, depth-first. */

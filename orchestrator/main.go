@@ -27,6 +27,7 @@ import (
 	"github.com/juancavallotti/octo/orchestrator/internal/integration"
 	"github.com/juancavallotti/octo/orchestrator/internal/kube"
 	"github.com/juancavallotti/octo/orchestrator/internal/kv"
+	"github.com/juancavallotti/octo/orchestrator/internal/resource"
 	"github.com/juancavallotti/octo/orchestrator/internal/secret"
 	"github.com/juancavallotti/octo/orchestrator/internal/snapshot"
 	"github.com/juancavallotti/octo/orchestrator/internal/user"
@@ -203,7 +204,15 @@ func newServer(ctx context.Context, database *db.DB, kc kubeConfig) (http.Handle
 		snapshotSvc := snapshot.NewService(snapshot.NewRepo(database.Pool()), integrationSvc)
 		snapshot.NewHandler(snapshotSvc).Register(mux)
 		slog.Info("snapshot routes registered",
-			"endpoints", "POST/GET /integrations/{id}/snapshots, DELETE /snapshots/{id}")
+			"endpoints", "POST/GET /integrations/{id}/snapshots, DELETE /snapshots/{id}, "+
+				"GET /snapshots/{id}/resources, GET /snapshots/{id}/resources/content")
+
+		// Integration resources (env files, templates). CRUD needs only the
+		// database, so it is registered outside the deployment/kube gate below.
+		resource.NewHandler(resource.NewService(resource.NewRepo(database.Pool()))).Register(mux)
+		slog.Info("resource routes registered",
+			"endpoints", "POST/GET /integrations/{id}/resources, "+
+				"GET/PUT/DELETE /integrations/{id}/resources/{resourceId}")
 
 		// Users and their API keys need only the database (identity comes from the
 		// platform's OIDC layer, which bootstraps a user on first sign-in). Registered

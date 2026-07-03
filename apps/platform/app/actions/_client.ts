@@ -21,6 +21,7 @@ import type {
   Folder,
   Integration,
   IntegrationInput,
+  Resource,
   Snapshot,
   User,
 } from "@/app/model/orchestrator";
@@ -245,6 +246,39 @@ export function createSnapshot(
 
 export function deleteSnapshot(id: string): Promise<ActionResult<void>> {
   return call<void>("DELETE", `/snapshots/${enc(id)}`);
+}
+
+// --- Resources ------------------------------------------------------------
+// Every route is nested under the owning integration; the resource id alone is
+// not a valid address.
+
+export function listResources(
+  integrationId: string,
+): Promise<ActionResult<Resource[]>> {
+  return call<Resource[]>("GET", `/integrations/${enc(integrationId)}/resources`);
+}
+
+export function createResource(
+  integrationId: string,
+  kind: string,
+  name: string,
+  content: string,
+): Promise<ActionResult<Resource>> {
+  return call<Resource>(
+    "POST",
+    `/integrations/${enc(integrationId)}/resources`,
+    { kind, name, content },
+  );
+}
+
+export function deleteResource(
+  integrationId: string,
+  id: string,
+): Promise<ActionResult<void>> {
+  return call<void>(
+    "DELETE",
+    `/integrations/${enc(integrationId)}/resources/${enc(id)}`,
+  );
 }
 
 // --- Deployments ----------------------------------------------------------

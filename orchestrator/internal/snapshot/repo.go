@@ -31,11 +31,20 @@ func NewRepo(pool *pgxpool.Pool) *Repo {
 	return &Repo{pool: pool}
 }
 
-// Create inserts a snapshot freezing definition under tag for integrationID. A
-// duplicate (integration_id, tag) surfaces as ErrTagExists; an unknown
-// integration as ErrIntegrationNotFound.
+// Create inserts a snapshot freezing definition under tag for integrationID, and
+// in the same transaction freezes a copy of the integration's live resources into
+// integration_resource_snapshots — so a deploy of this tag ships the resources
+// that matched its definition, and the tag and its frozen resources appear
+// atomically. A duplicate (integration_id, tag) surfaces as ErrTagExists; an
+// unknown integration as ErrIntegrationNotFound.
 func (r *Repo) Create(ctx context.Context, integrationID, tag, definition string) (Snapshot, error) {
-	row := r.pool.QueryRow(ctx,
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("snapshot repo: create: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	row := tx.QueryRow(ctx,
 		`INSERT INTO integration_snapshots (integration_id, tag, definition)
 		 VALUES ($1, $2, $3)
 		 RETURNING `+snapshotColumns,
@@ -50,6 +59,18 @@ func (r *Repo) Create(ctx context.Context, integrationID, tag, definition string
 			return Snapshot{}, ErrIntegrationNotFound
 		}
 		return Snapshot{}, fmt.Errorf("snapshot repo: create: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO integration_resource_snapshots (snapshot_id, kind, name, content)
+		 SELECT $1, kind, name, content FROM integration_resources WHERE integration_id = $2`,
+		s.ID, integrationID,
+	); err != nil {
+		return Snapshot{}, fmt.Errorf("snapshot repo: create: freeze resources: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return Snapshot{}, fmt.Errorf("snapshot repo: create: commit: %w", err)
 	}
 	return s, nil
 }
@@ -129,6 +150,51 @@ func (r *Repo) DeploymentsUsingSnapshot(ctx context.Context, integrationID, snap
 	return labels, nil
 }
 
+// resourceColumns is the canonical column list (and order) that scanResource
+// expects for a frozen resource. Frozen rows are written by Create (INSERT ...
+// SELECT from integration_resources) and are read-only thereafter.
+const resourceColumns = "id, snapshot_id, kind, name, content, created_at"
+
+// ListResources returns a snapshot's frozen resources ordered by name.
+func (r *Repo) ListResources(ctx context.Context, snapshotID string) ([]Resource, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT `+resourceColumns+`
+		 FROM integration_resource_snapshots
+		 WHERE snapshot_id = $1
+		 ORDER BY name`,
+		snapshotID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("snapshot repo: list resources: %w", err)
+	}
+	items, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (Resource, error) {
+		return scanResource(row)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("snapshot repo: list resources: %w", err)
+	}
+	return items, nil
+}
+
+// ResourceContent returns the raw content of one frozen resource identified by
+// its snapshot, kind and name. found is false (with a nil error) when no such
+// resource exists — the caller maps that to a 404.
+func (r *Repo) ResourceContent(ctx context.Context, snapshotID, kind, name string) ([]byte, bool, error) {
+	var content string
+	err := r.pool.QueryRow(ctx,
+		`SELECT content FROM integration_resource_snapshots
+		 WHERE snapshot_id = $1 AND kind = $2 AND name = $3`,
+		snapshotID, kind, name,
+	).Scan(&content)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("snapshot repo: resource content: %w", err)
+	}
+	return []byte(content), true, nil
+}
+
 // scanSnapshot reads one row in snapshotColumns order.
 func scanSnapshot(row pgx.Row) (Snapshot, error) {
 	var s Snapshot
@@ -136,6 +202,15 @@ func scanSnapshot(row pgx.Row) (Snapshot, error) {
 		return Snapshot{}, err
 	}
 	return s, nil
+}
+
+// scanResource reads one frozen-resource row in resourceColumns order.
+func scanResource(row pgx.Row) (Resource, error) {
+	var res Resource
+	if err := row.Scan(&res.ID, &res.SnapshotID, &res.Kind, &res.Name, &res.Content, &res.CreatedAt); err != nil {
+		return Resource{}, err
+	}
+	return res, nil
 }
 
 // pgErrorCode returns the SQLSTATE code of a Postgres error, or "" if err is not

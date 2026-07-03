@@ -24,11 +24,16 @@ func NewHandler(svc *Service) *Handler {
 }
 
 // Register attaches the snapshot routes to mux. Create/list are nested under an
-// integration; delete addresses a snapshot directly.
+// integration; delete addresses a snapshot directly. The resource routes serve
+// the resources frozen alongside the definition: a deployed runtime reads them
+// from the content route (kind and name are query params, not path segments,
+// because a name is path-like and may contain '/').
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /integrations/{id}/snapshots", h.create)
 	mux.HandleFunc("GET /integrations/{id}/snapshots", h.listByIntegration)
 	mux.HandleFunc("DELETE /snapshots/{id}", h.delete)
+	mux.HandleFunc("GET /snapshots/{id}/resources", h.listResources)
+	mux.HandleFunc("GET /snapshots/{id}/resources/content", h.resourceContent)
 }
 
 // createRequest is the create payload: the tag to freeze the current definition
@@ -99,6 +104,60 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// resourceResponse is the wire representation of a frozen resource. Content is
+// omitted from the listing (it may be large); the content route serves the raw
+// bytes.
+type resourceResponse struct {
+	Kind      string    `json:"kind"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+func (h *Handler) listResources(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+
+	items, err := h.svc.ListResources(ctx, r.PathValue("id"))
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	out := make([]resourceResponse, 0, len(items))
+	for _, res := range items {
+		out = append(out, resourceResponse{Kind: res.Kind, Name: res.Name, CreatedAt: res.CreatedAt})
+	}
+	httpx.WriteJSON(w, http.StatusOK, out)
+}
+
+// resourceContent serves one frozen resource's raw bytes. kind and name are
+// required query params; a missing resource is a 404. This is the endpoint the
+// runtime's k8s resource loader calls.
+func (h *Handler) resourceContent(w http.ResponseWriter, r *http.Request) {
+	kind := r.URL.Query().Get("kind")
+	name := r.URL.Query().Get("name")
+	if kind == "" || name == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "kind and name query params are required")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+
+	content, found, err := h.svc.ResourceContent(ctx, r.PathValue("id"), kind, name)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	if !found {
+		httpx.WriteError(w, http.StatusNotFound, "resource not found")
+		return
+	}
+	w.Header().Set("Content-Type", "application/octet-stream")
+	if _, err := w.Write(content); err != nil {
+		slog.Error("snapshot handler: write resource content", "error", err)
+	}
 }
 
 // writeError maps domain errors to HTTP status codes. Unexpected errors are

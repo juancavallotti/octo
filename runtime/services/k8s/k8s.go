@@ -31,6 +31,7 @@ const (
 	envDeploymentID   = "OCTO_DEPLOYMENT_ID"
 	envDeploymentName = "OCTO_DEPLOYMENT_NAME"    // optional display name, stamped onto shipped logs
 	envDeploymentVer  = "OCTO_DEPLOYMENT_VERSION" // optional tag/version, stamped onto shipped logs
+	envSnapshotID     = "OCTO_SNAPSHOT_ID"        // optional snapshot the resources were frozen under; enables the loader
 	envOrchestrator   = "ORCHESTRATOR_URL"
 	envOrchestrToken  = "ORCHESTRATOR_TOKEN" // optional bearer token for the KV API
 	envNATSURL        = "NATS_URL"           // NATS broker URL backing the queues
@@ -42,12 +43,13 @@ func init() {
 
 // Services is the Kubernetes runtime-services provider.
 type Services struct {
-	le      *leaderElection
-	kv      *httpStore
-	q       *natsQueues
-	t       *natsTopics
-	conn    *nats.Conn
-	logSink slog.Handler
+	le        *leaderElection
+	kv        *httpStore
+	q         *natsQueues
+	t         *natsTopics
+	conn      *nats.Conn
+	logSink   slog.Handler
+	resources core.ResourceLoader
 }
 
 // New builds the k8s provider from the in-cluster config and the orchestrator-
@@ -86,17 +88,27 @@ func New(_ context.Context, _ services.Options) (core.RuntimeServices, error) {
 		return nil, fmt.Errorf("k8s: connect nats %q: %w", natsURL, err)
 	}
 
+	// A tagged deploy carries the snapshot its definition and resources were frozen
+	// under; the resource loader fetches those frozen resources from the orchestrator.
+	// An untagged deploy has no snapshot, so resources stay no-op (nothing to load).
+	var resources core.ResourceLoader = core.NoopResourceLoader{}
+	if snapshotID := os.Getenv(envSnapshotID); snapshotID != "" {
+		resources = newHTTPResourceLoader(orchestrator, snapshotID, os.Getenv(envOrchestrToken))
+	}
+
 	slog.Info("k8s runtime services initialized",
 		"identity", identity, "namespace", namespace, "deployment", deploymentID,
-		"orchestrator", orchestrator, "nats", natsURL)
+		"orchestrator", orchestrator, "nats", natsURL,
+		"snapshot", os.Getenv(envSnapshotID) != "")
 
 	return &Services{
-		le:      newLeaderElection(cs.CoordinationV1(), namespace, identity, deploymentID),
-		kv:      newHTTPStore(orchestrator, deploymentID, os.Getenv(envOrchestrToken)),
-		q:       newNATSQueues(conn, deploymentID),
-		t:       newNATSTopics(conn, deploymentID),
-		conn:    conn,
-		logSink: newLogSink(conn, deploymentID, os.Getenv(envDeploymentName), os.Getenv(envDeploymentVer)),
+		le:        newLeaderElection(cs.CoordinationV1(), namespace, identity, deploymentID),
+		kv:        newHTTPStore(orchestrator, deploymentID, os.Getenv(envOrchestrToken)),
+		q:         newNATSQueues(conn, deploymentID),
+		t:         newNATSTopics(conn, deploymentID),
+		conn:      conn,
+		logSink:   newLogSink(conn, deploymentID, os.Getenv(envDeploymentName), os.Getenv(envDeploymentVer)),
+		resources: resources,
 	}, nil
 }
 
@@ -125,12 +137,13 @@ func (s *Services) Queues() core.Queues { return s.q }
 //nolint:ireturn // satisfies core.RuntimeServices
 func (s *Services) Topics() core.Topics { return s.t }
 
-// Resources returns the no-op resource loader: k8s-backed resources (ConfigMaps,
-// a template store) are implemented in a later PR, so every resource reports
-// missing for now.
+// Resources returns the resource loader: for a tagged deploy it fetches the
+// resources frozen under the deployment's snapshot from the orchestrator; for an
+// untagged deploy (no snapshot) it is the no-op loader, so every resource reports
+// missing.
 //
 //nolint:ireturn // satisfies core.RuntimeServices
-func (s *Services) Resources() core.ResourceLoader { return core.NoopResourceLoader{} }
+func (s *Services) Resources() core.ResourceLoader { return s.resources }
 
 // LogSink returns the handler that ships log records to the shared internal.logs
 // subject, satisfying core.LogShipper so the runtime tees its loggers through it.
@@ -143,6 +156,9 @@ func (s *Services) LogSink() slog.Handler { return s.logSink }
 // when the runtime stops.
 func (s *Services) Close() error {
 	s.kv.close()
+	if c, ok := s.resources.(interface{ close() }); ok {
+		c.close()
+	}
 	s.conn.Close()
 	return nil
 }

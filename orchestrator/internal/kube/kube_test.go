@@ -180,7 +180,7 @@ func TestRuntimeServicesEnvInjected(t *testing.T) {
 		NATSURL:         "nats://octo-nats.octo-dev:4222",
 	}
 	ctx := context.Background()
-	spec := Spec{ID: "d1", IntegrationID: "int-1", Name: "checkout", Version: "v3", Definition: "x: 1", Replicas: 1, Env: map[string]string{"LOG_LEVEL": "debug"}}
+	spec := Spec{ID: "d1", IntegrationID: "int-1", Name: "checkout", Version: "v3", SnapshotID: "snap-1", Definition: "x: 1", Replicas: 1, Env: map[string]string{"LOG_LEVEL": "debug"}}
 	if err := c.Apply(ctx, spec); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
@@ -215,6 +215,9 @@ func TestRuntimeServicesEnvInjected(t *testing.T) {
 	}
 	if byName[envDeploymentVer].Value != "v3" {
 		t.Errorf("%s = %q, want v3", envDeploymentVer, byName[envDeploymentVer].Value)
+	}
+	if byName[envSnapshotID].Value != "snap-1" {
+		t.Errorf("%s = %q, want snap-1", envSnapshotID, byName[envSnapshotID].Value)
 	}
 	for _, name := range []string{envPodName, envPodNamespace} {
 		ref := byName[name].ValueFrom

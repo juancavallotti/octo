@@ -35,6 +35,16 @@ export default function ReferenceField({
   const current = value === undefined || value === null ? "" : String(value);
   const allowEmpty = spec.kind === "connector" || !required;
   const dangling = current !== "" && !options.includes(current);
+  // Render an empty row when the field permits one, or whenever nothing is
+  // selected yet — even for a required field. Without a placeholder for the empty
+  // state the browser shows the first real option as selected while the model
+  // value stays empty, so selecting that option never fires `onChange` and the
+  // setting is never stored (the user believes they picked it, but they didn't).
+  // The placeholder resolves to empty, which the pre-flight validation then flags
+  // as required-and-missing.
+  const showEmpty = allowEmpty || current === "";
+  const emptyLabel =
+    spec.kind === "connector" ? "— (default)" : allowEmpty ? "—" : "— select —";
 
   return (
     <select
@@ -42,11 +52,7 @@ export default function ReferenceField({
       onChange={(e) => onChange(e.target.value === "" ? undefined : e.target.value)}
       className={INPUT}
     >
-      {allowEmpty && (
-        <option value="">
-          {spec.kind === "connector" ? "— (default)" : "—"}
-        </option>
-      )}
+      {showEmpty && <option value="">{emptyLabel}</option>}
       {dangling && <option value={current}>{current} (missing)</option>}
       {options.map((name) => (
         <option key={name} value={name}>
