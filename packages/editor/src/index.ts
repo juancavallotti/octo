@@ -38,6 +38,16 @@ export { RunProvider, useRun, type RunLogLine } from "./app/run/RunContext";
 export type { RunTransport, RunStatusSnapshot } from "./app/run/transport";
 export type { DevEnvStore } from "./app/state/devEnvStore";
 
+// Resource-store capability (backs the Resources tab)
+export {
+  ResourceStoreProvider,
+  useResourceStore,
+  type ResourceStore,
+  type StoredResource,
+  type CreateResourceInput,
+  type UpdateResourcePatch,
+} from "./app/providers/ResourceStoreProvider";
+
 // Document model + serialization (handy for apps building loaders/savers)
 export {
   toRunnableYaml,

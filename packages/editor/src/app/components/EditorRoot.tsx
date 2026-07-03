@@ -10,6 +10,10 @@ import { SaveProvider } from "../save/SaveContext";
 import { RunProvider } from "../run/RunContext";
 import type { RunTransport } from "../run/transport";
 import { DevEnvStoreProvider, type DevEnvStore } from "../state/devEnvStore";
+import {
+  ResourceStoreProvider,
+  type ResourceStore,
+} from "../providers/ResourceStoreProvider";
 import IntegrationLoader from "./IntegrationLoader";
 import LogPanel from "./LogPanel";
 import EditorBody from "./EditorBody";
@@ -36,6 +40,7 @@ export default function EditorRoot({
   fs,
   run,
   devEnv,
+  resources,
   onSaved,
 }: {
   integrationId?: string;
@@ -54,6 +59,8 @@ export default function EditorRoot({
   run?: RunTransport | null;
   /** Dev-env capability backing the Dev .env panel; omit to disable it. */
   devEnv?: DevEnvStore | null;
+  /** Resource-store capability backing the Resources tab; omit to hide the tab. */
+  resources?: ResourceStore | null;
   /** Called after a save with the stored record (e.g. to update the URL). */
   onSaved?: (stored: StoredDocument) => void;
 }) {
@@ -81,6 +88,10 @@ export default function EditorRoot({
   // Wrap in the capability providers only when supplied, so absence is structural
   // (the consuming controls read a null context and render nothing). The save
   // controller sits inside the filesystem provider it depends on.
+  if (resources)
+    tree = (
+      <ResourceStoreProvider value={resources}>{tree}</ResourceStoreProvider>
+    );
   if (run) {
     tree = (
       <RunProvider transport={run}>
