@@ -136,7 +136,11 @@ export function RunProvider({
         const val = stored[v.name];
         if (val) devEnv[v.name] = val;
       }
-      const snapshot = await transport.start({ yaml, devEnv });
+      const snapshot = await transport.start({
+        yaml,
+        devEnv,
+        integrationId: integrationId ?? undefined,
+      });
       lastYamlRef.current = yaml;
       setLogs([]); // the server starts a fresh buffer for this run
       setRunning(true);
@@ -194,10 +198,10 @@ export function RunProvider({
     if (yaml === lastYamlRef.current) return;
     const t = setTimeout(() => {
       lastYamlRef.current = yaml;
-      transport.sync({ yaml }).catch(() => {});
+      transport.sync({ yaml, integrationId: integrationId ?? undefined }).catch(() => {});
     }, SYNC_DEBOUNCE_MS);
     return () => clearTimeout(t);
-  }, [doc, running, validation.ok, transport]);
+  }, [doc, running, validation.ok, transport, integrationId]);
 
   const value: RunContextValue = {
     available,
