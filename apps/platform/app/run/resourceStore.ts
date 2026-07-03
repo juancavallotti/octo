@@ -56,10 +56,22 @@ export function makeResourceStore(
       );
       if (!current) throw new Error("Resource no longer exists.");
       const kind = patch.kind ?? (current.kind === "env" ? "env" : "template");
-      const name = patch.name ?? current.name;
       const content = patch.content ?? current.content;
       return toStored(
-        unwrap(await updateResource(id, resourceId, kind, name, content)),
+        unwrap(await updateResource(id, resourceId, kind, current.name, content)),
+      );
+    },
+
+    async move(resourceId, name) {
+      const id = requireId();
+      // A resource keeps its uuid across a rename; only its name changes.
+      const current = unwrap(await listResources(id)).find(
+        (r) => r.id === resourceId,
+      );
+      if (!current) throw new Error("Resource no longer exists.");
+      const kind = current.kind === "env" ? "env" : "template";
+      return toStored(
+        unwrap(await updateResource(id, resourceId, kind, name, current.content)),
       );
     },
 

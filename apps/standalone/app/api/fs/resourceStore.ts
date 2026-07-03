@@ -10,7 +10,7 @@
  * per-integration partition on local disk), so these are addressed by name alone.
  */
 
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fsRoot } from "./store";
 
@@ -49,6 +49,13 @@ export async function writeResource(name: string, content: string): Promise<void
 /** Delete a resource file; a missing file is a no-op. */
 export async function deleteResource(name: string): Promise<void> {
   await rm(resolveResource(name), { force: true });
+}
+
+/** Rename a resource file, creating the destination's parent dirs as needed. */
+export async function renameResource(from: string, to: string): Promise<void> {
+  const dest = resolveResource(to);
+  await mkdir(path.dirname(dest), { recursive: true });
+  await rename(resolveResource(from), dest);
 }
 
 /** A resource file on disk: its path-like name and content. */

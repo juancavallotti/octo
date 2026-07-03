@@ -74,6 +74,31 @@ export function flattenTree(
   return rows;
 }
 
+/**
+ * Ensure a folder node exists for each given path (creating intermediate nodes),
+ * so empty "pending" folders — ones the user made but hasn't filed anything into
+ * yet — still appear in the tree as drop targets. Idempotent: paths that already
+ * exist from a file's name are left as-is. Mutates and returns `root`.
+ */
+export function ensureFolders(root: FolderNode, paths: Iterable<string>): FolderNode {
+  for (const path of paths) {
+    let node = root;
+    let prefix = "";
+    for (const part of path.split("/")) {
+      if (part === "") continue;
+      prefix = prefix ? `${prefix}/${part}` : part;
+      let child = node.folders.find((f) => f.name === part);
+      if (!child) {
+        child = { name: part, path: prefix, folders: [], files: [] };
+        node.folders.push(child);
+      }
+      node = child;
+    }
+  }
+  sortNode(root);
+  return root;
+}
+
 /** Every folder path in the tree (used to expand/collapse all). */
 export function allFolderPaths(root: FolderNode): string[] {
   const out: string[] = [];

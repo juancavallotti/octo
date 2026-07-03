@@ -36,9 +36,8 @@ export interface CreateResourceInput {
   content: string;
 }
 
-/** A patch applied to an existing resource (rename, re-kind, and/or edit). */
+/** A patch applied to an existing resource's content (and/or kind). */
 export interface UpdateResourcePatch {
-  name?: string;
   kind?: "env" | "template";
   content?: string;
 }
@@ -49,9 +48,16 @@ export interface ResourceStore {
   list(): Promise<StoredResource[]>;
   /** Create a resource; returns the stored record (with its minted uuid). */
   create(input: CreateResourceInput): Promise<StoredResource>;
-  /** Update a resource by uuid; returns the stored record. */
+  /** Update a resource's content/kind by id; returns the stored record. */
   update(id: string, patch: UpdateResourcePatch): Promise<StoredResource>;
-  /** Delete a resource by uuid. */
+  /**
+   * Rename/move a resource to `name`, keeping its content. Returned as its own
+   * operation (not an `update`) because a rename can change the record's identity
+   * — a disk-backed store keys by name, so the id itself changes. Returns the
+   * moved record so the caller can swap it by its previous id.
+   */
+  move(id: string, name: string): Promise<StoredResource>;
+  /** Delete a resource by id. */
   remove(id: string): Promise<void>;
 }
 

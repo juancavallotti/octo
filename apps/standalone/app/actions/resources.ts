@@ -12,6 +12,7 @@ import {
   deleteResource,
   listResources,
   readResource,
+  renameResource,
   writeResource,
 } from "../api/fs/resourceStore";
 
@@ -60,27 +61,32 @@ export async function createResourceAction(
   }
 }
 
-/**
- * Update a resource by id (its current name). A new `name` renames it (write the
- * target, remove the old file), preserving current content when none is supplied;
- * `content` alone rewrites in place.
- */
+/** Rewrite a resource's content in place (its id/name is unchanged). */
 export async function updateResourceAction(
   id: string,
-  name: string | null,
-  content: string | null,
+  content: string,
 ): Promise<ActionResult<DiskResource>> {
   try {
-    const target = name ?? id;
-    const text = content ?? (await readResource(id)) ?? "";
-    if (target !== id) {
-      if ((await readResource(target)) !== null) {
-        return { ok: false, error: "a resource with that name already exists" };
-      }
-      await deleteResource(id);
+    await writeResource(id, content);
+    return { ok: true, data: toDisk(id, content) };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+/** Rename a resource to `name`, keeping its content; the id (its name) changes. */
+export async function moveResourceAction(
+  id: string,
+  name: string,
+): Promise<ActionResult<DiskResource>> {
+  try {
+    if (!name.trim()) return { ok: false, error: "name is required" };
+    if (name !== id && (await readResource(name)) !== null) {
+      return { ok: false, error: "a resource with that name already exists" };
     }
-    await writeResource(target, text);
-    return { ok: true, data: toDisk(target, text) };
+    const content = (await readResource(id)) ?? "";
+    if (name !== id) await renameResource(id, name);
+    return { ok: true, data: toDisk(name, content) };
   } catch (err) {
     return { ok: false, error: (err as Error).message };
   }

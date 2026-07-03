@@ -3,6 +3,7 @@ import {
   createResourceAction,
   deleteResourceAction,
   listResourcesAction,
+  moveResourceAction,
   updateResourceAction,
 } from "../actions/resources";
 import { unwrap } from "../actions/result";
@@ -23,9 +24,10 @@ export const localDiskResourceStore: ResourceStore = {
     return unwrap(await createResourceAction(name, content));
   },
   async update(id, patch) {
-    return unwrap(
-      await updateResourceAction(id, patch.name ?? null, patch.content ?? null),
-    );
+    return unwrap(await updateResourceAction(id, patch.content ?? ""));
+  },
+  async move(id, name) {
+    return unwrap(await moveResourceAction(id, name));
   },
   async remove(id) {
     unwrap(await deleteResourceAction(id));
