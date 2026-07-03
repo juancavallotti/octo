@@ -12,6 +12,7 @@ import {
   type Snapshot,
 } from "@/app/model/orchestrator";
 import DeploymentsSection from "./DeploymentsSection";
+import ResourcesSection from "./ResourcesSection";
 import SnapshotsSection from "./SnapshotsSection";
 
 /**
@@ -252,6 +253,11 @@ export default function IntegrationDetail({
             deployedTags={deployedTags}
             onChanged={reloadSnapshots}
           />
+        </Section>
+
+        <Section title="Resources">
+          {/* Self-loading; keyed by integration id so it resets on selection. */}
+          <ResourcesSection key={integration.id} integrationId={integration.id} />
         </Section>
 
         <Section title="Deployments">
