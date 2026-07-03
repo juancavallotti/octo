@@ -13,7 +13,14 @@ import { probeVersion, start, status, stop, sync } from "@octo/run-host";
 import type { RunStatusSnapshot } from "@octo/editor";
 import type { ActionResult } from "@octo/http";
 import { ensureRunNamespace } from "@/app/run/namespace";
+import { orchestratorResourceProvider } from "@/app/lib/runResources";
 import { withRead, withWrite } from "./_auth";
+
+/** The resource provider for a run, or undefined for an unsaved draft (no id). */
+function resourcesFor(integrationId?: unknown) {
+  if (typeof integrationId !== "string" || integrationId.trim() === "") return undefined;
+  return orchestratorResourceProvider(integrationId);
+}
 
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -46,6 +53,7 @@ export async function runStatus(): Promise<ActionResult<RunStatusSnapshot>> {
 export async function runStart(
   yaml: string,
   devEnv?: unknown,
+  integrationId?: string,
 ): Promise<ActionResult<RunStatusSnapshot>> {
   return withWrite(async () => {
     const ns = await ensureRunNamespace();
@@ -62,7 +70,10 @@ export async function runStart(
       env = parsed;
     }
     try {
-      return { ok: true, data: await start(ns, yaml, env) };
+      return {
+        ok: true,
+        data: await start(ns, yaml, env, { resources: resourcesFor(integrationId) }),
+      };
     } catch (err) {
       return { ok: false, error: (err as Error).message };
     }
@@ -78,14 +89,17 @@ export async function runStop(): Promise<ActionResult<RunStatusSnapshot>> {
 }
 
 /** Rewrite this browser's watched config so the runner hot-reloads. */
-export async function runSync(yaml: string): Promise<ActionResult<void>> {
+export async function runSync(
+  yaml: string,
+  integrationId?: string,
+): Promise<ActionResult<void>> {
   return withRead(async () => {
     const ns = await ensureRunNamespace();
     if (typeof yaml !== "string" || yaml.trim() === "") {
       return { ok: false, error: "missing `yaml`" };
     }
     try {
-      await sync(ns, yaml);
+      await sync(ns, yaml, { resources: resourcesFor(integrationId) });
       return { ok: true, data: undefined };
     } catch (err) {
       return { ok: false, error: (err as Error).message };
