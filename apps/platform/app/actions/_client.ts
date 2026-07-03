@@ -281,6 +281,41 @@ export function deleteResource(
   );
 }
 
+export function updateResource(
+  integrationId: string,
+  id: string,
+  kind: string,
+  name: string,
+  content: string,
+): Promise<ActionResult<Resource>> {
+  return call<Resource>(
+    "PUT",
+    `/integrations/${enc(integrationId)}/resources/${enc(id)}`,
+    { kind, name, content },
+  );
+}
+
+/**
+ * Create or replace a resource by its (path-like) name. Resource names are
+ * addressed by the orchestrator's opaque id, not by name, so this lists the
+ * integration's resources, and updates the match by id or creates a new one. Used
+ * for name-keyed resources like `.env.dev` that the editor owns without tracking
+ * their id.
+ */
+export async function upsertResourceByName(
+  integrationId: string,
+  kind: string,
+  name: string,
+  content: string,
+): Promise<ActionResult<Resource>> {
+  const existing = await listResources(integrationId);
+  if (!existing.ok) return existing;
+  const match = existing.data.find((r) => r.name === name);
+  return match
+    ? updateResource(integrationId, match.id, kind, name, content)
+    : createResource(integrationId, kind, name, content);
+}
+
 // --- Deployments ----------------------------------------------------------
 
 export function listDeployments(
