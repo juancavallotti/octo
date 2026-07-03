@@ -19,6 +19,7 @@
     "@eetr/react-reducer-utils": "0.1.1",
     "lucide-react": "1.21.0",
     "prismjs": "^1.30.0",
+    "react-simple-code-editor": "^0.14.1",
     "yaml": "^2.9.0"
   },
   "peerDependencies": {
