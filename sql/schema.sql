@@ -130,6 +130,45 @@ CREATE TABLE IF NOT EXISTS integration_snapshots (
 CREATE INDEX IF NOT EXISTS idx_integration_snapshots_integration
     ON integration_snapshots (integration_id);
 
+-- integration_resources holds the live, mutable env/template resources authored for an
+-- integration (the cloud counterpart to the files the standalone runtime reads from the
+-- config directory). `kind` mirrors the runtime's core.ResourceKind ('env' | 'template')
+-- and `name` is the resource id the config references — a path that may contain '/' (a
+-- future feature uploads zip bundles that keep their relative paths), so a name is never
+-- placed in a URL path segment. `content` is the raw text. UNIQUE (integration_id, name)
+-- makes a path a single resource per integration.
+CREATE TABLE IF NOT EXISTS integration_resources (
+    id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    integration_id uuid NOT NULL REFERENCES integrations (id) ON DELETE CASCADE,
+    kind           varchar NOT NULL,
+    name           varchar NOT NULL,
+    content        text NOT NULL DEFAULT '',
+    created_at     timestamptz NOT NULL DEFAULT now(),
+    last_updated   timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (integration_id, name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_integration_resources_integration
+    ON integration_resources (integration_id);
+
+-- integration_resource_snapshots freezes an integration's resources when it is tagged,
+-- so a deploy ships the resources that matched its frozen definition rather than the
+-- live ones. Rows are copied from integration_resources inside the same transaction that
+-- creates the integration_snapshots row; the CASCADE off the snapshot drops the frozen
+-- resources when the tag is deleted.
+CREATE TABLE IF NOT EXISTS integration_resource_snapshots (
+    id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    snapshot_id uuid NOT NULL REFERENCES integration_snapshots (id) ON DELETE CASCADE,
+    kind        varchar NOT NULL,
+    name        varchar NOT NULL,
+    content     text NOT NULL DEFAULT '',
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (snapshot_id, name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_integration_resource_snapshots_snapshot
+    ON integration_resource_snapshots (snapshot_id);
+
 -- users records each authenticated principal. Identity comes from the OIDC
 -- provider; on first sign-in the platform bootstraps a row keyed by the stable
 -- `subject` (the OIDC `sub`) and keeps email/name in sync on subsequent logins.
