@@ -1,22 +1,29 @@
 "use client";
 
-import { Code2, LayoutGrid } from "lucide-react";
+import { Code2, FolderTree, LayoutGrid } from "lucide-react";
 import { useEditorState, EditorActionType } from "../state/editorState";
+import { useResourceStore } from "../providers/ResourceStoreProvider";
 import type { ViewMode } from "../state/reducer";
 
 /**
- * Segmented Canvas / YAML switch for the editor body. It sits in the app-owned
- * top bar (next to the folder picker) and drives `state.viewMode`, which
- * EditorRoot reads to swap the visual canvas for the read-only YAML preview. The
- * styling mirrors the LogPanel's tab buttons for consistency.
+ * Segmented Canvas / YAML / Resources switch for the editor body. It sits in the
+ * app-owned top bar (next to the folder picker) and drives `state.viewMode`, which
+ * EditorBody reads to swap the visual canvas, the read-only YAML preview, and the
+ * Resources tab. The Resources option only appears when a resource store is
+ * provided (the host backs it). The styling mirrors the LogPanel's tab buttons.
  */
 const OPTIONS: { mode: ViewMode; label: string; icon: typeof LayoutGrid }[] = [
   { mode: "canvas", label: "Canvas", icon: LayoutGrid },
   { mode: "yaml", label: "YAML", icon: Code2 },
+  { mode: "resources", label: "Resources", icon: FolderTree },
 ];
 
 export default function ViewModeToggle() {
   const { state, dispatch } = useEditorState();
+  const hasResources = useResourceStore() !== null;
+  const options = hasResources
+    ? OPTIONS
+    : OPTIONS.filter((o) => o.mode !== "resources");
 
   return (
     <div

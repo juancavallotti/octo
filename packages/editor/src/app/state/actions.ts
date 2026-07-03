@@ -209,7 +209,7 @@ export interface SetFlowMetaPayload {
 }
 
 /** Which view the editor body shows. */
-export type SetViewModePayload = "canvas" | "yaml";
+export type SetViewModePayload = "canvas" | "yaml" | "resources";
 
 export interface SetEnvPayload {
   env: EnvVar[];
