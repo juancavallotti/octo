@@ -11,6 +11,7 @@ import { probeVersion, start, status, stop, sync } from "@octo/run-host";
 import type { RunStatusSnapshot } from "@octo/editor";
 import type { ActionResult } from "@octo/http";
 import { ensureRunNamespace } from "../run/namespace";
+import { fsResourceProvider } from "../run/resources";
 
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -56,7 +57,10 @@ export async function runStart(
     env = parsed;
   }
   try {
-    return { ok: true, data: await start(ns, yaml, env) };
+    return {
+      ok: true,
+      data: await start(ns, yaml, env, { resources: fsResourceProvider }),
+    };
   } catch (err) {
     return { ok: false, error: (err as Error).message };
   }
@@ -75,7 +79,7 @@ export async function runSync(yaml: string): Promise<ActionResult<void>> {
     return { ok: false, error: "missing `yaml`" };
   }
   try {
-    await sync(ns, yaml);
+    await sync(ns, yaml, { resources: fsResourceProvider });
     return { ok: true, data: undefined };
   } catch (err) {
     return { ok: false, error: (err as Error).message };
