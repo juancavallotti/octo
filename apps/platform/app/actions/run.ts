@@ -13,24 +13,13 @@ import { probeVersion, start, status, stop, sync } from "@octo/run-host";
 import type { RunStatusSnapshot } from "@octo/editor";
 import type { ActionResult } from "@octo/http";
 import { ensureRunNamespace } from "@/app/run/namespace";
+import { orchestratorResourceProvider } from "@/app/lib/runResources";
 import { withRead, withWrite } from "./_auth";
 
-const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
-
-/**
- * Validate the optional dev-env map: a plain object of valid env names to string
- * values. Returns the sanitized map, or null if the shape is invalid.
- */
-function parseDevEnv(value: unknown): Record<string, string> | null {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return null;
-  }
-  const out: Record<string, string> = {};
-  for (const [name, val] of Object.entries(value as Record<string, unknown>)) {
-    if (!ENV_NAME.test(name) || typeof val !== "string") return null;
-    out[name] = val;
-  }
-  return out;
+/** The resource provider for a run, or undefined for an unsaved draft (no id). */
+function resourcesFor(integrationId?: unknown) {
+  if (typeof integrationId !== "string" || integrationId.trim() === "") return undefined;
+  return orchestratorResourceProvider(integrationId);
 }
 
 /** Whether RUN is available, whether this browser's runner is live, and its version. */
@@ -45,7 +34,7 @@ export async function runStatus(): Promise<ActionResult<RunStatusSnapshot>> {
 /** Render the config and (re)start this browser's runner. */
 export async function runStart(
   yaml: string,
-  devEnv?: unknown,
+  integrationId?: string,
 ): Promise<ActionResult<RunStatusSnapshot>> {
   return withWrite(async () => {
     const ns = await ensureRunNamespace();
@@ -55,14 +44,13 @@ export async function runStart(
     if (typeof yaml !== "string" || yaml.trim() === "") {
       return { ok: false, error: "missing `yaml`" };
     }
-    let env: Record<string, string> | undefined;
-    if (devEnv !== undefined) {
-      const parsed = parseDevEnv(devEnv);
-      if (!parsed) return { ok: false, error: "invalid `devEnv`" };
-      env = parsed;
-    }
     try {
-      return { ok: true, data: await start(ns, yaml, env) };
+      return {
+        ok: true,
+        data: await start(ns, yaml, undefined, {
+          resources: resourcesFor(integrationId),
+        }),
+      };
     } catch (err) {
       return { ok: false, error: (err as Error).message };
     }
@@ -78,14 +66,17 @@ export async function runStop(): Promise<ActionResult<RunStatusSnapshot>> {
 }
 
 /** Rewrite this browser's watched config so the runner hot-reloads. */
-export async function runSync(yaml: string): Promise<ActionResult<void>> {
+export async function runSync(
+  yaml: string,
+  integrationId?: string,
+): Promise<ActionResult<void>> {
   return withRead(async () => {
     const ns = await ensureRunNamespace();
     if (typeof yaml !== "string" || yaml.trim() === "") {
       return { ok: false, error: "missing `yaml`" };
     }
     try {
-      await sync(ns, yaml);
+      await sync(ns, yaml, { resources: resourcesFor(integrationId) });
       return { ok: true, data: undefined };
     } catch (err) {
       return { ok: false, error: (err as Error).message };

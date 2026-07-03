@@ -9,6 +9,7 @@ import {
 import { SaveProvider } from "../save/SaveContext";
 import { RunProvider } from "../run/RunContext";
 import type { RunTransport } from "../run/transport";
+import { DevEnvStoreProvider, type DevEnvStore } from "../state/devEnvStore";
 import IntegrationLoader from "./IntegrationLoader";
 import LogPanel from "./LogPanel";
 import EditorBody from "./EditorBody";
@@ -34,6 +35,7 @@ export default function EditorRoot({
   header,
   fs,
   run,
+  devEnv,
   onSaved,
 }: {
   integrationId?: string;
@@ -50,6 +52,8 @@ export default function EditorRoot({
   fs?: FileSystemCapability | null;
   /** Run capability; omit to hide the RUN control and log panel. */
   run?: RunTransport | null;
+  /** Dev-env capability backing the Dev .env panel; omit to disable it. */
+  devEnv?: DevEnvStore | null;
   /** Called after a save with the stored record (e.g. to update the URL). */
   onSaved?: (stored: StoredDocument) => void;
 }) {
@@ -77,7 +81,13 @@ export default function EditorRoot({
   // Wrap in the capability providers only when supplied, so absence is structural
   // (the consuming controls read a null context and render nothing). The save
   // controller sits inside the filesystem provider it depends on.
-  if (run) tree = <RunProvider transport={run}>{tree}</RunProvider>;
+  if (run) {
+    tree = (
+      <RunProvider transport={run}>
+        <DevEnvStoreProvider value={devEnv ?? null}>{tree}</DevEnvStoreProvider>
+      </RunProvider>
+    );
+  }
   if (fs)
     tree = (
       <FileSystemProvider value={fs}>

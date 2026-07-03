@@ -7,6 +7,20 @@ import { cachedVersion } from "./version";
 import { allocatePort, isExposable, releasePort } from "./ports";
 import { LogBuffer, type LogLine } from "./logbuffer";
 import { ensureReaper } from "./reaper";
+import {
+  effectiveResourceNames,
+  injectDevEnvResource,
+  resolveAndStage,
+  sameNameSet,
+  stageResources,
+  type ResourceProvider,
+} from "./resources";
+
+/** Options carrying the host's resource provider through a run. */
+export interface RunResourceOptions {
+  /** Resolves the resource files the run's config declares; omitted → no staging. */
+  resources?: ResourceProvider;
+}
 
 /**
  * Server-side manager that owns the running `octo` processes for the editor's dev
@@ -81,6 +95,10 @@ export interface Session {
   port: number | null;
   /** Whether the current run declares HTTP_PORT (set on start). */
   exposable: boolean;
+  /** Absolute paths of resource files staged for the current run, removed on stop. */
+  stagedResources: string[];
+  /** The resource names the current run declared, to detect a resource-list change on sync. */
+  declaredResources: string[];
 }
 
 const store = globalThis as unknown as {
@@ -110,6 +128,8 @@ function session(ns: string): Session {
       logs: new LogBuffer(),
       port: null,
       exposable: false,
+      stagedResources: [],
+      declaredResources: [],
     };
     map.set(ns, s);
     ensureReaper();
@@ -167,7 +187,12 @@ async function writeConfig(path: string, yaml: string): Promise<void> {
  * environment below and never written to disk — the `env` object is local to this
  * call. The Go runtime resolves OS env before declared defaults, so this suffices.
  */
-export async function start(ns: string, yaml: string, devEnv?: Record<string, string>): Promise<RunStatus> {
+export async function start(
+  ns: string,
+  yaml: string,
+  devEnv?: Record<string, string>,
+  opts?: RunResourceOptions,
+): Promise<RunStatus> {
   const bin = process.env.OCTO_BIN_PATH;
   if (!bin) {
     throw new Error("OCTO_BIN_PATH is not set; launch the editor with `task dev`.");
@@ -180,8 +205,16 @@ export async function start(ns: string, yaml: string, devEnv?: Record<string, st
 
   const dir = namespaceDir(ns);
   await mkdir(dir, { recursive: true });
+
+  // Stage the config's declared resources into the run dir first: the runtime's
+  // fs loader roots at the config directory, and the config write below is what
+  // triggers its initial load, so the files must already be present.
+  const { declared, staged } = await resolveAndStage(dir, yaml, opts?.resources);
+  s.stagedResources = staged;
+  s.declaredResources = declared;
+
   const configPath = join(dir, `octo-editor-${randomUUID()}.yaml`);
-  await writeConfig(configPath, yaml);
+  await writeConfig(configPath, injectDevEnvResource(yaml));
   s.configPath = configPath;
 
   // A networked integration (one that declares HTTP_PORT) gets a real port from
@@ -243,11 +276,36 @@ export async function start(ns: string, yaml: string, devEnv?: Record<string, st
   return statusOf(s);
 }
 
-/** Re-render the config the namespace's runner is watching, triggering a hot reload. No-op if stopped. */
-export async function sync(ns: string, yaml: string): Promise<RunStatus> {
+/**
+ * Re-render the config the namespace's runner is watching, triggering a hot reload.
+ * No-op if stopped. When the config's declared resource-name set has changed since
+ * the last staging and a provider is given, the resources are re-resolved and
+ * re-staged (and files no longer declared are removed) before the config is
+ * rewritten — an ordinary content-only edit skips the provider entirely.
+ */
+export async function sync(
+  ns: string,
+  yaml: string,
+  opts?: RunResourceOptions,
+): Promise<RunStatus> {
   const s = session(ns);
   if (!s.proc || !s.configPath) return statusOf(s);
-  await writeConfig(s.configPath, yaml);
+
+  const declared = effectiveResourceNames(yaml);
+  if (opts?.resources && !sameNameSet(declared, s.declaredResources)) {
+    const dir = namespaceDir(ns);
+    const files = await opts.resources(declared);
+    const nextStaged = await stageResources(dir, files, declared);
+    // Remove files that were staged before but are no longer declared/supplied.
+    const keep = new Set(nextStaged);
+    for (const path of s.stagedResources) {
+      if (!keep.has(path)) await rm(path, { force: true }).catch(() => {});
+    }
+    s.stagedResources = nextStaged;
+    s.declaredResources = declared;
+  }
+
+  await writeConfig(s.configPath, injectDevEnvResource(yaml));
   return statusOf(s);
 }
 
@@ -267,17 +325,27 @@ export async function invoke(
   ns: string,
   yaml: string,
   flow: string,
-  opts?: { data?: string; env?: Record<string, string>; timeoutMs?: number },
+  opts?: {
+    data?: string;
+    env?: Record<string, string>;
+    timeoutMs?: number;
+    resources?: ResourceProvider;
+  },
 ): Promise<InvokeResult> {
   const bin = process.env.OCTO_BIN_PATH;
   if (!bin) {
     throw new Error("OCTO_BIN_PATH is not set; launch the editor with `task dev`.");
   }
 
-  const dir = namespaceDir(ns);
-  await mkdir(dir, { recursive: true });
-  const configPath = join(dir, `octo-invoke-${randomUUID()}.yaml`);
-  await writeConfig(configPath, yaml);
+  // A one-shot invoke gets its own subdir under the namespace so its config and
+  // staged resources can't clobber a concurrent long-running run's staged files.
+  // `octo invoke` roots the resource loader at the config's own dir, so staging
+  // beside the config resolves the declared resources.
+  const invokeDir = join(namespaceDir(ns), `invoke-${randomUUID()}`);
+  await mkdir(invokeDir, { recursive: true });
+  await resolveAndStage(invokeDir, yaml, opts?.resources);
+  const configPath = join(invokeDir, "octo-invoke.yaml");
+  await writeConfig(configPath, injectDevEnvResource(yaml));
 
   const timeoutMs = opts?.timeoutMs ?? INVOKE_DEFAULT_TIMEOUT_MS;
   const args = [
@@ -346,7 +414,7 @@ export async function invoke(
     proc.on("exit", (code) => finish(code));
   });
 
-  await rm(configPath, { force: true }).catch(() => {});
+  await rm(invokeDir, { recursive: true, force: true }).catch(() => {});
   return result;
 }
 
@@ -386,6 +454,12 @@ export async function stop(ns: string): Promise<RunStatus> {
     await rm(s.configPath, { force: true }).catch(() => {});
     s.configPath = null;
   }
+  // Remove staged resource files (env resources may hold secrets), like the config.
+  for (const path of s.stagedResources) {
+    await rm(path, { force: true }).catch(() => {});
+  }
+  s.stagedResources = [];
+  s.declaredResources = [];
   return statusOf(s);
 }
 

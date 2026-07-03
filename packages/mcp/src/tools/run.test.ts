@@ -7,6 +7,7 @@ import { registerRunTools } from "./run";
 import { createNamespaceResolver } from "../namespace";
 import type { OctoMcpConfig } from "../backend";
 import type { RunHostPort, RunStatusLike } from "../run-host";
+import type { ResourceProvider } from "@octo/run-host";
 
 /** A stub run host that records the last start() and fakes exposable runs. */
 function stubRunHost(opts: { available?: boolean } = {}) {
@@ -14,11 +15,17 @@ function stubRunHost(opts: { available?: boolean } = {}) {
   const calls: {
     startedYaml?: string;
     startedEnv?: Record<string, string>;
+    startedResources?: ResourceProvider;
     ns?: string;
     invoked?: {
       yaml: string;
       flow: string;
-      opts?: { data?: string; env?: Record<string, string>; timeoutMs?: number };
+      opts?: {
+        data?: string;
+        env?: Record<string, string>;
+        timeoutMs?: number;
+        resources?: ResourceProvider;
+      };
     };
   } = {};
   let running = false;
@@ -35,10 +42,11 @@ function stubRunHost(opts: { available?: boolean } = {}) {
   });
   const host: RunHostPort = {
     status: () => snap(),
-    start: async (ns, yaml, env) => {
+    start: async (ns, yaml, env, startOpts) => {
       calls.ns = ns;
       calls.startedYaml = yaml;
       calls.startedEnv = env;
+      calls.startedResources = startOpts?.resources;
       running = true;
       exposable = yaml.includes("HTTP_PORT");
       logs = [{ seq: 0, text: "▶ starting octo" }];
@@ -188,6 +196,24 @@ describe("run tools", () => {
     expect(calls.startedEnv).toEqual({ API_KEY: "secret" });
   });
 
+  it("run threads a resource provider bound to the integration id", async () => {
+    const { host, calls } = stubRunHost();
+    const provider: ResourceProvider = async () => [];
+    const seen: (string | undefined)[] = [];
+    const client = await connect(
+      config({
+        resources: (id) => {
+          seen.push(id);
+          return provider;
+        },
+      }),
+      host,
+    );
+    await client.callTool({ name: "run_integration", arguments: { id: "a" } });
+    expect(seen).toEqual(["a"]);
+    expect(calls.startedResources).toBe(provider);
+  });
+
   it("stop returns running:false", async () => {
     const { host } = stubRunHost();
     const client = await connect(config(), host);
@@ -286,6 +312,34 @@ describe("run tools", () => {
     })) as CallToolResult;
     expect(res.isError).toBeFalsy();
     expect(calls.invoked?.yaml).toBe(inline);
+  });
+
+  it("invoke_flow threads resources by id, and asks the host with no id for an inline definition", async () => {
+    const byId = stubRunHost();
+    const idProvider: ResourceProvider = async () => [];
+    const inlineProvider: ResourceProvider = async () => [];
+    const seen: (string | undefined)[] = [];
+    const resources = (id?: string) => {
+      seen.push(id);
+      return id ? idProvider : inlineProvider;
+    };
+
+    const idClient = await connect(config({ resources }), byId.host);
+    await idClient.callTool({
+      name: "invoke_flow",
+      arguments: { id: "a", flow: "greet" },
+    });
+    expect(byId.calls.invoked?.opts?.resources).toBe(idProvider);
+
+    const inline = stubRunHost();
+    const inlineClient = await connect(config({ resources }), inline.host);
+    await inlineClient.callTool({
+      name: "invoke_flow",
+      arguments: { definition: "service:\n  name: Draft\n", flow: "greet" },
+    });
+    expect(inline.calls.invoked?.opts?.resources).toBe(inlineProvider);
+
+    expect(seen).toEqual(["a", undefined]);
   });
 
   it("invoke_flow errors when neither id nor definition is given", async () => {

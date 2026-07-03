@@ -36,6 +36,7 @@ export {
 // Run capability
 export { RunProvider, useRun, type RunLogLine } from "./app/run/RunContext";
 export type { RunTransport, RunStatusSnapshot } from "./app/run/transport";
+export type { DevEnvStore } from "./app/state/devEnvStore";
 
 // Document model + serialization (handy for apps building loaders/savers)
 export {

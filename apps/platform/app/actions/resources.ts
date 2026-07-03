@@ -36,3 +36,27 @@ export async function deleteResource(
 ): Promise<ActionResult<void>> {
   return withWrite(() => client.deleteResource(integrationId, id));
 }
+
+export async function updateResource(
+  integrationId: string,
+  id: string,
+  kind: string,
+  name: string,
+  content: string,
+): Promise<ActionResult<Resource>> {
+  return withWrite(() =>
+    client.updateResource(integrationId, id, kind, name, content),
+  );
+}
+
+/** Create or replace a resource by its name (e.g. the editor's `.env.dev`). */
+export async function upsertResource(
+  integrationId: string,
+  kind: string,
+  name: string,
+  content: string,
+): Promise<ActionResult<Resource>> {
+  return withWrite(() =>
+    client.upsertResourceByName(integrationId, kind, name, content),
+  );
+}

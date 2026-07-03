@@ -5,6 +5,8 @@
  * by a namespace slug; the handler resolves one per MCP session.
  */
 
+import type { ResourceProvider } from "@octo/run-host";
+
 /** A run's status snapshot — the fields run-host's `RunStatus` exposes. */
 export interface RunStatusLike {
   /** Whether a runner binary is configured (OCTO_BIN_PATH set). */
@@ -41,6 +43,7 @@ export interface RunHostPort {
     ns: string,
     yaml: string,
     env?: Record<string, string>,
+    opts?: { resources?: ResourceProvider },
   ): Promise<RunStatusLike>;
   stop(ns: string): Promise<RunStatusLike>;
   /** Run a single named flow once (sources not started) and return its result + logs. */
@@ -48,7 +51,12 @@ export interface RunHostPort {
     ns: string,
     yaml: string,
     flow: string,
-    opts?: { data?: string; env?: Record<string, string>; timeoutMs?: number },
+    opts?: {
+      data?: string;
+      env?: Record<string, string>;
+      timeoutMs?: number;
+      resources?: ResourceProvider;
+    },
   ): Promise<InvokeResultLike>;
   snapshot(ns: string): RunLogLine[];
   /** Mint a fresh, valid namespace slug. */

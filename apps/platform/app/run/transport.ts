@@ -14,16 +14,16 @@ export const bffRunTransport: RunTransport = {
     return unwrap(await runStatus());
   },
 
-  async start({ yaml, devEnv }): Promise<RunStatusSnapshot> {
-    return unwrap(await runStart(yaml, devEnv));
+  async start({ yaml, integrationId }): Promise<RunStatusSnapshot> {
+    return unwrap(await runStart(yaml, integrationId));
   },
 
   async stop() {
     unwrap(await runStop());
   },
 
-  async sync({ yaml }) {
-    unwrap(await runSync(yaml));
+  async sync({ yaml, integrationId }) {
+    unwrap(await runSync(yaml, integrationId));
   },
 
   subscribeLogs(onLine) {

@@ -7,6 +7,8 @@
  * `@octo/run-host`, keyed by a per-MCP-session namespace.
  */
 
+import type { ResourceProvider } from "@octo/run-host";
+
 /** A stored integration: its id, display name, and runtime-YAML definition. */
 export interface IntegrationRecord {
   id: string;
@@ -52,6 +54,16 @@ export interface OctoMcpConfig {
    * `octo://runtime/schema` resource — `capabilities.json` from `@octo/editor`.
    */
   runtimeSchema: unknown;
+  /**
+   * Resolve the resources (env files, templates) a run's config declares, so
+   * `@octo/run-host` can stage them for `run_integration`/`invoke_flow` — letting
+   * a run read its credentials from the host's resource store instead of the
+   * caller. Given the integration id (absent for an inline `invoke_flow`
+   * definition), returns a provider bound to it, or undefined when the host can't
+   * supply resources for it (e.g. the platform with no id). Omit the whole
+   * capability on a host without resources.
+   */
+  resources?: (integrationId?: string) => ResourceProvider | undefined;
   /**
    * Public origin used to absolutize a run's test path (e.g.
    * `http://localhost:3000`). When unset, the bare `/editor/runs/<ns>/` path is

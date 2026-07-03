@@ -11,24 +11,7 @@ import { probeVersion, start, status, stop, sync } from "@octo/run-host";
 import type { RunStatusSnapshot } from "@octo/editor";
 import type { ActionResult } from "@octo/http";
 import { ensureRunNamespace } from "../run/namespace";
-
-const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
-
-/**
- * Validate the optional dev-env map: a plain object of valid env names to string
- * values. Returns the sanitized map, or null if the shape is invalid.
- */
-function parseDevEnv(value: unknown): Record<string, string> | null {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return null;
-  }
-  const out: Record<string, string> = {};
-  for (const [name, val] of Object.entries(value as Record<string, unknown>)) {
-    if (!ENV_NAME.test(name) || typeof val !== "string") return null;
-    out[name] = val;
-  }
-  return out;
-}
+import { fsResourceProvider } from "../run/resources";
 
 /** Whether RUN is available, whether this browser's runner is live, and its version. */
 export async function runStatus(): Promise<ActionResult<RunStatusSnapshot>> {
@@ -40,7 +23,6 @@ export async function runStatus(): Promise<ActionResult<RunStatusSnapshot>> {
 /** Render the config and (re)start this browser's runner. */
 export async function runStart(
   yaml: string,
-  devEnv?: unknown,
 ): Promise<ActionResult<RunStatusSnapshot>> {
   const ns = await ensureRunNamespace();
   if (!status(ns).available) {
@@ -49,14 +31,11 @@ export async function runStart(
   if (typeof yaml !== "string" || yaml.trim() === "") {
     return { ok: false, error: "missing `yaml`" };
   }
-  let env: Record<string, string> | undefined;
-  if (devEnv !== undefined) {
-    const parsed = parseDevEnv(devEnv);
-    if (!parsed) return { ok: false, error: "invalid `devEnv`" };
-    env = parsed;
-  }
   try {
-    return { ok: true, data: await start(ns, yaml, env) };
+    return {
+      ok: true,
+      data: await start(ns, yaml, undefined, { resources: fsResourceProvider }),
+    };
   } catch (err) {
     return { ok: false, error: (err as Error).message };
   }
@@ -75,7 +54,7 @@ export async function runSync(yaml: string): Promise<ActionResult<void>> {
     return { ok: false, error: "missing `yaml`" };
   }
   try {
-    await sync(ns, yaml);
+    await sync(ns, yaml, { resources: fsResourceProvider });
     return { ok: true, data: undefined };
   } catch (err) {
     return { ok: false, error: (err as Error).message };

@@ -21,15 +21,20 @@ export interface RunStatusSnapshot {
 export interface RunTransport {
   /** Current availability/running state (used on mount and to reattach). */
   status(): Promise<RunStatusSnapshot>;
-  /** Start a runner for the given config; resolves to the new state. */
+  /**
+   * Start a runner for the given config; resolves to the new state. `integrationId`
+   * identifies the open integration so the host can resolve its resources (env
+   * files, templates, and the dev-env `.env.dev`) from its backend; absent for an
+   * unsaved draft.
+   */
   start(args: {
     yaml: string;
-    devEnv: Record<string, string>;
+    integrationId?: string;
   }): Promise<RunStatusSnapshot>;
   /** Stop the current runner. */
   stop(): Promise<void>;
   /** Push a new config to the running runner so it hot-reloads. */
-  sync(args: { yaml: string }): Promise<void>;
+  sync(args: { yaml: string; integrationId?: string }): Promise<void>;
   /**
    * Subscribe to the runner's log stream. `onLine` receives each line's monotonic
    * sequence number and text; the returned function unsubscribes. Replays and
