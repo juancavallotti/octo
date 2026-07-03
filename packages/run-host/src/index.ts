@@ -17,7 +17,12 @@ export {
   subscribe,
   runningPort,
   type InvokeResult,
+  type RunResourceOptions,
 } from "./session";
+export {
+  type ResourceFile,
+  type ResourceProvider,
+} from "./resources";
 export { probeVersion, cachedVersion } from "./version";
 export {
   ensureNamespace,

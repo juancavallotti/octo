@@ -133,6 +133,58 @@ describe("run session", () => {
     expect(result.running).toBe(false);
   });
 
+  describe("resource staging", () => {
+    const yamlWith = (env: string[]) =>
+      `resources:\n  env:\n${env.map((e) => `    - ${e}`).join("\n")}\n`;
+
+    it("stages declared resources into the run dir before the config, and removes them on stop", async () => {
+      process.env.OCTO_BIN_PATH = await fakeBin(dir, "octo-sleep", "echo ready\nsleep 2");
+      const calls: string[][] = [];
+      await start(NS, yamlWith([".env.dev"]), undefined, {
+        resources: async (names) => {
+          calls.push(names);
+          return [{ name: ".env.dev", content: "A=1\n" }];
+        },
+      });
+      expect(calls).toEqual([[".env.dev"]]);
+      expect(await readFile(join(dir, NS, ".env.dev"), "utf8")).toBe("A=1\n");
+
+      await stop(NS);
+      expect(await readdir(join(dir, NS))).not.toContain(".env.dev");
+    });
+
+    it("does not call the provider on a content-only sync (unchanged resource set)", async () => {
+      process.env.OCTO_BIN_PATH = await fakeBin(dir, "octo-sleep", "echo ready\nsleep 3");
+      let calls = 0;
+      const provider = async () => {
+        calls += 1;
+        return [{ name: ".env.dev", content: "A=1" }];
+      };
+      await start(NS, yamlWith([".env.dev"]), undefined, { resources: provider });
+      await vi.waitFor(() => expect(texts()).toContain("ready"), { timeout: 4000 });
+      expect(calls).toBe(1);
+
+      await sync(NS, yamlWith([".env.dev"]) + "service:\n  name: edited\n", {
+        resources: provider,
+      });
+      expect(calls).toBe(1); // set unchanged → provider not re-invoked
+    });
+
+    it("re-stages and prunes de-declared files when the resource set changes on sync", async () => {
+      process.env.OCTO_BIN_PATH = await fakeBin(dir, "octo-sleep", "echo ready\nsleep 3");
+      const provider = async (names: string[]) =>
+        names.map((name) => ({ name, content: `${name}=1` }));
+      await start(NS, yamlWith([".env.dev"]), undefined, { resources: provider });
+      await vi.waitFor(() => expect(texts()).toContain("ready"), { timeout: 4000 });
+      expect(await readdir(join(dir, NS))).toContain(".env.dev");
+
+      await sync(NS, yamlWith([".env.other"]), { resources: provider });
+      const left = await readdir(join(dir, NS));
+      expect(left).toContain(".env.other");
+      expect(left).not.toContain(".env.dev"); // no-longer-declared file pruned
+    });
+  });
+
   describe("invoke", () => {
     it("returns stdout as the result and stderr as separate log lines", async () => {
       process.env.OCTO_BIN_PATH = await fakeBin(
@@ -202,16 +254,33 @@ describe("run session", () => {
       });
       expect(r.timedOut).toBe(true);
       expect(r.ok).toBe(false);
-      // The throwaway config is removed even when the run had to be killed.
+      // The throwaway invoke dir is removed even when the run had to be killed.
       const left = await readdir(join(dir, NS));
-      expect(left.some((f) => f.startsWith("octo-invoke-"))).toBe(false);
+      expect(left.some((f) => f.startsWith("invoke-"))).toBe(false);
     }, 10000);
 
-    it("removes the throwaway config after a successful run", async () => {
+    it("removes the throwaway invoke dir after a successful run", async () => {
       process.env.OCTO_BIN_PATH = await fakeBin(dir, "octo-ok", "echo done");
       await invoke(NS, "service:\n  name: t\n", "greet");
       const left = await readdir(join(dir, NS));
-      expect(left.some((f) => f.startsWith("octo-invoke-"))).toBe(false);
+      expect(left.some((f) => f.startsWith("invoke-"))).toBe(false);
+    });
+
+    it("stages declared resources beside the invoke config and removes them after", async () => {
+      // The fake octo lists its config's own directory so we can see what was staged.
+      process.env.OCTO_BIN_PATH = await fakeBin(
+        dir,
+        "octo-lsdir",
+        'shift; ls -A "$(dirname "$2")"',
+      );
+      const yaml = "resources:\n  env:\n    - .env.dev\n";
+      const r = await invoke(NS, yaml, "greet", {
+        resources: async () => [{ name: ".env.dev", content: "A=1" }],
+      });
+      expect(r.output).toContain(".env.dev");
+      // Nothing is left behind in the namespace dir once invoke returns.
+      const left = await readdir(join(dir, NS)).catch(() => []);
+      expect(left.some((f) => f.startsWith("invoke-"))).toBe(false);
     });
 
     it("does not disturb a concurrent long-running run in the same namespace", async () => {
