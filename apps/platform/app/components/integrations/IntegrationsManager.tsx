@@ -222,15 +222,26 @@ export default function IntegrationsManager({
   };
 
   // Rename the selected integration (its name is effectively its filename),
-  // preserving the definition. The updated name lands via the refresh.
-  const renameSelected = (name: string) => {
-    if (!selected) return;
-    run(() =>
-      updateIntegration(selected.id, {
+  // preserving the definition. The updated name lands via the refresh. Returns
+  // whether the rename succeeded so the inline editor can stay open on conflict
+  // (e.g. a duplicate name); failures still surface in the inline error banner.
+  const renameSelected = async (name: string): Promise<boolean> => {
+    if (!selected) return false;
+    setBusy(true);
+    setError(null);
+    try {
+      await updateIntegration(selected.id, {
         name,
         definition: selected.definition,
-      }),
-    );
+      });
+      await refresh();
+      return true;
+    } catch (e) {
+      setError((e as Error).message);
+      return false;
+    } finally {
+      setBusy(false);
+    }
   };
 
   const removeSelected = async () => {

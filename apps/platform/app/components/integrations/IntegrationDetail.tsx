@@ -38,8 +38,12 @@ interface Props {
   onDelete: () => void;
   /** Duplicate this integration into a new "Copy of …" record. */
   onCopy: () => void;
-  /** Rename this integration (its name is effectively its filename). */
-  onRename: (name: string) => void;
+  /**
+   * Rename this integration (its name is effectively its filename). Resolves true
+   * on success and false when rejected (e.g. a duplicate name), so the inline
+   * editor can stay open on conflict rather than silently reverting.
+   */
+  onRename: (name: string) => Promise<boolean>;
 }
 
 /** A labelled section wrapper; the unit future operating data plugs into. */
@@ -83,14 +87,24 @@ export default function IntegrationDetail({
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState(integration.name);
   const cancelRename = useRef(false);
-  const commitRename = () => {
-    setEditingName(false);
+  const nameInput = useRef<HTMLInputElement>(null);
+  const commitRename = async () => {
     if (cancelRename.current) {
       cancelRename.current = false;
+      setEditingName(false);
       return;
     }
     const name = nameDraft.trim();
-    if (name && name !== integration.name) onRename(name);
+    if (!name || name === integration.name) {
+      setEditingName(false);
+      return;
+    }
+    // Keep the editor open until the rename is accepted; a rejected name (e.g. a
+    // duplicate) leaves the field open and re-focused so it can be corrected. The
+    // error itself is surfaced by the parent's inline banner.
+    const ok = await onRename(name);
+    if (ok) setEditingName(false);
+    else nameInput.current?.focus();
   };
   // The integration's version tags, owned here so creating/deleting one in the
   // Versions section immediately updates the Deployments section's change-version
@@ -157,6 +171,7 @@ export default function IntegrationDetail({
       <header className="flex items-center gap-2 px-4 py-3">
         {editingName ? (
           <input
+            ref={nameInput}
             autoFocus
             value={nameDraft}
             disabled={busy}
