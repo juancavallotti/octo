@@ -39,12 +39,22 @@ resource "random_password" "postgres" {
 }
 
 # Auth.js session secret for the editor. Generated here too (state, not Secret
-# Manager); rotating it would log everyone out, so it is kept in state. Only created
-# when SSO is enabled.
+# Manager); rotating it would log everyone out, so it is kept in state. Always
+# created (not gated on SSO): a Cloud Build deploy has no octo.tfvars, so gating on
+# oidc_enabled_eff would let count drop to 0 and destroy the secret — the chart then
+# comes up without AUTH_SECRET and Auth.js throws MissingSecret. Keeping it
+# unconditional pins the value in the shared release state across every deploy; it is
+# only passed to the chart when SSO is enabled (see auth_secret below).
 resource "random_password" "auth_secret" {
-  count   = local.oidc_enabled_eff ? 1 : 0
   length  = 32
   special = false
+}
+
+# The secret used to be count-gated (auth_secret[0]); preserve the existing value on
+# upgrade instead of destroy+recreate (which would log everyone out).
+moved {
+  from = random_password.auth_secret[0]
+  to   = random_password.auth_secret
 }
 
 # KV secret-namespace encryption key: 32 random bytes (AES-256), base64-encoded for
@@ -113,17 +123,22 @@ locals {
   oidc_roles_claim_eff   = local.oidc_provided ? var.oidc_roles_claim : try(local.oidc_stored.roles_claim, "")
 }
 
+# Persisted OIDC config so a Cloud Build deploy (which has no octo.tfvars) can read
+# the creds back. Gated on oidc_enabled_eff — NOT oidc_provided — and written from
+# the effective locals, so a CI apply that resolved these from this very file keeps
+# count=1 and rewrites identical content (idempotent) instead of destroying the seed.
+# It is only removed when SSO is genuinely turned off (oidc_enabled_eff = false).
 resource "google_storage_bucket_object" "oidc" {
-  count  = local.oidc_provided ? 1 : 0
+  count  = local.oidc_enabled_eff ? 1 : 0
   bucket = local.state_bucket
   name   = "release/oidc.json"
   content = jsonencode({
-    enabled       = var.oidc_enabled
-    issuer        = var.oidc_issuer
-    client_id     = var.oidc_client_id
-    client_secret = var.oidc_client_secret
-    write_roles   = var.oidc_write_roles
-    roles_claim   = var.oidc_roles_claim
+    enabled       = local.oidc_enabled_eff
+    issuer        = local.oidc_issuer_eff
+    client_id     = local.oidc_client_id_eff
+    client_secret = local.oidc_client_secret_eff
+    write_roles   = local.oidc_write_roles_eff
+    roles_claim   = local.oidc_roles_claim_eff
   })
 }
 
@@ -153,7 +168,7 @@ module "octo" {
   oidc_issuer        = local.oidc_issuer_eff
   oidc_client_id     = local.oidc_client_id_eff
   oidc_client_secret = local.oidc_client_secret_eff
-  auth_secret        = local.oidc_enabled_eff ? random_password.auth_secret[0].result : ""
+  auth_secret        = local.oidc_enabled_eff ? random_password.auth_secret.result : ""
   oidc_write_roles   = local.oidc_write_roles_eff
   oidc_roles_claim   = local.oidc_roles_claim_eff
 
