@@ -1,0 +1,68 @@
+service:
+  name: raw-content-demo
+
+# Raw-content mode lets a flow produce and serve typed non-JSON payloads. A body
+# opts in by carrying {contentType, rawData}; raw-aware connectors (here the http
+# source) then serve rawData verbatim with its Content-Type instead of JSON. See
+# docs/building-integrations.html#raw-content.
+#
+# Try it:
+#   ./bin/octo --config samples/raw-content-demo
+#   # 1) Serve an HTML page (Content-Type: text/html, not application/json):
+#   curl -i localhost:8080/page/World
+#   # 2) Post a urlencoded form; fromFormData parses it into a JSON body:
+#   curl -s -X POST localhost:8080/submit \
+#     -H 'Content-Type: application/x-www-form-urlencoded' \
+#     -d 'name=Ann&city=Berlin'
+
+env:
+  - name: HTTP_HOST
+    default: 0.0.0.0
+  - name: HTTP_PORT
+    default: "8080"
+
+# The page template renders {{ CEL }} over the message (here vars.name from the
+# path). It is declared here and referenced by its `as` alias.
+resources:
+  templates:
+    - resource: templates/page.tmpl
+      as: page
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      host: ${HTTP_HOST}
+      port: ${HTTP_PORT}
+
+flows:
+  # 1) PRODUCE + SERVE raw content. template-resource renders the page template
+  #    and, with rawBody: true, writes it as a raw-content body. The http source
+  #    serves rawData with the given Content-Type instead of JSON-encoding it.
+  - name: page
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /page/{name}          # {name} -> vars.name
+    process:
+      - type: template-resource
+        settings:
+          id: page
+          rawBody: true
+          contentType: text/html; charset=utf-8
+
+  # 2) SOURCE raw content, then revert it. The source rawBody accepts a non-JSON
+  #    request and stores it as {contentType, rawData}. fromFormData parses that
+  #    raw form string back into a structured body, which is returned as JSON.
+  - name: submit
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /submit
+        rawBody: true               # accept any content type, store as raw
+    process:
+      - type: set-payload
+        settings:
+          value: 'fromFormData(body.rawData)'
