@@ -87,6 +87,32 @@
             expressions see the same <code>body</code>/<code>vars</code>/<code>env</code>/<code>now</code> surface.
             The same rendering is available as the <code>template-resource</code> block.</td>
         </tr>
+        <tr>
+          <td><code>toJson(value)</code></td>
+          <td>string</td>
+          <td>Marshals any value to a compact JSON string — handy for logging a body or
+            producing a raw JSON payload.</td>
+        </tr>
+        <tr>
+          <td><code>fromJson(text)</code></td>
+          <td>any</td>
+          <td>Parses a JSON string into a value (object, list, number, …). The inverse of
+            <code>toJson</code>: e.g. <code>fromJson(body.rawData)</code> reverts a
+            raw JSON body to a normal decoded body.</td>
+        </tr>
+        <tr>
+          <td><code>toFormData(object)</code></td>
+          <td>string</td>
+          <td>Encodes an object as an <code>application/x-www-form-urlencoded</code> string; a
+            list-valued field emits a repeated key. Use it to post or serve a form body.</td>
+        </tr>
+        <tr>
+          <td><code>fromFormData(text)</code></td>
+          <td>any</td>
+          <td>Parses a <code>application/x-www-form-urlencoded</code> string into an object;
+            repeated keys become a list. e.g. <code>fromFormData(body.rawData)</code> turns a
+            raw form POST into a structured body. URL-encoded forms only (not multipart).</td>
+        </tr>
       </tbody>
     </table>
   </div>
@@ -129,6 +155,12 @@ vars["X-Tenant"]</code></pre>
       <div>
         <div class="sample-meta"><p class="run-label">Render a declared template (templateResource)</p></div>
         <pre><code class="language-yaml">templateResource("welcome")</code></pre>
+      </div>
+      <div>
+        <div class="sample-meta"><p class="run-label">Convert between raw and structured (JSON / form)</p></div>
+        <pre><code class="language-yaml">fromJson(body.rawData)          # raw JSON body -&gt; object
+fromFormData(body.rawData)     # raw form POST -&gt; object
+toFormData(body)               # object -&gt; form string</code></pre>
       </div>
       <div>
         <div class="sample-meta"><p class="run-label">Iterate a list (foreach)</p></div>
