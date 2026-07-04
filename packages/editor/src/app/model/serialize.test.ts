@@ -317,6 +317,27 @@ describe("serialize", () => {
     expect(t.process[0].type).toBe("rest");
   });
 
+  it("round-trips ai-agent skills as plain {name, description, resource} data", () => {
+    const doc = emptyDocument();
+    const agent = newBlock("ai-agent");
+    agent.settings.connector = "claude";
+    agent.settings.skills = [
+      { name: "refunds", description: "How to process a refund", resource: "skills/refunds.md" },
+    ];
+    doc.flows[0].process = [agent];
+
+    const block = toConfig(doc).flows![0].process![0];
+    expect(block.skills![0].name).toBe("refunds");
+    expect(block.skills![0].description).toBe("How to process a refund");
+    expect(block.skills![0].resource).toBe("skills/refunds.md");
+
+    const node = fromConfig(toConfig(doc)).flows[0].process[0];
+    expect(node.type).toBe("ai-agent");
+    const skills = node.settings.skills as Array<Record<string, string>>;
+    expect(skills[0].name).toBe("refunds");
+    expect(skills[0].resource).toBe("skills/refunds.md");
+  });
+
   it("serializes a flow-level error path as a bare block list", () => {
     const doc = emptyDocument();
     doc.flows[0].process = [newBlock("log")];

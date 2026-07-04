@@ -34,6 +34,17 @@ export interface RuntimeTool extends RuntimeFlow {
   inputSchema?: string;
 }
 
+/**
+ * One ai-agent skill: a named, described binding to a template resource. Unlike a
+ * tool it holds no sub-flow, so it serializes as plain data (round-tripped via the
+ * block's settings, not a slot).
+ */
+export interface RuntimeSkill {
+  name?: string;
+  description?: string;
+  resource?: string;
+}
+
 export interface RuntimeSource {
   connector?: string;
   type?: string;
@@ -54,6 +65,8 @@ export interface RuntimeBlock {
   // ai-router / ai-agent slots (named, described inline flows).
   routes?: RuntimeRoute[];
   tools?: RuntimeTool[];
+  // ai-agent skills: plain data (name, description, resource ref), not a slot.
+  skills?: RuntimeSkill[];
   // handle-errors / ai-retry slots (bare block chains).
   process?: RuntimeBlock[];
   error?: RuntimeBlock[];

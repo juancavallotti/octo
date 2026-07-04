@@ -23,6 +23,10 @@ export type FieldType =
   // A list of named, described, schema-bearing sub-flows: ai-agent's `tools`. Each
   // entry serializes as {name, description, inputSchema?, ...inline flow}.
   | "tool-list"
+  // A list of named, described skills bound to a template resource: ai-agent's
+  // `skills`. Each entry serializes as {name, description, resource}. Unlike a
+  // tool it holds no sub-flow, so it round-trips as plain data under settings.
+  | "skill-list"
   // A bare block chain (not wrapped in a sub-flow), serialized directly as a
   // list of blocks under its field name — e.g. handle-errors' process/error.
   | "block-list"

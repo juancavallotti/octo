@@ -691,6 +691,13 @@
           "description": "Named, described branches wired to the model as callable functions."
         },
         {
+          "name": "skills",
+          "label": "Skills",
+          "type": "skill-list",
+          "required": false,
+          "description": "Named instruction resources the agent can load on demand. Each skill's name and description are shown to the model up front; it calls the implicit load_skill tool to pull the resource's full content into the conversation."
+        },
+        {
           "name": "default",
           "label": "Default",
           "type": "flow",
