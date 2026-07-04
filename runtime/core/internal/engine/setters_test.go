@@ -52,6 +52,43 @@ func TestSetPayloadReadsEnv(t *testing.T) {
 	}
 }
 
+func TestSetPayloadRawBody(t *testing.T) {
+	proc, err := newSetPayload(
+		types.Settings{"value": `"a=" + vars.a`, "rawBody": true, "contentType": "text/plain"},
+		core.BlockDeps{},
+	)
+	if err != nil {
+		t.Fatalf("newSetPayload: %v", err)
+	}
+
+	msg := mustMessage(t)
+	msg.Variables.Set("a", "1")
+	if _, err := proc.Process(context.Background(), msg); err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+
+	ct, data, ok := msg.RawBody()
+	if !ok {
+		t.Fatal("expected a raw-content body")
+	}
+	if ct != "text/plain" || data != "a=1" {
+		t.Errorf("RawBody = (%q, %q), want (text/plain, a=1)", ct, data)
+	}
+}
+
+func TestSetPayloadRawBodyRejectsNonString(t *testing.T) {
+	proc, err := newSetPayload(
+		types.Settings{"value": `{"k":"v"}`, "rawBody": true, "contentType": "text/plain"},
+		core.BlockDeps{},
+	)
+	if err != nil {
+		t.Fatalf("newSetPayload: %v", err)
+	}
+	if _, err := proc.Process(context.Background(), mustMessage(t)); err == nil {
+		t.Error("expected an error when a rawBody value is not a string")
+	}
+}
+
 func TestSetVariableStoresValue(t *testing.T) {
 	proc, err := newSetVariable(types.Settings{"name": "threshold", "value": "100"}, core.BlockDeps{})
 	if err != nil {
@@ -101,6 +138,7 @@ func TestSetterBuildValidation(t *testing.T) {
 	}{
 		{name: "set-payload without value", factory: newSetPayload, raw: nil},
 		{name: "set-payload bad expr", factory: newSetPayload, raw: types.Settings{"value": "body."}},
+		{name: "set-payload rawBody without contentType", factory: newSetPayload, raw: types.Settings{"value": `"x"`, "rawBody": true}},
 		{name: "set-variable without name", factory: newSetVariable, raw: types.Settings{"value": "1"}},
 		{name: "set-variable without value", factory: newSetVariable, raw: types.Settings{"name": "x"}},
 		{name: "set-variable bad expr", factory: newSetVariable, raw: types.Settings{"name": "x", "value": "body."}},

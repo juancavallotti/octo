@@ -64,6 +64,46 @@ func TestTemplateResourceBlockTargetVariable(t *testing.T) {
 	}
 }
 
+func TestTemplateResourceBlockRawBody(t *testing.T) {
+	deps := core.BlockDeps{Resources: fakeTemplateLoader{"page.tmpl": []byte("<h1>Hi {{ body.name }}</h1>")}}
+	proc, err := newTemplateResource(
+		types.Settings{"id": "page.tmpl", "rawBody": true, "contentType": "text/html"},
+		deps,
+	)
+	if err != nil {
+		t.Fatalf("newTemplateResource: %v", err)
+	}
+	out, err := proc.Process(context.Background(), newTestMessage(t, map[string]any{"name": "Bo"}))
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	ct, data, ok := out.RawBody()
+	if !ok {
+		t.Fatal("expected a raw-content body")
+	}
+	if ct != "text/html" || data != "<h1>Hi Bo</h1>" {
+		t.Errorf("RawBody = (%q, %q), want (text/html, <h1>Hi Bo</h1>)", ct, data)
+	}
+}
+
+func TestTemplateResourceBlockRawBodyValidation(t *testing.T) {
+	deps := core.BlockDeps{Resources: fakeTemplateLoader{"page.tmpl": []byte("x")}}
+	tests := []struct {
+		name string
+		raw  types.Settings
+	}{
+		{name: "rawBody without contentType", raw: types.Settings{"id": "page.tmpl", "rawBody": true}},
+		{name: "rawBody with target", raw: types.Settings{"id": "page.tmpl", "rawBody": true, "contentType": "text/html", "target": "out"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := newTemplateResource(tt.raw, deps); err == nil {
+				t.Errorf("expected an error for %s", tt.name)
+			}
+		})
+	}
+}
+
 func TestTemplateResourceBlockRequiresID(t *testing.T) {
 	_, err := newTemplateResource(types.Settings{}, core.BlockDeps{})
 	if err == nil || !strings.Contains(err.Error(), "id") {

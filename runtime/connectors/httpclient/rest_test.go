@@ -71,6 +71,35 @@ func TestRESTGetFoldsJSONAndSetsStatus(t *testing.T) {
 	}
 }
 
+func TestRESTFoldsNonJSONAsRawContent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = io.WriteString(w, "<h1>hello</h1>")
+	}))
+	defer srv.Close()
+
+	proc, err := newREST(types.Settings{
+		"connector": "api",
+		"method":    "GET",
+		"path":      "/page",
+	}, restDeps(t, srv.URL))
+	if err != nil {
+		t.Fatalf("newREST: %v", err)
+	}
+
+	out, err := proc.Process(context.Background(), restMessage(t, nil))
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	ct, data, ok := out.RawBody()
+	if !ok {
+		t.Fatalf("expected a raw-content body, got %T (%v)", out.Body, out.Body)
+	}
+	if ct != "text/html; charset=utf-8" || data != "<h1>hello</h1>" {
+		t.Errorf("RawBody = (%q, %q), want (text/html; charset=utf-8, <h1>hello</h1>)", ct, data)
+	}
+}
+
 func TestRESTPostSendsBodyAndHeaders(t *testing.T) {
 	var gotBody map[string]any
 	var gotContentType, gotCustom string

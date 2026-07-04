@@ -14,6 +14,21 @@
           "type": "cel",
           "required": true,
           "description": "CEL expression. Sees body, vars, eventID, correlationID."
+        },
+        {
+          "name": "rawBody",
+          "label": "Raw body",
+          "type": "boolean",
+          "required": false,
+          "default": false,
+          "description": "Store the value as a raw-content body {contentType, rawData} instead of decoded JSON, so a connector (e.g. the HTTP source) serves it verbatim. The value expression must then evaluate to a string."
+        },
+        {
+          "name": "contentType",
+          "label": "Content type",
+          "type": "string",
+          "required": false,
+          "description": "MIME type recorded on the raw body, e.g. text/html or application/x-www-form-urlencoded. Required when Raw body is on."
         }
       ]
     },
@@ -97,6 +112,21 @@
           "type": "string",
           "required": false,
           "description": "Variable to store the rendered text in. Leave empty to replace the message body."
+        },
+        {
+          "name": "rawBody",
+          "label": "Raw body",
+          "type": "boolean",
+          "required": false,
+          "default": false,
+          "description": "Write the rendered text as a raw-content body {contentType, rawData} instead of a plain string body, so a connector (e.g. the HTTP source) serves it verbatim. Applies to the body only, so leave Target variable empty."
+        },
+        {
+          "name": "contentType",
+          "label": "Content type",
+          "type": "string",
+          "required": false,
+          "description": "MIME type recorded on the raw body, e.g. text/html. Required when Raw body is on."
         }
       ]
     },
@@ -1363,6 +1393,14 @@
               "type": "string",
               "required": false,
               "description": "Capture the exact request bytes into vars.<name> (e.g. to verify an HMAC signature over the raw body)."
+            },
+            {
+              "name": "rawBody",
+              "label": "Raw body",
+              "type": "boolean",
+              "required": false,
+              "default": false,
+              "description": "Source the request as raw content: skip the JSON check and store the body as {contentType, rawData} (using the request's Content-Type) instead of parsing it. Lets non-JSON payloads (forms, XML, binary text) enter the flow."
             },
             {
               "name": "timeout",

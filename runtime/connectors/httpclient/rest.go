@@ -201,7 +201,7 @@ func (p *processor) Process(ctx context.Context, msg *types.Message) (*types.Mes
 		return nil, fmt.Errorf("rest request to %s returned %d: %s", target, resp.StatusCode, snippet(respBody))
 	}
 
-	if err := foldResponse(msg, respBody); err != nil {
+	if err := foldResponse(msg, respBody, resp.Header.Get("Content-Type")); err != nil {
 		return nil, err
 	}
 	return msg, nil
@@ -260,9 +260,9 @@ func (p *processor) applyHeaders(req *http.Request, activation map[string]any) e
 }
 
 // foldResponse writes the response body into the message: JSON when it parses as
-// such (normalized to decoded-JSON kinds), the raw string otherwise, or null for
-// an empty body.
-func foldResponse(msg *types.Message, body []byte) error {
+// such (normalized to decoded-JSON kinds), a raw-content body carrying the
+// response's Content-Type otherwise, or null for an empty body.
+func foldResponse(msg *types.Message, body []byte, contentType string) error {
 	if len(bytes.TrimSpace(body)) == 0 {
 		msg.Body = nil
 		return nil
@@ -270,7 +270,7 @@ func foldResponse(msg *types.Message, body []byte) error {
 	if json.Valid(body) {
 		return msg.SetBodyJSON(body)
 	}
-	msg.Body = string(body)
+	msg.SetRawBody(contentType, string(body))
 	return nil
 }
 

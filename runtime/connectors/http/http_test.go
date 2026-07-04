@@ -136,6 +136,70 @@ func TestRawBodyVarCaptured(t *testing.T) {
 	}
 }
 
+func TestRawContentResponse(t *testing.T) {
+	c, base := startConnector(t, nil)
+	out := newSource(t, c, map[string]any{"path": "/page"})
+
+	// The flow produces a raw HTML body; the source must serve it verbatim with
+	// the given Content-Type rather than JSON-encoding it.
+	const html = "<h1>hello</h1>"
+	echoWorker(out, func(msg *types.Message) types.FlowEvent {
+		msg.SetRawBody("text/html; charset=utf-8", html)
+		return types.FlowEvent{Kind: types.FlowEventCompleted, Result: msg}
+	})
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, base+"/page", nil)
+	resp := do(t, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", resp.status, resp.body)
+	}
+	if got := string(resp.body); got != html {
+		t.Errorf("body = %q, want %q", got, html)
+	}
+	if ct := resp.header.Get("Content-Type"); ct != "text/html; charset=utf-8" {
+		t.Errorf("Content-Type = %q, want text/html; charset=utf-8", ct)
+	}
+}
+
+func TestRawBodySourced(t *testing.T) {
+	c, base := startConnector(t, nil)
+	out := newSource(t, c, map[string]any{
+		"path":    "/ingest",
+		"rawBody": true,
+	})
+
+	// Echo the raw body back so we can assert it was captured with its content type.
+	echoWorker(out, func(msg *types.Message) types.FlowEvent {
+		ct, data, ok := msg.RawBody()
+		msg.Body = map[string]any{"contentType": ct, "rawData": data, "ok": ok}
+		msg.RawContent = false
+		return types.FlowEvent{Kind: types.FlowEventCompleted, Result: msg}
+	})
+
+	// A non-JSON body that the default (JSON-gated) source would reject with 400.
+	raw := "name=Ann&count=2"
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost,
+		base+"/ingest", bytes.NewReader([]byte(raw)))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp := do(t, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", resp.status, resp.body)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(resp.body, &got); err != nil {
+		t.Fatalf("decode body: %v (%s)", err, resp.body)
+	}
+	if got["ok"] != true {
+		t.Fatalf("RawBody ok = %v, want true", got["ok"])
+	}
+	if got["contentType"] != "application/x-www-form-urlencoded" {
+		t.Errorf("contentType = %v, want application/x-www-form-urlencoded", got["contentType"])
+	}
+	if got["rawData"] != raw {
+		t.Errorf("rawData = %v, want %q", got["rawData"], raw)
+	}
+}
+
 func TestRequestResponseOutcomes(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -237,6 +301,7 @@ func freePort(t *testing.T) int {
 type response struct {
 	status int
 	body   []byte
+	header http.Header
 }
 
 func do(t *testing.T, req *http.Request) response {
@@ -248,5 +313,5 @@ func do(t *testing.T, req *http.Request) response {
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
-	return response{status: resp.StatusCode, body: body}
+	return response{status: resp.StatusCode, body: body, header: resp.Header}
 }

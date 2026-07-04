@@ -111,6 +111,7 @@
             <tr><td><code>headers</code></td><td>List of request headers to capture as <code>vars["X-…"]</code>.</td></tr>
             <tr><td><code>correlationIdHeader</code></td><td>Header to read the message's <code>correlationID</code> from.</td></tr>
             <tr><td><code>rawBodyVar</code></td><td>Capture the exact request bytes into <code>vars.&lt;name&gt;</code> — needed to verify an HMAC signature over the raw body (see <a href="#slack">Slack</a>).</td></tr>
+            <tr><td><code>rawBody</code></td><td>Accept a non-JSON request: skip the JSON check and put the body on the message as a <a href="building-integrations.html#raw-content">raw-content body</a> <code>{contentType, rawData}</code> using the request's <code>Content-Type</code>. Default false.</td></tr>
             <tr><td><code>timeout</code></td><td>Per-route wait; defaults to <code>requestTimeout</code>.</td></tr>
             <tr><td><code>maxBodyBytes</code></td><td>Request body cap. Default 1 MiB.</td></tr>
           </tbody>
@@ -123,7 +124,7 @@
         <h3>What a request puts on the message</h3>
         <table class="eip-table">
           <tbody>
-            <tr><td><code>body</code></td><td>The JSON request body (400 if not valid JSON; empty is allowed).</td></tr>
+            <tr><td><code>body</code></td><td>The JSON request body (400 if not valid JSON; empty is allowed). With <code>rawBody</code>, any content type is accepted as a <a href="building-integrations.html#raw-content">raw-content body</a> instead.</td></tr>
             <tr><td><code>vars.method</code></td><td>"GET", "POST", …</td></tr>
             <tr><td><code>vars.query</code></td><td>Always a map (empty if no query string).</td></tr>
             <tr><td><code>vars.&lt;param&gt;</code></td><td>Each <code>{param}</code> in the path.</td></tr>
@@ -142,6 +143,9 @@
             <tr><td>timed out</td><td>504 Gateway Timeout</td></tr>
           </tbody>
         </table>
+        <p style="font-size:0.9rem">A completed response is JSON (<code>application/json</code>) unless the body is a
+          <a href="building-integrations.html#raw-content">raw-content body</a>, in which case <code>rawData</code> is served
+          verbatim with its <code>contentType</code> — e.g. a <code>template-resource</code> rendering HTML.</p>
         <p style="font-size:0.9rem">See <a href="error-handling.html">Error handling</a> for setting <code>vars.httpStatus</code> and recovering from failures.</p>
       </div>
     </div>

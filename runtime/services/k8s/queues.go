@@ -21,6 +21,7 @@ const (
 	headerVarPrefix     = "Octo-Var-"
 	headerEventID       = "Octo-Event-Id"
 	headerCorrelationID = "Octo-Correlation-Id"
+	headerRawContent    = "Octo-Raw-Content"
 )
 
 // natsQueues is the NATS-backed Queues implementation for the k8s module. Subjects
@@ -215,6 +216,9 @@ func encodeMsg(subject string, msg types.Message) (*nats.Msg, error) {
 	if msg.CorrelationID != "" {
 		header.Set(headerCorrelationID, msg.CorrelationID)
 	}
+	if msg.RawContent {
+		header.Set(headerRawContent, "true")
+	}
 	for name, value := range msg.Variables {
 		encoded, err := json.Marshal(value)
 		if err != nil {
@@ -232,6 +236,7 @@ func decodeMsg(m *nats.Msg) (types.Message, error) {
 	out := types.Message{
 		EventID:       m.Header.Get(headerEventID),
 		CorrelationID: m.Header.Get(headerCorrelationID),
+		RawContent:    m.Header.Get(headerRawContent) == "true",
 	}
 	if len(m.Data) > 0 {
 		var body any

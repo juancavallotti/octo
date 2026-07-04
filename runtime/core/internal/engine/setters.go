@@ -25,13 +25,22 @@ func init() {
 type setPayloadSettings struct {
 	// Value is a CEL expression whose result replaces the message body.
 	Value string `json:"value"`
+	// RawBody, when true, stores the value as a raw-content body
+	// {contentType, rawData} rather than as decoded JSON. The value expression
+	// must then evaluate to a string. Defaults to false.
+	RawBody bool `json:"rawBody"`
+	// ContentType is the MIME type recorded on the raw body; required when
+	// RawBody is true.
+	ContentType string `json:"contentType"`
 }
 
 // setPayload replaces the message body with the result of evaluating its value
 // expression against the message.
 type setPayload struct {
-	value *expr.Program
-	env   map[string]any
+	value       *expr.Program
+	rawBody     bool
+	contentType string
+	env         map[string]any
 }
 
 //nolint:ireturn // a BlockFactory returns the MessageProcessor interface
@@ -43,11 +52,19 @@ func newSetPayload(raw types.Settings, deps core.BlockDeps) (core.MessageProcess
 	if cfg.Value == "" {
 		return nil, errors.New("set-payload requires a value expression")
 	}
+	if cfg.RawBody && cfg.ContentType == "" {
+		return nil, errors.New("set-payload requires a contentType when rawBody is set")
+	}
 	program, err := expr.CompileMessage(deps.Resources, cfg.Value)
 	if err != nil {
 		return nil, err
 	}
-	return &setPayload{value: program, env: expr.EnvActivation(deps.Env)}, nil
+	return &setPayload{
+		value:       program,
+		rawBody:     cfg.RawBody,
+		contentType: cfg.ContentType,
+		env:         expr.EnvActivation(deps.Env),
+	}, nil
 }
 
 // Process sets the message body to the evaluated value and forwards the message.
@@ -55,6 +72,14 @@ func (p *setPayload) Process(_ context.Context, msg *types.Message) (*types.Mess
 	value, err := p.value.Eval(expr.MessageActivation(msg, p.env))
 	if err != nil {
 		return nil, fmt.Errorf("set-payload value: %w", err)
+	}
+	if p.rawBody {
+		data, ok := value.(string)
+		if !ok {
+			return nil, fmt.Errorf("set-payload value must be a string when rawBody is set, got %T", value)
+		}
+		msg.SetRawBody(p.contentType, data)
+		return msg, nil
 	}
 	msg.Body = value
 	return msg, nil

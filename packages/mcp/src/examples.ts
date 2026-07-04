@@ -780,6 +780,64 @@ flows:
 `,
 };
 
+/** Produce and serve non-JSON payloads with raw-content mode + form conversion. */
+const RAW_CONTENT: Example = {
+  slug: "raw-content",
+  title: "raw-content — serve HTML + parse a form (raw-content mode)",
+  summary:
+    "Produces a typed non-JSON body. set-payload with rawBody+contentType writes {contentType, rawData}, which the http source serves verbatim (text/html, not JSON). A second flow accepts a non-JSON request via the source rawBody setting and reverts it with fromFormData(body.rawData). Declares HTTP_PORT, so run_integration returns a test URL: GET <testUrl>page/World, POST <testUrl>submit.",
+  blocks: ["http (source)", "set-payload"],
+  definition: `service:
+  name: raw-content
+
+# Declare env before referencing it as \${NAME}. HTTP_PORT makes the run networked.
+env:
+  - name: HTTP_HOST
+    default: 0.0.0.0
+  - name: HTTP_PORT
+    default: "8080"
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      host: \${HTTP_HOST}
+      port: \${HTTP_PORT}
+
+flows:
+  # PRODUCE + SERVE raw content. rawBody: true stores the value (which must be a
+  # string) as {contentType, rawData}; the http source serves rawData verbatim
+  # with that Content-Type instead of JSON-encoding the body.
+  - name: page
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /page/{name}            # {name} -> vars.name
+    process:
+      - type: set-payload
+        settings:
+          rawBody: true
+          contentType: text/html; charset=utf-8
+          value: '"<h1>Hello, " + vars.name + "!</h1>"'
+
+  # SOURCE raw content, then revert it. The source rawBody accepts any content
+  # type and stores it as {contentType, rawData}; fromFormData parses the raw
+  # urlencoded form back into a structured body, returned as JSON.
+  - name: submit
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /submit
+        rawBody: true
+    process:
+      - type: set-payload
+        settings:
+          value: 'fromFormData(body.rawData)'
+`,
+};
+
 export const EXAMPLES: Example[] = [
   HELLO_WORLD,
   BUILTINS,
@@ -793,6 +851,7 @@ export const EXAMPLES: Example[] = [
   MULTI_TRANSFORM,
   EVENTS,
   AI_AGENT_MEMORY,
+  RAW_CONTENT,
 ];
 
 /** The example whose slug matches, or undefined. */

@@ -101,10 +101,10 @@ flows:                        # one or more root flows
       <table class="eip-table">
         <thead><tr><th>Block</th><th>Group</th><th>What it does</th></tr></thead>
         <tbody>
-          <tr><td><code>set-payload</code></td><td>Transform</td><td>Replace the message body from a CEL expression.</td></tr>
+          <tr><td><code>set-payload</code></td><td>Transform</td><td>Replace the message body from a CEL expression. With <code>rawBody: true</code> (and a <code>contentType</code>) it writes a <a href="#raw-content">raw-content body</a> instead of JSON.</td></tr>
           <tr><td><code>set-variable</code></td><td>Transform</td><td>Set or update a message variable from CEL.</td></tr>
           <tr><td><code>delete-variable</code></td><td>Transform</td><td>Remove a message variable.</td></tr>
-          <tr><td><code>template-resource</code></td><td>Transform</td><td>Render a declared template resource (<code>{{ CEL }}</code> over the message) into the body or a variable.</td></tr>
+          <tr><td><code>template-resource</code></td><td>Transform</td><td>Render a declared template resource (<code>{{ CEL }}</code> over the message) into the body or a variable. With <code>rawBody: true</code> (and a <code>contentType</code>) the rendered text becomes a <a href="#raw-content">raw-content body</a>.</td></tr>
           <tr><td><code>ai-mapping</code></td><td>Transform</td><td>Reshape the body with an LLM, with optional JSON-schema validation.</td></tr>
           <tr><td><code>rest</code></td><td>I/O</td><td>Outbound HTTP request via the <a href="connectors.html#http-client">http-client</a> connector.</td></tr>
           <tr><td><code>sql</code></td><td>I/O</td><td>Run a query via the <a href="connectors.html#database">database</a> connector.</td></tr>
@@ -117,6 +117,23 @@ flows:                        # one or more root flows
           <tr><td><code>flow-ref</code></td><td>Flow control</td><td>Call another flow — synchronously (result folds back) or one-way.</td></tr>
         </tbody>
       </table>
+
+      <h3 id="raw-content" style="margin-top:36px">Raw-content bodies</h3>
+      <p>The pipeline is JSON-first: a message body is normally decoded JSON. A body may instead
+        opt into <em>raw-content</em> mode to carry a typed non-JSON payload — rendered HTML, XML,
+        CSV, a form string. In raw mode the body holds two fields, and the message is flagged so
+        raw-aware connectors treat it specially:</p>
+      <pre><code class="language-yaml">{ contentType: "text/html", rawData: "&lt;h1&gt;hello&lt;/h1&gt;" }</code></pre>
+      <p>Producers set it with <code>rawBody: true</code> and a <code>contentType</code>:
+        <code>set-payload</code> (its value must be a string) and <code>template-resource</code>
+        (the rendered text). The <a href="connectors.html#http">http source</a> then serves
+        <code>rawData</code> verbatim with that <code>Content-Type</code> instead of JSON, and its
+        <code>rawBody</code> source setting accepts a non-JSON <em>request</em> the same way.
+        <code>rawData</code> is a UTF-8 string (v1 is text, not binary).</p>
+      <p>To go back the other way, the <a href="cel.html#functions"><code>fromJson</code> /
+        <code>fromFormData</code></a> CEL functions parse <code>body.rawData</code> into a structured
+        body (e.g. <code>set-payload</code> with <code>fromFormData(body.rawData)</code>), and
+        <code>toJson</code> / <code>toFormData</code> build a raw string to emit.</p>
 
       <h3 style="margin-top:36px">Composite blocks</h3>
       <p>Composites embed sub-flows through typed slots; that's how you get branching, loops, parallelism, and
