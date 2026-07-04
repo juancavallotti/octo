@@ -1,0 +1,79 @@
+service:
+  name: mcp-router
+
+# Demonstrates the mcp-router block: it sits behind an HTTP source and turns this
+# flow into a stateless Model Context Protocol server. Each POST to /mcp is one
+# MCP JSON-RPC request; the flow's output body is the JSON-RPC response. The
+# router advertises its tool flows as MCP tools, its template resources as MCP
+# resources, and its template resources as MCP prompts, and routes tools/call to
+# the matching flow. It calls no LLM — it is a protocol adapter.
+#
+#   go run ./cli run -config ../samples/mcp-router
+#   PORT=8080
+#   curl -s localhost:$PORT/mcp -d '{"jsonrpc":"2.0","id":1,"method":"initialize"}'
+#   curl -s localhost:$PORT/mcp -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+#   curl -s localhost:$PORT/mcp -d '{"jsonrpc":"2.0","id":3,"method":"tools/call",
+#     "params":{"name":"forecast","arguments":{"city":"Paris"}}}'
+#   curl -s localhost:$PORT/mcp -d '{"jsonrpc":"2.0","id":4,"method":"resources/read",
+#     "params":{"uri":"octo://guide"}}'
+#   curl -s localhost:$PORT/mcp -d '{"jsonrpc":"2.0","id":5,"method":"prompts/get",
+#     "params":{"name":"assist","arguments":{"city":"Paris"}}}'
+
+env:
+  - name: HTTP_PORT
+    default: "8080"
+
+# Template resources advertised as MCP resources and prompts, referenced by alias.
+resources:
+  templates:
+    - resource: guide.md
+      as: guide
+    - resource: greet.md
+      as: greet
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      port: ${HTTP_PORT}
+
+flows:
+  - name: mcp
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /mcp
+    process:
+      - type: mcp-router
+        name: weather-mcp
+        serverName: weather-tools
+        tools:
+          - name: forecast
+            description: Return a short weather forecast for a city.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["city"],
+                "properties": { "city": { "type": "string" } }
+              }
+            process:
+              # A real tool would call a weather API; here we echo a fixed
+              # forecast so the server runs without external dependencies.
+              - type: set-payload
+                settings:
+                  value: '{"city": body.city, "summary": "Sunny, 24C"}'
+        resources:
+          - uri: octo://guide
+            name: guide
+            description: Operator guide for the weather tools.
+            mimeType: text/markdown
+            resource: guide
+        prompts:
+          - name: assist
+            description: Prime an assistant to help a user in a given city.
+            arguments:
+              - name: city
+                description: The user's city.
+                required: true
+            resource: greet

@@ -148,6 +148,7 @@ flows:                        # one or more root flows
           <tr><td><code>handle-errors</code></td><td><code>process</code> / <code>error</code></td><td>An error boundary with an inline recovery chain.</td></tr>
           <tr><td><code>cache-scope</code></td><td><code>process</code></td><td>Memoize a sub-flow's result with a TTL.</td></tr>
           <tr><td><code>ai-router</code> · <code>ai-agent</code> · <code>ai-retry</code></td><td>routes / tools · skills / flow</td><td>LLM-driven routing, tool-calling agents (with on-demand <code>skills</code> loaded from resources), and self-healing retry.</td></tr>
+          <tr><td><code>mcp-router</code></td><td>tools / resources / prompts</td><td>Serve a flow as a stateless MCP server behind an HTTP source (no LLM). <a href="mcp.html#mcp-router">Details →</a></td></tr>
         </tbody>
       </table>
     </section>

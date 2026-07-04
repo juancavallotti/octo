@@ -150,6 +150,46 @@ Authorization: Bearer octo_xxxxxxxx…</code></pre>
   </div>
 </section>
 
+<!-- mcp-router block: the inverse -->
+<section id="mcp-router" class="alt">
+  <div class="wrap">
+    <div class="section-head"><span class="eyebrow">The other direction</span><h2>Serve a flow as an MCP server.</h2>
+      <p>Everything above is Octo's MCP server for <em>authoring</em> integrations. The <code>mcp-router</code> block is the inverse: put it behind an HTTP source and a deployed flow <strong>becomes</strong> an MCP server other assistants connect to. It speaks MCP JSON-RPC statelessly — one request per POST, the response is the flow's output — and calls no LLM.</p>
+    </div>
+    <div class="grid cols-2">
+      <div>
+        <h3>What it exposes</h3>
+        <table class="eip-table">
+          <thead><tr><th>MCP</th><th>From</th></tr></thead>
+          <tbody>
+            <tr><td>Tools (<code>tools/call</code>)</td><td>Its tool flows — the call arguments become the flow's body, the flow's output body is the result.</td></tr>
+            <tr><td>Resources (<code>resources/read</code>)</td><td>Declared template resources, rendered on read.</td></tr>
+            <tr><td>Prompts (<code>prompts/get</code>)</td><td>Declared template resources; the client's arguments render into the template as the body.</td></tr>
+          </tbody>
+        </table>
+        <p style="font-size:0.95rem">It also answers <code>initialize</code>, <code>ping</code>, and the <code>*/list</code> methods; notifications are acknowledged <code>202</code>; unknown methods return <code>-32601</code>.</p>
+      </div>
+      <div>
+        <h3>Wire it up</h3>
+<pre><code class="language-yaml">flows:
+  - name: mcp
+    source: { connector: api, type: http, settings: { path: /mcp } }
+    process:
+      - type: mcp-router
+        serverName: my-tools
+        tools:
+          - name: add
+            description: Add two numbers.
+            inputSchema: '{"type":"object","properties":{"a":{"type":"number"},"b":{"type":"number"}}}'
+            process:
+              - type: set-payload
+                settings: { value: '{"sum": body.a + body.b}' }</code></pre>
+        <p style="font-size:0.95rem">Point any MCP client at the route (<code>POST /mcp</code>). See <code>samples/mcp-router</code> for a runnable server with a tool, a resource, and a prompt.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
 <footer>
   <div class="wrap foot-inner">
     <div>
