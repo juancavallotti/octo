@@ -426,7 +426,7 @@ func evalCommand(args []string) error {
 
 	out, err := json.Marshal(evalExpression(*expression, msg, env))
 	if err != nil {
-		return err
+		return fmt.Errorf("marshal eval outcome: %w", err)
 	}
 	fmt.Println(string(out))
 	return nil
