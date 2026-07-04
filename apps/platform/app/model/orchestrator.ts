@@ -20,6 +20,17 @@ export interface Integration {
   definition: string;
   /** RFC3339 timestamp of the last update. */
   lastUpdated: string;
+  /**
+   * Attribution: the ids of the creating and last-editing users, with those
+   * users resolved to email/name for display. All optional — a row may have no
+   * known actor (local no-SSO, MCP writes) or the user may since be gone.
+   */
+  createdBy?: string;
+  updatedBy?: string;
+  createdByEmail?: string;
+  createdByName?: string;
+  updatedByEmail?: string;
+  updatedByName?: string;
 }
 
 /** A version tag: a frozen snapshot of an integration's definition. */

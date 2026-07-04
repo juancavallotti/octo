@@ -166,6 +166,14 @@ export default function IntegrationDetail({
     ? integration.lastUpdated
     : updated.toLocaleString();
 
+  // Prefer the actor's email, fall back to their name, then to an em dash when the
+  // integration has no known creator/editor (local no-SSO, MCP writes, or a
+  // since-removed user).
+  const createdByLabel =
+    integration.createdByEmail ?? integration.createdByName ?? "—";
+  const updatedByLabel =
+    integration.updatedByEmail ?? integration.updatedByName ?? "—";
+
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center gap-2 px-4 py-3">
@@ -242,7 +250,9 @@ export default function IntegrationDetail({
       <div className="min-h-0 flex-1 overflow-y-auto">
         <Section title="Details">
           <Row label="Folder" value={folderPath} />
+          <Row label="Created by" value={createdByLabel} />
           <Row label="Last updated" value={updatedLabel} />
+          <Row label="Updated by" value={updatedByLabel} />
           <Row
             label="ID"
             value={<span className="font-mono text-xs">{integration.id}</span>}

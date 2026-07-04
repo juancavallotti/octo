@@ -51,7 +51,7 @@ func createFolder(t *testing.T, r *Repo, name string, parentID *string) Folder {
 func createIntegration(t *testing.T, pool *pgxpool.Pool, name string) integration.Integration {
 	t.Helper()
 	ir := integration.NewRepo(pool)
-	it, err := ir.Create(context.Background(), name, "body")
+	it, err := ir.Create(context.Background(), name, "body", "")
 	if err != nil {
 		t.Fatalf("create integration: %v", err)
 	}

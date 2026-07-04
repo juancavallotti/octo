@@ -18,6 +18,7 @@ type fakeRepo struct {
 	nameTaken  bool
 	nameErr    error
 	gotExclude string
+	gotActor   string
 }
 
 func (f *fakeRepo) NameExists(_ context.Context, name, excludeID string) (bool, error) {
@@ -26,15 +27,17 @@ func (f *fakeRepo) NameExists(_ context.Context, name, excludeID string) (bool, 
 	return f.nameTaken, f.nameErr
 }
 
-func (f *fakeRepo) Create(_ context.Context, name, _ string) (Integration, error) {
+func (f *fakeRepo) Create(_ context.Context, name, _, actorID string) (Integration, error) {
 	f.called = true
 	f.gotName = name
+	f.gotActor = actorID
 	return f.ret, f.retErr
 }
 
-func (f *fakeRepo) Update(_ context.Context, _, name, _ string) (Integration, error) {
+func (f *fakeRepo) Update(_ context.Context, _, name, _, actorID string) (Integration, error) {
 	f.called = true
 	f.gotName = name
+	f.gotActor = actorID
 	return f.ret, f.retErr
 }
 
@@ -72,7 +75,7 @@ func TestServiceCreateValidation(t *testing.T) {
 			repo := &fakeRepo{ret: Integration{ID: "id-1"}}
 			svc := NewService(repo)
 
-			_, err := svc.Create(context.Background(), tt.input, "body")
+			_, err := svc.Create(context.Background(), tt.input, "body", "")
 
 			if tt.wantInvalid && !errors.Is(err, ErrInvalid) {
 				t.Errorf("got err %v, want ErrInvalid", err)
@@ -91,11 +94,14 @@ func TestServiceCreateTrimsName(t *testing.T) {
 	repo := &fakeRepo{ret: Integration{ID: "id-1"}}
 	svc := NewService(repo)
 
-	if _, err := svc.Create(context.Background(), "  spaced  ", "body"); err != nil {
+	if _, err := svc.Create(context.Background(), "  spaced  ", "body", "user-9"); err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
 	if repo.gotName != "spaced" {
 		t.Errorf("repo received name %q, want trimmed %q", repo.gotName, "spaced")
+	}
+	if repo.gotActor != "user-9" {
+		t.Errorf("repo received actor %q, want %q", repo.gotActor, "user-9")
 	}
 }
 
@@ -103,18 +109,21 @@ func TestServiceUpdateValidationAndTrim(t *testing.T) {
 	repo := &fakeRepo{ret: Integration{ID: "id-1"}}
 	svc := NewService(repo)
 
-	if _, err := svc.Update(context.Background(), "id-1", "  ", "body"); !errors.Is(err, ErrInvalid) {
+	if _, err := svc.Update(context.Background(), "id-1", "  ", "body", ""); !errors.Is(err, ErrInvalid) {
 		t.Errorf("empty name: got %v, want ErrInvalid", err)
 	}
 	if repo.called {
 		t.Error("repo should not be called on invalid update")
 	}
 
-	if _, err := svc.Update(context.Background(), "id-1", "  renamed  ", "body"); err != nil {
+	if _, err := svc.Update(context.Background(), "id-1", "  renamed  ", "body", "user-3"); err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
 	if repo.gotName != "renamed" {
 		t.Errorf("repo received name %q, want trimmed %q", repo.gotName, "renamed")
+	}
+	if repo.gotActor != "user-3" {
+		t.Errorf("repo received actor %q, want %q", repo.gotActor, "user-3")
 	}
 }
 
@@ -124,7 +133,7 @@ func TestServiceRejectsDuplicateName(t *testing.T) {
 	// Create: a taken name is rejected before the row is written.
 	repo := &fakeRepo{nameTaken: true}
 	svc := NewService(repo)
-	if _, err := svc.Create(ctx, "  Payments  ", "body"); !errors.Is(err, ErrNameTaken) {
+	if _, err := svc.Create(ctx, "  Payments  ", "body", ""); !errors.Is(err, ErrNameTaken) {
 		t.Errorf("create duplicate: got %v, want ErrNameTaken", err)
 	}
 	if repo.called {
@@ -140,7 +149,7 @@ func TestServiceRejectsDuplicateName(t *testing.T) {
 	// Update: the check excludes the row being renamed.
 	repo = &fakeRepo{nameTaken: true}
 	svc = NewService(repo)
-	if _, err := svc.Update(ctx, "id-1", "Payments", "body"); !errors.Is(err, ErrNameTaken) {
+	if _, err := svc.Update(ctx, "id-1", "Payments", "body", ""); !errors.Is(err, ErrNameTaken) {
 		t.Errorf("update duplicate: got %v, want ErrNameTaken", err)
 	}
 	if repo.gotExclude != "id-1" {

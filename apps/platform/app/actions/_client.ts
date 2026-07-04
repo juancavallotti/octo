@@ -145,15 +145,20 @@ export function getIntegration(
 
 export function createIntegration(
   input: IntegrationInput,
+  actorId?: string,
 ): Promise<ActionResult<Integration>> {
-  return call<Integration>("POST", "/integrations", input);
+  return call<Integration>("POST", "/integrations", { ...input, actorId });
 }
 
 export function updateIntegration(
   id: string,
   input: IntegrationInput,
+  actorId?: string,
 ): Promise<ActionResult<Integration>> {
-  return call<Integration>("PUT", `/integrations/${enc(id)}`, input);
+  return call<Integration>("PUT", `/integrations/${enc(id)}`, {
+    ...input,
+    actorId,
+  });
 }
 
 export function deleteIntegration(id: string): Promise<ActionResult<void>> {

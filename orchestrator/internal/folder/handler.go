@@ -159,9 +159,17 @@ func (h *Handler) listIntegrations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A folder's membership listing is deliberately thin — it drives the list's
+	// folder assignment, not the detail view — so it omits the creator/editor
+	// attribution the integration reads carry.
 	out := make([]integrationResponse, 0, len(items))
 	for _, it := range items {
-		out = append(out, integrationResponse(it))
+		out = append(out, integrationResponse{
+			ID:          it.ID,
+			Name:        it.Name,
+			Definition:  it.Definition,
+			LastUpdated: it.LastUpdated,
+		})
 	}
 	httpx.WriteJSON(w, http.StatusOK, out)
 }

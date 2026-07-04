@@ -22,9 +22,13 @@ func newMemRepo() *memRepo {
 	return &memRepo{items: make(map[string]Integration)}
 }
 
-func (m *memRepo) Create(_ context.Context, name, definition string) (Integration, error) {
+func (m *memRepo) Create(_ context.Context, name, definition, actorID string) (Integration, error) {
 	m.seq++
 	it := Integration{ID: fmt.Sprintf("id-%d", m.seq), Name: name, Definition: definition}
+	if actorID != "" {
+		it.CreatedBy = &actorID
+		it.UpdatedBy = &actorID
+	}
 	m.items[it.ID] = it
 	return it, nil
 }
@@ -45,11 +49,15 @@ func (m *memRepo) List(_ context.Context) ([]Integration, error) {
 	return out, nil
 }
 
-func (m *memRepo) Update(_ context.Context, id, name, definition string) (Integration, error) {
-	if _, ok := m.items[id]; !ok {
+func (m *memRepo) Update(_ context.Context, id, name, definition, actorID string) (Integration, error) {
+	prev, ok := m.items[id]
+	if !ok {
 		return Integration{}, ErrNotFound
 	}
-	it := Integration{ID: id, Name: name, Definition: definition}
+	it := Integration{ID: id, Name: name, Definition: definition, CreatedBy: prev.CreatedBy}
+	if actorID != "" {
+		it.UpdatedBy = &actorID
+	}
 	m.items[id] = it
 	return it, nil
 }
@@ -153,7 +161,7 @@ func TestHandlerCreateBadRequests(t *testing.T) {
 
 func TestHandlerGet(t *testing.T) {
 	mux, repo := newTestHandler(t)
-	seeded, _ := repo.Create(context.Background(), "seeded", "body")
+	seeded, _ := repo.Create(context.Background(), "seeded", "body", "")
 
 	rec := do(t, mux, http.MethodGet, "/integrations/"+seeded.ID, "")
 	if rec.Code != http.StatusOK {
@@ -168,8 +176,8 @@ func TestHandlerGet(t *testing.T) {
 
 func TestHandlerList(t *testing.T) {
 	mux, repo := newTestHandler(t)
-	_, _ = repo.Create(context.Background(), "a", "b")
-	_, _ = repo.Create(context.Background(), "c", "d")
+	_, _ = repo.Create(context.Background(), "a", "b", "")
+	_, _ = repo.Create(context.Background(), "c", "d", "")
 
 	rec := do(t, mux, http.MethodGet, "/integrations", "")
 	if rec.Code != http.StatusOK {
@@ -186,7 +194,7 @@ func TestHandlerList(t *testing.T) {
 
 func TestHandlerUpdate(t *testing.T) {
 	mux, repo := newTestHandler(t)
-	seeded, _ := repo.Create(context.Background(), "before", "body")
+	seeded, _ := repo.Create(context.Background(), "before", "body", "")
 
 	rec := do(t, mux, http.MethodPut, "/integrations/"+seeded.ID, `{"name":"after","definition":"body2"}`)
 	if rec.Code != http.StatusOK {
@@ -206,7 +214,7 @@ func TestHandlerUpdate(t *testing.T) {
 
 func TestHandlerDelete(t *testing.T) {
 	mux, repo := newTestHandler(t)
-	seeded, _ := repo.Create(context.Background(), "del", "body")
+	seeded, _ := repo.Create(context.Background(), "del", "body", "")
 
 	rec := do(t, mux, http.MethodDelete, "/integrations/"+seeded.ID, "")
 	if rec.Code != http.StatusNoContent {
