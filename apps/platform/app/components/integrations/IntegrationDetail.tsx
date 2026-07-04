@@ -12,6 +12,7 @@ import {
   type Snapshot,
 } from "@/app/model/orchestrator";
 import DeploymentsSection from "./DeploymentsSection";
+import EnvSection from "./EnvSection";
 import ResourcesSection from "./ResourcesSection";
 import SnapshotsSection from "./SnapshotsSection";
 
@@ -315,7 +316,7 @@ export default function IntegrationDetail({
             )}
           </Section>
 
-          <Section title="Resources" className="lg:col-span-2">
+          <Section title="Resources">
             {/* Scoped to the active version: the live working copy, or a tag's
                 frozen (read-only) set. Keyed by integration id so it resets on
                 selection; it reacts to version changes via props. */}
@@ -324,6 +325,16 @@ export default function IntegrationDetail({
               integrationId={integration.id}
               snapshotId={selectedSnapshot?.id}
               versionLabel={effectiveTag ?? undefined}
+            />
+          </Section>
+
+          <Section title="Env">
+            {/* Read-only declared env for the active version (values are set in
+                the Deploy modal). Scoped to the same version as Resources. */}
+            <EnvSection
+              key={integration.id}
+              integrationId={integration.id}
+              snapshotId={selectedSnapshot?.id}
             />
           </Section>
         </div>

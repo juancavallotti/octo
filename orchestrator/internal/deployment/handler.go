@@ -272,6 +272,10 @@ func (h *Handler) writeError(w http.ResponseWriter, err error) {
 		httpx.WriteError(w, http.StatusBadRequest, "a referenced secret does not exist")
 	case errors.Is(err, ErrReservedEnvVar):
 		httpx.WriteError(w, http.StatusBadRequest, "HTTP_PORT and HTTP_HOST are managed by the orchestrator")
+	case errors.Is(err, ErrMissingRequiredEnv):
+		// Surface the full message (it names the missing variables) so the deploy
+		// UI can list exactly which keys must be provided.
+		httpx.WriteError(w, http.StatusUnprocessableEntity, err.Error())
 	case errors.Is(err, ErrSnapshotRequired):
 		httpx.WriteError(w, http.StatusBadRequest, "a version tag is required to deploy")
 	case errors.Is(err, ErrSnapshotNotFound):

@@ -53,8 +53,15 @@ export default function DeployModal({
   const [snapshots, setSnapshots] = useState<Snapshot[] | null>(null);
   const [snapshotId, setSnapshotId] = useState("");
   // Environment-variable bindings (and the secret picker) live in a dedicated hook.
-  const { envVars, bindings, secretNames, setBinding, complete: envComplete, build: buildEnv } =
-    useDeployEnv(opts);
+  const {
+    envVars,
+    bindings,
+    secretNames,
+    setBinding,
+    complete: envComplete,
+    missingRequired,
+    build: buildEnv,
+  } = useDeployEnv(opts);
 
   // Load the integration's tags once; default to the newest so a deploy is one
   // click when tags exist.
@@ -241,6 +248,12 @@ export default function DeployModal({
                 busy={busy}
                 onChange={setBinding}
               />
+              {missingRequired.length > 0 && (
+                <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+                  Provide a value or secret for:{" "}
+                  <span className="font-mono">{missingRequired.join(", ")}</span>
+                </p>
+              )}
             </Field>
           )}
 

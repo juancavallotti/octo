@@ -35,11 +35,14 @@ type integrationStore interface {
 	Get(ctx context.Context, id string) (integration.Integration, error)
 }
 
-// snapshotStore reads a version tag's frozen definition. *snapshot.Service
-// satisfies it. When wired (WithSnapshots), deploys must reference a snapshot and
-// ship its frozen definition instead of the live one.
+// snapshotStore reads a version tag's frozen definition and the resources frozen
+// alongside it. *snapshot.Service satisfies it. When wired (WithSnapshots),
+// deploys must reference a snapshot and ship its frozen definition instead of the
+// live one. ListResources lets the deploy check required env vars against the
+// tag's frozen .env resources (not just the deploy-time bindings).
 type snapshotStore interface {
 	Get(ctx context.Context, id string) (snapshot.Snapshot, error)
+	ListResources(ctx context.Context, snapshotID string) ([]snapshot.Resource, error)
 }
 
 // kubeClient is the Kubernetes surface the service drives. *kube.Client
@@ -150,6 +153,29 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 	literalEnv, secretEnv, err := s.resolveEnvBindings(ctx, runtimeEnv, settings.Env)
 	if err != nil {
 		return Deployment{}, err
+	}
+
+	// Reject a deploy whose definition declares a required env var that nothing
+	// provides — neither a deploy-time binding nor a frozen .env resource. A
+	// declared default does not satisfy a required var (matching the runtime), so
+	// this catches the "new version needs a new required var" gap up front, with a
+	// clear message, instead of leaving the pod to crash-loop on load.
+	provided := providedEnvKeys(settings.Env)
+	if s.snapshots != nil && snapID != "" {
+		resources, rerr := s.snapshots.ListResources(ctx, snapID)
+		if rerr != nil {
+			return Deployment{}, rerr
+		}
+		for _, res := range resources {
+			if res.Kind == "env" {
+				for k := range parseDotEnvKeys(res.Content) {
+					provided[k] = struct{}{}
+				}
+			}
+		}
+	}
+	if missing := missingRequiredEnv(definition, provided); len(missing) > 0 {
+		return Deployment{}, fmt.Errorf("%w: %s", ErrMissingRequiredEnv, strings.Join(missing, ", "))
 	}
 
 	// A networked deployment gets a slug unique across all deployments, so its

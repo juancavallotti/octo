@@ -54,13 +54,15 @@ describe("DeployModal environment section", () => {
 
   it("renders a row per declared env var", async () => {
     renderModal();
-    expect(await screen.findByText("API_KEY")).toBeInTheDocument();
+    // API_KEY also appears in the missing-required hint, so it matches more than
+    // once; LOG_LEVEL (optional) appears only as its field label.
+    expect((await screen.findAllByText("API_KEY")).length).toBeGreaterThan(0);
     expect(screen.getByText("LOG_LEVEL")).toBeInTheDocument();
   });
 
   it("blocks deploy until a required var is filled, then submits a secret binding", async () => {
     const onSubmit = renderModal();
-    await screen.findByText("API_KEY");
+    await screen.findAllByText("API_KEY");
 
     const deploy = screen.getByRole("button", { name: "Deploy" });
     expect(deploy).toBeDisabled(); // API_KEY is required and unset

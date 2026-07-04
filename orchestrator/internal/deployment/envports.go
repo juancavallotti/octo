@@ -63,6 +63,60 @@ func declaredEnvVars(definition string) []EnvVarDecl {
 	return out
 }
 
+// providedEnvKeys is the set of env var names a deploy's bindings supply — those
+// carrying a literal value or a secret reference. An empty binding provides
+// nothing.
+func providedEnvKeys(bindings map[string]EnvBinding) map[string]struct{} {
+	keys := make(map[string]struct{}, len(bindings))
+	for name, b := range bindings {
+		if b.Value != "" || b.Secret != "" {
+			keys[name] = struct{}{}
+		}
+	}
+	return keys
+}
+
+// parseDotEnvKeys extracts the variable names from .env-style content; values are
+// ignored, since only presence matters for the required-var check. It mirrors the
+// runtime's dotenv reader loosely — `KEY=VALUE` lines with an optional `export `
+// prefix, skipping blanks and `#` comments.
+func parseDotEnvKeys(content string) map[string]struct{} {
+	keys := map[string]struct{}{}
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		line = strings.TrimPrefix(line, "export ")
+		eq := strings.IndexByte(line, '=')
+		if eq <= 0 {
+			continue
+		}
+		if key := strings.TrimSpace(line[:eq]); key != "" {
+			keys[key] = struct{}{}
+		}
+	}
+	return keys
+}
+
+// missingRequiredEnv returns the names of required env vars the definition
+// declares that provided does not cover, sorted. A declared default does NOT
+// satisfy a required var (matching the runtime), so only an explicitly provided
+// binding or an env-resource key counts.
+func missingRequiredEnv(definition string, provided map[string]struct{}) []string {
+	var missing []string
+	for _, ev := range declaredEnvVars(definition) {
+		if !ev.Required {
+			continue
+		}
+		if _, ok := provided[ev.Name]; !ok {
+			missing = append(missing, ev.Name)
+		}
+	}
+	sort.Strings(missing)
+	return missing
+}
+
 // resolveRuntimeEnv inspects an integration definition for an HTTP_PORT (and
 // optional HTTP_HOST) env declaration. It returns the resolved listen port (0
 // when none is declared or it has no usable numeric default), the env vars the

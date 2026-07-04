@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/juancavallotti/octo/orchestrator/internal/integration"
@@ -94,16 +95,22 @@ func (f *fakeIntegrations) Get(_ context.Context, _ string) (integration.Integra
 }
 
 // fakeSnapshots returns a preset snapshot or error, recording the id it was asked
-// for. Used to drive the tagged-deploy path (WithSnapshots).
+// for. Used to drive the tagged-deploy path (WithSnapshots). resources are the
+// frozen resources returned by ListResources (for the required-env check).
 type fakeSnapshots struct {
-	ret   snapshot.Snapshot
-	err   error
-	gotID string
+	ret       snapshot.Snapshot
+	err       error
+	gotID     string
+	resources []snapshot.Resource
 }
 
 func (f *fakeSnapshots) Get(_ context.Context, id string) (snapshot.Snapshot, error) {
 	f.gotID = id
 	return f.ret, f.err
+}
+
+func (f *fakeSnapshots) ListResources(_ context.Context, _ string) ([]snapshot.Resource, error) {
+	return f.resources, nil
 }
 
 // fakeKube records calls and returns preset results.
@@ -794,6 +801,52 @@ func TestDeployWithSnapshotShipsFrozenDefinition(t *testing.T) {
 	}
 	if meta := ParseMetadata(repo.gotMetadata); meta.Tag != "v1.0" || meta.SnapshotID != "snap-1" {
 		t.Errorf("metadata tag/snapshot = %q/%q, want v1.0/snap-1", meta.Tag, meta.SnapshotID)
+	}
+}
+
+// TestDeployRejectsMissingRequiredEnv verifies a deploy is blocked (naming the
+// variable) when the frozen definition declares a required env var that neither a
+// binding nor a frozen .env resource provides — and that a binding or a resource
+// key satisfies it.
+func TestDeployRejectsMissingRequiredEnv(t *testing.T) {
+	const def = "env:\n  - name: API_KEY\n    required: true\n"
+	newSvc := func(resources []snapshot.Resource) (*Service, *fakeKube) {
+		repo := &fakeRepo{created: Deployment{ID: "dep-1"}}
+		integrations := &fakeIntegrations{ret: integration.Integration{ID: "int-1", Name: "Orders"}}
+		snaps := &fakeSnapshots{
+			ret:       snapshot.Snapshot{ID: "snap-1", IntegrationID: "int-1", Tag: "v1.0", Definition: def},
+			resources: resources,
+		}
+		kc := &fakeKube{status: kube.StatusRunning}
+		return NewService(repo, integrations, kc, WithSnapshots(snaps)), kc
+	}
+
+	// Nothing provides API_KEY → blocked, and the message names it.
+	svc, kc := newSvc(nil)
+	_, err := svc.Deploy(context.Background(), "int-1", Settings{SnapshotID: "snap-1"})
+	if !errors.Is(err, ErrMissingRequiredEnv) {
+		t.Fatalf("got %v, want ErrMissingRequiredEnv", err)
+	}
+	if !strings.Contains(err.Error(), "API_KEY") {
+		t.Errorf("error %q should name the missing variable", err)
+	}
+	if kc.applied {
+		t.Error("kube.Apply should not run when a required env var is missing")
+	}
+
+	// A deploy-time binding satisfies it.
+	svc, _ = newSvc(nil)
+	if _, err := svc.Deploy(context.Background(), "int-1", Settings{
+		SnapshotID: "snap-1",
+		Env:        map[string]EnvBinding{"API_KEY": {Value: "secret"}},
+	}); err != nil {
+		t.Errorf("binding should satisfy the required var, got %v", err)
+	}
+
+	// A frozen .env resource key satisfies it, with no binding.
+	svc, _ = newSvc([]snapshot.Resource{{Kind: "env", Name: ".env.dev", Content: "API_KEY=fromfile\n"}})
+	if _, err := svc.Deploy(context.Background(), "int-1", Settings{SnapshotID: "snap-1"}); err != nil {
+		t.Errorf("env resource should satisfy the required var, got %v", err)
 	}
 }
 
