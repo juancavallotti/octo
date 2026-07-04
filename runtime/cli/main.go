@@ -28,6 +28,7 @@ import (
 	_ "github.com/juancavallotti/octo/connectors/queue"         // registers the "queue" connector + source and the "queue-dispatch" block
 	_ "github.com/juancavallotti/octo/connectors/slack"         // registers the "slack" connector and its blocks
 	"github.com/juancavallotti/octo/core"
+	"github.com/juancavallotti/octo/core/expr"
 	"github.com/juancavallotti/octo/core/runtime"
 	"github.com/juancavallotti/octo/services"
 	"github.com/juancavallotti/octo/types"
@@ -81,6 +82,7 @@ const usage = `octo — run and invoke octo integration flows
 Usage:
   octo [run] --config <path> [--watch]                       Start connectors and flows (default)
   octo invoke --config <path> --flow <name> [--data <json>]  Call one flow and print its result
+  octo eval --expr <cel> [--data <json>]                     Evaluate a CEL expression and print the result
   octo version                                               Print the version and build date
   octo --help                                                Show this help
 
@@ -93,6 +95,12 @@ Invoke flags:
   --flow <name>      name of the flow to invoke
   --data <json>      JSON request body (reads stdin when omitted)
   --timeout <dur>    max time to wait for the flow (default 30s)
+
+Eval flags:
+  --expr <cel>       CEL expression to evaluate (required)
+  --data <json>      JSON object bound to body (reads stdin when omitted)
+  --vars <json>      JSON object bound to vars
+  --env <json>       JSON object bound to env
 
 Flags accept one or two dashes (--config or -config).`
 
@@ -125,8 +133,10 @@ func run(args []string) error {
 		return runCommand(args)
 	case "invoke":
 		return invokeCommand(args)
+	case "eval":
+		return evalCommand(args)
 	default:
-		return fmt.Errorf("unknown command %q (expected \"run\", \"invoke\", or \"version\")", cmd)
+		return fmt.Errorf("unknown command %q (expected \"run\", \"invoke\", \"eval\", or \"version\")", cmd)
 	}
 }
 
@@ -352,6 +362,92 @@ func invokeCommand(args []string) error {
 	}
 	fmt.Println(string(out))
 	return nil
+}
+
+// evalOutcome is the JSON envelope `octo eval` prints on stdout. OK distinguishes a
+// successful evaluation (Result holds the JSON-native value, which may itself be
+// false/0/null) from a compile or eval failure (Error holds the message). Both cases
+// exit 0 — a bad expression is a normal result, not a CLI failure — so a consumer can
+// parse the envelope rather than inspecting exit codes. Result is always emitted (never
+// omitempty) so a legitimate falsey result is not confused with its absence.
+type evalOutcome struct {
+	OK     bool   `json:"ok"`
+	Result any    `json:"result"`
+	Error  string `json:"error,omitempty"`
+}
+
+// evalCommand evaluates a CEL expression against an ad-hoc message, without a config
+// or any runtime services — CEL compilation and evaluation are pure. The --data object
+// is bound to `body` (like invoke's request body), --vars to `vars`, and --env to
+// `env`; the remaining message variables (eventID, correlationID, now) get their
+// defaults. It prints an evalOutcome envelope so the result and the error path are
+// unambiguous.
+func evalCommand(args []string) error {
+	fs := flag.NewFlagSet("eval", flag.ContinueOnError)
+	fs.SetOutput(io.Discard) // suppress the default usage dump; we print our own
+	expression := fs.String("expr", "", "CEL expression to evaluate")
+	data := fs.String("data", "", "JSON object bound to body (reads stdin when omitted)")
+	varsJSON := fs.String("vars", "", "JSON object bound to vars")
+	envJSON := fs.String("env", "", "JSON object bound to env")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			fmt.Println(usage)
+			return nil
+		}
+		return fmt.Errorf("parse eval flags: %w", err)
+	}
+	if *expression == "" {
+		return errors.New("expression is required (-expr)")
+	}
+
+	body, err := resolveData(*data)
+	if err != nil {
+		return err
+	}
+	msg, err := buildMessage(body)
+	if err != nil {
+		return err
+	}
+	if *varsJSON != "" {
+		vars := types.Variables{}
+		if err := json.Unmarshal([]byte(*varsJSON), &vars); err != nil {
+			return fmt.Errorf("parse -vars JSON: %w", err)
+		}
+		msg.Variables = vars
+	}
+	// A non-nil env map keeps env.NAME a missing-key error rather than a null-deref,
+	// matching how a real run materializes its resolved env (see expr.EnvActivation).
+	env := map[string]any{}
+	if *envJSON != "" {
+		if err := json.Unmarshal([]byte(*envJSON), &env); err != nil {
+			return fmt.Errorf("parse -env JSON: %w", err)
+		}
+	}
+
+	out, err := json.Marshal(evalExpression(*expression, msg, env))
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(out))
+	return nil
+}
+
+// evalExpression compiles expression through the single message-CEL seam and evaluates
+// it against msg and env, returning the envelope octo eval prints. A compile or eval
+// failure is reported as an OK=false outcome (not a Go error) so the caller prints it
+// and exits 0. A nil resource loader is passed: CompileMessage substitutes a no-op
+// loader, so standalone evaluation has no integration resources (templateResource is
+// unavailable) — expressions over body/vars/env/eventID/correlationID/now still work.
+func evalExpression(expression string, msg *types.Message, env map[string]any) evalOutcome {
+	program, err := expr.CompileMessage(nil, expression)
+	if err != nil {
+		return evalOutcome{OK: false, Error: err.Error()}
+	}
+	result, err := program.Eval(expr.MessageActivation(msg, env))
+	if err != nil {
+		return evalOutcome{OK: false, Error: err.Error()}
+	}
+	return evalOutcome{OK: true, Result: result}
 }
 
 // invokeFlow runs the service in invoke mode, waits until it is ready, calls the
