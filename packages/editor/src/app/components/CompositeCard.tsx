@@ -56,7 +56,9 @@ export default function CompositeCard({
       sublabel={block.name}
       boxed
     >
-      <div className="flex flex-wrap items-start justify-center gap-x-4 gap-y-2">
+      {/* Slots stay on a single row so a many-branch block (e.g. a 7-case Switch)
+          grows the flow horizontally rather than wrapping; the canvas scrolls. */}
+      <div className="flex flex-nowrap items-start justify-center gap-x-4 gap-y-2">
         {slots.map(({ sub, label }) => (
           <div key={sub.id} className="flex min-w-[11rem] flex-col">
             {showLabels && (
