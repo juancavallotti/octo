@@ -74,6 +74,34 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 	if enabled, _ := out.Variables.Bool("enabled"); !enabled {
 		t.Fatalf("enabled = false, want true")
 	}
+	if out.RawContent {
+		t.Fatalf("RawContent = true, want false for a JSON message")
+	}
+}
+
+func TestEncodeDecodePreservesRawContent(t *testing.T) {
+	var in types.Message
+	in.SetRawBody("text/html", "<h1>hi</h1>")
+
+	m, err := encodeMsg("subject", in)
+	if err != nil {
+		t.Fatalf("encodeMsg: %v", err)
+	}
+	if got := m.Header.Get(headerRawContent); got != "true" {
+		t.Fatalf("raw-content header = %q, want %q", got, "true")
+	}
+
+	out, err := decodeMsg(m)
+	if err != nil {
+		t.Fatalf("decodeMsg: %v", err)
+	}
+	ct, data, ok := out.RawBody()
+	if !ok {
+		t.Fatalf("RawBody ok = false; RawContent=%v Body=%#v", out.RawContent, out.Body)
+	}
+	if ct != "text/html" || data != "<h1>hi</h1>" {
+		t.Errorf("RawBody = (%q, %q), want (text/html, <h1>hi</h1>)", ct, data)
+	}
 }
 
 // TestRequestReply verifies a request gets the responder's reply over NATS, with
