@@ -43,6 +43,8 @@ func formDataOptions() []cel.EnvOption {
 // toFormDataBinding encodes an object as a urlencoded form string. Each field is
 // a scalar; an array field emits a repeated key. Encode sorts keys, so the output
 // is deterministic.
+//
+//nolint:ireturn // a CEL UnaryBinding returns the ref.Val interface
 func toFormDataBinding(val ref.Val) ref.Val {
 	native, err := val.ConvertToNative(structValueType)
 	if err != nil {
@@ -71,6 +73,8 @@ func toFormDataBinding(val ref.Val) ref.Val {
 
 // fromFormDataBinding parses a urlencoded form string into an object: a single
 // value becomes a string, repeated keys become a list of strings.
+//
+//nolint:ireturn // a CEL UnaryBinding returns the ref.Val interface
 func fromFormDataBinding(val ref.Val) ref.Val {
 	s, ok := val.Value().(string)
 	if !ok {

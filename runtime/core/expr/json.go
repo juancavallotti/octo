@@ -40,6 +40,8 @@ func jsonOptions() []cel.EnvOption {
 // toJSONBinding marshals the value to a JSON string. It first normalizes the CEL
 // value to a JSON-native Go value (the same structpb bridge Eval uses) so nested
 // maps marshal cleanly rather than as cel-go's map[any]any.
+//
+//nolint:ireturn // a CEL UnaryBinding returns the ref.Val interface
 func toJSONBinding(val ref.Val) ref.Val {
 	native, err := val.ConvertToNative(structValueType)
 	if err != nil {
@@ -58,6 +60,8 @@ func toJSONBinding(val ref.Val) ref.Val {
 
 // fromJSONBinding parses a JSON string into a decoded value (map[string]any,
 // []any, float64, string, bool, nil) and adapts it back to a CEL value.
+//
+//nolint:ireturn // a CEL UnaryBinding returns the ref.Val interface
 func fromJSONBinding(val ref.Val) ref.Val {
 	s, ok := val.Value().(string)
 	if !ok {
