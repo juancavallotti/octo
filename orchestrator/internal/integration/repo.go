@@ -40,6 +40,24 @@ func (r *Repo) Create(ctx context.Context, name, definition string) (Integration
 	return it, nil
 }
 
+// NameExists reports whether another integration already uses name, compared
+// case-insensitively. excludeID (a UUID in text form, or "" for a create) omits
+// the row being renamed so an unchanged name doesn't collide with itself.
+func (r *Repo) NameExists(ctx context.Context, name, excludeID string) (bool, error) {
+	var exists bool
+	err := r.pool.QueryRow(ctx,
+		`SELECT EXISTS(
+			SELECT 1 FROM integrations
+			WHERE lower(name) = lower($1) AND ($2 = '' OR id::text <> $2)
+		)`,
+		name, excludeID,
+	).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("integration repo: name exists: %w", err)
+	}
+	return exists, nil
+}
+
 // Get returns the integration by id, or ErrNotFound if it does not exist.
 func (r *Repo) Get(ctx context.Context, id string) (Integration, error) {
 	row := r.pool.QueryRow(ctx,

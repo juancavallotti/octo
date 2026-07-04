@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -61,6 +62,18 @@ func (m *memRepo) Delete(_ context.Context, id string) error {
 	return nil
 }
 
+func (m *memRepo) NameExists(_ context.Context, name, excludeID string) (bool, error) {
+	for id, it := range m.items {
+		if id == excludeID {
+			continue
+		}
+		if strings.EqualFold(it.Name, name) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // newTestHandler returns a mux wired to a real Service over a memRepo, plus the
 // repo so tests can seed data.
 func newTestHandler(t *testing.T) (*http.ServeMux, *memRepo) {
@@ -83,6 +96,22 @@ func do(t *testing.T, mux *http.ServeMux, method, target, body string) *httptest
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	return rec
+}
+
+func TestHandlerRejectsDuplicateName(t *testing.T) {
+	mux, _ := newTestHandler(t)
+
+	if rec := do(t, mux, http.MethodPost, "/integrations",
+		`{"name":"Payments","definition":"a"}`); rec.Code != http.StatusCreated {
+		t.Fatalf("first create: status = %d, want 201", rec.Code)
+	}
+
+	// Same name, different case, must collide (case-insensitive, global).
+	rec := do(t, mux, http.MethodPost, "/integrations",
+		`{"name":"payments","definition":"b"}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("duplicate create: status = %d, want 409", rec.Code)
+	}
 }
 
 func TestHandlerCreate(t *testing.T) {

@@ -10,11 +10,20 @@ import (
 // fakeRepo is an in-memory repository stand-in. It records whether it was
 // called and the name it received, and returns a preset result/error.
 type fakeRepo struct {
-	called   bool
-	gotName  string
-	ret      Integration
-	retErr   error
-	delErr   error
+	called     bool
+	gotName    string
+	ret        Integration
+	retErr     error
+	delErr     error
+	nameTaken  bool
+	nameErr    error
+	gotExclude string
+}
+
+func (f *fakeRepo) NameExists(_ context.Context, name, excludeID string) (bool, error) {
+	f.gotName = name
+	f.gotExclude = excludeID
+	return f.nameTaken, f.nameErr
 }
 
 func (f *fakeRepo) Create(_ context.Context, name, _ string) (Integration, error) {
@@ -106,6 +115,36 @@ func TestServiceUpdateValidationAndTrim(t *testing.T) {
 	}
 	if repo.gotName != "renamed" {
 		t.Errorf("repo received name %q, want trimmed %q", repo.gotName, "renamed")
+	}
+}
+
+func TestServiceRejectsDuplicateName(t *testing.T) {
+	ctx := context.Background()
+
+	// Create: a taken name is rejected before the row is written.
+	repo := &fakeRepo{nameTaken: true}
+	svc := NewService(repo)
+	if _, err := svc.Create(ctx, "  Payments  ", "body"); !errors.Is(err, ErrNameTaken) {
+		t.Errorf("create duplicate: got %v, want ErrNameTaken", err)
+	}
+	if repo.called {
+		t.Error("repo.Create should not run when the name is taken")
+	}
+	if repo.gotName != "Payments" {
+		t.Errorf("uniqueness checked with name %q, want trimmed %q", repo.gotName, "Payments")
+	}
+	if repo.gotExclude != "" {
+		t.Errorf("create excludeID = %q, want empty", repo.gotExclude)
+	}
+
+	// Update: the check excludes the row being renamed.
+	repo = &fakeRepo{nameTaken: true}
+	svc = NewService(repo)
+	if _, err := svc.Update(ctx, "id-1", "Payments", "body"); !errors.Is(err, ErrNameTaken) {
+		t.Errorf("update duplicate: got %v, want ErrNameTaken", err)
+	}
+	if repo.gotExclude != "id-1" {
+		t.Errorf("update excludeID = %q, want %q", repo.gotExclude, "id-1")
 	}
 }
 

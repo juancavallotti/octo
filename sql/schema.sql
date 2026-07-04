@@ -31,6 +31,12 @@ CREATE TABLE IF NOT EXISTS integrations (
     last_updated timestamptz NOT NULL DEFAULT now()
 );
 
+-- Integration names are unique case-insensitively (global scope). The service
+-- pre-checks for a clean error; this index is the backstop against races and
+-- direct writes. Creation fails if pre-existing duplicates exist.
+CREATE UNIQUE INDEX IF NOT EXISTS integrations_name_lower_uniq
+    ON integrations (lower(name));
+
 -- integration_deployments records each deployment of an integration. One integration may be
 -- deployed many times; `settings` carries per-deployment config and `status` tracks lifecycle.
 CREATE TABLE IF NOT EXISTS integration_deployments (

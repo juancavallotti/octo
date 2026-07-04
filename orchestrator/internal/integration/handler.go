@@ -135,6 +135,8 @@ func (h *Handler) writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrInvalid):
 		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, ErrNameTaken):
+		httpx.WriteError(w, http.StatusConflict, "an integration with this name already exists")
 	case errors.Is(err, ErrNotFound):
 		httpx.WriteError(w, http.StatusNotFound, "integration not found")
 	default:

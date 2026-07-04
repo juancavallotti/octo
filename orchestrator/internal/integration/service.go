@@ -19,6 +19,7 @@ type repository interface {
 	List(ctx context.Context) ([]Integration, error)
 	Update(ctx context.Context, id, name, definition string) (Integration, error)
 	Delete(ctx context.Context, id string) error
+	NameExists(ctx context.Context, name, excludeID string) (bool, error)
 }
 
 // Service holds integration business logic and validation.
@@ -36,7 +37,11 @@ func (s *Service) Create(ctx context.Context, name, definition string) (Integrat
 	if err := validateName(name); err != nil {
 		return Integration{}, err
 	}
-	return s.repo.Create(ctx, strings.TrimSpace(name), definition)
+	trimmed := strings.TrimSpace(name)
+	if err := s.ensureNameFree(ctx, trimmed, ""); err != nil {
+		return Integration{}, err
+	}
+	return s.repo.Create(ctx, trimmed, definition)
 }
 
 // Get returns the integration by id.
@@ -54,7 +59,26 @@ func (s *Service) Update(ctx context.Context, id, name, definition string) (Inte
 	if err := validateName(name); err != nil {
 		return Integration{}, err
 	}
-	return s.repo.Update(ctx, id, strings.TrimSpace(name), definition)
+	trimmed := strings.TrimSpace(name)
+	if err := s.ensureNameFree(ctx, trimmed, id); err != nil {
+		return Integration{}, err
+	}
+	return s.repo.Update(ctx, id, trimmed, definition)
+}
+
+// ensureNameFree rejects a name already used by a different integration
+// (case-insensitive). excludeID is the integration being renamed, or "" on
+// create. The unique index on lower(name) is the ultimate backstop; this gives
+// a clean domain error instead of a raw constraint violation.
+func (s *Service) ensureNameFree(ctx context.Context, name, excludeID string) error {
+	taken, err := s.repo.NameExists(ctx, name, excludeID)
+	if err != nil {
+		return err
+	}
+	if taken {
+		return fmt.Errorf("%w: %q", ErrNameTaken, name)
+	}
+	return nil
 }
 
 // Delete removes an integration.
