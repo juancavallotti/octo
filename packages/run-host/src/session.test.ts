@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   currentConfigPath,
+  evalCel,
   invoke,
   snapshot,
   start,
@@ -314,6 +315,71 @@ describe("run session", () => {
       await expect(invoke(NS, "service:\n  name: t\n", "greet")).rejects.toThrow(
         /OCTO_BIN_PATH/,
       );
+    });
+  });
+
+  describe("evalCel", () => {
+    it("parses the success envelope from stdout", async () => {
+      process.env.OCTO_BIN_PATH = await fakeBin(
+        dir,
+        "octo-eval-ok",
+        'printf \'{"ok":true,"result":true}\\n\'',
+      );
+      const r = await evalCel("body.amount > 100", { data: '{"amount":150}' });
+      expect(r.ok).toBe(true);
+      expect(r.result).toBe(true);
+      expect(r.error).toBeUndefined();
+    });
+
+    it("surfaces a compile/eval error envelope (ok:false with error)", async () => {
+      process.env.OCTO_BIN_PATH = await fakeBin(
+        dir,
+        "octo-eval-err",
+        'printf \'{"ok":false,"result":null,"error":"no such key: missing"}\\n\'',
+      );
+      const r = await evalCel("body.missing", { data: "{}" });
+      expect(r.ok).toBe(false);
+      expect(r.error).toBe("no such key: missing");
+    });
+
+    it("forwards expr, data, vars, and env as argv", async () => {
+      process.env.OCTO_BIN_PATH = await fakeBin(dir, "octo-eval-args", 'echo "$@"');
+      const r = await evalCel("vars.tier", {
+        data: '{"x":1}',
+        vars: '{"tier":"gold"}',
+        env: { REGION: "us" },
+      });
+      // stdout isn't a valid envelope here, so ok is false — but the echoed argv proves
+      // the flags were assembled correctly.
+      expect(r.ok).toBe(false);
+      expect(r.error).toContain("eval");
+      expect(r.error).toContain("-expr vars.tier");
+      expect(r.error).toContain('-data {"x":1}');
+      expect(r.error).toContain('-vars {"tier":"gold"}');
+      expect(r.error).toContain('-env {"REGION":"us"}');
+    });
+
+    it("reports a non-zero exit (usage error) as not ok", async () => {
+      process.env.OCTO_BIN_PATH = await fakeBin(
+        dir,
+        "octo-eval-usage",
+        '>&2 echo "expression is required (-expr)"\nexit 1',
+      );
+      const r = await evalCel("");
+      expect(r.ok).toBe(false);
+      expect(r.error).toContain("expression is required");
+    });
+
+    it("flags unparseable stdout", async () => {
+      process.env.OCTO_BIN_PATH = await fakeBin(dir, "octo-eval-junk", 'echo not-json');
+      const r = await evalCel("body");
+      expect(r.ok).toBe(false);
+      expect(r.error).toContain("unexpected eval output");
+    });
+
+    it("throws when OCTO_BIN_PATH is unset", async () => {
+      delete process.env.OCTO_BIN_PATH;
+      await expect(evalCel("body")).rejects.toThrow(/OCTO_BIN_PATH/);
     });
   });
 });
