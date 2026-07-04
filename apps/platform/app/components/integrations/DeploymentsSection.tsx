@@ -39,6 +39,7 @@ export default function DeploymentsSection({
   integrationName,
   snapshots,
   onDeploymentsChange,
+  onOpenLogs,
 }: {
   integrationId: string;
   integrationName: string;
@@ -49,6 +50,8 @@ export default function DeploymentsSection({
    * the Versions section which tags are deployed (and therefore undeletable).
    */
   onDeploymentsChange?: (deployments: Deployment[]) => void;
+  /** Open the parent-owned dockable log panel tailing a specific pod. */
+  onOpenLogs?: (deploymentId: string, podName: string) => void;
 }) {
   const confirm = useConfirm();
   const [deployments, setDeployments] = useState<Deployment[]>([]);
@@ -221,6 +224,9 @@ export default function DeploymentsSection({
             onScale={scale}
             onRollout={rollout}
             onUndeploy={undeploy}
+            onOpenLogs={
+              onOpenLogs ? (d, pod) => onOpenLogs(d.id, pod) : undefined
+            }
           />
         </ul>
       )}

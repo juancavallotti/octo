@@ -9,6 +9,7 @@ import {
   ExternalLink,
   GitBranch,
   RotateCcw,
+  ScrollText,
   Tag,
   Trash2,
 } from "lucide-react";
@@ -215,6 +216,7 @@ export default function DeploymentRow({
   onScale,
   onRollout,
   onUndeploy,
+  onOpenLogs,
 }: {
   deployment: Deployment;
   busy: boolean;
@@ -223,10 +225,13 @@ export default function DeploymentRow({
   onScale: (d: Deployment, replicas: number) => void;
   onRollout?: (d: Deployment, snapshotId: string) => void;
   onUndeploy: (d: Deployment) => void;
+  /** Open the dockable log panel tailing a specific pod of this deployment. */
+  onOpenLogs?: (d: Deployment, podName: string) => void;
 }) {
   const age = relativeAge(d.createdAt);
   const restarts = totalRestarts(d);
   const desired = d.desiredReplicas || d.replicas;
+  const pods = d.pods ?? [];
 
   return (
     <li
@@ -316,6 +321,50 @@ export default function DeploymentRow({
           {d.internalUrl && (
             <AddressLine label="Internal" value={d.internalUrl} />
           )}
+        </div>
+      )}
+
+      {onOpenLogs && pods.length > 0 && (
+        <div className="mt-2 space-y-1 border-t border-zinc-100 pt-2 dark:border-zinc-800/70">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400">
+            Pods
+          </span>
+          {pods.map((p) => (
+            <div key={p.name} className="flex items-center gap-2">
+              <span
+                aria-hidden
+                className={`h-2 w-2 shrink-0 rounded-full ${
+                  p.ready
+                    ? "bg-emerald-500"
+                    : p.phase === "Running"
+                      ? "bg-amber-500"
+                      : "bg-zinc-400"
+                }`}
+                title={p.ready ? "Ready" : p.phase}
+              />
+              <span className="min-w-0 flex-1 truncate font-mono text-xs text-zinc-600 dark:text-zinc-300">
+                {p.name}
+              </span>
+              {p.restarts > 0 && (
+                <span
+                  className="inline-flex shrink-0 items-center gap-0.5 text-xs text-amber-600 dark:text-amber-400"
+                  title="Container restarts"
+                >
+                  <RotateCcw size={11} />
+                  {p.restarts}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => onOpenLogs(d, p.name)}
+                aria-label={`View logs for ${p.name}`}
+                title="View logs"
+                className="shrink-0 rounded-md p-1 text-zinc-400 transition-colors hover:bg-black/[0.06] hover:text-zinc-600 dark:hover:bg-white/[0.08] dark:hover:text-zinc-300"
+              >
+                <ScrollText size={14} />
+              </button>
+            </div>
+          ))}
         </div>
       )}
     </li>

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"strings"
 
@@ -51,6 +52,7 @@ type kubeClient interface {
 	Apply(ctx context.Context, spec kube.Spec) error
 	Rollout(ctx context.Context, spec kube.Spec) error
 	Status(ctx context.Context, deploymentID string) (kube.Status, error)
+	PodLogs(ctx context.Context, podName string, follow bool, tail int64) (io.ReadCloser, error)
 	Scale(ctx context.Context, deploymentID string, replicas int32) error
 	Delete(ctx context.Context, deploymentID string) error
 	InternalURL(slug string, port int) string
@@ -640,6 +642,35 @@ func (s *Service) Get(ctx context.Context, id string) (Deployment, error) {
 	}
 	s.applyRefresh(ctx, &dep)
 	return dep, nil
+}
+
+// PodLogs streams the logs of one of a deployment's pods. It verifies the
+// deployment exists (ErrNotFound) and that the pod currently belongs to it
+// (ErrPodNotFound) before opening the stream, so a caller cannot read arbitrary
+// pods in the namespace by id-guessing. With follow set the stream tails the pod
+// live until the caller closes the returned reader or the context is cancelled.
+func (s *Service) PodLogs(ctx context.Context, deploymentID, podName string, follow bool, tail int64) (io.ReadCloser, error) {
+	if s.kube == nil {
+		return nil, ErrUnavailable
+	}
+	if _, err := s.repo.Get(ctx, deploymentID); err != nil {
+		return nil, err
+	}
+	st, err := s.kube.Status(ctx, deploymentID)
+	if err != nil {
+		return nil, err
+	}
+	found := false
+	for _, p := range st.Pods {
+		if p.Name == podName {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil, ErrPodNotFound
+	}
+	return s.kube.PodLogs(ctx, podName, follow, tail)
 }
 
 // ListByIntegration returns an integration's deployments, each with its status

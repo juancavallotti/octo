@@ -4,12 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	httpx "github.com/juancavallotti/octo/orchestrator/internal/http"
 )
+
+// defaultLogTail bounds the history replayed when a pod-log stream connects, so a
+// long-running pod doesn't dump its whole buffer before tailing begins.
+const defaultLogTail = 500
 
 // requestTimeout bounds the database + Kubernetes work behind a single request.
 // It is more generous than the integration handler's since a deploy touches the
@@ -35,6 +41,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /integrations/{id}/deployments", h.listByIntegration)
 	mux.HandleFunc("GET /integrations/{id}/deployments/options", h.deployOptions)
 	mux.HandleFunc("GET /deployments/{id}", h.get)
+	mux.HandleFunc("GET /deployments/{id}/pods/{pod}/logs", h.podLogs)
 	mux.HandleFunc("PATCH /deployments/{id}", h.scale)
 	mux.HandleFunc("POST /deployments/{id}/rollout", h.rollout)
 	mux.HandleFunc("DELETE /deployments/{id}", h.undeploy)
@@ -192,6 +199,56 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, toResponse(d))
 }
 
+// podLogs streams a pod's container logs as plain text (chunked). With ?follow=1
+// it tails the pod live, holding the connection open until the client disconnects
+// (which cancels the request context and closes the k8s stream). It bypasses the
+// shared request timeout since a follow stream is long-lived by design; the tail
+// is bounded so the initial replay stays small.
+func (h *Handler) podLogs(w http.ResponseWriter, r *http.Request) {
+	follow := r.URL.Query().Get("follow") == "1" || r.URL.Query().Get("follow") == "true"
+	tail := int64(defaultLogTail)
+	if v := r.URL.Query().Get("tail"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n >= 0 {
+			tail = n
+		}
+	}
+
+	stream, err := h.svc.PodLogs(r.Context(), r.PathValue("id"), r.PathValue("pod"), follow, tail)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	defer stream.Close()
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache, no-transform")
+	w.Header().Set("X-Accel-Buffering", "no") // don't let a proxy buffer the tail
+	w.WriteHeader(http.StatusOK)
+
+	// Copy through, flushing each chunk so lines reach the client as they arrive
+	// rather than being held in a buffer. A dead client cancels the context, which
+	// ends stream.Read; io.Copy with a flushing writer keeps it simple.
+	flusher, _ := w.(http.Flusher)
+	buf := make([]byte, 4096)
+	for {
+		n, rerr := stream.Read(buf)
+		if n > 0 {
+			if _, werr := w.Write(buf[:n]); werr != nil {
+				return
+			}
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
+		if rerr != nil {
+			if rerr != io.EOF && r.Context().Err() == nil {
+				slog.Error("pod log stream", "error", rerr)
+			}
+			return
+		}
+	}
+}
+
 // scaleRequest is the body of a scale request: the new desired replica count.
 type scaleRequest struct {
 	Replicas int `json:"replicas"`
@@ -256,6 +313,8 @@ func (h *Handler) writeError(w http.ResponseWriter, err error) {
 		httpx.WriteError(w, http.StatusNotFound, "deployment not found")
 	case errors.Is(err, ErrIntegrationNotFound):
 		httpx.WriteError(w, http.StatusNotFound, "integration not found")
+	case errors.Is(err, ErrPodNotFound):
+		httpx.WriteError(w, http.StatusNotFound, "pod not found")
 	case errors.Is(err, ErrUnavailable):
 		httpx.WriteError(w, http.StatusServiceUnavailable, "deployments are not available")
 	case errors.Is(err, ErrExternalUnavailable):

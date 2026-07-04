@@ -13,6 +13,7 @@ import {
 } from "@/app/model/orchestrator";
 import DeploymentsSection from "./DeploymentsSection";
 import EnvSection from "./EnvSection";
+import PodLogPanel from "./PodLogPanel";
 import ResourcesSection from "./ResourcesSection";
 import SnapshotsSection from "./SnapshotsSection";
 
@@ -148,6 +149,17 @@ export default function IntegrationDetail({
           .filter((t): t is string => Boolean(t)),
       ),
     );
+  }, []);
+
+  // The pod whose logs are docked at the bottom of the pane, or null when closed.
+  // Lifted here (above the scroll area) so the panel docks under the whole detail
+  // pane rather than inside the Deployments grid cell.
+  const [logsPod, setLogsPod] = useState<{
+    deploymentId: string;
+    podName: string;
+  } | null>(null);
+  const openPodLogs = useCallback((deploymentId: string, podName: string) => {
+    setLogsPod({ deploymentId, podName });
   }, []);
 
   // The folder path ("Parent / Child"), or "No folder" when unfiled. Moving is done
@@ -288,6 +300,7 @@ export default function IntegrationDetail({
               integrationName={integration.name}
               snapshots={snapshots}
               onDeploymentsChange={onDeploymentsChange}
+              onOpenLogs={openPodLogs}
             />
           </Section>
 
@@ -339,6 +352,17 @@ export default function IntegrationDetail({
           </Section>
         </div>
       </div>
+
+      {/* Docked pod-log panel: tails one pod's logs at the bottom of the pane.
+          Keyed by pod so switching pods resets the stream. */}
+      {logsPod && (
+        <PodLogPanel
+          key={`${logsPod.deploymentId}:${logsPod.podName}`}
+          deploymentId={logsPod.deploymentId}
+          podName={logsPod.podName}
+          onClose={() => setLogsPod(null)}
+        />
+      )}
     </div>
   );
 }

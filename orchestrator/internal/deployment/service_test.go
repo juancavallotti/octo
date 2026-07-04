@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 
@@ -121,6 +122,7 @@ type fakeKube struct {
 	rolloutErr      error
 	gotSpec         kube.Spec
 	status          string
+	statusPods      []kube.PodStatus
 	statusErr       error
 	scaled          bool
 	gotReplicas     int32
@@ -130,6 +132,9 @@ type fakeKube struct {
 	internalDeleted bool
 	gotInternalSlug string
 	externalEnabled bool
+	podLogsCalled   bool
+	podLogsPod      string
+	podLogsErr      error
 	// existingSecrets is the set of cluster-secret keys SecretKeyExists reports as
 	// present; secretChecks records the keys it was asked about.
 	existingSecrets map[string]bool
@@ -149,7 +154,18 @@ func (f *fakeKube) Rollout(_ context.Context, spec kube.Spec) error {
 }
 
 func (f *fakeKube) Status(_ context.Context, _ string) (kube.Status, error) {
-	return kube.Status{Phase: f.status}, f.statusErr
+	return kube.Status{Phase: f.status, Pods: f.statusPods}, f.statusErr
+}
+
+// podLogsCalled/podLogsPod record the last PodLogs request; podLogsErr forces a
+// failure. On success it returns a canned one-line stream.
+func (f *fakeKube) PodLogs(_ context.Context, podName string, _ bool, _ int64) (io.ReadCloser, error) {
+	f.podLogsCalled = true
+	f.podLogsPod = podName
+	if f.podLogsErr != nil {
+		return nil, f.podLogsErr
+	}
+	return io.NopCloser(strings.NewReader("log line\n")), nil
 }
 
 func (f *fakeKube) Scale(_ context.Context, _ string, replicas int32) error {
@@ -235,6 +251,55 @@ func TestScalePreservesEnvBindings(t *testing.T) {
 	}
 	if got.Env["TOKEN"].Secret != "API_KEY" || got.Env["LOG"].Value != "info" {
 		t.Errorf("env bindings not preserved through scale: %+v", got.Env)
+	}
+}
+
+// TestPodLogsStreamsOwnedPod verifies PodLogs validates the pod belongs to the
+// deployment before opening the stream, and rejects unknown/foreign pods.
+func TestPodLogsStreamsOwnedPod(t *testing.T) {
+	repo := &fakeRepo{getRet: Deployment{ID: "dep-1"}}
+	kc := &fakeKube{
+		status:     kube.StatusRunning,
+		statusPods: []kube.PodStatus{{Name: "octo-dep-1-abc"}},
+	}
+	svc := NewService(repo, &fakeIntegrations{}, kc)
+
+	rc, err := svc.PodLogs(context.Background(), "dep-1", "octo-dep-1-abc", true, 100)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	defer rc.Close()
+	if !kc.podLogsCalled || kc.podLogsPod != "octo-dep-1-abc" {
+		t.Errorf("kube.PodLogs not called for the owned pod: called=%v pod=%q", kc.podLogsCalled, kc.podLogsPod)
+	}
+	body, _ := io.ReadAll(rc)
+	if string(body) != "log line\n" {
+		t.Errorf("stream body = %q, want the canned log line", body)
+	}
+
+	// A pod not in the deployment's pod set is rejected without touching the cluster
+	// log stream.
+	kc.podLogsCalled = false
+	if _, err := svc.PodLogs(context.Background(), "dep-1", "someone-elses-pod", false, 0); !errors.Is(err, ErrPodNotFound) {
+		t.Errorf("foreign pod err = %v, want ErrPodNotFound", err)
+	}
+	if kc.podLogsCalled {
+		t.Error("kube.PodLogs called for a pod not owned by the deployment")
+	}
+}
+
+// TestPodLogsUnknownDeployment verifies a missing deployment surfaces ErrNotFound
+// (from the repo) rather than attempting a cluster read.
+func TestPodLogsUnknownDeployment(t *testing.T) {
+	repo := &fakeRepo{getErr: ErrNotFound}
+	kc := &fakeKube{status: kube.StatusRunning}
+	svc := NewService(repo, &fakeIntegrations{}, kc)
+
+	if _, err := svc.PodLogs(context.Background(), "nope", "pod", false, 0); !errors.Is(err, ErrNotFound) {
+		t.Errorf("err = %v, want ErrNotFound", err)
+	}
+	if kc.podLogsCalled {
+		t.Error("kube.PodLogs called for an unknown deployment")
 	}
 }
 

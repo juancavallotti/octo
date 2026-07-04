@@ -7,6 +7,9 @@ var (
 	ErrNotFound = errors.New("deployment not found")
 	// ErrIntegrationNotFound is returned when the integration to deploy does not exist.
 	ErrIntegrationNotFound = errors.New("integration not found")
+	// ErrPodNotFound is returned when a requested pod does not belong to the
+	// deployment (or no longer exists), so its logs cannot be streamed.
+	ErrPodNotFound = errors.New("pod not found")
 	// ErrUnavailable is returned when Kubernetes access is not configured, so
 	// deployments cannot be managed.
 	ErrUnavailable = errors.New("deployments unavailable")
