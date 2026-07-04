@@ -27,6 +27,15 @@ function stubRunHost(opts: { available?: boolean } = {}) {
         resources?: ResourceProvider;
       };
     };
+    evaluated?: {
+      expression: string;
+      opts?: {
+        data?: string;
+        vars?: string;
+        env?: Record<string, string>;
+        timeoutMs?: number;
+      };
+    };
   } = {};
   let running = false;
   let exposable = false;
@@ -68,6 +77,10 @@ function stubRunHost(opts: { available?: boolean } = {}) {
         output: '{"result":"ok"}',
         logs: ["invoked greet"],
       };
+    },
+    evalCel: async (expression, opts) => {
+      calls.evaluated = { expression, opts };
+      return { ok: true, result: true, logs: ["evaluated"] };
     },
     snapshot: () => logs,
     newNamespace: () => `ns-${++nsSeq}`,
@@ -373,5 +386,60 @@ describe("run tools", () => {
     })) as CallToolResult;
     expect(res.isError).toBe(true);
     expect(text(res)).toContain("no such integration");
+  });
+
+  it("evaluate_cel returns the ok/result/error envelope", async () => {
+    const { host } = stubRunHost();
+    const client = await connect(config(), host);
+    const res = (await client.callTool({
+      name: "evaluate_cel",
+      arguments: { expression: "body.amount > 100", data: '{"amount":150}' },
+    })) as CallToolResult;
+    expect(res.isError).toBeFalsy();
+    expect(parse(res)).toEqual({ ok: true, result: true });
+  });
+
+  it("evaluate_cel forwards expression, data, vars, env, and timeout", async () => {
+    const { host, calls } = stubRunHost();
+    const client = await connect(config(), host);
+    await client.callTool({
+      name: "evaluate_cel",
+      arguments: {
+        expression: "vars.tier == env.REGION",
+        data: '{"x":1}',
+        vars: '{"tier":"us"}',
+        env: { REGION: "us" },
+        timeoutMs: 2000,
+      },
+    });
+    expect(calls.evaluated?.expression).toBe("vars.tier == env.REGION");
+    expect(calls.evaluated?.opts).toEqual({
+      data: '{"x":1}',
+      vars: '{"tier":"us"}',
+      env: { REGION: "us" },
+      timeoutMs: 2000,
+    });
+  });
+
+  it("evaluate_cel errors when no runner is available", async () => {
+    const { host } = stubRunHost({ available: false });
+    const client = await connect(config(), host);
+    const res = (await client.callTool({
+      name: "evaluate_cel",
+      arguments: { expression: "body" },
+    })) as CallToolResult;
+    expect(res.isError).toBe(true);
+    expect(text(res)).toContain("OCTO_BIN_PATH");
+  });
+
+  it("evaluate_cel rejects an invalid env shape", async () => {
+    const { host } = stubRunHost();
+    const client = await connect(config(), host);
+    const res = (await client.callTool({
+      name: "evaluate_cel",
+      arguments: { expression: "env.X", env: { "1bad": "x" } },
+    })) as CallToolResult;
+    expect(res.isError).toBe(true);
+    expect(text(res)).toContain("invalid env");
   });
 });
