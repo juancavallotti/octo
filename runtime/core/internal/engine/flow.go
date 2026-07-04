@@ -28,6 +28,7 @@ const (
 	blockKindAIRouter     = "ai-router"
 	blockKindAIAgent      = "ai-agent"
 	blockKindAIRetry      = "ai-retry"
+	blockKindMCPRouter    = "mcp-router"
 )
 
 // blockError wraps the error a block returns with the block's label. It keeps the
@@ -209,6 +210,7 @@ func (b *builder) compositeBuilders() map[string]func(types.BlockConfig) (core.M
 		blockKindAIRouter:     b.aiRouter,
 		blockKindAIAgent:      b.aiAgent,
 		blockKindAIRetry:      b.aiRetry,
+		blockKindMCPRouter:    b.mcpRouter,
 	}
 }
 
@@ -262,6 +264,9 @@ func compositeSlots(cfg types.BlockConfig) []string {
 	add(len(cfg.Skills) > 0, "skills")
 	add(cfg.MaxIterations != 0, "maxIterations")
 	add(cfg.MaxAttempts != 0, "maxAttempts")
+	add(cfg.ServerName != "", "serverName")
+	add(len(cfg.Resources) > 0, "resources")
+	add(len(cfg.Prompts) > 0, "prompts")
 	add(cfg.MemoryThreadID != "", "memoryThreadId")
 	add(cfg.MemoryMaxTokens != 0, "memoryMaxTokens")
 	add(cfg.MemoryCompaction != "", "memoryCompaction")

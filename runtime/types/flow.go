@@ -139,6 +139,47 @@ type BlockConfig struct {
 	// after an LLM-driven revision before falling through to Error (default
 	// applied by the builder).
 	MaxAttempts int `yaml:"maxAttempts,omitempty"`
+
+	// ServerName is the MCP server name an "mcp-router" reports in its initialize
+	// response; it defaults to the block name (then "octo-mcp") when unset.
+	ServerName string `yaml:"serverName,omitempty"`
+	// Resources are the template resources an "mcp-router" advertises as MCP
+	// resources (each with its own uri) and serves on resources/read.
+	Resources []MCPResourceConfig `yaml:"resources,omitempty"`
+	// Prompts are the template resources an "mcp-router" advertises as MCP prompts
+	// (each with named arguments) and renders on prompts/get. The "mcp-router"
+	// reuses the Tools slot to expose flows as MCP tools.
+	Prompts []MCPPromptConfig `yaml:"prompts,omitempty"`
+}
+
+// MCPResourceConfig is one resource an "mcp-router" advertises. URI is the stable
+// id MCP clients read by; Name/Description/MimeType are advertised metadata;
+// Resource is the template resource whose rendered content is returned.
+type MCPResourceConfig struct {
+	URI         string `yaml:"uri"`
+	Name        string `yaml:"name"`
+	Description string `yaml:"description,omitempty"`
+	MimeType    string `yaml:"mimeType,omitempty"`
+	Resource    string `yaml:"resource"`
+}
+
+// MCPPromptConfig is one prompt an "mcp-router" advertises. Name is the id clients
+// get it by; Description and Arguments are advertised metadata; Resource is the
+// template resource whose rendered content becomes the prompt message. The prompt
+// arguments are exposed to the template as the message body (body.<arg>).
+type MCPPromptConfig struct {
+	Name        string         `yaml:"name"`
+	Description string         `yaml:"description,omitempty"`
+	Arguments   []MCPPromptArg `yaml:"arguments,omitempty"`
+	Resource    string         `yaml:"resource"`
+}
+
+// MCPPromptArg describes one argument of an "mcp-router" prompt, advertised on
+// prompts/list so clients know what to supply to prompts/get.
+type MCPPromptArg struct {
+	Name        string `yaml:"name"`
+	Description string `yaml:"description,omitempty"`
+	Required    bool   `yaml:"required,omitempty"`
 }
 
 // CaseConfig is one branch of a "switch" block: a boolean When expression and an

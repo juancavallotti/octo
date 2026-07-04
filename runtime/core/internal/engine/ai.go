@@ -520,7 +520,7 @@ func (b *builder) aiAgent(cfg types.BlockConfig) (core.MessageProcessor, error) 
 		return nil, err
 	}
 
-	branches, tools, err := b.agentTools(cfg.Tools)
+	branches, tools, err := b.agentTools(blockKindAIAgent, cfg.Tools)
 	if err != nil {
 		return nil, err
 	}
@@ -594,20 +594,21 @@ func (b *builder) configureAgentMemory(block *aiAgent, cfg types.BlockConfig) er
 }
 
 // agentTools builds the tool branches and their model-facing definitions,
-// validating names, descriptions, uniqueness, and schemas.
-func (b *builder) agentTools(configs []types.ToolConfig) (map[string]*Flow, []core.LLMTool, error) {
+// validating names, descriptions, uniqueness, and schemas. kind labels errors so
+// the ai-agent and the mcp-router each report against their own block type.
+func (b *builder) agentTools(kind string, configs []types.ToolConfig) (map[string]*Flow, []core.LLMTool, error) {
 	branches := make(map[string]*Flow, len(configs))
 	tools := make([]core.LLMTool, 0, len(configs))
 	for i := range configs {
 		tool := configs[i]
 		if tool.Name == "" {
-			return nil, nil, fmt.Errorf("ai-agent tool %d requires a name", i)
+			return nil, nil, fmt.Errorf("%s tool %d requires a name", kind, i)
 		}
 		if tool.Description == "" {
-			return nil, nil, fmt.Errorf("ai-agent tool %q requires a description", tool.Name)
+			return nil, nil, fmt.Errorf("%s tool %q requires a description", kind, tool.Name)
 		}
 		if _, dup := branches[tool.Name]; dup {
-			return nil, nil, fmt.Errorf("ai-agent tool %q is defined more than once", tool.Name)
+			return nil, nil, fmt.Errorf("%s tool %q is defined more than once", kind, tool.Name)
 		}
 		schema, err := toolInputSchema(tool)
 		if err != nil {
@@ -798,25 +799,40 @@ func (a *aiAgent) runTool(
 	if !ok {
 		return errorResult(call.ID, fmt.Sprintf("unknown tool %q", call.Name)), current
 	}
-	args := call.Input
+	content, out, errMsg := dispatchToolBranch(ctx, flow, call.Input, current)
+	if errMsg != "" {
+		return errorResult(call.ID, errMsg), out
+	}
+	return core.LLMToolResult{ToolCallID: call.ID, Content: content}, out
+}
+
+// dispatchToolBranch runs a tool's flow branch on the shared message: the JSON
+// args become the message body and the branch's output body is returned as a JSON
+// string. It returns the (possibly updated) message so shared state carries
+// forward, and a non-empty errMsg describing any failure to surface. It is the
+// single seam both the ai-agent (runTool) and the mcp-router use to route a tool
+// call to a flow.
+func dispatchToolBranch(
+	ctx context.Context, flow *Flow, args json.RawMessage, current *types.Message,
+) (content string, out *types.Message, errMsg string) {
 	if len(args) == 0 {
 		args = json.RawMessage("{}")
 	}
 	if err := current.SetBodyJSON(args); err != nil {
-		return errorResult(call.ID, fmt.Sprintf("invalid arguments: %v", err)), current
+		return "", current, fmt.Sprintf("invalid arguments: %v", err)
 	}
-	out, err := flow.Process(ctx, current)
+	res, err := flow.Process(ctx, current)
 	if err != nil {
-		return errorResult(call.ID, err.Error()), current
+		return "", current, err.Error()
 	}
-	if out == nil {
-		return errorResult(call.ID, "tool produced no result"), current
+	if res == nil {
+		return "", current, "tool produced no result"
 	}
-	content, err := out.BodyJSON()
+	encoded, err := res.BodyJSON()
 	if err != nil {
-		return errorResult(call.ID, fmt.Sprintf("encode result: %v", err)), out
+		return "", res, fmt.Sprintf("encode result: %v", err)
 	}
-	return core.LLMToolResult{ToolCallID: call.ID, Content: string(content)}, out
+	return string(encoded), res, ""
 }
 
 // loadSkill serves a load_skill tool call: it renders the named skill's template
