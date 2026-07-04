@@ -1,13 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FileText, Trash2, Upload } from "lucide-react";
+import { FileText, Lock, Trash2, Upload } from "lucide-react";
 import { useConfirm } from "@/app/components/ConfirmDialog";
 import {
   createResource,
   deleteResource,
   listResources,
-  type Resource,
+  listSnapshotResources,
 } from "@/app/model/orchestrator";
 
 /**
@@ -17,7 +17,21 @@ import {
  * relative path can be set) and the kind is guessed from the name. Richer editing
  * is left to the (future) editor story. The section owns its own data, loading it
  * by integration id.
+ *
+ * When a version is selected (`snapshotId` set), it instead shows that tag's
+ * frozen resources read-only — a snapshot is immutable, so upload/delete are
+ * hidden and only the name/kind metadata is listed.
  */
+
+/** A resource for display: a live resource (has an id, deletable) or a frozen
+ * snapshot resource (metadata only). */
+interface DisplayResource {
+  key: string;
+  kind: string;
+  name: string;
+  /** Present only for live resources; frozen ones can't be deleted. */
+  id?: string;
+}
 
 const KINDS = ["env", "template"] as const;
 type Kind = (typeof KINDS)[number];
@@ -31,11 +45,19 @@ function guessKind(name: string): Kind {
 
 export default function ResourcesSection({
   integrationId,
+  snapshotId,
+  versionLabel,
 }: {
   integrationId: string;
+  /** When set, show this tag's frozen resources (read-only) instead of the live
+   * working-copy set. */
+  snapshotId?: string;
+  /** The selected version's tag, for the read-only banner. */
+  versionLabel?: string;
 }) {
   const confirm = useConfirm();
-  const [resources, setResources] = useState<Resource[]>([]);
+  const frozen = snapshotId != null;
+  const [resources, setResources] = useState<DisplayResource[]>([]);
   const [name, setName] = useState("");
   const [kind, setKind] = useState<Kind>("env");
   const [kindTouched, setKindTouched] = useState(false);
@@ -45,9 +67,27 @@ export default function ResourcesSection({
   const [error, setError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
+  // Load the live working-copy resources, or a tag's frozen set when a version is
+  // selected. Both normalize to DisplayResource; frozen entries have no id.
   const reload = useCallback(() => {
-    listResources(integrationId).then(setResources, () => setResources([]));
-  }, [integrationId]);
+    if (snapshotId != null) {
+      listSnapshotResources(snapshotId).then(
+        (rs) =>
+          setResources(
+            rs.map((r) => ({ key: `${r.kind}:${r.name}`, kind: r.kind, name: r.name })),
+          ),
+        () => setResources([]),
+      );
+    } else {
+      listResources(integrationId).then(
+        (rs) =>
+          setResources(
+            rs.map((r) => ({ key: r.id, id: r.id, kind: r.kind, name: r.name })),
+          ),
+        () => setResources([]),
+      );
+    }
+  }, [integrationId, snapshotId]);
   useEffect(() => {
     reload();
   }, [reload]);
@@ -91,7 +131,8 @@ export default function ResourcesSection({
     }
   };
 
-  const remove = async (r: Resource) => {
+  const remove = async (r: DisplayResource) => {
+    if (!r.id) return; // frozen resources are read-only
     const ok = await confirm({
       title: `Delete resource "${r.name}"?`,
       confirmLabel: "Delete",
@@ -112,7 +153,14 @@ export default function ResourcesSection({
 
   return (
     <>
-      <div className="mb-2 space-y-2">
+      {frozen ? (
+        <p className="mb-2 flex items-center gap-1.5 text-xs text-zinc-400">
+          <Lock size={12} className="shrink-0" />
+          Frozen at {versionLabel ?? "this version"} — read-only. Select “Current”
+          to edit.
+        </p>
+      ) : (
+        <div className="mb-2 space-y-2">
         <input
           ref={fileInput}
           type="file"
@@ -154,17 +202,20 @@ export default function ResourcesSection({
           <Upload size={14} />
           Upload
         </button>
-      </div>
+        </div>
+      )}
 
       {error && <p className="mb-2 text-sm text-red-500">{error}</p>}
 
       {resources.length === 0 ? (
-        <p className="text-sm text-zinc-400">No resources yet.</p>
+        <p className="text-sm text-zinc-400">
+          {frozen ? "No resources frozen in this version." : "No resources yet."}
+        </p>
       ) : (
         <ul className="space-y-1.5">
           {resources.map((r) => (
             <li
-              key={r.id}
+              key={r.key}
               className="flex items-center gap-2 rounded-md border border-black/10 px-2.5 py-1.5 text-sm dark:border-white/10"
             >
               <FileText size={14} className="shrink-0 text-zinc-400" />
@@ -174,15 +225,17 @@ export default function ResourcesSection({
               <span className="shrink-0 rounded bg-black/5 px-1.5 py-0.5 text-xs font-medium text-zinc-500 dark:bg-white/10 dark:text-zinc-400">
                 {r.kind}
               </span>
-              <button
-                type="button"
-                onClick={() => remove(r)}
-                disabled={busy}
-                aria-label={`Delete resource ${r.name}`}
-                className="rounded p-1 text-zinc-400 transition-colors hover:bg-red-500/10 hover:text-red-500 disabled:opacity-50"
-              >
-                <Trash2 size={13} />
-              </button>
+              {!frozen && (
+                <button
+                  type="button"
+                  onClick={() => remove(r)}
+                  disabled={busy}
+                  aria-label={`Delete resource ${r.name}`}
+                  className="rounded p-1 text-zinc-400 transition-colors hover:bg-red-500/10 hover:text-red-500 disabled:opacity-50"
+                >
+                  <Trash2 size={13} />
+                </button>
+              )}
             </li>
           ))}
         </ul>

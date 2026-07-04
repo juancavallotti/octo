@@ -23,6 +23,7 @@ import type {
   IntegrationInput,
   Resource,
   Snapshot,
+  SnapshotResource,
   User,
 } from "@/app/model/orchestrator";
 import type {
@@ -251,6 +252,17 @@ export function createSnapshot(
 
 export function deleteSnapshot(id: string): Promise<ActionResult<void>> {
   return call<void>("DELETE", `/snapshots/${enc(id)}`);
+}
+
+/** The resources frozen alongside a tag's definition (metadata only; content is
+ * served separately by the runtime's loader). */
+export function listSnapshotResources(
+  snapshotId: string,
+): Promise<ActionResult<SnapshotResource[]>> {
+  return call<SnapshotResource[]>(
+    "GET",
+    `/snapshots/${enc(snapshotId)}/resources`,
+  );
 }
 
 // --- Resources ------------------------------------------------------------

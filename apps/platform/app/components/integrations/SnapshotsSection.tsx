@@ -21,6 +21,8 @@ export default function SnapshotsSection({
   integrationId,
   snapshots,
   deployedTags,
+  selectedTag,
+  onSelectTag,
   onChanged,
 }: {
   integrationId: string;
@@ -32,6 +34,10 @@ export default function SnapshotsSection({
    * is the authority; this is just an upfront hint.
    */
   deployedTags?: ReadonlySet<string>;
+  /** The active version scoping the Resources/Env panels, or null for the live
+   * working copy ("Current"). */
+  selectedTag: string | null;
+  onSelectTag: (tag: string | null) => void;
   onChanged: () => void;
 }) {
   const confirm = useConfirm();
@@ -83,6 +89,23 @@ export default function SnapshotsSection({
 
   return (
     <>
+      {/* Active-version selector: scopes the Resources/Env panels to a tag's
+          frozen snapshot, or to the live working copy ("Current"). */}
+      <select
+        value={selectedTag ?? ""}
+        aria-label="Active version"
+        onChange={(e) => onSelectTag(e.target.value || null)}
+        className="mb-2 w-full rounded-md border border-black/10 bg-transparent px-2 py-1 text-sm outline-none focus:border-black/30 dark:border-white/15 dark:focus:border-white/30"
+      >
+        <option value="">Current (working copy)</option>
+        {snapshots.map((s) => (
+          <option key={s.id} value={s.tag}>
+            {s.tag}
+            {deployedTags?.has(s.tag) ? " · deployed" : ""}
+          </option>
+        ))}
+      </select>
+
       <div className="mb-2 flex gap-2">
         <input
           value={value}
@@ -116,10 +139,15 @@ export default function SnapshotsSection({
         <ul className="space-y-1.5">
           {snapshots.map((s) => {
             const deployed = deployedTags?.has(s.tag) ?? false;
+            const active = selectedTag === s.tag;
             return (
               <li
                 key={s.id}
-                className="flex items-center gap-2 rounded-md border border-black/10 px-2.5 py-1.5 text-sm dark:border-white/10"
+                className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm ${
+                  active
+                    ? "border-sky-500/40 bg-sky-500/5"
+                    : "border-black/10 dark:border-white/10"
+                }`}
               >
                 <Tag size={14} className="shrink-0 text-zinc-400" />
                 <span className="min-w-0 flex-1 truncate font-medium">

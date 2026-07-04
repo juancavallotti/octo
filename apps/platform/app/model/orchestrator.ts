@@ -42,6 +42,19 @@ export interface Snapshot {
   createdAt: string;
 }
 
+/**
+ * A resource frozen alongside a tag's definition — metadata only (content is
+ * served separately, on demand, by the runtime's loader). Read-only, since a
+ * snapshot is immutable.
+ */
+export interface SnapshotResource {
+  /** "env" or "template". */
+  kind: string;
+  name: string;
+  /** RFC3339 timestamp of when the tag froze this resource. */
+  createdAt: string;
+}
+
 /** An integration resource: an env file or text template the runtime loads. */
 export interface Resource {
   id: string;
@@ -367,6 +380,13 @@ export async function createSnapshot(
 /** Delete a version tag (refused by the orchestrator if currently deployed). */
 export async function deleteSnapshot(id: string): Promise<void> {
   return unwrap(await snapshotActions.deleteSnapshot(id));
+}
+
+/** List the resources frozen alongside a tag's definition (metadata only). */
+export async function listSnapshotResources(
+  snapshotId: string,
+): Promise<SnapshotResource[]> {
+  return unwrap(await snapshotActions.listSnapshotResources(snapshotId));
 }
 
 // --- Resources ------------------------------------------------------------

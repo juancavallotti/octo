@@ -117,6 +117,17 @@ export default function IntegrationDetail({
     reloadSnapshots();
   }, [reloadSnapshots]);
 
+  // The active version scoping the Resources (and Env) panels: a tag, or null for
+  // the live working copy ("Current"). This component is keyed by integration id
+  // upstream, so it resets to Current when another integration is selected.
+  const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  // Resolve against the current tags so a deleted/absent tag transparently falls
+  // back to Current — derived (not corrected via an effect) so the dropdown and
+  // the scoped panels stay consistent without an extra render.
+  const selectedSnapshot =
+    (selectedTag && snapshots.find((s) => s.tag === selectedTag)) || null;
+  const effectiveTag = selectedSnapshot ? selectedTag : null;
+
   // Tags currently deployed (by tag string, which is unique per integration),
   // derived from the live deployment list owned by the Deployments section. The
   // Versions section uses this to disable delete on a deployed tag.
@@ -276,13 +287,22 @@ export default function IntegrationDetail({
             integrationId={integration.id}
             snapshots={snapshots}
             deployedTags={deployedTags}
+            selectedTag={effectiveTag}
+            onSelectTag={setSelectedTag}
             onChanged={reloadSnapshots}
           />
         </Section>
 
         <Section title="Resources">
-          {/* Self-loading; keyed by integration id so it resets on selection. */}
-          <ResourcesSection key={integration.id} integrationId={integration.id} />
+          {/* Scoped to the active version: the live working copy, or a tag's
+              frozen (read-only) set. Keyed by integration id so it resets on
+              selection; it reacts to version changes via props. */}
+          <ResourcesSection
+            key={integration.id}
+            integrationId={integration.id}
+            snapshotId={selectedSnapshot?.id}
+            versionLabel={effectiveTag ?? undefined}
+          />
         </Section>
 
         <Section title="Deployments">
