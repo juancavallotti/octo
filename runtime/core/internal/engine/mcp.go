@@ -30,6 +30,12 @@ const (
 	mcpNotificationStatus = 202
 )
 
+// Repeated JSON keys/values in the MCP wire shape, named so they are written once.
+const (
+	mcpKeyName = "name"
+	mcpKeyText = "text"
+)
+
 // JSON-RPC 2.0 error codes (the subset the router emits).
 const (
 	jsonrpcParseError     = -32700
@@ -258,7 +264,7 @@ func (m *mcpRouter) initialize(req jsonrpcRequest) jsonrpcResponse {
 			"resources": map[string]any{},
 			"prompts":   map[string]any{},
 		},
-		"serverInfo": map[string]any{"name": m.serverName, "version": mcpServerVersion},
+		"serverInfo": map[string]any{mcpKeyName: m.serverName, "version": mcpServerVersion},
 	})
 }
 
@@ -267,9 +273,9 @@ func (m *mcpRouter) toolList() []map[string]any {
 	tools := make([]map[string]any, 0, len(m.tools))
 	for _, t := range m.tools {
 		tools = append(tools, map[string]any{
-			"name":        t.Name,
+			mcpKeyName:    t.Name,
 			"description": t.Description,
-			"inputSchema": json.RawMessage(t.InputSchema),
+			"inputSchema": t.InputSchema,
 		})
 	}
 	return tools
@@ -301,7 +307,7 @@ func (m *mcpRouter) callTool(ctx context.Context, req jsonrpcRequest, msg *types
 // toolCallResult wraps text as an MCP tool result content block.
 func toolCallResult(text string, isError bool) map[string]any {
 	return map[string]any{
-		"content": []map[string]any{{"type": "text", "text": text}},
+		"content": []map[string]any{{"type": mcpKeyText, mcpKeyText: text}},
 		"isError": isError,
 	}
 }
@@ -310,7 +316,7 @@ func toolCallResult(text string, isError bool) map[string]any {
 func (m *mcpRouter) resourceList() []map[string]any {
 	out := make([]map[string]any, 0, len(m.resources))
 	for _, r := range m.resources {
-		entry := map[string]any{"uri": r.uri, "name": r.name, "mimeType": r.mimeType}
+		entry := map[string]any{"uri": r.uri, mcpKeyName: r.name, "mimeType": r.mimeType}
 		if r.description != "" {
 			entry["description"] = r.description
 		}
@@ -336,7 +342,7 @@ func (m *mcpRouter) readResource(ctx context.Context, req jsonrpcRequest, msg *t
 		return errorResponse(req.ID, jsonrpcInternalError, fmt.Sprintf("read resource %q: %v", res.uri, err))
 	}
 	return okResponse(req.ID, map[string]any{
-		"contents": []map[string]any{{"uri": res.uri, "mimeType": res.mimeType, "text": text}},
+		"contents": []map[string]any{{"uri": res.uri, "mimeType": res.mimeType, mcpKeyText: text}},
 	})
 }
 
@@ -344,14 +350,14 @@ func (m *mcpRouter) readResource(ctx context.Context, req jsonrpcRequest, msg *t
 func (m *mcpRouter) promptList() []map[string]any {
 	out := make([]map[string]any, 0, len(m.prompts))
 	for _, p := range m.prompts {
-		entry := map[string]any{"name": p.name}
+		entry := map[string]any{mcpKeyName: p.name}
 		if p.description != "" {
 			entry["description"] = p.description
 		}
 		if len(p.arguments) > 0 {
 			args := make([]map[string]any, 0, len(p.arguments))
 			for _, a := range p.arguments {
-				arg := map[string]any{"name": a.Name, "required": a.Required}
+				arg := map[string]any{mcpKeyName: a.Name, "required": a.Required}
 				if a.Description != "" {
 					arg["description"] = a.Description
 				}
@@ -395,7 +401,7 @@ func (m *mcpRouter) getPrompt(ctx context.Context, req jsonrpcRequest) jsonrpcRe
 	result := map[string]any{
 		"messages": []map[string]any{{
 			"role":    "user",
-			"content": map[string]any{"type": "text", "text": text},
+			"content": map[string]any{"type": mcpKeyText, mcpKeyText: text},
 		}},
 	}
 	if prompt.description != "" {
