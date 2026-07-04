@@ -1,6 +1,11 @@
-import type { IntegrationRecord, IntegrationStore } from "@octo/mcp";
+import type {
+  IntegrationRecord,
+  IntegrationStore,
+  ResourceRecord,
+  ResourceStore,
+} from "@octo/mcp";
 import type { ActionResult } from "@octo/http";
-import type { Integration } from "@/app/model/orchestrator";
+import type { Integration, Resource } from "@/app/model/orchestrator";
 import { publishIntegrationEvent } from "@/app/lib/integrationEvents";
 import * as client from "@/app/actions/_client";
 
@@ -58,5 +63,43 @@ export const orchestratorIntegrationStore: IntegrationStore = {
         ),
       ),
     );
+  },
+};
+
+/** Drop the orchestrator's timestamps, coercing kind to the MCP union. */
+function toResource(r: Resource): ResourceRecord {
+  return {
+    id: r.id,
+    integrationId: r.integrationId,
+    kind: r.kind === "env" ? "env" : "template",
+    name: r.name,
+    content: r.content,
+  };
+}
+
+/**
+ * The platform host's {@link ResourceStore}: a thin shim over the orchestrator's
+ * nested `/integrations/{id}/resources` routes, through the same typed client the
+ * server actions use. Every resource is addressed within its owning integration —
+ * a resource id alone is not a valid address. `update` is a full replace (the
+ * MCP tool layer fills any omitted kind/name from `get` first).
+ */
+export const orchestratorResourceStore: ResourceStore = {
+  list: async (integrationId) =>
+    unwrap(await client.listResources(integrationId)).map(toResource),
+  get: async (integrationId, resourceId) =>
+    toResource(unwrap(await client.getResource(integrationId, resourceId))),
+  create: async (integrationId, kind, name, content) =>
+    toResource(
+      unwrap(await client.createResource(integrationId, kind, name, content)),
+    ),
+  update: async (integrationId, resourceId, kind, name, content) =>
+    toResource(
+      unwrap(
+        await client.updateResource(integrationId, resourceId, kind, name, content),
+      ),
+    ),
+  remove: async (integrationId, resourceId) => {
+    unwrap(await client.deleteResource(integrationId, resourceId));
   },
 };

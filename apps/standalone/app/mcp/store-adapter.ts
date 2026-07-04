@@ -1,6 +1,12 @@
-import type { IntegrationRecord, IntegrationStore } from "@octo/mcp";
+import type {
+  IntegrationRecord,
+  IntegrationStore,
+  ResourceRecord,
+  ResourceStore,
+} from "@octo/mcp";
 import { publish } from "@octo/events";
 import * as store from "../api/fs/store";
+import * as resources from "../api/fs/resourceStore";
 
 /**
  * The standalone host's {@link IntegrationStore}: a thin shim over the local disk
@@ -30,4 +36,63 @@ export const fsIntegrationStore: IntegrationStore = {
         ? await store.writeFlow(id, definition)
         : await store.updateFlow(id, name, definition),
     ),
+};
+
+/** Env-convention names are env resources; everything else is a template. */
+function kindFor(name: string): "env" | "template" {
+  const base = (name.toLowerCase().split("/").pop() ?? "").trim();
+  return base === ".env" || base.startsWith(".env.") || base.endsWith(".env")
+    ? "env"
+    : "template";
+}
+
+/** Build a {@link ResourceRecord} from a disk file: its name doubles as its id. */
+function toRecord(
+  integrationId: string,
+  name: string,
+  content: string,
+): ResourceRecord {
+  return { id: name, integrationId, kind: kindFor(name), name, content };
+}
+
+/**
+ * The standalone host's {@link ResourceStore}: a thin shim over the flat local-disk
+ * resource store the editor's Resources tab already uses. Storage is shared across
+ * flows (no per-integration partition on disk), so the integration id is echoed but
+ * not used to locate files, and a resource's path-like name doubles as its id (kind
+ * is inferred from the name). `update` renames when the name changes, then rewrites
+ * content — matching the editor's move-then-save.
+ */
+export const fsResourceStore: ResourceStore = {
+  list: async (integrationId) =>
+    (await resources.listResources()).map((r) =>
+      toRecord(integrationId, r.name, r.content),
+    ),
+  get: async (integrationId, resourceId) => {
+    const content = await resources.readResource(resourceId);
+    if (content === null) throw new Error(`no such resource: ${resourceId}`);
+    return toRecord(integrationId, resourceId, content);
+  },
+  create: async (integrationId, _kind, name, content) => {
+    if (!name.trim()) throw new Error("name is required");
+    if ((await resources.readResource(name)) !== null) {
+      throw new Error("a resource with that name already exists");
+    }
+    await resources.writeResource(name, content);
+    return toRecord(integrationId, name, content);
+  },
+  update: async (integrationId, resourceId, _kind, name, content) => {
+    if (!name.trim()) throw new Error("name is required");
+    if (name !== resourceId) {
+      if ((await resources.readResource(name)) !== null) {
+        throw new Error("a resource with that name already exists");
+      }
+      await resources.renameResource(resourceId, name);
+    }
+    await resources.writeResource(name, content);
+    return toRecord(integrationId, name, content);
+  },
+  remove: async (_integrationId, resourceId) => {
+    await resources.deleteResource(resourceId);
+  },
 };

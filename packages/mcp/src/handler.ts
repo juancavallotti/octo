@@ -4,6 +4,7 @@ import type { OctoMcpConfig } from "./backend";
 import type { RunHostPort } from "./run-host";
 import { createNamespaceResolver } from "./namespace";
 import { registerIntegrationTools } from "./tools/integration";
+import { registerResourceTools } from "./tools/resource";
 import { registerRunTools } from "./tools/run";
 import {
   registerExampleResources,
@@ -48,6 +49,7 @@ export function createOctoMcpHandler(
   return createMcpHandler(
     (server) => {
       registerIntegrationTools(server, config);
+      registerResourceTools(server, config);
       registerRunTools(server, config, runHost, resolveNamespace);
       registerRuntimeSchemaResource(server, config);
       registerExampleResources(server);

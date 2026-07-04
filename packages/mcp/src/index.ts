@@ -11,6 +11,8 @@ export type {
   IntegrationRecord,
   IntegrationStore,
   OctoMcpConfig,
+  ResourceRecord,
+  ResourceStore,
   ValidationOutcome,
 } from "./backend";
 export type { RunHostPort, RunStatusLike, RunLogLine } from "./run-host";

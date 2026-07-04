@@ -34,6 +34,47 @@ export interface IntegrationStore {
   ): Promise<IntegrationRecord>;
 }
 
+/**
+ * A stored integration resource: an external file the integration's config loads
+ * at deploy/run time. `kind` is `env` (a `.env`-convention file merged into the
+ * runtime environment) or `template` (a text template that may embed `{{ }}`
+ * expressions). `name` is path-like (may contain `/`); a resource is addressed by
+ * its opaque `id` within its owning integration, never by name.
+ */
+export interface ResourceRecord {
+  id: string;
+  integrationId: string;
+  kind: "env" | "template";
+  name: string;
+  content: string;
+}
+
+/**
+ * CRUD over one integration's resources, keyed by integration id (stateless — the
+ * MCP layer holds no resource state). A thin, full-replace shim mirroring the
+ * host's existing resource layer (nested `/integrations/{id}/resources` routes on
+ * the platform, the flat disk store on standalone): `update` replaces the whole
+ * record, so the tool layer fills any omitted `kind`/`name` from `get` first.
+ */
+export interface ResourceStore {
+  list(integrationId: string): Promise<ResourceRecord[]>;
+  get(integrationId: string, resourceId: string): Promise<ResourceRecord>;
+  create(
+    integrationId: string,
+    kind: string,
+    name: string,
+    content: string,
+  ): Promise<ResourceRecord>;
+  update(
+    integrationId: string,
+    resourceId: string,
+    kind: string,
+    name: string,
+    content: string,
+  ): Promise<ResourceRecord>;
+  remove(integrationId: string, resourceId: string): Promise<void>;
+}
+
 /** The outcome of validating a definition before a run. */
 export interface ValidationOutcome {
   valid: boolean;
@@ -64,6 +105,15 @@ export interface OctoMcpConfig {
    * capability on a host without resources.
    */
   resources?: (integrationId?: string) => ResourceProvider | undefined;
+  /**
+   * CRUD over an integration's stored resources (env files, templates), backing
+   * the resource-management tools (`list_resources`, `open_resource`,
+   * `create_resource`, `update_resource`, `delete_resource`). Distinct from
+   * {@link OctoMcpConfig.resources}, which stages a run's resources for the run
+   * host. Omit on a host without a resource store — the CRUD tools then aren't
+   * registered (but `list_env_keys` still works from the definition alone).
+   */
+  resourceStore?: ResourceStore;
   /**
    * Public origin used to absolutize a run's test path (e.g.
    * `http://localhost:3000`). When unset, the bare `/editor/runs/<ns>/` path is
