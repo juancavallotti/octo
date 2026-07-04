@@ -46,16 +46,21 @@ interface Props {
   onRename: (name: string) => Promise<boolean>;
 }
 
-/** A labelled section wrapper; the unit future operating data plugs into. */
+/** A labelled section card; the unit the detail grid is composed of. `className`
+ * lets a cell span columns in the grid. */
 function Section({
   title,
+  className,
   children,
 }: {
   title: string;
+  className?: string;
   children: React.ReactNode;
 }) {
   return (
-    <section className="border-t border-black/10 px-4 py-3 dark:border-white/10">
+    <section
+      className={`rounded-lg border border-black/10 p-3 dark:border-white/10 ${className ?? ""}`}
+    >
       <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">
         {title}
       </h3>
@@ -258,63 +263,70 @@ export default function IntegrationDetail({
         </button>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <Section title="Details">
-          <Row label="Folder" value={folderPath} />
-          <Row label="Created by" value={createdByLabel} />
-          <Row label="Last updated" value={updatedLabel} />
-          <Row label="Updated by" value={updatedByLabel} />
-          <Row
-            label="ID"
-            value={<span className="font-mono text-xs">{integration.id}</span>}
-          />
-        </Section>
+      {/* Two-column grid: Details · Deployments / Versions · Definition /
+          Resources (full width until the Env panel joins it). Collapses to a
+          single column on narrow widths. */}
+      <div className="min-h-0 flex-1 overflow-y-auto p-3">
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+          <Section title="Details">
+            <Row label="Folder" value={folderPath} />
+            <Row label="Created by" value={createdByLabel} />
+            <Row label="Last updated" value={updatedLabel} />
+            <Row label="Updated by" value={updatedByLabel} />
+            <Row
+              label="ID"
+              value={<span className="font-mono text-xs">{integration.id}</span>}
+            />
+          </Section>
 
-        <Section title="Definition">
-          {summary ? (
-            <>
-              <Row label="Flows" value={summary.flows} />
-              <Row label="Sources" value={summary.sources} />
-              <Row label="Connectors" value={summary.connectors} />
-            </>
-          ) : (
-            <p className="text-sm text-zinc-400">Definition could not be parsed.</p>
-          )}
-        </Section>
+          <Section title="Deployments">
+            {/* Keyed by integration id so switching selection resets its state. */}
+            <DeploymentsSection
+              key={integration.id}
+              integrationId={integration.id}
+              integrationName={integration.name}
+              snapshots={snapshots}
+              onDeploymentsChange={onDeploymentsChange}
+            />
+          </Section>
 
-        <Section title="Versions">
-          <SnapshotsSection
-            integrationId={integration.id}
-            snapshots={snapshots}
-            deployedTags={deployedTags}
-            selectedTag={effectiveTag}
-            onSelectTag={setSelectedTag}
-            onChanged={reloadSnapshots}
-          />
-        </Section>
+          <Section title="Versions">
+            <SnapshotsSection
+              integrationId={integration.id}
+              snapshots={snapshots}
+              deployedTags={deployedTags}
+              selectedTag={effectiveTag}
+              onSelectTag={setSelectedTag}
+              onChanged={reloadSnapshots}
+            />
+          </Section>
 
-        <Section title="Resources">
-          {/* Scoped to the active version: the live working copy, or a tag's
-              frozen (read-only) set. Keyed by integration id so it resets on
-              selection; it reacts to version changes via props. */}
-          <ResourcesSection
-            key={integration.id}
-            integrationId={integration.id}
-            snapshotId={selectedSnapshot?.id}
-            versionLabel={effectiveTag ?? undefined}
-          />
-        </Section>
+          <Section title="Definition">
+            {summary ? (
+              <>
+                <Row label="Flows" value={summary.flows} />
+                <Row label="Sources" value={summary.sources} />
+                <Row label="Connectors" value={summary.connectors} />
+              </>
+            ) : (
+              <p className="text-sm text-zinc-400">
+                Definition could not be parsed.
+              </p>
+            )}
+          </Section>
 
-        <Section title="Deployments">
-          {/* Keyed by integration id so switching selection resets its state. */}
-          <DeploymentsSection
-            key={integration.id}
-            integrationId={integration.id}
-            integrationName={integration.name}
-            snapshots={snapshots}
-            onDeploymentsChange={onDeploymentsChange}
-          />
-        </Section>
+          <Section title="Resources" className="lg:col-span-2">
+            {/* Scoped to the active version: the live working copy, or a tag's
+                frozen (read-only) set. Keyed by integration id so it resets on
+                selection; it reacts to version changes via props. */}
+            <ResourcesSection
+              key={integration.id}
+              integrationId={integration.id}
+              snapshotId={selectedSnapshot?.id}
+              versionLabel={effectiveTag ?? undefined}
+            />
+          </Section>
+        </div>
       </div>
     </div>
   );

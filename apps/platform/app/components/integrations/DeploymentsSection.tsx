@@ -27,6 +27,13 @@ import DeployModal from "./DeployModal";
 // Polling cadence used only as a fallback when the SSE stream is unavailable.
 const FALLBACK_POLL_MS = 5000;
 
+// A concise option label for the selector bar: status, the version tag (or a
+// short id for legacy deployments), and the ready/desired count.
+function deploymentLabel(d: Deployment): string {
+  const version = d.tag ?? d.id.slice(0, 8);
+  return `${d.status} · ${version} · ${d.readyReplicas}/${d.desiredReplicas} ready`;
+}
+
 export default function DeploymentsSection({
   integrationId,
   integrationName,
@@ -48,6 +55,12 @@ export default function DeploymentsSection({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  // Which deployment's details are shown below the selector bar. Resolved against
+  // the live list so it survives refreshes and falls back to the first deployment
+  // when the selection goes away (derived, no correcting effect).
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected =
+    deployments.find((d) => d.id === selectedId) ?? deployments[0] ?? null;
 
   // Mirror the live list up to the parent (for the Versions section's deployed-tag
   // hint). Effect-driven so it stays in sync regardless of which path — first
@@ -164,12 +177,31 @@ export default function DeploymentsSection({
 
   return (
     <>
-      <div className="mb-2 flex justify-end">
+      {/* Selector bar: pick which deployment to inspect; its details render below.
+          The Deploy action sits alongside so it's always reachable. */}
+      <div className="mb-2 flex gap-2">
+        {deployments.length === 0 ? (
+          <p className="flex-1 py-1 text-sm text-zinc-400">Not deployed.</p>
+        ) : (
+          <select
+            value={selected?.id ?? ""}
+            aria-label="Deployment"
+            disabled={busy}
+            onChange={(e) => setSelectedId(e.target.value)}
+            className="min-w-0 flex-1 rounded-md border border-black/10 bg-transparent px-2 py-1 text-sm outline-none focus:border-black/30 dark:border-white/15 dark:focus:border-white/30"
+          >
+            {deployments.map((d) => (
+              <option key={d.id} value={d.id}>
+                {deploymentLabel(d)}
+              </option>
+            ))}
+          </select>
+        )}
         <button
           type="button"
           onClick={openModal}
           disabled={busy}
-          className="inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1 text-sm font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-50"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1 text-sm font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-50"
         >
           <Rocket size={14} />
           Deploy
@@ -179,21 +211,17 @@ export default function DeploymentsSection({
       {/* Errors from undeploy show inline; deploy errors show inside the modal. */}
       {error && !modalOpen && <p className="mb-2 text-sm text-red-500">{error}</p>}
 
-      {deployments.length === 0 ? (
-        <p className="text-sm text-zinc-400">Not deployed.</p>
-      ) : (
-        <ul className="space-y-1.5">
-          {deployments.map((d) => (
-            <DeploymentRow
-              key={d.id}
-              deployment={d}
-              busy={busy}
-              snapshots={snapshots}
-              onScale={scale}
-              onRollout={rollout}
-              onUndeploy={undeploy}
-            />
-          ))}
+      {selected && (
+        <ul>
+          <DeploymentRow
+            key={selected.id}
+            deployment={selected}
+            busy={busy}
+            snapshots={snapshots}
+            onScale={scale}
+            onRollout={rollout}
+            onUndeploy={undeploy}
+          />
         </ul>
       )}
 
