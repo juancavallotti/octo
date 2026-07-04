@@ -691,6 +691,13 @@
           "description": "Named, described branches wired to the model as callable functions."
         },
         {
+          "name": "skills",
+          "label": "Skills",
+          "type": "skill-list",
+          "required": false,
+          "description": "Named instruction resources the agent can load on demand. Each skill's name and description are shown to the model up front; it calls the implicit load_skill tool to pull the resource's full content into the conversation."
+        },
+        {
           "name": "default",
           "label": "Default",
           "type": "flow",
@@ -713,6 +720,44 @@
           "type": "cel",
           "required": true,
           "description": "CEL expression for the thread id whose memory is cleared."
+        }
+      ]
+    },
+    {
+      "type": "mcp-router",
+      "label": "MCP Router",
+      "category": "control-flow",
+      "group": "AI & LLM",
+      "icon": "Mcp",
+      "description": "Turn a flow into a stateless MCP server behind an HTTP source: advertise tool flows as MCP tools, template resources as MCP resources and prompts, and route tools/call to the matching flow. Calls no LLM.",
+      "fields": [
+        {
+          "name": "serverName",
+          "label": "Server name",
+          "type": "string",
+          "required": false,
+          "description": "Name reported in the MCP initialize response; defaults to the block name."
+        },
+        {
+          "name": "tools",
+          "label": "Tools",
+          "type": "tool-list",
+          "required": false,
+          "description": "Flows exposed as MCP tools. A tools/call runs the matching flow with the call arguments as its body."
+        },
+        {
+          "name": "resources",
+          "label": "Resources",
+          "type": "mcp-resource-list",
+          "required": false,
+          "description": "Template resources advertised as MCP resources and served on resources/read."
+        },
+        {
+          "name": "prompts",
+          "label": "Prompts",
+          "type": "mcp-prompt-list",
+          "required": false,
+          "description": "Template resources advertised as MCP prompts and rendered on prompts/get; the supplied arguments are exposed to the template as the body."
         }
       ]
     },

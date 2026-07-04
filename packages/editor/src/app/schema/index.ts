@@ -28,6 +28,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { SlackIcon } from "./slack-icon";
+import { McpIcon } from "./mcp-icon";
 import capsJson from "./capabilities.json";
 import type {
   BlockSpec,
@@ -70,6 +71,7 @@ const ICONS: Record<string, LucideIcon> = {
   Radio,
   FileText,
   Slack: SlackIcon,
+  Mcp: McpIcon,
 };
 
 /** Resolve a block's icon name to a component, falling back to a generic box. */

@@ -459,6 +459,18 @@ func buildRetrySystem(prompt string) string {
 // falling back to the guardrail. Each turn is one model call.
 const defaultAgentIterations = 8
 
+// skillLoadToolName is the implicit tool an ai-agent with skills exposes to load
+// a skill's content on demand. It is reserved: no user tool or skill may use it.
+const skillLoadToolName = "load_skill"
+
+// agentSkill is one loadable skill: its advertised name/description and the
+// template resource whose rendered text load_skill returns.
+type agentSkill struct {
+	name        string
+	description string
+	resource    string
+}
+
 // aiAgent is a composite that lets an LLM accomplish a task by calling its
 // branches as tools, one or more times, in a loop. Each branch is wired to the
 // model as a function: the model's arguments become the branch's message body and
@@ -474,6 +486,11 @@ type aiAgent struct {
 	maxIterations int
 	name          string
 	connector     string
+	// skills are named instruction resources the agent can load on demand via
+	// the implicit load_skill tool. skillRegistry renders a skill's template
+	// resource against the current message when it is loaded.
+	skills        []agentSkill
+	skillRegistry *expr.TemplateRegistry
 	// Conversation memory (optional). When memoryThreadID is nil, memory is
 	// disabled and the agent is stateless across invocations. When set, the agent
 	// loads the thread's transcript before its run and saves the accumulated
@@ -493,7 +510,7 @@ func (b *builder) aiAgent(cfg types.BlockConfig) (core.MessageProcessor, error) 
 		return nil, errors.New("ai-agent block requires a prompt")
 	}
 	if err := allowSlots(cfg, blockKindAIAgent,
-		"tools", "default", "connector", "prompt", "guardrail", "maxIterations",
+		"tools", "skills", "default", "connector", "prompt", "guardrail", "maxIterations",
 		"memoryThreadId", "memoryMaxTokens", "memoryCompaction"); err != nil {
 		return nil, err
 	}
@@ -503,9 +520,17 @@ func (b *builder) aiAgent(cfg types.BlockConfig) (core.MessageProcessor, error) 
 		return nil, err
 	}
 
-	branches, tools, err := b.agentTools(cfg.Tools)
+	branches, tools, err := b.agentTools(blockKindAIAgent, cfg.Tools)
 	if err != nil {
 		return nil, err
+	}
+
+	skills, err := b.agentSkills(cfg.Skills, tools)
+	if err != nil {
+		return nil, err
+	}
+	if len(skills) > 0 {
+		tools = append(tools, loadSkillTool(skills))
 	}
 
 	maxIterations := cfg.MaxIterations
@@ -515,9 +540,11 @@ func (b *builder) aiAgent(cfg types.BlockConfig) (core.MessageProcessor, error) 
 
 	block := &aiAgent{
 		client:        client,
-		system:        buildAgentSystem(cfg.Prompt, cfg.Guardrail),
+		system:        buildAgentSystem(cfg.Prompt, cfg.Guardrail, skills),
 		tools:         tools,
 		branches:      branches,
+		skills:        skills,
+		skillRegistry: expr.NewTemplateRegistry(b.deps.Resources),
 		maxIterations: maxIterations,
 		name:          cfg.Name,
 		connector:     cfg.Connector,
@@ -567,20 +594,21 @@ func (b *builder) configureAgentMemory(block *aiAgent, cfg types.BlockConfig) er
 }
 
 // agentTools builds the tool branches and their model-facing definitions,
-// validating names, descriptions, uniqueness, and schemas.
-func (b *builder) agentTools(configs []types.ToolConfig) (map[string]*Flow, []core.LLMTool, error) {
+// validating names, descriptions, uniqueness, and schemas. kind labels errors so
+// the ai-agent and the mcp-router each report against their own block type.
+func (b *builder) agentTools(kind string, configs []types.ToolConfig) (map[string]*Flow, []core.LLMTool, error) {
 	branches := make(map[string]*Flow, len(configs))
 	tools := make([]core.LLMTool, 0, len(configs))
 	for i := range configs {
 		tool := configs[i]
 		if tool.Name == "" {
-			return nil, nil, fmt.Errorf("ai-agent tool %d requires a name", i)
+			return nil, nil, fmt.Errorf("%s tool %d requires a name", kind, i)
 		}
 		if tool.Description == "" {
-			return nil, nil, fmt.Errorf("ai-agent tool %q requires a description", tool.Name)
+			return nil, nil, fmt.Errorf("%s tool %q requires a description", kind, tool.Name)
 		}
 		if _, dup := branches[tool.Name]; dup {
-			return nil, nil, fmt.Errorf("ai-agent tool %q is defined more than once", tool.Name)
+			return nil, nil, fmt.Errorf("%s tool %q is defined more than once", kind, tool.Name)
 		}
 		schema, err := toolInputSchema(tool)
 		if err != nil {
@@ -594,6 +622,63 @@ func (b *builder) agentTools(configs []types.ToolConfig) (map[string]*Flow, []co
 		tools = append(tools, core.LLMTool{Name: tool.Name, Description: tool.Description, InputSchema: schema})
 	}
 	return branches, tools, nil
+}
+
+// agentSkills builds the agent's skill set, validating names, descriptions, and
+// resources, and rejecting duplicates, the reserved load_skill name, and
+// collisions with a tool of the same name. It returns nil when no skills are
+// configured (the agent then exposes no load_skill tool).
+func (b *builder) agentSkills(configs []types.SkillConfig, tools []core.LLMTool) ([]agentSkill, error) {
+	if len(configs) == 0 {
+		return nil, nil
+	}
+	toolNames := make(map[string]bool, len(tools))
+	for _, t := range tools {
+		toolNames[t.Name] = true
+	}
+	if toolNames[skillLoadToolName] {
+		return nil, fmt.Errorf("ai-agent tool %q uses the reserved name for the skill loader", skillLoadToolName)
+	}
+	skills := make([]agentSkill, 0, len(configs))
+	seen := make(map[string]bool, len(configs))
+	for i := range configs {
+		s := configs[i]
+		switch {
+		case s.Name == "":
+			return nil, fmt.Errorf("ai-agent skill %d requires a name", i)
+		case s.Name == skillLoadToolName:
+			return nil, fmt.Errorf("ai-agent skill %q uses the reserved name %q", s.Name, skillLoadToolName)
+		case s.Description == "":
+			return nil, fmt.Errorf("ai-agent skill %q requires a description", s.Name)
+		case s.Resource == "":
+			return nil, fmt.Errorf("ai-agent skill %q requires a resource", s.Name)
+		case seen[s.Name]:
+			return nil, fmt.Errorf("ai-agent skill %q is defined more than once", s.Name)
+		case toolNames[s.Name]:
+			return nil, fmt.Errorf("ai-agent skill %q collides with a tool of the same name", s.Name)
+		}
+		seen[s.Name] = true
+		skills = append(skills, agentSkill{name: s.Name, description: s.Description, resource: s.Resource})
+	}
+	return skills, nil
+}
+
+// loadSkillTool builds the implicit load_skill tool, restricting its name
+// argument to the configured skill names.
+func loadSkillTool(skills []agentSkill) core.LLMTool {
+	names := make([]string, len(skills))
+	for i, s := range skills {
+		names[i] = s.name
+	}
+	enumJSON, _ := json.Marshal(names)
+	return core.LLMTool{
+		Name: skillLoadToolName,
+		Description: "Load a skill's full instructions by name before acting on its area. " +
+			"The available skills are listed in the system prompt.",
+		InputSchema: json.RawMessage(fmt.Sprintf(
+			`{"type":"object","properties":{"name":{"type":"string","enum":%s,`+
+				`"description":"The skill to load."}},"required":["name"]}`, enumJSON)),
+	}
 }
 
 // Process runs the agentic loop: the model calls tools (branches) until it
@@ -707,29 +792,84 @@ func (a *aiAgent) runTool(
 ) (core.LLMToolResult, *types.Message) {
 	slog.Info("ai-agent tool call", "block", a.name, "tool", call.Name)
 	slog.Debug("ai-agent tool input", "block", a.name, "tool", call.Name, "input", truncForLog(string(call.Input)))
+	if call.Name == skillLoadToolName {
+		return a.loadSkill(ctx, call, current), current
+	}
 	flow, ok := a.branches[call.Name]
 	if !ok {
 		return errorResult(call.ID, fmt.Sprintf("unknown tool %q", call.Name)), current
 	}
-	args := call.Input
+	content, out, errMsg := dispatchToolBranch(ctx, flow, call.Input, current)
+	if errMsg != "" {
+		return errorResult(call.ID, errMsg), out
+	}
+	return core.LLMToolResult{ToolCallID: call.ID, Content: content}, out
+}
+
+// dispatchToolBranch runs a tool's flow branch on the shared message: the JSON
+// args become the message body and the branch's output body is returned as a JSON
+// string. It returns the (possibly updated) message so shared state carries
+// forward, and a non-empty errMsg describing any failure to surface. It is the
+// single seam both the ai-agent (runTool) and the mcp-router use to route a tool
+// call to a flow.
+func dispatchToolBranch(
+	ctx context.Context, flow *Flow, args json.RawMessage, current *types.Message,
+) (content string, out *types.Message, errMsg string) {
 	if len(args) == 0 {
 		args = json.RawMessage("{}")
 	}
 	if err := current.SetBodyJSON(args); err != nil {
-		return errorResult(call.ID, fmt.Sprintf("invalid arguments: %v", err)), current
+		return "", current, fmt.Sprintf("invalid arguments: %v", err)
 	}
-	out, err := flow.Process(ctx, current)
+	res, err := flow.Process(ctx, current)
 	if err != nil {
-		return errorResult(call.ID, err.Error()), current
+		return "", current, err.Error()
 	}
-	if out == nil {
-		return errorResult(call.ID, "tool produced no result"), current
+	if res == nil {
+		return "", current, "tool produced no result"
 	}
-	content, err := out.BodyJSON()
+	encoded, err := res.BodyJSON()
 	if err != nil {
-		return errorResult(call.ID, fmt.Sprintf("encode result: %v", err)), out
+		return "", res, fmt.Sprintf("encode result: %v", err)
 	}
-	return core.LLMToolResult{ToolCallID: call.ID, Content: string(content)}, out
+	return string(encoded), res, ""
+}
+
+// loadSkill serves a load_skill tool call: it renders the named skill's template
+// resource against the current message and returns the text as the tool result.
+// An unknown skill or a render failure becomes an error result fed back to the
+// model rather than aborting the agent.
+func (a *aiAgent) loadSkill(ctx context.Context, call core.LLMToolCall, msg *types.Message) core.LLMToolResult {
+	var args struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(call.Input, &args); err != nil || args.Name == "" {
+		return errorResult(call.ID, "invalid arguments: name is required")
+	}
+	skill, ok := a.findSkill(args.Name)
+	if !ok {
+		return errorResult(call.ID, fmt.Sprintf("unknown skill %q", args.Name))
+	}
+	tpl, err := a.skillRegistry.Get(ctx, skill.resource)
+	if err != nil {
+		return errorResult(call.ID, fmt.Sprintf("load skill %q: %v", skill.name, err))
+	}
+	rendered, err := tpl.Render(expr.MessageActivation(msg, a.env))
+	if err != nil {
+		return errorResult(call.ID, fmt.Sprintf("render skill %q: %v", skill.name, err))
+	}
+	slog.Info("ai-agent loaded skill", "block", a.name, "skill", skill.name)
+	return core.LLMToolResult{ToolCallID: call.ID, Content: rendered}
+}
+
+// findSkill returns the configured skill with the given name.
+func (a *aiAgent) findSkill(name string) (agentSkill, bool) {
+	for _, s := range a.skills {
+		if s.name == name {
+			return s, true
+		}
+	}
+	return agentSkill{}, false
 }
 
 // fallback runs the guardrail flow, or errors when none is configured so the
@@ -772,13 +912,21 @@ func toolInputSchema(tool types.ToolConfig) (json.RawMessage, error) {
 	return json.RawMessage(schema), nil
 }
 
-// buildAgentSystem assembles the agent's task system prompt.
-func buildAgentSystem(prompt, guardrail string) string {
+// buildAgentSystem assembles the agent's task system prompt, listing any skills
+// so the model knows what it can load via load_skill.
+func buildAgentSystem(prompt, guardrail string, skills []agentSkill) string {
 	var b strings.Builder
 	b.WriteString("You are an agent that accomplishes a task by calling the available tools. ")
 	b.WriteString("Call tools as needed; when the task is complete, respond with the final result ")
 	b.WriteString("as JSON only (no prose, no markdown code fences).\n\n")
 	b.WriteString(strings.TrimSpace(prompt))
+	if len(skills) > 0 {
+		b.WriteString("\n\nYou have these skills available. Call load_skill(name) to read a skill's ")
+		b.WriteString("full instructions before acting on its area:\n")
+		for _, s := range skills {
+			fmt.Fprintf(&b, "- %s: %s\n", s.name, s.description)
+		}
+	}
 	if strings.TrimSpace(guardrail) != "" {
 		b.WriteString("\n\nGuardrail: ")
 		b.WriteString(strings.TrimSpace(guardrail))

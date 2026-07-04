@@ -780,6 +780,64 @@ flows:
 `,
 };
 
+/** An ai-agent that loads instruction resources as skills on demand. */
+const AI_AGENT_SKILLS: Example = {
+  slug: "ai-agent-skills",
+  title: "ai-agent-skills — load instruction resources as skills",
+  summary:
+    "An ai-agent with a `skills` list: each skill binds a name + description (shown to the model up front) to a template resource. The agent calls the implicit load_skill tool to pull a skill's full content into the conversation only when relevant, keeping the base prompt small. The skill bodies are declared under resources.templates (their own files). Needs ANTHROPIC_API_KEY. The agent's fields (connector/prompt/tools/skills) sit at the block top level.",
+  blocks: ["ai-agent", "set-payload"],
+  definition: `service:
+  name: ai-agent-skills
+
+env:
+  - name: ANTHROPIC_API_KEY
+    required: true
+
+# Skill bodies are template resources referenced by their \`as\` alias.
+resources:
+  templates:
+    - resource: skills/refunds.md
+      as: refunds
+    - resource: skills/shipping.md
+      as: shipping
+
+connectors:
+  - name: claude
+    type: llm-anthropic
+    settings:
+      apiKey: \${ANTHROPIC_API_KEY}
+
+flows:
+  - name: support
+    process:
+      - type: ai-agent
+        name: support-assistant
+        connector: claude
+        prompt: >
+          You are a customer-support assistant. Load the relevant skill to ground
+          your answer in policy, then respond with JSON {"answer": "..."}.
+        # Only name + description are in the prompt up front; load_skill(name)
+        # fetches the body on demand.
+        skills:
+          - name: refunds
+            description: How to decide and explain refunds by order age and type.
+            resource: refunds
+          - name: shipping
+            description: Shipping options, coverage, tracking, and lost-parcel claims.
+            resource: shipping
+        tools:
+          - name: lookup_order
+            description: Look up an order's delivery date and status by id.
+            inputSchema: |
+              {"type":"object","required":["orderId"],"properties":{"orderId":{"type":"string"}}}
+            process:
+              - type: set-payload
+                settings:
+                  value: '{"orderId":"A-100","deliveredDaysAgo":14,"type":"physical"}'
+`,
+};
+
 /** Produce and serve non-JSON payloads with raw-content mode + form conversion. */
 const RAW_CONTENT: Example = {
   slug: "raw-content",
@@ -838,6 +896,71 @@ flows:
 `,
 };
 
+/** Serve a flow as a stateless MCP server with the mcp-router block. */
+const MCP_ROUTER: Example = {
+  slug: "mcp-router",
+  title: "mcp-router — serve a flow as an MCP server",
+  summary:
+    "The inverse of Octo's authoring MCP server: the mcp-router block sits behind an HTTP source and turns this flow into a stateless MCP server. Each POST to /mcp is one MCP JSON-RPC request and the flow's output is the response. It advertises tool flows as MCP tools, template resources as MCP resources, and template resources as MCP prompts, and routes tools/call to the matching flow — no LLM. Declares HTTP_PORT, so run_integration returns a test URL. The tool's arguments become the branch body; resource/prompt bodies come from resources.templates (their own files). The block's fields (serverName/tools/resources/prompts) sit at the block top level.",
+  blocks: ["http (source)", "mcp-router", "set-payload"],
+  definition: `service:
+  name: mcp-router
+
+env:
+  - name: HTTP_PORT
+    default: "8080"
+
+# Template resources advertised as MCP resources and prompts (their bodies live
+# in their own files, referenced here by alias).
+resources:
+  templates:
+    - resource: guide.md
+      as: guide
+    - resource: greet.md
+      as: greet
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      port: \${HTTP_PORT}
+
+flows:
+  - name: mcp
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /mcp
+    process:
+      - type: mcp-router
+        name: weather-mcp
+        serverName: weather-tools
+        tools:
+          - name: forecast
+            description: Return a short weather forecast for a city.
+            inputSchema: |
+              {"type":"object","required":["city"],"properties":{"city":{"type":"string"}}}
+            process:
+              - type: set-payload
+                settings:
+                  value: '{"city": body.city, "summary": "Sunny, 24C"}'
+        resources:
+          - uri: octo://guide
+            name: guide
+            description: Operator guide for the weather tools.
+            mimeType: text/markdown
+            resource: guide
+        prompts:
+          - name: assist
+            description: Prime an assistant to help a user in a given city.
+            arguments:
+              - name: city
+                required: true
+            resource: greet
+`,
+};
+
 export const EXAMPLES: Example[] = [
   HELLO_WORLD,
   BUILTINS,
@@ -851,6 +974,8 @@ export const EXAMPLES: Example[] = [
   MULTI_TRANSFORM,
   EVENTS,
   AI_AGENT_MEMORY,
+  AI_AGENT_SKILLS,
+  MCP_ROUTER,
   RAW_CONTENT,
 ];
 

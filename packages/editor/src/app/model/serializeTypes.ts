@@ -34,6 +34,41 @@ export interface RuntimeTool extends RuntimeFlow {
   inputSchema?: string;
 }
 
+/**
+ * One ai-agent skill: a named, described binding to a template resource. Unlike a
+ * tool it holds no sub-flow, so it serializes as plain data (round-tripped via the
+ * block's settings, not a slot).
+ */
+export interface RuntimeSkill {
+  name?: string;
+  description?: string;
+  resource?: string;
+}
+
+/** One mcp-router resource: a template resource advertised as an MCP resource. */
+export interface RuntimeMCPResource {
+  uri?: string;
+  name?: string;
+  description?: string;
+  mimeType?: string;
+  resource?: string;
+}
+
+/** One declared argument of an mcp-router prompt. */
+export interface RuntimeMCPPromptArg {
+  name?: string;
+  description?: string;
+  required?: boolean;
+}
+
+/** One mcp-router prompt: a template resource advertised as an MCP prompt. */
+export interface RuntimeMCPPrompt {
+  name?: string;
+  description?: string;
+  arguments?: RuntimeMCPPromptArg[];
+  resource?: string;
+}
+
 export interface RuntimeSource {
   connector?: string;
   type?: string;
@@ -54,6 +89,12 @@ export interface RuntimeBlock {
   // ai-router / ai-agent slots (named, described inline flows).
   routes?: RuntimeRoute[];
   tools?: RuntimeTool[];
+  // ai-agent skills: plain data (name, description, resource ref), not a slot.
+  skills?: RuntimeSkill[];
+  // mcp-router resources/prompts: plain data (resource refs), not slots.
+  serverName?: unknown;
+  resources?: RuntimeMCPResource[];
+  prompts?: RuntimeMCPPrompt[];
   // handle-errors / ai-retry slots (bare block chains).
   process?: RuntimeBlock[];
   error?: RuntimeBlock[];

@@ -1,0 +1,74 @@
+service:
+  name: ai-agent-skills
+
+# Demonstrates ai-agent SKILLS: named instruction resources the agent loads on
+# demand. Each skill's name and description are shown to the model up front; the
+# agent calls the implicit `load_skill` tool to pull a skill's full content (a
+# rendered template resource) into the conversation only when it is relevant.
+# This keeps the base prompt small while making deep, situational instructions
+# available just-in-time.
+#
+#   export ANTHROPIC_API_KEY=sk-ant-...
+#   go run ./cli invoke -config ../samples/ai-agent-skills -flow support \
+#     -data '{"question":"Can I get a refund on an order delivered 2 weeks ago?"}'
+
+env:
+  - name: ANTHROPIC_API_KEY
+    required: true
+
+# The skill bodies are template resources, resolved relative to this directory
+# and referenced by their `as` alias from each skill's `resource` field. They may
+# embed {{ }} CEL over the message like any other template.
+resources:
+  templates:
+    - resource: skills/refunds.md
+      as: refunds
+    - resource: skills/shipping.md
+      as: shipping
+
+connectors:
+  - name: claude
+    type: llm-anthropic
+    settings:
+      apiKey: ${ANTHROPIC_API_KEY}
+
+flows:
+  - name: support
+    process:
+      - type: ai-agent
+        name: support-assistant
+        connector: claude
+        maxIterations: 6
+        prompt: >
+          You are a customer-support assistant. Answer the customer's question.
+          Load the relevant skill first to ground your answer in policy, then
+          respond with a JSON object {"answer": "..."}.
+        # Skills the model can load with load_skill(name). Only the name and
+        # description are in the prompt up front; the body is fetched on demand.
+        skills:
+          - name: refunds
+            description: How to decide and explain refunds by order age and type.
+            resource: refunds
+          - name: shipping
+            description: Shipping options, coverage, tracking, and lost-parcel claims.
+            resource: shipping
+        tools:
+          - name: lookup_order
+            description: Look up an order's delivery date and status by id.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["orderId"],
+                "properties": { "orderId": { "type": "string" } }
+              }
+            process:
+              # A real tool would call an API; here we echo a fixed order so the
+              # sample runs without external dependencies.
+              - type: set-payload
+                settings:
+                  value: '{"orderId": "A-100", "deliveredDaysAgo": 14, "type": "physical"}'
+        default:
+          process:
+            - type: set-payload
+              settings:
+                value: '{"answer": "Let me connect you with a human agent."}'

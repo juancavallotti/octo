@@ -484,6 +484,154 @@ func TestAIAgentBuildValidation(t *testing.T) {
 	}
 }
 
+// mapResources is a core.ResourceLoader backed by an in-memory map keyed by id,
+// used to serve skill/template resources in tests.
+type mapResources map[string]string
+
+func (m mapResources) Load(_ context.Context, _ core.ResourceKind, id string) ([]byte, error) {
+	body, ok := m[id]
+	if !ok {
+		return nil, core.ErrResourceNotFound
+	}
+	return []byte(body), nil
+}
+
+// depsLLMRes is depsLLM plus an in-memory resource loader for skill tests.
+func depsLLMRes(conn core.Connector, res mapResources) core.BlockDeps {
+	deps := depsLLM(conn)
+	deps.Resources = res
+	return deps
+}
+
+// skillAgentConfig builds an ai-agent with one tool and the given skills.
+func skillAgentConfig(skills ...types.SkillConfig) types.BlockConfig {
+	return types.BlockConfig{
+		Type: "ai-agent", Connector: "claude", Prompt: "help the user",
+		Tools:  []types.ToolConfig{toolBranch("noop", "does nothing", types.Settings{})},
+		Skills: skills,
+	}
+}
+
+func TestAIAgentAdvertisesSkillsAndLoads(t *testing.T) {
+	var seen []any
+	reg := agentRegistry(&seen)
+	fake := &scriptedLLM{responses: []*core.LLMResponse{
+		toolCallResp("load_skill", `{"name":"refunds"}`),
+		endTurnResp(`{"ok":true}`),
+	}}
+	res := mapResources{"skills/refunds.md": "Refund policy: always refund within 30 days."}
+
+	cfg := skillAgentConfig(types.SkillConfig{
+		Name: "refunds", Description: "How to process a refund", Resource: "skills/refunds.md",
+	})
+	if _, err := mustBuildAI(t, reg, depsLLMRes(fake, res), cfg).Process(context.Background(), aiMessage(t)); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+
+	// The skill is advertised in the system prompt and the load_skill tool is offered.
+	req := fake.calls[0]
+	if !strings.Contains(req.System, "refunds: How to process a refund") {
+		t.Errorf("system prompt missing skill advertisement:\n%s", req.System)
+	}
+	var hasLoadSkill bool
+	for _, tool := range req.Tools {
+		if tool.Name == skillLoadToolName {
+			hasLoadSkill = true
+		}
+	}
+	if !hasLoadSkill {
+		t.Errorf("load_skill tool not offered: %+v", req.Tools)
+	}
+
+	// The rendered resource is fed back as the tool result on the second turn.
+	second := fake.calls[1].Messages
+	last := second[len(second)-1]
+	if last.Role != core.LLMRoleTool || !strings.Contains(last.ToolResults[0].Content, "Refund policy") {
+		t.Errorf("load_skill did not return the resource body: %+v", last)
+	}
+	if last.ToolResults[0].IsError {
+		t.Errorf("load_skill result should not be an error: %+v", last.ToolResults[0])
+	}
+}
+
+func TestAIAgentLoadUnknownSkillIsError(t *testing.T) {
+	var seen []any
+	reg := agentRegistry(&seen)
+	fake := &scriptedLLM{responses: []*core.LLMResponse{
+		toolCallResp("load_skill", `{"name":"missing"}`),
+		endTurnResp(`{}`),
+	}}
+	res := mapResources{"skills/refunds.md": "body"}
+	cfg := skillAgentConfig(types.SkillConfig{Name: "refunds", Description: "d", Resource: "skills/refunds.md"})
+
+	if _, err := mustBuildAI(t, reg, depsLLMRes(fake, res), cfg).Process(context.Background(), aiMessage(t)); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	last := fake.calls[1].Messages[len(fake.calls[1].Messages)-1]
+	if !last.ToolResults[0].IsError || !strings.Contains(last.ToolResults[0].Content, "unknown skill") {
+		t.Errorf("expected an unknown-skill error result: %+v", last.ToolResults[0])
+	}
+}
+
+func TestAIAgentNoSkillsNoLoadTool(t *testing.T) {
+	var seen []any
+	reg := agentRegistry(&seen)
+	fake := &scriptedLLM{responses: []*core.LLMResponse{endTurnResp(`{}`)}}
+	cfg := types.BlockConfig{
+		Type: "ai-agent", Connector: "claude", Prompt: "x",
+		Tools: []types.ToolConfig{toolBranch("noop", "n", types.Settings{})},
+	}
+	if _, err := mustBuildAI(t, reg, depsLLM(fake), cfg).Process(context.Background(), aiMessage(t)); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	req := fake.calls[0]
+	for _, tool := range req.Tools {
+		if tool.Name == skillLoadToolName {
+			t.Errorf("load_skill should not be offered when no skills are configured")
+		}
+	}
+	if strings.Contains(req.System, "load_skill") {
+		t.Errorf("system prompt should not mention load_skill without skills:\n%s", req.System)
+	}
+}
+
+func TestAIAgentSkillBuildValidation(t *testing.T) {
+	reg := agentRegistry(&[]any{})
+	deps := depsLLMRes(&scriptedLLM{}, mapResources{})
+	build := func(cfg types.BlockConfig) error {
+		_, err := (&builder{reg: reg, pool: pool.New(0, 0), deps: deps}).block(cfg)
+		return err
+	}
+
+	noResource := skillAgentConfig(types.SkillConfig{Name: "a", Description: "d"})
+	if err := build(noResource); err == nil {
+		t.Error("expected error with a skill missing a resource")
+	}
+	noDesc := skillAgentConfig(types.SkillConfig{Name: "a", Resource: "r"})
+	if err := build(noDesc); err == nil {
+		t.Error("expected error with a skill missing a description")
+	}
+	dup := skillAgentConfig(
+		types.SkillConfig{Name: "a", Description: "d", Resource: "r"},
+		types.SkillConfig{Name: "a", Description: "d2", Resource: "r2"},
+	)
+	if err := build(dup); err == nil {
+		t.Error("expected error with duplicate skill names")
+	}
+	reserved := skillAgentConfig(types.SkillConfig{Name: skillLoadToolName, Description: "d", Resource: "r"})
+	if err := build(reserved); err == nil {
+		t.Error("expected error with a skill using the reserved load_skill name")
+	}
+	collide := types.BlockConfig{
+		Type: "ai-agent", Connector: "claude", Prompt: "x",
+		Tools:  []types.ToolConfig{toolBranch("dup", "d", types.Settings{})},
+		Skills: []types.SkillConfig{{Name: "dup", Description: "d", Resource: "r"}},
+	}
+	if err := build(collide); err == nil {
+		t.Error("expected error with a skill colliding with a tool name")
+	}
+}
+
 func retryConfig(maxAttempts int, withErrorPath bool) types.BlockConfig {
 	cfg := types.BlockConfig{
 		Type: "ai-retry", Connector: "claude", Prompt: "fix the body", MaxAttempts: maxAttempts,

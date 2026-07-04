@@ -6,6 +6,9 @@ import type { FieldSpec } from "../schema/types";
 import StringListEditor from "./fields/StringListEditor";
 import StringMapEditor from "./fields/StringMapEditor";
 import TransformListEditor from "./fields/TransformListEditor";
+import SkillListEditor from "./fields/SkillListEditor";
+import MCPResourceListEditor from "./fields/MCPResourceListEditor";
+import MCPPromptListEditor from "./fields/MCPPromptListEditor";
 import ReferenceField from "./fields/ReferenceField";
 import EnvValueField, { isEnvRef } from "./fields/EnvValueField";
 
@@ -179,6 +182,15 @@ function renderInput(
 
     case "transform-list":
       return <TransformListEditor value={value} onChange={onChange} />;
+
+    case "skill-list":
+      return <SkillListEditor value={value} onChange={onChange} />;
+
+    case "mcp-resource-list":
+      return <MCPResourceListEditor value={value} onChange={onChange} />;
+
+    case "mcp-prompt-list":
+      return <MCPPromptListEditor value={value} onChange={onChange} />;
 
     case "object":
       return <ObjectGroup field={field} value={value} onChange={onChange} />;
