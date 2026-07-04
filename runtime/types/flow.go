@@ -117,6 +117,11 @@ type BlockConfig struct {
 	// Tools are the named, described branches of an "ai-agent" block, each wired
 	// to the model as a callable function.
 	Tools []ToolConfig `yaml:"tools,omitempty"`
+	// Skills are named instruction resources an "ai-agent" can load on demand.
+	// The agent is told each skill's name and description up front and is given
+	// an implicit load_skill tool to pull a skill's full content (a rendered
+	// template resource) into the conversation when it needs it.
+	Skills []SkillConfig `yaml:"skills,omitempty"`
 	// MaxIterations caps how many tool-calling turns an "ai-agent" runs before
 	// falling back to the guardrail (default applied by the builder).
 	MaxIterations int `yaml:"maxIterations,omitempty"`
@@ -167,4 +172,15 @@ type ToolConfig struct {
 	Description string        `yaml:"description"`
 	InputSchema string        `yaml:"inputSchema,omitempty"`
 	Process     []BlockConfig `yaml:"process"`
+}
+
+// SkillConfig is one skill available to an "ai-agent": a Name and Description
+// advertised to the model up front, and Resource, the template resource whose
+// rendered content the implicit load_skill tool returns when the model loads the
+// skill. Skills keep the base prompt small while making deep, situational
+// instructions available just-in-time.
+type SkillConfig struct {
+	Name        string `yaml:"name"`
+	Description string `yaml:"description"`
+	Resource    string `yaml:"resource"`
 }
