@@ -1,5 +1,106 @@
 # Changelog
 
+## [0.3.0](https://github.com/juancavallotti/octo/compare/v0.2.3...v0.3.0) (2026-07-04)
+
+
+### ⚠ BREAKING CHANGES
+
+* **types:** Message is no longer JSON-only by contract. Body may now hold a raw-content payload ({contentType, rawData}) when RawContent is true; consumers that assumed Body is always decoded JSON must account for the raw-content mode.
+
+### Features
+
+* **ai-agent:** bind resources as loadable skills ([c1c2afc](https://github.com/juancavallotti/octo/commit/c1c2afcc12d044dca6279227a2297a13acbe4c38))
+* **cli:** add eval command to evaluate CEL expressions ([cda20a2](https://github.com/juancavallotti/octo/commit/cda20a280e3db22dd7f75f331aab25ca1267b49b))
+* **editor:** add markdown support to resources ([ca4a1f2](https://github.com/juancavallotti/octo/commit/ca4a1f2e74612c907081239930c83ef98422945c))
+* **editor:** add read-only Resources tab with scope reconciliation ([7946506](https://github.com/juancavallotti/octo/commit/7946506d5213b0623657f19b50f4f084f08012bf))
+* **editor:** add ResourceStore capability for the Resources tab ([167556b](https://github.com/juancavallotti/octo/commit/167556bbea2ce7c6a6cc3e974177f7019a0f6bda))
+* **editor:** add skills field to the ai-agent block ([8ebc3af](https://github.com/juancavallotti/octo/commit/8ebc3af593e251eba6a6f359fd141a2819946910))
+* **editor:** add the mcp-router block with the MCP logo ([f82e269](https://github.com/juancavallotti/octo/commit/f82e269662767980374cd54e23fecbbf60cf9d55))
+* **editor:** auto-select Logs tab when a run starts ([9f146b8](https://github.com/juancavallotti/octo/commit/9f146b83e725a37281c1661a80cd3f4fa06e194a))
+* **editor:** back the Dev .env panel with the resource store ([4eec407](https://github.com/juancavallotti/octo/commit/4eec407fe97e1402f0ae2999b81a87dcd4dc1712))
+* **editor:** edit resource content with syntax highlighting + autosave ([df705f0](https://github.com/juancavallotti/octo/commit/df705f0659598d1e11276fa726f5acc1cef51846))
+* **editor:** expose rawBody/contentType in capabilities schema ([f1daf6f](https://github.com/juancavallotti/octo/commit/f1daf6f117ac8c8add700ea526d554023b07ba23))
+* **editor:** highlight {{ }} expressions and use a monospace editor ([321038a](https://github.com/juancavallotti/octo/commit/321038a4b3455c7efbfcf1a48fbef7f939b1b9b9))
+* **editor:** let flows grow beyond the canvas width instead of wrapping ([0bc94aa](https://github.com/juancavallotti/octo/commit/0bc94aa54a7b4f109ae377285c3768d793c50109))
+* **editor:** manage resources from the tab — create, delete, scope ([6318743](https://github.com/juancavallotti/octo/commit/63187431e3ee5045546aba24ef6b00ef93d0a8b7))
+* **editor:** move resources by drag via a provider move op ([f905f04](https://github.com/juancavallotti/octo/commit/f905f0402f4ebac3d28124c918738456d03df522))
+* **editor:** persist console panel height to localStorage ([54e05bc](https://github.com/juancavallotti/octo/commit/54e05bc44c78216fce461e732f2f5020d2626e55))
+* **editor:** Resources tab — file manager + syntax-highlighted editor ([be2f779](https://github.com/juancavallotti/octo/commit/be2f77960ba3a74a89ade85de32ad164e2acd32d))
+* **editor:** show all .env.dev keys in Dev env panel with declare shortcut ([987d524](https://github.com/juancavallotti/octo/commit/987d524f5b315f976da8b8cc2984967a77960936))
+* **editor:** surface template resources in the editor ([74cdabb](https://github.com/juancavallotti/octo/commit/74cdabb788e43713a433007dfac29f624cdba4cf))
+* **editor:** thread the integration id through the run transport ([9e32886](https://github.com/juancavallotti/octo/commit/9e3288671cb0f1376f90347430aff0c9fd93f41f))
+* **engine:** add rawBody option to set-payload and template-resource ([fbf23ff](https://github.com/juancavallotti/octo/commit/fbf23fffb2856b92658caba83b23b1e1b74727d9))
+* evaluate CEL expressions via the runtime CLI and MCP ([6eca919](https://github.com/juancavallotti/octo/commit/6eca9197a9784f7086f8ab4875ac1e017c6bc87d))
+* **expr:** add toFormData/fromFormData CEL functions ([760497f](https://github.com/juancavallotti/octo/commit/760497fd02356b3d7eb487fb3a8046c4c12a1164))
+* **expr:** add toJson/fromJson CEL functions ([81bfd19](https://github.com/juancavallotti/octo/commit/81bfd198f9c7fe3d657763c41edd8f4b0efe9c83))
+* **httpclient:** capture non-JSON rest responses as raw content ([8ad25da](https://github.com/juancavallotti/octo/commit/8ad25da78f78c43af05b0a136c1b037040680dea))
+* **http:** serve and source raw-content bodies ([64ef480](https://github.com/juancavallotti/octo/commit/64ef4801b22d2b345a9b6d6f5e17740e450986dd))
+* **mcp-router:** expose a flow as a stateless MCP server ([adfb5ef](https://github.com/juancavallotti/octo/commit/adfb5ef2b6242d402f562ca7114e4fef6d9568cb))
+* **mcp:** add evaluate_cel tool to test CEL expressions ([47da071](https://github.com/juancavallotti/octo/commit/47da071ccd38d5296c0601ef9873e6ae7a0962b6))
+* **mcp:** add raw-content example ([d3af832](https://github.com/juancavallotti/octo/commit/d3af832624c3eea80e3fc3fc2236b79711cd8adb))
+* **mcp:** add resource-management port, tools, and env-var awareness ([47eaea4](https://github.com/juancavallotti/octo/commit/47eaea43cd79e82920a0197336552128bbe338ef))
+* **mcp:** resource management + env-var awareness ([3df7f9f](https://github.com/juancavallotti/octo/commit/3df7f9f1f37304627ee8152826d965046243caf7))
+* **mcp:** supply integration resources to run and invoke tools ([891af8f](https://github.com/juancavallotti/octo/commit/891af8f808d0a19f9a85a494036f0f39ee2b6682))
+* **orchestrator:** add integration resource CRUD API ([8097629](https://github.com/juancavallotti/octo/commit/80976293bed833fd3afa0594ff712e2130b1f6b9))
+* **orchestrator:** freeze resources on tag and serve them by snapshot ([4b8d47e](https://github.com/juancavallotti/octo/commit/4b8d47ecca264bd9256ad0a6730cc5603a0fce83))
+* **orchestrator:** inject OCTO_SNAPSHOT_ID into deployed pods ([7f2add5](https://github.com/juancavallotti/octo/commit/7f2add578901bd6ccc6e5b6893ae038725f32690))
+* **platform:** add a resources panel to the integration manager ([706e60b](https://github.com/juancavallotti/octo/commit/706e60bcf7c92c879a8b16cf219ac587c390ac1b))
+* **platform:** add resource update/upsert to the orchestrator client ([063971a](https://github.com/juancavallotti/octo/commit/063971afd00c397840764283a5e78215557866aa))
+* **platform:** back MCP resource tools with the orchestrator ([26cb313](https://github.com/juancavallotti/octo/commit/26cb31310bbf240de15e42d86bc6e179c0c0cab8))
+* **platform:** back the editor Resources tab with the orchestrator ([6d066aa](https://github.com/juancavallotti/octo/commit/6d066aab6299ac8dd59459ffd14156ec9490da91))
+* **platform:** propagate RawContent over NATS ([e3142b4](https://github.com/juancavallotti/octo/commit/e3142b4950501e536730b29ececd6c8acb4cba35))
+* **platform:** resolve run resources from the orchestrator ([a820080](https://github.com/juancavallotti/octo/commit/a8200806eeb313b1751be9c4fd7e4ff7a029e5fb))
+* **platform:** upload resource files instead of inline content ([aae4ddb](https://github.com/juancavallotti/octo/commit/aae4ddba171f974239e20726de192d5324973705))
+* ResourceLoader — env resources & template resources ([4571cf7](https://github.com/juancavallotti/octo/commit/4571cf756f4b8e5147d7ad8f86016b088e55e67c))
+* **run-host:** add evalCel to shell out to `octo eval` ([1a35425](https://github.com/juancavallotti/octo/commit/1a35425a92938c0c3b1a49c0e47ab0a32b4b0e8c))
+* **run-host:** auto-inject the .env.dev resource into runs ([07c0508](https://github.com/juancavallotti/octo/commit/07c0508e33d14876635b423aced8eec42ec5fa33))
+* **run-host:** stage declared resources into the run namespace dir ([de81dd8](https://github.com/juancavallotti/octo/commit/de81dd8e37c7297d93c603470c7e9303a361ba69))
+* **runtime:** add ResourceLoader interface, standalone loader, and noop ([e17f45b](https://github.com/juancavallotti/octo/commit/e17f45b55a34a0eb71017deb05c7f403cf4c22c2))
+* **runtime:** add resources config section and watch wiring ([f469d80](https://github.com/juancavallotti/octo/commit/f469d809ed129ab4faa635b1e12e8d18dfb8ad77))
+* **runtime:** centralize message CEL and add templateResource(id) everywhere ([39d2cc2](https://github.com/juancavallotti/octo/commit/39d2cc21eefeb0c92147db862781d659a6f80558))
+* **runtime:** combine env resources and add the template-resource block ([9baeb3a](https://github.com/juancavallotti/octo/commit/9baeb3a57f8fc8be5a19c0836e2cad6d906b81cb))
+* **runtime:** declare template resources with optional alias, fail-on-deploy ([bd5f0d3](https://github.com/juancavallotti/octo/commit/bd5f0d3035c9be23d6f8f834b4605bc13e9c76e7))
+* **runtime:** load k8s resources from the orchestrator by snapshot ([bcac578](https://github.com/juancavallotti/octo/commit/bcac57865e3c96ad9720bd1689725d2c2e7f7057))
+* **sql:** add integration resource tables ([c5e3562](https://github.com/juancavallotti/octo/commit/c5e3562e5e00ac3b66c3261aeb80cc055b28a902))
+* **standalone:** add a filesystem resource write path ([e1833a6](https://github.com/juancavallotti/octo/commit/e1833a622ad27af0c3e7b61758e419d23fadd398))
+* **standalone:** back MCP resource tools with local disk ([fb093e4](https://github.com/juancavallotti/octo/commit/fb093e473ad86133fd3f39e838be06cb3360afac))
+* **standalone:** back the Resources tab with local-disk files ([0083338](https://github.com/juancavallotti/octo/commit/0083338af1933571836bb47c572446c376289867))
+* **standalone:** resolve run resources from the flows dir ([18772bc](https://github.com/juancavallotti/octo/commit/18772bca91d051eba53649e7f008ae41cf0f882b))
+* supply integration resources to editor and MCP runs ([010d982](https://github.com/juancavallotti/octo/commit/010d982c8bfb66a4cc0dce1020d2f06558cb8846))
+* **types:** add RawContent mode to Message ([3698b36](https://github.com/juancavallotti/octo/commit/3698b36b435eab4393d8d15a7a8170bfde2ffc79))
+
+
+### Bug Fixes
+
+* **cli:** wrap json.Marshal error in eval command ([cfc071a](https://github.com/juancavallotti/octo/commit/cfc071a95cff0723e85bf9ad70e008fdfa5bfe88))
+* **editor:** add top padding to flow board so flows clear launcher chips ([97b2400](https://github.com/juancavallotti/octo/commit/97b240087bd41729c59c4dba138e24daa9fe7f7f))
+* **editor:** show a placeholder for an unset required reference ([f240568](https://github.com/juancavallotti/octo/commit/f240568276b457376cb377d1afe5c4a565ebb4b9))
+* **editor:** stop stripping the trailing slash off run-proxy URLs ([8004a23](https://github.com/juancavallotti/octo/commit/8004a23d4ea6ecf82277d372dcb5ca70cc1b1c1a))
+* **expr:** silence ireturn on CEL binding functions ([25fa7e5](https://github.com/juancavallotti/octo/commit/25fa7e505280f10f11738dea47090d44606ae0f4))
+* **mcp-router:** satisfy linters in mcp.go ([e6975b3](https://github.com/juancavallotti/octo/commit/e6975b30d4aa3a3396ec2c8591c6f27e21268655))
+* **platform:** don't pull run-host into the client bundle ([56ea6f0](https://github.com/juancavallotti/octo/commit/56ea6f06275657e5a9be0cfacf3664cfac3c7b5b))
+* **platform:** let run-proxy URLs bypass the OIDC session gate ([61808f6](https://github.com/juancavallotti/octo/commit/61808f63ec296687290d1c484cf63d7665336a72))
+* **platform:** make resource store React Compiler-safe ([6a6b28e](https://github.com/juancavallotti/octo/commit/6a6b28ec2b74a1b07d3d5db84b699ded0931cb0f))
+* **runtime:** satisfy golangci-lint ([378c100](https://github.com/juancavallotti/octo/commit/378c100498ae083d91837e42181bde4025c61c6a))
+
+
+### Refactoring
+
+* **runtime:** centralize CEL activation and source-payload compilation ([3cc621c](https://github.com/juancavallotti/octo/commit/3cc621cfd3cdcb265ad7ab0827df5ae1a9cfbe07))
+
+
+### Documentation
+
+* **ai-agent:** document skills with a sample and MCP example ([dac8dca](https://github.com/juancavallotti/octo/commit/dac8dca42127c0e425adbf059e83f230eccca41a))
+* document raw-content mode and JSON/form CEL functions ([3e4901b](https://github.com/juancavallotti/octo/commit/3e4901ba7447dade856c0bc1a26386a01277a0ac))
+* document resource staging and .env.dev for editor and MCP runs ([af48b39](https://github.com/juancavallotti/octo/commit/af48b39156ff62f34a1d7c661faf4754451cc9fe))
+* document resources in the cloud ([08d02b3](https://github.com/juancavallotti/octo/commit/08d02b36f009e7b46b06588f119b5233d53ebfbe))
+* document resources, the template-resource block, and templateResource() ([459fda9](https://github.com/juancavallotti/octo/commit/459fda90c8467b4c307d6d69d42d04b91158098c))
+* **mcp-router:** document the block with a sample and MCP example ([bb17013](https://github.com/juancavallotti/octo/commit/bb170135e2084af7d39eea087014af39f7182b95))
+* **samples:** add ai-quote-cache showing LLM + cache + transform over HTTP ([014ae41](https://github.com/juancavallotti/octo/commit/014ae41f9069b94ce3daf3f1320c28bc108096b6))
+* **samples:** add raw-content example flow ([b744d80](https://github.com/juancavallotti/octo/commit/b744d80e91d01110cb491eeb173360f9bb6ed0a1))
+* **samples:** add resources-demo showing env resources and templates ([b9feef0](https://github.com/juancavallotti/octo/commit/b9feef05aa84fc2ebeae72bd415cba00135a23b2))
+
 ## [0.2.3](https://github.com/juancavallotti/octo/compare/v0.2.2...v0.2.3) (2026-07-02)
 
 
