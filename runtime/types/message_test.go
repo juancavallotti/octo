@@ -199,6 +199,55 @@ func TestMessageClone(t *testing.T) {
 	})
 }
 
+func TestRawBody(t *testing.T) {
+	t.Run("SetRawBody and RawBody round-trip", func(t *testing.T) {
+		msg := &Message{}
+		msg.SetRawBody("text/html", "<h1>hi</h1>")
+
+		if !msg.RawContent {
+			t.Error("SetRawBody did not set RawContent")
+		}
+		ct, data, ok := msg.RawBody()
+		if !ok {
+			t.Fatal("RawBody ok = false, want true")
+		}
+		if ct != "text/html" || data != "<h1>hi</h1>" {
+			t.Errorf("RawBody = (%q, %q), want (text/html, <h1>hi</h1>)", ct, data)
+		}
+	})
+
+	t.Run("normal JSON message is not raw", func(t *testing.T) {
+		msg := &Message{}
+		if err := msg.SetBodyJSON([]byte(`{"contentType":"x","rawData":"y"}`)); err != nil {
+			t.Fatalf("SetBodyJSON returned error: %v", err)
+		}
+		if _, _, ok := msg.RawBody(); ok {
+			t.Error("RawBody ok = true for a message without RawContent set")
+		}
+	})
+
+	t.Run("RawContent set but body shape wrong", func(t *testing.T) {
+		msg := &Message{RawContent: true, Body: "not a map"}
+		if _, _, ok := msg.RawBody(); ok {
+			t.Error("RawBody ok = true for a malformed raw body")
+		}
+	})
+
+	t.Run("survives Clone and JSON round-trip", func(t *testing.T) {
+		msg := &Message{}
+		msg.SetRawBody("text/csv", "a,b\n1,2")
+
+		clone := msg.Clone()
+		if !clone.RawContent {
+			t.Error("Clone dropped RawContent")
+		}
+		ct, data, ok := clone.RawBody()
+		if !ok || ct != "text/csv" || data != "a,b\n1,2" {
+			t.Errorf("clone RawBody = (%q, %q, %v), want (text/csv, a,b\\n1,2, true)", ct, data, ok)
+		}
+	})
+}
+
 func TestVariablesTypedAccessors(t *testing.T) {
 	t.Run("native int via Set", func(t *testing.T) {
 		var v Variables
