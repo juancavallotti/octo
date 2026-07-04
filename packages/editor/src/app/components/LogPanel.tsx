@@ -48,6 +48,15 @@ export default function LogPanel() {
     if (el && pinnedRef.current) el.scrollTop = el.scrollHeight;
   }, [logs, collapsed, tab]);
 
+  // Pressing Run should surface the log stream even if the Dev .env tab is active.
+  // Snap to "logs" on the false→true running transition (not while it stays true,
+  // so the user can freely switch back to Dev .env during a run).
+  const prevRunning = useRef(running);
+  useEffect(() => {
+    if (running && !prevRunning.current) setTab("logs");
+    prevRunning.current = running;
+  }, [running]);
+
   // No RunProvider mounted, or no runner available => no log panel.
   if (!run || !run.available) return null;
   const { version, testUrl, clearLogs } = run;
