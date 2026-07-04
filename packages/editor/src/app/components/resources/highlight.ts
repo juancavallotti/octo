@@ -2,12 +2,14 @@ import Prism from "prismjs";
 import "prismjs/components/prism-yaml";
 import "prismjs/components/prism-json";
 import "prismjs/components/prism-markup"; // covers html + xml
+import "prismjs/components/prism-markdown"; // depends on markup (loaded above)
 
 /**
  * Language support for the Resources code editor. We reuse the Prism instance the
  * YAML preview already ships and highlight the file types the tab supports —
- * env, json, html, xml, yaml — falling back to escaped plain text for everything
- * else. Token colors are themed via the shared `.octo-code` classes in editor.css.
+ * env, json, html, xml, yaml, markdown — falling back to escaped plain text for
+ * everything else. Token colors are themed via the shared `.octo-code` classes in
+ * editor.css.
  */
 
 /**
@@ -46,6 +48,9 @@ export function languageFor(
   }
   if (lower.endsWith(".yaml") || lower.endsWith(".yml")) {
     return { grammar: Prism.languages.yaml, language: "yaml" };
+  }
+  if (lower.endsWith(".md") || lower.endsWith(".markdown")) {
+    return { grammar: Prism.languages.markdown, language: "markdown" };
   }
   return null;
 }
@@ -98,7 +103,11 @@ export function highlight(content: string, name: string): string {
 export function languageLabel(name: string): string {
   const lang = languageFor(name);
   if (!lang) return "plain text";
-  return { env: "env", json: "JSON", markup: "markup", yaml: "YAML" }[
-    lang.language
-  ] ?? lang.language;
+  return {
+    env: "env",
+    json: "JSON",
+    markup: "markup",
+    yaml: "YAML",
+    markdown: "Markdown",
+  }[lang.language] ?? lang.language;
 }

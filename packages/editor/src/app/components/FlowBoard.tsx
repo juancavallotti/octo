@@ -13,7 +13,7 @@ export default function FlowBoard() {
   const { state, dispatch } = useEditorState();
 
   return (
-    <div className="mx-auto flex w-fit min-w-[28rem] max-w-full flex-col gap-4 p-6">
+    <div className="mx-auto flex w-fit min-w-[28rem] flex-col gap-4 px-6 pb-6 pt-20">
       {state.document.flows.map((flow) => (
         <FlowCard
           key={flow.id}

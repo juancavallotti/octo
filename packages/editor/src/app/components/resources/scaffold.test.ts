@@ -17,6 +17,7 @@ describe("scaffoldFor", () => {
     expect(scaffoldFor("page.html")).toContain("<!doctype html>");
     expect(scaffoldFor("feed.xml")).toContain("<?xml");
     expect(scaffoldFor("c.yaml")).toBe("# \n");
+    expect(scaffoldFor("README.md")).toBe("# \n");
     expect(scaffoldFor(".env.dev")).toBe("# KEY=value\n");
     expect(scaffoldFor("notes.txt")).toBe("");
   });

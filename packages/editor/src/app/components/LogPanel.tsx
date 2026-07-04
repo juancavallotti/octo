@@ -8,6 +8,18 @@ import DevEnvPanel from "./DevEnvPanel";
 const MIN_HEIGHT = 120;
 const MAX_HEIGHT = 480;
 const DEFAULT_HEIGHT = 200;
+// The console height is a workspace-wide preference (not per-integration), so a
+// returning user keeps the layout they dragged to. Both tabs share one height.
+const HEIGHT_KEY = "octo.console.height";
+
+/** Read the persisted console height, clamped to bounds; DEFAULT_HEIGHT if none. */
+function readStoredHeight(): number {
+  if (typeof window === "undefined") return DEFAULT_HEIGHT;
+  const raw = window.localStorage.getItem(HEIGHT_KEY);
+  const n = raw ? Number(raw) : NaN;
+  if (!Number.isFinite(n)) return DEFAULT_HEIGHT;
+  return Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, n));
+}
 // Stable reference for the no-capability case so the scroll effect's deps don't
 // change every render.
 const NO_LOGS: RunLogLine[] = [];
@@ -24,7 +36,7 @@ type ConsoleTab = "logs" | "env";
 export default function LogPanel() {
   const run = useRun();
   const [tab, setTab] = useState<ConsoleTab>("logs");
-  const [height, setHeight] = useState(DEFAULT_HEIGHT);
+  const [height, setHeight] = useState(readStoredHeight);
   // Collapsed by default and follows the run state (opens when running), until
   // the user overrides it with the toggle. Derived rather than synced in an
   // effect so a run starting auto-expands the panel without a state write.
@@ -48,6 +60,15 @@ export default function LogPanel() {
     if (el && pinnedRef.current) el.scrollTop = el.scrollHeight;
   }, [logs, collapsed, tab]);
 
+  // Pressing Run should surface the log stream even if the Dev .env tab is active.
+  // Snap to "logs" on the false→true running transition (not while it stays true,
+  // so the user can freely switch back to Dev .env during a run).
+  const prevRunning = useRef(running);
+  useEffect(() => {
+    if (running && !prevRunning.current) setTab("logs");
+    prevRunning.current = running;
+  }, [running]);
+
   // No RunProvider mounted, or no runner available => no log panel.
   if (!run || !run.available) return null;
   const { version, testUrl, clearLogs } = run;
@@ -56,14 +77,18 @@ export default function LogPanel() {
     e.preventDefault();
     const startY = e.clientY;
     const startHeight = height;
+    let latest = startHeight;
     const onMove = (ev: PointerEvent) => {
       // Dragging the top edge upwards grows the panel.
       const next = startHeight + (startY - ev.clientY);
-      setHeight(Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, next)));
+      latest = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, next));
+      setHeight(latest);
     };
     const onUp = () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      // Persist once at the end of the drag rather than on every pointer move.
+      window.localStorage.setItem(HEIGHT_KEY, String(latest));
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
