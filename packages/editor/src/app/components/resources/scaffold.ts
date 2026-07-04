@@ -33,6 +33,7 @@ export function scaffoldFor(name: string): string {
     return '<?xml version="1.0" encoding="UTF-8"?>\n';
   }
   if (lower.endsWith(".yaml") || lower.endsWith(".yml")) return "# \n";
+  if (lower.endsWith(".md") || lower.endsWith(".markdown")) return "# \n";
   if (guessKind(name) === "env") return "# KEY=value\n";
   return "";
 }
