@@ -1,14 +1,15 @@
 "use client";
 
+import { createElement, useMemo } from "react";
 import {
   SortableContext,
   useSortable,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Workflow } from "lucide-react";
 import type { Integration } from "@/app/model/orchestrator";
 import type { DragData } from "./model";
+import { iconForDefinition } from "./sourceIcon";
 
 /** The middle column: the selected bucket's integrations, selectable into the detail panel. */
 interface Props {
@@ -69,6 +70,12 @@ function IntegrationCard({
   reorderable: boolean;
 }) {
   const data: DragData = { kind: "integration", id: i.id, name: i.name };
+  // The icon element for this integration's source/connector type; parsing the
+  // definition is memoized so it only reruns when the definition changes.
+  const icon = useMemo(
+    () => createElement(iconForDefinition(i.definition), { size: 16 }),
+    [i.definition],
+  );
   const {
     attributes,
     listeners,
@@ -106,7 +113,7 @@ function IntegrationCard({
               : "bg-black/[0.04] text-zinc-500 dark:bg-white/[0.06] dark:text-zinc-400"
           }`}
         >
-          <Workflow size={16} />
+          {icon}
         </span>
         <span className="flex min-w-0 flex-col gap-0.5">
           <span className="truncate text-sm font-medium">{i.name}</span>

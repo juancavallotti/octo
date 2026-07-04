@@ -56,3 +56,7 @@ export {
 } from "./app/model/runConfig";
 export { validateDocument, type ValidationResult } from "./app/model/validate";
 export * from "./app/model/document";
+
+// Capability schema helpers (icon registry + connector/source specs) are exposed
+// on the server-safe `@octo/editor/runtime` subpath, so a host can badge an
+// integration by its source/connector type without importing the React editor.
