@@ -8,6 +8,8 @@ describe("languageFor", () => {
     expect(languageFor("feed.xml")?.language).toBe("markup");
     expect(languageFor("config.yaml")?.language).toBe("yaml");
     expect(languageFor("config.yml")?.language).toBe("yaml");
+    expect(languageFor("README.md")?.language).toBe("markdown");
+    expect(languageFor("notes.markdown")?.language).toBe("markdown");
     expect(languageFor(".env")?.language).toBe("env");
     expect(languageFor(".env.staging")?.language).toBe("env");
     expect(languageFor("nested/dir/.env.prod")?.language).toBe("env");
@@ -21,6 +23,7 @@ describe("highlight", () => {
     expect(highlight("<a href='x'>y</a>", "x.html")).toContain("token");
     expect(highlight("key: value\n# c", "x.yaml")).toContain("token");
     expect(highlight("# c\nAPI_KEY=secret", ".env.dev")).toContain("token");
+    expect(highlight("# Title\n\n- item", "README.md")).toContain("token");
   });
 
   it("escapes plain text rather than interpreting markup", () => {
@@ -41,6 +44,7 @@ describe("highlight", () => {
 describe("languageLabel", () => {
   it("gives a friendly label, defaulting to plain text", () => {
     expect(languageLabel("x.json")).toBe("JSON");
+    expect(languageLabel("x.md")).toBe("Markdown");
     expect(languageLabel("x.txt")).toBe("plain text");
   });
 });
