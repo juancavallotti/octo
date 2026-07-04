@@ -27,6 +27,12 @@ export type FieldType =
   // `skills`. Each entry serializes as {name, description, resource}. Unlike a
   // tool it holds no sub-flow, so it round-trips as plain data under settings.
   | "skill-list"
+  // A list of MCP resources an mcp-router advertises. Each entry serializes as
+  // {uri, name, description?, mimeType?, resource}. Plain data (no sub-flow).
+  | "mcp-resource-list"
+  // A list of MCP prompts an mcp-router advertises. Each entry serializes as
+  // {name, description?, arguments?, resource}. Plain data (no sub-flow).
+  | "mcp-prompt-list"
   // A bare block chain (not wrapped in a sub-flow), serialized directly as a
   // list of blocks under its field name — e.g. handle-errors' process/error.
   | "block-list"

@@ -338,6 +338,41 @@ describe("serialize", () => {
     expect(skills[0].resource).toBe("skills/refunds.md");
   });
 
+  it("round-trips mcp-router resources and prompts as plain data", () => {
+    const doc = emptyDocument();
+    const router = newBlock("mcp-router"); // seeds the tools slot
+    router.settings.serverName = "demo";
+    router.settings.resources = [
+      { uri: "octo://guide", name: "guide", description: "the guide", mimeType: "text/markdown", resource: "guide" },
+    ];
+    router.settings.prompts = [
+      {
+        name: "greet",
+        description: "a greeting",
+        arguments: [{ name: "who", description: "who to greet", required: true }],
+        resource: "greet",
+      },
+    ];
+    doc.flows[0].process = [router];
+
+    const block = toConfig(doc).flows![0].process![0];
+    expect(block.type).toBe("mcp-router");
+    expect(block.serverName).toBe("demo");
+    expect(block.resources![0].uri).toBe("octo://guide");
+    expect(block.resources![0].resource).toBe("guide");
+    expect(block.prompts![0].name).toBe("greet");
+    expect(block.prompts![0].arguments![0].name).toBe("who");
+    expect(block.prompts![0].arguments![0].required).toBe(true);
+
+    const node = fromConfig(toConfig(doc)).flows[0].process[0];
+    expect(node.type).toBe("mcp-router");
+    expect(node.settings.serverName).toBe("demo");
+    const resources = node.settings.resources as Array<Record<string, unknown>>;
+    expect(resources[0].uri).toBe("octo://guide");
+    const prompts = node.settings.prompts as Array<Record<string, unknown>>;
+    expect(prompts[0].name).toBe("greet");
+  });
+
   it("serializes a flow-level error path as a bare block list", () => {
     const doc = emptyDocument();
     doc.flows[0].process = [newBlock("log")];

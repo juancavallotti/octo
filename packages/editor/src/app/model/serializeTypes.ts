@@ -45,6 +45,30 @@ export interface RuntimeSkill {
   resource?: string;
 }
 
+/** One mcp-router resource: a template resource advertised as an MCP resource. */
+export interface RuntimeMCPResource {
+  uri?: string;
+  name?: string;
+  description?: string;
+  mimeType?: string;
+  resource?: string;
+}
+
+/** One declared argument of an mcp-router prompt. */
+export interface RuntimeMCPPromptArg {
+  name?: string;
+  description?: string;
+  required?: boolean;
+}
+
+/** One mcp-router prompt: a template resource advertised as an MCP prompt. */
+export interface RuntimeMCPPrompt {
+  name?: string;
+  description?: string;
+  arguments?: RuntimeMCPPromptArg[];
+  resource?: string;
+}
+
 export interface RuntimeSource {
   connector?: string;
   type?: string;
@@ -67,6 +91,10 @@ export interface RuntimeBlock {
   tools?: RuntimeTool[];
   // ai-agent skills: plain data (name, description, resource ref), not a slot.
   skills?: RuntimeSkill[];
+  // mcp-router resources/prompts: plain data (resource refs), not slots.
+  serverName?: unknown;
+  resources?: RuntimeMCPResource[];
+  prompts?: RuntimeMCPPrompt[];
   // handle-errors / ai-retry slots (bare block chains).
   process?: RuntimeBlock[];
   error?: RuntimeBlock[];
