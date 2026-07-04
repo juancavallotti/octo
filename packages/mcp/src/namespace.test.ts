@@ -9,6 +9,7 @@ function counterHost(): RunHostPort {
     start: async () => ({ available: true, running: true, version: null, exposable: false, port: null, testPath: null }),
     stop: async () => ({ available: true, running: false, version: null, exposable: false, port: null, testPath: null }),
     invoke: async () => ({ ok: true, exitCode: 0, timedOut: false, dropped: false, output: "", logs: [] }),
+    evalCel: async () => ({ ok: true, result: null, logs: [] }),
     snapshot: () => [],
     newNamespace: () => `ns-${++n}`,
   };

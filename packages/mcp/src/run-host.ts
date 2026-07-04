@@ -37,6 +37,17 @@ export interface InvokeResultLike {
   logs: string[];
 }
 
+/** The outcome of a one-shot CEL `evalCel`: the evaluated result or the compile/eval error. */
+export interface EvalResultLike {
+  /** True when a well-formed envelope came back (whatever the CEL outcome). */
+  ok: boolean;
+  /** The evaluated value, when the expression succeeded (may itself be false/0/null). */
+  result?: unknown;
+  /** The compile/eval error message, when the expression (or the runner) failed. */
+  error?: string;
+  logs: string[];
+}
+
 export interface RunHostPort {
   status(ns: string): RunStatusLike;
   start(
@@ -58,6 +69,16 @@ export interface RunHostPort {
       resources?: ResourceProvider;
     },
   ): Promise<InvokeResultLike>;
+  /** Evaluate a CEL expression against an ad-hoc object (no flow run, no namespace). */
+  evalCel(
+    expression: string,
+    opts?: {
+      data?: string;
+      vars?: string;
+      env?: Record<string, string>;
+      timeoutMs?: number;
+    },
+  ): Promise<EvalResultLike>;
   snapshot(ns: string): RunLogLine[];
   /** Mint a fresh, valid namespace slug. */
   newNamespace(): string;

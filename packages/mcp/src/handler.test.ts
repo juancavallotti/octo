@@ -16,6 +16,7 @@ const stubRunHost: RunHostPort = {
   start: async () => ({ available: false, running: false, version: null, exposable: false, port: null, testPath: null }),
   stop: async () => ({ available: false, running: false, version: null, exposable: false, port: null, testPath: null }),
   invoke: async () => ({ ok: false, exitCode: null, timedOut: false, dropped: false, output: "", logs: [] }),
+  evalCel: async () => ({ ok: false, error: "unavailable", logs: [] }),
   snapshot: () => [],
   newNamespace: () => "ns-1",
 };

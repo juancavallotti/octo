@@ -13,10 +13,12 @@ export {
   stop,
   sync,
   invoke,
+  evalCel,
   snapshot,
   subscribe,
   runningPort,
   type InvokeResult,
+  type EvalResult,
   type RunResourceOptions,
 } from "./session";
 export {

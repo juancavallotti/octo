@@ -139,5 +139,5 @@ flowchart TD
   std -.->|queue: work| worker["flow: worker"]
 \`\`\`
 
-Then verify a flow end to end with \`invoke_flow\` and iterate.${docs}`;
+Then verify a flow end to end with \`invoke_flow\` and iterate. To check a single CEL expression in isolation before wiring it into a block (a transform, an \`if\`/\`switch\` condition, a connector field), use \`evaluate_cel\`: it evaluates the expression against a sample object (\`data\`→\`body\`, plus optional \`vars\`/\`env\`) and returns the result or the compile/eval error.${docs}`;
 }

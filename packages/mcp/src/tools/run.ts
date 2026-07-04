@@ -159,6 +159,61 @@ export function registerRunTools(
   );
 
   server.registerTool(
+    "evaluate_cel",
+    {
+      title: "Evaluate a CEL expression",
+      description:
+        "Evaluate a single CEL expression against a JSON object WITHOUT running a flow — the fast way to test transform, filter, or routing logic. `expression` is the CEL to evaluate; `data` (JSON) is bound to `body`, `vars` (JSON) to `vars`, and `env` to the `env` map — the same variables a flow's message expressions see (body, vars, env, eventID, correlationID, now). Returns { ok, result, error }: on success `ok` is true and `result` holds the evaluated value (which may itself be false, 0, or null); a compile or evaluation failure returns `ok:false` with the message in `error`. Note: `templateResource()` and a real integration's resolved env are not available here — pass any needed values via `env`/`vars`.",
+      inputSchema: {
+        expression: z
+          .string()
+          .min(1)
+          .describe("The CEL expression to evaluate."),
+        data: z
+          .string()
+          .optional()
+          .describe("Optional JSON object bound to `body`."),
+        vars: z
+          .string()
+          .optional()
+          .describe("Optional JSON object bound to `vars`."),
+        env: z
+          .record(z.string())
+          .optional()
+          .describe("Optional map bound to the CEL `env` variable (name → value)."),
+        timeoutMs: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe("Max time to wait for evaluation, in milliseconds (default 10000)."),
+      },
+    },
+    ({ expression, data, vars, env, timeoutMs }, extra) =>
+      guard(async () => {
+        // Reuse the per-session availability gate for a consistent "runner configured?"
+        // error, even though eval itself is stateless (no namespace isolation needed).
+        const ns = resolveNamespace(extra.sessionId);
+        if (!runHost.status(ns).available) {
+          return errorResult("Runner not available (OCTO_BIN_PATH unset).");
+        }
+        let parsedEnv: Record<string, string> | undefined;
+        if (env !== undefined) {
+          const sane = parseEnv(env);
+          if (!sane) return errorResult("invalid env (names must match [A-Za-z_][A-Za-z0-9_]* with string values)");
+          parsedEnv = sane;
+        }
+        const r = await runHost.evalCel(expression, {
+          data,
+          vars,
+          env: parsedEnv,
+          timeoutMs,
+        });
+        return jsonResult({ ok: r.ok, result: r.result, error: r.error });
+      }),
+  );
+
+  server.registerTool(
     "stop_integration",
     {
       title: "Stop integration",
