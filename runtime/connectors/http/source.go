@@ -33,6 +33,10 @@ type sourceSettings struct {
 	// see the unmodified bytes (e.g. verifying an HMAC signature computed over the
 	// raw payload), since Body is re-serialized and loses byte-for-byte fidelity.
 	RawBodyVar string `json:"rawBodyVar"`
+	// RawBody, when true, sources the request as raw content: the body is not
+	// required to be JSON and is stored as {contentType, rawData} (with the
+	// request's Content-Type) rather than parsed into Body. Defaults to false.
+	RawBody bool `json:"rawBody"`
 	// Timeout bounds how long the handler waits for the flow to finish; it
 	// defaults to the connector's request timeout.
 	Timeout duration `json:"timeout"`
@@ -51,6 +55,7 @@ type source struct {
 	headers      []string
 	corrIDHeader string
 	rawBodyVar   string
+	rawBody      bool
 	timeout      time.Duration
 	maxBody      int64
 
@@ -93,6 +98,7 @@ func (c *Connector) NewSource(cfg types.SourceConfig, out chan<- *types.Message)
 		headers:      set.Headers,
 		corrIDHeader: set.CorrelationIDHeader,
 		rawBodyVar:   set.RawBodyVar,
+		rawBody:      set.RawBody,
 		timeout:      timeout,
 		maxBody:      maxBody,
 		srcDone:      make(chan struct{}),
@@ -206,6 +212,12 @@ func statusFor(msg *types.Message, fallback int) int {
 func (s *source) writeResult(w http.ResponseWriter, res result) {
 	switch res.kind {
 	case types.FlowEventCompleted:
+		if contentType, rawData, ok := res.msg.RawBody(); ok {
+			w.Header().Set("Content-Type", contentType)
+			w.WriteHeader(statusFor(res.msg, http.StatusOK))
+			_, _ = w.Write([]byte(rawData))
+			return
+		}
 		raw, err := res.msg.BodyJSON()
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "could not encode response")
@@ -261,7 +273,9 @@ func (s *source) buildMessage(r *http.Request, body []byte) (*types.Message, err
 	}
 
 	if len(body) > 0 {
-		if err := msg.SetBodyJSON(body); err != nil {
+		if s.rawBody {
+			msg.SetRawBody(r.Header.Get("Content-Type"), string(body))
+		} else if err := msg.SetBodyJSON(body); err != nil {
 			return nil, err
 		}
 	}
@@ -286,8 +300,10 @@ func (s *source) readBody(w http.ResponseWriter, r *http.Request) ([]byte, int, 
 	if len(raw) == 0 {
 		return nil, 0, true
 	}
-	// Validate it is JSON now, so a malformed body fails before the flow runs.
-	if !json.Valid(raw) {
+	// In raw mode the body may be any content type, so skip the JSON gate.
+	// Otherwise validate it is JSON now, so a malformed body fails before the
+	// flow runs.
+	if !s.rawBody && !json.Valid(raw) {
 		return nil, http.StatusBadRequest, false
 	}
 	return raw, 0, true
