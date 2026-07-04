@@ -780,6 +780,64 @@ flows:
 `,
 };
 
+/** An ai-agent that loads instruction resources as skills on demand. */
+const AI_AGENT_SKILLS: Example = {
+  slug: "ai-agent-skills",
+  title: "ai-agent-skills — load instruction resources as skills",
+  summary:
+    "An ai-agent with a `skills` list: each skill binds a name + description (shown to the model up front) to a template resource. The agent calls the implicit load_skill tool to pull a skill's full content into the conversation only when relevant, keeping the base prompt small. The skill bodies are declared under resources.templates (their own files). Needs ANTHROPIC_API_KEY. The agent's fields (connector/prompt/tools/skills) sit at the block top level.",
+  blocks: ["ai-agent", "set-payload"],
+  definition: `service:
+  name: ai-agent-skills
+
+env:
+  - name: ANTHROPIC_API_KEY
+    required: true
+
+# Skill bodies are template resources referenced by their \`as\` alias.
+resources:
+  templates:
+    - resource: skills/refunds.md
+      as: refunds
+    - resource: skills/shipping.md
+      as: shipping
+
+connectors:
+  - name: claude
+    type: llm-anthropic
+    settings:
+      apiKey: \${ANTHROPIC_API_KEY}
+
+flows:
+  - name: support
+    process:
+      - type: ai-agent
+        name: support-assistant
+        connector: claude
+        prompt: >
+          You are a customer-support assistant. Load the relevant skill to ground
+          your answer in policy, then respond with JSON {"answer": "..."}.
+        # Only name + description are in the prompt up front; load_skill(name)
+        # fetches the body on demand.
+        skills:
+          - name: refunds
+            description: How to decide and explain refunds by order age and type.
+            resource: refunds
+          - name: shipping
+            description: Shipping options, coverage, tracking, and lost-parcel claims.
+            resource: shipping
+        tools:
+          - name: lookup_order
+            description: Look up an order's delivery date and status by id.
+            inputSchema: |
+              {"type":"object","required":["orderId"],"properties":{"orderId":{"type":"string"}}}
+            process:
+              - type: set-payload
+                settings:
+                  value: '{"orderId":"A-100","deliveredDaysAgo":14,"type":"physical"}'
+`,
+};
+
 /** Produce and serve non-JSON payloads with raw-content mode + form conversion. */
 const RAW_CONTENT: Example = {
   slug: "raw-content",
@@ -851,6 +909,7 @@ export const EXAMPLES: Example[] = [
   MULTI_TRANSFORM,
   EVENTS,
   AI_AGENT_MEMORY,
+  AI_AGENT_SKILLS,
   RAW_CONTENT,
 ];
 

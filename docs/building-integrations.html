@@ -147,7 +147,7 @@ flows:                        # one or more root flows
           <tr><td><code>fork</code></td><td><code>branches</code></td><td>Scatter-gather: run branches concurrently on clones, then join.</td></tr>
           <tr><td><code>handle-errors</code></td><td><code>process</code> / <code>error</code></td><td>An error boundary with an inline recovery chain.</td></tr>
           <tr><td><code>cache-scope</code></td><td><code>process</code></td><td>Memoize a sub-flow's result with a TTL.</td></tr>
-          <tr><td><code>ai-router</code> · <code>ai-agent</code> · <code>ai-retry</code></td><td>routes / tools / flow</td><td>LLM-driven routing, tool-calling agents, and self-healing retry.</td></tr>
+          <tr><td><code>ai-router</code> · <code>ai-agent</code> · <code>ai-retry</code></td><td>routes / tools · skills / flow</td><td>LLM-driven routing, tool-calling agents (with on-demand <code>skills</code> loaded from resources), and self-healing retry.</td></tr>
         </tbody>
       </table>
     </section>
