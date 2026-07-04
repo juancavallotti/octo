@@ -20,6 +20,11 @@ rules:
   - apiGroups: [""]
     resources: ["configmaps", "services", "pods"]
     verbs: ["get", "list", "watch", "create", "update", "delete"]
+  # Per-pod log streaming (the deployment detail's live tail). pods/log is a
+  # subresource, so it needs its own rule; only get is required to open a stream.
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
   # Shared cluster secrets: the orchestrator manages the single octo-secrets
   # Secret (get to read, create on first write, update to add/remove keys).
   - apiGroups: [""]
