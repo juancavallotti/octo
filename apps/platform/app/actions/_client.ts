@@ -18,6 +18,7 @@ import type {
   Deployment,
   DeploymentInput,
   DeployOptions,
+  EnvBindingInput,
   Folder,
   Integration,
   IntegrationInput,
@@ -385,9 +386,11 @@ export function createDeployment(
 export function rolloutDeployment(
   id: string,
   snapshotId: string,
+  env?: Record<string, EnvBindingInput>,
 ): Promise<ActionResult<Deployment>> {
   return call<Deployment>("POST", `/deployments/${enc(id)}/rollout`, {
     snapshotId,
+    ...(env ? { env } : {}),
   });
 }
 

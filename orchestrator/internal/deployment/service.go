@@ -349,6 +349,12 @@ func (s *Service) resolveEnvBindings(ctx context.Context, runtimeEnv map[string]
 			secret[name] = b.Secret
 			continue
 		}
+		// Skip an empty binding: it must not set a blank container env var, which
+		// would override a value the runtime loads from an .env file resource (container
+		// env wins). An empty box means "no override" — let the file/default provide it.
+		if b.Value == "" {
+			continue
+		}
 		literal[name] = b.Value
 	}
 	for _, key := range secret {
@@ -636,7 +642,7 @@ func (s *Service) Scale(ctx context.Context, id string, replicas int) (Deploymen
 // tag. A tag that changes the integration's HTTP source (networked vs not) would
 // change the Service/Ingress topology, which a rolling update cannot express, so it
 // is rejected — undeploy and redeploy instead.
-func (s *Service) Rollout(ctx context.Context, id, snapshotID string) (Deployment, error) {
+func (s *Service) Rollout(ctx context.Context, id, snapshotID string, env map[string]EnvBinding) (Deployment, error) {
 	if s.kube == nil {
 		return Deployment{}, ErrUnavailable
 	}
@@ -655,6 +661,13 @@ func (s *Service) Rollout(ctx context.Context, id, snapshotID string) (Deploymen
 	settings := ParseSettings(dep.Settings)
 	meta := ParseMetadata(dep.Metadata)
 
+	// An explicit env set replaces the deployment's stored bindings (the operator
+	// edited/extended env on rollout); a nil map preserves them (a plain version
+	// bump keeps the same env).
+	if env != nil {
+		settings.Env = env
+	}
+
 	// The runtime port/env come from the new frozen definition. A networked
 	// deployment has a slug (and Service); flipping networked-ness would add or
 	// remove that Service/Ingress, so reject it.
@@ -666,6 +679,22 @@ func (s *Service) Rollout(ctx context.Context, id, snapshotID string) (Deploymen
 	literalEnv, secretEnv, err := s.resolveEnvBindings(ctx, runtimeEnv, settings.Env)
 	if err != nil {
 		return Deployment{}, err
+	}
+
+	// Reject a rollover whose target version declares a required env var that nothing
+	// provides — neither a binding nor the tag's frozen .env resources. Mirrors Deploy
+	// so a version bump that adds a required var fails fast with a clear message
+	// instead of leaving the pod to crash-loop on load.
+	provided := providedEnvKeys(settings.Env)
+	fileKeys, err := s.snapshotEnvFileKeys(ctx, snap.ID)
+	if err != nil {
+		return Deployment{}, err
+	}
+	for k := range fileKeys {
+		provided[k] = struct{}{}
+	}
+	if missing := missingRequiredEnv(snap.Definition, provided); len(missing) > 0 {
+		return Deployment{}, fmt.Errorf("%w: %s", ErrMissingRequiredEnv, strings.Join(missing, ", "))
 	}
 
 	replicas := settings.Replicas

@@ -14,6 +14,7 @@ import {
 } from "@/app/model/orchestrator";
 import DeploymentRow from "./DeploymentRow";
 import DeployModal, { type DeploySubmit } from "./DeployModal";
+import RolloutModal, { type RolloutSubmit } from "./RolloutModal";
 
 /**
  * Deployments for one integration, scoped to the active version: with a tag
@@ -64,10 +65,14 @@ export default function DeploymentsSection({
   const confirm = useConfirm();
   const [deployments, setDeployments] = useState<Deployment[]>([]);
   const [busy, setBusy] = useState(false);
-  // Two error slots so they don't clobber each other: `error` is the inline
-  // scale/rollout/undeploy error; `deployError` is shown inside the Deploy modal.
+  // Separate error slots so they don't clobber each other: `error` is the inline
+  // scale/undeploy error; `deployError` shows in the Deploy modal; `rolloutError` in
+  // the Rollout modal.
   const [error, setError] = useState<string | null>(null);
   const [deployError, setDeployError] = useState<string | null>(null);
+  const [rolloutError, setRolloutError] = useState<string | null>(null);
+  // The deployment whose rollout dialog is open (change version and/or edit env).
+  const [rolloutTarget, setRolloutTarget] = useState<Deployment | null>(null);
   // Scope the list to the active version: a tag shows only its deployments; Current
   // (null) shows them all so everything is manageable in one place.
   const shown =
@@ -185,8 +190,33 @@ export default function DeploymentsSection({
   const scale = (d: Deployment, replicas: number) =>
     run(() => scaleDeployment(d.id, replicas));
 
-  const rollout = (d: Deployment, snapshotId: string) =>
-    run(() => rolloutDeployment(d.id, snapshotId));
+  // Roll a deployment over from its dialog: an existing tag deploys directly; a new
+  // tag is cut from the working copy first (then the pills/menu pick it up). The
+  // dialog's env replaces the deployment's stored bindings. Keep the modal open on
+  // failure so the operator can correct and retry.
+  const rollout = useCallback(
+    async (input: RolloutSubmit) => {
+      setBusy(true);
+      setRolloutError(null);
+      try {
+        let snapshotId = input.snapshotId;
+        if (!snapshotId && input.newTag) {
+          const snap = await createSnapshot(integrationId, input.newTag);
+          snapshotId = snap.id;
+          onSnapshotsChanged?.();
+        }
+        if (!snapshotId) throw new Error("no version selected to roll out");
+        await rolloutDeployment(input.deploymentId, snapshotId, input.env);
+        await refresh();
+        setRolloutTarget(null);
+      } catch (e) {
+        setRolloutError((e as Error).message);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [integrationId, refresh, onSnapshotsChanged],
+  );
 
   const undeploy = async (d: Deployment) => {
     const ok = await confirm({
@@ -216,9 +246,11 @@ export default function DeploymentsSection({
               key={d.id}
               deployment={d}
               busy={busy}
-              snapshots={snapshots}
               onScale={scale}
-              onRollout={rollout}
+              onOpenRollout={(dep) => {
+                setRolloutError(null);
+                setRolloutTarget(dep);
+              }}
               onUndeploy={undeploy}
               onOpenLogs={
                 onOpenLogs ? (dep, pod) => onOpenLogs(dep.id, pod) : undefined
@@ -241,6 +273,31 @@ export default function DeploymentsSection({
             if (busy) return;
             setDeployError(null); // start fresh next time it opens
             onDeployOpenChange(false);
+          }}
+        />
+      )}
+
+      {rolloutTarget && (
+        <RolloutModal
+          integrationId={integrationId}
+          integrationName={integrationName}
+          deployments={[rolloutTarget]}
+          snapshots={snapshots}
+          deployedTags={
+            new Set(
+              deployments
+                .map((d) => d.tag)
+                .filter((t): t is string => Boolean(t)),
+            )
+          }
+          versionMode="pick"
+          busy={busy}
+          error={rolloutError}
+          onSubmit={rollout}
+          onClose={() => {
+            if (busy) return;
+            setRolloutError(null);
+            setRolloutTarget(null);
           }}
         />
       )}

@@ -11,6 +11,7 @@ import type {
   Deployment,
   DeploymentInput,
   DeployOptions,
+  EnvBindingInput,
 } from "@/app/model/orchestrator";
 import { withRead, withWrite } from "./_auth";
 import * as client from "./_client";
@@ -39,8 +40,9 @@ export async function createDeployment(
 export async function rolloutDeployment(
   id: string,
   snapshotId: string,
+  env?: Record<string, EnvBindingInput>,
 ): Promise<ActionResult<Deployment>> {
-  return withWrite(() => client.rolloutDeployment(id, snapshotId));
+  return withWrite(() => client.rolloutDeployment(id, snapshotId, env));
 }
 
 export async function scaleDeployment(

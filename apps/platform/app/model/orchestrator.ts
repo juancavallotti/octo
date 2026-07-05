@@ -138,6 +138,9 @@ export interface Deployment {
   createdAt?: string;
   /** RFC3339 timestamp of the last status/state update. */
   lastUpdated: string;
+  /** The deployment's persisted env bindings, keyed by var name — for a rollout
+   * dialog to seed "edit existing". Secret bindings carry only the secret name. */
+  env?: Record<string, EnvBindingInput>;
 }
 
 /** How one declared env var is filled at deploy: a literal value or a secret ref. */
@@ -276,12 +279,17 @@ export async function createDeployment(
   return unwrap(await deploymentActions.createDeployment(integrationId, input));
 }
 
-/** Roll a live deployment over to a different version tag (rolling update). */
+/**
+ * Roll a live deployment over to a different version tag (rolling update).
+ * An `env` map replaces the deployment's stored bindings (edit/extend on rollout);
+ * omitting it preserves them (a plain version bump keeps the same env).
+ */
 export async function rolloutDeployment(
   id: string,
   snapshotId: string,
+  env?: Record<string, EnvBindingInput>,
 ): Promise<Deployment> {
-  return unwrap(await deploymentActions.rolloutDeployment(id, snapshotId));
+  return unwrap(await deploymentActions.rolloutDeployment(id, snapshotId, env));
 }
 
 /** Scale an existing deployment to a new desired replica count. */

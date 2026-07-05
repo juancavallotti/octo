@@ -5,19 +5,41 @@ import type { DeployOptions, EnvBindingInput } from "@/app/model/orchestrator";
 import { listSecrets } from "@/app/model/secrets";
 import { emptyBinding, type EnvBinding } from "./DeployEnvFields";
 
+/** Convert persisted wire bindings ({value|secret}) into the modal's editable form. */
+function bindingsFromInput(
+  initial?: Record<string, EnvBindingInput>,
+): Record<string, EnvBinding> {
+  const out: Record<string, EnvBinding> = {};
+  for (const [name, b] of Object.entries(initial ?? {})) {
+    out[name] = b.secret
+      ? { mode: "secret", value: "", secret: b.secret }
+      : { mode: "value", value: b.value ?? "", secret: "" };
+  }
+  return out;
+}
+
 /**
  * Manages the deploy modal's environment-variable bindings: one binding per
  * variable the integration declares (seeded from its default), the cluster secret
  * names for the picker, whether every required variable is filled, and building the
  * wire payload. Keeps the modal itself focused on the dialog and its other fields.
+ *
+ * `initial` seeds the bindings from a deployment's existing env (the rollout "edit
+ * existing" case). It is read once, at mount — the consuming modal is keyed by its
+ * target so a change remounts with fresh seed rather than mutating in place.
  */
-export function useDeployEnv(opts: DeployOptions | null) {
+export function useDeployEnv(
+  opts: DeployOptions | null,
+  initial?: Record<string, EnvBindingInput>,
+) {
   const envVars = opts?.envVars ?? [];
   // Vars an .env resource already supplies: a required one here is satisfied, so it
   // neither blocks the deploy nor needs a value sent — but the operator can still
   // override it below with an explicit value or secret.
   const providedByFile = new Set(opts?.envProvidedKeys ?? []);
-  const [bindings, setBindings] = useState<Record<string, EnvBinding>>({});
+  const [bindings, setBindings] = useState<Record<string, EnvBinding>>(() =>
+    bindingsFromInput(initial),
+  );
   const [secretNames, setSecretNames] = useState<string[]>([]);
 
   // Load the cluster secret names once; empty on failure (secrets are optional, and

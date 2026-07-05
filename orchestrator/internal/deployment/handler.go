@@ -55,6 +55,14 @@ type podResponse struct {
 	Restarts int32  `json:"restarts"`
 }
 
+// envBindingResponse is the wire form of one persisted env binding, so a rollout
+// dialog can seed "edit existing env". Literal values are returned as stored;
+// secret bindings carry only the secret name (never the secret's value).
+type envBindingResponse struct {
+	Value  string `json:"value,omitempty"`
+	Secret string `json:"secret,omitempty"`
+}
+
 // deploymentResponse is the wire representation of a deployment. The display
 // name, replica count and URLs are lifted out of the jsonb columns; the replica
 // counts, pods, reason and createdAt come from the live cluster status.
@@ -73,11 +81,15 @@ type deploymentResponse struct {
 	ExternalURL     string        `json:"externalUrl,omitempty"`
 	CreatedAt       *time.Time    `json:"createdAt,omitempty"`
 	LastUpdated     time.Time     `json:"lastUpdated"`
+	// Env are the deployment's persisted env bindings, so a rollout dialog can seed
+	// "edit existing". Omitted when the deployment has no bindings.
+	Env map[string]envBindingResponse `json:"env,omitempty"`
 }
 
 func toResponse(d Deployment) deploymentResponse {
 	meta := ParseMetadata(d.Metadata)
-	replicas := ParseSettings(d.Settings).Replicas
+	settings := ParseSettings(d.Settings)
+	replicas := settings.Replicas
 	if replicas < 1 {
 		replicas = 1
 	}
@@ -101,6 +113,12 @@ func toResponse(d Deployment) deploymentResponse {
 	}
 	for _, p := range d.Detail.Pods {
 		resp.Pods = append(resp.Pods, podResponse{Name: p.Name, Phase: p.Phase, Ready: p.Ready, Restarts: p.Restarts})
+	}
+	if len(settings.Env) > 0 {
+		resp.Env = make(map[string]envBindingResponse, len(settings.Env))
+		for name, b := range settings.Env {
+			resp.Env[name] = envBindingResponse{Value: b.Value, Secret: b.Secret}
+		}
 	}
 	return resp
 }
@@ -274,9 +292,12 @@ func (h *Handler) scale(w http.ResponseWriter, r *http.Request) {
 }
 
 // rolloutRequest is the body of a rollout request: the version tag (snapshot id)
-// to upgrade the live deployment to.
+// to upgrade the live deployment to, and optionally a replacement env binding set.
+// An omitted Env (nil) preserves the deployment's stored bindings; a present one
+// (even empty) replaces them, so the operator can edit or extend env on rollout.
 type rolloutRequest struct {
-	SnapshotID string `json:"snapshotId"`
+	SnapshotID string                `json:"snapshotId"`
+	Env        map[string]EnvBinding `json:"env"`
 }
 
 func (h *Handler) rollout(w http.ResponseWriter, r *http.Request) {
@@ -288,7 +309,7 @@ func (h *Handler) rollout(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	d, err := h.svc.Rollout(ctx, r.PathValue("id"), req.SnapshotID)
+	d, err := h.svc.Rollout(ctx, r.PathValue("id"), req.SnapshotID, req.Env)
 	if err != nil {
 		h.writeError(w, err)
 		return

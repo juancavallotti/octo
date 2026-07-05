@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Rocket } from "lucide-react";
 import { useSave } from "@octo/editor";
 import {
@@ -10,20 +10,26 @@ import {
   listDeployments,
   listSnapshots,
   rolloutDeployment,
+  type Deployment,
   type Snapshot,
 } from "@/app/model/orchestrator";
-import { DEFAULT_TAG, suggestNextTag } from "@/app/model/tags";
 import DeployModal, { type DeploySubmit } from "./integrations/DeployModal";
+import RolloutModal, {
+  type RolloutSubmit,
+} from "./integrations/RolloutModal";
 
 /**
- * Editor-header control that ships the current integration in one step: it saves,
- * tags a new version (the field prefills the next revision, still editable), then
- * rolls the integration's live deployment(s) over to that tag. When nothing is
- * deployed yet there's no rollout target, so it opens the deploy modal instead,
- * defaulted to the version it just created.
+ * Editor-header control that ships the current integration in one step. Clicking it
+ * saves the on-screen definition, then opens a tag + environment dialog:
  *
- * Mirrors {@link TagButton}: renders nothing without a filesystem capability, is
- * disabled on an empty document, and reads the authoritative id from
+ *  - with live deployment(s) → the rollout dialog (new-tag mode): the operator picks
+ *    which deployment to upgrade, names the new version, and edits its environment
+ *    (seeded from that deployment). It tags the working copy and rolls that one over.
+ *  - with nothing deployed yet → the first-deploy modal (Current mode): name the
+ *    version, set scale/address/env, then it tags and deploys.
+ *
+ * Renders nothing without a filesystem capability and is disabled on an empty
+ * document, mirroring {@link TagButton}. The authoritative id is read from
  * `getIntegrationId` (a ref the host updates on save) after saving.
  */
 export default function DeployButton({
@@ -32,83 +38,50 @@ export default function DeployButton({
   getIntegrationId: () => string | null;
 }) {
   const save = useSave();
-  const [open, setOpen] = useState(false);
-  const [tag, setTag] = useState(DEFAULT_TAG);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Set once we've tagged but found nothing to roll out: opens the deploy modal
-  // for a first-time deploy. Carries the id and display name it needs.
+  // The rollout dialog's context (live deployments to choose among). Null when closed.
+  const [rollout, setRollout] = useState<{
+    id: string;
+    name: string;
+    deployments: Deployment[];
+    snapshots: Snapshot[];
+  } | null>(null);
+  // The first-deploy dialog's context (nothing live yet). Null when closed.
   const [firstDeploy, setFirstDeploy] = useState<{
     id: string;
     name: string;
-    snapshot: Snapshot;
+    snapshots: Snapshot[];
   } | null>(null);
-  const ref = useRef<HTMLDivElement>(null);
-
-  // Dismiss the popup on outside click / Escape (matches TagButton).
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
 
   // No filesystem capability => nothing to deploy (mirrors how Save hides).
   if (!save) return null;
 
-  // Open the popup, prefilling the tag with the suggested next revision (see
-  // TagButton). The user can still edit it before deploying.
-  const openPopup = () => {
-    setError(null);
-    setTag(DEFAULT_TAG);
-    setOpen(true);
-    const id = getIntegrationId();
-    if (id) {
-      listSnapshots(id).then(
-        (snaps) => setTag(suggestNextTag(snaps.map((s) => s.tag))),
-        () => {},
-      );
-    }
-  };
-
-  const deploy = async () => {
-    const name = tag.trim();
-    if (!name || busy) return;
+  // Save the on-screen definition, then open the right dialog: rollout when the
+  // integration has live deployments, first-deploy otherwise. Saving first ensures a
+  // tag cut later freezes what's on screen, and that the dialog's deploy options
+  // (declared env, networked-ness) reflect the current definition.
+  const begin = async () => {
+    if (busy) return;
     setBusy(true);
     setError(null);
     try {
-      // Save first so the snapshot captures the on-screen definition; the first
-      // save mints the id we read via the ref.
       await save.save();
       const id = getIntegrationId();
       if (!id) {
         setError("Save the integration before deploying.");
         return;
       }
-      const snapshot = await createSnapshot(id, name);
-      const deployments = await listDeployments(id);
+      const [integration, deployments, snapshots] = await Promise.all([
+        getIntegration(id),
+        listDeployments(id),
+        listSnapshots(id),
+      ]);
       if (deployments.length > 0) {
-        // Repoint every live deployment to the freshly tagged version.
-        for (const d of deployments) {
-          await rolloutDeployment(d.id, snapshot.id);
-        }
-        setOpen(false);
-        return;
+        setRollout({ id, name: integration.name, deployments, snapshots });
+      } else {
+        setFirstDeploy({ id, name: integration.name, snapshots });
       }
-      // Nothing deployed yet: hand off to the deploy modal to ship the tag we just
-      // created (fixed-version mode — no re-tagging in the modal).
-      const integration = await getIntegration(id);
-      setFirstDeploy({ id, name: integration.name, snapshot });
-      setOpen(false);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -116,13 +89,31 @@ export default function DeployButton({
     }
   };
 
-  const submitFirstDeploy = async (input: DeploySubmit) => {
-    if (!firstDeploy || !input.snapshotId) return;
+  // Roll the chosen deployment over to a freshly tagged version, with the edited env.
+  const submitRollout = async (input: RolloutSubmit) => {
+    if (!rollout || !input.newTag) return;
     setBusy(true);
     setError(null);
     try {
+      const snap = await createSnapshot(rollout.id, input.newTag);
+      await rolloutDeployment(input.deploymentId, snap.id, input.env);
+      setRollout(null);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // First deploy: tag the working copy, then ship it as a new workload.
+  const submitFirstDeploy = async (input: DeploySubmit) => {
+    if (!firstDeploy || !input.newTag) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const snap = await createSnapshot(firstDeploy.id, input.newTag);
       await createDeployment(firstDeploy.id, {
-        snapshotId: input.snapshotId,
+        snapshotId: snap.id,
         replicas: input.replicas,
         ...(input.slug ? { slug: input.slug } : {}),
         ...(input.expose ? { expose: input.expose } : {}),
@@ -137,80 +128,63 @@ export default function DeployButton({
   };
 
   return (
-    <div ref={ref} className="relative">
+    <div className="relative">
       <button
         type="button"
-        onClick={() => (open ? setOpen(false) : openPopup())}
-        disabled={save.empty}
+        onClick={begin}
+        disabled={save.empty || busy}
         title={save.empty ? "Nothing to deploy yet" : "Deploy this integration"}
-        aria-haspopup="dialog"
-        aria-expanded={open}
         className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-2.5 py-1 text-sm font-medium text-white transition-colors hover:bg-emerald-500 disabled:opacity-50"
       >
         <Rocket size={14} />
-        Deploy
+        {busy && !rollout && !firstDeploy ? "Preparing…" : "Deploy"}
       </button>
 
-      {open && (
-        <div
-          role="dialog"
-          aria-label="Deploy this version"
-          className="absolute right-0 top-full z-30 mt-2 w-64 rounded-xl border border-black/10 bg-white p-3 shadow-lg dark:border-white/10 dark:bg-zinc-900"
-        >
-          <label className="mb-1 block text-xs font-medium text-zinc-500">
-            Version tag
-          </label>
-          <input
-            autoFocus
-            value={tag}
-            disabled={busy}
-            placeholder="e.g. v1.0.0"
-            onChange={(e) => setTag(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") deploy();
-            }}
-            className="w-full rounded-md border border-black/10 bg-transparent px-2 py-1 text-sm outline-none focus:border-black/30 dark:border-white/15 dark:focus:border-white/30"
-          />
-          <p className="mt-1.5 text-xs text-zinc-500">
-            Tags this version and rolls out your live deployment.
-          </p>
-          {error && <p className="mt-1.5 text-xs text-red-500">{error}</p>}
-          <div className="mt-2 flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              disabled={busy}
-              className="rounded-md px-2.5 py-1 text-sm text-zinc-600 hover:bg-black/[0.06] disabled:opacity-50 dark:text-zinc-300 dark:hover:bg-white/[0.08]"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={deploy}
-              disabled={busy || !tag.trim()}
-              className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-2.5 py-1 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
-            >
-              <Rocket size={13} />
-              {busy ? "Deploying…" : "Deploy"}
-            </button>
-          </div>
-        </div>
+      {error && !rollout && !firstDeploy && (
+        <p className="absolute right-0 top-full z-30 mt-1 w-56 rounded-md border border-red-500/30 bg-white px-2 py-1 text-xs text-red-500 shadow-lg dark:bg-zinc-900">
+          {error}
+        </p>
+      )}
+
+      {rollout && (
+        <RolloutModal
+          integrationId={rollout.id}
+          integrationName={rollout.name}
+          deployments={rollout.deployments}
+          snapshots={rollout.snapshots}
+          deployedTags={
+            new Set(
+              rollout.deployments
+                .map((d) => d.tag)
+                .filter((t): t is string => Boolean(t)),
+            )
+          }
+          versionMode="new-tag"
+          actionLabel="Deploy"
+          busy={busy}
+          error={error}
+          onSubmit={submitRollout}
+          onClose={() => {
+            if (busy) return;
+            setError(null);
+            setRollout(null);
+          }}
+        />
       )}
 
       {firstDeploy && (
         <DeployModal
           integrationId={firstDeploy.id}
           integrationName={firstDeploy.name}
-          activeSnapshot={firstDeploy.snapshot}
-          snapshots={[firstDeploy.snapshot]}
+          activeSnapshot={null}
+          snapshots={firstDeploy.snapshots}
           busy={busy}
           error={error}
           onSubmit={submitFirstDeploy}
           onClose={() => {
-            if (!busy) {
-              setFirstDeploy(null);
-              setError(null);
-            }
+            if (busy) return;
+            setError(null);
+            setFirstDeploy(null);
           }}
         />
       )}
