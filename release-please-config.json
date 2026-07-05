@@ -19,6 +19,7 @@
       "changelog-path": "CHANGELOG.md",
       "extra-files": [
         "runtime/cli/version.go",
+        "packages/mcp/src/handler.ts",
         "docs/index.html",
         "docs/standalone.html",
         "helm/Chart.yaml"

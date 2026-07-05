@@ -1,4 +1,4 @@
-import { createOctoMcpHandler } from "@octo/mcp";
+import { createOctoMcpHandler, OCTO_MCP_VERSION } from "@octo/mcp";
 import {
   CAPABILITIES,
   fromDefinitionYaml,
@@ -56,7 +56,14 @@ const handler = createOctoMcpHandler(
     // Point the authoring prompt at the human docs when configured.
     docsUrl: process.env.OCTO_DOCS_URL,
   },
-  { basePath: "" }, // route lives at /mcp, so the streamable endpoint is /mcp
+  {
+    basePath: "", // route lives at /mcp, so the streamable endpoint is /mcp
+    serverInfo: {
+      name: "octo-platform",
+      version: OCTO_MCP_VERSION,
+      title: "Octo",
+    },
+  },
 );
 
 /** 401 with a Bearer challenge, the response for any missing/invalid key. */
