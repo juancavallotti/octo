@@ -83,8 +83,8 @@ Separately, an integration owns **resources**: \`env\` files (\`.env\`-conventio
 
 ${objective}Follow this loop:
 
-1. Read the "${RUNTIME_SCHEMA_URI}" resource to learn the exact block/connector types and their settings — do not guess type names or fields. Composite blocks (if/switch/foreach/handle-errors/flow-ref/ai-router) carry their sub-fields at the block top level, not under \`settings\`.
-2. Read the "${EXAMPLES_INDEX_URI}" resource: it lists each worked example and the blocks it demonstrates. Read the "${EXAMPLES_INDEX_URI}/<slug>" resource(s) covering the blocks you need and adapt them — don't invent syntax.
+1. Call \`getSchema\` (no argument) for the index of block/connector types, then \`getSchema(elementName)\` for the full spec of each type you'll use — do not guess type names or fields. (Clients that support resources can instead read "${RUNTIME_SCHEMA_URI}".) Composite blocks (if/switch/foreach/handle-errors/flow-ref/ai-router) carry their sub-fields at the block top level, not under \`settings\`.
+2. Call \`getExamples\` (no argument) for the index of worked examples and the blocks each demonstrates, then \`getExamples(slug)\` for the ones covering the blocks you need and adapt them — don't invent syntax. (Resource equivalents: "${EXAMPLES_INDEX_URI}" and "${EXAMPLES_INDEX_URI}/<slug>".)
 3. Draft the definition and call \`validate_definition\` to check it against the runtime schema BEFORE saving; fix the descriptive \`errors\` it returns and re-validate until clean. Then call \`create_integration\` (new) or \`update_integration\` (existing).
 4. Call \`can_start_integration\` — a best-effort pre-flight on the saved integration. Fix what it reports under \`errors\`, but treat it (and \`validate_definition\`) as advisory: the runtime is the final judge, so a definition it flags may still run (and a clean one may still fail at load).
 5. Before running, call \`list_env_keys\` to see the env vars the integration expects (\`{ name, default, required, source }\`). For every \`required\` var (and any var the run needs) that has no value, DON'T just run and let it fail at load — either ASK THE USER for the value and pass it via the \`env\` argument to \`invoke_flow\`/\`run_integration\`, or persist it as an \`env\` resource with \`create_resource\` (kind \"env\", e.g. \`.env.dev\`). Values passed via \`env\` are per-run; values stored as a resource persist with the integration. A var with a \`default\` needs no value unless you want to override it.
@@ -96,7 +96,7 @@ For DESIGN guidance (how to structure flows, when to use queues vs. topics, simp
 Tips:
 - To make an integration testable over HTTP, add an \`http\` connector and declare HTTP_PORT in \`env\`; use that connector as a flow's source.
 - Keep \`service.name\` stable; renaming may change the integration's id.
-- CEL expressions (e.g. log messages, payloads) can read body, vars, eventID, and correlationID.${docs}`;
+- CEL expressions (e.g. log messages, payloads) can read body, vars, eventID, and correlationID. Call \`getCelFunctions\` for the exact variables and custom functions (toJson/fromJson, toFormData/fromFormData, templateResource) in scope.${docs}`;
 }
 
 function effectiveIntegrationsGuide(focus?: string, docsUrl?: string): string {
@@ -106,7 +106,7 @@ function effectiveIntegrationsGuide(focus?: string, docsUrl?: string): string {
   const docs = docsUrl?.trim()
     ? `\n\nReference documentation: ${docsUrl.trim()} — the full block & connector reference, CEL syntax, and the processing-pipeline model (workers/buffer/pool). Consult it for exact field names.`
     : "";
-  return `Best practices for designing effective Octo integrations. These are DESIGN principles — for exact block/connector syntax read the "${RUNTIME_SCHEMA_URI}" resource and adapt the worked examples under "${EXAMPLES_INDEX_URI}/<slug>" rather than inventing fields. Validate drafts with \`validate_definition\` and test single flows fast with \`invoke_flow\` as you go.
+  return `Best practices for designing effective Octo integrations. These are DESIGN principles — for exact block/connector syntax call \`getSchema\`/\`getSchema(elementName)\` and adapt the worked examples via \`getExamples\`/\`getExamples(slug)\` (or, on resource-capable clients, the "${RUNTIME_SCHEMA_URI}" and "${EXAMPLES_INDEX_URI}/<slug>" resources) rather than inventing fields. Validate drafts with \`validate_definition\` and test single flows fast with \`invoke_flow\` as you go.
 
 ${emphasis}Principles:
 

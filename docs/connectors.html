@@ -93,8 +93,8 @@
         <table class="eip-table">
           <thead><tr><th>Setting</th><th>Default</th></tr></thead>
           <tbody>
-            <tr><td><code>port</code></td><td>8080 (<code>0</code> = OS-assigned)</td></tr>
-            <tr><td><code>host</code></td><td>all interfaces</td></tr>
+            <tr><td><code>port</code></td><td>8080 — or <code>$HTTP_PORT</code> when unset (<code>0</code> = OS-assigned)</td></tr>
+            <tr><td><code>host</code></td><td><code>0.0.0.0</code> (all interfaces) — or <code>$HTTP_HOST</code> when unset</td></tr>
             <tr><td><code>basePath</code></td><td>—  (prefix for every route)</td></tr>
             <tr><td><code>requestTimeout</code></td><td>30s</td></tr>
             <tr><td><code>readTimeout</code> / <code>writeTimeout</code> / <code>idleTimeout</code></td><td>unset</td></tr>
@@ -118,6 +118,11 @@
         </table>
       </div>
     </div>
+
+    <p style="font-size:0.9rem;margin-top:16px">Used config-less (a <code>type: http</code> source with no connector block), the server binds
+      <code>$HTTP_HOST</code>:<code>$HTTP_PORT</code>, falling back to <code>0.0.0.0:8080</code> — the same
+      <code>HTTP_HOST</code>/<code>HTTP_PORT</code> the platform injects when it deploys an integration. An explicit
+      <code>host</code>/<code>port</code> in the connector settings always wins over the env vars.</p>
 
     <div class="grid cols-2" style="margin-top:22px">
       <div>
@@ -481,7 +486,7 @@
 
     <div style="margin-top:22px">
       <h3>Receiving events</h3>
-      <p>Slack posts events to an <code>http</code> route. Signatures are an HMAC over the <em>raw</em> body, so the source must copy Slack's headers and the exact bytes; <code>slack-verify-request</code> reads them. Because a dropped message returns <code>204</code> (no body), the URL-verification challenge is echoed from an <code>if</code> branch rather than dropped. Slack expects a <code>2xx</code> within 3 seconds — keep the flow fast, or offload slow work with <code>queue-dispatch</code>.</p>
+      <p>Slack posts events to an <code>http</code> route. Signatures are an HMAC over the <em>raw</em> body, so the source must preserve the exact bytes; <code>slack-verify-request</code> reads them from either the source's <code>rawBodyVar</code> variable or its native <a href="building-integrations.html#raw-content">raw-content</a> mode (<code>rawBody: true</code>) — an explicitly-configured <code>rawBodyVar</code> wins, otherwise it falls back to the raw-content body, then the default <code>rawBody</code> variable. With <code>rawBody: true</code> it re-parses the verified JSON into <code>body</code> so the challenge branch and downstream <code>body.*</code> work the same. Because a dropped message returns <code>204</code> (no body), the URL-verification challenge is echoed from an <code>if</code> branch rather than dropped. Slack expects a <code>2xx</code> within 3 seconds — keep the flow fast, or offload slow work with <code>queue-dispatch</code>.</p>
       <pre><code class="language-yaml">connectors:
   - name: api
     type: http
