@@ -111,3 +111,30 @@ describe("getExamples tool", () => {
     expect(res.text).toContain("Unknown example");
   });
 });
+
+describe("getCelFunctions tool", () => {
+  it("lists the CEL variables and functions", async () => {
+    const client = await connect();
+    const cat = JSON.parse((await call(client, "getCelFunctions")).text);
+    expect(cat.variables.map((v: { name: string }) => v.name)).toEqual(
+      expect.arrayContaining(["body", "vars", "env", "now"]),
+    );
+    expect(cat.functions.map((f: { name: string }) => f.name)).toEqual(
+      expect.arrayContaining(["toJson", "fromJson", "fromFormData", "templateResource"]),
+    );
+  });
+
+  it("returns one function's spec by name", async () => {
+    const client = await connect();
+    const fn = JSON.parse((await call(client, "getCelFunctions", { functionName: "fromFormData" })).text);
+    expect(fn.name).toBe("fromFormData");
+    expect(fn.signature).toContain("fromFormData");
+  });
+
+  it("errors on an unknown function", async () => {
+    const client = await connect();
+    const res = await call(client, "getCelFunctions", { functionName: "nope" });
+    expect(res.isError).toBe(true);
+    expect(res.text).toContain("Unknown CEL function");
+  });
+});

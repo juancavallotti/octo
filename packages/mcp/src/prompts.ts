@@ -96,7 +96,7 @@ For DESIGN guidance (how to structure flows, when to use queues vs. topics, simp
 Tips:
 - To make an integration testable over HTTP, add an \`http\` connector and declare HTTP_PORT in \`env\`; use that connector as a flow's source.
 - Keep \`service.name\` stable; renaming may change the integration's id.
-- CEL expressions (e.g. log messages, payloads) can read body, vars, eventID, and correlationID.${docs}`;
+- CEL expressions (e.g. log messages, payloads) can read body, vars, eventID, and correlationID. Call \`getCelFunctions\` for the exact variables and custom functions (toJson/fromJson, toFormData/fromFormData, templateResource) in scope.${docs}`;
 }
 
 function effectiveIntegrationsGuide(focus?: string, docsUrl?: string): string {

@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { OctoMcpConfig } from "../backend";
 import { errorResult, guard, jsonResult } from "../result";
 import { EXAMPLES, getExample } from "../examples";
+import { CEL_FUNCTIONS, CEL_VARIABLES, getCelFunction } from "../cel";
 
 /**
  * Documentation tools: serve the runtime schema and the worked examples on demand,
@@ -14,6 +15,8 @@ import { EXAMPLES, getExample } from "../examples";
  * example pair mirrors it — so the client never has to pull (or the model wade
  * through) the whole schema blob to author a single block. The resources stay
  * registered too (see resource.ts) for clients that do consume them.
+ * `getCelFunctions` similarly serves the CEL variables/functions in scope for
+ * message expressions (which have no resource equivalent at all).
  */
 export function registerDocsTools(
   server: McpServer,
@@ -86,6 +89,34 @@ export function registerDocsTools(
           blocks: example.blocks,
           definition: example.definition,
         });
+      }),
+  );
+
+  server.registerTool(
+    "getCelFunctions",
+    {
+      title: "Get CEL functions",
+      description:
+        "The CEL variables and custom functions available to Octo message expressions (log messages, payloads, if/switch conditions, connector fields). Call with no argument for { variables, functions }; pass `functionName` (e.g. \"fromFormData\") for one function's signature, summary, and example. Use this to write expressions instead of guessing what's in scope.",
+      inputSchema: {
+        functionName: z
+          .string()
+          .optional()
+          .describe("A CEL function name to fetch one entry; omit for the full catalogue."),
+      },
+    },
+    ({ functionName }) =>
+      guard(async () => {
+        if (!functionName) {
+          return jsonResult({ variables: CEL_VARIABLES, functions: CEL_FUNCTIONS });
+        }
+        const fn = getCelFunction(functionName);
+        if (!fn) {
+          return errorResult(
+            `Unknown CEL function "${functionName}". Call getCelFunctions with no argument to list the available functions.`,
+          );
+        }
+        return jsonResult(fn);
       }),
   );
 }
