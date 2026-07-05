@@ -16,5 +16,5 @@ export type {
   ValidationOutcome,
 } from "./backend";
 export type { RunHostPort, RunStatusLike, RunLogLine } from "./run-host";
-export { createOctoMcpHandler } from "./handler";
-export type { OctoMcpHandlerOptions } from "./handler";
+export { createOctoMcpHandler, OCTO_MCP_VERSION } from "./handler";
+export type { OctoMcpHandlerOptions, OctoMcpServerInfo } from "./handler";

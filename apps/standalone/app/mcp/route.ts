@@ -1,4 +1,4 @@
-import { createOctoMcpHandler } from "@octo/mcp";
+import { createOctoMcpHandler, OCTO_MCP_VERSION } from "@octo/mcp";
 import {
   CAPABILITIES,
   fromDefinitionYaml,
@@ -43,7 +43,14 @@ const handler = createOctoMcpHandler(
     // configured. Set OCTO_DOCS_URL to your documentation site.
     docsUrl: process.env.OCTO_DOCS_URL,
   },
-  { basePath: "" }, // route lives at /mcp, so the streamable endpoint is /mcp
+  {
+    basePath: "", // route lives at /mcp, so the streamable endpoint is /mcp
+    serverInfo: {
+      name: "octo-standalone",
+      version: OCTO_MCP_VERSION,
+      title: "Octo (Standalone)",
+    },
+  },
 );
 
 export { handler as GET, handler as POST, handler as DELETE };

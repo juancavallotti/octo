@@ -12,6 +12,36 @@ import {
 } from "./resource";
 import { registerPrompts } from "./prompts";
 
+/**
+ * The Octo MCP server version reported to clients in the `initialize` handshake.
+ * release-please keeps this in sync with the published release; the trailing
+ * annotation marks the line it rewrites (this file is listed under `extra-files`
+ * in release-please-config.json). Hosts share it so every deployment reports the
+ * same octo release — override per host via {@link OctoMcpServerInfo.version}.
+ */
+export const OCTO_MCP_VERSION = "0.3.1"; // x-release-please-version
+
+/**
+ * Identity reported to clients during the MCP `initialize` handshake. Without a
+ * `serverInfo`, `mcp-handler` falls back to its own "mcp-typescript server on
+ * vercel" default, so every host must supply one.
+ */
+export interface OctoMcpServerInfo {
+  /** Machine name clients key the connection by, e.g. `octo-platform`. */
+  name: string;
+  /** Server version, surfaced to clients. @default {@link OCTO_MCP_VERSION} */
+  version: string;
+  /** Human-facing display name, e.g. `Octo`. */
+  title?: string;
+}
+
+/** Default identity when a host doesn't override {@link OctoMcpHandlerOptions.serverInfo}. */
+const DEFAULT_SERVER_INFO: OctoMcpServerInfo = {
+  name: "octo",
+  version: OCTO_MCP_VERSION,
+  title: "Octo",
+};
+
 /** Knobs for the MCP route handler beyond the backend {@link OctoMcpConfig}. */
 export interface OctoMcpHandlerOptions {
   /**
@@ -30,6 +60,12 @@ export interface OctoMcpHandlerOptions {
   verboseLogs?: boolean;
   /** Max request duration in seconds. @default 60 */
   maxDuration?: number;
+  /**
+   * Identity reported during the MCP `initialize` handshake. Falls back to the
+   * generic {@link DEFAULT_SERVER_INFO}; hosts should pass their own so clients
+   * can tell deployments apart (e.g. `octo-platform` vs `octo-standalone`).
+   */
+  serverInfo?: OctoMcpServerInfo;
 }
 
 /**
@@ -56,6 +92,7 @@ export function createOctoMcpHandler(
       registerPrompts(server, config);
     },
     {
+      serverInfo: options.serverInfo ?? DEFAULT_SERVER_INFO,
       capabilities: {
         tools: {},
         resources: {},
