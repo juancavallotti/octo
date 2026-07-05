@@ -1,30 +1,38 @@
+import { withMcpAuth } from "mcp-handler";
 import { createOctoMcpHandler, OCTO_MCP_VERSION } from "@octo/mcp";
 import {
   CAPABILITIES,
   fromDefinitionYaml,
   validateDocument,
 } from "@octo/editor/runtime";
-import { verifyApiKey } from "@/app/actions/_client";
 import { orchestratorResourceProvider } from "@/app/lib/runResources";
 import {
   orchestratorIntegrationStore,
   orchestratorResourceStore,
 } from "./store-adapter";
+import { verifyMcpToken } from "./verify-token";
+import { MCP_ORIGIN, RESOURCE_METADATA_PATH } from "./oauth-config";
 
 /**
  * GET/POST/DELETE /mcp — the platform's Model Context Protocol endpoint
  * (streamable HTTP). It mounts the same `@octo/mcp` handler the standalone app
- * does, but behind a per-user API key: every request must carry a valid bearer
- * token (Authorization: Bearer <token>), verified against the orchestrator before
- * the request reaches the MCP layer. The OIDC proxy is told to skip `/mcp` (see
- * proxy.ts) precisely because this route owns its own authentication.
+ * does, but as an OAuth 2.1 *resource server*: every request must carry a valid
+ * bearer access token. Tokens are OAuth JWTs minted by eetr (the authorization
+ * server) for MCP clients like Claude and ChatGPT, or a legacy `octo_…` API key
+ * (see verify-token.ts). `withMcpAuth` extracts the bearer, runs the verifier,
+ * and — on a missing/invalid token — returns a spec-correct 401 whose
+ * `WWW-Authenticate` points at the protected-resource metadata (RFC 9728), which
+ * in turn advertises eetr so the client can register and obtain a token. The
+ * OIDC proxy skips `/mcp` (see proxy.ts) precisely because this route owns its
+ * own authentication.
  *
  * Integrations come from the orchestrator; definitions are validated with the
  * editor's pre-flight; run-control tools use the in-process `@octo/run-host` (the
  * handler's default — the same runner the editor's RUN feature uses).
  *
  * The verified token is an authentication boundary only: runs stay keyed by MCP
- * session id and integrations are not yet partitioned per user.
+ * session id and integrations are not yet partitioned per user (the resolved
+ * user id rides along on `AuthInfo.extra` for when they are).
  */
 
 export const runtime = "nodejs";
@@ -66,25 +74,16 @@ const handler = createOctoMcpHandler(
   },
 );
 
-/** 401 with a Bearer challenge, the response for any missing/invalid key. */
-function unauthorized(): Response {
-  return new Response(JSON.stringify({ error: "unauthorized" }), {
-    status: 401,
-    headers: {
-      "WWW-Authenticate": "Bearer",
-      "Content-Type": "application/json",
-    },
-  });
-}
-
-/** Authenticate the bearer API key, then delegate to the MCP handler. */
-async function authed(request: Request): Promise<Response> {
-  const header = request.headers.get("authorization") ?? "";
-  const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
-  if (!token) return unauthorized();
-  const res = await verifyApiKey(token);
-  if (!res.ok) return unauthorized();
-  return handler(request);
-}
+/**
+ * The MCP handler behind OAuth 2.1 bearer auth. `resourceUrl` is the public
+ * origin (Auth.js's canonical var) so the `resource_metadata` challenge URL is
+ * correct behind the platform proxy; `resourceMetadataPath` is the path-scoped
+ * document the metadata routes serve. `required: true` rejects anonymous calls.
+ */
+const authed = withMcpAuth(handler, verifyMcpToken, {
+  required: true,
+  resourceMetadataPath: RESOURCE_METADATA_PATH,
+  resourceUrl: MCP_ORIGIN || undefined,
+});
 
 export { authed as GET, authed as POST, authed as DELETE };

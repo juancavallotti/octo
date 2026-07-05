@@ -1,10 +1,12 @@
 import UserMenu from "@/app/components/UserMenu";
+import { MCP_RESOURCE } from "@/app/mcp/oauth-config";
 import Dashboard from "./Dashboard";
 
 /**
  * The platform landing page (`/platform`): the dashboard. A server component so it
- * can hand the client dashboard the server-rendered account tile.
+ * can hand the client dashboard the server-rendered account tile and the public
+ * MCP endpoint URL (read from server-only env).
  */
 export default function DashboardPage() {
-  return <Dashboard userMenu={<UserMenu />} />;
+  return <Dashboard userMenu={<UserMenu />} mcpUrl={MCP_RESOURCE || undefined} />;
 }

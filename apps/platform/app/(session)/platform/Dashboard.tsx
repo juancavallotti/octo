@@ -21,6 +21,7 @@ import {
   ShortcutTile,
   type DeployedTile,
 } from "./DashboardTiles";
+import { McpEndpointTile } from "./McpEndpointTile";
 
 /**
  * The platform dashboard: shortcut tiles for the common actions, then a live grid
@@ -28,7 +29,14 @@ import {
  * The shared AppHeader carries the logo and account tile; the logo is inert here
  * since this is already the dashboard.
  */
-export default function Dashboard({ userMenu }: { userMenu?: React.ReactNode }) {
+export default function Dashboard({
+  userMenu,
+  mcpUrl,
+}: {
+  userMenu?: React.ReactNode;
+  /** Public MCP endpoint URL; the card is hidden when OAuth isn't configured. */
+  mcpUrl?: string;
+}) {
   const { available, ready } = useOrchestrator();
   const [deployments, setDeployments] = useState<DeployedTile[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -124,6 +132,9 @@ export default function Dashboard({ userMenu }: { userMenu?: React.ReactNode }) 
               external
             />
           </div>
+
+          {/* MCP endpoint (only when OAuth is configured) */}
+          {mcpUrl && <McpEndpointTile url={mcpUrl} />}
 
           {/* Deployments */}
           <div className="mt-10 flex items-center gap-2">
