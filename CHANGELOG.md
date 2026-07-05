@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.3.2](https://github.com/juancavallotti/octo/compare/v0.3.1...v0.3.2) (2026-07-05)
+
+
+### Features
+
+* **deploy:** let rollout edit env and gate required vars ([eb8138e](https://github.com/juancavallotti/octo/commit/eb8138ebbbd2557ccb97a5faec17672e3f14582c))
+* **deploy:** rollout & editor deploy — tag-on-rollout, env editing, deployment selection ([2dcc76c](https://github.com/juancavallotti/octo/commit/2dcc76cf150b0b79574e80a67e57a2ce8368f433))
+* **editor:** tag+env deploy dialog with deployment selection ([099ed63](https://github.com/juancavallotti/octo/commit/099ed63cf2332f5cefc2d368abc732dd06de5cb1))
+* **integrations:** rollout dialog with tag-on-rollout and env editing ([7fcc7af](https://github.com/juancavallotti/octo/commit/7fcc7affa216a59246fcdc53a11fa10e7c0e0eab))
+
+
+### Bug Fixes
+
+* **deploy:** ignore empty env bindings so they don't clobber .env files ([bfcfea3](https://github.com/juancavallotti/octo/commit/bfcfea375bbdc08e03428f075e6ea7c70815639b))
+
 ## [0.3.1](https://github.com/juancavallotti/octo/compare/v0.3.0...v0.3.1) (2026-07-05)
 
 
