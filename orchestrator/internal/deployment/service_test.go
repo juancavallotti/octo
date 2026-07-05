@@ -1040,7 +1040,7 @@ func TestRolloutShipsNewDefinitionAndRecordsTag(t *testing.T) {
 	kc := &fakeKube{status: kube.StatusRunning}
 	svc := NewService(repo, &fakeIntegrations{}, kc, WithSnapshots(snaps))
 
-	if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2"); err != nil {
+	if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil); err != nil {
 		t.Fatalf("Rollout: %v", err)
 	}
 	if !kc.rolledOut {
@@ -1072,7 +1072,7 @@ func TestRolloutRejectsTopologyChange(t *testing.T) {
 	snaps := &fakeSnapshots{ret: snapshot.Snapshot{ID: "snap-2", IntegrationID: "int-1", Definition: "service:\n  name: plain\n"}}
 	svc := NewService(repo, &fakeIntegrations{}, &fakeKube{}, WithSnapshots(snaps))
 
-	if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2"); !errors.Is(err, ErrRolloutTopologyChange) {
+	if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil); !errors.Is(err, ErrRolloutTopologyChange) {
 		t.Errorf("got %v, want ErrRolloutTopologyChange", err)
 	}
 }
@@ -1082,7 +1082,111 @@ func TestRolloutRejectsSnapshotFromAnotherIntegration(t *testing.T) {
 	snaps := &fakeSnapshots{ret: snapshot.Snapshot{ID: "snap-2", IntegrationID: "other", Definition: exposableDef}}
 	svc := NewService(repo, &fakeIntegrations{}, &fakeKube{}, WithSnapshots(snaps))
 
-	if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2"); !errors.Is(err, ErrSnapshotMismatch) {
+	if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil); !errors.Is(err, ErrSnapshotMismatch) {
 		t.Errorf("got %v, want ErrSnapshotMismatch", err)
+	}
+}
+
+// TestRolloutReplacesEnvWhenProvided verifies an explicit env set on rollout
+// replaces the deployment's stored bindings, both in the shipped spec and persisted.
+func TestRolloutReplacesEnvWhenProvided(t *testing.T) {
+	repo := &fakeRepo{getRet: Deployment{
+		ID: "dep-1", IntegrationID: "int-1",
+		Settings: json.RawMessage(`{"replicas":1,"env":{"OLD":{"value":"o"}}}`),
+		Metadata: json.RawMessage(`{"slug":"orders"}`),
+	}}
+	snaps := &fakeSnapshots{ret: snapshot.Snapshot{ID: "snap-2", IntegrationID: "int-1", Tag: "v2.0", Definition: exposableDef}}
+	kc := &fakeKube{status: kube.StatusRunning}
+	svc := NewService(repo, &fakeIntegrations{}, kc, WithSnapshots(snaps))
+
+	env := map[string]EnvBinding{"NEW": {Value: "n"}}
+	if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2", env); err != nil {
+		t.Fatalf("Rollout: %v", err)
+	}
+	if kc.gotSpec.Env["NEW"] != "n" {
+		t.Errorf("spec env NEW = %q, want n", kc.gotSpec.Env["NEW"])
+	}
+	if _, ok := kc.gotSpec.Env["OLD"]; ok {
+		t.Error("stored binding OLD should be replaced, not shipped")
+	}
+	got := ParseSettings(repo.gotSettings).Env
+	if _, ok := got["OLD"]; ok {
+		t.Error("OLD binding should not be persisted after replacement")
+	}
+	if got["NEW"].Value != "n" {
+		t.Errorf("persisted env NEW = %+v, want value n", got["NEW"])
+	}
+}
+
+// TestRolloutPreservesEnvWhenNil verifies a rollout with no env (nil) keeps the
+// deployment's existing bindings — a plain version bump doesn't touch env.
+func TestRolloutPreservesEnvWhenNil(t *testing.T) {
+	repo := &fakeRepo{getRet: Deployment{
+		ID: "dep-1", IntegrationID: "int-1",
+		Settings: json.RawMessage(`{"replicas":1,"env":{"KEEP":{"value":"k"}}}`),
+		Metadata: json.RawMessage(`{"slug":"orders"}`),
+	}}
+	snaps := &fakeSnapshots{ret: snapshot.Snapshot{ID: "snap-2", IntegrationID: "int-1", Tag: "v2.0", Definition: exposableDef}}
+	kc := &fakeKube{status: kube.StatusRunning}
+	svc := NewService(repo, &fakeIntegrations{}, kc, WithSnapshots(snaps))
+
+	if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil); err != nil {
+		t.Fatalf("Rollout: %v", err)
+	}
+	if kc.gotSpec.Env["KEEP"] != "k" {
+		t.Errorf("spec env KEEP = %q, want k (preserved)", kc.gotSpec.Env["KEEP"])
+	}
+	if ParseSettings(repo.gotSettings).Env["KEEP"].Value != "k" {
+		t.Error("KEEP binding should be preserved after a nil-env rollout")
+	}
+}
+
+// TestRolloutRejectsMissingRequiredEnv verifies rolling to a version that declares a
+// new required env var nothing provides fails with ErrMissingRequiredEnv (naming it)
+// before the cluster is touched.
+func TestRolloutRejectsMissingRequiredEnv(t *testing.T) {
+	repo := &fakeRepo{getRet: Deployment{
+		ID: "dep-1", IntegrationID: "int-1",
+		Settings: json.RawMessage(`{"replicas":1}`),
+		Metadata: json.RawMessage(`{}`), // non-networked (no slug)
+	}}
+	requiredDef := "env:\n  - name: API_KEY\n    required: true\n"
+	snaps := &fakeSnapshots{ret: snapshot.Snapshot{ID: "snap-2", IntegrationID: "int-1", Tag: "v2.0", Definition: requiredDef}}
+	kc := &fakeKube{status: kube.StatusRunning}
+	svc := NewService(repo, &fakeIntegrations{}, kc, WithSnapshots(snaps))
+
+	_, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil)
+	if !errors.Is(err, ErrMissingRequiredEnv) {
+		t.Fatalf("got %v, want ErrMissingRequiredEnv", err)
+	}
+	if !strings.Contains(err.Error(), "API_KEY") {
+		t.Errorf("error %q should name API_KEY", err)
+	}
+	if kc.rolledOut {
+		t.Error("kube.Rollout should not run when a required env var is unmet")
+	}
+}
+
+// TestRolloutRequiredEnvSatisfiedByFrozenEnvFile verifies a required var the target
+// tag's frozen .env resource supplies satisfies the gate — no binding needed.
+func TestRolloutRequiredEnvSatisfiedByFrozenEnvFile(t *testing.T) {
+	repo := &fakeRepo{getRet: Deployment{
+		ID: "dep-1", IntegrationID: "int-1",
+		Settings: json.RawMessage(`{"replicas":1}`),
+		Metadata: json.RawMessage(`{}`),
+	}}
+	requiredDef := "env:\n  - name: API_KEY\n    required: true\n"
+	snaps := &fakeSnapshots{
+		ret:       snapshot.Snapshot{ID: "snap-2", IntegrationID: "int-1", Tag: "v2.0", Definition: requiredDef},
+		resources: []snapshot.Resource{{Kind: resource.KindEnv, Name: ".env", Content: "API_KEY=from-file\n"}},
+	}
+	kc := &fakeKube{status: kube.StatusRunning}
+	svc := NewService(repo, &fakeIntegrations{}, kc, WithSnapshots(snaps))
+
+	if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil); err != nil {
+		t.Fatalf("Rollout: %v", err)
+	}
+	if !kc.rolledOut {
+		t.Error("expected kube.Rollout when the required var is supplied by a frozen .env file")
 	}
 }
