@@ -60,6 +60,8 @@
           <tbody>
             <tr><td><code>list_integrations</code></td><td>List saved integrations as <code>{id, name}</code>.</td></tr>
             <tr><td><code>open_integration</code></td><td>Read one by id → <code>{id, name, definition}</code> (the runtime YAML).</td></tr>
+            <tr><td><code>getSchema</code></td><td>The block/connector catalogue: no arg → a compact index; <code>getSchema(elementName)</code> → one type's full spec &amp; fields.</td></tr>
+            <tr><td><code>getExamples</code></td><td>Worked examples: no arg → the index; <code>getExamples(slug)</code> → that example's full YAML.</td></tr>
             <tr><td><code>validate_definition</code></td><td>Check a draft YAML against the runtime schema <em>without</em> saving; returns descriptive errors.</td></tr>
             <tr><td><code>create_integration</code></td><td>Create from a name + definition. Returns the created record.</td></tr>
             <tr><td><code>update_integration</code></td><td>Overwrite a definition (and optionally rename).</td></tr>
@@ -88,6 +90,7 @@
   <div class="wrap">
     <div class="section-head"><span class="eyebrow">Context the model reads</span><h2>Resources &amp; prompts.</h2>
       <p>Beyond tools, the server publishes resources the assistant pulls into context, and a guided prompt that walks it through the whole loop.</p>
+      <div class="note"><strong>Also served as tools.</strong> Some clients (e.g. Claude Desktop) only surface tools, not resources or prompts. The same schema and examples are therefore also available through the <code>getSchema</code> and <code>getExamples</code> tools above, one element at a time — so a tools-only client isn't left guessing. The resources below stay for clients that do consume them.</div>
     </div>
     <div class="grid cols-2">
       <div>

@@ -75,7 +75,7 @@ export function registerIntegrationTools(
     {
       title: "Create integration",
       description:
-        "Create a new integration from a name and a runtime-YAML definition. Read the `octo://runtime/schema` resource first to know the valid blocks and connectors. Returns the created { id, name, definition }.",
+        "Create a new integration from a name and a runtime-YAML definition. Call `getSchema` first to know the valid blocks and connectors (and `getExamples` for idiomatic usage). Returns the created { id, name, definition }.",
       inputSchema: {
         name: z.string().min(1).describe("Display name for the integration."),
         definition: z
