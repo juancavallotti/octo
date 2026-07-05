@@ -1351,7 +1351,7 @@
           "label": "Host",
           "type": "string",
           "required": false,
-          "description": "Bind address; empty binds all interfaces."
+          "description": "Bind address; when unset, uses $HTTP_HOST, falling back to 0.0.0.0 (all interfaces)."
         },
         {
           "name": "port",
@@ -1359,7 +1359,7 @@
           "type": "number",
           "required": false,
           "default": 8080,
-          "description": "Bind port; 0 = OS-assigned."
+          "description": "Bind port; when unset, uses $HTTP_PORT, falling back to 8080. 0 = OS-assigned."
         },
         {
           "name": "basePath",

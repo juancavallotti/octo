@@ -17,6 +17,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -33,9 +34,18 @@ func init() {
 }
 
 const (
-	defaultPort              = 8080
+	defaultPort = 8080
+	// defaultHost binds every interface when neither the settings nor the
+	// HTTP_HOST env var pin an address (matches the orchestrator's bindAllHost).
+	defaultHost              = "0.0.0.0"
 	defaultRequestTimeout    = 30 * time.Second
 	defaultReadHeaderTimeout = 10 * time.Second
+	// envHTTPHost and envHTTPPort are the unprefixed env vars the runtime binds
+	// to when the connector is used config-less (the implicit/type-resolved path
+	// starts it with empty settings). They mirror the contract the orchestrator
+	// injects into pods (orchestrator/internal/deployment/envports.go).
+	envHTTPHost = "HTTP_HOST"
+	envHTTPPort = "HTTP_PORT"
 )
 
 // result is the outcome the event-bus handler delivers to a parked request.
@@ -95,12 +105,10 @@ func (c *Connector) Start(ctx context.Context, config types.ConnectorConfig) err
 	if c.reqTimeout <= 0 {
 		c.reqTimeout = defaultRequestTimeout
 	}
-	port := defaultPort
-	if set.Port != nil {
-		port = *set.Port
-	}
+	host := resolveHost(set.Host)
+	port := resolvePort(set.Port)
 
-	addr := net.JoinHostPort(set.Host, strconv.Itoa(port))
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	var lc net.ListenConfig
 	ln, err := lc.Listen(ctx, "tcp", addr)
 	if err != nil {
@@ -130,6 +138,36 @@ func (c *Connector) Start(ctx context.Context, config types.ConnectorConfig) err
 
 	c.unsubscribe = core.DefaultEventBus().Subscribe(c.onFlowEvent)
 	return nil
+}
+
+// resolveHost picks the listen host. An explicit setting wins; otherwise the
+// HTTP_HOST env var is used, falling back to defaultHost (all interfaces) so the
+// config-less connector still binds somewhere predictable.
+func resolveHost(setHost string) string {
+	if setHost != "" {
+		return setHost
+	}
+	if env, ok := os.LookupEnv(envHTTPHost); ok && env != "" {
+		return env
+	}
+	return defaultHost
+}
+
+// resolvePort picks the listen port. An explicit setting wins (including an
+// explicit 0, which lets the OS pick a free port — hence the pointer); otherwise
+// the HTTP_PORT env var is used, falling back to defaultPort. An unparseable
+// HTTP_PORT is logged and ignored rather than failing the connector.
+func resolvePort(setPort *int) int {
+	if setPort != nil {
+		return *setPort
+	}
+	if env, ok := os.LookupEnv(envHTTPPort); ok && env != "" {
+		if p, err := strconv.Atoi(env); err == nil {
+			return p
+		}
+		slog.Warn("http connector: ignoring unparseable HTTP_PORT", "value", env, "default", defaultPort)
+	}
+	return defaultPort
 }
 
 // Stop unblocks any parked request handlers (they return 503) and then shuts the
