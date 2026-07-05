@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.4](https://github.com/juancavallotti/octo/compare/v0.3.3...v0.3.4) (2026-07-05)
+
+
+### Features
+
+* **http:** default host/port from HTTP_HOST/HTTP_PORT env vars ([e4b7018](https://github.com/juancavallotti/octo/commit/e4b701886f72b9d6e4726306eaddbbdf365673f0))
+* **mcp:** add getCelFunctions tool and CEL catalogue ([deb9a3e](https://github.com/juancavallotti/octo/commit/deb9a3eff5f9180af889192f3157a52b2cf4205c))
+* **mcp:** serve schema and examples as tools, not just resources ([453e439](https://github.com/juancavallotti/octo/commit/453e439a731f1fd630fdd77cf153fdc24f4f6b8d))
+* prod-readiness enhancements (http env defaults, slack raw-body [#104](https://github.com/juancavallotti/octo/issues/104), MCP docs tools) ([f16b2cf](https://github.com/juancavallotti/octo/commit/f16b2cf1902098a9239c25a994fa43d87001cfa4))
+* **slack:** make slack-verify-request raw-body aware ([#104](https://github.com/juancavallotti/octo/issues/104)) ([b93776f](https://github.com/juancavallotti/octo/commit/b93776f24b8a2773f2807294a2a37f8f391844b6))
+
 ## [0.3.3](https://github.com/juancavallotti/octo/compare/v0.3.2...v0.3.3) (2026-07-05)
 
 
