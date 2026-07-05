@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -21,9 +22,13 @@ func newMemRepo() *memRepo {
 	return &memRepo{items: make(map[string]Integration)}
 }
 
-func (m *memRepo) Create(_ context.Context, name, definition string) (Integration, error) {
+func (m *memRepo) Create(_ context.Context, name, definition, actorID string) (Integration, error) {
 	m.seq++
 	it := Integration{ID: fmt.Sprintf("id-%d", m.seq), Name: name, Definition: definition}
+	if actorID != "" {
+		it.CreatedBy = &actorID
+		it.UpdatedBy = &actorID
+	}
 	m.items[it.ID] = it
 	return it, nil
 }
@@ -44,11 +49,15 @@ func (m *memRepo) List(_ context.Context) ([]Integration, error) {
 	return out, nil
 }
 
-func (m *memRepo) Update(_ context.Context, id, name, definition string) (Integration, error) {
-	if _, ok := m.items[id]; !ok {
+func (m *memRepo) Update(_ context.Context, id, name, definition, actorID string) (Integration, error) {
+	prev, ok := m.items[id]
+	if !ok {
 		return Integration{}, ErrNotFound
 	}
-	it := Integration{ID: id, Name: name, Definition: definition}
+	it := Integration{ID: id, Name: name, Definition: definition, CreatedBy: prev.CreatedBy}
+	if actorID != "" {
+		it.UpdatedBy = &actorID
+	}
 	m.items[id] = it
 	return it, nil
 }
@@ -59,6 +68,18 @@ func (m *memRepo) Delete(_ context.Context, id string) error {
 	}
 	delete(m.items, id)
 	return nil
+}
+
+func (m *memRepo) NameExists(_ context.Context, name, excludeID string) (bool, error) {
+	for id, it := range m.items {
+		if id == excludeID {
+			continue
+		}
+		if strings.EqualFold(it.Name, name) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // newTestHandler returns a mux wired to a real Service over a memRepo, plus the
@@ -83,6 +104,22 @@ func do(t *testing.T, mux *http.ServeMux, method, target, body string) *httptest
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	return rec
+}
+
+func TestHandlerRejectsDuplicateName(t *testing.T) {
+	mux, _ := newTestHandler(t)
+
+	if rec := do(t, mux, http.MethodPost, "/integrations",
+		`{"name":"Payments","definition":"a"}`); rec.Code != http.StatusCreated {
+		t.Fatalf("first create: status = %d, want 201", rec.Code)
+	}
+
+	// Same name, different case, must collide (case-insensitive, global).
+	rec := do(t, mux, http.MethodPost, "/integrations",
+		`{"name":"payments","definition":"b"}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("duplicate create: status = %d, want 409", rec.Code)
+	}
 }
 
 func TestHandlerCreate(t *testing.T) {
@@ -124,7 +161,7 @@ func TestHandlerCreateBadRequests(t *testing.T) {
 
 func TestHandlerGet(t *testing.T) {
 	mux, repo := newTestHandler(t)
-	seeded, _ := repo.Create(context.Background(), "seeded", "body")
+	seeded, _ := repo.Create(context.Background(), "seeded", "body", "")
 
 	rec := do(t, mux, http.MethodGet, "/integrations/"+seeded.ID, "")
 	if rec.Code != http.StatusOK {
@@ -139,8 +176,8 @@ func TestHandlerGet(t *testing.T) {
 
 func TestHandlerList(t *testing.T) {
 	mux, repo := newTestHandler(t)
-	_, _ = repo.Create(context.Background(), "a", "b")
-	_, _ = repo.Create(context.Background(), "c", "d")
+	_, _ = repo.Create(context.Background(), "a", "b", "")
+	_, _ = repo.Create(context.Background(), "c", "d", "")
 
 	rec := do(t, mux, http.MethodGet, "/integrations", "")
 	if rec.Code != http.StatusOK {
@@ -157,7 +194,7 @@ func TestHandlerList(t *testing.T) {
 
 func TestHandlerUpdate(t *testing.T) {
 	mux, repo := newTestHandler(t)
-	seeded, _ := repo.Create(context.Background(), "before", "body")
+	seeded, _ := repo.Create(context.Background(), "before", "body", "")
 
 	rec := do(t, mux, http.MethodPut, "/integrations/"+seeded.ID, `{"name":"after","definition":"body2"}`)
 	if rec.Code != http.StatusOK {
@@ -177,7 +214,7 @@ func TestHandlerUpdate(t *testing.T) {
 
 func TestHandlerDelete(t *testing.T) {
 	mux, repo := newTestHandler(t)
-	seeded, _ := repo.Create(context.Background(), "del", "body")
+	seeded, _ := repo.Create(context.Background(), "del", "body", "")
 
 	rec := do(t, mux, http.MethodDelete, "/integrations/"+seeded.ID, "")
 	if rec.Code != http.StatusNoContent {

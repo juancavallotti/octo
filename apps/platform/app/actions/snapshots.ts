@@ -8,7 +8,7 @@
  * through the result and surfaces in the UI.
  */
 
-import type { Snapshot } from "@/app/model/orchestrator";
+import type { Snapshot, SnapshotResource } from "@/app/model/orchestrator";
 import { withRead, withWrite } from "./_auth";
 import * as client from "./_client";
 import type { ActionResult } from "./_client";
@@ -28,4 +28,10 @@ export async function createSnapshot(
 
 export async function deleteSnapshot(id: string): Promise<ActionResult<void>> {
   return withWrite(() => client.deleteSnapshot(id));
+}
+
+export async function listSnapshotResources(
+  snapshotId: string,
+): Promise<ActionResult<SnapshotResource[]>> {
+  return withRead(() => client.listSnapshotResources(snapshotId));
 }

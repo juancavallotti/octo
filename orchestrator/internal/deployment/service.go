@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"sort"
 	"strings"
 
 	"github.com/juancavallotti/octo/orchestrator/internal/integration"
 	"github.com/juancavallotti/octo/orchestrator/internal/kube"
+	"github.com/juancavallotti/octo/orchestrator/internal/resource"
 	"github.com/juancavallotti/octo/orchestrator/internal/snapshot"
 )
 
@@ -35,11 +38,23 @@ type integrationStore interface {
 	Get(ctx context.Context, id string) (integration.Integration, error)
 }
 
-// snapshotStore reads a version tag's frozen definition. *snapshot.Service
-// satisfies it. When wired (WithSnapshots), deploys must reference a snapshot and
-// ship its frozen definition instead of the live one.
+// snapshotStore reads a version tag's frozen definition and the resources frozen
+// alongside it. *snapshot.Service satisfies it. When wired (WithSnapshots),
+// deploys must reference a snapshot and ship its frozen definition instead of the
+// live one. ListResources lets the deploy check required env vars against the
+// tag's frozen .env resources (not just the deploy-time bindings).
 type snapshotStore interface {
 	Get(ctx context.Context, id string) (snapshot.Snapshot, error)
+	ListResources(ctx context.Context, snapshotID string) ([]snapshot.Resource, error)
+}
+
+// resourceStore reads an integration's live (working-copy) resources. Wired via
+// WithResources, it lets DeployOptions report which env vars the working copy's
+// .env files already supply for the Current case (a deploy from Current tags the
+// working copy first, so its .env keys are exactly the live ones).
+// *resource.Service satisfies it.
+type resourceStore interface {
+	ListByIntegration(ctx context.Context, integrationID string) ([]resource.Resource, error)
 }
 
 // kubeClient is the Kubernetes surface the service drives. *kube.Client
@@ -48,6 +63,7 @@ type kubeClient interface {
 	Apply(ctx context.Context, spec kube.Spec) error
 	Rollout(ctx context.Context, spec kube.Spec) error
 	Status(ctx context.Context, deploymentID string) (kube.Status, error)
+	PodLogs(ctx context.Context, podName string, follow bool, tail int64) (io.ReadCloser, error)
 	Scale(ctx context.Context, deploymentID string, replicas int32) error
 	Delete(ctx context.Context, deploymentID string) error
 	InternalURL(slug string, port int) string
@@ -69,6 +85,7 @@ type Service struct {
 	repo         repository
 	integrations integrationStore
 	snapshots    snapshotStore
+	resources    resourceStore
 	kube         kubeClient
 	cleaners     []storeCleaner
 }
@@ -89,6 +106,14 @@ func WithStoreCleaner(c storeCleaner) Option {
 // (used only in tests; the production wiring always supplies a store).
 func WithSnapshots(s snapshotStore) Option {
 	return func(svc *Service) { svc.snapshots = s }
+}
+
+// WithResources wires the live-resource store so DeployOptions can report the env
+// vars an integration's working-copy .env files supply (the Current deploy case).
+// Without it, those keys are simply unknown up front — the deploy-time check
+// against the frozen snapshot still applies.
+func WithResources(r resourceStore) Option {
+	return func(svc *Service) { svc.resources = r }
 }
 
 // NewService returns a Service. kube may be nil, in which case all operations
@@ -150,6 +175,23 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 	literalEnv, secretEnv, err := s.resolveEnvBindings(ctx, runtimeEnv, settings.Env)
 	if err != nil {
 		return Deployment{}, err
+	}
+
+	// Reject a deploy whose definition declares a required env var that nothing
+	// provides — neither a deploy-time binding nor a frozen .env resource. A
+	// declared default does not satisfy a required var (matching the runtime), so
+	// this catches the "new version needs a new required var" gap up front, with a
+	// clear message, instead of leaving the pod to crash-loop on load.
+	provided := providedEnvKeys(settings.Env)
+	fileKeys, err := s.snapshotEnvFileKeys(ctx, snapID)
+	if err != nil {
+		return Deployment{}, err
+	}
+	for k := range fileKeys {
+		provided[k] = struct{}{}
+	}
+	if missing := missingRequiredEnv(definition, provided); len(missing) > 0 {
+		return Deployment{}, fmt.Errorf("%w: %s", ErrMissingRequiredEnv, strings.Join(missing, ", "))
 	}
 
 	// A networked deployment gets a slug unique across all deployments, so its
@@ -332,6 +374,11 @@ type DeployOptions struct {
 	// orchestrator-managed HTTP_PORT/HTTP_HOST), for the modal to prompt on. Present
 	// regardless of networked status.
 	EnvVars []EnvVarDecl
+	// EnvProvidedKeys are env var names already satisfied by the selected version's
+	// frozen .env resources, sorted. The modal treats a required var in this set as
+	// filled (the runtime reads it from the .env file), so it neither blocks the
+	// deploy nor forces the operator to re-enter it.
+	EnvProvidedKeys []string
 	// Populated only when a candidate slug was supplied.
 	SlugChecked   bool
 	Slug          string // normalized (slugified) candidate
@@ -365,6 +412,20 @@ func (s *Service) DeployOptions(ctx context.Context, integrationID, candidate st
 	}
 	_, _, networked := resolveRuntimeEnv(definition)
 	opts := DeployOptions{Networked: networked, EnvVars: declaredEnvVars(definition)}
+	// Keys the .env resources already supply, so the modal doesn't block on (nor
+	// force a value for) a required var a .env file covers — the operator may still
+	// override it. A selected tag reads its frozen resources; Current reads the live
+	// working copy (which a Current deploy tags first).
+	var fileKeys map[string]struct{}
+	if snapshotID != "" {
+		fileKeys, err = s.snapshotEnvFileKeys(ctx, snapshotID)
+	} else {
+		fileKeys, err = s.liveEnvFileKeys(ctx, integrationID)
+	}
+	if err != nil {
+		return DeployOptions{}, err
+	}
+	opts.EnvProvidedKeys = sortedKeys(fileKeys)
 	if !networked {
 		return opts, nil
 	}
@@ -386,6 +447,62 @@ func (s *Service) DeployOptions(ctx context.Context, integrationID, candidate st
 		return DeployOptions{}, err
 	}
 	return opts, nil
+}
+
+// addEnvKeys folds a resource's .env keys into dst when it is an env resource.
+func addEnvKeys(dst map[string]struct{}, kind, content string) {
+	if kind == resource.KindEnv {
+		for k := range parseDotEnvKeys(content) {
+			dst[k] = struct{}{}
+		}
+	}
+}
+
+// snapshotEnvFileKeys is the set of env var names supplied by a snapshot's frozen
+// .env resources. Empty when no snapshot store is wired or no tag is selected.
+// Consulted by Deploy (to allow the deploy) so it never disagrees with the modal.
+func (s *Service) snapshotEnvFileKeys(ctx context.Context, snapshotID string) (map[string]struct{}, error) {
+	keys := map[string]struct{}{}
+	if s.snapshots == nil || snapshotID == "" {
+		return keys, nil
+	}
+	resources, err := s.snapshots.ListResources(ctx, snapshotID)
+	if err != nil {
+		return nil, err
+	}
+	for _, res := range resources {
+		addEnvKeys(keys, res.Kind, res.Content)
+	}
+	return keys, nil
+}
+
+// liveEnvFileKeys is the set of env var names supplied by an integration's live
+// .env resources (the working copy). Empty when no resource store is wired. Used
+// by DeployOptions for the Current case, where the deploy tags the working copy
+// first — its .env keys are exactly the live ones.
+func (s *Service) liveEnvFileKeys(ctx context.Context, integrationID string) (map[string]struct{}, error) {
+	keys := map[string]struct{}{}
+	if s.resources == nil {
+		return keys, nil
+	}
+	resources, err := s.resources.ListByIntegration(ctx, integrationID)
+	if err != nil {
+		return nil, err
+	}
+	for _, res := range resources {
+		addEnvKeys(keys, res.Kind, res.Content)
+	}
+	return keys, nil
+}
+
+// sortedKeys returns a set's keys as a sorted slice, for a stable wire response.
+func sortedKeys(set map[string]struct{}) []string {
+	out := make([]string, 0, len(set))
+	for k := range set {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // resolveSlug returns the slug to use for a networked deployment. A user-supplied
@@ -614,6 +731,35 @@ func (s *Service) Get(ctx context.Context, id string) (Deployment, error) {
 	}
 	s.applyRefresh(ctx, &dep)
 	return dep, nil
+}
+
+// PodLogs streams the logs of one of a deployment's pods. It verifies the
+// deployment exists (ErrNotFound) and that the pod currently belongs to it
+// (ErrPodNotFound) before opening the stream, so a caller cannot read arbitrary
+// pods in the namespace by id-guessing. With follow set the stream tails the pod
+// live until the caller closes the returned reader or the context is cancelled.
+func (s *Service) PodLogs(ctx context.Context, deploymentID, podName string, follow bool, tail int64) (io.ReadCloser, error) {
+	if s.kube == nil {
+		return nil, ErrUnavailable
+	}
+	if _, err := s.repo.Get(ctx, deploymentID); err != nil {
+		return nil, err
+	}
+	st, err := s.kube.Status(ctx, deploymentID)
+	if err != nil {
+		return nil, err
+	}
+	found := false
+	for _, p := range st.Pods {
+		if p.Name == podName {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil, ErrPodNotFound
+	}
+	return s.kube.PodLogs(ctx, podName, follow, tail)
 }
 
 // ListByIntegration returns an integration's deployments, each with its status

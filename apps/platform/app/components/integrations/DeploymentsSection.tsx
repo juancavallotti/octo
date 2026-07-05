@@ -1,27 +1,27 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Rocket } from "lucide-react";
 import { useConfirm } from "@/app/components/ConfirmDialog";
 import {
   createDeployment,
+  createSnapshot,
   deleteDeployment,
   listDeployments,
   rolloutDeployment,
   scaleDeployment,
   type Deployment,
-  type DeploymentInput,
   type Snapshot,
 } from "@/app/model/orchestrator";
 import DeploymentRow from "./DeploymentRow";
-import DeployModal from "./DeployModal";
+import DeployModal, { type DeploySubmit } from "./DeployModal";
 
 /**
- * Deployments for one integration: a one-click Deploy plus a list of live
- * deployments with their status and an Undeploy action. The orchestrator pushes
- * status changes over SSE (it watches the cluster), so the list updates live; if
- * the stream is unavailable we fall back to gentle polling. Mutations refresh
- * immediately, mirroring IntegrationsManager.
+ * Deployments for one integration, scoped to the active version: with a tag
+ * selected it lists that tag's deployments; with Current selected it lists them
+ * all. Each row shows live status and its actions (scale, rollout, undeploy, pod
+ * logs). The orchestrator pushes status over SSE (it watches the cluster), so the
+ * list updates live; if the stream is unavailable we fall back to gentle polling.
+ * The Deploy button lives in the parent header and controls this modal.
  */
 
 // Polling cadence used only as a fallback when the SSE stream is unavailable.
@@ -31,23 +31,49 @@ export default function DeploymentsSection({
   integrationId,
   integrationName,
   snapshots,
+  activeSnapshot,
+  filterTag,
+  deployOpen,
+  onDeployOpenChange,
   onDeploymentsChange,
+  onSnapshotsChanged,
+  onOpenLogs,
 }: {
   integrationId: string;
   integrationName: string;
   /** The integration's tags (owned by the parent), for the change-version menu. */
   snapshots: Snapshot[];
+  /** The active version to deploy: a frozen tag, or null to tag-and-deploy Current. */
+  activeSnapshot: Snapshot | null;
+  /** Show only this tag's deployments; null (Current) shows them all. */
+  filterTag: string | null;
+  /** Whether the Deploy modal is open — controlled by the parent, whose header
+   * hosts the Deploy button. */
+  deployOpen: boolean;
+  onDeployOpenChange: (open: boolean) => void;
   /**
    * Notifies the parent whenever the live deployment list changes, so it can tell
-   * the Versions section which tags are deployed (and therefore undeletable).
+   * the version pills which tags are deployed (and therefore undeletable).
    */
   onDeploymentsChange?: (deployments: Deployment[]) => void;
+  /** Ask the parent to reload the tag list (after a tag-on-deploy creates one). */
+  onSnapshotsChanged?: () => void;
+  /** Open the parent-owned dockable log panel tailing a specific pod. */
+  onOpenLogs?: (deploymentId: string, podName: string) => void;
 }) {
   const confirm = useConfirm();
   const [deployments, setDeployments] = useState<Deployment[]>([]);
   const [busy, setBusy] = useState(false);
+  // Two error slots so they don't clobber each other: `error` is the inline
+  // scale/rollout/undeploy error; `deployError` is shown inside the Deploy modal.
   const [error, setError] = useState<string | null>(null);
-  const [modalOpen, setModalOpen] = useState(false);
+  const [deployError, setDeployError] = useState<string | null>(null);
+  // Scope the list to the active version: a tag shows only its deployments; Current
+  // (null) shows them all so everything is manageable in one place.
+  const shown =
+    filterTag === null
+      ? deployments
+      : deployments.filter((d) => d.tag === filterTag);
 
   // Mirror the live list up to the parent (for the Versions section's deployed-tag
   // hint). Effect-driven so it stays in sync regardless of which path — first
@@ -123,28 +149,38 @@ export default function DeploymentsSection({
   );
 
   // Deploy from the modal: on success close it; on failure keep it open with the
-  // error so the user can correct and retry.
+  // error so the user can correct and retry. When deploying Current the modal sends
+  // a newTag — cut that snapshot from the working copy first, then deploy it (and
+  // tell the parent so the pills/menu pick up the new tag).
   const deploy = useCallback(
-    async (input: DeploymentInput) => {
+    async (input: DeploySubmit) => {
       setBusy(true);
-      setError(null);
+      setDeployError(null);
       try {
-        await createDeployment(integrationId, input);
+        let snapshotId = input.snapshotId;
+        if (!snapshotId && input.newTag) {
+          const snap = await createSnapshot(integrationId, input.newTag);
+          snapshotId = snap.id;
+          onSnapshotsChanged?.();
+        }
+        if (!snapshotId) throw new Error("no version selected to deploy");
+        await createDeployment(integrationId, {
+          snapshotId,
+          replicas: input.replicas,
+          ...(input.slug ? { slug: input.slug } : {}),
+          ...(input.expose ? { expose: input.expose } : {}),
+          ...(input.env ? { env: input.env } : {}),
+        });
         await refresh();
-        setModalOpen(false);
+        onDeployOpenChange(false);
       } catch (e) {
-        setError((e as Error).message);
+        setDeployError((e as Error).message);
       } finally {
         setBusy(false);
       }
     },
-    [integrationId, refresh],
+    [integrationId, refresh, onDeployOpenChange, onSnapshotsChanged],
   );
-
-  const openModal = () => {
-    setError(null);
-    setModalOpen(true);
-  };
 
   const scale = (d: Deployment, replicas: number) =>
     run(() => scaleDeployment(d.id, replicas));
@@ -164,26 +200,18 @@ export default function DeploymentsSection({
 
   return (
     <>
-      <div className="mb-2 flex justify-end">
-        <button
-          type="button"
-          onClick={openModal}
-          disabled={busy}
-          className="inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1 text-sm font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-50"
-        >
-          <Rocket size={14} />
-          Deploy
-        </button>
-      </div>
+      {/* Scale/rollout/undeploy errors show inline; deploy errors show in the modal. */}
+      {error && <p className="mb-2 text-sm text-red-500">{error}</p>}
 
-      {/* Errors from undeploy show inline; deploy errors show inside the modal. */}
-      {error && !modalOpen && <p className="mb-2 text-sm text-red-500">{error}</p>}
-
-      {deployments.length === 0 ? (
-        <p className="text-sm text-zinc-400">Not deployed.</p>
+      {shown.length === 0 ? (
+        <p className="py-1 text-sm text-zinc-400">
+          {filterTag === null
+            ? "Not deployed."
+            : `No deployments of ${filterTag}.`}
+        </p>
       ) : (
-        <ul className="space-y-1.5">
-          {deployments.map((d) => (
+        <ul className="space-y-2">
+          {shown.map((d) => (
             <DeploymentRow
               key={d.id}
               deployment={d}
@@ -192,19 +220,28 @@ export default function DeploymentsSection({
               onScale={scale}
               onRollout={rollout}
               onUndeploy={undeploy}
+              onOpenLogs={
+                onOpenLogs ? (dep, pod) => onOpenLogs(dep.id, pod) : undefined
+              }
             />
           ))}
         </ul>
       )}
 
-      {modalOpen && (
+      {deployOpen && (
         <DeployModal
           integrationId={integrationId}
           integrationName={integrationName}
+          activeSnapshot={activeSnapshot}
+          snapshots={snapshots}
           busy={busy}
-          error={error}
+          error={deployError}
           onSubmit={deploy}
-          onClose={() => !busy && setModalOpen(false)}
+          onClose={() => {
+            if (busy) return;
+            setDeployError(null); // start fresh next time it opens
+            onDeployOpenChange(false);
+          }}
         />
       )}
     </>

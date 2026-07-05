@@ -32,18 +32,31 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /integrations/{id}", h.delete)
 }
 
-// integrationRequest is the create/update payload.
+// integrationRequest is the create/update payload. ActorID is the acting user's
+// id, forwarded by the BFF from the authenticated session (empty when unknown);
+// the orchestrator trusts the BFF as the auth boundary, so it is a body field
+// rather than a verified credential.
 type integrationRequest struct {
 	Name       string `json:"name"`
 	Definition string `json:"definition"`
+	ActorID    string `json:"actorId"`
 }
 
-// integrationResponse is the wire representation of an integration.
+// integrationResponse is the wire representation of an integration. The
+// attribution fields are omitted when unknown. Its field layout mirrors the
+// domain Integration so toResponse is a direct conversion.
 type integrationResponse struct {
 	ID          string    `json:"id"`
 	Name        string    `json:"name"`
 	Definition  string    `json:"definition"`
 	LastUpdated time.Time `json:"lastUpdated"`
+
+	CreatedBy      *string `json:"createdBy,omitempty"`
+	UpdatedBy      *string `json:"updatedBy,omitempty"`
+	CreatedByEmail *string `json:"createdByEmail,omitempty"`
+	CreatedByName  *string `json:"createdByName,omitempty"`
+	UpdatedByEmail *string `json:"updatedByEmail,omitempty"`
+	UpdatedByName  *string `json:"updatedByName,omitempty"`
 }
 
 // toResponse maps the domain model to its wire form. The field layouts match,
@@ -63,7 +76,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
 
-	it, err := h.svc.Create(ctx, req.Name, req.Definition)
+	it, err := h.svc.Create(ctx, req.Name, req.Definition, req.ActorID)
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -110,7 +123,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
 
-	it, err := h.svc.Update(ctx, r.PathValue("id"), req.Name, req.Definition)
+	it, err := h.svc.Update(ctx, r.PathValue("id"), req.Name, req.Definition, req.ActorID)
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -135,6 +148,8 @@ func (h *Handler) writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrInvalid):
 		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, ErrNameTaken):
+		httpx.WriteError(w, http.StatusConflict, "an integration with this name already exists")
 	case errors.Is(err, ErrNotFound):
 		httpx.WriteError(w, http.StatusNotFound, "integration not found")
 	default:

@@ -20,6 +20,17 @@ export interface Integration {
   definition: string;
   /** RFC3339 timestamp of the last update. */
   lastUpdated: string;
+  /**
+   * Attribution: the ids of the creating and last-editing users, with those
+   * users resolved to email/name for display. All optional — a row may have no
+   * known actor (local no-SSO, MCP writes) or the user may since be gone.
+   */
+  createdBy?: string;
+  updatedBy?: string;
+  createdByEmail?: string;
+  createdByName?: string;
+  updatedByEmail?: string;
+  updatedByName?: string;
 }
 
 /** A version tag: a frozen snapshot of an integration's definition. */
@@ -27,7 +38,22 @@ export interface Snapshot {
   id: string;
   integrationId: string;
   tag: string;
+  /** The frozen definition YAML, for version-scoped stats (e.g. the Definition panel). */
+  definition: string;
   /** RFC3339 timestamp of when the tag was created. */
+  createdAt: string;
+}
+
+/**
+ * A resource frozen alongside a tag's definition — metadata only (content is
+ * served separately, on demand, by the runtime's loader). Read-only, since a
+ * snapshot is immutable.
+ */
+export interface SnapshotResource {
+  /** "env" or "template". */
+  kind: string;
+  name: string;
+  /** RFC3339 timestamp of when the tag froze this resource. */
   createdAt: string;
 }
 
@@ -155,6 +181,11 @@ export interface DeployOptions {
   suggestedSlug?: string;
   /** The integration's declared env vars (excluding orchestrator-managed ones). */
   envVars?: DeployEnvVar[];
+  /** Env var names already supplied by the selected version's .env resources
+   * (frozen for a tag, live for Current). A required var in this set is treated as
+   * satisfied — the modal neither blocks nor forces a value, but it can be
+   * overridden with an explicit value or secret. */
+  envProvidedKeys?: string[];
   /** Normalized form of the checked candidate. */
   slug?: string;
   /** The candidate has a usable form. */
@@ -356,6 +387,13 @@ export async function createSnapshot(
 /** Delete a version tag (refused by the orchestrator if currently deployed). */
 export async function deleteSnapshot(id: string): Promise<void> {
   return unwrap(await snapshotActions.deleteSnapshot(id));
+}
+
+/** List the resources frozen alongside a tag's definition (metadata only). */
+export async function listSnapshotResources(
+  snapshotId: string,
+): Promise<SnapshotResource[]> {
+  return unwrap(await snapshotActions.listSnapshotResources(snapshotId));
 }
 
 // --- Resources ------------------------------------------------------------

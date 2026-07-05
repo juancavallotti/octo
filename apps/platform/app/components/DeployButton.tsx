@@ -10,10 +10,10 @@ import {
   listDeployments,
   listSnapshots,
   rolloutDeployment,
-  type DeploymentInput,
+  type Snapshot,
 } from "@/app/model/orchestrator";
 import { DEFAULT_TAG, suggestNextTag } from "@/app/model/tags";
-import DeployModal from "./integrations/DeployModal";
+import DeployModal, { type DeploySubmit } from "./integrations/DeployModal";
 
 /**
  * Editor-header control that ships the current integration in one step: it saves,
@@ -41,6 +41,7 @@ export default function DeployButton({
   const [firstDeploy, setFirstDeploy] = useState<{
     id: string;
     name: string;
+    snapshot: Snapshot;
   } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -103,10 +104,10 @@ export default function DeployButton({
         setOpen(false);
         return;
       }
-      // Nothing deployed yet: hand off to the deploy modal, defaulted to the new
-      // tag (the modal picks the newest snapshot).
+      // Nothing deployed yet: hand off to the deploy modal to ship the tag we just
+      // created (fixed-version mode — no re-tagging in the modal).
       const integration = await getIntegration(id);
-      setFirstDeploy({ id, name: integration.name });
+      setFirstDeploy({ id, name: integration.name, snapshot });
       setOpen(false);
     } catch (e) {
       setError((e as Error).message);
@@ -115,12 +116,18 @@ export default function DeployButton({
     }
   };
 
-  const submitFirstDeploy = async (input: DeploymentInput) => {
-    if (!firstDeploy) return;
+  const submitFirstDeploy = async (input: DeploySubmit) => {
+    if (!firstDeploy || !input.snapshotId) return;
     setBusy(true);
     setError(null);
     try {
-      await createDeployment(firstDeploy.id, input);
+      await createDeployment(firstDeploy.id, {
+        snapshotId: input.snapshotId,
+        replicas: input.replicas,
+        ...(input.slug ? { slug: input.slug } : {}),
+        ...(input.expose ? { expose: input.expose } : {}),
+        ...(input.env ? { env: input.env } : {}),
+      });
       setFirstDeploy(null);
     } catch (e) {
       setError((e as Error).message);
@@ -194,6 +201,8 @@ export default function DeployButton({
         <DeployModal
           integrationId={firstDeploy.id}
           integrationName={firstDeploy.name}
+          activeSnapshot={firstDeploy.snapshot}
+          snapshots={[firstDeploy.snapshot]}
           busy={busy}
           error={error}
           onSubmit={submitFirstDeploy}

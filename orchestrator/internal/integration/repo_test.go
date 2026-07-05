@@ -33,7 +33,7 @@ func newTestRepo(t *testing.T) *Repo {
 // data between runs.
 func createIntegration(t *testing.T, r *Repo, name, definition string) Integration {
 	t.Helper()
-	it, err := r.Create(context.Background(), name, definition)
+	it, err := r.Create(context.Background(), name, definition, "")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestRepoUpdate(t *testing.T) {
 
 	created := createIntegration(t, r, "before", "old-body")
 
-	updated, err := r.Update(ctx, created.ID, "after", "new-body")
+	updated, err := r.Update(ctx, created.ID, "after", "new-body", "")
 	if err != nil {
 		t.Fatalf("update: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestRepoNotFound(t *testing.T) {
 	if _, err := r.Get(ctx, nonexistentID); !errors.Is(err, ErrNotFound) {
 		t.Errorf("get: got %v, want ErrNotFound", err)
 	}
-	if _, err := r.Update(ctx, nonexistentID, "x", "y"); !errors.Is(err, ErrNotFound) {
+	if _, err := r.Update(ctx, nonexistentID, "x", "y", ""); !errors.Is(err, ErrNotFound) {
 		t.Errorf("update: got %v, want ErrNotFound", err)
 	}
 	if err := r.Delete(ctx, nonexistentID); !errors.Is(err, ErrNotFound) {

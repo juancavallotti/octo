@@ -31,6 +31,15 @@ CREATE TABLE IF NOT EXISTS integrations (
     last_updated timestamptz NOT NULL DEFAULT now()
 );
 
+-- Integration names are unique case-insensitively (global scope). The service
+-- pre-checks for a clean error; this index is the backstop against races and
+-- direct writes. Creation fails if pre-existing duplicates exist.
+CREATE UNIQUE INDEX IF NOT EXISTS integrations_name_lower_uniq
+    ON integrations (lower(name));
+
+-- NOTE: integrations.created_by / updated_by are added after the users table is
+-- defined (they reference it) — see "Integration attribution" near the end.
+
 -- integration_deployments records each deployment of an integration. One integration may be
 -- deployed many times; `settings` carries per-deployment config and `status` tracks lifecycle.
 CREATE TABLE IF NOT EXISTS integration_deployments (
@@ -205,6 +214,25 @@ CREATE TABLE IF NOT EXISTS api_keys (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_key_hash ON api_keys (key_hash);
 CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys (user_id);
+
+-- Integration attribution: created_by / updated_by record who authored and last
+-- edited an integration. Defined here (not with the integrations table) because
+-- they reference users, which is created above. Nullable — a row may be written
+-- without a known actor (e.g. the MCP path, or local dev without SSO). ON DELETE
+-- SET NULL so removing a user doesn't cascade-delete their integrations.
+ALTER TABLE integrations
+    ADD COLUMN IF NOT EXISTS created_by uuid REFERENCES users (id) ON DELETE SET NULL;
+ALTER TABLE integrations
+    ADD COLUMN IF NOT EXISTS updated_by uuid REFERENCES users (id) ON DELETE SET NULL;
+
+-- Backfill attribution for pre-existing rows when exactly one user exists (the
+-- common single-operator install): every integration is theirs. Idempotent — it
+-- only touches still-null rows and is a no-op once a second user appears.
+UPDATE integrations
+   SET created_by = COALESCE(created_by, (SELECT id FROM users)),
+       updated_by = COALESCE(updated_by, (SELECT id FROM users))
+ WHERE (created_by IS NULL OR updated_by IS NULL)
+   AND (SELECT count(*) FROM users) = 1;
 
 -- logs stores log events shipped by deployed runtimes over the internal.logs NATS
 -- subject and persisted by the log-aggregator service. `deployment_id` attributes

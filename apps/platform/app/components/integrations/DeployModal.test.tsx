@@ -3,21 +3,31 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 const getDeployOptions = vi.fn();
-const listSnapshots = vi.fn();
 const listSecrets = vi.fn();
 vi.mock("@/app/model/orchestrator", () => ({
   getDeployOptions: () => getDeployOptions(),
-  listSnapshots: () => listSnapshots(),
 }));
 vi.mock("@/app/model/secrets", () => ({ listSecrets: () => listSecrets() }));
 
 import DeployModal from "./DeployModal";
+
+// A fixed-version deploy (a tag is active), so the modal shows the version rather
+// than a picker and submits its snapshot id.
+const SNAPSHOT = {
+  id: "snap-1",
+  integrationId: "int-1",
+  tag: "v1.0",
+  definition: "",
+  createdAt: "",
+};
 
 function renderModal(onSubmit = vi.fn()) {
   render(
     <DeployModal
       integrationId="int-1"
       integrationName="Orders"
+      activeSnapshot={SNAPSHOT}
+      snapshots={[SNAPSHOT]}
       busy={false}
       error={null}
       onSubmit={onSubmit}
@@ -39,9 +49,6 @@ describe("DeployModal environment section", () => {
         { name: "LOG_LEVEL", default: "info" },
       ],
     });
-    listSnapshots.mockResolvedValue([
-      { id: "snap-1", integrationId: "int-1", tag: "v1.0", createdAt: "" },
-    ]);
     listSecrets.mockResolvedValue([
       { name: "DB_PASSWORD", createdAt: "", lastUpdated: "" },
     ]);
@@ -54,13 +61,15 @@ describe("DeployModal environment section", () => {
 
   it("renders a row per declared env var", async () => {
     renderModal();
-    expect(await screen.findByText("API_KEY")).toBeInTheDocument();
+    // API_KEY also appears in the missing-required hint, so it matches more than
+    // once; LOG_LEVEL (optional) appears only as its field label.
+    expect((await screen.findAllByText("API_KEY")).length).toBeGreaterThan(0);
     expect(screen.getByText("LOG_LEVEL")).toBeInTheDocument();
   });
 
   it("blocks deploy until a required var is filled, then submits a secret binding", async () => {
     const onSubmit = renderModal();
-    await screen.findByText("API_KEY");
+    await screen.findAllByText("API_KEY");
 
     const deploy = screen.getByRole("button", { name: "Deploy" });
     expect(deploy).toBeDisabled(); // API_KEY is required and unset

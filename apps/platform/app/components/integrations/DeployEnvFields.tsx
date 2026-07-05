@@ -23,12 +23,15 @@ export default function DeployEnvFields({
   envVars,
   bindings,
   secretNames,
+  providedKeys,
   busy,
   onChange,
 }: {
   envVars: DeployEnvVar[];
   bindings: Record<string, EnvBinding>;
   secretNames: string[];
+  /** Vars an .env resource already supplies; shown as satisfied but overridable. */
+  providedKeys?: ReadonlySet<string>;
   busy: boolean;
   onChange: (name: string, patch: Partial<EnvBinding>) => void;
 }) {
@@ -41,9 +44,14 @@ export default function DeployEnvFields({
         return (
           <div key={ev.name} className="flex flex-col gap-1">
             <div className="flex items-center justify-between gap-2">
-              <span className="truncate font-mono text-xs text-zinc-600 dark:text-zinc-300">
+              <span className="min-w-0 truncate font-mono text-xs text-zinc-600 dark:text-zinc-300">
                 {ev.name}
                 {ev.required && <span className="text-red-500"> *</span>}
+                {providedKeys?.has(ev.name) && (
+                  <span className="ml-1.5 rounded bg-emerald-500/10 px-1 py-0.5 font-sans text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                    from .env
+                  </span>
+                )}
               </span>
               <div className="flex shrink-0 gap-0.5 rounded bg-black/[0.04] p-0.5 dark:bg-white/[0.06]">
                 {(["value", "secret"] as const).map((m) => (

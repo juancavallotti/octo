@@ -208,8 +208,11 @@ func newServer(ctx context.Context, database *db.DB, kc kubeConfig) (http.Handle
 				"GET /snapshots/{id}/resources, GET /snapshots/{id}/resources/content")
 
 		// Integration resources (env files, templates). CRUD needs only the
-		// database, so it is registered outside the deployment/kube gate below.
-		resource.NewHandler(resource.NewService(resource.NewRepo(database.Pool()))).Register(mux)
+		// database, so it is registered outside the deployment/kube gate below. The
+		// service is also shared into the deployment service (below) so a Current
+		// deploy knows which env vars the working-copy .env files supply.
+		resourceSvc := resource.NewService(resource.NewRepo(database.Pool()))
+		resource.NewHandler(resourceSvc).Register(mux)
 		slog.Info("resource routes registered",
 			"endpoints", "POST/GET /integrations/{id}/resources, "+
 				"GET/PUT/DELETE /integrations/{id}/resources/{resourceId}")
@@ -257,7 +260,9 @@ func newServer(ctx context.Context, database *db.DB, kc kubeConfig) (http.Handle
 				deployment.WithStoreCleaner(kvSvc),
 				// Enforce tagged deploys: a deploy must reference a snapshot and ships
 				// its frozen definition.
-				deployment.WithSnapshots(snapshotSvc))
+				deployment.WithSnapshots(snapshotSvc),
+				// Report working-copy .env keys for the Current deploy case.
+				deployment.WithResources(resourceSvc))
 			// Publish deployment status to NATS for cross-node fan-out; the BFF
 			// subscribes and serves the SSE. A noop publisher when NATS_URL is unset
 			// (local/standalone) leaves clients on the list-polling fallback.

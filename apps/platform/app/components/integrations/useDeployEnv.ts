@@ -13,6 +13,10 @@ import { emptyBinding, type EnvBinding } from "./DeployEnvFields";
  */
 export function useDeployEnv(opts: DeployOptions | null) {
   const envVars = opts?.envVars ?? [];
+  // Vars an .env resource already supplies: a required one here is satisfied, so it
+  // neither blocks the deploy nor needs a value sent — but the operator can still
+  // override it below with an explicit value or secret.
+  const providedByFile = new Set(opts?.envProvidedKeys ?? []);
   const [bindings, setBindings] = useState<Record<string, EnvBinding>>({});
   const [secretNames, setSecretNames] = useState<string[]>([]);
 
@@ -38,21 +42,37 @@ export function useDeployEnv(opts: DeployOptions | null) {
       [name]: { ...(prev[name] ?? emptyBinding()), ...patch },
     }));
 
-  // Every required variable must be filled — a non-empty value (its default counts),
-  // or a chosen secret.
-  const complete = envVars.every((ev) => {
-    if (!ev.required) return true;
-    const b = bindings[ev.name] ?? emptyBinding(ev.default);
-    return b.mode === "secret" ? b.secret !== "" : b.value.trim() !== "";
-  });
+  // Required variables not yet satisfied — a non-empty value (its default counts,
+  // since the payload sends that default explicitly, see build) or a chosen secret,
+  // or an .env resource that already supplies the key. Surfaced so the modal can
+  // name exactly what blocks the deploy.
+  const missingRequired = envVars
+    .filter((ev) => ev.required)
+    .filter((ev) => !providedByFile.has(ev.name))
+    .filter((ev) => {
+      const b = bindings[ev.name] ?? emptyBinding(ev.default);
+      return b.mode === "secret" ? b.secret === "" : b.value.trim() === "";
+    })
+    .map((ev) => ev.name);
+  const complete = missingRequired.length === 0;
 
-  // Build the wire payload, sending only variables the user actually set. An empty
-  // literal means "leave it to the integration's default", so it is omitted.
+  // Build the wire payload. Variables the user set are sent as typed. A required
+  // variable left untouched is sent with its declared default *explicitly* —
+  // unlike an optional one, the runtime does not apply a default to satisfy a
+  // required var, so it must travel as a real value (matching the orchestrator's
+  // deploy-time check). Optional untouched variables are omitted.
   const build = (): Record<string, EnvBindingInput> => {
     const env: Record<string, EnvBindingInput> = {};
     for (const ev of envVars) {
       const b = bindings[ev.name];
-      if (!b) continue;
+      if (!b) {
+        // Force a required var's default only when nothing else supplies it. If an
+        // .env resource already provides the key, leave it unset so the file's value
+        // wins (an explicit binding below still overrides both).
+        if (ev.required && ev.default && !providedByFile.has(ev.name))
+          env[ev.name] = { value: ev.default };
+        continue;
+      }
       if (b.mode === "secret") {
         if (b.secret) env[ev.name] = { secret: b.secret };
       } else if (b.value !== "") {
@@ -62,5 +82,14 @@ export function useDeployEnv(opts: DeployOptions | null) {
     return env;
   };
 
-  return { envVars, bindings, secretNames, setBinding, complete, build };
+  return {
+    envVars,
+    bindings,
+    secretNames,
+    setBinding,
+    complete,
+    missingRequired,
+    providedKeys: providedByFile,
+    build,
+  };
 }

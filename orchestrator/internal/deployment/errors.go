@@ -7,6 +7,9 @@ var (
 	ErrNotFound = errors.New("deployment not found")
 	// ErrIntegrationNotFound is returned when the integration to deploy does not exist.
 	ErrIntegrationNotFound = errors.New("integration not found")
+	// ErrPodNotFound is returned when a requested pod does not belong to the
+	// deployment (or no longer exists), so its logs cannot be streamed.
+	ErrPodNotFound = errors.New("pod not found")
 	// ErrUnavailable is returned when Kubernetes access is not configured, so
 	// deployments cannot be managed.
 	ErrUnavailable = errors.New("deployments unavailable")
@@ -34,6 +37,10 @@ var (
 	// ErrReservedEnvVar is returned when an env binding targets an
 	// orchestrator-managed variable (HTTP_PORT/HTTP_HOST).
 	ErrReservedEnvVar = errors.New("environment variable is reserved")
+	// ErrMissingRequiredEnv is returned when a deploy's definition declares a
+	// required env var that nothing provides (no deploy-time binding and no frozen
+	// .env resource). The wrapped message lists the missing variable names.
+	ErrMissingRequiredEnv = errors.New("required environment variables are not set")
 	// ErrSnapshotRequired is returned when a deploy omits the version tag while the
 	// service enforces tagged deploys (a snapshot store is configured).
 	ErrSnapshotRequired = errors.New("a version tag is required to deploy")
