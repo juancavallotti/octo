@@ -38,6 +38,83 @@ func signedMessage(t *testing.T, rawBody string) *types.Message {
 	return msg
 }
 
+// rawContentMessage builds a message as the http source would deliver it in
+// native raw-content mode (rawBody: true): the raw bytes are the message Body via
+// SetRawBody, with no rawBody variable set, and Slack's signature headers signed
+// over those bytes.
+func rawContentMessage(t *testing.T, contentType, rawBody string) *types.Message {
+	t.Helper()
+	msg := blockMessage(t, nil)
+	msg.SetRawBody(contentType, rawBody)
+	ts := strconv.FormatInt(time.Now().Unix(), 10)
+	msg.Variables.Set(defaultTimestampHeader, ts)
+	msg.Variables.Set(defaultSignatureHeader, computeSig("secret", ts, []byte(rawBody)))
+	return msg
+}
+
+func TestVerifyReadsRawContentBody(t *testing.T) {
+	proc, err := newVerify(types.Settings{"connector": "slack"}, blockDeps(t, "http://unused"))
+	if err != nil {
+		t.Fatalf("newVerify: %v", err)
+	}
+	// No rawBody variable — the exact bytes live only in the raw-content Body.
+	msg := rawContentMessage(t, "application/json", `{"type":"url_verification","challenge":"abc123"}`)
+
+	out, err := proc.Process(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	// The verified bytes are parsed back into Body (raw-content mode cleared) so
+	// the challenge is flagged and body.challenge is echoable downstream.
+	if got, _ := out.Variables.Bool(challengeVar); !got {
+		t.Errorf("%s = %v, want true", challengeVar, out.Variables[challengeVar])
+	}
+	if out.RawContent {
+		t.Error("expected RawContent cleared after parsing the verified body")
+	}
+	body, ok := out.Body.(map[string]any)
+	if !ok || body["challenge"] != "abc123" {
+		t.Errorf("body = %v, want the parsed url_verification object", out.Body)
+	}
+}
+
+func TestVerifyExplicitVarWinsOverRawContent(t *testing.T) {
+	proc, err := newVerify(types.Settings{
+		"connector":  "slack",
+		"rawBodyVar": "slackRaw",
+	}, blockDeps(t, "http://unused"))
+	if err != nil {
+		t.Fatalf("newVerify: %v", err)
+	}
+	// The explicit variable holds the true signed bytes; the raw-content Body is a
+	// decoy that would fail the signature if consumed.
+	raw := `{"type":"event_callback"}`
+	msg := blockMessage(t, nil)
+	msg.SetRawBody("application/json", `{"tampered":true}`)
+	ts := strconv.FormatInt(time.Now().Unix(), 10)
+	msg.Variables.Set("slackRaw", raw)
+	msg.Variables.Set(defaultTimestampHeader, ts)
+	msg.Variables.Set(defaultSignatureHeader, computeSig("secret", ts, []byte(raw)))
+
+	if _, err := proc.Process(context.Background(), msg); err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+}
+
+func TestVerifyRawContentNonJSON(t *testing.T) {
+	proc, err := newVerify(types.Settings{"connector": "slack"}, blockDeps(t, "http://unused"))
+	if err != nil {
+		t.Fatalf("newVerify: %v", err)
+	}
+	// Slack slash commands arrive form-encoded, not JSON: verification must still
+	// pass and the raw body is left untouched (no JSON reparse).
+	msg := rawContentMessage(t, "application/x-www-form-urlencoded", "token=abc&command=%2Fweather")
+
+	if _, err := proc.Process(context.Background(), msg); err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+}
+
 func TestVerifyRejectsBadSignature(t *testing.T) {
 	proc, err := newVerify(types.Settings{"connector": "slack"}, blockDeps(t, "http://unused"))
 	if err != nil {

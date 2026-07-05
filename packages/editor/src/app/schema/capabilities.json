@@ -1043,7 +1043,7 @@
           "type": "string",
           "required": false,
           "default": "rawBody",
-          "description": "Variable holding the exact request body; must match the http source's rawBodyVar."
+          "description": "Variable holding the exact request body; must match the http source's rawBodyVar. Optional when the http source uses raw-content mode (rawBody: true) — the block then reads the raw body directly and re-parses it into body."
         }
       ]
     },

@@ -1,10 +1,13 @@
 // This file provides the "slack-verify-request" block: it authenticates an
 // inbound Slack request delivered over the http connector. It verifies the HMAC
-// signature over the exact request bytes (the http source exposes them via its
-// rawBodyVar setting) using the slack connector's signing secret, and aborts on
-// a bad or stale signature. When the payload is Slack's URL-verification
-// handshake it sets a marker variable (leaving the body untouched) so the flow
-// can branch, echo the challenge back, and skip event handling (see the sample).
+// signature over the exact request bytes using the slack connector's signing
+// secret, and aborts on a bad or stale signature. It sources those bytes from
+// either the http source's rawBodyVar variable or its native raw-content mode
+// (rawBody: true, msg.RawBody()); in raw-content mode it then parses the verified
+// bytes back into Body so downstream body.* access keeps working. When the
+// payload is Slack's URL-verification handshake it sets a marker variable so the
+// flow can branch, echo the challenge back, and skip event handling (see the
+// sample).
 package slack
 
 import (
@@ -59,6 +62,9 @@ type verifyProcessor struct {
 	sigVar     string
 	tsVar      string
 	rawBodyVar string
+	// rawBodyVarExplicit records whether rawBodyVar was configured (vs defaulted),
+	// so an explicit variable takes precedence over native raw-content mode.
+	rawBodyVarExplicit bool
 }
 
 //nolint:ireturn // a BlockFactory returns the MessageProcessor interface
@@ -75,10 +81,11 @@ func newVerify(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor, 
 		return nil, errors.New("slack-verify-request requires the slack connector's signingSecret")
 	}
 	return &verifyProcessor{
-		conn:       conn,
-		sigVar:     orDefault(cfg.SignatureHeader, defaultSignatureHeader),
-		tsVar:      orDefault(cfg.TimestampHeader, defaultTimestampHeader),
-		rawBodyVar: orDefault(cfg.RawBodyVar, defaultRawBodyVar),
+		conn:               conn,
+		sigVar:             orDefault(cfg.SignatureHeader, defaultSignatureHeader),
+		tsVar:              orDefault(cfg.TimestampHeader, defaultTimestampHeader),
+		rawBodyVar:         orDefault(cfg.RawBodyVar, defaultRawBodyVar),
+		rawBodyVarExplicit: cfg.RawBodyVar != "",
 	}, nil
 }
 
@@ -88,10 +95,21 @@ func newVerify(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor, 
 func (p *verifyProcessor) Process(_ context.Context, msg *types.Message) (*types.Message, error) {
 	sig, _ := msg.Variables.String(p.sigVar)
 	ts, _ := msg.Variables.String(p.tsVar)
-	raw, _ := msg.Variables.String(p.rawBodyVar)
+	raw := p.resolveRawBody(msg)
 
-	if !p.conn.VerifySignature(sig, ts, []byte(raw), time.Now()) {
+	if !p.conn.VerifySignature(sig, ts, raw, time.Now()) {
 		return nil, errors.New("slack-verify-request: invalid request signature")
+	}
+
+	// In native raw-content mode Body is the {contentType, rawData} envelope, not
+	// the Slack payload. Parse the verified bytes into Body (best-effort: Slack
+	// slash commands are form-encoded, not JSON) so the challenge branch below and
+	// downstream body.* access work the same as with rawBodyVar. SetBodyJSON leaves
+	// RawContent set, so clear it to make this a normal JSON message.
+	if _, _, ok := msg.RawBody(); ok {
+		if err := msg.SetBodyJSON(raw); err == nil {
+			msg.RawContent = false
+		}
 	}
 
 	if body, ok := msg.Body.(map[string]any); ok {
@@ -100,4 +118,22 @@ func (p *verifyProcessor) Process(_ context.Context, msg *types.Message) (*types
 		}
 	}
 	return msg, nil
+}
+
+// resolveRawBody returns the exact request bytes for signature verification,
+// preferring in order: an explicitly-configured rawBodyVar variable, the
+// message's native raw-content body (rawBody: true on the http source), then the
+// default rawBody variable. This lets the block verify requests whether the http
+// source captured the bytes into a variable or sourced them as raw content.
+func (p *verifyProcessor) resolveRawBody(msg *types.Message) []byte {
+	if p.rawBodyVarExplicit {
+		if raw, ok := msg.Variables.String(p.rawBodyVar); ok && raw != "" {
+			return []byte(raw)
+		}
+	}
+	if _, rawData, ok := msg.RawBody(); ok {
+		return []byte(rawData)
+	}
+	raw, _ := msg.Variables.String(p.rawBodyVar)
+	return []byte(raw)
 }
