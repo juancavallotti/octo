@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.3.3](https://github.com/juancavallotti/octo/compare/v0.3.2...v0.3.3) (2026-07-05)
+
+
+### Features
+
+* **mcp:** authenticate /mcp as an OAuth 2.1 resource server ([2b6f5d2](https://github.com/juancavallotti/octo/commit/2b6f5d2e2f600f81b5fcfe86faa6676c23a5b8e2))
+* **mcp:** OAuth 2.1 auth for the MCP endpoint ([52c37a4](https://github.com/juancavallotti/octo/commit/52c37a4645ec3df67f50dcf083ad09714fce2cf0))
+* **mcp:** serve OAuth protected-resource metadata ([5562aa8](https://github.com/juancavallotti/octo/commit/5562aa812bf26ff77c32f08a84c63ed3e4361fcf))
+* **platform:** advertise the MCP endpoint on the dashboard ([b5b5604](https://github.com/juancavallotti/octo/commit/b5b5604d22dbd4c8b4b322032c16e1ce9e0610e0))
+
+
+### Bug Fixes
+
+* **auth:** key web sign-in on the real OIDC subject ([0efdaec](https://github.com/juancavallotti/octo/commit/0efdaecd2ef5b6b57bd62acd19c7e1c66b1fb51f))
+* **auth:** key web sign-in on the real OIDC subject ([66b6a0e](https://github.com/juancavallotti/octo/commit/66b6a0ebebad69b77adabded05a230280074ac6a))
+* **mcp:** report a stable Octo server identity ([47e537d](https://github.com/juancavallotti/octo/commit/47e537d5e7fcebd088dccc62ae7dd27fef72bb3f))
+* **mcp:** report a stable Octo server identity ([a9cf25f](https://github.com/juancavallotti/octo/commit/a9cf25ff344d78264b266378170bdfe4daac2440))
+
 ## [0.3.2](https://github.com/juancavallotti/octo/compare/v0.3.1...v0.3.2) (2026-07-05)
 
 
