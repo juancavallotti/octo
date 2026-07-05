@@ -404,6 +404,27 @@ func TestDeployBindsLiteralEnv(t *testing.T) {
 	}
 }
 
+// TestDeploySkipsEmptyEnvBinding verifies a binding with no value and no secret is
+// dropped entirely: it must not set a blank container env var, which would override
+// a value the runtime loads from an .env file resource (container env wins).
+func TestDeploySkipsEmptyEnvBinding(t *testing.T) {
+	repo := &fakeRepo{created: Deployment{ID: "dep-1"}}
+	integrations := &fakeIntegrations{ret: integration.Integration{ID: "int-1", Name: "Orders"}}
+	kc := &fakeKube{status: kube.StatusPending}
+	svc := NewService(repo, integrations, kc)
+
+	settings := Settings{Env: map[string]EnvBinding{"FROM_FILE": {}, "REAL": {Value: "x"}}}
+	if _, err := svc.Deploy(context.Background(), "int-1", settings); err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if _, ok := kc.gotSpec.Env["FROM_FILE"]; ok {
+		t.Errorf("empty binding must not appear in literal Env, got %q", kc.gotSpec.Env["FROM_FILE"])
+	}
+	if kc.gotSpec.Env["REAL"] != "x" {
+		t.Errorf("spec env REAL = %q, want x", kc.gotSpec.Env["REAL"])
+	}
+}
+
 // TestDeployBindsSecretEnv verifies a secret binding becomes a secretKeyRef (in
 // spec.SecretEnv), is validated to exist, and persists only the secret name.
 func TestDeployBindsSecretEnv(t *testing.T) {

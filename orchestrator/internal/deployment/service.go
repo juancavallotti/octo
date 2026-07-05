@@ -349,6 +349,12 @@ func (s *Service) resolveEnvBindings(ctx context.Context, runtimeEnv map[string]
 			secret[name] = b.Secret
 			continue
 		}
+		// Skip an empty binding: it must not set a blank container env var, which
+		// would override a value the runtime loads from an .env file resource (container
+		// env wins). An empty box means "no override" — let the file/default provide it.
+		if b.Value == "" {
+			continue
+		}
 		literal[name] = b.Value
 	}
 	for _, key := range secret {
