@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.3.1](https://github.com/juancavallotti/octo/compare/v0.3.0...v0.3.1) (2026-07-05)
+
+
+### Features
+
+* **integrations:** 2-column detail grid + compact deployments ([9ba1984](https://github.com/juancavallotti/octo/commit/9ba1984631357284523a2b12b2b384ba7826614a))
+* **integrations:** active-version selector scopes resources to a tag ([410da92](https://github.com/juancavallotti/octo/commit/410da92398e6be483497e268324df723083e3ff2))
+* **integrations:** attribute integration creator and last editor ([728a3cb](https://github.com/juancavallotti/octo/commit/728a3cb3f88f7b818284e37a8c3e0e2bcb428d10))
+* **integrations:** enforce unique integration names ([c4f2a7b](https://github.com/juancavallotti/octo/commit/c4f2a7b9198ca1ce89a87c6f55c3a29aacd37cbe))
+* **integrations:** keep rename editor open on duplicate-name conflict ([3d9f58f](https://github.com/juancavallotti/octo/commit/3d9f58fec97c702b4b5f5e71ddec2c2f54de7f52))
+* **integrations:** per-pod dockable log panel ([#66](https://github.com/juancavallotti/octo/issues/66)) ([dca6ffe](https://github.com/juancavallotti/octo/commit/dca6ffe49db825265435b2eca7bd9030e052917e))
+* **integrations:** source-type icon per integration in the list ([0a33d84](https://github.com/juancavallotti/octo/commit/0a33d847f4870676bd37019fa2871b0b78e2ed54))
+* **integrations:** surface required env at deploy time ([#105](https://github.com/juancavallotti/octo/issues/105)) ([7ea85d4](https://github.com/juancavallotti/octo/commit/7ea85d4f02aeb24bb48fc9ff36c743f51c6ac66b))
+* **integrations:** version-driven deploy UX + env-file aware deploys ([c19c36c](https://github.com/juancavallotti/octo/commit/c19c36c8028334311d3c5bbdc55f61507775c3a6))
+
+
+### Bug Fixes
+
+* **deploy:** keep OIDC auth alive across Cloud Build deploys ([07824d1](https://github.com/juancavallotti/octo/commit/07824d1b054fa8928a79cf019769bf3ca89c87af))
+* **deploy:** keep OIDC auth alive across Cloud Build deploys ([386578b](https://github.com/juancavallotti/octo/commit/386578b117aff6706e964be210a179fa01a285c7))
+* **rbac:** grant orchestrator pods/log and secrets access ([70e5bf8](https://github.com/juancavallotti/octo/commit/70e5bf890aa3d96a0866e0af218a72d11f7d8c01))
+
 ## [0.3.0](https://github.com/juancavallotti/octo/compare/v0.2.3...v0.3.0) (2026-07-04)
 
 
