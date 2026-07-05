@@ -11,6 +11,7 @@ import (
 
 	"github.com/juancavallotti/octo/orchestrator/internal/integration"
 	"github.com/juancavallotti/octo/orchestrator/internal/kube"
+	"github.com/juancavallotti/octo/orchestrator/internal/resource"
 	"github.com/juancavallotti/octo/orchestrator/internal/snapshot"
 )
 
@@ -785,6 +786,62 @@ func TestDeployOptionsNonNetworked(t *testing.T) {
 	}
 	if opts.Networked || opts.SuggestedSlug != "" {
 		t.Errorf("opts = %+v, want non-networked with no suggestion", opts)
+	}
+}
+
+// fakeResources returns preset live resources for the working-copy env-keys path.
+type fakeResources struct {
+	ret []resource.Resource
+}
+
+func (f *fakeResources) ListByIntegration(_ context.Context, _ string) ([]resource.Resource, error) {
+	return f.ret, nil
+}
+
+// TestDeployOptionsReportsEnvKeysFromLiveEnvFiles verifies the Current case reports
+// the env var names the working copy's .env resources supply, so the modal doesn't
+// block on a required var a file already covers.
+func TestDeployOptionsReportsEnvKeysFromLiveEnvFiles(t *testing.T) {
+	repo := &fakeRepo{}
+	integrations := &fakeIntegrations{ret: integration.Integration{
+		ID: "int-1", Name: "Quote",
+		Definition: "env:\n  - name: GEMINI_API_KEY\n    required: true\n",
+	}}
+	resources := &fakeResources{ret: []resource.Resource{
+		{Kind: resource.KindEnv, Name: ".env.default", Content: "GEMINI_API_KEY=abc\n"},
+		{Kind: resource.KindTemplate, Name: "t.tmpl", Content: "ignored=1\n"},
+	}}
+	svc := NewService(repo, integrations, &fakeKube{}, WithResources(resources))
+
+	// No snapshot selected → Current → live resources drive EnvProvidedKeys.
+	opts, err := svc.DeployOptions(context.Background(), "int-1", "", false, "")
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if len(opts.EnvProvidedKeys) != 1 || opts.EnvProvidedKeys[0] != "GEMINI_API_KEY" {
+		t.Errorf("EnvProvidedKeys = %v, want [GEMINI_API_KEY] (from the .env resource only)", opts.EnvProvidedKeys)
+	}
+}
+
+// TestDeployOptionsReportsEnvKeysFromSnapshot verifies a selected tag reports the
+// keys its frozen .env resources supply (the tagged-deploy case).
+func TestDeployOptionsReportsEnvKeysFromSnapshot(t *testing.T) {
+	repo := &fakeRepo{}
+	integrations := &fakeIntegrations{ret: integration.Integration{ID: "int-1", Name: "Quote"}}
+	snaps := &fakeSnapshots{
+		ret: snapshot.Snapshot{ID: "snap-1", IntegrationID: "int-1", Definition: "env:\n  - name: TOKEN\n    required: true\n"},
+		resources: []snapshot.Resource{
+			{Kind: resource.KindEnv, Name: ".env", Content: "TOKEN=x\n"},
+		},
+	}
+	svc := NewService(repo, integrations, &fakeKube{}, WithSnapshots(snaps))
+
+	opts, err := svc.DeployOptions(context.Background(), "int-1", "", false, "snap-1")
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if len(opts.EnvProvidedKeys) != 1 || opts.EnvProvidedKeys[0] != "TOKEN" {
+		t.Errorf("EnvProvidedKeys = %v, want [TOKEN] (from the frozen .env)", opts.EnvProvidedKeys)
 	}
 }
 

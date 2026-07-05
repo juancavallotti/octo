@@ -38,6 +38,8 @@ export interface Snapshot {
   id: string;
   integrationId: string;
   tag: string;
+  /** The frozen definition YAML, for version-scoped stats (e.g. the Definition panel). */
+  definition: string;
   /** RFC3339 timestamp of when the tag was created. */
   createdAt: string;
 }
@@ -179,6 +181,11 @@ export interface DeployOptions {
   suggestedSlug?: string;
   /** The integration's declared env vars (excluding orchestrator-managed ones). */
   envVars?: DeployEnvVar[];
+  /** Env var names already supplied by the selected version's .env resources
+   * (frozen for a tag, live for Current). A required var in this set is treated as
+   * satisfied — the modal neither blocks nor forces a value, but it can be
+   * overridden with an explicit value or secret. */
+  envProvidedKeys?: string[];
   /** Normalized form of the checked candidate. */
   slug?: string;
   /** The candidate has a usable form. */

@@ -127,12 +127,13 @@ func (h *Handler) deploy(w http.ResponseWriter, r *http.Request) {
 // deployOptionsResponse is the wire form of the deploy choices for an integration.
 // The slug* fields are populated only when the request carried a candidate slug.
 type deployOptionsResponse struct {
-	Networked     bool             `json:"networked"`
-	SuggestedSlug string           `json:"suggestedSlug,omitempty"`
-	EnvVars       []envVarResponse `json:"envVars,omitempty"`
-	Slug          string           `json:"slug,omitempty"`
-	SlugValid     bool             `json:"slugValid"`
-	SlugAvailable bool             `json:"slugAvailable"`
+	Networked       bool             `json:"networked"`
+	SuggestedSlug   string           `json:"suggestedSlug,omitempty"`
+	EnvVars         []envVarResponse `json:"envVars,omitempty"`
+	EnvProvidedKeys []string         `json:"envProvidedKeys,omitempty"`
+	Slug            string           `json:"slug,omitempty"`
+	SlugValid       bool             `json:"slugValid"`
+	SlugAvailable   bool             `json:"slugAvailable"`
 }
 
 // envVarResponse is the wire form of one declared environment variable the modal
@@ -162,12 +163,13 @@ func (h *Handler) deployOptions(w http.ResponseWriter, r *http.Request) {
 		envVars = append(envVars, envVarResponse(e))
 	}
 	httpx.WriteJSON(w, http.StatusOK, deployOptionsResponse{
-		Networked:     opts.Networked,
-		SuggestedSlug: opts.SuggestedSlug,
-		EnvVars:       envVars,
-		Slug:          opts.Slug,
-		SlugValid:     opts.SlugValid,
-		SlugAvailable: opts.SlugAvailable,
+		Networked:       opts.Networked,
+		SuggestedSlug:   opts.SuggestedSlug,
+		EnvVars:         envVars,
+		EnvProvidedKeys: opts.EnvProvidedKeys,
+		Slug:            opts.Slug,
+		SlugValid:       opts.SlugValid,
+		SlugAvailable:   opts.SlugAvailable,
 	})
 }
 

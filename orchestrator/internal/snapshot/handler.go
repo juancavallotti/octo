@@ -42,13 +42,14 @@ type createRequest struct {
 	Tag string `json:"tag"`
 }
 
-// snapshotResponse is the wire representation of a snapshot. The frozen definition
-// is deliberately omitted — clients list and pick tags; the deploy resolves the
-// definition server-side from the chosen snapshot.
+// snapshotResponse is the wire representation of a snapshot, including its frozen
+// definition so clients can show version-scoped stats (e.g. the detail pane's
+// Definition panel) without a second fetch. ListByIntegration already loads it.
 type snapshotResponse struct {
 	ID            string    `json:"id"`
 	IntegrationID string    `json:"integrationId"`
 	Tag           string    `json:"tag"`
+	Definition    string    `json:"definition"`
 	CreatedAt     time.Time `json:"createdAt"`
 }
 
@@ -57,6 +58,7 @@ func toResponse(s Snapshot) snapshotResponse {
 		ID:            s.ID,
 		IntegrationID: s.IntegrationID,
 		Tag:           s.Tag,
+		Definition:    s.Definition,
 		CreatedAt:     s.CreatedAt,
 	}
 }

@@ -4,33 +4,48 @@ import { useEffect, useState } from "react";
 import { Globe, Rocket, Tag, X } from "lucide-react";
 import {
   getDeployOptions,
-  listSnapshots,
-  type DeploymentInput,
   type DeployOptions,
+  type EnvBindingInput,
   type Snapshot,
 } from "@/app/model/orchestrator";
+import { suggestNextTag } from "@/app/model/tags";
 import SlugField from "./SlugField";
 import DeployEnvFields from "./DeployEnvFields";
 import { useDeployEnv } from "./useDeployEnv";
 import Field from "./Field";
 
 /**
- * Modal that collects per-deploy options and creates a deployment. It holds scale
- * (replicas) and, for an integration with an HTTP source, the deployment's address
- * slug (validated live) plus optional external exposure. Non-networked integrations
- * (timers, scheduled jobs) get neither — they run as a bare workload. Laid out as
- * labelled sections so future controls (env vars, secrets) drop in cleanly.
+ * Modal that collects per-deploy options and deploys. The version is decided
+ * outside the modal (by the header's version picker), not chosen here:
  *
- * The parent owns the deploy call (so it can refresh its list and surface errors);
- * this component owns the form state and closes itself on a successful submit.
+ *  - a tag is active  → deploy that frozen snapshot directly (version shown, fixed).
+ *  - Current is active → tag the working copy first, then deploy it; the operator
+ *    names the new tag here (prefilled with the suggested next version).
+ *
+ * It also holds scale (replicas) and, for an HTTP source, the address slug plus
+ * optional external exposure. The parent owns the deploy call (so it can create the
+ * tag, refresh, and surface errors); this owns the form and closes on success.
  */
 
 const INPUT =
   "rounded-md border border-black/10 dark:border-white/15 bg-transparent px-2 py-1 text-sm outline-none focus:border-black/30 dark:focus:border-white/30";
 
+/** What the modal submits: either an existing snapshot to deploy, or a new tag to
+ * cut from the working copy first. The parent resolves the two into a deployment. */
+export interface DeploySubmit {
+  snapshotId?: string;
+  newTag?: string;
+  replicas: number;
+  slug?: string;
+  expose?: "external";
+  env?: Record<string, EnvBindingInput>;
+}
+
 export default function DeployModal({
   integrationId,
   integrationName,
+  activeSnapshot,
+  snapshots,
   busy,
   error,
   onSubmit,
@@ -38,20 +53,26 @@ export default function DeployModal({
 }: {
   integrationId: string;
   integrationName: string;
+  /** The version to deploy: a frozen tag, or null to tag-and-deploy the working copy. */
+  activeSnapshot: Snapshot | null;
+  /** All tags, to suggest the next version when tagging the working copy. */
+  snapshots: Snapshot[];
   busy: boolean;
   error: string | null;
-  onSubmit: (input: DeploymentInput) => void;
+  onSubmit: (input: DeploySubmit) => void;
   onClose: () => void;
 }) {
+  const currentMode = activeSnapshot === null;
   const [replicas, setReplicas] = useState(1);
   const [expose, setExpose] = useState(false);
   const [slug, setSlug] = useState("");
   const [slugOk, setSlugOk] = useState(false);
   const [opts, setOpts] = useState<DeployOptions | null>(null);
-  // Version tags: a deploy must select one, and its frozen definition drives the
-  // options below. snapshots === null means "still loading".
-  const [snapshots, setSnapshots] = useState<Snapshot[] | null>(null);
-  const [snapshotId, setSnapshotId] = useState("");
+  // The new tag to cut when deploying Current; prefilled with the suggested next
+  // version. Unused in tag mode.
+  const [newTag, setNewTag] = useState(() =>
+    suggestNextTag(snapshots.map((s) => s.tag)),
+  );
   // Environment-variable bindings (and the secret picker) live in a dedicated hook.
   const {
     envVars,
@@ -60,45 +81,32 @@ export default function DeployModal({
     setBinding,
     complete: envComplete,
     missingRequired,
+    providedKeys,
     build: buildEnv,
   } = useDeployEnv(opts);
 
-  // Load the integration's tags once; default to the newest so a deploy is one
-  // click when tags exist.
+  // Load deploy options for the active version: a tag reads its frozen definition,
+  // Current the live working copy. Drives networked-ness, a free slug to prefill,
+  // and the env vars to prompt for. On failure assume non-networked.
   useEffect(() => {
     let active = true;
-    listSnapshots(integrationId).then(
-      (items) => {
-        if (!active) return;
-        setSnapshots(items);
-        setSnapshotId(items[0]?.id ?? "");
-      },
-      () => active && setSnapshots([]),
-    );
-    return () => {
-      active = false;
-    };
-  }, [integrationId]);
-
-  // Load deploy options for the selected tag: whether its frozen definition is
-  // networked, a free slug to prefill, and the env vars to prompt for. Re-runs when
-  // the tag changes so the prompts always match what will deploy. On failure assume
-  // non-networked.
-  useEffect(() => {
-    if (!snapshotId) return;
-    let active = true;
-    getDeployOptions(integrationId, { snapshotId }).then(
+    getDeployOptions(
+      integrationId,
+      activeSnapshot ? { snapshotId: activeSnapshot.id } : {},
+    ).then(
       (o) => {
         if (!active) return;
         setOpts(o);
         setSlug(o.suggestedSlug ?? "");
       },
-      () => active && setOpts({ networked: false, slugValid: false, slugAvailable: false }),
+      () =>
+        active &&
+        setOpts({ networked: false, slugValid: false, slugAvailable: false }),
     );
     return () => {
       active = false;
     };
-  }, [integrationId, snapshotId]);
+  }, [integrationId, activeSnapshot]);
 
   // Close on Escape, mirroring the editor's other overlays.
   useEffect(() => {
@@ -110,11 +118,10 @@ export default function DeployModal({
   }, [busy, onClose]);
 
   const networked = opts?.networked ?? false;
-  const hasTags = (snapshots?.length ?? 0) > 0;
   const canDeploy =
     !busy &&
-    snapshotId !== "" &&
     opts !== null &&
+    (!currentMode || newTag.trim() !== "") &&
     (!networked || slugOk) &&
     envComplete;
 
@@ -122,7 +129,9 @@ export default function DeployModal({
     if (!canDeploy) return;
     const env = buildEnv();
     onSubmit({
-      snapshotId,
+      ...(activeSnapshot
+        ? { snapshotId: activeSnapshot.id }
+        : { newTag: newTag.trim() }),
       replicas,
       ...(networked ? { slug: slug.trim() } : {}),
       ...(networked && expose ? { expose: "external" } : {}),
@@ -159,32 +168,33 @@ export default function DeployModal({
         </header>
 
         <div className="flex max-h-[70vh] flex-col gap-5 overflow-y-auto px-4 py-4">
-          <Field
-            label="Version"
-            hint="Deploys ship a tagged snapshot's frozen definition. Tag a version on the integration first if there are none."
-          >
-            {snapshots === null ? (
-              <p className="text-sm text-zinc-400">Loading versions…</p>
-            ) : hasTags ? (
-              <select
-                value={snapshotId}
-                disabled={busy}
-                onChange={(e) => setSnapshotId(e.target.value)}
-                className={`${INPUT} w-full`}
-              >
-                {snapshots.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.tag}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <p className="inline-flex items-center gap-1.5 text-sm text-amber-600 dark:text-amber-400">
+          {currentMode ? (
+            <Field
+              label="New version"
+              hint="Deploying Current tags the working copy first, then ships that frozen version."
+            >
+              <div className="flex items-center gap-2">
+                <Tag size={14} className="shrink-0 text-zinc-400" />
+                <input
+                  value={newTag}
+                  disabled={busy}
+                  placeholder="e.g. v1.0.0"
+                  onChange={(e) => setNewTag(e.target.value)}
+                  className={`${INPUT} w-full`}
+                />
+              </div>
+            </Field>
+          ) : (
+            <Field
+              label="Version"
+              hint="Ships this tag's frozen definition. Pick a different version from the header."
+            >
+              <span className="inline-flex items-center gap-1.5 rounded-md bg-sky-500/10 px-2 py-1 text-sm font-medium text-sky-600 dark:text-sky-400">
                 <Tag size={14} />
-                No version tags yet — create one before deploying.
-              </p>
-            )}
-          </Field>
+                {activeSnapshot.tag}
+              </span>
+            </Field>
+          )}
 
           <Field label="Scale" hint="Runtime pods load-balanced behind the service.">
             <label className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-300">
@@ -202,7 +212,7 @@ export default function DeployModal({
             </label>
           </Field>
 
-          {!hasTags ? null : opts === null ? (
+          {opts === null ? (
             <p className="text-sm text-zinc-400">Loading options…</p>
           ) : networked ? (
             <Field
@@ -245,6 +255,7 @@ export default function DeployModal({
                 envVars={envVars}
                 bindings={bindings}
                 secretNames={secretNames}
+                providedKeys={providedKeys}
                 busy={busy}
                 onChange={setBinding}
               />

@@ -2,8 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Copy, Download, Pencil, Trash2 } from "lucide-react";
-import { fromDefinitionYaml } from "@octo/editor";
+import { Copy, Download, Pencil, Rocket, Trash2 } from "lucide-react";
 import { downloadDefinition } from "./yamlFile";
 import {
   listSnapshots,
@@ -11,11 +10,13 @@ import {
   type Integration,
   type Snapshot,
 } from "@/app/model/orchestrator";
+import DefinitionSection from "./DefinitionSection";
 import DeploymentsSection from "./DeploymentsSection";
 import EnvSection from "./EnvSection";
 import PodLogPanel from "./PodLogPanel";
 import ResourcesSection from "./ResourcesSection";
-import SnapshotsSection from "./SnapshotsSection";
+import VersionMenu from "./VersionMenu";
+import VersionPills from "./VersionPills";
 
 /**
  * Read-only operating details for the selected integration, plus its primary
@@ -162,6 +163,11 @@ export default function IntegrationDetail({
     setLogsPod({ deploymentId, podName });
   }, []);
 
+  // The Deploy button now lives in the header, but the deploy flow (modal, create,
+  // env) stays owned by the Deployments section; the parent just controls the
+  // modal's visibility.
+  const [deployOpen, setDeployOpen] = useState(false);
+
   // The folder path ("Parent / Child"), or "No folder" when unfiled. Moving is done
   // by drag & drop in the tree, so this is read-only.
   const folderPath = useMemo(() => {
@@ -175,20 +181,6 @@ export default function IntegrationDetail({
     }
     return parts.join(" / ") || "No folder";
   }, [folders, folderId]);
-  // Summarize the stored definition; tolerate definitions we can't parse.
-  const summary = useMemo(() => {
-    try {
-      const doc = fromDefinitionYaml(integration.definition);
-      const sources = doc.flows.filter((f) => f.source).length;
-      return {
-        flows: doc.flows.length,
-        connectors: doc.connectors.length,
-        sources,
-      };
-    } catch {
-      return null;
-    }
-  }, [integration.definition]);
 
   const updated = new Date(integration.lastUpdated);
   const updatedLabel = Number.isNaN(updated.getTime())
@@ -237,13 +229,46 @@ export default function IntegrationDetail({
             {integration.name}
           </button>
         )}
-        <Link
-          href={`/platform/i/${encodeURIComponent(integration.id)}`}
-          className="inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1 text-sm font-medium text-white hover:bg-sky-500"
+        {/* Active version: scopes the Resources/Env panels, the pills below, the
+            deployments filter, and the deploy target. Always available (Current is
+            always a choice, even with no tags yet). */}
+        <VersionMenu
+          snapshots={snapshots}
+          deployedTags={deployedTags}
+          value={effectiveTag}
+          onChange={setSelectedTag}
+        />
+        <button
+          type="button"
+          onClick={() => setDeployOpen(true)}
+          disabled={busy}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1 text-sm font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-50"
         >
-          <Pencil size={14} />
-          Edit
-        </Link>
+          <Rocket size={14} />
+          Deploy
+        </button>
+        {/* Edit opens the working copy; disabled (not hidden) when a frozen tag is
+            the active version — switch to Current to edit. Green so it reads as the
+            primary "work on this" action next to the sky Deploy. */}
+        {effectiveTag === null ? (
+          <Link
+            href={`/platform/i/${encodeURIComponent(integration.id)}`}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1 text-sm font-medium text-white transition-colors hover:bg-emerald-500"
+          >
+            <Pencil size={14} />
+            Edit
+          </Link>
+        ) : (
+          <button
+            type="button"
+            disabled
+            title="Switch to Current to edit the working copy"
+            className="inline-flex shrink-0 cursor-not-allowed items-center gap-1.5 rounded-md bg-emerald-600/40 px-3 py-1 text-sm font-medium text-white/70"
+          >
+            <Pencil size={14} />
+            Edit
+          </button>
+        )}
         <button
           type="button"
           onClick={onCopy}
@@ -276,9 +301,21 @@ export default function IntegrationDetail({
         </button>
       </header>
 
-      {/* Two-column grid: Details · Deployments / Versions · Definition /
-          Resources (full width until the Env panel joins it). Collapses to a
-          single column on narrow widths. */}
+      {/* Version pills: a status-at-a-glance row (green = deployed, grey = not) that
+          doubles as a selector for the header dropdown. Only shown once tags exist. */}
+      {snapshots.length > 0 && (
+        <div className="px-4 pb-2">
+          <VersionPills
+            snapshots={snapshots}
+            deployedTags={deployedTags}
+            onSelectTag={setSelectedTag}
+            onChanged={reloadSnapshots}
+          />
+        </div>
+      )}
+
+      {/* Two-column grid: Details (with the folded Definition stats) · Deployments /
+          Resources · Env. Collapses to a single column on narrow widths. */}
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
           <Section title="Details">
@@ -290,6 +327,18 @@ export default function IntegrationDetail({
               label="ID"
               value={<span className="font-mono text-xs">{integration.id}</span>}
             />
+            {/* Definition stats folded in at the bottom rather than a card of their
+                own — scoped to the active version (a tag's frozen definition, or the
+                working copy for Current). */}
+            <div className="mt-3 border-t border-black/5 pt-3 dark:border-white/5">
+              <h4 className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">
+                Definition
+              </h4>
+              <DefinitionSection
+                key={selectedSnapshot?.id ?? integration.id}
+                definition={selectedSnapshot?.definition ?? integration.definition}
+              />
+            </div>
           </Section>
 
           <Section title="Deployments">
@@ -299,34 +348,14 @@ export default function IntegrationDetail({
               integrationId={integration.id}
               integrationName={integration.name}
               snapshots={snapshots}
+              activeSnapshot={selectedSnapshot}
+              filterTag={effectiveTag}
+              deployOpen={deployOpen}
+              onDeployOpenChange={setDeployOpen}
               onDeploymentsChange={onDeploymentsChange}
+              onSnapshotsChanged={reloadSnapshots}
               onOpenLogs={openPodLogs}
             />
-          </Section>
-
-          <Section title="Versions">
-            <SnapshotsSection
-              integrationId={integration.id}
-              snapshots={snapshots}
-              deployedTags={deployedTags}
-              selectedTag={effectiveTag}
-              onSelectTag={setSelectedTag}
-              onChanged={reloadSnapshots}
-            />
-          </Section>
-
-          <Section title="Definition">
-            {summary ? (
-              <>
-                <Row label="Flows" value={summary.flows} />
-                <Row label="Sources" value={summary.sources} />
-                <Row label="Connectors" value={summary.connectors} />
-              </>
-            ) : (
-              <p className="text-sm text-zinc-400">
-                Definition could not be parsed.
-              </p>
-            )}
           </Section>
 
           <Section title="Resources">

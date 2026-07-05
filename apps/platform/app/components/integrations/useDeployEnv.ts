@@ -13,6 +13,10 @@ import { emptyBinding, type EnvBinding } from "./DeployEnvFields";
  */
 export function useDeployEnv(opts: DeployOptions | null) {
   const envVars = opts?.envVars ?? [];
+  // Vars an .env resource already supplies: a required one here is satisfied, so it
+  // neither blocks the deploy nor needs a value sent — but the operator can still
+  // override it below with an explicit value or secret.
+  const providedByFile = new Set(opts?.envProvidedKeys ?? []);
   const [bindings, setBindings] = useState<Record<string, EnvBinding>>({});
   const [secretNames, setSecretNames] = useState<string[]>([]);
 
@@ -39,10 +43,12 @@ export function useDeployEnv(opts: DeployOptions | null) {
     }));
 
   // Required variables not yet satisfied — a non-empty value (its default counts,
-  // since the payload sends that default explicitly, see build) or a chosen secret.
-  // Surfaced so the modal can name exactly what blocks the deploy.
+  // since the payload sends that default explicitly, see build) or a chosen secret,
+  // or an .env resource that already supplies the key. Surfaced so the modal can
+  // name exactly what blocks the deploy.
   const missingRequired = envVars
     .filter((ev) => ev.required)
+    .filter((ev) => !providedByFile.has(ev.name))
     .filter((ev) => {
       const b = bindings[ev.name] ?? emptyBinding(ev.default);
       return b.mode === "secret" ? b.secret === "" : b.value.trim() === "";
@@ -60,7 +66,11 @@ export function useDeployEnv(opts: DeployOptions | null) {
     for (const ev of envVars) {
       const b = bindings[ev.name];
       if (!b) {
-        if (ev.required && ev.default) env[ev.name] = { value: ev.default };
+        // Force a required var's default only when nothing else supplies it. If an
+        // .env resource already provides the key, leave it unset so the file's value
+        // wins (an explicit binding below still overrides both).
+        if (ev.required && ev.default && !providedByFile.has(ev.name))
+          env[ev.name] = { value: ev.default };
         continue;
       }
       if (b.mode === "secret") {
@@ -79,6 +89,7 @@ export function useDeployEnv(opts: DeployOptions | null) {
     setBinding,
     complete,
     missingRequired,
+    providedKeys: providedByFile,
     build,
   };
 }

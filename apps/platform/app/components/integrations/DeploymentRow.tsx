@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   Check,
+  ChevronRight,
   Clock,
   Copy,
   ExternalLink,
@@ -232,6 +233,8 @@ export default function DeploymentRow({
   const restarts = totalRestarts(d);
   const desired = d.desiredReplicas || d.replicas;
   const pods = d.pods ?? [];
+  // Pods are collapsed by default to keep the row compact; expand to tail logs.
+  const [podsOpen, setPodsOpen] = useState(false);
 
   return (
     <li
@@ -325,11 +328,25 @@ export default function DeploymentRow({
       )}
 
       {onOpenLogs && pods.length > 0 && (
-        <div className="mt-2 space-y-1 border-t border-zinc-100 pt-2 dark:border-zinc-800/70">
-          <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400">
+        <div className="mt-2 border-t border-zinc-100 pt-2 dark:border-zinc-800/70">
+          <button
+            type="button"
+            onClick={() => setPodsOpen((o) => !o)}
+            aria-expanded={podsOpen}
+            className="flex w-full items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-400 transition-colors hover:text-zinc-600 dark:hover:text-zinc-300"
+          >
+            <ChevronRight
+              size={12}
+              className={`transition-transform ${podsOpen ? "rotate-90" : ""}`}
+            />
             Pods
-          </span>
-          {pods.map((p) => (
+            <span className="font-sans normal-case text-zinc-400">
+              ({pods.length})
+            </span>
+          </button>
+          {podsOpen && (
+            <div className="mt-1.5 space-y-1">
+              {pods.map((p) => (
             <div key={p.name} className="flex items-center gap-2">
               <span
                 aria-hidden
@@ -364,7 +381,9 @@ export default function DeploymentRow({
                 <ScrollText size={14} />
               </button>
             </div>
-          ))}
+              ))}
+            </div>
+          )}
         </div>
       )}
     </li>
