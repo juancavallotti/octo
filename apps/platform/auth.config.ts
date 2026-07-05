@@ -58,7 +58,12 @@ export const authConfig: NextAuthConfig = {
       if (profile) {
         const claims = profile as Record<string, unknown>;
         token.roles = rolesFrom(claims[rolesClaim]);
-        const subject = token.sub ?? asString(claims.sub);
+        // Key the user on the IdP's real OIDC subject (`profile.sub`), NOT
+        // Auth.js's `token.sub`. With the JWT session strategy Auth.js mints its
+        // own `token.sub` per sign-in, so preferring it created a fresh user row
+        // every login (and disagreed with the /mcp path, which keys on the access
+        // token's `sub`). `claims.sub` is the stable identifier both paths share.
+        const subject = asString(claims.sub) ?? token.sub;
         const email = asString(claims.email) ?? token.email ?? undefined;
         if (subject && email) {
           // Best-effort: the client never throws (it returns an error result when
