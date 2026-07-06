@@ -294,18 +294,26 @@ func (j *jwtValidate) Process(ctx context.Context, msg *types.Message) (*types.M
 	if err != nil {
 		// A present-but-invalid token is a real auth failure worth surfacing; the
 		// go-oidc error names the cause (expired, wrong audience, bad signature, ...).
-		slog.WarnContext(ctx, "jwt-validate: token rejected", "reason", "verification failed", "error", err, "correlationID", msg.CorrelationID)
+		j.logReject(ctx, msg, "verification failed", err)
 		return j.reject(msg, true), nil
 	}
 
 	var claims map[string]any
 	if err := idToken.Claims(&claims); err != nil {
-		slog.WarnContext(ctx, "jwt-validate: token rejected", "reason", "claims decode failed", "error", err, "correlationID", msg.CorrelationID)
+		j.logReject(ctx, msg, "claims decode failed", err)
 		return j.reject(msg, true), nil
 	}
 	msg.Variables.Set(j.claimsVar, claims)
 	msg.Variables.Set("sub", idToken.Subject)
 	return msg, nil
+}
+
+// logReject warns that a present-but-invalid token was rejected, naming the
+// reason and the underlying error (expired, wrong audience, bad signature, ...).
+// A missing token is not logged here — it is routine (see Process).
+func (j *jwtValidate) logReject(ctx context.Context, msg *types.Message, reason string, err error) {
+	slog.WarnContext(ctx, "jwt-validate: token rejected",
+		"reason", reason, "error", err, "correlationID", msg.CorrelationID)
 }
 
 // verifierFor builds the verifier once and reuses it across requests.

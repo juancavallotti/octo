@@ -53,6 +53,7 @@ const (
 	testAudience = "my-api"
 )
 
+//nolint:ireturn // a test helper that returns the built MessageProcessor interface
 func inlineJWTBlock(t *testing.T, key *rsa.PrivateKey) core.MessageProcessor {
 	t.Helper()
 	proc, err := newJWTValidate(types.Settings{

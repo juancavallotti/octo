@@ -9,11 +9,13 @@ import (
 	"github.com/juancavallotti/octo/types"
 )
 
+//nolint:ireturn // a test helper that returns the built MessageProcessor interface
 func buildValidate(t *testing.T, cfg types.BlockConfig) core.MessageProcessor {
 	t.Helper()
 	return buildValidateWithReg(t, testRegistry(), cfg)
 }
 
+//nolint:ireturn // a test helper that returns the built MessageProcessor interface
 func buildValidateWithReg(t *testing.T, reg *core.BlockRegistry, cfg types.BlockConfig) core.MessageProcessor {
 	t.Helper()
 	block, err := (&builder{reg: reg, pool: pool.New(0, 0)}).block(cfg)
