@@ -102,6 +102,19 @@ type BlockConfig struct {
 	Key string `yaml:"key,omitempty"`
 	TTL string `yaml:"ttl,omitempty"`
 
+	// Rules are the assertions of a "validate" block; all must evaluate true or
+	// the block rejects the message.
+	Rules []RuleConfig `yaml:"rules,omitempty"`
+	// OnReject is the shared "filter" slot: the sub-flow a filter block (validate,
+	// jwt-validate) runs when it rejects a message, before requesting the flow
+	// stop. It shapes the terminal response itself. Empty uses the block's
+	// built-in default response.
+	OnReject *FlowConfig `yaml:"onReject,omitempty"`
+	// RejectStatus is the HTTP status a filter block's built-in default response
+	// uses when it rejects (and no OnReject sub-flow is set). Zero applies the
+	// block's own default.
+	RejectStatus int `yaml:"rejectStatus,omitempty"`
+
 	// Connector names the LLM connector the AI composites (ai-router, ai-agent,
 	// ai-retry) call through.
 	Connector string `yaml:"connector,omitempty"`
@@ -188,6 +201,14 @@ type MCPPromptArg struct {
 type CaseConfig struct {
 	When string     `yaml:"when"`
 	Flow FlowConfig `yaml:",inline"`
+}
+
+// RuleConfig is one assertion of a "validate" block: a boolean CEL Expr that must
+// hold, and the Message surfaced (in vars.validationErrors and the built-in
+// response) when it does not.
+type RuleConfig struct {
+	Expr    string `yaml:"expr"`
+	Message string `yaml:"message,omitempty"`
 }
 
 // RouteConfig is one branch of an "ai-router" block: a Name and a Description the

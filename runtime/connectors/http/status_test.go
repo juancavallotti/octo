@@ -52,3 +52,33 @@ func TestWriteResultUsesHTTPStatusVar(t *testing.T) {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
 	}
 }
+
+func TestWriteResultPropagatesResponseHeaders(t *testing.T) {
+	msg, err := types.NewMessage("")
+	if err != nil {
+		t.Fatalf("NewMessage: %v", err)
+	}
+	msg.Body = map[string]any{"error": "unauthorized"}
+	msg.Variables.Set(httpStatusVar, float64(http.StatusUnauthorized))
+	msg.Variables.Set("WWW-Authenticate", `Bearer realm="x"`)
+	msg.Variables.Set("X-Absent", "") // empty values are skipped
+	msg.Variables.Set("X-Unlisted", "nope")
+	msg.Variables.Set("Content-Type", "text/evil") // must not override the source's
+
+	rec := httptest.NewRecorder()
+	src := &source{respHeaders: []string{"WWW-Authenticate", "X-Absent", "Content-Type"}}
+	src.writeResult(rec, result{kind: types.FlowEventCompleted, msg: msg})
+
+	if got := rec.Header().Get("WWW-Authenticate"); got != `Bearer realm="x"` {
+		t.Errorf("WWW-Authenticate = %q, want the challenge", got)
+	}
+	if _, ok := rec.Header()["X-Absent"]; ok {
+		t.Error("empty-valued header should be skipped")
+	}
+	if _, ok := rec.Header()["X-Unlisted"]; ok {
+		t.Error("unlisted header must not be propagated")
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json (source-managed)", ct)
+	}
+}

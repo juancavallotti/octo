@@ -68,7 +68,7 @@ tasks:
   dev:
     desc: Build the runner, then run the standalone editor (local files + RUN enabled)
     cmds:
-      - task: runtime:build
+      # standalone:dev builds the runner (runtime:build) itself before starting.
       - task: standalone:dev
 
   tidy:

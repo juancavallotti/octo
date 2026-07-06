@@ -5,6 +5,14 @@ version: '3'
 # Taskfile under the `standalone:` namespace (working dir apps/standalone/).
 # Dependencies are installed at the workspace root via pnpm (`pnpm install`).
 
+# The runtime taskfile, so `dev` can build the runner (bin/octo, the RUN feature's
+# OCTO_BIN_PATH) before starting the editor. Paths are relative to this file
+# (apps/standalone/), so they resolve whether run directly or via the root Taskfile.
+includes:
+  runtime:
+    taskfile: ../../runtime/Taskfile.yml
+    dir: ../../runtime
+
 tasks:
   install:
     desc: Install the workspace dependencies (pnpm, run from the repo root)
@@ -13,7 +21,9 @@ tasks:
       - pnpm install
 
   dev:
-    desc: Run the Octo standalone dev server (use root `task dev` to build the runner + enable RUN)
+    desc: Build the runner, then run the Octo standalone dev server (local files + RUN enabled)
+    deps:
+      - runtime:build
     cmds:
       - pnpm run dev
 

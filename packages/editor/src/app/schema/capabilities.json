@@ -477,6 +477,37 @@
       ]
     },
     {
+      "type": "validate",
+      "label": "Validate",
+      "category": "control-flow",
+      "group": "Flow Control",
+      "icon": "ShieldCheck",
+      "description": "Filter block: assert a list of CEL rules against the message. If all hold, the message passes through; if any fail, the block rejects — running the onReject sub-flow (or a built-in response) and stopping the flow so the rest of the chain never runs. Failing rule messages are exposed as vars.validationErrors.",
+      "fields": [
+        {
+          "name": "rules",
+          "label": "Rules",
+          "type": "rule-list",
+          "required": true,
+          "description": "Assertions that must all evaluate true. Each entry is {expr: <CEL bool>, message: <text>}; the messages of any that fail are collected into vars.validationErrors. Expressions see body, vars, eventID, correlationID, env, now."
+        },
+        {
+          "name": "rejectStatus",
+          "label": "Reject status",
+          "type": "number",
+          "required": false,
+          "description": "HTTP status the built-in rejection response uses when a rule fails and no onReject flow is set. Defaults to 422."
+        },
+        {
+          "name": "onReject",
+          "label": "On reject",
+          "type": "flow",
+          "required": false,
+          "description": "Optional sub-flow run when a rule fails, before the flow stops. It shapes the response itself (e.g. set-payload + set httpStatus) and can read vars.validationErrors. Empty uses the built-in default response."
+        }
+      ]
+    },
+    {
       "type": "ai-mapping",
       "label": "AI Mapping",
       "category": "processor",
@@ -1048,6 +1079,106 @@
       ]
     },
     {
+      "type": "jwt-validate",
+      "label": "JWT Validate",
+      "category": "processor",
+      "group": "Flow Control",
+      "icon": "ShieldAlert",
+      "description": "Filter: verify a bearer JWT against an OIDC provider. On failure it stops the flow with a configurable response (401 by default) so the rest of the chain never runs; on success it injects the verified claims into vars (claimsVar, default `jwt`) and the subject into vars.sub. Reads the token from a request-header variable — the http route source must copy that header into vars (source headers: [Authorization]).",
+      "fields": [
+        {
+          "name": "mode",
+          "label": "Key mode",
+          "type": "enum",
+          "required": false,
+          "default": "discover",
+          "enum": ["discover", "jwks", "inline"],
+          "description": "How signing keys are resolved: discover (OIDC discovery from issuer), jwks (fetch jwksUrl directly), or inline (publicKey / publicKeyResource)."
+        },
+        {
+          "name": "issuer",
+          "label": "Issuer",
+          "type": "string",
+          "required": false,
+          "description": "Expected token issuer (iss). Required for discover mode (its discovery URL). For jwks/inline it is the expected iss, checked when set."
+        },
+        {
+          "name": "audience",
+          "label": "Audience",
+          "type": "string",
+          "required": false,
+          "description": "Expected token audience (aud). When empty the audience check is skipped."
+        },
+        {
+          "name": "algorithms",
+          "label": "Algorithms",
+          "type": "string-list",
+          "required": false,
+          "description": "Accepted signing algorithms, e.g. RS256. When empty go-oidc's defaults apply."
+        },
+        {
+          "name": "jwksUrl",
+          "label": "JWKS URL",
+          "type": "string",
+          "required": false,
+          "description": "JWKS endpoint for mode jwks (cached and refreshed)."
+        },
+        {
+          "name": "publicKey",
+          "label": "Public key (PEM)",
+          "type": "string",
+          "required": false,
+          "description": "Literal PEM public key or certificate for mode inline. Set exactly one of publicKey / publicKeyResource."
+        },
+        {
+          "name": "publicKeyResource",
+          "label": "Public key resource",
+          "type": "string",
+          "required": false,
+          "description": "Resource id whose content is the PEM/JWK public key, for mode inline. Set exactly one of publicKey / publicKeyResource.",
+          "ref": { "kind": "template" }
+        },
+        {
+          "name": "tokenHeader",
+          "label": "Token variable",
+          "type": "string",
+          "required": false,
+          "default": "Authorization",
+          "description": "Variable holding the bearer token; a `Bearer ` prefix is stripped. The http source must copy this header into vars."
+        },
+        {
+          "name": "claimsVar",
+          "label": "Claims variable",
+          "type": "string",
+          "required": false,
+          "default": "jwt",
+          "description": "Variable the verified claims map is stored under on success (the subject is also set on vars.sub)."
+        },
+        {
+          "name": "rejectStatus",
+          "label": "Reject status",
+          "type": "number",
+          "required": false,
+          "description": "HTTP status of the built-in rejection response when verification fails. Defaults to 401."
+        },
+        {
+          "name": "resourceMetadataUrl",
+          "label": "Resource metadata URL",
+          "type": "string",
+          "required": false,
+          "description": "Protected-resource-metadata URL (RFC 9728) advertised in the WWW-Authenticate challenge as resource_metadata=\"…\". Set this to make the endpoint an MCP-compliant protected resource."
+        },
+        {
+          "name": "disableWwwAuthenticate",
+          "label": "Disable WWW-Authenticate",
+          "type": "boolean",
+          "required": false,
+          "default": false,
+          "description": "By default, when an issuer is configured, a rejection sets a WWW-Authenticate: Bearer challenge in vars (list \"WWW-Authenticate\" in the route source's responseHeaders to emit it). Check to opt out."
+        }
+      ]
+    },
+    {
       "type": "slack-event",
       "label": "Slack Event",
       "category": "processor",
@@ -1424,6 +1555,13 @@
               "type": "string-list",
               "required": false,
               "description": "Request header names to copy into variables."
+            },
+            {
+              "name": "responseHeaders",
+              "label": "Response headers",
+              "type": "string-list",
+              "required": false,
+              "description": "Response header names to propagate from message variables of the same name after the flow completes (the outbound counterpart of Headers). A block sets vars.<name> and lists it here to emit it — e.g. WWW-Authenticate from jwt-validate. Content-Type is managed by the source."
             },
             {
               "name": "correlationIdHeader",

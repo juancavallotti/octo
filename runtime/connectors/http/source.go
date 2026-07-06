@@ -25,6 +25,13 @@ type sourceSettings struct {
 	// Headers names the request headers to copy into variables (always set,
 	// empty string when absent), readable in CEL via index, e.g. vars["X-Tenant"].
 	Headers []string `json:"headers"`
+	// ResponseHeaders names the response headers to propagate from message
+	// variables of the same name — the outbound counterpart of Headers. After a
+	// flow completes, each listed header is set on the response from vars.<name>
+	// when that variable holds a non-empty string (so a block can set, e.g.,
+	// vars["WWW-Authenticate"] and have it emitted). Content-Type is managed by the
+	// source and cannot be overridden here.
+	ResponseHeaders []string `json:"responseHeaders"`
 	// CorrelationIDHeader, when set, sources the message CorrelationID from that
 	// request header.
 	CorrelationIDHeader string `json:"correlationIdHeader"`
@@ -53,6 +60,7 @@ type source struct {
 	pattern      string
 	params       []string
 	headers      []string
+	respHeaders  []string
 	corrIDHeader string
 	rawBodyVar   string
 	rawBody      bool
@@ -96,6 +104,7 @@ func (c *Connector) NewSource(cfg types.SourceConfig, out chan<- *types.Message)
 		pattern:      pattern,
 		params:       parsePathParams(set.Path),
 		headers:      set.Headers,
+		respHeaders:  set.ResponseHeaders,
 		corrIDHeader: set.CorrelationIDHeader,
 		rawBodyVar:   set.RawBodyVar,
 		rawBody:      set.RawBody,
@@ -198,6 +207,23 @@ func (s *source) awaitResult(w http.ResponseWriter, r *http.Request, ch chan res
 // response status; when absent or out of range the default status is used.
 const httpStatusVar = "httpStatus"
 
+// propagateResponseHeaders copies the source's configured responseHeaders from
+// message variables of the same name onto the response, skipping empty values
+// and Content-Type (which the source manages). It must be called before
+// WriteHeader. It is the outbound counterpart of the inbound headers copy in
+// buildMessage, letting a block shape response headers (e.g. WWW-Authenticate)
+// by setting a variable.
+func (s *source) propagateResponseHeaders(w http.ResponseWriter, msg *types.Message) {
+	for _, name := range s.respHeaders {
+		if strings.EqualFold(name, "Content-Type") {
+			continue
+		}
+		if value, ok := msg.Variables.String(name); ok && value != "" {
+			w.Header().Set(name, value)
+		}
+	}
+}
+
 // statusFor returns the response status for a completed flow: the message's
 // httpStatus variable when it is a valid HTTP status code, otherwise fallback.
 // This lets a flow (or its error path) set vars.httpStatus to control the code.
@@ -212,6 +238,8 @@ func statusFor(msg *types.Message, fallback int) int {
 func (s *source) writeResult(w http.ResponseWriter, res result) {
 	switch res.kind {
 	case types.FlowEventCompleted:
+		// Propagate configured response headers before Content-Type/WriteHeader.
+		s.propagateResponseHeaders(w, res.msg)
 		if contentType, rawData, ok := res.msg.RawBody(); ok {
 			w.Header().Set("Content-Type", contentType)
 			w.WriteHeader(statusFor(res.msg, http.StatusOK))

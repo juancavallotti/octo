@@ -47,7 +47,10 @@ flows:
       type: topic
       settings: { topic: orders }
     process:
-      - { type: validate, settings: { schema: order.schema.json } }
+      - type: validate
+        rules:
+          - { expr: "has(body.id)", message: "order id is required" }
+          - { expr: "body.amount > 0", message: "amount must be positive" }
 ```
 
 ## Tasks

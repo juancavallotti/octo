@@ -22,6 +22,12 @@ const (
 	rawDataKey        = "rawData"
 )
 
+// stopVar is the reserved Variables key a filter block sets to request that the
+// flow stop after it returns, keeping the response it configured. The double
+// underscore marks it internal; sinks serialize Body, not Variables, so it never
+// leaks into a response. Read/write it only through RequestStop/StopRequested.
+const stopVar = "__octoStop"
+
 // Message is the first-class unit of work flowing through the processing
 // pipeline. The service is JSON-only by default, so Body normally holds decoded
 // JSON (numbers are float64, objects map[string]any, arrays []any).
@@ -90,6 +96,21 @@ func (m *Message) RawBody() (contentType, rawData string, ok bool) {
 		return "", "", false
 	}
 	return contentType, rawData, true
+}
+
+// RequestStop marks the message so the flow engine stops running further blocks
+// once the current block returns, completing the flow with the message as-is
+// (its configured body/status). It is the primitive behind "filter" blocks that
+// terminate a flow and shape their own response. The flag rides in Variables, so
+// it bubbles up through nested composite sub-flows and folds back across flow-ref
+// boundaries automatically.
+func (m *Message) RequestStop() { m.Variables.Set(stopVar, true) }
+
+// StopRequested reports whether a block has called RequestStop on this message.
+// The flow engine checks it after each block to short-circuit the chain.
+func (m *Message) StopRequested() bool {
+	stop, _ := m.Variables.Bool(stopVar)
+	return stop
 }
 
 // NewMessage returns a Message with a freshly generated EventID and an

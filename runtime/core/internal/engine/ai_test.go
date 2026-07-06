@@ -13,12 +13,12 @@ import (
 	"github.com/juancavallotti/octo/types"
 )
 
-// retryRegistry layers a "validate" leaf onto recordRegistry. The leaf errors
+// retryRegistry layers a "require-field" leaf onto recordRegistry. The leaf errors
 // unless the message body has the required field set, so a retry test can model a
 // failure the model fixes by revising the body.
 func retryRegistry(seen *[]any) *core.BlockRegistry {
 	reg := recordRegistry(seen)
-	reg.MustRegister("validate", func(s types.Settings, _ core.BlockDeps) (core.MessageProcessor, error) {
+	reg.MustRegister("require-field", func(s types.Settings, _ core.BlockDeps) (core.MessageProcessor, error) {
 		field, _ := s.String("require")
 		return processorFunc(func(_ context.Context, msg *types.Message) (*types.Message, error) {
 			body, ok := msg.Body.(map[string]any)
@@ -635,7 +635,7 @@ func TestAIAgentSkillBuildValidation(t *testing.T) {
 func retryConfig(maxAttempts int, withErrorPath bool) types.BlockConfig {
 	cfg := types.BlockConfig{
 		Type: "ai-retry", Connector: "claude", Prompt: "fix the body", MaxAttempts: maxAttempts,
-		Process: []types.BlockConfig{{Type: "validate", Settings: types.Settings{"require": "amount"}}},
+		Process: []types.BlockConfig{{Type: "require-field", Settings: types.Settings{"require": "amount"}}},
 	}
 	if withErrorPath {
 		cfg.Error = []types.BlockConfig{{Type: "record", Settings: types.Settings{"tag": "recovered"}}}
@@ -737,11 +737,11 @@ func TestAIRetryBuildValidation(t *testing.T) {
 		t.Error("expected error with no process chain")
 	}
 	if err := build(types.BlockConfig{Type: "ai-retry", Connector: "claude",
-		Process: []types.BlockConfig{{Type: "validate"}}}); err == nil {
+		Process: []types.BlockConfig{{Type: "require-field"}}}); err == nil {
 		t.Error("expected error with no prompt")
 	}
 	if err := build(types.BlockConfig{Type: "ai-retry", Prompt: "x",
-		Process: []types.BlockConfig{{Type: "validate"}}}); err == nil {
+		Process: []types.BlockConfig{{Type: "require-field"}}}); err == nil {
 		t.Error("expected error with no connector")
 	}
 }

@@ -590,6 +590,137 @@ flows:
 `,
 };
 
+/** The validate filter: assert CEL rules, stop the flow with a response on failure. */
+const VALIDATE: Example = {
+  slug: "validate",
+  title: "validate — filter that rejects a request and stops the flow",
+  summary:
+    "A filter block: every CEL rule must hold or the block rejects the message — it stops the flow (the rest of the chain never runs) and returns a response it configures. With no onReject sub-flow it emits a built-in body {error, messages} with rejectStatus (default 422); the failing rules' messages are also exposed as vars.validationErrors. The commented onReject slot shows how to shape the rejection yourself (set body + vars.httpStatus). rules/rejectStatus/onReject sit at the block top level, not under settings. Declares HTTP_PORT, so run_integration returns a test URL: POST a body missing id or with amount<=0 to see the 422, or a valid one to see it accepted.",
+  blocks: ["http (source)", "validate", "set-payload"],
+  definition: `service:
+  name: validate-orders
+
+env:
+  - name: HTTP_HOST
+    default: 0.0.0.0
+  - name: HTTP_PORT
+    default: "8080"
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      host: \${HTTP_HOST}
+      port: \${HTTP_PORT}
+
+flows:
+  - name: orders-api
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /orders
+    process:
+      # Filter: all rules must hold, or the request is rejected and the flow stops.
+      - type: validate
+        name: check-order
+        rejectStatus: 422              # status for the built-in rejection response
+        rules:
+          - expr: 'has(body.id)'
+            message: "order id is required"
+          - expr: 'body.amount > 0'
+            message: "amount must be positive"
+        # onReject (optional) shapes the response yourself instead of the built-in
+        # {error, messages} body; it can read vars.validationErrors. Omit for the default.
+        # onReject:
+        #   process:
+        #     - type: set-payload
+        #       settings:
+        #         value: '{"error": "bad_request", "details": vars.validationErrors}'
+        #     - type: set-variable
+        #       settings: { name: httpStatus, value: 400 }
+
+      # Only reached when every rule held (a rejected request stopped here).
+      - type: set-payload
+        name: accept
+        settings:
+          value: '{"orderId": body.id, "amount": body.amount, "status": "accepted"}'
+`,
+};
+
+/** The jwt-validate filter: an MCP-compliant OAuth protected resource. */
+const JWT_VALIDATE: Example = {
+  slug: "jwt-validate",
+  title: "jwt-validate — MCP-compliant bearer-JWT auth on an HTTP endpoint",
+  summary:
+    "A filter block for HTTP auth: verify a bearer JWT against an OIDC provider. A missing or invalid token stops the flow with a 401 so the rest of the chain never runs; a valid token injects the verified claims into vars (claimsVar, default vars.jwt) and the subject into vars.sub. Keys resolve by OIDC discovery (mode: discover), a JWKS URL (mode: jwks), or an inline key (mode: inline). To be MCP-compliant (an OAuth protected resource), two things are wired: (1) jwt-validate sets a WWW-Authenticate challenge on rejection — default when an issuer is set, with resourceMetadataUrl adding the RFC 9728 resource_metadata pointer — and the route lists it in responseHeaders so it is emitted; (2) a second flow serves the Protected Resource Metadata at /.well-known/oauth-protected-resource. The token comes from the Authorization header, so the route copies it into vars (headers: [Authorization]). Networked: needs a reachable issuer and a real token. Declares HTTP_PORT so run_integration returns a test URL.",
+  blocks: ["http (source)", "jwt-validate", "set-payload"],
+  definition: `service:
+  name: jwt-validate
+
+env:
+  - name: HTTP_HOST
+    default: 0.0.0.0
+  - name: HTTP_PORT
+    default: "8080"
+  - name: OIDC_ISSUER
+    default: https://accounts.google.com
+  - name: OIDC_AUDIENCE
+    required: true
+  - name: RESOURCE_METADATA_URL
+    default: http://localhost:8080/.well-known/oauth-protected-resource
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      host: \${HTTP_HOST}
+      port: \${HTTP_PORT}
+
+flows:
+  - name: me
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /me
+        headers: [Authorization]           # forward the bearer token into vars.Authorization
+        responseHeaders: [WWW-Authenticate] # emit the challenge jwt-validate sets on 401
+    process:
+      - type: jwt-validate
+        name: require-auth
+        settings:
+          mode: discover              # OIDC discovery from issuer; or jwks / inline
+          issuer: \${OIDC_ISSUER}
+          audience: \${OIDC_AUDIENCE}
+          algorithms: [RS256]
+          claimsVar: jwt              # verified claims -> vars.jwt, subject -> vars.sub
+          resourceMetadataUrl: \${RESOURCE_METADATA_URL}
+          # WWW-Authenticate is emitted by default (issuer is set); disableWwwAuthenticate: true opts out.
+
+      # Only reached with a valid token (a rejected request stopped above).
+      - type: set-payload
+        name: whoami
+        settings:
+          value: '{"sub": vars.sub, "email": vars.jwt.email}'
+
+  # Protected Resource Metadata (RFC 9728): names the authorization server. No auth.
+  - name: protected-resource-metadata
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /.well-known/oauth-protected-resource
+    process:
+      - type: set-payload
+        settings:
+          value: >
+            {"resource": env.RESOURCE_METADATA_URL,
+             "authorization_servers": [env.OIDC_ISSUER],
+             "bearer_methods_supported": ["header"]}
+`,
+};
+
 /** The object store: write a value, read it back with a presence flag + default. */
 const OBJECT_STORE: Example = {
   slug: "object-store",
@@ -970,6 +1101,8 @@ export const EXAMPLES: Example[] = [
   AI_ROUTER,
   SLACK_BOT,
   ENRICH,
+  VALIDATE,
+  JWT_VALIDATE,
   OBJECT_STORE,
   MULTI_TRANSFORM,
   EVENTS,
