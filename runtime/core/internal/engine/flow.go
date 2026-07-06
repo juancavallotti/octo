@@ -68,6 +68,13 @@ func (f *Flow) Process(ctx context.Context, msg *types.Message) (*types.Message,
 			return nil, nil
 		}
 		current = out
+		if current.StopRequested() {
+			// A filter block requested stop: complete the flow now with the
+			// message it configured, skipping the rest of the chain. Because
+			// composite sub-flows return up through this same loop, the stop
+			// bubbles to the root.
+			return current, nil
+		}
 	}
 	return current, nil
 }

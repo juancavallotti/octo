@@ -246,6 +246,11 @@ func (f *foreachBlock) Process(ctx context.Context, msg *types.Message) (*types.
 			return nil, nil
 		}
 		msg = out
+		if msg.StopRequested() {
+			// A filter block inside the body requested stop: halt iteration and
+			// let the stop bubble up through the enclosing flow loop.
+			return msg, nil
+		}
 	}
 
 	// Restore the loop variable so it does not leak past the foreach.
