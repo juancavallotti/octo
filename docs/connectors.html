@@ -152,6 +152,18 @@
           <a href="building-integrations.html#raw-content">raw-content body</a>, in which case <code>rawData</code> is served
           verbatim with its <code>contentType</code> — e.g. a <code>template-resource</code> rendering HTML.</p>
         <p style="font-size:0.9rem">See <a href="error-handling.html">Error handling</a> for setting <code>vars.httpStatus</code> and recovering from failures.</p>
+        <p style="font-size:0.9rem">Authenticate requests with <code>jwt-validate</code>: it verifies a bearer JWT against an OIDC
+          provider (discovery, a JWKS URL, or an inline key) and, on failure, <em>stops the flow</em> with a
+          configurable <code>401</code> — the rest of the chain never runs. On success it injects the verified
+          claims into <code>vars.jwt</code> and the subject into <code>vars.sub</code>. Copy the token header into
+          vars on the route source (<code>headers: [Authorization]</code>).</p>
+        <p style="font-size:0.9rem">A completed flow can also set response headers: list them in the source's
+          <code>responseHeaders</code> and a block populates <code>vars.&lt;name&gt;</code> (the outbound
+          counterpart of <code>headers</code>). This is how an endpoint becomes an <strong>MCP-compliant</strong>
+          OAuth protected resource — <code>jwt-validate</code> emits a <code>WWW-Authenticate: Bearer</code> challenge
+          (default when an issuer is set; <code>resourceMetadataUrl</code> adds the RFC&nbsp;9728
+          <code>resource_metadata</code> pointer), and you serve the metadata document from a plain flow at
+          <code>/.well-known/oauth-protected-resource</code>. See the <code>jwt-validate</code> sample.</p>
       </div>
     </div>
   </div>

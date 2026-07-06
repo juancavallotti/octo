@@ -1,0 +1,90 @@
+service:
+  name: jwt-validate
+
+# Demonstrates the "jwt-validate" filter block as an MCP-compliant OAuth protected
+# resource: verify a bearer JWT against an OIDC provider on an HTTP request. If the
+# token is missing or invalid the block stops the flow with a 401 it configures
+# itself (the rest of the chain never runs); on success it injects the verified
+# claims into vars (vars.jwt) and the subject into vars.sub.
+#
+# For a client to discover HOW to authenticate (per the MCP auth spec / RFC 9728),
+# two things are wired here:
+#   1) jwt-validate sets a WWW-Authenticate challenge on rejection (default when an
+#      issuer is set; resourceMetadataUrl adds the resource_metadata pointer). The
+#      route source lists it in `responseHeaders` so it is actually emitted.
+#   2) A second flow serves the Protected Resource Metadata document at
+#      /.well-known/oauth-protected-resource, naming the authorization server.
+#
+# The token is read from the Authorization header, so the route copies it into vars
+# (`headers: [Authorization]`). Keys resolve by OIDC discovery here; use
+# `mode: jwks` (jwksUrl) or `mode: inline` (publicKey / publicKeyResource) instead.
+#
+# Networked (requires a reachable OIDC issuer + a valid token). Declares HTTP_PORT,
+# so run_integration returns a test URL:
+#   curl -i <testUrl>me                                   # 401 + WWW-Authenticate
+#   curl -i <testUrl>.well-known/oauth-protected-resource # 200 metadata JSON
+#   curl -H "Authorization: Bearer <token>" <testUrl>me   # 200 -> your sub
+
+env:
+  - name: HTTP_HOST
+    default: 0.0.0.0
+  - name: HTTP_PORT
+    default: "8080"
+  - name: OIDC_ISSUER
+    default: https://accounts.google.com
+  - name: OIDC_AUDIENCE
+    required: true
+  - name: RESOURCE_METADATA_URL
+    default: http://localhost:8080/.well-known/oauth-protected-resource
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      host: ${HTTP_HOST}
+      port: ${HTTP_PORT}
+
+flows:
+  - name: me
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /me
+        headers: [Authorization] # forward the bearer token into vars.Authorization
+        responseHeaders: [WWW-Authenticate] # emit the challenge jwt-validate sets
+    process:
+      - type: jwt-validate
+        name: require-auth
+        settings:
+          mode: discover
+          issuer: ${OIDC_ISSUER}
+          audience: ${OIDC_AUDIENCE}
+          algorithms: [RS256]
+          claimsVar: jwt # verified claims -> vars.jwt, subject -> vars.sub
+          resourceMetadataUrl: ${RESOURCE_METADATA_URL}
+          # WWW-Authenticate is emitted by default (issuer is set); to opt out:
+          # disableWwwAuthenticate: true
+
+      # Only reached with a valid token; echo who the caller is.
+      - type: set-payload
+        name: whoami
+        settings:
+          value: '{"sub": vars.sub, "email": vars.jwt.email}'
+
+  # Protected Resource Metadata (RFC 9728): tells MCP clients which authorization
+  # server to use. A plain flow — no auth in front of it.
+  - name: protected-resource-metadata
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /.well-known/oauth-protected-resource
+    process:
+      - type: set-payload
+        name: metadata
+        settings:
+          value: >
+            {"resource": env.RESOURCE_METADATA_URL,
+             "authorization_servers": [env.OIDC_ISSUER],
+             "bearer_methods_supported": ["header"]}

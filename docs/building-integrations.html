@@ -115,6 +115,7 @@ flows:                        # one or more root flows
           <tr><td><code>object-delete</code></td><td>State</td><td>Delete a key from the object store.</td></tr>
           <tr><td><code>invalidate-cache</code></td><td>State</td><td>Bust a <code>cache-scope</code> entry by key.</td></tr>
           <tr><td><code>flow-ref</code></td><td>Flow control</td><td>Call another flow — synchronously (result folds back) or one-way.</td></tr>
+          <tr><td><code>jwt-validate</code></td><td>Auth</td><td>Verify a bearer JWT against an OIDC provider (discovery, JWKS URL, or inline key). On success injects the claims into <code>vars.jwt</code>/<code>vars.sub</code>; on failure stops the flow with a configurable <code>401</code>.</td></tr>
         </tbody>
       </table>
 
