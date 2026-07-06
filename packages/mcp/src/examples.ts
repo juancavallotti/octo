@@ -590,6 +590,64 @@ flows:
 `,
 };
 
+/** The validate filter: assert CEL rules, stop the flow with a response on failure. */
+const VALIDATE: Example = {
+  slug: "validate",
+  title: "validate — filter that rejects a request and stops the flow",
+  summary:
+    "A filter block: every CEL rule must hold or the block rejects the message — it stops the flow (the rest of the chain never runs) and returns a response it configures. With no onReject sub-flow it emits a built-in body {error, messages} with rejectStatus (default 422); the failing rules' messages are also exposed as vars.validationErrors. The commented onReject slot shows how to shape the rejection yourself (set body + vars.httpStatus). rules/rejectStatus/onReject sit at the block top level, not under settings. Declares HTTP_PORT, so run_integration returns a test URL: POST a body missing id or with amount<=0 to see the 422, or a valid one to see it accepted.",
+  blocks: ["http (source)", "validate", "set-payload"],
+  definition: `service:
+  name: validate-orders
+
+env:
+  - name: HTTP_HOST
+    default: 0.0.0.0
+  - name: HTTP_PORT
+    default: "8080"
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      host: \${HTTP_HOST}
+      port: \${HTTP_PORT}
+
+flows:
+  - name: orders-api
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /orders
+    process:
+      # Filter: all rules must hold, or the request is rejected and the flow stops.
+      - type: validate
+        name: check-order
+        rejectStatus: 422              # status for the built-in rejection response
+        rules:
+          - expr: 'has(body.id)'
+            message: "order id is required"
+          - expr: 'body.amount > 0'
+            message: "amount must be positive"
+        # onReject (optional) shapes the response yourself instead of the built-in
+        # {error, messages} body; it can read vars.validationErrors. Omit for the default.
+        # onReject:
+        #   process:
+        #     - type: set-payload
+        #       settings:
+        #         value: '{"error": "bad_request", "details": vars.validationErrors}'
+        #     - type: set-variable
+        #       settings: { name: httpStatus, value: 400 }
+
+      # Only reached when every rule held (a rejected request stopped here).
+      - type: set-payload
+        name: accept
+        settings:
+          value: '{"orderId": body.id, "amount": body.amount, "status": "accepted"}'
+`,
+};
+
 /** The object store: write a value, read it back with a presence flag + default. */
 const OBJECT_STORE: Example = {
   slug: "object-store",
@@ -970,6 +1028,7 @@ export const EXAMPLES: Example[] = [
   AI_ROUTER,
   SLACK_BOT,
   ENRICH,
+  VALIDATE,
   OBJECT_STORE,
   MULTI_TRANSFORM,
   EVENTS,

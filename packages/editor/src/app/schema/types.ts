@@ -42,7 +42,10 @@ export type FieldType =
   | "object"
   // An ordered list of additive edits — multi-transform's `transforms`. Each entry
   // serializes as {setBody} or {setVar, value}; order is the apply order.
-  | "transform-list";
+  | "transform-list"
+  // A list of validate-block assertions — `validate`'s `rules`. Each entry
+  // serializes as {expr, message}; all must evaluate true or the block rejects.
+  | "rule-list";
 
 /**
  * Condition that gates a field's visibility on a sibling field's value within the

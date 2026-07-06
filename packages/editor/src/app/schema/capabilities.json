@@ -477,6 +477,37 @@
       ]
     },
     {
+      "type": "validate",
+      "label": "Validate",
+      "category": "control-flow",
+      "group": "Flow Control",
+      "icon": "ShieldCheck",
+      "description": "Filter block: assert a list of CEL rules against the message. If all hold, the message passes through; if any fail, the block rejects — running the onReject sub-flow (or a built-in response) and stopping the flow so the rest of the chain never runs. Failing rule messages are exposed as vars.validationErrors.",
+      "fields": [
+        {
+          "name": "rules",
+          "label": "Rules",
+          "type": "rule-list",
+          "required": true,
+          "description": "Assertions that must all evaluate true. Each entry is {expr: <CEL bool>, message: <text>}; the messages of any that fail are collected into vars.validationErrors. Expressions see body, vars, eventID, correlationID, env, now."
+        },
+        {
+          "name": "rejectStatus",
+          "label": "Reject status",
+          "type": "number",
+          "required": false,
+          "description": "HTTP status the built-in rejection response uses when a rule fails and no onReject flow is set. Defaults to 422."
+        },
+        {
+          "name": "onReject",
+          "label": "On reject",
+          "type": "flow",
+          "required": false,
+          "description": "Optional sub-flow run when a rule fails, before the flow stops. It shapes the response itself (e.g. set-payload + set httpStatus) and can read vars.validationErrors. Empty uses the built-in default response."
+        }
+      ]
+    },
+    {
       "type": "ai-mapping",
       "label": "AI Mapping",
       "category": "processor",

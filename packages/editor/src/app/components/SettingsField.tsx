@@ -6,6 +6,7 @@ import type { FieldSpec } from "../schema/types";
 import StringListEditor from "./fields/StringListEditor";
 import StringMapEditor from "./fields/StringMapEditor";
 import TransformListEditor from "./fields/TransformListEditor";
+import RuleListEditor from "./fields/RuleListEditor";
 import SkillListEditor from "./fields/SkillListEditor";
 import MCPResourceListEditor from "./fields/MCPResourceListEditor";
 import MCPPromptListEditor from "./fields/MCPPromptListEditor";
@@ -182,6 +183,9 @@ function renderInput(
 
     case "transform-list":
       return <TransformListEditor value={value} onChange={onChange} />;
+
+    case "rule-list":
+      return <RuleListEditor value={value} onChange={onChange} />;
 
     case "skill-list":
       return <SkillListEditor value={value} onChange={onChange} />;

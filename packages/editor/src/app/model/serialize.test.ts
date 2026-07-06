@@ -202,6 +202,39 @@ describe("serialize", () => {
     expect(node.slots!.then[0].process[0].type).toBe("set-payload");
   });
 
+  it("lifts a validate block's rules/rejectStatus to top-level keys and its onReject to a flow slot", () => {
+    const doc = emptyDocument();
+    const v = newBlock("validate"); // seeds an empty onReject sub-flow
+    v.settings.rules = [{ expr: "body.amount > 0", message: "amount required" }];
+    v.settings.rejectStatus = 400;
+    v.slots!.onReject[0].process = [newBlock("set-payload")];
+    doc.flows[0].process = [v];
+
+    const block = toConfig(doc).flows![0].process![0] as Record<string, unknown>;
+    expect(block.rules).toEqual([
+      { expr: "body.amount > 0", message: "amount required" },
+    ]);
+    expect(block.rejectStatus).toBe(400);
+    expect(block.settings).toBeUndefined(); // composite scalars are lifted, not nested
+    expect((block.onReject as { process: { type: string }[] }).process[0].type).toBe(
+      "set-payload",
+    );
+  });
+
+  it("round-trips a validate block back into settings + onReject slot", () => {
+    const doc = emptyDocument();
+    const v = newBlock("validate");
+    v.settings.rules = [{ expr: "false", message: "nope" }];
+    v.slots!.onReject[0].process = [newBlock("set-variable")];
+    doc.flows[0].process = [v];
+
+    const restored = fromConfig(toConfig(doc));
+    const node = restored.flows[0].process[0];
+    expect(node.type).toBe("validate");
+    expect(node.settings.rules).toEqual([{ expr: "false", message: "nope" }]);
+    expect(node.slots!.onReject[0].process[0].type).toBe("set-variable");
+  });
+
   it("serializes handle-errors process/error as bare block lists", () => {
     const doc = emptyDocument();
     const he = newBlock("handle-errors"); // seeds process/error block-list slots

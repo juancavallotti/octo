@@ -24,6 +24,7 @@ const (
 	blockKindSwitch       = "switch"
 	blockKindForeach      = "foreach"
 	blockKindEnrich       = "enrich"
+	blockKindValidate     = "validate"
 	blockKindCacheScope   = "cache-scope"
 	blockKindAIRouter     = "ai-router"
 	blockKindAIAgent      = "ai-agent"
@@ -213,6 +214,7 @@ func (b *builder) compositeBuilders() map[string]func(types.BlockConfig) (core.M
 		blockKindSwitch:       b.switchBlock,
 		blockKindForeach:      b.foreachBlock,
 		blockKindEnrich:       b.enrich,
+		blockKindValidate:     b.validateBlock,
 		blockKindCacheScope:   b.cacheScope,
 		blockKindAIRouter:     b.aiRouter,
 		blockKindAIAgent:      b.aiAgent,
@@ -263,6 +265,9 @@ func compositeSlots(cfg types.BlockConfig) []string {
 	add(len(cfg.SetVars) > 0, "setVars")
 	add(cfg.Key != "", "key")
 	add(cfg.TTL != "", "ttl")
+	add(len(cfg.Rules) > 0, "rules")
+	add(cfg.OnReject != nil, "onReject")
+	add(cfg.RejectStatus != 0, "rejectStatus")
 	add(cfg.Connector != "", "connector")
 	add(cfg.Prompt != "", "prompt")
 	add(cfg.Guardrail != "", "guardrail")
