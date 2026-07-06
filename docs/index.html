@@ -169,7 +169,7 @@
         <p style="font-size:0.9rem">Edit the YAML (or a <code>.env</code>), save, and the runtime rebuilds itself.</p>
 
         <h3 style="margin-top:28px">5 · Check the version</h3>
-        <div class="cmd"><span class="p">$</span> ./bin/octo --version<br /><span class="c"># → octo <!-- x-release-please-start-version -->0.3.4<!-- x-release-please-end-version --> (built 2026-06-18T22:31:23Z)</span></div>
+        <div class="cmd"><span class="p">$</span> ./bin/octo --version<br /><span class="c"># → octo <!-- x-release-please-start-version -->0.3.5<!-- x-release-please-end-version --> (built 2026-06-18T22:31:23Z)</span></div>
       </div>
     </div>
     <div class="note"><strong>Tip:</strong> sourceless flows (no <code>source:</code>) get an implicit source and become callable by name — ideal for <code>invoke</code> and for <code>flow-ref</code> sub-flows. See the full <a href="standalone.html">standalone guide</a> for the CLI, hot reload, and the Docker editor.</div>
@@ -575,7 +575,7 @@ flows:
     settings: { port: 8080, basePath: /api/v1 }
   - name: internal                  # outbound client, points back at our own server
     type: http-client
-    settings: { baseURL: http://0.3.4.1:8080/api/v1, timeout: 5s }
+    settings: { baseURL: http://0.3.5.1:8080/api/v1, timeout: 5s }
   - name: ticker
     type: cron
   - name: out
@@ -916,7 +916,7 @@ connectors:
   - name: payments
     type: http-client
     settings:
-      baseURL: http://0.3.4.1:9   # discard port -> every call fails to connect
+      baseURL: http://0.3.5.1:9   # discard port -> every call fails to connect
       timeout: 1s
 
 flows:
@@ -1096,8 +1096,8 @@ flows:
 </div>
 
 <!-- ============================== SCRIPTS ============================== -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/0.3.4/highlight.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/0.3.4/languages/yaml.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/0.3.5/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/0.3.5/languages/yaml.min.js"></script>
 <script src="assets/app.js?v=2" type="module"></script>
 </body>
 </html>
