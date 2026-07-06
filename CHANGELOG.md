@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.3.5](https://github.com/juancavallotti/octo/compare/v0.3.4...v0.3.5) (2026-07-06)
+
+
+### Features
+
+* **engine:** add flow stop primitive for filter blocks ([e2eb7d8](https://github.com/juancavallotti/octo/commit/e2eb7d8eb8522e09d8341b9ac93de2a92222beed))
+* **engine:** add generic validate filter block ([4eea906](https://github.com/juancavallotti/octo/commit/4eea906d5c00a433282eea1ef4679b69f4b8589d))
+* flow-terminating filters — validate + jwt-validate (MCP-compliant auth) ([8b0946c](https://github.com/juancavallotti/octo/commit/8b0946cc48ef9512e4446dec6a406ad5d56151e2))
+* **http:** add jwt-validate filter block with MCP-compliant auth ([e9fe170](https://github.com/juancavallotti/octo/commit/e9fe17001e480907436b61b932e1d392180f2010))
+
 ## [0.3.4](https://github.com/juancavallotti/octo/compare/v0.3.3...v0.3.4) (2026-07-05)
 
 
