@@ -238,10 +238,19 @@ flows:
 /** Error recovery: inline handle-errors and a flow-level error chain. Networked. */
 const QUEUE_LOADBALANCE: Example = {
   slug: "queue-loadbalance",
-  title: "queue-loadbalance — platform queue source + queue-dispatch (load balancing)",
+  title:
+    "queue-loadbalance — platform queue source + queue-dispatch (load balancing)",
   summary:
     "An HTTP-triggered flow hands work to worker flows through platform queue subjects: the default fire-and-forget publish (audit) and an awaitReply request (enrich-work, whose reply folds back). Each worker is a `queue` source on the subject; scale replicas to load balance (competing consumers, each message handled once). Declares HTTP_PORT, so run_integration returns a test URL: POST <testUrl>orders/42.",
-  blocks: ["http (source)", "queue (source)", "queue-dispatch", "if", "set-variable", "set-payload", "log"],
+  blocks: [
+    "http (source)",
+    "queue (source)",
+    "queue-dispatch",
+    "if",
+    "set-variable",
+    "set-payload",
+    "log",
+  ],
   definition: `service:
   name: queue-loadbalance
 
@@ -355,7 +364,13 @@ const ERROR_HANDLING: Example = {
   title: "error-handling — handle-errors, rest, flow-level error path",
   summary:
     "Two resilience patterns around a failing outbound `rest` call: inline recovery with handle-errors (process + error chains), and a flow-level `error:` chain that sets vars.httpStatus and a degraded body. vars.error = { message, flow, block }.",
-  blocks: ["handle-errors", "rest", "set-payload", "set-variable", "http-client (connector)"],
+  blocks: [
+    "handle-errors",
+    "rest",
+    "set-payload",
+    "set-variable",
+    "http-client (connector)",
+  ],
   definition: `service:
   name: error-handling
 
@@ -549,6 +564,108 @@ flows:
 `,
 };
 
+/** A Notion integration: verify webhooks, query a data source, render markdown. */
+const NOTION_WEBHOOK: Example = {
+  slug: "notion-webhook",
+  title: "notion-webhook — receive Notion webhooks, query, and render markdown",
+  summary:
+    "Notion posts webhooks to an http route. notion-verify-request checks the signature over the raw body (note the source's headers + rawBody raw-content mode) and captures the one-time subscription handshake token into vars.notionVerification; an if branch logs that token during onboarding, otherwise notion-event filters events and notion-retrieve-page fetches the page. A cron flow runs notion-query-datasource, passing a database id so the block derives the data source; a sourceless flow renders an already-fetched blocks array to markdown with notion-page-to-markdown (invoke it with GET /blocks/{id}/children output). Needs NOTION_TOKEN, NOTION_VERIFICATION_TOKEN and NOTION_DATABASE_ID.",
+  blocks: [
+    "http (source)",
+    "notion-verify-request",
+    "if",
+    "notion-event",
+    "notion-retrieve-page",
+    "notion-query-datasource",
+    "notion-page-to-markdown",
+    "notion (connector)",
+  ],
+  definition: `service:
+  name: notion-webhook
+
+env:
+  - name: NOTION_TOKEN
+    required: true
+  - name: NOTION_VERIFICATION_TOKEN
+    required: true
+  - name: NOTION_DATABASE_ID
+    required: true
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      port: 8080
+  - name: notion
+    type: notion
+    settings:
+      token: \${NOTION_TOKEN}
+      verificationToken: \${NOTION_VERIFICATION_TOKEN}
+  - name: ticker
+    type: cron
+  - name: out
+    type: logger
+
+flows:
+  - name: notion-webhook
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /notion/events
+        # Copy the signature header into vars and deliver the exact bytes as raw
+        # content (rawBody: true) so the HMAC can be verified over the raw body.
+        headers: [X-Notion-Signature]
+        rawBody: true
+    process:
+      - type: notion-verify-request       # authenticate; capture the handshake token
+        settings:
+          connector: notion
+      - type: if                          # composite fields sit at the top level
+        condition: has(vars.notionVerification)
+        then:
+          process:
+            - type: log                   # onboarding: log the token to paste into Notion
+              settings:
+                logger: out
+                message: '"notion verification token: " + vars.notionVerification'
+        else:
+          process:
+            - type: notion-event          # keep only page content updates
+              settings:
+                eventTypes: [page.content_updated]
+            - type: notion-retrieve-page  # fetch the page -> vars.notionPage
+              settings:
+                connector: notion
+                page: body.entityId
+            - type: log
+              settings:
+                logger: out
+                message: '"updated page " + vars.notionPage.id'
+  - name: query-recent
+    source:
+      connector: ticker
+      type: cron
+      settings:
+        schedule: "@every 5m"
+    process:
+      - type: notion-query-datasource     # derive the data source from the database, then query
+        settings:
+          connector: notion
+          database: '"\${NOTION_DATABASE_ID}"'
+          pageSize: 10
+      - type: log
+        settings:
+          logger: out
+          message: '"data source returned " + string(size(vars.notionResults.results)) + " rows"'
+  - name: page-to-markdown               # sourceless: invoke with GET /blocks/{id}/children output
+    process:
+      - type: notion-page-to-markdown    # pure transform -> markdown as raw content
+        settings:
+          source: body.results
+`,
+};
+
 /** The enrich scope: run a body on an isolated clone, propagate via expressions. */
 const ENRICH: Example = {
   slug: "enrich",
@@ -724,7 +841,8 @@ flows:
 /** The object store: write a value, read it back with a presence flag + default. */
 const OBJECT_STORE: Example = {
   slug: "object-store",
-  title: "object-store — object-write / object-read with default + objectExists",
+  title:
+    "object-store — object-write / object-read with default + objectExists",
   summary:
     "Persists a value with object-write and reads it back with object-read. Setting existsVar makes object-read write a boolean (true on a hit), and its `default` CEL expression is folded in on a miss (into `as`, or the body) so the flow never handles a null. The in-process standalone store is per-run, so this flow reads the key before and after writing it to show both states.",
   blocks: ["object-read", "object-write", "log"],
@@ -1100,6 +1218,7 @@ export const EXAMPLES: Example[] = [
   ERROR_HANDLING,
   AI_ROUTER,
   SLACK_BOT,
+  NOTION_WEBHOOK,
   ENRICH,
   VALIDATE,
   JWT_VALIDATE,

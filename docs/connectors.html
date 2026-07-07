@@ -45,6 +45,7 @@
         <tr><td><code>logger</code></td><td>—</td><td><code>log</code></td><td>A configured structured logger (stdout/stderr/file).</td></tr>
         <tr><td><code>queue</code></td><td>yes</td><td><code>queue-dispatch</code></td><td>A message queue — in-process standalone, NATS in the cluster. Competing consumers + request/reply.</td></tr>
         <tr><td><code>slack</code></td><td>via <code>http</code></td><td><code>slack-send-message</code>, <code>slack-event</code>, +4</td><td>Send Slack messages and enrich with Slack data; verify and normalize inbound events (received over the <code>http</code> connector).</td></tr>
+        <tr><td><code>notion</code></td><td>via <code>http</code></td><td><code>notion-retrieve-page</code>, <code>notion-query-datasource</code>, +3</td><td>Retrieve a page and query a data source; verify and normalize inbound webhooks (received over the <code>http</code> connector); render page blocks to markdown.</td></tr>
         <tr><td><code>llm-anthropic</code></td><td>—</td><td><code>ai-mapping</code> + AI composites</td><td>Anthropic Claude client.</td></tr>
         <tr><td><code>llm-openai</code></td><td>—</td><td><code>ai-mapping</code> + AI composites</td><td>OpenAI client.</td></tr>
         <tr><td><code>llm-gemini</code></td><td>—</td><td><code>ai-mapping</code> + AI composites</td><td>Google Gemini client.</td></tr>
@@ -539,6 +540,84 @@ flows:
                 target: body.channel
                 text: '"you said: " + body.text'</code></pre>
       <p style="font-size:0.9rem">Runnable: <code>samples/slack-bot.yaml</code>.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== NOTION ============================== -->
+<section id="notion">
+  <div class="wrap">
+    <div class="section-head"><span class="eyebrow">Blocks · <code>notion-*</code></span><h2><code>notion</code></h2>
+      <p>Talk to Notion from a flow. The connector holds the integration token and the Notion API version and calls the Notion API; its blocks retrieve a page, query a data source, verify and normalize inbound webhooks, and render a page's blocks to markdown. It provides no source — webhooks arrive over the <code>http</code> connector.</p>
+    </div>
+    <div class="grid cols-2">
+      <div>
+        <h3>Connector settings</h3>
+        <table class="eip-table">
+          <thead><tr><th>Setting</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td><code>token</code></td><td>Required. Integration token, sent as a Bearer credential.</td></tr>
+            <tr><td><code>notionVersion</code></td><td><code>Notion-Version</code> header on every request. Default <code>2025-09-03</code> (the <code>data_sources</code> query API needs this or later).</td></tr>
+            <tr><td><code>verificationToken</code></td><td>Verifies inbound webhook signatures; required to receive events.</td></tr>
+            <tr><td><code>timeout</code></td><td>Bounds each API call. Default 30s.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <h3>Blocks</h3>
+        <table class="eip-table">
+          <thead><tr><th>Block</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td><code>notion-retrieve-page</code></td><td><code>GET /pages/{id}</code> → a variable (the page's properties).</td></tr>
+            <tr><td><code>notion-query-datasource</code></td><td><code>POST /data_sources/{id}/query</code> with an optional <code>filter</code>, <code>sorts</code> and <code>pageSize</code> → a variable. Target by <code>dataSource</code> id, or by <code>database</code> id (the block derives the data source).</td></tr>
+            <tr><td><code>notion-page-to-markdown</code></td><td>Render a blocks array (e.g. <code>body.results</code>) to markdown; emit raw content or store it in a variable.</td></tr>
+            <tr><td><code>notion-verify-request</code></td><td>Verify the webhook signature; capture the one-time subscription handshake token.</td></tr>
+            <tr><td><code>notion-event</code></td><td>Normalize a webhook; filter by <code>eventTypes</code> and a CEL <code>filter</code>.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div style="margin-top:22px">
+      <h3>Receiving webhooks</h3>
+      <p>Notion posts webhooks to an <code>http</code> route. The signature is an HMAC over the <em>raw</em> body, so the source must preserve the exact bytes; the simplest way is native <a href="building-integrations.html#raw-content">raw-content</a> mode (<code>rawBody: true</code>), and <code>notion-verify-request</code> reads the raw body directly and re-parses the verified JSON into <code>body</code> (it also accepts an explicit <code>rawBodyVar</code> variable). Creating a subscription sends a one-time handshake carrying a <code>verification_token</code> — the block captures it into <code>vars.notionVerification</code> so an <code>if</code> branch can surface it during onboarding. A page's content lives in its child blocks, so pair <code>notion-page-to-markdown</code> with a fetch of <code>GET /blocks/{id}/children</code> and point its <code>source</code> at <code>body.results</code>.</p>
+      <pre><code class="language-yaml">connectors:
+  - name: api
+    type: http
+    settings: { port: 8080 }
+  - name: notion
+    type: notion
+    settings:
+      token: ${NOTION_TOKEN}
+      verificationToken: ${NOTION_VERIFICATION_TOKEN}
+
+flows:
+  - name: notion-webhook
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /notion/events
+        headers: [X-Notion-Signature]   # the signature, into vars
+        rawBody: true                    # exact bytes as raw content, for the HMAC
+    process:
+      - type: notion-verify-request      # authenticate; capture the handshake token
+        settings: { connector: notion }
+      - type: if
+        condition: has(vars.notionVerification)
+        then:
+          process:
+            - type: log                  # onboarding: log the token to paste into Notion
+              settings: { message: '"verification token: " + vars.notionVerification' }
+        else:
+          process:
+            - type: notion-event         # keep only page content updates
+              settings: { eventTypes: [page.content_updated] }
+            - type: notion-retrieve-page # fetch the page -> vars.notionPage
+              settings:
+                connector: notion
+                page: body.entityId</code></pre>
+      <p style="font-size:0.9rem">Runnable: <code>samples/notion-webhook.yaml</code>.</p>
     </div>
   </div>
 </section>
