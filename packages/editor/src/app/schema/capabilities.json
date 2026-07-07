@@ -1079,6 +1079,201 @@
       ]
     },
     {
+      "type": "notion-retrieve-page",
+      "label": "Notion Retrieve Page",
+      "category": "processor",
+      "group": "Notion",
+      "icon": "Notion",
+      "description": "Retrieve a Notion page object by id through a notion connector and store it in a variable.",
+      "fields": [
+        {
+          "name": "connector",
+          "label": "Connector",
+          "type": "string",
+          "required": true,
+          "description": "Name of the notion connector to use.",
+          "ref": {
+            "kind": "connector",
+            "connectorType": "notion"
+          }
+        },
+        {
+          "name": "page",
+          "label": "Page ID",
+          "type": "cel",
+          "required": true,
+          "description": "CEL expression for the page id to retrieve."
+        },
+        {
+          "name": "resultVar",
+          "label": "Result variable",
+          "type": "string",
+          "required": false,
+          "default": "notionPage",
+          "description": "Variable the retrieved page object is stored in."
+        },
+        {
+          "name": "failOnError",
+          "label": "Fail on error",
+          "type": "boolean",
+          "required": false,
+          "default": true,
+          "description": "Turn a Notion API error into a flow error."
+        }
+      ]
+    },
+    {
+      "type": "notion-query-datasource",
+      "label": "Notion Query Data Source",
+      "category": "processor",
+      "group": "Notion",
+      "icon": "Notion",
+      "description": "Query a Notion data source (data_sources/{id}/query) with an optional filter and sorts, and store the response.",
+      "fields": [
+        {
+          "name": "connector",
+          "label": "Connector",
+          "type": "string",
+          "required": true,
+          "description": "Name of the notion connector to use.",
+          "ref": {
+            "kind": "connector",
+            "connectorType": "notion"
+          }
+        },
+        {
+          "name": "dataSource",
+          "label": "Data source ID",
+          "type": "cel",
+          "required": true,
+          "description": "CEL expression for the data source id to query."
+        },
+        {
+          "name": "filter",
+          "label": "Filter",
+          "type": "cel",
+          "required": false,
+          "description": "CEL expression producing a Notion filter object."
+        },
+        {
+          "name": "sorts",
+          "label": "Sorts",
+          "type": "cel",
+          "required": false,
+          "description": "CEL expression producing a list of Notion sort objects."
+        },
+        {
+          "name": "pageSize",
+          "label": "Page size",
+          "type": "number",
+          "required": false,
+          "description": "Maximum number of results per call (Notion's own max is 100)."
+        },
+        {
+          "name": "resultVar",
+          "label": "Result variable",
+          "type": "string",
+          "required": false,
+          "default": "notionResults",
+          "description": "Variable the query response is stored in."
+        },
+        {
+          "name": "failOnError",
+          "label": "Fail on error",
+          "type": "boolean",
+          "required": false,
+          "default": true,
+          "description": "Turn a Notion API error into a flow error."
+        }
+      ]
+    },
+    {
+      "type": "notion-page-to-markdown",
+      "label": "Notion Page to Markdown",
+      "category": "processor",
+      "group": "Notion",
+      "icon": "Notion",
+      "description": "Render a Notion blocks array (as returned under results by the block-children endpoint) into markdown. Emits raw content, or stores the markdown in a variable.",
+      "fields": [
+        {
+          "name": "source",
+          "label": "Source",
+          "type": "cel",
+          "required": false,
+          "default": "body.results",
+          "description": "CEL expression producing the blocks array to render."
+        },
+        {
+          "name": "resultVar",
+          "label": "Result variable",
+          "type": "string",
+          "required": false,
+          "description": "When set, store the markdown here and leave the body; when empty, replace the body with the markdown as raw content."
+        }
+      ]
+    },
+    {
+      "type": "notion-verify-request",
+      "label": "Notion Verify Request",
+      "category": "processor",
+      "group": "Notion",
+      "icon": "Notion",
+      "description": "Verify an inbound Notion webhook signature and capture the one-time subscription handshake token.",
+      "fields": [
+        {
+          "name": "connector",
+          "label": "Connector",
+          "type": "string",
+          "required": true,
+          "description": "Name of the notion connector to use.",
+          "ref": {
+            "kind": "connector",
+            "connectorType": "notion"
+          }
+        },
+        {
+          "name": "signatureHeader",
+          "label": "Signature variable",
+          "type": "string",
+          "required": false,
+          "default": "X-Notion-Signature",
+          "description": "Variable holding Notion's request signature."
+        },
+        {
+          "name": "rawBodyVar",
+          "label": "Raw body variable",
+          "type": "string",
+          "required": false,
+          "default": "rawBody",
+          "description": "Variable holding the exact request body; must match the http source's rawBodyVar. Optional when the http source uses raw-content mode (rawBody: true) — the block then reads the raw body directly and re-parses it into body."
+        }
+      ]
+    },
+    {
+      "type": "notion-event",
+      "label": "Notion Event",
+      "category": "processor",
+      "group": "Notion",
+      "icon": "Notion",
+      "description": "Normalize a verified Notion webhook and filter it by type and an optional predicate.",
+      "fields": [
+        {
+          "name": "eventTypes",
+          "label": "Event types",
+          "type": "string-list",
+          "required": false,
+          "description": "Allowlist of event types (e.g. page.created, page.content_updated); empty allows all."
+        },
+        {
+          "name": "filter",
+          "label": "Filter",
+          "type": "cel",
+          "required": false,
+          "description": "CEL predicate over the normalized body; drop the event when false."
+        }
+      ]
+    },
+    {
       "type": "jwt-validate",
       "label": "JWT Validate",
       "category": "processor",
@@ -1942,6 +2137,44 @@
           "required": false,
           "default": "30s",
           "description": "Bounds each Slack Web API call."
+        }
+      ],
+      "sources": []
+    },
+    {
+      "type": "notion",
+      "label": "Notion",
+      "icon": "Notion",
+      "settings": [
+        {
+          "name": "token",
+          "label": "Integration token",
+          "type": "string",
+          "required": true,
+          "description": "Notion integration token used as a Bearer credential for the API."
+        },
+        {
+          "name": "notionVersion",
+          "label": "Notion version",
+          "type": "string",
+          "required": false,
+          "default": "2025-09-03",
+          "description": "Notion-Version header sent on every request; data_sources query requires 2025-09-03 or later."
+        },
+        {
+          "name": "verificationToken",
+          "label": "Verification token",
+          "type": "string",
+          "required": false,
+          "description": "Verifies inbound Notion webhook signatures; required to receive events."
+        },
+        {
+          "name": "timeout",
+          "label": "Timeout",
+          "type": "string",
+          "required": false,
+          "default": "30s",
+          "description": "Bounds each Notion API call."
         }
       ],
       "sources": []
