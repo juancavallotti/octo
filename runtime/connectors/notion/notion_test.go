@@ -130,6 +130,27 @@ func TestNotionVersionOverride(t *testing.T) {
 	}
 }
 
+func TestNotionVersionStripsTimestamp(t *testing.T) {
+	// An unquoted date in YAML is decoded as a timestamp and reaches settings as an
+	// RFC3339 string; the connector must send Notion just the date.
+	var gotVersion string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotVersion = r.Header.Get("Notion-Version")
+		_, _ = w.Write([]byte(`{"object":"page"}`))
+	}))
+	defer srv.Close()
+
+	c := startConnector(t, map[string]any{
+		"token": "ntn-test", "apiBaseURL": srv.URL, "notionVersion": "2025-09-03T00:00:00Z",
+	})
+	if _, err := c.Call(context.Background(), http.MethodGet, "pages/p1", nil); err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	if gotVersion != "2025-09-03" {
+		t.Errorf("Notion-Version = %q, want 2025-09-03", gotVersion)
+	}
+}
+
 func TestVerifySignature(t *testing.T) {
 	const secret = "0123456789abcdef0123456789abcdef"
 	c := startConnector(t, map[string]any{"token": "ntn-test", "verificationToken": secret})

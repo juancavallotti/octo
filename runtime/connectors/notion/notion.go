@@ -93,7 +93,7 @@ func (c *Connector) Start(_ context.Context, config types.ConnectorConfig) error
 	if base == "" {
 		base = defaultAPIBaseURL
 	}
-	version := strings.TrimSpace(set.NotionVersion)
+	version := normalizeVersion(set.NotionVersion)
 	if version == "" {
 		version = defaultNotionVersion
 	}
@@ -176,6 +176,18 @@ func (c *Connector) VerifySignature(sig string, rawBody []byte) bool {
 	_, _ = mac.Write(rawBody)
 	expected := signaturePrefix + hex.EncodeToString(mac.Sum(nil))
 	return hmac.Equal([]byte(expected), []byte(sig))
+}
+
+// normalizeVersion cleans a configured Notion-Version. Notion wants a bare date
+// (e.g. "2025-09-03"), but a date written unquoted in YAML is parsed as a
+// timestamp and round-trips through settings' JSON as an RFC3339 string
+// ("2025-09-03T00:00:00Z"); keep only the leading date so the header validates.
+func normalizeVersion(v string) string {
+	v = strings.TrimSpace(v)
+	if i := strings.IndexByte(v, 'T'); i > 0 {
+		return v[:i]
+	}
+	return v
 }
 
 // duration decodes either a Go duration string ("5s") or a numeric nanosecond
