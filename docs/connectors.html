@@ -570,6 +570,7 @@ flows:
           <tbody>
             <tr><td><code>notion-retrieve-page</code></td><td><code>GET /pages/{id}</code> → a variable (the page's properties).</td></tr>
             <tr><td><code>notion-query-datasource</code></td><td><code>POST /data_sources/{id}/query</code> with an optional <code>filter</code>, <code>sorts</code> and <code>pageSize</code> → a variable. Target by <code>dataSource</code> id, or by <code>database</code> id (the block derives the data source).</td></tr>
+            <tr><td><code>notion-retrieve-blocks</code></td><td><code>GET /blocks/{id}/children</code> (paginated) → a <code>{results: […]}</code> object, ready for the markdown block.</td></tr>
             <tr><td><code>notion-page-to-markdown</code></td><td>Render a blocks array (e.g. <code>body.results</code>) to markdown; emit raw content or store it in a variable.</td></tr>
             <tr><td><code>notion-verify-request</code></td><td>Verify the webhook signature; capture the one-time subscription handshake token.</td></tr>
             <tr><td><code>notion-event</code></td><td>Normalize a webhook; filter by <code>eventTypes</code> and a CEL <code>filter</code>.</td></tr>
@@ -580,7 +581,7 @@ flows:
 
     <div style="margin-top:22px">
       <h3>Receiving webhooks</h3>
-      <p>Notion posts webhooks to an <code>http</code> route. The signature is an HMAC over the <em>raw</em> body, so the source must preserve the exact bytes; the simplest way is native <a href="building-integrations.html#raw-content">raw-content</a> mode (<code>rawBody: true</code>), and <code>notion-verify-request</code> reads the raw body directly and re-parses the verified JSON into <code>body</code> (it also accepts an explicit <code>rawBodyVar</code> variable). Creating a subscription sends a one-time handshake carrying a <code>verification_token</code> — the block captures it into <code>vars.notionVerification</code> so an <code>if</code> branch can surface it during onboarding. A page's content lives in its child blocks, so pair <code>notion-page-to-markdown</code> with a fetch of <code>GET /blocks/{id}/children</code> and point its <code>source</code> at <code>body.results</code>.</p>
+      <p>Notion posts webhooks to an <code>http</code> route. The signature is an HMAC over the <em>raw</em> body, so the source must preserve the exact bytes; the simplest way is native <a href="building-integrations.html#raw-content">raw-content</a> mode (<code>rawBody: true</code>), and <code>notion-verify-request</code> reads the raw body directly and re-parses the verified JSON into <code>body</code> (it also accepts an explicit <code>rawBodyVar</code> variable). Creating a subscription sends a one-time handshake carrying a <code>verification_token</code> — the block captures it into <code>vars.notionVerification</code> so an <code>if</code> branch can surface it during onboarding. A page's content lives in its child blocks, so <code>notion-retrieve-blocks</code> fetches them into <code>body.results</code> and <code>notion-page-to-markdown</code> renders that to markdown.</p>
       <pre><code class="language-yaml">connectors:
   - name: api
     type: http

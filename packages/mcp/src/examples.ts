@@ -569,7 +569,7 @@ const NOTION_WEBHOOK: Example = {
   slug: "notion-webhook",
   title: "notion-webhook — receive Notion webhooks, query, and render markdown",
   summary:
-    "Notion posts webhooks to an http route. notion-verify-request checks the signature over the raw body (note the source's headers + rawBody raw-content mode) and captures the one-time subscription handshake token into vars.notionVerification; an if branch logs that token during onboarding, otherwise notion-event filters events and notion-retrieve-page fetches the page. A cron flow runs notion-query-datasource, passing a database id so the block derives the data source; a sourceless flow renders an already-fetched blocks array to markdown with notion-page-to-markdown (invoke it with GET /blocks/{id}/children output). Needs NOTION_TOKEN, NOTION_VERIFICATION_TOKEN and NOTION_DATABASE_ID.",
+    "Notion posts webhooks to an http route. notion-verify-request checks the signature over the raw body (note the source's headers + rawBody raw-content mode) and captures the one-time subscription handshake token into vars.notionVerification; an if branch logs that token during onboarding, otherwise notion-event filters events and notion-retrieve-page fetches the page. A cron flow runs notion-query-datasource, passing a database id so the block derives the data source; a sourceless flow fetches a page's child blocks with notion-retrieve-blocks and renders them to markdown with notion-page-to-markdown (invoke it with {pageId}). Needs NOTION_TOKEN, NOTION_VERIFICATION_TOKEN and NOTION_DATABASE_ID.",
   blocks: [
     "http (source)",
     "notion-verify-request",
@@ -577,6 +577,7 @@ const NOTION_WEBHOOK: Example = {
     "notion-event",
     "notion-retrieve-page",
     "notion-query-datasource",
+    "notion-retrieve-blocks",
     "notion-page-to-markdown",
     "notion (connector)",
   ],
@@ -658,9 +659,13 @@ flows:
         settings:
           logger: out
           message: '"data source returned " + string(size(vars.notionResults.results)) + " rows"'
-  - name: page-to-markdown               # sourceless: invoke with GET /blocks/{id}/children output
+  - name: page-to-markdown               # sourceless: invoke with {"pageId": "<id>"}
     process:
-      - type: notion-page-to-markdown    # pure transform -> markdown as raw content
+      - type: notion-retrieve-blocks     # GET /blocks/{id}/children -> body.results
+        settings:
+          connector: notion
+          block: body.pageId
+      - type: notion-page-to-markdown    # render body.results -> markdown as raw content
         settings:
           source: body.results
 `,

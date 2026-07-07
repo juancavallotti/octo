@@ -124,14 +124,19 @@ flows:
           logger: out
           message: '"data source returned " + string(size(vars.notionResults.results)) + " rows"'
 
-  # 3. Render a page's blocks to markdown. This is a pure transform over an
-  #    already-fetched blocks array, so invoke it with the JSON from
-  #    GET https://api.notion.com/v1/blocks/{page_id}/children:
+  # 3. Render a page's content to markdown: fetch the page's child blocks, then
+  #    convert them. Invoke it with the page id:
   #      go run ./cli invoke -config samples/notion-webhook.yaml \
-  #        -flow page-to-markdown -data @children.json
-  #    It replaces the body with the rendered markdown as raw content.
+  #        -flow page-to-markdown -data '{"pageId": "<page-id>"}'
+  #    The first block leaves body.results in the shape the second one reads, and
+  #    the result is the rendered markdown as raw content.
   - name: page-to-markdown
     process:
+      - type: notion-retrieve-blocks
+        name: fetch-content
+        settings:
+          connector: notion
+          block: body.pageId
       - type: notion-page-to-markdown
         name: render
         settings:
