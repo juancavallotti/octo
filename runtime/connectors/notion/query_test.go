@@ -86,8 +86,73 @@ func TestQueryDataSourceOmitsUnsetOptionals(t *testing.T) {
 	}
 }
 
-func TestQueryDataSourceRequiresDataSource(t *testing.T) {
+func TestQueryDataSourceDerivesFromDatabase(t *testing.T) {
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.Method+" "+r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet {
+			// Retrieve database -> its data sources.
+			_, _ = w.Write([]byte(`{"object":"database","id":"db1","data_sources":[{"id":"ds-from-db","name":"Tasks"}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"object":"list","results":[{"id":"r1"}]}`))
+	}))
+	defer srv.Close()
+
+	proc, err := newQueryDataSource(types.Settings{
+		"connector": "notion",
+		"database":  "body.dbId",
+	}, blockDeps(t, srv.URL))
+	if err != nil {
+		t.Fatalf("newQueryDataSource: %v", err)
+	}
+
+	out, err := proc.Process(context.Background(), blockMessage(t, map[string]any{"dbId": "db1"}))
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	// It first retrieves the database, then queries the derived data source.
+	want := []string{"GET /databases/db1", "POST /data_sources/ds-from-db/query"}
+	if len(paths) != 2 || paths[0] != want[0] || paths[1] != want[1] {
+		t.Errorf("request paths = %v, want %v", paths, want)
+	}
+	if _, ok := out.Variables[defaultResultsVar].(map[string]any); !ok {
+		t.Errorf("%s not set", defaultResultsVar)
+	}
+}
+
+func TestQueryDataSourceErrorsOnDatabaseWithoutSources(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"object":"database","id":"db1","data_sources":[]}`))
+	}))
+	defer srv.Close()
+
+	proc, err := newQueryDataSource(types.Settings{
+		"connector": "notion",
+		"database":  `"db1"`,
+	}, blockDeps(t, srv.URL))
+	if err != nil {
+		t.Fatalf("newQueryDataSource: %v", err)
+	}
+	if _, err := proc.Process(context.Background(), blockMessage(t, map[string]any{})); err == nil {
+		t.Error("expected an error when the database exposes no data sources")
+	}
+}
+
+func TestQueryDataSourceRequiresATarget(t *testing.T) {
 	if _, err := newQueryDataSource(types.Settings{"connector": "notion"}, blockDeps(t, "")); err == nil {
-		t.Error("expected an error when dataSource is not set")
+		t.Error("expected an error when neither dataSource nor database is set")
+	}
+}
+
+func TestQueryDataSourceRejectsBothTargets(t *testing.T) {
+	_, err := newQueryDataSource(types.Settings{
+		"connector":  "notion",
+		"dataSource": `"ds1"`,
+		"database":   `"db1"`,
+	}, blockDeps(t, ""))
+	if err == nil {
+		t.Error("expected an error when both dataSource and database are set")
 	}
 }

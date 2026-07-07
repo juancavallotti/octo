@@ -1128,7 +1128,7 @@
       "category": "processor",
       "group": "Notion",
       "icon": "Notion",
-      "description": "Query a Notion data source (data_sources/{id}/query) with an optional filter and sorts, and store the response.",
+      "description": "Query a Notion data source (data_sources/{id}/query) with an optional filter and sorts, and store the response. Target it by data source id, or by database id (the block derives the data source).",
       "fields": [
         {
           "name": "connector",
@@ -1145,8 +1145,15 @@
           "name": "dataSource",
           "label": "Data source ID",
           "type": "cel",
-          "required": true,
-          "description": "CEL expression for the data source id to query."
+          "required": false,
+          "description": "CEL expression for the data source id to query. Set exactly one of dataSource or database."
+        },
+        {
+          "name": "database",
+          "label": "Database ID",
+          "type": "cel",
+          "required": false,
+          "description": "CEL expression for a database id; the block retrieves the database and queries its first data source. Set exactly one of dataSource or database."
         },
         {
           "name": "filter",
