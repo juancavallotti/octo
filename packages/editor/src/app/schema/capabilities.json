@@ -1195,6 +1195,49 @@
       ]
     },
     {
+      "type": "notion-retrieve-blocks",
+      "label": "Notion Retrieve Blocks",
+      "category": "processor",
+      "group": "Notion",
+      "icon": "Notion",
+      "description": "Retrieve a page's (or block's) child blocks (GET /blocks/{id}/children, paginated) as a {results: [...]} object, ready for Notion Page to Markdown.",
+      "fields": [
+        {
+          "name": "connector",
+          "label": "Connector",
+          "type": "string",
+          "required": true,
+          "description": "Name of the notion connector to use.",
+          "ref": {
+            "kind": "connector",
+            "connectorType": "notion"
+          }
+        },
+        {
+          "name": "block",
+          "label": "Block/Page ID",
+          "type": "cel",
+          "required": true,
+          "description": "CEL expression for the block or page id whose children to retrieve."
+        },
+        {
+          "name": "resultVar",
+          "label": "Result variable",
+          "type": "string",
+          "required": false,
+          "description": "When set, store the {results: [...]} object here and leave the body; when empty, replace the body with it."
+        },
+        {
+          "name": "failOnError",
+          "label": "Fail on error",
+          "type": "boolean",
+          "required": false,
+          "default": true,
+          "description": "Turn a Notion API error into a flow error."
+        }
+      ]
+    },
+    {
       "type": "notion-page-to-markdown",
       "label": "Notion Page to Markdown",
       "category": "processor",
