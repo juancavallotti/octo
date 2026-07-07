@@ -11,7 +11,7 @@ func TestEventNormalizesAndFilters(t *testing.T) {
 	raw := `{"type":"page.content_updated","workspace_id":"W1","timestamp":"2024-01-01T00:00:00Z",` +
 		`"entity":{"id":"p1","type":"page"}}`
 
-	proc, err := newEvent(types.Settings{"eventTypes": []any{"page.content_updated"}}, blockDeps(t))
+	proc, err := newEvent(types.Settings{"eventTypes": []any{"page.content_updated"}}, blockDeps(t, ""))
 	if err != nil {
 		t.Fatalf("newEvent: %v", err)
 	}
@@ -41,7 +41,7 @@ func TestEventNormalizesAndFilters(t *testing.T) {
 
 func TestEventDropsDisallowedType(t *testing.T) {
 	raw := `{"type":"comment.created","entity":{"id":"c1","type":"comment"}}`
-	proc, err := newEvent(types.Settings{"eventTypes": []any{"page.created"}}, blockDeps(t))
+	proc, err := newEvent(types.Settings{"eventTypes": []any{"page.created"}}, blockDeps(t, ""))
 	if err != nil {
 		t.Fatalf("newEvent: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestEventFilterPredicate(t *testing.T) {
 	proc, err := newEvent(types.Settings{
 		"eventTypes": []any{"page.content_updated"},
 		"filter":     `body.entityType == "database"`, // keep only database entities
-	}, blockDeps(t))
+	}, blockDeps(t, ""))
 	if err != nil {
 		t.Fatalf("newEvent: %v", err)
 	}

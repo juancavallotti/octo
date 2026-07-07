@@ -9,6 +9,7 @@ import (
 
 	"github.com/juancavallotti/octo/core"
 	"github.com/juancavallotti/octo/core/expr"
+	"github.com/juancavallotti/octo/types"
 )
 
 // resolveConnector binds a block to its notion connector by name.
@@ -40,10 +41,42 @@ func compileOptional(res core.ResourceLoader, src string) (*expr.Program, error)
 	return expr.CompileMessage(res, src)
 }
 
+// compileRequired compiles a required message CEL expression, erroring with a
+// block- and field-labelled message when it is empty or malformed.
+func compileRequired(res core.ResourceLoader, block, field, src string) (*expr.Program, error) {
+	if strings.TrimSpace(src) == "" {
+		return nil, fmt.Errorf("%s requires a %q expression", block, field)
+	}
+	program, err := expr.CompileMessage(res, src)
+	if err != nil {
+		return nil, fmt.Errorf("%s: compile %s: %w", block, field, err)
+	}
+	return program, nil
+}
+
 // orDefault returns value when it is non-empty, otherwise fallback.
 func orDefault(value, fallback string) string {
 	if value == "" {
 		return fallback
 	}
 	return value
+}
+
+// failOnErrorDefault resolves a *bool failOnError setting, defaulting to true
+// when unset (a pointer distinguishes an explicit false from absent).
+func failOnErrorDefault(v *bool) bool {
+	if v != nil {
+		return *v
+	}
+	return true
+}
+
+// onCallError centralizes the "a Notion error aborts unless tolerated" decision:
+// it returns the error when failOnError is set, otherwise the message unchanged
+// so the flow continues.
+func onCallError(msg *types.Message, err error, failOnError bool) (*types.Message, error) {
+	if failOnError {
+		return nil, err
+	}
+	return msg, nil
 }

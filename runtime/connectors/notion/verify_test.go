@@ -22,7 +22,7 @@ func signedMessage(t *testing.T, rawBody string) *types.Message {
 }
 
 func TestVerifyReadsRawContentBody(t *testing.T) {
-	proc, err := newVerify(types.Settings{"connector": "notion"}, blockDeps(t))
+	proc, err := newVerify(types.Settings{"connector": "notion"}, blockDeps(t, ""))
 	if err != nil {
 		t.Fatalf("newVerify: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestVerifyReadsRawContentBody(t *testing.T) {
 }
 
 func TestVerifyRejectsBadSignature(t *testing.T) {
-	proc, err := newVerify(types.Settings{"connector": "notion"}, blockDeps(t))
+	proc, err := newVerify(types.Settings{"connector": "notion"}, blockDeps(t, ""))
 	if err != nil {
 		t.Fatalf("newVerify: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestVerifyRejectsBadSignature(t *testing.T) {
 }
 
 func TestVerifyFlagsHandshake(t *testing.T) {
-	proc, err := newVerify(types.Settings{"connector": "notion"}, blockDeps(t))
+	proc, err := newVerify(types.Settings{"connector": "notion"}, blockDeps(t, ""))
 	if err != nil {
 		t.Fatalf("newVerify: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestVerifyFlagsHandshake(t *testing.T) {
 }
 
 func TestVerifyPassesEventThrough(t *testing.T) {
-	proc, err := newVerify(types.Settings{"connector": "notion"}, blockDeps(t))
+	proc, err := newVerify(types.Settings{"connector": "notion"}, blockDeps(t, ""))
 	if err != nil {
 		t.Fatalf("newVerify: %v", err)
 	}

@@ -12,12 +12,14 @@ import (
 const verifyToken = "0123456789abcdef0123456789abcdef"
 
 // blockDeps starts a notion connector and returns BlockDeps that resolve it under
-// the name "notion".
-func blockDeps(t *testing.T) core.BlockDeps {
+// the name "notion". baseURL is empty for blocks that never call the API (verify,
+// event); API-calling block tests point it at a stub server.
+func blockDeps(t *testing.T, baseURL string) core.BlockDeps {
 	t.Helper()
 	conn := startConnector(t, map[string]any{
 		"token":             "ntn-test",
 		"verificationToken": verifyToken,
+		"apiBaseURL":        baseURL,
 	})
 	return core.BlockDeps{Connector: func(name string) (core.Connector, bool) {
 		if name == "notion" {
