@@ -14,13 +14,14 @@ import {
  * The type is derived from the integration's source/connector types with a
  * priority order: the most distinctive, user-facing trigger wins. This matters
  * for Slack bots, whose transport is an http source but whose identity is Slack —
- * so a declared `slack` connector outranks the raw `http` entry. Unknown or
- * unparseable definitions fall back to the generic Workflow glyph.
+ * so a declared `slack` connector outranks the raw `http` entry. Notion webhooks
+ * work the same way. Unknown or unparseable definitions fall back to the generic
+ * Workflow glyph.
  */
 
 // Most-distinctive first. A type present here is preferred over a later one (and
 // over any other connector) when the integration declares several.
-const TYPE_PRIORITY = ["slack", "cron", "events", "queue", "http"];
+const TYPE_PRIORITY = ["slack", "notion", "cron", "events", "queue", "http"];
 
 export function iconForDefinition(definition: string): LucideIcon {
   let doc;

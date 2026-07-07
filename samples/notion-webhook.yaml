@@ -1,0 +1,143 @@
+service:
+  name: notion-webhook
+
+# A Notion integration: receive webhooks over HTTP and verify each request's
+# signature, query a data source on a schedule, and render a page's blocks to
+# markdown on demand. It shows every notion block in one config.
+#
+# Setup:
+#   1. Create a Notion integration (https://www.notion.com/my-integrations) and
+#      copy its token. Share the pages / data source you want to reach with it.
+#   2. Create a webhook subscription pointing at this service's /notion/events
+#      route (expose it with a tunnel such as ngrok while developing). Notion's
+#      first request is a one-time handshake carrying a verification_token — the
+#      webhook flow logs it (see notion-verify-request); paste it back into
+#      Notion's UI to confirm the subscription, then set it as the env var below.
+#   3. Export the credentials:
+#        export NOTION_TOKEN=ntn_...
+#        export NOTION_VERIFICATION_TOKEN=secret_...   # from the handshake
+#        export NOTION_DATABASE_ID=...                 # a database to query
+#   4. Run: go run ./cli -config samples/notion-webhook.yaml
+
+env:
+  - name: HTTP_PORT
+    default: "8080"
+  - name: NOTION_TOKEN
+    required: true
+  - name: NOTION_VERIFICATION_TOKEN
+    required: true
+  - name: NOTION_DATABASE_ID
+    required: true
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      port: ${HTTP_PORT}
+
+  - name: notion
+    type: notion
+    settings:
+      token: ${NOTION_TOKEN}
+      verificationToken: ${NOTION_VERIFICATION_TOKEN}
+
+  - name: ticker
+    type: cron
+
+  - name: out
+    type: logger
+    settings:
+      format: json
+      level: info
+
+flows:
+  # 1. Receive and process Notion webhooks.
+  - name: notion-webhook
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /notion/events
+        # Copy Notion's signature header into vars, and deliver the exact request
+        # bytes as raw content (rawBody: true) so the signature can be verified
+        # over the raw body. notion-verify-request reads the raw body directly and
+        # re-parses the verified JSON into body.
+        headers: [X-Notion-Signature]
+        rawBody: true
+    process:
+      # Authenticate the request (aborts on a bad signature) and, for the
+      # subscription handshake, capture the token into vars.notionVerification.
+      - type: notion-verify-request
+        name: verify
+        settings:
+          connector: notion
+
+      # Either log the one-time handshake token, or handle the event.
+      - type: if
+        name: handshake-or-event
+        condition: has(vars.notionVerification)
+        then:
+          process:
+            - type: log
+              name: log-token
+              settings:
+                logger: out
+                message: '"notion verification token: " + vars.notionVerification'
+        else:
+          process:
+            # Keep only page content updates.
+            - type: notion-event
+              name: page-events
+              settings:
+                eventTypes: [page.content_updated]
+            # Fetch the affected page's properties into vars.notionPage.
+            - type: notion-retrieve-page
+              name: fetch-page
+              settings:
+                connector: notion
+                page: body.entityId
+            - type: log
+              name: log-page
+              settings:
+                logger: out
+                message: '"updated page " + vars.notionPage.id'
+
+  # 2. Query a data source on a schedule and log how many rows came back. A
+  #    database holds its data sources, so pass the database id and let the block
+  #    derive the data source (or pass dataSource directly if you have that id).
+  - name: query-recent
+    source:
+      connector: ticker
+      type: cron
+      settings:
+        schedule: "@every 5m"
+    process:
+      - type: notion-query-datasource
+        name: query
+        settings:
+          connector: notion
+          database: '"${NOTION_DATABASE_ID}"'
+          pageSize: 10
+      - type: log
+        name: log-count
+        settings:
+          logger: out
+          message: '"data source returned " + string(size(vars.notionResults.results)) + " rows"'
+
+  # 3. Render a page's content to markdown: fetch the page's child blocks, then
+  #    convert them. Invoke it with the page id:
+  #      go run ./cli invoke -config samples/notion-webhook.yaml \
+  #        -flow page-to-markdown -data '{"pageId": "<page-id>"}'
+  #    The first block leaves body.results in the shape the second one reads, and
+  #    the result is the rendered markdown as raw content.
+  - name: page-to-markdown
+    process:
+      - type: notion-retrieve-blocks
+        name: fetch-content
+        settings:
+          connector: notion
+          block: body.pageId
+      - type: notion-page-to-markdown
+        name: render
+        settings:
+          source: body.results

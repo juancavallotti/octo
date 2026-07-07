@@ -29,6 +29,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { SlackIcon } from "./slack-icon";
+import { NotionIcon } from "./notion-icon";
 import { McpIcon } from "./mcp-icon";
 import capsJson from "./capabilities.json";
 import type {
@@ -73,6 +74,7 @@ const ICONS: Record<string, LucideIcon> = {
   Radio,
   FileText,
   Slack: SlackIcon,
+  Notion: NotionIcon,
   Mcp: McpIcon,
 };
 
