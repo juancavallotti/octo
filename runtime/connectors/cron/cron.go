@@ -5,6 +5,7 @@ package cron
 
 import (
 	"context"
+	"reflect"
 
 	"github.com/juancavallotti/octo/core"
 	"github.com/juancavallotti/octo/types"
@@ -13,6 +14,20 @@ import (
 func init() {
 	core.MustRegisterConnector("cron", func() core.Connector {
 		return &Connector{}
+	})
+
+	// The cron connector carries no settings — it is source-only. Its Cron schedule
+	// source fires on a schedule and builds each message from a CEL payload.
+	core.RegisterConnectorMeta(core.ConnectorMeta{
+		Type:  "cron",
+		Label: "Cron",
+		Icon:  "Clock",
+		Sources: []core.SourceMeta{{
+			Type:     "cron",
+			Label:    "Cron schedule",
+			Icon:     "Clock",
+			Settings: reflect.TypeFor[settings](),
+		}},
 	})
 }
 

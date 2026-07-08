@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"reflect"
 
 	"github.com/juancavallotti/octo/core"
 	"github.com/juancavallotti/octo/types"
@@ -22,19 +23,29 @@ func init() {
 	core.MustRegisterConnector("logger", func() core.Connector {
 		return &Connector{}
 	})
+
+	// Package-level editor defaults: the logger connector and its log block share
+	// the Data palette group and the ScrollText icon unless they set their own.
+	core.RegisterExtension(core.ExtensionMeta{Group: "Data", Icon: "ScrollText"})
+
+	core.RegisterConnectorMeta(core.ConnectorMeta{
+		Type:     "logger",
+		Label:    "Logger",
+		Settings: reflect.TypeFor[connectorSettings](),
+	})
 }
 
 // settings are the common slog knobs the logger exposes. Every field has a
 // sensible default, so a logger connector can be declared with no settings.
 type connectorSettings struct {
-	// Output is "stdout" (default), "stderr", or a file path.
-	Output string `json:"output"`
-	// Format is "text" (default) or "json".
-	Format string `json:"format"`
-	// Level is the minimum level the logger emits (default info).
-	Level string `json:"level"`
-	// AddSource includes the source file:line on each record (default false).
-	AddSource bool `json:"addSource"`
+	// stdout, stderr, or a file path.
+	Output string `json:"output" octo:"label=Output,default=stdout"`
+	// Log output format.
+	Format string `json:"format" octo:"label=Format,type=enum,enum=text|json,default=text"`
+	// Minimum log level.
+	Level string `json:"level" octo:"label=Level,type=enum,enum=debug|info|warn|error,default=info"`
+	// Include source file:line in log records.
+	AddSource bool `json:"addSource" octo:"label=Add source,default=false"`
 }
 
 // Connector is a configured logger that flows' log blocks write through. When

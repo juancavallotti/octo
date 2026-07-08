@@ -18,6 +18,7 @@ package queue
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -30,6 +31,20 @@ import (
 func init() {
 	core.MustRegisterConnector("queue", func() core.Connector {
 		return &Connector{}
+	})
+
+	// The queue connector carries no settings — it is source-only. Its Platform
+	// Queue source subscribes to the core queue service directly.
+	core.RegisterConnectorMeta(core.ConnectorMeta{
+		Type:  "queue",
+		Label: "Platform Queue",
+		Icon:  "Inbox",
+		Sources: []core.SourceMeta{{
+			Type:     "queue",
+			Label:    "Platform Queue",
+			Icon:     "Inbox",
+			Settings: reflect.TypeFor[sourceSettings](),
+		}},
 	})
 }
 

@@ -11,6 +11,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"time"
 
 	// Pure-Go drivers, registered for use via database/sql. Both are always
@@ -26,6 +27,17 @@ func init() {
 	core.MustRegisterConnector("database", func() core.Connector {
 		return &Connector{}
 	})
+
+	// Package-level editor defaults: the database connector and its sql block fall
+	// into the Integration palette group with the Database icon unless they set
+	// their own.
+	core.RegisterExtension(core.ExtensionMeta{Group: "Integration", Icon: "Database"})
+
+	core.RegisterConnectorMeta(core.ConnectorMeta{
+		Type:     "database",
+		Label:    "Database",
+		Settings: reflect.TypeFor[connectorSettings](),
+	})
 }
 
 // driverNames maps the connector's "driver" setting to the database/sql driver
@@ -39,17 +51,16 @@ var driverNames = map[string]string{
 // are required; the pool tuning fields are optional and left at database/sql
 // defaults when zero.
 type connectorSettings struct {
-	// Driver selects the flavor: "postgres" or "sqlite".
-	Driver string `json:"driver"`
-	// DSN is the data source name passed to the driver: a Postgres connection
-	// string, or a SQLite file path / "file:..." URI.
-	DSN string `json:"dsn"`
-	// MaxOpenConns caps the open connection pool (0 = unlimited, the default).
-	MaxOpenConns int `json:"maxOpenConns"`
-	// MaxIdleConns caps idle connections kept in the pool.
-	MaxIdleConns int `json:"maxIdleConns"`
-	// ConnMaxLifetime is a duration string (e.g. "5m") bounding connection reuse.
-	ConnMaxLifetime string `json:"connMaxLifetime"`
+	// Database driver.
+	Driver string `json:"driver" octo:"label=Driver,type=enum,enum=postgres|sqlite,required"`
+	// Data source name (Postgres connection string or SQLite file path).
+	DSN string `json:"dsn" octo:"label=DSN,required"`
+	// Open connection pool cap (0 = unlimited).
+	MaxOpenConns int `json:"maxOpenConns" octo:"label=Max open connections"`
+	// Idle connections kept in the pool.
+	MaxIdleConns int `json:"maxIdleConns" octo:"label=Max idle connections"`
+	// Duration bounding connection reuse (e.g. 5m).
+	ConnMaxLifetime string `json:"connMaxLifetime" octo:"label=Connection max lifetime"`
 }
 
 // Connector is a configured database connection pool that flows' sql blocks run

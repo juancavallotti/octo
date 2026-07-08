@@ -31,12 +31,12 @@ func leaderKey(cfg types.SourceConfig) string {
 
 // settings is the cron source's typed configuration.
 type settings struct {
-	// Schedule is the cron expression that drives the source (required).
-	Schedule string `json:"schedule"`
-	// Payload is a CEL expression evaluated per tick to build the body.
-	Payload string `json:"payload"`
-	// CorrelationID is set on every emitted message.
-	CorrelationID string `json:"correlationID"`
+	// Cron expression (6 fields with seconds) or descriptor like @every 2s.
+	Schedule string `json:"schedule" octo:"label=Schedule,required"`
+	// CEL expression for the message body; sees `now` (fire time).
+	Payload string `json:"payload" octo:"label=Payload,type=cel"`
+	// Static correlation ID for emitted messages.
+	CorrelationID string `json:"correlationID" octo:"label=Correlation ID"`
 }
 
 // source emits a message each time its schedule fires. The body comes from the

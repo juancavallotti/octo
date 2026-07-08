@@ -15,6 +15,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"reflect"
 
 	"github.com/juancavallotti/octo/core"
 	"github.com/juancavallotti/octo/core/expr"
@@ -23,24 +24,28 @@ import (
 
 func init() {
 	core.MustRegisterBlock("sql", newSQL)
+
+	core.RegisterBlockMeta(core.BlockMeta{
+		Type:        "sql",
+		Label:       "SQL",
+		Category:    "processor",
+		Description: "Execute a SQL statement against a database connector.",
+		Config:      reflect.TypeFor[sqlSettings](),
+	})
 }
 
 // sqlSettings is the sql block's typed configuration.
 type sqlSettings struct {
-	// Connector names the database connector to run against (required).
-	Connector string `json:"connector"`
-	// Query is the SQL statement. Placeholders follow the driver: $1.. for
-	// Postgres, ? for SQLite.
-	Query string `json:"query"`
-	// Args are CEL expressions evaluated per message to positional bind params.
-	Args []string `json:"args"`
-	// Exec runs the statement with ExecContext (no result set); the body becomes
-	// {"rowsAffected": N}. When false (default) the statement is run with
-	// QueryContext and rows are returned.
-	Exec bool `json:"exec"`
-	// Single, in query mode, unwraps the result to the first row object (or null
-	// when no rows), for single-record lookups.
-	Single bool `json:"single"`
+	// Name of the database connector to use.
+	Connector string `json:"connector" octo:"label=Connector,required,ref=connector:database"`
+	// SQL statement with placeholders.
+	Query string `json:"query" octo:"label=Query,required"`
+	// CEL expressions bound to the statement placeholders.
+	Args []string `json:"args" octo:"label=Arguments"`
+	// Use ExecContext (no result set); result becomes {rowsAffected: N}.
+	Exec bool `json:"exec" octo:"label=Exec mode,default=false"`
+	// In query mode, unwrap the result to the first row object.
+	Single bool `json:"single" octo:"label=Single row,default=false"`
 }
 
 // processor runs the statement and writes its result into the message body.

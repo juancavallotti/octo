@@ -19,17 +19,14 @@ var errSourceStopped = errors.New("queue source: stopped")
 
 // sourceSettings configures one Platform Queue subscription bound to a flow.
 type sourceSettings struct {
-	// Subject is the queue subject this source subscribes to (required). Every
-	// replica that subscribes to the same subject joins one competing-consumer
-	// group, so each message is handled by exactly one replica — that is how the
-	// source load balances work across the cluster.
-	Subject string `json:"subject"`
-	// Listeners is the number of concurrent handler goroutines; it defaults to the
-	// queue service's default when unset or <= 0.
-	Listeners int `json:"listeners"`
-	// Timeout bounds how long a handler waits for its flow to finish before the
-	// message is abandoned; it defaults to the queue service's request timeout.
-	Timeout duration `json:"timeout"`
+	// Queue subject to subscribe to. Every replica subscribed to the same subject
+	// competes for messages, so each message is handled once across the cluster.
+	Subject string `json:"subject" octo:"label=Subject,required"`
+	// Number of concurrent handler goroutines; defaults to the queue service default.
+	Listeners int `json:"listeners" octo:"label=Listeners"`
+	// How long a handler waits for its flow to finish (e.g. 30s); defaults to the
+	// queue service timeout.
+	Timeout duration `json:"timeout" octo:"label=Timeout,type=string"`
 }
 
 // source subscribes to a queue subject and turns each delivered message into a

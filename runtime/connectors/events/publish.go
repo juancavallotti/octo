@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/juancavallotti/octo/core"
@@ -19,16 +20,26 @@ import (
 
 func init() {
 	core.MustRegisterBlock("publish-event", newPublish)
+
+	core.RegisterBlockMeta(core.BlockMeta{
+		Type:     "publish-event",
+		Label:    "Publish Event",
+		Category: "processor",
+		Description: "Broadcast the current message to a platform topic subject, so every " +
+			"subscriber on that subject receives it (fire-and-forget fan-out). The message " +
+			"passes through unchanged.",
+		Config: reflect.TypeFor[publishSettings](),
+	})
 }
 
 // publishSettings is the publish-event block's typed configuration.
 type publishSettings struct {
-	// Subject is a CEL expression producing the topic subject to broadcast to
-	// (required).
-	Subject string `json:"subject"`
-	// Value is a CEL expression whose result becomes the published body. When empty
-	// the whole current body is published.
-	Value string `json:"value"`
+	// CEL expression for the topic subject to broadcast to; enables per-message
+	// routing.
+	Subject string `json:"subject" octo:"label=Subject,type=cel,required"`
+	// CEL expression whose result becomes the published body. Empty publishes the
+	// whole current body.
+	Value string `json:"value" octo:"label=Value,type=cel"`
 }
 
 // publish broadcasts the message to a topic subject. It publishes a fresh
