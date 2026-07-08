@@ -19,36 +19,28 @@ const defaultMaxBodyBytes int64 = 1 << 20 // 1 MiB
 
 // sourceSettings configures one HTTP route bound to a flow.
 type sourceSettings struct {
-	// Path is the route pattern appended to the connector base path. It may use
-	// net/http wildcards, e.g. /orders/{id}; each {name} lands in vars.<name>.
-	Path string `json:"path"`
-	// Headers names the request headers to copy into variables (always set,
-	// empty string when absent), readable in CEL via index, e.g. vars["X-Tenant"].
-	Headers []string `json:"headers"`
-	// ResponseHeaders names the response headers to propagate from message
-	// variables of the same name — the outbound counterpart of Headers. After a
-	// flow completes, each listed header is set on the response from vars.<name>
-	// when that variable holds a non-empty string (so a block can set, e.g.,
-	// vars["WWW-Authenticate"] and have it emitted). Content-Type is managed by the
-	// source and cannot be overridden here.
-	ResponseHeaders []string `json:"responseHeaders"`
-	// CorrelationIDHeader, when set, sources the message CorrelationID from that
-	// request header.
-	CorrelationIDHeader string `json:"correlationIdHeader"`
-	// RawBodyVar, when set, stores the exact request body bytes as a string in
-	// that variable, alongside the parsed Body. It exists for handlers that must
-	// see the unmodified bytes (e.g. verifying an HMAC signature computed over the
-	// raw payload), since Body is re-serialized and loses byte-for-byte fidelity.
-	RawBodyVar string `json:"rawBodyVar"`
-	// RawBody, when true, sources the request as raw content: the body is not
-	// required to be JSON and is stored as {contentType, rawData} (with the
-	// request's Content-Type) rather than parsed into Body. Defaults to false.
-	RawBody bool `json:"rawBody"`
-	// Timeout bounds how long the handler waits for the flow to finish; it
-	// defaults to the connector's request timeout.
-	Timeout duration `json:"timeout"`
-	// MaxBodyBytes caps the request body size; defaults to 1 MiB.
-	MaxBodyBytes int64 `json:"maxBodyBytes"`
+	// Route pattern; {name} params become vars.name.
+	Path string `json:"path" octo:"label=Path,required"`
+	// Request header names to copy into variables.
+	Headers []string `json:"headers" octo:"label=Headers"`
+	// Response header names to propagate from message variables of the same name
+	// after the flow completes (the outbound counterpart of Headers). A block sets
+	// vars.<name> and lists it here to emit it — e.g. WWW-Authenticate from
+	// jwt-validate. Content-Type is managed by the source.
+	ResponseHeaders []string `json:"responseHeaders" octo:"label=Response headers"`
+	// Header to source the CorrelationID from.
+	CorrelationIDHeader string `json:"correlationIdHeader" octo:"label=Correlation ID header"`
+	// Capture the exact request bytes into vars.<name> (e.g. to verify an HMAC
+	// signature over the raw body).
+	RawBodyVar string `json:"rawBodyVar" octo:"label=Raw body variable"`
+	// Source the request as raw content: skip the JSON check and store the body as
+	// {contentType, rawData} (using the request's Content-Type) instead of parsing
+	// it. Lets non-JSON payloads (forms, XML, binary text) enter the flow.
+	RawBody bool `json:"rawBody" octo:"label=Raw body,default=false"`
+	// Per-route wait for the flow; defaults to the connector request timeout.
+	Timeout duration `json:"timeout" octo:"label=Timeout,type=string"`
+	// Request body size cap.
+	MaxBodyBytes int64 `json:"maxBodyBytes" octo:"label=Max body bytes,default=1048576"`
 }
 
 // source is a single request/response HTTP route. It builds a message per
