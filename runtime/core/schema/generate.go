@@ -13,7 +13,7 @@ import (
 // and connectors are emitted in registration order. A settings struct with a bad
 // tag or an uninferable field type fails generation with a located error.
 func Generate(reg *core.SchemaRegistry) (Capabilities, error) {
-	var caps Capabilities
+	caps := Capabilities{Blocks: []Block{}, Connectors: []Connector{}}
 
 	for _, b := range reg.Blocks() {
 		block := Block{

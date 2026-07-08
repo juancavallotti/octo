@@ -57,3 +57,8 @@ tasks:
     desc: 'Run a config from samples/ (e.g. task runtime:run:sample -- heartbeat.yaml)'
     cmds:
       - cd cli && {{.GO}} run . -config ../../samples/{{.CLI_ARGS}}
+
+  schema:
+    desc: Print the generated editor capability schema (JSON) to stdout
+    cmds:
+      - cd cli && {{.GO}} run . schema

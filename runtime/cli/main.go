@@ -84,6 +84,7 @@ Usage:
   octo [run] --config <path> [--watch]                       Start connectors and flows (default)
   octo invoke --config <path> --flow <name> [--data <json>]  Call one flow and print its result
   octo eval --expr <cel> [--data <json>]                     Evaluate a CEL expression and print the result
+  octo schema [--out <path>]                                 Print the editor capability schema as JSON
   octo version                                               Print the version and build date
   octo --help                                                Show this help
 
@@ -102,6 +103,9 @@ Eval flags:
   --data <json>      JSON object bound to body (reads stdin when omitted)
   --vars <json>      JSON object bound to vars
   --env <json>       JSON object bound to env
+
+Schema flags:
+  --out <path>       write the JSON to a file instead of stdout
 
 Flags accept one or two dashes (--config or -config).`
 
@@ -136,8 +140,10 @@ func run(args []string) error {
 		return invokeCommand(args)
 	case "eval":
 		return evalCommand(args)
+	case "schema", "capabilities":
+		return schemaCommand(args)
 	default:
-		return fmt.Errorf("unknown command %q (expected \"run\", \"invoke\", \"eval\", or \"version\")", cmd)
+		return fmt.Errorf("unknown command %q (expected \"run\", \"invoke\", \"eval\", \"schema\", or \"version\")", cmd)
 	}
 }
 
