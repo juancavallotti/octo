@@ -20,7 +20,7 @@ type walkerSample struct {
 	Headers  map[string]string `json:"headers" octo:"label=Headers"`
 	Conn     string            `json:"conn" octo:"label=Conn,ref=connector:http-client"`
 	Auth     inner             `json:"auth" octo:"label=Auth,type=object"`
-	Ignored  string            `json:"ignored"`   // no octo tag -> excluded
+	Ignored  string            `json:"ignored"`                 // no octo tag -> excluded
 	Excluded string            `json:"-" octo:"label=Excluded"` // json:"-" -> excluded
 }
 
