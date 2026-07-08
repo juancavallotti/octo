@@ -1,5 +1,6 @@
 import { withMcpAuth } from "mcp-handler";
 import { createOctoMcpHandler, OCTO_MCP_VERSION } from "@octo/mcp";
+import { probeSchema } from "@octo/run-host";
 import {
   CAPABILITIES,
   fromDefinitionYaml,
@@ -52,7 +53,11 @@ const handler = createOctoMcpHandler(
   {
     store: orchestratorIntegrationStore,
     validate,
-    runtimeSchema: CAPABILITIES,
+    // The runtime generates the capability schema (`octo schema`, probed and
+    // cached by @octo/run-host — the same in-process runner the run tools use);
+    // serve that so MCP reflects exactly what the binary supports. Falls back to
+    // the editor's empty bundled schema when no runner is configured.
+    runtimeSchema: async () => (await probeSchema()) ?? CAPABILITIES,
     // Stage a run's resources from the orchestrator; an inline definition (no id)
     // has none, so a run without a saved integration gets no resources.
     resources: (id) => (id ? orchestratorResourceProvider(id) : undefined),

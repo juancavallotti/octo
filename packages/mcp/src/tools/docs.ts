@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { OctoMcpConfig } from "../backend";
+import { resolveRuntimeSchema, type OctoMcpConfig } from "../backend";
 import { errorResult, guard, jsonResult } from "../result";
 import { EXAMPLES, getExample } from "../examples";
 import { CEL_FUNCTIONS, CEL_VARIABLES, getCelFunction } from "../cel";
@@ -39,7 +39,7 @@ export function registerDocsTools(
     },
     ({ elementName }) =>
       guard(async () => {
-        const schema = asRuntimeSchema(config.runtimeSchema);
+        const schema = asRuntimeSchema(await resolveRuntimeSchema(config.runtimeSchema));
         if (!elementName) return jsonResult(schemaIndex(schema));
         const element = findElement(schema, elementName);
         if (!element) {
