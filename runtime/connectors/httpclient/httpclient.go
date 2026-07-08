@@ -17,6 +17,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -28,6 +29,17 @@ import (
 func init() {
 	core.MustRegisterConnector("http-client", func() core.Connector {
 		return &Connector{}
+	})
+
+	// Package-level editor defaults: every block/connector in this package
+	// falls into the "Integration" palette group with the Globe icon unless it
+	// sets its own. The http-client connector and the rest block both inherit.
+	core.RegisterExtension(core.ExtensionMeta{Group: "Integration", Icon: "Globe"})
+
+	core.RegisterConnectorMeta(core.ConnectorMeta{
+		Type:     "http-client",
+		Label:    "HTTP Client",
+		Settings: reflect.TypeFor[connectorSettings](),
 	})
 }
 
@@ -47,37 +59,45 @@ const (
 )
 
 // connectorSettings is the client-wide configuration decoded from the
-// connector's settings block.
+// connector's settings block. Field order matches the editor schema (auth last,
+// after maxResponseBytes); Cache carries no octo tag so it stays out of it.
 type connectorSettings struct {
-	// BaseURL is prepended to each request path (required), e.g.
-	// "https://api.example.com" or "https://api.example.com/v1".
-	BaseURL string `json:"baseURL"`
-	// Timeout bounds each request (default 30s). Accepts a duration string
-	// ("10s") or a nanosecond count.
-	Timeout duration `json:"timeout"`
-	// Headers are applied to every request unless the request already sets them.
-	Headers map[string]string `json:"headers"`
-	// Auth configures bearer or basic authentication (optional).
-	Auth authSettings `json:"auth"`
-	// Cache enables an in-memory response cache for GET requests (opt-in).
+	// Prepended to each request path.
+	BaseURL string `json:"baseURL" octo:"label=Base URL,required"`
+	// Bounds each request.
+	Timeout duration `json:"timeout" octo:"label=Timeout,type=string,default=30s"`
+	// Applied to every request unless already set.
+	Headers map[string]string `json:"headers" octo:"label=Headers"`
+	// Response body size cap.
+	MaxResponseBytes int64 `json:"maxResponseBytes" octo:"label=Max response bytes,default=1048576"`
+	// Authentication applied to every request.
+	Auth authSettings `json:"auth" octo:"label=Authentication,type=object"`
+	// Cache enables an in-memory response cache for GET requests (opt-in). It is
+	// intentionally untagged: it is not exposed in the editor schema.
 	Cache cacheSettings `json:"cache"`
-	// MaxResponseBytes caps how much of a response body is read (default 1 MiB).
-	MaxResponseBytes int64 `json:"maxResponseBytes"`
 }
 
 // authSettings selects and configures the authentication scheme. Type is "",
-// "bearer", "basic", or "oauth2"; the remaining fields are read per scheme.
+// "bearer", "basic", or "oauth2"; the remaining fields are read per scheme and
+// shown in the editor only for their scheme (showIf).
 type authSettings struct {
-	Type     string `json:"type"`
-	Token    string `json:"token"`
-	Username string `json:"username"`
-	Password string `json:"password"`
+	// Authentication scheme.
+	Type string `json:"type" octo:"label=Type,type=enum,enum=bearer|basic|oauth2"`
+	// Token sent as 'Authorization: Bearer'.
+	Token string `json:"token" octo:"label=Bearer token,showIf=type=bearer"`
+	// Basic auth username.
+	Username string `json:"username" octo:"label=Username,showIf=type=basic"`
+	// Basic auth password.
+	Password string `json:"password" octo:"label=Password,showIf=type=basic"`
 
-	// OAuth 2.0 client-credentials fields (read when Type is "oauth2").
-	TokenURL     string   `json:"tokenURL"`
-	ClientID     string   `json:"clientID"`
-	ClientSecret string   `json:"clientSecret"`
-	Scopes       []string `json:"scopes"`
+	// OAuth2 token endpoint (client-credentials grant).
+	TokenURL string `json:"tokenURL" octo:"label=Token URL,showIf=type=oauth2"`
+	// OAuth2 client identifier.
+	ClientID string `json:"clientID" octo:"label=Client ID,showIf=type=oauth2"`
+	// OAuth2 client secret.
+	ClientSecret string `json:"clientSecret" octo:"label=Client secret,showIf=type=oauth2"`
+	// Requested OAuth2 scopes.
+	Scopes []string `json:"scopes" octo:"label=Scopes,showIf=type=oauth2"`
 }
 
 // cacheSettings configures the optional GET response cache.

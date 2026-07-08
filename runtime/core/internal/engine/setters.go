@@ -28,7 +28,7 @@ func init() {
 		Group:       "Data",
 		Icon:        "Wand2",
 		Description: "Replace the message body with the result of a CEL expression.",
-		Config:      reflect.TypeOf(setPayloadSettings{}),
+		Config:      reflect.TypeFor[setPayloadSettings](),
 	})
 }
 

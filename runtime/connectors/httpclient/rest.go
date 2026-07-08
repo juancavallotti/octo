@@ -16,6 +16,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strings"
 
 	"github.com/juancavallotti/octo/core"
@@ -25,31 +26,38 @@ import (
 
 func init() {
 	core.MustRegisterBlock("rest", newREST)
+
+	// Group ("Integration") and Icon ("Globe") are inherited from the package
+	// ExtensionMeta registered in httpclient.go.
+	core.RegisterBlockMeta(core.BlockMeta{
+		Type:        "rest",
+		Label:       "REST Call",
+		Category:    "processor",
+		Description: "Make an HTTP request through an http-client connector.",
+		Config:      reflect.TypeFor[restSettings](),
+	})
 }
 
 const defaultStatusVar = "statusCode"
 
 // restSettings is the rest block's typed configuration.
 type restSettings struct {
-	// Connector names the http-client connector to call through (required).
-	Connector string `json:"connector"`
-	// Method is the HTTP method (default GET).
-	Method string `json:"method"`
-	// Path is appended to the connector's base URL.
-	Path string `json:"path"`
-	// Query maps parameter names to CEL expressions evaluated per message.
-	Query map[string]string `json:"query"`
-	// Headers maps header names to CEL expressions evaluated per message.
-	Headers map[string]string `json:"headers"`
-	// Body is a CEL expression producing the request body (write methods). A
-	// string result is sent as-is; any other value is JSON-encoded.
-	Body string `json:"body"`
-	// FailOnError, when true (the default), turns a status >= 400 into an error.
-	// It is a pointer so an explicit false is distinguishable from unset.
-	FailOnError *bool `json:"failOnError"`
-	// StatusVar names the variable the response status is stored in (default
-	// "statusCode").
-	StatusVar string `json:"statusVar"`
+	// Name of the http-client connector to use.
+	Connector string `json:"connector" octo:"label=Connector,required,ref=connector:http-client"`
+	// HTTP method.
+	Method string `json:"method" octo:"label=Method,type=enum,enum=GET|POST|PUT|PATCH|DELETE|HEAD,default=GET"`
+	// Path appended to the connector base URL.
+	Path string `json:"path" octo:"label=Path"`
+	// Query params; each value is a CEL expression.
+	Query map[string]string `json:"query" octo:"label=Query"`
+	// Request headers; each value is a CEL expression.
+	Headers map[string]string `json:"headers" octo:"label=Headers"`
+	// CEL expression for the request body.
+	Body string `json:"body" octo:"label=Body,type=cel"`
+	// Turn a 400+ status into a flow error.
+	FailOnError *bool `json:"failOnError" octo:"label=Fail on error,default=true"`
+	// Variable to store the response status code in.
+	StatusVar string `json:"statusVar" octo:"label=Status variable,default=statusCode"`
 }
 
 // processor builds and runs the request, then folds the response into the body.

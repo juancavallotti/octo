@@ -33,7 +33,10 @@ type ShowIf struct {
 	Equals string `json:"equals"`
 }
 
-// Field mirrors types.ts FieldSpec.
+// Field mirrors types.ts FieldSpec. Field order here is the JSON key order the
+// hand-written capabilities.json uses (showIf before description, ref and the
+// nested fields after it), so generated entries match without reformatting. JSON
+// objects are unordered, so this is purely for a clean diff.
 type Field struct {
 	Name        string     `json:"name"`
 	Label       string     `json:"label"`
@@ -41,10 +44,10 @@ type Field struct {
 	Required    bool       `json:"required"`
 	Default     any        `json:"default,omitempty"`
 	Enum        []string   `json:"enum,omitempty"`
+	ShowIf      *ShowIf    `json:"showIf,omitempty"`
 	Description string     `json:"description,omitempty"`
 	Ref         *Reference `json:"ref,omitempty"`
 	Fields      []Field    `json:"fields,omitempty"`
-	ShowIf      *ShowIf    `json:"showIf,omitempty"`
 }
 
 // Block mirrors types.ts BlockSpec.
