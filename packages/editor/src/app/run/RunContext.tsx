@@ -13,7 +13,11 @@ import {
 import { toRunnableYaml } from "../model/runConfig";
 import { validateDocument, type ValidationResult } from "../model/validate";
 import { useEditorState } from "../state/editorState";
-import { type RunTransport } from "./transport";
+import {
+  type RunTransport,
+  type CelEvalRequest,
+  type CelEvalResult,
+} from "./transport";
 
 /**
  * Owns the editor's RUN feature client-side: it tracks whether a runner is
@@ -46,6 +50,8 @@ interface RunContextValue {
   start: () => Promise<void>;
   stop: () => Promise<void>;
   clearLogs: () => void;
+  /** Evaluate a one-shot CEL expression (CEL tester); delegates to the transport. */
+  evalCel: (req: CelEvalRequest) => Promise<CelEvalResult>;
 }
 
 const RunContext = createContext<RunContextValue | null>(null);
@@ -195,6 +201,11 @@ export function RunProvider({
     return () => clearTimeout(t);
   }, [doc, running, validation.ok, transport, integrationId]);
 
+  const evalCel = useCallback(
+    (req: CelEvalRequest): Promise<CelEvalResult> => transport.evalCel(req),
+    [transport],
+  );
+
   const value: RunContextValue = {
     available,
     running,
@@ -207,6 +218,7 @@ export function RunProvider({
     start,
     stop,
     clearLogs,
+    evalCel,
   };
 
   return <RunContext.Provider value={value}>{children}</RunContext.Provider>;

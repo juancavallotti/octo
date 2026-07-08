@@ -9,8 +9,8 @@
  * matching the route handlers they replace.
  */
 
-import { probeVersion, start, status, stop, sync } from "@octo/run-host";
-import type { RunStatusSnapshot } from "@octo/editor";
+import { evalCel, probeVersion, start, status, stop, sync } from "@octo/run-host";
+import type { CelEvalRequest, CelEvalResult, RunStatusSnapshot } from "@octo/editor";
 import type { ActionResult } from "@octo/http";
 import { ensureRunNamespace } from "@/app/run/namespace";
 import { orchestratorResourceProvider } from "@/app/lib/runResources";
@@ -62,6 +62,36 @@ export async function runStop(): Promise<ActionResult<RunStatusSnapshot>> {
   return withWrite(async () => {
     const ns = await ensureRunNamespace();
     return { ok: true, data: await stop(ns) };
+  });
+}
+
+/**
+ * Evaluate a single CEL expression against an ad-hoc object (no flow run). Stateless
+ * — it shells out to `octo eval` via @octo/run-host — but gated on the same runner
+ * availability and read role as status/sync. CEL compile/eval failures come back as
+ * `{ ok:false, error }`, not thrown.
+ */
+export async function runEvalCel(
+  req: CelEvalRequest,
+): Promise<ActionResult<CelEvalResult>> {
+  return withRead(async () => {
+    const ns = await ensureRunNamespace();
+    if (!status(ns).available) {
+      return { ok: false, error: "Runner not available (OCTO_BIN_PATH unset)." };
+    }
+    if (typeof req?.expression !== "string" || req.expression.trim() === "") {
+      return { ok: false, error: "missing `expression`" };
+    }
+    try {
+      const r = await evalCel(req.expression, {
+        data: req.data,
+        vars: req.vars,
+        env: req.env,
+      });
+      return { ok: true, data: { ok: r.ok, result: r.result, error: r.error } };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
   });
 }
 
