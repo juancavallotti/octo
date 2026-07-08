@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"reflect"
 	"strings"
 
 	"google.golang.org/genai"
@@ -27,22 +28,28 @@ func init() {
 	core.MustRegisterConnector("llm-gemini", func() core.Connector {
 		return &Connector{}
 	})
+
+	core.RegisterConnectorMeta(core.ConnectorMeta{
+		Type:     "llm-gemini",
+		Label:    "Gemini",
+		Icon:     "Sparkles",
+		Category: "llm",
+		Settings: reflect.TypeFor[connectorSettings](),
+	})
 }
 
 const defaultModel = "gemini-3.5-flash"
 
 // connectorSettings is the configuration decoded from the connector's settings.
 type connectorSettings struct {
-	// APIKey authenticates with the Gemini API (required). Source it from an
-	// environment variable via ${GEMINI_API_KEY}; it is never logged.
-	APIKey string `json:"apiKey"`
-	// Model is the model id (default gemini-3.5-flash).
-	Model string `json:"model"`
-	// MaxTokens is the default response token cap (0 = the model default). A
-	// request may override it.
-	MaxTokens int `json:"maxTokens"`
-	// BaseURL overrides the API endpoint (optional; for proxies or testing).
-	BaseURL string `json:"baseURL"`
+	// Authenticates with the Gemini API; source from ${GEMINI_API_KEY}. Never logged.
+	APIKey string `json:"apiKey" octo:"label=API key,required"`
+	// Model id.
+	Model string `json:"model" octo:"label=Model,default=gemini-3.5-flash"`
+	// Default response token cap (0 = the model default); a request may override it.
+	MaxTokens int `json:"maxTokens" octo:"label=Max tokens"`
+	// Overrides the API endpoint (for proxies or testing).
+	BaseURL string `json:"baseURL" octo:"label=Base URL"`
 }
 
 // Connector is a configured Gemini client that AI elements call through. It is

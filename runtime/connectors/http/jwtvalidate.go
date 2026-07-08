@@ -30,6 +30,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"strings"
 	"sync"
 
@@ -40,6 +41,21 @@ import (
 
 func init() {
 	core.MustRegisterBlock("jwt-validate", newJWTValidate)
+
+	core.RegisterBlockMeta(core.BlockMeta{
+		Type:     "jwt-validate",
+		Label:    "JWT Validate",
+		Category: "processor",
+		Group:    "Flow Control",
+		Icon:     "ShieldAlert",
+		Description: "Filter: verify a bearer JWT against an OIDC provider. On failure it stops " +
+			"the flow with a configurable response (401 by default) so the rest of the chain " +
+			"never runs; on success it injects the verified claims into vars (claimsVar, default " +
+			"`jwt`) and the subject into vars.sub. Reads the token from a request-header variable " +
+			"— the http route source must copy that header into vars (source headers: " +
+			"[Authorization]).",
+		Config: reflect.TypeFor[jwtValidateSettings](),
+	})
 }
 
 const (
@@ -58,47 +74,45 @@ const (
 	modeInline   = "inline"
 )
 
-// jwtValidateSettings is the jwt-validate block's typed configuration.
+// jwtValidateSettings is the jwt-validate block's typed configuration. Field
+// order follows the editor's capability schema (which differs from the runtime
+// struct's original order); decoding is by json name, so order is presentational.
 type jwtValidateSettings struct {
-	// TokenHeader names the variable holding the bearer token (default
-	// "Authorization"); a "Bearer " prefix is stripped.
-	TokenHeader string `json:"tokenHeader"`
-	// Mode selects key resolution: "discover" (default), "jwks", or "inline".
-	Mode string `json:"mode"`
-	// Issuer is the expected token issuer. Required for "discover" (its discovery
-	// URL); for "jwks"/"inline" it is the expected iss (checked when set).
-	Issuer string `json:"issuer"`
-	// Audience is the expected token audience (aud); when empty the aud check is
-	// skipped.
-	Audience string `json:"audience"`
-	// Algorithms restricts the accepted signing algorithms (e.g. ["RS256"]).
-	Algorithms []string `json:"algorithms"`
-	// JWKSURL is the JWKS endpoint for mode "jwks".
-	JWKSURL string `json:"jwksUrl"`
-	// PublicKey is a literal PEM/JWK public key for mode "inline".
-	PublicKey string `json:"publicKey"`
-	// PublicKeyResource names a resource whose content is the PEM/JWK, for mode
-	// "inline" (loaded via deps.Resources). Exactly one of PublicKey /
-	// PublicKeyResource must be set for inline mode.
-	PublicKeyResource string `json:"publicKeyResource"`
-	// ClaimsVar is the variable the verified claims map is stored under (default
-	// "jwt"); the subject is also stored under "sub".
-	ClaimsVar string `json:"claimsVar"`
-	// RejectStatus is the response status used when verification fails (default
-	// 401).
-	RejectStatus int `json:"rejectStatus"`
-	// DisableWWWAuthenticate turns off the WWW-Authenticate challenge. By default,
-	// whenever an issuer is configured, a rejection sets a WWW-Authenticate: Bearer
-	// challenge variable (vars["WWW-Authenticate"]) — the challenge an OAuth
-	// protected resource must return so clients can discover how to authenticate
-	// (e.g. an MCP server per RFC 9728). The http route source must list
-	// "WWW-Authenticate" in its responseHeaders for the header to actually be
-	// emitted. Set this to opt out.
-	DisableWWWAuthenticate bool `json:"disableWwwAuthenticate"`
-	// ResourceMetadataURL is included in the challenge as
-	// resource_metadata="<url>" (RFC 9728) — the URL of this resource's protected
-	// resource metadata document.
-	ResourceMetadataURL string `json:"resourceMetadataUrl"`
+	// How signing keys are resolved: discover (OIDC discovery from issuer), jwks
+	// (fetch jwksUrl directly), or inline (publicKey / publicKeyResource).
+	Mode string `json:"mode" octo:"label=Key mode,type=enum,enum=discover|jwks|inline,default=discover"`
+	// Expected token issuer (iss). Required for discover mode (its discovery URL).
+	// For jwks/inline it is the expected iss, checked when set.
+	Issuer string `json:"issuer" octo:"label=Issuer"`
+	// Expected token audience (aud). When empty the audience check is skipped.
+	Audience string `json:"audience" octo:"label=Audience"`
+	// Accepted signing algorithms, e.g. RS256. When empty go-oidc's defaults apply.
+	Algorithms []string `json:"algorithms" octo:"label=Algorithms"`
+	// JWKS endpoint for mode jwks (cached and refreshed).
+	JWKSURL string `json:"jwksUrl" octo:"label=JWKS URL"`
+	// Literal PEM public key or certificate for mode inline. Set exactly one of
+	// publicKey / publicKeyResource.
+	PublicKey string `json:"publicKey" octo:"label=Public key (PEM)"`
+	// Resource id whose content is the PEM/JWK public key, for mode inline. Set
+	// exactly one of publicKey / publicKeyResource.
+	PublicKeyResource string `json:"publicKeyResource" octo:"label=Public key resource,ref=template"`
+	// Variable holding the bearer token; a `Bearer ` prefix is stripped. The http
+	// source must copy this header into vars.
+	TokenHeader string `json:"tokenHeader" octo:"label=Token variable,default=Authorization"`
+	// Variable the verified claims map is stored under on success (the subject is
+	// also set on vars.sub).
+	ClaimsVar string `json:"claimsVar" octo:"label=Claims variable,default=jwt"`
+	// HTTP status of the built-in rejection response when verification fails.
+	// Defaults to 401.
+	RejectStatus int `json:"rejectStatus" octo:"label=Reject status"`
+	// Protected-resource-metadata URL (RFC 9728) advertised in the WWW-Authenticate
+	// challenge as resource_metadata="…". Set this to make the endpoint an
+	// MCP-compliant protected resource.
+	ResourceMetadataURL string `json:"resourceMetadataUrl" octo:"label=Resource metadata URL"`
+	// By default, when an issuer is configured, a rejection sets a
+	// WWW-Authenticate: Bearer challenge in vars (list "WWW-Authenticate" in the
+	// route source's responseHeaders to emit it). Check to opt out.
+	DisableWWWAuthenticate bool `json:"disableWwwAuthenticate" octo:"label=Disable WWW-Authenticate,default=false"`
 }
 
 // jwtValidate verifies a bearer JWT and, on failure, rejects the request. The

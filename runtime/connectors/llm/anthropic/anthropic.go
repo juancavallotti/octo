@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"strings"
 
 	sdk "github.com/anthropics/anthropic-sdk-go"
@@ -28,6 +29,14 @@ func init() {
 	core.MustRegisterConnector("llm-anthropic", func() core.Connector {
 		return &Connector{}
 	})
+
+	core.RegisterConnectorMeta(core.ConnectorMeta{
+		Type:     "llm-anthropic",
+		Label:    "Anthropic",
+		Icon:     "Sparkles",
+		Category: "llm",
+		Settings: reflect.TypeFor[connectorSettings](),
+	})
 }
 
 const (
@@ -37,16 +46,14 @@ const (
 
 // connectorSettings is the configuration decoded from the connector's settings.
 type connectorSettings struct {
-	// APIKey authenticates with the Anthropic API (required). Source it from an
-	// environment variable via ${ANTHROPIC_API_KEY}; it is never logged.
-	APIKey string `json:"apiKey"`
-	// Model is the model id (default claude-sonnet-4-6).
-	Model string `json:"model"`
-	// MaxTokens is the default response token cap (default 4096). A request may
-	// override it.
-	MaxTokens int `json:"maxTokens"`
-	// BaseURL overrides the API endpoint (optional; for proxies or testing).
-	BaseURL string `json:"baseURL"`
+	// Authenticates with the Anthropic API; source from ${ANTHROPIC_API_KEY}. Never logged.
+	APIKey string `json:"apiKey" octo:"label=API key,required"`
+	// Model id.
+	Model string `json:"model" octo:"label=Model,default=claude-sonnet-4-6"`
+	// Default response token cap; a request may override it.
+	MaxTokens int `json:"maxTokens" octo:"label=Max tokens,default=4096"`
+	// Overrides the API endpoint (for proxies or testing).
+	BaseURL string `json:"baseURL" octo:"label=Base URL"`
 }
 
 // Connector is a configured Anthropic client that AI elements call through. It
