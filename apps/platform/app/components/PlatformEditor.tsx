@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { EditorRoot } from "@octo/editor";
+import { EditorRoot, setCapabilities, type Capabilities } from "@octo/editor";
 import { subscribeIntegrationEvents } from "@octo/events";
 import { useOrchestrator } from "@/app/run/OrchestratorContext";
 import { orchestratorFileSystem } from "@/app/providers/orchestratorFileSystem";
@@ -21,10 +21,17 @@ import EditorHeader from "./EditorHeader";
 export default function PlatformEditor({
   integrationId,
   userMenu,
+  capabilities,
 }: {
   integrationId?: string;
   userMenu?: React.ReactNode;
+  capabilities?: Capabilities | null;
 }) {
+  // Inject the runtime schema (probed server-side from the octo binary) before
+  // the editor's first render and before children read the palette. Synchronous
+  // and idempotent; null leaves the empty bundled fallback in place.
+  setCapabilities(capabilities);
+
   const { available } = useOrchestrator();
   // The authoritative integration id: seeded from the route and updated on save
   // (the first save mints it). TagButton reads it through getIntegrationId so it
