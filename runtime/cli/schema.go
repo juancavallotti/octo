@@ -19,7 +19,7 @@ import (
 // During the spike only a subset of blocks carry metadata, so the output is a
 // partial catalogue — intentionally. That is why this writes to stdout / an
 // explicit path rather than overwriting the editor's capabilities.json; wiring a
-// go:generate that replaces the live file waits until every block is migrated.
+// generate directive that replaces the live file waits until every block is migrated.
 func schemaCommand(args []string) error {
 	fs := flag.NewFlagSet("schema", flag.ContinueOnError)
 	fs.SetOutput(io.Discard) // suppress the default usage dump; we print our own
