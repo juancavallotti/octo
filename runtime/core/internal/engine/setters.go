@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 
 	"github.com/juancavallotti/octo/core"
 	"github.com/juancavallotti/octo/core/expr"
@@ -19,19 +20,29 @@ func init() {
 	core.MustRegisterBlock("set-payload", newSetPayload)
 	core.MustRegisterBlock("set-variable", newSetVariable)
 	core.MustRegisterBlock("delete-variable", newDeleteVariable)
+
+	core.RegisterBlockMeta(core.BlockMeta{
+		Type:        "set-payload",
+		Label:       "Set Payload",
+		Category:    "processor",
+		Group:       "Data",
+		Icon:        "Wand2",
+		Description: "Replace the message body with the result of a CEL expression.",
+		Config:      reflect.TypeOf(setPayloadSettings{}),
+	})
 }
 
 // setPayloadSettings configures the set-payload block.
 type setPayloadSettings struct {
-	// Value is a CEL expression whose result replaces the message body.
-	Value string `json:"value"`
-	// RawBody, when true, stores the value as a raw-content body
-	// {contentType, rawData} rather than as decoded JSON. The value expression
-	// must then evaluate to a string. Defaults to false.
-	RawBody bool `json:"rawBody"`
-	// ContentType is the MIME type recorded on the raw body; required when
-	// RawBody is true.
-	ContentType string `json:"contentType"`
+	// CEL expression. Sees body, vars, eventID, correlationID.
+	Value string `json:"value" octo:"label=Value,type=cel,required"`
+	// Store the value as a raw-content body {contentType, rawData} instead of
+	// decoded JSON, so a connector (e.g. the HTTP source) serves it verbatim.
+	// The value expression must then evaluate to a string.
+	RawBody bool `json:"rawBody" octo:"label=Raw body,default=false"`
+	// MIME type recorded on the raw body, e.g. text/html or
+	// application/x-www-form-urlencoded. Required when Raw body is on.
+	ContentType string `json:"contentType" octo:"label=Content type"`
 }
 
 // setPayload replaces the message body with the result of evaluating its value
