@@ -14,13 +14,12 @@ import (
 
 // sourceSettings configures one topic subscription bound to a flow.
 type sourceSettings struct {
-	// Subject is the topic subject this source subscribes to (required). Every
-	// subscriber on the subject — including every replica of this deployment —
-	// receives every message (broadcast), unlike a queue's competing consumers.
-	Subject string `json:"subject"`
-	// Listeners is the number of concurrent handler goroutines; it defaults to the
-	// topics service's default when unset or <= 0.
-	Listeners int `json:"listeners"`
+	// Topic subject to subscribe to. Every subscriber on the subject (including
+	// every replica) receives every message — broadcast fan-out, unlike a queue's
+	// competing consumers.
+	Subject string `json:"subject" octo:"label=Subject,required"`
+	// Number of concurrent handler goroutines; defaults to the topics service default.
+	Listeners int `json:"listeners" octo:"label=Listeners"`
 }
 
 // source subscribes to a topic subject and turns each broadcast message into a

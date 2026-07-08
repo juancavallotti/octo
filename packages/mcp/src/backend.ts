@@ -82,6 +82,27 @@ export interface ValidationOutcome {
 }
 
 /** Everything a host injects to stand up the Octo MCP server. */
+/**
+ * The runtime capability catalogue, or a (possibly async) resolver for it. A
+ * function form lets the host generate the schema from the `octo` binary lazily
+ * and cache it, rather than pinning a value at handler-construction time.
+ */
+export type RuntimeSchemaSource =
+  | unknown
+  | (() => unknown | Promise<unknown>);
+
+/**
+ * Resolve a {@link RuntimeSchemaSource} to its value: call it when it is a
+ * function (awaiting a promise), otherwise return it as-is.
+ */
+export async function resolveRuntimeSchema(
+  source: RuntimeSchemaSource,
+): Promise<unknown> {
+  return typeof source === "function"
+    ? await (source as () => unknown | Promise<unknown>)()
+    : source;
+}
+
 export interface OctoMcpConfig {
   /** The integration store backing list/open/create/update. */
   store: IntegrationStore;
@@ -92,9 +113,13 @@ export interface OctoMcpConfig {
   validate(definition: string): ValidationOutcome;
   /**
    * The runtime capability catalogue (blocks/connectors) served as the
-   * `octo://runtime/schema` resource — `capabilities.json` from `@octo/editor`.
+   * `octo://runtime/schema` resource and the `getSchema` tool. The runtime is the
+   * source of truth: a host passes a resolver that generates the schema from the
+   * `octo` binary (`octo schema` via `@octo/run-host`), so MCP serves exactly what
+   * the runner supports. May be a plain value or a (possibly async) function; a
+   * resolver is called on each read, so it reflects a runner that appears later.
    */
-  runtimeSchema: unknown;
+  runtimeSchema: RuntimeSchemaSource;
   /**
    * Resolve the resources (env files, templates) a run's config declares, so
    * `@octo/run-host` can stage them for `run_integration`/`invoke_flow` — letting

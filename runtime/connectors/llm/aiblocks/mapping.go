@@ -14,6 +14,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/santhosh-tekuri/jsonschema/v5"
@@ -24,6 +25,17 @@ import (
 
 func init() {
 	core.MustRegisterBlock("ai-mapping", newAIMapping)
+
+	core.RegisterBlockMeta(core.BlockMeta{
+		Type:     "ai-mapping",
+		Label:    "AI Mapping",
+		Category: "processor",
+		Group:    "AI & LLM",
+		Icon:     "Sparkles",
+		Description: "Reshape the message body to a target shape described by a prompt; validates " +
+			"against an optional output schema and errors on failure.",
+		Config: reflect.TypeFor[mappingSettings](),
+	})
 }
 
 // mappingSettings is the ai-mapping block's typed configuration. The schema and
@@ -31,18 +43,18 @@ func init() {
 // JSON string (a block scalar) or as a native map — both are normalized to raw
 // JSON at build time.
 type mappingSettings struct {
-	// Connector names the LLM connector to call through (required).
-	Connector string `json:"connector"`
-	// Prompt describes the transformation (required).
-	Prompt string `json:"prompt"`
-	// InputExample is an example of the input the block receives (optional).
-	InputExample json.RawMessage `json:"inputExample"`
-	// OutputExample is an example of the desired output (optional).
-	OutputExample json.RawMessage `json:"outputExample"`
-	// OutputSchema is a JSON Schema the output is validated against (optional).
-	OutputSchema json.RawMessage `json:"outputSchema"`
-	// MaxTokens overrides the connector's default response cap (optional).
-	MaxTokens int `json:"maxTokens"`
+	// Name of the LLM connector to use.
+	Connector string `json:"connector" octo:"label=Connector,required,ref=connector-category:llm"`
+	// Instruction describing how to reshape the body.
+	Prompt string `json:"prompt" octo:"label=Prompt,required"`
+	// Example input payload that guides recognition (JSON).
+	InputExample json.RawMessage `json:"inputExample" octo:"label=Input example,type=string"`
+	// Example output payload that shapes the result (JSON).
+	OutputExample json.RawMessage `json:"outputExample" octo:"label=Output example,type=string"`
+	// JSON Schema the result is validated against; a failure errors the block.
+	OutputSchema json.RawMessage `json:"outputSchema" octo:"label=Output schema,type=string"`
+	// Response token cap for this call (0 = connector default).
+	MaxTokens int `json:"maxTokens" octo:"label=Max tokens"`
 }
 
 // mapping reshapes the body via the LLM, optionally validating the result.

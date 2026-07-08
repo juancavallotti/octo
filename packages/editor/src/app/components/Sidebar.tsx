@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useEditorState, EditorActionType } from "../state/editorState";
-import { PALETTE, PALETTE_GROUPS } from "./palette";
+import { palette, paletteGroups } from "./palette";
 import PaletteBlock from "./PaletteBlock";
 
 /**
@@ -21,7 +21,9 @@ export default function Sidebar() {
 
   const filter = query.trim().toLowerCase();
   const filtering = filter.length > 0;
-  const items = PALETTE.filter((c) => c.label.toLowerCase().includes(filter));
+  const items = palette().filter((c) =>
+    c.label.toLowerCase().includes(filter),
+  );
 
   function addBlock(type: string) {
     dispatch({ type: EditorActionType.ADD_BLOCK, data: { blockType: type } });
@@ -52,7 +54,7 @@ export default function Sidebar() {
         />
       </div>
       <div className="flex flex-col overflow-y-auto pb-2">
-        {PALETTE_GROUPS.map((group) => {
+        {paletteGroups().map((group) => {
           const groupItems = items.filter((c) => c.group === group);
           if (groupItems.length === 0) return null;
           const open = filtering || !collapsed.has(group);

@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"reflect"
 
 	"github.com/juancavallotti/octo/core"
 	"github.com/juancavallotti/octo/core/expr"
@@ -24,6 +25,14 @@ import (
 
 func init() {
 	core.MustRegisterBlock("log", newLog)
+
+	core.RegisterBlockMeta(core.BlockMeta{
+		Type:        "log",
+		Label:       "Log",
+		Category:    core.CategoryProcessor,
+		Description: "Wire-tap that logs the message and passes it through unchanged.",
+		Config:      reflect.TypeFor[logSettings](),
+	})
 }
 
 // bodyKey is the attribute/field name the body is logged under.
@@ -31,19 +40,14 @@ const bodyKey = "body"
 
 // logSettings is the log block's typed configuration.
 type logSettings struct {
-	// Message is a CEL expression rendered to the log line. When empty the JSON
-	// body is logged.
-	Message string `json:"message"`
-	// Level is the level this block emits each line at: debug, info (default),
-	// warn, or error. The logger's own minimum level still filters it.
-	Level string `json:"level"`
-	// Logger names a logger connector to write through. When empty the process
-	// default logger is used.
-	Logger string `json:"logger"`
-	// Full, when true, attaches the entire message (correlation id, variables,
-	// body, and schema) as structured log attributes, for debugging. The line
-	// text still comes from Message, defaulting to "message" when none is set.
-	Full bool `json:"full"`
+	// CEL expression to log. Defaults to the JSON body.
+	Message string `json:"message" octo:"label=Message,type=cel"`
+	// Log level.
+	Level string `json:"level" octo:"label=Level,type=enum,enum=debug|info|warn|error,default=info"`
+	// Optional named logger connector to write to.
+	Logger string `json:"logger" octo:"label=Logger,ref=connector:logger"`
+	// Attach the whole message (ids, vars, body) as structured log attributes.
+	Full bool `json:"full" octo:"label=Full message,default=false"`
 }
 
 // processor logs each message and passes it through unchanged. message is nil

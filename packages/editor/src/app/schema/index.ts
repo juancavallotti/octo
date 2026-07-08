@@ -40,11 +40,41 @@ import type {
 } from "./types";
 
 /**
- * Loader for the runtime capability schema. The JSON is the source of truth for
- * data; this module types it and resolves the icon names blocks reference to
- * actual lucide components (icons can't live in JSON).
+ * Loader for the runtime capability schema. The runtime is the source of truth:
+ * it generates the full catalogue from its Go block/connector metadata
+ * (`octo schema`), and a host that can reach the runner injects it at boot via
+ * {@link setCapabilities}. The bundled JSON is only an *empty* barebones fallback
+ * (`{blocks:[],connectors:[]}`) so the editor renders without crashing when no
+ * runner is available — it no longer mirrors the runtime's catalogue. This module
+ * also resolves the icon names blocks reference to actual lucide components (icons
+ * can't live in JSON).
  */
-export const CAPABILITIES = capsJson as Capabilities;
+const FALLBACK = capsJson as Capabilities;
+
+/** The active schema, swappable at runtime via {@link setCapabilities}. */
+let active: Capabilities = FALLBACK;
+
+/**
+ * Replace the active capability schema (e.g. with one the runtime generated).
+ * Idempotent and synchronous; call before the editor first renders so the palette
+ * and settings forms derive from the injected schema. A null/undefined value
+ * restores the bundled fallback.
+ */
+export function setCapabilities(caps: Capabilities | null | undefined): void {
+  active = caps ?? FALLBACK;
+}
+
+/** The active capability schema (generated-and-injected, or the bundled fallback). */
+export function getCapabilities(): Capabilities {
+  return active;
+}
+
+/**
+ * The bundled capability schema — now an empty barebones fallback. Server-safe
+ * hosts (MCP) resolve the real schema from the runner (`octo schema`) and fall
+ * back to this empty catalogue only when no runner is configured.
+ */
+export const CAPABILITIES = FALLBACK;
 
 const ICONS: Record<string, LucideIcon> = {
   Wand2,
@@ -84,19 +114,19 @@ export function resolveIcon(name: string): LucideIcon {
 }
 
 export function listBlocks(): BlockSpec[] {
-  return CAPABILITIES.blocks;
+  return active.blocks;
 }
 
 export function getBlockSpec(type: string): BlockSpec | undefined {
-  return CAPABILITIES.blocks.find((b) => b.type === type);
+  return active.blocks.find((b) => b.type === type);
 }
 
 export function listConnectors(): ConnectorSpec[] {
-  return CAPABILITIES.connectors;
+  return active.connectors;
 }
 
 export function getConnectorSpec(type: string): ConnectorSpec | undefined {
-  return CAPABILITIES.connectors.find((c) => c.type === type);
+  return active.connectors.find((c) => c.type === type);
 }
 
 /** A source spec paired with the connector type/label that exposes it. */
@@ -108,7 +138,7 @@ export interface ListedSource {
 
 /** Every source across all connectors, for the source picker. */
 export function listSources(): ListedSource[] {
-  return CAPABILITIES.connectors.flatMap((c) =>
+  return active.connectors.flatMap((c) =>
     c.sources.map((spec) => ({
       connector: c.type,
       connectorLabel: c.label,

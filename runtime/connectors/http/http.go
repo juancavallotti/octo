@@ -18,6 +18,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -30,6 +31,19 @@ import (
 func init() {
 	core.MustRegisterConnector("http", func() core.Connector {
 		return &Connector{}
+	})
+
+	core.RegisterConnectorMeta(core.ConnectorMeta{
+		Type:     "http",
+		Label:    "HTTP Server",
+		Icon:     "Webhook",
+		Settings: reflect.TypeFor[connectorSettings](),
+		Sources: []core.SourceMeta{{
+			Type:     "http",
+			Label:    "HTTP route",
+			Icon:     "Webhook",
+			Settings: reflect.TypeFor[sourceSettings](),
+		}},
 	})
 }
 
@@ -57,16 +71,22 @@ type result struct {
 
 // connectorSettings is the global config decoded from the connector's settings.
 type connectorSettings struct {
-	Host string `json:"host"`
-	// Port is a pointer so an explicit 0 (let the OS pick a free port) is
-	// distinguishable from an unset value (which defaults to 8080).
-	Port           *int     `json:"port"`
-	BasePath       string   `json:"basePath"`
-	KeepAlive      *bool    `json:"keepAlive"`
-	RequestTimeout duration `json:"requestTimeout"`
-	ReadTimeout    duration `json:"readTimeout"`
-	WriteTimeout   duration `json:"writeTimeout"`
-	IdleTimeout    duration `json:"idleTimeout"`
+	// Bind address; when unset, uses $HTTP_HOST, falling back to 0.0.0.0 (all interfaces).
+	Host string `json:"host" octo:"label=Host"`
+	// Bind port; when unset, uses $HTTP_PORT, falling back to 8080. 0 = OS-assigned.
+	Port *int `json:"port" octo:"label=Port,default=8080"`
+	// Prefix for all routes.
+	BasePath string `json:"basePath" octo:"label=Base path"`
+	// Enable HTTP keep-alives.
+	KeepAlive *bool `json:"keepAlive" octo:"label=Keep-alive"`
+	// How long a handler waits for the flow to finish.
+	RequestTimeout duration `json:"requestTimeout" octo:"label=Request timeout,type=string,default=30s"`
+	// Server read timeout.
+	ReadTimeout duration `json:"readTimeout" octo:"label=Read timeout,type=string"`
+	// Server write timeout.
+	WriteTimeout duration `json:"writeTimeout" octo:"label=Write timeout,type=string"`
+	// Server idle timeout.
+	IdleTimeout duration `json:"idleTimeout" octo:"label=Idle timeout,type=string"`
 }
 
 // Connector owns the shared HTTP server and the request/response registry. The

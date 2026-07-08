@@ -15,23 +15,28 @@ export interface PaletteComponent {
 
 /**
  * The palette of integration building blocks, derived from the runtime
- * capability schema (app/schema). Add blocks by extending capabilities.json, not
- * this file.
+ * capability schema (app/schema). Computed on demand (not at module load) so a
+ * schema injected at boot via `setCapabilities` is reflected. Add blocks by
+ * extending the runtime metadata / capabilities.json, not this file.
  */
-export const PALETTE: PaletteComponent[] = listBlocks().map((block) => ({
-  id: block.type,
-  label: block.label,
-  icon: resolveIcon(block.icon),
-  group: block.group ?? DEFAULT_GROUP,
-}));
+export function palette(): PaletteComponent[] {
+  return listBlocks().map((block) => ({
+    id: block.type,
+    label: block.label,
+    icon: resolveIcon(block.icon),
+    group: block.group ?? DEFAULT_GROUP,
+  }));
+}
 
 /**
- * The groups present in {@link PALETTE}, in first-appearance (schema) order. The
+ * The groups present in the palette, in first-appearance (schema) order. The
  * Sidebar renders one collapsible section per group in this order; a group is
  * only listed once its first block is seen, so new blocks slot in without a
  * separate registry.
  */
-export const PALETTE_GROUPS: string[] = PALETTE.reduce<string[]>((groups, c) => {
-  if (!groups.includes(c.group)) groups.push(c.group);
-  return groups;
-}, []);
+export function paletteGroups(): string[] {
+  return palette().reduce<string[]>((groups, c) => {
+    if (!groups.includes(c.group)) groups.push(c.group);
+    return groups;
+  }, []);
+}

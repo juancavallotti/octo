@@ -8,6 +8,7 @@ package slack
 import (
 	"context"
 	"fmt"
+	"reflect"
 
 	"github.com/juancavallotti/octo/core"
 	"github.com/juancavallotti/octo/core/expr"
@@ -16,6 +17,14 @@ import (
 
 func init() {
 	core.MustRegisterBlock("slack-event", newEvent)
+
+	core.RegisterBlockMeta(core.BlockMeta{
+		Type:        "slack-event",
+		Label:       "Slack Event",
+		Category:    core.CategoryProcessor,
+		Description: "Normalize a verified Slack event and filter it by type and an optional predicate.",
+		Config:      reflect.TypeFor[eventSettings](),
+	})
 }
 
 // eventCallbackType is the "type" of Slack's event delivery envelope.
@@ -23,12 +32,10 @@ const eventCallbackType = "event_callback"
 
 // eventSettings is the slack-event block's typed configuration.
 type eventSettings struct {
-	// EventTypes is an allowlist of normalized event types (e.g. app_mention,
-	// message); an empty list allows every type.
-	EventTypes []string `json:"eventTypes"`
-	// Filter is an optional CEL predicate over the normalized body; when it
-	// evaluates to false the event is dropped.
-	Filter string `json:"filter"`
+	// Allowlist of event types (e.g. app_mention, message); empty allows all.
+	EventTypes []string `json:"eventTypes" octo:"label=Event types"`
+	// CEL predicate over the normalized body; drop the event when false.
+	Filter string `json:"filter" octo:"label=Filter,type=cel"`
 }
 
 // eventProcessor normalizes and filters Slack events.

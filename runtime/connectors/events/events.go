@@ -14,6 +14,7 @@ package events
 
 import (
 	"context"
+	"reflect"
 
 	"github.com/juancavallotti/octo/core"
 	"github.com/juancavallotti/octo/types"
@@ -22,6 +23,23 @@ import (
 func init() {
 	core.MustRegisterConnector("events", func() core.Connector {
 		return &Connector{}
+	})
+
+	// Package-level editor defaults: the events connector and its publish-event
+	// block share the Integration group and the Radio icon unless they set their own.
+	core.RegisterExtension(core.ExtensionMeta{Group: "Integration", Icon: "Radio"})
+
+	// The events connector carries no settings — it is source-only. Its Event
+	// subscription source subscribes to the core topics service directly.
+	core.RegisterConnectorMeta(core.ConnectorMeta{
+		Type:  "events",
+		Label: "Platform Events",
+		Sources: []core.SourceMeta{{
+			Type:     "events",
+			Label:    "Event subscription",
+			Icon:     "Radio",
+			Settings: reflect.TypeFor[sourceSettings](),
+		}},
 	})
 }
 

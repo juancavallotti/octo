@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/juancavallotti/octo/core"
@@ -42,6 +43,16 @@ const charsPerToken = 4
 
 func init() {
 	core.MustRegisterBlock("clear-agent-memory", newClearAgentMemory)
+
+	core.RegisterBlockMeta(core.BlockMeta{
+		Type:        "clear-agent-memory",
+		Label:       "Clear Agent Memory",
+		Category:    core.CategoryProcessor,
+		Group:       groupAILLM,
+		Icon:        "BrainCog",
+		Description: "Erase an ai-agent conversation thread's stored memory by its thread id.",
+		Config:      reflect.TypeFor[clearAgentMemorySettings](),
+	})
 }
 
 // memoryKey returns the KV key for a thread's stored transcript.
@@ -195,8 +206,8 @@ func summarizeTurns(ctx context.Context, client core.LLMClient, msgs []core.LLMM
 
 // clearAgentMemorySettings configures the clear-agent-memory block.
 type clearAgentMemorySettings struct {
-	// ThreadID is a CEL expression evaluated to the thread whose memory is cleared.
-	ThreadID string `json:"threadId"`
+	// CEL expression for the thread id whose memory is cleared.
+	ThreadID string `json:"threadId" octo:"label=Thread ID,type=cel,required"`
 }
 
 // clearAgentMemory removes a thread's stored transcript from the user KV namespace.

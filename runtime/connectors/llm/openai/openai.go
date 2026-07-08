@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"strings"
 
 	sdk "github.com/openai/openai-go/v2"
@@ -25,23 +26,28 @@ func init() {
 	core.MustRegisterConnector("llm-openai", func() core.Connector {
 		return &Connector{}
 	})
+
+	core.RegisterConnectorMeta(core.ConnectorMeta{
+		Type:     "llm-openai",
+		Label:    "OpenAI",
+		Icon:     "Sparkles",
+		Category: "llm",
+		Settings: reflect.TypeFor[connectorSettings](),
+	})
 }
 
 const defaultModel = "gpt-5.4"
 
 // connectorSettings is the configuration decoded from the connector's settings.
 type connectorSettings struct {
-	// APIKey authenticates with the OpenAI API (required). Source it from an
-	// environment variable via ${OPENAI_API_KEY}; it is never logged.
-	APIKey string `json:"apiKey"`
-	// Model is the model id (default gpt-5.4).
-	Model string `json:"model"`
-	// MaxTokens is the default response token cap (0 = the model default). A
-	// request may override it.
-	MaxTokens int `json:"maxTokens"`
-	// BaseURL overrides the API endpoint (optional; for proxies, Azure, or
-	// OpenAI-compatible servers).
-	BaseURL string `json:"baseURL"`
+	// Authenticates with the OpenAI API; source from ${OPENAI_API_KEY}. Never logged.
+	APIKey string `json:"apiKey" octo:"label=API key,required"`
+	// Model id.
+	Model string `json:"model" octo:"label=Model,default=gpt-5.4"`
+	// Default response token cap (0 = the model default); a request may override it.
+	MaxTokens int `json:"maxTokens" octo:"label=Max tokens"`
+	// Overrides the API endpoint (for proxies, Azure, or OpenAI-compatible servers).
+	BaseURL string `json:"baseURL" octo:"label=Base URL"`
 }
 
 // Connector is a configured OpenAI client that AI elements call through. It is

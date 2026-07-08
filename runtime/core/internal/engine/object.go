@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 
 	"github.com/juancavallotti/octo/core"
 	"github.com/juancavallotti/octo/core/expr"
@@ -30,15 +31,45 @@ func init() {
 	core.MustRegisterBlock("object-read", newObjectRead)
 	core.MustRegisterBlock("object-write", newObjectWrite)
 	core.MustRegisterBlock("object-delete", newObjectDelete)
+
+	core.RegisterBlockMeta(core.BlockMeta{
+		Type:     "object-read",
+		Label:    "Object Read",
+		Category: core.CategoryProcessor,
+		Group:    groupStorageCache,
+		Icon:     "HardDriveDownload",
+		Description: "Read an object from the runtime store into the body or a variable. When the " +
+			"key is absent and `default` is set, the default is folded in exactly like a hit; " +
+			"otherwise the body is nulled (body mode) or the variable is left unset. Set " +
+			"`existsVar` to also record whether the key was found.",
+		Config: reflect.TypeFor[objectReadSettings](),
+	})
+	core.RegisterBlockMeta(core.BlockMeta{
+		Type:        "object-write",
+		Label:       "Object Write",
+		Category:    core.CategoryProcessor,
+		Group:       groupStorageCache,
+		Icon:        "HardDriveUpload",
+		Description: "Write an object to the runtime store under a key.",
+		Config:      reflect.TypeFor[objectWriteSettings](),
+	})
+	core.RegisterBlockMeta(core.BlockMeta{
+		Type:        "object-delete",
+		Label:       "Object Delete",
+		Category:    core.CategoryProcessor,
+		Group:       groupStorageCache,
+		Icon:        "Trash2",
+		Description: "Delete an object from the runtime store by key.",
+		Config:      reflect.TypeFor[objectDeleteSettings](),
+	})
 }
 
 // objectWriteSettings configures the object-write block.
 type objectWriteSettings struct {
-	// Key is a CEL expression evaluated to the object key (required).
-	Key string `json:"key"`
-	// Value is a CEL expression whose result is stored. When empty the whole
-	// message body is stored.
-	Value string `json:"value"`
+	// CEL expression evaluated to the object key.
+	Key string `json:"key" octo:"label=Key,type=cel,required"`
+	// CEL expression for the value to store; empty stores the whole body.
+	Value string `json:"value" octo:"label=Value,type=cel"`
 }
 
 // objectWrite stores a value in the user KV namespace under an evaluated key.
@@ -114,19 +145,18 @@ func (p *objectWrite) Process(ctx context.Context, msg *types.Message) (*types.M
 
 // objectReadSettings configures the object-read block.
 type objectReadSettings struct {
-	// Key is a CEL expression evaluated to the object key (required).
-	Key string `json:"key"`
-	// As names a variable to store the object under (readable later as
-	// vars.<As>). When empty the object replaces the message body.
-	As string `json:"as"`
-	// Default is a CEL expression evaluated when the key is absent; its result is
-	// folded in exactly like a hit (into As, or the body). When empty a miss keeps
-	// the legacy behavior (null body / unset variable).
-	Default string `json:"default"`
-	// ExistsVar, when set, names a variable the block writes a boolean into
-	// reporting whether the key was found (true) or the default/null path was taken
-	// (false). When empty the block writes no such variable (legacy behavior).
-	ExistsVar string `json:"existsVar"`
+	// CEL expression evaluated to the object key.
+	Key string `json:"key" octo:"label=Key,type=cel,required"`
+	// Variable to store the object under; empty replaces the body.
+	As string `json:"as" octo:"label=As variable"`
+	// CEL expression evaluated when the key is absent; its result is folded in like
+	// a hit (into the variable, or the body). Empty leaves a miss as a null body /
+	// unset variable. Set existsVar to tell a default apart from a hit.
+	Default string `json:"default" octo:"label=Default,type=cel"`
+	// When set, names a variable the block writes a boolean into: true when the key
+	// was found, false when the default/null path was taken. Empty writes no
+	// variable (the legacy behavior).
+	ExistsVar string `json:"existsVar" octo:"label=Exists variable"`
 }
 
 // objectRead reads an object from the user KV namespace into the message body or
@@ -227,8 +257,8 @@ func (p *objectRead) fold(msg *types.Message, value any) {
 
 // objectDeleteSettings configures the object-delete block.
 type objectDeleteSettings struct {
-	// Key is a CEL expression evaluated to the object key (required).
-	Key string `json:"key"`
+	// CEL expression evaluated to the object key.
+	Key string `json:"key" octo:"label=Key,type=cel,required"`
 }
 
 // objectDelete removes an object from the user KV namespace by evaluated key.

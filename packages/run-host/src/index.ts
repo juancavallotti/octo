@@ -27,6 +27,7 @@ export {
   type ResourceProvider,
 } from "./resources";
 export { probeVersion, cachedVersion } from "./version";
+export { probeSchema, cachedSchema } from "./schema";
 export {
   ensureNamespace,
   isValidNamespace,

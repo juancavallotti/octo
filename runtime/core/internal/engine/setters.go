@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 
 	"github.com/juancavallotti/octo/core"
 	"github.com/juancavallotti/octo/core/expr"
@@ -19,19 +20,47 @@ func init() {
 	core.MustRegisterBlock("set-payload", newSetPayload)
 	core.MustRegisterBlock("set-variable", newSetVariable)
 	core.MustRegisterBlock("delete-variable", newDeleteVariable)
+
+	core.RegisterBlockMeta(core.BlockMeta{
+		Type:        "set-payload",
+		Label:       "Set Payload",
+		Category:    core.CategoryProcessor,
+		Group:       groupData,
+		Icon:        "Wand2",
+		Description: "Replace the message body with the result of a CEL expression.",
+		Config:      reflect.TypeFor[setPayloadSettings](),
+	})
+	core.RegisterBlockMeta(core.BlockMeta{
+		Type:        "set-variable",
+		Label:       "Set Variable",
+		Category:    core.CategoryProcessor,
+		Group:       groupData,
+		Icon:        "Variable",
+		Description: "Store the result of a CEL expression in a named variable.",
+		Config:      reflect.TypeFor[setVariableSettings](),
+	})
+	core.RegisterBlockMeta(core.BlockMeta{
+		Type:        "delete-variable",
+		Label:       "Delete Variable",
+		Category:    core.CategoryProcessor,
+		Group:       groupData,
+		Icon:        "Trash2",
+		Description: "Remove a named variable from the message.",
+		Config:      reflect.TypeFor[deleteVariableSettings](),
+	})
 }
 
 // setPayloadSettings configures the set-payload block.
 type setPayloadSettings struct {
-	// Value is a CEL expression whose result replaces the message body.
-	Value string `json:"value"`
-	// RawBody, when true, stores the value as a raw-content body
-	// {contentType, rawData} rather than as decoded JSON. The value expression
-	// must then evaluate to a string. Defaults to false.
-	RawBody bool `json:"rawBody"`
-	// ContentType is the MIME type recorded on the raw body; required when
-	// RawBody is true.
-	ContentType string `json:"contentType"`
+	// CEL expression. Sees body, vars, eventID, correlationID.
+	Value string `json:"value" octo:"label=Value,type=cel,required"`
+	// Store the value as a raw-content body {contentType, rawData} instead of
+	// decoded JSON, so a connector (e.g. the HTTP source) serves it verbatim.
+	// The value expression must then evaluate to a string.
+	RawBody bool `json:"rawBody" octo:"label=Raw body,default=false"`
+	// MIME type recorded on the raw body, e.g. text/html or
+	// application/x-www-form-urlencoded. Required when Raw body is on.
+	ContentType string `json:"contentType" octo:"label=Content type"`
 }
 
 // setPayload replaces the message body with the result of evaluating its value
@@ -87,10 +116,10 @@ func (p *setPayload) Process(_ context.Context, msg *types.Message) (*types.Mess
 
 // setVariableSettings configures the set-variable block.
 type setVariableSettings struct {
-	// Name is the variable to set (readable later as vars.<name>).
-	Name string `json:"name"`
-	// Value is a CEL expression whose result is stored under Name.
-	Value string `json:"value"`
+	// Variable name to set.
+	Name string `json:"name" octo:"label=Name,required"`
+	// CEL expression evaluated and stored under the variable name.
+	Value string `json:"value" octo:"label=Value,type=cel,required"`
 }
 
 // setVariable stores the result of its value expression in a named variable.
@@ -131,8 +160,8 @@ func (p *setVariable) Process(_ context.Context, msg *types.Message) (*types.Mes
 
 // deleteVariableSettings configures the delete-variable block.
 type deleteVariableSettings struct {
-	// Name is the variable to remove.
-	Name string `json:"name"`
+	// Variable name to remove.
+	Name string `json:"name" octo:"label=Name,required"`
 }
 
 // deleteVariable removes a named variable from the message.

@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/juancavallotti/octo/core"
@@ -29,6 +30,16 @@ const defaultCacheTTL = 60 * time.Second
 
 func init() {
 	core.MustRegisterBlock("invalidate-cache", newInvalidateCache)
+
+	core.RegisterBlockMeta(core.BlockMeta{
+		Type:        "invalidate-cache",
+		Label:       "Invalidate Cache",
+		Category:    core.CategoryProcessor,
+		Group:       groupStorageCache,
+		Icon:        "Eraser",
+		Description: "Evict a cache-scope entry by its key so the next run recomputes.",
+		Config:      reflect.TypeFor[invalidateCacheSettings](),
+	})
 }
 
 // cacheEnvelope is the value a cache-scope stores: the cached body plus its expiry.
@@ -169,8 +180,8 @@ func (c *cacheScope) store(ctx context.Context, kv core.KV, key string, expected
 
 // invalidateCacheSettings configures the invalidate-cache leaf.
 type invalidateCacheSettings struct {
-	// Key is a CEL expression evaluated to the cache key to evict (required).
-	Key string `json:"key"`
+	// CEL expression evaluated to the cache key to evict.
+	Key string `json:"key" octo:"label=Cache Key,type=cel,required"`
 }
 
 // invalidateCache evicts the cache entry for an evaluated key, so a later

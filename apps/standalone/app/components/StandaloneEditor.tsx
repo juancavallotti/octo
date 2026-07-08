@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { EditorRoot } from "@octo/editor";
+import { EditorRoot, setCapabilities, type Capabilities } from "@octo/editor";
 import { subscribeIntegrationEvents } from "@octo/events";
 import { localRunTransport } from "@/app/run/localRunTransport";
 import { localDevEnvStore } from "@/app/run/devEnvStore";
@@ -13,9 +13,22 @@ import StandaloneHeader from "./StandaloneHeader";
  * Standalone wiring for the shared editor: the local-disk filesystem capability
  * (load/save `*.yaml` flows under OCTO_FS_DIR) and the local run transport (the
  * bundled `octo` binary via @octo/run-host). `file` is the open flow id, taken
- * from the `?file=` query so the editor loads it on mount.
+ * from the `?file=` query so the editor loads it on mount. `capabilities` is the
+ * runtime-generated schema the server probed (null when no runner is configured);
+ * it's injected before the editor renders so the palette derives from it.
  */
-export default function StandaloneEditor({ file }: { file?: string }) {
+export default function StandaloneEditor({
+  file,
+  capabilities,
+}: {
+  file?: string;
+  capabilities?: Capabilities | null;
+}) {
+  // Inject the runtime-generated schema before the editor's first render (and
+  // before children read the palette). Synchronous and idempotent; a null value
+  // leaves the bundled fallback in place.
+  setCapabilities(capabilities);
+
   // The id of the file currently open: the `?file=` query, or the (possibly
   // renamed) id adopted on save. Kept in a ref so the event subscription always
   // matches against the latest without resubscribing.

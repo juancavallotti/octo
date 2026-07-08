@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/juancavallotti/octo/core"
@@ -16,24 +17,30 @@ import (
 
 func init() {
 	core.MustRegisterBlock("slack-update-message", newUpdateMessage)
+
+	core.RegisterBlockMeta(core.BlockMeta{
+		Type:        "slack-update-message",
+		Label:       "Slack Update Message",
+		Category:    core.CategoryProcessor,
+		Description: "Edit a message the bot posted earlier (chat.update).",
+		Config:      reflect.TypeFor[updateSettings](),
+	})
 }
 
 // updateSettings is the slack-update-message block's typed configuration.
 type updateSettings struct {
-	// Connector names the slack connector to update through (required).
-	Connector string `json:"connector"`
-	// Channel is a CEL expression producing the message's channel ID (required).
-	Channel string `json:"channel"`
-	// Timestamp is a CEL expression producing the target message's ts (required).
-	Timestamp string `json:"timestamp"`
-	// Text is a CEL expression producing the new message text. Required unless
-	// Blocks is set.
-	Text string `json:"text"`
-	// Blocks is an optional CEL expression producing replacement Block Kit blocks.
-	Blocks string `json:"blocks"`
-	// FailOnError, when true (the default), turns a Slack API error into a flow
-	// error.
-	FailOnError *bool `json:"failOnError"`
+	// Name of the slack connector to use.
+	Connector string `json:"connector" octo:"label=Connector,required,ref=connector:slack"`
+	// CEL expression for the message channel ID.
+	Channel string `json:"channel" octo:"label=Channel,type=cel,required"`
+	// CEL expression for the target message ts.
+	Timestamp string `json:"timestamp" octo:"label=Timestamp,type=cel,required"`
+	// CEL expression for the new text (required unless blocks is set).
+	Text string `json:"text" octo:"label=Text,type=cel"`
+	// CEL expression producing replacement Block Kit blocks (a list).
+	Blocks string `json:"blocks" octo:"label=Blocks,type=cel"`
+	// Turn a Slack API error into a flow error.
+	FailOnError *bool `json:"failOnError" octo:"label=Fail on error,default=true"`
 }
 
 // updateProcessor edits a previously posted message.

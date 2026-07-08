@@ -5,8 +5,6 @@ import { Cable, Plus, X } from "lucide-react";
 import { getConnectorSpec, listConnectors, resolveIcon } from "../schema";
 import { useEditorState, EditorActionType } from "../state/editorState";
 
-const CONNECTORS = listConnectors();
-
 /**
  * Floating launcher pinned to the top-left of the canvas. The button opens a
  * popover listing the document's connections (connector instances); clicking one
@@ -21,6 +19,9 @@ export default function ConnectionsLauncher() {
   const ref = useRef<HTMLDivElement>(null);
 
   const connections = state.document.connectors;
+  // Derived on render (not at module load) so a schema injected at boot via
+  // setCapabilities is reflected — a module-level const would freeze the fallback.
+  const connectors = listConnectors();
 
   // Closing always collapses the add-submenu so it reopens to the list.
   const close = () => {
@@ -123,7 +124,7 @@ export default function ConnectionsLauncher() {
           <div className="border-t border-black/10 dark:border-white/10">
             {adding ? (
               <ul className="max-h-60 overflow-y-auto py-1">
-                {CONNECTORS.map((spec) => (
+                {connectors.map((spec) => (
                   <button
                     key={spec.type}
                     type="button"

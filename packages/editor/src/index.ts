@@ -60,3 +60,7 @@ export * from "./app/model/document";
 // Capability schema helpers (icon registry + connector/source specs) are exposed
 // on the server-safe `@octo/editor/runtime` subpath, so a host can badge an
 // integration by its source/connector type without importing the React editor.
+// The injection seam, though, lives here on the main entry: a host injects the
+// runtime-generated schema (falling back to the bundled one) before first render.
+export { setCapabilities, getCapabilities } from "./app/schema";
+export type { Capabilities } from "./app/schema/types";

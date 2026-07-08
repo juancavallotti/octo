@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -31,7 +32,21 @@ func init() {
 	core.MustRegisterConnector("notion", func() core.Connector {
 		return &Connector{}
 	})
+
+	// Package-level editor defaults: the notion connector and every notion-* block
+	// share the Notion palette group and icon unless they set their own.
+	core.RegisterExtension(core.ExtensionMeta{Group: displayName, Icon: displayName})
+
+	core.RegisterConnectorMeta(core.ConnectorMeta{
+		Type:     "notion",
+		Label:    displayName,
+		Settings: reflect.TypeFor[connectorSettings](),
+	})
 }
+
+// displayName is the editor-facing label, palette group, and icon for the notion
+// connector and its blocks.
+const displayName = "Notion"
 
 const (
 	defaultAPIBaseURL = "https://api.notion.com/v1"
@@ -45,20 +60,18 @@ const (
 
 // connectorSettings is the global config decoded from the connector's settings.
 type connectorSettings struct {
-	// Token is the Notion integration token (secret / ntn_...) used to call the
-	// API as an Authorization: Bearer credential.
-	Token string `json:"token"`
-	// NotionVersion sets the Notion-Version header on every request (default
-	// 2025-09-03).
-	NotionVersion string `json:"notionVersion"`
-	// VerificationToken verifies the signature on inbound Notion webhooks. It is
-	// only needed by flows that receive events; the verify block requires it.
-	VerificationToken string `json:"verificationToken"`
+	// Notion integration token used as a Bearer credential for the API.
+	Token string `json:"token" octo:"label=Integration token,required"`
+	// Notion-Version header sent on every request; data_sources query requires
+	// 2025-09-03 or later.
+	NotionVersion string `json:"notionVersion" octo:"label=Notion version,default=2025-09-03"`
+	// Verifies inbound Notion webhook signatures; required to receive events.
+	VerificationToken string `json:"verificationToken" octo:"label=Verification token"`
 	// APIBaseURL overrides the Notion API base (default https://api.notion.com/v1),
-	// mainly so tests can point at a stub server.
+	// mainly so tests can point at a stub server. Not exposed in the editor schema.
 	APIBaseURL string `json:"apiBaseURL"`
-	// Timeout bounds each API call (default 30s).
-	Timeout duration `json:"timeout"`
+	// Bounds each Notion API call.
+	Timeout duration `json:"timeout" octo:"label=Timeout,type=string,default=30s"`
 }
 
 // Connector holds Notion credentials and an HTTP client for the Notion API.

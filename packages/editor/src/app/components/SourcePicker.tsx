@@ -5,8 +5,6 @@ import { Plus } from "lucide-react";
 import { listSources, resolveIcon } from "../schema";
 import { useEditorState, EditorActionType } from "../state/editorState";
 
-const SOURCES = listSources();
-
 /**
  * The "Add source" control for a flow with no source yet: a dashed button that
  * opens a dropdown of every available source type. Picking one attaches it to the
@@ -15,6 +13,9 @@ const SOURCES = listSources();
  */
 export default function SourcePicker({ flowId }: { flowId: string }) {
   const { dispatch } = useEditorState();
+  // Derived on render (not at module load) so a schema injected at boot via
+  // setCapabilities is reflected — a module-level const would freeze the fallback.
+  const sources = listSources();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -53,7 +54,7 @@ export default function SourcePicker({ flowId }: { flowId: string }) {
           onClick={(e) => e.stopPropagation()}
           className="absolute left-1/2 top-full z-20 mt-2 w-60 -translate-x-1/2 overflow-hidden rounded-xl border border-black/10 bg-white py-1 shadow-lg dark:border-white/10 dark:bg-zinc-900"
         >
-          {SOURCES.map(({ connector, connectorLabel, spec }) => (
+          {sources.map(({ connector, connectorLabel, spec }) => (
             <button
               key={`${connector}:${spec.type}`}
               type="button"

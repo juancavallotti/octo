@@ -1,4 +1,5 @@
 import { createOctoMcpHandler, OCTO_MCP_VERSION } from "@octo/mcp";
+import { probeSchema } from "@octo/run-host";
 import {
   CAPABILITIES,
   fromDefinitionYaml,
@@ -32,7 +33,11 @@ const handler = createOctoMcpHandler(
   {
     store: fsIntegrationStore,
     validate,
-    runtimeSchema: CAPABILITIES,
+    // The runtime generates the capability schema (`octo schema`, probed and
+    // cached by @octo/run-host); serve that so MCP reflects exactly what the
+    // bundled binary supports. Falls back to the editor's empty bundled schema
+    // when no runner is configured.
+    runtimeSchema: async () => (await probeSchema()) ?? CAPABILITIES,
     // Stage a run's resources from the flat flows dir; shared across integrations,
     // so the id is ignored (a run with an inline definition still gets them).
     resources: () => fsResourceProvider,

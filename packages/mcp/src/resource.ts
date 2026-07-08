@@ -1,5 +1,5 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { OctoMcpConfig } from "./backend";
+import { resolveRuntimeSchema, type OctoMcpConfig } from "./backend";
 import { EXAMPLES } from "./examples";
 
 /** The URI under which the runtime capability catalogue is published. */
@@ -14,9 +14,9 @@ export function exampleUri(slug: string): string {
 }
 
 /**
- * Publish the runtime capability catalogue (the host's `capabilities.json` from
- * `@octo/editor`) as a read-only resource. A consumer LLM reads this first to learn
- * the valid block and connector types and their settings before authoring a
+ * Publish the runtime capability catalogue as a read-only resource. The schema is
+ * resolved from the runtime (the host generates it from the `octo` binary), so a
+ * consumer LLM reads exactly what the runner supports before authoring a
  * definition with `create_integration`.
  */
 export function registerRuntimeSchemaResource(
@@ -32,12 +32,16 @@ export function registerRuntimeSchemaResource(
         "The catalogue of blocks and connectors the Octo runtime supports, with their configurable fields. Read this before authoring an integration.",
       mimeType: "application/json",
     },
-    (uri) => ({
+    async (uri) => ({
       contents: [
         {
           uri: uri.href,
           mimeType: "application/json",
-          text: JSON.stringify(config.runtimeSchema, null, 2),
+          text: JSON.stringify(
+            await resolveRuntimeSchema(config.runtimeSchema),
+            null,
+            2,
+          ),
         },
       ],
     }),

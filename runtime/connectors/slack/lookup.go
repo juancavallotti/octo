@@ -7,6 +7,7 @@ package slack
 import (
 	"context"
 	"fmt"
+	"reflect"
 
 	"github.com/juancavallotti/octo/core"
 	"github.com/juancavallotti/octo/core/expr"
@@ -15,6 +16,15 @@ import (
 
 func init() {
 	core.MustRegisterBlock("slack-lookup-user", newLookupUser)
+
+	core.RegisterBlockMeta(core.BlockMeta{
+		Type:     "slack-lookup-user",
+		Label:    "Slack Lookup User",
+		Category: core.CategoryProcessor,
+		Description: "Resolve a Slack user into a variable — by email (users.lookupByEmail, the " +
+			"default) or by Slack user id (users.info), selected with `by`.",
+		Config: reflect.TypeFor[lookupSettings](),
+	})
 }
 
 // defaultUserVar names the variable the looked-up user object is stored in.
@@ -28,23 +38,20 @@ const (
 
 // lookupSettings is the slack-lookup-user block's typed configuration.
 type lookupSettings struct {
-	// Connector names the slack connector to look up through (required).
-	Connector string `json:"connector"`
-	// By selects the lookup method: "email" (the default, users.lookupByEmail) or
-	// "id" (users.info).
-	By string `json:"by"`
-	// Email is a CEL expression producing the email address to resolve (required
-	// when By is "email").
-	Email string `json:"email"`
-	// User is a CEL expression producing the Slack user id to resolve (required
-	// when By is "id").
-	User string `json:"user"`
-	// ResultVar names the variable the user object is stored in (default
-	// "slackUser").
-	ResultVar string `json:"resultVar"`
-	// FailOnError, when true (the default), turns a Slack API error (e.g.
-	// users_not_found) into a flow error.
-	FailOnError *bool `json:"failOnError"`
+	// Name of the slack connector to use.
+	Connector string `json:"connector" octo:"label=Connector,required,ref=connector:slack"`
+	// How to resolve the user: 'email' (users.lookupByEmail, the default) or 'id'
+	// (users.info).
+	By string `json:"by" octo:"label=Look up by,type=enum,enum=email|id,default=email"`
+	// CEL expression for the email address to resolve. Required when 'by' is 'email'.
+	Email string `json:"email" octo:"label=Email,type=cel"`
+	// CEL expression for the Slack user id to resolve (e.g. U123). Required when
+	// 'by' is 'id'.
+	User string `json:"user" octo:"label=User ID,type=cel"`
+	// Variable to store the user object in.
+	ResultVar string `json:"resultVar" octo:"label=Result variable,default=slackUser"`
+	// Turn a Slack API error into a flow error.
+	FailOnError *bool `json:"failOnError" octo:"label=Fail on error,default=true"`
 }
 
 // lookupProcessor resolves a user (by email or id) and stores the result. method

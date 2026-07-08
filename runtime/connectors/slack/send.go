@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/juancavallotti/octo/core"
@@ -19,6 +20,14 @@ import (
 
 func init() {
 	core.MustRegisterBlock("slack-send-message", newSendMessage)
+
+	core.RegisterBlockMeta(core.BlockMeta{
+		Type:        "slack-send-message",
+		Label:       "Slack Send Message",
+		Category:    core.CategoryProcessor,
+		Description: "Post a message to a Slack channel or user through a slack connector.",
+		Config:      reflect.TypeFor[sendSettings](),
+	})
 }
 
 const (
@@ -31,22 +40,18 @@ const (
 
 // sendSettings is the slack-send-message block's typed configuration.
 type sendSettings struct {
-	// Connector names the slack connector to send through (required).
-	Connector string `json:"connector"`
-	// Target is a CEL expression producing a channel ID or user ID (required).
-	Target string `json:"target"`
-	// Text is a CEL expression producing the message text. Required unless Blocks
-	// is set.
-	Text string `json:"text"`
-	// ThreadTS is an optional CEL expression producing a parent message ts to
-	// reply in-thread.
-	ThreadTS string `json:"threadTs"`
-	// Blocks is an optional CEL expression producing Slack Block Kit blocks (a
-	// list); when set it is sent alongside text.
-	Blocks string `json:"blocks"`
-	// FailOnError, when true (the default), turns a Slack API error into a flow
-	// error. It is a pointer so an explicit false is distinguishable from unset.
-	FailOnError *bool `json:"failOnError"`
+	// Name of the slack connector to use.
+	Connector string `json:"connector" octo:"label=Connector,required,ref=connector:slack"`
+	// CEL expression for the channel ID or user ID (Slack DMs a user).
+	Target string `json:"target" octo:"label=Target,type=cel,required"`
+	// CEL expression for the message text (required unless blocks is set).
+	Text string `json:"text" octo:"label=Text,type=cel"`
+	// CEL expression for a parent message ts, to reply in-thread.
+	ThreadTS string `json:"threadTs" octo:"label=Thread timestamp,type=cel"`
+	// CEL expression producing Block Kit blocks (a list).
+	Blocks string `json:"blocks" octo:"label=Blocks,type=cel"`
+	// Turn a Slack API error into a flow error.
+	FailOnError *bool `json:"failOnError" octo:"label=Fail on error,default=true"`
 }
 
 // sendProcessor posts a message and folds the result into variables.

@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -21,19 +22,32 @@ import (
 
 func init() {
 	core.MustRegisterBlock("queue-dispatch", newDispatch)
+
+	core.RegisterBlockMeta(core.BlockMeta{
+		Type:     "queue-dispatch",
+		Label:    "Queue Dispatch",
+		Category: core.CategoryProcessor,
+		Group:    "Integration",
+		Icon:     "Send",
+		Description: "Send the message to a platform queue subject to load balance work across " +
+			"replicas. By default it publishes fire-and-forget (one-way); enable Await reply to " +
+			"wait for one consumer's reply and fold it back in (request).",
+		Config: reflect.TypeFor[dispatchSettings](),
+	})
 }
 
 // dispatchSettings is the queue-dispatch block's typed configuration.
 type dispatchSettings struct {
-	// Subject is a CEL expression producing the queue subject to send to (required).
-	Subject string `json:"subject"`
-	// AwaitReply waits for one consumer's reply and folds its body and variables
-	// back into the current message (request). When false (the default) the block
-	// publishes fire-and-forget and returns immediately, ignoring any reply.
-	AwaitReply bool `json:"awaitReply"`
-	// Timeout bounds the wait for a reply when AwaitReply is set; it defaults to the
-	// queue service's request timeout.
-	Timeout duration `json:"timeout"`
+	// CEL expression for the queue subject to send to; enables per-message
+	// routing/sharding.
+	Subject string `json:"subject" octo:"label=Subject,type=cel,required"`
+	// Wait for one consumer's reply and fold its body and variables back in
+	// (request). When false (the default) the message is published fire-and-forget
+	// (one-way).
+	AwaitReply bool `json:"awaitReply" octo:"label=Await reply,default=false"`
+	// How long to wait for a reply when Await reply is set (e.g. 30s); defaults to
+	// the queue service timeout.
+	Timeout duration `json:"timeout" octo:"label=Timeout,type=string"`
 }
 
 // dispatch sends the message to a queue subject. The default is a fire-and-forget

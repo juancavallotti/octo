@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"reflect"
 
 	"github.com/juancavallotti/octo/core"
 	"github.com/juancavallotti/octo/core/expr"
@@ -18,6 +19,15 @@ import (
 
 func init() {
 	core.MustRegisterBlock("notion-retrieve-blocks", newRetrieveBlocks)
+
+	core.RegisterBlockMeta(core.BlockMeta{
+		Type:     "notion-retrieve-blocks",
+		Label:    "Notion Retrieve Blocks",
+		Category: core.CategoryProcessor,
+		Description: "Retrieve a page's (or block's) child blocks (GET /blocks/{id}/children, " +
+			"paginated) as a {results: [...]} object, ready for Notion Page to Markdown.",
+		Config: reflect.TypeFor[retrieveBlocksSettings](),
+	})
 }
 
 const (
@@ -31,17 +41,15 @@ const (
 
 // retrieveBlocksSettings is the notion-retrieve-blocks block's typed configuration.
 type retrieveBlocksSettings struct {
-	// Connector names the notion connector to retrieve through (required).
-	Connector string `json:"connector"`
-	// Block is a CEL expression producing the block (or page) id whose children to
-	// retrieve (required).
-	Block string `json:"block"`
-	// ResultVar, when set, stores the {results: [...]} object in that variable and
-	// leaves the body. When empty the block replaces the body with it.
-	ResultVar string `json:"resultVar"`
-	// FailOnError, when true (the default), turns a Notion API error into a flow
-	// error.
-	FailOnError *bool `json:"failOnError"`
+	// Name of the notion connector to use.
+	Connector string `json:"connector" octo:"label=Connector,required,ref=connector:notion"`
+	// CEL expression for the block or page id whose children to retrieve.
+	Block string `json:"block" octo:"label=Block/Page ID,type=cel,required"`
+	// When set, store the {results: [...]} object here and leave the body; when
+	// empty, replace the body with it.
+	ResultVar string `json:"resultVar" octo:"label=Result variable"`
+	// Turn a Notion API error into a flow error.
+	FailOnError *bool `json:"failOnError" octo:"label=Fail on error,default=true"`
 }
 
 // retrieveBlocksProcessor retrieves a block's children and stores them.
