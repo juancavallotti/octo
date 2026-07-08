@@ -155,9 +155,19 @@ export function useCelCompletion({
     (e: React.KeyboardEvent<HTMLTextAreaElement | HTMLDivElement>) => {
       const ta = e.currentTarget as HTMLTextAreaElement;
       captureTa(ta);
-      // Bracket/quote auto-pairing takes precedence over normal insertion. Enter/Tab
-      // aren't handled by autoPair, so completion accept below still wins for those.
-      const paired = autoPair(value, ta.selectionStart, ta.selectionEnd, e.key);
+      // Bracket/quote auto-pairing takes precedence over normal insertion, but only
+      // inside CEL scope — in a template's prose (outside `{{ }}`) typing a quote in
+      // "don't" must not insert a stray closer. WHOLE_TEXT_SCOPE keeps it always on
+      // for standalone CEL fields. Enter/Tab aren't handled by autoPair, so completion
+      // accept below still wins for those.
+      const region = scope(value, ta.selectionStart);
+      const inScope =
+        !!region &&
+        ta.selectionStart >= region.start &&
+        ta.selectionEnd <= region.end;
+      const paired = inScope
+        ? autoPair(value, ta.selectionStart, ta.selectionEnd, e.key)
+        : null;
       if (paired) {
         e.preventDefault();
         pendingCaret.current = paired.caret;
@@ -196,7 +206,7 @@ export function useCelCompletion({
         refresh(value, ta.selectionStart, true);
       }
     },
-    [menu, selected, accept, refresh, value, onChange, captureTa],
+    [menu, selected, accept, refresh, value, onChange, captureTa, scope],
   );
 
   const onKeyUp = useCallback(
