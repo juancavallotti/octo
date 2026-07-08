@@ -1,5 +1,65 @@
 # Changelog
 
+## [0.3.6](https://github.com/juancavallotti/octo/compare/v0.3.5...v0.3.6) (2026-07-08)
+
+
+### Features
+
+* **cli:** add `octo schema` to emit the editor capability schema ([7f3b09a](https://github.com/juancavallotti/octo/commit/7f3b09a498e8ac50db45452fd4bcb22301c23d6f))
+* **editor:** add CEL catalog, Prism grammar, and token theming ([42553b7](https://github.com/juancavallotti/octo/commit/42553b738d7bb8f89af91280f25e995e603d00b6))
+* **editor:** add the notion connector and blocks to the schema ([34e12c6](https://github.com/juancavallotti/octo/commit/34e12c6e72efd4b59450841a88657f6b2765660e))
+* **editor:** CEL autocomplete + highlighting for cel fields ([#125](https://github.com/juancavallotti/octo/issues/125)) ([8cde742](https://github.com/juancavallotti/octo/commit/8cde742a00c713da4275440c5cf85a67c0d36898))
+* **editor:** CEL highlighting + autocomplete inside {{ }} templates ([#125](https://github.com/juancavallotti/octo/issues/125)) ([3f3af21](https://github.com/juancavallotti/octo/commit/3f3af21a7f665561d6a479a5dffb09e07aad88cd))
+* **editor:** CEL highlighting, autocomplete & tester ([#125](https://github.com/juancavallotti/octo/issues/125)) ([e194c8e](https://github.com/juancavallotti/octo/commit/e194c8ed55e91598d73b2a20b970f76913644c88))
+* **editor:** CEL tester enhancements — JSON highlighting, sample/receiver completion, auto-pairing ([#125](https://github.com/juancavallotti/octo/issues/125)) ([cbbed2a](https://github.com/juancavallotti/octo/commit/cbbed2af5f66a2773f8542c1a3d6ff974cde6da9))
+* **editor:** CEL tester popup on the settings panel header ([#125](https://github.com/juancavallotti/octo/issues/125)) ([4567f97](https://github.com/juancavallotti/octo/commit/4567f97c74102578fac8ecc9cc703f535e8775c4))
+* **editor:** drive capabilities from the runtime-generated schema ([2168c8c](https://github.com/juancavallotti/octo/commit/2168c8ce83803005d8f3a5dc05904374ce2548dc))
+* **editor:** plumb one-shot CEL evaluation through the run transport ([6f17d3b](https://github.com/juancavallotti/octo/commit/6f17d3b5199c1f61610024c5e9baf7c32af4733a))
+* **mcp:** serve the runtime schema from the binary ([cf60994](https://github.com/juancavallotti/octo/commit/cf60994d86f1cccf9a0d55b1c44fefc279f4488d))
+* **notion:** add a block to retrieve page content blocks ([5b09e4c](https://github.com/juancavallotti/octo/commit/5b09e4c78848dc29b5063a667bb302c18cf32226))
+* **notion:** add a Notion connector ([2f2844b](https://github.com/juancavallotti/octo/commit/2f2844b0a6935f1fef7312894b3212bd63f2abe4))
+* **notion:** add retrieve-page and query-datasource blocks ([153fde9](https://github.com/juancavallotti/octo/commit/153fde9338abacb74ba772b0260485baac1483e4))
+* **notion:** add the notion connector core to the runtime ([e2904a0](https://github.com/juancavallotti/octo/commit/e2904a03bcb96e4eb35576bc0c8ae81257611bb7))
+* **notion:** add the page-to-markdown transformer block ([c6d7ab3](https://github.com/juancavallotti/octo/commit/c6d7ab3560b32d76f6b0276361a0b9dec782e627))
+* **notion:** add webhook verify and event blocks ([447f776](https://github.com/juancavallotti/octo/commit/447f776b67f0755eae024c3dc484a2ff5afbd33f))
+* **notion:** query a data source by database id ([c30abb9](https://github.com/juancavallotti/octo/commit/c30abb9a820fc17591eb320a37d11ff890397433))
+* **schema:** add block/connector metadata registry in core ([c401e82](https://github.com/juancavallotti/octo/commit/c401e827eac423b0ef0118cdb97a24e8af5ee199))
+* **schema:** add the capability-schema generator and octo tag walker ([f6d154d](https://github.com/juancavallotti/octo/commit/f6d154dadd0b56d8944b8f5436b883715f3f8a34))
+* **schema:** describe logger, database, and the platform connectors from Go ([f597b60](https://github.com/juancavallotti/octo/commit/f597b60de6ff57e5e0b02cdf1df6a8a1e3267f8a))
+* **schema:** describe the control-flow composites from Go ([60052b3](https://github.com/juancavallotti/octo/commit/60052b35e0a7a7039be6b7913c0b86b42b5e2db0))
+* **schema:** describe the engine leaf blocks from Go ([2c2fd4f](https://github.com/juancavallotti/octo/commit/2c2fd4fde30716ae0e83efb52210a8c0aad8f808))
+* **schema:** describe the http connector and its route source from Go ([2b7d746](https://github.com/juancavallotti/octo/commit/2b7d746d89329971f5c3b6581e58eb5ff3301282))
+* **schema:** describe the http-client connector and rest block from Go ([42712d1](https://github.com/juancavallotti/octo/commit/42712d1c8cb4024fbe9b5aa7ebec4cb8610954c6))
+* **schema:** describe the if composite via a schema-only meta struct ([61ae007](https://github.com/juancavallotti/octo/commit/61ae00734a05b70ecc1cf6d7ccedae9f815865f5))
+* **schema:** describe the LLM connectors, ai-mapping, and jwt-validate from Go ([0f237a7](https://github.com/juancavallotti/octo/commit/0f237a7e1a8b8b0aa5562f37281d805bb5c14b17))
+* **schema:** describe the notion connector and its blocks from Go ([a349b22](https://github.com/juancavallotti/octo/commit/a349b222a4b1bcadf912c5819635d4501873865d))
+* **schema:** describe the set-payload block from Go ([04fae8f](https://github.com/juancavallotti/octo/commit/04fae8f00dca729bb2a3f739857308f77016f883))
+* **schema:** describe the slack connector and its blocks from Go ([c7dedfa](https://github.com/juancavallotti/octo/commit/c7dedfa9d98623ee1f3b79000a67d54b5d9a5c5e))
+* **schema:** fill field descriptions from Go doc comments ([683c810](https://github.com/juancavallotti/octo/commit/683c8108566d362cd738634ac8106c2c1644a107))
+* **schema:** generate the editor capability schema from the Go runtime ([0cbcfd5](https://github.com/juancavallotti/octo/commit/0cbcfd514d35c1c1598ce69591973a9cd12f26e1))
+
+
+### Bug Fixes
+
+* **cli:** reword schema comment so it isn't read as a go:generate directive ([d6b9acd](https://github.com/juancavallotti/octo/commit/d6b9acdbe7f7e6e1c8b99771df00f93f4ac8dd72))
+* **editor:** keep the selected CEL completion visible and steady during keyboard nav ([c6482f6](https://github.com/juancavallotti/octo/commit/c6482f6cde2d630507aef01642c8f3d2e925b814))
+* **editor:** only auto-pair brackets/quotes inside CEL scope ([aca8817](https://github.com/juancavallotti/octo/commit/aca88173dcaec2c587f30cfef533e71f1c4b4cdc))
+* **editor:** render CEL completion menu in a portal so overflow can't clip it ([f3cf8a6](https://github.com/juancavallotti/octo/commit/f3cf8a64c820742373004bee015f10e6749d1836))
+* **editor:** suppress CEL autocomplete inside string literals ([3c011a7](https://github.com/juancavallotti/octo/commit/3c011a793deafe713b8d3b1ad66affc8ef8a53fd))
+* **notion:** normalize the Notion-Version header ([3cb4470](https://github.com/juancavallotti/octo/commit/3cb44706935b6bec2f122184cda144106412dc0d))
+* **platform:** inject the runtime capability schema into the editor ([3080c98](https://github.com/juancavallotti/octo/commit/3080c98b6588ad9d9061f1513d4c9d594b1b8cf9))
+
+
+### Refactoring
+
+* **editor:** ship an empty capability schema, generate the real one ([6df3e5b](https://github.com/juancavallotti/octo/commit/6df3e5b1baf3c8cc4b8ce6bdb3ee6f018a11fab7))
+
+
+### Documentation
+
+* **notion:** add a sample, mcp example, and connector docs ([efde49e](https://github.com/juancavallotti/octo/commit/efde49ec61d706e104bff09c864e2fcd9f5dff3e))
+* **notion:** render page content by fetching its blocks first ([1d74816](https://github.com/juancavallotti/octo/commit/1d74816de22e19fdce952aa7b0455312df88c6a4))
+
 ## [0.3.5](https://github.com/juancavallotti/octo/compare/v0.3.4...v0.3.5) (2026-07-06)
 
 
