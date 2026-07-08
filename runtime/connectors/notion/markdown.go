@@ -23,7 +23,7 @@ func init() {
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:     "notion-page-to-markdown",
 		Label:    "Notion Page to Markdown",
-		Category: "processor",
+		Category: core.CategoryProcessor,
 		Description: "Render a Notion blocks array (as returned under results by the block-children " +
 			"endpoint) into markdown. Emits raw content, or stores the markdown in a variable.",
 		Config: reflect.TypeFor[markdownSettings](),

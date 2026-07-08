@@ -27,7 +27,7 @@ func init() {
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:     "slack-verify-request",
 		Label:    "Slack Verify Request",
-		Category: "processor",
+		Category: core.CategoryProcessor,
 		Description: "Verify an inbound Slack request signature and answer the URL-verification " +
 			"challenge.",
 		Config: reflect.TypeFor[verifySettings](),

@@ -20,7 +20,7 @@ func init() {
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:        "flow-ref",
 		Label:       "Flow Reference",
-		Category:    "processor",
+		Category:    core.CategoryProcessor,
 		Group:       "Integration",
 		Icon:        "Webhook",
 		Description: "Invoke another flow by name.",

@@ -20,7 +20,7 @@ func init() {
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:     "slack-lookup-user",
 		Label:    "Slack Lookup User",
-		Category: "processor",
+		Category: core.CategoryProcessor,
 		Description: "Resolve a Slack user into a variable — by email (users.lookupByEmail, the " +
 			"default) or by Slack user id (users.info), selected with `by`.",
 		Config: reflect.TypeFor[lookupSettings](),

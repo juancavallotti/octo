@@ -24,8 +24,8 @@ func init() {
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:        "set-payload",
 		Label:       "Set Payload",
-		Category:    "processor",
-		Group:       "Data",
+		Category:    core.CategoryProcessor,
+		Group:       groupData,
 		Icon:        "Wand2",
 		Description: "Replace the message body with the result of a CEL expression.",
 		Config:      reflect.TypeFor[setPayloadSettings](),
@@ -33,8 +33,8 @@ func init() {
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:        "set-variable",
 		Label:       "Set Variable",
-		Category:    "processor",
-		Group:       "Data",
+		Category:    core.CategoryProcessor,
+		Group:       groupData,
 		Icon:        "Variable",
 		Description: "Store the result of a CEL expression in a named variable.",
 		Config:      reflect.TypeFor[setVariableSettings](),
@@ -42,8 +42,8 @@ func init() {
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:        "delete-variable",
 		Label:       "Delete Variable",
-		Category:    "processor",
-		Group:       "Data",
+		Category:    core.CategoryProcessor,
+		Group:       groupData,
 		Icon:        "Trash2",
 		Description: "Remove a named variable from the message.",
 		Config:      reflect.TypeFor[deleteVariableSettings](),

@@ -23,8 +23,8 @@ func init() {
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:     "multi-transform",
 		Label:    "Multi Transform",
-		Category: "processor",
-		Group:    "Data",
+		Category: core.CategoryProcessor,
+		Group:    groupData,
 		Icon:     "Layers",
 		Description: "Apply an ordered list of additive CEL edits in one block. Each step sets " +
 			"the body (setBody) or a variable (setVar/value); the edits accumulate, so a later " +

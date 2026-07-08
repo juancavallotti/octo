@@ -13,12 +13,22 @@ import (
 	"github.com/juancavallotti/octo/core"
 )
 
-func init() {
+// Palette groups the engine's blocks fall under in the editor sidebar.
+const (
+	groupFlowControl  = "Flow Control"
+	groupAILLM        = "AI & LLM"
+	groupStorageCache = "Storage & Cache"
+	groupData         = "Data"
+)
+
+// registerFlowControlComposites registers the plain control-flow composites
+// (branching, iteration, error handling) under the "Flow Control" group.
+func registerFlowControlComposites() {
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:        "handle-errors",
 		Label:       "Handle Errors",
-		Category:    "control-flow",
-		Group:       "Flow Control",
+		Category:    core.CategoryControlFlow,
+		Group:       groupFlowControl,
 		Icon:        "ShieldAlert",
 		Description: "Run the process chain; on error, expose vars.error and run the error chain (recovery).",
 		Config:      reflect.TypeFor[handleErrorsMeta](),
@@ -26,8 +36,8 @@ func init() {
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:        "fork",
 		Label:       "Fork",
-		Category:    "control-flow",
-		Group:       "Flow Control",
+		Category:    core.CategoryControlFlow,
+		Group:       groupFlowControl,
 		Icon:        "GitFork",
 		Description: "Scatter the message across parallel branches, then join and pass through.",
 		Config:      reflect.TypeFor[forkMeta](),
@@ -35,8 +45,8 @@ func init() {
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:        "if",
 		Label:       "If",
-		Category:    "control-flow",
-		Group:       "Flow Control",
+		Category:    core.CategoryControlFlow,
+		Group:       groupFlowControl,
 		Icon:        "Split",
 		Description: "Conditional branching on a CEL boolean expression.",
 		Config:      reflect.TypeFor[ifMeta](),
@@ -44,17 +54,22 @@ func init() {
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:        "switch",
 		Label:       "Switch",
-		Category:    "control-flow",
-		Group:       "Flow Control",
+		Category:    core.CategoryControlFlow,
+		Group:       groupFlowControl,
 		Icon:        "Split",
 		Description: "Multi-case routing; runs the first matching case or the default.",
 		Config:      reflect.TypeFor[switchMeta](),
 	})
+}
+
+// registerIterationComposites registers the iteration and filter composites,
+// also under the "Flow Control" group.
+func registerIterationComposites() {
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:        "foreach",
 		Label:       "For Each",
-		Category:    "control-flow",
-		Group:       "Flow Control",
+		Category:    core.CategoryControlFlow,
+		Group:       groupFlowControl,
 		Icon:        "Repeat",
 		Description: "Sequentially iterate over an array, running the body per element.",
 		Config:      reflect.TypeFor[foreachMeta](),
@@ -62,8 +77,8 @@ func init() {
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:     "enrich",
 		Label:    "Enrich",
-		Category: "control-flow",
-		Group:    "Flow Control",
+		Category: core.CategoryControlFlow,
+		Group:    groupFlowControl,
 		Icon:     "Sparkles",
 		Description: "Run a body flow on an isolated copy of the message, then enrich the message " +
 			"from the result: a CEL expression for the body and a CEL expression per variable.",
@@ -72,8 +87,8 @@ func init() {
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:     "validate",
 		Label:    "Validate",
-		Category: "control-flow",
-		Group:    "Flow Control",
+		Category: core.CategoryControlFlow,
+		Group:    groupFlowControl,
 		Icon:     "ShieldCheck",
 		Description: "Filter block: assert a list of CEL rules against the message. If all hold, the " +
 			"message passes through; if any fail, the block rejects — running the onReject sub-flow " +
@@ -81,11 +96,16 @@ func init() {
 			"Failing rule messages are exposed as vars.validationErrors.",
 		Config: reflect.TypeFor[validateMeta](),
 	})
+}
+
+// registerAIComposites registers the LLM-driven composites under the "AI & LLM"
+// group.
+func registerAIComposites() {
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:     "ai-retry",
 		Label:    "AI Retry",
-		Category: "control-flow",
-		Group:    "AI & LLM",
+		Category: core.CategoryControlFlow,
+		Group:    groupAILLM,
 		Icon:     "RefreshCw",
 		Description: "Run the process chain; on error, let the LLM inspect vars.error, revise the " +
 			"message, and retry up to maxAttempts, then run the error chain.",
@@ -94,8 +114,8 @@ func init() {
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:     "ai-router",
 		Label:    "AI Router",
-		Category: "control-flow",
-		Group:    "AI & LLM",
+		Category: core.CategoryControlFlow,
+		Group:    groupAILLM,
 		Icon:     "Route",
 		Description: "Route the message to a named branch the LLM chooses after inspecting it; the " +
 			"default path is the guardrail taken when it is not confident.",
@@ -104,8 +124,8 @@ func init() {
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:     "ai-agent",
 		Label:    "AI Agent",
-		Category: "control-flow",
-		Group:    "AI & LLM",
+		Category: core.CategoryControlFlow,
+		Group:    groupAILLM,
 		Icon:     "Bot",
 		Description: "Let the LLM call branches as tools in a loop to accomplish a task; tool runs " +
 			"share accumulating variables. The default path is the guardrail.",
@@ -114,19 +134,25 @@ func init() {
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:     "mcp-router",
 		Label:    "MCP Router",
-		Category: "control-flow",
-		Group:    "AI & LLM",
+		Category: core.CategoryControlFlow,
+		Group:    groupAILLM,
 		Icon:     "Mcp",
 		Description: "Turn a flow into a stateless MCP server behind an HTTP source: advertise tool " +
 			"flows as MCP tools, template resources as MCP resources and prompts, and route " +
 			"tools/call to the matching flow. Calls no LLM.",
 		Config: reflect.TypeFor[mcpRouterMeta](),
 	})
+}
+
+func init() {
+	registerFlowControlComposites()
+	registerIterationComposites()
+	registerAIComposites()
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:        "cache-scope",
 		Label:       "Cache",
-		Category:    "control-flow",
-		Group:       "Storage & Cache",
+		Category:    core.CategoryControlFlow,
+		Group:       groupStorageCache,
 		Icon:        "Clock",
 		Description: "Memoize the body flow's result in the runtime store, keyed by a CEL expression.",
 		Config:      reflect.TypeFor[cacheScopeMeta](),
@@ -250,6 +276,7 @@ type aiAgentMeta struct {
 	MemoryMaxTokens int `json:"memoryMaxTokens" octo:"label=Memory max tokens,default=8000"`
 	// How to shrink memory over budget: prune drops the oldest turns; summarize
 	// folds them into a running summary.
+	//nolint:lll // the enum tag (options + default) is inherently longer than 120 cols
 	MemoryCompaction string `json:"memoryCompaction" octo:"label=Memory compaction,type=enum,enum=prune|summarize,default=prune"`
 	// Named, described branches wired to the model as callable functions.
 	Tools *struct{} `json:"tools" octo:"label=Tools,type=tool-list,required"`

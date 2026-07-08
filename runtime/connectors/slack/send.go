@@ -24,7 +24,7 @@ func init() {
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:        "slack-send-message",
 		Label:       "Slack Send Message",
-		Category:    "processor",
+		Category:    core.CategoryProcessor,
 		Description: "Post a message to a Slack channel or user through a slack connector.",
 		Config:      reflect.TypeFor[sendSettings](),
 	})

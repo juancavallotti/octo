@@ -25,6 +25,15 @@ import (
 	"sync"
 )
 
+// Block categories. A block is either a plain processor step or a control-flow
+// composite; these are the only two valid BlockMeta.Category values. They are
+// exported so every registering package names them by constant rather than by a
+// repeated string literal.
+const (
+	CategoryProcessor   = "processor"
+	CategoryControlFlow = "control-flow"
+)
+
 // BlockMeta is the editor-facing description of a block. Type must match the name
 // passed to MustRegisterBlock. Category is "processor" or "control-flow". Group
 // and Icon fall back to the registering package's ExtensionMeta when empty.

@@ -77,19 +77,19 @@ func TestOverlayFillsAndRespectsPrecedence(t *testing.T) {
 	}
 	overlay(fields, typ, docs)
 
-	if v, _ := fieldByName(fields, "value"); v.Description != "Value desc" {
+	if v := fieldByName(fields, "value"); v.Description != "Value desc" {
 		t.Errorf("value description = %q", v.Description)
 	}
 	// An octo desc= clause wins over the doc map.
-	if tg, _ := fieldByName(fields, "tagged"); tg.Description != "from the tag" {
+	if tg := fieldByName(fields, "tagged"); tg.Description != "from the tag" {
 		t.Errorf("tagged description = %q, want %q", tg.Description, "from the tag")
 	}
 	// Nested object sub-fields are filled by recursion.
-	if a, _ := fieldByName(fields, "auth"); len(a.Fields) != 1 || a.Fields[0].Description != "Token desc" {
+	if a := fieldByName(fields, "auth"); len(a.Fields) != 1 || a.Fields[0].Description != "Token desc" {
 		t.Errorf("nested token description = %+v", a.Fields)
 	}
 	// A field with no doc-map entry keeps an empty description.
-	if p, _ := fieldByName(fields, "plain"); p.Description != "" {
+	if p := fieldByName(fields, "plain"); p.Description != "" {
 		t.Errorf("plain description = %q, want empty", p.Description)
 	}
 }
@@ -98,7 +98,7 @@ func TestApplyDescriptionsMissingDirIsNoop(t *testing.T) {
 	typ := reflect.TypeOf(descOverlaySample{})
 	fields, _ := fieldsOf(typ)
 	applyDescriptions(fields, "/no/such/dir", typ) // must not panic
-	if v, _ := fieldByName(fields, "value"); v.Description != "" {
+	if v := fieldByName(fields, "value"); v.Description != "" {
 		t.Errorf("expected no description without source, got %q", v.Description)
 	}
 }

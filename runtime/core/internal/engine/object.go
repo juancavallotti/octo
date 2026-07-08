@@ -35,8 +35,8 @@ func init() {
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:     "object-read",
 		Label:    "Object Read",
-		Category: "processor",
-		Group:    "Storage & Cache",
+		Category: core.CategoryProcessor,
+		Group:    groupStorageCache,
 		Icon:     "HardDriveDownload",
 		Description: "Read an object from the runtime store into the body or a variable. When the " +
 			"key is absent and `default` is set, the default is folded in exactly like a hit; " +
@@ -47,8 +47,8 @@ func init() {
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:        "object-write",
 		Label:       "Object Write",
-		Category:    "processor",
-		Group:       "Storage & Cache",
+		Category:    core.CategoryProcessor,
+		Group:       groupStorageCache,
 		Icon:        "HardDriveUpload",
 		Description: "Write an object to the runtime store under a key.",
 		Config:      reflect.TypeFor[objectWriteSettings](),
@@ -56,8 +56,8 @@ func init() {
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:        "object-delete",
 		Label:       "Object Delete",
-		Category:    "processor",
-		Group:       "Storage & Cache",
+		Category:    core.CategoryProcessor,
+		Group:       groupStorageCache,
 		Icon:        "Trash2",
 		Description: "Delete an object from the runtime store by key.",
 		Config:      reflect.TypeFor[objectDeleteSettings](),

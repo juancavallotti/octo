@@ -28,7 +28,7 @@ func init() {
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:        "sql",
 		Label:       "SQL",
-		Category:    "processor",
+		Category:    core.CategoryProcessor,
 		Description: "Execute a SQL statement against a database connector.",
 		Config:      reflect.TypeFor[sqlSettings](),
 	})

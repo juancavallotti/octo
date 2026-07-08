@@ -35,14 +35,18 @@ func init() {
 
 	// Package-level editor defaults: the slack connector and every slack-* block
 	// share the Slack palette group and icon unless they set their own.
-	core.RegisterExtension(core.ExtensionMeta{Group: "Slack", Icon: "Slack"})
+	core.RegisterExtension(core.ExtensionMeta{Group: displayName, Icon: displayName})
 
 	core.RegisterConnectorMeta(core.ConnectorMeta{
 		Type:     "slack",
-		Label:    "Slack",
+		Label:    displayName,
 		Settings: reflect.TypeFor[connectorSettings](),
 	})
 }
+
+// displayName is the editor-facing label, palette group, and icon for the slack
+// connector and its blocks.
+const displayName = "Slack"
 
 const (
 	defaultAPIBaseURL = "https://slack.com/api"

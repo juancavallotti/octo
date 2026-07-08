@@ -34,8 +34,8 @@ func init() {
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:        "invalidate-cache",
 		Label:       "Invalidate Cache",
-		Category:    "processor",
-		Group:       "Storage & Cache",
+		Category:    core.CategoryProcessor,
+		Group:       groupStorageCache,
 		Icon:        "Eraser",
 		Description: "Evict a cache-scope entry by its key so the next run recomputes.",
 		Config:      reflect.TypeFor[invalidateCacheSettings](),

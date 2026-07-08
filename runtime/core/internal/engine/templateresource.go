@@ -17,8 +17,8 @@ func init() {
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:     "template-resource",
 		Label:    "Template Resource",
-		Category: "processor",
-		Group:    "Data",
+		Category: core.CategoryProcessor,
+		Group:    groupData,
 		Icon:     "FileText",
 		Description: "Render a declared template resource against the current message. Writes the " +
 			"rendered text to the message body by default, or to a variable when a target is set. " +

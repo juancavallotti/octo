@@ -24,13 +24,13 @@ type walkerSample struct {
 	Excluded string            `json:"-" octo:"label=Excluded"` // json:"-" -> excluded
 }
 
-func fieldByName(fields []Field, name string) (Field, bool) {
+func fieldByName(fields []Field, name string) Field {
 	for _, f := range fields {
 		if f.Name == name {
-			return f, true
+			return f
 		}
 	}
-	return Field{}, false
+	return Field{}
 }
 
 func TestFieldsOfCoversEveryPath(t *testing.T) {
@@ -49,34 +49,34 @@ func TestFieldsOfCoversEveryPath(t *testing.T) {
 		t.Fatalf("field set/order = %v, want %v", gotNames, wantNames)
 	}
 
-	str, _ := fieldByName(fields, "str")
+	str := fieldByName(fields, "str")
 	if str.Type != "string" || !str.Required {
 		t.Errorf("str: got type=%q required=%v", str.Type, str.Required)
 	}
-	if expr, _ := fieldByName(fields, "expr"); expr.Type != "cel" {
+	if expr := fieldByName(fields, "expr"); expr.Type != "cel" {
 		t.Errorf("expr: explicit type override not applied: %q", expr.Type)
 	}
-	if num, _ := fieldByName(fields, "num"); num.Type != "number" || num.Default != int64(5) {
+	if num := fieldByName(fields, "num"); num.Type != "number" || num.Default != int64(5) {
 		t.Errorf("num: got type=%q default=%v(%T)", num.Type, num.Default, num.Default)
 	}
-	if flag, _ := fieldByName(fields, "flag"); flag.Type != "boolean" || flag.Default != true {
+	if flag := fieldByName(fields, "flag"); flag.Type != "boolean" || flag.Default != true {
 		t.Errorf("flag: got type=%q default=%v", flag.Type, flag.Default)
 	}
-	if ptr, _ := fieldByName(fields, "ptr"); ptr.Type != "boolean" || ptr.Default != false {
+	if ptr := fieldByName(fields, "ptr"); ptr.Type != "boolean" || ptr.Default != false {
 		t.Errorf("ptr (*bool): got type=%q default=%v", ptr.Type, ptr.Default)
 	}
-	if tags, _ := fieldByName(fields, "tags"); tags.Type != "string-list" {
+	if tags := fieldByName(fields, "tags"); tags.Type != "string-list" {
 		t.Errorf("tags: inferred type = %q, want string-list", tags.Type)
 	}
-	if h, _ := fieldByName(fields, "headers"); h.Type != "string-map" {
+	if h := fieldByName(fields, "headers"); h.Type != "string-map" {
 		t.Errorf("headers: inferred type = %q, want string-map", h.Type)
 	}
-	conn, _ := fieldByName(fields, "conn")
+	conn := fieldByName(fields, "conn")
 	if conn.Ref == nil || conn.Ref.Kind != "connector" || conn.Ref.ConnectorType != "http-client" {
 		t.Errorf("conn: ref = %+v", conn.Ref)
 	}
 
-	auth, _ := fieldByName(fields, "auth")
+	auth := fieldByName(fields, "auth")
 	if auth.Type != "object" || len(auth.Fields) != 2 {
 		t.Fatalf("auth: type=%q, nested fields=%d", auth.Type, len(auth.Fields))
 	}

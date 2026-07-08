@@ -21,7 +21,7 @@ func init() {
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:     "notion-retrieve-page",
 		Label:    "Notion Retrieve Page",
-		Category: "processor",
+		Category: core.CategoryProcessor,
 		Description: "Retrieve a Notion page object by id through a notion connector and store it " +
 			"in a variable.",
 		Config: reflect.TypeFor[retrieveSettings](),

@@ -21,57 +21,70 @@ func fieldsOf(t reflect.Type) ([]Field, error) {
 	}
 	out := make([]Field, 0, t.NumField())
 	for i := 0; i < t.NumField(); i++ {
-		sf := t.Field(i)
-		octo := sf.Tag.Get("octo")
-		if strings.TrimSpace(octo) == "" {
-			continue // opt-in: untagged fields are not part of the schema
-		}
-		if sf.Anonymous {
-			return nil, fmt.Errorf("anonymous field %s carries an octo tag; flattening is unsupported", sf.Name)
-		}
-		name := jsonName(sf)
-		if name == "-" {
-			continue
-		}
-		ft, err := parseOctoTag(octo)
+		field, include, err := fieldOf(t.Field(i))
 		if err != nil {
-			return nil, fmt.Errorf("field %s: %w", sf.Name, err)
+			return nil, err
 		}
-		ftype, err := resolveType(ft.typ, sf.Type)
-		if err != nil {
-			return nil, fmt.Errorf("field %s: %w", sf.Name, err)
+		if include {
+			out = append(out, field)
 		}
-
-		field := Field{
-			Name:        name,
-			Label:       ft.label,
-			Type:        ftype,
-			Required:    ft.required,
-			Enum:        ft.enum,
-			Description: ft.desc,
-			Ref:         ft.ref,
-			ShowIf:      ft.showIf,
-		}
-		if field.Label == "" {
-			field.Label = humanize(name)
-		}
-		if ft.hasDefault {
-			def, derr := typedDefault(ft.defaultRaw, ftype)
-			if derr != nil {
-				return nil, fmt.Errorf("field %s: %w", sf.Name, derr)
-			}
-			field.Default = def
-		}
-		if ftype == "object" {
-			nested, nerr := fieldsOf(sf.Type)
-			if nerr != nil {
-				return nil, fmt.Errorf("field %s: %w", sf.Name, nerr)
-			}
-			field.Fields = nested
-		}
-		out = append(out, field)
 	}
 	return out, nil
+}
+
+// fieldOf reflects a single struct field into a Field spec. include is false when
+// the field opts out of the schema (untagged, or json:"-"); the returned Field is
+// then meaningless. An anonymous tagged field, a malformed tag, or an uninferable
+// type is an error.
+func fieldOf(sf reflect.StructField) (Field, bool, error) {
+	octo := sf.Tag.Get("octo")
+	if strings.TrimSpace(octo) == "" {
+		return Field{}, false, nil // opt-in: untagged fields are not part of the schema
+	}
+	if sf.Anonymous {
+		return Field{}, false, fmt.Errorf("anonymous field %s carries an octo tag; flattening is unsupported", sf.Name)
+	}
+	name := jsonName(sf)
+	if name == "-" {
+		return Field{}, false, nil
+	}
+	ft, err := parseOctoTag(octo)
+	if err != nil {
+		return Field{}, false, fmt.Errorf("field %s: %w", sf.Name, err)
+	}
+	ftype, err := resolveType(ft.typ, sf.Type)
+	if err != nil {
+		return Field{}, false, fmt.Errorf("field %s: %w", sf.Name, err)
+	}
+
+	field := Field{
+		Name:        name,
+		Label:       ft.label,
+		Type:        ftype,
+		Required:    ft.required,
+		Enum:        ft.enum,
+		Description: ft.desc,
+		Ref:         ft.ref,
+		ShowIf:      ft.showIf,
+	}
+	if field.Label == "" {
+		field.Label = humanize(name)
+	}
+	if ft.hasDefault {
+		def, derr := typedDefault(ft.defaultRaw, ftype)
+		if derr != nil {
+			return Field{}, false, fmt.Errorf("field %s: %w", sf.Name, derr)
+		}
+		field.Default = def
+	}
+	if ftype == TypeObject {
+		nested, nerr := fieldsOf(sf.Type)
+		if nerr != nil {
+			return Field{}, false, fmt.Errorf("field %s: %w", sf.Name, nerr)
+		}
+		field.Fields = nested
+	}
+	return field, true, nil
 }
 
 // jsonName returns the field's serialized name from its json tag (first
@@ -112,13 +125,13 @@ func inferType(t reflect.Type) (FieldType, error) {
 	}
 	switch t.Kind() {
 	case reflect.Bool:
-		return "boolean", nil
+		return TypeBoolean, nil
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
 		reflect.Float32, reflect.Float64:
-		return "number", nil
+		return TypeNumber, nil
 	case reflect.String:
-		return "string", nil
+		return TypeString, nil
 	case reflect.Slice:
 		if t.Elem().Kind() == reflect.String {
 			return "string-list", nil
@@ -128,7 +141,7 @@ func inferType(t reflect.Type) (FieldType, error) {
 			return "string-map", nil
 		}
 	case reflect.Struct:
-		return "object", nil
+		return TypeObject, nil
 	}
 	return "", fmt.Errorf("cannot infer a field type from Go type %s; add an explicit octo type=", t)
 }
@@ -139,13 +152,13 @@ func inferType(t reflect.Type) (FieldType, error) {
 // keeps its "30s" form rather than failing to parse as a number.
 func typedDefault(raw string, ftype FieldType) (any, error) {
 	switch ftype {
-	case "boolean":
+	case TypeBoolean:
 		b, err := strconv.ParseBool(raw)
 		if err != nil {
 			return nil, fmt.Errorf("default %q is not a boolean: %w", raw, err)
 		}
 		return b, nil
-	case "number":
+	case TypeNumber:
 		if i, err := strconv.ParseInt(raw, 10, 64); err == nil {
 			return i, nil
 		}

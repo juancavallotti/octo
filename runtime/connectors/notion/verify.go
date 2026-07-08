@@ -25,7 +25,7 @@ func init() {
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:     "notion-verify-request",
 		Label:    "Notion Verify Request",
-		Category: "processor",
+		Category: core.CategoryProcessor,
 		Description: "Verify an inbound Notion webhook signature and capture the one-time " +
 			"subscription handshake token.",
 		Config: reflect.TypeFor[verifySettings](),

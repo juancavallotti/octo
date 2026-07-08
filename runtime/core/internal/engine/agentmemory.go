@@ -47,8 +47,8 @@ func init() {
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:        "clear-agent-memory",
 		Label:       "Clear Agent Memory",
-		Category:    "processor",
-		Group:       "AI & LLM",
+		Category:    core.CategoryProcessor,
+		Group:       groupAILLM,
 		Icon:        "BrainCog",
 		Description: "Erase an ai-agent conversation thread's stored memory by its thread id.",
 		Config:      reflect.TypeFor[clearAgentMemorySettings](),

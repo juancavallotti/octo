@@ -19,7 +19,7 @@ func init() {
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:        "slack-add-reaction",
 		Label:       "Slack Add Reaction",
-		Category:    "processor",
+		Category:    core.CategoryProcessor,
 		Description: "Add an emoji reaction to a message (reactions.add).",
 		Config:      reflect.TypeFor[reactionSettings](),
 	})

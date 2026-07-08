@@ -58,7 +58,7 @@ func overlay(fields []Field, t reflect.Type, docs map[string]map[string]string) 
 				fields[idx].Description = doc
 			}
 		}
-		if fields[idx].Type == "object" {
+		if fields[idx].Type == TypeObject {
 			overlay(fields[idx].Fields, sf.Type, docs)
 		}
 	}

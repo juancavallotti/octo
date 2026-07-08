@@ -32,7 +32,7 @@ func init() {
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:        "rest",
 		Label:       "REST Call",
-		Category:    "processor",
+		Category:    core.CategoryProcessor,
 		Description: "Make an HTTP request through an http-client connector.",
 		Config:      reflect.TypeFor[restSettings](),
 	})

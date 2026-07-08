@@ -21,7 +21,7 @@ func init() {
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:        "slack-event",
 		Label:       "Slack Event",
-		Category:    "processor",
+		Category:    core.CategoryProcessor,
 		Description: "Normalize a verified Slack event and filter it by type and an optional predicate.",
 		Config:      reflect.TypeFor[eventSettings](),
 	})

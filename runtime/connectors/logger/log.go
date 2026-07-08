@@ -29,7 +29,7 @@ func init() {
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:        "log",
 		Label:       "Log",
-		Category:    "processor",
+		Category:    core.CategoryProcessor,
 		Description: "Wire-tap that logs the message and passes it through unchanged.",
 		Config:      reflect.TypeFor[logSettings](),
 	})

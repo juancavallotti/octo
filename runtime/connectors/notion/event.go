@@ -21,7 +21,7 @@ func init() {
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:     "notion-event",
 		Label:    "Notion Event",
-		Category: "processor",
+		Category: core.CategoryProcessor,
 		Description: "Normalize a verified Notion webhook and filter it by type and an optional " +
 			"predicate.",
 		Config: reflect.TypeFor[eventSettings](),

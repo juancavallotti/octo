@@ -21,7 +21,7 @@ func init() {
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:        "slack-update-message",
 		Label:       "Slack Update Message",
-		Category:    "processor",
+		Category:    core.CategoryProcessor,
 		Description: "Edit a message the bot posted earlier (chat.update).",
 		Config:      reflect.TypeFor[updateSettings](),
 	})

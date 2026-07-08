@@ -8,15 +8,27 @@ package schema
 // FieldType is the union of editor field kinds (see types.ts FieldType).
 type FieldType string
 
+// FieldType values. Only the first four are produced by inference; every other
+// kind must be declared explicitly with an octo `type=` clause. Named as
+// constants so the walker and description overlay reference them without
+// repeating string literals.
+const (
+	TypeString  FieldType = "string"
+	TypeNumber  FieldType = "number"
+	TypeBoolean FieldType = "boolean"
+	TypeFlow    FieldType = "flow"
+	TypeObject  FieldType = "object"
+)
+
 // validFieldTypes is the closed set of FieldType values an octo `type=` clause
 // may name. Inference produces only a subset (string/number/boolean/…); the
 // remainder must be declared explicitly.
 var validFieldTypes = map[FieldType]bool{
-	"string": true, "number": true, "boolean": true, "cel": true, "enum": true,
-	"string-list": true, "string-map": true, "flow": true, "flow-list": true,
+	TypeString: true, TypeNumber: true, TypeBoolean: true, "cel": true, "enum": true,
+	"string-list": true, "string-map": true, TypeFlow: true, "flow-list": true,
 	"case-list": true, "route-list": true, "tool-list": true, "skill-list": true,
 	"mcp-resource-list": true, "mcp-prompt-list": true, "block-list": true,
-	"object": true, "transform-list": true, "rule-list": true,
+	TypeObject: true, "transform-list": true, "rule-list": true,
 }
 
 // Reference mirrors types.ts ReferenceSpec: a field that points at another named

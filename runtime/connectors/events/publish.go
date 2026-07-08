@@ -24,7 +24,7 @@ func init() {
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:     "publish-event",
 		Label:    "Publish Event",
-		Category: "processor",
+		Category: core.CategoryProcessor,
 		Description: "Broadcast the current message to a platform topic subject, so every " +
 			"subscriber on that subject receives it (fire-and-forget fan-out). The message " +
 			"passes through unchanged.",

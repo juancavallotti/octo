@@ -26,7 +26,7 @@ func init() {
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:     "queue-dispatch",
 		Label:    "Queue Dispatch",
-		Category: "processor",
+		Category: core.CategoryProcessor,
 		Group:    "Integration",
 		Icon:     "Send",
 		Description: "Send the message to a platform queue subject to load balance work across " +

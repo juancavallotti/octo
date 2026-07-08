@@ -23,7 +23,7 @@ func init() {
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:     "notion-retrieve-blocks",
 		Label:    "Notion Retrieve Blocks",
-		Category: "processor",
+		Category: core.CategoryProcessor,
 		Description: "Retrieve a page's (or block's) child blocks (GET /blocks/{id}/children, " +
 			"paginated) as a {results: [...]} object, ready for Notion Page to Markdown.",
 		Config: reflect.TypeFor[retrieveBlocksSettings](),

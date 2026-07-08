@@ -45,7 +45,7 @@ func init() {
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:     "jwt-validate",
 		Label:    "JWT Validate",
-		Category: "processor",
+		Category: core.CategoryProcessor,
 		Group:    "Flow Control",
 		Icon:     "ShieldAlert",
 		Description: "Filter: verify a bearer JWT against an OIDC provider. On failure it stops " +

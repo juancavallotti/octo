@@ -20,6 +20,15 @@ type fieldTag struct {
 	showIf     *ShowIf
 }
 
+// simpleSetters handle the octo clauses whose only effect is to assign the clause
+// value verbatim to a fieldTag string. Splitting them out keeps applyClause's
+// switch (and its cyclomatic complexity) small.
+var simpleSetters = map[string]func(*fieldTag, string){
+	"label": func(ft *fieldTag, v string) { ft.label = v },
+	"type":  func(ft *fieldTag, v string) { ft.typ = v },
+	"desc":  func(ft *fieldTag, v string) { ft.desc = v },
+}
+
 // parseOctoTag parses an `octo` tag body into a fieldTag. Clauses are
 // comma-separated; a clause is either a bare flag ("required") or "key=value".
 // Values never contain commas — enum uses "|" as its own separator — so a plain
@@ -35,42 +44,57 @@ func parseOctoTag(tag string) (fieldTag, error) {
 		if clause == "" {
 			continue
 		}
-		key, val, hasVal := strings.Cut(clause, "=")
-		key = strings.TrimSpace(key)
-		switch key {
-		case "label":
-			ft.label = val
-		case "type":
-			ft.typ = val
-		case "required":
-			ft.required = true
-		case "default":
-			ft.hasDefault = true
-			ft.defaultRaw = val
-		case "enum":
-			ft.enum = strings.Split(val, "|")
-		case "desc":
-			ft.desc = val
-		case "ref":
-			ref, err := parseRef(val)
-			if err != nil {
-				return ft, err
-			}
-			ft.ref = ref
-		case "showIf":
-			field, equals, ok := strings.Cut(val, "=")
-			if !ok {
-				return ft, fmt.Errorf("showIf must be field=value, got %q", val)
-			}
-			ft.showIf = &ShowIf{Field: field, Equals: equals}
-		default:
-			if hasVal {
-				return ft, fmt.Errorf("unknown octo clause %q", key)
-			}
-			return ft, fmt.Errorf("unknown octo flag %q", key)
+		if err := ft.applyClause(clause); err != nil {
+			return ft, err
 		}
 	}
 	return ft, nil
+}
+
+// applyClause parses a single octo clause and mutates ft accordingly.
+func (ft *fieldTag) applyClause(clause string) error {
+	key, val, hasVal := strings.Cut(clause, "=")
+	key = strings.TrimSpace(key)
+	if set, ok := simpleSetters[key]; ok {
+		set(ft, val)
+		return nil
+	}
+	switch key {
+	case "required":
+		ft.required = true
+	case "default":
+		ft.hasDefault = true
+		ft.defaultRaw = val
+	case "enum":
+		ft.enum = strings.Split(val, "|")
+	case "ref":
+		ref, err := parseRef(val)
+		if err != nil {
+			return err
+		}
+		ft.ref = ref
+	case "showIf":
+		showIf, err := parseShowIf(val)
+		if err != nil {
+			return err
+		}
+		ft.showIf = showIf
+	default:
+		if hasVal {
+			return fmt.Errorf("unknown octo clause %q", key)
+		}
+		return fmt.Errorf("unknown octo flag %q", key)
+	}
+	return nil
+}
+
+// parseShowIf parses a showIf= clause value ("field=value") into a ShowIf.
+func parseShowIf(val string) (*ShowIf, error) {
+	field, equals, ok := strings.Cut(val, "=")
+	if !ok {
+		return nil, fmt.Errorf("showIf must be field=value, got %q", val)
+	}
+	return &ShowIf{Field: field, Equals: equals}, nil
 }
 
 // parseRef parses a ref= clause value into a Reference. Accepted forms:

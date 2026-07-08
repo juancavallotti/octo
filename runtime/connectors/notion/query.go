@@ -23,7 +23,7 @@ func init() {
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:     "notion-query-datasource",
 		Label:    "Notion Query Data Source",
-		Category: "processor",
+		Category: core.CategoryProcessor,
 		Description: "Query a Notion data source (data_sources/{id}/query) with an optional filter " +
 			"and sorts, and store the response. Target it by data source id, or by database id " +
 			"(the block derives the data source).",

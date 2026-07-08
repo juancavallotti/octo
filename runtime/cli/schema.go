@@ -11,6 +11,11 @@ import (
 	"github.com/juancavallotti/octo/core/schema"
 )
 
+// schemaFileMode is the permission for a capabilities.json written via --out.
+// git tracks only the executable bit, so this is owner-read/write; the committed
+// file's mode is unaffected.
+const schemaFileMode = 0o600
+
 // schemaCommand generates the editor capability catalogue from the registered
 // block and connector metadata and prints it as JSON, or writes it to --out.
 // Every connector is blank-imported by main, so all metadata is registered by
@@ -42,7 +47,7 @@ func schemaCommand(args []string) error {
 	}
 
 	if *out != "" {
-		if err := os.WriteFile(*out, data, 0o644); err != nil {
+		if err := os.WriteFile(*out, data, schemaFileMode); err != nil {
 			return fmt.Errorf("write %s: %w", *out, err)
 		}
 		return nil

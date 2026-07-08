@@ -35,14 +35,18 @@ func init() {
 
 	// Package-level editor defaults: the notion connector and every notion-* block
 	// share the Notion palette group and icon unless they set their own.
-	core.RegisterExtension(core.ExtensionMeta{Group: "Notion", Icon: "Notion"})
+	core.RegisterExtension(core.ExtensionMeta{Group: displayName, Icon: displayName})
 
 	core.RegisterConnectorMeta(core.ConnectorMeta{
 		Type:     "notion",
-		Label:    "Notion",
+		Label:    displayName,
 		Settings: reflect.TypeFor[connectorSettings](),
 	})
 }
+
+// displayName is the editor-facing label, palette group, and icon for the notion
+// connector and its blocks.
+const displayName = "Notion"
 
 const (
 	defaultAPIBaseURL = "https://api.notion.com/v1"
