@@ -1,8 +1,8 @@
 /**
- * Types describing the runtime capability schema. This is the editor-side mirror
- * of what the CLI will eventually emit (see capabilities.json). The JSON is the
- * source of truth for *data*; these types give it shape and the loader in
- * index.ts resolves React-specific bits (icons).
+ * Types describing the runtime capability schema — the editor-side shape of what
+ * the CLI emits (`octo schema`). The runtime is the source of truth for the
+ * *data* (the bundled capabilities.json is just an empty fallback); these types
+ * give it shape and the loader in index.ts resolves React-specific bits (icons).
  */
 
 /** Kinds of configurable field a block or connector setting can expose. */
