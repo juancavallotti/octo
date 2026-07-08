@@ -3,6 +3,7 @@ import "prismjs/components/prism-yaml";
 import "prismjs/components/prism-json";
 import "prismjs/components/prism-markup"; // covers html + xml
 import "prismjs/components/prism-markdown"; // depends on markup (loaded above)
+import { highlightCel } from "../../cel/highlight";
 
 /**
  * Language support for the Resources code editor. We reuse the Prism instance the
@@ -62,8 +63,11 @@ function escapeHtml(text: string): string {
     .replace(/>/g, "&gt;");
 }
 
-/** Matches `{{ ... }}` template expressions (non-greedy, spanning newlines). */
-const HANDLEBARS_RE = /\{\{[\s\S]*?\}\}/g;
+/**
+ * Matches `{{ ... }}` template expressions (non-greedy, spanning newlines),
+ * capturing the CEL between the braces so it can be highlighted on its own.
+ */
+const HANDLEBARS_RE = /(\{\{)([\s\S]*?)(\}\})/g;
 
 /** Highlight a segment with the base grammar, or escape it for plain text. */
 function highlightBase(
@@ -82,7 +86,9 @@ function highlightBase(
  * inside strings — by splitting them out and highlighting the surrounding
  * segments with the base grammar. (Merging a handlebars token into the grammar
  * wouldn't work: a language's own string/attribute token swallows the braces
- * first.) Non-token text is escaped, so plain files render verbatim.
+ * first.) The braces stay `token handlebars`, and the CEL expression between them
+ * is highlighted with the CEL grammar. Non-token text is escaped, so plain files
+ * render verbatim.
  */
 export function highlight(content: string, name: string): string {
   const lang = languageFor(name);
@@ -91,9 +97,12 @@ export function highlight(content: string, name: string): string {
   HANDLEBARS_RE.lastIndex = 0;
   let match: RegExpExecArray | null;
   while ((match = HANDLEBARS_RE.exec(content)) !== null) {
+    const [whole, open, inner, close] = match;
     out += highlightBase(content.slice(last, match.index), lang);
-    out += `<span class="token handlebars">${escapeHtml(match[0])}</span>`;
-    last = match.index + match[0].length;
+    out += `<span class="token handlebars">${open}</span>`;
+    out += highlightCel(inner);
+    out += `<span class="token handlebars">${close}</span>`;
+    last = match.index + whole.length;
   }
   out += highlightBase(content.slice(last), lang);
   return out;

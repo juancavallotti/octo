@@ -38,6 +38,11 @@ import {
 import type { StoredResource } from "../../providers/ResourceStoreProvider";
 import { reconcileResources, type ReconciledResource } from "./reconcile";
 import { highlight, languageLabel } from "./highlight";
+import CompletionMenu from "../../cel/CompletionMenu";
+import {
+  useCelCompletion,
+  handlebarsScopeAt,
+} from "../../cel/useCelCompletion";
 import {
   buildTree,
   ensureFolders,
@@ -765,13 +770,26 @@ function ResourceEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
 
+  // CEL completion, scoped to `{{ }}` template expressions, over the same store-backed
+  // value. onChange goes through setValue so autosave still fires as the user types.
+  const { menu, selected, setSelected, accept, handlers } = useCelCompletion({
+    value,
+    onChange: setValue,
+    scope: handlebarsScopeAt,
+  });
+
   return (
     <div className="flex flex-1 min-h-0 flex-col">
-      <div className="flex-1 overflow-auto">
+      <div className="relative flex-1 overflow-auto">
         <Editor
           value={value}
-          onValueChange={setValue}
           highlight={(code) => highlight(code, resource.name)}
+          onValueChange={handlers.onValueChange}
+          onKeyDown={handlers.onKeyDown}
+          onKeyUp={handlers.onKeyUp}
+          onClick={handlers.onClick}
+          onFocus={handlers.onFocus}
+          onBlur={handlers.onBlur}
           padding={12}
           textareaClassName="octo-code-textarea"
           preClassName="octo-code"
@@ -788,6 +806,15 @@ function ResourceEditor({
             minHeight: "100%",
           }}
         />
+        {menu && (
+          <CompletionMenu
+            items={menu.items}
+            selected={selected}
+            onHover={setSelected}
+            onAccept={accept}
+            position={menu.pos}
+          />
+        )}
       </div>
       <SaveStatus state={saveState} error={error} />
     </div>
