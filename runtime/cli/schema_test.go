@@ -17,7 +17,11 @@ import (
 // the hand-written capabilities.json exactly, while entries not yet migrated are
 // simply absent from the generated set and ignored. As more blocks are migrated,
 // this list grows; at full migration the check flips to whole-file equality.
-var migratedBlocks = []string{"set-payload", "rest", "if"}
+var migratedBlocks = []string{
+	"set-payload", "set-variable", "delete-variable", "multi-transform",
+	"template-resource", "flow-ref", "object-read", "object-write", "object-delete",
+	"invalidate-cache", "clear-agent-memory", "rest", "if",
+}
 var migratedConnectors = []string{"http-client", "http"}
 
 func TestGeneratedSchemaMatchesCapabilitiesJSON(t *testing.T) {

@@ -30,6 +30,24 @@ func init() {
 		Description: "Replace the message body with the result of a CEL expression.",
 		Config:      reflect.TypeFor[setPayloadSettings](),
 	})
+	core.RegisterBlockMeta(core.BlockMeta{
+		Type:        "set-variable",
+		Label:       "Set Variable",
+		Category:    "processor",
+		Group:       "Data",
+		Icon:        "Variable",
+		Description: "Store the result of a CEL expression in a named variable.",
+		Config:      reflect.TypeFor[setVariableSettings](),
+	})
+	core.RegisterBlockMeta(core.BlockMeta{
+		Type:        "delete-variable",
+		Label:       "Delete Variable",
+		Category:    "processor",
+		Group:       "Data",
+		Icon:        "Trash2",
+		Description: "Remove a named variable from the message.",
+		Config:      reflect.TypeFor[deleteVariableSettings](),
+	})
 }
 
 // setPayloadSettings configures the set-payload block.
@@ -98,10 +116,10 @@ func (p *setPayload) Process(_ context.Context, msg *types.Message) (*types.Mess
 
 // setVariableSettings configures the set-variable block.
 type setVariableSettings struct {
-	// Name is the variable to set (readable later as vars.<name>).
-	Name string `json:"name"`
-	// Value is a CEL expression whose result is stored under Name.
-	Value string `json:"value"`
+	// Variable name to set.
+	Name string `json:"name" octo:"label=Name,required"`
+	// CEL expression evaluated and stored under the variable name.
+	Value string `json:"value" octo:"label=Value,type=cel,required"`
 }
 
 // setVariable stores the result of its value expression in a named variable.
@@ -142,8 +160,8 @@ func (p *setVariable) Process(_ context.Context, msg *types.Message) (*types.Mes
 
 // deleteVariableSettings configures the delete-variable block.
 type deleteVariableSettings struct {
-	// Name is the variable to remove.
-	Name string `json:"name"`
+	// Variable name to remove.
+	Name string `json:"name" octo:"label=Name,required"`
 }
 
 // deleteVariable removes a named variable from the message.

@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 
 	"github.com/juancavallotti/octo/core"
 	"github.com/juancavallotti/octo/types"
@@ -15,16 +16,24 @@ import (
 
 func init() {
 	core.MustRegisterBlock("flow-ref", newFlowRef)
+
+	core.RegisterBlockMeta(core.BlockMeta{
+		Type:        "flow-ref",
+		Label:       "Flow Reference",
+		Category:    "processor",
+		Group:       "Integration",
+		Icon:        "Webhook",
+		Description: "Invoke another flow by name.",
+		Config:      reflect.TypeFor[flowRefSettings](),
+	})
 }
 
 // flowRefSettings configures the flow-ref block.
 type flowRefSettings struct {
-	// Flow is the name of the flow to invoke.
-	Flow string `json:"flow"`
-	// OneWay fires the call and returns immediately, ignoring the result. When
-	// false (the default) the block waits for the called flow and folds its
-	// result back into the current message.
-	OneWay bool `json:"oneWay"`
+	// Name of the flow to invoke.
+	Flow string `json:"flow" octo:"label=Flow,ref=flow,required"`
+	// Fire-and-forget if true; otherwise wait and fold the result back in.
+	OneWay bool `json:"oneWay" octo:"label=One-way,default=false"`
 }
 
 // flowRef invokes another flow by name. Two-way (the default) waits for the

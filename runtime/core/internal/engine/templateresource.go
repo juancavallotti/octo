@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 
 	"github.com/juancavallotti/octo/core"
 	"github.com/juancavallotti/octo/core/expr"
@@ -12,22 +13,36 @@ import (
 
 func init() {
 	core.MustRegisterBlock("template-resource", newTemplateResource)
+
+	core.RegisterBlockMeta(core.BlockMeta{
+		Type:     "template-resource",
+		Label:    "Template Resource",
+		Category: "processor",
+		Group:    "Data",
+		Icon:     "FileText",
+		Description: "Render a declared template resource against the current message. Writes the " +
+			"rendered text to the message body by default, or to a variable when a target is set. " +
+			"The template is declared under resources.templates and embeds {{ CEL }} over body, " +
+			"vars, env, now.",
+		Config: reflect.TypeFor[templateResourceSettings](),
+	})
 }
 
 // templateResourceSettings configures the template-resource block.
 type templateResourceSettings struct {
-	// ID is the template resource to load and render.
-	ID string `json:"id"`
-	// Target names the variable to store the rendered text in (readable later as
-	// vars.<target>). When empty, the rendered text replaces the message body.
-	Target string `json:"target"`
-	// RawBody, when true, writes the rendered text as a raw-content body
-	// {contentType, rawData} instead of a plain string body. It applies only to
-	// the body write, so Target must be empty. Defaults to false.
-	RawBody bool `json:"rawBody"`
-	// ContentType is the MIME type recorded on the raw body; required when
-	// RawBody is true.
-	ContentType string `json:"contentType"`
+	// The template to render: its resources.templates alias (the `as`), or its
+	// resource path when unaliased.
+	ID string `json:"id" octo:"label=Template,ref=template,required"`
+	// Variable to store the rendered text in. Leave empty to replace the message
+	// body.
+	Target string `json:"target" octo:"label=Target variable"`
+	// Write the rendered text as a raw-content body {contentType, rawData} instead
+	// of a plain string body, so a connector (e.g. the HTTP source) serves it
+	// verbatim. Applies to the body only, so leave Target variable empty.
+	RawBody bool `json:"rawBody" octo:"label=Raw body,default=false"`
+	// MIME type recorded on the raw body, e.g. text/html. Required when Raw body
+	// is on.
+	ContentType string `json:"contentType" octo:"label=Content type"`
 }
 
 // templateResourceBlock renders a template resource against the message, writing

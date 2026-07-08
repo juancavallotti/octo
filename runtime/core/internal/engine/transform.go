@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 
 	"github.com/juancavallotti/octo/core"
 	"github.com/juancavallotti/octo/core/expr"
@@ -18,13 +19,28 @@ import (
 
 func init() {
 	core.MustRegisterBlock("multi-transform", newMultiTransform)
+
+	core.RegisterBlockMeta(core.BlockMeta{
+		Type:     "multi-transform",
+		Label:    "Multi Transform",
+		Category: "processor",
+		Group:    "Data",
+		Icon:     "Layers",
+		Description: "Apply an ordered list of additive CEL edits in one block. Each step sets " +
+			"the body (setBody) or a variable (setVar/value); the edits accumulate, so a later " +
+			"step sees the results of the earlier ones. Compresses a chain of set-payload / " +
+			"set-variable blocks into one.",
+		Config: reflect.TypeFor[multiTransformSettings](),
+	})
 }
 
 // multiTransformSettings configures the multi-transform block.
 type multiTransformSettings struct {
-	// Transforms is the ordered list of edits applied to the message. Each entry
-	// is either a setBody or a setVar step; the list order is the apply order.
-	Transforms []transformStepSettings `json:"transforms"`
+	// Ordered list of edits. Each entry is either {setBody: <CEL>} to replace the
+	// body, or {setVar: <name>, value: <CEL>} to set a variable. Applied top to
+	// bottom; later expressions see body/vars produced by earlier steps.
+	// Expressions see body, vars, eventID, correlationID, env, now.
+	Transforms []transformStepSettings `json:"transforms" octo:"label=Transforms,type=transform-list,required"`
 }
 
 // transformStepSettings is one edit in a multi-transform. Exactly one of SetBody
