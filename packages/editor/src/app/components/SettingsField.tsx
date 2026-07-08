@@ -12,6 +12,7 @@ import MCPResourceListEditor from "./fields/MCPResourceListEditor";
 import MCPPromptListEditor from "./fields/MCPPromptListEditor";
 import ReferenceField from "./fields/ReferenceField";
 import EnvValueField, { isEnvRef } from "./fields/EnvValueField";
+import CelEditor from "../cel/CelEditor";
 
 /** Shared input styling, matching the sidebar filter input. */
 const INPUT =
@@ -165,13 +166,10 @@ function renderInput(
 
     case "cel":
       return (
-        <textarea
+        <CelEditor
           id={field.name}
-          rows={2}
           value={value === undefined || value === null ? "" : String(value)}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder="CEL expression"
-          className={`${INPUT} resize-y font-mono`}
+          onChange={(v) => onChange(v)}
         />
       );
 

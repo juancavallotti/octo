@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Plus, X } from "lucide-react";
+import CelEditor from "../../cel/CelEditor";
 
 const INPUT =
   "w-full rounded-md border border-black/10 dark:border-white/15 bg-transparent px-2 py-1 text-sm outline-none focus:border-black/30 dark:focus:border-white/30";
@@ -63,16 +64,12 @@ export default function RuleListEditor({
               <X size={14} />
             </button>
           </div>
-          <textarea
-            rows={2}
+          <CelEditor
             value={row.expr ?? ""}
             placeholder="CEL expression (must evaluate to a bool)"
-            onChange={(e) =>
-              commit(
-                rows.map((r, j) => (j === i ? { ...r, expr: e.target.value } : r)),
-              )
+            onChange={(v) =>
+              commit(rows.map((r, j) => (j === i ? { ...r, expr: v } : r)))
             }
-            className={`${INPUT} resize-y font-mono`}
           />
         </div>
       ))}
