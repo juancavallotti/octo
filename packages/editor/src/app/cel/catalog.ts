@@ -294,3 +294,27 @@ export function allCompletions(): CelEntry[] {
 export function lookup(name: string): CelEntry | undefined {
   return allCompletions().find((e) => e.name === name);
 }
+
+/** Resolve a set of catalogue entries by name (drops any unknown name). */
+function pick(names: string[]): CelEntry[] {
+  return names.map((n) => lookup(n)).filter((e): e is CelEntry => e !== undefined);
+}
+
+/** Receiver-style macros/functions for a list value (e.g. `items.map(...)`). */
+export const LIST_METHODS: CelEntry[] = pick([
+  "all",
+  "exists",
+  "exists_one",
+  "map",
+  "filter",
+  "size",
+]);
+
+/** Receiver-style methods for a string value (e.g. `path.startsWith(...)`). */
+export const STRING_METHODS: CelEntry[] = pick([
+  "startsWith",
+  "endsWith",
+  "contains",
+  "matches",
+  "size",
+]);

@@ -1,10 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { FlaskConical, Play, X } from "lucide-react";
 import CelEditor from "./CelEditor";
+import JsonEditor from "./JsonEditor";
 import { useRun } from "../run/RunContext";
 import type { CelEvalResult } from "../run/transport";
+import type { MemberProvider } from "./complete";
+import { LIST_METHODS, STRING_METHODS, type CelEntry } from "./catalog";
 
 /**
  * A modal for trying a CEL expression against an ad-hoc input, without running a
@@ -14,9 +17,6 @@ import type { CelEvalResult } from "../run/transport";
  * overlay pattern. `templateResource()` and a real integration's resolved env are
  * not available here — pass values via the env box.
  */
-
-const JSON_INPUT =
-  "w-full rounded-md border border-black/10 dark:border-white/15 bg-transparent px-2 py-1.5 text-xs font-mono outline-none focus:border-black/30 dark:focus:border-white/30 resize-y";
 
 /** Parse an optional JSON object of string values (the env map), or throw a friendly error. */
 function parseEnv(text: string): Record<string, string> | undefined {
@@ -33,6 +33,87 @@ function parseEnv(text: string): Record<string, string> | undefined {
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(obj)) out[k] = String(v);
   return out;
+}
+
+/** Best-effort JSON parse; undefined when empty or invalid (mid-typing). */
+function tryParse(text: string): unknown {
+  if (text.trim() === "") return undefined;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
+
+/** The CEL type name shown for a sampled member value. */
+function jsonType(v: unknown): string {
+  if (v === null) return "null";
+  if (Array.isArray(v)) return "list";
+  switch (typeof v) {
+    case "string":
+      return "string";
+    case "number":
+      return "double";
+    case "boolean":
+      return "bool";
+    case "object":
+      return "map";
+    default:
+      return "dyn";
+  }
+}
+
+/** A short, safe preview of a sampled value for the doc panel. */
+function preview(v: unknown): string {
+  const s = JSON.stringify(v);
+  if (s === undefined) return "";
+  return s.length > 40 ? `${s.slice(0, 39)}…` : s;
+}
+
+/** Turn a sampled object into member completion entries (name, type, value preview). */
+function toEntries(obj: Record<string, unknown>): CelEntry[] {
+  return Object.entries(obj).map(([name, v]) => ({
+    name,
+    kind: "variable" as const,
+    signature: jsonType(v),
+    summary: `= ${preview(v)}`,
+    example: "",
+  }));
+}
+
+/**
+ * A member provider resolving a dotted path (e.g. `body.user`) against the parsed
+ * body/vars/env samples, so `body.` completes with the sample's keys. Returns
+ * undefined for unresolvable paths (invalid JSON, non-object leaf) — the menu then
+ * offers nothing rather than guessing.
+ */
+function buildMembers(
+  body: string,
+  vars: string,
+  env: string,
+): MemberProvider {
+  const roots: Record<string, unknown> = {
+    body: tryParse(body),
+    vars: tryParse(vars),
+    env: tryParse(env),
+  };
+  return (path) => {
+    let cur = roots[path[0]];
+    for (let i = 1; i < path.length; i++) {
+      if (cur && typeof cur === "object" && !Array.isArray(cur)) {
+        cur = (cur as Record<string, unknown>)[path[i]];
+      } else {
+        return undefined;
+      }
+    }
+    // A resolved list/string offers its receiver methods; an object offers its keys.
+    if (Array.isArray(cur)) return LIST_METHODS;
+    if (typeof cur === "string") return STRING_METHODS;
+    if (cur && typeof cur === "object") {
+      return toEntries(cur as Record<string, unknown>);
+    }
+    return undefined;
+  };
 }
 
 /** Validate that optional text is a JSON value (bound to body/vars), or throw. */
@@ -54,6 +135,12 @@ export default function CelTesterModal({ onClose }: { onClose: () => void }) {
   const [result, setResult] = useState<CelEvalResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // Member completions for `body.` / `vars.` / `env.`, derived from the JSON samples.
+  const members = useMemo(
+    () => buildMembers(body, vars, env),
+    [body, vars, env],
+  );
 
   // Close on Escape, mirroring the editor's other overlays. CelEditor stops
   // propagation while its completion menu is open, so the first Escape dismisses
@@ -140,6 +227,7 @@ export default function CelTesterModal({ onClose }: { onClose: () => void }) {
               value={expression}
               onChange={setExpression}
               minHeight={56}
+              members={members}
             />
           </label>
 
@@ -148,24 +236,20 @@ export default function CelTesterModal({ onClose }: { onClose: () => void }) {
               <span className="text-xs font-medium text-zinc-500">
                 body (JSON)
               </span>
-              <textarea
-                rows={4}
+              <JsonEditor
                 value={body}
-                onChange={(e) => setBody(e.target.value)}
+                onChange={setBody}
                 placeholder={'{ "id": 1 }'}
-                className={JSON_INPUT}
               />
             </label>
             <label className="flex flex-col gap-1">
               <span className="text-xs font-medium text-zinc-500">
                 vars (JSON)
               </span>
-              <textarea
-                rows={4}
+              <JsonEditor
                 value={vars}
-                onChange={(e) => setVars(e.target.value)}
+                onChange={setVars}
                 placeholder={'{ "userId": "u_1" }'}
-                className={JSON_INPUT}
               />
             </label>
           </div>
@@ -174,12 +258,11 @@ export default function CelTesterModal({ onClose }: { onClose: () => void }) {
             <span className="text-xs font-medium text-zinc-500">
               env (JSON object of strings)
             </span>
-            <textarea
-              rows={2}
+            <JsonEditor
               value={env}
-              onChange={(e) => setEnv(e.target.value)}
+              onChange={setEnv}
+              minHeight={48}
               placeholder={'{ "API_BASE_URL": "https://api.example.com" }'}
-              className={JSON_INPUT}
             />
           </label>
 

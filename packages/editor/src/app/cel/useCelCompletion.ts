@@ -5,8 +5,10 @@ import {
   applyCompletion,
   completionsAt,
   type CompletionQuery,
+  type MemberProvider,
 } from "./complete";
 import { caretCoordinates } from "./caretCoords";
+import { autoPair } from "./autoPair";
 import type { CelEntry } from "./catalog";
 
 /**
@@ -58,10 +60,13 @@ export function useCelCompletion({
   value,
   onChange,
   scope,
+  members,
 }: {
   value: string;
   onChange: (value: string) => void;
   scope: CelScope;
+  /** Optional member-completion source (e.g. keys from the CEL tester's JSON samples). */
+  members?: MemberProvider;
 }) {
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [selected, setSelected] = useState(0);
@@ -85,6 +90,7 @@ export function useCelCompletion({
       const local = text.slice(region.start, region.end);
       const { items, query } = completionsAt(local, caret - region.start, {
         explicit,
+        members,
       });
       if (items.length === 0) {
         setMenu(null);
@@ -110,7 +116,7 @@ export function useCelCompletion({
       });
       setSelected(0);
     },
-    [scope],
+    [scope, members],
   );
 
   // Reposition the caret after an accepted completion re-renders with new value.
@@ -149,6 +155,16 @@ export function useCelCompletion({
     (e: React.KeyboardEvent<HTMLTextAreaElement | HTMLDivElement>) => {
       const ta = e.currentTarget as HTMLTextAreaElement;
       captureTa(ta);
+      // Bracket/quote auto-pairing takes precedence over normal insertion. Enter/Tab
+      // aren't handled by autoPair, so completion accept below still wins for those.
+      const paired = autoPair(value, ta.selectionStart, ta.selectionEnd, e.key);
+      if (paired) {
+        e.preventDefault();
+        pendingCaret.current = paired.caret;
+        onChange(paired.value);
+        setMenu(null);
+        return;
+      }
       if (menu) {
         const NAV = ["ArrowDown", "ArrowUp", "Enter", "Tab", "Escape"];
         if (NAV.includes(e.key)) {
@@ -180,7 +196,7 @@ export function useCelCompletion({
         refresh(value, ta.selectionStart, true);
       }
     },
-    [menu, selected, accept, refresh, value, captureTa],
+    [menu, selected, accept, refresh, value, onChange, captureTa],
   );
 
   const onKeyUp = useCallback(

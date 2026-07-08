@@ -1,4 +1,9 @@
-import { allCompletions, type CelEntry } from "./catalog";
+import {
+  allCompletions,
+  LIST_METHODS,
+  STRING_METHODS,
+  type CelEntry,
+} from "./catalog";
 
 /**
  * Pure completion logic for CEL, shared by the CEL field editor and (later) the
@@ -52,6 +57,57 @@ export function tokenAt(text: string, caret: number): CompletionQuery {
   return { token, range: [start, caret], member };
 }
 
+/**
+ * Supplies member completions for a dotted path, e.g. `["body", "user"]` → the keys
+ * of `body.user`. Returns undefined when the path can't be resolved (so the caller
+ * offers nothing rather than guessing). Used by the CEL tester, which resolves paths
+ * against the body/vars/env JSON samples.
+ */
+export type MemberProvider = (path: string[]) => CelEntry[] | undefined;
+
+/**
+ * The dotted base path and token the caret is completing as a member access, or null
+ * when the caret is not a simple `a.b.c.<token>` member. Bails on non-identifier
+ * bases (e.g. `foo().` or `x["k"].`), which this basic pass doesn't resolve.
+ */
+export function memberContext(
+  text: string,
+  caret: number,
+): { base: string[]; token: string; range: [number, number] } | null {
+  let ts = caret;
+  while (ts > 0 && IDENT_CHAR.test(text[ts - 1])) ts--;
+  const token = text.slice(ts, caret);
+  if (!(ts > 0 && text[ts - 1] === ".")) return null;
+  const base: string[] = [];
+  let i = ts - 1; // index of the '.'
+  while (text[i] === ".") {
+    let s = i;
+    while (s > 0 && IDENT_CHAR.test(text[s - 1])) s--;
+    if (s === i) return null; // nothing but a dot before it — unsupported base
+    base.unshift(text.slice(s, i));
+    i = s - 1;
+  }
+  return base.length ? { base, token, range: [ts, caret] } : null;
+}
+
+/**
+ * The value kind a member access is called on, inferred cheaply from the token/char
+ * just before the dot: a `]` means a list literal, a closing quote means a string
+ * literal. Used to offer receiver-style methods (list.map, string.startsWith, …)
+ * even without a data sample.
+ */
+export function literalReceiver(
+  text: string,
+  dotIndex: number,
+): "list" | "string" | null {
+  let j = dotIndex - 1;
+  while (j >= 0 && /\s/.test(text[j])) j--;
+  const ch = text[j];
+  if (ch === "]") return "list";
+  if (ch === '"' || ch === "'") return "string";
+  return null;
+}
+
 /** The result of asking for completions at a caret. */
 export interface CompletionResult {
   query: CompletionQuery;
@@ -67,12 +123,27 @@ export interface CompletionResult {
 export function completionsAt(
   text: string,
   caret: number,
-  opts?: { explicit?: boolean },
+  opts?: { explicit?: boolean; members?: MemberProvider },
 ): CompletionResult {
   const query = tokenAt(text, caret);
-  // No completions inside string contents or after a member `.` (basic pass).
+  // No completions inside string contents.
   if (isInsideString(text, caret)) return { query, items: [] };
-  if (query.member) return { query, items: [] };
+  // Member access after `.`.
+  if (query.member) {
+    const lower = query.token.toLowerCase();
+    const byPrefix = (list: CelEntry[]) =>
+      list.filter((e) => e.name.toLowerCase().startsWith(lower));
+    // 1) A list/string literal receiver (`[...]. ` / `"...". `) → its methods.
+    const lit = literalReceiver(text, query.range[0] - 1);
+    if (lit === "list") return { query, items: byPrefix(LIST_METHODS) };
+    if (lit === "string") return { query, items: byPrefix(STRING_METHODS) };
+    // 2) An identifier path resolved by the provider (e.g. JSON samples). The
+    //    provider decides what a resolved list/string/object offers.
+    const ctx = opts?.members ? memberContext(text, caret) : null;
+    const entries = ctx && opts?.members ? opts.members(ctx.base) : undefined;
+    if (!entries) return { query, items: [] };
+    return { query, items: byPrefix(entries) };
+  }
   if (query.token === "" && !opts?.explicit) return { query, items: [] };
   const lower = query.token.toLowerCase();
   const items = allCompletions().filter((e) =>

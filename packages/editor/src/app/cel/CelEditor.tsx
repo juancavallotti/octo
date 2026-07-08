@@ -4,6 +4,7 @@ import Editor from "react-simple-code-editor";
 import { highlightCel } from "./highlight";
 import CompletionMenu from "./CompletionMenu";
 import { useCelCompletion, WHOLE_TEXT_SCOPE } from "./useCelCompletion";
+import type { MemberProvider } from "./complete";
 
 /**
  * A single-field CEL editor: a syntax-highlighted text input (react-simple-code-editor
@@ -38,6 +39,8 @@ export interface CelEditorProps {
   /** Forwarded to the textarea for label association. */
   id?: string;
   disabled?: boolean;
+  /** Optional member-completion source (e.g. keys from the CEL tester's JSON samples). */
+  members?: MemberProvider;
 }
 
 export default function CelEditor({
@@ -47,11 +50,13 @@ export default function CelEditor({
   minHeight = 40,
   id,
   disabled,
+  members,
 }: CelEditorProps) {
   const { menu, selected, setSelected, accept, handlers } = useCelCompletion({
     value,
     onChange,
     scope: WHOLE_TEXT_SCOPE,
+    members,
   });
 
   return (
