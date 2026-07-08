@@ -24,6 +24,25 @@ export interface CompletionQuery {
   member: boolean;
 }
 
+/**
+ * Whether `caret` sits inside an unclosed string literal. Scans from the start,
+ * tracking the active quote and honoring backslash escapes, so completions are
+ * suppressed while typing string contents (e.g. `body.startsWith("t|`).
+ */
+export function isInsideString(text: string, caret: number): boolean {
+  let quote = "";
+  for (let i = 0; i < caret; i++) {
+    const ch = text[i];
+    if (quote) {
+      if (ch === "\\") i++; // skip the escaped character
+      else if (ch === quote) quote = "";
+    } else if (ch === '"' || ch === "'") {
+      quote = ch;
+    }
+  }
+  return quote !== "";
+}
+
 /** Read the identifier token immediately to the left of `caret`. */
 export function tokenAt(text: string, caret: number): CompletionQuery {
   let start = caret;
@@ -51,6 +70,8 @@ export function completionsAt(
   opts?: { explicit?: boolean },
 ): CompletionResult {
   const query = tokenAt(text, caret);
+  // No completions inside string contents or after a member `.` (basic pass).
+  if (isInsideString(text, caret)) return { query, items: [] };
   if (query.member) return { query, items: [] };
   if (query.token === "" && !opts?.explicit) return { query, items: [] };
   const lower = query.token.toLowerCase();

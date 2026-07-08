@@ -44,6 +44,19 @@ describe("completionsAt", () => {
   it("offers nothing after a member dot (basic pass)", () => {
     expect(completionsAt("body.na", 7).items).toHaveLength(0);
   });
+
+  it("offers nothing while the caret is inside a string literal", () => {
+    expect(completionsAt('"t', 2).items).toHaveLength(0);
+    expect(completionsAt("body.startsWith('t", 18).items).toHaveLength(0);
+  });
+
+  it("resumes offering after a string literal closes", () => {
+    // caret after `t` in: "x" + t
+    const text = '"x" + t';
+    expect(completionsAt(text, text.length).items.map((e) => e.name)).toContain(
+      "templateResource",
+    );
+  });
 });
 
 describe("applyCompletion", () => {
