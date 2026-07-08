@@ -26,7 +26,8 @@ var migratedBlocks = []string{
 	"slack-lookup-user", "slack-add-reaction", "slack-update-message",
 	"notion-retrieve-page", "notion-query-datasource", "notion-retrieve-blocks",
 	"notion-page-to-markdown", "notion-verify-request", "notion-event",
-	"rest", "if",
+	"rest", "if", "handle-errors", "fork", "switch", "foreach", "enrich",
+	"validate", "ai-retry", "ai-router", "ai-agent", "mcp-router", "cache-scope",
 }
 var migratedConnectors = []string{
 	"http-client", "http", "logger", "database", "queue", "events", "cron",
