@@ -7,8 +7,8 @@
  * stream stays an SSE route (`/api/run/logs`), which reads the same cookie.
  */
 
-import { probeVersion, start, status, stop, sync } from "@octo/run-host";
-import type { RunStatusSnapshot } from "@octo/editor";
+import { evalCel, probeVersion, start, status, stop, sync } from "@octo/run-host";
+import type { CelEvalRequest, CelEvalResult, RunStatusSnapshot } from "@octo/editor";
 import type { ActionResult } from "@octo/http";
 import { ensureRunNamespace } from "../run/namespace";
 import { fsResourceProvider } from "../run/resources";
@@ -45,6 +45,29 @@ export async function runStart(
 export async function runStop(): Promise<ActionResult<RunStatusSnapshot>> {
   const ns = await ensureRunNamespace();
   return { ok: true, data: await stop(ns) };
+}
+
+/** Evaluate a single CEL expression against an ad-hoc object (no flow run). */
+export async function runEvalCel(
+  req: CelEvalRequest,
+): Promise<ActionResult<CelEvalResult>> {
+  const ns = await ensureRunNamespace();
+  if (!status(ns).available) {
+    return { ok: false, error: "Runner not available (OCTO_BIN_PATH unset)." };
+  }
+  if (typeof req?.expression !== "string" || req.expression.trim() === "") {
+    return { ok: false, error: "missing `expression`" };
+  }
+  try {
+    const r = await evalCel(req.expression, {
+      data: req.data,
+      vars: req.vars,
+      env: req.env,
+    });
+    return { ok: true, data: { ok: r.ok, result: r.result, error: r.error } };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
 }
 
 /** Rewrite this browser's watched config so the runner hot-reloads. */

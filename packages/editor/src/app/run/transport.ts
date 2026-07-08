@@ -7,6 +7,28 @@
  * local process. The concrete transports live in the apps that embed the editor.
  */
 
+/** A one-shot CEL evaluation request (no flow run) — the CEL tester's input. */
+export interface CelEvalRequest {
+  /** The CEL expression to evaluate. */
+  expression: string;
+  /** Optional JSON object (as a string) bound to `body`. */
+  data?: string;
+  /** Optional JSON object (as a string) bound to `vars`. */
+  vars?: string;
+  /** Optional map bound to the CEL `env` variable. */
+  env?: Record<string, string>;
+}
+
+/** The outcome of a CEL evaluation: the value, or the compile/eval error. */
+export interface CelEvalResult {
+  /** True when a well-formed envelope came back (whatever the CEL outcome). */
+  ok: boolean;
+  /** The evaluated value on success (may itself be false/0/null). */
+  result?: unknown;
+  /** The compile/eval (or runner) error message, when it failed. */
+  error?: string;
+}
+
 /** Point-in-time runner state, as the provider needs it. */
 export interface RunStatusSnapshot {
   available: boolean;
@@ -35,6 +57,12 @@ export interface RunTransport {
   stop(): Promise<void>;
   /** Push a new config to the running runner so it hot-reloads. */
   sync(args: { yaml: string; integrationId?: string }): Promise<void>;
+  /**
+   * Evaluate a single CEL expression against an ad-hoc object, without running a
+   * flow — backs the CEL tester. Stateless; unavailable when the runner is not
+   * configured, in which case it resolves to `{ ok:false, error }`.
+   */
+  evalCel(req: CelEvalRequest): Promise<CelEvalResult>;
   /**
    * Subscribe to the runner's log stream. `onLine` receives each line's monotonic
    * sequence number and text; the returned function unsubscribes. Replays and

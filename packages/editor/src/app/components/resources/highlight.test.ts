@@ -39,6 +39,13 @@ describe("highlight", () => {
     );
     expect(highlight("<p>{{ x }}</p>", "x.html")).toContain("token handlebars");
   });
+
+  it("highlights the CEL inside {{ }} with the CEL grammar", () => {
+    const html = highlight("Hi {{ body.name }}", "notes.txt");
+    // Braces keep the handlebars token; `body` is a CEL variable inside them.
+    expect(html).toContain("token handlebars");
+    expect(html).toContain("token variable");
+  });
 });
 
 describe("languageLabel", () => {

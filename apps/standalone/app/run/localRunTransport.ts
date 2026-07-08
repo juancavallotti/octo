@@ -5,8 +5,13 @@
  * streaming — pointed at the surviving `/api/run/logs` route.
  */
 
-import type { RunStatusSnapshot, RunTransport } from "@octo/editor";
-import { runStart, runStatus, runStop, runSync } from "../actions/run";
+import type {
+  CelEvalRequest,
+  CelEvalResult,
+  RunStatusSnapshot,
+  RunTransport,
+} from "@octo/editor";
+import { runEvalCel, runStart, runStatus, runStop, runSync } from "../actions/run";
 import { unwrap } from "../actions/result";
 
 export const localRunTransport: RunTransport = {
@@ -24,6 +29,10 @@ export const localRunTransport: RunTransport = {
 
   async sync({ yaml }) {
     unwrap(await runSync(yaml));
+  },
+
+  async evalCel(req: CelEvalRequest): Promise<CelEvalResult> {
+    return unwrap(await runEvalCel(req));
   },
 
   subscribeLogs(onLine) {

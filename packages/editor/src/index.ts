@@ -35,7 +35,12 @@ export {
 
 // Run capability
 export { RunProvider, useRun, type RunLogLine } from "./app/run/RunContext";
-export type { RunTransport, RunStatusSnapshot } from "./app/run/transport";
+export type {
+  RunTransport,
+  RunStatusSnapshot,
+  CelEvalRequest,
+  CelEvalResult,
+} from "./app/run/transport";
 export type { DevEnvStore } from "./app/state/devEnvStore";
 
 // Resource-store capability (backs the Resources tab)
