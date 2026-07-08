@@ -24,11 +24,13 @@ var migratedBlocks = []string{
 	"publish-event", "jwt-validate", "ai-mapping",
 	"slack-send-message", "slack-verify-request", "slack-event",
 	"slack-lookup-user", "slack-add-reaction", "slack-update-message",
+	"notion-retrieve-page", "notion-query-datasource", "notion-retrieve-blocks",
+	"notion-page-to-markdown", "notion-verify-request", "notion-event",
 	"rest", "if",
 }
 var migratedConnectors = []string{
 	"http-client", "http", "logger", "database", "queue", "events", "cron",
-	"llm-anthropic", "llm-openai", "llm-gemini", "slack",
+	"llm-anthropic", "llm-openai", "llm-gemini", "slack", "notion",
 }
 
 func TestGeneratedSchemaMatchesCapabilitiesJSON(t *testing.T) {

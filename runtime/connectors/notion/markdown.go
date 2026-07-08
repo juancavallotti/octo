@@ -9,6 +9,7 @@ package notion
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/juancavallotti/octo/core"
@@ -18,6 +19,15 @@ import (
 
 func init() {
 	core.MustRegisterBlock("notion-page-to-markdown", newPageToMarkdown)
+
+	core.RegisterBlockMeta(core.BlockMeta{
+		Type:     "notion-page-to-markdown",
+		Label:    "Notion Page to Markdown",
+		Category: "processor",
+		Description: "Render a Notion blocks array (as returned under results by the block-children " +
+			"endpoint) into markdown. Emits raw content, or stores the markdown in a variable.",
+		Config: reflect.TypeFor[markdownSettings](),
+	})
 }
 
 const (
@@ -30,13 +40,11 @@ const (
 
 // markdownSettings is the notion-page-to-markdown block's typed configuration.
 type markdownSettings struct {
-	// Source is a CEL expression producing the blocks array to render (default
-	// "body.results").
-	Source string `json:"source"`
-	// ResultVar, when set, stores the markdown string in that variable and leaves
-	// the body untouched. When empty the block replaces the body with the markdown
-	// as raw content.
-	ResultVar string `json:"resultVar"`
+	// CEL expression producing the blocks array to render.
+	Source string `json:"source" octo:"label=Source,type=cel,default=body.results"`
+	// When set, store the markdown here and leave the body; when empty, replace the
+	// body with the markdown as raw content.
+	ResultVar string `json:"resultVar" octo:"label=Result variable"`
 }
 
 // markdownProcessor renders a Notion blocks array to markdown.

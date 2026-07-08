@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"reflect"
 
 	"github.com/juancavallotti/octo/core"
 	"github.com/juancavallotti/octo/core/expr"
@@ -18,6 +19,16 @@ import (
 
 func init() {
 	core.MustRegisterBlock("notion-query-datasource", newQueryDataSource)
+
+	core.RegisterBlockMeta(core.BlockMeta{
+		Type:     "notion-query-datasource",
+		Label:    "Notion Query Data Source",
+		Category: "processor",
+		Description: "Query a Notion data source (data_sources/{id}/query) with an optional filter " +
+			"and sorts, and store the response. Target it by data source id, or by database id " +
+			"(the block derives the data source).",
+		Config: reflect.TypeFor[querySettings](),
+	})
 }
 
 // defaultResultsVar names the variable the query response is stored in.
@@ -25,28 +36,24 @@ const defaultResultsVar = "notionResults"
 
 // querySettings is the notion-query-datasource block's typed configuration.
 type querySettings struct {
-	// Connector names the notion connector to query through (required).
-	Connector string `json:"connector"`
-	// DataSource is a CEL expression producing the data source id to query. Set
-	// exactly one of DataSource or Database.
-	DataSource string `json:"dataSource"`
-	// Database is a CEL expression producing a database id; the block retrieves the
-	// database and queries its first data source. Set exactly one of DataSource or
-	// Database.
-	Database string `json:"database"`
-	// Filter is an optional CEL expression producing a Notion filter object.
-	Filter string `json:"filter"`
-	// Sorts is an optional CEL expression producing a list of Notion sort objects.
-	Sorts string `json:"sorts"`
-	// PageSize caps the number of results per call (Notion's own max is 100); 0
-	// leaves it to Notion's default.
-	PageSize int `json:"pageSize"`
-	// ResultVar names the variable the response is stored in (default
-	// "notionResults").
-	ResultVar string `json:"resultVar"`
-	// FailOnError, when true (the default), turns a Notion API error into a flow
-	// error.
-	FailOnError *bool `json:"failOnError"`
+	// Name of the notion connector to use.
+	Connector string `json:"connector" octo:"label=Connector,required,ref=connector:notion"`
+	// CEL expression for the data source id to query. Set exactly one of dataSource
+	// or database.
+	DataSource string `json:"dataSource" octo:"label=Data source ID,type=cel"`
+	// CEL expression for a database id; the block retrieves the database and queries
+	// its first data source. Set exactly one of dataSource or database.
+	Database string `json:"database" octo:"label=Database ID,type=cel"`
+	// CEL expression producing a Notion filter object.
+	Filter string `json:"filter" octo:"label=Filter,type=cel"`
+	// CEL expression producing a list of Notion sort objects.
+	Sorts string `json:"sorts" octo:"label=Sorts,type=cel"`
+	// Maximum number of results per call (Notion's own max is 100).
+	PageSize int `json:"pageSize" octo:"label=Page size"`
+	// Variable the query response is stored in.
+	ResultVar string `json:"resultVar" octo:"label=Result variable,default=notionResults"`
+	// Turn a Notion API error into a flow error.
+	FailOnError *bool `json:"failOnError" octo:"label=Fail on error,default=true"`
 }
 
 // queryProcessor queries a data source and stores the response. Exactly one of

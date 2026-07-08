@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 
 	"github.com/juancavallotti/octo/core"
 	"github.com/juancavallotti/octo/types"
@@ -20,6 +21,15 @@ import (
 
 func init() {
 	core.MustRegisterBlock("notion-verify-request", newVerify)
+
+	core.RegisterBlockMeta(core.BlockMeta{
+		Type:     "notion-verify-request",
+		Label:    "Notion Verify Request",
+		Category: "processor",
+		Description: "Verify an inbound Notion webhook signature and capture the one-time " +
+			"subscription handshake token.",
+		Config: reflect.TypeFor[verifySettings](),
+	})
 }
 
 const (
@@ -38,15 +48,14 @@ const (
 
 // verifySettings is the notion-verify-request block's typed configuration.
 type verifySettings struct {
-	// Connector names the notion connector whose verification token verifies the
-	// request (required).
-	Connector string `json:"connector"`
-	// SignatureHeader names the variable holding Notion's signature (default
-	// "X-Notion-Signature").
-	SignatureHeader string `json:"signatureHeader"`
-	// RawBodyVar names the variable holding the exact request body (default
-	// "rawBody"); it must match the http source's rawBodyVar.
-	RawBodyVar string `json:"rawBodyVar"`
+	// Name of the notion connector to use.
+	Connector string `json:"connector" octo:"label=Connector,required,ref=connector:notion"`
+	// Variable holding Notion's request signature.
+	SignatureHeader string `json:"signatureHeader" octo:"label=Signature variable,default=X-Notion-Signature"`
+	// Variable holding the exact request body; must match the http source's
+	// rawBodyVar. Optional when the http source uses raw-content mode (rawBody:
+	// true) — the block then reads the raw body directly and re-parses it into body.
+	RawBodyVar string `json:"rawBodyVar" octo:"label=Raw body variable,default=rawBody"`
 }
 
 // verifyProcessor authenticates an inbound Notion webhook and flags the

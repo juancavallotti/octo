@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"reflect"
 
 	"github.com/juancavallotti/octo/core"
 	"github.com/juancavallotti/octo/core/expr"
@@ -16,6 +17,15 @@ import (
 
 func init() {
 	core.MustRegisterBlock("notion-retrieve-page", newRetrievePage)
+
+	core.RegisterBlockMeta(core.BlockMeta{
+		Type:     "notion-retrieve-page",
+		Label:    "Notion Retrieve Page",
+		Category: "processor",
+		Description: "Retrieve a Notion page object by id through a notion connector and store it " +
+			"in a variable.",
+		Config: reflect.TypeFor[retrieveSettings](),
+	})
 }
 
 // defaultPageVar names the variable the retrieved page object is stored in.
@@ -23,16 +33,14 @@ const defaultPageVar = "notionPage"
 
 // retrieveSettings is the notion-retrieve-page block's typed configuration.
 type retrieveSettings struct {
-	// Connector names the notion connector to retrieve through (required).
-	Connector string `json:"connector"`
-	// Page is a CEL expression producing the page id to retrieve (required).
-	Page string `json:"page"`
-	// ResultVar names the variable the page object is stored in (default
-	// "notionPage").
-	ResultVar string `json:"resultVar"`
-	// FailOnError, when true (the default), turns a Notion API error (e.g.
-	// object_not_found) into a flow error.
-	FailOnError *bool `json:"failOnError"`
+	// Name of the notion connector to use.
+	Connector string `json:"connector" octo:"label=Connector,required,ref=connector:notion"`
+	// CEL expression for the page id to retrieve.
+	Page string `json:"page" octo:"label=Page ID,type=cel,required"`
+	// Variable the retrieved page object is stored in.
+	ResultVar string `json:"resultVar" octo:"label=Result variable,default=notionPage"`
+	// Turn a Notion API error into a flow error.
+	FailOnError *bool `json:"failOnError" octo:"label=Fail on error,default=true"`
 }
 
 // retrieveProcessor retrieves a page and stores the result.
