@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/juancavallotti/octo/core"
@@ -22,6 +23,15 @@ import (
 
 func init() {
 	core.MustRegisterBlock("slack-verify-request", newVerify)
+
+	core.RegisterBlockMeta(core.BlockMeta{
+		Type:     "slack-verify-request",
+		Label:    "Slack Verify Request",
+		Category: "processor",
+		Description: "Verify an inbound Slack request signature and answer the URL-verification " +
+			"challenge.",
+		Config: reflect.TypeFor[verifySettings](),
+	})
 }
 
 const (
@@ -41,18 +51,16 @@ const (
 
 // verifySettings is the slack-verify-request block's typed configuration.
 type verifySettings struct {
-	// Connector names the slack connector whose signing secret verifies the
-	// request (required).
-	Connector string `json:"connector"`
-	// SignatureHeader names the variable holding Slack's signature (default
-	// "X-Slack-Signature").
-	SignatureHeader string `json:"signatureHeader"`
-	// TimestampHeader names the variable holding Slack's request timestamp
-	// (default "X-Slack-Request-Timestamp").
-	TimestampHeader string `json:"timestampHeader"`
-	// RawBodyVar names the variable holding the exact request body (default
-	// "rawBody"); it must match the http source's rawBodyVar.
-	RawBodyVar string `json:"rawBodyVar"`
+	// Name of the slack connector to use.
+	Connector string `json:"connector" octo:"label=Connector,required,ref=connector:slack"`
+	// Variable holding Slack's request signature.
+	SignatureHeader string `json:"signatureHeader" octo:"label=Signature variable,default=X-Slack-Signature"`
+	// Variable holding Slack's request timestamp.
+	TimestampHeader string `json:"timestampHeader" octo:"label=Timestamp variable,default=X-Slack-Request-Timestamp"`
+	// Variable holding the exact request body; must match the http source's
+	// rawBodyVar. Optional when the http source uses raw-content mode (rawBody:
+	// true) — the block then reads the raw body directly and re-parses it into body.
+	RawBodyVar string `json:"rawBodyVar" octo:"label=Raw body variable,default=rawBody"`
 }
 
 // verifyProcessor authenticates an inbound Slack request and prepares the

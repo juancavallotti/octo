@@ -21,11 +21,14 @@ var migratedBlocks = []string{
 	"set-payload", "set-variable", "delete-variable", "multi-transform",
 	"template-resource", "flow-ref", "object-read", "object-write", "object-delete",
 	"invalidate-cache", "clear-agent-memory", "log", "sql", "queue-dispatch",
-	"publish-event", "jwt-validate", "ai-mapping", "rest", "if",
+	"publish-event", "jwt-validate", "ai-mapping",
+	"slack-send-message", "slack-verify-request", "slack-event",
+	"slack-lookup-user", "slack-add-reaction", "slack-update-message",
+	"rest", "if",
 }
 var migratedConnectors = []string{
 	"http-client", "http", "logger", "database", "queue", "events", "cron",
-	"llm-anthropic", "llm-openai", "llm-gemini",
+	"llm-anthropic", "llm-openai", "llm-gemini", "slack",
 }
 
 func TestGeneratedSchemaMatchesCapabilitiesJSON(t *testing.T) {

@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -30,6 +31,16 @@ import (
 func init() {
 	core.MustRegisterConnector("slack", func() core.Connector {
 		return &Connector{}
+	})
+
+	// Package-level editor defaults: the slack connector and every slack-* block
+	// share the Slack palette group and icon unless they set their own.
+	core.RegisterExtension(core.ExtensionMeta{Group: "Slack", Icon: "Slack"})
+
+	core.RegisterConnectorMeta(core.ConnectorMeta{
+		Type:     "slack",
+		Label:    "Slack",
+		Settings: reflect.TypeFor[connectorSettings](),
 	})
 }
 
@@ -45,16 +56,15 @@ const (
 
 // connectorSettings is the global config decoded from the connector's settings.
 type connectorSettings struct {
-	// BotToken is the Bot User OAuth token (xoxb-...) used to call the Web API.
-	BotToken string `json:"botToken"`
-	// SigningSecret verifies the signature on inbound Slack requests. It is only
-	// needed by flows that receive events; the verify block requires it.
-	SigningSecret string `json:"signingSecret"`
+	// Bot User OAuth token (xoxb-...) used to call the Web API.
+	BotToken string `json:"botToken" octo:"label=Bot token,required"`
+	// Verifies inbound Slack request signatures; required to receive events.
+	SigningSecret string `json:"signingSecret" octo:"label=Signing secret"`
 	// APIBaseURL overrides the Slack Web API base (default https://slack.com/api),
-	// mainly so tests can point at a stub server.
+	// mainly so tests can point at a stub server. Not exposed in the editor schema.
 	APIBaseURL string `json:"apiBaseURL"`
-	// Timeout bounds each Web API call (default 30s).
-	Timeout duration `json:"timeout"`
+	// Bounds each Slack Web API call.
+	Timeout duration `json:"timeout" octo:"label=Timeout,type=string,default=30s"`
 }
 
 // Connector holds Slack credentials and an HTTP client for the Slack Web API.

@@ -6,6 +6,7 @@ package slack
 import (
 	"context"
 	"fmt"
+	"reflect"
 
 	"github.com/juancavallotti/octo/core"
 	"github.com/juancavallotti/octo/core/expr"
@@ -14,22 +15,28 @@ import (
 
 func init() {
 	core.MustRegisterBlock("slack-add-reaction", newAddReaction)
+
+	core.RegisterBlockMeta(core.BlockMeta{
+		Type:        "slack-add-reaction",
+		Label:       "Slack Add Reaction",
+		Category:    "processor",
+		Description: "Add an emoji reaction to a message (reactions.add).",
+		Config:      reflect.TypeFor[reactionSettings](),
+	})
 }
 
 // reactionSettings is the slack-add-reaction block's typed configuration.
 type reactionSettings struct {
-	// Connector names the slack connector to react through (required).
-	Connector string `json:"connector"`
-	// Channel is a CEL expression producing the message's channel ID (required).
-	Channel string `json:"channel"`
-	// Timestamp is a CEL expression producing the target message's ts (required).
-	Timestamp string `json:"timestamp"`
-	// Emoji is a CEL expression producing the reaction name without colons, e.g.
-	// "white_check_mark" (required).
-	Emoji string `json:"emoji"`
-	// FailOnError, when true (the default), turns a Slack API error into a flow
-	// error.
-	FailOnError *bool `json:"failOnError"`
+	// Name of the slack connector to use.
+	Connector string `json:"connector" octo:"label=Connector,required,ref=connector:slack"`
+	// CEL expression for the message channel ID.
+	Channel string `json:"channel" octo:"label=Channel,type=cel,required"`
+	// CEL expression for the target message ts.
+	Timestamp string `json:"timestamp" octo:"label=Timestamp,type=cel,required"`
+	// CEL expression for the reaction name without colons (e.g. white_check_mark).
+	Emoji string `json:"emoji" octo:"label=Emoji,type=cel,required"`
+	// Turn a Slack API error into a flow error.
+	FailOnError *bool `json:"failOnError" octo:"label=Fail on error,default=true"`
 }
 
 // reactionProcessor adds an emoji reaction to a message.
