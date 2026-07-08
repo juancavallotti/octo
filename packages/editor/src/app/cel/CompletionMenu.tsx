@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import type { CelEntry } from "./catalog";
 
@@ -31,6 +32,18 @@ export default function CompletionMenu({
   /** Caret viewport anchor (fixed positioning); null anchors at the top-left. */
   position?: { left: number; top: number } | null;
 }) {
+  // Keep the keyboard-selected row visible as the selection moves past the
+  // scrollable list's edge (max-h-48 clips it otherwise).
+  const selectedRef = useRef<HTMLLIElement | null>(null);
+  useEffect(() => {
+    // scrollIntoView is unimplemented in jsdom (throws), so guard it.
+    try {
+      selectedRef.current?.scrollIntoView({ block: "nearest" });
+    } catch {
+      // no-op outside a real layout engine
+    }
+  }, [selected]);
+
   if (typeof document === "undefined") return null;
   const sel = items[selected];
   const vw = typeof window !== "undefined" ? window.innerWidth : MENU_WIDTH;
@@ -49,6 +62,7 @@ export default function CompletionMenu({
         {items.map((e, i) => (
           <li
             key={e.name}
+            ref={i === selected ? selectedRef : null}
             role="option"
             aria-selected={i === selected}
             // preventDefault keeps textarea focus so the click accepts before blur.
@@ -56,7 +70,10 @@ export default function CompletionMenu({
               ev.preventDefault();
               onAccept(e);
             }}
-            onMouseEnter={() => onHover(i)}
+            // onMouseMove (not onMouseEnter): keyboard nav scrolls rows under a
+            // stationary cursor, which fires mouseenter and would otherwise snap
+            // the selection back to the hovered row. mousemove needs real motion.
+            onMouseMove={() => onHover(i)}
             className={`flex cursor-pointer items-baseline gap-2 px-2 py-1 ${
               i === selected ? "bg-sky-500/15" : ""
             }`}
