@@ -1,9 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import { FlaskConical } from "lucide-react";
 import { findBlock, findFlow } from "../model/document";
 import { findConnector } from "../model/connectors";
 import { useEditorState } from "../state/editorState";
+import { useRun } from "../run/RunContext";
+import CelTesterModal from "../cel/CelTesterModal";
 import BlockSettings from "./BlockSettings";
 import SourceSettings from "./SourceSettings";
 import FlowSettings from "./FlowSettings";
@@ -22,7 +25,9 @@ const DEFAULT_WIDTH = 340;
  */
 export default function SettingsPanel() {
   const { state } = useEditorState();
+  const run = useRun();
   const [width, setWidth] = useState(DEFAULT_WIDTH);
+  const [testerOpen, setTesterOpen] = useState(false);
 
   const connection = state.selectedConnectionId
     ? findConnector(state.document, state.selectedConnectionId)
@@ -70,6 +75,25 @@ export default function SettingsPanel() {
         onPointerDown={startResize}
         className="absolute inset-y-0 left-0 w-1.5 -translate-x-1/2 cursor-col-resize hover:bg-sky-400/40"
       />
+
+      {/* Panel toolbar: the CEL tester lives here (right of the component editor).
+          Shown only when the RUN capability is available, like the Run bar. */}
+      {run?.available && (
+        <div className="flex h-9 shrink-0 items-center justify-end border-b border-black/10 px-2 dark:border-white/10">
+          <button
+            type="button"
+            aria-label="Open CEL tester"
+            title="Test a CEL expression"
+            onClick={() => setTesterOpen(true)}
+            className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-zinc-500 transition-colors hover:bg-black/[0.06] hover:text-zinc-700 dark:hover:bg-white/[0.08] dark:hover:text-zinc-200"
+          >
+            <FlaskConical size={14} />
+            CEL
+          </button>
+        </div>
+      )}
+
+      {testerOpen && <CelTesterModal onClose={() => setTesterOpen(false)} />}
 
       {connection ? (
         <ConnectionSettings connection={connection} />
