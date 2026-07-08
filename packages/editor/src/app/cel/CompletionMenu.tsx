@@ -1,16 +1,21 @@
 "use client";
 
+import { createPortal } from "react-dom";
 import type { CelEntry } from "./catalog";
 
 const MONO_FONT =
   "ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace";
 
+const MENU_WIDTH = 288; // px — matches w-72; used to clamp against the viewport edge.
+
 /**
  * The CEL completion dropdown: a scrollable list of entries plus a doc panel for
  * the highlighted one (signature, summary, example) — the IDE-style hover docs.
- * Purely presentational; it is positioned by its container (`position: relative`)
- * and driven by {@link useCelCompletion}. Shared by the CEL field editor and the
- * template `{{ }}` completion.
+ * Purely presentational and driven by {@link useCelCompletion}.
+ *
+ * It renders in a portal with `position: fixed` at the caret's viewport coordinates
+ * so it escapes any clipping/overflow ancestor (the settings panel scrolls, which
+ * would otherwise cut the menu off). Coordinates are clamped to stay on-screen.
  */
 export default function CompletionMenu({
   items,
@@ -23,18 +28,22 @@ export default function CompletionMenu({
   selected: number;
   onHover: (index: number) => void;
   onAccept: (entry: CelEntry) => void;
-  /** Caret pixel anchor; when omitted the menu sits below the full-width field. */
+  /** Caret viewport anchor (fixed positioning); null anchors at the top-left. */
   position?: { left: number; top: number } | null;
 }) {
+  if (typeof document === "undefined") return null;
   const sel = items[selected];
-  // At a caret anchor the menu is auto-width; otherwise it spans the field below it.
-  const placement = position
-    ? "min-w-[15rem] max-w-[22rem]"
-    : "left-0 top-full mt-1 w-full min-w-[15rem]";
-  return (
+  const vw = typeof window !== "undefined" ? window.innerWidth : MENU_WIDTH;
+  const left = Math.max(
+    8,
+    Math.min(position?.left ?? 8, vw - MENU_WIDTH - 8),
+  );
+  const top = position?.top ?? 8;
+
+  return createPortal(
     <div
-      style={position ? { left: position.left, top: position.top } : undefined}
-      className={`absolute z-50 overflow-hidden rounded-md border border-black/10 bg-white text-sm shadow-lg dark:border-white/15 dark:bg-zinc-900 ${placement}`}
+      style={{ position: "fixed", left, top, width: MENU_WIDTH }}
+      className="z-[9999] overflow-hidden rounded-md border border-black/10 bg-white text-sm shadow-lg dark:border-white/15 dark:bg-zinc-900"
     >
       <ul role="listbox" className="max-h-48 overflow-auto py-1">
         {items.map((e, i) => (
@@ -81,6 +90,7 @@ export default function CompletionMenu({
           </div>
         </div>
       )}
-    </div>
+    </div>,
+    document.body,
   );
 }

@@ -90,11 +90,14 @@ export function useCelCompletion({
         setMenu(null);
         return;
       }
-      // Anchor at the caret when we can measure it (falls back to below-field).
+      // Anchor at the caret in viewport coordinates so the menu can be rendered in a
+      // portal (position: fixed) and escape any clipping/overflow ancestor — e.g. the
+      // scrolling settings panel. Falls back to (0,0) when unmeasurable (jsdom).
       let pos: MenuState["pos"] = null;
       if (taRef.current) {
+        const rect = taRef.current.getBoundingClientRect();
         const c = caretCoordinates(taRef.current, caret);
-        pos = { left: c.left, top: c.top + c.height + 4 };
+        pos = { left: rect.left + c.left, top: rect.top + c.top + c.height + 4 };
       }
       // Map the query range back to absolute offsets so accept splices the full text.
       setMenu({
@@ -147,23 +150,26 @@ export function useCelCompletion({
       const ta = e.currentTarget as HTMLTextAreaElement;
       captureTa(ta);
       if (menu) {
-        if (e.key === "ArrowDown") {
+        const NAV = ["ArrowDown", "ArrowUp", "Enter", "Tab", "Escape"];
+        if (NAV.includes(e.key)) {
           e.preventDefault();
+          // Keep an open menu's keys from reaching outer handlers (e.g. a modal's
+          // Escape-to-close), so the first Escape only dismisses the menu.
+          e.stopPropagation();
+        }
+        if (e.key === "ArrowDown") {
           setSelected((i) => (i + 1) % menu.items.length);
           return;
         }
         if (e.key === "ArrowUp") {
-          e.preventDefault();
           setSelected((i) => (i - 1 + menu.items.length) % menu.items.length);
           return;
         }
         if (e.key === "Enter" || e.key === "Tab") {
-          e.preventDefault();
           accept(menu.items[selected]);
           return;
         }
         if (e.key === "Escape") {
-          e.preventDefault();
           setMenu(null);
           return;
         }
