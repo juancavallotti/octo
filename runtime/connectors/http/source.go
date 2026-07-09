@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -210,20 +211,51 @@ func (s *source) propagateResponseHeaders(w http.ResponseWriter, msg *types.Mess
 		if strings.EqualFold(name, "Content-Type") {
 			continue
 		}
-		if value, ok := msg.Variables.String(name); ok && value != "" {
+		raw, ok := msg.Variables[name]
+		if !ok {
+			continue
+		}
+		// A variable set from a CEL expression is typed: "30" evaluates to a number,
+		// not a string. Coerce scalars so numeric/boolean headers (e.g. Retry-After)
+		// propagate instead of being silently dropped.
+		if value, ok := headerValue(raw); ok && value != "" {
 			w.Header().Set(name, value)
 		}
 	}
 }
 
+// headerValue renders a scalar variable value as an HTTP header string. Composite
+// values (maps, slices) are not representable as a single header and yield false.
+func headerValue(v any) (string, bool) {
+	switch t := v.(type) {
+	case string:
+		return t, true
+	case bool:
+		return strconv.FormatBool(t), true
+	case int:
+		return strconv.Itoa(t), true
+	case int64:
+		return strconv.FormatInt(t, 10), true
+	case float64:
+		// Numbers from CEL/JSON arrive as float64; render integer-valued ones
+		// without a trailing ".0" so e.g. Retry-After is "30", not "30.0".
+		if t == float64(int64(t)) {
+			return strconv.FormatInt(int64(t), 10), true
+		}
+		return strconv.FormatFloat(t, 'f', -1, 64), true
+	default:
+		return "", false
+	}
+}
+
 // statusFor returns the response status for a completed flow: the message's
-// httpStatus variable when it is a valid HTTP status code, otherwise fallback.
+// httpStatus variable when it is a valid HTTP status code, otherwise 200 OK.
 // This lets a flow (or its error path) set vars.httpStatus to control the code.
-func statusFor(msg *types.Message, fallback int) int {
+func statusFor(msg *types.Message) int {
 	if code, ok := msg.Variables.Int(httpStatusVar); ok && code >= 100 && code <= 599 {
 		return code
 	}
-	return fallback
+	return http.StatusOK
 }
 
 // writeResult maps a flow outcome to an HTTP response.
@@ -234,8 +266,14 @@ func (s *source) writeResult(w http.ResponseWriter, res result) {
 		s.propagateResponseHeaders(w, res.msg)
 		if contentType, rawData, ok := res.msg.RawBody(); ok {
 			w.Header().Set("Content-Type", contentType)
-			w.WriteHeader(statusFor(res.msg, http.StatusOK))
+			w.WriteHeader(statusFor(res.msg))
 			_, _ = w.Write([]byte(rawData))
+			return
+		}
+		// A nil body means the flow produced no content: send an empty response
+		// rather than the literal "null" that BodyJSON would marshal.
+		if res.msg.Body == nil {
+			w.WriteHeader(statusFor(res.msg))
 			return
 		}
 		raw, err := res.msg.BodyJSON()
@@ -244,7 +282,7 @@ func (s *source) writeResult(w http.ResponseWriter, res result) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(statusFor(res.msg, http.StatusOK))
+		w.WriteHeader(statusFor(res.msg))
 		_, _ = w.Write(raw)
 	case types.FlowEventDropped:
 		w.WriteHeader(http.StatusNoContent)
