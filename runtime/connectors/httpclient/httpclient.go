@@ -48,6 +48,11 @@ const (
 	defaultCacheTTL         = 60 * time.Second
 	defaultCacheMaxEntries  = 256
 	defaultMaxResponseBytes = 1 << 20 // 1 MiB
+
+	// Retry defaults for 429 (Too Many Requests) responses.
+	defaultMaxAttempts = 3
+	defaultBaseBackoff = 500 * time.Millisecond
+	defaultMaxBackoff  = 30 * time.Second
 )
 
 // authType enumerates the supported authentication schemes.
@@ -72,9 +77,21 @@ type connectorSettings struct {
 	MaxResponseBytes int64 `json:"maxResponseBytes" octo:"label=Max response bytes,default=1048576"`
 	// Authentication applied to every request.
 	Auth authSettings `json:"auth" octo:"label=Authentication,type=object"`
+	// Retry policy for rate-limited (429) responses.
+	Retry retrySettings `json:"retry" octo:"label=Retry,type=object"`
 	// Cache enables an in-memory response cache for GET requests (opt-in). It is
 	// intentionally untagged: it is not exposed in the editor schema.
 	Cache cacheSettings `json:"cache"`
+}
+
+// retrySettings configures automatic re-attempts when an upstream returns 429
+// Too Many Requests. The Retry-After header is honored when present; otherwise
+// the client backs off exponentially. Each wait is capped at MaxBackoff.
+type retrySettings struct {
+	// Total attempts including the first; <=1 disables retrying.
+	MaxAttempts int `json:"maxAttempts" octo:"label=Max attempts,default=3"`
+	// Upper bound on each wait between attempts (also caps a large Retry-After).
+	MaxBackoff duration `json:"maxBackoff" octo:"label=Max backoff,type=string,default=30s"`
 }
 
 // authSettings selects and configures the authentication scheme. Type is "",
@@ -116,6 +133,10 @@ type Connector struct {
 	headers  map[string]string
 	maxBytes int64
 	cache    *responseCache
+
+	// maxAttempts and maxBackoff bound 429 retry behavior (see Do).
+	maxAttempts int
+	maxBackoff  time.Duration
 	// tokenSource is non-nil only for oauth2 auth; it mints and refreshes the
 	// bearer token applied to each request.
 	tokenSource *tokenSource
@@ -155,6 +176,8 @@ func (c *Connector) Start(ctx context.Context, config types.ConnectorConfig) err
 	if c.maxBytes <= 0 {
 		c.maxBytes = defaultMaxResponseBytes
 	}
+
+	c.maxAttempts, c.maxBackoff = resolveRetry(set.Retry)
 
 	if set.Cache.Enabled {
 		ttl := time.Duration(set.Cache.TTL)
@@ -217,9 +240,9 @@ func (c *Connector) Do(req *http.Request) (*http.Response, error) {
 		}
 	}
 
-	resp, err := c.client.Do(req)
+	resp, err := c.doWithRetry(req)
 	if err != nil {
-		return nil, fmt.Errorf("http-client do %s %s: %w", req.Method, req.URL.Redacted(), err)
+		return nil, err
 	}
 
 	if cacheable {
