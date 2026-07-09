@@ -87,6 +87,29 @@ type connectorSettings struct {
 	WriteTimeout duration `json:"writeTimeout" octo:"label=Write timeout,type=string"`
 	// Server idle timeout.
 	IdleTimeout duration `json:"idleTimeout" octo:"label=Idle timeout,type=string"`
+	// Cross-origin resource sharing. Inert unless allowedOrigins is set.
+	CORS corsSettings `json:"cors" octo:"label=CORS,type=object"`
+}
+
+// corsSettings is the global CORS policy applied to every route. It is off
+// unless AllowedOrigins is non-empty; when set, the connector wraps its mux in
+// a middleware that answers OPTIONS preflight and adds the headers below.
+type corsSettings struct {
+	// Origins allowed to make cross-origin requests. Exact matches; a single "*"
+	// allows any origin.
+	AllowedOrigins []string `json:"allowedOrigins" octo:"label=Allowed origins"`
+	// Methods allowed on preflight; defaults to the common set when unset.
+	AllowedMethods []string `json:"allowedMethods" octo:"label=Allowed methods"`
+	// Request headers allowed on preflight; when unset, the requested headers are
+	// echoed back.
+	AllowedHeaders []string `json:"allowedHeaders" octo:"label=Allowed headers"`
+	// Response headers exposed to the browser on actual responses.
+	ExposedHeaders []string `json:"exposedHeaders" octo:"label=Exposed headers"`
+	// Allow credentialed (cookie/authorization) requests. When true, the origin is
+	// echoed rather than "*", per the CORS spec.
+	AllowCredentials bool `json:"allowCredentials" octo:"label=Allow credentials"`
+	// How long a browser may cache the preflight response.
+	MaxAge duration `json:"maxAge" octo:"label=Max age,type=string"`
 }
 
 // Connector owns the shared HTTP server and the request/response registry. The
@@ -98,6 +121,7 @@ type Connector struct {
 	ln         net.Listener
 	basePath   string
 	reqTimeout time.Duration
+	cors       *corsConfig
 
 	serveOnce   sync.Once
 	stopOnce    sync.Once
@@ -125,6 +149,7 @@ func (c *Connector) Start(ctx context.Context, config types.ConnectorConfig) err
 	if c.reqTimeout <= 0 {
 		c.reqTimeout = defaultRequestTimeout
 	}
+	c.cors = newCORSConfig(set.CORS)
 	host := resolveHost(set.Host)
 	port := resolvePort(set.Port)
 
@@ -142,7 +167,7 @@ func (c *Connector) Start(ctx context.Context, config types.ConnectorConfig) err
 	}
 	c.mux = http.NewServeMux()
 	c.server = &http.Server{
-		Handler:           c.mux,
+		Handler:           c.withCORS(c.mux),
 		ReadTimeout:       readTimeout,
 		ReadHeaderTimeout: readHeaderTimeout,
 		WriteTimeout:      time.Duration(set.WriteTimeout),

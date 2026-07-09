@@ -200,6 +200,26 @@ func TestRawBodySourced(t *testing.T) {
 	}
 }
 
+// TestCompletedNilBodyIsEmpty verifies that a flow completing with no body
+// produces an empty response rather than the literal "null".
+func TestCompletedNilBodyIsEmpty(t *testing.T) {
+	c, base := startConnector(t, nil)
+	out := newSource(t, c, map[string]any{"path": "/noop"})
+	echoWorker(out, func(msg *types.Message) types.FlowEvent {
+		msg.Body = nil
+		return types.FlowEvent{Kind: types.FlowEventCompleted, Result: msg}
+	})
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, base+"/noop", nil)
+	resp := do(t, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", resp.status, resp.body)
+	}
+	if len(resp.body) != 0 {
+		t.Errorf("body = %q, want empty", resp.body)
+	}
+}
+
 func TestRequestResponseOutcomes(t *testing.T) {
 	tests := []struct {
 		name       string
