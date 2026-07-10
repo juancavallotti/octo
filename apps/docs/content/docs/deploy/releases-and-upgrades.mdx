@@ -4,5 +4,145 @@ description: "Versioning, release automation, and upgrading a deployment."
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
+import { Steps, Step } from 'fumadocs-ui/components/steps';
 
-<Callout type="info">This page is being written.</Callout>
+Octo releases are fully automated: Conventional Commits drive
+[release-please](https://github.com/googleapis/release-please), a version tag
+triggers the build pipelines, and published artifacts roll out to deployments
+by bumping a tag.
+
+## How a release is cut
+
+<Steps>
+<Step>
+
+### Commits land on main
+
+Commit messages follow Conventional Commits. The version bump is derived from
+the types: `feat` bumps minor, `fix`/`perf`/`refactor` bump patch, and `!` or
+`BREAKING CHANGE` bumps major (pre-1.0, breaking and feature changes bump
+minor/patch per the release-please config).
+
+</Step>
+<Step>
+
+### release-please maintains a release PR
+
+The `release-please` workflow (`.github/workflows/release-please.yml`) runs on
+every push to `main` and keeps a release PR up to date with the accumulated
+changelog and the next version. Do not hand-edit `CHANGELOG.md` or the
+manifest version — release-please owns them.
+
+</Step>
+<Step>
+
+### Merging the release PR tags a version
+
+Merging creates the GitHub release, the `CHANGELOG.md` entry, and the clean
+`vX.Y.Z` tag. Because release-please pushes the tag with the default
+`GITHUB_TOKEN` (which cannot cascade-trigger tag workflows), it invokes the
+release workflow directly, passing the fresh tag.
+
+</Step>
+<Step>
+
+### The release workflow builds and publishes
+
+`.github/workflows/release.yml` runs two jobs:
+
+- **release-check** — checks out the tag, runs `task release-check`
+  (governance and release-readiness files) and `task build` (all Go modules
+  plus the pnpm workspace).
+- **publish-standalone** — builds the standalone editor image from
+  `apps/standalone/Dockerfile` as a multi-arch build (`linux/amd64` +
+  `linux/arm64`) and pushes it to Docker Hub as
+  `juancavallotti/octo:<version>` and `juancavallotti/octo:latest`.
+
+</Step>
+<Step>
+
+### Cloud Build publishes the platform artifacts
+
+In the [GCP reference deployment](/deploy/gcp-terraform), a Cloud Build
+trigger (created by the `infra` root with `enable_cloudbuild = true`) fires on
+the same version tag and runs `cloudbuild.yaml`:
+
+- Builds the five platform images (`octo-platform`, `octo-orchestrator`,
+  `octo-logs`, `octo-schema`, `octo-runtime`) and pushes each to Artifact
+  Registry tagged with both the git tag and `latest`.
+- Packages the Helm chart (version from `helm/Chart.yaml`, kept in step with
+  the repo release by release-please) and pushes it as an OCI artifact.
+- With `_DEPLOY=true` (the default when `cloudbuild_auto_deploy` is on),
+  applies the Terraform `release` root — rolling the cluster to the new tag
+  automatically.
+
+</Step>
+</Steps>
+
+## Upgrading a deployment
+
+### GCP reference deployment
+
+If `cloudbuild_auto_deploy` is on, version tags roll out on their own. To
+deploy a published tag by hand:
+
+```bash
+task deploy TAG=v0.2.0
+```
+
+This fetches a fresh kubeconfig, derives the chart version from
+`helm/Chart.yaml`, and applies the `release` root — pre-pulling the images
+onto the node and upgrading the Helm release. See
+[GCP with Terraform](/deploy/gcp-terraform#deploy-and-roll-upgrades).
+
+### Plain Helm deployment
+
+Point the release at the new chart version and image tag:
+
+```bash
+helm upgrade octo oci://<registry>/octo/octo \
+  --version <new-chart-version> \
+  --namespace octo-dev \
+  --reuse-values \
+  --set image.tag=v0.2.0
+```
+
+The application Deployments roll automatically, the schema hook Job re-applies
+`sql/schema.sql` idempotently, and Postgres data is untouched. Integrations
+keep running on the runtime image they were deployed with — redeploy them from
+the editor to move them to the new `octo-runtime`. See
+[Helm chart](/deploy/helm#upgrade).
+
+### Standalone editor
+
+Pull the new tag and restart the container:
+
+```bash
+docker pull juancavallotti/octo:latest
+```
+
+Flows live in your mounted directory, so nothing is lost across upgrades. See
+[Running from Docker](/editor/docker).
+
+## Compatibility
+
+<Callout type="warn">
+  Octo is pre-1.0 and makes no external API stability guarantee. The project
+  explicitly prefers complete refactors over backwards compatibility: when a
+  change improves the design, every call site, test, and document is updated
+  in the same change rather than keeping compatibility shims or dual code
+  paths. Read the release notes before upgrading, and pin versions for
+  reproducible setups.
+</Callout>
+
+The database schema is the exception in practice: `sql/schema.sql` is written
+idempotently (`IF NOT EXISTS` / `ON CONFLICT`) so the schema Job can re-run on
+every upgrade against existing data.
+
+## Where to watch releases
+
+- **GitHub Releases** — every version tag has a release with its notes.
+- **`CHANGELOG.md`** — the accumulated, release-please-maintained changelog
+  at the repo root.
+- **Docker Hub** — [`juancavallotti/octo`](https://hub.docker.com/r/juancavallotti/octo)
+  tags track releases of the standalone editor.

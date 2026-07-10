@@ -5,4 +5,60 @@ description: "Authoring, organizing, and managing integrations on the platform."
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-<Callout type="info">This page is being written.</Callout>
+On the platform, an integration is a named [flow definition](/reference/flow-file) stored in Postgres: a display name plus the raw runtime YAML. This page covers the integration record itself — its lifecycle, naming, attribution, and folder organization. Versioning is covered in [Snapshots](/platform/snapshots) and running in [Deployments](/platform/deployments).
+
+{/* TODO screenshot: integrations list */}
+
+## The integration record
+
+Each integration row carries:
+
+- **`id`** — a UUID, the durable handle everything else (folders, snapshots, resources, deployments) references.
+- **`name`** — required, at most 200 characters, and **unique case-insensitively across the platform**. Renaming to a taken name is rejected with a conflict error. The name also seeds the deployment slug used for internal URLs and default subdomains.
+- **`definition`** — the raw integration YAML, exactly as the editor (or an MCP client) saved it. The orchestrator stores it as opaque text; the runtime validates the full document at load time.
+- **Attribution** — `createdBy`/`updatedBy` record which user authored and last edited the integration, resolved to email/name for display. They are optional: a write through a path with no known actor leaves them unset, and deleting a user leaves their integrations in place (attribution is nulled, never cascaded).
+
+## Lifecycle
+
+The working copy is fully mutable — create, edit, rename, delete — through the editor or the [MCP endpoint](/ai/platform-mcp). The underlying REST surface on the orchestrator:
+
+| Operation | Endpoint |
+| --- | --- |
+| Create | `POST /integrations` |
+| List | `GET /integrations` |
+| Read | `GET /integrations/{id}` |
+| Update (name and/or definition) | `PUT /integrations/{id}` |
+| Delete | `DELETE /integrations/{id}` |
+
+The browser never calls these directly; the platform app's authenticated BFF proxies every call and forwards the acting user's id so edits are attributed.
+
+Deleting an integration cascades: its folder membership, snapshots (and their frozen resources), live resources, and deployment records go with it.
+
+<Callout type="warn">
+Editing the working copy never changes what is running. Deployments ship an immutable [version tag](/platform/snapshots); to run new edits you create a tag and deploy or roll it out.
+</Callout>
+
+## Folders
+
+Integrations are organized in a folder tree. Folders nest arbitrarily (each folder has an optional parent), and an integration lives in **at most one folder** — adding it to another folder moves it. Both folders among their siblings and integrations within a folder keep a manual order: new entries are appended, and reorder operations persist the position.
+
+The folder API mirrors the integration API:
+
+| Operation | Endpoint |
+| --- | --- |
+| Create / list / read / rename / delete folders | `POST/GET /folders`, `GET/PUT/DELETE /folders/{id}` |
+| Reorder sibling folders | `PUT /folders/reorder` |
+| List a folder's integrations | `GET /folders/{id}/integrations` |
+| Add (move) an integration into a folder | `PUT /folders/{id}/integrations/{integrationId}` |
+| Remove an integration from its folder | `DELETE /folders/{id}/integrations/{integrationId}` |
+| Reorder integrations within a folder | `PUT /folders/{id}/integration-order` |
+
+Deleting a folder cascades to its subfolders; integrations themselves are not deleted — memberships are.
+
+## Authoring surfaces
+
+Three clients write to the same store:
+
+- **The visual editor** — the primary authoring surface, with validation, the RUN feature for testing, and deployment management.
+- **The MCP endpoint** (`/mcp`) — AI agents create and update integrations programmatically; a write publishes a live-reload event so an editor with that integration open refreshes. See [The Platform MCP Server](/ai/platform-mcp).
+- **The orchestrator API** — any authenticated automation the BFF fronts.

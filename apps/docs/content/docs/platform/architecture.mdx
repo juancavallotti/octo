@@ -3,6 +3,102 @@ title: "Architecture"
 description: "The platform app, orchestrator API, NATS, Postgres, and runtime workloads."
 ---
 
-import { Callout } from 'fumadocs-ui/components/callout';
+The platform is a control plane — the Next.js platform app, the Go orchestrator, Postgres, NATS, and a log aggregator — and a data plane where every deployed integration runs as its own Kubernetes Deployment of the same `octo-runtime` image. This page maps the components and traces the main request paths between them.
 
-<Callout type="info">This page is being written.</Callout>
+## Component map
+
+```
+                you (browser)
+                     │ HTTPS (Traefik ingress)
+                     ▼
+   ┌───────────────────────────────────────┐
+   │ Platform app (apps/platform)  :3000   │  Next.js editor + BFF
+   │  Auth.js OIDC session · server proxy  │
+   └──────────────┬────────────────────────┘
+                  │ HTTP (server-side only)
+                  ▼
+   ┌───────────────────────────────────────┐        ┌────────────────┐
+   │ Orchestrator (Go)             :8090   │───────▶│ Kubernetes API │
+   │  integrations · deployments · KV      │ applies└──────┬─────────┘
+   │  snapshots · secrets · users · keys   │ manifests     │ creates
+   └───────┬──────────────────────┬────────┘               ▼
+           │ SQL                  │ publishes   ┌──────────────────────────┐
+           ▼                      ▼             │ Runtime pods (data plane)│
+   ┌──────────────┐        ┌───────────┐       │  one Deployment per      │
+   │ Postgres     │        │ NATS      │◀──────│  deployed integration    │
+   │  :5432       │        │  :4222    │ queues│  (octo-runtime image)    │
+   └──────────────┘        └─────┬─────┘ logs  └──────────────────────────┘
+           ▲                     │ internal.logs
+           │ SQL                 ▼
+           │              ┌──────────────┐
+           └──────────────│ Log          │
+                          │ aggregator   │  :8091
+                          └──────────────┘
+```
+
+All control-plane components run in one namespace (`octo-dev` by default) and are wired by the [Helm chart](/deploy/helm).
+
+### Platform app (`apps/platform`)
+
+A Next.js App Router application that serves the visual editor and every platform view. It is also the **backend-for-frontend**: the browser never calls the orchestrator directly. Server actions and route handlers under `app/api` proxy every call using the server-only `ORCHESTRATOR_URL`, so the orchestrator needs no CORS, no public exposure, and no authentication of its own.
+
+Authentication is Auth.js (NextAuth) with an OIDC provider and JWT sessions — no database adapter, so the same config backs both the route handlers and the request proxy (`proxy.ts`), which redirects unauthenticated browser navigations to sign-in and answers unauthenticated `/api/*` calls with a 401. Two paths bypass the session gate because they carry their own authentication: `/mcp` (bearer tokens) and the run proxy under `/editor/runs/`. See [Users and API Keys](/platform/users-and-api-keys).
+
+### Orchestrator (`orchestrator/`)
+
+A Go HTTP API, listening on port `8090` by default (`PORT`). It owns all persistent state in Postgres and is the only component with Kubernetes API access. Its feature modules register REST routes on a single mux:
+
+| Module | Routes | Requires |
+| --- | --- | --- |
+| integration | `POST/GET /integrations`, `GET/PUT/DELETE /integrations/{id}` | database |
+| folder | `POST/GET /folders`, `GET/PUT/DELETE /folders/{id}`, member routes | database |
+| snapshot | `POST/GET /integrations/{id}/snapshots`, `DELETE /snapshots/{id}`, frozen-resource reads | database |
+| resource | `POST/GET /integrations/{id}/resources`, `GET/PUT/DELETE .../resources/{resourceId}` | database |
+| user | `POST /users/bootstrap`, `GET /users/{id}` | database |
+| apikey | `POST/GET /users/{userId}/apikeys`, `DELETE .../apikeys/{id}`, `POST /apikeys/verify` | database |
+| kv | `GET/PUT/DELETE /deployments/{id}/kv/{namespace}/{key}` + object browser routes | database |
+| deployment | `POST/GET /integrations/{id}/deployments`, `GET/PATCH/DELETE /deployments/{id}`, rollout, pod logs | database + in-cluster Kubernetes |
+| secret | `GET /secrets`, `PUT/DELETE /secrets/{name}` | database + in-cluster Kubernetes |
+
+The wiring is graceful: without `DATABASE_URL` only `/healthz` (and a degraded `/db-version`) serve; outside a cluster the deployment and secret routes stay disabled while everything database-backed still works.
+
+The orchestrator trusts the platform app as its authentication boundary — the acting user's id is forwarded in request bodies (`actorId`) from the authenticated session, not verified as a credential. Keep the orchestrator internal (ClusterIP); the chart does.
+
+### Postgres
+
+The system of record, applied idempotently from `sql/schema.sql` by a schema Job on every install/upgrade. Main tables: `integrations`, `integration_idx_structure` + `integration_folder_members` (folders), `integration_snapshots` + `integration_resource_snapshots` (version tags), `integration_resources` (live env files/templates), `integration_deployments`, `cluster_secrets` (names only — values live in Kubernetes), `kv_store`, `users`, `api_keys`, and `logs`.
+
+### NATS
+
+Core NATS (no JetStream) is the message backbone between planes. It carries three kinds of traffic on disjoint subject spaces: deployment-scoped runtime queues and topics (`octo.{deploymentId}.q.*` / `.t.*`), log shipping (`internal.logs`), and control-plane events (`internal.deployments.*`, `internal.integrations.events`). See [Event Bus](/platform/event-bus).
+
+### Log aggregator
+
+A small Go service (`logs/`, port `8091`) that consumes `internal.logs` as a competing consumer (so replicas scale safely), persists each structured record to the `logs` table, and serves the query API behind the platform's logs view. See [Monitoring](/runtime/monitoring).
+
+### Runtime pods
+
+Each deployed integration becomes one Kubernetes Deployment of the generic `octo-runtime` image with the frozen definition mounted from a ConfigMap. The orchestrator injects `RUNTIME_SERVICES_MODULE=k8s` plus the deployment id, its own URL, and the NATS URL, so the same image self-configures for clustered state, queues, leader election, and log shipping. See [Deployments](/platform/deployments) and [Clustering](/runtime/clustering).
+
+## Request paths
+
+Three examples show how the pieces interact.
+
+### Saving an integration
+
+1. You edit a flow and save. The browser calls a server action on the platform app; the action requires an authenticated session (and a write role, when configured).
+2. The BFF calls `PUT /integrations/{id}` on the orchestrator with the new name/definition and the acting user's id.
+3. The orchestrator validates the name (unique, case-insensitive), writes the row to Postgres, stamps `updated_by`, and returns the stored integration.
+
+### Deploying an integration
+
+1. The deploy dialog fetches `GET /integrations/{id}/deployments/options` for the chosen tag: declared env vars, which of them the tag's `.env` resources already satisfy, and a suggested free slug.
+2. On confirm, the BFF calls `POST /integrations/{id}/deployments` with the settings (snapshot id, replicas, slug, env bindings, exposure).
+3. The orchestrator resolves the tag's frozen definition, verifies every required env var is provided, records the deployment row, then creates the cluster resources: a ConfigMap, a Deployment of `octo-runtime`, and — for HTTP integrations — Services and optionally an Ingress. A Kubernetes failure rolls everything back.
+4. Kubernetes informers watch the new pods. On each change the orchestrator recomputes the integration's deployment list and publishes it to NATS on `internal.deployments.{integrationId}`; the BFF's SSE route relays it to the browser, which shows the pods going ready live.
+
+### Invoking a deployed integration
+
+- **From another integration in the cluster:** call the deployment's stable internal Service, `http://octo-int-{slug}.{namespace}:{port}` — load-balanced across the deployment's replicas.
+- **From the public internet** (externally exposed deployments): the request hits Traefik at `https://{subdomain}.{baseDomain}`, matches the deployment's Ingress (TLS from cert-manager or a shared wildcard certificate), and is routed to the per-deployment Service and on to a runtime pod.
+- Inside the pod, the runtime's HTTP source handles the request exactly as it would standalone — the flow YAML is identical in both worlds.

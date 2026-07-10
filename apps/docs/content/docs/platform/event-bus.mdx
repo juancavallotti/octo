@@ -5,4 +5,49 @@ description: "How the orchestrator and runtimes coordinate over NATS."
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-<Callout type="info">This page is being written.</Callout>
+One NATS broker is the platform's message backbone. Control-plane events, runtime work queues, and log shipping all share it — separated by subject namespace, never by broker. This page maps what flows over it and how events reach the browser.
+
+## Subject map
+
+| Subject | Publisher | Consumer | Purpose |
+| --- | --- | --- | --- |
+| `internal.deployments.{integrationId}` | orchestrator | platform BFF (per-integration SSE) | Deployment status snapshots |
+| `internal.integrations.events` | platform BFF (MCP writes) | platform BFF (SSE) | Integration-write live-reload hints |
+| `internal.logs` | every runtime pod | log aggregator (queue group) | Structured log shipping |
+| `octo.{deploymentId}.q.{subject}` | runtime pods | runtime pods (queue group) | Flow [queues](/runtime/clustering#queues-competing-consumers) — competing consumers |
+| `octo.{deploymentId}.t.{subject}` | runtime pods | runtime pods (plain subscribe) | Flow topics — broadcast fan-out |
+
+The convention: control-plane infrastructure lives under `internal.*`; runtime messaging is scoped per deployment under `octo.{deploymentId}.*`, so deployments sharing the broker can never collide with each other or with the platform's own traffic.
+
+## Orchestrator events: deployment status
+
+The orchestrator runs Kubernetes informers over the deployments and pods it manages. On every cluster change it recomputes the affected integration's full deployment list — the same JSON array the REST list endpoint returns — and publishes it to `internal.deployments.{integrationId}` (fire-and-forget: a broker hiccup is logged, never blocks the write path).
+
+On the other side, the platform BFF holds a single lazily opened NATS connection. Its SSE route (`GET /api/integrations/{id}/deployments/events`) subscribes to the integration's subject and relays each snapshot to the browser as a Server-Sent Events frame. Because the fan-out goes through NATS rather than process memory, it works across **multiple platform replicas** — whichever replica serves the SSE request sees every snapshot.
+
+Snapshots carry the same wire shape as the REST response on purpose: the browser parses a streamed frame and a polled response identically, so degrading to polling is seamless.
+
+## Integration-write events
+
+When an MCP client creates or updates an integration, the BFF publishes an `integration.updated` event (the integration's id and name) so an editor with that integration open can live-reload it. With NATS configured the event goes to `internal.integrations.events` and reaches editors on any replica; the SSE route `GET /api/integrations/events` relays it. Delivery is fire-and-forget by contract — an MCP write never fails because the reload hint couldn't be delivered.
+
+### The in-process fallback (`packages/events`)
+
+`@octo/events` is a tiny shared package: the `OctoEvent` types, an in-process publish/subscribe bus, an SSE `Response` builder, and the browser `EventSource` client. When `NATS_URL` is unset or the broker is unreachable — the standalone app, local development, a single-replica deploy without a broker — the BFF publishes on this in-process bus instead, which reaches editors connected to the same process. The subscription API the browser sees is identical either way.
+
+## Degradation without a broker
+
+Everything on this page is optional infrastructure:
+
+- The orchestrator's publisher is a **noop** when `NATS_URL` is unset — writes and deploys work unchanged.
+- The deployments SSE route answers `503`, and the browser falls back to **polling** the REST list.
+- Integration-write events fall back to the **in-process bus**.
+- Runtime queues, topics, and log shipping do require NATS in clustered runs — the k8s services module refuses to start a pod without `NATS_URL`, surfacing the misconfiguration at startup rather than on first use.
+
+<Callout type="info">
+The chart deploys NATS by default (`nats.enabled`) as core NATS — ephemeral fan-out with no JetStream persistence. Events are live signals, not a durable event log: a subscriber that wasn't connected simply catches up from the REST API.
+</Callout>
+
+## Relationship to runtime messaging
+
+The runtime's `queue` and `topic` constructs (see [Clustering](/runtime/clustering)) use the *same broker* through the same injected `NATS_URL`, but they are user-level messaging between a deployment's replicas — deployment-scoped subjects, queue groups for competing consumers, native request–reply — while the `internal.*` subjects are platform plumbing. A flow never sees platform events, and platform components never consume flow queues.

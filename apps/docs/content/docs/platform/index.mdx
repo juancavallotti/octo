@@ -3,6 +3,39 @@ title: "Platform Overview"
 description: "What the multi-user platform adds: deployments, secrets, and orchestration."
 ---
 
-import { Callout } from 'fumadocs-ui/components/callout';
+import { Cards, Card } from 'fumadocs-ui/components/card';
 
-<Callout type="info">This page is being written.</Callout>
+The Octo platform is the cloud-native, multi-user counterpart to the [standalone editor](/editor): the same visual editor, backed by a control plane that stores integrations in Postgres and deploys each one as its own Kubernetes workload. Where the standalone editor reads flow files from a local directory, the platform gives a team shared storage, versioning, one-click deployments, and central operations.
+
+{/* TODO screenshot: platform dashboard */}
+
+## What the platform adds
+
+- **Multi-user sign-in.** OIDC single sign-on (Auth.js) gates the whole app. Each teammate gets a durable user identity, integration edits are attributed to the user who made them, and write operations can be restricted to specific roles.
+- **A persistent integration store.** Integrations live in Postgres — uniquely named and organized into folders — instead of files on one person's disk.
+- **Version tags (snapshots).** Tagging an integration freezes its definition and a copy of its resources under an immutable name. Deployments always ship a tag, never the live working copy.
+- **One-click deployments to Kubernetes.** The orchestrator turns a tag into a Kubernetes Deployment of the generic `octo-runtime` image, with a stable internal URL per deployment and an optional public HTTPS endpoint on its own subdomain.
+- **Resources and secrets.** Env files and templates are authored per integration and frozen with each tag; sensitive values live in a cluster-wide secret store and are bound to deployments by reference, never stored in the database.
+- **A clustered object store.** A deployment's replicas share a versioned, deployment-scoped key/value store served by the orchestrator, with encrypted-at-rest secret namespaces — plus an object browser API for inspecting stored values.
+- **Central logs.** Every runtime pod ships structured logs over NATS to a log aggregator that persists them to Postgres, queryable across all deployments.
+- **API keys and MCP.** Per-user bearer keys (and OAuth access tokens) authenticate programmatic clients, including the platform's [MCP endpoint](/ai/platform-mcp) for AI-assisted authoring.
+- **Live status.** Deployment status streams from Kubernetes informers through NATS to the browser as Server-Sent Events, so you watch pods come up in real time.
+
+## The pieces
+
+Two services make up the control plane: the **platform app** (`apps/platform`, a Next.js app that serves the editor and fronts everything as a backend-for-frontend) and the **orchestrator** (`orchestrator/`, a Go HTTP API that owns the database and is the only component that talks to the Kubernetes API). [Architecture](/platform/architecture) walks through how they fit together.
+
+<Cards>
+  <Card title="Architecture" href="/platform/architecture" description="The platform app, orchestrator API, NATS, Postgres, and runtime workloads." />
+  <Card title="Integrations" href="/platform/integrations" description="Authoring, organizing, and managing integrations on the platform." />
+  <Card title="Deployments" href="/platform/deployments" description="Deploying integrations as Kubernetes workloads: rollouts and rollbacks." />
+  <Card title="Snapshots" href="/platform/snapshots" description="Version tags: freezing definitions and resources for deployment." />
+  <Card title="Resources and Secrets" href="/platform/resources-and-secrets" description="Integration resources, cluster secrets, and how values reach running flows." />
+  <Card title="KV Store and Persistence" href="/platform/kv-and-storage" description="The deployment-scoped key/value store and the platform database." />
+  <Card title="Users and API Keys" href="/platform/users-and-api-keys" description="Authentication, user management, and API tokens." />
+  <Card title="Event Bus" href="/platform/event-bus" description="How the orchestrator and runtimes coordinate over NATS." />
+</Cards>
+
+## Running the platform
+
+The platform ships as a Helm chart with images for every component. See [Deploying with Helm](/deploy/helm) for the chart, [GCP with Terraform](/deploy/gcp-terraform) for a complete single-VM reference deployment, and [Local k3d](/deploy/local-k3d) for a development cluster.

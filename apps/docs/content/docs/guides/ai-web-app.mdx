@@ -4,5 +4,270 @@ description: "Cache LLM output and render it as HTML with an error fallback page
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
+import { Cards, Card } from 'fumadocs-ui/components/card';
 
-<Callout type="info">This page is being written.</Callout>
+This guide assembles everything into a complete AI web app: an HTTP endpoint
+that calls an LLM, caches the result so the model isn't hit on every page view,
+renders the answer as an HTML page, and falls back to a friendly error page when
+the model misbehaves. Both configs on this page are real integrations running on
+the author's Octo platform — the walkthrough is the "jokes api" integration, and
+the going-further section is its richer sibling, "Weather jokes".
+
+## The shape of the app
+
+One flow, four stages:
+
+1. **HTTP source** — a GET on `/` triggers the flow.
+2. **`cache-scope`** — wraps the expensive part so only the first request per
+   TTL pays for a model call.
+3. **`ai-mapping`** — asks the LLM for structured JSON (a joke and its
+   fictional author).
+4. **`template-resource`** — renders the JSON into an HTML page served with
+   `Content-Type: text/html`.
+
+Plus an **error path** that renders a fallback page instead of leaking a JSON
+error to the browser.
+
+## Declare the pieces
+
+The service needs an HTTP connector, an LLM connector, and the two page
+templates declared as resources:
+
+```yaml title="jokes api (live integration)"
+service:
+  name: jokes api
+
+env:
+  - name: HTTP_PORT
+    default: "8080"
+    required: true
+  - name: GEMINI_APIKEY
+    required: true
+
+resources:
+  templates:
+    - resource: templates/joke.html
+      as: joke_page
+    - resource: templates/joke-error.html
+      as: joke_error_page
+
+connectors:
+  - name: http
+    type: http
+    settings:
+      port: ${HTTP_PORT}
+      requestTimeout: 30s
+  - name: llm-gemini
+    type: llm-gemini
+    settings:
+      model: gemini-3.5-flash
+      apiKey: ${GEMINI_APIKEY}
+```
+
+Note the generous `requestTimeout: 30s` — a cache miss includes a model call,
+and a short HTTP timeout would cut it off.
+
+## The flow
+
+```yaml title="jokes api (live integration)"
+flows:
+  - name: flow-1
+    source:
+      connector: http
+      type: http
+      settings:
+        maxBodyBytes: 1048576
+        path: /
+    process:
+      - type: cache-scope
+        key: '"all-jokes-for-60s"'
+        ttl: 60s
+        body:
+          process:
+            - type: log
+              settings:
+                level: info
+                message: '"About to generate a joke..."'
+            - type: set-payload
+              settings:
+                value: '{"currentTime": now}'
+            - type: ai-mapping
+              settings:
+                prompt: >
+                  Make a dad joke about whatever you feel, an appropriate joke
+                  could be about the current time of day. Also invent a
+                  ridiculous, funny fictional author name to attribute the joke
+                  to, as if it were a wise quote — something pompous-sounding or
+                  punny (e.g. a fake philosopher, fake self-help guru, or fake
+                  historical figure). Return only valid JSON matching the output
+                  example.
+                outputExample: '{"joke": "why did the chicken crossed the road?", "author": "Dr.
+                  Reginald Cluckworth III"}'
+                connector: llm-gemini
+            - type: set-payload
+              settings:
+                value: '{"body": body.joke, "author": body.author, "generated_at": now}'
+      - type: template-resource
+        name: render-html-page
+        settings:
+          id: joke_page
+          rawBody: true
+          contentType: text/html; charset=utf-8
+    error:
+      - type: set-variable
+        settings:
+          name: httpStatus
+          value: "500"
+      - type: template-resource
+        name: render-error-page
+        settings:
+          id: joke_error_page
+          rawBody: true
+          contentType: text/html; charset=utf-8
+```
+
+Walking through the decisions:
+
+- **The cache boundary is the money boundary.** Everything inside the
+  `cache-scope` body costs tokens and seconds; everything outside is free.
+  Under the constant key `"all-jokes-for-60s"` every visitor shares one joke per
+  minute — the first request each minute calls Gemini, the rest are served from
+  the cache in sub-millisecond time.
+- **`set-payload` before `ai-mapping`** feeds the model its input:
+  `{"currentTime": now}` gives the prompt something to riff on ("a joke about
+  the current time of day").
+- **`ai-mapping` returns structured JSON**, steered by `outputExample`. The
+  body after the block is `{"joke": ..., "author": ...}` — data, not prose.
+- **The final `set-payload` inside the scope shapes what gets cached.** Only
+  the body survives a cache hit (variables don't), so the render-ready shape
+  `{"body", "author", "generated_at"}` is built *inside* the scope.
+- **Rendering happens outside the scope**, so it runs on hits and misses alike:
+  `template-resource` with `rawBody: true` turns the JSON into a raw-content
+  HTML body that the HTTP source serves verbatim (see
+  [Serving HTML](/guides/serving-html)).
+
+A minimal `templates/joke.html` reads the fields with `{{ CEL }}` placeholders:
+
+```html title="templates/joke.html"
+<!doctype html>
+<html>
+  <body>
+    <blockquote>{{ body.body }}</blockquote>
+    <p>— {{ body.author }}</p>
+    <small>generated {{ body.generated_at }}</small>
+  </body>
+</html>
+```
+
+### The error path
+
+LLMs fail in ways databases don't: timeouts, refusals, malformed JSON. The
+flow-level `error:` list runs when a process block errors, and here it does two
+things — sets `vars.httpStatus` to `"500"` (the HTTP source reads that variable
+to pick the response status code) and renders a dedicated error template, so the
+browser gets a proper page rather than a JSON error:
+
+```yaml
+error:
+  - type: set-variable
+    settings:
+      name: httpStatus
+      value: "500"
+  - type: template-resource
+    settings:
+      id: joke_error_page
+      rawBody: true
+      contentType: text/html; charset=utf-8
+```
+
+## Run it
+
+```bash
+export GEMINI_APIKEY=...
+octo run --config jokes-api.yaml
+curl -i localhost:8080/          # first hit: ~seconds (model call), text/html
+curl -i localhost:8080/          # within 60s: instant, same joke
+```
+
+Open `localhost:8080` in a browser and refresh: the joke changes at most once a
+minute.
+
+## Going further: the Weather jokes variant
+
+The second live integration, "Weather jokes", keeps the same skeleton —
+HTTP → cache → AI → template — and layers on real-world techniques. It tells
+jokes about the current weather in Oakland, on a topic the visitor can pick with
+`?topic=...` (read as `vars.query.topic`), using Claude
+(`llm-anthropic`, `claude-haiku-4-5`) as the model. Three ideas are worth
+stealing:
+
+### Two-level caching
+
+When no topic is given, the app asks the LLM to *invent* one — and caches that
+answer separately from the joke itself:
+
+- A **first `cache-scope`** (key `'"weather-joke:oakland:v3:generated-topic"'`,
+  ttl 10m) wraps a small `ai-mapping` call that generates a topic.
+- A **second `cache-scope`**, keyed *per topic*
+  (`'"weather-joke:oakland:v3:" + vars.topic'`, ttl 10m), wraps the expensive
+  part: fetch the forecast, then generate the joke.
+
+Because the second key includes `vars.topic`, every topic gets its own cache
+entry — visitors asking for different topics don't evict each other, while
+repeat visits to the same topic stay free. Composing cache keys from variables
+is what turns a memoizer into a real content cache. (The `v3` in the key is a
+handy versioning trick: bump it after a prompt change to invalidate every entry
+at once.)
+
+### CEL-quoted literal query params
+
+Inside the second scope, a `rest` block calls the Open-Meteo forecast API
+through an `http-client` connector with
+`baseURL: https://api.open-meteo.com/v1`. Query parameter values are CEL
+expressions, so **string literals need quotes inside the YAML string**:
+
+```yaml
+query:
+  latitude: "37.8044"                       # CEL: the number 37.8044
+  longitude: "-122.2712"
+  current: '"temperature_2m,weather_code"'  # CEL: a string literal
+```
+
+`"37.8044"` parses as a CEL number; a comma-separated field list must be a CEL
+*string*, hence the doubled quoting `'"..."'`. The call also sets
+`failOnError: true` so a bad response routes to the error path, and
+`statusVar: statusCode` to capture the HTTP status. A `set-payload` then
+combines forecast and topic (`'{"weather": body, "topic": vars.topic}'`) and
+hands both to an `ai-mapping` whose `inputExample` and `outputExample` carry the
+full weather fields, asking for a joke under 180 characters.
+
+### An inline rawData error page
+
+Where "jokes api" renders its error page from a template resource, "Weather
+jokes" shows the zero-dependency variant — build the raw-content body directly
+in the error path:
+
+```yaml
+error:
+  - type: set-variable
+    settings:
+      name: httpStatus
+      value: "500"
+  - type: set-payload
+    settings:
+      value: '{"contentType": "text/html; charset=utf-8", "rawData": "<!DOCTYPE html><html><body><h1>Oops</h1><p>The joke machine is down. Try again shortly.</p></body></html>"}'
+```
+
+A body of the shape `{"contentType": ..., "rawData": ...}` *is* the raw-content
+convention — the HTTP source serves `rawData` verbatim with that content type,
+no template file required. Use the template variant when the error page has real
+markup, the inline variant when three lines of HTML are enough.
+
+## Where to go next
+
+<Cards>
+  <Card title="Object Storage and Caching" href="/guides/object-storage-and-caching" description="cache-scope semantics: keys, TTLs, and invalidation." />
+  <Card title="Serving HTML" href="/guides/serving-html" description="Templates, raw content, and form handling in depth." />
+  <Card title="AI Mapping" href="/ai/ai-mapping" description="Structured JSON out of an LLM, with schemas and examples." />
+  <Card title="Error Handling" href="/concepts/error-handling" description="Flow error paths and failure routing." />
+</Cards>

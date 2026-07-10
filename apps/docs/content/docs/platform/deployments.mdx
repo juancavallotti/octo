@@ -5,4 +5,73 @@ description: "Deploying integrations as Kubernetes workloads: rollouts and rollb
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-<Callout type="info">This page is being written.</Callout>
+Deploying an integration runs a [version tag](/platform/snapshots) of it as its own Kubernetes workload: a Deployment of the generic `octo-runtime` image with the tag's frozen definition mounted in. One integration can be deployed many times — say, a staging and a production deployment on different tags — and each deployment has its own address, scale, and environment bindings.
+
+{/* TODO screenshot: deployments view */}
+
+## What a deploy creates
+
+For each deployment the orchestrator creates resources named `octo-dep-{deploymentId}` in its namespace, labelled with the deployment and integration ids:
+
+- **A ConfigMap** holding the frozen definition as `integration.yaml`, mounted read-only at `/etc/octo/integrations` — the runtime image's default config directory.
+- **A Deployment** running `octo-runtime` at the requested replica count (minimum 1). The orchestrator injects the runtime-services environment (`RUNTIME_SERVICES_MODULE=k8s`, `OCTO_DEPLOYMENT_ID`, `ORCHESTRATOR_URL`, `NATS_URL`, the pod's name/namespace via the downward API, and the deployment's display name, tag, and snapshot id) plus your env bindings.
+- **Services** — only for *networked* integrations (see below): a per-deployment ClusterIP Service, and a stable internal Service `octo-int-{slug}` other integrations address.
+- **An Ingress** — only when the deployment is exposed externally.
+
+A failed deploy is rolled back completely: partial cluster resources and the database row are removed, so nothing dangles.
+
+### Networked vs. bare workloads
+
+An integration that declares `HTTP_PORT` (with a numeric default) in its [`env` block](/concepts/environment-and-config) has an HTTP source listening on that port. Only those deployments are **networked**: they get Services, a unique slug, an internal URL, and the option of external exposure. The orchestrator supplies `HTTP_PORT` (and `HTTP_HOST=0.0.0.0`, when declared) into the pod, so the listener binds all interfaces — these two variables are managed and cannot be overridden by bindings.
+
+Anything else — a cron-driven job, a queue consumer — runs as a bare workload: pods only, no Service, no URL.
+
+### Internal address
+
+Every networked deployment gets a **slug**, unique across all deployments: pick one in the deploy dialog or leave it empty to have the orchestrator allocate one from the integration name (`orders`, `orders-001`, ...). The slug names the stable internal Service, so other integrations in the cluster reach the deployment at a constant, replica-balanced address reported as the deployment's `internalUrl`:
+
+```
+http://octo-int-{slug}.{namespace}:{port}
+```
+
+### External exposure
+
+Toggling external exposure additionally creates a Traefik Ingress at `https://{subdomain}.{baseDomain}` — the subdomain defaults to the slug and must be unique across integrations. TLS comes from cert-manager: a per-host certificate issued via the configured ClusterIssuer (HTTP-01), or a shared pre-issued wildcard certificate when the chart's `wildcardTLS` is enabled. The public address is reported as `externalUrl`.
+
+External endpoints require `BASE_DOMAIN` on the orchestrator (the Helm chart's `orchestrator.baseDomain`); without it an external deploy is rejected. See [Deploying with Helm](/deploy/helm).
+
+## Environment bindings
+
+The deploy dialog lists every env var the tag's definition declares. Each can be bound to a **literal value** or a **cluster secret** by name (injected via `secretKeyRef`, so the value never touches the database). Keys already supplied by the tag's frozen `.env` resources count as provided. A deploy that leaves a *required* variable unbound — by neither a binding nor a frozen `.env` resource — is rejected up front instead of letting the pod crash-loop. Full details: [Resources and Secrets](/platform/resources-and-secrets).
+
+## Status
+
+Deployment status is computed live from the cluster through Kubernetes informers, so reads are cheap and updates are push-based:
+
+- **`pending`** — created, pods not ready yet.
+- **`running`** — at least one replica is ready.
+- **`failed`** — a pod is in a terminal or crash-looping state; the response carries the reason (e.g. an image or secret problem) and per-pod detail.
+
+Each status change is published to NATS and streamed to the browser as SSE (see [Event Bus](/platform/event-bus)), with a polling fallback when no broker is configured. Individual pod logs stream from `GET /deployments/{id}/pods/{pod}/logs` (with follow/tail); aggregated, searchable logs across deployments live in the logs view — see [Monitoring](/runtime/monitoring).
+
+## Day-2 operations
+
+| Operation | Endpoint | What it does |
+| --- | --- | --- |
+| Scale | `PATCH /deployments/{id}` | Changes the replica count in place; the Service keeps balancing across the new set. |
+| Roll out a new version | `POST /deployments/{id}/rollout` | Upgrades the deployment to a different tag in place. |
+| Undeploy | `DELETE /deployments/{id}` | Removes the cluster resources and the record. |
+
+### Rolling out a new version
+
+A rollout ships a different tag's frozen definition to a live deployment as a **rolling update**: the orchestrator rewrites the ConfigMap, stamps a config-hash annotation on the pod template so Kubernetes rolls the pods, and records the new tag. The deployment keeps its identity — id, slug, internal and external URLs, replica count — and its env bindings (pass a replacement binding set to edit env during the rollout). Because the same mechanism accepts an older tag, **rollback is a rollout to the previous tag**.
+
+Two guards apply, mirroring deploy: the target tag's required env vars must still be provided, and a tag that changes whether the integration is networked (adds or removes `HTTP_PORT`) is rejected — that would change the Service/Ingress topology, which a rolling update cannot express. Undeploy and redeploy instead.
+
+<Callout type="info">
+Deploying "Current" from the editor first creates a tag of the working copy, then deploys that tag — so even ad-hoc deploys are pinned to an immutable version.
+</Callout>
+
+### Undeploying
+
+Undeploy deletes the Ingress, Deployment, Services, and ConfigMap, then the deployment record. The deployment's entries in the [KV store](/platform/kv-and-storage) are cleaned up best-effort — a cleanup failure never blocks the undeploy, and orphaned rows are harmless.

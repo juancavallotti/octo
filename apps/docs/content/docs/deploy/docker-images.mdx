@@ -5,4 +5,102 @@ description: "The published images and how they are built."
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-<Callout type="info">This page is being written.</Callout>
+Octo ships six images. Five are the platform images, built together and pushed
+to your own registry (Artifact Registry in the reference deployment); the
+sixth is the public standalone editor on Docker Hub.
+
+| Image | Dockerfile | Build context | Role |
+|---|---|---|---|
+| `octo-runtime` | `runtime/Dockerfile` | `./runtime` | Runs deployed integrations (one pod set per integration) |
+| `octo-platform` | `apps/platform/Dockerfile` | Repo root | Editor UI (Next.js) with the `octo` runtime binary bundled |
+| `octo-orchestrator` | `orchestrator/Dockerfile` | `./orchestrator` | Deploys and manages integrations via the Kubernetes API |
+| `octo-logs` | `logs/Dockerfile` | `./logs` | Log aggregator: NATS `internal.logs` → Postgres + query API |
+| `octo-schema` | `sql/Dockerfile` | `./sql` | Applies `sql/schema.sql` as an install/upgrade Job |
+| `juancavallotti/octo` | `apps/standalone/Dockerfile` | Repo root | Public standalone editor ("try Octo"), no cluster needed |
+
+## Where they are built
+
+The same five platform images are built in three places, always from the same
+Dockerfiles and contexts:
+
+- **Locally for k3d** — `task cluster:images` builds them tagged `:dev` and
+  loads them into the cluster with `k3d image import` (no registry). See
+  [Local cluster](/deploy/local-k3d).
+- **Locally for a registry** — `task images:push IMAGE_BASE=… TAG=…` builds
+  and pushes all five to `IMAGE_BASE/<name>:<TAG>`.
+- **Cloud Build on version tags** — `cloudbuild.yaml` builds all five, tags
+  each with both the git tag and `latest`, pushes them to Artifact Registry,
+  and also packages and pushes the Helm chart as an OCI artifact. See
+  [Releases and upgrades](/deploy/releases-and-upgrades).
+
+The standalone image is built by the GitHub Actions release workflow
+(`.github/workflows/release.yml`) and pushed to public Docker Hub.
+
+## The images
+
+### octo-runtime
+
+A generic image that runs *any* integration: it carries only the compiled
+`octo` binary, built `CGO_ENABLED=0` with `-tags k8s` so it includes the
+cluster services provider (Lease-based leader election, orchestrator-backed
+KV, NATS queues). The final stage is
+`gcr.io/distroless/static-debian12:nonroot` — no shell, no package manager,
+runs as `nonroot`.
+
+The default command is `octo run --config /etc/octo/integrations`. The
+orchestrator deploys one Deployment per integration from this image, mounting
+the integration's YAML into that directory via a per-deployment ConfigMap; the
+Helm chart hands the image reference to the orchestrator as `RUNTIME_IMAGE`.
+
+### octo-platform
+
+The platform editor UI (Next.js), used in cluster deployments. Its build
+context is the repo root so the Dockerfile can reach both `runtime/` (to build
+the bundled `octo` binary for the editor's Run feature) and the pnpm workspace
+(`apps/platform`). Serves on port 3000 behind the chart's Ingress and proxies
+the orchestrator and logs APIs through its BFF.
+
+### octo-orchestrator
+
+The Go orchestrator service. Watches for deploy requests and creates the
+per-integration ConfigMap, Deployment, Service, and optional Ingress through
+the Kubernetes API (`client-go`), and serves the KV store to runtime pods.
+Listens on 8090, ClusterIP only — it is reached solely through the platform's
+authenticated BFF.
+
+### octo-logs
+
+The Go log-aggregator service. Consumes the NATS `internal.logs` subject as a
+competing consumer, persists log events to Postgres, and serves the query API
+behind the platform's `/logs` view. Listens on 8091, ClusterIP only. Replicas
+scale safely thanks to the NATS queue group.
+
+### octo-schema
+
+A thin `postgres:16-alpine` that bundles `sql/schema.sql` — reused purely for
+its `psql` client. The Helm chart (and the k3d manifests) run it as a Job that
+executes `psql -f /schema/schema.sql` against the Postgres service on every
+install and upgrade; the schema is idempotent, so re-runs are safe.
+
+### juancavallotti/octo (standalone editor)
+
+The self-contained public "try Octo" image: the standalone editor plus the
+`octo` runtime binary, with a local-disk flow store — no orchestrator, auth,
+or database. Published to
+[Docker Hub](https://hub.docker.com/r/juancavallotti/octo) on every release as
+a multi-arch build (`linux/amd64` and `linux/arm64`), tagged with the release
+version and `latest`.
+
+```bash
+docker run -p 3000:3000 -v "$PWD:/work" juancavallotti/octo
+```
+
+Unlike `octo-runtime`, its bundled binary is the default (untagged) build with
+the standalone services provider. See
+[Running from Docker](/editor/docker) for usage.
+
+<Callout type="info">
+  There are also `Dockerfile.dev` variants for the platform, orchestrator,
+  and logs images (`task cluster:images:dev`). These are hot-reload images
+  used only by the local DevSpace dev loop — they are never published.
+</Callout>

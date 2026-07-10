@@ -5,4 +5,61 @@ description: "Authentication, user management, and API tokens."
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-<Callout type="info">This page is being written.</Callout>
+The platform authenticates people with OIDC single sign-on and machines with per-user bearer tokens. This page covers how sessions work, how users are provisioned, what roles do, and how API keys are minted and verified.
+
+## Sign-in (OIDC SSO)
+
+Authentication lives entirely in the platform app, built on Auth.js (NextAuth):
+
+- **One OIDC provider** using the authorization-code flow. The reference deployment uses eetr (`https://auth.eetr.app`); the issuer, client id, and client secret come from `AUTH_EETR_ISSUER`, `AUTH_EETR_CLIENT_ID`, and `AUTH_EETR_CLIENT_SECRET` (set by the Helm chart's `auth.oidc` values).
+- **JWT sessions, no database adapter** — the session rides in a signed cookie (`AUTH_SECRET`), so the same config backs both route handlers and the edge request gate.
+- **Opt-in**: SSO is enforced only when `AUTH_EETR_ISSUER` and `AUTH_SECRET` are set. Local development without them runs open, with a synthetic local session.
+
+When SSO is on, the app-wide request gate redirects unauthenticated browser navigations to sign-in and answers unauthenticated `/api/*` calls with `401`. Only self-authenticating paths bypass it: `/mcp` (bearer tokens, below) and the run-testing proxy under `/editor/runs/` (unguessable per-run URLs, so webhook callbacks work).
+
+## User provisioning
+
+There is no user management UI to administer — accounts are provisioned automatically. On first sign-in the platform calls the orchestrator's `POST /users/bootstrap` with the IdP's stable OIDC `sub`, email, and name; the orchestrator upserts a `users` row keyed by that subject and returns a durable user id. Subsequent sign-ins refresh email/name and the last-login stamp. That id is what integration attribution and API keys reference, so it survives IdP email changes; removing a user never cascade-deletes their integrations.
+
+## Roles
+
+Roles come from the identity provider, not the platform: a configurable id-token claim (`AUTH_ROLES_CLAIM`, default `roles`) is copied onto the session at sign-in. One check uses them today:
+
+- **`AUTH_WRITE_ROLES`** (the chart's `auth.writeRoles`) — a comma-separated list of roles allowed to perform write/mutating operations. Empty (the default) means any signed-in user can write. A signed-in user without a listed role gets a `403` on writes but can still read.
+
+There is no further role model — no admin tier, no per-integration permissions.
+
+## API keys
+
+API keys are per-user bearer tokens for programmatic access — most notably the platform's [MCP endpoint](/ai/platform-mcp), and kept for future CLI use.
+
+- **Format**: `octo_` followed by 32 bytes of random material, base64url-encoded.
+- **Shown once**: the plaintext is returned only by the create call. The orchestrator stores a SHA-256 hash — a database leak exposes no usable keys — plus the prefix and last four characters for display.
+- **Expiry**: every key has a TTL, capped at 365 days. Expiry is enforced on every verification.
+- **Revocation**: deleting a key is a soft revoke (the row is kept for audit); a revoked key stops verifying immediately.
+
+Keys are managed from the platform's account area, backed by these orchestrator endpoints:
+
+| Operation | Endpoint |
+| --- | --- |
+| Mint a key (returns the plaintext once) | `POST /users/{userId}/apikeys` |
+| List a user's keys (metadata only) | `GET /users/{userId}/apikeys` |
+| Revoke a key | `DELETE /users/{userId}/apikeys/{id}` |
+| Verify a presented token | `POST /apikeys/verify` |
+
+{/* TODO screenshot: API keys management in the account view */}
+
+### Using a key
+
+Send it as a bearer token:
+
+```bash
+curl https://octo.example.com/mcp \
+  -H "Authorization: Bearer octo_..."
+```
+
+The receiving endpoint verifies the token through `POST /apikeys/verify`, which resolves it to its owning user (recording last-use) — so machine calls act as, and are attributable to, a real user.
+
+<Callout type="info">
+For MCP clients like Claude, API keys are the manual alternative: `/mcp` is primarily an OAuth 2.1 resource server that accepts access tokens minted by the identity provider, with `octo_` keys accepted alongside. See [MCP Authentication](/ai/mcp-auth).
+</Callout>

@@ -4,5 +4,153 @@ description: "Configure the OpenAI, Anthropic, and Gemini connectors."
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
 
-<Callout type="info">This page is being written.</Callout>
+Octo ships three LLM provider connectors — `llm-anthropic`, `llm-openai`,
+and `llm-gemini` — that all satisfy the same client interface. Every AI
+block references a provider by connector **name**, so switching providers is
+a connector-level change: the blocks stay untouched.
+
+## Configuring a provider
+
+<Tabs items={['Anthropic', 'OpenAI', 'Gemini']}>
+<Tab value="Anthropic">
+
+```yaml
+connectors:
+  - name: claude
+    type: llm-anthropic
+    settings:
+      apiKey: ${ANTHROPIC_API_KEY}
+      # model: claude-sonnet-4-6      # default
+      # maxTokens: 4096               # default response cap
+      # baseURL: https://...          # for proxies or testing
+```
+
+</Tab>
+<Tab value="OpenAI">
+
+```yaml
+connectors:
+  - name: gpt
+    type: llm-openai
+    settings:
+      apiKey: ${OPENAI_API_KEY}
+      # model: gpt-5.4                # default
+      # maxTokens: 0                  # 0 = the model's default
+      # baseURL: https://...          # proxies, Azure, or OpenAI-compatible servers
+```
+
+</Tab>
+<Tab value="Gemini">
+
+```yaml
+connectors:
+  - name: gemini
+    type: llm-gemini
+    settings:
+      apiKey: ${GEMINI_API_KEY}
+      # model: gemini-3.5-flash       # default
+      # maxTokens: 0                  # 0 = the model's default
+      # baseURL: https://...          # for proxies or testing
+```
+
+</Tab>
+</Tabs>
+
+All three connectors take the same four settings:
+
+| Setting | Required | Description |
+|---|---|---|
+| `apiKey` | Yes | Authenticates with the provider. Source it from an environment variable; it is never logged. |
+| `model` | No | Model id. Defaults: `claude-sonnet-4-6` (Anthropic), `gpt-5.4` (OpenAI), `gemini-3.5-flash` (Gemini). |
+| `maxTokens` | No | Default response token cap; a block may override it per call. Anthropic defaults to `4096`; OpenAI and Gemini default to `0`, meaning the model's own default. |
+| `baseURL` | No | Overrides the API endpoint. |
+
+A connector validates its settings at startup — a missing `apiKey` fails the
+service immediately rather than on the first request.
+
+## One interface, any provider
+
+The LLM connectors register under category `llm`, and every AI block
+(`ai-agent`, `ai-router`, `ai-mapping`, `ai-retry`) binds to one through the
+shared client interface, by name:
+
+```yaml
+      - type: ai-mapping
+        settings:
+          connector: claude    # any llm-* connector name works here
+          prompt: "..."
+```
+
+Because the binding is by name against the shared interface, providers are
+interchangeable: repoint `claude` at a different `type`, or configure
+several providers side by side and give each block the one that fits.
+Referencing a connector that is not an LLM provider is a startup error, not
+a runtime surprise.
+
+## OpenAI-compatible and local endpoints
+
+The `llm-openai` connector's `baseURL` targets any server that speaks the
+OpenAI Chat Completions API — a corporate proxy, Azure OpenAI, or a local
+runtime such as Ollama or vLLM:
+
+```yaml
+connectors:
+  - name: local
+    type: llm-openai
+    settings:
+      apiKey: ${LOCAL_LLM_KEY}     # many local servers accept any non-empty key
+      model: llama3.1
+      baseURL: http://localhost:11434/v1
+```
+
+Every AI block then runs against the local model with no other changes. The
+`baseURL` on `llm-anthropic` and `llm-gemini` serves the same purpose for
+proxies and testing against their respective APIs.
+
+## Key hygiene
+
+Never put a literal API key in a flow file. Declare the variable in the
+`env` section and reference it with `${...}` substitution:
+
+```yaml
+env:
+  - name: ANTHROPIC_API_KEY
+    required: true
+
+connectors:
+  - name: claude
+    type: llm-anthropic
+    settings:
+      apiKey: ${ANTHROPIC_API_KEY}
+```
+
+`required: true` makes a missing key a startup failure with a clear message.
+The flow file stays committable, keys stay in the environment, and the
+connectors never log them.
+
+## Choosing models
+
+The `model` setting is per connector, and a flow can define several
+connectors against the same provider — so match the model to each block's
+job rather than picking one for the whole service:
+
+- **High-volume, narrow tasks** — routing decisions, mapping, formatting —
+  run constantly and favor speed and cost; a smaller model is the usual
+  default. The [Slack agent capstone](/ai/slack-agent) runs its whole
+  pipeline on `claude-haiku-4-5` with a `1200` token cap.
+- **Agents** reason across multiple tool calls, so a more capable model can
+  pay for itself in fewer iterations and better tool use.
+- **`maxTokens`** is a cost and latency guard: set it near the size of the
+  output you actually expect (a router's decision is tiny; a summary is
+  not).
+
+Model ids pass through to the provider as-is, so new models work as soon as
+your account has access — update the setting and restart.
+
+<Callout type="info">
+Two connectors can point at the same provider with different models — for
+example, a `fast` connector for an `ai-router` and a `deep` connector for
+the `ai-agent` behind it. Blocks choose per `connector` name.
+</Callout>

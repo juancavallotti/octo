@@ -4,5 +4,164 @@ description: "Build and operate integrations with coding agents through the plat
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
+import { Steps, Step } from 'fumadocs-ui/components/steps';
 
-<Callout type="info">This page is being written.</Callout>
+The previous pages showed your integrations *serving* MCP. The platform also
+*is* an MCP server: it exposes the whole authoring lifecycle — read the
+runtime schema, draft and validate YAML, save integrations, run flows, read
+logs — as MCP tools. Connect a coding agent like Claude Code to it and the
+agent can build, test, and debug integrations against your live platform, in
+a conversation.
+
+## How to connect
+
+The platform serves MCP at **`/mcp`** on its public origin (streamable HTTP;
+SSE is not supported). The endpoint is an OAuth 2.1 protected resource:
+
+```bash
+claude mcp add --transport http octo https://<your-platform-host>/mcp
+```
+
+The first request without a token gets a `401` whose `WWW-Authenticate`
+header points at `/.well-known/oauth-protected-resource/mcp` (RFC 9728); the
+client discovers the authorization server there, walks you through sign-in,
+and retries with a bearer access token. This is exactly the handshake
+described in [Secure an MCP Server with OAuth](/ai/mcp-auth) — the platform
+follows its own advice. An `octo_…` API key sent as the bearer is also
+accepted.
+
+Each MCP session gets its own namespace for runs, so concurrent clients drive
+independent dev runners without stepping on each other.
+
+<Callout type="info">
+  The **standalone app** exposes the same MCP handler at its local `/mcp`
+  route, unauthenticated — it is local-only, like the rest of the standalone
+  editor. Point a client at `http://localhost:<port>/mcp` on the standalone
+  origin and every tool below works the same way, backed by the local disk
+  store.
+</Callout>
+
+## What the server exposes
+
+### Authoring tools
+
+| Tool | What it does |
+| --- | --- |
+| `list_integrations` | Every saved integration as `{ id, name }`. |
+| `open_integration` | One integration by id: `{ id, name, definition }` — the runtime YAML. |
+| `list_flows` | The flows in an integration as `{ name, source }` (`source` is the trigger type, or `null` for a sourceless flow). |
+| `validate_definition` | Validate draft YAML against the runtime schema **without saving**; returns descriptive errors. |
+| `create_integration` | Create an integration from a name and a YAML definition. |
+| `update_integration` | Overwrite an integration's definition (and optionally rename it). |
+
+### Run and debug tools
+
+| Tool | What it does |
+| --- | --- |
+| `can_start_integration` | Pre-flight: is a runner available, does the definition validate? |
+| `run_integration` | Start (or restart) the integration in the dev runner, optionally injecting env vars; returns a test URL for networked integrations. |
+| `invoke_flow` | Run **one named flow once** — from a saved id or an inline definition — with optional JSON `data` and `env`, without starting sources. Returns `{ ok, timedOut, dropped, output, logs }`. |
+| `evaluate_cel` | Evaluate a single CEL expression against sample `body`/`vars`/`env` without running a flow. |
+| `get_run_logs` | The session's runner log buffer, as plain text. |
+| `stop_integration` | Stop the session's running integration. |
+
+### Documentation tools
+
+| Tool | What it does |
+| --- | --- |
+| `getSchema` | No argument: a compact index of every block and connector type. With `elementName` (e.g. `"log"`, `"http"`): that element's full spec, including its fields. |
+| `getExamples` | No argument: an index of worked example integrations. With a slug: that example's full runtime YAML. |
+| `getCelFunctions` | The CEL variables and custom functions in scope for message expressions; pass a `functionName` for one entry. |
+
+These exist as tools (not only resources) because some MCP clients surface
+only tools; they let an agent fetch exactly one block spec or one example
+instead of wading through the whole schema.
+
+### Resource tools
+
+| Tool | What it does |
+| --- | --- |
+| `list_env_keys` | Every env var an integration expects, as `{ name, default, required, source }` — declared vars plus keys found in `env` resource files. |
+| `list_resources` | An integration's stored resources as `{ id, kind, name }` (`kind` is `env` or `template`). |
+| `open_resource` | Read one resource's content. |
+| `create_resource` | Create an `env` file or a `template` on an integration. |
+| `update_resource` | Update a resource's content, kind, or name. |
+| `delete_resource` | Delete a resource. |
+
+### MCP resources and prompts
+
+For clients that consume them, the same catalogues are also published as
+resources — `octo://runtime/schema` (the capability catalogue, generated from
+the actual runner binary, so it reflects exactly what your deployment
+supports), `octo://examples` (the example index), and
+`octo://examples/<slug>` (each example's YAML). Two prompts,
+`create-integration` and `write-effective-integrations`, give a connected
+agent step-by-step authoring guidance and design best practices.
+
+## The authoring loop
+
+Here is what a session with a coding agent actually looks like — ask Claude
+Code to "build me an integration that posts a daily summary to Slack" and
+watch it run this loop:
+
+<Steps>
+<Step>
+
+**Orient.** The agent calls `list_integrations` to see what exists, and
+`open_integration` to read anything related.
+
+</Step>
+<Step>
+
+**Learn the vocabulary.** It calls `getSchema` for the index of block and
+connector types, `getSchema("slack-send-message")` (and friends) for exact
+fields, and `getExamples` to find and adapt a worked example — instead of
+guessing YAML syntax from training data.
+
+</Step>
+<Step>
+
+**Draft and validate.** It writes a definition and calls
+`validate_definition` until the errors are gone — no save, no side effects.
+
+</Step>
+<Step>
+
+**Save.** `create_integration` (or `update_integration` on iteration)
+persists the definition. `list_env_keys` reveals which env vars still need
+values; the agent asks you for secrets and passes them per-run or stores
+them with `create_resource` as an `env` file.
+
+</Step>
+<Step>
+
+**Test one flow fast.** `invoke_flow` runs a single flow with sample data —
+no sources started — and returns the output and logs in one call. This is
+the tight inner loop: tweak, invoke, read, repeat. `evaluate_cel` checks a
+gnarly expression in isolation.
+
+</Step>
+<Step>
+
+**Run for real.** `run_integration` boots the integration in the dev runner
+and returns a test URL when it serves HTTP. The agent exercises the
+endpoints, reads `get_run_logs` for the runtime's own load errors and log
+output, fixes, and re-runs. `stop_integration` tears it down.
+
+</Step>
+</Steps>
+
+Validation is best-effort by design: a clean `validate_definition` is not a
+guarantee the runtime loads the definition, and the pre-flight can flag YAML
+the runtime accepts. The runtime is the final judge — which is why the loop
+ends at `get_run_logs`, not at the validator.
+
+## Related pages
+
+- [Expose an MCP Server](/ai/mcp-server) — make your *own* integrations MCP
+  servers with `mcp-router`.
+- [Secure an MCP Server with OAuth](/ai/mcp-auth) — the same RFC 9728
+  handshake the platform endpoint uses, applied to your integrations.
+- [Capstone: A Production Slack Agent](/ai/slack-agent) — the kind of
+  integration a connected coding agent can build and debug through these
+  tools.

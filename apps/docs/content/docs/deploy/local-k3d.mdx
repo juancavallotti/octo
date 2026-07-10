@@ -5,4 +5,120 @@ description: "Run the full platform locally with k3d and DevSpace."
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-<Callout type="info">This page is being written.</Callout>
+For day-to-day development the full platform runs on a local
+[k3d](https://k3d.io) cluster — real k3s inside Docker — with images built
+locally and no registry, GCP, or Terraform involved. One task brings the whole
+stack up; a second adds a hot-reload dev loop via
+[DevSpace](https://devspace.sh).
+
+## Prerequisites
+
+You need `docker`, `k3d`, and `devspace` on your PATH, plus
+[`task`](https://taskfile.dev) to run the targets and `kubectl` to poke at the
+cluster. Verify the tools:
+
+```bash
+task cluster:preflight
+```
+
+If anything is missing, the task prints install hints (`brew install k3d`,
+`brew install devspace`, Docker Desktop).
+
+## Bring up the cluster
+
+```bash
+task cluster:deploy
+```
+
+This single target:
+
+1. Runs the preflight check.
+2. Creates a k3d cluster named `octo` from `deploy/k3d/cluster.yaml` (one
+   server, no agents), mounting `./data` from the repo root into the node so
+   Postgres data persists on your disk.
+3. Builds the five images locally (`task cluster:images`): `octo-platform`,
+   `octo-orchestrator`, `octo-logs`, `octo-schema`, and `octo-runtime`, all
+   tagged `:dev`, and loads them straight into the cluster's containerd with
+   `k3d image import` — no registry needed.
+4. Applies the raw manifests in `deploy/k8s/` via `devspace deploy`, in
+   order: the `octo-dev` namespace, Postgres, the schema Job (applies
+   `sql/schema.sql`), NATS, the platform, orchestrator RBAC, runtime RBAC,
+   the orchestrator, and the log aggregator.
+5. Restarts the platform and orchestrator Deployments so they pick up freshly
+   imported images (the `:dev` tag never changes between runs).
+
+The target is idempotent — re-run it after code changes to rebuild the images
+and roll the pods.
+
+<Callout type="info">
+  This path uses the raw manifests in `deploy/k8s/`, not the Helm chart. Every
+  `cluster:*` task pins the kube context to `k3d-octo`, so a stray
+  current-context pointing at a remote cluster can never be the target of a
+  deploy or purge.
+</Callout>
+
+## Access the stack
+
+The k3d load balancer maps localhost ports to NodePort services, so nothing
+needs a long-running port-forward:
+
+- **Editor UI** — [http://localhost:3000](http://localhost:3000)
+- **Orchestrator** — [http://localhost:8090/healthz](http://localhost:8090/healthz)
+  (and `/db-version`)
+
+Check pod status with:
+
+```bash
+kubectl --context k3d-octo get pods -n octo-dev
+```
+
+## Hot-reload dev loop
+
+```bash
+task cluster:dev
+```
+
+This ensures the cluster is up (`cluster:deploy`), builds the dev-flavored
+images (`cluster:images:dev`, from the `Dockerfile.dev` files), then hands off
+to `devspace dev`, which:
+
+- Swaps the platform pod for a `next dev` image and live-syncs
+  `apps/platform/` into it — edits hot-reload in the browser.
+- Swaps the orchestrator and logs pods for `go run` images, syncing
+  `orchestrator/` and `logs/` and restarting the container on each upload so
+  Go recompiles.
+- Tails the platform, orchestrator, logs, Postgres, and NATS logs to your
+  terminal.
+
+The session stays attached until you press Ctrl-C. The NodePort mappings keep
+working during dev mode, so the editor stays on `localhost:3000`. To restore
+the production-image pods afterwards:
+
+```bash
+devspace reset pods -n octo-dev
+```
+
+## Tear down
+
+```bash
+task cluster:stop
+```
+
+This purges the DevSpace deployment and deletes the k3d cluster, reclaiming
+Docker memory — but keeps `./data`, so Postgres comes back with its data on
+the next `task cluster:deploy`.
+
+To wipe the database as well:
+
+```bash
+task cluster:db:reset
+```
+
+The task refuses to run while the cluster is up (Postgres holds the data
+directory open), prompts for confirmation, then deletes `./data`. The next
+`task cluster:deploy` recreates Postgres and re-applies the schema fresh.
+
+<Callout type="warn">
+  `task cluster:db:reset` permanently deletes all local Postgres data —
+  integrations, deployments, logs, and KV contents.
+</Callout>

@@ -32,10 +32,10 @@ browse its `samples/`.
 
 ### Open the editor
 
-Go to [http://localhost:3000](http://localhost:3000). The file tree on the left
-lists every YAML file in the mounted directory. Open one, or create a new flow
-— the canvas shows the flow's sources and blocks; selecting a block edits its
-settings.
+Go to [http://localhost:3000](http://localhost:3000). The file menu in the
+header lists every YAML file in the mounted directory. Open one, or create a
+new flow — the canvas shows the flow's sources and blocks, the palette on the
+left holds the available blocks, and selecting a block edits its settings.
 
 ![The hello-world sample open in the visual editor](/screenshots/sample-hello-world.png)
 
@@ -49,9 +49,10 @@ settings.
 hot reload — edit, save, and the running flow picks up the change. Logs from
 the run stream into the editor so you can watch messages move through the flow.
 
-If your flow serves HTTP, remember the runtime is inside the container: publish
-the port it listens on (for example add `-p 8080:8080` to the `docker run`
-command).
+If your flow serves HTTP, the editor proxies it for you: a test URL appears in
+the console, so you don't need to publish extra ports. (Publishing a port, for
+example `-p 8080:8080`, is only needed when you run `octo run` yourself inside
+the container.)
 
 </Step>
 </Steps>
