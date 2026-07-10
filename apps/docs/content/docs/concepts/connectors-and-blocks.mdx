@@ -1,0 +1,125 @@
+---
+title: "Connectors and Blocks"
+description: "Trigger connectors, service connectors, blocks, and composites — the building model."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Everything in a flow is built from two kinds of parts: connectors, which own a piece of the outside world, and blocks, which process messages. This page explains how they relate and how a flow wires them together.
+
+## Connectors
+
+A connector owns an external resource — a socket, a client, a connection pool — and acquires it on start, releases it on stop. You declare instances under `connectors:` with a `name`, a `type`, and `settings`, then reference them by name.
+
+Connectors serve flows in two ways, and some do both:
+
+**Trigger connectors** provide a *source* that feeds messages into a flow:
+
+| Type | Triggers a flow when |
+| --- | --- |
+| `http` | An HTTP request arrives on a route; the flow's result becomes the response. |
+| `cron` | A schedule fires (six-field cron or `@every` descriptors). |
+| `events` | A message is broadcast on a topic subject (fan-out: every subscriber gets a copy). |
+| `queue` | A message lands on a queue subject (competing consumers: exactly one gets it). |
+
+**Service connectors** provide *blocks* that a flow calls mid-pipeline:
+
+| Type | Provides |
+| --- | --- |
+| `http-client` | The `rest` block — outbound HTTP with base URL, auth, retries. |
+| `database` | The `sql` block — queries against Postgres or SQLite. |
+| `logger` | The `log` block — structured log output. |
+| `slack` | Blocks to send messages, look up data, and verify inbound events. |
+| `notion` | Blocks to retrieve pages, query data sources, and verify webhooks. |
+| `llm-anthropic`, `llm-openai`, `llm-gemini` | The `ai-mapping` block and the AI composites (`ai-router`, `ai-agent`, `ai-retry`). |
+
+`cron`, `queue`, and `events` need no per-instance settings, so a source can use them without a `connectors:` entry — the runtime starts a default instance on demand. See [implicit connectors](/concepts/flows#implicit-connectors).
+
+## Blocks
+
+A block is one step in a flow's `process` chain: it receives a message, transforms it or performs a side effect, and passes it on. Built-in blocks like `set-payload`, `set-variable`, and `template-resource` need nothing external. Connector-backed blocks name the instance they use with a `connector:` setting (the `log` block uses `logger:`):
+
+```yaml
+connectors:
+  - name: payments
+    type: http-client
+    settings:
+      baseURL: https://api.payments.example
+
+flows:
+  - name: charge
+    process:
+      - type: rest                  # block provided by the http-client connector
+        settings:
+          connector: payments       # binds to the instance declared above
+          method: POST
+          path: /charges
+          body: '{"amount": body.amount}'
+```
+
+The binding is by *instance name*, so two `rest` blocks can call two different APIs by pointing at two `http-client` instances.
+
+## Composites
+
+Composite blocks nest other blocks through typed slots — this is how you get branching, iteration, parallelism, and error boundaries. They are built directly by the flow builder rather than registered as leaf blocks, and their slots are flow fields, not `settings`:
+
+| Composite | Slots | What it does |
+| --- | --- | --- |
+| `if` | `condition`, `then` / `else` | Run one branch or the other on a CEL condition. |
+| `switch` | `cases` / `default` | First case whose `when` guard matches wins. |
+| `foreach` | `items`, `as`, `body` | Run the body once per array element. |
+| `fork` | `branches` | Run branches concurrently on clones, then join. |
+| `enrich` | `body`, `setBody` / `setVars` | Run the body on an isolated copy, fold back only what you name. |
+| `handle-errors` | `process` / `error` | An error boundary with an inline recovery chain. |
+| `validate` | `rules`, `onReject` | Assert CEL rules; reject the message when one fails. |
+| `cache-scope` | `key`, `ttl`, `body` | Memoize the body's result with a TTL. |
+| `ai-router`, `ai-agent`, `ai-retry` | `routes` / `tools` / `process` | LLM-driven routing, tool-calling agents, self-healing retries. |
+| `mcp-router` | `tools`, `resources`, `prompts` | Serve flows as an MCP server behind an HTTP source. |
+
+```yaml
+process:
+  - type: if
+    condition: 'body.amount >= 1000.0'
+    then:
+      process:
+        - type: set-variable
+          settings: { name: priority, value: '"high"' }
+    else:
+      process:
+        - type: set-variable
+          settings: { name: priority, value: '"normal"' }
+```
+
+Slots contain sub-flows, and sub-flows contain blocks — including more composites — so pipelines nest to any depth.
+
+## Reuse with named processors
+
+Declare a block once under `processors:` and reference it from any flow with `ref:`. The reference takes the definition's type and settings; block-level settings override key by key.
+
+```yaml title="hello-world.yaml (excerpt)"
+processors:
+  - name: greeter
+    type: log
+    settings:
+      level: info
+      message: '"hello world! the date is " + body.date'
+
+flows:
+  - name: greet
+    source:
+      connector: ticker
+      type: cron
+      settings:
+        schedule: "0,30 * * * * *"
+        payload: '{"date": string(now)}'
+    process:
+      - ref: greeter
+```
+
+<Callout type="info">
+Named processors mirror connectors: both are declared once at the top level and referenced by name, so shared configuration lives in exactly one place.
+</Callout>
+
+## The complete catalogue
+
+This page covers the model; the [Reference](/reference) documents every connector, source, block, and composite with its full settings.

@@ -1,0 +1,136 @@
+---
+title: "Reference"
+description: "Complete reference for connectors, blocks, the CLI, CEL, and the flow file format."
+---
+
+This section is the complete reference for everything you can put in a flow file: every connector, source, and block type, plus the [CLI](/reference/cli), the [CEL expression language](/reference/cel), and the [flow file schema](/reference/flow-file).
+
+The tables below catalogue every type by category. **Connectors** are configured under `connectors:` and referenced by name; **sources** bind a flow's entry point to a connector; **blocks** are the steps of a flow's `process` chain.
+
+## Triggers and sources
+
+| Type | Description | Reference |
+|---|---|---|
+| `http` | HTTP server connector; routes requests into flows and returns the flow result. | [HTTP](/reference/connectors/http) |
+| `cron` | Trigger flows on a schedule. | [Cron](/reference/connectors/cron) |
+| `events` | Broadcast pub/sub topics; every subscriber flow receives each event. | [Events](/reference/connectors/events) |
+| `queue` | Competing-consumer queues; one worker flow receives each message. | [Queue](/reference/connectors/queue) |
+
+## Service connectors
+
+| Type | Description | Reference |
+|---|---|---|
+| `http-client` | Outbound HTTP with base URL, timeouts, and auth (used by the `rest` block). | [HTTP](/reference/connectors/http) |
+| `database` | SQL databases (used by the `sql` block). | [Database](/reference/connectors/database) |
+| `logger` | Structured logging (used by the `log` block). | [Logger](/reference/connectors/logger) |
+| `slack` | Slack workspace connection for messaging and events. | [Slack](/reference/connectors/slack) |
+| `notion` | Notion workspace connection for pages, data sources, and webhooks. | [Notion](/reference/connectors/notion) |
+| `llm-openai` | OpenAI LLM provider for the AI blocks. | [LLM Providers](/reference/connectors/llm) |
+| `llm-anthropic` | Anthropic LLM provider for the AI blocks. | [LLM Providers](/reference/connectors/llm) |
+| `llm-gemini` | Google Gemini LLM provider for the AI blocks. | [LLM Providers](/reference/connectors/llm) |
+
+## Control-flow blocks
+
+Composites configured with top-level YAML keys, not `settings:`. All on one page: [Control Flow](/reference/blocks/control-flow).
+
+| Type | Description |
+|---|---|
+| [`if`](/reference/blocks/control-flow#if) | Conditional branching on a CEL boolean expression. |
+| [`switch`](/reference/blocks/control-flow#switch) | Multi-case routing; runs the first matching case or the default. |
+| [`fork`](/reference/blocks/control-flow#fork) | Scatter the message across parallel branches, then join and pass through. |
+| [`foreach`](/reference/blocks/control-flow#foreach) | Sequentially iterate an array, running the body per element. |
+| [`enrich`](/reference/blocks/control-flow#enrich) | Run a body flow on an isolated copy, then merge back only the named body/variables. |
+| [`validate`](/reference/blocks/control-flow#validate) | Assert CEL rules; reject and stop the flow when any fail. |
+| [`handle-errors`](/reference/blocks/control-flow#handle-errors) | Run a process chain; on error, expose `vars.error` and run the error chain. |
+| [`cache-scope`](/reference/blocks/control-flow#cache-scope) | Memoize the body flow's result in the runtime store, keyed by a CEL expression. |
+
+## Data blocks
+
+Reshape the message payload and variables: [Data](/reference/blocks/data).
+
+| Type | Description |
+|---|---|
+| [`set-payload`](/reference/blocks/data#set-payload) | Replace the message body with the result of a CEL expression. |
+| [`set-variable`](/reference/blocks/data#set-variable) | Store the result of a CEL expression in a named variable. |
+| [`delete-variable`](/reference/blocks/data#delete-variable) | Remove a named variable from the message. |
+| [`multi-transform`](/reference/blocks/data#multi-transform) | Apply an ordered list of additive CEL edits in one block. |
+
+## Storage blocks
+
+The runtime key-value store: [Storage](/reference/blocks/storage).
+
+| Type | Description |
+|---|---|
+| [`object-read`](/reference/blocks/storage#object-read) | Read an object from the runtime store into the body or a variable. |
+| [`object-write`](/reference/blocks/storage#object-write) | Write an object to the runtime store under a key. |
+| [`object-delete`](/reference/blocks/storage#object-delete) | Delete an object from the runtime store by key. |
+| [`invalidate-cache`](/reference/blocks/storage#invalidate-cache) | Evict a cache-scope entry by its key so the next run recomputes. |
+
+## Integration blocks
+
+Cross-flow and cross-system glue: [Integration](/reference/blocks/integration).
+
+| Type | Description |
+|---|---|
+| [`flow-ref`](/reference/blocks/integration#flow-ref) | Invoke another flow by name, synchronously or fire-and-forget. |
+| [`jwt-validate`](/reference/blocks/integration#jwt-validate) | Verify a bearer JWT against an OIDC provider; reject with 401 on failure. |
+| [`template-resource`](/reference/blocks/integration#template-resource) | Render a declared template resource against the current message. |
+
+## AI blocks
+
+LLM-driven blocks and the MCP server: [AI Blocks](/reference/blocks/ai).
+
+| Type | Description |
+|---|---|
+| [`ai-agent`](/reference/blocks/ai#ai-agent) | Let an LLM call flow branches as tools in a loop to accomplish a task. |
+| [`ai-router`](/reference/blocks/ai#ai-router) | Route the message to a named branch the LLM chooses after inspecting it. |
+| [`ai-mapping`](/reference/blocks/ai#ai-mapping) | Reshape the body to a target shape described by a prompt and optional schema. |
+| [`ai-retry`](/reference/blocks/ai#ai-retry) | On failure, let the LLM revise the message and retry the chain. |
+| [`clear-agent-memory`](/reference/blocks/ai#clear-agent-memory) | Erase an ai-agent conversation thread's stored memory. |
+| [`mcp-router`](/reference/blocks/ai#mcp-router) | Turn a flow into a stateless MCP server behind an HTTP source. |
+
+## Connector-provided blocks
+
+Blocks that operate through a configured connector, documented alongside it.
+
+| Type | Description | Reference |
+|---|---|---|
+| `log` | Emit a structured log line through a logger connector. | [Logger](/reference/connectors/logger) |
+| `rest` | Call an HTTP API through an http-client connector. | [HTTP](/reference/connectors/http) |
+| `sql` | Run a SQL statement through a database connector. | [Database](/reference/connectors/database) |
+| `publish-event` | Publish a message to a broadcast topic. | [Events](/reference/connectors/events) |
+| `queue-dispatch` | Dispatch a message onto a competing-consumer queue. | [Queue](/reference/connectors/queue) |
+
+### Slack
+
+Slack source and blocks: [Slack](/reference/connectors/slack).
+
+| Type | Description |
+|---|---|
+| `slack-event` | Source: receive Slack events (mentions, messages, and more). |
+| `slack-send-message` | Send a message to a channel or thread. |
+| `slack-update-message` | Update a previously sent message. |
+| `slack-add-reaction` | Add an emoji reaction to a message. |
+| `slack-lookup-user` | Look up a Slack user. |
+| `slack-verify-request` | Verify a Slack request signature. |
+
+### Notion
+
+Notion source and blocks: [Notion](/reference/connectors/notion).
+
+| Type | Description |
+|---|---|
+| `notion-event` | Source: receive Notion webhook events. |
+| `notion-query-datasource` | Query a Notion data source. |
+| `notion-retrieve-page` | Retrieve a page's properties. |
+| `notion-retrieve-blocks` | Retrieve a page's block content. |
+| `notion-page-to-markdown` | Render a page as Markdown. |
+| `notion-verify-request` | Verify a Notion webhook signature. |
+
+## Language and tooling
+
+| Reference | Description |
+|---|---|
+| [CLI](/reference/cli) | The `octo` command: run, invoke, eval, schema, and version. |
+| [CEL Expressions](/reference/cel) | The expression language: [language basics](/reference/cel/language), [macros](/reference/cel/macros), and [Octo extensions](/reference/cel/octo-extensions). |
+| [Flow File](/reference/flow-file) | The complete YAML schema for integration definition files. |

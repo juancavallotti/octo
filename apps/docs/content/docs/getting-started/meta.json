@@ -1,0 +1,10 @@
+{
+  "pages": [
+    "index",
+    "installation",
+    "first-flow",
+    "editor-quickstart",
+    "http-quickstart"
+  ],
+  "title": "Getting Started"
+}

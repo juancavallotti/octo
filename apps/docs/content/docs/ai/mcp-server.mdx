@@ -1,0 +1,251 @@
+---
+title: "Expose an MCP Server"
+description: "Turn a flow into an MCP server with tools, resources, and prompts."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
+
+The `mcp-router` block turns a flow into a stateless [Model Context
+Protocol](https://modelcontextprotocol.io) server. Put it behind an `http`
+source and every POST to the route is one MCP JSON-RPC request; the block's
+output body is the JSON-RPC response. Each tool you declare is a flow branch —
+the same process chains you write everywhere else in Octo — so an MCP tool call
+runs a flow and returns its result.
+
+The router is a protocol adapter: it calls no LLM. The intelligence lives in
+the MCP client (Claude Code, Claude Desktop, or any other MCP client) that
+connects to it.
+
+## A complete server
+
+This is `samples/mcp-router` from the repo: one tool, one resource, one prompt.
+
+```yaml title="config.yaml"
+service:
+  name: mcp-router
+
+env:
+  - name: HTTP_PORT
+    default: "8080"
+
+# Template resources advertised as MCP resources and prompts, referenced by alias.
+resources:
+  templates:
+    - resource: guide.md
+      as: guide
+    - resource: greet.md
+      as: greet
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      port: ${HTTP_PORT}
+
+flows:
+  - name: mcp
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /mcp
+    process:
+      - type: mcp-router
+        name: weather-mcp
+        serverName: weather-tools
+        tools:
+          - name: forecast
+            description: Return a short weather forecast for a city.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["city"],
+                "properties": { "city": { "type": "string" } }
+              }
+            process:
+              # A real tool would call a weather API; here we echo a fixed
+              # forecast so the server runs without external dependencies.
+              - type: set-payload
+                settings:
+                  value: '{"city": body.city, "summary": "Sunny, 24C"}'
+        resources:
+          - uri: octo://guide
+            name: guide
+            description: Operator guide for the weather tools.
+            mimeType: text/markdown
+            resource: guide
+        prompts:
+          - name: assist
+            description: Prime an assistant to help a user in a given city.
+            arguments:
+              - name: city
+                description: The user's city.
+                required: true
+            resource: greet
+```
+
+The two template files are plain text with `{{ }}` expressions:
+
+```markdown title="greet.md"
+You are helping a user in {{ body.city }}. Offer to fetch the forecast with the
+`forecast` tool, and keep answers short and friendly.
+```
+
+```markdown title="guide.md"
+# Weather tools — operator guide
+
+This MCP server exposes a small set of weather tools.
+
+- `forecast` returns a short forecast for a city.
+- Values are illustrative; wire the tool flow to a real API to make it live.
+- Be kind to rate limits and cache when you can.
+```
+
+Run it:
+
+```bash
+bin/octo run --config samples/mcp-router
+```
+
+## The block, field by field
+
+The `mcp-router` is a composite block — `tools`, `resources`, `prompts`, and
+`serverName` sit at the block top level, not under `settings`. At least one
+tool, resource, or prompt is required.
+
+### `serverName`
+
+The name reported in the `initialize` handshake's `serverInfo`. Falls back to
+the block's `name`, then to `octo-mcp`.
+
+### `tools[]`
+
+Each entry is one MCP tool, declared exactly like an [`ai-agent`
+tool](/ai/agent-skills-and-tools):
+
+- **`name`** — the tool name clients call. Unique within the block.
+- **`description`** — what the tool does. Clients hand this to the model, so
+  write it for an LLM: say what the tool returns and when to use it.
+- **`inputSchema`** — a JSON Schema string describing the arguments.
+- **`process`** — the flow branch that runs on `tools/call`. The call's
+  `arguments` object becomes the branch's message **`body`** (so a schema
+  property `city` is `body.city`), and the branch's final body is returned to
+  the client as the tool's text result.
+
+A branch failure — or an unknown tool name — comes back as an `isError` tool
+result, an application-level error the model can see and recover from, not a
+protocol error.
+
+### `resources[]`
+
+Documents the server advertises and serves on `resources/read`:
+
+- **`uri`** — the stable identifier clients read by, e.g. `octo://guide`.
+  Unique within the block.
+- **`name`** — a human-readable name. Required.
+- **`description`** — optional.
+- **`mimeType`** — defaults to `text/plain`.
+- **`resource`** — the alias of a [template resource](/concepts/resources)
+  declared under `resources.templates`. The template is rendered on each read.
+
+### `prompts[]`
+
+Parameterized prompt templates served on `prompts/get`:
+
+- **`name`**, **`description`** — advertised on `prompts/list`.
+- **`arguments[]`** — each with `name`, `description`, and `required`.
+- **`resource`** — the template resource alias to render. The client's
+  arguments are exposed to the template as the body, so an argument `city`
+  renders as `{{ body.city }}`. The rendered text is returned as a single
+  `user` message.
+
+## The protocol surface
+
+The router is stateless: no sessions, no SSE — one JSON-RPC request per HTTP
+POST, one response. It handles:
+
+| Method | Behavior |
+| --- | --- |
+| `initialize` | Reports capabilities (`tools`, `resources`, `prompts`) and `serverInfo`. Echoes the client's requested `protocolVersion`; defaults to `2024-11-05` when the client sends none. |
+| `ping` | Returns an empty result. |
+| `tools/list` | The declared tools with their JSON Schemas. |
+| `tools/call` | Routes to the matching tool branch. |
+| `resources/list`, `resources/read` | The declared resources; read renders the template. |
+| `prompts/list`, `prompts/get` | The declared prompts; get renders the template with the arguments as `body`. |
+
+A request without an `id` is a JSON-RPC notification (clients send
+`notifications/initialized` after the handshake): the router acknowledges it
+with an empty `202` response instead of a JSON-RPC reply. Any other method
+returns a standard `-32601` method-not-found error.
+
+## Test it with curl
+
+Every interaction is a plain POST, so you can drive the whole server from a
+terminal:
+
+```bash
+curl -s localhost:8080/mcp -d '{"jsonrpc":"2.0","id":1,"method":"initialize"}'
+curl -s localhost:8080/mcp -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+```
+
+```json
+{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"forecast","description":"Return a short weather forecast for a city.","inputSchema":{"type":"object","required":["city"],"properties":{"city":{"type":"string"}}}}]}}
+```
+
+Call the tool, read the resource, render the prompt:
+
+```bash
+curl -s localhost:8080/mcp -d '{"jsonrpc":"2.0","id":3,"method":"tools/call",
+  "params":{"name":"forecast","arguments":{"city":"Paris"}}}'
+curl -s localhost:8080/mcp -d '{"jsonrpc":"2.0","id":4,"method":"resources/read",
+  "params":{"uri":"octo://guide"}}'
+curl -s localhost:8080/mcp -d '{"jsonrpc":"2.0","id":5,"method":"prompts/get",
+  "params":{"name":"assist","arguments":{"city":"Paris"}}}'
+```
+
+## Connect a client
+
+The server speaks HTTP, so point any MCP client at the route URL.
+
+<Tabs items={['Claude Code', 'Claude Desktop / .mcp.json']}>
+<Tab value="Claude Code">
+
+```bash
+claude mcp add --transport http weather-tools http://localhost:8080/mcp
+```
+
+Then ask Claude Code to fetch a forecast — it discovers the `forecast` tool
+via `tools/list` and calls it.
+
+</Tab>
+<Tab value="Claude Desktop / .mcp.json">
+
+```json
+{
+  "mcpServers": {
+    "weather-tools": {
+      "type": "http",
+      "url": "http://localhost:8080/mcp"
+    }
+  }
+}
+```
+
+</Tab>
+</Tabs>
+
+<Callout type="info">
+  Octo is an MCP **server**, not an MCP client. Flows and `ai-agent` blocks do
+  not consume external MCP servers — an agent's tools are flow branches inside
+  the integration (see [Agent Skills and Tools](/ai/agent-skills-and-tools)).
+  The `mcp-router` is how you hand those same flow-backed capabilities to
+  clients outside Octo.
+</Callout>
+
+## Next steps
+
+The server above is wide open: anyone who can reach the port can call the
+tools. For anything beyond localhost, put a `jwt-validate` block in front of
+the router and serve OAuth protected-resource metadata so MCP clients can
+authenticate — see [Secure an MCP Server with OAuth](/ai/mcp-auth).

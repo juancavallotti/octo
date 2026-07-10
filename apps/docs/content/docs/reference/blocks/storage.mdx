@@ -1,0 +1,91 @@
+---
+title: "Storage"
+description: "Read, write, and delete objects; invalidate cache entries."
+octo_types:
+  - object-read
+  - object-write
+  - object-delete
+  - invalidate-cache
+---
+
+The storage blocks read and write JSON objects in the runtime's key-value store. They need no connector: the store is a [runtime service](/concepts/runtime-services), scoped per deployment on the platform and in-process when running standalone, so a flow's objects are isolated from other deployments. All blocks confine themselves to the user namespace — user keys never collide with internal runtime state (agent memory, cache entries, secrets).
+
+Key and value fields are [CEL expressions](/reference/cel) evaluated against the message (`body`, `vars`, `eventID`, `correlationID`, `env`, `now`), compiled once at startup.
+
+## object-read
+
+Reads an object from the store into the body or a variable. When the key is absent and `default` is set, the default is folded in exactly like a hit; otherwise a miss nulls the body (body mode) or leaves the variable unset. Set `existsVar` to also record whether the key was found.
+
+| Setting | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `key` | `expression` (string) | Yes | — | Evaluated to the object key. |
+| `as` | string | No | — | Variable to store the object under; empty replaces the body. |
+| `default` | `expression` | No | — | Evaluated on a miss; its result is folded in like a hit (into the variable, or the body). |
+| `existsVar` | string | No | — | Names a variable the block writes a boolean into: `true` on a hit, `false` when the default/null path was taken. Use it to tell a default apart from a stored value. |
+
+**Errors:** the block errors on a store failure, a key/default expression failure, or a stored value that cannot be decoded as JSON. A missing key is not an error.
+
+```yaml
+- type: object-read
+  name: load-profile
+  settings:
+    key: '"profile:" + body.id'
+    as: profile
+    default: '{"plan": "free"}'
+    existsVar: profileExists
+```
+
+## object-write
+
+Writes an object to the store under a key. The message passes through unchanged.
+
+| Setting | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `key` | `expression` (string) | Yes | — | Evaluated to the object key. |
+| `value` | `expression` | No | message body | Value to store (JSON-encoded). Empty stores the whole body. |
+
+Writes use optimistic concurrency: the block re-reads the current version and retries on a version conflict (up to 5 attempts) before erroring, so concurrent writers cannot silently lose updates.
+
+```yaml
+- type: object-write
+  name: save-profile
+  settings:
+    key: '"profile:" + body.id'
+    value: '{"plan": body.plan}'
+```
+
+## object-delete
+
+Deletes an object from the store by key. The delete is unconditional and idempotent — a missing key is not an error. The message passes through unchanged.
+
+| Setting | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `key` | `expression` (string) | Yes | — | Evaluated to the object key to delete. |
+
+```yaml
+- type: object-delete
+  settings:
+    key: '"profile:" + body.id'
+```
+
+## invalidate-cache
+
+Evicts a [cache-scope](/reference/blocks/control-flow#cache-scope) entry by its key so the next run recomputes. The `key` expression must produce the same value as the cache-scope's `key` expression — cache entries are stored under a hash of the evaluated key, so matching expressions target the same entry. The message passes through unchanged.
+
+| Setting | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `key` | `expression` (string) | Yes | — | Evaluated to the cache key to evict; matches the `key` of the cache-scope that wrote the entry. |
+
+Eviction is idempotent: invalidating a key with no entry is not an error.
+
+```yaml
+- name: reset
+  process:
+    - type: invalidate-cache
+      name: bust-report
+      settings:
+        key: '"report"'
+    - type: set-payload
+      settings:
+        value: '{"reset": true}'
+```

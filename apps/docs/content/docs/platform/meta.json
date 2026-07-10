@@ -1,0 +1,14 @@
+{
+  "pages": [
+    "index",
+    "architecture",
+    "integrations",
+    "deployments",
+    "snapshots",
+    "resources-and-secrets",
+    "kv-and-storage",
+    "users-and-api-keys",
+    "event-bus"
+  ],
+  "title": "Platform"
+}

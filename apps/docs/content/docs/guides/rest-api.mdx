@@ -1,0 +1,222 @@
+---
+title: "Build a REST API"
+description: "Serve HTTP endpoints with routing, path params, and response shaping."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+In this guide you build a JSON API on the `http` connector: one endpoint that
+routes on the HTTP method, reads path and query parameters, captures headers,
+and shapes its own response. It follows
+[`samples/http-orders.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/http-orders.yaml).
+
+![The flow in the visual editor](/screenshots/sample-http-orders.png)
+
+## Declare the server
+
+The `http` connector owns the listener. Declare it once and every flow that
+sources from it registers a route on the same server. Environment variables
+declared under `env:` resolve as OS environment, then `.env` file, then the
+default — so the same file runs locally and in production.
+
+```yaml
+env:
+  - name: HTTP_HOST
+    default: 0.0.0.0
+  - name: HTTP_PORT
+    default: "8080"
+  - name: HTTP_BASE_PATH
+    default: /api/v1
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      host: ${HTTP_HOST}
+      port: ${HTTP_PORT}        # an exact ${VAR} keeps its type -> int 8080
+      basePath: ${HTTP_BASE_PATH}
+      keepAlive: true
+      requestTimeout: 5s        # how long a handler waits for the flow to finish
+      readTimeout: 10s
+      writeTimeout: 10s
+      idleTimeout: 60s
+```
+
+## Register a route
+
+A flow with an `http` source becomes an endpoint. The source settings control
+what lands in the message:
+
+- **Path parameters** — `{id}` in the path becomes `vars.id`.
+- **Headers** — headers listed in `headers:` are copied into vars, e.g.
+  `vars["X-Tenant"]`.
+- **Correlation** — `correlationIdHeader` propagates a request ID through the
+  flow as `correlationID`.
+- **Body limits** — `maxBodyBytes` caps the request body.
+
+`workers` and `buffer` on the flow control concurrency: how many messages are
+processed in parallel and how many can queue before the source blocks.
+
+```yaml
+flows:
+  - name: orders-api
+    workers: 8
+    buffer: 128
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /orders/{id}            # {id} -> vars.id
+        correlationIdHeader: X-Request-Id
+        headers: [X-Tenant]           # captured as vars["X-Tenant"]
+        timeout: 5s
+        maxBodyBytes: 1048576         # 1 MiB
+```
+
+The full URL is the base path plus the route: `POST /api/v1/orders/42` triggers
+this flow with `vars.id == "42"` and `vars.method == "POST"`.
+
+## Read query parameters
+
+`vars.query` is always a map (possibly empty), so guard optional parameters
+with `has()`:
+
+```yaml
+    process:
+      - type: set-variable
+        name: resolve-currency
+        settings:
+          name: currency
+          value: 'has(vars.query.currency) ? vars.query.currency : "USD"'
+```
+
+## Route on the HTTP method
+
+One route serves every method; the source stores the method in `vars.method`,
+and a `switch` block routes on it. Each case runs its own processor chain, and
+`default` catches everything else.
+
+```yaml
+      - type: switch
+        name: route-by-method
+        cases:
+          - when: 'vars.method == "POST"'
+            process:
+              - type: flow-ref
+                name: enrich-sync
+                settings:
+                  flow: enrich-order   # delegate to another flow, wait for its result
+          - when: 'vars.method == "GET"'
+            process:
+              - type: set-payload
+                name: lookup-order
+                settings:
+                  value: '{"orderId": vars.id, "currency": vars.currency, "status": "found"}'
+        default:
+          process:
+            - type: set-payload
+              name: method-not-supported
+              settings:
+                value: '{"error": "method " + vars.method + " not supported"}'
+```
+
+The POST case delegates to a second flow with `flow-ref` — the called flow
+normalizes the order and its result folds back into the message. That pattern
+has its own guide: [Composing Flows](/guides/composing-flows). The sample's
+`enrich-order` flow builds the response from the body, the captured header, and
+the correlation ID:
+
+```yaml
+  - name: enrich-order
+    process:
+      - type: set-payload
+        name: normalize-order
+        settings:
+          value: >
+            {
+              "orderId":   vars.id,
+              "tenant":    vars["X-Tenant"],
+              "item":      body.item,
+              "amount":    body.amount,
+              "currency":  vars.currency,
+              "requestId": correlationID
+            }
+      - type: if
+        name: priority-check
+        condition: 'body.amount >= 1000.0'
+        then:
+          process:
+            - type: set-variable
+              settings: { name: priority, value: '"high"' }
+        else:
+          process:
+            - type: set-variable
+              settings: { name: priority, value: '"normal"' }
+      - type: set-payload
+        name: wrap-response
+        settings:
+          value: '{"order": body, "priority": vars.priority, "status": "accepted"}'
+```
+
+## Shape the response
+
+Whatever the body is when the chain ends is serialized as the JSON response.
+The status code defaults to 200; set the `httpStatus` variable to override it,
+for example to return a proper 405 from the default case:
+
+```yaml
+            - type: set-variable
+              settings: { name: httpStatus, value: "405" }
+```
+
+## Run it
+
+```bash
+bin/octo run --config samples/http-orders.yaml
+```
+
+Create an order:
+
+```bash
+curl -s -X POST localhost:8080/api/v1/orders/42 \
+  -H 'X-Tenant: acme' -H 'X-Request-Id: req-1' \
+  -d '{"item":"widget","amount":1500}'
+```
+
+```json
+{
+  "order": {
+    "orderId": "42",
+    "tenant": "acme",
+    "item": "widget",
+    "amount": 1500,
+    "currency": "USD",
+    "requestId": "req-1"
+  },
+  "priority": "high",
+  "status": "accepted"
+}
+```
+
+Read one back with a query parameter:
+
+```bash
+curl -s 'localhost:8080/api/v1/orders/42?currency=EUR'
+```
+
+```json
+{"orderId": "42", "currency": "EUR", "status": "found"}
+```
+
+<Callout type="info">
+Override any declared env var at startup without editing the file:
+`HTTP_PORT=9090 bin/octo run --config samples/http-orders.yaml`, or put it in a
+`./.env` file.
+</Callout>
+
+## Where to go next
+
+- [Database CRUD](/guides/database-crud) — back these endpoints with SQL.
+- [Validation and Auth](/guides/validation-and-auth) — reject bad input and require JWTs.
+- [Composing Flows](/guides/composing-flows) — the `flow-ref` pattern in depth.
+- [HTTP connector reference](/reference/connectors/http) — every setting on the connector and source.

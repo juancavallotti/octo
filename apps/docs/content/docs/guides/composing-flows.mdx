@@ -1,0 +1,211 @@
+---
+title: "Composing Flows"
+description: "Call flows from flows: flow-ref, sourceless flows, and HTTP composition."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+As an integration grows, one long `process` list gets hard to read and impossible
+to reuse. This guide splits work into named flows and calls them with `flow-ref` —
+synchronously when you need the result, one-way when you don't — and shows when to
+compose over HTTP instead.
+
+## Sourceless flows
+
+A flow without a `source:` block gets an implicit source and becomes callable by
+name. It never binds a port or fires a schedule — it only runs when something
+invokes it. The smallest example is
+[`samples/hello-invoke.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/hello-invoke.yaml):
+
+```yaml title="samples/hello-invoke.yaml"
+flows:
+  - name: greet
+    process:
+      - type: set-payload
+        name: build-greeting
+        settings:
+          value: '{"greeting": "hello, " + body.name + "!"}'
+```
+
+Call it directly from the CLI:
+
+```bash
+octo invoke --config samples/hello-invoke.yaml --flow greet --data '{"name":"Ada"}'
+# -> {"greeting":"hello, Ada!"}
+```
+
+In invoke mode no sources start at all — only the requested flow runs. That makes
+sourceless flows the unit of composition: other flows call them with `flow-ref`,
+and you test each one in isolation with `octo invoke`.
+
+## Calling flows with flow-ref
+
+[`samples/http-orders.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/http-orders.yaml)
+puts both invocation styles in one API. The HTTP-triggered flow delegates to two
+sourceless flows:
+
+```yaml title="samples/http-orders.yaml (excerpt)"
+process:
+  # Fire-and-forget: the caller does not wait, the result is ignored.
+  - type: flow-ref
+    name: audit-async
+    settings:
+      flow: audit
+      oneWay: true
+
+  # Synchronous (the default): wait for the called flow, then fold its
+  # body and variables back into this message.
+  - type: flow-ref
+    name: enrich-sync
+    settings:
+      flow: enrich-order
+```
+
+Run it and post an order:
+
+```bash
+octo run --config samples/http-orders.yaml
+curl -s -X POST localhost:8080/api/v1/orders/42 \
+  -H 'X-Tenant: acme' -H 'X-Request-Id: req-1' \
+  -d '{"item":"widget","amount":1500}'
+```
+
+The response comes from `enrich-order` (called synchronously), while `audit`
+logs its line in the background without delaying the request.
+
+### What the called flow sees
+
+`flow-ref` sends the target flow a **clone** of the current message — same body,
+same variables, same correlation ID — under a fresh event ID, so the
+sub-invocation correlates independently in logs. That is why `enrich-order` can
+read `vars.id`, `vars["X-Tenant"]`, and `body.amount` without being passed
+anything explicitly:
+
+```yaml title="samples/http-orders.yaml (excerpt)"
+- name: enrich-order
+  process:
+    - type: set-payload
+      name: normalize-order
+      settings:
+        value: >
+          {
+            "orderId":   vars.id,
+            "tenant":    vars["X-Tenant"],
+            "item":      body.item,
+            "amount":    body.amount,
+            "currency":  vars.currency,
+            "requestId": correlationID
+          }
+```
+
+### Sync vs one-way
+
+- **Synchronous** (`oneWay` omitted or `false`): the caller waits for the
+  called flow to finish. The result's body **replaces** the caller's body, and
+  every variable the called flow set is merged into the caller's variables. If
+  the called flow drops the message (a filter said no), the caller's message
+  continues unchanged.
+- **One-way** (`oneWay: true`): the caller hands off the clone and moves on
+  immediately. The called flow's result is ignored. Use it for side effects:
+  audit trails, notifications, metrics.
+
+<Callout type="info">
+  `flow-ref` is in-process: both flows must live in the same config and run in
+  the same runtime. To load-balance the same pattern across replicas, use
+  `queue-dispatch` instead — see [Events and Queues](/guides/events-and-queues).
+</Callout>
+
+## Composing over HTTP
+
+When the flows belong to **separate deployables** — different configs, different
+lifecycles, maybe different teams — compose over HTTP instead: expose the callee
+as an endpoint and call it with the `rest` block.
+[`samples/flow-to-flow-http.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/flow-to-flow-http.yaml)
+simulates this inside one config: a cron-driven caller POSTs to a `greet-service`
+flow served by the same process.
+
+```yaml title="samples/flow-to-flow-http.yaml (excerpt)"
+connectors:
+  - name: internal
+    type: http-client
+    settings:
+      baseURL: http://127.0.0.1:${HTTP_PORT}${HTTP_BASE_PATH}
+      timeout: 5s
+
+flows:
+  - name: caller
+    source:
+      type: cron
+      settings:
+        schedule: "@every 5s"
+        payload: '{"name": "world", "at": string(now)}'
+    process:
+      - type: rest
+        name: call-flow-b
+        settings:
+          connector: internal
+          method: POST
+          path: /greet
+          body: body
+          headers:
+            X-Request-Id: eventID
+      - type: log
+        name: report-reply
+        settings:
+          logger: out
+          message: '"flow B replied: " + body.greeting'
+```
+
+Run it and watch the caller log the greeting the service returned every few
+seconds — or call the service yourself:
+
+```bash
+octo run --config samples/flow-to-flow-http.yaml
+curl -s -X POST localhost:8080/api/v1/greet -d '{"name":"ada"}'
+```
+
+### Propagating correlation IDs
+
+In-process, `flow-ref` carries the correlation ID for free. Over HTTP you thread
+it through a header: the caller sends `X-Request-Id` (here the caller's
+`eventID`; forward `correlationID` instead when you want to preserve an ID that
+arrived from upstream), and the callee's source names that header as its
+correlation ID with `correlationIdHeader`:
+
+```yaml title="samples/flow-to-flow-http.yaml (excerpt)"
+- name: greet-service
+  source:
+    connector: api
+    type: http
+    settings:
+      path: /greet
+      correlationIdHeader: X-Request-Id
+  process:
+    - type: set-payload
+      settings:
+        value: '{"greeting": "Hello, " + body.name + "!", "requestId": correlationID}'
+```
+
+Now both services log the same ID for one logical request, and the callee can
+echo it back in its response.
+
+### Choosing between flow-ref and HTTP
+
+|  | `flow-ref` | HTTP (`rest` block) |
+| --- | --- | --- |
+| Boundary | Same config, same process | Separate deployables |
+| Latency | In-memory call | Network round trip |
+| Result | Body and variables folded back | Response body only, plus a status variable |
+| Failure | Caller sees the error directly | Timeouts, retries, status codes |
+
+Prefer `flow-ref` until you genuinely need a deployment boundary; you can lift a
+sourceless flow into its own service later by giving it an HTTP source.
+
+## Where to go next
+
+<Cards>
+  <Card title="Events and Queues" href="/guides/events-and-queues" description="Load-balance flow calls across replicas with queue-dispatch." />
+  <Card title="Flows" href="/concepts/flows" description="Sources, processors, workers, and buffers in depth." />
+  <Card title="Calling External APIs" href="/guides/call-external-apis" description="The rest block and http-client connector in detail." />
+</Cards>

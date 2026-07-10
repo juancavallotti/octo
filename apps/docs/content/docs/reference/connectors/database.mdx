@@ -1,0 +1,134 @@
+---
+title: "Database"
+description: "SQL databases: the database connector and sql block."
+octo_types:
+  - database
+  - sql
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The `database` connector owns a SQL connection pool — Postgres or SQLite, selected by the `driver` setting — and the `sql` block runs statements through it, folding the result into the message body. Both drivers are pure Go, so no CGO toolchain is needed.
+
+## `database` connector
+
+The connector opens the pool on start (verifying the connection so a bad DSN fails fast) and closes it on shutdown.
+
+**Provides a source:** no — it is a service connector. **Blocks that bind to it:** `sql`.
+
+### Settings
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `driver` | enum: `postgres` \| `sqlite` | Yes | — | Database driver. `postgres` uses jackc/pgx; `sqlite` uses modernc.org/sqlite. |
+| `dsn` | string | Yes | — | Data source name (Postgres connection string or SQLite file path). |
+| `maxOpenConns` | int | No | unlimited | Open connection pool cap (0 = unlimited). |
+| `maxIdleConns` | int | No | database/sql default | Idle connections kept in the pool. |
+| `connMaxLifetime` | string | No | — | Duration bounding connection reuse (e.g. `5m`). |
+
+Example DSNs:
+
+```yaml
+# Postgres
+dsn: postgres://user:pw@localhost:5432/orders?sslmode=disable
+# SQLite (file path)
+dsn: file:./orders.db
+```
+
+## `sql` block
+
+**SQL** — execute a SQL statement against a `database` connector. In query mode (the default) the body becomes an array of row objects, or a single object when `single` is set; in exec mode the body becomes `{"rowsAffected": N}`. Bind parameters come from CEL [expressions](/concepts/expressions) evaluated against the message.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `connector` | string | Yes | — | Name of the `database` connector to use. |
+| `query` | string | Yes | — | SQL statement with placeholders. |
+| `args` | list of expression | No | — | CEL expressions bound to the statement placeholders, in order. |
+| `exec` | boolean | No | `false` | Use exec mode (no result set); result becomes `{rowsAffected: N}`. |
+| `single` | boolean | No | `false` | In query mode, unwrap the result to the first row object (or `null` when no rows match). |
+
+### Placeholder style
+
+Placeholders are the driver's own:
+
+- **Postgres** — numbered: `$1`, `$2`, …
+- **SQLite** — positional: `?`
+
+```yaml
+# postgres
+query: "SELECT * FROM orders WHERE id = $1"
+# sqlite
+query: "SELECT * FROM orders WHERE id = ?"
+```
+
+### Result shape
+
+Rows are scanned into column-name → value maps and normalized through JSON, so downstream blocks and CEL expressions see consistent decoded-JSON types (numbers are floats, text/blob columns are strings).
+
+## Example
+
+Adapted from `samples/db-orders.yaml` — an HTTP API over SQLite:
+
+```yaml
+service:
+  name: db-orders
+
+env:
+  - name: DB_DRIVER
+    default: sqlite
+  - name: DB_DSN
+    default: file:./orders.db
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      basePath: /api/v1
+      requestTimeout: 5s
+  - name: orders-db
+    type: database
+    settings:
+      driver: ${DB_DRIVER}
+      dsn: ${DB_DSN}
+      maxOpenConns: 4
+
+flows:
+  # POST /orders — insert a row and return it (single: true -> one object).
+  - name: orders
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /orders
+    process:
+      - type: sql
+        name: insert-order
+        settings:
+          connector: orders-db
+          query: "INSERT INTO orders (item, amount) VALUES (?, ?) RETURNING *"
+          args:
+            - body.item
+            - body.amount
+          single: true
+
+  # GET /orders/{id} — the matching row, or null when absent.
+  - name: orders-get
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /orders/{id}
+    process:
+      - type: sql
+        name: select-order
+        settings:
+          connector: orders-db
+          query: "SELECT * FROM orders WHERE id = ?"
+          args:
+            - vars.id
+          single: true
+```
+
+<Callout type="info">
+Always pass user input through `args` — the arguments are bound as SQL parameters, never interpolated into the statement text.
+</Callout>

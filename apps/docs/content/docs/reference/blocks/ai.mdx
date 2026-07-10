@@ -1,0 +1,278 @@
+---
+title: "AI Blocks"
+description: "Agents, routers, mapping, retry, memory management, and the MCP router."
+octo_types:
+  - ai-agent
+  - ai-router
+  - ai-mapping
+  - ai-retry
+  - clear-agent-memory
+  - mcp-router
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Reference for the AI block family. For narrative guides see the [AI section](/ai) — [agents](/ai/agents), [routing](/ai/ai-router), [mapping](/ai/ai-mapping), [retry](/ai/ai-retry), [memory](/ai/agent-memory), and [MCP servers](/ai/mcp-server).
+
+`ai-agent`, `ai-router`, `ai-retry`, and `mcp-router` are **composites**: their keys sit at the top level of the block, not under `settings:`. `ai-mapping` and `clear-agent-memory` are leaf blocks configured under `settings:`. The `connector` field on each LLM-driven block names a configured [LLM provider connector](/reference/connectors/llm) (`llm-anthropic`, `llm-openai`, or `llm-gemini`); any provider works.
+
+## ai-agent
+
+Lets an LLM accomplish a task by calling flow branches as tools, one or more times, in a loop. Each tool is wired to the model as a callable function: the model's arguments become the branch's message body and the branch's output body is returned as the tool result. Tool branches share the message, so variables they set accumulate across the loop.
+
+| Key | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `connector` | string | Yes | — | Name of the LLM connector that drives the agent loop. |
+| `prompt` | string | Yes | — | Task instruction; the model calls tools as needed, then stops. |
+| `guardrail` | string | No | — | Describes when the model should fall back to the `default` path. |
+| `maxIterations` | int | No | `8` | Cap on tool-calling turns (one model call each) before falling back to the guardrail. |
+| `memoryThreadId` | `expression` (string) | No | — | Conversation thread id. When set, the agent loads the thread's prior transcript before the run and saves it after. Empty disables memory. |
+| `memoryMaxTokens` | int | No | `8000` | Estimated-token budget for the stored transcript; compacted when exceeded. |
+| `memoryCompaction` | enum `prune` \| `summarize` | No | `prune` | How memory over budget shrinks: `prune` drops the oldest turns; `summarize` folds them into a running summary (an extra model call). |
+| `tools` | list | Yes | — | Tool branches (below). At least one required. |
+| `skills` | list | No | — | Loadable instruction resources (below). |
+| `default` | flow | No | — | Guardrail path, run when the model refuses or hits `maxIterations`. |
+
+Each `tools` entry:
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `name` | string | Yes | Tool name the model calls; must be unique and not the reserved `load_skill`. |
+| `description` | string | Yes | Tells the model what the tool does. |
+| `inputSchema` | string (JSON) | No | JSON Schema for the tool's arguments, written inline as a string. Defaults to `{"type":"object"}`. |
+| `process` | block list | Yes | Chain that runs the tool: arguments arrive as the body, the output body is the tool result. |
+
+Each `skills` entry (see [Agent skills and tools](/ai/agent-skills-and-tools)):
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `name` | string | Yes | Skill name; unique, must not collide with a tool name or `load_skill`. |
+| `description` | string | Yes | Advertised to the model up front, with the name. |
+| `resource` | string | Yes | Template resource (its `resources.templates` alias) whose rendered content the implicit `load_skill` tool returns on demand. |
+
+Behavior notes:
+
+- The final assistant text becomes the message body — parsed as JSON when possible, stored as text otherwise; an empty answer leaves the last tool's body standing.
+- A tool-branch error or dropped message becomes an error result fed back to the model rather than aborting the agent.
+- On refusal or `maxIterations`, the `default` flow runs; **with no `default` configured, the block errors** so the failure reaches a recovery path.
+- With skills configured, the agent gets an implicit `load_skill(name)` tool; skill bodies are rendered against the current message like any template.
+- Memory is saved best-effort (a save failure logs, it does not fail the flow); wipe a thread with [clear-agent-memory](#clear-agent-memory).
+
+```yaml
+- type: ai-agent
+  name: enrich-lead
+  connector: claude
+  maxIterations: 6
+  memoryThreadId: body.threadId        # optional per-thread memory
+  prompt: >
+    Enrich the inbound lead. Classify the company size and decide whether it
+    is a good fit. Respond with a JSON object {"tier": "...", "fit": true|false}.
+  guardrail: >
+    If you cannot classify the lead with confidence, take the default path.
+  tools:
+    - name: classify_size
+      description: Classify a company's size tier from its name and domain.
+      inputSchema: |
+        {"type": "object", "required": ["company"],
+         "properties": {"company": {"type": "string"}, "domain": {"type": "string"}}}
+      process:
+        - type: set-payload
+          settings:
+            value: '{"tier": "smb"}'
+  default:
+    process:
+      - type: set-payload
+        settings:
+          value: '{"status": "needs-manual-review"}'
+```
+
+## ai-router
+
+Asks an LLM to pick exactly one of its named, described routes for each message. The model is given read-only inspection tools (`get_body`, `list_variables`, `get_variable`) plus a `select_route` decision tool; it may inspect for up to 5 turns before the guardrail is taken.
+
+| Key | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `connector` | string | Yes | — | Name of the LLM connector that picks the route. |
+| `prompt` | string | Yes | — | Routing instruction. |
+| `guardrail` | string | No | — | Describes when to fall back to the `default` path (low confidence, ambiguity). |
+| `routes` | list | Yes | — | Named branches; each entry is `{name, description, process}` (all required). Names must be unique. |
+| `default` | flow | No | — | Guardrail path, run when the model is not confident or never decides. Omitted: the message passes through unchanged (mirroring `switch`). |
+
+```yaml
+- type: ai-router
+  name: triage-ticket
+  connector: claude
+  prompt: >
+    Read the support ticket in the message body and route it to the team
+    best suited to handle it.
+  guardrail: >
+    If the ticket is ambiguous or you are not confident, take the default path.
+  routes:
+    - name: billing
+      description: Payment failures, refunds, invoices, subscription changes.
+      process:
+        - type: set-payload
+          settings: { value: '{"team": "billing"}' }
+    - name: technical
+      description: Bugs, outages, API errors, integration problems.
+      process:
+        - type: set-payload
+          settings: { value: '{"team": "technical"}' }
+  default:
+    process:
+      - type: set-payload
+        settings: { value: '{"team": "human-triage"}' }
+```
+
+## ai-mapping
+
+Leaf block: reshapes the message body to a target shape described by a prompt, optional input/output examples, and an optional output JSON Schema. The model's JSON response replaces the body.
+
+| Setting | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `connector` | string | Yes | — | Name of the LLM connector to use. |
+| `prompt` | string | Yes | — | Instruction describing how to reshape the body. |
+| `inputExample` | JSON | No | — | Example input payload that guides recognition. Written as an inline JSON string (block scalar) or a native YAML map. |
+| `outputExample` | JSON | No | — | Example output payload that shapes the result. Same formats. |
+| `outputSchema` | JSON | No | — | JSON Schema the result is validated against; also recorded on the message as its body schema. |
+| `maxTokens` | int | No | `0` (connector default) | Response token cap for this call. |
+
+**Errors:** the block errors when the model's response is not valid JSON or fails `outputSchema` validation, so it composes with [ai-retry](#ai-retry), [handle-errors](/reference/blocks/control-flow#handle-errors), or the flow-level error path for self-healing. A malformed schema or example fails at startup.
+
+```yaml
+- type: ai-mapping
+  name: normalize
+  settings:
+    connector: claude
+    prompt: >
+      Map the raw contact payload to our canonical contact shape. Split the
+      full name into firstName and lastName. Lowercase the email.
+    outputSchema: |
+      {"type": "object", "required": ["firstName", "lastName", "email"],
+       "properties": {"firstName": {"type": "string"}, "lastName": {"type": "string"},
+                      "email": {"type": "string"}, "phone": {"type": "string"}}}
+```
+
+## ai-retry
+
+Protects a process chain with an LLM-driven retry loop. When the chain fails, the model inspects the error (`vars.error`) and the current message, revises the body and/or variables, and the chain re-runs — up to `maxAttempts` revisions. When attempts are exhausted, the `error` chain runs (with `vars.error` set); with no error chain, the last error propagates.
+
+| Key | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `connector` | string | Yes | — | Name of the LLM connector that revises the message between attempts. |
+| `prompt` | string | Yes | — | Instruction for repairing the message from `vars.error` before a retry. |
+| `maxAttempts` | int | No | `3` | How many times to revise and re-run the process chain. |
+| `process` | block list | Yes | — | The protected chain, re-run after each revision. |
+| `error` | block list | No | — | Runs when attempts are exhausted; reads `vars.error`. |
+
+`vars.error` has the shape `{message, flow, block}` as with [handle-errors](/reference/blocks/control-flow#handle-errors). If the model cannot produce a revision, the loop ends early and falls through to the error chain (or the error propagates).
+
+```yaml
+- type: ai-retry
+  name: resilient-charge
+  connector: claude
+  maxAttempts: 3
+  prompt: >
+    A step failed building the charge request. Inspect vars.error and the
+    message body, correct the body, and produce a revised message to retry.
+  process:
+    - type: ai-mapping
+      name: build-charge
+      settings:
+        connector: claude
+        prompt: "Build a Stripe charge request from the order."
+        outputSchema: |
+          {"type": "object", "required": ["amount", "currency"],
+           "properties": {"amount": {"type": "integer"}, "currency": {"type": "string"}}}
+  error:
+    - type: set-payload
+      settings:
+        value: '{"status": "degraded", "reason": vars.error.message}'
+```
+
+## clear-agent-memory
+
+Leaf block: erases an [ai-agent](#ai-agent) conversation thread's stored memory by its thread id. The clear is idempotent — a missing thread is not an error — and the message passes through unchanged.
+
+| Setting | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `threadId` | `expression` (string) | Yes | — | Evaluated to the thread id whose memory is cleared; matches the agent's `memoryThreadId` value. |
+
+```yaml
+- name: forget
+  process:
+    - type: clear-agent-memory
+      name: wipe-thread
+      settings:
+        threadId: body.threadId
+    - type: set-payload
+      settings:
+        value: '{"cleared": true}'
+```
+
+## mcp-router
+
+Turns a flow into a stateless [MCP](/ai/mcp-server) server. It sits behind an HTTP source: each request body is one MCP JSON-RPC request and the router's output body is the JSON-RPC response, which the source returns. It advertises tool flows as MCP tools, template resources as MCP resources and prompts, and routes `tools/call` to the matching flow. It calls no LLM — it is a protocol adapter.
+
+| Key | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `serverName` | string | No | block name, then `octo-mcp` | Name reported in the MCP `initialize` response. |
+| `tools` | list | No* | — | Flows exposed as MCP tools; same entry shape as [ai-agent tools](#ai-agent) (`name`, `description`, `inputSchema`, `process`). |
+| `resources` | list | No* | — | Template resources advertised as MCP resources and served on `resources/read` (below). |
+| `prompts` | list | No* | — | Template resources advertised as MCP prompts and rendered on `prompts/get` (below). *At least one of `tools`, `resources`, or `prompts` is required. |
+
+Each `resources` entry:
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `uri` | string | Yes | — | Stable id clients read by; unique. |
+| `name` | string | Yes | — | Advertised resource name. |
+| `description` | string | No | — | Advertised description. |
+| `mimeType` | string | No | `text/plain` | Advertised MIME type. |
+| `resource` | string | Yes | — | Template resource whose rendered content is returned. |
+
+Each `prompts` entry:
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `name` | string | Yes | — | Id clients get the prompt by; unique. |
+| `description` | string | No | — | Advertised description. |
+| `arguments` | list | No | — | Advertised argument metadata: `{name, description, required}` per entry. |
+| `resource` | string | Yes | — | Template resource rendered as the prompt message; the supplied arguments are exposed to the template as the body (`body.<arg>`). |
+
+Behavior notes:
+
+- Handled methods: `initialize`, `ping`, `tools/list`, `tools/call`, `resources/list`, `resources/read`, `prompts/list`, `prompts/get`. Anything else returns a JSON-RPC method-not-found error.
+- A request with no `id` is a notification: acknowledged with an empty `202` body, not answered.
+- An unknown tool or a tool-flow failure is reported as an `isError` **tool result** (an application error the client sees), not a protocol error; protocol errors (bad params, unknown resource/prompt) use JSON-RPC error responses.
+- To require OAuth on the endpoint, put [jwt-validate](/reference/blocks/integration#jwt-validate) in front — see [MCP auth](/ai/mcp-auth).
+
+```yaml
+- type: mcp-router
+  name: weather-mcp
+  serverName: weather-tools
+  tools:
+    - name: forecast
+      description: Return a short weather forecast for a city.
+      inputSchema: |
+        {"type": "object", "required": ["city"],
+         "properties": {"city": {"type": "string"}}}
+      process:
+        - type: set-payload
+          settings:
+            value: '{"city": body.city, "summary": "Sunny, 24C"}'
+  resources:
+    - uri: octo://guide
+      name: guide
+      description: Operator guide for the weather tools.
+      mimeType: text/markdown
+      resource: guide
+  prompts:
+    - name: assist
+      description: Prime an assistant to help a user in a given city.
+      arguments:
+        - name: city
+          description: The user's city.
+          required: true
+      resource: greet
+```

@@ -1,0 +1,98 @@
+---
+title: "Events"
+description: "Broadcast pub/sub topics: the events source and publish-event block."
+octo_types:
+  - events
+  - publish-event
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The `events` connector exposes the platform's broadcast pub/sub topics to flows: an `events` source runs every message published to a subject through a flow, and the `publish-event` block broadcasts the current message to a subject. Every subscriber on a subject receives every message — the fan-out counterpart to the [queue](/reference/connectors/queue) connector's competing consumers.
+
+## `events` connector
+
+The connector (label: **Platform Events**) carries **no settings** — it is source-only. The topic itself is a core runtime service: in-process in the standalone module, and NATS-backed in the Kubernetes module, where every replica's subscribers receive every message.
+
+**Provides a source:** yes — the **Event subscription** source (below). **Blocks that bind to it:** none directly; `publish-event` publishes onto the same platform topics service without referencing a connector instance.
+
+## `events` source
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `subject` | string | Yes | — | Topic subject to subscribe to. Every subscriber on the subject (including every replica) receives every message — broadcast fan-out, unlike a queue's competing consumers. |
+| `listeners` | int | No | topics service default | Number of concurrent handler goroutines. |
+
+The source is fire-and-forget: a topic has no reply, so each delivery is forwarded into the flow and the handler returns. Each subscriber's copy is cloned and re-keyed so its flow invocation correlates on its own event ID, preserving the body, variables, and correlation ID.
+
+## `publish-event` block
+
+**Publish Event** — broadcast the current message to a platform topic subject, so every subscriber on that subject receives it (fire-and-forget fan-out). The message passes through unchanged.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `subject` | expression | Yes | — | CEL expression for the topic subject to broadcast to; enables per-message routing. |
+| `value` | expression | No | whole body | CEL expression whose result becomes the published body. Empty publishes the whole current body. |
+
+The block publishes a fresh sub-message (cloned and re-keyed, its body optionally replaced by `value`) and returns the current message unchanged.
+
+## Example
+
+From `samples/events.yaml` — one publisher, two subscribers, each subscriber sees every message:
+
+```yaml
+service:
+  name: events
+
+connectors:
+  - name: out
+    type: logger
+    settings:
+      format: json
+      level: info
+
+flows:
+  # Publisher: fire on a schedule and broadcast a notification.
+  - name: emitter
+    source:
+      type: cron                 # implicit connector — no instance needed
+      settings:
+        schedule: "@every 3s"
+        payload: '{"tick": string(now)}'
+    process:
+      - type: publish-event
+        name: broadcast
+        settings:
+          # CEL subject, so a flow can route dynamically; here it is constant.
+          subject: '"notifications"'
+
+  # Subscriber A: receives every notification broadcast to the subject.
+  - name: subscriber-a
+    source:
+      type: events               # implicit connector — no instance needed
+      settings:
+        subject: notifications
+    process:
+      - type: log
+        name: emit-a
+        settings:
+          logger: out
+          message: '"subscriber A saw tick " + body.tick'
+
+  # Subscriber B: also receives every notification (broadcast fan-out).
+  - name: subscriber-b
+    source:
+      type: events
+      settings:
+        subject: notifications
+    process:
+      - type: log
+        name: emit-b
+        settings:
+          logger: out
+          message: '"subscriber B saw tick " + body.tick'
+```
+
+<Callout type="info">
+Use events when every interested flow should see the message. When each message must be handled exactly once across replicas — or when you need a reply — use the [queue](/reference/connectors/queue) connector instead.
+</Callout>

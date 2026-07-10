@@ -1,0 +1,76 @@
+---
+title: "Runtime Architecture"
+description: "The engine: registries, sources, pipelines, and message processing."
+---
+
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+The Octo runtime is a small Go engine that loads a YAML config and runs it. Connectors turn the outside world into messages, flows process those messages through ordered chains of blocks, and an event bus reports each message's outcome — the same model whether the runtime runs on your laptop or as a pod in a cluster.
+
+## The engine model
+
+Five concepts cover everything the runtime does:
+
+```
+connector --> source --> flow --> block --> processor
+                         (worker pool runs the flow per message)
+```
+
+- **Message** — the unit of work. A JSON body, a per-message `vars` map, a stable `eventID`, and an optional `correlationID`. Messages are JSON-only by design and clone safely when a flow processes branches concurrently.
+- **Connector** — owns a piece of the outside world (a socket, a client, a pool, a file), acquiring it on start and releasing it on stop. Some connectors provide a *source* that feeds a flow (`cron`, `http`, `queue`); some provide a capability that blocks call by name (a logger, a database, an HTTP client, an LLM).
+- **Source** — a flow's entry point, created and owned by a connector. It reacts to an external event — an HTTP request, a cron tick, a queue delivery — by building a message and sending it on a channel the runtime owns.
+- **Block** — a configured, named stage in a flow. Its processor takes one message and returns one of three outcomes: pass it through (possibly modified), drop it, or fail it.
+- **Flow** — an ordered list of blocks, and itself a message processor. That recursion is what makes composition work: composite blocks like `fork` and `handle-errors` embed sub-flows, and the model repeats at every level.
+
+Each message a flow processes emits a `started` event followed by exactly one terminal event — `completed`, `dropped`, or `failed` — on a process-wide flow-event bus. Connectors use this bus to correlate replies: the `http` source, for example, matches each terminal event back to the waiting request by event ID.
+
+[The Processing Pipeline](/runtime/processing-pipeline) covers this model in depth — worker pools, backpressure, composite execution, and error propagation.
+
+## The two registries
+
+The runtime discovers its components through two process-wide registries:
+
+- The **connector registry** maps a connector *type* (`http`, `cron`, `database`, …) to a factory. Connectors self-register in an `init` function via `core.MustRegisterConnector`, so adding one to a build is a matter of importing its package.
+- The **block registry** maps a leaf block *type* (`log`, `set-payload`, `rest`, `sql`, …) to a factory via `core.MustRegisterBlock`.
+
+Composite block kinds (`handle-errors`, `fork`, `if`, `switch`, `foreach`, `enrich`, and the AI composites) are not in the block registry: the flow builder recognizes them and constructs their typed sub-flows directly.
+
+## Build-tag providers: standalone vs. k8s
+
+Clustered capabilities — queues, topics, the KV store, leader election, log shipping — sit behind a runtime-services interface with two provider modules, selected at build time:
+
+| Build | Provider | Backing |
+| --- | --- | --- |
+| Default (no tags) | `standalone` | In-process queues and topics, in-memory KV, always-leader election, filesystem resources. No external infrastructure. |
+| `-tags k8s` | `k8s` | NATS-backed queues and topics, orchestrator-backed KV, Lease-based leader election, central log shipping. |
+
+The default build ships only the standalone provider, keeping Kubernetes client-go and NATS out of the binary — this is what local builds and the standalone image use. The cluster image is built with `-tags k8s` and ships only the k8s provider, so the two images stay disjoint. Flow YAML is identical under both; only the backends differ. See [Clustering](/runtime/clustering).
+
+## What a runtime instance is
+
+A runtime instance is **one process running one config**. The config — a single YAML file or a directory of them — declares connectors, flows, and resources; the process starts every connector and flow it declares and runs them until it is stopped. There is no multi-tenancy inside a process: one instance serves one integration.
+
+Where that process runs:
+
+- **Locally**, via the `octo` CLI: `octo run --config my-flow.yaml`. See [Running Flows Locally](/runtime/running-locally).
+- **On Kubernetes**, via the `octo-runtime` container image. The image carries only the compiled binary and by default runs `octo run --config /etc/octo/integrations`; the orchestrator deploys one Deployment per integration, mounting its YAML into that directory through a ConfigMap. Scaling an integration means scaling that Deployment's replicas — each replica is another instance of the same config.
+
+## Lifecycle
+
+A service owns a strict start/stop discipline:
+
+1. Start connectors in config order (each acquires its own resources).
+2. Build each flow: resolve its source's connector and build the block chain.
+3. Start each flow: spawn its worker pool, then start the source.
+4. On shutdown, unwind in strict reverse: stop sources, close channels, drain workers, stop connectors.
+
+Backpressure is built in: each flow's source emits into a bounded channel read by a dedicated pool of workers, so when workers fall behind, the source blocks.
+
+## Learn more
+
+<Cards>
+  <Card title="Running Flows Locally" href="/runtime/running-locally" description="octo run, invoke, and eval — flags, hot reload, and concurrency tuning." />
+  <Card title="The Processing Pipeline" href="/runtime/processing-pipeline" description="Worker pools, composites, cloning, and error propagation in depth." />
+  <Card title="Clustering" href="/runtime/clustering" description="What changes when multiple replicas run the same integration." />
+  <Card title="Monitoring" href="/runtime/monitoring" description="Logs, log levels, and the platform's central log sink." />
+</Cards>

@@ -1,0 +1,95 @@
+---
+title: "Octo Documentation"
+description: "An AI-native, cloud-native integration platform you can run anywhere."
+---
+
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+Octo is an integration platform built around a small, concurrent Go runtime that
+executes flows defined in YAML. Connectors turn the outside world into messages,
+sources feed those messages into flows, and each flow runs its messages through
+an ordered chain of blocks. Around the runtime sit a visual editor for designing
+flows and a Kubernetes-native platform for deploying and operating them.
+
+## Why Octo
+
+Integration logic in Octo is declarative: you describe connectors, flows, and
+processors in a readable YAML file, and the runtime carries it. The same file
+runs unchanged from the `octo` CLI on your laptop, in the Docker-based visual
+editor, and as a Kubernetes workload on the platform — development, testing, and
+production share one definition. AI is a first-class building block: LLM
+connectors, agents, AI-assisted mapping, and an MCP server for authoring flows
+with an assistant are part of the runtime, not bolted on. Octo is open source
+under the AGPL-3.0 license.
+
+## A flow in 30 seconds
+
+A config declares connectors and flows. This one fires a cron source twice a
+minute and logs a greeting:
+
+```yaml title="hello.yaml"
+service:
+  name: hello-world
+
+connectors:
+  - name: ticker
+    type: cron
+
+flows:
+  - name: greet
+    source:
+      connector: ticker
+      type: cron
+      settings:
+        schedule: "0,30 * * * * *"
+        payload: '{"date": string(now)}'
+    process:
+      - type: log
+        settings:
+          message: '"hello world! the date is " + body.date'
+```
+
+The `source` binds the flow to the `ticker` connector: a six-field cron schedule
+fires at seconds 0 and 30 of every minute, and the `payload` CEL expression sets
+each message's body. The `process` chain has a single `log` block whose
+`message` is also a CEL expression, so it can read the message body. Run it with
+`octo run --config hello.yaml`.
+
+## Explore the docs
+
+<Cards>
+  <Card href="/getting-started" title="Getting Started">
+    Install the CLI, run your first flow, and pick between the CLI, the editor,
+    and the platform.
+  </Card>
+  <Card href="/concepts/flows" title="Core Concepts">
+    Flows, connectors, blocks, expressions, state, and error handling — the
+    runtime model.
+  </Card>
+  <Card href="/guides" title="Guides">
+    Task-oriented recipes: REST APIs, databases, scheduled jobs, Slack bots, and
+    more.
+  </Card>
+  <Card href="/ai" title="AI">
+    LLM providers, agents, AI mapping and routing, and authoring flows over MCP.
+  </Card>
+  <Card href="/reference" title="Reference">
+    The flow file schema, every connector and block, CEL functions, and the CLI.
+  </Card>
+  <Card href="/runtime" title="Runtime">
+    The processing pipeline, running locally, clustering, and monitoring.
+  </Card>
+  <Card href="/editor" title="Standalone Editor">
+    The visual editor in Docker: design, save, and run flows against files on
+    disk.
+  </Card>
+  <Card href="/platform" title="Platform">
+    The multi-user control plane: integrations, deployments, secrets, and logs.
+  </Card>
+  <Card href="/deploy" title="Deployment">
+    Stand up the platform on Kubernetes with Docker images, Helm, and Terraform.
+  </Card>
+</Cards>
+
+Octo is licensed under the AGPL-3.0 — see [Licensing](/licensing) for what that
+means in practice.

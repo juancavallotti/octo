@@ -1,0 +1,108 @@
+---
+title: "Monitoring"
+description: "Logs, log levels, and the central log sink."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Observability in Octo today is logs: structured application logs you emit from flows, the runtime's own process logs, and — on the platform — a central sink that aggregates every replica's output into one searchable stream. This page covers each layer and how they connect.
+
+## Logging from flows: the log block
+
+The `log` block is a pass-through wire tap: it logs and forwards the message unchanged.
+
+```yaml
+process:
+  - type: log
+    settings:
+      message: '"order " + body.id + " received"'   # CEL; omit to log the JSON body
+      level: info                                   # debug/info/warn/error (default info)
+```
+
+- `message` is a CEL expression over `body`, `vars`, `eventID`, and `correlationID`. With no `message`, the block logs the message's JSON body.
+- `level` is the level this line is emitted **at**.
+- `full: true` additionally attaches the whole message (correlation ID, variables, body, schema) as structured attributes — pair it with a `json` logger for a clean debugging dump.
+
+## Controlling output: the logger connector
+
+By default the `log` block writes through the process default logger. To control the destination and format, declare a `logger` connector and reference it by name. The connector owns its output: it opens a file on start and closes it on shutdown, like any other connector resource.
+
+| Setting | Values | Default |
+| --- | --- | --- |
+| `output` | `stdout`, `stderr`, a file path | `stdout` |
+| `format` | `text`, `json` | `text` |
+| `level` | `debug`/`info`/`warn`/`error` | `info` |
+| `addSource` | `true`/`false` | `false` |
+
+A logger's `level` is the **minimum** level it emits; the `log` block's `level` is the level a line is emitted at. Every setting defaults, so `- { name: audit, type: logger }` is a valid declaration.
+
+```yaml
+connectors:
+  - name: audit
+    type: logger
+    settings:
+      output: /tmp/octo-audit.log
+      format: json
+
+flows:
+  - name: audit-ticks
+    source: { connector: ticker, type: cron, settings: { schedule: "@every 2s" } }
+    process:
+      - type: log
+        settings:
+          logger: audit          # write through the named logger
+          message: '"tick"'
+```
+
+See [the logger connector reference](/reference/connectors/logger).
+
+## Runtime process logs and LOG_LEVEL
+
+The runtime itself logs through Go's `slog` to **stderr**: startup and shutdown, config loads and reloads, connector and flow lifecycle, and every failed message (flow name, event ID, and error).
+
+The `LOG_LEVEL` environment variable sets the minimum level: `debug`, `info`, `warn`, or `error` (case-insensitive; default `info`; an invalid value logs a warning and falls back to `info`).
+
+```bash
+LOG_LEVEL=debug octo run --config my-flow.yaml
+```
+
+Running standalone, stderr is the whole story — nothing is shipped anywhere. `LOG_LEVEL=debug` plus a `log` block with `full: true` is the standard local debugging setup.
+
+<Callout type="info">
+Flow lifecycle events (`started`/`completed`/`dropped`/`failed`) stay on a process-local bus — they are not shipped to a central trace store. Log what you need to see. There is no metrics endpoint yet either; observability today is logs plus deployment status.
+</Callout>
+
+## On the platform: the central log sink
+
+In a cluster deployment (the `-tags k8s` build), the runtime tees its loggers through a central sink: the default logger keeps writing to the pod's stderr with `LOG_LEVEL` applied, and named `logger` connectors keep writing to their own output — and every record is *also* shipped to the platform's log pipeline. Standalone builds ship nothing.
+
+The pipeline:
+
+```
+runtime pods --> NATS subject "internal.logs" (fire-and-forget)
+                     |
+                     v
+             log-aggregator service (competing consumer)
+                     |
+                     v
+             Postgres "logs" table  <-- editor's log viewer
+```
+
+- Each pod publishes structured records to the shared `internal.logs` subject. Shipping is fire-and-forget so logging never blocks or fails a flow.
+- The **log-aggregator service** (the `logs/` service) consumes the subject as a competing consumer — aggregator replicas share the work — and writes each record to Postgres.
+- A stored record carries: `deployment_id`, `app_name` and `app_version` (the integration and version tag, stamped from the deployment's environment), `ts` and `level`, the rendered `message`, and any extra structured fields as JSON `attrs`.
+
+Because records are keyed by deployment, you read **one stream per integration no matter how many replicas run** — the replica boundary disappears.
+
+## The log viewer
+
+The editor's logs view queries that history:
+
+- **Filter** by deployment, level (for example, just ERROR and WARN), a time range, and free-text search on the message.
+- **Tail live** — the view polls for the newest rows and sticks to the bottom until you scroll up.
+- **Page back** through history, newest first.
+- **Share a view** — filters mirror to the URL, so a filtered query is a link.
+
+{/* TODO screenshot: platform log viewer */}
+
+Pair the logs view with [deployment status](/platform/deployments): status tells you a replica is unhealthy; the logs tell you why.

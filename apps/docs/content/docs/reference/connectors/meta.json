@@ -1,0 +1,14 @@
+{
+  "pages": [
+    "http",
+    "cron",
+    "events",
+    "queue",
+    "database",
+    "logger",
+    "slack",
+    "notion",
+    "llm"
+  ],
+  "title": "Connectors"
+}

@@ -1,0 +1,79 @@
+---
+title: "Environment and Configuration"
+description: "Declaring env vars, substitution, precedence, and secrets."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+A config declares every environment variable it depends on under `env:`, then references them in settings as `${NAME}` and in expressions as `env.NAME`. Declaring them up front documents every external input in one place — and referencing an undeclared variable is an error at load time, not in production.
+
+## Declaring variables
+
+Each declaration has a `name` and, optionally, a `default` and a `required` flag:
+
+```yaml title="http-orders.yaml (excerpt)"
+env:
+  - name: HTTP_HOST
+    default: 0.0.0.0
+  - name: HTTP_PORT
+    default: "8080"
+  - name: API_KEY
+    required: true      # must be supplied externally; a default would not satisfy it
+```
+
+- **`default`** is used when nothing external supplies the variable. An explicit empty default (`default: ""`) is valid and distinct from no default at all.
+- **`required: true`** fails the load when the variable is not supplied by the OS environment or a `.env` file. A `default` does not satisfy `required` — required means *externally supplied*.
+
+## `${NAME}` substitution
+
+Settings values — connector settings, block settings, source settings — accept `${NAME}` references to declared variables:
+
+```yaml
+connectors:
+  - name: api
+    type: http
+    settings:
+      host: ${HTTP_HOST}
+      port: ${HTTP_PORT}        # an exact ${VAR} keeps its type -> int 8080
+      basePath: /api/v1
+```
+
+A value that is *exactly* one `${NAME}` is substituted with the variable's natural type — `"8080"` becomes the integer `8080`, `"true"` a boolean — so env vars can fill numeric and boolean settings. A `${NAME}` embedded in a longer string is replaced textually and the value stays a string.
+
+Two mistakes fail at load time with a clear message: referencing a name not declared under `env:`, and referencing a declared name that resolved to no value and has no default.
+
+## `env.NAME` in expressions
+
+The same resolved values are available to every CEL expression through the `env` variable:
+
+```yaml
+- type: set-payload
+  settings:
+    value: '{"greeting": env.GREETING, "at": string(now)}'
+```
+
+Use `${NAME}` for static configuration and `env.NAME` when a value participates in per-message logic. See [Expressions](/concepts/expressions).
+
+## Resolution precedence
+
+Each declared variable resolves from the first source that supplies it:
+
+1. **The OS environment** — always wins. `HTTP_PORT=9090 octo run --config orders.yaml` overrides everything.
+2. **`.env` files** — `./.env`, overlaid by the file named in `$OCTO_ENV_FILE` (when set), overlaid by any declared [`resources.env` files](/concepts/resources) in listed order.
+3. **The declared `default`** — the fallback when nothing external supplies the variable.
+
+```bash
+# override at startup without editing the config
+HTTP_PORT=9090 octo run --config orders.yaml
+
+# or put the same line in ./.env (hot-reloads with --watch)
+echo 'HTTP_PORT=9090' > .env
+```
+
+<Callout type="info">
+`.env` files use the usual convention: `KEY=VALUE` lines, `#` comments, an optional `export ` prefix, and single- or double-quoted values. A missing `.env` file is never an error.
+</Callout>
+
+## On the platform
+
+When an integration runs on the Octo platform, you do not manage `.env` files by hand: secrets and env resources are managed per integration through the platform, which supplies them to the runtime with the same precedence — the declarations in your config stay the single source of truth for what the integration needs. See [Resources and Secrets](/platform/resources-and-secrets).

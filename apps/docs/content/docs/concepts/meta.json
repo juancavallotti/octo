@@ -1,0 +1,13 @@
+{
+  "pages": [
+    "flows",
+    "connectors-and-blocks",
+    "expressions",
+    "state-and-data",
+    "error-handling",
+    "resources",
+    "environment-and-config",
+    "runtime-services"
+  ],
+  "title": "Core Concepts"
+}

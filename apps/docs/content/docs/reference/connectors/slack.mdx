@@ -1,0 +1,221 @@
+---
+title: "Slack"
+description: "Slack messaging, events, reactions, and request verification."
+octo_types:
+  - slack
+  - slack-event
+  - slack-send-message
+  - slack-update-message
+  - slack-add-reaction
+  - slack-lookup-user
+  - slack-verify-request
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The `slack` connector holds the bot credentials and talks to the Slack Web API; its blocks send and edit messages, add reactions, look up users, and verify and normalize inbound events. Inbound Slack events arrive over the [http](/reference/connectors/http) connector — Slack posts JSON to a route you own — and the `slack-verify-request` and `slack-event` blocks process that request.
+
+## `slack` connector
+
+**Provides a source:** no — inbound events arrive through an `http` source. **Blocks that bind to it:** `slack-send-message`, `slack-update-message`, `slack-add-reaction`, `slack-lookup-user`, `slack-verify-request` (`slack-event` is a pure transformer and references no connector).
+
+### Settings
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `botToken` | string | Yes | — | Bot User OAuth token (`xoxb-...`) used to call the Web API. |
+| `signingSecret` | string | No | — | Verifies inbound Slack request signatures; required to receive events. |
+| `timeout` | duration | No | `30s` | Bounds each Slack Web API call. |
+
+An `apiBaseURL` setting also exists to override the Web API base (default `https://slack.com/api`), mainly for tests; it is not exposed in the editor.
+
+### Error handling
+
+Slack signals application errors with an `ok: false` response carrying an `error` code. Every block that calls the Web API has a `failOnError` setting (default `true`): when true, a Slack error [fails the flow](/concepts/error-handling); when false, the message passes through unchanged.
+
+## `slack-verify-request` block
+
+**Slack Verify Request** — authenticate an inbound Slack request delivered over the `http` connector. It verifies the HMAC-SHA256 signature over the exact request bytes using the connector's `signingSecret`, rejects timestamps more than 5 minutes from now (bounding replay), and aborts the flow on a bad or stale signature.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `connector` | string | Yes | — | Name of the `slack` connector to use. Its `signingSecret` must be set. |
+| `signatureHeader` | string | No | `X-Slack-Signature` | Variable holding Slack's request signature. |
+| `timestampHeader` | string | No | `X-Slack-Request-Timestamp` | Variable holding Slack's request timestamp. |
+| `rawBodyVar` | string | No | `rawBody` | Variable holding the exact request body; must match the http source's `rawBodyVar`. Optional when the http source uses raw-content mode (`rawBody: true`) — the block then reads the raw body directly and re-parses it into `body`. |
+
+The http source must expose the exact request bytes, either with `rawBodyVar: rawBody` or with `rawBody: true`, and copy the two signature headers into variables:
+
+```yaml
+source:
+  type: http
+  settings:
+    path: /slack/events
+    headers: [X-Slack-Signature, X-Slack-Request-Timestamp]
+    rawBodyVar: rawBody
+```
+
+**Variables set:** when the payload is Slack's one-time URL-verification handshake (`type: url_verification`), the block sets `vars.slackChallenge` to `true` so the flow can branch, echo `body.challenge` back, and skip event handling.
+
+## `slack-event` block
+
+**Slack Event** — normalize a verified Slack `event_callback` into a friendly, flat shape and filter it. Messages that are not an `event_callback`, whose event type is not in the allowlist, or that fail the filter predicate are **dropped** (the flow simply stops for them; over HTTP that responds `204`).
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `eventTypes` | string[] | No | allow all | Allowlist of event types (e.g. `app_mention`, `message`). |
+| `filter` | expression | No | — | CEL predicate over the normalized body; drop the event when false. |
+
+**Normalized body shape** — the block replaces `body` with:
+
+| Field | Source |
+| --- | --- |
+| `body.type` | Inner event `type` (e.g. `app_mention`). |
+| `body.user` | Event `user`. |
+| `body.channel` | Event `channel`. |
+| `body.text` | Event `text`. |
+| `body.ts` | Event `ts`. |
+| `body.threadTs` | Event `thread_ts`. |
+| `body.botId` | Event `bot_id` (null for human messages — filter on `body.botId == null` to ignore the bot's own messages). |
+| `body.teamId` | Envelope `team_id`. |
+| `body.eventId` | Envelope `event_id`. |
+| `body.raw` | The untouched inner event, for anything the flat fields omit. |
+
+## `slack-send-message` block
+
+**Slack Send Message** — post a message to a Slack channel or user through a `slack` connector (`chat.postMessage`). The target is a channel ID or a user ID — Slack opens a DM when given a user.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `connector` | string | Yes | — | Name of the `slack` connector to use. |
+| `target` | expression | Yes | — | CEL expression for the channel ID or user ID (Slack DMs a user). |
+| `text` | expression | Required unless `blocks` is set | — | CEL expression for the message text. |
+| `threadTs` | expression | No | — | CEL expression for a parent message `ts`, to reply in-thread. |
+| `blocks` | expression | No | — | CEL expression producing Block Kit blocks (a list). |
+| `failOnError` | boolean | No | `true` | Turn a Slack API error into a flow error. |
+
+**Variables set:** on success the posted message's coordinates are folded into variables so a later block can react to or update it:
+
+- `vars.slackChannel` — the channel the message was posted to.
+- `vars.slackTs` — the posted message's timestamp (`ts`).
+
+## `slack-update-message` block
+
+**Slack Update Message** — edit a message the bot previously posted (`chat.update`), addressed by channel and timestamp.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `connector` | string | Yes | — | Name of the `slack` connector to use. |
+| `channel` | expression | Yes | — | CEL expression for the message channel ID. |
+| `timestamp` | expression | Yes | — | CEL expression for the target message `ts`. |
+| `text` | expression | Required unless `blocks` is set | — | CEL expression for the new text. |
+| `blocks` | expression | No | — | CEL expression producing replacement Block Kit blocks (a list). |
+| `failOnError` | boolean | No | `true` | Turn a Slack API error into a flow error. |
+
+A typical pattern: post a "working…" message with `slack-send-message`, then update it via `vars.slackChannel` and `vars.slackTs`.
+
+## `slack-add-reaction` block
+
+**Slack Add Reaction** — add an emoji reaction to a message (`reactions.add`), typically to acknowledge an event.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `connector` | string | Yes | — | Name of the `slack` connector to use. |
+| `channel` | expression | Yes | — | CEL expression for the message channel ID. |
+| `timestamp` | expression | Yes | — | CEL expression for the target message `ts`. |
+| `emoji` | expression | Yes | — | CEL expression for the reaction name without colons (e.g. `white_check_mark`). |
+| `failOnError` | boolean | No | `true` | Turn a Slack API error into a flow error. |
+
+## `slack-lookup-user` block
+
+**Slack Lookup User** — resolve a Slack user into a variable, by email (`users.lookupByEmail`, the default) or by Slack user ID (`users.info`), selected with `by`.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `connector` | string | Yes | — | Name of the `slack` connector to use. |
+| `by` | enum: `email` \| `id` | No | `email` | How to resolve the user. |
+| `email` | expression | With `by: email` | — | CEL expression for the email address to resolve. |
+| `user` | expression | With `by: id` | — | CEL expression for the Slack user ID to resolve (e.g. `U123`). |
+| `resultVar` | string | No | `slackUser` | Variable to store the user object in. |
+| `failOnError` | boolean | No | `true` | Turn a Slack API error into a flow error. |
+
+The stored value is Slack's full user object, e.g. `vars.slackUser.real_name`, `vars.slackUser.profile.email`.
+
+## Example
+
+Adapted from `samples/slack-bot.yaml` — verify events, answer the URL-verification handshake, and reply to @-mentions:
+
+```yaml
+service:
+  name: slack-bot
+
+env:
+  - name: SLACK_BOT_TOKEN
+    required: true
+  - name: SLACK_SIGNING_SECRET
+    required: true
+
+connectors:
+  - name: api
+    type: http
+  - name: slack
+    type: slack
+    settings:
+      botToken: ${SLACK_BOT_TOKEN}
+      signingSecret: ${SLACK_SIGNING_SECRET}
+
+flows:
+  - name: slack-events
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /slack/events
+        # Copy Slack's signature headers into vars and the exact request bytes
+        # into vars.rawBody, so the signature can be verified over the raw body.
+        headers: [X-Slack-Signature, X-Slack-Request-Timestamp]
+        rawBodyVar: rawBody
+    process:
+      # 1. Authenticate the request (aborts on a bad or stale signature) and
+      #    flag Slack's URL-verification handshake.
+      - type: slack-verify-request
+        name: verify
+        settings:
+          connector: slack
+
+      # 2. Either echo the URL-verification challenge, or handle the event.
+      - type: if
+        name: challenge-or-event
+        condition: has(vars.slackChallenge)
+        then:
+          process:
+            - type: set-payload
+              settings:
+                value: '{"challenge": body.challenge}'
+        else:
+          process:
+            # Keep only @-mentions, ignoring the bot's own messages.
+            - type: slack-event
+              name: mentions
+              settings:
+                eventTypes: [app_mention]
+                filter: body.botId == null
+            # Resolve the mentioning user so the reply can greet them by name.
+            - type: slack-lookup-user
+              name: whois
+              settings:
+                connector: slack
+                by: id
+                user: body.user
+            # Reply in the same channel.
+            - type: slack-send-message
+              name: reply
+              settings:
+                connector: slack
+                target: body.channel
+                text: '"thanks " + vars.slackUser.real_name + ", you said: " + body.text'
+```
+
+<Callout type="warn">
+Slack expects a `2xx` within 3 seconds. Keep the event flow fast — offload slow work with [queue-dispatch](/reference/connectors/queue).
+</Callout>

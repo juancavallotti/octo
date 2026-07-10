@@ -1,0 +1,160 @@
+---
+title: "Running Flows Locally"
+description: "octo run in depth: hot reload, concurrency tuning, and invocation."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
+
+The `octo` CLI runs a config of flows on your machine — the same engine the platform deploys to a cluster, backed by the standalone services module (in-process queues, in-memory KV, no external infrastructure). This page covers `octo run`, `octo invoke`, and `octo eval` in depth, plus the per-flow concurrency knobs.
+
+For installing the CLI, see [Installation](/getting-started/installation).
+
+## octo run
+
+`run` starts every connector and flow in a config and processes messages until you interrupt it. It is the default subcommand, so `octo --config x.yaml` works too.
+
+```bash
+octo run --config my-flow.yaml          # a single config file
+octo run --config ./integrations        # a directory: loads every .yaml/.yml in it
+octo run --config my-flow.yaml --watch  # reload on change
+```
+
+| Flag | Meaning |
+| --- | --- |
+| `--config <path>` | Path to the runtime config — a file or a directory (required). |
+| `--watch` | Reload the config whenever it changes. |
+
+Flags accept one or two dashes (`--config` or `-config`).
+
+When the config path is a directory, the runtime loads every `.yaml`/`.yml` file in it as one combined config. The config directory also becomes the **resource root**: declared [resources](/concepts/resources) (env files, templates) resolve relative to it.
+
+Once every connector and flow has started, the CLI prints a ready banner. Stop the runtime with `Ctrl-C` (SIGINT) or SIGTERM; shutdown is graceful and unwinds in strict reverse order — sources stop first, channels close, in-flight messages drain, then connectors release their resources.
+
+### Log level
+
+The runtime logs through Go's `slog` to stderr. Set the `LOG_LEVEL` environment variable to `debug`, `info`, `warn`, or `error` (case-insensitive; default `info`). An invalid value logs a warning and falls back to `info`.
+
+```bash
+LOG_LEVEL=debug octo run --config my-flow.yaml
+```
+
+### Hot reload with --watch
+
+With `--watch`, the CLI watches the config path and rebuilds the runtime when it changes:
+
+- File changes are debounced (200 ms), so a burst of editor writes coalesces into one reload. Atomic-rename saves — editors that replace the file rather than writing in place — are detected too.
+- Watching a directory also notices **added and removed** config files.
+- The `.env` files consulted during load, and any declared env or template resources, feed the same reload channel — editing them restarts the runtime just like a config change.
+- A config that fails to load, build, or start is **not fatal**: the CLI logs the error and waits for the next change, so fixing the file recovers without restarting the process.
+- Runtime services (connections, leases) are built once and reused across reloads; each generation only borrows them, so they are not churned on every save.
+
+## octo invoke
+
+`invoke` loads a config, calls one flow by name with a request body, prints the result body as JSON, and exits. Sources are **not** started — no HTTP server binds, no cron fires — so it is safe to invoke against a config whose sources would otherwise conflict with a running instance.
+
+```bash
+octo invoke --config my-flow.yaml --flow enrich-order --data '{"id": 42}'
+```
+
+| Flag | Meaning | Default |
+| --- | --- | --- |
+| `--config <path>` | Path to the runtime config (file or directory). | required |
+| `--flow <name>` | Name of the flow to invoke. | required |
+| `--data <json>` | JSON request body. | reads stdin when omitted |
+| `--timeout <dur>` | Max time to wait for the flow. | `30s` |
+
+When `--data` is omitted and stdin is piped (not an interactive terminal), the body is read from stdin — it must be valid JSON:
+
+```bash
+cat order.json | octo invoke --config my-flow.yaml --flow enrich-order
+```
+
+The flow's final message body prints to stdout as JSON. A flow that drops the message prints nothing (the drop is logged); a flow that fails exits non-zero with the error.
+
+<Callout type="info">
+Any flow is invokable by name, but flows declared **without** a `source:` are made for it: they get an implicit source and exist purely to be called — by `invoke`, or by other flows via `flow-ref`.
+</Callout>
+
+## octo eval
+
+`eval` compiles and evaluates one [CEL expression](/concepts/expressions) against an ad-hoc message — no config, no runtime services. Use it to test an expression before pasting it into a flow.
+
+```bash
+octo eval --expr 'body.total * 1.21' --data '{"total": 100}'
+# {"ok":true,"result":121}
+
+octo eval --expr '"hi " + vars.name' --vars '{"name": "Ada"}'
+# {"ok":true,"result":"hi Ada"}
+```
+
+| Flag | Meaning |
+| --- | --- |
+| `--expr <cel>` | The CEL expression (required). |
+| `--data <json>` | JSON object bound to `body` (reads stdin when omitted). |
+| `--vars <json>` | JSON object bound to `vars`. |
+| `--env <json>` | JSON object bound to `env`. |
+
+The result is a JSON envelope: `{"ok": true, "result": ...}` on success, `{"ok": false, "result": null, "error": "..."}` on a compile or evaluation failure. Both cases exit 0 — a bad expression is a normal result, not a CLI failure — so scripts can parse the envelope instead of inspecting exit codes. `result` is always emitted, so a legitimate `false`/`0`/`null` result is not confused with its absence.
+
+Because no config is loaded, `templateResource()` is unavailable in `eval`; expressions over `body`, `vars`, `env`, `eventID`, `correlationID`, and `now` all work.
+
+Two more subcommands round out the CLI: `octo schema` prints the editor capability schema as JSON (`--out <path>` writes it to a file), and `octo version` prints the version and build date. See the [CLI reference](/reference/cli).
+
+## Concurrency tuning
+
+A root flow declares three knobs, all optional:
+
+```yaml
+flows:
+  - name: ingest-orders
+    workers: 8      # per-flow worker pool size (default 8; set 1 for FIFO)
+    buffer: 128     # source -> worker channel depth (default 64)
+    pool: 16        # shared pool for concurrent composites (default 8)
+    source: { ... }
+    process: [ ... ]
+```
+
+- **`workers`** — the number of goroutines running this flow. All workers read the same channel the source emits on; each takes a message and runs it through the whole block chain. With the default of 8, messages may complete **out of order**; set `workers: 1` for strict FIFO processing within a flow.
+- **`buffer`** — the depth of the bounded channel between the source and the workers. This is the flow's backpressure valve: when workers fall behind, the channel fills and the source blocks. A larger buffer absorbs bursts; a smaller one propagates backpressure sooner.
+- **`pool`** — the size of the flow's shared worker pool, used by composites that parallelize (a `fork`'s branches run on it). The pool has a bounded task queue; if a flow's fan-out submits more work than it can accept (for example, deeply nested forks), the pool is exhausted and the runtime **panics** rather than risk a silent deadlock — size `pool` for your flow's fan-out.
+
+Sub-flows nested inside composite blocks must not declare `workers`, `buffer`, or `pool` — they run within the parent's budget. See [The Processing Pipeline](/runtime/processing-pipeline) for how the two pools interact.
+
+## A practical dev loop
+
+From a clone of the repository, the Taskfile wraps the common loop:
+
+<Tabs items={['Repository tasks', 'Plain CLI']}>
+<Tab value="Repository tasks">
+
+```bash
+# Run a sample config from samples/
+task runtime:run:sample -- heartbeat.yaml
+task runtime:run:sample -- http-orders.yaml
+
+# Run the CLI with arbitrary args
+task runtime:run -- run --config ../../samples/hello-world.yaml
+
+# Build a local binary into bin/octo
+task runtime:build
+```
+
+</Tab>
+<Tab value="Plain CLI">
+
+```bash
+# Edit-and-reload loop: keep one terminal running
+LOG_LEVEL=debug octo run --config ./my-flow.yaml --watch
+
+# In another terminal, exercise flows without starting sources
+octo invoke --config ./my-flow.yaml --flow my-flow --data '{}'
+
+# Iterate on expressions in isolation
+octo eval --expr 'has(body.items) ? size(body.items) : 0' --data '{"items":[1,2]}'
+```
+
+</Tab>
+</Tabs>
+
+The combination of `--watch` for the running config, `invoke` for source-less testing, and `eval` for expression iteration covers most development without redeploying anything.

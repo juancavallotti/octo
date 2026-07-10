@@ -1,0 +1,193 @@
+---
+title: "Call External APIs"
+description: "Use the HTTP client with auth, retries, and response caching."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+In this guide you call an external HTTP API from a flow with the `http-client`
+connector and the `rest` block, then layer on authentication, retries, and
+response caching. It follows
+[`samples/weather.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/weather.yaml),
+which polls the free Open-Meteo forecast API — no API key needed.
+
+![The flow in the visual editor](/screenshots/sample-weather.png)
+
+## Declare the client
+
+The `http-client` connector owns the client-wide policy: the base URL, a
+request timeout, default headers, authentication, retries, and an optional
+response cache. Blocks reference it by name and stay thin.
+
+```yaml
+env:
+  - name: WEATHER_LAT
+    default: "52.52"
+  - name: WEATHER_LON
+    default: "13.41"
+
+connectors:
+  - name: open-meteo
+    type: http-client
+    settings:
+      baseURL: https://api.open-meteo.com
+      timeout: 10s
+      cache:
+        enabled: true
+        ttl: 60s
+  - name: ticker
+    type: cron
+  - name: out
+    type: logger
+    settings:
+      format: json
+      level: info
+```
+
+A bad base URL or auth configuration fails at startup, not on the first
+request. You can also set `headers:` (a map applied to every request unless the
+block sets the same header) and `maxResponseBytes` (default 1 MiB) here.
+
+## Make the request
+
+The `rest` block runs one request through the connector and folds the response
+into the message body. The method and path are static; query parameters,
+headers, and the request body are CEL expressions evaluated per message.
+
+```yaml
+flows:
+  - name: weather
+    source:
+      connector: ticker
+      type: cron
+      settings:
+        schedule: "@every 30s"
+    process:
+      - type: rest
+        name: fetch-forecast
+        settings:
+          connector: open-meteo
+          method: GET
+          path: /v1/forecast
+          # Query values are CEL expressions; here they are constant strings
+          # produced by substituting the env vars above.
+          query:
+            latitude: '"${WEATHER_LAT}"'
+            longitude: '"${WEATHER_LON}"'
+            current: '"temperature_2m"'
+      - type: log
+        name: report
+        settings:
+          logger: out
+          message: '"current temperature: " + string(body.current.temperature_2m) + body.current_units.temperature_2m'
+```
+
+Two settings control how the response is handled:
+
+- **`statusVar`** — the response status code lands in a variable, `vars.statusCode`
+  by default.
+- **`failOnError`** — defaults to `true`: a 400+ status fails the message and
+  triggers the flow's error handling. Set it to `false` to inspect the status
+  yourself and branch on `vars.statusCode`.
+
+A JSON response becomes the new message body; a non-JSON response is kept as a
+raw body with its Content-Type.
+
+## Run it
+
+```bash
+bin/octo run --config samples/weather.yaml
+```
+
+Every 30 seconds the flow logs the current temperature:
+
+```
+current temperature: 21.4°C
+```
+
+Not every tick hits the network: a tick that lands within the 60s cache TTL of
+a prior identical request is served from memory. Change the location by
+overriding `WEATHER_LAT` / `WEATHER_LON` (inline or in a `./.env` file).
+
+## Add authentication
+
+Auth is configured once on the connector and applied to every request. Three
+schemes are supported.
+
+Bearer token:
+
+```yaml
+    settings:
+      baseURL: https://api.example.com
+      auth:
+        type: bearer
+        token: ${API_TOKEN}      # keep secrets in ./.env, not in the config
+```
+
+Basic auth:
+
+```yaml
+      auth:
+        type: basic
+        username: ${API_USER}
+        password: ${API_PASSWORD}
+```
+
+OAuth 2.0 client-credentials, as in
+[`samples/runtime-services.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/runtime-services.yaml):
+on the first request the connector fetches an access token from `tokenURL`,
+caches it, and refreshes it automatically.
+
+```yaml
+      auth:
+        type: oauth2
+        tokenURL: https://auth.example.com/oauth/token
+        clientID: ${API_CLIENT_ID}
+        clientSecret: ${API_CLIENT_SECRET}
+        scopes:
+          - read
+```
+
+<Callout type="info">
+If a `rest` block sets an `Authorization` header itself, the connector leaves
+it alone — per-request auth wins over the connector default.
+</Callout>
+
+## Retry rate-limited requests
+
+When an upstream returns `429 Too Many Requests`, the connector retries
+automatically: it honors the `Retry-After` header when present and otherwise
+backs off exponentially. Tune it on the connector:
+
+```yaml
+    settings:
+      baseURL: https://api.example.com
+      retry:
+        maxAttempts: 5     # total attempts including the first; <=1 disables retrying
+        maxBackoff: 10s    # upper bound on each wait (also caps a large Retry-After)
+```
+
+The defaults are 3 attempts with waits capped at 30s.
+
+## Cache responses
+
+The response cache is opt-in and applies to GET requests only, keyed by the
+full URL:
+
+```yaml
+      cache:
+        enabled: true
+        ttl: 60s           # default 60s
+        maxEntries: 256    # default 256
+```
+
+A request that matches a fresh cache entry is served from memory without
+touching the network — ideal for polling flows like this one, or for fan-out
+flows that hit the same lookup endpoint for many messages.
+
+## Where to go next
+
+- [Build a REST API](/guides/rest-api) — serve HTTP instead of calling it.
+- [Object Storage and Caching](/guides/object-storage-and-caching) — cache computed results, not just HTTP responses.
+- [Scheduled Jobs](/guides/scheduled-jobs) — more on the cron source driving this flow.
+- [Integration blocks reference](/reference/blocks/integration) — the `rest` block in full.

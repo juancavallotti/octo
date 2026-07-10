@@ -1,0 +1,121 @@
+---
+title: "AI Retry"
+description: "Self-healing pipelines: let an LLM revise a failing message and retry."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The `ai-retry` block runs a protected process chain and, when it fails, lets
+an LLM inspect the error and the message, revise the message, and re-run the
+chain — up to `maxAttempts` times. It turns "this step sometimes gets bad
+input" into a pipeline that fixes the input and carries on.
+
+## A complete example
+
+Here the protected chain is an [`ai-mapping`](/ai/ai-mapping) whose schema
+validation gives `ai-retry` something concrete to recover from:
+
+```yaml
+service:
+  name: ai-retry
+
+env:
+  - name: ANTHROPIC_API_KEY
+    required: true
+
+connectors:
+  - name: claude
+    type: llm-anthropic
+    settings:
+      apiKey: ${ANTHROPIC_API_KEY}
+
+flows:
+  - name: charge
+    process:
+      - type: ai-retry
+        name: resilient-charge
+        connector: claude
+        maxAttempts: 3
+        prompt: >
+          A step failed building the charge request. Inspect vars.error and the
+          message body, correct the body (for example, fix a malformed amount or
+          a missing currency), and produce a revised message to retry.
+        process:
+          # ai-mapping validates against outputSchema and errors on a bad shape,
+          # giving ai-retry something to recover from.
+          - type: ai-mapping
+            name: build-charge
+            settings:
+              connector: claude
+              prompt: "Build a Stripe charge request from the order."
+              outputSchema: |
+                {
+                  "type": "object",
+                  "required": ["amount", "currency"],
+                  "properties": {
+                    "amount":   { "type": "integer" },
+                    "currency": { "type": "string" }
+                  }
+                }
+        error:
+          - type: set-payload
+            settings:
+              value: '{"status": "degraded", "reason": vars.error.message}'
+```
+
+![The ai-retry sample in the visual editor](/octo/screenshots/sample-ai-retry.png)
+
+`ai-retry` is a composite: `connector`, `prompt`, `maxAttempts`, the
+protected `process`, and the `error` chain sit at the top level of the block.
+
+## How the loop works
+
+1. The protected `process` chain runs. On success the block is a
+   pass-through — no model call is ever made.
+2. On failure, the error is stored in `vars.error` and the model is shown
+   the error, the current message body, and the current variables.
+3. The model calls a `revise_message` tool with a corrected body and,
+   optionally, variables to set or override — a failing step often reads
+   `vars.<name>`, so fixing only the body is sometimes not enough.
+4. The revision is applied to the message and the chain re-runs. Another
+   failure feeds the new error back to the model for a different fix, up to
+   `maxAttempts` (default `3`).
+
+If every attempt fails, the block falls through to its `error` chain with
+`vars.error` set. With no `error` chain configured, the last error
+propagates to the surrounding recovery path.
+
+The `prompt` is your domain guidance to the repair model: what the step
+expects, what kinds of corruption to look for, what a valid message looks
+like. The more specific it is, the fewer attempts recovery takes.
+
+## When to use it
+
+`ai-retry` shines when failures are *data-shaped*: a malformed field, a
+missing value, an output that flunked schema validation. The canonical
+pairing is `ai-retry` around `ai-mapping` — validation failures come with a
+precise error message the model can act on.
+
+## When not to use it
+
+- **Failures no message revision can fix.** An expired API key, a network
+  outage, a downstream 500 — the model will burn attempts changing a body
+  that was never the problem. Use plain error handling and backoff instead.
+- **Non-idempotent chains.** Every attempt re-runs the *entire* protected
+  chain from the top. If a step has side effects — sends an email, writes a
+  record, charges a card — a retry repeats them. Keep side-effectful steps
+  outside the protected chain, after it succeeds.
+- **Mechanically fixable errors.** If you can name the fix ("default the
+  currency to USD"), do it deterministically with a transform. A model call
+  is the expensive way to apply a rule you already know.
+- **Hot, latency-sensitive paths.** Each attempt costs at least one model
+  call on top of re-running the chain; the failure path is much slower than
+  the success path.
+
+<Callout type="info">
+On success `ai-retry` adds zero cost and zero latency — the model is only
+consulted when the chain fails. It is a recovery mechanism, not a
+supervisor.
+</Callout>
+
+Full field tables: [AI Blocks reference](/reference/blocks/ai).

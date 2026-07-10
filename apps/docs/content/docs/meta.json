@@ -1,0 +1,15 @@
+{
+  "pages": [
+    "index",
+    "getting-started",
+    "concepts",
+    "guides",
+    "ai",
+    "reference",
+    "runtime",
+    "editor",
+    "platform",
+    "deploy",
+    "licensing"
+  ]
+}

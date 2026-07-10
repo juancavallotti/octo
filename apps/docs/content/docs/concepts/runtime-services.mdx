@@ -1,0 +1,133 @@
+---
+title: "Runtime Services"
+description: "Object store, cache, queues, and events provided by the runtime."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Flows are stateless by default, but real integrations need to remember a counter, cache an expensive call, or hand work to another flow. The runtime provides four services — an object store, a cache, queues, and event topics — behind one interface that works the same on your laptop and across a cluster.
+
+## Object store
+
+The object store is a versioned key–value store. Three blocks use it, no connector required:
+
+- **`object-write`** stores a value under a CEL-evaluated `key` (`value` defaults to the whole body). Writes use optimistic concurrency: the block retries the read-modify-write on a version conflict, so racing replicas cannot clobber each other.
+- **`object-read`** reads a key into the body or a variable (`as`). A `default` expression is folded in on a miss, and `existsVar` records whether the key was found.
+- **`object-delete`** removes a key.
+
+```yaml title="object-store.yaml (excerpt)"
+- type: object-read
+  name: load-before
+  settings:
+    key: '"profile:" + body.id'
+    as: profile
+    default: '{"plan": "free"}'
+    existsVar: profileExists
+
+- type: object-write
+  name: save-profile
+  settings:
+    key: '"profile:" + body.id'
+    value: '{"plan": body.plan}'
+```
+
+Flow state lives in an isolated user namespace, so your keys never collide with internal runtime state.
+
+## Cache
+
+The `cache-scope` composite memoizes the body its wrapped flow produces, keyed by a CEL expression. On a miss it runs the `body` sub-flow and stores the result; on a fresh hit it restores the cached body and skips the sub-flow entirely. `ttl` is a duration string (default 60s; `"0"` never expires). The `invalidate-cache` block evicts an entry by the same key.
+
+```yaml title="runtime-services.yaml (excerpt)"
+- type: cache-scope
+  name: cached-report
+  key: '"report"'
+  ttl: 1m
+  body:
+    process:
+      - type: set-payload
+        settings:
+          value: '{"report": "generated", "event": eventID}'
+```
+
+```yaml
+# in another flow: bust the cache so the next run recomputes
+- type: invalidate-cache
+  settings:
+    key: '"report"'
+```
+
+<Callout type="info">
+Only the body is cached — variables the wrapped flow sets are not restored on a hit.
+</Callout>
+
+## Queues
+
+Queues are competing-consumer messaging: every subscriber on a subject competes, so each message is handled exactly once across all replicas. Use them to decouple a fast ingress from slow work and to load-balance that work.
+
+- The **`queue-dispatch` block** sends the current message to a subject. By default it publishes fire-and-forget; with `awaitReply: true` it waits for one consumer's reply and folds its body and variables back in — the cross-replica analogue of a synchronous `flow-ref`.
+- A **`queue` source** subscribes a flow to a subject (`listeners` sets its concurrency).
+
+```yaml title="queue-loadbalance.yaml (excerpt)"
+flows:
+  - name: orders-api
+    process:
+      - type: queue-dispatch
+        settings:
+          subject: '"enrich-work"'   # subject is a CEL expression
+          awaitReply: true           # wait for the worker's reply
+
+  - name: order-enricher
+    source:
+      type: queue                    # implicit connector — no instance needed
+      settings:
+        subject: enrich-work
+        listeners: 8
+    process:
+      - type: set-payload
+        settings:
+          value: '{"order": body, "status": "accepted"}'
+```
+
+## Events
+
+Topics are the broadcast counterpart: a published event fans out to *every* subscriber on the subject.
+
+- The **`publish-event` block** broadcasts the current message (or a `value` expression) to a subject, fire-and-forget.
+- An **`events` source** subscribes a flow to a subject; every subscribed flow receives its own copy.
+
+```yaml title="events.yaml (excerpt)"
+flows:
+  - name: emitter
+    process:
+      - type: publish-event
+        settings:
+          subject: '"notifications"'
+
+  - name: subscriber-a
+    source:
+      type: events
+      settings:
+        subject: notifications
+    process:
+      - type: log
+        settings:
+          message: '"subscriber A saw tick " + body.tick'
+```
+
+Delivery for both queues and topics is at-most-once: a message published with no live consumer is dropped.
+
+## The provider model
+
+The services are interfaces with two providers, chosen by how the runtime is built and deployed:
+
+| Service | Standalone CLI (default) | Kubernetes (platform) |
+| --- | --- | --- |
+| Object store & cache | In-process map | The platform's per-deployment KV store |
+| Queues | In-process channels | NATS queue-group subscriptions + request/reply |
+| Events | In-process fan-out | NATS subscriptions (every replica's subscribers receive every message) |
+
+Your YAML does not change between the two. Standalone is what `octo run` and the samples use — perfect for developing a producer/consumer pair in one process. On the platform, subjects and keys are scoped per deployment, so one integration's traffic and state never cross into another's.
+
+## Going deeper
+
+The [object storage and caching guide](/guides/object-storage-and-caching) and the [events and queues guide](/guides/events-and-queues) walk through complete patterns built on these services.

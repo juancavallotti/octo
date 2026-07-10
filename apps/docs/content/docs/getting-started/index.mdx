@@ -1,0 +1,59 @@
+---
+title: "Getting Started"
+description: "The three ways to run Octo and where to begin."
+---
+
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+There are three ways to use Octo, and they all execute the same flow YAML. Pick
+the one that matches how you want to work today — nothing you build is locked to
+any of them.
+
+## The three ways to run Octo
+
+**The `octo` CLI.** The runtime is a single Go binary. Point it at a config file
+and it starts your connectors and flows; add `--watch` for hot reload while you
+edit, or use `octo invoke` to call a single flow with JSON in and JSON out. This
+is the best fit for local development, testing, and CI.
+
+**The standalone visual editor.** A published Docker image bundles the editor
+and the `octo` runtime. You mount a directory of flow YAML, design flows on a
+visual canvas in the browser, and run them with one click — no build, no
+database, no setup beyond `docker run`.
+
+**The full platform on Kubernetes.** A control plane (orchestrator plus
+Postgres) and a multi-user editor that store integration definitions and deploy
+each one as its own Kubernetes workload, with environment binding, secrets,
+scaling, versioned deployments, and centralized logs. This is how you operate
+Octo in production as a team.
+
+| | CLI | Standalone editor | Platform |
+| --- | --- | --- | --- |
+| Setup | Build one binary | One `docker run` | Kubernetes cluster |
+| Best for | Development, CI | Visual authoring, trying Octo | Team operations, production |
+| Users | You | You | Multi-user |
+| Flows live in | Files on disk | Files on disk | Postgres, deployed to pods |
+
+## Where to begin
+
+If you are new to Octo, install the CLI and run your first flow — it is the
+fastest way to understand the model. If you would rather not build anything,
+start with the editor quickstart instead.
+
+<Cards>
+  <Card href="/getting-started/installation" title="Installation">
+    Build the octo binary from source, or pull the editor Docker image.
+  </Card>
+  <Card href="/getting-started/first-flow" title="Your First Flow">
+    Run a hello-world flow and invoke a flow directly from the CLI.
+  </Card>
+  <Card href="/getting-started/editor-quickstart" title="Editor Quickstart">
+    Design and run flows in the browser with zero setup.
+  </Card>
+  <Card href="/getting-started/http-quickstart" title="HTTP Quickstart">
+    Build your first real integration: an HTTP endpoint.
+  </Card>
+  <Card href="/deploy" title="Deploy the Platform">
+    Stand up the full multi-user platform on Kubernetes.
+  </Card>
+</Cards>

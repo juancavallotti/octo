@@ -1,0 +1,131 @@
+---
+title: "Integration"
+description: "Call other flows, validate JWTs, and render template resources."
+octo_types:
+  - flow-ref
+  - jwt-validate
+  - template-resource
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+## flow-ref
+
+Invokes another flow by name. The target must be a flow with no `source:` (a source-less flow gets an implicit source and becomes callable by name). The called flow receives a fresh sub-message — a clone of the body and variables under a new event ID — so the sub-invocation correlates independently of the caller's own terminal event.
+
+| Setting | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `flow` | string | Yes | — | Name of the flow to invoke. |
+| `oneWay` | bool | No | `false` | Fire-and-forget when true; otherwise wait and fold the result back in. |
+
+Semantics:
+
+- **Synchronous (default):** the caller waits; the called flow's body **replaces** the caller's body and its variables are merged over the caller's variables key-by-key. If the called flow drops the message, the caller's message continues unchanged.
+- **One-way (`oneWay: true`):** the message is dispatched and the caller continues immediately, ignoring the result. Useful for audit trails and side effects.
+
+**Errors:** a synchronous call propagates the called flow's error to the caller; a one-way call errors only if dispatch itself fails.
+
+```yaml
+# Fire-and-forget audit; the request keeps moving immediately.
+- type: flow-ref
+  name: audit-async
+  settings:
+    flow: audit
+    oneWay: true
+
+# Synchronous delegation; enrich-order's body + variables fold back in.
+- type: flow-ref
+  name: enrich-sync
+  settings:
+    flow: enrich-order
+```
+
+See [Composing flows](/guides/composing-flows) for patterns.
+
+## jwt-validate
+
+A **filter** block that authenticates HTTP requests: it verifies a bearer JWT against an OIDC provider and, on failure, stops the flow with a configurable response (401 by default) so the rest of the chain never runs. On success it injects the verified claims into a variable (default `vars.jwt`) and the token subject into `vars.sub`.
+
+<Callout type="warn">
+The token is read from a request-header **variable** (default `Authorization`, with a `Bearer ` prefix stripped case-insensitively). The HTTP route source must copy that header into vars: set `headers: [Authorization]` on the source.
+</Callout>
+
+| Setting | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `mode` | enum `discover` \| `jwks` \| `inline` | No | `discover` | How signing keys are resolved: OIDC discovery from `issuer`, direct JWKS fetch from `jwksUrl`, or an inline public key. |
+| `issuer` | string | For `discover` | — | Expected token issuer (`iss`). In `discover` mode it is also the discovery URL (`<issuer>/.well-known/openid-configuration`). For `jwks`/`inline` the `iss` check is applied when set and skipped when empty. |
+| `audience` | string | No | — | Expected token audience (`aud`). Empty skips the audience check. |
+| `algorithms` | list of strings | No | go-oidc defaults | Accepted signing algorithms, e.g. `[RS256]`. |
+| `jwksUrl` | string | For `jwks` | — | JWKS endpoint fetched directly (cached and refreshed). |
+| `publicKey` | string | For `inline`* | — | Literal PEM public key or certificate (RSA/ECDSA, PKIX or a certificate). |
+| `publicKeyResource` | string | For `inline`* | — | Resource id whose content is the PEM public key. *Set exactly one of `publicKey` / `publicKeyResource`. |
+| `tokenHeader` | string | No | `Authorization` | Variable holding the bearer token (a `Bearer ` prefix is stripped). |
+| `claimsVar` | string | No | `jwt` | Variable the verified claims map is stored under on success (the subject is also set on `vars.sub`). |
+| `rejectStatus` | int | No | `401` | HTTP status of the built-in rejection response. |
+| `resourceMetadataUrl` | string | No | — | Protected-resource-metadata URL (RFC 9728) advertised as `resource_metadata="…"` in the `WWW-Authenticate` challenge; set it to make the endpoint an MCP-compliant protected resource. |
+| `disableWwwAuthenticate` | bool | No | `false` | By default, when an issuer is configured, a rejection sets a `WWW-Authenticate: Bearer` challenge in vars (list `WWW-Authenticate` in the route source's `responseHeaders` to emit it). Set true to opt out. |
+
+Behavior notes:
+
+- Key material for `discover`/`jwks` is resolved lazily on the first request, so a briefly unreachable provider does not fail deployment; `inline` needs no network and fails fast on a bad key.
+- A rejection sets the body to `{"error": "unauthorized"}`, sets `vars.httpStatus` to `rejectStatus`, and requests the flow stop. A missing token yields a bare challenge; a present-but-invalid token adds `error="invalid_token"` (per RFC 6750).
+- A key-resolution failure (provider unreachable) is an operational **error** — it aborts the flow rather than rejecting the request.
+
+```yaml
+flows:
+  - name: me
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /me
+        headers: [Authorization]            # forward the token into vars
+        responseHeaders: [WWW-Authenticate] # emit the challenge on rejection
+    process:
+      - type: jwt-validate
+        name: require-auth
+        settings:
+          mode: discover
+          issuer: ${OIDC_ISSUER}
+          audience: ${OIDC_AUDIENCE}
+          algorithms: [RS256]
+      # Only reached with a valid token.
+      - type: set-payload
+        settings:
+          value: '{"sub": vars.sub, "email": vars.jwt.email}'
+```
+
+See [Validation and auth](/guides/validation-and-auth) and [MCP auth](/ai/mcp-auth) for full walkthroughs.
+
+## template-resource
+
+Renders a declared template resource against the current message. The template is declared under `resources.templates` in the flow file and embeds `{{ CEL }}` expressions over `body`, `vars`, `env`, and `now`. The rendered text replaces the message body by default, or is stored in a variable when `target` is set.
+
+| Setting | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `id` | string | Yes | — | The template to render: its `resources.templates` alias (the `as`), or its resource path when unaliased. |
+| `target` | string | No | — | Variable to store the rendered text in. Empty replaces the message body. |
+| `rawBody` | bool | No | `false` | Write the rendered text as a raw-content body `{contentType, rawData}` so a connector (e.g. the HTTP source) serves it verbatim. Body only — `target` must be empty. |
+| `contentType` | string | When `rawBody` | — | MIME type recorded on the raw body, e.g. `text/html`. |
+
+**Errors:** an unknown template id or a render failure (a failing embedded expression) errors the block. Declared resources are loaded when the config loads, so a missing template file fails at deployment.
+
+```yaml
+resources:
+  templates:
+    - resource: templates/welcome.tmpl
+      as: welcome
+
+flows:
+  - name: greet
+    process:
+      - type: template-resource
+        settings:
+          id: welcome
+          target: rendered
+      - type: set-payload
+        settings:
+          value: '{"viaBlock": vars.rendered, "viaCel": templateResource("welcome")}'
+```
+
+The `templateResource(alias)` [CEL function](/reference/cel/octo-extensions) renders the same template inline in an expression. See [Resources](/concepts/resources) for how templates are declared, and [Serving HTML](/guides/serving-html) for the raw-body pattern.

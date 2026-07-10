@@ -1,0 +1,123 @@
+---
+title: "Error Handling"
+description: "Flow-level error pipelines, scoped recovery, and retry strategies."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+When a block fails, the rest of the pipeline does not run. A flow recovers in one of two places: a `handle-errors` block around the risky section, or the flow's own `error:` pipeline as a last resort. Anything you don't catch ends the message as failed.
+
+## The failure model
+
+A block error aborts the `process` chain at the failing block. The runtime then:
+
+1. Sets `vars.error` on the message.
+2. Runs the nearest recovery pipeline — an enclosing `handle-errors` block's `error` chain, or the root flow's `error:` chain.
+3. If the recovery pipeline succeeds, its output becomes the result: the failure is recovered and the flow completes normally. If there is no recovery pipeline (or it fails too), the message ends as failed.
+
+Both recovery pipelines see the failure as a structured variable:
+
+| Field | Contains |
+| --- | --- |
+| `vars.error.message` | The failing block's error string. |
+| `vars.error.flow` | The enclosing flow (or `handle-errors` block) name. |
+| `vars.error.block` | The failing block's label; empty when the error did not originate in a leaf block. |
+
+## Flow-level recovery: the `error:` pipeline
+
+A root flow may declare an `error:` chain as a sibling of `process`. It is the whole-flow safety net — the difference between a per-section try/catch and a top-level one.
+
+```yaml title="error-handling.yaml (excerpt)"
+flows:
+  - name: charge-flowlevel
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /flowlevel
+    process:
+      - type: rest
+        name: call-charge
+        settings:
+          connector: payments
+          method: POST
+          path: /charges
+          body: '{"amount": body.amount}'
+    error:
+      - type: set-variable
+        settings: { name: httpStatus, value: "502" }
+      - type: set-payload
+        settings:
+          value: >
+            {
+              "error":       vars.error.message,
+              "failedBlock": vars.error.block,
+              "flow":        vars.error.flow
+            }
+```
+
+The `rest` call fails, nothing caught it inline, so the error pipeline runs: it sets a 502 status and returns the error detail to the caller.
+
+<Callout type="info">
+Only root flows may declare `error:`. Sub-flows nested inside composites cannot — wrap the risky blocks in a `handle-errors` block instead.
+</Callout>
+
+## Scoped recovery: `handle-errors`
+
+`handle-errors` is a composite with two slots: a `process` chain and an `error` chain. If any block in `process` fails, `error` runs instead with `vars.error` set. When the error chain succeeds, the flow *continues normally* after the block — the failure never reaches the flow level.
+
+```yaml title="error-handling.yaml (excerpt)"
+- type: handle-errors
+  name: charge
+  process:
+    - type: rest
+      name: call-charge
+      settings:
+        connector: payments
+        method: POST
+        path: /charges
+        body: '{"amount": body.amount}'
+  error:
+    # runs only if the process chain failed
+    - type: set-payload
+      settings:
+        value: '{"status": "degraded", "reason": vars.error.message}'
+```
+
+Here the charge call fails but the flow degrades gracefully and completes with HTTP 200. `handle-errors` blocks nest — inside composites and inside each other — and each sets its own `vars.error` when its section fails.
+
+## Validation rejections
+
+A `validate` block is not an error path: it asserts CEL rules and, when one fails, *rejects* the message — the flow stops and a response is returned, but no error pipeline runs. The failing rules' messages land in `vars.validationErrors`, the default response uses HTTP 422 (override with `rejectStatus`), and an `onReject` sub-flow can shape the response body itself.
+
+## HTTP behavior
+
+For flows fronted by an `http` source, the outcome maps to a status:
+
+| Outcome | Status |
+| --- | --- |
+| Completed | 200, or `vars.httpStatus` when set (100–599) |
+| Dropped | 204 No Content |
+| Failed (uncaught error) | 500 with `{"error": ...}` |
+| Timed out | 504 Gateway Timeout |
+
+A recovered flow is a *completed* flow — set `vars.httpStatus` in the recovery pipeline when the caller should still see an error code, as in the 502 example above.
+
+## Retries
+
+Transient upstream failures are better retried than recovered. Two mechanisms ship with the runtime:
+
+**Rate-limit retries** live on the `http-client` connector: when an upstream returns 429 Too Many Requests, the `rest` block re-attempts automatically, honoring the `Retry-After` header and otherwise backing off exponentially.
+
+```yaml
+connectors:
+  - name: payments
+    type: http-client
+    settings:
+      baseURL: https://api.payments.example
+      retry:
+        maxAttempts: 5      # total attempts including the first (default 3)
+        maxBackoff: 30s     # cap on each wait (default 30s)
+```
+
+**LLM self-healing** is the `ai-retry` composite: it runs a protected `process` chain and, on failure, lets a model inspect `vars.error` and the message, revise it, and re-run the chain up to `maxAttempts` before falling through to its `error` chain. See [ai-retry](/ai/ai-retry).

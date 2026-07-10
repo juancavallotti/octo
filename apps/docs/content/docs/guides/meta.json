@@ -1,0 +1,19 @@
+{
+  "pages": [
+    "index",
+    "rest-api",
+    "call-external-apis",
+    "database-crud",
+    "scheduled-jobs",
+    "transforming-data",
+    "validation-and-auth",
+    "composing-flows",
+    "events-and-queues",
+    "object-storage-and-caching",
+    "serving-html",
+    "slack-bot",
+    "notion-sync",
+    "ai-web-app"
+  ],
+  "title": "Guides"
+}

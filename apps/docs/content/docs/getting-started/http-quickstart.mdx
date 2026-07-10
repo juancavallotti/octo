@@ -1,0 +1,131 @@
+---
+title: "HTTP Quickstart"
+description: "Build your first real integration: an HTTP endpoint that transforms requests."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+This page builds a small orders API: an HTTP endpoint that routes on the
+request method and answers with JSON. It is a trimmed-down version of
+`samples/http-orders.yaml` from the repo, so you can graduate to the full
+sample when you finish here.
+
+## The flow
+
+Save this as `orders.yaml`:
+
+```yaml title="orders.yaml"
+service:
+  name: orders-api
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      port: 8080
+      basePath: /api/v1
+
+flows:
+  - name: orders
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /orders/{id}
+    process:
+      - type: switch
+        name: route-by-method
+        cases:
+          - when: 'vars.method == "GET"'
+            process:
+              - type: set-payload
+                name: lookup-order
+                settings:
+                  value: '{"orderId": vars.id, "status": "found"}'
+          - when: 'vars.method == "POST"'
+            process:
+              - type: set-payload
+                name: accept-order
+                settings:
+                  value: '{"orderId": vars.id, "item": body.item, "status": "accepted"}'
+        default:
+          process:
+            - type: set-payload
+              name: method-not-supported
+              settings:
+                value: '{"error": "method " + vars.method + " not supported"}'
+```
+
+Three pieces do the work:
+
+- The **`http` connector** owns one HTTP server: bind address, port, base path,
+  timeouts. Here it listens on port 8080 under `/api/v1`.
+- The **source** registers a route on that server. `path: /orders/{id}`
+  captures the path parameter, so `{id}` becomes `vars.id` on every message.
+- The **`switch` block** routes on a CEL expression. Each `case` runs its
+  `process` chain when its `when` expression is true; `default` catches
+  everything else. The `set-payload` blocks build the response body.
+
+When the flow's process chain finishes, whatever is in the message body is
+written back to the HTTP caller as JSON with status 200.
+
+## Run it and call it
+
+```bash
+bin/octo run --config orders.yaml
+```
+
+In another terminal:
+
+```bash
+curl -s localhost:8080/api/v1/orders/42
+```
+
+```json
+{"orderId":"42","status":"found"}
+```
+
+```bash
+curl -s -X POST localhost:8080/api/v1/orders/42 -d '{"item":"widget"}'
+```
+
+```json
+{"item":"widget","orderId":"42","status":"accepted"}
+```
+
+```bash
+curl -s -X DELETE localhost:8080/api/v1/orders/42
+```
+
+```json
+{"error":"method DELETE not supported"}
+```
+
+## The message model in one minute
+
+Every request becomes a **message** that travels through the flow. A message
+carries two things your expressions read and write:
+
+- **`body`** — the payload. It starts as the parsed request body (the POST's
+  `{"item":"widget"}`), and blocks like `set-payload` replace it. The final
+  body is the HTTP response.
+- **`vars`** — named variables riding alongside the body. The HTTP source
+  populates them: `vars.method` is the request method, `vars.id` comes from the
+  `{id}` path segment, and `vars.query` is a map of query parameters. Blocks
+  like `set-variable` add your own.
+
+This split keeps routing metadata out of your payload: the `switch` decides on
+`vars.method` while the body stays whatever the caller sent. See
+[State and Data](/concepts/state-and-data) for the full model.
+
+<Callout type="info">
+  Run with `--watch` while you iterate: edit a `when` expression or a response
+  body, save, and the endpoint reloads without a restart.
+</Callout>
+
+## Next steps
+
+The full `samples/http-orders.yaml` adds environment variables for the host and
+port, request logging, captured headers, correlation IDs, and flow composition
+with `flow-ref`. The [REST API guide](/guides/rest-api) covers building
+production endpoints — validation, status codes, and error handling.

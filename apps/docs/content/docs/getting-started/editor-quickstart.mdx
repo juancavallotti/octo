@@ -1,0 +1,72 @@
+---
+title: "Editor Quickstart"
+description: "Run the visual editor from Docker and execute a flow from the UI."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Steps, Step } from 'fumadocs-ui/components/steps';
+
+The standalone editor is a published Docker image that bundles the visual flow
+editor and the `octo` runtime. You get a browser-based canvas for designing
+flows and a Run button that executes them in the container — no build, no
+database, no account.
+
+<Steps>
+<Step>
+
+### Start the container
+
+```bash
+docker run -p 3000:3000 -v "$PWD:/work" juancavallotti/octo
+```
+
+The volume mount is the important part: the editor reads and writes flow YAML
+as plain `*.yaml` files under `/work`, so `-v "$PWD:/work"` makes your current
+directory the flow store. Your flows live on your disk, in your directory —
+stop the container and the files are still there, ready for `octo run` or a
+git commit. Mount an empty directory to start fresh, or the cloned repo to
+browse its `samples/`.
+
+</Step>
+<Step>
+
+### Open the editor
+
+Go to [http://localhost:3000](http://localhost:3000). The file tree on the left
+lists every YAML file in the mounted directory. Open one, or create a new flow
+— the canvas shows the flow's sources and blocks; selecting a block edits its
+settings.
+
+![The hello-world sample open in the visual editor](/screenshots/sample-hello-world.png)
+
+</Step>
+<Step>
+
+### Save and run
+
+**Save** writes the flow back as a `.yaml` file in the mounted directory. Hit
+**Run** and the bundled `octo` binary starts the flow inside the container with
+hot reload — edit, save, and the running flow picks up the change. Logs from
+the run stream into the editor so you can watch messages move through the flow.
+
+If your flow serves HTTP, remember the runtime is inside the container: publish
+the port it listens on (for example add `-p 8080:8080` to the `docker run`
+command).
+
+</Step>
+</Steps>
+
+<Callout type="info">
+  If a flow declares environment variables, the editor's Dev .env panel edits
+  their values. They are stored in a shared `.env.dev` file next to your flows,
+  and runs read them from there.
+</Callout>
+
+The image sets `OCTO_FS_DIR=/work`, which is why the mount target matters; you
+only need other environment variables when you go beyond the defaults. It also
+exposes an MCP server at `http://localhost:3000/mcp` so an AI assistant can
+draft, validate, and run flows against the same files — see
+[MCP authoring](/ai/mcp-server).
+
+For the full tour of the editor — how it works, running flows, and
+configuration — see the [Standalone Editor](/editor) section.

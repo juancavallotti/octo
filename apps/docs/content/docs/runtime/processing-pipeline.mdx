@@ -1,0 +1,155 @@
+---
+title: "The Processing Pipeline"
+description: "How events traverse the pipeline: workers, buffers, pools, and lifecycle."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+This page is the internals deep-dive: how the runtime turns connector events into messages, runs them concurrently through flows, and reports what happened. Read it when you need to reason about ordering, isolation, backpressure, or error behavior; for the config schema itself, see [Flows](/concepts/flows).
+
+## The pieces
+
+```
+connector --> source --> [bounded channel] --> flow workers --> blocks
+                                                                  |
+                                                     terminal flow event
+```
+
+- **Message** (`types.Message`) — the first-class unit of work: a JSON-only body, per-message `Variables`, a stable `EventID`, and an optional `CorrelationID`.
+- **Connector** (`core.Connector`) — a component with `Start`/`Stop` that owns its own resources (connections, clients, transaction managers).
+- **MessageSource** (`core.MessageSource`) — a flow's entry point, created and owned by a connector. It responds to connector events by building a message and sending it on a channel the runtime owns. Because the connector builds the source, the source closes over the connector's resources — there is no separate globals registry.
+- **MessageProcessor** (`core.MessageProcessor`) — the processing contract: `Process(ctx, *Message) (*Message, error)`. Returning `(nil, nil)` drops the message (a filter); a non-nil error aborts it. One processor instance is shared across all of a flow's workers, so implementations must be safe for concurrent use.
+- **Block** (`core.Block`) — a configured, named stage wrapping one processor.
+- **Flow** — an ordered list of blocks, and itself a `MessageProcessor`. This is the recursive composition unit: composite blocks embed sub-flows.
+
+Leaf blocks are resolved through the block registry; composite kinds (`handle-errors`, `fork`, `if`, `switch`, `foreach`, `enrich`, `validate`, `cache-scope`, and the AI composites) are built directly by the flow builder from their typed config slots.
+
+## Event lifecycle: source to sink
+
+A message's life, end to end:
+
+1. **An external event fires** — an HTTP request arrives, a cron schedule ticks, a queue delivers. The connector's source builds a `*types.Message` with a fresh `EventID` and sends it on the flow's bounded channel.
+2. **A worker picks it up.** Each root flow has a dedicated pool of worker goroutines all reading that one channel. The worker publishes a `started` flow event, then runs the message through the root block chain.
+3. **Blocks run in order.** Each block receives the current message and returns the next one. A block returning `nil` drops the message and skips the rest of the chain; an error aborts it.
+4. **Exactly one terminal event is published**: `completed` (with the final message attached as `Result`), `dropped`, or `failed` (with the error). Every event keys on the inbound `EventID`, which is stable for the message's life.
+
+The flow-event bus (`core.DefaultEventBus()`) is a process-wide, synchronous fan-out pub/sub: every subscriber receives every event, and handlers must return quickly (dispatch long work to your own goroutine). Request/response sources are built on it — the `http` source subscribes once and matches each terminal event back to the waiting request by `EventID`, writing the completed message's body as the response. The bus never leaves the process; see [Monitoring](/runtime/monitoring) for what does.
+
+### Early termination: filter blocks
+
+A filter block (`validate`, `jwt-validate`) that rejects a message can mark it with an internal stop flag. The flow engine checks the flag after every block: when set, the flow completes immediately with the message as the block configured it (body, HTTP status), skipping the rest of the chain. The flag rides in `Variables`, so it bubbles up through nested composite sub-flows and across `flow-ref` boundaries automatically. A stopped flow is reported `completed`, not `failed`.
+
+## Execution model
+
+Processing is a **hybrid of single-threaded composition and opt-in concurrency**. The composition seam — `Process(ctx, *Message) (*Message, error)` — is synchronous and one-in / one-out, so a flow runs its blocks in order on one goroutine. A composite block may opt into concurrency *internally*, but it must **join before it returns**, which keeps the seam (and the one-terminal-event-per-message guarantee) intact. `handle-errors` is the sequential case; `fork` is the concurrent one.
+
+### Two levels of concurrency
+
+```
+source --> [buffer] --> worker 1 --\
+                    --> worker 2 ---> run root chain per message
+                    --> worker N --/        |
+                                            | fork branches, etc.
+                                            v
+                                   [shared flow pool]
+```
+
+1. **Per-flow worker pool** (`workers`, default 8). A dedicated set of goroutines reads the source's channel; each takes a message and runs the whole root chain. Since a flow defaults to 8 workers, messages may complete out of order — set `workers: 1` for FIFO.
+2. **Shared flow pool** (`pool`, default 8 workers with a bounded queue of 64 tasks). Each root flow owns one shared pool, started with the flow and threaded down through the build, so concurrent composites schedule work on it instead of spawning their own goroutines. It is started before the source emits and stopped after the per-flow workers drain.
+
+Three behaviors to know:
+
+- **Backpressure** comes from the bounded source channel (`buffer`, default 64): when workers fall behind, the channel fills and the source blocks.
+- **Poison messages don't kill workers.** A failing message aborts only that message; the worker publishes the `failed` event and keeps reading the channel.
+- **Pool exhaustion panics.** The shared pool's task queue is bounded and `Submit` does not block. If a composite submits more work than the queue can accept — deeply nested forks are the typical cause — the runtime panics rather than risk a silent deadlock (a task waiting on a task that can never be scheduled). This is a deliberate limitation of the current model: size `pool` for the flow's fan-out.
+
+## How composites execute
+
+### handle-errors: the sequential boundary
+
+`handle-errors` is an inline try/catch with recovery. Its `process` chain runs; on failure, the error is exposed to its `error` chain as `vars.error` and that chain runs. A successful recovery chain's output becomes the block's result and the flow continues normally. If the recovery chain itself fails, the block fails with that error. Everything runs sequentially on the calling worker.
+
+### fork: scatter, join, pass through
+
+`fork` runs its `branches` concurrently on the flow's shared pool:
+
+- Each branch gets **its own `msg.Clone()`** — branches never see each other's mutations.
+- The fork **joins** (waits for every branch) before returning.
+- The **first branch error aborts the fork** and cancels the context of the remaining branches; the fork then fails with that error.
+- On success the fork **passes the input message through unchanged**. Branch outputs are discarded — aggregating them is deferred, so a fork is for side-effects (notify, audit, index), not for gathering results.
+
+### enrich: isolated scope, controlled merge
+
+`enrich` runs its `body` chain on an isolated `msg.Clone()`, then merges specific results back into the original message:
+
+- `setBody` (a CEL expression) — when set, evaluated against the *clone's* final state and installed as the original message's new body.
+- `setVars` (a map of variable name → CEL expression) — each evaluated against the clone's result and set on the original message.
+
+Everything else the body did to the clone stays isolated. Omitting both `setBody` and `setVars` runs the body purely for side-effects. A body error aborts the message; a body that drops the message drops it here too.
+
+### if, switch, foreach
+
+These run sequentially on the calling worker, operating on the message in place (no clone):
+
+- **`if`** evaluates its condition; a false condition with no `else` passes the message through.
+- **`switch`** runs the first case whose `when` is true, else `default`, else passes through. A condition that does not evaluate to a boolean is an error.
+- **`foreach`** evaluates `items` to an array and runs `body` once per element, binding each element to the loop variable (`as`, default `item`). Iteration is sequential; a body error aborts, a body drop drops the whole message, and a stop request halts iteration. The loop variable is restored to its pre-loop state afterward, so it does not leak.
+
+## Message cloning semantics
+
+`Message.Clone()` is what gives fork branches and enrich scopes their isolation. Its exact semantics matter when debugging:
+
+- **Body is deep-copied via a JSON round-trip.** This is well defined because bodies are JSON-only by contract — and it *normalizes* the body to decoded-JSON kinds: numbers become `float64`, objects `map[string]any`, arrays `[]any`.
+- **Variables get a fresh map, but values are copied shallowly.** Rebinding a variable in a branch never affects the original; mutating a deeply nested reference value stored *inside* a variable can, because that inner value remains shared.
+- **`EventID` is retained.** A clone is the same logical event. When a message is handed to another flow — `flow-ref`, `queue-dispatch` — it is *rekeyed* with a fresh `EventID` instead, so the sub-invocation correlates independently and its terminal event does not collide with the originating flow's.
+
+## Error propagation
+
+When a block fails, the engine wraps the error with the block's label (its `name`, falling back to its `type`), so an error message reads like a path: `block "charge": rest request: ... connection refused`. The wrapping is structured, which is how recovery paths learn which block failed.
+
+Recovery has two layers, both exposing the failure as the structured variable `vars.error`:
+
+- **`handle-errors`** — an inline boundary around part of a chain (above).
+- **The flow-level `error:` chain** — a sibling of `process:` on a root flow. When the process chain errors, the runtime sets `vars.error` and runs the error chain on the same message; on success, that chain's output becomes the flow's result and the flow is reported `completed`. If the error chain also fails, the original flow is reported `failed` with the error-path failure. A flow with no `error:` chain simply propagates the error and is reported `failed`.
+
+`vars.error` is a map a recovery chain reads with CEL:
+
+```jsonc
+{
+  "message": "block \"charge\": rest request: ... connection refused", // err.Error()
+  "flow":    "charge-orders",   // enclosing flow or handle-errors block name
+  "block":   "charge"           // failing block label, when recoverable
+}
+```
+
+For HTTP-sourced flows, a recovery chain can set `vars.httpStatus` to a valid status code (100–599) and the `http` source returns it instead of the default 200 — for example, 502 alongside an error body. See [Error Handling](/concepts/error-handling) and `samples/error-handling.yaml` for a runnable example of both layers.
+
+Inside a fork, a branch error is additionally wrapped with the branch name (`fork branch "notify": ...`) and cancels the sibling branches' context; blocks that respect context cancellation stop early.
+
+## Backpressure
+
+Backpressure is enforced at the flow boundary, not globally:
+
+- The **source channel is bounded** (`buffer`). A source that produces faster than the workers consume blocks on send. What blocking means depends on the source: an `http` source's request handler waits (bounded by its timeout), a `queue` source holds a listener until its flow finishes — which bounds in-flight work to the listener count.
+- The **shared pool's queue is bounded** and, as noted above, exhaustion is a panic, not a wait.
+- There is **no cross-flow backpressure**: each flow's channel and pools are its own. A slow downstream flow reached via `queue-dispatch` or `publish-event` does not slow the publisher (delivery is at-most-once; see [Clustering](/runtime/clustering)).
+
+<Callout type="warn">
+Backpressure is enforced but not yet surfaced as a metric — there is no queue-depth gauge. If a source appears stalled, suspect slow blocks downstream and check `buffer`/`workers` sizing.
+</Callout>
+
+## Start/stop lifecycle
+
+The runtime service owns a strict acquire/release discipline:
+
+1. Build the event bus.
+2. Start connectors in config order (each acquires its own resources).
+3. Build each flow: resolve its source's connector, ask it for a source, and build the root block chain (recursing composite sub-flows). Expressions compile here, so a malformed CEL expression fails at startup, not per message.
+4. Start each flow: start the shared pool, spawn the worker pool, then start the source — workers are ready before the first message is produced. Flows with implicit (source-less) sources start first, so they are callable before any real source admits traffic that may `flow-ref` them.
+5. On shutdown, stop in strict reverse: per flow, stop the source → close the channel → drain the workers → stop the shared pool; then stop connectors in reverse order.
+
+The runtime creates each source's channel and closes it during teardown — after the source has stopped — following "whoever creates the channel closes it". A source must never send after its `Stop` returns.
+
+## Writing a connector source
+
+A connector becomes a source provider by implementing `core.SourceProvider`: the runtime hands `NewSource` the config and the output channel, and the returned source does its work on its own goroutines. `Start` must not block, and the source must not send after `Stop` returns. A source decodes its `settings` into a typed struct, the same `Settings.Decode` pattern every component uses. See `runtime/connectors/noop/source.go` in the repository for a minimal reference implementation.

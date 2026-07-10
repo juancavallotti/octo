@@ -1,0 +1,154 @@
+---
+title: "Flows"
+description: "The anatomy of a flow file: service, env, connectors, processors, flows, and resources."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+An integration is a YAML file (or directory) that declares the connectors it needs and the flows that process messages. This page walks through every top-level key and every field of a flow.
+
+## Top-level keys
+
+A config has six top-level keys. Only `flows` does the actual work; the rest appear as your integration grows.
+
+| Key | What it declares |
+| --- | --- |
+| `service` | The integration's identity: `name` and an optional `environment`. |
+| `env` | Environment variables the config may reference as `${NAME}` in settings and as `env.NAME` in expressions. See [Environment and Configuration](/concepts/environment-and-config). |
+| `connectors` | Named connector instances (an HTTP server, a database pool, an LLM client). |
+| `processors` | Reusable, named block definitions that flow blocks reference with `ref:`. |
+| `flows` | One or more root flows: a source feeding a pipeline of blocks. |
+| `resources` | Imported files: `.env`-convention files and templates. See [Resources](/concepts/resources). |
+
+## A complete flow
+
+```yaml title="orders.yaml"
+service:
+  name: orders                      # identity; shows up in logs
+  environment: prod
+
+env:
+  - name: HTTP_PORT
+    default: "8080"
+
+connectors:
+  - name: api                       # instance name, referenced below
+    type: http                      # connector type
+    settings:
+      port: ${HTTP_PORT}
+
+processors:
+  - name: greeter                   # reusable block definition
+    type: log
+    settings:
+      message: '"got order " + vars.id'
+
+flows:
+  - name: orders-api
+    workers: 8                      # concurrent workers (default 8)
+    buffer: 128                     # source channel depth (default 64)
+    source:
+      connector: api                # the *name* of a connector instance
+      type: http                    # connector-specific source type
+      settings:
+        path: /orders/{id}          # {id} -> vars.id
+    process:                        # the pipeline, run block by block
+      - ref: greeter                # reference a named processor
+      - type: set-payload
+        settings:
+          value: '{"orderId": vars.id, "status": "accepted"}'
+    error:                          # recovery pipeline (root flows only)
+      - type: set-variable
+        settings: { name: httpStatus, value: "502" }
+      - type: set-payload
+        settings:
+          value: '{"error": vars.error.message}'
+```
+
+## Flow fields
+
+A root flow accepts these fields:
+
+- **`name`** — the flow's identifier. Sourceless flows are callable by this name (see below).
+- **`source`** — the flow's entry point: `connector` names a configured connector *instance* (not its type), `type` selects a connector-specific source kind, and `settings` configures it (a route path, a cron schedule, a queue subject).
+- **`process`** — the ordered list of blocks each message runs through.
+- **`error`** — the flow's recovery pipeline. When `process` fails, the runtime exposes the failure as `vars.error` and runs this chain; on success its output becomes the flow's result. Root flows only. See [Error Handling](/concepts/error-handling).
+- **`workers`** — how many messages the flow processes concurrently. Defaults to 8.
+- **`buffer`** — the depth of the channel between the source and the workers. Defaults to 64.
+- **`pool`** — the size of the shared worker pool the flow hands to composites that schedule concurrent work (for example a `fork`'s branches). Defaults to 8. Root flows only.
+
+Sub-flows nested inside a composite block (an `if`'s `then`, a `foreach`'s `body`) reuse the same shape but must not set `source`, `workers`, `buffer`, `pool`, or `error` — the builder rejects it.
+
+## Named processors and `ref:`
+
+A processor is a block definition declared once under `processors:` and referenced from any flow. The block takes its type and base settings from the definition; any settings on the referencing block override the referenced ones key by key.
+
+```yaml title="hello-world.yaml"
+processors:
+  - name: greeter
+    type: log
+    settings:
+      level: info
+      message: '"hello world! the date is " + body.date'
+
+flows:
+  - name: greet
+    source:
+      connector: ticker
+      type: cron
+      settings:
+        schedule: "0,30 * * * * *"
+        payload: '{"date": string(now)}'
+    process:
+      - ref: greeter
+```
+
+A block sets either `ref` or `type`, not both.
+
+## Implicit connectors
+
+Connectors that need no per-instance configuration — `cron`, `queue`, `events` — do not require an entry under `connectors:`. When a source's `type` names a registered connector type and no instance is configured, the runtime starts a default instance on demand:
+
+```yaml title="events.yaml (excerpt)"
+flows:
+  - name: emitter
+    source:
+      type: cron                 # implicit connector — no connectors entry needed
+      settings:
+        schedule: "@every 3s"
+        payload: '{"tick": string(now)}'
+    process:
+      - type: publish-event
+        settings:
+          subject: '"notifications"'
+```
+
+When exactly one connector of the type is configured, a source of that type binds to it implicitly; with several instances configured you must name one with `connector:`, or the binding is ambiguous.
+
+<Callout type="info">
+Connectors that carry real configuration — an `http` server's port, a `database` DSN, an LLM API key — should be declared explicitly under `connectors:` so their settings live in one place.
+</Callout>
+
+## Sourceless flows
+
+A flow with no `source:` gets an implicit source and becomes callable by name — from another flow via the `flow-ref` block, or directly from the CLI:
+
+```yaml title="hello-invoke.yaml"
+flows:
+  - name: greet
+    process:
+      - type: set-payload
+        settings:
+          value: '{"greeting": "hello, " + body.name + "!"}'
+```
+
+```bash
+octo invoke --config hello-invoke.yaml --flow greet --data '{"name":"Ada"}'
+# {"greeting":"hello, Ada!"}
+```
+
+In invoke mode no sources are started — nothing binds a port or fires a schedule — so only the requested flow runs. Sourceless flows are the building block for reusable sub-pipelines: call them synchronously with `flow-ref` (the result folds back into the caller's message) or one-way (fire-and-forget).
+
+## Next steps
+
+Learn how connectors, blocks, and composites fit together in [Connectors and Blocks](/concepts/connectors-and-blocks), or browse the complete catalogue in the [Reference](/reference).

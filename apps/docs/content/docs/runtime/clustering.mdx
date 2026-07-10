@@ -1,0 +1,86 @@
+---
+title: "Clustering"
+description: "Multi-instance behavior and NATS-backed queues and topics."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+On the platform an integration can run as several replicas — pods of the same runtime image behind one Kubernetes Service. This page is the mental model for what changes when more than one instance runs the same config: how work is distributed, what is shared, and what runs exactly once.
+
+## The unit of clustering
+
+When you deploy an integration you choose a replica count. Each replica is a pod running the same definition; together they form one logical service. Everything clustered is **scoped to the deployment** — keyed by `OCTO_DEPLOYMENT_ID`, which the orchestrator injects into every pod — so the replicas of one integration share their queues, topics, and object store with each other and with nothing else on the cluster.
+
+| Concern | Shared across a deployment's replicas via |
+| --- | --- |
+| Work distribution | Competing-consumer queues (NATS queue groups) |
+| Broadcast | Topics (plain NATS subscriptions — every replica receives every message) |
+| Shared state | The object store: versioned KV over HTTP to the orchestrator |
+| Run-once work | Leader election (Kubernetes `coordination/v1` Lease objects) |
+| HTTP traffic | The Kubernetes Service in front of the pods |
+
+**Standalone collapses all of this.** Run the same definition with the default (standalone) build and there is exactly one process: queues and topics are in-process, the KV store is in-memory, and that process is always the leader. The flow YAML is identical — only the backends differ.
+
+## Queues: competing consumers
+
+A `queue` source makes every replica a **competing consumer** of the same subject: each message is delivered to **exactly one** replica, so adding pods adds throughput. This is the construct for load-balancing work across the cluster.
+
+```
+producer --> subject: octo.<deploymentId>.q.work
+                        |-- one message --> replica 1  (queue source)
+                        |                   replica 2
+                        `------------------ replica 3
+```
+
+- **`queue-dispatch`** (a block) sends the current message to a subject. By default it publishes fire-and-forget; with `awaitReply: true` it waits for one consumer's reply and folds the reply's body and variables back into the message. The outgoing message is rekeyed so the sub-invocation correlates independently.
+- The **`queue` source** subscribes a flow to a subject. `listeners` (default 8) sets in-pod handler concurrency; a handler holds a listener until its flow finishes, which bounds in-flight work. For a request, the flow's final message is sent back as the reply; for a fire-and-forget publish, the reply is dropped — one handler serves both.
+
+In the k8s module, the runtime scopes each subject to the deployment (`octo.<deploymentId>.q.<subject>`) over NATS, and the scoped subject doubles as the queue-group name — that is what makes every replica compete for the same messages while deployments sharing one broker never collide. Standalone, a queue is an in-process buffered channel.
+
+Delivery is **at-most-once**: a message published with no live consumer is dropped, and a request to a subject with no responder times out (default 30s) rather than blocking forever. Full settings: [the queue connector](/reference/connectors/queue).
+
+## Events and topics: broadcast to all
+
+Topics are the broadcast counterpart of queues. Where a queue delivers each message to one competing consumer, a topic **fans every message out to every subscriber** — every `events` source on the subject, on every replica, receives its own copy. There is no reply and no load balancing; use topics for pub/sub, where one producer triggers many independent reactions.
+
+- **`publish-event`** (a block) broadcasts the current message to a subject (CEL, so routing can be per-message) and passes the message through unchanged.
+- The **`events` source** subscribes a flow to a subject; its `subject` and `listeners` settings mirror the queue source.
+
+In the k8s module topics ride NATS under a separate scope (`octo.<deploymentId>.t.<subject>`) as plain, non-queue subscriptions; standalone, they fan out to local subscribers in-process. Delivery is likewise at-most-once. See [the events connector](/reference/connectors/events).
+
+<Callout type="info">
+Rule of thumb: scale-out **work** goes on a queue (one replica handles each message); **notifications** go on a topic (every replica reacts). Running three replicas of a flow with an `events` source means the flow runs three times per published event — by design.
+</Callout>
+
+## Shared state: the object store, cache, and KV
+
+Blocks that persist state (`object-read`, `object-write`, `object-delete`, `cache-scope`, and AI agent memory) go through the runtime's KV service, and its scope changes with the module:
+
+- **Clustered (k8s module):** the store is **deployment-scoped KV served by the orchestrator over HTTP**. All replicas of a deployment read and write the same keys; other deployments cannot see them. Every entry carries a version, and writes are **optimistically concurrent** — a write states the version it expects (0 to create) and fails with a conflict if another replica wrote first, rather than silently clobbering. The `object-write` block re-reads and retries on conflict, so read-modify-write patterns (counters) land correctly under concurrency. Secrets ride the same store in encrypted namespaces.
+- **Standalone:** the store is in-memory, in-process, and lost when the process exits.
+
+There is no native TTL in the store; the `cache-scope` block layers expiry on top by stamping a deadline into the value. See [State and Data](/concepts/state-and-data) and [KV and Storage](/platform/kv-and-storage).
+
+## Run-once work: leader election
+
+Some work must happen once per cluster, not once per replica — a scheduled tick, a single poller. Three replicas with a naive `cron` source would fire three times. Leader election prevents that: replicas campaign for a key and only the winner does the exclusive work.
+
+- **Distributed cron is automatic.** The `cron` source campaigns for a per-schedule key and only the leader emits a tick, so a schedule fires once cluster-wide regardless of replica count. Nothing to configure.
+- **Under the hood**, leadership in the cluster is a Kubernetes `coordination/v1` Lease per key, scoped to the deployment. If the leader pod dies, the lease lapses and another replica takes over.
+- **Standalone**, the single process is always the leader.
+
+## HTTP load balancing
+
+The runtime does not load-balance HTTP itself. An `http` source binds a server in every replica, and the platform's Kubernetes Service in front of the pods distributes requests across them — fine for stateless request/reply. For work that must be processed once with backpressure, hand it off to a queue from the HTTP flow (`queue-dispatch`) instead of doing it inline.
+
+## Recap: standalone vs. clustered
+
+| Service | Standalone (default build) | Clustered (`-tags k8s`) |
+| --- | --- | --- |
+| Queues | In-process buffered channels | NATS queue groups, `octo.<id>.q.<subject>` |
+| Topics | In-process fan-out | NATS subscriptions, `octo.<id>.t.<subject>` |
+| KV / object store | In-memory, per process | Orchestrator HTTP KV, deployment-scoped, versioned |
+| Leader election | Always leader | Kubernetes Lease per key |
+| Log shipping | None (stderr only) | NATS to the central log sink |
+
+The build tag selects the module ([Runtime Architecture](/runtime)); the orchestrator sets the environment (`OCTO_DEPLOYMENT_ID`, `NATS_URL`, `ORCHESTRATOR_URL`, pod identity) that the k8s module requires at startup.

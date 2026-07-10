@@ -1,0 +1,193 @@
+---
+title: "Object Storage and Caching"
+description: "Persist state in the object store and memoize with cache scopes."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+Flows are stateless by default: each message flows through and is gone. This
+guide adds state — `object-read`/`object-write` for values that persist between
+runs, and `cache-scope` to memoize expensive work such as an LLM call.
+
+## Read and write objects
+
+`object-write` persists a value under a key; `object-read` loads it back into a
+variable.
+[`samples/object-store.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/object-store.yaml)
+reads a key before and after writing it, so a single run shows both a miss and a
+hit:
+
+```yaml title="samples/object-store.yaml (excerpt)"
+process:
+  # Cold read: the key is absent, so the default is folded in and
+  # profileExists is false.
+  - type: object-read
+    name: load-before
+    settings:
+      key: '"profile:" + body.id'
+      as: profile
+      default: '{"plan": "free"}'
+      existsVar: profileExists
+
+  - type: object-write
+    name: save-profile
+    settings:
+      key: '"profile:" + body.id'
+      value: '{"plan": body.plan}'
+
+  # Warm read: the key now exists, so the stored value wins over the
+  # default and profileExists is true.
+  - type: object-read
+    name: load-after
+    settings:
+      key: '"profile:" + body.id'
+      as: profile
+      default: '{"plan": "free"}'
+      existsVar: profileExists
+```
+
+Run it:
+
+```bash
+octo invoke --config samples/object-store.yaml --flow profile \
+  --data '{"id":"A-1","plan":"pro"}'
+# -> logs "before write: A-1 exists=false plan=free"   (miss -> default)
+#    then "after write: A-1 exists=true plan=pro"      (hit)
+```
+
+The settings that make `object-read` pleasant to use:
+
+- **`key`** is a CEL expression on both blocks — build per-entity keys like
+  `'"profile:" + body.id'`.
+- **`as`** names the variable the value lands in (`vars.profile`), leaving the
+  body untouched.
+- **`default`** supplies a fallback expression on a miss, so the flow never has
+  to branch on a null.
+- **`existsVar`** writes a boolean telling a genuine hit from a served default —
+  branch on it only when the difference matters.
+
+## Memoize with cache-scope
+
+`cache-scope` wraps a sub-flow and memoizes the **body** it produces under a CEL
+key with a TTL. On a hit, the wrapped blocks never run.
+[`samples/runtime-services.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/runtime-services.yaml)
+generates a "report" every 5 seconds, but the expensive part only executes once
+per minute:
+
+```yaml title="samples/runtime-services.yaml (excerpt)"
+- type: cache-scope
+  name: cached-report
+  key: '"report"'
+  ttl: 1m
+  body:
+    process:
+      - type: log
+        name: compute
+        settings:
+          logger: out
+          message: '"cache MISS — generating report"'
+      - type: set-payload
+        settings:
+          value: '{"report": "generated", "event": eventID}'
+```
+
+Note the shape: `key`, `ttl`, and `body` sit directly on the block, and `body`
+holds a nested `process` list. Evict an entry with `invalidate-cache` and the
+same key expression:
+
+```yaml title="samples/runtime-services.yaml (excerpt)"
+- name: reset
+  process:
+    - type: invalidate-cache
+      name: bust-report
+      settings:
+        key: '"report"'
+```
+
+```bash
+octo run --config samples/runtime-services.yaml
+# "cache MISS — generating report" appears once, then ticks serve the cache.
+# In another terminal, bust it and the next tick recomputes:
+octo invoke --config samples/runtime-services.yaml --flow reset
+```
+
+<Callout type="warn">
+  Only the message **body** is cached. Variables the wrapped flow sets are not
+  restored on a hit — keep anything a later block needs inside the body.
+</Callout>
+
+A few rules the runtime applies:
+
+- `ttl` is a Go duration (`30s`, `5m`, `1h`). Omit it for the default of 60
+  seconds; `"0"` means the entry never expires (until invalidated).
+- The evaluated key is hashed, so long or exotic keys are fine.
+- Storing is best-effort: if another worker cached first, your result is still
+  correct — just served fresh this once.
+
+## Caching an LLM call
+
+Caching earns its keep when the wrapped work is slow and metered.
+[`samples/ai-quote-cache.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/ai-quote-cache.yaml)
+puts an `ai-mapping` call to Gemini behind a cache scope on an HTTP endpoint:
+
+```yaml title="samples/ai-quote-cache.yaml (excerpt)"
+process:
+  # Memoize the slow/paid Gemini call under a constant key. The first
+  # request is a MISS; requests within the 5m TTL replay the cached quote
+  # with no model call.
+  - type: cache-scope
+    name: cached-quote
+    key: '"seneca:quote"'
+    ttl: 5m
+    body:
+      process:
+        - type: log
+          name: cache-miss
+          settings:
+            logger: log
+            message: '"cache MISS — calling Gemini"'
+        - type: ai-mapping
+          name: seneca
+          settings:
+            connector: gemini
+            prompt: >
+              Ignore the input entirely. Produce a single, genuine quotation
+              from the Stoic philosopher Seneca (Lucius Annaeus Seneca the
+              Younger). Return only the mapped object.
+            outputExample: |
+              { "quote": "We suffer more often in imagination than in reality.", "author": "Seneca" }
+```
+
+```bash
+export GEMINI_API_KEY=...
+octo run --config samples/ai-quote-cache.yaml
+curl -s localhost:8080/quote   # first call: MISS, ~seconds (model call)
+curl -s localhost:8080/quote   # within 5m: HIT, sub-millisecond, same quote
+```
+
+The pattern generalizes: put the paid call inside the scope, key it by whatever
+makes responses reusable (a constant, `vars.query.topic`, a user ID), and do
+per-request derivation *after* the scope so it runs on hits too — the sample
+appends a `multi-transform` for exactly that. For a full application of this
+pattern, see [An AI Web App End to End](/guides/ai-web-app).
+
+## Where state lives
+
+Both the object store and the cache ride on the runtime's KV service, so the
+same YAML runs everywhere:
+
+- **Standalone** (`octo run`, `octo invoke`): the store is in-process and
+  per-run — great for development, gone when the process exits.
+- **Platform**: the store is durable and scoped to your deployment, shared by
+  all replicas. Cache hits and object reads work across the whole cluster. See
+  [KV and Storage](/platform/kv-and-storage) for scoping, quotas, and
+  inspection.
+
+## Where to go next
+
+<Cards>
+  <Card title="An AI Web App End to End" href="/guides/ai-web-app" description="Cache-scope plus ai-mapping plus HTML rendering in one app." />
+  <Card title="KV and Storage" href="/platform/kv-and-storage" description="How the platform scopes and persists your data." />
+  <Card title="Runtime Services" href="/concepts/runtime-services" description="The services layer behind stores, caches, and queues." />
+</Cards>

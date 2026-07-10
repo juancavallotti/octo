@@ -1,0 +1,189 @@
+---
+title: "Validation and Auth"
+description: "Validate input with CEL rules and protect endpoints with JWT."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+In this guide you guard flows with two filter blocks: `validate` rejects
+messages that fail CEL rules, and `jwt-validate` rejects requests without a
+valid bearer token. Both follow the same pattern — on failure they stop the
+flow and answer for it, so the rest of the chain never runs. They follow
+[`samples/validate.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/validate.yaml)
+and
+[`samples/jwt-validate.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/jwt-validate.yaml).
+
+## Validate input
+
+The `validate` block takes a list of rules. Every CEL `expr` must hold, or the
+block rejects the message with the configured `rejectStatus` (default 422):
+
+```yaml
+flows:
+  - name: order
+    process:
+      - type: validate
+        name: check-order
+        rejectStatus: 422
+        rules:
+          - expr: 'has(body.id)'
+            message: "order id is required"
+          - expr: 'body.amount > 0'
+            message: "amount must be positive"
+
+      # Only reached when every rule held (a rejected request stopped above).
+      - type: set-payload
+        name: accept
+        settings:
+          value: '{"orderId": body.id, "amount": body.amount, "status": "accepted"}'
+```
+
+On rejection the block emits a built-in body of the failing rules' messages:
+
+```json
+{"error": "validation_failed", "messages": ["amount must be positive"]}
+```
+
+Over an HTTP source, `rejectStatus` becomes the response status code; under
+`octo invoke` it rides in `vars.httpStatus`.
+
+Try both paths:
+
+```bash
+bin/octo invoke --config samples/validate.yaml --flow order \
+  --data '{"id":"A-1","amount":30.0}'
+# -> passes: {"orderId":"A-1","amount":30,"status":"accepted"}
+
+bin/octo invoke --config samples/validate.yaml --flow order \
+  --data '{"amount":0}'
+# -> rejected: {"error":"validation_failed","messages":[...]}; accept never runs
+```
+
+### Shape the rejection yourself
+
+The failing rules' messages are also exposed as `vars.validationErrors`, and an
+optional `onReject` sub-flow replaces the built-in response — set your own body
+and `httpStatus`:
+
+```yaml
+        onReject:
+          process:
+            - type: set-payload
+              settings:
+                value: '{"error": "bad_request", "details": vars.validationErrors}'
+            - type: set-variable
+              settings: { name: httpStatus, value: 400 }
+```
+
+## Require a JWT
+
+The `jwt-validate` block verifies a bearer JWT on an HTTP request. If the token
+is missing or invalid it stops the flow with a 401; on success it injects the
+verified claims into vars so downstream blocks can authorize on them.
+
+Two source settings make it work end to end: the block reads the token from a
+header variable, so the route must copy `Authorization` into vars
+(`headers: [Authorization]`); and the rejection sets a `WWW-Authenticate`
+challenge in vars, which is only emitted if the route lists it in
+`responseHeaders`.
+
+```yaml
+flows:
+  - name: me
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /me
+        headers: [Authorization] # forward the bearer token into vars.Authorization
+        responseHeaders: [WWW-Authenticate] # emit the challenge jwt-validate sets
+    process:
+      - type: jwt-validate
+        name: require-auth
+        settings:
+          mode: discover
+          issuer: ${OIDC_ISSUER}
+          audience: ${OIDC_AUDIENCE}
+          algorithms: [RS256]
+          claimsVar: jwt # verified claims -> vars.jwt, subject -> vars.sub
+          resourceMetadataUrl: ${RESOURCE_METADATA_URL}
+
+      # Only reached with a valid token; echo who the caller is.
+      - type: set-payload
+        name: whoami
+        settings:
+          value: '{"sub": vars.sub, "email": vars.jwt.email}'
+```
+
+With `mode: discover` (the default) the block resolves signing keys by OIDC
+discovery from the issuer (`<issuer>/.well-known/openid-configuration`). Use
+`mode: jwks` with a `jwksUrl` to fetch a JWKS directly, or `mode: inline` with
+a `publicKey` (or `publicKeyResource`) when no network is available. When set,
+`audience` is checked against the token's `aud` claim. Keys are resolved
+lazily on the first request, so a briefly unreachable provider does not fail
+startup.
+
+On success, the verified claims land in the variable named by `claimsVar`
+(default `jwt`) and the subject in `vars.sub`. On failure, the built-in 401 can
+be tuned with `rejectStatus`, and `disableWwwAuthenticate: true` opts out of
+the challenge header.
+
+## Advertise how to authenticate (RFC 9728)
+
+For clients that discover auth dynamically — MCP clients in particular — the
+sample also serves a Protected Resource Metadata document naming the
+authorization server. The `resourceMetadataUrl` setting above adds a
+`resource_metadata` pointer to the `WWW-Authenticate` challenge, and a second,
+unprotected flow serves the document itself:
+
+```yaml
+  - name: protected-resource-metadata
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /.well-known/oauth-protected-resource
+    process:
+      - type: set-payload
+        name: metadata
+        settings:
+          value: >
+            {"resource": env.RESOURCE_METADATA_URL,
+             "authorization_servers": [env.OIDC_ISSUER],
+             "bearer_methods_supported": ["header"]}
+```
+
+A rejected client reads the challenge, fetches the metadata, learns which
+authorization server to use, obtains a token, and retries.
+
+<Callout type="info">
+This is exactly the flow the MCP authorization spec requires of a protected
+MCP server. See [MCP Auth](/ai/mcp-auth) for the MCP-specific setup.
+</Callout>
+
+## Run it
+
+The sample needs a reachable OIDC issuer (it defaults to Google) and an
+audience:
+
+```bash
+OIDC_AUDIENCE=<your-client-id> bin/octo run --config samples/jwt-validate.yaml
+```
+
+```bash
+curl -i localhost:8080/me
+# -> 401 with a WWW-Authenticate: Bearer challenge
+
+curl -i localhost:8080/.well-known/oauth-protected-resource
+# -> 200 metadata JSON
+
+curl -H "Authorization: Bearer <token>" localhost:8080/me
+# -> 200 {"sub":"...","email":"..."}
+```
+
+## Where to go next
+
+- [MCP Auth](/ai/mcp-auth) — protect an MCP server with this same block.
+- [Build a REST API](/guides/rest-api) — the HTTP source settings used here.
+- [Control-flow blocks reference](/reference/blocks/control-flow) — validate and the other filters.
+- [Expressions](/concepts/expressions) — the CEL rules can use anything on the message.

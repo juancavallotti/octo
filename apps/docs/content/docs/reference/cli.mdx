@@ -1,0 +1,242 @@
+---
+title: "CLI"
+description: "The octo command: run, invoke, eval, schema, and version."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The `octo` binary is the runtime's command-line interface. It starts
+integrations, calls flows directly, evaluates CEL expressions, and emits the
+capability catalogue the editor and documentation tooling consume.
+
+```
+octo — run and invoke octo integration flows
+
+Usage:
+  octo [run] --config <path> [--watch]                       Start connectors and flows (default)
+  octo invoke --config <path> --flow <name> [--data <json>]  Call one flow and print its result
+  octo eval --expr <cel> [--data <json>]                     Evaluate a CEL expression and print the result
+  octo schema [--out <path>]                                 Print the editor capability schema as JSON
+  octo version                                               Print the version and build date
+  octo --help                                                Show this help
+```
+
+Flags accept one or two dashes: `--config` and `-config` are equivalent.
+Running `octo` with no arguments prints the help page above.
+
+## Subcommands
+
+| Subcommand | Purpose |
+| --- | --- |
+| [`run`](#octo-run) | Start the configured connectors and flows until interrupted (the default subcommand). |
+| [`invoke`](#octo-invoke) | Load a config, call one flow by name with a JSON body, and print its result. |
+| [`eval`](#octo-eval) | Evaluate a CEL expression against an ad-hoc message, without a config. |
+| [`schema`](#octo-schema) | Emit the capability catalogue (blocks and connectors) as JSON. `capabilities` is an alias. |
+| [`version`](#octo-version) | Print the release version and build date. |
+
+## octo run
+
+Starts every connector and flow declared in the config and keeps them running
+until the process receives `SIGINT` (Ctrl-C) or `SIGTERM`. `run` is the default
+subcommand, so a leading flag dispatches to it: `octo --config app.yaml` is the
+same as `octo run --config app.yaml`.
+
+```bash
+octo run --config samples/hello-world.yaml
+```
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--config` | path | (required) | Path to the runtime config — a YAML file or a directory. |
+| `--watch` | bool | `false` | Reload the runtime when the config changes. |
+
+When `--config` points to a directory, every `.yaml`/`.yml` file directly in it
+(sorted by name, subdirectories ignored) is loaded and merged into one config.
+The config's directory also becomes the resource root that relative resource
+ids (templates, env files) resolve against.
+
+Once every connector and flow has started, the runtime prints a ready banner
+to stdout:
+
+```
+time=... level=INFO msg="starting runtime" version=0.3.6 connectors=1 flows=1
+🚀  octo v0.3.6 is up and ready to roll!
+```
+
+### Watch mode
+
+With `--watch`, the runtime watches the config path (and the `.env` files it
+consults) and rebuilds on every change: the current generation is stopped,
+the config is reloaded, and a new generation starts. Failures are not fatal in
+watch mode — a config that fails to load, build, or start logs an error and
+waits for the next change, so fixing the file recovers without restarting the
+process. Runtime services (connections, leases) are built once and reused
+across reloads.
+
+## octo invoke
+
+Loads a config, starts the flows in invoke mode (sources are **not** started —
+no ports are bound, no schedules fire), calls the named flow once with the
+given body, prints the result body as JSON on stdout, and exits.
+
+```bash
+octo invoke --config samples/hello-invoke.yaml --flow greet --data '{"name": "Ada"}'
+```
+
+```json
+{"greeting":"hello, Ada!"}
+```
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--config` | path | (required) | Path to the runtime config (file or directory). |
+| `--flow` | string | (required) | Name of the flow to invoke. |
+| `--data` | JSON | stdin | JSON request body. When omitted, piped stdin is read instead. |
+| `--timeout` | duration | `30s` | Maximum time to wait for the flow (Go duration, e.g. `10s`, `2m`). |
+
+The body can also arrive on stdin — `--data` and a pipe are interchangeable:
+
+```bash
+echo '{"name": "Grace"}' | octo invoke --config samples/hello-invoke.yaml --flow greet
+```
+
+```json
+{"greeting":"hello, Grace!"}
+```
+
+Stdin is only read when it is piped or redirected, never from an interactive
+terminal, and it must be valid JSON. When the flow drops the message (a filter
+rejected it, or a block returned nothing), `invoke` logs
+`flow dropped the message` and prints no result. Any flow is callable this
+way, including flows without a `source:` (see
+[Flow File](/reference/flow-file#flows)).
+
+## octo eval
+
+Evaluates a CEL expression against an ad-hoc message — no config and no
+runtime services are involved. It is the fastest way to experiment with
+expressions before pasting them into a flow; see
+[CEL Expressions](/reference/cel) for a guided tour.
+
+```bash
+octo eval --expr '1 + 2'
+```
+
+```json
+{"ok":true,"result":3}
+```
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--expr` | string | (required) | The CEL expression to evaluate. |
+| `--data` | JSON | stdin | JSON object bound to the `body` variable. When omitted, piped stdin is read instead. |
+| `--vars` | JSON | `{}` | JSON object bound to the `vars` variable. |
+| `--env` | JSON | `{}` | JSON object bound to the `env` variable. |
+
+The remaining message variables get defaults: `eventID` is a fresh id,
+`correlationID` is empty, and `now` is the evaluation time.
+
+```bash
+octo eval --expr 'body.orders.filter(o, o.amount >= vars.min).map(o, o.id)' \
+  --data '{"orders": [{"id": 1, "amount": 50}, {"id": 2, "amount": 250}]}' \
+  --vars '{"min": 100}'
+```
+
+```json
+{"ok":true,"result":[2]}
+```
+
+The output is always a one-line JSON envelope:
+
+```json
+{"ok":true,"result":<value>}
+{"ok":false,"result":null,"error":"<message>"}
+```
+
+`ok` distinguishes a successful evaluation from a compile or evaluation
+failure; `result` is always present so a legitimate `false`/`0`/`null` result
+is not confused with its absence. Both outcomes exit `0` — a bad expression is
+a normal result, not a CLI failure — so scripts should parse the envelope
+rather than inspect exit codes:
+
+```bash
+octo eval --expr '1 +'
+```
+
+```json
+{"ok":false,"result":null,"error":"compile expression \"1 +\": ERROR: <input>:1:4: Syntax error: mismatched input '<EOF>' ..."}
+```
+
+<Callout type="info">
+  `eval` runs without a loaded config, so the `templateResource()` function has
+  no resources to render — calling it reports `resource: not found`. Every
+  other part of the expression environment behaves exactly as it does inside a
+  flow. See [Octo Extensions](/reference/cel/octo-extensions).
+</Callout>
+
+## octo schema
+
+Generates the capability catalogue — the machine-readable description of every
+registered block and connector (types, labels, categories, settings fields,
+defaults) — and prints it as JSON. `octo capabilities` is an alias.
+
+```bash
+octo schema            # print to stdout
+octo schema --out capabilities.json
+```
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--out` | path | stdout | Write the JSON to a file instead of stdout. |
+
+The output is an object with two arrays:
+
+```json
+{
+  "blocks": [
+    {
+      "type": "ai-mapping",
+      "label": "AI Mapping",
+      "category": "processor",
+      "group": "AI & LLM",
+      "icon": "Sparkles",
+      "description": "...",
+      "fields": [ ... ]
+    }
+  ],
+  "connectors": [ ... ]
+}
+```
+
+This catalogue powers the visual editor's block palette and property forms,
+and CI's documentation drift check compares it against the reference pages —
+every registered block and connector type must be documented by exactly one
+page. If you add a block or connector, `octo schema` is the source of truth
+the tooling holds the docs to.
+
+## octo version
+
+Prints the release version and, when available, the build timestamp.
+
+```bash
+octo version
+```
+
+```
+octo 0.3.6 (built 2026-07-09T06:11:43Z)
+```
+
+`octo --version` and `octo -version` print the same line. The build date is
+stamped at link time for released binaries; a `go build` binary falls back to
+the VCS commit time, and the suffix is omitted when neither exists.
+
+## Environment variables
+
+| Variable | Description |
+| --- | --- |
+| `LOG_LEVEL` | Log verbosity for the process logger: `debug`, `info` (default), `warn`, or `error`. An invalid value logs a warning and falls back to `info`. Logs are written to stderr. |
+| `OCTO_ENV_FILE` | Path to an extra `.env` file loaded in addition to `./.env`, overlaying it. See [Flow File — env](/reference/flow-file#env). |
+
+Config-declared environment variables (the `env:` section of a flow file) are
+resolved with the precedence OS environment > `.env` file > declared default;
+see [Flow File](/reference/flow-file#env) for the full rules.
