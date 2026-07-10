@@ -79,6 +79,10 @@ Each `http` source binds one route pattern to a flow. The request becomes the fl
 - A **failed** flow responds `500` with a JSON `{"error": ...}` body — see [error handling](/concepts/error-handling).
 - A flow that exceeds the timeout responds `504`.
 
+The runtime reads the whole request into memory and writes the whole response at
+once — there is no streaming. See [Raw Content and Streaming](/concepts/raw-content)
+for how to serve non-JSON payloads and why the payload is always materialized.
+
 ### Example
 
 Adapted from `samples/http-orders.yaml`:

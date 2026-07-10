@@ -13,12 +13,13 @@ both sides of Octo's raw-content mode, based on
 
 ## Raw content in one paragraph
 
-A message body opts into raw-content mode by carrying exactly two keys:
-`{"contentType": ..., "rawData": ...}`. Raw-aware connectors treat that shape
-specially — the HTTP source writes `rawData` verbatim to the response with
-`contentType` as the `Content-Type` header, instead of JSON-encoding the body.
-Blocks can produce the shape for you (`template-resource` with `rawBody: true`)
-or you can build it yourself with `set-payload`.
+Flows are JSON by default; a block puts the message into **raw-content mode** to
+serve something else. In that mode the body carries `{contentType, rawData}` and
+the HTTP source writes `rawData` verbatim with `contentType` as the `Content-Type`
+header, instead of JSON-encoding the body. You enter raw mode with a producing
+block — `template-resource` or `set-payload`, both with `rawBody: true` — not by
+hand-building the object. See [Raw Content and Streaming](/concepts/raw-content)
+for the full model.
 
 ## Declare a template resource
 
@@ -85,9 +86,10 @@ empty when serving pages.
 
 <Callout type="info">
   You don't need a template file for small responses. `set-payload` with
-  `value: '{"contentType": "text/html; charset=utf-8", "rawData": "<h1>hi</h1>"}'`
-  produces the same raw-content shape inline — handy for terse error pages, as in
-  [An AI Web App End to End](/guides/ai-web-app).
+  `rawBody: true`, a `contentType`, and a **string** `value` (for example
+  `value: '"<h1>hi</h1>"'`) produces a raw-content body inline — handy for terse
+  error pages, as in [An AI Web App End to End](/guides/ai-web-app). The `value`
+  must evaluate to a string when `rawBody` is set.
 </Callout>
 
 ## Accept a form submission

@@ -4,6 +4,7 @@
     "connectors-and-blocks",
     "expressions",
     "state-and-data",
+    "raw-content",
     "error-handling",
     "resources",
     "environment-and-config",

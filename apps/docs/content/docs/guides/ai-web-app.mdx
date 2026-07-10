@@ -241,11 +241,12 @@ combines forecast and topic (`'{"weather": body, "topic": vars.topic}'`) and
 hands both to an `ai-mapping` whose `inputExample` and `outputExample` carry the
 full weather fields, asking for a joke under 180 characters.
 
-### An inline rawData error page
+### An inline error page
 
-Where "jokes api" renders its error page from a template resource, "Weather
-jokes" shows the zero-dependency variant — build the raw-content body directly
-in the error path:
+Where "jokes api" renders its error page from a template resource, you can also
+build the raw HTML inline in the error path — no template file required. Set
+`rawBody: true` and a `contentType` on `set-payload`, and give it a **string**
+`value`:
 
 ```yaml
 error:
@@ -255,13 +256,21 @@ error:
       value: "500"
   - type: set-payload
     settings:
-      value: '{"contentType": "text/html; charset=utf-8", "rawData": "<!DOCTYPE html><html><body><h1>Oops</h1><p>The joke machine is down. Try again shortly.</p></body></html>"}'
+      rawBody: true
+      contentType: text/html; charset=utf-8
+      value: '"<!DOCTYPE html><html><body><h1>Oops</h1><p>The joke machine is down. Try again shortly.</p></body></html>"'
 ```
 
-A body of the shape `{"contentType": ..., "rawData": ...}` *is* the raw-content
-convention — the HTTP source serves `rawData` verbatim with that content type,
-no template file required. Use the template variant when the error page has real
-markup, the inline variant when three lines of HTML are enough.
+`rawBody: true` is what puts the message into raw-content mode so the HTTP source
+serves your HTML with that content type. Use the template variant when the error
+page has real markup, the inline variant when a few lines of HTML are enough.
+
+<Callout type="warn">
+  Building a plain object `{"contentType": ..., "rawData": ...}` with an ordinary
+  `set-payload` does **not** serve raw HTML — without `rawBody: true` the message
+  stays in JSON mode and the HTTP source returns that object as
+  `application/json`. See [Raw Content and Streaming](/concepts/raw-content).
+</Callout>
 
 ## Where to go next
 
