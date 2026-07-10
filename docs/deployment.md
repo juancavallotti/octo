@@ -1,5 +1,10 @@
 # Deploying Octo to GCP
 
+> **Published version:** the user-facing deployment docs live on the docs site
+> at <https://juancavallotti.github.io/octo/deploy/> (source:
+> `apps/docs/content/docs/deploy/`). This file remains the contributor-facing
+> guide; keep both in sync when the deployment story changes.
+
 This guide covers running Octo on Google Cloud: a single VM with single-node
 **k3s**, **Traefik** ingress, and **cert-manager** for free auto-renewing TLS.
 Octo's editor is served at your domain, and each deployed integration can get its

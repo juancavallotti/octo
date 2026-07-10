@@ -1,5 +1,11 @@
 # Processing Pipeline
 
+> **Published version:** the user-facing form of this document lives on the docs
+> site at <https://juancavallotti.github.io/octo/runtime/processing-pipeline/>
+> (source: `apps/docs/content/docs/runtime/processing-pipeline.mdx`). This file
+> remains the contributor-facing deep-dive; keep both in sync when the runtime
+> model changes.
+
 This document describes the runtime building blocks that turn connector events
 into messages and process them concurrently. It covers the conceptual model, the
 configuration schema, the concurrency model, and the start/stop lifecycle.
