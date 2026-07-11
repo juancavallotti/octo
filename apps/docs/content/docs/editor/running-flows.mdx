@@ -44,11 +44,21 @@ Save first, and saving is still what persists the flow to disk.
 
 ![The console streaming logs from a running flow, with the Logs and Dev .env tabs and the run's test URL in the header](/screenshots/editor-console.png)
 
-The console is the docked panel at the bottom, with two tabs: **Logs** and
-**Dev .env**. It shows the runner's version, opens automatically when a run
-starts, and can be collapsed to its header or resized by dragging its top edge.
-Logs auto-scroll while you are at the bottom of the stream, and the trash
-button clears the display.
+The console is the docked panel at the bottom. It shows the runner's version,
+opens automatically when a run starts, and can be collapsed to its header or
+resized by dragging its top edge. It has four tabs:
+
+- **Logs** — the running integration's output, streamed live. Auto-scrolls while
+  you are at the bottom of the stream; the trash button clears the display.
+- **Problems** — validation issues and the reasons a run is blocked. Click one to
+  select the block it belongs to.
+- **Output** — the result of a single flow you invoked, or the message captured
+  at a breakpoint.
+- **Dev .env** — local values for the variables your flows declare (below).
+
+Problems and Output belong to the other way of running a flow — invoking one on
+its own, with a test input, and stopping it wherever you like. See
+[Debugging flows](/editor/debugging-flows).
 
 ## The Dev .env tab
 
