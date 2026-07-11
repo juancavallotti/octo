@@ -7,6 +7,8 @@ import { Callout } from 'fumadocs-ui/components/callout';
 
 One NATS broker is the platform's message backbone. Control-plane events, runtime work queues, and log shipping all share it — separated by subject namespace, never by broker. This page maps what flows over it and how events reach the browser.
 
+![The platform's Queues view: NATS connection and message stats, and the active subjects — including a deployment's slack-chat-events queue and internal.logs](/screenshots/platform-queues.png)
+
 ## Subject map
 
 | Subject | Publisher | Consumer | Purpose |

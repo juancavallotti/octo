@@ -5,6 +5,8 @@ description: "The platform app, orchestrator API, NATS, Postgres, and runtime wo
 
 The platform is a control plane — the Next.js platform app, the Go orchestrator, Postgres, NATS, and a log aggregator — and a data plane where every deployed integration runs as its own Kubernetes Deployment of the same `octo-runtime` image. This page maps the components and traces the main request paths between them.
 
+![The platform app's visual editor — the block palette, an integration's flow graph, and the settings panel, with Save, Run, and Deploy in the toolbar](/screenshots/platform-editor-canvas.png)
+
 ## Component map
 
 ```
