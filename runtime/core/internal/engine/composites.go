@@ -60,6 +60,12 @@ func (s *scope) Process(ctx context.Context, msg *types.Message) (*types.Message
 // pool with its own clone of the message, then joins. The first branch error
 // aborts the fork (cancelling the remaining branches); on success the input
 // message passes through unchanged. Aggregating branch outputs is deferred.
+//
+// A branch that requests stop halts the fork's parent chain too: the branches run
+// on clones, so the flag would otherwise be discarded with the clone and the stop
+// would reach no further than the branch itself. The flag is collected under the
+// mutex and applied to the parent message once, after the join — writing it from
+// the branch goroutines would race on the message's Variables map.
 func (f *fork) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
 	branchCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -68,6 +74,7 @@ func (f *fork) Process(ctx context.Context, msg *types.Message) (*types.Message,
 		wg       sync.WaitGroup
 		mu       sync.Mutex
 		firstErr error
+		stop     bool
 	)
 
 	wg.Add(len(f.branches))
@@ -76,13 +83,22 @@ func (f *fork) Process(ctx context.Context, msg *types.Message) (*types.Message,
 		clone := msg.Clone()
 		f.pool.Submit(func() {
 			defer wg.Done()
-			if _, err := branch.Process(branchCtx, clone); err != nil {
-				mu.Lock()
-				if firstErr == nil {
-					firstErr = fmt.Errorf("fork branch %q: %w", branch.Name, err)
-					cancel()
-				}
-				mu.Unlock()
+			out, err := branch.Process(branchCtx, clone)
+
+			mu.Lock()
+			defer mu.Unlock()
+
+			// Read the stop flag before handling the error, and from the clone as
+			// well as the result: RequestStop writes the flag into the message it is
+			// called on, so a branch that stops and then fails — or whose message is
+			// dropped further down the chain — carries the flag on the clone while
+			// returning a nil result.
+			if clone.StopRequested() || (out != nil && out.StopRequested()) {
+				stop = true
+			}
+			if err != nil && firstErr == nil {
+				firstErr = fmt.Errorf("fork branch %q: %w", branch.Name, err)
+				cancel()
 			}
 		})
 	}
@@ -90,6 +106,9 @@ func (f *fork) Process(ctx context.Context, msg *types.Message) (*types.Message,
 
 	if firstErr != nil {
 		return nil, firstErr
+	}
+	if stop {
+		msg.RequestStop()
 	}
 	return msg, nil
 }
