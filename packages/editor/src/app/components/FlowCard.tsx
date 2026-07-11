@@ -35,6 +35,13 @@ export default function FlowCard({
       className={[
         "group rounded-3xl border-2 border-dashed p-5",
         "bg-white/60 backdrop-blur-md dark:bg-zinc-900/50",
+        // `backdrop-blur` makes this card a stacking context, which traps anything inside
+        // it *underneath* the card that follows — so a popover opened on one of its nodes
+        // is painted over by the next flow. Nothing inside can fix that with a z-index of
+        // its own; the card that owns the context has to lift itself, which it does while
+        // any popover within it is open (see components/ui/Popover). z-20 and not higher:
+        // the canvas toolbar sits at z-30 and must stay above the cards.
+        "relative has-[[data-popover-open]]:z-20",
         active ? "border-sky-400/70" : "border-zinc-300 dark:border-zinc-700",
       ].join(" ")}
     >

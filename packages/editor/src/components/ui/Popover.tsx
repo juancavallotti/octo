@@ -47,7 +47,12 @@ export default function Popover({
   }, [open, onClose]);
 
   return (
-    <div ref={ref} className="relative">
+    // `data-popover-open` is how an ancestor knows to get out of the way. A panel can only
+    // ever stack within the nearest stacking context, and the canvas is full of them — a
+    // flow card's `backdrop-blur` alone creates one — so no z-index here can lift a panel
+    // over the card *next* to the one it opened in. The ancestor that owns the context has
+    // to raise itself, and it finds out by `has-[[data-popover-open]]` (see FlowCard).
+    <div ref={ref} className="relative" data-popover-open={open ? "" : undefined}>
       {trigger}
       {open && (
         <div

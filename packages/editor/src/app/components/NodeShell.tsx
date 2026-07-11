@@ -8,6 +8,7 @@ import type { BlockNode } from "../model/document";
 import { useEditorState, EditorActionType } from "../state/editorState";
 import FlowNode from "./FlowNode";
 import BlockRunButton from "./BlockRunButton";
+import BlockDebugButtons from "./BlockDebugButtons";
 
 /**
  * The shared draggable wrapper around a node, used by both leaf steps and
@@ -63,11 +64,23 @@ export default function NodeShell({
     </button>
   );
 
-  // The node's hover actions, clustered at its top-right corner: run the flow up to
-  // this block, and remove it.
+  // The node's actions, clustered at its top-right corner: run-to-here, mock, watch, and
+  // remove. Most reveal on hover, but an active mock or spy keeps its button visible — a
+  // standing change to what a run does should not be something you have to hover to
+  // notice.
+  //
+  // The cluster stacks ABOVE the node itself. FlowNode's icon circle carries a z-index of
+  // its own so it can overlap the label pill, and an overlay left on the default layer is
+  // painted over by it — the leftmost button vanishing under the icon.
+  //
+  // That z-index also makes the cluster a stacking context, which traps a popover opened
+  // inside it beneath the NEXT node's cluster — same rank, later in the DOM. So while one
+  // is open the cluster outranks its siblings. (FlowCard does the same a level up, for the
+  // stacking context its backdrop-blur creates.)
   const actions = (
-    <div className="absolute -right-2 -top-2 flex items-center gap-1">
+    <div className="absolute -right-2 -top-2 z-20 flex items-center gap-1 has-[[data-popover-open]]:z-40">
       <BlockRunButton blockId={block.id} />
+      <BlockDebugButtons blockId={block.id} />
       <button
         type="button"
         aria-label="Remove step"
