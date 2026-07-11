@@ -109,6 +109,30 @@ function spanOf(src: string, item: unknown): Span {
 }
 
 /**
+ * Extend a span backwards over the comment block written directly above the flow.
+ *
+ * A flow's span starts at its `- ` bullet, so the doc comment above it sits *outside* —
+ * which is what {@link updateFlow} wants (the comment still describes the flow, which is
+ * still there) and what {@link deleteFlow} does not: left behind, the comment does not
+ * merely litter, it slides down onto the next flow and captions the wrong one.
+ *
+ * The parser cannot settle who owns the comment — a block above the *first* flow is
+ * attached to the sequence, not to the flow, because from `flows:` it is equally readable
+ * as a caption for the list. So we use the rule a human reads the file by: a comment butted
+ * against the flow belongs to it, and a blank line ends the block. That leaves a file- or
+ * list-level note (set apart by a blank line, as such notes are) exactly where it was.
+ */
+function commentStart(src: string, start: number): number {
+  let at = start;
+  while (at > 0) {
+    const prev = src.lastIndexOf("\n", at - 2) + 1;
+    if (!/^[ \t]*#/.test(src.slice(prev, at))) break;
+    at = prev;
+  }
+  return at;
+}
+
+/**
  * Render a flow's YAML as a sequence item under `bullet`: the first line after the bullet
  * itself, every later line indented to match. Blank lines are left blank rather than
  * padded with trailing spaces.
@@ -227,14 +251,19 @@ export function updateFlow(definition: string, name: string, flowYaml: string): 
   return src.slice(0, span.start) + asItem(text, span.bullet) + src.slice(span.end);
 }
 
-/** Remove the flow named `name`. Throws when there is none. */
+/**
+ * Remove the flow named `name`, and the comment block written above it — that comment
+ * documented this flow, and a comment left orphaned re-attaches itself to whatever flow
+ * falls under it next, which is worse than no comment at all. Throws when there is none.
+ */
 export function deleteFlow(definition: string, name: string): string {
   const { src, seq } = parse(definition);
   const at = indexOf(seq, name);
   if (at < 0) throw new Error(missing(name, seq));
 
   const span = spanOf(src, seq!.items[at]);
-  let { start, end } = span;
+  let { end } = span;
+  let start = commentStart(src, span.start);
 
   // Flows sit a blank line apart, and removing one has to take a separator with it or the
   // gap it leaves behind doubles. Which one depends on where it sat: a flow with another

@@ -138,6 +138,75 @@ describe("flow splicing", () => {
     it("errors when no flow answers to the name", () => {
       expect(() => deleteFlow(DEF, "refund")).toThrow(/no flow named "refund"/);
     });
+
+    /**
+     * A doc comment above a flow describes *that* flow. Leaving it behind does not merely
+     * litter: the next flow down slides up under it and inherits the caption, so the file
+     * ends up actively lying about a flow nobody touched.
+     */
+    describe("the comment block above a flow", () => {
+      const DOCUMENTED = `service:
+  name: orders
+
+flows:
+  # Charges the card.
+  # Do not run this one for fun.
+  - name: charge
+    process:
+      - type: log
+        name: a
+
+  # Writes the audit trail.
+  - name: audit
+    process:
+      - type: log
+        name: b
+`;
+
+      it("goes with the flow it documented", () => {
+        const out = deleteFlow(DOCUMENTED, "charge");
+        expect(out).not.toContain("Charges the card");
+        expect(out).not.toContain("Do not run this one for fun");
+      });
+
+      it("does not re-caption the flow below it", () => {
+        const out = deleteFlow(DOCUMENTED, "charge");
+        expect(out).toContain("# Writes the audit trail.\n  - name: audit");
+        expect(flowNames(out)).toEqual(["audit"]);
+      });
+
+      it("survives an update of the flow it belongs to", () => {
+        const out = updateFlow(
+          DOCUMENTED,
+          "charge",
+          "name: charge\nprocess:\n  - type: log\n    name: c\n",
+        );
+        expect(out).toContain("# Charges the card.");
+        expect(out).toContain("name: c");
+      });
+
+      // The other half of the rule. A note set apart by a blank line is talking about the
+      // file or the list, not about the flow that happens to come next, so deleting that
+      // flow must leave it alone.
+      it("leaves a list-level note, which a blank line sets apart, where it is", () => {
+        const CAPTIONED = `flows:
+  # Every flow here is triggered by the API.
+
+  - name: charge
+    process:
+      - type: log
+        name: a
+
+  - name: audit
+    process:
+      - type: log
+        name: b
+`;
+        const out = deleteFlow(CAPTIONED, "charge");
+        expect(out).toContain("# Every flow here is triggered by the API.");
+        expect(flowNames(out)).toEqual(["audit"]);
+      });
+    });
   });
 
   it("reports a definition that is not valid YAML as such", () => {
