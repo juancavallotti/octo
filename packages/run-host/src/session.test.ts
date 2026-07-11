@@ -352,7 +352,7 @@ describe("run session", () => {
         });
         expect(r.ok).toBe(false);
         expect(r.breakpoint).toBeUndefined();
-        expect(r.logs.join("\n")).toContain("could not parse the breakpoint envelope");
+        expect(r.logs.join("\n")).toContain("could not parse the debug envelope");
       });
 
       // Without breakAt, stdout is the flow's result body and must not be sniffed as
@@ -367,6 +367,137 @@ describe("run session", () => {
         expect(r.ok).toBe(true);
         expect(r.breakpoint).toBeUndefined();
         expect(r.output).toContain('"reached":true');
+      });
+    });
+
+    describe("spies and mocks", () => {
+      /** A fake runner printing one envelope line, as the CLI does. */
+      const envelope = (body: string) => `printf '%s\\n' '${body}'`;
+
+      it("forwards spy addresses as one comma-separated argv value", async () => {
+        process.env.OCTO_BIN_PATH = await fakeBin(dir, "octo-args", 'echo "$@"');
+        // The fake echoes argv rather than an envelope, so the parse fails and the run is
+        // not ok — but stdout is left as it came, which is the argv this pins.
+        const r = await invoke(NS, "service:\n  name: t\n", "greet", {
+          spies: ["greet.seed", "greet.fanout[audit].log-it"],
+        });
+        expect(r.output).toContain("--spies greet.seed,greet.fanout[audit].log-it");
+      });
+
+      it("forwards mocks as a single JSON blob, and omits the flag when there are none", async () => {
+        process.env.OCTO_BIN_PATH = await fakeBin(dir, "octo-args", 'echo "$@"');
+
+        const mocked = await invoke(NS, "service:\n  name: t\n", "greet", {
+          mocks: { "greet.charge": { default: { body: { ok: true } } } },
+        });
+        expect(mocked.output).toContain(
+          '--mocks {"greet.charge":{"default":{"body":{"ok":true}}}}',
+        );
+
+        // An empty map means "mock nothing", which is what omitting the flag says.
+        const empty = await invoke(NS, "service:\n  name: t\n", "greet", { mocks: {} });
+        expect(empty.output).not.toContain("--mocks");
+      });
+
+      // A spies-only envelope carries no `reached` — that is what keeps it from being
+      // read as a breakpoint that never fired.
+      it("decodes a spies-only envelope and reports no breakpoint", async () => {
+        process.env.OCTO_BIN_PATH = await fakeBin(
+          dir,
+          "octo-spy",
+          envelope(
+            '{"result":{"event_id":"e1","body":{"total":9}},"spies":[{"address":"greet.seed","records":[{"seq":1,"at":"2026-07-11T00:00:00Z","input":{"body":{}},"output":{"body":{"total":9}}}]}]}',
+          ),
+        );
+
+        const r = await invoke(NS, "service:\n  name: t\n", "greet", {
+          spies: ["greet.seed"],
+        });
+        expect(r.ok).toBe(true);
+        expect(r.breakpoint).toBeUndefined();
+        expect(r.spies?.[0].address).toBe("greet.seed");
+        expect(r.spies?.[0].records[0].output).toEqual({ body: { total: 9 } });
+      });
+
+      // A spy is read-only: switching one on must not change what a reader of `output`
+      // sees, even though stdout now carries an envelope rather than the result message.
+      it("re-derives output as the flow's result message under a spies-only run", async () => {
+        process.env.OCTO_BIN_PATH = await fakeBin(
+          dir,
+          "octo-spy-out",
+          envelope('{"result":{"event_id":"e1","variables":{},"body":{"total":9}},"spies":[]}'),
+        );
+
+        const r = await invoke(NS, "service:\n  name: t\n", "greet", {
+          spies: ["greet.seed"],
+        });
+        expect(JSON.parse(r.output)).toEqual({
+          event_id: "e1",
+          variables: {},
+          body: { total: 9 },
+        });
+        expect(r.dropped).toBe(false);
+      });
+
+      // Under --break-at the flow never produces a result, so there is nothing to report
+      // as one — the snapshot in `breakpoint.message` is the thing to read.
+      it("reports both the breakpoint and the spies when a run sets both", async () => {
+        process.env.OCTO_BIN_PATH = await fakeBin(
+          dir,
+          "octo-both",
+          envelope(
+            '{"reached":true,"block":"greet.charge","message":{"body":{"amount":250}},"spies":[{"address":"greet.seed","records":[]}]}',
+          ),
+        );
+
+        const r = await invoke(NS, "service:\n  name: t\n", "greet", {
+          breakAt: "greet.charge",
+          spies: ["greet.seed"],
+        });
+        expect(r.breakpoint?.reached).toBe(true);
+        expect(r.breakpoint?.message).toEqual({ body: { amount: 250 } });
+        // An empty trace is a result, not a gap: the flow may not have crossed the block.
+        expect(r.spies).toEqual([{ address: "greet.seed", records: [] }]);
+        expect(r.output).toBe("");
+      });
+
+      // Mocking changes what a flow does but observes nothing, so the runner prints a
+      // plain result message. Sniffing for an envelope that was never printed would
+      // fail a perfectly good run.
+      it("does not look for an envelope on a mocks-only run", async () => {
+        process.env.OCTO_BIN_PATH = await fakeBin(
+          dir,
+          "octo-mocked",
+          envelope('{"event_id":"e1","variables":{},"body":{"ok":true}}'),
+        );
+
+        const r = await invoke(NS, "service:\n  name: t\n", "greet", {
+          mocks: { "greet.charge": { default: { body: { ok: true } } } },
+        });
+        expect(r.ok).toBe(true);
+        expect(r.debug).toBeUndefined();
+        expect(JSON.parse(r.output)).toEqual({
+          event_id: "e1",
+          variables: {},
+          body: { ok: true },
+        });
+      });
+
+      // The envelope is the only account of a drop under --spies: the stderr marker the
+      // plain path relies on is still printed, but the envelope says so authoritatively.
+      it("takes dropped from the envelope on an observing run", async () => {
+        process.env.OCTO_BIN_PATH = await fakeBin(
+          dir,
+          "octo-spy-drop",
+          envelope('{"dropped":true,"spies":[]}'),
+        );
+
+        const r = await invoke(NS, "service:\n  name: t\n", "greet", {
+          spies: ["greet.seed"],
+        });
+        expect(r.ok).toBe(true);
+        expect(r.dropped).toBe(true);
+        expect(r.output).toBe("");
       });
     });
 
