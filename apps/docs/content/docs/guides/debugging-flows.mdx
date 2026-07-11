@@ -1,6 +1,6 @@
 ---
 title: "Debugging a Flow"
-description: "Stop a flow at any block and inspect the message with invoke --break-at."
+description: "Stop a flow at a block, watch what crosses it, and stand in for the blocks that call the world."
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
@@ -9,6 +9,14 @@ When a flow does not do what you expect, the question is almost always the same:
 **what did the message look like when it got here — and did it even get here?**
 This guide answers both with `octo invoke --break-at`, which runs a flow until it
 reaches a block you name, prints the message that block produced, and stops.
+
+Three flags address a block, and they compose:
+
+| Flag | What it does to the block | Does the flow keep running? |
+| --- | --- | --- |
+| [`--break-at`](#break-on-a-block-in-the-flows-chain) | Runs it, shows the message, stops | No — it halts there |
+| [`--spies`](#watch-a-block-without-stopping) | Runs it, records what went in and out | Yes |
+| [`--mocks`](#stand-in-for-a-block) | **Replaces** it with a canned answer | Yes |
 
 It follows [`samples/builtins-demo.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/builtins-demo.yaml),
 which has an `if`, a `foreach`, and a nested `switch` — enough shape to address
@@ -193,18 +201,226 @@ the call, so the caller halts too:
 ./bin/octo invoke --config ./flows --flow caller --break-at 'sub.step'
 ```
 
+## Watch a block without stopping
+
+A breakpoint answers "what did the message look like *here*", once, and then halts
+the flow. `--spies` answers "what crossed this block", **every time**, and leaves
+the run alone. That is what you want when the bug is in the third iteration of a
+loop, or in one branch of a fork.
+
+The sample's `foreach` runs its body once per order, so a spy on the `switch`
+inside it reports one record per iteration:
+
+```bash
+./bin/octo invoke --config samples/builtins-demo.yaml --flow demo --data "$D" \
+  --spies 'demo.each-order[body].classify-order'
+```
+
+```json
+{"seq":1,"order":{"id":1,"amount":50}}
+{"seq":2,"order":{"id":2,"amount":250}}
+```
+
+(That is `.spies[0].records[] | {seq, order: .input.variables.order}` — the raw
+envelope carries the whole message on each side.) Each record holds the message
+that went **in**, the message that came **out**, and a `seq` that orders records
+across *every* spy — so a trace over several blocks reads in the order things
+actually happened.
+
+Pass several addresses, comma-separated:
+
+```bash
+./bin/octo invoke --config samples/builtins-demo.yaml --flow demo --data "$D" \
+  --spies 'demo.set-threshold,demo.each-order[body].classify-order'
+```
+
+A spy sees what nothing else can: a `fork` runs each branch on a *clone* and
+throws the branch's message away, so a block inside one has no other way to
+report what it received. And unlike a breakpoint, the flow still runs to
+completion — the result comes back in the same envelope, under `result`.
+
+<Callout type="info">
+A block the flow never reached reports an **empty** record list, not an error.
+Nothing crossed it — which, as with `reached: false`, is often the answer you
+needed.
+</Callout>
+
+## Stand in for a block
+
+`--mocks` **replaces** a block with a canned answer, so the real work — the HTTP
+call, the LLM, the database write — never happens. This is what closes the loop:
+a flow you could only run against a live upstream becomes a flow you can run
+anywhere, including in CI.
+
+[`samples/error-handling.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/error-handling.yaml)
+points its `rest` block at a discard port, so the call *always* fails to connect.
+Unmocked, the flow's error path runs:
+
+```bash
+./bin/octo invoke --config samples/error-handling.yaml --flow charge-flowlevel \
+  --data '{"amount": 250}'
+```
+
+```json
+{"error":"block \"call-charge\": rest request: … connect: connection refused",
+ "failedBlock":"call-charge","flow":"charge-flowlevel"}
+```
+
+Mock the call, and a flow that *cannot* succeed does:
+
+```bash
+./bin/octo invoke --config samples/error-handling.yaml --flow charge-flowlevel \
+  --data '{"amount": 250}' \
+  --mocks '{"charge-flowlevel.call-charge":{
+     "cases":[{"when":"body.amount > 100","body":{"id":"ch_1","status":"captured"}}],
+     "default":{"error":"unexpected input"}}}'
+```
+
+```json
+{"id":"ch_1","status":"captured"}
+```
+
+A case is a CEL `when` over the message the block **received**, and exactly one
+outcome:
+
+| Outcome | The block… | Use it to |
+| --- | --- | --- |
+| `body` (+ optional `vars`) | returned this message | stand in for a call's response |
+| `error` | failed with this message | exercise an error path |
+| `drop` | filtered the message out | stand in for a filter |
+
+Cases are tried in order; the first whose `when` holds wins. An optional
+`default` catches the rest.
+
+### Testing an error path without a broken upstream
+
+Because a case can *fail* the block, you can drive the error path on demand:
+
+```bash
+./bin/octo invoke --config samples/error-handling.yaml --flow charge-flowlevel \
+  --data '{"amount": 250}' \
+  --mocks '{"charge-flowlevel.call-charge":{"cases":[{"when":"true","error":"card declined"}]}}'
+```
+
+```json
+{"error":"block \"call-charge\": card declined","failedBlock":"call-charge","flow":"charge-flowlevel"}
+```
+
+Note `failedBlock` still names `call-charge`. A mocked failure is
+**indistinguishable** from the real block failing, so an error path branching on
+`vars.error.block` behaves exactly as it would in production.
+
+### Combining them
+
+The three flags compose on the *same* block. A mock is innermost, a spy wraps it,
+a breakpoint wraps that — so a spy on a mocked block shows you what the flow fed
+it and what the mock answered:
+
+```bash
+./bin/octo invoke --config samples/error-handling.yaml --flow charge-flowlevel \
+  --data '{"amount": 250}' \
+  --spies 'charge-flowlevel.call-charge' \
+  --mocks '{"charge-flowlevel.call-charge":{"cases":[{"when":"true","body":{"id":"ch_1"}}]}}' \
+  | jq '.spies[0].records[0] | {in: .input.body, out: .output.body}'
+```
+
+```json
+{"in":{"amount":250},"out":{"id":"ch_1"}}
+```
+
+<Callout type="warn">
+Mocking a **composite** (a `fork`, an `ai-agent`) removes everything inside it —
+that is how you cut out a whole sub-tree that would call the network. Which means
+a spy or breakpoint addressed *inside* a mocked block can never fire, so `invoke`
+rejects it rather than silently reporting nothing:
+
+```
+spy "charge-inline.charge[process].call-charge" is inside mocked block "charge-inline.charge":
+the mock replaces that block, so there is nothing in there to spy
+```
+</Callout>
+
+## Drive it all from a file
+
+A useful session is now a page of flags. Typing it again tomorrow is how a
+reproduction gets lost — so write it down and check it in next to the flow it
+exercises:
+
+```yaml title="debug.yaml"
+input:
+  data: { amount: 250 }
+spies:
+  - charge-flowlevel.call-charge
+mocks:
+  charge-flowlevel.call-charge:
+    cases:
+      - when: 'body.amount > 100'
+        body: { id: ch_1, status: captured }
+    default:
+      error: unexpected input
+```
+
+```bash
+./bin/octo invoke --config samples/error-handling.yaml --flow charge-flowlevel \
+  --run-debug-config debug.yaml
+```
+
+It is YAML, and JSON works too (JSON is a subset of YAML), so a `--mocks` blob
+that worked on the command line pastes straight in. Any flag **overrides** the
+section it corresponds to, whole — so the same file re-runs against a different
+payload without editing it:
+
+```bash
+./bin/octo invoke --config samples/error-handling.yaml --flow charge-flowlevel \
+  --run-debug-config debug.yaml --data '{"amount": 5}'
+```
+
+An amount of 5 matches no case, so the file's `default` fires and fails the block.
+This flow has an error chain, which recovers it — so the failure comes back in the
+result:
+
+```json
+{"result":{"body":{"error":"block \"call-charge\": unexpected input",
+                   "failedBlock":"call-charge","flow":"charge-flowlevel"}},
+ "spies":[{"records":[{"error":"unexpected input"}]}]}
+```
+
+The spy records the block failing; the `result` shows what the flow made of it.
+
+A typo'd key is **rejected**, not ignored — a misspelled `spys:` that was quietly
+skipped would look exactly like a feature that does not work:
+
+```
+parse debug config "debug.yaml": field spys not found in type main.debugConfig
+```
+
+To have your editor complete the file and a validator check it, print its schema:
+
+```bash
+./bin/octo schema --kind debug-config --format yaml
+```
+
 ## Things worth knowing
 
 - **The block you break on still runs.** The snapshot is taken after it, so you
   see its effect. If it fails or drops the message, there is nothing to show and
   you get `reached: false`.
+- **A mocked block does not.** It is replaced, not wrapped — that is the whole
+  point. And a message matching no case (with no `default`) **fails** the block,
+  rather than falling through to the real one: a "mocked" call that quietly still
+  reached the network would be the exact bug mocking exists to prevent.
 - **Nothing downstream runs.** The flow halts, so no later side effects fire.
 - **A `cache-scope` hit skips its body**, so a breakpoint inside the body reports
   `reached: false` — and a halted body is never written to the cache.
 - **A `fork`'s sibling branches still finish.** Breaking in one branch does not
   cancel the others; the flow halts once the fork joins.
-- Breakpoints work with `invoke` only, and are refused on a source-backed
-  service — they can never halt live traffic.
+- **All three are `invoke`-only**, and are refused on a source-backed service. A
+  breakpoint would halt whichever production message arrived first and a mock
+  would answer it with a canned response. A spy is read-only, but nothing drains
+  its records outside an invoke, so it would grow without bound.
+- **None of them is a block you can write.** `spy`, `mock` and `breakpoint` are
+  injected by the runtime; a config that declares one by hand fails to build, and
+  they never appear in the editor palette.
 - **`--data` only fills the body.** Since no source runs, nothing sets the
   message's variables either — so a block that reads `vars` needs
   [`--vars`](/reference/cli#seeding-variables) to seed them, e.g.
