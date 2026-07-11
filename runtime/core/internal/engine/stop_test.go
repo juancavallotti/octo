@@ -181,6 +181,44 @@ func TestStopFromEveryForkBranch(t *testing.T) {
 	}
 }
 
+func TestStopBubblesThroughEnrich(t *testing.T) {
+	var ran bool
+	reg := stopRegistry(&ran)
+
+	// enrich{ body: stop, setVars: {seen: 'yes'} }, followed by a record block. The
+	// body runs on a clone and only setVars folds back, so the enrich has to carry
+	// the flag out itself.
+	flow, err := (&builder{reg: reg, pool: pool.New(0, 0)}).flow(types.FlowConfig{
+		Process: []types.BlockConfig{
+			{
+				Type:    "enrich",
+				Body:    &types.FlowConfig{Process: []types.BlockConfig{{Type: "stop"}}},
+				SetVars: map[string]string{"seen": "'yes'"},
+			},
+			{Type: "record"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("build flow: %v", err)
+	}
+
+	out, err := flow.Process(context.Background(), mustMessage(t))
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	if out == nil || !out.StopRequested() {
+		t.Fatal("a stop inside an enrich body must bubble out to the enclosing flow")
+	}
+	if ran {
+		t.Error("block after a stopping enrich must not run")
+	}
+	// A stopped body still enriches: setVars applies exactly as it would have on a
+	// body that ran to completion.
+	if seen, _ := out.Variables.String("seen"); seen != "yes" {
+		t.Errorf("setVars did not apply on a stopped body: seen = %q, want %q", seen, "yes")
+	}
+}
+
 func TestStopHaltsForeach(t *testing.T) {
 	reg := core.NewBlockRegistry()
 	var iterations int

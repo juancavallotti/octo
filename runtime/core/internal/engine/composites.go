@@ -164,6 +164,12 @@ type enrichScope struct {
 // Process runs the body on a clone, then applies the enrichment expressions
 // against the clone's result. A body error aborts; a body that drops the message
 // drops it here too.
+//
+// A body that requests stop halts the enclosing flow as well. The body runs on a
+// clone and only setBody/setVars fold back, so the flag — which rides in the
+// clone's Variables — would otherwise be discarded and the enclosing chain would
+// run on. The enrichment expressions still apply, so a stopped body enriches
+// exactly as a completed one does.
 func (e *enrichScope) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
 	clone := msg.Clone()
 	out, err := e.body.Process(ctx, clone)
@@ -188,6 +194,13 @@ func (e *enrichScope) Process(ctx context.Context, msg *types.Message) (*types.M
 			return nil, fmt.Errorf("enrich setVars[%q]: %w", name, evalErr)
 		}
 		msg.Variables.Set(name, value)
+	}
+
+	// Carry a stop raised inside the body out to the message the enclosing flow
+	// continues with; setVars writes only the names it was configured with, so the
+	// flag never crosses back on its own.
+	if out.StopRequested() {
+		msg.RequestStop()
 	}
 	return msg, nil
 }
