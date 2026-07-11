@@ -59,7 +59,12 @@ export {
   toDefinitionYaml,
   fromDefinitionYaml,
 } from "./app/model/runConfig";
-export { validateDocument, type ValidationResult } from "./app/model/validate";
+export {
+  validateDocument,
+  issueMessages,
+  type ValidationResult,
+  type Issue,
+} from "./app/model/validate";
 export * from "./app/model/document";
 
 // Capability schema helpers (icon registry + connector/source specs) are exposed

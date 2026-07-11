@@ -10,7 +10,12 @@ export {
   toRunnableYaml,
   toDefinitionYaml,
 } from "./app/model/runConfig";
-export { validateDocument, type ValidationResult } from "./app/model/validate";
+export {
+  validateDocument,
+  issueMessages,
+  type ValidationResult,
+  type Issue,
+} from "./app/model/validate";
 // Capability schema + icon registry. resolveIcon returns icon *components* but
 // only referencing them (not rendering) is server-safe, so a host can pick an
 // icon for a stored definition without pulling in the React editor.

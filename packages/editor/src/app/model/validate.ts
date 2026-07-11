@@ -19,9 +19,52 @@ import type { FieldSpec } from "../schema/types";
  * It is intentionally not exhaustive (CEL expressions, connector reachability,
  * etc. are left to the runner's own logs streamed into the panel).
  */
+
+/**
+ * One problem with the document. `message` is the human prose (the RUN button's
+ * tooltip and the MCP `validate_definition` errors are just these strings), while
+ * the ids say *where* it is, so the Problems tab can select the offending node
+ * when the issue is clicked. Ids are absent for document-wide problems ("add at
+ * least one flow") and for connections, which are not canvas nodes.
+ */
+export interface Issue {
+  message: string;
+  severity: "error" | "warning";
+  /** The flow the problem is in, when it belongs to one. */
+  flowId?: string;
+  /** The offending block, when the problem is a block's. */
+  blockId?: string;
+}
+
 export interface ValidationResult {
   ok: boolean;
-  issues: string[];
+  issues: Issue[];
+}
+
+/** The issue prose alone — for consumers that only render a list of strings. */
+export function issueMessages(result: ValidationResult): string[] {
+  return result.issues.map((i) => i.message);
+}
+
+/**
+ * Where the checker currently is: the label prefix built up as it descends (the
+ * prose users read) plus the ids of the nodes it is inside, so an issue raised
+ * deep in a composite still points at something selectable on the canvas.
+ */
+interface Scope {
+  label: string;
+  flowId?: string;
+  blockId?: string;
+}
+
+/** Raise an issue at `scope`, prefixing its label. */
+function raise(issues: Issue[], scope: Scope, message: string): void {
+  issues.push({
+    message: `${scope.label}: ${message}`,
+    severity: "error",
+    flowId: scope.flowId,
+    blockId: scope.blockId,
+  });
 }
 
 /** Whether a scalar setting value should count as "not provided". */
@@ -38,8 +81,8 @@ function checkFields(
   fields: FieldSpec[],
   settings: Record<string, unknown>,
   doc: EditorDocument,
-  label: string,
-  issues: string[],
+  scope: Scope,
+  issues: Issue[],
 ): void {
   for (const field of fields) {
     if (isSlotField(field)) continue; // nested sub-flows are checked separately
@@ -48,17 +91,19 @@ function checkFields(
     if (field.ref) {
       const current = value === undefined || value === null ? "" : String(value);
       if (current === "") {
-        if (field.required) issues.push(`${label}: ${field.label} is required.`);
+        if (field.required) raise(issues, scope, `${field.label} is required.`);
       } else if (!referenceOptions(doc, field.ref).includes(current)) {
-        issues.push(
-          `${label}: ${field.label} references "${current}", which doesn't exist.`,
+        raise(
+          issues,
+          scope,
+          `${field.label} references "${current}", which doesn't exist.`,
         );
       }
       continue;
     }
 
     if (field.required && isEmpty(value)) {
-      issues.push(`${label}: ${field.label} is required.`);
+      raise(issues, scope, `${field.label} is required.`);
     }
   }
 }
@@ -66,19 +111,19 @@ function checkFields(
 function checkSource(
   source: SourceNode,
   doc: EditorDocument,
-  label: string,
-  issues: string[],
+  scope: Scope,
+  issues: Issue[],
 ): void {
   if (!source.connector || !source.type) {
-    issues.push(`${label}: source is incomplete (pick a connector and type).`);
+    raise(issues, scope, "source is incomplete (pick a connector and type).");
     return;
   }
   const spec = getSourceSpec(source.connector, source.type);
   if (!spec) {
-    issues.push(`${label}: unknown source "${source.connector}/${source.type}".`);
+    raise(issues, scope, `unknown source "${source.connector}/${source.type}".`);
     return;
   }
-  checkFields(spec.fields, source.settings, doc, `${label} source`, issues);
+  checkFields(spec.fields, source.settings, doc, { ...scope, label: `${scope.label} source` }, issues);
   // The connector binding is optional: a lone connection of the matching type
   // binds implicitly (serialize resolves it). It only has to be chosen when the
   // choice is ambiguous — two or more connections of that type. An explicit
@@ -86,13 +131,17 @@ function checkSource(
   const matching = doc.connectors.filter((c) => c.type === source.connector);
   if (source.connectorRef) {
     if (!matching.some((c) => c.name === source.connectorRef)) {
-      issues.push(
-        `${label}: source connection "${source.connectorRef}" doesn't exist.`,
+      raise(
+        issues,
+        scope,
+        `source connection "${source.connectorRef}" doesn't exist.`,
       );
     }
   } else if (matching.length >= 2) {
-    issues.push(
-      `${label}: multiple ${source.connector} connections exist — choose one for the source.`,
+    raise(
+      issues,
+      scope,
+      `multiple ${source.connector} connections exist — choose one for the source.`,
     );
   }
 }
@@ -100,28 +149,41 @@ function checkSource(
 function checkBlock(
   block: BlockNode,
   doc: EditorDocument,
-  path: string,
-  issues: string[],
+  scope: Scope,
+  issues: Issue[],
 ): void {
   const spec = getBlockSpec(block.type);
-  const label = `${path} › ${block.name || spec?.label || block.type}`;
+  // From here on the issues belong to this block, so they carry its id.
+  const here: Scope = {
+    label: `${scope.label} › ${block.name || spec?.label || block.type}`,
+    flowId: scope.flowId,
+    blockId: block.id,
+  };
   if (!spec) {
-    issues.push(`${path}: unknown block type "${block.type}".`);
+    raise(issues, { ...scope, blockId: block.id }, `unknown block type "${block.type}".`);
     return;
   }
-  checkFields(spec.fields, block.settings, doc, label, issues);
+  checkFields(spec.fields, block.settings, doc, here, issues);
 
   for (const field of spec.fields) {
     if (!isSlotField(field)) continue;
     const subs = block.slots?.[field.name] ?? [];
     const filled = subs.filter((f) => f.process.length > 0);
     if (field.required && filled.length === 0) {
-      issues.push(`${label}: ${field.label} needs at least one step.`);
+      raise(issues, here, `${field.label} needs at least one step.`);
     }
     subs.forEach((sub, i) => {
       if (sub.process.length === 0) return; // empty optional branch: nothing to check
       const suffix = subs.length > 1 ? ` #${i + 1}` : "";
-      checkFlow(sub, doc, `${label} › ${field.label}${suffix}`, issues, false);
+      // A sub-flow's own issues belong to the sub-flow, not to the composite that
+      // holds it — selecting the composite would hide the block actually at fault.
+      checkFlow(
+        sub,
+        doc,
+        { label: `${here.label} › ${field.label}${suffix}`, flowId: sub.id },
+        issues,
+        false,
+      );
     });
   }
 }
@@ -129,44 +191,62 @@ function checkBlock(
 function checkFlow(
   flow: FlowDoc,
   doc: EditorDocument,
-  label: string,
-  issues: string[],
+  scope: Scope,
+  issues: Issue[],
   isTopLevel: boolean,
 ): void {
   if (isTopLevel && !flow.source && flow.process.length === 0) {
-    issues.push(`${label} is empty (add a source or a step).`);
+    issues.push({
+      message: `${scope.label} is empty (add a source or a step).`,
+      severity: "error",
+      flowId: scope.flowId,
+    });
   }
-  if (flow.source) checkSource(flow.source, doc, label, issues);
-  for (const block of flow.process) checkBlock(block, doc, label, issues);
+  if (flow.source) checkSource(flow.source, doc, scope, issues);
+  for (const block of flow.process) checkBlock(block, doc, scope, issues);
 }
 
 /** Check the whole document; `ok` is true only when there are no issues. */
 export function validateDocument(doc: EditorDocument): ValidationResult {
-  const issues: string[] = [];
+  const issues: Issue[] = [];
 
   if (doc.flows.length === 0) {
-    issues.push("Add at least one flow to run.");
+    issues.push({ message: "Add at least one flow to run.", severity: "error" });
   }
 
   for (const name of duplicateNames(doc.connectors.map((c) => c.name))) {
-    issues.push(`Connection name "${name}" is used more than once.`);
+    issues.push({
+      message: `Connection name "${name}" is used more than once.`,
+      severity: "error",
+    });
   }
   for (const name of duplicateNames(flowNames(doc))) {
-    issues.push(`Flow name "${name}" is used more than once.`);
+    issues.push({
+      message: `Flow name "${name}" is used more than once.`,
+      severity: "error",
+    });
   }
 
   for (const conn of doc.connectors) {
-    const label = `Connection "${conn.name || conn.type}"`;
+    // A connection is not a canvas node, so its issues carry no ids — clicking one
+    // has nothing to select.
+    const scope: Scope = { label: `Connection "${conn.name || conn.type}"` };
     const spec = getConnectorSpec(conn.type);
     if (!spec) {
-      issues.push(`${label}: unknown connector type "${conn.type}".`);
+      raise(issues, scope, `unknown connector type "${conn.type}".`);
       continue;
     }
-    checkFields(spec.settings, conn.settings, doc, label, issues);
+    checkFields(spec.settings, conn.settings, doc, scope, issues);
   }
 
   doc.flows.forEach((flow, i) => {
-    checkFlow(flow, doc, `Flow "${flow.name || `#${i + 1}`}"`, issues, true);
+    checkFlow(
+      flow,
+      doc,
+      { label: `Flow "${flow.name || `#${i + 1}`}"`, flowId: flow.id },
+      issues,
+      true,
+    );
   });
 
   return { ok: issues.length === 0, issues };
