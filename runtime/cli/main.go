@@ -85,12 +85,29 @@ Invoke flags:
   --vars <json>      JSON object seeding the message variables
   --timeout <dur>    max time to wait for the flow (default 30s)
   --break-at <addr>  run until this block, then print the message and stop
+  --spies <addrs>    comma-separated blocks to record every message that crosses them
+  --mocks <json>     blocks to answer for instead of running them (see below)
 
   Sources are not started, so nothing populates the message for you. --vars is how
   you seed what a source normally would: the http source copies request headers into
   the message variables, so a flow that reads vars needs them supplied here.
 
-Breakpoint addresses (--break-at):
+Mocks (--mocks):
+  A JSON object keyed by block address. Each block lists cases tried in order: a CEL
+  "when" over the message the block received, and what the block should have returned
+  — a "body" (with optional "vars"), an "error", or "drop". An optional "default"
+  catches the rest; without one, a message that matches no case fails the block.
+
+    --mocks '{"orders.charge":{
+       "cases":[{"when":"body.amount > 100","error":"card declined"},
+                {"when":"true","body":{"ok":true},"vars":{"status":200}}],
+       "default":{"drop":true}}}'
+
+  The block is replaced, not wrapped, so its real work — the HTTP call, the LLM, the
+  database write — never happens. Mocking a composite (a fork, an ai-agent) cuts out
+  everything inside it.
+
+Block addresses (--break-at, --spies, --mocks):
   Address a block as <flow>.<block>, descending into a composite with a bracket
   naming the branch to follow:
 

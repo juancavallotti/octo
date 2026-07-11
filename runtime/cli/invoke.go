@@ -1,5 +1,9 @@
 package main
 
+// This file holds `octo invoke`: calling one flow by name, without starting any
+// source, and printing what it produced. The debug features it can run under —
+// --break-at, --spies, --mocks — live in debug.go.
+
 import (
 	"context"
 	"encoding/json"
@@ -20,16 +24,13 @@ import (
 	"github.com/juancavallotti/octo/types"
 )
 
-// This file holds `octo invoke`: calling one flow by name without starting any source,
-// and printing what it produced. The debug features it can run under live in debug.go.
-
 // defaultInvokeTimeout bounds how long `invoke` waits for the flow by default.
 const defaultInvokeTimeout = 30 * time.Second
 
 // invokeCommand calls a flow by name with data supplied on the command line (or
-// stdin), printing the result body as JSON. Sources are not started. With
-// --break-at it instead runs the flow until it reaches the addressed block, and
-// prints a breakOutcome envelope holding the message at that point.
+// stdin), printing the result body as JSON. Sources are not started. With --break-at,
+// --spies or both it instead prints a debugOutcome envelope: the message at the
+// addressed block, and what each spy saw.
 func invokeCommand(args []string) error {
 	flags, err := parseInvokeFlags(args)
 	if err != nil {
@@ -37,15 +38,6 @@ func invokeCommand(args []string) error {
 			fmt.Println(usage)
 			return nil
 		}
-		return err
-	}
-
-	body, err := resolveData(flags.data)
-	if err != nil {
-		return err
-	}
-	vars, err := parseVariables(flags.vars)
-	if err != nil {
 		return err
 	}
 
@@ -61,9 +53,42 @@ func invokeCommand(args []string) error {
 	defer func() { _ = svc.Close() }()
 	teeDefaultLoggerToSink(svc)
 
-	config, err := runtime.LoadConfig(flags.configPath, svc.Resources())
+	req, err := buildInvokeRequest(flags, svc)
 	if err != nil {
 		return err
+	}
+
+	result, err := invokeFlow(ctx, req)
+
+	// A run that was asked to observe something reports the envelope. A run that was
+	// only asked to mock is still a plain invoke — mocking changes what the flow does,
+	// but it produces no observations of its own, so it prints the body like any other
+	// run and stays pipeable into jq.
+	if req.breakpoint != nil || req.spies != nil {
+		return printDebugOutcome(req, result, err)
+	}
+	if err != nil {
+		return err
+	}
+	return printFlowResult(flags.flowName, result)
+}
+
+// buildInvokeRequest turns the parsed flags into the request invokeFlow runs: the
+// config to run, what to call the flow with, and the debug features to run it under.
+// Every flag is resolved here, before the service is built, so a bad address or a
+// malformed mock spec fails as the bad request it is rather than mid-run.
+func buildInvokeRequest(flags invokeFlags, svc core.RuntimeServices) (invokeRequest, error) {
+	body, err := resolveData(flags.data)
+	if err != nil {
+		return invokeRequest{}, err
+	}
+	vars, err := parseVariables(flags.vars)
+	if err != nil {
+		return invokeRequest{}, err
+	}
+	config, err := runtime.LoadConfig(flags.configPath, svc.Resources())
+	if err != nil {
+		return invokeRequest{}, err
 	}
 
 	req := invokeRequest{
@@ -77,15 +102,13 @@ func invokeCommand(args []string) error {
 	if flags.breakAt != "" {
 		req.breakpoint = core.NewBreakpoint(flags.breakAt)
 	}
-
-	result, err := invokeFlow(ctx, req)
-	if req.breakpoint != nil {
-		return printBreakOutcome(req.breakpoint, err)
+	if req.spies, err = parseSpies(flags.spies); err != nil {
+		return invokeRequest{}, err
 	}
-	if err != nil {
-		return err
+	if req.mocks, err = parseMocks(flags.mocks); err != nil {
+		return invokeRequest{}, err
 	}
-	return printFlowResult(flags.flowName, result)
+	return req, nil
 }
 
 // invokeFlags holds the parsed flags of `octo invoke`.
@@ -95,6 +118,8 @@ type invokeFlags struct {
 	data       string
 	vars       string
 	breakAt    string
+	spies      string
+	mocks      string
 	timeout    time.Duration
 }
 
@@ -111,6 +136,10 @@ func parseInvokeFlags(args []string) (invokeFlags, error) {
 	fs.StringVar(&flags.vars, "vars", "", "JSON object seeding the message variables")
 	fs.StringVar(&flags.breakAt, "break-at", "",
 		"run until this block, then print the message and stop (<flow>.<block>[<branch>].<block>)")
+	fs.StringVar(&flags.spies, "spies", "",
+		"comma-separated block addresses to record every message that crosses them")
+	fs.StringVar(&flags.mocks, "mocks", "",
+		`JSON object of block addresses to stand in for: {"<address>":{"cases":[…],"default":{…}}}`)
 	fs.DurationVar(&flags.timeout, "timeout", defaultInvokeTimeout, "max time to wait for the flow")
 
 	if err := fs.Parse(args); err != nil {
@@ -140,7 +169,7 @@ func printFlowResult(flowName string, result *types.Message) error {
 }
 
 // invokeRequest is everything one `octo invoke` needs: the config to run, the flow
-// to call and what to call it with, and the optional breakpoint to break on.
+// to call and what to call it with, and the debug features to run it under.
 type invokeRequest struct {
 	config     types.Config
 	flow       string
@@ -149,6 +178,8 @@ type invokeRequest struct {
 	timeout    time.Duration
 	services   core.RuntimeServices
 	breakpoint *core.Breakpoint // nil unless --break-at was given
+	spies      *core.Spies      // nil unless --spies was given
+	mocks      *core.Mocks      // nil unless --mocks was given
 }
 
 // flowCallError marks an error raised by running the flow, as opposed to one from
@@ -173,6 +204,12 @@ func invokeFlow(ctx context.Context, req invokeRequest) (*types.Message, error) 
 	}
 	if req.breakpoint != nil {
 		opts = append(opts, runtime.WithBreakpoint(req.breakpoint))
+	}
+	if req.spies != nil {
+		opts = append(opts, runtime.WithSpies(req.spies))
+	}
+	if req.mocks != nil {
+		opts = append(opts, runtime.WithMocks(req.mocks))
 	}
 
 	service := runtime.NewService(req.config, core.DefaultRegistry(), opts...)
