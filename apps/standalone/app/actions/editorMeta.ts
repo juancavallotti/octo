@@ -12,8 +12,15 @@
  */
 
 import type { ActionResult } from "@octo/http";
-import { EDITOR_META_RESOURCE } from "@octo/editor";
 import { readResource, writeResource } from "../api/fs/resourceStore";
+
+/**
+ * The meta resource name (mirrors the editor's EDITOR_META_RESOURCE). Inlined rather
+ * than imported: the editor's barrel is a tree of "use client" components, and pulling
+ * it into a server action drags React client code across the boundary. The dev-env
+ * store inlines `.env.dev` for the same reason.
+ */
+const EDITOR_META_RESOURCE = ".octo/editor-meta.json";
 
 /** Read the meta file (empty string when it doesn't exist yet). */
 export async function loadEditorMeta(): Promise<ActionResult<string>> {
