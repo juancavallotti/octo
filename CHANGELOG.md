@@ -1,5 +1,52 @@
 # Changelog
 
+## [0.4.0](https://github.com/juancavallotti/octo/compare/v0.3.8...v0.4.0) (2026-07-11)
+
+
+### ⚠ BREAKING CHANGES
+
+* **cli:** `octo invoke` prints the result message ({event_id, variables, body}) instead of the bare result body. A caller that consumed stdout as the body — piping into `jq '.field'`, or parsing the MCP invoke_flow `output` — reads `.body` of the envelope instead.
+
+### Features
+
+* **cli:** --run-debug-config, a debugging run in one file ([975775d](https://github.com/juancavallotti/octo/commit/975775d844193062489017e37fe2de0f4d649316))
+* **cli:** --spies and --mocks, and the debug output envelope ([5c18749](https://github.com/juancavallotti/octo/commit/5c187499d9fb1721fd47dea4f80a43d8bf83347b))
+* **cli:** invoke prints the whole result message ([ada7a5d](https://github.com/juancavallotti/octo/commit/ada7a5d1fe2718e9793eebf4a66e2209b4c70022))
+* **cli:** print the debug-config schema ([2bc57eb](https://github.com/juancavallotti/octo/commit/2bc57ebfc160656dce8561a4abdcb11f284101ba))
+* **core:** mock spec and the engine's mock block ([aec395e](https://github.com/juancavallotti/octo/commit/aec395ed22aa453e19be68a874d400b7f85eb930))
+* **core:** spy collector and the engine's spy block ([a16482e](https://github.com/juancavallotti/octo/commit/a16482e41d518b911104a03965e183d1aa2afbdc))
+* **editor:** derive durable block addresses for mocks and spies ([0fdce98](https://github.com/juancavallotti/octo/commit/0fdce98864da5de7b868a845f37dc910620d1006))
+* **editor:** mock and watch a block from the canvas ([919fd86](https://github.com/juancavallotti/octo/commit/919fd868fb2299b900e35ec80ad485118598b1e6))
+* **editor:** model mocks and spies in the editor meta file ([ef53e80](https://github.com/juancavallotti/octo/commit/ef53e803fc7ef24be8a7ae1fea35ba95d6d5e714))
+* **editor:** run flows under the mocks and spies the canvas holds ([9c2437a](https://github.com/juancavallotti/octo/commit/9c2437ad56d881dfeca4c99b5e4e167576c018f8))
+* **mcp:** edit one flow without rewriting the whole integration ([97eb552](https://github.com/juancavallotti/octo/commit/97eb552afe7011cb31a7f58c58d448ddf9ef60bf))
+* **mcp:** invoke_flow can place spies and mocks ([17df8bf](https://github.com/juancavallotti/octo/commit/17df8bf5ee8fd1df48d0033ff18f4713999e1d87))
+* mocks and spies in the editor and MCP, and flow-level CRUD ([64922a3](https://github.com/juancavallotti/octo/commit/64922a3c881ef35259c67879e5cacd5b2751fd05))
+* **run-host:** carry spies and mocks through invoke ([2562e68](https://github.com/juancavallotti/octo/commit/2562e688531e2acf2888db2901fd87326e6a2503))
+* **runtime:** inject mocks in place of addressed blocks ([dd178b9](https://github.com/juancavallotti/octo/commit/dd178b99dbd2a2f84e4a20a1b652b0a07e09efeb))
+* **runtime:** inject spies at addressed blocks ([6d5f442](https://github.com/juancavallotti/octo/commit/6d5f4425cfaf22f20a847e98af82ac023b5eeb56))
+* spies and mocks for octo invoke ([c226c79](https://github.com/juancavallotti/octo/commit/c226c79a563ab21e1dba984c833fcca680da1f98))
+
+
+### Bug Fixes
+
+* **mcp:** a deleted flow takes its doc comment with it ([da50c4f](https://github.com/juancavallotti/octo/commit/da50c4fe3c9506b7f50e9cd8c1080f63f21fbad8))
+* **mcp:** validate against the runtime's catalogue, not an empty fallback ([b0c35c3](https://github.com/juancavallotti/octo/commit/b0c35c3f42da88bcb8f5f1871efbfd41235da8ab))
+
+
+### Refactoring
+
+* **cli:** split main.go into one file per command ([56c66fb](https://github.com/juancavallotti/octo/commit/56c66fb3edc671dff9d3ca33bf705619795546d1))
+* **runtime:** extract the shared block-address resolver ([3f02699](https://github.com/juancavallotti/octo/commit/3f0269960f70c4ce6cf6b80fbdb5ee9219bc2f75))
+
+
+### Documentation
+
+* mocks and spies in the editor and MCP ([f355be0](https://github.com/juancavallotti/octo/commit/f355be0d1c52407e186b164c7c03b6dbdd19a410))
+* shoot the mock form, the spy badge and the spy records ([4a058e7](https://github.com/juancavallotti/octo/commit/4a058e7295cdd3cc61fddeeea9c4a0ea34992433))
+* spies, mocks, and the debug seam ([02eed50](https://github.com/juancavallotti/octo/commit/02eed5001e7b5ce89bc306752ae345ede2d9e69b))
+* stop for approval before each commit ([196b87a](https://github.com/juancavallotti/octo/commit/196b87a6a251f5c8305721346acb74c720981b8c))
+
 ## [0.3.8](https://github.com/juancavallotti/octo/compare/v0.3.7...v0.3.8) (2026-07-11)
 
 
