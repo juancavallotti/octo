@@ -46,6 +46,13 @@ export type {
   BreakOutcome,
 } from "./app/run/transport";
 export type { DevEnvStore } from "./app/state/devEnvStore";
+export {
+  EditorMetaProvider,
+  useEditorMeta,
+  EDITOR_META_RESOURCE,
+  type EditorMetaStore,
+} from "./app/providers/EditorMetaProvider";
+export type { TestInput, EditorMeta, FlowMeta } from "./app/meta/types";
 
 // Resource-store capability (backs the Resources tab)
 export {
