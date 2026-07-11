@@ -164,7 +164,7 @@ Some blocks you would rather not run. A payment API charges a card; an LLM costs
 money and answers differently every time; a webhook tells someone something. The
 🧪 button on a block **replaces** it for the run — the real block never executes.
 
-{/* TODO screenshot: A block's mock form: the "Stand in for this block" tick, a case with a CEL `when` and an **error** outcome, and the Otherwise default → /screenshots/editor-mock-form.png */}
+![A REST Call block's mock form: one case failing with an error when a CEL condition holds, and an Otherwise default returning a canned body](/screenshots/editor-mock-form.png)
 
 A mock answers with **cases**, tried in order, each guarded by a CEL condition
 evaluated against the message the block *received*. Each case does exactly one
@@ -202,7 +202,10 @@ A breakpoint answers *"what did the message look like here"* — once, and then 
 flow stops. The 👁 button answers the same question **without stopping anything**:
 it records every message that crosses the block and lets the flow run on.
 
-{/* TODO screenshot: A node with a spy on it: the eye lit violet, carrying its count badge → /screenshots/editor-spy-badge.png */}
+![A Set Payload block inside a For Each, its watch button lit to show a spy is on it](/screenshots/editor-spy-badge.png)
+
+The eye stays lit while the spy is on, so a block you are watching is obvious
+without hovering it.
 
 Because it does not stop the flow, a spy sees things a breakpoint cannot:
 
@@ -212,9 +215,15 @@ Because it does not stop the flow, a spy sees things a breakpoint cannot:
   what came out, and "what came out" includes the two outcomes that are *not* a
   message: the block **dropped** it, or the block **failed**.
 
-The count on the eye is how many messages it has collected. Click it to read them:
+Run the flow and a count appears on the eye. Click it to read what it collected —
+here, eight crossings of a block inside a `foreach`, one per item, each showing the
+message that went in and the one that came out:
 
-{/* TODO screenshot: The spy popover: the address, Clear, and records showing IN → OUT plus one dropped or failed crossing → /screenshots/editor-spy-records.png */}
+![The spy popover on a block inside a foreach: eight records, each showing the message that went in and what came out](/screenshots/editor-spy-records.png)
+
+The heading is the block's **address** — `new-flow.foreach[body].set-payload`, the
+same path [`--spies`](/guides/debugging-flows#watch-a-block-without-stopping) takes
+on the command line.
 
 **Records add up across runs.** They are not reset when you run again, because the
 interesting thing about a spy is usually how *this* run differs from the last one.

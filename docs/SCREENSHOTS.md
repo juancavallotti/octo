@@ -60,20 +60,29 @@ are captured by hand: they show hover states, open popovers and run results, non
 of which the sample harness reproduces. Run `task dev`, open a flow with a couple
 of blocks, and crop tightly — these are detail shots, not full-editor frames.
 
-### Outstanding after the mocks-and-spies work
+| Screenshot | What it shows |
+|---|---|
+| `editor-flow-run.png` | A flow card's run menu: *No input*, the saved test inputs, *Add test input*. |
+| `editor-add-test-input.png` | The add-test-input form: name, JSON body, variables. |
+| `editor-breakpoint-hover.png` | A node's hover cluster — **▶ 🧪 👁 ✕**. Reshoot whenever a button is added or removed. |
+| `editor-breakpoint-result.png` | The Output tab, showing the message captured at a breakpoint. |
+| `editor-mock-form.png` | A block's 🧪 popover: a case failing with an error when a CEL condition holds, and an *Otherwise…* default returning a canned body. |
+| `editor-spy-badge.png` | A block with a spy on it: the 👁 lit, so a watched block is obvious without hovering. |
+| `editor-spy-records.png` | The spy popover: the block's address, **Clear**, and the records — a block inside a `foreach`, so there are several, which is the point. |
+| `editor-console-tabs.png` | The console header and its tabs. |
+| `editor-problems-tab.png` | The Problems tab after a failed run. |
 
-| Screenshot | Status | What it should show |
-|---|---|---|
-| `editor-mock-form.png` | **new** | A block's 🧪 popover: the *"Stand in for this block"* tick, one case (a CEL `when` + an outcome), and the **Otherwise…** default. Worth showing a case whose outcome is **error** — it is the most persuasive use. |
-| `editor-spy-badge.png` | **new** | A node with a spy on it: the 👁 lit violet, with its count badge. Ideally a block that ran more than once (inside a `foreach`), so the count is not 1. |
-| `editor-spy-records.png` | **new** | The spy popover open: the address, **Clear**, and at least two records — one showing IN → OUT, and one showing a **dropped** or **failed** crossing, since telling those apart is half the point of a spy. |
-| `editor-breakpoint-hover.png` | **stale** | Reshoot. It shows a node with only ▶ and ✕; the hover cluster now carries four buttons — ▶, 🧪, 👁, ✕. |
+Two things to know before shooting these:
 
-The `sample-*.png` shots are unaffected: the new buttons only appear on hover, and
-no sample carries a mock or a spy.
+- **A missing PNG breaks the docs build.** MDX imports images at build time, so a
+  reference to a file that is not there fails `task docs:build` outright. Use the
+  repo's `{/* TODO screenshot: … */}` marker to hold the spot until the image
+  exists.
+- The `sample-*.png` shots are **not** affected by the node hover buttons: they
+  only appear on hover, and no sample carries a mock or a spy.
 
 ## Checklist
 
 - [x] Per-sample editor shots (`sample-*.png`) — regenerate after UI changes
 - [x] Manual platform/Slack/MCP shots from the table above — placed and wired into their pages
-- [ ] Editor debugging shots — three new, one stale (see the table above)
+- [x] Editor debugging shots — placed and wired into `editor/debugging-flows.mdx`
