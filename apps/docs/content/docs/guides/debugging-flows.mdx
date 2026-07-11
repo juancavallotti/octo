@@ -1,0 +1,209 @@
+---
+title: "Debugging a Flow"
+description: "Stop a flow at any block and inspect the message with invoke --break-at."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+When a flow does not do what you expect, the question is almost always the same:
+**what did the message look like when it got here — and did it even get here?**
+This guide answers both with `octo invoke --break-at`, which runs a flow until it
+reaches a block you name, prints the message that block produced, and stops.
+
+It follows [`samples/builtins-demo.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/builtins-demo.yaml),
+which has an `if`, a `foreach`, and a nested `switch` — enough shape to address
+blocks at every depth. Every command below is copy-pasteable from the repository
+root.
+
+## Set up
+
+Build the binary and export a body to reuse. The flow's first block reads
+`body.firedAt`, so the body must supply it:
+
+```bash
+go build -o bin/octo ./runtime/cli
+export LOG_LEVEL=error                       # keep startup logs out of the way
+D='{"firedAt": "2026-07-10T12:00:00Z"}'
+```
+
+## Break on a block in the flow's chain
+
+Address a block as `<flow>.<block>`. The sample's flow is `demo`, and its second
+block is named `set-threshold`:
+
+```bash
+./bin/octo invoke --config samples/builtins-demo.yaml --flow demo --data "$D" \
+  --break-at 'demo.set-threshold'
+```
+
+```json
+{"reached":true,"block":"demo.set-threshold","message":{
+  "event_id":"5c12…",
+  "variables":{"threshold":100},
+  "body":{"firedAt":"2026-07-10T12:00:00Z","orders":[{"id":1,"amount":50},{"id":2,"amount":250}]}}}
+```
+
+Read that as: execution reached the block, the earlier `set-payload` had already
+built the `orders` array into the body, and `set-threshold` has just put
+`threshold: 100` into the variables. The snapshot is the message **after** the
+addressed block ran — exactly what the next block would have received. Nothing
+after it ran at all.
+
+## Descend into a branch
+
+A bracket names the branch to descend into. The sample's `if` is named
+`any-orders`, so its two branches are `any-orders[then]` and `any-orders[else]`.
+There is a single unnamed `log` block in each, and an unnamed block is addressable
+by its **type** as long as it is the only one of its kind in that chain:
+
+```bash
+./bin/octo invoke --config samples/builtins-demo.yaml --flow demo --data "$D" \
+  --break-at 'demo.any-orders[then].log'
+```
+
+```json
+{"reached":true,"block":"demo.any-orders[then].log","message":{"variables":{"threshold":100},"body":{…}}}
+```
+
+## The most useful answer: it never got there
+
+Now break on the **other** branch. The condition is true (there are orders), so
+the `else` branch never runs:
+
+```bash
+./bin/octo invoke --config samples/builtins-demo.yaml --flow demo --data "$D" \
+  --break-at 'demo.any-orders[else].log'
+```
+
+```json
+{"reached":false,"block":"demo.any-orders[else].log"}
+```
+
+`reached: false` is a **normal result**, not a failure — the command exits 0. This
+is frequently the thing you actually needed to learn: the branch you were staring
+at was never taken, so nothing in it could possibly be the bug.
+
+<Callout type="info">
+An address that does not resolve is a different matter — that is a mistake in
+your command, so `invoke` exits non-zero and prints no envelope. A typo can never
+masquerade as `reached: false`. The error tells you what is really there:
+
+```
+no block "nosuchblock" in that chain (blocks: seed-orders, set-threshold, any-orders, each-order, drop-threshold)
+has no branch "nope" (branches: then, else)
+```
+</Callout>
+
+## Break inside a loop
+
+The sample's `foreach` is named `each-order` and its branch is `body`. Breaking on
+the `switch` inside it stops on the **first** iteration:
+
+```bash
+./bin/octo invoke --config samples/builtins-demo.yaml --flow demo --data "$D" \
+  --break-at 'demo.each-order[body].classify-order'
+```
+
+```json
+{"reached":true,"block":"demo.each-order[body].classify-order","message":{
+  "variables":{"order":{"id":1,"amount":50},"threshold":100}, "body":{…}}}
+```
+
+`vars.order` is the first item. The loop halts there — the second item is never
+processed.
+
+## Go two levels deep
+
+Chain brackets to descend further. The `switch` inside the loop body is named
+`classify-order`; its first case (which matches `amount >= threshold`) is
+addressed by index, and its fallback by `default`.
+
+The interesting part: order 1 has `amount: 50`, so it falls to `default` and the
+breakpoint **does not** fire on the first iteration. The loop continues, order 2
+(`amount: 250`) matches the case, and the breakpoint fires there:
+
+```bash
+./bin/octo invoke --config samples/builtins-demo.yaml --flow demo --data "$D" \
+  --break-at 'demo.each-order[body].classify-order[0].log'
+```
+
+```json
+{"reached":true,"block":"demo.each-order[body].classify-order[0].log","message":{
+  "variables":{"order":{"id":2,"amount":250},"threshold":100}, "body":{…}}}
+```
+
+The snapshot shows `vars.order` is the **second** order — the first one that
+actually reached this block. Breaking inside a branch only some items take is a
+quick way to inspect the first item that takes it.
+
+Its sibling, the `default` branch, catches the first order instead:
+
+```bash
+./bin/octo invoke --config samples/builtins-demo.yaml --flow demo --data "$D" \
+  --break-at 'demo.each-order[body].classify-order[default].log'
+```
+
+```json
+{"reached":true,"block":"…[default].log","message":{"variables":{"order":{"id":1,"amount":50},…}}}
+```
+
+## When the flow fails first
+
+If the flow blows up before reaching your block, the envelope says so and names
+the culprit. Drop the `--data` and the first block fails on the missing key:
+
+```bash
+./bin/octo invoke --config samples/builtins-demo.yaml --flow demo --data '{}' \
+  --break-at 'demo.set-threshold'
+```
+
+```json
+{"reached":false,"block":"demo.set-threshold",
+ "error":"block \"seed-orders\": set-payload value: evaluate expression: no such key: firedAt"}
+```
+
+`reached: false` **with an `error`** means the flow died on its way to your block.
+The failure is a debugging result, so this still exits 0.
+
+## Addressing every kind of composite
+
+Each composite exposes its branches by name:
+
+| Composite | Branch names | Example |
+| --- | --- | --- |
+| `if` | `then`, `else` | `orders.check[else].api-call` |
+| `foreach`, `enrich`, `cache-scope` | `body` | `orders.loop[body].transform` |
+| `handle-errors`, `ai-retry` | `process`, `error` | `orders.guard[error].notify` |
+| `validate`, `jwt-validate` | `onReject` | `orders.check[onReject].explain` |
+| `fork` | branch name, or index | `orders.fanout[audit].log-it` |
+| `switch` | case name, index, or `default` | `orders.pick[vip].comp` |
+| `ai-router` | route name, or `default` | `orders.route[premium].charge` |
+| `ai-agent`, `mcp-router` | tool name, or `default` | `orders.agent[lookup].fetch` |
+| the flow itself | `error` | `orders[error].notify` |
+
+Within a chain a block is matched by its `name`, else its `type`, else its `ref`.
+Name the block if two of a kind share a chain — an ambiguous address is rejected
+rather than guessed at.
+
+The address can also name a flow **other** than the one you invoke, which is how
+you break inside a flow reached through `flow-ref`. The stop folds back through
+the call, so the caller halts too:
+
+```bash
+./bin/octo invoke --config ./flows --flow caller --break-at 'sub.step'
+```
+
+## Things worth knowing
+
+- **The block you break on still runs.** The snapshot is taken after it, so you
+  see its effect. If it fails or drops the message, there is nothing to show and
+  you get `reached: false`.
+- **Nothing downstream runs.** The flow halts, so no later side effects fire.
+- **A `cache-scope` hit skips its body**, so a breakpoint inside the body reports
+  `reached: false` — and a halted body is never written to the cache.
+- **A `fork`'s sibling branches still finish.** Breaking in one branch does not
+  cancel the others; the flow halts once the fork joins.
+- Breakpoints work with `invoke` only, and are refused on a source-backed
+  service — they can never halt live traffic.
+
+See the [CLI reference](/reference/cli#breakpoints) for the full address grammar.

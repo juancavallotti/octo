@@ -8,6 +8,7 @@
     "transforming-data",
     "validation-and-auth",
     "composing-flows",
+    "debugging-flows",
     "events-and-queues",
     "object-storage-and-caching",
     "serving-html",

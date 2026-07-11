@@ -4,6 +4,8 @@ description: "Run a hello-world flow with the octo CLI and invoke a flow by name
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
+import { DynamicCodeBlock } from 'fumadocs-ui/components/dynamic-codeblock';
+import { OCTO_VERSION } from '@/lib/version';
 
 This page runs two flows from the repository's `samples/` directory: one driven
 by a schedule, and one you call directly from the command line. Together they
@@ -65,12 +67,13 @@ bin/octo run --config samples/hello-world.yaml
 works too, and flags accept one or two dashes. The runtime logs its startup,
 prints a ready banner, then logs a greeting every 30 seconds:
 
-```
-time=... level=INFO msg="starting runtime" version=0.3.6 connectors=1 flows=1
-🚀  octo v0.3.6 is up and ready to roll!
+<DynamicCodeBlock
+  lang="text"
+  code={`time=... level=INFO msg="starting runtime" version=${OCTO_VERSION} connectors=1 flows=1
+🚀  octo v${OCTO_VERSION} is up and ready to roll!
 time=... level=INFO msg="hello world! the date is 2026-07-09T12:00:00Z"
-time=... level=INFO msg="hello world! the date is 2026-07-09T12:00:30Z"
-```
+time=... level=INFO msg="hello world! the date is 2026-07-09T12:00:30Z"`}
+/>
 
 Stop it with Ctrl-C.
 

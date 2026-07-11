@@ -115,6 +115,11 @@ func resolveCacheTTL(raw string) (time.Duration, error) {
 // and stores its body for next time. Storing is best-effort: a version conflict
 // (another worker cached first) or an absent store leaves the result correct, just
 // uncached.
+//
+// A body that requested stop never reaches the store: its message is a partial
+// result — the body halted part-way through, so its body is not what a completed
+// run would have produced. Caching it would serve that truncated payload to later
+// runs, turning a transient halt into a persistent one.
 func (c *cacheScope) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
 	keyValue, err := c.key.EvalString(expr.MessageActivation(msg, c.env))
 	if err != nil {
@@ -138,6 +143,9 @@ func (c *cacheScope) Process(ctx context.Context, msg *types.Message) (*types.Me
 	}
 	if out == nil {
 		return nil, nil // the flow dropped the message; nothing to cache
+	}
+	if out.StopRequested() {
+		return out, nil // the flow halted part-way; its body is partial, do not cache it
 	}
 
 	c.store(ctx, kv, key, entry.Version, out)

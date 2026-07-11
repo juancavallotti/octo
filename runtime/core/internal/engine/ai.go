@@ -724,6 +724,16 @@ func (a *aiAgent) Process(ctx context.Context, msg *types.Message) (*types.Messa
 			results = append(results, res)
 		}
 		messages = append(messages, core.LLMMessage{Role: core.LLMRoleTool, ToolResults: results})
+
+		// A tool branch requested stop. Tool branches run on the shared message, so
+		// the flag is already on it; halt the agent rather than starting another
+		// iteration, which would call the model again and overwrite the body with the
+		// next tool call's arguments.
+		if current.StopRequested() {
+			slog.Info("ai-agent stopped by a tool branch", "block", a.name, "iterations", iter+1)
+			a.persistMemory(ctx, threadID, messages)
+			return current, nil
+		}
 	}
 
 	a.persistMemory(ctx, threadID, messages)

@@ -186,6 +186,68 @@ func TestInvalidateCacheForcesRecompute(t *testing.T) {
 	}
 }
 
+// buildStoppingCacheScope builds a cache-scope whose body counts, then requests
+// stop — the shape a filter block that rejects (or a breakpoint) produces inside a
+// cached body.
+func buildStoppingCacheScope(t *testing.T, counter *int) *cacheScope {
+	t.Helper()
+	reg := countingRegistry(counter)
+	reg.MustRegister("stop", func(types.Settings, core.BlockDeps) (core.MessageProcessor, error) {
+		return processorFunc(func(_ context.Context, msg *types.Message) (*types.Message, error) {
+			msg.RequestStop()
+			return msg, nil
+		}), nil
+	})
+
+	body := types.FlowConfig{Process: []types.BlockConfig{{Type: "count"}, {Type: "stop"}}}
+	proc, err := (&builder{reg: reg}).cacheScope(types.BlockConfig{
+		Type: blockKindCacheScope,
+		Key:  `"k"`,
+		TTL:  "1m",
+		Body: &body,
+	})
+	if err != nil {
+		t.Fatalf("build cache-scope: %v", err)
+	}
+	cs, ok := proc.(*cacheScope)
+	if !ok {
+		t.Fatalf("cacheScope returned %T, want *cacheScope", proc)
+	}
+	return cs
+}
+
+// TestCacheScopeDoesNotCacheStoppedBody pins the rule that a halted body is a
+// partial result and must never be written to the store: caching it would serve
+// the truncated payload to every later run, turning a transient halt into a
+// persistent one.
+func TestCacheScopeDoesNotCacheStoppedBody(t *testing.T) {
+	count := 0
+	cs := buildStoppingCacheScope(t, &count)
+	ctx, kv := withFakeServices(context.Background())
+
+	out, err := cs.Process(ctx, mustMessage(t))
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	if !out.StopRequested() {
+		t.Fatal("cache-scope must propagate the body's stop flag")
+	}
+	if _, stored, kvErr := kv.Get(ctx, core.NamespaceUser, cacheKey("k")); kvErr != nil {
+		t.Fatalf("kv Get: %v", kvErr)
+	} else if stored {
+		t.Error("a stopped body must not be written to the cache")
+	}
+
+	// Nothing was cached, so a second run recomputes rather than serving the
+	// truncated body back.
+	if _, err = cs.Process(ctx, mustMessage(t)); err != nil {
+		t.Fatalf("second Process: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("body ran %d times, want 2 (the stopped run must not have been cached)", count)
+	}
+}
+
 func TestCacheScopeBuildValidation(t *testing.T) {
 	reg := countingRegistry(new(int))
 	body := types.FlowConfig{Process: []types.BlockConfig{{Type: "count"}}}

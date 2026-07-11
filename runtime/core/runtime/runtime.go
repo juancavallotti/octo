@@ -6,6 +6,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -26,6 +27,9 @@ type Service struct {
 	flows      *flowRegistry
 	services   core.RuntimeServices
 	invokeMode bool
+	// breakpoint, when set, makes one addressed block record the message it
+	// produced and halt the flow. Invoke-mode only; see WithBreakpoint.
+	breakpoint *core.Breakpoint
 	ready      chan struct{}
 }
 
@@ -38,6 +42,17 @@ type ServiceOption func(*Service)
 // sources (no ports bound, no schedules fired).
 func WithInvokeMode() ServiceOption {
 	return func(s *Service) { s.invokeMode = true }
+}
+
+// WithBreakpoint makes the service break on the block the breakpoint addresses:
+// the block is wrapped in an implicit breakpoint block that records the message it
+// produced and halts the flow. It backs the CLI's `invoke --break-at`.
+//
+// It requires invoke mode. A breakpoint on a source-backed service would halt
+// whichever production message happened to arrive first, so Run refuses it rather
+// than letting a debugging aid loose on live traffic.
+func WithBreakpoint(bp *core.Breakpoint) ServiceOption {
+	return func(s *Service) { s.breakpoint = bp }
 }
 
 // WithRuntimeServices wires the runtime services (leader election, KV) this
@@ -306,8 +321,13 @@ func (s *Service) sourceConnectorNames() map[string]struct{} {
 
 // buildFlows assembles a boundFlow for each configured flow, resolving its source
 // connector (starting a default one on demand when needed) and building its root
-// block chain.
+// block chain. A breakpoint is injected into the config first, so the flow builder
+// sees the wrapped block like any other.
 func (s *Service) buildFlows(ctx context.Context, set *connectorSet) ([]*boundFlow, error) {
+	if err := s.applyBreakpoint(); err != nil {
+		return nil, err
+	}
+
 	flows := make([]*boundFlow, 0, len(s.config.Flows))
 	for i := range s.config.Flows {
 		flow, err := s.buildFlow(ctx, s.config.Flows[i], set)
@@ -317,6 +337,22 @@ func (s *Service) buildFlows(ctx context.Context, set *connectorSet) ([]*boundFl
 		flows = append(flows, flow)
 	}
 	return flows, nil
+}
+
+// applyBreakpoint wraps the addressed block in the implicit breakpoint block. It is
+// called once, before any flow is built, so both the root chain and the error path
+// build from the already-injected config.
+//
+// It refuses a breakpoint outside invoke mode: a source-backed service would break
+// on whichever production message happened to arrive first.
+func (s *Service) applyBreakpoint() error {
+	if s.breakpoint == nil {
+		return nil
+	}
+	if !s.invokeMode {
+		return errors.New("a breakpoint requires invoke mode: it would halt live traffic on a source-backed flow")
+	}
+	return injectBreakpoint(&s.config, s.breakpoint.Address())
 }
 
 func (s *Service) buildFlow(ctx context.Context, cfg types.FlowConfig, set *connectorSet) (*boundFlow, error) {
@@ -342,11 +378,12 @@ func (s *Service) buildFlow(ctx context.Context, cfg types.FlowConfig, set *conn
 
 	p := pool.New(cfg.Pool, 0)
 	deps := core.BlockDeps{
-		Connector: set.lookup,
-		Flows:     s.flows,
-		Env:       s.config.ResolvedEnv,
-		Services:  s.services,
-		Resources: s.resourceLoader(),
+		Connector:  set.lookup,
+		Flows:      s.flows,
+		Env:        s.config.ResolvedEnv,
+		Services:   s.services,
+		Resources:  s.resourceLoader(),
+		Breakpoint: s.breakpoint,
 	}
 	root, err := engine.BuildRoot(cfg, s.blocks, p, s.config.Processors, deps)
 	if err != nil {

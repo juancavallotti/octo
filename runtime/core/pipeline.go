@@ -45,6 +45,11 @@ type BlockDeps struct {
 	// template-resource block reading a template by id. It is nil when no loader is
 	// wired; a block must guard against that (or the caller supplies a Noop).
 	Resources ResourceLoader
+	// Breakpoint collects the message at an addressed block and halts the flow, for
+	// the CLI's `invoke --break-at`. It is nil in every normal run — only the
+	// implicit breakpoint block reads it, and it refuses to build without one, so a
+	// flow can never carry a breakpoint that was not asked for.
+	Breakpoint *Breakpoint
 }
 
 // BlockFactory builds a leaf processor from its settings and build-time deps.
