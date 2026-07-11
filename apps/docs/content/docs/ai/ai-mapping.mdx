@@ -59,7 +59,7 @@ flows:
 ```bash
 octo invoke --config samples/ai-mapping.yaml --flow normalize-contact \
   --data '{"name":"Ada Lovelace","tel":"(415) 555-0132","email":"ADA@EX.COM"}'
-# -> {"firstName":"Ada","lastName":"Lovelace","email":"ada@ex.com","phone":"+14155550132"}
+# -> {"event_id":"…","body":{"firstName":"Ada","lastName":"Lovelace","email":"ada@ex.com","phone":"+14155550132"}}
 ```
 
 ![The ai-mapping sample in the visual editor](/screenshots/sample-ai-mapping.png)

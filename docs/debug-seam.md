@@ -178,8 +178,19 @@ Any future feature that removes blocks needs the same check.
 
 ## The output envelope
 
-`cli/debug.go` prints one JSON object. One field is load-bearing beyond its
-appearance:
+A run that observes nothing prints its result **message** — `cli/invoke.go`'s
+`printFlowResult`, the same `{event_id, variables, body}` a breakpoint reports.
+Both paths mean the message by "the result", so a run that finishes never says less
+than the same run stopped at its last block. Whatever a caller sees, it sees a
+message; only the wrapper differs.
+
+Both print it through `types.Message.Reported()`, which drops the engine's internal
+stop flag from `variables`. A filter block sets it to end the flow, so it rides in
+the message a filtered flow returns — it is bookkeeping between the engine and its
+blocks, not a variable the flow set, and reporting it as one would be a lie.
+
+`cli/debug.go` prints one JSON object for a run that *was* asked to observe itself.
+One field is load-bearing beyond its appearance:
 
 **`reached` is a `*bool`.** `packages/run-host/src/session.ts` identifies a break
 envelope by sniffing for a *boolean* `reached`. So it must marshal as `false` for a

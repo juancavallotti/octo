@@ -63,7 +63,7 @@ flows:
 ```bash
 octo invoke --config samples/ai-router.yaml --flow triage \
   --data '{"subject":"I was double charged","body":"Please refund the extra charge."}'
-# -> {"team":"billing"}
+# -> {"event_id":"…","body":{"team":"billing"}}
 ```
 
 ![The ai-router sample in the visual editor](/screenshots/sample-ai-router.png)

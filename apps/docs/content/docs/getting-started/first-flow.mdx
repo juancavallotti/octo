@@ -111,8 +111,12 @@ bin/octo invoke --config samples/hello-invoke.yaml --flow greet --data '{"name":
 ```
 
 ```json
-{"greeting":"hello, Ada!"}
+{"event_id":"5c12a0e3f47b4d19a6c8f0b21d3e4a97","body":{"greeting":"hello, Ada!"}}
 ```
+
+What prints is the whole result **message**, not just the payload: its
+`event_id`, the `variables` the flow set (none here), and the `body`. Pipe it
+through `jq '.body'` when the body is all you are after.
 
 When `--data` is omitted, `invoke` reads the body from stdin, so you can pipe
 into it:
@@ -122,7 +126,7 @@ echo '{"name":"Grace"}' | bin/octo invoke --config samples/hello-invoke.yaml --f
 ```
 
 In invoke mode no sources are started — nothing binds a port or fires a
-schedule; only the requested flow runs, and its result body prints as JSON.
+schedule; only the requested flow runs, and its result message prints as JSON.
 This makes `invoke` the cleanest way to test a flow, and sourceless flows are
 also the building block for flow composition with `flow-ref`.
 

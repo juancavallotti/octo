@@ -60,7 +60,7 @@ independent dev runners without stepping on each other.
 | --- | --- |
 | `can_start_integration` | Pre-flight: is a runner available, does the definition validate? |
 | `run_integration` | Start (or restart) the integration in the dev runner, optionally injecting env vars; returns a test URL for networked integrations. |
-| `invoke_flow` | Run **one named flow once** — from a saved id or an inline definition — with optional JSON `data` and `env`, without starting sources. Returns `{ ok, timedOut, dropped, output, logs }`. |
+| `invoke_flow` | Run **one named flow once** — from a saved id or an inline definition — with optional JSON `data` and `env`, without starting sources. Returns `{ ok, timedOut, dropped, output, logs }`, where `output` is the flow's result message (`{event_id, variables, body}`) as JSON text. |
 | `evaluate_cel` | Evaluate a single CEL expression against sample `body`/`vars`/`env` without running a flow. |
 | `get_run_logs` | The session's runner log buffer, as plain text. |
 | `stop_integration` | Stop the session's running integration. |

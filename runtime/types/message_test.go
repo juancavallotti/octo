@@ -199,6 +199,47 @@ func TestMessageClone(t *testing.T) {
 	})
 }
 
+func TestReported(t *testing.T) {
+	t.Run("hides the stop flag, keeps the flow's own variables", func(t *testing.T) {
+		msg, err := NewMessage("")
+		if err != nil {
+			t.Fatalf("NewMessage returned error: %v", err)
+		}
+		msg.Variables.Set("tier", "gold")
+		msg.RequestStop()
+
+		reported := msg.Reported()
+		if _, leaked := reported.Variables[stopVar]; leaked {
+			t.Errorf("reported variables leaked %s: %v", stopVar, reported.Variables)
+		}
+		if tier, _ := reported.Variables.String("tier"); tier != "gold" {
+			t.Errorf("reported variables = %v, want tier=gold kept", reported.Variables)
+		}
+	})
+
+	t.Run("leaves the original message alone", func(t *testing.T) {
+		msg, err := NewMessage("")
+		if err != nil {
+			t.Fatalf("NewMessage returned error: %v", err)
+		}
+		msg.RequestStop()
+
+		_ = msg.Reported()
+
+		if !msg.StopRequested() {
+			t.Error("Reported cleared the stop flag on the message it was called on")
+		}
+	})
+
+	t.Run("nil variables do not panic", func(t *testing.T) {
+		msg := &Message{EventID: "id"}
+
+		if reported := msg.Reported(); reported.EventID != "id" {
+			t.Errorf("reported = %+v, want the event id carried through", reported)
+		}
+	})
+}
+
 func TestRawBody(t *testing.T) {
 	t.Run("SetRawBody and RawBody round-trip", func(t *testing.T) {
 		msg := &Message{}

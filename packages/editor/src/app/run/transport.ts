@@ -65,10 +65,14 @@ export interface BreakOutcome {
 export interface FlowRunOutcome {
   /** True when the runner completed the call (whatever the flow itself did). */
   ok: boolean;
-  /** True when the flow filtered the message, so there is no result body. */
+  /** True when the flow filtered the message, so there is no result at all. */
   dropped: boolean;
   timedOut: boolean;
-  /** The flow's result body as JSON text. Empty for a breakpoint run. */
+  /**
+   * The flow's result message as JSON text — `{event_id, variables, body}`, the same
+   * shape a breakpoint reports — so a finished run shows the variables it built up and
+   * not just its body. Empty for a breakpoint run, which reports `breakpoint` instead.
+   */
   output: string;
   /** The runner's stderr lines. Manual runs are quiet (error level), so usually empty. */
   logs: string[];

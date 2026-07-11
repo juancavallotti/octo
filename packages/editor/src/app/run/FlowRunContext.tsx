@@ -82,7 +82,11 @@ interface FlowRunValue {
 
 const FlowRunContext = createContext<FlowRunValue | null>(null);
 
-/** Read the flow's result body. `octo invoke` prints it as JSON on stdout. */
+/**
+ * Read the flow's result message — `{event_id, variables, body}` — which `octo invoke`
+ * prints as JSON on stdout. It is the same shape a breakpoint reports, so the Results
+ * tab shows a finished run and a run stopped at a block in the same terms.
+ */
 function parseOutput(text: string): unknown {
   const trimmed = text.trim();
   if (trimmed === "") return undefined;

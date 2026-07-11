@@ -81,14 +81,24 @@ across reloads.
 
 Loads a config, starts the flows in invoke mode (sources are **not** started —
 no ports are bound, no schedules fire), calls the named flow once with the
-given body, prints the result body as JSON on stdout, and exits.
+given body, prints the result **message** as JSON on stdout, and exits.
 
 ```bash
 octo invoke --config samples/hello-invoke.yaml --flow greet --data '{"name": "Ada"}'
 ```
 
 ```json
-{"greeting":"hello, Ada!"}
+{"event_id":"5c12a0e3f47b4d19a6c8f0b21d3e4a97","body":{"greeting":"hello, Ada!"}}
+```
+
+The result is the whole message — `event_id`, `variables`, `body` — and not the
+body alone, because the variables a flow builds up with `set-variable`, `enrich`
+or `foreach` are as much its result as the payload is. `variables` is omitted
+when the flow set none, as in the greeting above. To pipe just the payload
+onward, ask for it:
+
+```bash
+octo invoke --config orders.yaml --flow orders --data '{"orderId": 42}' | jq '.body'
 ```
 
 | Flag | Type | Default | Description |
@@ -110,7 +120,7 @@ echo '{"name": "Grace"}' | octo invoke --config samples/hello-invoke.yaml --flow
 ```
 
 ```json
-{"greeting":"hello, Grace!"}
+{"event_id":"9f1c3b0e7a5d4e2b8c6f0a1d2e3f4b5c","body":{"greeting":"hello, Grace!"}}
 ```
 
 Stdin is only read when it is piped or redirected, never from an interactive
@@ -166,24 +176,24 @@ Breakpoints are a debugging aid for `invoke` only. They are not a block you can
 write in a flow, they never appear in the editor palette, and they are refused
 outside invoke mode, so they can never halt live traffic.
 
-### The output envelope
+### The debug envelope
 
 A run that was asked to **observe** itself — with `--break-at`, `--spies`, or both
-— prints one JSON envelope instead of the bare result body:
+— prints one JSON envelope instead of the result message, wrapping what it saw:
 
 | Field | Meaning |
 | --- | --- |
 | `reached` | Whether execution ever got to the block. Present **only** under `--break-at`. |
 | `block` | The address you asked for, echoed back. |
 | `message` | The message the block produced. Present only when `reached` is true. |
-| `result` | The flow's own result. Present when it was not stopped at a breakpoint. |
+| `result` | The flow's own result message. Present when it was not stopped at a breakpoint. |
 | `dropped` | The flow filtered the message out and returned nothing. |
 | `spies` | What each spied block saw. See [Spies](#spies). |
 | `error` | The flow's failure, when it failed before reaching the block. |
 
-A `--mocks`-only run prints the **bare body**, like any other invoke — mocking
-changes what the flow does but produces no observations, so it stays pipeable
-into `jq`.
+A `--mocks`-only run prints its result message, like any other invoke — mocking
+changes what the flow does but produces no observations of its own, so there is
+no envelope to wrap them in.
 
 **A block that is never reached is a normal result, not an error.** If the flow
 takes the other branch of an `if`, matches a different `switch` case, or drops

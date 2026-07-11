@@ -45,18 +45,19 @@ On rejection the block emits a built-in body of the failing rules' messages:
 ```
 
 Over an HTTP source, `rejectStatus` becomes the response status code; under
-`octo invoke` it rides in `vars.httpStatus`.
+`octo invoke` it rides in `vars.httpStatus`, where the printed message shows it.
 
 Try both paths:
 
 ```bash
 bin/octo invoke --config samples/validate.yaml --flow order \
   --data '{"id":"A-1","amount":30.0}'
-# -> passes: {"orderId":"A-1","amount":30,"status":"accepted"}
+# -> passes: {"event_id":"…","body":{"orderId":"A-1","amount":30,"status":"accepted"}}
 
 bin/octo invoke --config samples/validate.yaml --flow order \
   --data '{"amount":0}'
-# -> rejected: {"error":"validation_failed","messages":[...]}; accept never runs
+# -> rejected: {"event_id":"…","variables":{"httpStatus":422,"validationErrors":[...]},
+#              "body":{"error":"validation_failed","messages":[...]}}; accept never runs
 ```
 
 ### Shape the rejection yourself

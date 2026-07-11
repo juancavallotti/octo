@@ -115,10 +115,13 @@ func printDebugOutcome(req invokeRequest, result *types.Message, runErr error) e
 		}
 		outcome.Reached = &reached
 	} else if callErr == nil {
-		// No breakpoint, so the flow ran to its own end: report what it produced.
-		// (Under --break-at the flow's message carries the internal stop flag, which
-		// is why it is not reported there — see debugOutcome.)
-		outcome.Result = result
+		// No breakpoint, so the flow ran to its own end: report what it produced, the
+		// same message a plain invoke prints. (Under --break-at the flow's message
+		// carries the internal stop flag the breakpoint itself set, which is why the
+		// snapshot is reported there instead — see debugOutcome.)
+		if result != nil {
+			outcome.Result = result.Reported()
+		}
 		outcome.Dropped = result == nil
 	}
 

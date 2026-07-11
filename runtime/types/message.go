@@ -113,6 +113,20 @@ func (m *Message) StopRequested() bool {
 	return stop
 }
 
+// Reported returns a copy of the message with the runtime's internal variables
+// removed: the shape to show a user. It is what a caller that serializes a whole
+// message for human eyes — `octo invoke`, the CLI's debug envelope — should print.
+//
+// The only such variable today is the stop flag, which a filter block sets to end
+// the flow. It is bookkeeping between the engine and its blocks, so reporting a
+// filtered flow's message as though it carried a variable the flow set itself would
+// be a lie. Variables the flow really set are untouched.
+func (m *Message) Reported() *Message {
+	reported := m.Clone()
+	delete(reported.Variables, stopVar)
+	return reported
+}
+
 // NewMessage returns a Message with a freshly generated EventID and an
 // initialized Variables map. correlationID may be empty.
 func NewMessage(correlationID string) (*Message, error) {

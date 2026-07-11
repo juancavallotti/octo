@@ -77,17 +77,22 @@ export interface InvokeResult {
   timedOut: boolean;
   /**
    * True when the flow filtered the message (a block returned nothing), so there is no
-   * result body — distinct from a flow that legitimately produced an empty `output`.
+   * result at all — distinct from a flow that legitimately produced an empty `output`.
    */
   dropped: boolean;
-  /** Everything the runner wrote to stdout (the flow's result body as JSON). */
+  /**
+   * Everything the runner wrote to stdout: the flow's result *message* as JSON —
+   * `{event_id, variables, body}` — not the body alone. The variables a flow built up
+   * are as much its result as its body, so the message is what it reports, and a caller
+   * after the body reads `.body` of the parsed envelope.
+   */
   output: string;
   /** The runner's stderr, split into lines (its slog output). */
   logs: string[];
   /**
    * The decoded breakpoint envelope — present only for a `breakAt` invoke that ran far
    * enough to print one. Under `breakAt`, stdout carries this envelope *instead of* the
-   * flow's result body, so `output` is the raw envelope text rather than a result.
+   * flow's result message, so `output` is the raw envelope text rather than a result.
    */
   breakpoint?: BreakOutcome;
 }
@@ -337,7 +342,7 @@ export async function sync(
 /**
  * Run a single named flow once and return its result plus logs, without starting the
  * integration's sources. This shells out to `octo invoke`, which builds an invoke-mode
- * service, calls the flow, prints its result body to stdout, streams slog to stderr,
+ * service, calls the flow, prints its result message to stdout, streams slog to stderr,
  * and tears down. It is deliberately session-free: it writes a throwaway config,
  * captures the child's stdout/stderr locally (kept separate — result vs. logs), and
  * never touches the namespace's long-running run or its {@link LogBuffer}/port, so a

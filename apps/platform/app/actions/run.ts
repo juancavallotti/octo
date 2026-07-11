@@ -103,8 +103,9 @@ export async function runEvalCel(
 
 /**
  * Run one flow once and return what it produced, without starting the integration's
- * sources — the editor's debug path. `breakAt` halts the flow at a block and reports
- * the message there instead of a result body.
+ * sources — the editor's debug path. A finished run reports its result message
+ * (`{event_id, variables, body}`); `breakAt` halts the flow at a block and reports the
+ * message as it looked there instead.
  *
  * It spawns a runner, so it takes the write roles, like start/stop. Manual runs are
  * quiet: LOG_LEVEL=error, so the runner's startup chatter stays out of the way and

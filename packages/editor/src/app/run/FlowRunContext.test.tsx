@@ -26,7 +26,8 @@ function stubTransport(
         ok: true,
         dropped: false,
         timedOut: false,
-        output: '{"greeting":"hi"}',
+        // What `octo invoke` really prints: the result message, not the body alone.
+        output: '{"event_id":"e1","variables":{"tier":"gold"},"body":{"greeting":"hi"}}',
         logs: [],
         ...outcome,
       };
@@ -105,12 +106,15 @@ const results = () => screen.getByTestId("results").textContent ?? "";
 const tab = () => screen.getByTestId("tab").textContent;
 
 describe("FlowRunProvider", () => {
+  // The whole result message is recorded, variables and all: a finished run must not
+  // report less than the same run stopped at its last block.
   it("runs a flow and records its output", async () => {
     const user = await setup(stubTransport());
     await user.click(screen.getByText("run flow"));
 
     await waitFor(() => expect(results()).toContain("ok"));
-    expect(results()).toContain('out={"greeting":"hi"}');
+    expect(results()).toContain('"body":{"greeting":"hi"}');
+    expect(results()).toContain('"variables":{"tier":"gold"}');
   });
 
   it("shows the Results tab after a run", async () => {
