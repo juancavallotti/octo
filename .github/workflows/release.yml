@@ -78,3 +78,105 @@ jobs:
           tags: |
             docker.io/juancavallotti/octo:${{ steps.ver.outputs.version }}
             docker.io/juancavallotti/octo:latest
+
+  # Publish the runtime-only image so users can run integrations from Docker
+  # without the editor or a cluster. Same Dockerfile as the cluster's
+  # octo-runtime, but built with the DEFAULT (untagged) binary: GOTAGS="" selects
+  # the standalone services provider, so the image has no NATS/Kubernetes
+  # dependency. The cluster image the orchestrator deploys keeps -tags k8s and is
+  # built separately by cloudbuild.yaml into Artifact Registry.
+  publish-runtime:
+    needs: release-check
+    if: ${{ inputs.tag != '' || startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - id: ver
+        run: |
+          REF="${{ inputs.tag || github.ref_name }}"
+          echo "version=${REF#v}" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        with:
+          # The whole Go workspace is the build context for this Dockerfile.
+          context: ./runtime
+          file: runtime/Dockerfile
+          build-args: |
+            GOTAGS=
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            docker.io/juancavallotti/octo-runtime:${{ steps.ver.outputs.version }}
+            docker.io/juancavallotti/octo-runtime:latest
+
+  # Cross-compile the octo CLI and attach the archives to the GitHub release, so
+  # users can install it without a Go toolchain. The CLI is pure Go (sqlite comes
+  # from modernc, not cgo), so CGO_ENABLED=0 lets one Linux runner build every
+  # target. Archives are named without the version — the tag in the release URL
+  # already identifies them, and it keeps the README download links to a single
+  # version string per line for release-please to rewrite.
+  publish-cli:
+    needs: release-check
+    if: ${{ inputs.tag != '' || startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-latest
+    permissions:
+      # Release assets are uploaded to the release for this tag.
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: runtime/go.work
+      - name: Cross-compile the CLI
+        working-directory: runtime/cli
+        env:
+          CGO_ENABLED: "0"
+          # -s -w strips the symbol table and DWARF; -trimpath drops local paths.
+          # These are the default (untagged) builds, so they carry the standalone
+          # services provider — the same binary `task runtime:build` produces.
+          LDFLAGS_BASE: "-s -w"
+        run: |
+          DIST="$GITHUB_WORKSPACE/dist"
+          mkdir -p "$DIST"
+          # Stamp the build date the same way `task runtime:build` does, so
+          # `octo version` reports it on released binaries too.
+          BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64 windows/arm64; do
+            GOOS="${target%/*}"
+            GOARCH="${target#*/}"
+            staging="$(mktemp -d)"
+            if [ "$GOOS" = windows ]; then bin=octo.exe; else bin=octo; fi
+            echo "==> building $GOOS/$GOARCH"
+            GOOS="$GOOS" GOARCH="$GOARCH" go build -trimpath \
+              -ldflags "$LDFLAGS_BASE -X main.BuildDate=$BUILD_DATE" \
+              -o "$staging/$bin" .
+            if [ "$GOOS" = windows ]; then
+              (cd "$staging" && zip -q "$DIST/octo_${GOOS}_${GOARCH}.zip" "$bin")
+            else
+              tar -czf "$DIST/octo_${GOOS}_${GOARCH}.tar.gz" -C "$staging" "$bin"
+            fi
+            rm -rf "$staging"
+          done
+          cd "$DIST" && sha256sum octo_* > checksums.txt
+          cat checksums.txt
+      - name: Attach the archives to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          # release-please creates the release before calling this workflow. A
+          # hand-pushed tag has none, so create it rather than fail the job.
+          gh release view "$TAG" >/dev/null 2>&1 \
+            || gh release create "$TAG" --title "$TAG" --generate-notes
+          gh release upload "$TAG" dist/* --clobber
