@@ -7,8 +7,14 @@
  * stream stays an SSE route (`/api/run/logs`), which reads the same cookie.
  */
 
-import { evalCel, probeVersion, start, status, stop, sync } from "@octo/run-host";
-import type { CelEvalRequest, CelEvalResult, RunStatusSnapshot } from "@octo/editor";
+import { evalCel, invoke, probeVersion, start, status, stop, sync } from "@octo/run-host";
+import type {
+  CelEvalRequest,
+  CelEvalResult,
+  FlowRunOutcome,
+  FlowRunRequest,
+  RunStatusSnapshot,
+} from "@octo/editor";
 import type { ActionResult } from "@octo/http";
 import { ensureRunNamespace } from "../run/namespace";
 import { fsResourceProvider } from "../run/resources";
@@ -65,6 +71,52 @@ export async function runEvalCel(
       env: req.env,
     });
     return { ok: true, data: { ok: r.ok, result: r.result, error: r.error } };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+/**
+ * Run one flow once and return what it produced, without starting the integration's
+ * sources — the editor's debug path. `breakAt` halts the flow at a block and reports
+ * the message there instead of a result body.
+ *
+ * Manual runs are quiet: LOG_LEVEL=error, so the runner's own startup chatter stays
+ * out of the way and only real failures come back in `logs` (which the Problems tab
+ * shows). That is a policy of the host, not of the caller.
+ */
+export async function runInvoke(
+  req: FlowRunRequest,
+): Promise<ActionResult<FlowRunOutcome>> {
+  const ns = await ensureRunNamespace();
+  if (!status(ns).available) {
+    return { ok: false, error: "Runner not available (OCTO_BIN_PATH unset)." };
+  }
+  if (typeof req?.yaml !== "string" || req.yaml.trim() === "") {
+    return { ok: false, error: "missing `yaml`" };
+  }
+  if (typeof req?.flow !== "string" || req.flow.trim() === "") {
+    return { ok: false, error: "missing `flow`" };
+  }
+  try {
+    const r = await invoke(ns, req.yaml, req.flow, {
+      data: req.data,
+      vars: req.vars,
+      breakAt: req.breakAt,
+      logLevel: "error",
+      resources: fsResourceProvider,
+    });
+    return {
+      ok: true,
+      data: {
+        ok: r.ok,
+        dropped: r.dropped,
+        timedOut: r.timedOut,
+        output: r.output,
+        logs: r.logs,
+        breakpoint: r.breakpoint,
+      },
+    };
   } catch (err) {
     return { ok: false, error: (err as Error).message };
   }

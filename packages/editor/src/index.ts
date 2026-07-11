@@ -41,6 +41,9 @@ export type {
   RunStatusSnapshot,
   CelEvalRequest,
   CelEvalResult,
+  FlowRunRequest,
+  FlowRunOutcome,
+  BreakOutcome,
 } from "./app/run/transport";
 export type { DevEnvStore } from "./app/state/devEnvStore";
 

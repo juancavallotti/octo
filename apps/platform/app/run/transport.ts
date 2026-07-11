@@ -8,11 +8,14 @@
 import type {
   CelEvalRequest,
   CelEvalResult,
+  FlowRunOutcome,
+  FlowRunRequest,
   RunStatusSnapshot,
   RunTransport,
 } from "@octo/editor";
 import {
   runEvalCel,
+  runInvoke,
   runStart,
   runStatus,
   runStop,
@@ -35,6 +38,10 @@ export const bffRunTransport: RunTransport = {
 
   async sync({ yaml, integrationId }) {
     unwrap(await runSync(yaml, integrationId));
+  },
+
+  async invoke(req: FlowRunRequest): Promise<FlowRunOutcome> {
+    return unwrap(await runInvoke(req));
   },
 
   async evalCel(req: CelEvalRequest): Promise<CelEvalResult> {
