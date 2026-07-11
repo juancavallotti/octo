@@ -26,8 +26,15 @@ export function cachedSchema(): unknown | null {
 
 /**
  * Probe the runner's capability schema once via `octo schema` and cache it.
- * Idempotent: subsequent calls return the cached value. Resolves to null (cached)
- * when no binary is configured or the probe fails.
+ * Idempotent: subsequent calls return the cached value. Resolves to null when no
+ * binary is configured or the probe fails.
+ *
+ * A *failed* probe is deliberately not cached. Configuring a binary is a statement
+ * of intent, and the usual reason the exec fails is that the binary is not there
+ * *yet* — a dev server started while `task build` is still linking it. Caching that
+ * null would leave the process schema-blind for its whole life: an empty palette, and
+ * a validator that calls every block type unknown, until someone thinks to restart it.
+ * Retrying costs one exec on a path that is already broken.
  */
 export async function probeSchema(): Promise<unknown | null> {
   if (store.__octoRuntimeSchema !== undefined) return store.__octoRuntimeSchema;
@@ -42,7 +49,7 @@ export async function probeSchema(): Promise<unknown | null> {
     });
     store.__octoRuntimeSchema = JSON.parse(stdout);
   } catch {
-    store.__octoRuntimeSchema = null;
+    return null; // not cached: the binary may yet appear
   }
   return store.__octoRuntimeSchema;
 }

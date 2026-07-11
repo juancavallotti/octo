@@ -86,7 +86,7 @@ export function registerRunTools(
     ({ id }, extra) =>
       guard(async () => {
         const rec = await store.get(id);
-        const { valid, errors } = config.validate(rec.definition);
+        const { valid, errors } = await config.validate(rec.definition);
         const ns = resolveNamespace(extra.sessionId);
         return jsonResult({
           available: runHost.status(ns).available,

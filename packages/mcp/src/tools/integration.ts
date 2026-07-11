@@ -68,7 +68,7 @@ export function registerIntegrationTools(
       },
     },
     ({ definition }) =>
-      guard(async () => jsonResult(config.validate(definition))),
+      guard(async () => jsonResult(await config.validate(definition))),
   );
 
   server.registerTool(
@@ -123,7 +123,7 @@ export function registerIntegrationTools(
    * head, which means it also cannot see what it just broke elsewhere.
    */
   async function writeSpliced(id: string, definition: string) {
-    const { valid, errors } = config.validate(definition);
+    const { valid, errors } = await config.validate(definition);
     if (!valid) {
       return errorResult(
         `that edit would leave the integration invalid, so nothing was saved:\n• ${errors.join("\n• ")}`,
