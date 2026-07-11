@@ -68,8 +68,13 @@ interface FlowRunValue {
   busy: boolean;
   /** Run a whole flow, optionally with a saved input. */
   runFlow(flowId: string, input?: TestInput): Promise<void>;
-  /** Run a flow until it reaches `blockId`, then stop and report the message there. */
-  runToBlock(flowId: string, blockId: string, input?: TestInput): Promise<void>;
+  /**
+   * Run until execution reaches `blockId`, then stop and report the message there. The
+   * flow to run is derived from where the block sits, so a caller holding only a block
+   * (a node deep inside a composite) needs to know nothing else. Absent an input, the
+   * one its root flow was last run with is reused.
+   */
+  runToBlock(blockId: string, input?: TestInput): Promise<void>;
   /** The input a flow was last run with, so run-to-here needn't ask again. */
   lastInput(flowId: string): TestInput | undefined;
   clear(): void;
@@ -218,13 +223,20 @@ export function FlowRunProvider({
   );
 
   const runToBlock = useCallback(
-    async (flowId: string, blockId: string, input?: TestInput) => {
+    async (blockId: string, input?: TestInput) => {
       // The plan carries its own document: a clone in which the blocks on the path have
       // been made addressable. Run *that*, not the one on screen.
       const plan = planBreakpoint(doc, blockId);
       if (!plan) return;
-      const chosen = input ?? lastInputRef.current.get(flowId);
-      remember(flowId, chosen);
+
+      // A breakpoint is always reached by running the block's ROOT flow, which is what
+      // the plan names — a block nested in a composite belongs to a sub-flow that is not
+      // separately runnable, and whose id is not what an input was remembered against.
+      const root = doc.flows.find((f) => f.name === plan.flow);
+      if (!root) return;
+
+      const chosen = input ?? lastInputRef.current.get(root.id);
+      remember(root.id, chosen);
       await run({
         runDoc: plan.doc,
         flowName: plan.flow,

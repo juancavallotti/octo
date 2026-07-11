@@ -68,7 +68,7 @@ function Harness({ doc }: { doc: EditorDocument }) {
         load
       </button>
       <button onClick={() => flow && flowRun?.runFlow(flow.id)}>run flow</button>
-      <button onClick={() => flow && block && flowRun?.runToBlock(flow.id, block.id)}>
+      <button onClick={() => flow && block && flowRun?.runToBlock(block.id)}>
         run to block
       </button>
       <p data-testid="tab">{tab}</p>
@@ -191,6 +191,74 @@ describe("FlowRunProvider", () => {
 
       await waitFor(() => expect(results()).toContain("not-reached"));
       expect(tab()).toBe("results"); // not Problems: nothing went wrong
+    });
+
+    // A block inside a composite belongs to a sub-flow, which is not separately
+    // runnable. runToBlock must find the root flow to invoke by itself — the caller (a
+    // node on the canvas) knows only its block.
+    it("runs the root flow for a block nested in a composite", async () => {
+      const seen: Parameters<RunTransport["invoke"]>[0][] = [];
+      const transport = stubTransport(
+        { output: "", breakpoint: { reached: true, block: "x", message: {} } },
+        (req) => seen.push(req),
+      );
+
+      // orders › if › then › [audit]
+      const inner = newBlock("log");
+      inner.name = "audit";
+      const branch = emptyFlow("");
+      branch.process = [inner];
+      const iff = newBlock("if");
+      iff.settings.condition = "body.ok";
+      iff.slots!.then = [branch];
+      const flow = emptyFlow("orders");
+      flow.process = [iff];
+      const doc: EditorDocument = {
+        flows: [flow],
+        connectors: [],
+        processors: [],
+        env: [],
+      };
+
+      function Nested() {
+        const { state, dispatch } = useEditorState();
+        const flowRun = useFlowRun();
+        const target = state.document.flows[0]?.process[0]?.slots?.then?.[0]?.process[0];
+        return (
+          <div>
+            <button
+              onClick={() =>
+                dispatch({
+                  type: EditorActionType.LOAD_INTEGRATION,
+                  data: { id: "o.yaml", name: "orders", document: doc, folderId: null },
+                })
+              }
+            >
+              load
+            </button>
+            {target && (
+              <button onClick={() => flowRun?.runToBlock(target.id)}>run nested</button>
+            )}
+          </div>
+        );
+      }
+
+      const user = userEvent.setup();
+      render(
+        <EditorStateProvider>
+          <ConsoleProvider>
+            <FlowRunProvider transport={transport}>
+              <Nested />
+            </FlowRunProvider>
+          </ConsoleProvider>
+        </EditorStateProvider>,
+      );
+      await user.click(screen.getByText("load"));
+      await user.click(screen.getByText("run nested"));
+
+      await waitFor(() => expect(seen).toHaveLength(1));
+      expect(seen[0].flow).toBe("orders"); // the root flow, not the anonymous sub-flow
+      expect(seen[0].breakAt).toBe("orders.if[then].audit");
     });
 
     it("reports a flow failure carried by the breakpoint envelope", async () => {
