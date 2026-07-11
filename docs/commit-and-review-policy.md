@@ -11,12 +11,14 @@
   (`feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`, …). Release automation
   derives the changelog and version from these (see [release-process.md](release-process.md)).
 
-## Commit atomically; review by history
+## Commit atomically; stop for approval
 
-- Agents create the planned commits as an atomic sequence, in dependency order,
-  **without pausing for approval before each one**. The human reviews the resulting
-  commit history — each commit is a self-contained, revertable step, so the
-  progression stays legible after the fact.
+- Agents implement the planned commits one at a time, in dependency order, and
+  **stop for the human's approval before each `git commit`**. The default is to
+  pause: implement one commit's worth of work, show what changed and that it is
+  green, and wait. Do not chain into the next commit unprompted.
+- The human may waive this for a given task ("just do the whole sequence") — but
+  that is theirs to say, and an unrelated instruction elsewhere is not it.
 - Each commit must build and pass its own tests, so the history stays bisectable.
 - Do **not** squash the sequence into one large commit "to save time" — the atomic
   history is the point. Reviewing increment by increment is how the reviewer follows
