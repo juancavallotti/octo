@@ -48,7 +48,8 @@ release workflow directly, passing the fresh tag.
 
 ### The release workflow builds and publishes
 
-`.github/workflows/release.yml` runs two jobs:
+`.github/workflows/release.yml` runs `release-check` first, then three publish
+jobs in parallel:
 
 - **release-check** — checks out the tag, runs `task release-check`
   (governance and release-readiness files) and `task build` (all Go modules
@@ -57,6 +58,16 @@ release workflow directly, passing the fresh tag.
   `apps/standalone/Dockerfile` as a multi-arch build (`linux/amd64` +
   `linux/arm64`) and pushes it to Docker Hub as
   `juancavallotti/octo:<version>` and `juancavallotti/octo:latest`.
+- **publish-runtime** — builds `runtime/Dockerfile` with `GOTAGS=` (the
+  default, standalone-services build) and pushes the same two tags for
+  `juancavallotti/octo-runtime`, so integrations can be run from Docker
+  without a cluster. See [Docker images](/deploy/docker-images#octo-runtime).
+- **publish-cli** — cross-compiles the `octo` CLI for macOS, Linux, and
+  Windows (amd64 and arm64 each) and attaches the archives, plus a
+  `checksums.txt`, to the GitHub release. The CLI is pure Go, so
+  `CGO_ENABLED=0` builds every target from one Linux runner. The archives are
+  what [Installation](/getting-started/installation#download-the-cli) links
+  to.
 
 </Step>
 <Step>
@@ -113,16 +124,26 @@ keep running on the runtime image they were deployed with — redeploy them from
 the editor to move them to the new `octo-runtime`. See
 [Helm chart](/deploy/helm#upgrade).
 
-### Standalone editor
+### CLI
+
+Download the new archive for your platform from the
+[latest release](https://github.com/juancavallotti/octo/releases/latest) and
+replace the binary on your PATH — see
+[Installation](/getting-started/installation#download-the-cli). `octo version`
+reports what you are on.
+
+### Standalone editor and runtime images
 
 Pull the new tag and restart the container:
 
 ```bash
-docker pull juancavallotti/octo:latest
+docker pull juancavallotti/octo:latest           # editor
+docker pull juancavallotti/octo-runtime:latest   # runtime alone
 ```
 
 Flows live in your mounted directory, so nothing is lost across upgrades. See
-[Running from Docker](/editor/docker).
+[Running from Docker](/editor/docker) and
+[Running flows locally](/runtime/running-locally#run-it-from-docker).
 
 ## Compatibility
 
@@ -141,8 +162,11 @@ every upgrade against existing data.
 
 ## Where to watch releases
 
-- **GitHub Releases** — every version tag has a release with its notes.
+- **GitHub Releases** — every version tag has a release with its notes and the
+  CLI archives for macOS, Linux, and Windows.
 - **`CHANGELOG.md`** — the accumulated, release-please-maintained changelog
   at the repo root.
 - **Docker Hub** — [`juancavallotti/octo`](https://hub.docker.com/r/juancavallotti/octo)
-  tags track releases of the standalone editor.
+  (standalone editor) and
+  [`juancavallotti/octo-runtime`](https://hub.docker.com/r/juancavallotti/octo-runtime)
+  (runtime alone) track releases.

@@ -31,6 +31,52 @@ When the config path is a directory, the runtime loads every `.yaml`/`.yml` file
 
 Once every connector and flow has started, the CLI prints a ready banner. Stop the runtime with `Ctrl-C` (SIGINT) or SIGTERM; shutdown is graceful and unwinds in strict reverse order — sources stop first, channels close, in-flight messages drain, then connectors release their resources.
 
+### Run it from Docker
+
+The runtime also ships as a public image — `juancavallotti/octo-runtime` on
+Docker Hub, multi-arch (`linux/amd64` and `linux/arm64`), published on every
+release. It carries the `octo` binary and nothing else: no editor, no
+orchestrator, no cluster. Its default command is
+`octo run --config /etc/octo/integrations`, so mounting a config directory there
+is all it takes:
+
+```bash
+# Every .yaml/.yml in the mounted directory is loaded as one config.
+docker run -p 8080:8080 -v "$PWD:/etc/octo/integrations" juancavallotti/octo-runtime
+```
+
+The image runs the same standalone services module as a local binary
+(in-process queues, in-memory KV), so anything that runs under `octo run` on
+your machine runs here unchanged. A few practicalities:
+
+- **Ports** — nothing is published for you. Map whatever port your `http`
+  connector binds (8080 unless you set `port`/`HTTP_PORT`).
+- **Environment** — pass `env:` values with `-e`, or mount a `.env` file into
+  the config directory; both resolve exactly as they do locally. `LOG_LEVEL`
+  works the same way.
+- **Resources** — the mounted config directory is the resource root, so env
+  files and templates declared as [resources](/concepts/resources) resolve
+  relative to it.
+- **Read-only mounts are fine** — the runtime only reads its config. Use `:ro`
+  if you want to enforce that.
+- **It runs as `nonroot`** on a distroless base: no shell in the image, so
+  `docker exec` gets you nothing to run.
+
+Override the command to use the other subcommands — for example, a one-shot
+invoke against a mounted config:
+
+```bash
+docker run --rm -v "$PWD:/etc/octo/integrations" juancavallotti/octo-runtime \
+  invoke --config /etc/octo/integrations --flow enrich-order --data '{"id": 42}'
+```
+
+<Callout type="info">
+  This is the same Dockerfile the cluster's `octo-runtime` image is built from,
+  but the public image is the **default** build (standalone services), while the
+  cluster image is built with `-tags k8s` for leader election, the orchestrator
+  KV, and NATS queues. See [Docker images](/deploy/docker-images).
+</Callout>
+
 ### Log level
 
 The runtime logs through Go's `slog` to stderr. Set the `LOG_LEVEL` environment variable to `debug`, `info`, `warn`, or `error` (case-insensitive; default `info`). An invalid value logs a warning and falls back to `info`.

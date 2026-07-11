@@ -23,9 +23,33 @@ using Conventional Commits.
   and `!` / `BREAKING CHANGE` → major (pre-1.0, breaking and feature changes bump the
   minor/patch per the config).
 
+## Published artifacts
+
+`.github/workflows/release.yml` gates on `release-check`, then publishes in parallel:
+
+- `publish-cli` — cross-compiles the `octo` CLI for macOS, Linux, and Windows
+  (amd64 + arm64 each) and attaches `octo_<os>_<arch>.tar.gz` / `.zip` plus
+  `checksums.txt` to the GitHub release. Pure Go, so `CGO_ENABLED=0` builds every
+  target on one Linux runner. Archives carry no version in their filename: the tag in
+  the release URL identifies them, which keeps the README download table to one
+  version string per line for release-please to rewrite.
+- `publish-standalone` — the standalone editor image, multi-arch, to Docker Hub as
+  `juancavallotti/octo`.
+- `publish-runtime` — the runtime-only image, multi-arch, to Docker Hub as
+  `juancavallotti/octo-runtime`. Same `runtime/Dockerfile` as the cluster image but
+  built with `GOTAGS=` (the default, standalone-services build), so it has no
+  NATS/Kubernetes dependency.
+
+Cloud Build separately publishes the five platform images and the Helm chart on the
+same tag (`cloudbuild.yaml`).
+
 ## Expectations
 
 - Validate release readiness before publishing.
 - Let release-please own the changelog and version; do not hand-edit `CHANGELOG.md`
   or the manifest version.
+- Version strings live behind release-please markers (`extra-files` in
+  `release-please-config.json`) — including the README download links. Do not hand-bump
+  them, and keep one version per annotated line: the generic updater rewrites a single
+  match per line.
 - Keep GitHub Actions workflows in sync with the documented process.
