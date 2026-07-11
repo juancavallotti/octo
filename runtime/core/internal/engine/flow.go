@@ -33,6 +33,9 @@ const (
 	// blockKindBreakpoint is injected by the runtime around an addressed block for
 	// `invoke --break-at`; it is never authored in a flow (see breakpoint.go).
 	blockKindBreakpoint = "breakpoint"
+	// blockKindSpy is injected by the runtime around an addressed block for `invoke
+	// --spies`; it is never authored in a flow either (see spy.go).
+	blockKindSpy = "spy"
 )
 
 // blockError wraps the error a block returns with the block's label. It keeps the
@@ -224,6 +227,7 @@ func (b *builder) compositeBuilders() map[string]func(types.BlockConfig) (core.M
 		blockKindAIRetry:      b.aiRetry,
 		blockKindMCPRouter:    b.mcpRouter,
 		blockKindBreakpoint:   b.breakpoint,
+		blockKindSpy:          b.spy,
 	}
 }
 

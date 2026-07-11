@@ -59,22 +59,6 @@ func (b *breakpointBlock) Process(ctx context.Context, msg *types.Message) (*typ
 	return out, nil
 }
 
-// unlabel strips the block label the breakpoint's sub-flow added, so the enclosing
-// flow's own labelling lands exactly where it would have without the breakpoint.
-//
-// Both flows label: the sub-flow tags the error with the wrapped block's label on
-// the way out, and the enclosing flow tags the breakpoint block with the same label
-// (the injector copies it). Left alone that reads `block "x": block "x": ...` and
-// the wrapper would show through. Only the outermost layer is removed, so a wrapped
-// composite keeps the nesting it produces on its own.
-func unlabel(err error) error {
-	var labelled *blockError
-	if errors.As(err, &labelled) {
-		return labelled.err
-	}
-	return err
-}
-
 // breakpoint builds the implicit breakpoint composite. The runtime supplies the
 // collector through BlockDeps only when --break-at asked for one, so a config that
 // declares the block by hand fails to build.
