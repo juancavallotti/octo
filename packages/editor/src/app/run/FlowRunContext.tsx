@@ -13,7 +13,7 @@ import { newId, type EditorDocument } from "../model/document";
 import { toRunnableYaml } from "../model/runConfig";
 import { useEditorState } from "../state/editorState";
 import type { TestInput } from "../meta/types";
-import { planBreakpoint } from "./breakpoint";
+import { planBreakpoint } from "./address";
 import { useConsole } from "./console";
 import type { FlowRunOutcome, RunTransport } from "./transport";
 

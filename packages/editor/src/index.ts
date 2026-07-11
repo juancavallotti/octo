@@ -35,7 +35,15 @@ export {
 
 // Run capability
 export { RunProvider, useRun, type RunLogLine } from "./app/run/RunContext";
-export { planBreakpoint, type BreakpointPlan } from "./app/run/breakpoint";
+export {
+  planBreakpoint,
+  naturalAddress,
+  blockIdAddresses,
+  namesNeededFor,
+  debugConflict,
+  type BreakpointPlan,
+  type BlockRename,
+} from "./app/run/address";
 export {
   useFlowRun,
   type FlowRunEntry,
