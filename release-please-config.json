@@ -21,7 +21,8 @@
         "runtime/cli/version.go",
         "packages/mcp/src/handler.ts",
         "apps/docs/lib/version.ts",
-        "helm/Chart.yaml"
+        "helm/Chart.yaml",
+        "README.md"
       ]
     }
   }

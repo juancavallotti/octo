@@ -5,9 +5,10 @@ description: "The published images and how they are built."
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-Octo ships six images. Five are the platform images, built together and pushed
-to your own registry (Artifact Registry in the reference deployment); the
-sixth is the public standalone editor on Docker Hub.
+Octo builds its images from six Dockerfiles. Five produce the **platform
+images**, built together and pushed to your own registry (Artifact Registry in
+the reference deployment). Two are **public images** on Docker Hub, for use
+without a cluster: the standalone editor and the runtime on its own.
 
 | Image | Dockerfile | Build context | Role |
 |---|---|---|---|
@@ -17,6 +18,11 @@ sixth is the public standalone editor on Docker Hub.
 | `octo-logs` | `logs/Dockerfile` | `./logs` | Log aggregator: NATS `internal.logs` → Postgres + query API |
 | `octo-schema` | `sql/Dockerfile` | `./sql` | Applies `sql/schema.sql` as an install/upgrade Job |
 | `juancavallotti/octo` | `apps/standalone/Dockerfile` | Repo root | Public standalone editor ("try Octo"), no cluster needed |
+| `juancavallotti/octo-runtime` | `runtime/Dockerfile` | `./runtime` | Public runtime alone: run integrations from Docker, no cluster |
+
+The last two rows share a Dockerfile with the cluster's `octo-runtime` but not
+a binary: the public image is the default build, the cluster image is built
+with `-tags k8s`. See [octo-runtime](#octo-runtime) below.
 
 ## Where they are built
 
@@ -33,24 +39,46 @@ Dockerfiles and contexts:
   and also packages and pushes the Helm chart as an OCI artifact. See
   [Releases and upgrades](/deploy/releases-and-upgrades).
 
-The standalone image is built by the GitHub Actions release workflow
-(`.github/workflows/release.yml`) and pushed to public Docker Hub.
+Both public images are built by the GitHub Actions release workflow
+(`.github/workflows/release.yml`) on every version tag, as multi-arch builds
+(`linux/amd64` and `linux/arm64`) tagged with the release version and `latest`,
+and pushed to public Docker Hub.
 
 ## The images
 
 ### octo-runtime
 
 A generic image that runs *any* integration: it carries only the compiled
-`octo` binary, built `CGO_ENABLED=0` with `-tags k8s` so it includes the
-cluster services provider (Lease-based leader election, orchestrator-backed
-KV, NATS queues). The final stage is
+`octo` binary, built `CGO_ENABLED=0`. The final stage is
 `gcr.io/distroless/static-debian12:nonroot` — no shell, no package manager,
-runs as `nonroot`.
+runs as `nonroot`. The default command is
+`octo run --config /etc/octo/integrations`, which loads every `.yaml`/`.yml`
+mounted into that directory.
 
-The default command is `octo run --config /etc/octo/integrations`. The
-orchestrator deploys one Deployment per integration from this image, mounting
-the integration's YAML into that directory via a per-deployment ConfigMap; the
-Helm chart hands the image reference to the orchestrator as `RUNTIME_IMAGE`.
+One Dockerfile, two images, differing only in the `GOTAGS` build arg — which
+selects the [services provider](/concepts/runtime-services) compiled into the
+binary:
+
+| | `GOTAGS` | Services provider | Published to |
+|---|---|---|---|
+| **Cluster** `octo-runtime` | `k8s` (default) | Lease-based leader election, orchestrator-backed KV, NATS queues | Your registry, by `cloudbuild.yaml` |
+| **Public** `juancavallotti/octo-runtime` | *empty* | Standalone: in-process queues, in-memory KV, no external infrastructure | Docker Hub, by the release workflow |
+
+The cluster image is what the orchestrator deploys: one Deployment per
+integration, with the integration's YAML mounted into the config directory via
+a per-deployment ConfigMap. The Helm chart hands the image reference to the
+orchestrator as `RUNTIME_IMAGE`.
+
+The public image is for running integrations from Docker with no cluster at
+all — the same engine and the same standalone services a local `octo run` uses,
+so a config that works on your machine works here unchanged:
+
+```bash
+docker run -p 8080:8080 -v "$PWD:/etc/octo/integrations" juancavallotti/octo-runtime
+```
+
+See [Running flows locally](/runtime/running-locally#run-it-from-docker) for
+ports, environment, and one-shot `invoke`.
 
 ### octo-platform
 
@@ -95,8 +123,8 @@ version and `latest`.
 docker run -p 3000:3000 -v "$PWD:/work" juancavallotti/octo
 ```
 
-Unlike `octo-runtime`, its bundled binary is the default (untagged) build with
-the standalone services provider. See
+Like the public `octo-runtime`, its bundled binary is the default (untagged)
+build with the standalone services provider; it adds the editor on top. See
 [Running from Docker](/editor/docker) for usage.
 
 <Callout type="info">

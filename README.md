@@ -8,6 +8,42 @@ reference, guides, and the AI/MCP story — is built from [`apps/docs/`](apps/do
 (Fumadocs, statically exported) and published with GitHub Pages at
 <https://juancavallotti.github.io/octo/>. Preview locally with `task docs:dev`.
 
+## Install
+
+Download a prebuilt `octo` CLI — no Go toolchain needed. Unpack it and put the
+binary on your PATH.
+
+<!-- The download links are rewritten on every release by release-please (see the
+     extra-files entry in release-please-config.json). Keep exactly one version
+     string per line inside the markers — the generic updater rewrites one match
+     per line, which is why the archive names carry no version. -->
+<!-- x-release-please-start-version -->
+
+| Platform | Download |
+|---|---|
+| macOS (Apple Silicon) | [octo_darwin_arm64.tar.gz](https://github.com/juancavallotti/octo/releases/download/v0.3.7/octo_darwin_arm64.tar.gz) |
+| macOS (Intel) | [octo_darwin_amd64.tar.gz](https://github.com/juancavallotti/octo/releases/download/v0.3.7/octo_darwin_amd64.tar.gz) |
+| Linux (x86-64) | [octo_linux_amd64.tar.gz](https://github.com/juancavallotti/octo/releases/download/v0.3.7/octo_linux_amd64.tar.gz) |
+| Linux (arm64) | [octo_linux_arm64.tar.gz](https://github.com/juancavallotti/octo/releases/download/v0.3.7/octo_linux_arm64.tar.gz) |
+| Windows (x86-64) | [octo_windows_amd64.zip](https://github.com/juancavallotti/octo/releases/download/v0.3.7/octo_windows_amd64.zip) |
+| Windows (arm64) | [octo_windows_arm64.zip](https://github.com/juancavallotti/octo/releases/download/v0.3.7/octo_windows_arm64.zip) |
+| — | [checksums.txt](https://github.com/juancavallotti/octo/releases/download/v0.3.7/checksums.txt) |
+
+<!-- x-release-please-end-version -->
+
+Prefer Docker? Two public images on Docker Hub, no install at all:
+
+```bash
+# The visual editor + runtime ("try Octo"): flows are read/written in $PWD.
+docker run -p 3000:3000 -v "$PWD:/work" juancavallotti/octo
+
+# The runtime alone: runs every .yaml in the mounted config directory.
+docker run -p 8080:8080 -v "$PWD:/etc/octo/integrations" juancavallotti/octo-runtime
+```
+
+Building from source is one command (`task runtime:build`); see the
+[installation docs](https://juancavallotti.github.io/octo/getting-started/installation).
+
 ## Layout
 
 - `runtime/`: active Go workspace for the runtime engine and CLI.
