@@ -101,6 +101,22 @@ tasks:
     cmds:
       - ./scripts/new-connector.sh {{.CLI_ARGS}}
 
+  docs:dev:
+    desc: Run the docs site locally (http://localhost:3100/octo/)
+    cmds:
+      - pnpm --filter docs dev
+
+  docs:build:
+    desc: Static-export the docs site to apps/docs/out
+    cmds:
+      - pnpm --filter docs build
+
+  docs:check:
+    desc: Fail if connector/block docs drift from the runtime registry
+    cmds:
+      - task: runtime:build
+      - node scripts/check-docs-drift.mjs
+
   lint-strict:
     desc: Verify lint configuration is present
     cmds:

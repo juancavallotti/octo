@@ -1,0 +1,11 @@
+{
+  "pages": [
+    "index",
+    "helm",
+    "local-k3d",
+    "gcp-terraform",
+    "docker-images",
+    "releases-and-upgrades"
+  ],
+  "title": "Deployment"
+}

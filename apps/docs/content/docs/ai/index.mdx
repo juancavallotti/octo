@@ -1,0 +1,89 @@
+---
+title: "AI Overview"
+description: "Why Octo is AI-native: agents, LLM connectors, AI blocks, and MCP."
+---
+
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+Octo treats AI as a first-class part of an integration, not a bolt-on. LLM
+providers are connectors like any database or HTTP endpoint, AI capabilities
+are blocks you drop into a pipeline, and flows speak MCP in both directions.
+
+## LLMs are connectors
+
+You configure an LLM provider the same way you configure Postgres or Slack: a
+named connector with settings. The Anthropic, OpenAI, and Gemini connectors
+all satisfy the same client interface, so every AI block binds to a provider
+by connector name and works with any of them interchangeably.
+
+```yaml
+connectors:
+  - name: claude
+    type: llm-anthropic
+    settings:
+      apiKey: ${ANTHROPIC_API_KEY}
+```
+
+Swap `llm-anthropic` for `llm-openai` or `llm-gemini` and nothing else in the
+flow changes. See [LLM Providers](/ai/llm-providers).
+
+## AI capabilities are blocks
+
+AI in Octo is not a separate runtime or SDK — it is a family of blocks that
+compose with everything else in a flow:
+
+- **`ai-agent`** — an LLM accomplishes a task by calling flow branches as
+  tools, in a loop, with an iteration cap and a guardrail path.
+- **`ai-router`** — an LLM picks exactly one named route for each message;
+  the fuzzy sibling of the deterministic `switch`.
+- **`ai-mapping`** — reshape a messy payload into a target shape, validated
+  against a JSON Schema.
+- **`ai-retry`** — protect a process chain; on failure an LLM inspects the
+  error, revises the message, and retries.
+
+Because they are ordinary blocks, they sit in the middle of pipelines: an
+HTTP source feeds an `ai-router`, whose route runs an `ai-mapping` wrapped in
+an `ai-retry`, followed by a database write. The full field reference lives
+at [AI Blocks](/reference/blocks/ai).
+
+## Agents are declarative
+
+An `ai-agent` gets its memory, tools, and skills from YAML, not code.
+Per-thread conversation memory is one field (`memoryThreadId`); tools are
+process chains the model calls with JSON arguments; skills are instruction
+documents the model loads on demand. The whole agent — prompt, tools, memory
+policy, fallback behavior — is a single reviewable block in a flow file.
+
+## Flows speak MCP
+
+The integration runs in both directions:
+
+- **Flows can be MCP servers.** The `mcp-router` block turns flows into
+  tools, resources, and prompts that any MCP client — Claude, IDEs, other
+  agents — can call. See [Expose an MCP Server](/ai/mcp-server) and
+  [Secure an MCP Server with OAuth](/ai/mcp-auth).
+- **The platform is an MCP server.** The runtime and editor expose an MCP
+  endpoint for AI-assisted authoring: a coding agent can draft, validate,
+  run, and debug integrations against your environment. See
+  [The Platform MCP Server](/ai/platform-mcp).
+
+## Explore the section
+
+<Cards>
+  <Card title="AI Agents" href="/ai/agents"
+    description="The ai-agent block: prompt, tools, guardrails, and iteration limits." />
+  <Card title="Agent Memory" href="/ai/agent-memory"
+    description="Per-thread conversation memory, compaction, and durable user facts." />
+  <Card title="Skills and Tools" href="/ai/agent-skills-and-tools"
+    description="Give agents lazy-loaded skills and flow-backed tools." />
+  <Card title="AI Router" href="/ai/ai-router"
+    description="Route messages to named branches with an LLM." />
+  <Card title="AI Mapping" href="/ai/ai-mapping"
+    description="Map data to a target shape with prompts, examples, and schemas." />
+  <Card title="AI Retry" href="/ai/ai-retry"
+    description="Self-healing pipelines: let an LLM revise a failing message and retry." />
+  <Card title="LLM Providers" href="/ai/llm-providers"
+    description="Configure the OpenAI, Anthropic, and Gemini connectors." />
+  <Card title="Capstone: A Production Slack Agent" href="/ai/slack-agent"
+    description="A complete Slack AI agent with memory, tools, skills, and async processing." />
+</Cards>

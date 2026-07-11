@@ -1,0 +1,178 @@
+---
+title: "Events and Queues"
+description: "Broadcast with topics or load-balance work with queues."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+Octo ships two in-runtime messaging primitives: **events** broadcast a message to
+every subscriber, and **queues** deliver each message to exactly one competing
+consumer. This guide builds one flow of each kind and explains when to reach for
+which.
+
+## Broadcast with events
+
+`publish-event` broadcasts the current message to a subject, and every flow with
+an `events` source on that subject receives its own copy — fan-out, not
+load balancing.
+[`samples/events.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/events.yaml)
+wires one publisher to two subscribers:
+
+```yaml title="samples/events.yaml (excerpt)"
+flows:
+  # Publisher: fire on a schedule and broadcast a notification.
+  - name: emitter
+    source:
+      type: cron                 # implicit connector — no instance needed
+      settings:
+        schedule: "@every 3s"
+        payload: '{"tick": string(now)}'
+    process:
+      - type: publish-event
+        name: broadcast
+        settings:
+          # CEL subject, so a flow can route dynamically; here it is constant.
+          subject: '"notifications"'
+
+  # Subscriber A: receives every notification broadcast to the subject.
+  - name: subscriber-a
+    source:
+      type: events               # implicit connector — no instance needed
+      settings:
+        subject: notifications
+    process:
+      - type: log
+        name: emit-a
+        settings:
+          logger: out
+          message: '"subscriber A saw tick " + body.tick'
+```
+
+Subscriber B is identical. Run it and watch both subscribers handle every tick:
+
+```bash
+octo run --config samples/events.yaml
+# every few seconds:
+#   "subscriber A saw tick ..."
+#   "subscriber B saw tick ..."
+```
+
+Two details worth noting:
+
+- The `subject` in `publish-event` is a CEL expression — quote a constant
+  (`'"notifications"'`) or compute it per message
+  (`'"orders." + vars.region'`).
+- Neither side declares a connector instance: `events` has no global settings,
+  so the runtime resolves an implicit one on demand.
+
+Broadcast is the right shape when subscribers are independent reactions to the
+same fact: one event updates a cache, another sends a notification, a third
+records metrics. Adding a subscriber never affects the ones already there.
+
+## Load-balance with queues
+
+Queues invert the delivery guarantee: subscribers on a subject become
+**competing consumers**, and each message is handled by exactly one of them —
+cluster-wide.
+[`samples/queue-loadbalance.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/queue-loadbalance.yaml)
+uses this as the cross-replica analogue of `flow-ref`: an HTTP flow hands work to
+worker flows through queue subjects instead of calling them in-process.
+
+```yaml title="samples/queue-loadbalance.yaml (excerpt)"
+process:
+  # Fire-and-forget publish: the caller does not wait. Any replica
+  # subscribed to the subject may pick it up.
+  - type: queue-dispatch
+    name: audit-async
+    settings:
+      subject: '"audit-work"'      # subject is a CEL expression
+
+  # Request/reply: wait for one competing consumer to answer, and fold
+  # the reply's body and variables back into this message.
+  - type: queue-dispatch
+    name: enrich-sync
+    settings:
+      subject: '"enrich-work"'
+      awaitReply: true
+```
+
+Each worker is an ordinary flow fronted by a `queue` source:
+
+```yaml title="samples/queue-loadbalance.yaml (excerpt)"
+- name: order-enricher
+  source:
+    type: queue                    # implicit connector — no instance needed
+    settings:
+      subject: enrich-work
+      listeners: 8                 # concurrent handlers on this replica
+  process:
+    - type: set-payload
+      name: normalize-order
+      settings:
+        value: >
+          {
+            "orderId":   vars.id,
+            "tenant":    vars["X-Tenant"],
+            "item":      body.item,
+            "amount":    body.amount,
+            "requestId": correlationID
+          }
+```
+
+Try it:
+
+```bash
+octo run --config samples/queue-loadbalance.yaml
+curl -s -X POST localhost:8080/api/v1/orders/42 \
+  -H 'X-Tenant: acme' -H 'X-Request-Id: req-1' \
+  -d '{"item":"widget","amount":1500}'
+```
+
+The semantics mirror `flow-ref`:
+
+- **Default dispatch** publishes and moves on — the queue-side `oneWay`. The
+  `order-auditor` worker runs purely for its side effect.
+- **`awaitReply: true`** opts into request/reply: whichever consumer is free
+  handles the message, and its final body and variables are folded back into
+  the dispatching flow before the next block runs.
+- **`listeners`** on the `queue` source sets how many messages one replica
+  handles concurrently; run more replicas of the whole service and the queue
+  spreads messages across all of them.
+
+<Callout type="warn">
+  Queue delivery is exactly-once-per-message across the cluster, but there is no
+  fan-out: if two different concerns must both see a message, give each its own
+  subject (or broadcast an event instead).
+</Callout>
+
+## Which one do I want?
+
+|  | Events | Queue |
+| --- | --- | --- |
+| Delivery | Every subscriber gets every message | Exactly one consumer per message |
+| Shape | Fan-out, reactions to a fact | Work distribution, load balancing |
+| Reply | None — one-way by nature | Optional with `awaitReply` |
+| Scaling replicas | Every replica's subscribers all fire | Replicas share the load |
+| Blocks | `publish-event` + `events` source | `queue-dispatch` + `queue` source |
+
+A useful rule of thumb: if losing a second subscriber would change the meaning
+of your system, you wanted a queue; if adding a fifth subscriber should be free,
+you wanted events.
+
+## What backs them
+
+Neither primitive requires infrastructure of yours. In the standalone module
+(`octo run` on your machine) both are in-process. Deployed on the platform, the
+same YAML is NATS-backed: events become a plain pub/sub subscription that reaches
+every replica, and queues become NATS queue subscriptions with competing
+consumers cluster-wide. See [Clustering](/runtime/clustering) for how the
+services module swap works.
+
+## Where to go next
+
+<Cards>
+  <Card title="Composing Flows" href="/guides/composing-flows" description="The in-process counterpart: flow-ref and sourceless flows." />
+  <Card title="Clustering" href="/runtime/clustering" description="How queues and events behave across replicas." />
+  <Card title="Platform Event Bus" href="/platform/event-bus" description="The NATS backing on the deployed platform." />
+</Cards>

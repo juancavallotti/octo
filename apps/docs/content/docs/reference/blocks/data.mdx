@@ -1,0 +1,96 @@
+---
+title: "Data"
+description: "Set and transform the message payload and variables."
+octo_types:
+  - set-payload
+  - set-variable
+  - delete-variable
+  - multi-transform
+---
+
+The data blocks are leaf blocks that mutate the message in place: they replace the body, set or remove variables, or apply a whole sequence of edits in one pass. All value fields are [CEL expressions](/reference/cel) evaluated against the message (`body`, `vars`, `eventID`, `correlationID`, `env`, `now`), compiled once at startup so a malformed expression fails deployment rather than a message.
+
+## set-payload
+
+Replaces the message body with the result of a CEL expression.
+
+| Setting | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `value` | `expression` | Yes | — | Evaluated against the message; the result becomes the new body. |
+| `rawBody` | bool | No | `false` | Store the value as a raw-content body `{contentType, rawData}` instead of decoded JSON, so a connector (e.g. the HTTP source) serves it verbatim. The value expression must then evaluate to a string. |
+| `contentType` | string | When `rawBody` | — | MIME type recorded on the raw body, e.g. `text/html` or `application/x-www-form-urlencoded`. |
+
+**Errors:** the block errors if the expression fails at runtime, or if `rawBody` is set and the value is not a string.
+
+```yaml
+- type: set-payload
+  name: seed-orders
+  settings:
+    value: '{"firedAt": body.firedAt, "orders": [{"id": 1, "amount": 50}, {"id": 2, "amount": 250}]}'
+```
+
+Serving raw content:
+
+```yaml
+- type: set-payload
+  settings:
+    value: '"<h1>Hello, " + body.name + "</h1>"'
+    rawBody: true
+    contentType: text/html
+```
+
+## set-variable
+
+Stores the result of a CEL expression in a named variable, readable later as `vars.<name>`.
+
+| Setting | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `name` | string | Yes | — | Variable name to set. |
+| `value` | `expression` | Yes | — | Evaluated against the message and stored under the name. |
+
+```yaml
+- type: set-variable
+  name: set-threshold
+  settings:
+    name: threshold
+    value: "100"
+```
+
+## delete-variable
+
+Removes a named variable from the message. Deleting an absent variable is a no-op, so the block never errors on a missing name.
+
+| Setting | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `name` | string | Yes | — | Variable name to remove. |
+
+```yaml
+- type: delete-variable
+  name: drop-threshold
+  settings:
+    name: threshold
+```
+
+## multi-transform
+
+Applies an ordered list of additive CEL edits in a single block. Each step either replaces the body (`setBody`) or sets a variable (`setVar` + `value`). Steps are applied top to bottom and the edits **accumulate**: the evaluation context is rebuilt before every step, so a later expression sees the body and variables produced by the earlier ones. It compresses a chain of `set-payload` / `set-variable` blocks into one.
+
+| Setting | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `transforms` | list | Yes | — | Ordered edit list; at least one entry. Each entry is either `{setBody: <expression>}` or `{setVar: <name>, value: <expression>}`. |
+
+Per step, exactly one of `setBody` or `setVar` must be set; a `setVar` step requires `value`, and a `setBody` step takes no `value` — anything else fails at startup. A runtime expression failure errors the block, identifying the step index.
+
+```yaml
+- type: multi-transform
+  name: price-order
+  settings:
+    transforms:
+      # 1) compute the subtotal on the body.
+      - setBody: '{"orderId": body.orderId, "subtotal": body.qty * body.price}'
+      # 2) stash it in a variable (reads the body step 1 produced).
+      - setVar: subtotal
+        value: body.subtotal
+      # 3) add tax to the body (reads the variable step 2 set).
+      - setBody: '{"orderId": body.orderId, "subtotal": vars.subtotal, "total": vars.subtotal * 1.1}'
+```

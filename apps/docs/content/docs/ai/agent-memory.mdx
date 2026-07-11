@@ -1,0 +1,165 @@
+---
+title: "Agent Memory"
+description: "Per-thread conversation memory, compaction, and durable user facts."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+An `ai-agent` is stateless by default: each invocation starts a fresh
+conversation. Set `memoryThreadId` and the agent loads the thread's prior
+transcript before its run and saves the accumulated transcript after, so a
+conversation persists across invocations.
+
+![A deployment's object store holding both memory layers: per-thread agent-memory keys and a durable slack:user-facts key](/screenshots/platform-object-browser.png)
+
+## Per-thread conversation memory
+
+```yaml
+service:
+  name: ai-agent-memory
+
+env:
+  - name: ANTHROPIC_API_KEY
+    required: true
+
+connectors:
+  - name: claude
+    type: llm-anthropic
+    settings:
+      apiKey: ${ANTHROPIC_API_KEY}
+
+flows:
+  - name: chat
+    process:
+      - type: ai-agent
+        name: assistant
+        connector: claude
+        # Per-thread memory: load/save this thread's transcript around the run.
+        memoryThreadId: body.threadId
+        memoryMaxTokens: 4000
+        memoryCompaction: summarize
+        prompt: >
+          You are a helpful assistant in an ongoing conversation. Use the prior
+          turns for context and answer the user's latest message. Respond with a
+          JSON object {"reply": "..."}.
+        tools:
+          - name: remember_note
+            description: Save a short note to scratch state for later in this task.
+            inputSchema: |
+              {"type":"object","required":["note"],"properties":{"note":{"type":"string"}}}
+            process:
+              - type: set-variable
+                settings:
+                  name: note
+                  value: body.note
+```
+
+Invoke it twice on the same thread and the second turn remembers the first:
+
+```bash
+octo invoke --config samples/ai-agent-memory.yaml --flow chat \
+  --data '{"threadId":"user-42","message":"My name is Sam."}'
+octo invoke --config samples/ai-agent-memory.yaml --flow chat \
+  --data '{"threadId":"user-42","message":"What is my name?"}'
+```
+
+### Choosing a thread id
+
+`memoryThreadId` is a CEL expression over the message, so the thread
+granularity is yours: per user (`body.userId`), per channel, or per
+conversation. The production Slack agent computes it upstream with a
+transform — `"slack:dm:<channel>"` for direct messages,
+`"slack:<channel>:<threadTs>"` for channel threads — so every Slack thread
+gets its own memory.
+
+Transcripts are stored in the runtime KV store under a dedicated
+`agent-memory/` prefix in the user namespace, so they never collide with
+`object-read`/`object-write` keys.
+
+### Token budget and compaction
+
+`memoryMaxTokens` (default `8000`) caps the stored transcript, using a
+chars/4 estimate — there is no tokenizer in the runtime. When the transcript
+grows past the budget, it is compacted with the `memoryCompaction` strategy
+before saving:
+
+- **`prune`** (default) — drop the oldest turns until the transcript fits.
+  Cheap and deterministic; old context is simply gone.
+- **`summarize`** — keep the most recent turns that fit half the budget and
+  ask the same LLM connector to fold the older turns into a single summary
+  message, preserving facts and decisions. Falls back to pruning if the
+  summary cannot be produced.
+
+<Callout type="info">
+Saving memory is best-effort: a failed save is logged and does not fail the
+flow. Memory is also persisted when the agent takes its guardrail path, so a
+refused turn still stays in the conversation.
+</Callout>
+
+### Clearing a thread
+
+The `clear-agent-memory` leaf block wipes a thread's stored transcript. It
+is idempotent — clearing a missing thread is not an error — and passes the
+message through unchanged:
+
+```yaml
+  - name: forget
+    process:
+      - type: clear-agent-memory
+        name: wipe-thread
+        settings:
+          threadId: body.threadId
+      - type: set-payload
+        settings:
+          value: '{"cleared": true}'
+```
+
+## The second layer: durable facts
+
+Conversation memory is a transcript with a budget — it fades as it is
+compacted, and it is scoped to one thread. For facts that should survive
+across conversations ("prefers Celsius", "leads the billing team"), the
+production Slack agent adds a second layer the agent manages itself: two
+tools backed by the object store, plus a skill teaching the model when to
+use them.
+
+The tools are sourceless flows invoked via `flow-ref`. `remember_user_fact`
+appends one bullet to a per-user document; `retrieve_user_facts` reads it
+back:
+
+```yaml
+  - name: remember-user-fact
+    process:
+      - type: object-read
+        settings:
+          key: vars.userFactsKey     # e.g. "slack:user-facts:U123"
+          as: existingUserFacts
+          default: '{"facts": ""}'
+      - type: set-variable
+        settings:
+          name: updatedUserFacts
+          value: string(vars.existingUserFacts.facts) + "- " + string(body.fact) + "\n"
+      - type: object-write
+        settings:
+          key: vars.userFactsKey
+          value: '{"facts": vars.updatedUserFacts}'
+      - type: set-payload
+        settings:
+          value: '{"stored": true, "fact": body.fact}'
+```
+
+A `user_memory` skill tells the agent the policy — recall near the start of
+a turn, store only stable, self-contained facts, never announce it:
+
+> Store: when the user shares a stable preference, personal fact, working
+> style, recurring context, or anything that would help future replies, call
+> `remember_user_fact` with one short standalone fact. Keep each fact
+> self-contained ("Prefers Celsius", "Works in the Berlin office") rather
+> than a snippet of the chat.
+
+The two layers complement each other: the built-in transcript gives the
+agent short-term conversational context for free, while the fact store gives
+it long-term, cross-conversation knowledge under explicit rules you author.
+See the [Slack agent capstone](/ai/slack-agent) for the full walkthrough,
+and [Skills and Tools](/ai/agent-skills-and-tools) for how skills and
+flow-backed tools work.

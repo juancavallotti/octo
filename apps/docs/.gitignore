@@ -1,0 +1,8 @@
+# next.js build output
+.next/
+out/
+# fumadocs-mdx generated
+.source/
+# deps
+node_modules/
+next-env.d.ts

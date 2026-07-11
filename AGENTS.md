@@ -26,6 +26,35 @@ Required reading:
 
 The initial baseline is expected to be committed directly, not through a pull request.
 
+## Documentation policy
+
+The published documentation site lives in **`apps/docs`** (Fumadocs, statically
+exported to GitHub Pages). Its content is under `apps/docs/content/docs/`. Keep
+it in sync with code **in the same PR** — CI enforces part of this:
+
+- **Connectors, blocks, and sources**: every type registered in the runtime must
+  be documented by exactly one page whose `octo_types` frontmatter lists it.
+  `scripts/check-docs-drift.mjs` (run in the `validate` workflow and via
+  `task docs:check`) compares `bin/octo schema` output against the frontmatter
+  and fails on any drift. Adding a connector family ⇒ add
+  `apps/docs/content/docs/reference/connectors/<name>.mdx` with an `octo_types`
+  list; adding a block ⇒ add its type to the owning reference page's
+  `octo_types` and document its settings there.
+- **CLI subcommands/flags, CEL variables/functions, flow-file YAML keys**: update
+  `reference/cli.mdx`, `reference/cel/`, or `reference/flow-file.mdx` when they
+  change. These are not machine-checked — treat a behavior change without a docs
+  change as an incomplete PR.
+- **New samples** in `samples/` should be linked from `guides/index.mdx` and, when
+  they demonstrate a new pattern, get a guide page.
+- **Writing style**: second person, present tense, imperative steps; every page
+  opens with 1–2 sentences of what/why; no marketing language outside the home
+  page; every YAML snippet must use real field names verified against
+  `runtime/types/` and prefer adapting `samples/`.
+- **Never copy content from `.octo-flows/`** into docs or samples — it is a local
+  workspace that may contain live credentials. Re-author with placeholder hosts
+  and `env.*` references instead.
+- Preview locally with `task docs:dev`; build with `task docs:build`.
+
 ## Refactoring policy
 
 This project prefers **complete refactors over backwards compatibility.** When a change

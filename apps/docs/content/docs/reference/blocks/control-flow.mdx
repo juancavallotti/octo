@@ -1,0 +1,241 @@
+---
+title: "Control Flow"
+description: "Branching, iteration, scoping, validation, and error recovery composites."
+octo_types:
+  - if
+  - switch
+  - fork
+  - foreach
+  - enrich
+  - validate
+  - handle-errors
+  - cache-scope
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Control-flow blocks are **composites**: they embed sub-flows and are assembled directly by the flow builder rather than the leaf-block registry.
+
+<Callout type="warn">
+Composite blocks are configured with **top-level YAML keys** on the block (`condition`, `then`, `cases`, `branches`, `items`, `body`, ...), **not** under `settings:`. A composite that declares a slot it does not own, or a leaf block that declares any composite slot, fails at startup.
+</Callout>
+
+Each sub-flow slot (`then`, `else`, `default`, `body`, a fork branch, a switch case) has the same shape as a flow: an optional `name` and a `process` block list. Sub-flows must not declare `source`, `workers`, `buffer`, `pool`, or `error` — those are root-flow-only fields.
+
+All condition and key fields are [CEL expressions](/reference/cel) evaluated against the message (`body`, `vars`, `eventID`, `correlationID`, `env`, `now`). Expressions are compiled once at startup, so a malformed expression fails deployment rather than a message.
+
+## if
+
+Runs one of two sub-flows depending on a boolean condition. When the condition is false and no `else` is configured, the message passes through unchanged.
+
+| Key | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `condition` | `expression` (bool) | Yes | — | Boolean CEL expression evaluated against the message. Errors if the result is not a bool. |
+| `then` | flow | Yes | — | Sub-flow run when the condition is true. |
+| `else` | flow | No | — | Sub-flow run when the condition is false. Omitted: pass through. |
+
+```yaml
+- type: if
+  name: any-orders
+  condition: "size(body.orders) > 0"
+  then:
+    process:
+      - type: log
+        settings:
+          message: '"processing " + string(size(body.orders)) + " orders"'
+  else:
+    process:
+      - type: log
+        settings:
+          message: '"no orders to process"'
+```
+
+## switch
+
+Multi-case routing: runs the sub-flow of the **first** case whose `when` guard is true, in order. When no case matches, the `default` flow runs; with no default, the message passes through unchanged.
+
+| Key | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `cases` | list | Yes | — | Ordered case list. Each entry has a `when` (`expression`, bool, required) plus an inline flow (`process`, optional `name`). |
+| `default` | flow | No | — | Sub-flow run when no case matches. Omitted: pass through. |
+
+```yaml
+- type: switch
+  name: classify-order
+  cases:
+    - when: "vars.order.amount >= vars.threshold"
+      process:
+        - type: log
+          settings:
+            message: '"HIGH order " + string(vars.order.id)'
+  default:
+    process:
+      - type: log
+        settings:
+          message: '"low order " + string(vars.order.id)'
+```
+
+## fork
+
+Scatters the message across parallel branches, then joins. Each branch receives its **own clone** of the message and runs on the flow's shared worker pool (sized by the root flow's `pool` field), so branch effects on body and variables never leak back — on success the original input message passes through unchanged. Branch outputs are not aggregated.
+
+| Key | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `branches` | list of flows | Yes | — | Parallel sub-flows; each gets a clone of the message. At least one required. |
+
+**Errors:** the first branch error aborts the fork (cancelling the remaining branches) and propagates, labeled with the failing branch's name.
+
+```yaml
+- type: fork
+  name: notify-all
+  branches:
+    - name: audit
+      process:
+        - type: log
+          settings: { message: '"audit " + correlationID' }
+    - name: metrics
+      process:
+        - type: publish-event
+          settings: { connector: bus, topic: orders }
+```
+
+## foreach
+
+Sequentially iterates an array, running the `body` sub-flow once per element with the element bound to a loop variable.
+
+| Key | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `items` | `expression` (array) | Yes | — | CEL expression that must evaluate to an array; anything else errors. |
+| `as` | string | No | `item` | Variable name each element is bound to (`vars.<as>` inside the body). |
+| `body` | flow | Yes | — | Sub-flow run once per element, in order. |
+
+Semantics:
+
+- Iteration is sequential and runs on the shared message, so body edits (body, variables) carry into the next iteration and past the loop.
+- The loop variable is restored to its pre-loop state (or removed) after the loop, so it does not leak.
+- A body that drops the message stops the loop and drops it; a body error aborts the loop; a filter block inside the body that requests stop halts iteration and bubbles the stop to the root.
+
+```yaml
+- type: foreach
+  name: each-order
+  items: "body.orders"
+  as: order
+  body:
+    process:
+      - type: log
+        settings:
+          message: '"order " + string(vars.order.id) + " amount=" + string(vars.order.amount)'
+```
+
+## enrich
+
+Runs a `body` sub-flow on an **isolated clone** of the message, then merges back only what you name: `setBody` computes the new body and each `setVars` entry sets one variable. Everything else the scope did (scratch variables, intermediate bodies) stays isolated.
+
+| Key | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `body` | flow | Yes | — | Sub-flow run once on an isolated clone of the message. |
+| `setBody` | `expression` | No | — | Evaluated against the **scope's result** (the enriched clone); its value becomes the message body. Omitted: the incoming body is unchanged. |
+| `setVars` | map of string → `expression` | No | — | Each expression is evaluated against the scope's result and set as a variable on the message. |
+
+**Errors:** a body error aborts the block; a body that drops the message drops it here too.
+
+```yaml
+- type: enrich
+  name: derive-total
+  # setBody omitted: the incoming order body is preserved.
+  setVars:
+    total: body.total   # pull just the total out of the scope's result
+  body:
+    process:
+      - type: set-payload
+        settings:
+          value: '{"total": body.qty * body.price, "note": "scope-only body"}'
+```
+
+## validate
+
+A **filter** block: asserts a list of boolean CEL rules against the message. If all hold, the message passes through unchanged. If any fail, the block rejects — it shapes a terminal response and requests the flow **stop**, so the rest of the chain never runs.
+
+| Key | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `rules` | list | Yes | — | Assertions; each entry is `{expr: <expression (bool)>, message: <text>}`. All must hold. |
+| `rejectStatus` | int | No | `422` | HTTP status of the built-in rejection response (written to `vars.httpStatus`). Not used when `onReject` is set. |
+| `onReject` | flow | No | — | Sub-flow run on rejection, before the flow stops. It shapes the response itself (e.g. `set-payload` + set `httpStatus`) and can read `vars.validationErrors`. Omitted or empty: the built-in response is used. |
+
+On rejection:
+
+- The failing rules' `message` texts are collected into `vars.validationErrors` (all rules are evaluated, so every failure is reported).
+- Without `onReject`, the built-in response body is `{"error": "validation_failed", "messages": [...]}` and `vars.httpStatus` is set to `rejectStatus`. Over an HTTP source that becomes the response status.
+- With `onReject`, the sub-flow's output is the terminal response; a sub-flow that drops the message drops it here too.
+
+```yaml
+- type: validate
+  name: check-order
+  rejectStatus: 422
+  rules:
+    - expr: 'has(body.id)'
+      message: "order id is required"
+    - expr: 'body.amount > 0'
+      message: "amount must be positive"
+
+# Only reached when every rule held.
+- type: set-payload
+  settings:
+    value: '{"orderId": body.id, "status": "accepted"}'
+```
+
+## handle-errors
+
+Inline error recovery: runs the `process` chain and, on error, exposes the failure as `vars.error` and runs the `error` chain. Both are bare block lists, so the block reads as a mini-flow embedded inline. When the error chain succeeds, its output is the block's result and the flow continues normally (recovery).
+
+| Key | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `process` | block list | Yes | — | The happy-path chain. |
+| `error` | block list | Yes | — | Runs when the process chain errors; reads `vars.error`. |
+
+`vars.error` is a map: `{message: <error text>, flow: <handle-errors block name>, block: <failing block label>}`. If the error chain itself errors, the block fails with that error. A root flow's own `error:` chain provides the same recovery at flow level — see [Error handling](/concepts/error-handling).
+
+```yaml
+- type: handle-errors
+  name: charge
+  process:
+    - type: rest
+      name: call-charge
+      settings:
+        connector: payments
+        method: POST
+        path: /charges
+        body: '{"amount": body.amount}'
+  error:
+    - type: set-payload
+      settings:
+        value: '{"status": "degraded", "reason": vars.error.message}'
+```
+
+## cache-scope
+
+Memoizes the body its wrapped flow produces in the runtime store, keyed by an evaluated expression. On a fresh hit it restores the cached body and skips the `body` flow entirely; on a miss (or an expired entry) it runs the flow and stores its body for next time.
+
+| Key | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `key` | `expression` (string) | Yes | — | Cache-key expression, evaluated per message. An [invalidate-cache](/reference/blocks/storage#invalidate-cache) block with the same key expression evicts this entry. |
+| `ttl` | duration string | No | `60s` | How long an entry stays fresh (e.g. `5m`). `"0"` never expires. Negative values are rejected at startup. |
+| `body` | flow | Yes | — | Sub-flow whose result body is cached and replayed on a hit. |
+
+Notes:
+
+- Only the message **body** is cached; variables the wrapped flow sets are not restored on a hit.
+- Storing is best-effort: a version conflict (another worker cached first) or an absent store leaves the result correct, just uncached. A body error aborts the block; a body that drops the message drops it (nothing is cached).
+- Entries live in the same per-deployment store as [object storage](/reference/blocks/storage); see [Runtime services](/concepts/runtime-services).
+
+```yaml
+- type: cache-scope
+  name: cached-report
+  key: '"report"'
+  ttl: 1m
+  body:
+    process:
+      - type: set-payload
+        settings:
+          value: '{"report": "generated", "event": eventID}'
+```

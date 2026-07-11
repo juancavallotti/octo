@@ -1,0 +1,157 @@
+---
+title: "Helm Chart"
+description: "Install and configure the Octo Helm chart."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The `octo` Helm chart in the repo's `helm/` directory deploys the full
+platform — Postgres, NATS, the orchestrator, the log aggregator, and the
+editor UI — onto any Kubernetes cluster. The chart version is tracked in
+`helm/Chart.yaml` and kept in step with repo releases by release-please.
+
+## What the chart deploys
+
+| Component | Workload | Port | Notes |
+|---|---|---|---|
+| Platform (editor UI) | Deployment | 3000 | Exposed by the Traefik Ingress at `ingress.host`; proxies the orchestrator and logs APIs through its BFF |
+| Orchestrator | Deployment + RBAC | 8090 | ClusterIP only; deploys integrations through the Kubernetes API |
+| Log aggregator | Deployment | 8091 | Consumes NATS `internal.logs` into Postgres; serves the logs query API |
+| Postgres | StatefulSet + PVC | 5432 | Headless ClusterIP; credentials in a generated Secret |
+| NATS | StatefulSet (no volume) | 4222 / 8222 | Core NATS pub-sub; disable with `nats.enabled=false` |
+| Schema applier | Job (Helm hook) | – | Runs `psql -f schema.sql` on every install and upgrade |
+| Runtime RBAC | ServiceAccount + Role | – | Lease permissions for integration pods (leader election) |
+
+The `octo-runtime` image is not a chart workload: the chart passes it to the
+orchestrator as `RUNTIME_IMAGE`, and the orchestrator deploys one pod set per
+integration from it at runtime. The schema Job is annotated
+`helm.sh/hook: post-install,post-upgrade` with the `before-hook-creation`
+delete policy, so it re-runs (idempotently) on every upgrade.
+
+## Key values
+
+Defaults live in `helm/values.yaml`; every knob is documented there. The most
+important ones:
+
+### Images
+
+| Key | Default | Purpose |
+|---|---|---|
+| `image.registry` | `""` | Registry base the per-component repositories are appended to (e.g. `us-west1-docker.pkg.dev/PROJECT/octo`). Empty uses bare local image names. |
+| `image.tag` | `dev` | Tag shared by all five Octo images. Bump it to roll an upgrade. |
+| `image.pullPolicy` | `IfNotPresent` | Applied to all Octo images. |
+| `platform.repository` | `octo-platform` | Editor UI image name. |
+| `orchestrator.repository` | `octo-orchestrator` | Orchestrator image name. |
+| `logs.repository` | `octo-logs` | Log-aggregator image name. |
+| `schema.repository` | `octo-schema` | Schema-applier image name. |
+| `runtime.repository` | `octo-runtime` | Per-integration runtime image, passed to the orchestrator as `RUNTIME_IMAGE`. |
+
+### Domain, ingress, and TLS
+
+| Key | Default | Purpose |
+|---|---|---|
+| `ingress.enabled` | `true` | Create the editor Ingress. Disabled, reach the editor by port-forwarding the platform Service. |
+| `ingress.className` | `traefik` | Ingress class. |
+| `ingress.host` | `octo.juancavallotti.com` | Hostname the editor is served at. |
+| `ingress.tls.enabled` | `true` | Request a cert for the editor host. |
+| `ingress.tls.secretName` | `octo-tls` | Secret the cert is stored in. |
+| `ingress.tls.clusterIssuer` | `letsencrypt-prod` | cert-manager ClusterIssuer for the editor cert. |
+| `orchestrator.baseDomain` | `""` | Parent domain for per-integration external endpoints (`{subdomain}.{baseDomain}`). Empty disables external exposure. |
+| `orchestrator.clusterIssuer` | `""` | ClusterIssuer for per-integration TLS certs (HTTP-01, one per host). |
+| `wildcardTLS.enabled` | `false` | Issue one wildcard cert for the apex and `*.{ingress.host}` via DNS-01 and share it across the editor and every integration Ingress. Requires a DNS-01 ClusterIssuer. |
+| `wildcardTLS.secretName` | `octo-wildcard-tls` | Secret holding the shared wildcard cert. |
+| `wildcardTLS.clusterIssuer` | `letsencrypt-dns` | DNS-01 ClusterIssuer for the wildcard cert. |
+
+### Secrets and auth
+
+| Key | Default | Purpose |
+|---|---|---|
+| `postgres.auth.username` / `.password` / `.database` | `octo` / `octo` / `octo` | Database credentials, stored in a chart-managed Secret. Always override the password. |
+| `kv.encryptionKey` | `""` | Base64-encoded 32-byte AES-256 key encrypting KV secret namespaces at rest. Empty rejects secret-namespace writes; plain KV still works. See [KV and storage](/platform/kv-and-storage). |
+| `auth.oidc.enabled` | `false` | Gate the editor behind OIDC SSO (Auth.js). Disabled, the editor is open. |
+| `auth.oidc.issuer` | `https://auth.eetr.app` | OIDC issuer URL. |
+| `auth.oidc.clientId` / `.clientSecret` | `""` | IdP client credentials; the secret lands in the chart's auth Secret. |
+| `auth.secret` | `""` | Auth.js session secret (`AUTH_SECRET`). |
+| `auth.writeRoles` | `""` | Comma-separated roles allowed to mutate; empty allows any signed-in user. |
+| `auth.rolesClaim` | `""` | ID-token claim carrying roles (Auth.js default `roles`). |
+
+### Persistence and scaling
+
+| Key | Default | Purpose |
+|---|---|---|
+| `postgres.storage.size` | `5Gi` | Postgres PVC size. |
+| `postgres.storage.storageClassName` | `""` | Empty uses the cluster default StorageClass (`local-path` on k3s). |
+| `platform.replicas` / `orchestrator.replicas` / `logs.replicas` | `1` | Replica counts. The log aggregator scales safely (NATS queue group). |
+| `nats.enabled` | `true` | Deploy the NATS broker; when off, live event streams fall back to polling. See [Event bus](/platform/event-bus). |
+| `runtime.servicesModule` | `k8s` | Runtime-services backend injected into integration pods: `k8s` (Lease leader election + orchestrator KV) or `standalone` (in-process noop). Cluster deploys want `k8s`. |
+
+## Install
+
+The chart is published as an OCI artifact. In the reference GCP deployment,
+Cloud Build pushes it to your Artifact Registry on every version tag (see
+[Releases and upgrades](/deploy/releases-and-upgrades)); you can also publish
+it yourself from a checkout:
+
+```bash
+# Lint and package into dist/octo-<version>.tgz
+task helm:package
+
+# Push to an OCI registry (Artifact Registry shown)
+helm registry login us-west1-docker.pkg.dev -u oauth2accesstoken -p "$(gcloud auth print-access-token)"
+task helm:push IMAGE_BASE=us-west1-docker.pkg.dev/PROJECT/octo
+```
+
+Then install from the registry, pointing the image values at where you pushed
+the images (`task images:push IMAGE_BASE=… TAG=…`):
+
+```bash
+helm install octo oci://us-west1-docker.pkg.dev/PROJECT/octo/octo \
+  --version <chart-version> \
+  --namespace octo-dev --create-namespace \
+  --set image.registry=us-west1-docker.pkg.dev/PROJECT/octo \
+  --set image.tag=v0.2.0 \
+  --set ingress.host=octo.example.com \
+  --set postgres.auth.password=<strong-password>
+```
+
+The chart version comes from `helm/Chart.yaml` — list available versions with
+`helm show chart oci://…/octo`. You can also install straight from a checkout
+with `helm install octo ./helm -f my-values.yaml`.
+
+<Callout type="info">
+  The chart assumes Traefik as the ingress class and cert-manager with a
+  ClusterIssuer for TLS — both ship with the k3s bootstrap in the
+  [GCP reference deployment](/deploy/gcp-terraform). On other clusters,
+  install cert-manager and adjust `ingress.className`, or disable TLS.
+</Callout>
+
+<Callout type="warn">
+  In the GCP reference deployment, Terraform owns the Helm release — do not
+  run `helm upgrade` against it by hand. Apply the `release` root (or
+  `task deploy TAG=…`) instead.
+</Callout>
+
+## Upgrade
+
+Upgrades are a normal `helm upgrade` with a new chart version and image tag:
+
+```bash
+helm upgrade octo oci://us-west1-docker.pkg.dev/PROJECT/octo/octo \
+  --version <new-chart-version> \
+  --namespace octo-dev \
+  --reuse-values \
+  --set image.tag=v0.3.0
+```
+
+What happens on an upgrade:
+
+- A changed `image.tag` rewrites the pod templates, so the platform,
+  orchestrator, and logs Deployments roll automatically.
+- The schema hook Job re-runs and applies `sql/schema.sql`; the schema is
+  idempotent (`IF NOT EXISTS` / `ON CONFLICT`), so this is safe on every
+  upgrade.
+- Postgres and its PVC are untouched when only the tag moves — your data
+  survives the upgrade.
+- Integrations already deployed keep running on the runtime image they were
+  deployed with; redeploy them from the editor to pick up a new
+  `octo-runtime`.

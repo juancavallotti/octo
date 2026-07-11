@@ -1,0 +1,155 @@
+---
+title: "AI Agents"
+description: "The ai-agent block: prompt, tools, guardrails, and iteration limits."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The `ai-agent` block lets an LLM accomplish a task by calling flow branches
+as tools, one or more times, in a loop. You describe the task in a prompt,
+give the model tools built from ordinary process chains, and the block folds
+the model's final answer back into the message.
+
+![An ai-agent block's settings in the editor: prompt, tools, skills, and memory](/screenshots/editor-ai-agent-settings.png)
+
+## A complete example
+
+This flow enriches an inbound lead. The agent decides when to call the
+`classify_size` tool, then answers with a JSON object that becomes the
+message body:
+
+```yaml
+service:
+  name: ai-agent
+
+env:
+  - name: ANTHROPIC_API_KEY
+    required: true
+
+connectors:
+  - name: claude
+    type: llm-anthropic
+    settings:
+      apiKey: ${ANTHROPIC_API_KEY}
+
+flows:
+  - name: enrich
+    process:
+      - type: ai-agent
+        name: enrich-lead
+        connector: claude
+        maxIterations: 6
+        prompt: >
+          Enrich the inbound lead. Classify the company size and decide whether
+          it is a good fit. Call the tools as needed, then respond with a JSON
+          object {"tier": "...", "fit": true|false}.
+        guardrail: >
+          If you cannot classify the lead with confidence, take the default path.
+        tools:
+          - name: classify_size
+            description: Classify a company's size tier from its name and domain.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["company"],
+                "properties": {
+                  "company": { "type": "string" },
+                  "domain":  { "type": "string" }
+                }
+              }
+            process:
+              # A real tool would call an API; here we just echo a tier so the
+              # sample runs without external dependencies.
+              - type: set-payload
+                settings:
+                  value: '{"tier": "smb"}'
+        default:
+          process:
+            - type: set-payload
+              settings:
+                value: '{"status": "needs-manual-review"}'
+```
+
+Run it with the CLI:
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+octo invoke --config samples/ai-agent.yaml --flow enrich \
+  --data '{"company":"Acme","domain":"acme.example"}'
+```
+
+![The ai-agent sample in the visual editor](/screenshots/sample-ai-agent.png)
+
+`ai-agent` is a **composite** block: `connector`, `prompt`, `tools`, and the
+other keys sit at the top level of the block, not under `settings:`.
+
+## How the loop works
+
+1. The block encodes the incoming message body as JSON and hands it to the
+   model as the task input.
+2. The model calls tools as needed. Each tool call's arguments become the
+   tool branch's message **body**; the branch runs; its output body is
+   returned to the model as the tool result.
+3. Tool branches share the message, so variables a branch sets accumulate
+   across the loop and are visible to later tools and to the rest of the
+   flow.
+4. When the model stops calling tools, its final text is folded into the
+   message body — parsed as JSON when possible, stored as text otherwise. An
+   empty final answer leaves the body as the last tool left it.
+
+Each iteration is one model call. `maxIterations` caps the loop (default
+`8`); an agent that never finishes within the cap falls back to the default
+path.
+
+A tool branch that errors does not abort the agent: the error text is
+returned to the model as a failed tool result, so it can react — retry with
+different arguments, try another tool, or give up and take the guardrail.
+
+## Fields
+
+| Field | Required | Description |
+|---|---|---|
+| `connector` | Yes | Name of any configured LLM connector (`llm-anthropic`, `llm-openai`, `llm-gemini`). |
+| `prompt` | Yes | The task instruction. It is embedded in the agent's system prompt. |
+| `tools` | Yes | At least one tool. Each needs a `name`, a `description`, an optional `inputSchema` (JSON Schema; defaults to an open object), and a `process` chain. |
+| `maxIterations` | No | Cap on tool-calling turns; defaults to `8`. |
+| `guardrail` | No | Text describing when the model should give up and take the default path. |
+| `default` | No | The fallback flow, run on refusal or when `maxIterations` is exhausted. |
+| `skills` | No | Lazy-loaded instruction documents — see [Skills and Tools](/ai/agent-skills-and-tools). |
+| `memoryThreadId` and friends | No | Per-thread conversation memory — see [Agent Memory](/ai/agent-memory). |
+
+## Guardrail and the default path
+
+The `guardrail` text is appended to the system prompt as explicit guidance on
+when to stop trying. The `default` flow is what actually runs when the agent
+gives up. Two situations trigger it:
+
+- the model **refuses** the task, or
+- the loop **exceeds `maxIterations`** without producing a final answer.
+
+In both cases the current message — including any variables tool branches
+set along the way — is passed to the `default` process chain, so the
+fallback can log, degrade gracefully, or route to a human.
+
+<Callout type="warn">
+If no `default` is configured, a refusal or an exhausted loop is an
+**error**: the block fails and the message flows to the surrounding recovery
+path (an enclosing `handle-errors`, `ai-retry`, or the flow's `error` chain).
+Give production agents a `default`.
+</Callout>
+
+## Input and output
+
+The agent's input is the **message body** at the time the block runs. Shape
+it deliberately with a transform before the agent — the model sees exactly
+that JSON. Its output is the **message body** after the block: instruct the
+model to answer in a specific JSON shape (as the example does) and downstream
+blocks can rely on it. If the model wraps its answer in a markdown code
+fence, the block strips it before parsing.
+
+## Next steps
+
+- Give the agent [memory across invocations](/ai/agent-memory).
+- Structure larger agents with [skills and reusable flow-backed tools](/ai/agent-skills-and-tools).
+- See a production agent end to end in the [Slack agent capstone](/ai/slack-agent).
+- Full field tables: [AI Blocks reference](/reference/blocks/ai).

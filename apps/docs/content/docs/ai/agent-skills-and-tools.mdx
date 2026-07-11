@@ -1,0 +1,164 @@
+---
+title: "Skills and Tools"
+description: "Give agents lazy-loaded skills and flow-backed tools."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+An `ai-agent` acts through **tools** — process chains the model calls with
+JSON arguments — and stays instructable through **skills** — named
+instruction documents it loads on demand. Together they keep the base prompt
+small while giving the agent real capabilities and deep, situational
+guidance.
+
+## Tools
+
+A tool wires a flow branch to the model as a callable function:
+
+```yaml
+tools:
+  - name: lookup_order
+    description: Look up an order's delivery date and status by id.
+    inputSchema: |
+      {
+        "type": "object",
+        "required": ["orderId"],
+        "properties": { "orderId": { "type": "string" } }
+      }
+    process:
+      - type: set-payload
+        settings:
+          value: '{"orderId": "A-100", "deliveredDaysAgo": 14, "type": "physical"}'
+```
+
+- `name` and `description` are required — the description is what the model
+  reads to decide when to call the tool, so write it like documentation.
+- `inputSchema` is a JSON Schema for the arguments; when omitted it defaults
+  to an open object.
+- The model's arguments arrive as the branch's message **body**
+  (`body.orderId` above), and the branch's output body goes back to the
+  model as the tool result. A branch error becomes an error result the model
+  can react to, not a crash.
+- Tool branches share the message, so variables they set persist across the
+  loop and remain visible after the agent finishes.
+
+### Inline chains or reusable flows
+
+Small tools work well as inline `process` chains. When a tool deserves its
+own error handling, or you want to reuse it across agents, implement it as a
+**sourceless flow** and reference it with `flow-ref` — the pattern the
+production Slack agent uses for all five of its tools:
+
+```yaml
+tools:
+  - name: get_current_weather
+    description: Look up current weather for a city, address, or place name.
+    inputSchema: |
+      {"type":"object","required":["location"],"properties":{"location":{"type":"string"}}}
+    process:
+      - type: flow-ref
+        settings:
+          flow: get-current-weather   # a flow with no source, its own error chain
+```
+
+The referenced flow gets the tool arguments as its body, can carry its own
+`error` chain, and can return a `{"ok": false, "error": ...}` shape so the
+agent recovers gracefully instead of seeing a raw failure.
+
+## Skills
+
+A skill is a named instruction document the agent loads just-in-time. Only
+each skill's `name` and `description` are in the system prompt up front; the
+body is a [template resource](/reference/flow-file) the model fetches with
+the implicit `load_skill` tool when the topic comes up:
+
+```yaml
+resources:
+  templates:
+    - resource: skills/refunds.md
+      as: refunds
+    - resource: skills/shipping.md
+      as: shipping
+
+flows:
+  - name: support
+    process:
+      - type: ai-agent
+        name: support-assistant
+        connector: claude
+        maxIterations: 6
+        prompt: >
+          You are a customer-support assistant. Answer the customer's question.
+          Load the relevant skill first to ground your answer in policy, then
+          respond with a JSON object {"answer": "..."}.
+        skills:
+          - name: refunds
+            description: How to decide and explain refunds by order age and type.
+            resource: refunds
+          - name: shipping
+            description: Shipping options, coverage, tracking, and lost-parcel claims.
+            resource: shipping
+```
+
+The skill body is plain Markdown — policy, rules, tone, whatever the model
+should know when it acts in that area. `skills/refunds.md` from the sample:
+
+```markdown
+# Refund policy
+
+Follow these rules when a customer asks for a refund.
+
+- Orders are refundable in full within 30 days of delivery.
+- Between 31 and 60 days, offer store credit only (no cash refund).
+- After 60 days, refunds are not available; escalate to a human agent.
+- Digital goods are non-refundable once downloaded.
+- Always confirm the order id before promising a refund.
+
+When you have decided, respond with the refund decision and the reason.
+```
+
+Skills are rendered as templates against the current message, so they can
+embed `{{ }}` CEL expressions like any other template resource.
+
+<Callout type="info">
+`load_skill` is a reserved tool name: a tool may not use it, and a skill may
+not share a name with a tool. Each skill needs a `name`, a `description`,
+and a `resource` (the template alias).
+</Callout>
+
+Skills are not limited to policy. The production Slack agent ships a
+`voice.md` skill that defines its personality:
+
+```markdown
+# Voice & tone
+
+You're warm, upbeat, and a little playful — the kind of helpful coworker
+people actually enjoy pinging. Keep it professional enough for a work Slack.
+
+Do:
+- Lead with the answer, then add personality — never make someone dig past
+  a joke to get help.
+- Be conversational and human: contractions, plain words, a light touch of wit.
+...
+
+Rule of thumb: friendly barista, not stand-up comedian.
+```
+
+Its prompt just says "load the voice skill for how to strike that tone" —
+the two-page style guide costs nothing until a reply is actually being
+written.
+
+## Skill vs. prompt text vs. tool
+
+- **Prompt text** for what applies to *every* turn: the task, the output
+  shape, hard rules. Keep it short — everything here is paid for on every
+  model call.
+- **A skill** for deep instructions that only matter *sometimes*: a refund
+  policy, a formatting guide, when-to-use-a-tool guidance. The model loads
+  it only when relevant, keeping the base prompt small as the agent grows.
+- **A tool** whenever the agent needs to *do* something or fetch live data:
+  call an API, read or write storage, look up a record. Skills inform; tools
+  act. The strongest pattern pairs them — a tool for the capability, a skill
+  teaching the model when and how to use it well (see the
+  [durable facts pattern](/ai/agent-memory) and the
+  [Slack agent capstone](/ai/slack-agent)).

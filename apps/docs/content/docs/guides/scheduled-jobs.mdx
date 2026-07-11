@@ -1,0 +1,138 @@
+---
+title: "Scheduled Jobs"
+description: "Run flows on a cron schedule."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+In this guide you trigger flows on a schedule with the `cron` source, build the
+tick payload with CEL, reuse processors by name, and write structured logs to a
+file. It follows
+[`samples/heartbeat.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/heartbeat.yaml)
+and
+[`samples/file-logger.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/file-logger.yaml).
+
+![The flow in the visual editor](/screenshots/sample-heartbeat.png)
+
+## A heartbeat every two seconds
+
+The `cron` connector needs no settings; each flow's source carries its own
+schedule. The `payload` is a CEL expression evaluated at fire time — it sees
+`now`, the fire time — and its result becomes the message body.
+
+This sample also shows **named processors**: define a block once under
+`processors:` and reference it from any flow with `ref:`.
+
+```yaml
+service:
+  name: heartbeat
+
+connectors:
+  - name: ticker
+    type: cron
+
+# Named processor definitions. Flow blocks reference these by `ref`.
+processors:
+  - name: heartbeat-log
+    type: log
+    settings:
+      level: info
+      message: '"heartbeat fired at " + body.firedAt'
+
+flows:
+  - name: heartbeat
+    source:
+      connector: ticker
+      type: cron
+      settings:
+        # Descriptor schedule: fire every two seconds.
+        schedule: "@every 2s"
+        payload: '{"firedAt": string(now), "kind": "tick"}'
+    process:
+      - ref: heartbeat-log
+```
+
+Run it and watch the ticks:
+
+```bash
+bin/octo run --config samples/heartbeat.yaml
+```
+
+## Schedule syntax
+
+The `schedule` setting accepts two forms:
+
+- **Descriptors** — `@every 2s`, `@every 1h30m`, `@hourly`, `@daily`.
+- **Cron expressions with seconds** — six fields (`sec min hour dom mon dow`),
+  not the usual five, so schedules have second granularity. `0 30 9 * * 1-5`
+  fires at 09:30:00 on weekdays; `*/10 * * * * *` fires every ten seconds.
+
+A bad schedule or payload expression fails at startup, not at the first tick.
+The source also accepts a static `correlationID` to stamp on every emitted
+message.
+
+<Callout type="info">
+When you run multiple replicas of the same service, cron sources elect a
+leader per connector, so each schedule fires once across the cluster — not once
+per replica.
+</Callout>
+
+## Log to a file
+
+A scheduled job usually wants a durable record. From
+[`samples/file-logger.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/file-logger.yaml):
+a named `logger` connector owns its output file (opened on start, closed on
+shutdown), and any `log` block writes through it by name.
+
+```yaml
+service:
+  name: file-logger-demo
+
+connectors:
+  - name: ticker
+    type: cron
+  - name: audit
+    type: logger
+    settings:
+      output: /tmp/octo-audit.log
+      format: json
+      level: info
+      addSource: false
+
+flows:
+  - name: audit-ticks
+    source:
+      connector: ticker
+      type: cron
+      settings:
+        schedule: "@every 2s"
+        payload: '{"date": string(now)}'
+    process:
+      # This log block writes through the named "audit" logger connector.
+      - type: log
+        settings:
+          logger: audit
+          message: '"tick at " + body.date'
+```
+
+All logger settings are optional — the defaults are `output: stdout`,
+`format: text`, `level: info`. Set `format: json` for structured lines and
+`addSource: true` to include the source location in each record.
+
+Run it and tail the file:
+
+```bash
+bin/octo run --config samples/file-logger.yaml
+tail -f /tmp/octo-audit.log
+```
+
+```json
+{"time":"2026-07-09T10:15:04Z","level":"INFO","msg":"tick at 2026-07-09 10:15:04.001 +0000 UTC"}
+```
+
+## Where to go next
+
+- [Call External APIs](/guides/call-external-apis) — a scheduled flow that polls a real API.
+- [Object Storage and Caching](/guides/object-storage-and-caching) — keep state between ticks.
+- [Cron connector reference](/reference/connectors/cron) — every source setting.
+- [Logger connector reference](/reference/connectors/logger) — logger and `log` block settings.

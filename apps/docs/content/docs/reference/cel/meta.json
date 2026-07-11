@@ -1,0 +1,9 @@
+{
+  "pages": [
+    "index",
+    "language",
+    "macros",
+    "octo-extensions"
+  ],
+  "title": "CEL"
+}

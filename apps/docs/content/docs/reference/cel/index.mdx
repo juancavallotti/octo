@@ -1,0 +1,120 @@
+---
+title: "CEL Expressions"
+description: "The Common Expression Language in Octo: where it runs and how to try it."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Octo uses the [Common Expression Language
+(CEL)](https://github.com/google/cel-spec) wherever a flow needs to compute a
+value: transforming a body, testing a condition, building a log message,
+binding a SQL argument. CEL is a small, typed expression language — every
+program is a single expression that produces a single value. It is
+deliberately not Turing-complete: there are no loops, no statements, no user
+functions, and no side effects, so an expression always terminates and its
+cost is predictable. That makes it safe to evaluate snippets from a YAML file
+thousands of times per second.
+
+Expressions are compiled once, when the flow is built at startup — a malformed
+expression fails the deployment, not a message in production — and evaluated
+per message against the message's variables: the decoded `body`, the `vars`
+map, `eventID`, `correlationID`, the resolved `env`, and `now`, the evaluation
+time. The result is always a JSON-native value (object, array, string, number,
+boolean, or null), matching the runtime's JSON message contract. See
+[Octo Extensions](/reference/cel/octo-extensions) for the full variable list
+and the custom functions Octo adds.
+
+## Where expressions appear
+
+Any block setting documented as an expression is CEL, evaluated against the
+current message. The most common places:
+
+- **`set-payload`** — `value` becomes the new body.
+- **`if` / `switch`** — `condition` and each case's `when` must evaluate to a boolean.
+- **`foreach`** — `items` must evaluate to a list.
+- **`log`** — `message` is an expression (that is why literal text is quoted twice, see below).
+- **`set-variable`** — `value` is the expression stored in `vars`.
+- **`sql`** — each entry of `args` binds one statement placeholder.
+- **`rest`** and other connector blocks — URL, header, and body settings.
+- **`validate`** — each rule's `expr` is an assertion.
+- **Source payloads** — a `cron` source's `payload` expression builds the initial body (with `now` and `settings` in scope, but no message variables yet).
+
+```yaml
+process:
+  - type: if
+    name: any-orders
+    condition: "size(body.orders) > 0"
+    then:
+      process:
+        - type: log
+          settings:
+            message: '"processing " + string(size(body.orders)) + " orders"'
+```
+
+## The YAML quoting rule
+
+Expression settings hold CEL source code, and YAML strips one layer of
+quoting before CEL ever sees the value. To produce the *string* `hello`, the
+CEL expression must be `"hello"` — so in YAML you write it wrapped in single
+quotes:
+
+```yaml
+settings:
+  message: '"hello"'             # CEL sees "hello"  -> the string hello
+  message: '"hi " + body.name'   # concatenation with a literal
+```
+
+Written as `message: "hello"` or `message: hello`, CEL receives the bare
+identifier `hello` and fails to compile with `undeclared reference to
+'hello'`. Expressions that start with a variable need no inner quotes:
+`condition: "size(body.orders) > 0"` works as-is.
+
+## Experimenting with octo eval
+
+The [`octo eval`](/reference/cli#octo-eval) subcommand evaluates an expression
+without a config, printing a JSON envelope with the result:
+
+```bash
+bin/octo eval --expr '1 + 2'
+# {"ok":true,"result":3}
+
+bin/octo eval --expr '"hi " + body.name' --data '{"name": "Ada"}'
+# {"ok":true,"result":"hi Ada"}
+```
+
+`--data` binds a JSON object to `body` (piped stdin works too), `--vars` binds
+`vars`, and `--env` binds `env`:
+
+```bash
+bin/octo eval --expr 'body.orders.filter(o, o.amount >= vars.min)' \
+  --data '{"orders": [{"id": 1, "amount": 50}, {"id": 2, "amount": 250}]}' \
+  --vars '{"min": 100}'
+# {"ok":true,"result":[{"amount":250,"id":2}]}
+
+bin/octo eval --expr 'env.API_BASE_URL + "/orders"' \
+  --env '{"API_BASE_URL": "https://api.example.com"}'
+# {"ok":true,"result":"https://api.example.com/orders"}
+```
+
+A compile or evaluation error comes back in the same envelope with
+`"ok":false`, and the exit code stays `0`, so you can iterate freely:
+
+```bash
+bin/octo eval --expr 'body.missing'
+# {"ok":false,"result":null,"error":"evaluate expression: no such key: missing"}
+```
+
+<Callout type="info">
+  On the command line the expression is passed in single quotes, so CEL string
+  literals keep their double quotes — the same shape you will paste into YAML.
+</Callout>
+
+## In this section
+
+- [Language Tour](/reference/cel/language) — CEL by example: types, operators,
+  strings, lists, maps, conversions, timestamps, and equality.
+- [Macros](/reference/cel/macros) — the comprehension macros: `filter`, `map`,
+  `all`, `exists`, `exists_one`.
+- [Octo Extensions](/reference/cel/octo-extensions) — the variables in scope
+  and the custom functions Octo registers (`toJson`, `fromJson`, `toFormData`,
+  `fromFormData`, `templateResource`).

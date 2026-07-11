@@ -1,0 +1,9 @@
+{
+  "pages": [
+    "index",
+    "docker",
+    "running-flows",
+    "how-it-works"
+  ],
+  "title": "Standalone Editor"
+}

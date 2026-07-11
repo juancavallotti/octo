@@ -1,0 +1,89 @@
+---
+title: "Guides"
+description: "Task-oriented guides built from runnable samples."
+---
+
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+Every guide in this section is built from a runnable sample in the repository's
+[`samples/`](https://github.com/juancavallotti/octo/tree/main/samples) directory.
+Each one walks through a working flow YAML, explains the pieces as it builds
+them up, and gives you the exact commands to run and test it — most samples need
+zero setup beyond the `octo` binary.
+
+## HTTP & APIs
+
+<Cards>
+  <Card href="/guides/rest-api" title="Build a REST API">
+    Serve HTTP endpoints with routing, path params, and response shaping.
+  </Card>
+  <Card href="/guides/call-external-apis" title="Call External APIs">
+    Use the HTTP client with auth, retries, and response caching.
+  </Card>
+  <Card href="/guides/database-crud" title="Database CRUD">
+    Query SQLite or Postgres with parameterized SQL.
+  </Card>
+</Cards>
+
+## Data
+
+<Cards>
+  <Card href="/guides/transforming-data" title="Transforming Data">
+    Reshape payloads with multi-transform, enrich scopes, and CEL.
+  </Card>
+  <Card href="/guides/validation-and-auth" title="Validation and Auth">
+    Validate input with CEL rules and protect endpoints with JWT.
+  </Card>
+</Cards>
+
+## Composition & messaging
+
+<Cards>
+  <Card href="/guides/composing-flows" title="Composing Flows">
+    Call flows from flows: flow-ref, sourceless flows, and HTTP composition.
+  </Card>
+  <Card href="/guides/events-and-queues" title="Events and Queues">
+    Broadcast with topics or load-balance work with queues.
+  </Card>
+  <Card href="/guides/scheduled-jobs" title="Scheduled Jobs">
+    Run flows on a cron schedule and write structured logs to files.
+  </Card>
+</Cards>
+
+## State
+
+<Cards>
+  <Card href="/guides/object-storage-and-caching" title="Object Storage and Caching">
+    Persist state in the object store and memoize with cache scopes.
+  </Card>
+</Cards>
+
+## Web
+
+<Cards>
+  <Card href="/guides/serving-html" title="Serving HTML">
+    Render HTML pages from templates and parse form submissions.
+  </Card>
+</Cards>
+
+## Integrations
+
+<Cards>
+  <Card href="/guides/slack-bot" title="Build a Slack Bot">
+    Receive Slack events, verify signatures, and reply to mentions.
+  </Card>
+  <Card href="/guides/notion-sync" title="Work with Notion">
+    Handle Notion webhooks, query data sources, and render pages as Markdown.
+  </Card>
+</Cards>
+
+## AI
+
+<Cards>
+  <Card href="/guides/ai-web-app" title="An AI Web App End to End">
+    Cache LLM output and render it as HTML with an error fallback page.
+  </Card>
+  <Card href="/ai" title="The AI section">
+    The full AI documentation: agents, memory, skills, routing, and MCP.
+  </Card>
+</Cards>

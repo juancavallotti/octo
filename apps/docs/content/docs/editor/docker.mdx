@@ -1,0 +1,98 @@
+---
+title: "Running from Docker"
+description: "Run the editor with Docker and mount your flows directory."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The standalone editor ships as a self-contained public Docker image that
+bundles the editor, the `octo` runtime binary, and an MCP server. Run it with
+one command:
+
+```bash
+docker run -p 3000:3000 -v "$PWD:/work" juancavallotti/octo
+```
+
+Then open [http://localhost:3000](http://localhost:3000).
+
+## The volume mount
+
+The mount is the flow store. Inside the container the image sets
+`OCTO_FS_DIR=/work`, so the editor reads and writes flow YAML — and the flow's
+resources, like `.env.dev` and templates — as plain files under `/work`.
+Mounting a host directory there (`-v "$PWD:/work"`) makes that directory the
+store: your flows stay on your disk when the container stops, ready for
+`octo run`, a git commit, or another editor session.
+
+Mount an empty directory to start fresh, or a directory that already contains
+flow YAML (for example the repo's `samples/`) to browse and edit it.
+
+<Callout type="warn">
+  Without a mount, flows are written to the container's own `/work` and are
+  lost when the container is removed.
+</Callout>
+
+## Environment variables
+
+The app is configured entirely through environment variables. The image sets
+working defaults for all three:
+
+| Variable        | Purpose                                                             | Image default         |
+| --------------- | ------------------------------------------------------------------- | --------------------- |
+| `OCTO_FS_DIR`   | Directory the editor reads/writes flow YAML and resources in        | `/work`               |
+| `OCTO_BIN_PATH` | Path to the `octo` binary the Run feature spawns; unset hides Run   | `/usr/local/bin/octo` |
+| `OCTO_RUN_DIR`  | Where rendered run configs and staged resources are written         | `/app/.octo-run`      |
+
+Outside Docker, `OCTO_FS_DIR` defaults to `./flows`, `OCTO_RUN_DIR` to the OS
+temp directory, and `OCTO_BIN_PATH` is unset — with no binary configured, the
+Run button and console do not appear.
+
+You can also set `OCTO_DOCS_URL` to a documentation site URL; the bundled
+[MCP server](/ai/mcp-server) surfaces it in its authoring prompt.
+
+## Passing API keys for AI flows
+
+Runs started from the editor inherit the container's environment, so pass
+provider credentials with `-e`:
+
+```bash
+docker run -p 3000:3000 -v "$PWD:/work" \
+  -e ANTHROPIC_API_KEY=sk-ant-... \
+  juancavallotti/octo
+```
+
+Any flow that declares `ANTHROPIC_API_KEY` in its `env:` block now resolves it
+at run time. For values you would rather keep next to the flows than in the
+`docker run` command, use the editor's Dev .env tab instead — see
+[Running flows](/editor/running-flows#the-dev-env-tab).
+
+## Image tags and architectures
+
+The image is published to public Docker Hub as
+[`juancavallotti/octo`](https://hub.docker.com/r/juancavallotti/octo) on every
+release, as a multi-arch build for `linux/amd64` and `linux/arm64` — it runs
+natively on both x86 and Apple Silicon / ARM hosts.
+
+- `juancavallotti/octo:latest` — the most recent release.
+- `juancavallotti/octo:<version>` — a specific release, e.g. `0.2.0`.
+
+Pin a version tag for reproducible setups. See
+[Docker images](/deploy/docker-images) for the other published images.
+
+## Running without Docker (contributors)
+
+If you are working on Octo itself, run the editor from the repo instead. From
+the repo root:
+
+```bash
+task dev
+```
+
+This builds the `octo` runner from the Go workspace, then starts the Next.js
+dev server with the Run feature wired up: `OCTO_BIN_PATH` points at
+`bin/octo`, `OCTO_RUN_DIR` at `.octo-run/`, and `OCTO_FS_DIR` at
+`.octo-flows/` in the repo root.
+
+Running the app directly (`pnpm --filter standalone dev`) uses the `./flows`
+default for the flow store and leaves Run disabled unless you set
+`OCTO_BIN_PATH` yourself.

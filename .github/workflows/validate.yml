@@ -40,3 +40,28 @@ jobs:
       - run: pnpm --filter platform lint
       - run: pnpm --filter platform test
       - run: pnpm --filter platform build
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: runtime/go.work
+      - name: Install Task
+        run: |
+          sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b "$(go env GOPATH)/bin"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: apps/platform/.nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: task runtime:build
+      # Fails when a registered connector/block type has no docs page (or a
+      # docs page claims a type that no longer exists). See AGENTS.md
+      # "Documentation policy".
+      - run: node scripts/check-docs-drift.mjs
+      # Static-export build doubles as an MDX/broken-link check.
+      - run: pnpm --filter docs build

@@ -1,0 +1,235 @@
+---
+title: "HTTP"
+description: "The HTTP server connector, HTTP client connector, and the rest block."
+octo_types:
+  - http
+  - http-client
+  - rest
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Octo ships two HTTP connectors: `http`, a server connector whose sources turn inbound requests into flow executions and write the flow's result back as the response, and `http-client`, an outbound client that the `rest` block runs requests through.
+
+## `http` connector
+
+The `http` connector (label: **HTTP Server**) owns a single HTTP server — host, port, base path, server timeouts, and CORS. Each flow fronted by an `http` source registers a route on that shared server.
+
+**Provides a source:** yes — the **HTTP route** source (below). **Blocks that bind to it:** none; the `rest` block binds to `http-client`.
+
+### Settings
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `host` | string | No | `$HTTP_HOST`, else `0.0.0.0` | Bind address. An explicit value wins over the `HTTP_HOST` environment variable. |
+| `port` | int | No | `$HTTP_PORT`, else `8080` | Bind port. An explicit `0` lets the OS pick a free port. An explicit value wins over the `HTTP_PORT` environment variable. |
+| `basePath` | string | No | — | Prefix for all routes (e.g. `/api/v1`). |
+| `keepAlive` | boolean | No | — | Enable HTTP keep-alives. |
+| `requestTimeout` | duration | No | `30s` | How long a handler waits for the flow to finish. |
+| `readTimeout` | duration | No | — | Server read timeout. |
+| `writeTimeout` | duration | No | — | Server write timeout. |
+| `idleTimeout` | duration | No | — | Server idle timeout. |
+| `cors` | object | No | — | Cross-origin resource sharing. Inert unless `allowedOrigins` is set. |
+
+Duration settings accept Go duration strings (`5s`, `250ms`).
+
+### CORS settings (`cors`)
+
+CORS is off unless `allowedOrigins` is non-empty. When set, the connector answers `OPTIONS` preflights and adds CORS headers on every route.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `allowedOrigins` | string[] | No | — | Origins allowed to make cross-origin requests. Exact matches; a single `*` allows any origin. |
+| `allowedMethods` | string[] | No | `GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS` | Methods allowed on preflight. |
+| `allowedHeaders` | string[] | No | echo requested headers | Request headers allowed on preflight; when unset, the requested headers are echoed back. |
+| `exposedHeaders` | string[] | No | — | Response headers exposed to the browser on actual responses. |
+| `allowCredentials` | boolean | No | `false` | Allow credentialed (cookie/authorization) requests. When true, the origin is echoed rather than `*`, per the CORS spec. |
+| `maxAge` | duration | No | — | How long a browser may cache the preflight response. |
+
+### `http` source
+
+Each `http` source binds one route pattern to a flow. The request becomes the flow's input message; the flow's final message becomes the response.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `path` | string | Yes | — | Route pattern; `{name}` params become `vars.name`. |
+| `headers` | string[] | No | — | Request header names to copy into variables. |
+| `responseHeaders` | string[] | No | — | Response header names to propagate from message variables of the same name after the flow completes. `Content-Type` is managed by the source. |
+| `correlationIdHeader` | string | No | — | Header to source the correlation ID from. |
+| `rawBodyVar` | string | No | — | Capture the exact request bytes into `vars.<name>` (e.g. to verify an HMAC signature over the raw body). |
+| `rawBody` | boolean | No | `false` | Source the request as raw content: skip the JSON check and store the body as `{contentType, rawData}` using the request's `Content-Type`, instead of parsing it. Lets non-JSON payloads (forms, XML, binary text) enter the flow. |
+| `timeout` | duration | No | connector's `requestTimeout` | Per-route wait for the flow. |
+| `maxBodyBytes` | int | No | `1048576` | Request body size cap (via `http.MaxBytesReader`). Oversized requests get `413`. |
+
+#### How the request maps into the message
+
+- **Path parameters** — every `{name}` in `path` lands in `vars.name` (e.g. `/orders/{id}` sets `vars.id`).
+- **Method** — `vars.method` holds the HTTP method, so a flow can route on `vars.method == "POST"`.
+- **Query string** — `vars.query` is a map of query parameters (first value of each key); it is always present, possibly empty.
+- **Headers** — each header listed in `headers` is copied into a variable of the same name, e.g. `vars["X-Tenant"]`.
+- **Body** — a JSON body becomes `body`. A malformed JSON body is rejected with `400` before the flow runs, unless `rawBody: true`, in which case the body enters the flow as raw content carrying the request's `Content-Type`. An empty body is valid (`body` stays null).
+- **Raw bytes** — with `rawBodyVar` set, the exact request bytes are also stored in that variable as a string.
+
+#### How the response is written
+
+- A **completed** flow returns its final body as JSON with status `200`, or as raw content with its own `Content-Type` when the body is raw content.
+- Setting `vars.httpStatus` to a valid code (100–599) overrides the response status.
+- Variables named in `responseHeaders` are emitted as response headers (scalar values only).
+- A **dropped** message (e.g. a filter matched nothing) responds `204 No Content`.
+- A **failed** flow responds `500` with a JSON `{"error": ...}` body — see [error handling](/concepts/error-handling).
+- A flow that exceeds the timeout responds `504`.
+
+The runtime reads the whole request into memory and writes the whole response at
+once — there is no streaming. See [Raw Content and Streaming](/concepts/raw-content)
+for how to serve non-JSON payloads and why the payload is always materialized.
+
+### Example
+
+Adapted from `samples/http-orders.yaml`:
+
+```yaml
+service:
+  name: http-orders
+
+env:
+  - name: HTTP_PORT
+    default: "8080"
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      port: ${HTTP_PORT}
+      basePath: /api/v1
+      requestTimeout: 5s
+
+flows:
+  - name: orders-api
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /orders/{id}            # {id} -> vars.id
+        correlationIdHeader: X-Request-Id
+        headers: [X-Tenant]           # captured as vars["X-Tenant"]
+    process:
+      - type: set-payload
+        settings:
+          value: '{"orderId": vars.id, "tenant": vars["X-Tenant"], "status": "found"}'
+```
+
+```bash
+curl -s localhost:8080/api/v1/orders/42 -H 'X-Tenant: acme'
+```
+
+## `http-client` connector
+
+The `http-client` connector (label: **HTTP Client**) owns a configured client for calling external HTTP APIs: base URL, authentication, default headers, a request timeout, retry on `429`, and an opt-in in-memory response cache for GETs. The `rest` block references it by name.
+
+**Provides a source:** no — it is outbound only. **Blocks that bind to it:** `rest`.
+
+### Settings
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `baseURL` | string | Yes | — | Prepended to each request path. Must be absolute (scheme and host). |
+| `timeout` | duration | No | `30s` | Bounds each request. |
+| `headers` | map | No | — | Applied to every request unless already set by the block. |
+| `maxResponseBytes` | int | No | `1048576` | Response body size cap. |
+| `auth` | object | No | none | Authentication applied to every request (below). |
+| `retry` | object | No | — | Retry policy for rate-limited (`429`) responses (below). |
+| `cache` | object | No | disabled | In-memory response cache for GET requests (below). Not exposed in the editor schema; configure it in YAML. |
+
+### Authentication (`auth`)
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `type` | enum: `bearer` \| `basic` \| `oauth2` | No | none | Authentication scheme. |
+| `token` | string | With `type: bearer` | — | Token sent as `Authorization: Bearer`. |
+| `username` | string | With `type: basic` | — | Basic auth username. |
+| `password` | string | No | — | Basic auth password. |
+| `tokenURL` | string | With `type: oauth2` | — | OAuth2 token endpoint (client-credentials grant). |
+| `clientID` | string | With `type: oauth2` | — | OAuth2 client identifier. |
+| `clientSecret` | string | With `type: oauth2` | — | OAuth2 client secret. |
+| `scopes` | string[] | No | — | Requested OAuth2 scopes. |
+
+For `oauth2`, the connector mints and refreshes a bearer token via the client-credentials grant and applies it to each request. A request that already carries an `Authorization` header is never overwritten.
+
+### Retry (`retry`)
+
+When an upstream returns `429 Too Many Requests`, the connector honors the `Retry-After` header when present, otherwise backs off exponentially. Each wait is capped at `maxBackoff`.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `maxAttempts` | int | No | `3` | Total attempts including the first; `<= 1` disables retrying. |
+| `maxBackoff` | duration | No | `30s` | Upper bound on each wait between attempts (also caps a large `Retry-After`). |
+
+### Cache (`cache`)
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `enabled` | boolean | No | `false` | Enable the GET response cache. |
+| `ttl` | duration | No | `60s` | How long a cached response is served. |
+| `maxEntries` | int | No | `256` | Cache size cap. |
+
+## `rest` block
+
+**REST Call** — make an HTTP request through an `http-client` connector. Method and path are static; query parameters, headers, and the request body are CEL [expressions](/concepts/expressions) evaluated per message. The response is folded into the message body: JSON parses into `body`, anything else becomes raw content carrying the response's `Content-Type`, and an empty response leaves `body` null.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `connector` | string | Yes | — | Name of the `http-client` connector to use. |
+| `method` | enum: `GET` \| `POST` \| `PUT` \| `PATCH` \| `DELETE` \| `HEAD` | No | `GET` | HTTP method. |
+| `path` | string | No | — | Path appended to the connector base URL. |
+| `query` | map of expression | No | — | Query params; each value is a CEL expression. |
+| `headers` | map of expression | No | — | Request headers; each value is a CEL expression. |
+| `body` | expression | No | — | CEL expression for the request body. A string result is sent verbatim; any other value is JSON-encoded (with `Content-Type: application/json` unless a header overrides it). |
+| `failOnError` | boolean | No | `true` | Turn a 400+ status into a flow error. |
+| `statusVar` | string | No | `statusCode` | Variable to store the response status code in. |
+
+### Example
+
+Adapted from `samples/weather.yaml` — a scheduled GET against a public API, cached for 60 seconds:
+
+```yaml
+service:
+  name: weather
+
+connectors:
+  - name: open-meteo
+    type: http-client
+    settings:
+      baseURL: https://api.open-meteo.com
+      timeout: 10s
+      cache:
+        enabled: true
+        ttl: 60s
+  - name: ticker
+    type: cron
+
+flows:
+  - name: weather
+    source:
+      connector: ticker
+      type: cron
+      settings:
+        schedule: "@every 30s"
+    process:
+      - type: rest
+        name: fetch-forecast
+        settings:
+          connector: open-meteo
+          method: GET
+          path: /v1/forecast
+          query:                       # values are CEL expressions
+            latitude: '"52.52"'
+            longitude: '"13.41"'
+            current: '"temperature_2m"'
+      - type: log
+        settings:
+          message: '"current temperature: " + string(body.current.temperature_2m)'
+```
+
+<Callout type="info">
+Keep credentials out of the flow file: declare them in the `env` section and reference them as `${API_TOKEN}` — see [environment and config](/concepts/environment-and-config).
+</Callout>

@@ -1,0 +1,108 @@
+---
+title: "Resources"
+description: "Env files and template resources attached to an integration."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Resources are files an integration imports alongside its config: `.env`-convention files that feed the environment, and template files that flows render. Declaring them under `resources:` loads them when the config loads, so a missing or malformed file fails at deployment — not when a message first needs it.
+
+## Declaring resources
+
+```yaml title="resources-demo/config.yaml (excerpt)"
+env:
+  - name: GREETING
+    required: true          # supplied by the .env.dev resource below
+
+resources:
+  env:
+    - .env.dev              # merged into the runtime environment
+  templates:
+    - resource: templates/welcome.tmpl
+      as: welcome           # short alias for blocks and CEL
+```
+
+Resource paths resolve relative to the config directory.
+
+### Env resources
+
+`resources.env` lists `.env`-convention files (`KEY=VALUE` lines, `#` comments) combined into the runtime environment in order — a later file overlays an earlier one, and all of them overlay the built-in `./.env` chain. A declared env resource that is missing is skipped silently; a required variable it was supposed to supply still fails the load. See [Environment and Configuration](/concepts/environment-and-config) for the full precedence.
+
+```text title=".env.dev"
+GREETING=Hello from .env.dev
+```
+
+### Template resources
+
+`resources.templates` declares the template files the config renders. Each entry names the file (`resource`) and optionally a short alias (`as`); without an alias the template is referenced by its path. Every declared template is parsed at load time.
+
+Template files are plain text with embedded `{{ CEL }}` expressions, evaluated against the current message — `body`, `vars`, `env`, and `now` are all available:
+
+```text title="templates/welcome.tmpl"
+{{ env.GREETING }}, {{ body.name }}!
+```
+
+## Rendering a template
+
+There are two ways to render a declared template.
+
+### The `template-resource` block
+
+The block renders a template against the current message and writes the result to a variable (`target`) or, when `target` is empty, to the message body:
+
+```yaml title="resources-demo/config.yaml (excerpt)"
+flows:
+  - name: greet
+    process:
+      - type: template-resource
+        settings:
+          id: welcome          # the `as` alias (or the resource path)
+          target: rendered     # write to vars.rendered; empty replaces the body
+```
+
+For non-JSON output — an HTML page, XML, CSV — set `rawBody: true` and a `contentType`, and the rendered text becomes a raw-content body `{contentType, rawData}` that raw-aware connectors serve verbatim. The HTTP source then responds with the text and its Content-Type instead of JSON:
+
+```yaml title="raw-content-demo/config.yaml (excerpt)"
+resources:
+  templates:
+    - resource: templates/page.tmpl
+      as: page
+
+flows:
+  - name: page
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /page/{name}          # {name} -> vars.name
+    process:
+      - type: template-resource
+        settings:
+          id: page
+          rawBody: true
+          contentType: text/html; charset=utf-8
+```
+
+<Callout type="info">
+`rawBody` applies to the body only: when it is set, `contentType` is required and `target` must be empty.
+</Callout>
+
+### The `templateResource()` CEL function
+
+Inside any expression, `templateResource("alias")` renders the template with the current message as context and returns the text — handy when the rendered string is one piece of a larger value:
+
+```yaml
+- type: set-payload
+  settings:
+    value: |
+      {
+        "viaBlock": vars.rendered,
+        "viaCel": templateResource("welcome")
+      }
+```
+
+Both paths render the same template the same way; pick the block when the rendered text *is* the output, and the function when you are composing it into something else.
+
+## Where templates show up next
+
+Templates back more than page rendering: an `ai-agent`'s skills, an `mcp-router`'s resources and prompts are all declared template resources. On the platform, resources are managed per integration — see [Resources and Secrets](/platform/resources-and-secrets).

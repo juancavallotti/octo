@@ -1,0 +1,79 @@
+---
+title: "Cron"
+description: "Trigger flows on a schedule."
+octo_types:
+  - cron
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The `cron` connector triggers flows on a schedule. Each tick emits a message whose body comes from an optional CEL `payload` expression evaluated at fire time.
+
+## `cron` connector
+
+The connector itself carries **no settings** — it is source-only. Every schedule lives on the source.
+
+**Provides a source:** yes — the **Cron schedule** source (below). **Blocks that bind to it:** none.
+
+## `cron` source
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `schedule` | string | Yes | — | Cron expression (6 fields with seconds) or descriptor like `@every 2s`. |
+| `payload` | expression | No | — | CEL expression for the message body; sees `now` (fire time). |
+| `correlationID` | string | No | — | Static correlation ID for emitted messages. |
+
+### Schedule format
+
+Schedules have **second granularity**: a standard expression is six fields — `sec min hour dom mon dow` — and descriptors also work:
+
+```yaml
+schedule: "0,30 * * * * *"   # at second 0 and 30 of every minute
+schedule: "0 0 9 * * MON"    # 09:00:00 every Monday
+schedule: "@every 5m"        # every five minutes
+```
+
+An invalid schedule fails at startup, not at runtime.
+
+### Payload
+
+The `payload` expression is evaluated on each tick with `now` (the fire time) available, plus the source's own `settings`. The result is JSON-encoded into the message body. With no payload, the body is empty.
+
+<Callout type="info">
+Cron sources participate in leader election: when the service runs with multiple replicas, a schedule fires on exactly one replica per tick rather than on every replica.
+</Callout>
+
+## Example
+
+From `samples/hello-world.yaml`:
+
+```yaml
+service:
+  name: hello-world
+
+connectors:
+  - name: ticker
+    type: cron
+
+processors:
+  - name: greeter
+    type: log
+    settings:
+      level: info
+      message: '"hello world! the date is " + body.date'
+
+flows:
+  - name: greet
+    source:
+      connector: ticker
+      type: cron
+      settings:
+        # Six-field cron with seconds: fire at second 0 and 30 of every minute.
+        schedule: "0,30 * * * * *"
+        # CEL expression with `now` (fire time) available; sets the message body.
+        payload: '{"date": string(now)}'
+    process:
+      - ref: greeter
+```
+
+Because the connector has no settings, a flow may also use `type: cron` on the source without declaring a connector instance — the runtime starts a default one on demand.

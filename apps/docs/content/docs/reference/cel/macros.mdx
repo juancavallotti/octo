@@ -1,0 +1,152 @@
+---
+title: "Macros"
+description: "Comprehension macros by example: filter, map, all, exists, exists_one."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+CEL has no loops; it has comprehension macros. Each one takes an iteration
+variable and a sub-expression, and expands at compile time into a bounded
+comprehension over a list or a map — so iteration stays terminating and
+side-effect free. On a map, the iteration variable is bound to each **key**.
+
+Every standalone example on this page was verified with
+[`octo eval`](/reference/cli#octo-eval); results are shown as it prints them.
+
+## filter
+
+`list.filter(x, predicate)` returns the elements for which the predicate is
+true, in order.
+
+| Expression | Result |
+| --- | --- |
+| `[1, 2, 3, 4].filter(x, x % 2 == 0)` | `[2,4]` |
+| `["apple", "banana", "cherry"].filter(f, f.startsWith("b"))` | `["banana"]` |
+| `{"a": 1, "b": 2}.filter(k, k == "a")` | `["a"]` (a map filters to a list of keys) |
+
+In a flow — keep only the orders worth acting on, as the new body:
+
+```yaml
+- type: set-payload
+  name: keep-large-orders
+  settings:
+    value: 'body.orders.filter(o, o.amount >= 100)'
+```
+
+```bash
+bin/octo eval --expr 'body.orders.filter(o, o.amount >= 100)' \
+  --data '{"orders": [{"id": 1, "amount": 50}, {"id": 2, "amount": 250}, {"id": 3, "amount": 120}]}'
+# {"ok":true,"result":[{"amount":250,"id":2},{"amount":120,"id":3}]}
+```
+
+## map
+
+`list.map(x, transform)` applies the transform to every element. The
+three-argument form `list.map(x, predicate, transform)` filters and transforms
+in one pass.
+
+| Expression | Result |
+| --- | --- |
+| `[1, 2, 3].map(x, x * 2)` | `[2,4,6]` |
+| `["a", "b"].map(s, s + "!")` | `["a!","b!"]` |
+| `[1, 2, 3, 4].map(x, x > 2, x * 10)` | `[30,40]` |
+| `{"a": 1, "b": 2}.map(k, k)` | `["a","b"]` (a map maps over its keys) |
+| `[[1, 2], [3, 4]].map(pair, pair[0])` | `[1,3]` |
+
+In a flow — pull the page titles out of a Notion query result (the shape
+`notion-query-datasource` leaves in its results, where each page's title lives
+deep inside `properties`):
+
+```yaml
+- type: set-payload
+  name: extract-titles
+  settings:
+    value: 'body.results.map(p, p.properties.Name.title[0].plain_text)'
+```
+
+```bash
+bin/octo eval --expr 'body.results.map(p, p.properties.Name.title[0].plain_text)' \
+  --data '{"results": [
+    {"properties": {"Name": {"title": [{"plain_text": "Ship the docs"}]}}},
+    {"properties": {"Name": {"title": [{"plain_text": "Fix the build"}]}}}]}'
+# {"ok":true,"result":["Ship the docs","Fix the build"]}
+```
+
+## all
+
+`list.all(x, predicate)` is true when the predicate holds for **every**
+element (and true for an empty list).
+
+| Expression | Result |
+| --- | --- |
+| `[1, 2, 3].all(x, x > 0)` | `true` |
+| `[1, 2, 3].all(x, x > 1)` | `false` |
+| `{"a": 1, "b": 2}.all(k, size(k) == 1)` | `true` |
+
+In a flow — a `validate` rule asserting that no order is free:
+
+```yaml
+- type: validate
+  name: check-orders
+  rules:
+    - expr: 'body.orders.all(o, o.amount > 0)'
+      message: every order must have a positive amount
+```
+
+## exists
+
+`list.exists(x, predicate)` is true when the predicate holds for **at least
+one** element (and false for an empty list).
+
+| Expression | Result |
+| --- | --- |
+| `[1, 2, 3].exists(x, x > 2)` | `true` |
+| `[1, 2, 3].exists(x, x > 5)` | `false` |
+| `{"a": 1, "b": 2}.exists(k, k == "b")` | `true` |
+
+In a flow — branch when any order needs escalation:
+
+```yaml
+- type: if
+  name: any-big-order
+  condition: 'body.orders.exists(o, o.amount > 200)'
+  then:
+    process:
+      - type: log
+        settings:
+          message: '"large order detected"'
+```
+
+## exists_one
+
+`list.exists_one(x, predicate)` is true when the predicate holds for **exactly
+one** element.
+
+| Expression | Result |
+| --- | --- |
+| `[1, 2, 3].exists_one(x, x == 2)` | `true` |
+| `[1, 2, 2].exists_one(x, x == 2)` | `false` (two matches) |
+
+## Chaining
+
+Macros return ordinary values, so they chain:
+
+| Expression | Result |
+| --- | --- |
+| `[1, 2, 3].filter(x, x > 1).map(x, x * x)` | `[4,9]` |
+| `size(fromJson("[1,2,3]"))` | `3` |
+
+In a flow — the ids of the orders worth acting on, in one expression:
+
+```bash
+bin/octo eval --expr 'body.orders.filter(o, o.amount >= 100).map(o, o.id)' \
+  --data '{"orders": [{"id": 1, "amount": 50}, {"id": 2, "amount": 250}, {"id": 3, "amount": 120}]}'
+# {"ok":true,"result":[2,3]}
+```
+
+<Callout type="info">
+  Macros transform data *inside one expression*. To run flow blocks per
+  element — call an API for each order, say — use the
+  [`foreach` block](/reference/flow-file#foreach) instead, which iterates a
+  sub-flow over the result of an `items` expression.
+</Callout>

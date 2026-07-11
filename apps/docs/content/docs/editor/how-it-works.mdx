@@ -1,0 +1,108 @@
+---
+title: "How It Works"
+description: "The editor architecture: the shared editor library and the local run host."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The standalone editor is a small Next.js app wrapped around two shared
+packages: the visual editor UI and a run host that spawns the real runtime.
+Understanding the seams explains both why it needs no infrastructure and why
+flows built here carry over to the platform unchanged.
+
+```
+┌────────────────────────── Browser ──────────────────────────┐
+│                 @octo/editor (shared React UI)               │
+│        palette · canvas · settings · console · Dev .env      │
+└───────────────┬─────────────────────────────┬────────────────┘
+                │ load / save                 │ run / logs
+┌───────────────▼─────────────────────────────▼────────────────┐
+│              Next.js app (apps/standalone)                    │
+│  local-disk flow store          @octo/run-host                │
+│  *.yaml under OCTO_FS_DIR       spawns `octo run ... -watch`  │
+└───────────────┬─────────────────────────────┬────────────────┘
+        ┌───────▼────────┐            ┌───────▼────────┐
+        │  your directory │            │  octo binary   │
+        │  flows, .env.dev│            │  (bundled)     │
+        └────────────────┘            └────────────────┘
+```
+
+## The shared editor library
+
+The UI — palette, canvas, settings panel, console, save and run controls — is
+`@octo/editor`, a React library that owns no backend. The host app injects its
+capabilities: a filesystem for loading and saving documents, a run transport,
+and stores for resources and dev-env values.
+
+The standalone app (`apps/standalone`) supplies local-disk implementations of
+all of them:
+
+- **Flow store** — flows are flat `*.yaml` files in one directory
+  (`OCTO_FS_DIR`). The filename is the flow's identity; renaming the flow
+  renames the file. File ids are validated so a request can never escape the
+  directory.
+- **Resource and dev-env stores** — a flow's env files and templates (like
+  `.env.dev` or `templates/welcome.tmpl`) are plain files in the same
+  directory.
+- **Run transport** — server actions that drive `@octo/run-host`, plus a
+  server-sent-events route that streams logs to the console.
+
+## The run host
+
+`@octo/run-host` is the server-side manager for the editor's Run feature. On
+Run it:
+
+1. Renders the editor's document to a config file in a per-session directory
+   under `OCTO_RUN_DIR`, staging the flow's declared resources beside it.
+2. Spawns the bundled binary (`OCTO_BIN_PATH`) as
+   `octo run -config <file> -watch`, capturing stdout and stderr into a log
+   buffer that the console replays and follows over SSE.
+3. On edits, atomically rewrites the watched config so the runner hot-reloads.
+4. For a flow that declares `HTTP_PORT`, allocates a local port, injects it
+   into the runner's environment, and reverse-proxies
+   `/editor/runs/<session>/` to it — that is the test URL the console shows.
+5. On Stop (or after sitting idle), kills the process and deletes the rendered
+   config and staged files.
+
+Each browser session gets its own namespace (an 8-character slug in a cookie),
+so every runner, config file, port, and log buffer is independent.
+
+## The capability schema
+
+The editor's block palette and settings forms are generated, not hardcoded. On
+startup the app runs `octo schema`, which prints the runtime's capability
+schema — every connector, source, and block, with their settings and types —
+generated from the runtime's own metadata. The result is cached and injected
+into the editor before it renders.
+
+This is why the editor always matches the runtime it ships with: a block added
+to the Go runtime shows up in the palette with a correct settings form, with no
+editor release required. If no binary is configured, the editor falls back to
+a bundled copy of the schema (and hides Run).
+
+## Local disk is the only store
+
+There is no database, no auth, and no server-side state beyond the running
+processes. Flows, resources, and `.env.dev` are files in your directory; run
+configs are temporary files under `OCTO_RUN_DIR`. Deleting the container loses
+nothing that matters, because everything that matters is in the mount. The
+bundled [MCP server](/ai/mcp-server) reads and writes the same files, which is
+how an AI assistant and the editor stay in sync — the editor even live-reloads
+an open flow when the MCP server writes it.
+
+## Relation to the platform editor
+
+The [platform](/platform) embeds the exact same `@octo/editor` library — the
+canvas you use standalone is the canvas you use there. What changes is the
+wiring behind it: the platform app (`apps/platform`) implements the same
+capabilities against the orchestrator, which stores integrations in a
+database, adds users and authentication, manages secrets, and deploys flows to
+Kubernetes instead of a local process. See
+[Platform architecture](/platform/architecture).
+
+<Callout type="info">
+  Practical consequence: a flow file authored in the standalone editor is a
+  valid platform integration, and vice versa — the document format and the
+  editing experience are shared; only the storage and execution backends
+  differ.
+</Callout>

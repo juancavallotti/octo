@@ -1,0 +1,17 @@
+{
+  "pages": [
+    "index",
+    "agents",
+    "agent-memory",
+    "agent-skills-and-tools",
+    "ai-router",
+    "ai-mapping",
+    "ai-retry",
+    "llm-providers",
+    "mcp-server",
+    "mcp-auth",
+    "slack-agent",
+    "platform-mcp"
+  ],
+  "title": "AI"
+}

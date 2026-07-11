@@ -1,0 +1,66 @@
+---
+title: "Licensing"
+description: "Octo is AGPL-3.0 — what that means for running it in production and contributing."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Octo is open source under the [GNU Affero General Public License, version 3
+(AGPL-3.0)](https://github.com/juancavallotti/octo/blob/main/LICENSE). This page
+explains what that means for you in plain language.
+
+## You can run Octo in production, free of charge
+
+Octo is meant to be used. Run it for your own projects, inside your company, for
+commercial work or not — there is no fee, no seat count, and no obligation that
+comes from simply running it. Development, CI, staging, production: all normal
+use.
+
+## Your flows are yours
+
+Building integrations on Octo is using the platform, not modifying it. The flow
+YAML you write, the CEL expressions inside it, the resources and templates it
+references — that is your data and your business logic, not a derivative work of
+Octo. You never have to open-source your flows, and the AGPL places no
+requirements on them.
+
+The same goes for the systems your flows talk to: connecting Octo to your
+databases, APIs, and internal services creates no licensing obligations for
+those systems.
+
+## What the AGPL asks of you
+
+The AGPL applies to Octo itself — the runtime, the editor, the orchestrator, and
+the rest of the platform code. If you modify that code and then either
+distribute your modified version or run it as a service that others use over a
+network, you must make your modified source available under the AGPL as well.
+The network clause is what distinguishes the AGPL from the ordinary GPL: hosting
+a modified Octo for others counts as conveying it, so users of your service are
+entitled to the modified source.
+
+If you run an unmodified Octo, nothing is asked of you.
+
+## Why AGPL
+
+The license was chosen so that improvements to the platform itself stay free for
+everyone. Anyone can use Octo, self-host it, and build on it — but nobody can
+take the platform closed-source and offer it as a proprietary hosted product
+while the community keeps contributing improvements. Fixes and features to the
+engine flow back to all users.
+
+## In practice
+
+| Scenario | Outcome |
+| --- | --- |
+| Run Octo in production for your company | Allowed, no obligations |
+| Build private integrations and flows | Allowed, your flows stay yours |
+| Modify Octo and run it as a service | Share your modifications under AGPL |
+| Offer a closed-source fork as a hosted product | Not allowed |
+
+The full license text is at
+[github.com/juancavallotti/octo/blob/main/LICENSE](https://github.com/juancavallotti/octo/blob/main/LICENSE).
+
+<Callout type="info">
+  This page is a plain-language explanation, not legal advice. When in doubt,
+  read the license text or consult a lawyer.
+</Callout>

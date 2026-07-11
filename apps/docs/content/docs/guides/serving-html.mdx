@@ -1,0 +1,146 @@
+---
+title: "Serving HTML"
+description: "Render HTML pages from templates and parse form submissions."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+Flows answer with JSON by default, but an HTTP flow can serve any content type.
+This guide renders an HTML page from a template and parses a form submission —
+both sides of Octo's raw-content mode, based on
+[`samples/raw-content-demo`](https://github.com/juancavallotti/octo/blob/main/samples/raw-content-demo).
+
+## Raw content in one paragraph
+
+Flows are JSON by default; a block puts the message into **raw-content mode** to
+serve something else. In that mode the body carries `{contentType, rawData}` and
+the HTTP source writes `rawData` verbatim with `contentType` as the `Content-Type`
+header, instead of JSON-encoding the body. You enter raw mode with a producing
+block — `template-resource` or `set-payload`, both with `rawBody: true` — not by
+hand-building the object. See [Raw Content and Streaming](/concepts/raw-content)
+for the full model.
+
+## Declare a template resource
+
+Templates are files declared under `resources.templates` and referenced by their
+`as` alias. A template embeds `{{ CEL }}` placeholders evaluated over the current
+message — `body`, `vars`, `env`, and `now` are all in scope.
+
+```yaml title="samples/raw-content-demo/config.yaml (excerpt)"
+resources:
+  templates:
+    - resource: templates/page.tmpl
+      as: page
+```
+
+```html title="samples/raw-content-demo/templates/page.tmpl"
+<!doctype html>
+<html>
+  <head><title>Octo raw content</title></head>
+  <body>
+    <h1>Hello, {{ vars.name }}!</h1>
+    <p>This page was rendered by a template-resource block and served as
+      <code>text/html</code> from a raw-content body — no JSON in sight.</p>
+  </body>
+</html>
+```
+
+## Serve the page
+
+The flow is one block: `template-resource` renders the template against the
+message and, with `rawBody: true`, writes the result as a raw-content body. The
+HTTP source then serves it with the declared content type.
+
+```yaml title="samples/raw-content-demo/config.yaml (excerpt)"
+- name: page
+  source:
+    connector: api
+    type: http
+    settings:
+      path: /page/{name}          # {name} -> vars.name
+  process:
+    - type: template-resource
+      settings:
+        id: page
+        rawBody: true
+        contentType: text/html; charset=utf-8
+```
+
+Run it and request a page:
+
+```bash
+octo run --config samples/raw-content-demo
+curl -i localhost:8080/page/World
+# HTTP/1.1 200 OK
+# Content-Type: text/html; charset=utf-8
+#
+# <!doctype html> ... <h1>Hello, World!</h1> ...
+```
+
+`template-resource` takes four settings: `id` (the template's alias, required),
+`rawBody`, `contentType` (required when `rawBody` is on), and `target` — set
+`target` to render into a variable instead of the body, for example to build an
+email fragment mid-flow. `rawBody` applies to the body only, so leave `target`
+empty when serving pages.
+
+<Callout type="info">
+  You don't need a template file for small responses. `set-payload` with
+  `rawBody: true`, a `contentType`, and a **string** `value` (for example
+  `value: '"<h1>hi</h1>"'`) produces a raw-content body inline — handy for terse
+  error pages, as in [An AI Web App End to End](/guides/ai-web-app). The `value`
+  must evaluate to a string when `rawBody` is set.
+</Callout>
+
+## Accept a form submission
+
+Raw content works inbound too. Setting `rawBody: true` on the **HTTP source**
+accepts any content type and stores the request as `{contentType, rawData}`
+instead of parsing JSON. The CEL function `fromFormData` then parses a
+urlencoded form string into a structured object:
+
+```yaml title="samples/raw-content-demo/config.yaml (excerpt)"
+- name: submit
+  source:
+    connector: api
+    type: http
+    settings:
+      path: /submit
+      rawBody: true               # accept any content type, store as raw
+  process:
+    - type: set-payload
+      settings:
+        value: 'fromFormData(body.rawData)'
+```
+
+Post a form to it:
+
+```bash
+curl -s -X POST localhost:8080/submit \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -d 'name=Ann&city=Berlin'
+# -> {"city":"Berlin","name":"Ann"}
+```
+
+The body arrives as
+`{"contentType": "application/x-www-form-urlencoded", "rawData": "name=Ann&city=Berlin"}`;
+`fromFormData(body.rawData)` turns it back into JSON, which the flow returns as a
+normal JSON response. A single-valued field parses to a string, so
+`body.name` and `body.city` read naturally in later blocks. (The inverse,
+`toFormData`, serializes an object into a form string for outbound calls.)
+
+## Putting it together: serve a form, handle its POST
+
+Combine the two flows and you have a complete round trip with no frontend stack:
+a GET flow renders a template containing
+`<form method="POST" action="/submit">`, and the POST flow parses the submission
+with `fromFormData`, validates or stores it, and responds — with JSON, or with
+another rendered template for a classic confirmation page.
+
+## Where to go next
+
+<Cards>
+  <Card title="An AI Web App End to End" href="/guides/ai-web-app" description="HTML rendering over an LLM call, with an error fallback page." />
+  <Card title="Resources" href="/concepts/resources" description="Declaring templates and other file resources." />
+  <Card title="Expressions" href="/concepts/expressions" description="CEL in placeholders, including helpers like fromFormData." />
+</Cards>

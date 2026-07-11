@@ -1,0 +1,82 @@
+---
+title: "LLM Providers"
+description: "The OpenAI, Anthropic, and Gemini LLM connectors."
+octo_types:
+  - llm-openai
+  - llm-anthropic
+  - llm-gemini
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Octo ships three LLM provider connectors — `llm-openai`, `llm-anthropic`, and `llm-gemini`. All three register under the connector category `llm` and expose the same provider-agnostic completion capability, so the [AI blocks](/reference/blocks/ai) (`ai-agent`, `ai-router`, `ai-mapping`, `ai-retry`) reference **any** of them interchangeably through their `connector` setting.
+
+**Provides a source:** no — all three are service connectors. **Blocks that bind to them:** the AI blocks, which accept any connector in the `llm` category. See [AI in Octo](/ai) for usage.
+
+Each connector concentrates provider policy — API key, model, and the default response token cap — and validates its configuration at startup, so a missing key fails fast rather than on first request. An AI block's own `maxTokens` overrides the connector default per request.
+
+## `llm-openai` connector
+
+**OpenAI** — a configured Chat Completions client.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `apiKey` | string | Yes | — | Authenticates with the OpenAI API; source from `${OPENAI_API_KEY}`. Never logged. |
+| `model` | string | No | `gpt-5.4` | Model ID. |
+| `maxTokens` | int | No | model default | Default response token cap (0 = the model default); a request may override it. |
+| `baseURL` | string | No | OpenAI API | Overrides the API endpoint — for proxies, Azure, or **OpenAI-compatible servers** (any endpoint speaking the Chat Completions protocol, e.g. a local model server). |
+
+## `llm-anthropic` connector
+
+**Anthropic** — a configured Messages API client.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `apiKey` | string | Yes | — | Authenticates with the Anthropic API; source from `${ANTHROPIC_API_KEY}`. Never logged. |
+| `model` | string | No | `claude-sonnet-4-6` | Model ID. |
+| `maxTokens` | int | No | `4096` | Default response token cap; a request may override it. |
+| `baseURL` | string | No | Anthropic API | Overrides the API endpoint (for proxies or testing). |
+
+## `llm-gemini` connector
+
+**Gemini** — a configured Google Gemini client.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `apiKey` | string | Yes | — | Authenticates with the Gemini API; source from `${GEMINI_API_KEY}`. Never logged. |
+| `model` | string | No | `gemini-3.5-flash` | Model ID. |
+| `maxTokens` | int | No | model default | Default response token cap (0 = the model default); a request may override it. |
+| `baseURL` | string | No | Gemini API | Overrides the API endpoint (for proxies or testing). |
+
+## Example
+
+Declare one or more providers and point an AI block at whichever you like — swapping providers is a one-line change:
+
+```yaml
+service:
+  name: ai-demo
+
+env:
+  - name: ANTHROPIC_API_KEY
+    required: true
+
+connectors:
+  - name: claude
+    type: llm-anthropic
+    settings:
+      apiKey: ${ANTHROPIC_API_KEY}
+      model: claude-sonnet-4-6
+      maxTokens: 2048
+
+flows:
+  - name: summarize
+    process:
+      - type: ai-mapping
+        settings:
+          connector: claude          # any llm-category connector works here
+          prompt: Summarize the incoming order into a one-line description.
+```
+
+<Callout type="info">
+Keep API keys in the environment (`${OPENAI_API_KEY}`, `${ANTHROPIC_API_KEY}`, `${GEMINI_API_KEY}`), never inline — see [environment and config](/concepts/environment-and-config). For what the AI blocks can do with these connectors — agents, routing, mapping, and retries — start at [AI in Octo](/ai).
+</Callout>

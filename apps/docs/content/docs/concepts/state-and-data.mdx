@@ -1,0 +1,108 @@
+---
+title: "State and Data"
+description: "The message model: payload vs variables, and how data moves through a pipeline."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Every event a flow processes is a message: a payload plus a set of variables. Blocks read both and write both, and understanding the split is the key to writing clean pipelines.
+
+## The message model
+
+A message carries:
+
+- **`body`** — the payload: the JSON document the flow is actually processing. Blocks transform it as the message moves down the chain, and for a request/reply source (like HTTP) the final body is the response.
+- **`vars`** — the variables: named scratch state that rides alongside the body. Sources put request metadata here; blocks stash intermediate values, flags, and conventions like the HTTP status here.
+- **`eventID`** and **`correlationID`** — identifiers, readable from any [expression](/concepts/expressions).
+
+The rule of thumb: `body` is *the data*, `vars` is *data about the data*.
+
+## Writing the body and variables
+
+Four built-in blocks cover most data shaping.
+
+**`set-payload`** replaces the body with the result of a CEL expression:
+
+```yaml
+- type: set-payload
+  settings:
+    value: '{"orderId": vars.id, "status": "accepted"}'
+```
+
+**`set-variable`** sets one variable; **`delete-variable`** removes one:
+
+```yaml
+- type: set-variable
+  settings:
+    name: threshold
+    value: "100"
+
+- type: delete-variable
+  settings:
+    name: threshold
+```
+
+**`multi-transform`** applies an ordered list of edits in one block. Each step sets the body (`setBody`) or a variable (`setVar` + `value`), and the edits accumulate — a later step reads what an earlier one produced — so a chain of `set-payload` / `set-variable` blocks collapses into one:
+
+```yaml title="multi-transform.yaml (excerpt)"
+- type: multi-transform
+  name: price-order
+  settings:
+    transforms:
+      # 1) compute the subtotal on the body.
+      - setBody: '{"orderId": body.orderId, "subtotal": body.qty * body.price}'
+      # 2) stash it in a variable (reads the body step 1 produced).
+      - setVar: subtotal
+        value: body.subtotal
+      # 3) add tax to the body (reads the variable step 2 set).
+      - setBody: '{"orderId": body.orderId, "subtotal": vars.subtotal, "total": vars.subtotal * 1.1}'
+```
+
+## How HTTP requests become messages
+
+The `http` source maps each request onto the message deterministically:
+
+| Request data | Lands in |
+| --- | --- |
+| JSON request body | `body` (a non-JSON body is rejected with 400; empty is allowed) |
+| Path parameters (`/orders/{id}`) | `vars.id` (a string) |
+| HTTP method | `vars.method` (`"GET"`, `"POST"`, ...) |
+| Query string | `vars.query` — always a map, empty when there is no query string |
+| Headers listed in the source's `headers` setting | `vars["X-Tenant"]` (empty string when absent) |
+| The header named by `correlationIdHeader` | `correlationID` |
+
+```yaml title="http-orders.yaml (excerpt)"
+source:
+  connector: api
+  type: http
+  settings:
+    path: /orders/{id}            # {id} -> vars.id
+    correlationIdHeader: X-Request-Id
+    headers: [X-Tenant]           # captured as vars["X-Tenant"]
+```
+
+Because `vars.query` is always a map, guard optional parameters with `has()`:
+
+```yaml
+- type: set-variable
+  settings:
+    name: currency
+    value: 'has(vars.query.currency) ? vars.query.currency : "USD"'
+```
+
+<Callout type="info">
+Headers with dashes need index syntax: `vars["X-Tenant"]`, not `vars.X-Tenant` (CEL parses the dash as subtraction).
+</Callout>
+
+## Variable conventions
+
+A few variable names have meaning to the runtime:
+
+- **`vars.httpStatus`** — set it (100–599) to choose the HTTP response status; unset, a completed flow returns 200. An error pipeline typically sets it before shaping the error body.
+- **`vars.error`** — set *by* the runtime when a block fails, before your recovery pipeline runs: `{message, flow, block}`. See [Error Handling](/concepts/error-handling).
+- **`vars.validationErrors`** — set by the `validate` block: the messages of the rules that failed.
+- **Response headers** — list header names in the http source's `responseHeaders` setting, and a block sets `vars.<name>` to emit them (the outbound counterpart of `headers`).
+
+## Cross-flow data
+
+When a flow calls another flow synchronously (`flow-ref`, or `queue-dispatch` with `awaitReply`), the called flow receives a clone of the message and its resulting body *and variables* fold back into the caller's message. One-way calls send a clone and ignore the result. Durable state that outlives a message — counters, cursors, cached results — belongs in the [runtime services](/concepts/runtime-services), not in variables.

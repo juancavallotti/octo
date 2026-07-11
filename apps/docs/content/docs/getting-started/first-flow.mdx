@@ -1,0 +1,130 @@
+---
+title: "Your First Flow"
+description: "Run a hello-world flow with the octo CLI and invoke a flow by name."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+This page runs two flows from the repository's `samples/` directory: one driven
+by a schedule, and one you call directly from the command line. Together they
+show the two ways a flow receives work. You need the `bin/octo` binary from
+[Installation](/getting-started/installation).
+
+## A scheduled flow
+
+`samples/hello-world.yaml` is the smallest complete config: one connector, one
+named processor, and one flow.
+
+```yaml title="samples/hello-world.yaml"
+service:
+  name: hello-world
+
+connectors:
+  - name: ticker
+    type: cron
+
+processors:
+  - name: greeter
+    type: log
+    settings:
+      level: info
+      message: '"hello world! the date is " + body.date'
+
+flows:
+  - name: greet
+    source:
+      connector: ticker
+      type: cron
+      settings:
+        schedule: "0,30 * * * * *"
+        payload: '{"date": string(now)}'
+    process:
+      - ref: greeter
+```
+
+Reading it top to bottom:
+
+- **`connectors`** declares a `cron` connector named `ticker`. Connectors own
+  the machinery a flow needs to talk to the outside world.
+- **`processors`** defines a reusable, named block. `greeter` is a `log` block
+  whose `message` setting is a CEL expression — it can read the message
+  `body`, `vars`, `eventID`, and `correlationID`.
+- **`flows`** binds it together. The `source` attaches the flow to the `ticker`
+  connector: a six-field cron `schedule` (with seconds) fires at seconds 0 and
+  30 of every minute, and the `payload` CEL expression — with `now` bound to
+  the fire time — becomes each message's body. The `process` chain has one
+  step, which references the named processor with `ref: greeter`.
+
+Run it:
+
+```bash
+bin/octo run --config samples/hello-world.yaml
+```
+
+`run` is the default subcommand, so `bin/octo --config samples/hello-world.yaml`
+works too, and flags accept one or two dashes. The runtime logs its startup,
+prints a ready banner, then logs a greeting every 30 seconds:
+
+```
+time=... level=INFO msg="starting runtime" version=0.3.6 connectors=1 flows=1
+🚀  octo v0.3.6 is up and ready to roll!
+time=... level=INFO msg="hello world! the date is 2026-07-09T12:00:00Z"
+time=... level=INFO msg="hello world! the date is 2026-07-09T12:00:30Z"
+```
+
+Stop it with Ctrl-C.
+
+<Callout type="info">
+  Add `--watch` to reload the runtime whenever the config file changes — edit
+  the schedule or the message, save, and watch it take effect without a
+  restart.
+</Callout>
+
+## Invoking a flow directly
+
+Not every flow needs a schedule or a port. A flow with no `source:` gets an
+implicit source and becomes callable by name. `samples/hello-invoke.yaml` is
+exactly that:
+
+```yaml title="samples/hello-invoke.yaml"
+service:
+  name: hello-invoke
+
+flows:
+  - name: greet
+    process:
+      - type: set-payload
+        name: build-greeting
+        settings:
+          value: '{"greeting": "hello, " + body.name + "!"}'
+```
+
+The `set-payload` block replaces the message body with the result of its
+`value` expression. Call the flow with `octo invoke`, passing the request body
+as JSON:
+
+```bash
+bin/octo invoke --config samples/hello-invoke.yaml --flow greet --data '{"name":"Ada"}'
+```
+
+```json
+{"greeting":"hello, Ada!"}
+```
+
+When `--data` is omitted, `invoke` reads the body from stdin, so you can pipe
+into it:
+
+```bash
+echo '{"name":"Grace"}' | bin/octo invoke --config samples/hello-invoke.yaml --flow greet
+```
+
+In invoke mode no sources are started — nothing binds a port or fires a
+schedule; only the requested flow runs, and its result body prints as JSON.
+This makes `invoke` the cleanest way to test a flow, and sourceless flows are
+also the building block for flow composition with `flow-ref`.
+
+## Next steps
+
+Continue to the [HTTP Quickstart](/getting-started/http-quickstart) to build a
+flow that serves real requests, or read [Core Concepts](/concepts/flows) for
+the full model behind flows, sources, and blocks.

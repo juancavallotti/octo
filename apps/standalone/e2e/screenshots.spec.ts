@@ -3,13 +3,15 @@ import { test, expect } from "@playwright/test";
 /**
  * Renders every gallery sample in the real editor and captures a full-editor
  * viewport screenshot — showing the component palette, the flow on the canvas,
- * and the settings panel together. Each PNG is shown inside that sample's panel
- * on the docs site (assets/screenshots/sample-<id>.png) and a couple are reused
- * in the What's New section. Run with `npm run screenshots` (boots the editor
- * with SSO disabled via playwright.config.ts). See docs/SCREENSHOTS.md.
+ * and the settings panel together. Each PNG is served by the docs site
+ * (apps/docs/public/screenshots/sample-<id>.png). Run with `npm run
+ * screenshots` (boots the editor with SSO disabled via playwright.config.ts).
+ * See docs/SCREENSHOTS.md.
  */
 
-// docs gallery id ("id" used by app.js / the image name) -> samples/<file>.yaml
+// docs image id (the image name) -> samples/<file>.yaml
+// Directory samples (mcp-router/, ai-agent-skills/, ...) are not listed: the
+// /preview?sample= loader takes a single YAML file.
 const SAMPLES = [
   { id: "hello-world", file: "hello-world" },
   { id: "http-orders", file: "http-orders" },
@@ -24,9 +26,14 @@ const SAMPLES = [
   { id: "error-handling", file: "error-handling" },
   { id: "file-logger", file: "file-logger" },
   { id: "heartbeat", file: "heartbeat" },
+  { id: "enrich", file: "enrich" },
+  { id: "validate", file: "validate" },
+  { id: "events", file: "events" },
+  { id: "queue-loadbalance", file: "queue-loadbalance" },
+  { id: "object-store", file: "object-store" },
 ];
 
-const OUT_DIR = "../../docs/assets/screenshots";
+const OUT_DIR = "../docs/public/screenshots";
 
 for (const { id, file } of SAMPLES) {
   test(`screenshot sample ${id}`, async ({ page }) => {

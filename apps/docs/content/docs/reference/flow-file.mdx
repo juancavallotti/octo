@@ -1,0 +1,697 @@
+---
+title: "Flow File"
+description: "The complete YAML schema for integration definition files."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+An integration is defined by a YAML flow file — the config the
+[`octo run` and `octo invoke`](/reference/cli) commands load. This page is the
+canonical reference for every key in that file. Values documented as
+*expressions* are [CEL](/reference/cel), evaluated per message.
+
+`--config` can also point at a **directory**: every `.yaml`/`.yml` file
+directly inside it (sorted by name, subdirectories ignored) is loaded and
+merged into a single config. The config's directory is the resource root that
+relative [resource](#resources) ids resolve against.
+
+## Top-level keys
+
+```yaml
+service:     # service identity
+env:         # declared environment variables
+resources:   # imported env files and templates
+connectors:  # connector instances
+processors:  # reusable named blocks
+flows:       # the pipelines
+```
+
+| Key | Type | Required | Description |
+| --- | --- | --- | --- |
+| `service` | object | yes | The service's identity. |
+| `env` | list | no | Environment variables the config may reference as `${NAME}`. |
+| `resources` | object | no | External resources: env files and templates. |
+| `connectors` | list | no | Connector instances flows reference by name. Required in practice for any flow with a real source. |
+| `processors` | list | no | Reusable named block definitions, referenced with `ref`. |
+| `flows` | list | no | The flows themselves. |
+
+## service
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `name` | string | yes | The service name, used in logs and identity. |
+| `environment` | string | no | A free-form environment label (e.g. `production`). |
+
+```yaml
+service:
+  name: orders-service
+  environment: production
+```
+
+## env
+
+Declares the environment variables the config depends on. A variable **must**
+be declared here before any settings value may reference it as `${NAME}` —
+referencing an undeclared variable fails the load with
+`settings reference undeclared environment variable`.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `name` | string | yes | The variable name. |
+| `default` | string | no | Value used when neither the OS environment nor a `.env` file supplies the variable. An explicit `default: ""` is a valid (empty) default. |
+| `required` | bool | no (`false`) | Fail the load when the variable is not supplied by the OS environment or a `.env` file. A `default` does **not** satisfy `required`. |
+
+```yaml
+env:
+  - name: HTTP_PORT
+    default: "8080"
+  - name: NOTION_TOKEN
+    required: true
+```
+
+**Resolution precedence:** OS environment > `.env` file > `default`. The
+`.env` chain is `./.env` (relative to the working directory), overlaid by the
+file named in `$OCTO_ENV_FILE` when set, overlaid by any
+[`resources.env`](#resources) files in listed order. A referenced variable
+that resolves to no value and has no default fails the load.
+
+**Substitution:** `${NAME}` references are rewritten in every settings value —
+connector settings, processor settings, and block settings throughout the flow
+tree (including nested maps and lists). A value that is *exactly* one
+placeholder is replaced with the variable's natural YAML type, so
+`port: ${HTTP_PORT}` can fill an integer setting; a placeholder embedded in a
+longer string is substituted textually and stays a string. Substitution
+applies only to `settings` values, not to composite slots like `condition`.
+
+**In expressions:** the resolved variables are also readable in CEL as
+`env.NAME` — see [Octo Extensions](/reference/cel/octo-extensions#variables).
+Inside an expression setting, prefer `env.NAME` over `${NAME}`; if you do
+substitute into an expression, remember the value lands as raw CEL source
+(`database: '"${NOTION_DATABASE_ID}"'` produces a CEL string literal).
+
+## connectors
+
+Connector instances own the machinery flows use to talk to the outside world
+(HTTP servers, database pools, API clients). Each entry instantiates one
+connector type under a unique name; flows reference the **name**, so the same
+type can be instantiated several times with different settings.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `name` | string | yes | The instance name sources and blocks reference. |
+| `type` | string | yes | The connector type: `http`, `cron`, `database`, `http-client`, `logger`, `queue`, `events`, `notion`, `slack`, `llm-anthropic`, `llm-openai`, or `llm-gemini`. |
+| `settings` | map | no | Type-specific settings; see the [connector reference](/reference). `${NAME}` substitution applies. |
+
+```yaml
+connectors:
+  - name: api
+    type: http
+    settings:
+      port: ${HTTP_PORT}
+  - name: orders-db
+    type: database
+    settings:
+      driver: sqlite
+      dsn: file:orders.db
+```
+
+## processors
+
+Reusable, named block definitions — declared once, referenced from any flow
+with `ref`. Names must be unique.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `name` | string | yes | The name blocks reference via `ref`. |
+| `type` | string | yes | The block type this definition instantiates. |
+| `settings` | map | no | The definition's base settings. |
+
+A referencing block takes its type and base settings from the definition; any
+`settings` on the block itself override the referenced ones key-by-key
+(shallow merge). A block sets either `ref` or `type`, not both — the one
+allowed overlap is an inline `type` equal to the referenced definition's type.
+
+```yaml
+processors:
+  - name: audit
+    type: log
+    settings:
+      logger: out
+      message: '"processed event " + eventID'
+
+flows:
+  - name: example
+    process:
+      - ref: audit                    # use as-is
+      - ref: audit                    # override one setting
+        settings:
+          message: '"done: " + eventID'
+```
+
+## flows
+
+Each entry under `flows` is a root flow: a source feeding a chain of blocks,
+run by a pool of workers.
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `name` | string | yes | — | The flow's unique name; `invoke` and the `flow-ref` block call it by this name. |
+| `source` | object | no | implicit | The flow's entry point. Omitted, the flow gets an **implicit source**: it binds no external resource and is callable by name (via [`octo invoke`](/reference/cli#octo-invoke), the `flow-ref` block, or an `mcp-router`/`ai-agent` tool). |
+| `process` | list of blocks | yes | — | The block chain every message runs through, in order. |
+| `error` | list of blocks | no | — | The flow-level error path (root flows only, see below). |
+| `workers` | int | no | `8` | Number of workers consuming the flow's message channel. |
+| `buffer` | int | no | `64` | Depth of the flow's message channel. |
+| `pool` | int | no | `8` | Size of the shared worker pool the flow hands to concurrent composites (e.g. a `fork`'s branches). Root flows only. |
+
+### source
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `connector` | string | yes | The **name** of a configured connector instance (not its type). |
+| `type` | string | yes | A source type that connector provides (e.g. `http`, `cron`, `queue`, `events`). |
+| `settings` | map | no | Source-specific settings; see the [connector reference](/reference). |
+
+```yaml
+flows:
+  - name: submit-order
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /orders
+    process:
+      - type: log
+        settings: { message: '"received " + toJson(body)' }
+```
+
+### error
+
+The root flow's error path. When the `process` chain returns an error, the
+runtime exposes the failure as `vars.error` — an object with `message`,
+`flow`, and `block` — and runs this chain with the failing message. If the
+error chain succeeds, its output becomes the flow's result (recovery); for an
+HTTP-sourced flow, set `vars.httpStatus` to control the response status.
+
+```yaml
+    error:
+      - type: set-variable
+        settings: { name: httpStatus, value: "502" }
+      - type: set-payload
+        settings:
+          value: '{"error": vars.error.message}'
+```
+
+`error` (like `workers`, `buffer`, `pool`, and `source`) is valid on **root
+flows only**. For inline recovery around a few steps, use the
+[`handle-errors`](#handle-errors) block instead. See
+[Error Handling](/concepts/error-handling).
+
+## Block entries
+
+Each step under `process` (or any sub-flow) is a block. Every block shares
+four base fields:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `type` | string | yes* | The block type. See the [block reference](/reference). |
+| `name` | string | no | A label for logs and errors (recommended). |
+| `settings` | map | no | Type-specific settings — see each block's reference page. `${NAME}` substitution applies. |
+| `ref` | string | yes* | Name of a [processor definition](#processors) to instantiate. A block sets `type` or `ref` (see processors above). |
+
+**Leaf blocks** (`log`, `set-payload`, `sql`, `rest`, `jwt-validate`, the
+Notion and Slack blocks, …) use only these four fields; everything else goes
+under `settings`.
+
+**Composite blocks** additionally use typed *top-level* keys — slots — that
+hold expressions or sub-flows. Slots sit on the block entry itself, **not**
+under `settings`:
+
+```yaml
+- type: if
+  name: any-orders
+  condition: "size(body.orders) > 0"   # slot: top-level, not under settings
+  then:                                # slot: a sub-flow
+    process:
+      - type: log
+        settings:                      # leaf settings stay under settings
+          message: '"processing orders"'
+```
+
+The full slot vocabulary is: `process`, `error`, `branches`, `condition`,
+`then`, `else`, `cases`, `default`, `items`, `as`, `body`, `setBody`,
+`setVars`, `key`, `ttl`, `rules`, `onReject`, `rejectStatus`, `connector`,
+`prompt`, `guardrail`, `routes`, `tools`, `skills`, `maxIterations`,
+`maxAttempts`, `serverName`, `resources`, `prompts`, `memoryThreadId`,
+`memoryMaxTokens`, `memoryCompaction`. Each composite accepts only its own
+slots, and a leaf block may declare none — either mistake fails the build with
+a precise error (e.g. `block "log" is a leaf and must not declare composite
+slots [condition]`).
+
+### Sub-flows
+
+A slot documented as a *sub-flow* holds the same shape as a flow — an optional
+`name` and a `process` list — but must **not** declare `source`, `workers`,
+`buffer`, `pool`, or `error`; those are root-flow-only, enforced at build
+time. Composition recurses without limit: any block chain may contain more
+composites.
+
+### handle-errors
+
+Inline recovery: run `process`, and when it errors run `error` with the
+failure exposed as `vars.error`. On success of the error chain, its output
+continues down the flow. Both slots are bare block lists.
+
+| Slot | Type | Required | Description |
+| --- | --- | --- | --- |
+| `process` | block list | yes | The happy path. |
+| `error` | block list | no | The recovery path. |
+
+```yaml
+- type: handle-errors
+  name: charge-safely
+  process:
+    - type: rest
+      settings: { connector: payments, method: POST, path: /charges, body: '{"amount": body.amount}' }
+  error:
+    - type: set-payload
+      settings:
+        value: '{"status": "degraded", "reason": vars.error.message}'
+```
+
+### fork
+
+Runs several sub-flows in parallel on copies of the message, scheduled on the
+root flow's shared [`pool`](#flows).
+
+| Slot | Type | Required | Description |
+| --- | --- | --- | --- |
+| `branches` | list of sub-flows | yes | The parallel branches. |
+
+```yaml
+- type: fork
+  name: notify
+  branches:
+    - name: log-branch
+      process: [ { ref: audit } ]
+    - name: receipt-branch
+      process:
+        - type: log
+          settings: { message: 'templateResource("receipt")' }
+```
+
+### if
+
+| Slot | Type | Required | Description |
+| --- | --- | --- | --- |
+| `condition` | expression | yes | Must evaluate to a boolean. |
+| `then` | sub-flow | yes | Runs when true. |
+| `else` | sub-flow | no | Runs when false. |
+
+### switch
+
+Ordered, condition-guarded branches; the first case whose `when` is true runs.
+
+| Slot | Type | Required | Description |
+| --- | --- | --- | --- |
+| `cases` | list | yes | Each case: `when` (boolean expression) plus inline sub-flow fields (`name`, `process`). |
+| `default` | sub-flow | no | Runs when no case matches. |
+
+```yaml
+- type: switch
+  name: route-by-method
+  cases:
+    - when: 'vars.method == "POST"'
+      process: [ ... ]
+    - when: 'vars.method == "GET"'
+      process: [ ... ]
+  default:
+    process: [ ... ]
+```
+
+### foreach
+
+Evaluates `items` to a list and runs `body` once per element, the element
+bound as a variable.
+
+| Slot | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `items` | expression | yes | — | Must evaluate to a list. |
+| `as` | string | no | `"item"` | Variable name each element is bound to (`vars.<as>`). |
+| `body` | sub-flow | yes | — | Runs once per element. |
+
+```yaml
+- type: foreach
+  name: each-order
+  items: "body.orders"
+  as: order
+  body:
+    process:
+      - type: log
+        settings: { message: '"order " + string(vars.order.id)' }
+```
+
+### enrich
+
+Runs `body` on an isolated copy of the message, then copies chosen results
+back — the incoming body survives while the sub-flow fetches extra data.
+
+| Slot | Type | Required | Description |
+| --- | --- | --- | --- |
+| `body` | sub-flow | yes | Runs once on an isolated clone. |
+| `setBody` | expression | no | Evaluated against the clone's result; becomes the propagated body. Empty leaves the incoming body unchanged. |
+| `setVars` | map of name → expression | no | Each expression is evaluated against the clone's result and set on the message's vars. |
+
+```yaml
+- type: enrich
+  name: load-customer
+  body:
+    process:
+      - type: sql
+        settings: { connector: orders-db, query: "SELECT tier FROM customers WHERE id = ?", args: [body.customerId], single: true }
+  setVars:
+    customerTier: body.tier
+```
+
+### validate
+
+A filter: every rule must evaluate true or the message is rejected — the flow
+stops and the built-in response (or the `onReject` sub-flow) becomes the
+result. Failed rule messages are exposed as `vars.validationErrors`.
+
+| Slot | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `rules` | list | yes | — | Each rule: `expr` (boolean expression) and optional `message` (surfaced on failure). |
+| `onReject` | sub-flow | no | built-in response | Shapes the rejection response itself; a sub-flow that drops the message drops it here too. |
+| `rejectStatus` | int | no | `422` | HTTP status of the built-in rejection response (ignored when `onReject` is set). |
+
+```yaml
+- type: validate
+  name: check-order
+  rules:
+    - expr: has(body.item)
+      message: item is required
+    - expr: 'body.amount > 0.0'
+      message: amount must be positive
+  rejectStatus: 422
+```
+
+(The `jwt-validate` block is also a filter but is a leaf: its rejection
+response is configured through its `settings`, not these slots.)
+
+### cache-scope
+
+Caches its `body` sub-flow's result under a per-message key; a hit skips the
+body entirely.
+
+| Slot | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `key` | expression | yes | — | The cache key, evaluated per message. |
+| `ttl` | duration string | no | `60s` | How long an entry stays fresh (`"5m"`, `"1h"`). `"0"` never expires. |
+| `body` | sub-flow | yes | — | Runs on a cache miss; its result is stored. |
+
+### ai-router
+
+An LLM picks one named route for the message; `default` is the guardrail
+taken when it is not confident.
+
+| Slot | Type | Required | Description |
+| --- | --- | --- | --- |
+| `connector` | string | yes | Name of an LLM connector instance. |
+| `prompt` | string | yes | The routing instruction given to the model. |
+| `guardrail` | string | no | When the model should fall back to `default`. |
+| `routes` | list | yes | Each route: `name`, `description` (the model chooses on these), and `process` (a bare block list). |
+| `default` | sub-flow | no | The guardrail path. |
+
+### ai-agent
+
+An LLM agent that calls flow-backed tools in a loop until it produces a
+result.
+
+| Slot | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `connector` | string | yes | — | Name of an LLM connector instance. |
+| `prompt` | string | yes | — | The agent's task instruction. |
+| `guardrail` | string | no | — | When to fall back to `default`. |
+| `tools` | list | yes | — | Each tool: `name`, `description`, optional `inputSchema` (a JSON Schema document as an inline string), and `process` (a bare block list; arguments arrive as the body, the output body returns to the model). |
+| `skills` | list | no | — | Each skill: `name`, `description`, `resource` (a template resource loaded on demand via the implicit `load_skill` tool). |
+| `default` | sub-flow | no | — | The guardrail path. |
+| `maxIterations` | int | no | `8` | Tool-calling turns before falling back to the guardrail. |
+| `memoryThreadId` | expression | no | disabled | Resolved per message to the conversation-memory thread id. |
+| `memoryMaxTokens` | int | no | `8000` | Estimated-token budget for the stored transcript. |
+| `memoryCompaction` | string | no | `"prune"` | How memory over budget shrinks: `prune` (drop oldest) or `summarize`. |
+
+See [AI Agents](/ai/agents) for a guided treatment.
+
+### ai-retry
+
+Runs `process`; on failure an LLM revises the message and the chain is
+re-run, up to `maxAttempts`, before falling through to `error`.
+
+| Slot | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `connector` | string | yes | — | Name of an LLM connector instance. |
+| `prompt` | string | yes | — | The repair instruction. |
+| `process` | block list | yes | — | The chain to run and re-run. |
+| `error` | block list | no | — | Runs when every attempt failed. |
+| `maxAttempts` | int | no | `3` | Re-runs after an LLM-driven revision. |
+
+### mcp-router
+
+Serves the flow as an MCP server: tools, resources, and prompts.
+
+| Slot | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `tools` | list | no* | — | Flows exposed as MCP tools (same shape as `ai-agent` tools). |
+| `resources` | list | no* | — | Each: `uri`, `name`, optional `description`/`mimeType`, and `resource` (the template resource served on `resources/read`). |
+| `prompts` | list | no* | — | Each: `name`, optional `description`, `arguments` (list of `{name, description, required}`), and `resource` (the template rendered on `prompts/get`; arguments arrive as `body.<arg>`). |
+| `serverName` | string | no | block name, then `octo-mcp` | Name reported in the MCP initialize response. |
+
+\* At least one tool, resource, or prompt is required. See
+[MCP Server](/ai/mcp-server).
+
+## resources
+
+Declares the external resources the config imports. Resource ids are paths
+relative to the config's directory (the resource root); an id that escapes
+the root with `..` is rejected. Every declared resource is loaded when the
+config loads, so a missing or malformed template fails at deployment, not
+when a message first uses it.
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `env` | list of strings | Ids of `.env`-format resources combined into the runtime environment, in order — later ids overlay earlier ones (and all overlay `./.env` / `$OCTO_ENV_FILE`). A missing env resource is skipped, not fatal; `required` declarations still apply. |
+| `templates` | list | Template resources used by blocks and by the [`templateResource()`](/reference/cel/octo-extensions#templateresource) CEL function. |
+
+Each `templates` entry:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `resource` | string | yes | The resource id (a path under the config directory). |
+| `as` | string | no | A short alias; when set, reference the template by the alias (`templateResource("welcome")`) instead of the id. |
+
+```yaml
+resources:
+  env:
+    - config/extra.env
+  templates:
+    - resource: templates/receipt.tmpl
+      as: receipt
+```
+
+## Complete example
+
+A single flow exercising every structural feature: declared env, resources,
+connectors, a reusable processor, a sourced root flow with tuning fields and
+an error path, and the core composites. This config loads and runs as-is
+(create `config/extra.env` and `templates/receipt.tmpl` next to it):
+
+```yaml title="orders.yaml"
+service:
+  name: orders-service
+  environment: production
+
+env:
+  - name: HTTP_PORT
+    default: "8080"                      # used when not set by OS env or .env
+  - name: PAYMENTS_URL
+    default: https://payments.example.com
+  - name: DB_DRIVER
+    default: sqlite
+  - name: DB_DSN
+    default: file:orders.db
+
+resources:
+  env:
+    - config/extra.env                   # overlays ./.env; relative to this file's dir
+  templates:
+    - resource: templates/receipt.tmpl
+      as: receipt                        # referenced as templateResource("receipt")
+
+connectors:
+  - name: api                            # flows reference this name, not the type
+    type: http
+    settings:
+      port: ${HTTP_PORT}                 # exact placeholder -> typed (int) value
+  - name: payments
+    type: http-client
+    settings:
+      baseURL: ${PAYMENTS_URL}
+      timeout: 10s
+  - name: orders-db
+    type: database
+    settings:
+      driver: ${DB_DRIVER}
+      dsn: ${DB_DSN}
+  - name: out
+    type: logger
+    settings:
+      format: json
+      level: info
+
+processors:
+  - name: audit                          # reusable block, used via `ref` below
+    type: log
+    settings:
+      logger: out
+      level: info
+      message: '"processed event " + eventID'
+
+flows:
+  - name: submit-order
+    workers: 4                           # default 8
+    buffer: 128                          # default 64
+    pool: 8                              # shared pool for concurrent composites
+    source:
+      connector: api                     # connector instance name
+      type: http
+      settings:
+        path: /orders
+        correlationIdHeader: X-Request-Id
+    process:
+      # validate: filter — all rules must hold or the flow stops with 422
+      - type: validate
+        name: check-order
+        rules:
+          - expr: has(body.item)
+            message: item is required
+          - expr: 'body.amount > 0.0'
+            message: amount must be positive
+        rejectStatus: 422
+
+      # if/else: slots are top-level keys, sub-flows have their own `process`
+      - type: if
+        name: needs-review
+        condition: 'body.amount > 1000.0'
+        then:
+          process:
+            - type: set-variable
+              settings: { name: review, value: "true" }
+        else:
+          process:
+            - type: set-variable
+              settings: { name: review, value: "false" }
+
+      # enrich: fetch on an isolated copy, write back only chosen vars
+      - type: enrich
+        name: load-customer
+        body:
+          process:
+            - type: sql
+              settings:
+                connector: orders-db
+                query: "SELECT 1 AS tier"
+                single: true
+        setVars:
+          customerTier: body.tier
+
+      # handle-errors: inline recovery, failure exposed as vars.error
+      - type: handle-errors
+        name: charge-safely
+        process:
+          - type: rest
+            name: call-payments
+            settings:
+              connector: payments
+              method: POST
+              path: /charges
+              body: '{"amount": body.amount}'
+        error:
+          - type: set-payload
+            settings:
+              value: '{"item": body.item, "amount": body.amount, "status": "degraded", "reason": vars.error.message}'
+
+      # fork: branches run in parallel on message copies
+      - type: fork
+        name: notify
+        branches:
+          - name: log-branch
+            process:
+              - ref: audit
+          - name: receipt-branch
+            process:
+              - type: log
+                settings:
+                  logger: out
+                  message: 'templateResource("receipt")'
+
+      # switch: first true case wins, else default
+      - type: switch
+        name: classify
+        cases:
+          - when: 'vars.review == "true"'
+            process:
+              - type: log
+                settings: { logger: out, message: '"order flagged for review"' }
+        default:
+          process:
+            - type: log
+              settings: { logger: out, message: '"order accepted"' }
+
+      # foreach: iterate an expression's list, element bound to vars.tag
+      - type: foreach
+        name: each-tag
+        items: 'has(body.tags) ? body.tags : []'
+        as: tag
+        body:
+          process:
+            - type: log
+              settings:
+                logger: out
+                message: '"tag: " + vars.tag'
+
+      # cache-scope: body runs on a miss, result cached under the key
+      - type: cache-scope
+        name: fx-rate
+        key: '"usd-eur"'
+        ttl: 5m
+        body:
+          process:
+            - type: set-payload
+              settings:
+                value: '{"rate": 0.92, "amount": body.amount}'
+
+    # flow-level error path (root only): recovery + response status
+    error:
+      - type: set-variable
+        settings: { name: httpStatus, value: "502" }
+      - type: set-payload
+        settings:
+          value: '{"error": vars.error.message, "flow": vars.error.flow}'
+```
+
+Exercise it without binding the HTTP port:
+
+```bash
+bin/octo invoke --config orders.yaml --flow submit-order \
+  --data '{"item": "widget", "amount": 50, "tags": ["a", "b"]}'
+```
+
+```json
+{"amount":50,"rate":0.92}
+```
+
+<Callout type="info">
+  For block-by-block settings (what goes *inside* `settings:` for `sql`,
+  `rest`, `log`, and the rest), see the [block reference](/reference)
+  and [connector reference](/reference).
+</Callout>

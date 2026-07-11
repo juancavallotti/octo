@@ -1,0 +1,238 @@
+---
+title: "GCP with Terraform"
+description: "The reference GCP deployment: k3s, Traefik, TLS, and per-integration subdomains."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Steps, Step } from 'fumadocs-ui/components/steps';
+
+The reference production deployment runs Octo on a single GCP VM with
+single-node k3s, Traefik ingress, and cert-manager for free auto-renewing
+Let's Encrypt TLS. The editor is served at your domain and each deployed
+integration can get its own subdomain. Everything is codified in
+`deploy/terraform/`.
+
+## Architecture
+
+```
+                      Cloud DNS
+   octo.example.com          ─┐
+   *.octo.example.com        ─┤ A records → static IP
+                              │
+                       ┌──────▼─────────────────────────────────────────┐
+                       │ GCE VM (Debian 12, e2-standard-2) — single-node │
+                       │ k3s                                             │
+                       │                                                 │
+                       │  Traefik :80/:443  ── cert-manager (Let's       │
+                       │    │                   Encrypt, HTTP-01)        │
+                       │    ├─ octo.…           → editor  :3000          │
+                       │    └─ {slug}.octo.…    → integration pod :8080  │
+                       │                                                 │
+                       │  editor ─(BFF)→ orchestrator :8090              │
+                       │  Postgres :5432 (StatefulSet)                   │
+                       │  per integration: ConfigMap + Deployment +      │
+                       │    Service [+ Ingress when exposed externally]  │
+                       └─────────────────────────────────────────────────┘
+                              ▲ images + OCI chart (pull)
+                       Artifact Registry  ◄── Cloud Build (on version tag)
+```
+
+Ownership is split three ways:
+
+- **The VM** only bootstraps the cluster: k3s, cert-manager, the
+  `letsencrypt-prod` ClusterIssuer, and an `octo-pull` helper. It holds no
+  app source.
+- **Terraform owns the Octo release** through the Helm provider — you apply
+  the `release` root to install or upgrade the chart.
+- **The orchestrator** creates per-integration Kubernetes resources at
+  runtime when you deploy an integration from the editor.
+
+## The two Terraform roots
+
+Under `deploy/terraform/`:
+
+| Root | What it creates | When to apply |
+|---|---|---|
+| `infra/` | Artifact Registry repo, VM + static IP + firewall + DNS records + k3s bootstrap, and (optional) the Cloud Build trigger + IAM | Once per cluster |
+| `release/` | The Octo Helm release (image tag + chart version) | Every deploy or upgrade |
+
+Both roots read a single tfvars file — `deploy/terraform/octo.tfvars`
+(gitignored) — while per-deploy values (`image_tag`, `chart_version`) come
+from the command line. `release/` keeps its state in a GCS bucket so Cloud
+Build and your laptop share it; `infra/` keeps local state.
+
+<Callout type="warn">
+  The release state holds generated secrets (the Postgres password and, with
+  SSO, the OIDC client secret and Auth.js session secret), and the fetched
+  kubeconfig holds cluster-admin credentials. Both are gitignored — keep the
+  state bucket locked down.
+</Callout>
+
+## Prerequisites
+
+- `gcloud` authenticated: `gcloud auth application-default login`.
+- An existing **Cloud DNS managed zone** for your domain (you supply its
+  name, e.g. `example-com`). Terraform creates the `A` record for the editor
+  host and the `*.{domain}` wildcard record pointing at the static IP.
+- On your workstation: `terraform` (>= 1.5), `helm`, `docker`, `gcloud`, and
+  [`task`](https://taskfile.dev).
+- Default region is `us-west1`; override per root if needed.
+
+## One-time setup
+
+<Steps>
+<Step>
+
+### Fill in the tfvars file
+
+```bash
+gcloud auth application-default login
+cd deploy/terraform
+cp octo.tfvars.example octo.tfvars
+```
+
+Set at least `project_id`, `domain`, and `dns_managed_zone`.
+
+</Step>
+<Step>
+
+### Create the state bucket
+
+Backs the `release` root's remote state; run once:
+
+```bash
+task state:bucket PROJECT=<your-project>
+```
+
+</Step>
+<Step>
+
+### Apply the infra root
+
+Creates the registry, VM, static IP, firewall, DNS records, and the k3s
+bootstrap:
+
+```bash
+task infra:apply
+terraform -chdir=deploy/terraform/infra output   # image_base, static_ip, url, kube_api_endpoint
+```
+
+</Step>
+<Step>
+
+### (Optional) Enable Cloud Build automation
+
+Connect the GitHub repo once in the console (Cloud Build → Triggers →
+Connect repository — installs the GitHub App; Terraform cannot do this), then
+set `enable_cloudbuild = true` in `octo.tfvars` and re-run `task infra:apply`.
+
+</Step>
+</Steps>
+
+<Callout type="warn">
+  SSH (22) and the k3s API (6443) default to open. In production, set
+  `ssh_source_ranges` and `kube_api_source_ranges` to your IP — but include
+  the IAP range `35.235.240.0/20` so the Cloud Build deploy step can still
+  reach the VM. The release apply needs 6443 reachable from wherever
+  Terraform runs.
+</Callout>
+
+## Required and notable variables
+
+Set in `octo.tfvars`, read by both roots:
+
+| Variable | Default | Notes |
+|---|---|---|
+| `project_id` | – | Required. |
+| `domain` | `octo.juancavallotti.com` | Editor host; integrations live under `*.{domain}`. |
+| `dns_managed_zone` | – | Required; the Cloud DNS zone name. |
+| `machine_type` | `e2-standard-2` | 8 GB RAM; `e2-medium` (4 GB) is tight. |
+| `ssh_source_ranges` | `["0.0.0.0/0"]` | Restrict in production (keep the IAP range). |
+| `kube_api_source_ranges` | `null` (= SSH ranges) | Who can reach 6443. |
+| `acme_email` | – | Let's Encrypt account email. |
+| `enable_cloudbuild` | `false` | Create the trigger (GitHub App must be connected first). |
+| `cloudbuild_auto_deploy` | `true` | Also roll the cluster on a version tag (`_DEPLOY=true`). |
+| `oidc_enabled` + `oidc_client_id` / `oidc_client_secret` / `oidc_issuer` | `false` / … | Gate the editor behind OIDC SSO; consumed by the `release` root. |
+
+The `release` root additionally takes `image_tag` (default `latest`) and
+`chart_version` (required, must match the published `helm/Chart.yaml`) — both
+supplied on the command line by `task deploy` or Cloud Build.
+
+## Publish images and the chart
+
+The node and the Helm provider pull from Artifact Registry, so images and the
+chart must be published before a deploy.
+
+- **Automated (recommended):** push a version tag — release-please publishes
+  `vX.Y.Z`, and the Cloud Build trigger runs `cloudbuild.yaml`, building all
+  five images and the chart and pushing them tagged with both the git tag and
+  `latest`. See [Releases and upgrades](/deploy/releases-and-upgrades).
+- **Manual:** with `IMAGE_BASE` from `terraform output image_base`:
+
+```bash
+gcloud auth configure-docker us-west1-docker.pkg.dev
+helm registry login us-west1-docker.pkg.dev -u oauth2accesstoken -p "$(gcloud auth print-access-token)"
+task images:push IMAGE_BASE=$IMAGE_BASE TAG=v0.1.1
+task helm:push   IMAGE_BASE=$IMAGE_BASE
+```
+
+## Deploy and roll upgrades
+
+On a version tag, Cloud Build deploys automatically (the `deploy` step in
+`cloudbuild.yaml`, gated on `_DEPLOY`). To deploy an already-published tag by
+hand:
+
+```bash
+task deploy TAG=v0.1.1            # optional: DOMAIN=… INSTANCE=… ZONE=…
+```
+
+This fetches a fresh kubeconfig from the VM (`task deploy:kubeconfig`),
+derives `chart_version` from `helm/Chart.yaml`, and applies the `release`
+root. Each apply:
+
+1. Runs `octo-pull` on the node over SSH (with a fresh registry token) to
+   pull the target image tag into containerd — so the chart's pods
+   (`imagePullPolicy: IfNotPresent`), including the per-integration runtime
+   image, find it locally.
+2. Installs or upgrades the chart through the Helm provider, passing the
+   Postgres password held in state and authenticating the OCI chart pull
+   with your GCP token.
+
+A changed `image_tag` rewrites the pod templates, so the Deployments roll
+automatically; Postgres is untouched when only the tag moves. The first TLS
+issuance takes a minute after the DNS A record resolves.
+
+## Integration endpoints
+
+When you deploy an integration from the editor, the orchestrator creates its
+workload in `octo-dev`. Internally, other flows reach it at
+`http://octo-int-{slug}.octo-dev:8080`. Toggling **Expose externally** adds a
+Traefik Ingress at `https://{subdomain}.{domain}`, with TLS issued per host by
+cert-manager via HTTP-01 (the wildcard DNS record resolves every subdomain to
+the VM). External endpoints require `BASE_DOMAIN` on the orchestrator — the
+`release` root sets it to your domain. See
+[Deployments](/platform/deployments) for the full endpoint model.
+
+## Operations
+
+```bash
+# SSH to the VM
+gcloud compute ssh octo --zone us-west1-a
+
+# Cluster state
+gcloud compute ssh octo --zone us-west1-a -- sudo k3s kubectl get pods -n octo-dev
+
+# Platform / orchestrator logs (on the VM)
+sudo k3s kubectl logs -n octo-dev deploy/octo-platform
+sudo k3s kubectl logs -n octo-dev deploy/octo-orchestrator
+```
+
+- **Postgres data** lives on the boot disk (k3s `local-path`); it survives
+  reboots but is destroyed with the VM. The password is held in the release
+  Terraform state.
+- **Re-pull a tag manually on the node:** `sudo octo-pull v0.1.2` — useful
+  when pods show `ImagePullBackOff` because the node's registry token
+  (valid ~1h after boot) has expired.
+- **Re-bootstrap the VM:** `sudo rm /opt/octo/.provisioned && sudo reboot`.
+- **Release apply can't reach the cluster:** ensure 6443 is open to your IP
+  and refresh the kubeconfig with `task deploy:kubeconfig DOMAIN=…`.

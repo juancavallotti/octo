@@ -1,0 +1,59 @@
+---
+title: "KV Store and Persistence"
+description: "The deployment-scoped key/value store and the platform database."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+On the platform, the runtime's object store is served by the orchestrator: a deployment-scoped, versioned key/value store backed by Postgres. It is what makes state survive pod restarts and stay consistent across a deployment's replicas — everything built on the runtime object store ([`object-read`/`object-write`](/concepts/state-and-data), agent memory, runtime-written secrets) rides on it in clustered runs.
+
+## The model
+
+Every entry is keyed by `(deploymentId, namespace, key)` and carries a monotonically increasing **version**:
+
+- **Deployment-scoped.** A deployment's replicas share one store; different deployments — even of the same integration — never see each other's data. The scope key is `OCTO_DEPLOYMENT_ID`, injected into every pod.
+- **Namespaced.** System state is isolated from user data (`system` vs `user` namespaces), and secret namespaces are separate again (below).
+- **Versioned.** Writes are compare-and-swap: a write carries the version it expects (0 to create) and fails with a conflict when the entry changed underneath it, so concurrent replicas never silently overwrite each other. See [Clustering](/runtime/clustering) for how flows use this.
+
+Values are opaque bytes, capped at 1 MiB per entry.
+
+## How the runtime talks to it
+
+The runtime's k8s services module (selected by `RUNTIME_SERVICES_MODULE=k8s`) implements the object store as an HTTP client of the orchestrator, using the `ORCHESTRATOR_URL` injected at deploy time:
+
+```
+GET/PUT/DELETE /deployments/{id}/kv/{namespace}/{key}
+```
+
+The version travels in the `X-Object-Version` header both ways: reads return the current version, writes send the expected version and get the new one back; a mismatch is a `409` the runtime surfaces as its version-conflict error. In standalone runs the same object-store interface is an in-process, in-memory map — flow YAML doesn't change between the two.
+
+## Secret namespaces
+
+Namespaces ending in `_secrets` (e.g. `user_secrets`) are **encrypted at rest**: the orchestrator encrypts values with AES-GCM before they reach Postgres and decrypts on read, using the key configured as `KV_ENCRYPTION_KEY` (the Helm chart's `kv.encryptionKey`, a base64-encoded 32-byte AES-256 key). This is what backs the runtime secret store in clustered runs — a flow that writes a secret writes to a secret namespace of this same table.
+
+Plain namespaces are stored as-is, so ordinary KV traffic pays no encryption cost. When no key is configured, secret-namespace operations are rejected (a 503) while plain KV keeps working.
+
+## The object browser
+
+The platform UI's object view uses a JSON facade over the same store, fixed to the `user` namespace family and adding the listing the raw KV routes lack:
+
+```
+GET  /deployments/{id}/namespaces
+GET  /deployments/{id}/objects
+GET/PUT/DELETE /deployments/{id}/objects/{key}
+```
+
+Secret namespaces are filtered out of the browser — their values are never listed or displayed.
+
+![The object browser showing a deployment's key/value store](/screenshots/platform-object-browser.png)
+
+## Persistence guarantees
+
+- **Storage is Postgres** (the `kv_store` table), so entries survive pod restarts, rollouts, and scale changes — the store's lifetime is the deployment's, not a pod's.
+- **Writes are transactional and serialized per key** (a row lock plus the CAS check), so a successful write is durable and its version unique. Losers of a concurrent race get a clean conflict.
+- **Cleanup on undeploy is best-effort.** Entries have no foreign key to the deployment; undeploying deletes them after the workload is gone, and a cleanup failure leaves harmless orphans rather than failing the undeploy. Data does not survive undeploy by contract — redeploying an integration creates a *new* deployment id and therefore an empty store.
+- **Durability follows your Postgres setup.** The store is exactly as durable as the platform database; see [Deploying with Helm](/deploy/helm) for storage configuration.
+
+<Callout type="warn">
+The KV store is for coordination state and modest objects (1 MiB cap per value), not bulk data. Point flows at a real database or object storage for large payloads.
+</Callout>

@@ -1,0 +1,229 @@
+---
+title: "Work with Notion"
+description: "Handle Notion webhooks, query data sources, and render pages as Markdown."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Cards, Card } from 'fumadocs-ui/components/card';
+import { Steps, Step } from 'fumadocs-ui/components/steps';
+
+This guide connects a flow to a Notion workspace: it receives webhooks, verifies
+their signatures, reacts to page events, queries a data source, and renders page
+content as Markdown. It follows
+[`samples/notion-webhook.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/notion-webhook.yaml)
+plus a page-title logger running in production on the author's platform.
+
+## Set up the integration
+
+<Steps>
+<Step>
+Create a Notion integration at
+[notion.com/my-integrations](https://www.notion.com/my-integrations) and copy its
+token (`ntn_...`). Share the pages and data sources you want to reach with the
+integration — it only sees what you share.
+</Step>
+<Step>
+Declare the connector with the token. `verificationToken` can wait — the
+handshake below produces it.
+
+```yaml
+connectors:
+  - name: notion
+    type: notion
+    settings:
+      token: ${NOTION_TOKEN}
+      verificationToken: ${NOTION_VERIFICATION_TOKEN}
+```
+</Step>
+<Step>
+Create a webhook subscription in Notion pointing at this service's
+`/notion/events` route (use a tunnel such as ngrok while developing).
+</Step>
+</Steps>
+
+## The webhook endpoint
+
+Notion signs each webhook over the exact request bytes, so the source delivers
+the raw body and captures the signature header:
+
+```yaml title="samples/notion-webhook.yaml (excerpt)"
+source:
+  connector: api
+  type: http
+  settings:
+    path: /notion/events
+    headers: [X-Notion-Signature]
+    rawBody: true
+```
+
+The first block authenticates every request. `notion-verify-request` reads the
+raw body directly, checks the signature against the connector's
+`verificationToken`, aborts on a mismatch, and re-parses the verified JSON into
+`body` for the rest of the flow:
+
+```yaml
+process:
+  - type: notion-verify-request
+    name: verify
+    settings:
+      connector: notion
+```
+
+### The verification handshake
+
+Notion's **first** request to a new subscription is a one-time handshake
+carrying a `verification_token`. The flow logs it; you paste it back into
+Notion's UI to confirm the subscription, then set it as the connector's
+`verificationToken` so future signatures verify. `notion-verify-request`
+detects the handshake and captures the token into `vars.notionVerification`:
+
+```yaml title="samples/notion-webhook.yaml (excerpt)"
+- type: if
+  name: handshake-or-event
+  condition: has(vars.notionVerification)
+  then:
+    process:
+      - type: log
+        name: log-token
+        settings:
+          logger: out
+          message: '"notion verification token: " + vars.notionVerification'
+  else:
+    process:
+      # ... handle real events
+```
+
+So the bootstrap sequence is: run the service, create the subscription, copy the
+token from your logs into Notion's UI, export it as
+`NOTION_VERIFICATION_TOKEN`, restart. From then on every webhook is
+signature-checked.
+
+```bash
+export NOTION_TOKEN=ntn_...
+export NOTION_VERIFICATION_TOKEN=...   # from the handshake, second run
+export NOTION_DATABASE_ID=...
+octo run --config samples/notion-webhook.yaml
+```
+
+## React to page events: a title logger
+
+The `else` branch handles real events. `notion-event` filters the stream by
+type, and `notion-retrieve-page` fetches the affected page's properties into
+`vars.notionPage`. This flow — a page-title logger running in production —
+announces every page created in the workspace:
+
+```yaml title="Live integration: notion-page-created (excerpt)"
+- type: notion-event
+  name: page-events
+  settings:
+    eventTypes: [page.created]
+- type: notion-retrieve-page
+  name: fetch-page
+  settings:
+    connector: notion
+    page: body.entityId
+- type: multi-transform
+  name: extract-title
+  settings:
+    transforms:
+      - setVar: titleKey
+        value: >
+          vars.notionPage.properties.filter(k,
+            vars.notionPage.properties[k].type == "title")[0]
+      - setVar: pageTitle
+        value: >
+          (size(vars.notionPage.properties[vars.titleKey].title) > 0) ?
+            vars.notionPage.properties[vars.titleKey].title[0].plain_text :
+            "(untitled)"
+- type: log
+  name: announce
+  settings:
+    logger: out
+    message: '"page created: " + vars.pageTitle'
+```
+
+The title extraction deserves a closer look, because it trips everyone up once:
+a Notion page's `properties` is a **map keyed by the property's display name**
+("Name", "Task", whatever the database calls it), so you can't hard-code the
+key. The trick is to filter over the map's keys for the property whose `type` is
+`"title"` — CEL's `filter` on a map iterates keys — then index back in with the
+key you found. The `size(...) > 0` check guards against genuinely untitled
+pages, whose `title` array is empty.
+
+<Callout type="info">
+  The webhook payload carries the page's ID as `body.entityId` — events are
+  thin, so fetch the page when you need its contents. The sample subscribes to
+  `page.content_updated` instead of `page.created`; `eventTypes` takes any list
+  of Notion event types, and a CEL `filter` setting narrows further.
+</Callout>
+
+## Query a data source
+
+`notion-query-datasource` runs a query and stores the response in
+`vars.notionResults`. A Notion database holds its data sources, so pass the
+`database` ID and let the block derive the data source — or pass `dataSource`
+directly if you have that ID:
+
+```yaml title="samples/notion-webhook.yaml (excerpt)"
+- name: query-recent
+  source:
+    connector: ticker
+    type: cron
+    settings:
+      schedule: "@every 5m"
+  process:
+    - type: notion-query-datasource
+      name: query
+      settings:
+        connector: notion
+        database: '"${NOTION_DATABASE_ID}"'
+        pageSize: 10
+    - type: log
+      name: log-count
+      settings:
+        logger: out
+        message: '"data source returned " + string(size(vars.notionResults.results)) + " rows"'
+```
+
+Note the quoting: `database` is a CEL expression, so the env var is interpolated
+*inside* CEL string quotes (`'"${NOTION_DATABASE_ID}"'`). The block also accepts
+`filter` and `sorts` expressions that pass through to Notion's query API.
+
+## Render a page as Markdown
+
+`notion-retrieve-blocks` fetches a page's child blocks, and
+`notion-page-to-markdown` converts them — its `source` defaults to
+`body.results`, which is exactly where the previous block leaves them:
+
+```yaml title="samples/notion-webhook.yaml (excerpt)"
+- name: page-to-markdown
+  process:
+    - type: notion-retrieve-blocks
+      name: fetch-content
+      settings:
+        connector: notion
+        block: body.pageId
+    - type: notion-page-to-markdown
+      name: render
+      settings:
+        source: body.results
+```
+
+Invoke it with a page ID and get the rendered Markdown back:
+
+```bash
+octo invoke --config samples/notion-webhook.yaml \
+  --flow page-to-markdown --data '{"pageId": "<page-id>"}'
+```
+
+This pairs naturally with AI flows: Markdown is the format LLMs read best, so
+`notion-page-to-markdown` is the bridge between a Notion knowledge base and an
+`ai-agent` prompt.
+
+## Where to go next
+
+<Cards>
+  <Card title="Notion connector reference" href="/reference/connectors/notion" description="Every Notion block and setting." />
+  <Card title="Expressions" href="/concepts/expressions" description="CEL — including the map filter trick used for titles." />
+  <Card title="AI Agents" href="/ai/agents" description="Feed Notion content to an agent as context." />
+</Cards>

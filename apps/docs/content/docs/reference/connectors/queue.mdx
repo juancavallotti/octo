@@ -1,0 +1,106 @@
+---
+title: "Queue"
+description: "Competing-consumer queues: the queue source and queue-dispatch block."
+octo_types:
+  - queue
+  - queue-dispatch
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The `queue` connector exposes the platform's competing-consumer queues to flows: a `queue` source runs each queued message through a flow, and the `queue-dispatch` block sends the current message to a subject. Every replica subscribed to a subject competes for messages, so each message is handled exactly once across the cluster — the cross-replica way to load balance work.
+
+## `queue` connector
+
+The connector (label: **Platform Queue**) carries **no settings** — it is source-only. The queue itself is a core runtime service: in-process in the standalone module, and NATS-backed in the Kubernetes module.
+
+**Provides a source:** yes — the **Platform Queue** source (below). **Blocks that bind to it:** none directly; `queue-dispatch` publishes onto the same platform queue service without referencing a connector instance.
+
+## `queue` source
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `subject` | string | Yes | — | Queue subject to subscribe to. Every replica subscribed to the same subject competes for messages, so each message is handled once across the cluster. |
+| `listeners` | int | No | queue service default | Number of concurrent handler goroutines. |
+| `timeout` | duration | No | queue service timeout | How long a handler waits for its flow to finish (e.g. `30s`). |
+
+Each delivered message is run through the flow. For a message sent as a **request** (`queue-dispatch` with `awaitReply: true`), the flow's final message is returned to the requester as the reply; a **failed** flow returns its error to the requester. For a fire-and-forget publish the result is discarded. A handler holds a listener slot until its flow finishes, so in-flight work is bounded by `listeners`.
+
+## `queue-dispatch` block
+
+**Queue Dispatch** — send the message to a platform queue subject to load balance work across replicas. By default it publishes fire-and-forget (one-way); enable `awaitReply` to wait for one consumer's reply and fold it back in (request).
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `subject` | expression | Yes | — | CEL expression for the queue subject to send to; enables per-message routing/sharding. |
+| `awaitReply` | boolean | No | `false` | Wait for one consumer's reply and fold its body and variables back in (request). When false, the message is published fire-and-forget (one-way). |
+| `timeout` | duration | No | queue service timeout | How long to wait for a reply when `awaitReply` is set (e.g. `30s`). |
+
+The block sends a fresh sub-message (cloned and re-keyed so the sub-invocation correlates on its own event ID). With `awaitReply: true`, the reply's body replaces the current body and the reply's variables are merged into the current variables — the cross-replica analogue of a two-way `flow-ref`.
+
+## Example
+
+Adapted from `samples/queue-loadbalance.yaml` — an HTTP flow dispatches to two worker flows, one one-way and one request/reply:
+
+```yaml
+service:
+  name: queue-loadbalance
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      basePath: /api/v1
+      requestTimeout: 5s
+
+flows:
+  # HTTP entry point: dispatches work onto queue subjects.
+  - name: orders-api
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /orders/{id}
+    process:
+      # Fire-and-forget: publish and keep moving immediately.
+      - type: queue-dispatch
+        name: audit-async
+        settings:
+          subject: '"audit-work"'      # subject is a CEL expression
+
+      # Request: wait for one competing consumer's reply and fold it back in.
+      - type: queue-dispatch
+        name: enrich-sync
+        settings:
+          subject: '"enrich-work"'
+          awaitReply: true
+
+  # Worker: competing consumer on "enrich-work". Scale replicas to load balance;
+  # its final message is returned to the requester as the reply.
+  - name: order-enricher
+    source:
+      type: queue                      # implicit connector — no instance needed
+      settings:
+        subject: enrich-work
+        listeners: 8                   # concurrent handlers on this replica
+    process:
+      - type: set-payload
+        settings:
+          value: '{"order": body, "status": "accepted"}'
+
+  # Worker: competing consumer on "audit-work". Invoked one-way, so its result
+  # is discarded; it runs purely for the side effect.
+  - name: order-auditor
+    source:
+      type: queue
+      settings:
+        subject: audit-work
+    process:
+      - type: log
+        settings:
+          message: '"AUDIT order " + vars.id'
+```
+
+<Callout type="info">
+Use queues when each message must be handled exactly once (and optionally answered). When every subscriber should see every message, use the [events](/reference/connectors/events) connector instead. For an in-process equivalent of `awaitReply`, see the `flow-ref` block in [Integration blocks](/reference/blocks/integration).
+</Callout>

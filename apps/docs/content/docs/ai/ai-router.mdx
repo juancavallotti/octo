@@ -1,0 +1,112 @@
+---
+title: "AI Router"
+description: "Route messages to named branches with an LLM."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The `ai-router` block asks an LLM to pick **exactly one** of several named,
+described routes for each message. Use it where the routing decision needs
+judgment — triaging tickets, classifying inbound email, dispatching webhooks
+by intent — and a `switch` condition would be brittle.
+
+## A complete example
+
+This flow triages support tickets to a team:
+
+```yaml
+service:
+  name: ai-router
+
+env:
+  - name: ANTHROPIC_API_KEY
+    required: true
+
+connectors:
+  - name: claude
+    type: llm-anthropic
+    settings:
+      apiKey: ${ANTHROPIC_API_KEY}
+
+flows:
+  - name: triage
+    process:
+      - type: ai-router
+        name: triage-ticket
+        connector: claude
+        prompt: >
+          Read the support ticket in the message body and route it to the team
+          best suited to handle it.
+        guardrail: >
+          If the ticket is ambiguous, spans multiple areas, or you are not
+          confident, take the default (human triage) path.
+        routes:
+          - name: billing
+            description: Payment failures, refunds, invoices, subscription changes.
+            process:
+              - type: set-payload
+                settings:
+                  value: '{"team": "billing"}'
+          - name: technical
+            description: Bugs, outages, API errors, integration problems.
+            process:
+              - type: set-payload
+                settings:
+                  value: '{"team": "technical"}'
+        default:
+          process:
+            - type: set-payload
+              settings:
+                value: '{"team": "human-triage"}'
+```
+
+```bash
+octo invoke --config samples/ai-router.yaml --flow triage \
+  --data '{"subject":"I was double charged","body":"Please refund the extra charge."}'
+# -> {"team":"billing"}
+```
+
+![The ai-router sample in the visual editor](/screenshots/sample-ai-router.png)
+
+Like `ai-agent`, `ai-router` is a composite: its keys sit at the top level
+of the block.
+
+## How it decides
+
+Each route's `name` and `description` are listed in the model's system
+prompt — the description is the routing contract, so write it precisely.
+The model gets read-only inspection tools (`get_body`, `list_variables`,
+`get_variable`) to look at the message before deciding, then calls a
+`select_route` tool whose argument is constrained to the configured route
+names. The chosen route's `process` chain then runs on the message.
+
+The decision loop is capped at 5 model calls; a model that inspects without
+ever deciding falls through to the guardrail.
+
+## Guardrail and default
+
+`guardrail` describes *when* the model should decline to pick a route;
+`default` is the flow that runs when it does (or when it never decides).
+The model can explicitly select the guardrail when it is not confident, so
+give it a real escape hatch — a human-triage queue beats a forced wrong
+answer.
+
+<Callout type="info">
+With no `default` configured, the guardrail passes the message through
+unchanged — the same behavior as a `switch` with no default branch.
+</Callout>
+
+## Choosing between switch, ai-router, and ai-agent
+
+- **`switch`** — the condition is computable. Route by a field value, a
+  status code, a CEL expression. Deterministic, free, instant. Always prefer
+  it when you can write the condition.
+- **`ai-router`** — the condition needs judgment over unstructured content,
+  but the outcome is still *one decision*: pick a branch, run it, done.
+- **`ai-agent`** — the task needs *multiple steps*: gather data with tools,
+  reason over results, produce an answer. An agent can loop; a router
+  decides once.
+
+A common composition is a router in front of agents: cheap single-decision
+triage first, and only the routes that need multi-step work pay for an
+agent. Full field tables: [AI Blocks reference](/reference/blocks/ai).

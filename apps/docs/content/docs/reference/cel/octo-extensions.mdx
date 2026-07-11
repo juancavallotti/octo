@@ -1,0 +1,165 @@
+---
+title: "Octo Extensions"
+description: "Variables and custom functions Octo adds to the CEL environment."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Every message expression in Octo is compiled in the same environment: the
+standard CEL library, six message variables, and a small set of custom
+functions the runtime registers. This page is the reference for that
+environment. (The same catalogue is served to AI tooling by the Octo MCP
+server's `getCelFunctions` tool.)
+
+## Variables
+
+These are in scope for every message expression — block settings, conditions,
+`foreach` items, validation rules, and so on.
+
+| Variable | Type | Description |
+| --- | --- | --- |
+| `body` | `dyn` | The decoded message body — JSON-native shapes (map, list, string, double, bool, null). In raw-content mode it is the `{contentType, rawData}` envelope. |
+| `vars` | `map(string, dyn)` | The message's variables: values set by the source (path params, captured headers, query) and by blocks such as `set-variable`, `multi-transform`, and `enrich`. |
+| `eventID` | `string` | The message's unique event id. |
+| `correlationID` | `string` | The message's correlation id (empty unless the source or a block set one), for tracing a message across flows. |
+| `env` | `map(string, string)` | The resolved environment variables the integration [declared](/reference/flow-file#env), e.g. `env.API_BASE_URL`. Referencing an unresolved name is an evaluation error (`no such key`). |
+| `now` | `timestamp` | The evaluation time. Use `string(now)` to render it into a JSON body, or arithmetic like `now - duration("1h")`. |
+
+```bash
+bin/octo eval --expr '"hi " + body.name + " (" + eventID + ")"' --data '{"name": "Ada"}'
+# {"ok":true,"result":"hi Ada (3c1658e009c837440266d967b87dc5e4)"}
+```
+
+### Source payload expressions
+
+A source's `payload` expression (for example on a `cron` source) runs before
+any message exists, so it sees a smaller scope: only `now` (the trigger's fire
+time) and `settings` (the source's static settings map). The message variables
+above are not available there.
+
+```yaml
+source:
+  connector: ticker
+  type: cron
+  settings:
+    schedule: "@every 3s"
+    payload: '{"firedAt": string(now)}'
+```
+
+## Functions
+
+Octo registers five functions on top of the CEL standard library. All of them
+are available in every message expression.
+
+### toJson
+
+```
+toJson(dyn) -> string
+```
+
+Marshals any value to a compact JSON string. Useful for embedding a structure
+into a string field — a log line, an LLM prompt, an outgoing text body.
+
+```bash
+bin/octo eval --expr 'toJson({"a": 1, "b": [true, null]})'
+# {"ok":true,"result":"{\"a\":1,\"b\":[true,null]}"}
+```
+
+### fromJson
+
+```
+fromJson(string) -> dyn
+```
+
+Parses a JSON string into a decoded value (map, list, double, string, bool, or
+null). The typical use is reverting a captured raw body — an HTTP source with
+`rawBody: true` delivers the exact request bytes as `body.rawData`, and
+`fromJson(body.rawData)` turns them back into a structured value.
+
+```bash
+bin/octo eval --expr 'fromJson("{\"a\": 1}")'
+# {"ok":true,"result":{"a":1}}
+
+bin/octo eval --expr 'fromJson("[1, 2, 3]")[0]'
+# {"ok":true,"result":1}
+```
+
+### toFormData
+
+```
+toFormData(dyn) -> string
+```
+
+Encodes an object as an `application/x-www-form-urlencoded` string. Each field
+must be a scalar; a list field emits a repeated key. Keys are sorted, so the
+output is deterministic. Only urlencoded forms are supported, not multipart.
+
+```bash
+bin/octo eval --expr 'toFormData({"q": "hello world", "page": 2, "tags": ["a", "b"]})'
+# {"ok":true,"result":"page=2&q=hello+world&tags=a&tags=b"}
+```
+
+### fromFormData
+
+```
+fromFormData(string) -> dyn
+```
+
+Parses an `application/x-www-form-urlencoded` string into an object. A single
+value becomes a string; repeated keys become a list of strings. The typical
+use is decoding a raw form POST: `fromFormData(body.rawData)`.
+
+```bash
+bin/octo eval --expr 'fromFormData("q=hello+world&page=2&tags=a&tags=b")'
+# {"ok":true,"result":{"page":"2","q":"hello world","tags":["a","b"]}}
+```
+
+Note that parsed form values are always strings — compare with
+`int(body.page) > 1` or `body.page == "2"`.
+
+### templateResource
+
+```
+templateResource(string) -> string
+```
+
+Renders a [template resource](/concepts/resources) — named by its resource id
+or the alias declared under `resources.templates[].as` — against the current
+message, returning the rendered text. The template sees every in-scope
+variable: `{{ body.* }}`, `{{ vars.* }}`, `{{ env.* }}`, and so on. A missing
+or unparsable template declared in the config fails at load time, not per
+message.
+
+```yaml
+resources:
+  templates:
+    - resource: templates/welcome-email.tmpl
+      as: welcome
+
+flows:
+  - name: send-welcome
+    process:
+      - type: set-payload
+        name: render
+        settings:
+          value: '{"subject": "Welcome!", "text": templateResource("welcome")}'
+```
+
+<Callout type="warn">
+  `templateResource` needs a loaded config to resolve resources, so it cannot
+  be exercised with standalone `octo eval` — there, any id reports
+  `load template "...": resource: not found`. Every other function on this
+  page works in `eval` exactly as in a flow.
+</Callout>
+
+## Behavior notes
+
+- **Results are JSON-native.** Whatever a CEL expression produces is bridged
+  to JSON shapes: maps become objects, all numbers become JSON numbers, bytes
+  render as base64, timestamps as RFC 3339 strings, durations as seconds.
+- **Compile-time failure.** Expressions compile when the flow is built, so a
+  typo fails the deployment (or the `run --watch` reload), never a live
+  message.
+- **Evaluation errors fail the message.** A missing key, a division by zero,
+  or a failed conversion becomes a block error, which the flow's
+  [error path](/reference/flow-file#error) can handle.

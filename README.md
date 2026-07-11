@@ -3,24 +3,30 @@
 **Octo** is a cloud-native integration runtime. The `octo` repository holds its
 stacks, including a Go workspace for the runtime engine and CLI.
 
-**Website:** the project landing page — overview, architecture diagrams, the
-supported enterprise integration patterns, and runnable samples — is published
-with GitHub Pages from [`docs/`](docs/index.html) at
-<https://juancavallotti.github.io/octo/>.
+**Documentation:** the docs site — overview, getting started, connector and CEL
+reference, guides, and the AI/MCP story — is built from [`apps/docs/`](apps/docs/)
+(Fumadocs, statically exported) and published with GitHub Pages at
+<https://juancavallotti.github.io/octo/>. Preview locally with `task docs:dev`.
 
 ## Layout
 
 - `runtime/`: active Go workspace for the runtime engine and CLI.
-- `editor/`: **Octo**, the Next.js visual editor for integrations (standalone; run via npm). See [editor/README.md](editor/README.md).
+- `apps/standalone/`: the single-user Next.js visual editor (Docker image `juancavallotti/octo`). See [apps/standalone/README.md](apps/standalone/README.md).
+- `apps/platform/`: the orchestrator-backed multi-user Octo web app. See [apps/platform/README.md](apps/platform/README.md).
+- `apps/docs/`: the documentation site (Fumadocs). Content in `apps/docs/content/docs/`.
+- `packages/`: shared pnpm workspace libraries (`@octo/editor`, `@octo/mcp`, `@octo/run-host`, ...).
 - `orchestrator/`: Go API that deploys integrations as Kubernetes workloads.
 - `helm/`: Helm chart for the GCP deployment; `deploy/`: k8s manifests (local k3d) and Terraform (GCP).
-- `docs/`: coding standards, lint policy, review policy, release process, and the [deployment guide](docs/deployment.md).
+- `docs/`: contributor policies (coding standards, lint, review, release) and internal deep-dives (deployment, processing pipeline).
+- `samples/`: runnable flow examples used throughout the docs.
 
 ## Deployment
 
 To run Octo on GCP (single-node k3s, Traefik, free Let's Encrypt TLS, and
-per-integration subdomains), see the **[deployment guide](docs/deployment.md)**.
-For local development on k3d, use the `task cluster:*` targets.
+per-integration subdomains), see the published
+[deployment docs](https://juancavallotti.github.io/octo/deploy/) or the internal
+[deployment guide](docs/deployment.md). For local development on k3d, use the
+`task cluster:*` targets.
 
 ## Working rules
 
@@ -43,9 +49,9 @@ flows:
   - name: ingest-orders
     workers: 8
     source:
-      connector: orders-kafka
-      type: topic
-      settings: { topic: orders }
+      connector: api
+      type: http
+      settings: { path: /orders }
     process:
       - type: validate
         rules:
@@ -63,10 +69,12 @@ flows:
 - `task policy-check`
 - `task release-check`
 
-Octo editor (Next.js):
+Docs site:
 
-- `task editor:install`
-- `task editor:dev`
-- `task editor:lint`
-- `task editor:test`
-- `task editor:build`
+- `task docs:dev`
+- `task docs:build`
+- `task docs:check`
+
+Standalone editor (Next.js):
+
+- `task dev`

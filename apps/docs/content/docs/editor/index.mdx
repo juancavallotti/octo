@@ -1,0 +1,92 @@
+---
+title: "Standalone Editor"
+description: "The visual flow editor: palette, canvas, settings, and console."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The standalone editor is a local, single-user visual editor for Octo flows. It
+reads and writes plain `*.yaml` files in a directory on your disk, and runs them
+with the bundled `octo` binary — no database, no account, no orchestrator.
+
+The fastest way to get it is the published Docker image:
+
+```bash
+docker run -p 3000:3000 -v "$PWD:/work" juancavallotti/octo
+```
+
+Open [http://localhost:3000](http://localhost:3000) and you are editing the
+YAML files in your current directory. See
+[Running from Docker](/editor/docker) for the details, or the
+[editor quickstart](/getting-started/editor-quickstart) for a guided first run.
+
+![The http-orders sample open in the standalone editor](/screenshots/sample-http-orders.png)
+
+## A tour of the UI
+
+The editor is one screen: a header, the workspace, and a console docked at the
+bottom.
+
+### Header
+
+- **Flow title** — editable inline. The name becomes the `*.yaml` filename on
+  the first save; renaming a saved flow renames the file on disk.
+- **Open / new menu** — lists every YAML file in your mounted directory and
+  opens one, or starts a blank flow. The store is flat: files live directly in
+  the directory, with no folders.
+- **View toggle** — switches the workspace between the visual **Design** view,
+  a read-only **YAML** preview of the exact document that will be saved, and a
+  **Resources** view for the flow's env files and templates.
+- **Save** and **Run** — Save writes the YAML to your directory; Run starts the
+  flow with the bundled runtime. See [Running flows](/editor/running-flows).
+
+### Palette
+
+The left sidebar lists the flow blocks, grouped into collapsible sections with
+a filter box. Click or drag one to add it to the active flow.
+
+The palette is not hardcoded: it is generated from the runtime's capability
+schema (`octo schema`), so the editor always offers exactly what the bundled
+`octo` binary can run. See [How it works](/editor/how-it-works).
+
+### Canvas
+
+The center canvas shows the integration: launchers along the top manage its
+connections, declared environment variables, and resources, and each flow is a
+board of source and block cards you reorder by drag and drop. Selecting a card
+opens it in the settings panel.
+
+### Settings panel
+
+The right panel edits the selected connection, source, or block. Its forms are
+also driven by the capability schema — each setting renders the right field for
+its declared type, including CEL expression fields with completion and an
+inline expression tester.
+
+### Console
+
+The bottom panel docks a tabbed console: **Logs** streams the output of a
+running flow live, and **Dev .env** edits local-only values for the flow's
+declared environment variables. It expands automatically when a run starts and
+can be resized or collapsed.
+
+![The editor's tabbed console: Logs and Dev .env, with a run's test URL in the header](/screenshots/editor-console.png)
+
+## Who it's for
+
+Use the standalone editor to try Octo and to develop flows locally: your flows
+are ordinary files you can run with the [CLI](/reference/cli), commit to git,
+and iterate on with hot reload. The Docker image also exposes an MCP server at
+`/mcp`, so an AI assistant can author and run flows against the same directory
+— see [MCP authoring](/ai/mcp-server).
+
+When you need multiple users, deployments, secrets management, and persistence
+beyond local disk, move to the [platform](/platform) — it embeds the same
+editor, backed by the orchestrator instead of your filesystem, so flows built
+standalone carry over as-is.
+
+<Callout type="info">
+  The standalone editor is single-user by design: there is no authentication,
+  and anyone who can reach port 3000 can read and write the mounted directory.
+  Keep it on localhost or a trusted network.
+</Callout>

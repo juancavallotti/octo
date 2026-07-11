@@ -1,0 +1,95 @@
+---
+title: "Expressions (CEL)"
+description: "Where CEL expressions appear in flows and which variables are available."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Flows compute values with CEL, the Common Expression Language. Every condition, payload, and transform in a flow is a CEL expression evaluated against the current message.
+
+[CEL](https://cel.dev) is a small, non-Turing-complete expression language from Google: expressions always terminate, cannot mutate anything, and are compiled once at startup — a malformed expression fails when the config loads, not when a message arrives. If you have written a spreadsheet formula or a JavaScript ternary, CEL will look familiar. [CEL by Example](https://celbyexample.com) is a good tour of the syntax.
+
+## Where expressions appear
+
+You write CEL in four places:
+
+**Block settings marked as expressions.** Many settings are CEL: a `log` block's `message`, a `set-payload` block's `value`, a `queue-dispatch` block's `subject`, an `object-read` block's `key`.
+
+```yaml
+- type: set-payload
+  settings:
+    value: '{"orderId": vars.id, "total": body.qty * body.price}'
+```
+
+**Conditions.** An `if` block's `condition`, a `switch` case's `when`, and a `validate` block's rules are boolean CEL expressions.
+
+```yaml
+- type: if
+  condition: 'body.amount >= 1000.0'
+```
+
+**Source payloads.** A `cron` source's `payload` builds the message body and can read `now`, the fire time.
+
+```yaml
+source:
+  type: cron
+  settings:
+    schedule: "@every 30s"
+    payload: '{"firedAt": string(now)}'
+```
+
+**Transform values.** Each step of a `multi-transform`, an `enrich` block's `setBody` and `setVars`, and template files' `{{ }}` sections are all CEL over the message.
+
+## Available variables
+
+Every message expression can reference six variables:
+
+| Variable | Holds |
+| --- | --- |
+| `body` | The message payload (decoded JSON). |
+| `vars` | The message variables — scratch state set by blocks and sources. |
+| `eventID` | The unique id of this message. |
+| `correlationID` | The id correlating this message with an external interaction. |
+| `env` | The resolved [environment variables](/concepts/environment-and-config), as `env.NAME`. |
+| `now` | The evaluation time (the fire time in source payloads). |
+
+See [State and Data](/concepts/state-and-data) for how `body` and `vars` get populated and the conventions around them.
+
+## The quoting gotcha
+
+YAML and CEL both use quotes, and the two layers stack. A CEL string literal needs *its own* double quotes inside the YAML value — so a YAML single-quoted string that should evaluate to the text `hello` is written `'"hello"'`:
+
+```yaml
+# CORRECT: the YAML value is the CEL expression "hello world" + body.name
+message: '"hello world, " + body.name'
+
+# WRONG: this is the CEL expression `hello`, an undefined variable
+message: 'hello'
+```
+
+The samples follow one convention throughout: single-quote the YAML value, double-quote CEL string literals inside it.
+
+<Callout type="warn">
+If a flow fails to load with an error like `undeclared reference to 'hello'`, you almost certainly wrote a bare word where CEL expected a string literal. Wrap it in double quotes inside the YAML quoting.
+</Callout>
+
+## Experimenting with `octo eval`
+
+The CLI evaluates an expression against an ad-hoc message, with no config or runtime services — ideal for testing an expression before putting it in a flow:
+
+```bash
+octo eval --expr 'body.qty * body.price' --data '{"qty": 3, "price": 10.0}'
+# {"ok":true,"result":30}
+
+octo eval --expr '"hello, " + vars.name' --vars '{"name":"Ada"}' --data '{}'
+# {"ok":true,"result":"hello, Ada"}
+
+octo eval --expr 'env.GREETING' --env '{"GREETING":"hi"}' --data '{}'
+# {"ok":true,"result":"hi"}
+```
+
+`--data` binds to `body` (stdin is read when omitted), `--vars` to `vars`, and `--env` to `env`. The output envelope makes failure unambiguous: `ok` is `false` and `error` holds the compile or evaluation message.
+
+## Going deeper
+
+This page covers where expressions live; the [CEL reference](/reference/cel) tours the language itself — operators, macros like `has()` and `map()`, type conversions, and the custom functions Octo adds (such as `templateResource` and `fromFormData`).

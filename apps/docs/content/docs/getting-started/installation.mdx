@@ -1,0 +1,92 @@
+---
+title: "Installation"
+description: "Build the octo CLI from source and pull the editor Docker image."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Steps, Step } from 'fumadocs-ui/components/steps';
+
+The `octo` CLI is built from source with one command. If you would rather not
+install a toolchain at all, skip to the [Docker editor image](#skip-the-build-use-docker)
+at the bottom — it bundles a prebuilt runtime.
+
+## Prerequisites
+
+- **Go 1.25 or later** — the runtime is a Go workspace.
+- **[Task](https://taskfile.dev)** — the repository's build runner
+  (`brew install go-task` on macOS).
+- **pnpm** — only needed if you plan to work on the web apps (editor, platform,
+  docs). Not required for the CLI.
+
+## Build the CLI
+
+<Steps>
+<Step>
+
+### Clone the repository
+
+```bash
+git clone https://github.com/juancavallotti/octo
+cd octo
+```
+
+</Step>
+<Step>
+
+### Build the binary
+
+```bash
+task runtime:build
+```
+
+This compiles the CLI and writes it to `bin/octo`, stamping the build date into
+the binary.
+
+</Step>
+<Step>
+
+### Verify the build
+
+```bash
+bin/octo version
+```
+
+You should see the version and build date:
+
+```
+octo 0.3.6 (built 2026-06-18T22:31:23Z)
+```
+
+</Step>
+<Step>
+
+### Add it to your PATH (optional)
+
+The docs refer to the binary as `bin/octo` from the repo root. If you want to
+run `octo` from anywhere, copy or link it onto your PATH:
+
+```bash
+ln -s "$PWD/bin/octo" /usr/local/bin/octo
+```
+
+</Step>
+</Steps>
+
+<Callout type="info">
+  The repo also ships runnable samples. Try one straight away with
+  `task run:sample -- hello-world.yaml`, or continue to
+  [Your First Flow](/getting-started/first-flow) for the walkthrough.
+</Callout>
+
+## Skip the build: use Docker
+
+The standalone editor image on Docker Hub bundles the editor, the `octo`
+runtime, and an MCP server. No Go, no Task, no clone:
+
+```bash
+docker run -p 3000:3000 -v "$PWD:/work" juancavallotti/octo
+```
+
+Open [http://localhost:3000](http://localhost:3000) and start editing. Flow
+YAML is read and written in the directory you mounted. See the
+[Editor Quickstart](/getting-started/editor-quickstart) for the full tour.

@@ -1,0 +1,47 @@
+---
+title: "Snapshots"
+description: "Integration version history and restoring previous definitions."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+A snapshot — a **version tag** in the UI — freezes an integration's definition, together with a copy of its resources, under a named tag. Tags are immutable and unique per integration, and they are what deployments actually run: a deploy references a tag and ships its frozen definition, never the live working copy.
+
+![An integration's version-tag history on the platform](/screenshots/platform-snapshots.png)
+
+## What a tag captures
+
+Creating a tag captures, atomically in one transaction:
+
+- **The definition** — the integration YAML exactly as it stands in the working copy.
+- **The resources** — a frozen copy of every live [resource](/platform/resources-and-secrets) (env files and templates), so a deploy of the tag ships the resources that matched its definition rather than whatever the working copy holds later.
+
+Tags have no update path. Once created, a tag's definition and resources never change — editing the working copy or its resources has no effect on existing tags.
+
+Tag names are 1–64 characters from letters, digits, `.`, `-`, and `_` (so they read cleanly in URLs and the UI), and must be unique within the integration.
+
+## API
+
+| Operation | Endpoint |
+| --- | --- |
+| Create a tag (freeze the current definition + resources) | `POST /integrations/{id}/snapshots` |
+| List an integration's tags (newest first, with definitions) | `GET /integrations/{id}/snapshots` |
+| Delete a tag | `DELETE /snapshots/{id}` |
+| List a tag's frozen resources | `GET /snapshots/{id}/resources` |
+| Read one frozen resource's content | `GET /snapshots/{id}/resources/content?kind=...&name=...` |
+
+The list response includes each tag's frozen definition, so the UI can show version-scoped detail without extra fetches. The frozen-resource content endpoint is also what a **deployed runtime** calls: each tagged deploy carries its snapshot id (`OCTO_SNAPSHOT_ID`), and the pod's resource loader fetches the frozen resources from the orchestrator by it.
+
+## Deletion is guarded
+
+A deployment pins the tag it was created from. Deleting a tag that one or more deployments still run is refused with a conflict naming the deployments using it — otherwise a live workload would reference a version that no longer exists. Undeploy (or roll out a different tag) first. Deleting a tag also drops its frozen resources.
+
+## Rollback and history
+
+Tags are the platform's version history: every deploy is pinned to one, and deploying "Current" from the editor tags the working copy first, so even ad-hoc deploys leave an immutable record.
+
+To **roll back a running deployment**, roll it out to an older tag — a [rollout](/platform/deployments#rolling-out-a-new-version) accepts any of the integration's tags and performs a rolling update in place, keeping the deployment's address and settings.
+
+<Callout type="info">
+There is no API to overwrite the working copy from a tag. Tags restore what *runs* (via rollout); to bring old content back into the working copy, read the tag's frozen definition from the list endpoint and save it as an edit.
+</Callout>

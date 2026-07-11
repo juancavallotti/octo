@@ -1,0 +1,142 @@
+---
+title: "Raw Content and Streaming"
+description: "Serve and accept non-JSON payloads with explicit content types, and why Octo materializes every message instead of streaming."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+Octo is JSON-first: every message body is decoded JSON, and an HTTP flow answers
+with `application/json` unless you say otherwise. **Raw content** is the opt-out —
+it lets a flow carry and serve a typed, non-JSON payload such as HTML, XML, CSV,
+Markdown, or a urlencoded form.
+
+## The raw-content model
+
+A message is in one of two modes. By default it is JSON: `body` holds decoded
+JSON (numbers are floats, objects are maps, arrays are lists). When a block puts
+the message into **raw-content mode**, `body` instead takes the fixed shape:
+
+```json
+{ "contentType": "text/html; charset=utf-8", "rawData": "<h1>Hi</h1>" }
+```
+
+`rawData` is the payload as a **UTF-8 string** and `contentType` is the MIME type
+to serve it with. A raw-aware sink — today, the HTTP source's response writer —
+writes `rawData` verbatim with that `Content-Type` instead of JSON-encoding the
+body.
+
+<Callout type="warn">
+  Raw mode is a **flag on the message**, not a shape you can fake. Producing a
+  plain object with `contentType` and `rawData` keys through an ordinary
+  `set-payload` (without `rawBody: true`) leaves the message in JSON mode, so the
+  HTTP source serves it as `application/json` — the literal object, not your HTML.
+  Always use one of the producers below to enter raw mode.
+</Callout>
+
+## Producing raw content
+
+Five blocks and connectors put a message into raw mode:
+
+| Producer | How |
+| --- | --- |
+| [`template-resource`](/reference/blocks/integration) | Set `rawBody: true` and a `contentType`; the rendered template becomes the raw body. `target` must be empty. |
+| [`set-payload`](/reference/blocks/data) | Set `rawBody: true` and a `contentType`; the `value` **must evaluate to a string**, which becomes `rawData`. |
+| [`rest`](/reference/connectors/http) | A non-JSON HTTP-client response folds to raw content automatically, carrying the upstream `Content-Type`. |
+| [`notion-page-to-markdown`](/reference/connectors/notion) | Emits the page as `text/markdown` raw content. |
+| HTTP source (`rawBody: true`) | Inbound: the request enters the flow as raw content instead of being parsed as JSON (see below). |
+
+### From a template
+
+Best for real markup. The template file lives under `resources.templates` and
+can embed `{{ CEL }}` placeholders:
+
+```yaml
+- type: template-resource
+  settings:
+    id: page                       # a declared template alias
+    rawBody: true
+    contentType: text/html; charset=utf-8
+```
+
+### Inline, from a string
+
+Best for a few lines of HTML or a small typed blob. `value` must produce a
+**string**, so a literal is single-quoted YAML wrapping a double-quoted CEL
+string:
+
+```yaml
+- type: set-payload
+  settings:
+    rawBody: true
+    contentType: text/html; charset=utf-8
+    value: '"<!doctype html><h1>Oops</h1><p>Try again shortly.</p>"'
+```
+
+Both set the response `Content-Type` from `contentType`; pair either with
+`set-variable` on `httpStatus` to control the status code.
+
+## Accepting raw requests
+
+Raw content works inbound too. Set `rawBody: true` on the **HTTP source** and the
+request body enters the flow as `{contentType, rawData}` — using the request's
+own `Content-Type` — instead of being parsed as JSON. This lets forms, XML, or
+signed webhook payloads through unchanged:
+
+```yaml
+source:
+  connector: api
+  type: http
+  settings:
+    path: /submit
+    rawBody: true
+process:
+  - type: set-payload
+    settings:
+      value: 'fromFormData(body.rawData)'   # parse the raw string into JSON
+```
+
+To keep parsing JSON but also capture the exact bytes (for example to verify an
+HMAC signature over the raw request), use `rawBodyVar` instead of `rawBody` — it
+stores the untouched request string in a variable while `body` stays JSON. This
+is how [`slack-verify-request`](/reference/connectors/slack) and
+[`notion-verify-request`](/reference/connectors/notion) check signatures.
+
+<Callout type="info">
+  `rawData` is a UTF-8 string, not arbitrary bytes. Raw content is for text
+  payloads — HTML, XML, CSV, Markdown, JSON-as-text, form encodings. It survives
+  cloning and cross-node hops intact because it is a string, so it works the same
+  in a `fork` branch or across a queue.
+</Callout>
+
+## Streaming
+
+**Octo does not stream, and streaming is not on the roadmap.** Every message is
+fully materialized: the HTTP source reads the entire request body into memory
+(capped by `maxBodyBytes`, default 1 MiB, returning `413` when exceeded) before
+the flow starts, and it writes the complete response in one shot after the flow
+finishes. There is no chunked transfer, no Server-Sent Events, and no token-by-
+token passthrough from LLM blocks — an `ai-agent` or `ai-mapping` block returns
+its **complete** result, which the flow then serves whole.
+
+This is deliberate. Octo is an orchestration runtime, and orchestration needs the
+whole payload available at once: CEL expressions read across the entire body,
+`validate` checks it as a unit, `multi-transform` and `enrich` reshape it,
+`ai-mapping` validates against a schema, routers branch on its contents, and
+`cache-scope` keys on the finished result. None of that is possible over a
+half-arrived stream. Materializing the data is what makes the rest of the
+platform work, so raw content covers *what* you serve and *with which type* — but
+always as a complete payload, never a stream.
+
+If you need to move a very large object, keep it out of the message: write it to
+the [object store](/concepts/runtime-services) or external storage and pass a
+reference through the flow.
+
+## Where to go next
+
+<Cards>
+  <Card title="Serving HTML" href="/guides/serving-html" description="Render templates and parse forms end to end." />
+  <Card title="State and Data" href="/concepts/state-and-data" description="The message model: body, variables, and how they move." />
+  <Card title="HTTP reference" href="/reference/connectors/http" description="Every http source and http-client setting." />
+  <Card title="Resources" href="/concepts/resources" description="Declaring the templates raw content renders from." />
+</Cards>
