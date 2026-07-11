@@ -30,7 +30,10 @@ type Service struct {
 	// breakpoint, when set, makes one addressed block record the message it
 	// produced and halt the flow. Invoke-mode only; see WithBreakpoint.
 	breakpoint *core.Breakpoint
-	ready      chan struct{}
+	// spies, when set, makes each addressed block record what crosses it, without
+	// otherwise changing the run. Invoke-mode only; see WithSpies.
+	spies *core.Spies
+	ready chan struct{}
 }
 
 // ServiceOption customizes a Service at construction.
@@ -53,6 +56,18 @@ func WithInvokeMode() ServiceOption {
 // than letting a debugging aid loose on live traffic.
 func WithBreakpoint(bp *core.Breakpoint) ServiceOption {
 	return func(s *Service) { s.breakpoint = bp }
+}
+
+// WithSpies makes the service record what crosses each block the spies address: the
+// block is wrapped in an implicit spy block that reports every message through it,
+// and the flow otherwise runs exactly as it would have. It backs the CLI's `invoke
+// --spies`.
+//
+// It requires invoke mode. A spy is read-only, but nothing drains the collector
+// outside an invoke: on a source-backed service it would grow without bound, hoarding
+// the body of every message that crossed the block for nobody to read.
+func WithSpies(spies *core.Spies) ServiceOption {
+	return func(s *Service) { s.spies = spies }
 }
 
 // WithRuntimeServices wires the runtime services (leader election, KV) this
@@ -321,10 +336,10 @@ func (s *Service) sourceConnectorNames() map[string]struct{} {
 
 // buildFlows assembles a boundFlow for each configured flow, resolving its source
 // connector (starting a default one on demand when needed) and building its root
-// block chain. A breakpoint is injected into the config first, so the flow builder
-// sees the wrapped block like any other.
+// block chain. The debug blocks are injected into the config first, so the flow
+// builder sees the rewritten blocks like any others.
 func (s *Service) buildFlows(ctx context.Context, set *connectorSet) ([]*boundFlow, error) {
-	if err := s.applyBreakpoint(); err != nil {
+	if err := s.applyDebug(); err != nil {
 		return nil, err
 	}
 
@@ -339,18 +354,33 @@ func (s *Service) buildFlows(ctx context.Context, set *connectorSet) ([]*boundFl
 	return flows, nil
 }
 
-// applyBreakpoint wraps the addressed block in the implicit breakpoint block. It is
+// applyDebug rewrites the config with the debug blocks the caller asked for. It is
 // called once, before any flow is built, so both the root chain and the error path
 // build from the already-injected config.
 //
-// It refuses a breakpoint outside invoke mode: a source-backed service would break
-// on whichever production message happened to arrive first.
-func (s *Service) applyBreakpoint() error {
-	if s.breakpoint == nil {
+// The order is not arbitrary. Spies go in first and the breakpoint last, so a block
+// that is both spied and broken at comes out as breakpoint[spy[block]]. The
+// breakpoint has to be outermost: it asks the flow to stop by writing a reserved
+// variable into the message, and a spy wrapped around it would record that
+// bookkeeping as part of the block's output.
+//
+// It refuses either outside invoke mode. A breakpoint would halt whichever
+// production message happened to arrive first. A spy is read-only, but nothing
+// drains its collector outside an invoke, so it would grow without bound.
+func (s *Service) applyDebug() error {
+	if s.breakpoint == nil && s.spies == nil {
 		return nil
 	}
 	if !s.invokeMode {
-		return errors.New("a breakpoint requires invoke mode: it would halt live traffic on a source-backed flow")
+		return errors.New(
+			"breakpoints and spies require invoke mode: they would halt or buffer live traffic on a source-backed flow")
+	}
+
+	if err := injectSpies(&s.config, s.spies); err != nil {
+		return err
+	}
+	if s.breakpoint == nil {
+		return nil
 	}
 	return injectBreakpoint(&s.config, s.breakpoint.Address())
 }
@@ -384,6 +414,7 @@ func (s *Service) buildFlow(ctx context.Context, cfg types.FlowConfig, set *conn
 		Services:   s.services,
 		Resources:  s.resourceLoader(),
 		Breakpoint: s.breakpoint,
+		Spies:      s.spies,
 	}
 	root, err := engine.BuildRoot(cfg, s.blocks, p, s.config.Processors, deps)
 	if err != nil {

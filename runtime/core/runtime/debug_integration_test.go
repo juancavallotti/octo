@@ -14,7 +14,14 @@ import (
 // ready, returning a cleanup the caller defers.
 func startBreakService(t *testing.T, cfg types.Config, bp *core.Breakpoint) (*Service, func()) {
 	t.Helper()
-	svc := NewService(cfg, core.DefaultRegistry(), WithInvokeMode(), WithBreakpoint(bp))
+	return startDebugService(t, cfg, WithBreakpoint(bp))
+}
+
+// startDebugService runs svc in invoke mode with the given debug options and waits
+// until it is ready, returning a cleanup the caller defers.
+func startDebugService(t *testing.T, cfg types.Config, opts ...ServiceOption) (*Service, func()) {
+	t.Helper()
+	svc := NewService(cfg, core.DefaultRegistry(), append([]ServiceOption{WithInvokeMode()}, opts...)...)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- svc.Run(ctx) }()
@@ -205,5 +212,105 @@ func TestBreakpointBadAddressFailsTheRun(t *testing.T) {
 
 	if err := svc.Run(ctx); err == nil {
 		t.Fatal("an unresolvable breakpoint address must fail the run")
+	}
+}
+
+// forkFlows is a fork with a block in each branch, then a block after the fork. It is
+// the shape that proves the collector has to be out-of-band: a fork runs each branch
+// on a clone and throws the branch's message away, so a spy inside one cannot report
+// through the flow's result.
+func forkFlows() types.Config {
+	downstreamRuns.Store(0)
+
+	stamp := func(name, stage string) types.BlockConfig {
+		return types.BlockConfig{Type: "tbp.stamp", Name: name, Settings: types.Settings{"stage": stage}}
+	}
+	return types.Config{Flows: []types.FlowConfig{{
+		Name: "orders",
+		Process: []types.BlockConfig{
+			{
+				Type: "fork", Name: "fanout",
+				Branches: []types.FlowConfig{
+					{Name: "audit", Process: []types.BlockConfig{stamp("log-it", "audited")}},
+					{Name: "notify", Process: []types.BlockConfig{stamp("send", "notified")}},
+				},
+			},
+			// Named, because a block is addressed by its type only when it has no name —
+			// and this one's type carries a dot, which the address grammar reads as a
+			// step separator.
+			{Type: "tbp.downstream", Name: "downstream"},
+		},
+	}}}
+}
+
+// TestSpyInsideAForkBranch is the end-to-end claim: a spy sees a block whose message
+// the flow itself never returns. The fork clones the message into each branch and
+// discards the result, so the only way to see what "log-it" received is the
+// out-of-band collector — and the flow still runs to completion, unlike a breakpoint.
+func TestSpyInsideAForkBranch(t *testing.T) {
+	spies, err := core.NewSpies([]string{"orders.fanout[audit].log-it", "orders.downstream"})
+	if err != nil {
+		t.Fatalf("NewSpies: %v", err)
+	}
+
+	svc, stop := startDebugService(t, forkFlows(), WithSpies(spies))
+	defer stop()
+	out := call(t, svc, "orders")
+
+	// The spied block inside the branch was seen, with the message that branch built.
+	branch := spies.Records("orders.fanout[audit].log-it")
+	if len(branch) != 1 {
+		t.Fatalf("got %d records inside the fork branch, want 1", len(branch))
+	}
+	if stage, _ := branch[0].Output.Variables.String("stage"); stage != "audited" {
+		t.Errorf("branch record stage = %q, want %q — the spy must see the branch's own clone", stage, "audited")
+	}
+
+	// And the flow ran on regardless: the block after the fork still ran, and the
+	// spied downstream block recorded the message the caller actually got back.
+	if got := downstreamRuns.Load(); got != 1 {
+		t.Errorf("the block after the fork ran %d times, want 1: a spy must not halt the flow", got)
+	}
+	if out.StopRequested() {
+		t.Error("a spy must not ask the flow to stop")
+	}
+	if downstream := spies.Records("orders.downstream"); len(downstream) != 1 {
+		t.Errorf("got %d records for the downstream block, want 1", len(downstream))
+	}
+}
+
+// TestSpyRequiresInvokeMode: nothing drains the collector outside an invoke, so on a
+// source-backed flow a spy would hoard the body of every message that crossed the
+// block, forever, for nobody to read.
+func TestSpyRequiresInvokeMode(t *testing.T) {
+	spies, err := core.NewSpies([]string{"orders.fanout[audit].log-it"})
+	if err != nil {
+		t.Fatalf("NewSpies: %v", err)
+	}
+
+	svc := NewService(forkFlows(), core.DefaultRegistry(), WithSpies(spies))
+	ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
+	defer cancel()
+
+	if err := svc.Run(ctx); err == nil {
+		t.Fatal("a spy outside invoke mode must be refused")
+	}
+}
+
+// TestSpyBadAddressFailsTheRun: an unresolvable address is a mistake in the request,
+// not an empty result — reporting "no records" would read like the block was never
+// reached, which is exactly the wrong answer.
+func TestSpyBadAddressFailsTheRun(t *testing.T) {
+	spies, err := core.NewSpies([]string{"orders.nosuchblock"})
+	if err != nil {
+		t.Fatalf("NewSpies: %v", err)
+	}
+
+	svc := NewService(forkFlows(), core.DefaultRegistry(), WithInvokeMode(), WithSpies(spies))
+	ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
+	defer cancel()
+
+	if err := svc.Run(ctx); err == nil {
+		t.Fatal("an unresolvable spy address must fail the run")
 	}
 }

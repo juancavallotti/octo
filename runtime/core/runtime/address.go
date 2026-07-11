@@ -80,11 +80,31 @@ func resolveTarget(cfg *types.Config, kind, addr string) (*types.BlockConfig, er
 		if selectErr != nil {
 			return nil, selectErr
 		}
-		if chain, err = r.branchChain(block, hop.branch); err != nil {
+		if chain, err = r.branchChain(unwrapDebug(block), hop.branch); err != nil {
 			return nil, fmt.Errorf("%s %q: block %q: %w", r.kind, r.addr, hop.block, err)
 		}
 	}
 	return r.selectBlock(*chain, parsed.steps[len(parsed.steps)-1].block)
+}
+
+// unwrapDebug peels the debug wrappers an earlier injection put around a block, so a
+// second address can still descend through it. Spying a fork and then addressing a
+// block inside one of its branches would otherwise find the spy — which has no
+// branches — where the fork used to be.
+//
+// It peels on the way down only, never at the target: an address that lands on an
+// already-wrapped block must resolve to the wrapper's slot, so the next injection
+// wraps around what is already there rather than replacing it.
+func unwrapDebug(block *types.BlockConfig) *types.BlockConfig {
+	for isDebugWrapper(*block) && len(block.Process) == 1 {
+		block = &block.Process[0]
+	}
+	return block
+}
+
+// isDebugWrapper reports whether the block is one the debug injectors added.
+func isDebugWrapper(block types.BlockConfig) bool {
+	return block.Type == breakpointBlockType || block.Type == spyBlockType
 }
 
 // blockLabel is how a block is identified in errors and addresses: its name, else
