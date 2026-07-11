@@ -48,6 +48,25 @@ const INVOKE_GRACE_MS = 5000;
 /** The line `octo invoke` logs to stderr when the flow filters (drops) the message. */
 const DROP_MARKER = "flow dropped the message";
 
+/** The log levels the runtime's LOG_LEVEL understands. */
+export type LogLevel = "debug" | "info" | "warn" | "error";
+
+/**
+ * The envelope `octo invoke --break-at` prints on stdout (see the CLI's breakOutcome).
+ * `reached: false` is a normal outcome, not a failure: the message may simply have
+ * taken a branch the addressed block is not on. `error` likewise carries a *flow*
+ * failure, which is a debugging result rather than a bad request — both exit 0.
+ */
+export interface BreakOutcome {
+  reached: boolean;
+  /** The address the breakpoint was set on, echoed back. */
+  block: string;
+  /** The message as it looked after the addressed block ran; absent when unreached. */
+  message?: unknown;
+  /** The flow's own failure, when it failed. */
+  error?: string;
+}
+
 /** The outcome of a one-shot {@link invoke}: stdout (the flow result) and stderr (logs). */
 export interface InvokeResult {
   /** True when the runner exited 0 and wasn't force-killed for exceeding the budget. */
@@ -65,6 +84,12 @@ export interface InvokeResult {
   output: string;
   /** The runner's stderr, split into lines (its slog output). */
   logs: string[];
+  /**
+   * The decoded breakpoint envelope — present only for a `breakAt` invoke that ran far
+   * enough to print one. Under `breakAt`, stdout carries this envelope *instead of* the
+   * flow's result body, so `output` is the raw envelope text rather than a result.
+   */
+  breakpoint?: BreakOutcome;
 }
 
 export interface RunStatus {
@@ -320,6 +345,9 @@ export async function sync(
  *
  * The child's own `-timeout` bounds only the flow call; a wall-clock backstop here
  * force-kills a runner that hangs in startup or teardown so this never blocks forever.
+ *
+ * With `breakAt`, the runner instead halts at the addressed block and prints a
+ * {@link BreakOutcome} envelope on stdout, which is decoded into `breakpoint`.
  */
 export async function invoke(
   ns: string,
@@ -327,9 +355,15 @@ export async function invoke(
   flow: string,
   opts?: {
     data?: string;
+    /** JSON object seeding the message variables (the CLI's `-vars`). */
+    vars?: string;
     env?: Record<string, string>;
     timeoutMs?: number;
     resources?: ResourceProvider;
+    /** Breakpoint address: run until this block, then stop (the CLI's `--break-at`). */
+    breakAt?: string;
+    /** Runner log level. Applied as LOG_LEVEL, which `env` can still override. */
+    logLevel?: LogLevel;
   },
 ): Promise<InvokeResult> {
   const bin = process.env.OCTO_BIN_PATH;
@@ -358,10 +392,18 @@ export async function invoke(
     `${timeoutMs}ms`,
   ];
   if (opts?.data !== undefined) args.push("-data", opts.data);
+  if (opts?.vars !== undefined) args.push("-vars", opts.vars);
+  if (opts?.breakAt !== undefined) args.push("--break-at", opts.breakAt);
 
-  // Base process env, then the caller's env values. No HTTP_PORT wiring — invoke is
-  // not networked; it calls the flow directly and exits.
-  const env: NodeJS.ProcessEnv = { ...process.env, ...(opts?.env ?? {}) };
+  // Base process env, then our log level, then the caller's env values. No HTTP_PORT
+  // wiring — invoke is not networked; it calls the flow directly and exits. LOG_LEVEL
+  // goes *before* the caller's map so an integration that declares LOG_LEVEL itself
+  // still wins: a run must not silently disagree with the config it is running.
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    ...(opts?.logLevel ? { LOG_LEVEL: opts.logLevel } : {}),
+    ...(opts?.env ?? {}),
+  };
 
   const proc = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"], env });
 
@@ -384,7 +426,21 @@ export async function invoke(
       if (kill) clearTimeout(kill);
       if (force) clearTimeout(force);
       const logs = splitLines(errText);
-      const ok = exitCode === 0 && !timedOut;
+      let ok = exitCode === 0 && !timedOut;
+
+      // Under --break-at the runner prints an envelope instead of a result body. It
+      // only does so when it got far enough to run the flow: a bad address or an
+      // unloadable config exits non-zero with nothing on stdout, which stays a
+      // failure here rather than becoming a silent "not reached".
+      let breakpoint: BreakOutcome | undefined;
+      if (ok && opts?.breakAt !== undefined) {
+        breakpoint = parseBreakOutcome(output);
+        if (!breakpoint) {
+          ok = false;
+          logs.push(`✖ could not parse the breakpoint envelope: ${output.trim()}`);
+        }
+      }
+
       resolve({
         ok,
         exitCode,
@@ -392,6 +448,7 @@ export async function invoke(
         dropped: ok && logs.some((l) => l.includes(DROP_MARKER)),
         output,
         logs,
+        breakpoint,
       });
     };
     // Wall-clock backstop: give the child its `-timeout` plus head-room, then escalate
@@ -416,6 +473,30 @@ export async function invoke(
 
   await rm(invokeDir, { recursive: true, force: true }).catch(() => {});
   return result;
+}
+
+/**
+ * Decode the envelope `--break-at` prints, or undefined when stdout does not hold one.
+ * The runner prints it as a single JSON line, but slog output can only reach stderr, so
+ * the last non-blank stdout line is the envelope. `reached` is what identifies it: a
+ * plain result body would not carry that key.
+ */
+function parseBreakOutcome(stdout: string): BreakOutcome | undefined {
+  const line = splitLines(stdout).filter((l) => l.trim() !== "").pop();
+  if (!line) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(line);
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      typeof (parsed as BreakOutcome).reached !== "boolean"
+    ) {
+      return undefined;
+    }
+    return parsed as BreakOutcome;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Default wall-clock budget for a one-shot eval; CEL evaluation is instant, so a

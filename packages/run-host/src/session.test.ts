@@ -250,6 +250,126 @@ describe("run session", () => {
       expect(r.output).toContain("sekret");
     });
 
+    it("forwards vars and the breakpoint address as argv", async () => {
+      process.env.OCTO_BIN_PATH = await fakeBin(dir, "octo-args", 'echo "$@"');
+      const r = await invoke(NS, "service:\n  name: t\n", "greet", {
+        vars: '{"tier":"gold"}',
+        breakAt: "greet.charge",
+      });
+      expect(r.output).toContain('-vars {"tier":"gold"}');
+      expect(r.output).toContain("--break-at greet.charge");
+    });
+
+    it("applies logLevel as LOG_LEVEL, but lets an explicit env value win", async () => {
+      process.env.OCTO_BIN_PATH = await fakeBin(dir, "octo-level", 'echo "$LOG_LEVEL"');
+
+      const quiet = await invoke(NS, "service:\n  name: t\n", "greet", {
+        logLevel: "error",
+      });
+      expect(quiet.output.trim()).toBe("error");
+
+      // An integration that declares LOG_LEVEL itself must not be silently overridden.
+      const explicit = await invoke(NS, "service:\n  name: t\n", "greet", {
+        logLevel: "error",
+        env: { LOG_LEVEL: "debug" },
+      });
+      expect(explicit.output.trim()).toBe("debug");
+    });
+
+    describe("breakpoints", () => {
+      /** A fake runner printing the envelope `octo invoke --break-at` prints. */
+      const envelope = (body: string) =>
+        `printf '%s\\n' '${body}'`;
+
+      it("decodes a reached envelope into breakpoint", async () => {
+        process.env.OCTO_BIN_PATH = await fakeBin(
+          dir,
+          "octo-break",
+          envelope('{"reached":true,"block":"greet.charge","message":{"body":{"amount":250}}}'),
+        );
+
+        const r = await invoke(NS, "service:\n  name: t\n", "greet", {
+          breakAt: "greet.charge",
+        });
+        expect(r.ok).toBe(true);
+        expect(r.breakpoint?.reached).toBe(true);
+        expect(r.breakpoint?.block).toBe("greet.charge");
+        expect(r.breakpoint?.message).toEqual({ body: { amount: 250 } });
+      });
+
+      // The flow took another branch. A normal debugging result, not a failure.
+      it("decodes an unreached envelope without failing the run", async () => {
+        process.env.OCTO_BIN_PATH = await fakeBin(
+          dir,
+          "octo-unreached",
+          envelope('{"reached":false,"block":"greet.other"}'),
+        );
+
+        const r = await invoke(NS, "service:\n  name: t\n", "greet", {
+          breakAt: "greet.other",
+        });
+        expect(r.ok).toBe(true);
+        expect(r.breakpoint?.reached).toBe(false);
+        expect(r.breakpoint?.message).toBeUndefined();
+      });
+
+      // A flow that failed is reported in-band (exit 0) — the envelope carries why.
+      it("surfaces a flow failure carried by the envelope", async () => {
+        process.env.OCTO_BIN_PATH = await fakeBin(
+          dir,
+          "octo-flowerr",
+          envelope('{"reached":false,"block":"greet.charge","error":"upstream refused"}'),
+        );
+
+        const r = await invoke(NS, "service:\n  name: t\n", "greet", {
+          breakAt: "greet.charge",
+        });
+        expect(r.ok).toBe(true);
+        expect(r.breakpoint?.error).toBe("upstream refused");
+      });
+
+      // A bad address exits non-zero with nothing on stdout: a bad request, not a
+      // "never reached" — it must stay a failure rather than decode to an empty result.
+      it("keeps a non-zero exit a failure and reports no breakpoint", async () => {
+        process.env.OCTO_BIN_PATH = await fakeBin(
+          dir,
+          "octo-badaddr",
+          '>&2 echo "breakpoint: no flow named \\"nope\\""\nexit 1',
+        );
+
+        const r = await invoke(NS, "service:\n  name: t\n", "greet", {
+          breakAt: "nope.charge",
+        });
+        expect(r.ok).toBe(false);
+        expect(r.breakpoint).toBeUndefined();
+        expect(r.logs.join("\n")).toContain("no flow named");
+      });
+
+      it("fails the run when stdout holds no parseable envelope", async () => {
+        process.env.OCTO_BIN_PATH = await fakeBin(dir, "octo-garbage", "echo not-json");
+        const r = await invoke(NS, "service:\n  name: t\n", "greet", {
+          breakAt: "greet.charge",
+        });
+        expect(r.ok).toBe(false);
+        expect(r.breakpoint).toBeUndefined();
+        expect(r.logs.join("\n")).toContain("could not parse the breakpoint envelope");
+      });
+
+      // Without breakAt, stdout is the flow's result body and must not be sniffed as
+      // an envelope — a flow may legitimately return a body with a `reached` field.
+      it("does not decode an envelope for a plain invoke", async () => {
+        process.env.OCTO_BIN_PATH = await fakeBin(
+          dir,
+          "octo-plain",
+          envelope('{"reached":true,"block":"x"}'),
+        );
+        const r = await invoke(NS, "service:\n  name: t\n", "greet");
+        expect(r.ok).toBe(true);
+        expect(r.breakpoint).toBeUndefined();
+        expect(r.output).toContain('"reached":true');
+      });
+    });
+
     it("force-kills a runner that exceeds the wall-clock budget and cleans up", async () => {
       // The backstop fires at timeoutMs + INVOKE_GRACE_MS (~5.1s here, since the fake
       // ignores the CLI -timeout), so allow more than vitest's default 5s per-test cap.
