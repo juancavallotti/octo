@@ -154,13 +154,25 @@ block's metadata, CI will tell you about it.
 
 ### 8. Invoke-mode only
 
-`applyDebug` refuses all three outside invoke mode. For breakpoints and mocks the
-reason is obvious (halting or faking production traffic). For a **spy** it is less
-so, and worth stating: a spy is read-only, but nothing *drains* its collector
-outside an invoke — on a source-backed flow it would grow without bound, hoarding
-the body of every message that crossed the block, for nobody.
+`applyDebug` refuses all three outside invoke mode. It is **one guard over three
+features that fail for different reasons**, and the distinction matters if you ever
+want to relax it (see
+[#150](https://github.com/juancavallotti/octo/issues/150)):
 
-If you add an observing feature, it inherits this problem.
+- A **breakpoint** would halt whichever production message happened to arrive
+  first. This one should stay refused.
+- A **mock** would answer live traffic with a canned response. Dangerous by
+  default — but a mock cannot be authored in a config (the block is unregistered
+  and refuses to build unwired), so it can only arrive as an explicit `--mocks`
+  flag. Nothing else stands in its way.
+- A **spy** is read-only, and yet it is the one with a real engineering problem:
+  nothing *drains* its collector outside an invoke, so on a source-backed flow it
+  would grow without bound, hoarding a clone of the input and output of every
+  message that ever crossed the block, for nobody. Allowing it needs a bounded
+  buffer, or a way for records to leave the process.
+
+If you add an **observing** feature, it inherits the spy's problem. If you add one
+that only *changes* what a flow does, it inherits the mock's.
 
 ## Conflicts
 
@@ -201,7 +213,51 @@ fired. A plain `bool` cannot express both. `TestBreakEnvelopeStaysCompatible` an
 
 If you grow the envelope, grow it **additively** and keep that sniff working.
 
+## The seam has three consumers, not one
+
+The CLI was the first, and for a while the only one. It is now the *bottom* of a
+stack, and a feature that stops there is only a third built:
+
+```
+  editor canvas ─┐                         a block, clicked
+                 ├─► @octo/editor ──┐
+  MCP tool ──────┘                  ├─► @octo/run-host ─► octo invoke ─► the seam
+                                    │      (spawns it)      (flags)
+  a human at a terminal ────────────┘
+```
+
+**`packages/run-host`** (`session.ts`) is the one place that spawns the runner, so
+every consumer above it reaches the seam through the same argv. It also decodes
+the envelope — and normalizes it, which is the part to be careful with: under
+`--spies` stdout carries the envelope *instead of* the result message, so
+`InvokeResult.output` is re-derived from `envelope.result`. Otherwise switching on
+a spy — which is meant to be read-only — would change what every existing reader
+of `output` sees.
+
+**The editor** (`packages/editor/src/app/run/`) has the harder problem, and it is
+worth understanding before touching it:
+
+> **A breakpoint dies with the run. A mock does not.**
+
+`planBreakpoint` may invent synthetic names (`__bp_1`) for ambiguous blocks,
+because it does so in a *clone* that is serialized, run, and thrown away. A mock
+or a spy is saved to `.octo/editor-meta.json` and has to be found again on the next
+reload — when every client id is new. So it is keyed by `naturalAddress`, which
+invents nothing and returns null for an ambiguous block; placing a mock on one
+*names it for real* first (`namesNeededFor`). Both live in `run/address.ts`.
+
+Anything you add that a user can **save** inherits this. Anything they merely
+**run** does not.
+
+**MCP** (`packages/mcp/src/tools/run.ts`) declares mocks structurally in its zod
+schema rather than as a JSON blob, so the tool schema teaches an agent the shape.
+The rules the schema *cannot* express — one outcome per case, an unmatched message
+fails the block — go in the description, because the runtime enforces them and an
+agent has nowhere else to learn them.
+
 ## Adding a feature: the checklist
+
+The runtime:
 
 1. Collector in `core/`, field on `core.BlockDeps`.
 2. Engine block in `core/internal/engine/`, registered in `compositeBuilders()`.
@@ -215,5 +271,20 @@ If you grow the envelope, grow it **additively** and keep that sniff working.
    [debug config](../runtime/cli/debugconfig.go), and a line in its
    [schema](../runtime/cli/debugconfig.schema.json) — the drift test will fail
    until you do.
-7. Docs: the [guide](../apps/docs/content/docs/guides/debugging-flows.mdx) and the
-   [CLI reference](../apps/docs/content/docs/reference/cli.mdx).
+
+Then, for each consumer:
+
+7. **run-host**: the flag on the argv in `invoke()`, and the field on
+   `InvokeResult`. If it observes, grow `DebugOutcome` **additively** and keep the
+   envelope sniff working (see above).
+8. **MCP**: the parameter on `invoke_flow`, structurally. State in the description
+   whatever the schema cannot.
+9. **Editor**: `FlowRunRequest`/`FlowRunOutcome` in `run/transport.ts`, both apps'
+   `runInvoke` actions, and `FlowRunContext`. If it is something the user *saves*,
+   it needs a durable address (`naturalAddress`) and a place in `meta/types.ts` —
+   and `meta/rename.ts` has to re-root it when a flow is renamed, because an
+   address begins with the flow's name.
+10. Docs: the [CLI guide](../apps/docs/content/docs/guides/debugging-flows.mdx), the
+    [CLI reference](../apps/docs/content/docs/reference/cli.mdx), the
+    [editor guide](../apps/docs/content/docs/editor/debugging-flows.mdx), and the
+    [MCP reference](../apps/docs/content/docs/ai/platform-mcp.mdx).

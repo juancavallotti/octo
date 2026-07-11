@@ -52,7 +52,28 @@ automated. Capture at a comparable 16:10 frame, drop the PNG in
 | Tabbed console: Logs + Dev `.env` + a run's test URL | `editor/running-flows.mdx` |
 | OIDC sign-in screen (only if the editor auth page is added) | — |
 
+## Manual: editor debugging shots
+
+The `editor-*.png` shots on
+[`editor/debugging-flows.mdx`](../apps/docs/content/docs/editor/debugging-flows.mdx)
+are captured by hand: they show hover states, open popovers and run results, none
+of which the sample harness reproduces. Run `task dev`, open a flow with a couple
+of blocks, and crop tightly — these are detail shots, not full-editor frames.
+
+### Outstanding after the mocks-and-spies work
+
+| Screenshot | Status | What it should show |
+|---|---|---|
+| `editor-mock-form.png` | **new** | A block's 🧪 popover: the *"Stand in for this block"* tick, one case (a CEL `when` + an outcome), and the **Otherwise…** default. Worth showing a case whose outcome is **error** — it is the most persuasive use. |
+| `editor-spy-badge.png` | **new** | A node with a spy on it: the 👁 lit violet, with its count badge. Ideally a block that ran more than once (inside a `foreach`), so the count is not 1. |
+| `editor-spy-records.png` | **new** | The spy popover open: the address, **Clear**, and at least two records — one showing IN → OUT, and one showing a **dropped** or **failed** crossing, since telling those apart is half the point of a spy. |
+| `editor-breakpoint-hover.png` | **stale** | Reshoot. It shows a node with only ▶ and ✕; the hover cluster now carries four buttons — ▶, 🧪, 👁, ✕. |
+
+The `sample-*.png` shots are unaffected: the new buttons only appear on hover, and
+no sample carries a mock or a spy.
+
 ## Checklist
 
 - [x] Per-sample editor shots (`sample-*.png`) — regenerate after UI changes
 - [x] Manual platform/Slack/MCP shots from the table above — placed and wired into their pages
+- [ ] Editor debugging shots — three new, one stale (see the table above)
