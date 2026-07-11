@@ -40,9 +40,9 @@ While the flow is running:
 Note that Run executes the document as it is in the editor — you don't have to
 Save first, and saving is still what persists the flow to disk.
 
-{/* TODO screenshot: console streaming logs from a running flow */}
-
 ## The console
+
+![The console streaming logs from a running flow, with the Logs and Dev .env tabs and the run's test URL in the header](/screenshots/editor-console.png)
 
 The console is the docked panel at the bottom, with two tabs: **Logs** and
 **Dev .env**. It shows the runner's version, opens automatically when a run
@@ -70,8 +70,6 @@ Because `.env.dev` lives in your flows directory, runs started by the
 [MCP server](/ai/mcp-server) pick up the same values. If the directory is a
 git repository, add `.env.dev` to `.gitignore`.
 
-{/* TODO screenshot: the Dev .env tab with declared variables and values */}
-
 <Callout type="info">
   A flow's other declared resources — env files and templates under
   `resources:` — are also read from the mounted directory (e.g. `.env.dev`,
@@ -87,8 +85,6 @@ editor exposes it through a test URL like
 header with a copy button. Requests to that URL are proxied to the running
 integration, so it works through the editor's own port — you don't need to
 publish any extra container ports to try your endpoints.
-
-{/* TODO screenshot: console header showing a run's test URL */}
 
 ## Stopping and restarting
 

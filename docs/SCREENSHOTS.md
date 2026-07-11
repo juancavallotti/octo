@@ -55,4 +55,4 @@ automated. Capture at a comparable 16:10 frame, drop the PNG in
 ## Checklist
 
 - [x] Per-sample editor shots (`sample-*.png`) — regenerate after UI changes
-- [ ] Manual platform/Slack/MCP shots from the table above
+- [x] Manual platform/Slack/MCP shots from the table above — placed and wired into their pages

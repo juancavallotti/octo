@@ -22,6 +22,8 @@ server exposing a contacts database (five SQL tools and four prompts) behind
 OAuth, deployed at `contacts.example.com` with an OIDC issuer at
 `auth.example.com`.
 
+![An MCP client completing the OAuth flow, then calling a secured contacts tool](/screenshots/mcp-client-oauth.png)
+
 ## The protected flow
 
 The MCP flow chains `jwt-validate` **before** `mcp-router`. `jwt-validate` is a

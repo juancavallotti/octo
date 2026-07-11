@@ -27,7 +27,7 @@ A Slack bot you can DM or @mention in a channel. It:
   Thinking..." placeholder, and then **edits that message in place** with the
   final, Slack-formatted answer.
 
-{/* TODO screenshot: platform canvas of the Slackbot agent */}
+![The Slackbot agent's flows on the platform canvas](/screenshots/slack-agent-canvas.png)
 
 ## Architecture at a glance
 
@@ -555,7 +555,7 @@ mapping cannot come back as free text. Then `slack-update-message` closes the
 loop from step 4: same channel, the saved `vars.thinkingTs` timestamp, new
 text. The user watches ":thinking_face: Thinking..." morph into the answer.
 
-{/* TODO screenshot: Slack thread thinking→reply */}
+![A Slack thread: the mention, the "Thinking..." placeholder, and the final reply that replaces it](/screenshots/slack-agent-thread.png)
 
 ## 9. Error handling throughout
 

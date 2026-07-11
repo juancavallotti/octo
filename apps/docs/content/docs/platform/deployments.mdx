@@ -7,7 +7,7 @@ import { Callout } from 'fumadocs-ui/components/callout';
 
 Deploying an integration runs a [version tag](/platform/snapshots) of it as its own Kubernetes workload: a Deployment of the generic `octo-runtime` image with the tag's frozen definition mounted in. One integration can be deployed many times — say, a staging and a production deployment on different tags — and each deployment has its own address, scale, and environment bindings.
 
-{/* TODO screenshot: deployments view */}
+![An integration's deployments view on the platform](/screenshots/platform-deployments.png)
 
 ## What a deploy creates
 
