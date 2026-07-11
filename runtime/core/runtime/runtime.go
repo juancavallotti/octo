@@ -33,6 +33,10 @@ type Service struct {
 	// spies, when set, makes each addressed block record what crosses it, without
 	// otherwise changing the run. Invoke-mode only; see WithSpies.
 	spies *core.Spies
+	// mocks, when set, replaces each addressed block with a canned answer, so a flow
+	// can run without the work its real blocks would do. Invoke-mode only; see
+	// WithMocks.
+	mocks *core.Mocks
 	ready chan struct{}
 }
 
@@ -68,6 +72,17 @@ func WithBreakpoint(bp *core.Breakpoint) ServiceOption {
 // the body of every message that crossed the block for nobody to read.
 func WithSpies(spies *core.Spies) ServiceOption {
 	return func(s *Service) { s.spies = spies }
+}
+
+// WithMocks makes the service answer for each block the mocks address instead of
+// running it: the block is replaced by an implicit mock block that returns a canned
+// outcome. It backs the CLI's `invoke --mocks`, and it is what lets a flow whose
+// blocks call an API, an LLM or a database be exercised without any of that.
+//
+// It requires invoke mode. A mock on a source-backed service would answer production
+// traffic with a canned response.
+func WithMocks(mocks *core.Mocks) ServiceOption {
+	return func(s *Service) { s.mocks = mocks }
 }
 
 // WithRuntimeServices wires the runtime services (leader election, KV) this
@@ -358,24 +373,39 @@ func (s *Service) buildFlows(ctx context.Context, set *connectorSet) ([]*boundFl
 // called once, before any flow is built, so both the root chain and the error path
 // build from the already-injected config.
 //
-// The order is not arbitrary. Spies go in first and the breakpoint last, so a block
-// that is both spied and broken at comes out as breakpoint[spy[block]]. The
-// breakpoint has to be outermost: it asks the flow to stop by writing a reserved
-// variable into the message, and a spy wrapped around it would record that
-// bookkeeping as part of the block's output.
+// The order is not arbitrary: mocks, then spies, then the breakpoint, so a block
+// that is all three comes out as breakpoint[spy[mock]].
 //
-// It refuses either outside invoke mode. A breakpoint would halt whichever
-// production message happened to arrive first. A spy is read-only, but nothing
-// drains its collector outside an invoke, so it would grow without bound.
+//   - The mock is innermost because it replaces its target. Injected after a spy it
+//     would replace the spy, and the spy would be gone.
+//   - The breakpoint is outermost because it halts the flow by writing a reserved
+//     variable into the message. A spy wrapped around it would record that
+//     bookkeeping as part of the block's output.
+//
+// It refuses any of them outside invoke mode. A breakpoint would halt whichever
+// production message happened to arrive first, and a mock would answer it with a
+// canned response. A spy is read-only, but nothing drains its collector outside an
+// invoke, so it would grow without bound.
 func (s *Service) applyDebug() error {
-	if s.breakpoint == nil && s.spies == nil {
+	if s.breakpoint == nil && s.spies == nil && s.mocks == nil {
 		return nil
 	}
 	if !s.invokeMode {
 		return errors.New(
-			"breakpoints and spies require invoke mode: they would halt or buffer live traffic on a source-backed flow")
+			"breakpoints, spies and mocks require invoke mode: " +
+				"they would halt, buffer, or fake live traffic on a source-backed flow")
 	}
 
+	// Checked before anything is rewritten, while every address still resolves: a
+	// mock removes the blocks inside its target, so a spy addressed in there would
+	// otherwise fail as "no such block" once the mock had gone in.
+	if err := checkMockConflicts(s.mocks, s.debugAddresses()); err != nil {
+		return err
+	}
+
+	if err := injectMocks(&s.config, s.mocks); err != nil {
+		return err
+	}
 	if err := injectSpies(&s.config, s.spies); err != nil {
 		return err
 	}
@@ -383,6 +413,21 @@ func (s *Service) applyDebug() error {
 		return nil
 	}
 	return injectBreakpoint(&s.config, s.breakpoint.Address())
+}
+
+// debugAddresses lists the addresses of the debug features that observe a block,
+// rather than replace it — the ones a mock can strand.
+func (s *Service) debugAddresses() []resolver {
+	var addresses []resolver
+	if s.spies != nil {
+		for _, addr := range s.spies.Addresses() {
+			addresses = append(addresses, resolver{kind: spyBlockType, addr: addr})
+		}
+	}
+	if s.breakpoint != nil {
+		addresses = append(addresses, resolver{kind: breakpointBlockType, addr: s.breakpoint.Address()})
+	}
+	return addresses
 }
 
 func (s *Service) buildFlow(ctx context.Context, cfg types.FlowConfig, set *connectorSet) (*boundFlow, error) {
@@ -415,6 +460,7 @@ func (s *Service) buildFlow(ctx context.Context, cfg types.FlowConfig, set *conn
 		Resources:  s.resourceLoader(),
 		Breakpoint: s.breakpoint,
 		Spies:      s.spies,
+		Mocks:      s.mocks,
 	}
 	root, err := engine.BuildRoot(cfg, s.blocks, p, s.config.Processors, deps)
 	if err != nil {

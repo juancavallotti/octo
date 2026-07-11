@@ -279,6 +279,91 @@ func TestSpyInsideAForkBranch(t *testing.T) {
 	}
 }
 
+// mockFlows is a straight chain: a block that stamps the message, then the block to
+// mock. Straight, because a fork would not do — it runs each branch on a clone and
+// throws it away, so nothing a branch stamps ever reaches the block after it, and the
+// mock would have no input to dispatch on.
+func mockFlows() types.Config {
+	downstreamRuns.Store(0)
+
+	return types.Config{Flows: []types.FlowConfig{{
+		Name: "orders",
+		Process: []types.BlockConfig{
+			{Type: "tbp.stamp", Name: "seed", Settings: types.Settings{"stage": "seeded"}},
+			{Type: "tbp.downstream", Name: "downstream"},
+		},
+	}}}
+}
+
+// TestMockShortCircuitsTheRealBlock is the end-to-end claim mocking exists for: the
+// block the mock replaced never runs. In a real flow that block is an HTTP call or an
+// LLM, and "never runs" means no network and no spend — so this asserts on a counter
+// the real block increments, not merely on the message coming back changed.
+//
+// The spy on the mocked block is the pairing that makes mocks useful: it shows what
+// the flow fed the block, and what the mock answered in its place.
+func TestMockShortCircuitsTheRealBlock(t *testing.T) {
+	mocks, err := core.NewMocks(map[string]core.MockSpec{
+		"orders.downstream": {Cases: []core.MockCase{
+			{When: `vars.stage == "seeded"`, Body: map[string]any{"charged": true}},
+			{When: "true", Error: "unexpected input"},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("NewMocks: %v", err)
+	}
+	spies, err := core.NewSpies([]string{"orders.downstream"})
+	if err != nil {
+		t.Fatalf("NewSpies: %v", err)
+	}
+
+	svc, stop := startDebugService(t, mockFlows(), WithMocks(mocks), WithSpies(spies))
+	defer stop()
+	out := call(t, svc, "orders")
+
+	// The real block never ran — no network, no spend.
+	if got := downstreamRuns.Load(); got != 0 {
+		t.Errorf("the mocked block ran %d times, want 0: a mock must replace the block, not wrap it", got)
+	}
+	// And the flow carried the mock's answer to the end.
+	body, ok := out.Body.(map[string]any)
+	if !ok || body["charged"] != true {
+		t.Errorf("flow result body = %v, want the mock's canned answer", out.Body)
+	}
+
+	// The spy wraps the mock, so it shows both sides: what the flow fed the block,
+	// and what the mock answered.
+	records := spies.Records("orders.downstream")
+	if len(records) != 1 {
+		t.Fatalf("got %d records for the mocked block, want 1", len(records))
+	}
+	if stage, _ := records[0].Input.Variables.String("stage"); stage != "seeded" {
+		t.Errorf("spied input stage = %q, want the message the flow actually fed the block", stage)
+	}
+	if got := records[0].Output.Body.(map[string]any)["charged"]; got != true {
+		t.Errorf("spied output = %v, want the mock's answer", records[0].Output.Body)
+	}
+}
+
+// TestMockRequiresInvokeMode: a mock on a source-backed service would answer
+// production traffic with a canned response.
+func TestMockRequiresInvokeMode(t *testing.T) {
+	mocks, err := core.NewMocks(map[string]core.MockSpec{
+		"orders.downstream": {Cases: []core.MockCase{{When: "true", Drop: true}}},
+	})
+	if err != nil {
+		t.Fatalf("NewMocks: %v", err)
+	}
+
+	svc := NewService(mockFlows(), core.DefaultRegistry(), WithMocks(mocks))
+	ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
+	defer cancel()
+
+	if err := svc.Run(ctx); err == nil {
+		t.Fatal("a mock outside invoke mode must be refused")
+	}
+}
+
 // TestSpyRequiresInvokeMode: nothing drains the collector outside an invoke, so on a
 // source-backed flow a spy would hoard the body of every message that crossed the
 // block, forever, for nobody to read.
