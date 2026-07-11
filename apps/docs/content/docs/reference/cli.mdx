@@ -4,6 +4,8 @@ description: "The octo command: run, invoke, eval, schema, and version."
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
+import { DynamicCodeBlock } from 'fumadocs-ui/components/dynamic-codeblock';
+import { OCTO_VERSION } from '@/lib/version';
 
 The `octo` binary is the runtime's command-line interface. It starts
 integrations, calls flows directly, evaluates CEL expressions, and emits the
@@ -58,10 +60,11 @@ ids (templates, env files) resolve against.
 Once every connector and flow has started, the runtime prints a ready banner
 to stdout:
 
-```
-time=... level=INFO msg="starting runtime" version=0.3.6 connectors=1 flows=1
-🚀  octo v0.3.6 is up and ready to roll!
-```
+<DynamicCodeBlock
+  lang="text"
+  code={`time=... level=INFO msg="starting runtime" version=${OCTO_VERSION} connectors=1 flows=1
+🚀  octo v${OCTO_VERSION} is up and ready to roll!`}
+/>
 
 ### Watch mode
 
@@ -419,9 +422,7 @@ Prints the release version and, when available, the build timestamp.
 octo version
 ```
 
-```
-octo 0.3.6 (built 2026-07-09T06:11:43Z)
-```
+<DynamicCodeBlock lang="text" code={`octo ${OCTO_VERSION} (built 2026-07-09T06:11:43Z)`} />
 
 `octo --version` and `octo -version` print the same line. The build date is
 stamped at link time for released binaries; a `go build` binary falls back to

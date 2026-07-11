@@ -5,6 +5,8 @@ description: "Build the octo CLI from source and pull the editor Docker image."
 
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Steps, Step } from 'fumadocs-ui/components/steps';
+import { DynamicCodeBlock } from 'fumadocs-ui/components/dynamic-codeblock';
+import { OCTO_VERSION } from '@/lib/version';
 
 The `octo` CLI is built from source with one command. If you would rather not
 install a toolchain at all, skip to the [Docker editor image](#skip-the-build-use-docker)
@@ -53,9 +55,10 @@ bin/octo version
 
 You should see the version and build date:
 
-```
-octo 0.3.6 (built 2026-06-18T22:31:23Z)
-```
+<DynamicCodeBlock lang="text" code={`octo ${OCTO_VERSION} (built 2026-06-18T22:31:23Z)`} />
+
+The version is the release you built; the build date is stamped at link time, so
+yours will differ.
 
 </Step>
 <Step>
