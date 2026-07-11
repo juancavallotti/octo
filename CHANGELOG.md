@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.3.7](https://github.com/juancavallotti/octo/compare/v0.3.6...v0.3.7) (2026-07-11)
+
+
+### Features
+
+* **docs:** bootstrapped docs by using fumadocs framework ([e7298e0](https://github.com/juancavallotti/octo/commit/e7298e07db7e9f70303a2c8ba2618156b17a9e81))
+* **http-client:** retry 429 responses honoring Retry-After ([c73dd2f](https://github.com/juancavallotti/octo/commit/c73dd2f06796362e4cd43751ee3c38c990737fa4))
+* **http:** global CORS + http-client 429 retry ([7b2da93](https://github.com/juancavallotti/octo/commit/7b2da930ed0f0d56389d9fc86ccc6510a2d07abf))
+* **http:** global CORS, empty nil-body responses, typed response headers ([b5da294](https://github.com/juancavallotti/octo/commit/b5da294b20b6751bd0c4086f623659b0c0587762))
+
+
+### Bug Fixes
+
+* **mcp:** align zod on v4 to dedupe the MCP SDK instance ([05302aa](https://github.com/juancavallotti/octo/commit/05302aa0b8dccca7affb8411447622b7efd08b92))
+
+
+### Documentation
+
+* **concepts:** add Raw Content and Streaming page ([515b21c](https://github.com/juancavallotti/octo/commit/515b21c3380ba1f8ba0e09673696fedee67ca82e))
+* rebuild the documentation site on Fumadocs ([1ffff23](https://github.com/juancavallotti/octo/commit/1ffff23b9c2604abc1c92e64b7c3cbce46181ae2))
+* **site:** add live-platform screenshots for bus, architecture, sign-in, memory ([5e26183](https://github.com/juancavallotti/octo/commit/5e261831e2770ff52805e8f42c32e385ff300e75))
+* **site:** add manual screenshots to platform, editor, and AI pages ([1f45aae](https://github.com/juancavallotti/octo/commit/1f45aaeb4c93c3dc96c7d828033a7dcab222d191))
+* **site:** complete platform, deploy, and AI sections ([dbc55bc](https://github.com/juancavallotti/octo/commit/dbc55bc40385a8502f94044eb1d0e14eb47534fd))
+* **site:** use the platform favicon ([9843a85](https://github.com/juancavallotti/octo/commit/9843a85e3bf07466a7b423de83cbddbac570b8f1))
+
 ## [0.3.6](https://github.com/juancavallotti/octo/compare/v0.3.5...v0.3.6) (2026-07-08)
 
 
