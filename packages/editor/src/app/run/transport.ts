@@ -30,9 +30,59 @@ export interface CelEvalResult {
 }
 
 /**
- * A request to run ONE flow once, without starting the integration's sources. With
- * `breakAt`, the runner instead halts at the addressed block and reports the message
- * it was carrying there (see {@link BreakOutcome}).
+ * One canned outcome of a mocked block, as the RUNNER takes it (the runtime's
+ * `core.MockCase`). Unlike the editor's own `MockCase` in meta/types.ts, `body` and `vars`
+ * are *values* here rather than JSON text — run/debug.ts is where the one becomes the
+ * other.
+ *
+ * Exactly one of `body`, `error` and `drop` is set: a block either returns a message,
+ * fails, or filters it out. `vars` only goes alongside a `body`.
+ */
+export interface MockCaseSpec {
+  /** CEL, evaluated against the message the block RECEIVED. Absent on a default. */
+  when?: string;
+  body?: unknown;
+  vars?: Record<string, unknown>;
+  error?: string;
+  drop?: boolean;
+}
+
+/** What one addressed block is stood in for with (the runtime's `core.MockSpec`). */
+export interface MockSpec {
+  /** Tried in order; the first whose `when` holds wins. */
+  cases?: MockCaseSpec[];
+  /** What runs when no case matched. Without one, an unmatched message fails the block. */
+  default?: MockCaseSpec;
+}
+
+/** One execution of a spied block (the runtime's `core.SpyRecord`). */
+export interface SpyRecord {
+  /** Orders records across EVERY spy, not just this one: one timeline for the whole run. */
+  seq: number;
+  at: string;
+  /** The message as the block received it, captured before it ran. */
+  input: unknown;
+  /** Exactly one of these three: what the block produced, or that it dropped, or failed. */
+  output?: unknown;
+  dropped?: boolean;
+  error?: string;
+}
+
+/** What one spied block saw, in the order it saw it. */
+export interface SpyTrace {
+  address: string;
+  /** Empty is a result, not a gap: the flow may not have taken the branch the block is on. */
+  records: SpyRecord[];
+}
+
+/**
+ * A request to run ONE flow once, without starting the integration's sources.
+ *
+ * The three debug features are the runtime's, and they compose: `breakAt` halts the run at
+ * a block and reports the message it was carrying (see {@link BreakOutcome}); `spies`
+ * records what crosses other blocks without changing anything the flow does; `mocks`
+ * stands in for blocks so the real ones never run. All three address a block by the same
+ * path grammar (see run/address.ts).
  */
 export interface FlowRunRequest {
   /** The config to run — for a breakpoint run, the plan's clone (see planBreakpoint). */
@@ -47,6 +97,10 @@ export interface FlowRunRequest {
   vars?: string;
   /** A breakpoint address (see planBreakpoint): run until this block, then stop. */
   breakAt?: string;
+  /** Block addresses to record every message that crosses them. */
+  spies?: string[];
+  /** Blocks to stand in for, by address; the real block never runs. */
+  mocks?: Record<string, MockSpec>;
 }
 
 /** What the flow was carrying at the breakpoint, or why it never got there. */
@@ -78,6 +132,8 @@ export interface FlowRunOutcome {
   logs: string[];
   /** Present only for a `breakAt` run. */
   breakpoint?: BreakOutcome;
+  /** Present only for a `spies` run: every message that crossed each spied block. */
+  spies?: SpyTrace[];
   /** Why the run could not be made at all (a bad address, an unloadable config). */
   error?: string;
 }

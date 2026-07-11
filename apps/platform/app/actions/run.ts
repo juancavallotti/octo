@@ -130,6 +130,8 @@ export async function runInvoke(
         data: req.data,
         vars: req.vars,
         breakAt: req.breakAt,
+        spies: req.spies,
+        mocks: req.mocks,
         logLevel: "error",
         resources: resourcesFor(req.integrationId),
       });
@@ -142,6 +144,7 @@ export async function runInvoke(
           output: r.output,
           logs: r.logs,
           breakpoint: r.breakpoint,
+          spies: r.spies,
         },
       };
     } catch (err) {
