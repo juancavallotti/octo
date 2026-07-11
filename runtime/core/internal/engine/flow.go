@@ -36,6 +36,9 @@ const (
 	// blockKindSpy is injected by the runtime around an addressed block for `invoke
 	// --spies`; it is never authored in a flow either (see spy.go).
 	blockKindSpy = "spy"
+	// blockKindMock is injected by the runtime *in place of* an addressed block for
+	// `invoke --mocks`; it is never authored in a flow either (see mock.go).
+	blockKindMock = "mock"
 )
 
 // blockError wraps the error a block returns with the block's label. It keeps the
@@ -228,6 +231,7 @@ func (b *builder) compositeBuilders() map[string]func(types.BlockConfig) (core.M
 		blockKindMCPRouter:    b.mcpRouter,
 		blockKindBreakpoint:   b.breakpoint,
 		blockKindSpy:          b.spy,
+		blockKindMock:         b.mock,
 	}
 }
 
