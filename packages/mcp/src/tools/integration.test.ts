@@ -183,4 +183,128 @@ describe("integration tools", () => {
     expect(parse(res)).toEqual({ id: "a", name: "Renamed", definition: "v2" });
     expect(store.rows.get("a")).toMatchObject({ name: "Renamed", definition: "v2" });
   });
+
+  describe("flow-level editing", () => {
+    /** A definition carrying a comment and a second flow, both of which must survive. */
+    const DEF = `service:
+  name: Orders
+
+flows:
+  # Charges the card.
+  - name: charge
+    process:
+      - type: rest
+        name: call-stripe
+
+  - name: audit
+    process:
+      - type: log
+        name: write-it
+`;
+
+    const seeded = () => fakeStore([{ id: "a", name: "Orders", definition: DEF }]);
+
+    /** The text body of a tool result (get_flow returns YAML, not JSON). */
+    const text = (res: CallToolResult) => (res.content as { text: string }[])[0].text;
+
+    it("get_flow returns one flow's YAML with its comments", async () => {
+      const client = await connect(baseConfig(seeded()));
+      const res = (await client.callTool({
+        name: "get_flow",
+        arguments: { id: "a", flow: "charge" },
+      })) as CallToolResult;
+      expect(res.isError).toBeFalsy();
+      expect(text(res)).toContain("call-stripe");
+      expect(text(res)).not.toContain("audit");
+    });
+
+    // The point of the whole feature: editing one flow must not disturb the others.
+    it("update_flow replaces one flow and leaves the rest of the file intact", async () => {
+      const store = seeded();
+      const client = await connect(baseConfig(store));
+      const res = (await client.callTool({
+        name: "update_flow",
+        arguments: {
+          id: "a",
+          flow: "charge",
+          definition: "name: charge\nprocess:\n  - type: log\n    name: pretend\n",
+        },
+      })) as CallToolResult;
+      expect(res.isError).toBeFalsy();
+
+      const saved = store.rows.get("a")!.definition;
+      expect(saved).toContain("# Charges the card.");
+      expect(saved).toContain("name: write-it"); // the other flow, untouched
+      expect(saved).toContain("name: pretend");
+      expect(saved).not.toContain("call-stripe");
+    });
+
+    it("add_flow appends a flow, and refuses a name already taken", async () => {
+      const store = seeded();
+      const client = await connect(baseConfig(store));
+
+      const ok = (await client.callTool({
+        name: "add_flow",
+        arguments: { id: "a", definition: "name: refund\nprocess: []\n" },
+      })) as CallToolResult;
+      expect(ok.isError).toBeFalsy();
+      expect(store.rows.get("a")!.definition).toContain("name: refund");
+
+      const dup = (await client.callTool({
+        name: "add_flow",
+        arguments: { id: "a", definition: "name: audit\nprocess: []\n" },
+      })) as CallToolResult;
+      expect(dup.isError).toBe(true);
+      expect(text(dup)).toContain("already exists");
+    });
+
+    it("delete_flow removes just that flow", async () => {
+      const store = seeded();
+      const client = await connect(baseConfig(store));
+      const res = (await client.callTool({
+        name: "delete_flow",
+        arguments: { id: "a", flow: "charge" },
+      })) as CallToolResult;
+      expect(res.isError).toBeFalsy();
+
+      const saved = store.rows.get("a")!.definition;
+      expect(saved).not.toContain("name: charge");
+      expect(saved).toContain("name: audit");
+    });
+
+    // These tools exist so an agent can edit a flow without holding the whole file in
+    // its head — which means it also cannot see what it just broke. Validating the
+    // spliced whole, and refusing to save, is what makes that safe.
+    it("refuses a splice that would leave the integration invalid, saving nothing", async () => {
+      const store = seeded();
+      const config: OctoMcpConfig = {
+        ...baseConfig(store),
+        validate: () => ({ valid: false, errors: ['block "nope" is not a known type'] }),
+      };
+      const client = await connect(config);
+
+      const res = (await client.callTool({
+        name: "update_flow",
+        arguments: {
+          id: "a",
+          flow: "charge",
+          definition: "name: charge\nprocess:\n  - type: nope\n",
+        },
+      })) as CallToolResult;
+      expect(res.isError).toBe(true);
+      expect(text(res)).toContain("nothing was saved");
+      expect(store.rows.get("a")!.definition).toBe(DEF); // untouched
+    });
+
+    it("errors when the flow does not exist, naming the ones that do", async () => {
+      const client = await connect(baseConfig(seeded()));
+      const res = (await client.callTool({
+        name: "update_flow",
+        arguments: { id: "a", flow: "refund", definition: "name: refund\nprocess: []\n" },
+      })) as CallToolResult;
+      expect(res.isError).toBe(true);
+      expect(text(res)).toContain('no flow named "refund"');
+      expect(text(res)).toContain('"charge", "audit"');
+    });
+  });
 });
