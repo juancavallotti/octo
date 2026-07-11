@@ -1,9 +1,10 @@
 import {
   emptyMeta,
+  type BlockMock,
   type EditorMeta,
   type FileMeta,
   type FlowMeta,
-  type MockSpec,
+  type MockCase,
   type TestInput,
 } from "./types";
 
@@ -39,19 +40,56 @@ function parseInput(raw: unknown): TestInput | null {
   return { id, name, data: str(raw.data), vars: str(raw.vars) };
 }
 
-/** Parse one reserved mock, or null when it names no block to stub. */
-function parseMock(raw: unknown): MockSpec | null {
+/**
+ * Parse one mock case. Every field is optional here even though the runtime demands
+ * exactly one outcome, because this is a file a user can hand-edit: a case that says
+ * nothing is dropped on the way to the runner (see run/debug.ts), not rejected on the way
+ * in, so one malformed case does not cost the user the rest of the mock.
+ */
+function parseCase(raw: unknown): MockCase | null {
   if (!isRecord(raw)) return null;
-  const block = str(raw.block);
-  if (!block) return null;
-  return { block, result: str(raw.result) };
+  const drop = raw.drop === true;
+  const parsed: MockCase = {
+    when: str(raw.when),
+    body: str(raw.body),
+    vars: str(raw.vars),
+    error: str(raw.error),
+    ...(drop ? { drop: true } : {}),
+  };
+  return parsed;
 }
 
-/** Parse the reserved mocks list, keeping only well-formed entries. */
-function parseMocks(raw: unknown): MockSpec[] | undefined {
+/** Parse one mocked block, or null when it names no block to stand in for. */
+function parseMock(raw: unknown): BlockMock | null {
+  if (!isRecord(raw)) return null;
+  const address = str(raw.address);
+  if (!address) return null; // a mock we cannot address is not one
+  const cases = Array.isArray(raw.cases)
+    ? raw.cases.map(parseCase).filter((c): c is MockCase => c !== null)
+    : [];
+  const fallback = parseCase(raw.default);
+  return {
+    address,
+    // An entry written without `enabled` is one that means to apply: a mock is saved
+    // because the user wants it, and the toggle is how they say otherwise.
+    enabled: raw.enabled !== false,
+    cases,
+    ...(fallback ? { default: fallback } : {}),
+  };
+}
+
+/** Parse the mocks list, keeping only well-formed entries. */
+function parseMocks(raw: unknown): BlockMock[] | undefined {
   if (!Array.isArray(raw)) return undefined;
-  const mocks = raw.map(parseMock).filter((m): m is MockSpec => m !== null);
+  const mocks = raw.map(parseMock).filter((m): m is BlockMock => m !== null);
   return mocks.length > 0 ? mocks : undefined;
+}
+
+/** Parse the spied addresses, dropping anything that is not one. */
+function parseSpies(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const spies = [...new Set(raw.filter((s): s is string => typeof s === "string" && s !== ""))];
+  return spies.length > 0 ? spies : undefined;
 }
 
 function parseFlowMeta(raw: unknown): FlowMeta {
@@ -60,7 +98,12 @@ function parseFlowMeta(raw: unknown): FlowMeta {
     ? raw.inputs.map(parseInput).filter((i): i is TestInput => i !== null)
     : [];
   const mocks = parseMocks(raw.mocks);
-  return mocks ? { inputs, mocks } : { inputs };
+  const spies = parseSpies(raw.spies);
+  return {
+    inputs,
+    ...(mocks ? { mocks } : {}),
+    ...(spies ? { spies } : {}),
+  };
 }
 
 function parseFileMeta(raw: unknown): FileMeta {

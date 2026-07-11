@@ -115,7 +115,7 @@ describe("syncFlowNames", () => {
     expect(meta.flows.refunds.inputs[0].id).toBe("in-refunds");
   });
 
-  it("ignores a rename of a flow that has no saved inputs", () => {
+  it("ignores a rename of a flow that has nothing saved at all", () => {
     const flow = emptyFlow("orders");
     const prev = flowIdNames(docOf(flow));
     flow.name = "purchases";
@@ -124,5 +124,61 @@ describe("syncFlowNames", () => {
     const { changed } = syncFlowNames({ flows: {} }, prev, next);
 
     expect(changed).toBe(false);
+  });
+
+  /**
+   * A mock or spy is addressed by a block path whose first segment IS the flow's name.
+   * Moving the key and leaving the addresses would be the worst outcome: they would look
+   * present in the file and on the canvas, and silently never fire.
+   */
+  describe("addresses inside a renamed flow", () => {
+    /** Meta with a mock and a spy on blocks of `name`, plus one on its error chain. */
+    function debugMeta(name: string): FileMeta {
+      return {
+        flows: {
+          [name]: {
+            inputs: [],
+            mocks: [{ address: `${name}.charge`, enabled: true, cases: [] }],
+            spies: [`${name}.seed`, `${name}[error].notify`],
+          },
+        },
+      };
+    }
+
+    it("re-roots every mock and spy address at the new name", () => {
+      const flow = emptyFlow("orders");
+      const prev = flowIdNames(docOf(flow));
+      flow.name = "purchases";
+      const next = flowIdNames(docOf(flow));
+
+      const { meta, changed } = syncFlowNames(debugMeta("orders"), prev, next);
+
+      expect(changed).toBe(true);
+      expect(meta.flows.purchases.mocks?.[0].address).toBe("purchases.charge");
+      expect(meta.flows.purchases.spies).toEqual([
+        "purchases.seed",
+        // The chain rides in brackets on the flow segment, so it moves with it.
+        "purchases[error].notify",
+      ]);
+    });
+
+    // A flow whose name is a prefix of another's must not drag it along: renaming
+    // `order` must leave `orders.charge` alone.
+    it("does not re-root an address that merely starts with the old name", () => {
+      const order = emptyFlow("order");
+      const orders = emptyFlow("orders");
+      const prev = flowIdNames(docOf(order, orders));
+      order.name = "purchase";
+      const next = flowIdNames(docOf(order, orders));
+
+      const before: FileMeta = {
+        flows: {
+          orders: { inputs: [], spies: ["orders.charge"] },
+        },
+      };
+      const { meta } = syncFlowNames(before, prev, next);
+
+      expect(meta.flows.orders.spies).toEqual(["orders.charge"]);
+    });
   });
 });

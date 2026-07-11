@@ -14,15 +14,23 @@ import { newId } from "../model/document";
 import { useEditorState } from "../state/editorState";
 import { fileMetaFor, parseEditorMeta, serializeEditorMeta, withFileMeta } from "../meta/parse";
 import { flowIdNames, syncFlowNames } from "../meta/rename";
-import { emptyMeta, type EditorMeta, type TestInput } from "../meta/types";
+import {
+  emptyFlowMeta,
+  emptyMeta,
+  type BlockMock,
+  type EditorMeta,
+  type FlowMeta,
+  type TestInput,
+} from "../meta/types";
 
 /**
- * The editor-meta capability: the saved test inputs a flow can be run with, kept in
- * `.octo/editor-meta.json` beside the flows. Like the dev-env store, the capability
- * only moves a raw string — the host decides where that string lives (the standalone
- * app's flows directory, the platform's orchestrator) and all the parsing is pure code
- * here. When no store is provided, or the document has never been saved, inputs still
- * work; they just live for the session rather than being written down.
+ * The editor-meta capability: what a flow can be run with and run under — its saved test
+ * inputs, the blocks mocked out, the blocks spied on — kept in `.octo/editor-meta.json`
+ * beside the flows. Like the dev-env store, the capability only moves a raw string: the
+ * host decides where that string lives (the standalone app's flows directory, the
+ * platform's orchestrator) and all the parsing is pure code here. When no store is
+ * provided, or the document has never been saved, all of it still works; it just lives
+ * for the session rather than being written down.
  */
 
 /** The resource this is stored as. Path-like, and hidden from the Resources view. */
@@ -45,6 +53,11 @@ export interface EditorMetaStore {
   canEdit(integrationId: string | null): boolean;
 }
 
+/**
+ * The capability, as the UI uses it. Inputs are addressed by an id of our own; mocks and
+ * spies by the runtime's block address, because that is the only name the runner knows a
+ * block by (see run/address.ts). Both are scoped to a flow, by its client id.
+ */
 interface EditorMetaValue {
   /** The saved inputs for a flow, by its client id. */
   inputs(flowId: string): TestInput[];
@@ -53,6 +66,22 @@ interface EditorMetaValue {
   addInput(flowId: string, input: Omit<TestInput, "id">): TestInput;
   updateInput(flowId: string, input: TestInput): void;
   removeInput(flowId: string, inputId: string): void;
+
+  /** The mock on the block at `address`, if it has one (enabled or not). */
+  mockAt(flowId: string, address: string): BlockMock | undefined;
+  /** Save the mock for its address, replacing any mock already there. */
+  setMock(flowId: string, mock: BlockMock): void;
+  removeMock(flowId: string, address: string): void;
+
+  /** The addresses spied in this flow. */
+  spies(flowId: string): string[];
+  /** Turn the spy on the block at `address` on or off. */
+  setSpy(flowId: string, address: string, on: boolean): void;
+
+  /** Every enabled mock in the document — what a run is given. */
+  enabledMocks(): BlockMock[];
+  /** Every spied address in the document — what a run is given. */
+  allSpies(): string[];
 }
 
 const EditorMetaContext = createContext<EditorMetaValue | null>(null);
@@ -131,19 +160,16 @@ export function EditorMetaProvider({
     return () => clearTimeout(timer);
   }, [meta, canPersist, store, documentKey]);
 
-  /** Apply `fn` to the open document's flow entry and mark the file dirty. */
+  /** Apply `fn` to the open document's entry for one flow, and mark the file dirty. */
   const edit = useCallback(
-    (flowId: string, fn: (inputs: TestInput[]) => TestInput[]) => {
+    (flowId: string, fn: (entry: FlowMeta) => FlowMeta) => {
       const flow = doc.flows.find((f) => f.id === flowId);
       if (!flow) return;
       const key = documentKey ?? "";
       setMeta((current) => {
         const file = fileMetaFor(current, key);
-        const entry = file.flows[flow.name] ?? { inputs: [] };
-        const flows = {
-          ...file.flows,
-          [flow.name]: { ...entry, inputs: fn(entry.inputs) },
-        };
+        const entry = file.flows[flow.name] ?? emptyFlowMeta();
+        const flows = { ...file.flows, [flow.name]: fn(entry) };
         dirtyRef.current = true;
         return withFileMeta(current, key, { flows });
       });
@@ -151,27 +177,84 @@ export function EditorMetaProvider({
     [doc, documentKey],
   );
 
+  /** The stored entry for one flow, or an empty one. */
+  const entryOf = useCallback(
+    (flowId: string): FlowMeta => {
+      const flow = doc.flows.find((f) => f.id === flowId);
+      if (!flow) return emptyFlowMeta();
+      return fileMetaFor(meta, documentKey ?? "").flows[flow.name] ?? emptyFlowMeta();
+    },
+    [doc, meta, documentKey],
+  );
+
   const value = useMemo<EditorMetaValue>(
     () => ({
-      inputs(flowId) {
-        const flow = doc.flows.find((f) => f.id === flowId);
-        if (!flow) return [];
-        return fileMetaFor(meta, documentKey ?? "").flows[flow.name]?.inputs ?? [];
-      },
+      inputs: (flowId) => entryOf(flowId).inputs,
       canPersist,
       addInput(flowId, input) {
         const created: TestInput = { ...input, id: newId() };
-        edit(flowId, (inputs) => [...inputs, created]);
+        edit(flowId, (e) => ({ ...e, inputs: [...e.inputs, created] }));
         return created;
       },
       updateInput(flowId, input) {
-        edit(flowId, (inputs) => inputs.map((i) => (i.id === input.id ? input : i)));
+        edit(flowId, (e) => ({
+          ...e,
+          inputs: e.inputs.map((i) => (i.id === input.id ? input : i)),
+        }));
       },
       removeInput(flowId, inputId) {
-        edit(flowId, (inputs) => inputs.filter((i) => i.id !== inputId));
+        edit(flowId, (e) => ({ ...e, inputs: e.inputs.filter((i) => i.id !== inputId) }));
+      },
+
+      mockAt(flowId, address) {
+        return entryOf(flowId).mocks?.find((m) => m.address === address);
+      },
+      setMock(flowId, mock) {
+        edit(flowId, (e) => {
+          const mocks = e.mocks ?? [];
+          const at = mocks.findIndex((m) => m.address === mock.address);
+          return {
+            ...e,
+            mocks: at < 0 ? [...mocks, mock] : mocks.map((m, i) => (i === at ? mock : m)),
+          };
+        });
+      },
+      removeMock(flowId, address) {
+        edit(flowId, (e) => ({
+          ...e,
+          mocks: (e.mocks ?? []).filter((m) => m.address !== address),
+        }));
+      },
+
+      spies: (flowId) => entryOf(flowId).spies ?? [],
+      setSpy(flowId, address, on) {
+        edit(flowId, (e) => {
+          const spies = e.spies ?? [];
+          const has = spies.includes(address);
+          if (on === has) return e;
+          return {
+            ...e,
+            spies: on ? [...spies, address] : spies.filter((s) => s !== address),
+          };
+        });
+      },
+
+      // The whole document's worth, for the run request. An address is rooted at a flow
+      // name, so a mock or spy on another flow's block is not noise: the flow being
+      // invoked may reach it through a flow-ref, and if it doesn't, the address simply
+      // never fires. Sending everything means what the canvas shows is what the run does.
+      enabledMocks() {
+        const file = fileMetaFor(meta, documentKey ?? "");
+        return Object.values(file.flows)
+          .flatMap((e) => e.mocks ?? [])
+          .filter((m) => m.enabled);
+      },
+      allSpies() {
+        const file = fileMetaFor(meta, documentKey ?? "");
+        return [...new Set(Object.values(file.flows).flatMap((e) => e.spies ?? []))];
       },
     }),
-    [doc, meta, documentKey, canPersist, edit],
+    [meta, documentKey, canPersist, edit, entryOf],
   );
 
   return (
