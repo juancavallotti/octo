@@ -1,5 +1,52 @@
 # Changelog
 
+## [0.3.8](https://github.com/juancavallotti/octo/compare/v0.3.7...v0.3.8) (2026-07-11)
+
+
+### Features
+
+* **ci:** publish CLI binaries and a runtime-only image on release ([fdeac0c](https://github.com/juancavallotti/octo/commit/fdeac0ced088aa3eb80d37fa70a50af08002a291))
+* **ci:** release the CLI for macOS/Linux/Windows and a runtime-only Docker image ([67d537a](https://github.com/juancavallotti/octo/commit/67d537ab6ad23a2fcb2b450b82c2425cd754d8d7))
+* **cli:** add invoke --break-at with a JSON envelope ([04ae5fc](https://github.com/juancavallotti/octo/commit/04ae5fc0efb48f9fad3e1f17407d845fef633ee6))
+* **core:** add the Breakpoint collector ([65ffa95](https://github.com/juancavallotti/octo/commit/65ffa95afc4a305ae0311aa97a8ebb74a5f409e9))
+* **editor:** derive breakpoint addresses from the document ([8dda8b6](https://github.com/juancavallotti/octo/commit/8dda8b68fa7b71283e3f3bf7a3df5e5d148a79c3))
+* **editor:** editor-meta capability backed by .octo/editor-meta.json ([fe5b0f5](https://github.com/juancavallotti/octo/commit/fe5b0f516a639b1a1992783932a0d94f23a3db74))
+* **editor:** flow-run results and console tabs ([7bbbbe8](https://github.com/juancavallotti/octo/commit/7bbbbe8097a27d79c0050107ce08ecc95ec3dd75))
+* **editor:** one-shot flow invoke on the run transport ([2e5bd11](https://github.com/juancavallotti/octo/commit/2e5bd11016181459732ea28cb7b3ed1d822aa426))
+* **editor:** run a flow from its card ([8e33ab3](https://github.com/juancavallotti/octo/commit/8e33ab3fdb645c4e0606d565725110d7dc8af099))
+* **editor:** run flows, and run them to a breakpoint ([f47bcf0](https://github.com/juancavallotti/octo/commit/f47bcf0991ba3c9e15ca78ff8aff2e405ed49679))
+* **editor:** run to a breakpoint from a block ([ca4c015](https://github.com/juancavallotti/octo/commit/ca4c01536493c7a2d9247d8bbabff701f0c2fc02))
+* **engine:** add the implicit breakpoint composite ([8247634](https://github.com/juancavallotti/octo/commit/824763419504850a66ce9ebe4ae7ddacda68362c))
+* **run-host:** expose break-at, vars and log level on invoke ([24e6e53](https://github.com/juancavallotti/octo/commit/24e6e534146f7e663bedda724a1fc030ee0e78a7))
+* **runtime:** add WithBreakpoint to the invoke-mode service ([6f625c1](https://github.com/juancavallotti/octo/commit/6f625c19fcd08bfdab051c23a776b3a756803ea4))
+* **runtime:** breakpoints — inspect a message mid-flow with invoke --break-at ([dd5334c](https://github.com/juancavallotti/octo/commit/dd5334cb36131be0db193d496a4543534647a325))
+* **runtime:** pass variables to an invoked flow ([9b6b382](https://github.com/juancavallotti/octo/commit/9b6b382c73805bbc72827335eee8ac3384a9d568))
+* **runtime:** resolve a breakpoint address into a flow config ([5085743](https://github.com/juancavallotti/octo/commit/5085743524b81c2b1dc8f3a269662fc98b91296c))
+
+
+### Bug Fixes
+
+* **docs:** render the CLI version from the release-please constant ([8db6392](https://github.com/juancavallotti/octo/commit/8db6392bb4e5b540cb56afacfdb8eea3014cb786)), closes [#139](https://github.com/juancavallotti/octo/issues/139)
+* **editor:** typecheck the test suite ([f724dc8](https://github.com/juancavallotti/octo/commit/f724dc860421974b51429599ecbc37d11b255dde))
+* **engine:** bubble a fork branch stop out to the parent message ([76a3ca1](https://github.com/juancavallotti/octo/commit/76a3ca1a58190f6d816fa20bde87a1ea93f28aa2))
+* **engine:** do not cache a body whose flow requested stop ([c3f8099](https://github.com/juancavallotti/octo/commit/c3f80999d79eb2ff31d62a31b7f9c75da1a66e9f))
+* **engine:** halt the ai-agent loop when a tool branch requests stop ([bf118df](https://github.com/juancavallotti/octo/commit/bf118df80c2cdf379ff8b3f1dc800c83de5b020f))
+* **engine:** propagate an enrich body stop to the outer flow ([043c912](https://github.com/juancavallotti/octo/commit/043c9122df7e0b68067fec5dcf90a240a979d2d5))
+* **standalone:** inject runtime schema into the /preview screenshot route ([3efe8f1](https://github.com/juancavallotti/octo/commit/3efe8f1036c76205789b11379a8ef9e0082ec04c))
+* **standalone:** populate runtime schema in the /preview screenshot route ([1ce47c3](https://github.com/juancavallotti/octo/commit/1ce47c3b034a7bd98ecbc7d2486b74a56b8ad7db))
+
+
+### Refactoring
+
+* **editor:** make validation issues structured ([eae12b1](https://github.com/juancavallotti/octo/commit/eae12b14b76fc7b4fd5c335976f9f6587d05643b))
+
+
+### Documentation
+
+* document invoke --break-at and block addressing ([128bac4](https://github.com/juancavallotti/octo/commit/128bac4780a0ecebc9f961152eb02e6af6c9d648))
+* document the CLI downloads and the runtime Docker image ([d31e8cd](https://github.com/juancavallotti/octo/commit/d31e8cd4531d0cc6b1eff16e335b4742e606a0f8))
+* **editor:** document running and debugging flows ([f29e58d](https://github.com/juancavallotti/octo/commit/f29e58d8137446e6d2282d8c3071bbe7b27cc290))
+
 ## [0.3.7](https://github.com/juancavallotti/octo/compare/v0.3.6...v0.3.7) (2026-07-11)
 
 
