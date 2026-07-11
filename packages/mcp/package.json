@@ -15,7 +15,7 @@
     "@octo/run-host": "workspace:*",
     "mcp-handler": "^1.1.0",
     "yaml": "^2.9.0",
-    "zod": "^3.25.76"
+    "zod": "^4.1.13"
   },
   "devDependencies": {
     "@types/node": "^20",

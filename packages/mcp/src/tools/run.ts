@@ -51,7 +51,7 @@ export function registerRunTools(
       inputSchema: {
         id: z.string().min(1).describe("The integration id to run."),
         env: z
-          .record(z.string())
+          .record(z.string(), z.string())
           .optional()
           .describe("Optional env vars injected into the run (name → value)."),
       },
@@ -112,7 +112,7 @@ export function registerRunTools(
           .optional()
           .describe("Optional JSON request body passed to the flow."),
         env: z
-          .record(z.string())
+          .record(z.string(), z.string())
           .optional()
           .describe("Optional env vars injected into the run (name → value)."),
         timeoutMs: z
@@ -178,7 +178,7 @@ export function registerRunTools(
           .optional()
           .describe("Optional JSON object bound to `vars`."),
         env: z
-          .record(z.string())
+          .record(z.string(), z.string())
           .optional()
           .describe("Optional map bound to the CEL `env` variable (name → value)."),
         timeoutMs: z
