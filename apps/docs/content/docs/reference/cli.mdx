@@ -16,7 +16,8 @@ octo — run and invoke octo integration flows
 
 Usage:
   octo [run] --config <path> [--watch]                       Start connectors and flows (default)
-  octo invoke --config <path> --flow <name> [--data <json>]  Call one flow and print its result
+  octo invoke --config <path> --flow <name> [--data <json>] [--vars <json>]
+                                                             Call one flow and print its result
   octo eval --expr <cel> [--data <json>]                     Evaluate a CEL expression and print the result
   octo schema [--out <path>]                                 Print the editor capability schema as JSON
   octo version                                               Print the version and build date
@@ -95,6 +96,7 @@ octo invoke --config samples/hello-invoke.yaml --flow greet --data '{"name": "Ad
 | `--config` | path | (required) | Path to the runtime config (file or directory). |
 | `--flow` | string | (required) | Name of the flow to invoke. |
 | `--data` | JSON | stdin | JSON request body. When omitted, piped stdin is read instead. |
+| `--vars` | JSON | (none) | JSON object seeding the message [variables](/concepts/state-and-data). |
 | `--timeout` | duration | `30s` | Maximum time to wait for the flow (Go duration, e.g. `10s`, `2m`). |
 | `--break-at` | address | (none) | Run until this block, print the message it produced, and stop. See [Breakpoints](#breakpoints). |
 
@@ -114,6 +116,26 @@ rejected it, or a block returned nothing), `invoke` logs
 `flow dropped the message` and prints no result. Any flow is callable this
 way, including flows without a `source:` (see
 [Flow File](/reference/flow-file#flows)).
+
+### Seeding variables
+
+A message is a body **and** a set of variables, and `--data` only fills the
+body. Because `invoke` starts no sources, nothing populates those variables for
+you — the HTTP source is what normally copies request headers into them (see
+[State and Data](/concepts/state-and-data#how-http-requests-become-messages)).
+So a flow that reads `vars` needs them supplied explicitly, which is what
+`--vars` is for:
+
+```bash
+octo invoke --config orders.yaml --flow orders \
+  --data '{"orderId": 42}' \
+  --vars '{"x-api-key": "dev-key"}'
+```
+
+The flow now sees `vars["x-api-key"]` exactly as it would behind a real request.
+Without `--vars`, an expression reading a variable that was never set fails with
+a missing-key error — which is usually the reason an invoked flow behaves
+differently from the same flow under its source.
 
 ## Breakpoints
 

@@ -205,5 +205,10 @@ the call, so the caller halts too:
   cancel the others; the flow halts once the fork joins.
 - Breakpoints work with `invoke` only, and are refused on a source-backed
   service — they can never halt live traffic.
+- **`--data` only fills the body.** Since no source runs, nothing sets the
+  message's variables either — so a block that reads `vars` needs
+  [`--vars`](/reference/cli#seeding-variables) to seed them, e.g.
+  `--vars '{"x-api-key": "dev-key"}'` to stand in for the headers an HTTP source
+  would have copied across. Without it, the expression fails with `no such key`.
 
 See the [CLI reference](/reference/cli#breakpoints) for the full address grammar.
