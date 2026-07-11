@@ -262,8 +262,9 @@ Unmocked, the flow's error path runs:
 ```
 
 ```json
-{"error":"block \"call-charge\": rest request: … connect: connection refused",
- "failedBlock":"call-charge","flow":"charge-flowlevel"}
+{"event_id":"5c12…",
+ "body":{"error":"block \"call-charge\": rest request: … connect: connection refused",
+         "failedBlock":"call-charge","flow":"charge-flowlevel"}}
 ```
 
 Mock the call, and a flow that *cannot* succeed does:
@@ -277,8 +278,12 @@ Mock the call, and a flow that *cannot* succeed does:
 ```
 
 ```json
-{"id":"ch_1","status":"captured"}
+{"event_id":"5c12…","body":{"id":"ch_1","status":"captured"}}
 ```
+
+A `--mocks`-only run prints its result message like any other invoke: mocking
+changes what the flow does, but it observes nothing, so there is no debug
+envelope to wrap.
 
 A case is a CEL `when` over the message the block **received**, and exactly one
 outcome:
@@ -303,7 +308,9 @@ Because a case can *fail* the block, you can drive the error path on demand:
 ```
 
 ```json
-{"error":"block \"call-charge\": card declined","failedBlock":"call-charge","flow":"charge-flowlevel"}
+{"event_id":"5c12…",
+ "body":{"error":"block \"call-charge\": card declined",
+         "failedBlock":"call-charge","flow":"charge-flowlevel"}}
 ```
 
 Note `failedBlock` still names `call-charge`. A mocked failure is

@@ -32,7 +32,7 @@ Call it directly from the CLI:
 
 ```bash
 octo invoke --config samples/hello-invoke.yaml --flow greet --data '{"name":"Ada"}'
-# -> {"greeting":"hello, Ada!"}
+# -> {"event_id":"5c12…","body":{"greeting":"hello, Ada!"}}
 ```
 
 In invoke mode no sources start at all — only the requested flow runs. That makes

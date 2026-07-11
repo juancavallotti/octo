@@ -100,7 +100,8 @@ bin/octo invoke --config samples/enrich.yaml --flow order \
   --data '{"orderId":"A-1","qty":3,"price":10.0}'
 ```
 
-It logs `order A-1 total=30` and returns the untouched order body. Use `enrich`
+It logs `order A-1 total=30` and returns the order body untouched, with `total`
+among the printed message's `variables` — where `enrich` put it. Use `enrich`
 when a lookup or computation needs elbow room without polluting the message —
 `multi-transform` when you want the edits to land directly.
 

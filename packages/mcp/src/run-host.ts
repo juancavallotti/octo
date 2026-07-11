@@ -42,8 +42,9 @@ export interface InvokeResultLike {
   ok: boolean;
   exitCode: number | null;
   timedOut: boolean;
-  /** True when the flow filtered the message, so there is no result body. */
+  /** True when the flow filtered the message, so there is no result at all. */
   dropped: boolean;
+  /** The flow's result message as JSON text: `{event_id, variables, body}`. */
   output: string;
   logs: string[];
   /** Present only for a `breakAt` invoke: what the flow was carrying at that block. */

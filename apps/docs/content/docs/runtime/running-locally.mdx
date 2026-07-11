@@ -97,7 +97,7 @@ With `--watch`, the CLI watches the config path and rebuilds the runtime when it
 
 ## octo invoke
 
-`invoke` loads a config, calls one flow by name with a request body, prints the result body as JSON, and exits. Sources are **not** started — no HTTP server binds, no cron fires — so it is safe to invoke against a config whose sources would otherwise conflict with a running instance.
+`invoke` loads a config, calls one flow by name with a request body, prints the result message as JSON, and exits. Sources are **not** started — no HTTP server binds, no cron fires — so it is safe to invoke against a config whose sources would otherwise conflict with a running instance.
 
 ```bash
 octo invoke --config my-flow.yaml --flow enrich-order --data '{"id": 42}'
@@ -116,7 +116,7 @@ When `--data` is omitted and stdin is piped (not an interactive terminal), the b
 cat order.json | octo invoke --config my-flow.yaml --flow enrich-order
 ```
 
-The flow's final message body prints to stdout as JSON. A flow that drops the message prints nothing (the drop is logged); a flow that fails exits non-zero with the error.
+The flow's final message prints to stdout as JSON — `{event_id, variables, body}`, the variables it built up along with the payload, so pipe it through `jq '.body'` when the body is all you want. A flow that drops the message prints nothing (the drop is logged); a flow that fails exits non-zero with the error.
 
 <Callout type="info">
 Any flow is invokable by name, but flows declared **without** a `source:` are made for it: they get an implicit source and exist purely to be called — by `invoke`, or by other flows via `flow-ref`.

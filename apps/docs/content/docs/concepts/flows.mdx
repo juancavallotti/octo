@@ -144,7 +144,7 @@ flows:
 
 ```bash
 octo invoke --config hello-invoke.yaml --flow greet --data '{"name":"Ada"}'
-# {"greeting":"hello, Ada!"}
+# {"event_id":"5c12…","body":{"greeting":"hello, Ada!"}}
 ```
 
 In invoke mode no sources are started — nothing binds a port or fires a schedule — so only the requested flow runs. Sourceless flows are the building block for reusable sub-pipelines: call them synchronously with `flow-ref` (the result folds back into the caller's message) or one-way (fire-and-forget).

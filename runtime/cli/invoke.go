@@ -28,7 +28,7 @@ import (
 const defaultInvokeTimeout = 30 * time.Second
 
 // invokeCommand calls a flow by name with data supplied on the command line (or
-// stdin), printing the result body as JSON. Sources are not started. With --break-at,
+// stdin), printing the result message as JSON. Sources are not started. With --break-at,
 // --spies or both it instead prints a debugOutcome envelope: the message at the
 // addressed block, and what each spy saw.
 func invokeCommand(args []string) error {
@@ -60,10 +60,10 @@ func invokeCommand(args []string) error {
 
 	result, err := invokeFlow(ctx, req)
 
-	// A run that was asked to observe something reports the envelope. A run that was
-	// only asked to mock is still a plain invoke — mocking changes what the flow does,
-	// but it produces no observations of its own, so it prints the body like any other
-	// run and stays pipeable into jq.
+	// A run that was asked to observe something reports the debug envelope. A run that
+	// was only asked to mock is still a plain invoke — mocking changes what the flow
+	// does, but it produces no observations of its own, so it prints its result message
+	// like any other run.
 	if req.breakpoint != nil || req.spies != nil {
 		return printDebugOutcome(req, result, err)
 	}
@@ -229,15 +229,22 @@ func parseInvokeFlags(args []string) (invokeFlags, error) {
 	return flags, nil
 }
 
-// printFlowResult prints the flow's result body, the output of a plain invoke.
+// printFlowResult prints the flow's result message, the output of a plain invoke:
+// the whole envelope — event_id, variables, body — and not the body alone.
+//
+// A flow spends much of its work building variables up with set-variable, enrich and
+// the like, and they are as much its result as the body is. Printing only the body
+// made a run that stopped early at a --break-at report *more* than the same run
+// allowed to finish, which is the wrong way round; both paths now say the same thing
+// by "the result": the message.
 func printFlowResult(flowName string, result *types.Message) error {
 	if result == nil {
 		slog.Info("flow dropped the message", "flow", flowName)
 		return nil
 	}
-	out, err := result.BodyJSON()
+	out, err := json.Marshal(result.Reported())
 	if err != nil {
-		return err
+		return fmt.Errorf("encode flow result: %w", err)
 	}
 	fmt.Println(string(out))
 	return nil
