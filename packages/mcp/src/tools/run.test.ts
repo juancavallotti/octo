@@ -22,9 +22,12 @@ function stubRunHost(opts: { available?: boolean } = {}) {
       flow: string;
       opts?: {
         data?: string;
+        vars?: string;
         env?: Record<string, string>;
         timeoutMs?: number;
         resources?: ResourceProvider;
+        breakAt?: string;
+        logLevel?: "debug" | "info" | "warn" | "error";
       };
     };
     evaluated?: {
@@ -69,6 +72,23 @@ function stubRunHost(opts: { available?: boolean } = {}) {
     invoke: async (ns, yaml, flow, opts) => {
       calls.ns = ns;
       calls.invoked = { yaml, flow, opts };
+      // A breakAt run halts at the block and reports the message there instead of a
+      // result body, exactly as the real runner's envelope does.
+      if (opts?.breakAt) {
+        return {
+          ok: true,
+          exitCode: 0,
+          timedOut: false,
+          dropped: false,
+          output: "",
+          logs: ["invoked greet"],
+          breakpoint: {
+            reached: true,
+            block: opts.breakAt,
+            message: { body: { amount: 250 } },
+          },
+        };
+      }
       return {
         ok: true,
         exitCode: 0,
@@ -268,6 +288,42 @@ describe("run tools", () => {
       dropped: false,
       output: '{"result":"ok"}',
       logs: ["invoked greet"],
+    });
+  });
+
+  it("invoke_flow forwards vars, breakAt and logLevel to the runner", async () => {
+    const { host, calls } = stubRunHost();
+    const client = await connect(config(), host);
+    await client.callTool({
+      name: "invoke_flow",
+      arguments: {
+        id: "a",
+        flow: "greet",
+        vars: '{"tier":"gold"}',
+        breakAt: "greet.charge",
+        logLevel: "error",
+      },
+    });
+    expect(calls.invoked?.opts?.vars).toBe('{"tier":"gold"}');
+    expect(calls.invoked?.opts?.breakAt).toBe("greet.charge");
+    expect(calls.invoked?.opts?.logLevel).toBe("error");
+  });
+
+  it("invoke_flow surfaces the breakpoint envelope", async () => {
+    const { host } = stubRunHost();
+    const client = await connect(config(), host);
+    const res = (await client.callTool({
+      name: "invoke_flow",
+      arguments: { id: "a", flow: "greet", breakAt: "greet.charge" },
+    })) as CallToolResult;
+    expect(res.isError).toBeFalsy();
+    expect(parse(res)).toMatchObject({
+      ok: true,
+      breakpoint: {
+        reached: true,
+        block: "greet.charge",
+        message: { body: { amount: 250 } },
+      },
     });
   });
 

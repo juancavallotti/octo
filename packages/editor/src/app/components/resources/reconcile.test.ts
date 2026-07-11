@@ -50,4 +50,23 @@ describe("reconcileResources", () => {
     expect(out.map((e) => e.name)).toEqual(["a.txt", "b.txt"]);
     expect(out.every((e) => e.scope === "out-of-scope")).toBe(true);
   });
+
+  // The editor's own bookkeeping is not the user's to manage: listing it would offer
+  // to edit or "include in project" a file the editor owns.
+  it("excludes the editor's private .octo/ resources", () => {
+    const out = reconcileResources(
+      [r(".octo/editor-meta.json", "template"), r("welcome.tmpl", "template")],
+      { env: [], templates: [] },
+    );
+    expect(out.map((e) => e.name)).toEqual(["welcome.tmpl"]);
+  });
+
+  // Even a document that somehow declares one must not surface it.
+  it("excludes a declared .octo/ resource", () => {
+    const out = reconcileResources([], {
+      env: [],
+      templates: [{ resource: ".octo/editor-meta.json" }],
+    });
+    expect(out).toHaveLength(0);
+  });
 });

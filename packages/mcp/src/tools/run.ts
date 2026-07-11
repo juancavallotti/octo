@@ -94,7 +94,7 @@ export function registerRunTools(
     {
       title: "Invoke a single flow",
       description:
-        "Run ONE named flow once and return its result and logs — without starting the integration's sources. Supply either a saved integration `id` or an inline `definition` (raw runtime YAML), the `flow` name, and optional `data` (JSON request body) and `env`. This is the fast way to test a flow: returns { ok, timedOut, dropped, output, logs } where `output` is the flow's result body, `dropped` is true when the flow filtered the message (no result), and `logs` are the runner's stderr lines. Use `list_flows` to discover flow names.",
+        "Run ONE named flow once and return its result and logs — without starting the integration's sources. Supply either a saved integration `id` or an inline `definition` (raw runtime YAML), the `flow` name, and optional `data` (JSON request body), `vars` (JSON seeding the message variables), and `env`. This is the fast way to test a flow: returns { ok, timedOut, dropped, output, logs } where `output` is the flow's result body, `dropped` is true when the flow filtered the message (no result), and `logs` are the runner's stderr lines. Because no source runs, nothing populates the message for you — a flow that reads `vars` (e.g. HTTP headers a real request would have carried) needs them supplied via `vars`. Pass `breakAt` to stop at a block and inspect the message there: the result then carries `breakpoint: { reached, block, message, error }`, where `reached:false` means the flow never took that branch (a normal outcome, not an error). Use `list_flows` to discover flow names.",
       inputSchema: {
         id: z
           .string()
@@ -111,10 +111,27 @@ export function registerRunTools(
           .string()
           .optional()
           .describe("Optional JSON request body passed to the flow."),
+        vars: z
+          .string()
+          .optional()
+          .describe(
+            "Optional JSON object seeding the message variables — what a source (e.g. the http one, copying request headers) would normally set.",
+          ),
         env: z
           .record(z.string(), z.string())
           .optional()
           .describe("Optional env vars injected into the run (name → value)."),
+        breakAt: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            "Optional breakpoint address: run until this block, then stop and report the message it produced. Addressed as `<flow>.<block>`, descending into a composite with a bracketed branch — e.g. `orders.charge`, `orders.checkHeader[else].api-call`, `orders[error].notify`.",
+          ),
+        logLevel: z
+          .enum(["debug", "info", "warn", "error"])
+          .optional()
+          .describe("Optional runner log level (default: the runtime's own, info)."),
         timeoutMs: z
           .number()
           .int()
@@ -123,7 +140,7 @@ export function registerRunTools(
           .describe("Max time to wait for the flow, in milliseconds (default 30000)."),
       },
     },
-    ({ id, definition, flow, data, env, timeoutMs }, extra) =>
+    ({ id, definition, flow, data, vars, env, breakAt, logLevel, timeoutMs }, extra) =>
       guard(async () => {
         if ((id === undefined) === (definition === undefined)) {
           return errorResult("provide exactly one of id or definition");
@@ -142,7 +159,10 @@ export function registerRunTools(
         }
         const r = await runHost.invoke(ns, yaml, flow, {
           data,
+          vars,
           env: parsedEnv,
+          breakAt,
+          logLevel,
           timeoutMs,
           // `id` is undefined for an inline definition; the host decides what that
           // yields (the platform: no resources; standalone: its shared files).
@@ -154,6 +174,7 @@ export function registerRunTools(
           dropped: r.dropped,
           output: r.output,
           logs: r.logs,
+          breakpoint: r.breakpoint,
         });
       }),
   );

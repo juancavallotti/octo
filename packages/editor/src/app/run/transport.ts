@@ -29,6 +29,55 @@ export interface CelEvalResult {
   error?: string;
 }
 
+/**
+ * A request to run ONE flow once, without starting the integration's sources. With
+ * `breakAt`, the runner instead halts at the addressed block and reports the message
+ * it was carrying there (see {@link BreakOutcome}).
+ */
+export interface FlowRunRequest {
+  /** The config to run — for a breakpoint run, the plan's clone (see planBreakpoint). */
+  yaml: string;
+  /** The name of the flow to invoke. */
+  flow: string;
+  /** The open integration, so the host can resolve its resources; absent for a draft. */
+  integrationId?: string;
+  /** JSON request body bound to the message's `body`. */
+  data?: string;
+  /** JSON object seeding the message's variables — what a source would normally set. */
+  vars?: string;
+  /** A breakpoint address (see planBreakpoint): run until this block, then stop. */
+  breakAt?: string;
+}
+
+/** What the flow was carrying at the breakpoint, or why it never got there. */
+export interface BreakOutcome {
+  /** False when the flow never took the branch the block is on — a normal outcome. */
+  reached: boolean;
+  /** The address the breakpoint was set on. */
+  block: string;
+  /** The message as it looked after the addressed block ran; absent when unreached. */
+  message?: unknown;
+  /** The flow's own failure, reported in-band rather than as a transport error. */
+  error?: string;
+}
+
+/** The outcome of one flow run. */
+export interface FlowRunOutcome {
+  /** True when the runner completed the call (whatever the flow itself did). */
+  ok: boolean;
+  /** True when the flow filtered the message, so there is no result body. */
+  dropped: boolean;
+  timedOut: boolean;
+  /** The flow's result body as JSON text. Empty for a breakpoint run. */
+  output: string;
+  /** The runner's stderr lines. Manual runs are quiet (error level), so usually empty. */
+  logs: string[];
+  /** Present only for a `breakAt` run. */
+  breakpoint?: BreakOutcome;
+  /** Why the run could not be made at all (a bad address, an unloadable config). */
+  error?: string;
+}
+
 /** Point-in-time runner state, as the provider needs it. */
 export interface RunStatusSnapshot {
   available: boolean;
@@ -57,6 +106,13 @@ export interface RunTransport {
   stop(): Promise<void>;
   /** Push a new config to the running runner so it hot-reloads. */
   sync(args: { yaml: string; integrationId?: string }): Promise<void>;
+  /**
+   * Run one flow once and return what it produced — the editor's debug path, distinct
+   * from {@link start}, which boots the whole integration and its sources. Independent
+   * of a long-running runner: a flow can be invoked while one is running, or with none
+   * at all. The log level is the host's policy, not the caller's.
+   */
+  invoke(req: FlowRunRequest): Promise<FlowRunOutcome>;
   /**
    * Evaluate a single CEL expression against an ad-hoc object, without running a
    * flow — backs the CEL tester. Stateless; unavailable when the runner is not

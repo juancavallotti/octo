@@ -8,12 +8,18 @@ import {
 } from "../providers/FileSystemProvider";
 import { SaveProvider } from "../save/SaveContext";
 import { RunProvider } from "../run/RunContext";
+import { FlowRunProvider } from "../run/FlowRunContext";
+import { ConsoleProvider } from "../run/console";
 import type { RunTransport } from "../run/transport";
 import { DevEnvStoreProvider, type DevEnvStore } from "../state/devEnvStore";
 import {
   ResourceStoreProvider,
   type ResourceStore,
 } from "../providers/ResourceStoreProvider";
+import {
+  EditorMetaProvider,
+  type EditorMetaStore,
+} from "../providers/EditorMetaProvider";
 import IntegrationLoader from "./IntegrationLoader";
 import LogPanel from "./LogPanel";
 import EditorBody from "./EditorBody";
@@ -41,6 +47,7 @@ export default function EditorRoot({
   run,
   devEnv,
   resources,
+  meta,
   onSaved,
 }: {
   integrationId?: string;
@@ -61,6 +68,11 @@ export default function EditorRoot({
   devEnv?: DevEnvStore | null;
   /** Resource-store capability backing the Resources tab; omit to hide the tab. */
   resources?: ResourceStore | null;
+  /**
+   * Editor-meta capability (`.octo/editor-meta.json`), holding a flow's saved test
+   * inputs. Omit and inputs still work — they just live for the session.
+   */
+  meta?: EditorMetaStore | null;
   /** Called after a save with the stored record (e.g. to update the URL). */
   onSaved?: (stored: StoredDocument) => void;
 }) {
@@ -93,9 +105,13 @@ export default function EditorRoot({
       <ResourceStoreProvider value={resources}>{tree}</ResourceStoreProvider>
     );
   if (run) {
+    // FlowRunProvider sits inside RunProvider and drives the console (it opens the tab
+    // that answers what the user just asked), so the console provider wraps them both.
     tree = (
       <RunProvider transport={run}>
-        <DevEnvStoreProvider value={devEnv ?? null}>{tree}</DevEnvStoreProvider>
+        <FlowRunProvider transport={run}>
+          <DevEnvStoreProvider value={devEnv ?? null}>{tree}</DevEnvStoreProvider>
+        </FlowRunProvider>
       </RunProvider>
     );
   }
@@ -106,5 +122,14 @@ export default function EditorRoot({
       </FileSystemProvider>
     );
 
-  return <EditorStateProvider>{tree}</EditorStateProvider>;
+  // Meta is mounted even without a store: test inputs still work for an unsaved draft,
+  // they simply are not written down (the provider reports canPersist: false). It reads
+  // the document, so it sits inside the state provider.
+  return (
+    <EditorStateProvider>
+      <EditorMetaProvider store={meta ?? null}>
+        <ConsoleProvider>{tree}</ConsoleProvider>
+      </EditorMetaProvider>
+    </EditorStateProvider>
+  );
 }

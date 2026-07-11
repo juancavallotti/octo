@@ -6,6 +6,7 @@ import { useEditorState, EditorActionType } from "../state/editorState";
 import SourceCard from "./SourceCard";
 import SourcePicker from "./SourcePicker";
 import FlowView from "./FlowView";
+import FlowRunMenu from "./FlowRunMenu";
 
 /**
  * One flow drawn as the schematic in the brief: a dashed container labelled with
@@ -38,7 +39,12 @@ export default function FlowCard({
       ].join(" ")}
     >
       <div className="mb-3 flex items-center justify-between">
-        <h3 className="font-mono text-xs text-zinc-500">{flow.name}</h3>
+        {/* Run sits with the flow's name, where the flow is identified — it acts on the
+            whole flow, unlike the destructive delete kept over on the right. */}
+        <div className="flex items-center gap-1.5">
+          <FlowRunMenu flowId={flow.id} />
+          <h3 className="font-mono text-xs text-zinc-500">{flow.name}</h3>
+        </div>
         <button
           type="button"
           aria-label="Delete flow"

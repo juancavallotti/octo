@@ -18,6 +18,8 @@ export {
   subscribe,
   runningPort,
   type InvokeResult,
+  type BreakOutcome,
+  type LogLevel,
   type EvalResult,
   type RunResourceOptions,
 } from "./session";

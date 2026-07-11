@@ -82,7 +82,8 @@ const usage = `octo — run and invoke octo integration flows
 
 Usage:
   octo [run] --config <path> [--watch]                       Start connectors and flows (default)
-  octo invoke --config <path> --flow <name> [--data <json>]  Call one flow and print its result
+  octo invoke --config <path> --flow <name> [--data <json>] [--vars <json>]
+                                                             Call one flow and print its result
   octo eval --expr <cel> [--data <json>]                     Evaluate a CEL expression and print the result
   octo schema [--out <path>]                                 Print the editor capability schema as JSON
   octo version                                               Print the version and build date
@@ -96,8 +97,13 @@ Invoke flags:
   --config <path>    path to the runtime config (file or directory)
   --flow <name>      name of the flow to invoke
   --data <json>      JSON request body (reads stdin when omitted)
+  --vars <json>      JSON object seeding the message variables
   --timeout <dur>    max time to wait for the flow (default 30s)
   --break-at <addr>  run until this block, then print the message and stop
+
+  Sources are not started, so nothing populates the message for you. --vars is how
+  you seed what a source normally would: the http source copies request headers into
+  the message variables, so a flow that reads vars needs them supplied here.
 
 Breakpoint addresses (--break-at):
   Address a block as <flow>.<block>, descending into a composite with a bracket
@@ -359,6 +365,10 @@ func invokeCommand(args []string) error {
 	if err != nil {
 		return err
 	}
+	vars, err := parseVariables(flags.vars)
+	if err != nil {
+		return err
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -381,6 +391,7 @@ func invokeCommand(args []string) error {
 		config:   config,
 		flow:     flags.flowName,
 		body:     body,
+		vars:     vars,
 		timeout:  flags.timeout,
 		services: svc,
 	}
@@ -403,6 +414,7 @@ type invokeFlags struct {
 	configPath string
 	flowName   string
 	data       string
+	vars       string
 	breakAt    string
 	timeout    time.Duration
 }
@@ -417,6 +429,7 @@ func parseInvokeFlags(args []string) (invokeFlags, error) {
 	fs.StringVar(&flags.configPath, "config", "", "path to the runtime config (file or directory)")
 	fs.StringVar(&flags.flowName, "flow", "", "name of the flow to invoke")
 	fs.StringVar(&flags.data, "data", "", "JSON request body (reads stdin when omitted)")
+	fs.StringVar(&flags.vars, "vars", "", "JSON object seeding the message variables")
 	fs.StringVar(&flags.breakAt, "break-at", "",
 		"run until this block, then print the message and stop (<flow>.<block>[<branch>].<block>)")
 	fs.DurationVar(&flags.timeout, "timeout", defaultInvokeTimeout, "max time to wait for the flow")
@@ -515,16 +528,13 @@ func evalCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	msg, err := buildMessage(body)
+	vars, err := parseVariables(*varsJSON)
 	if err != nil {
 		return err
 	}
-	if *varsJSON != "" {
-		vars := types.Variables{}
-		if err := json.Unmarshal([]byte(*varsJSON), &vars); err != nil {
-			return fmt.Errorf("parse -vars JSON: %w", err)
-		}
-		msg.Variables = vars
+	msg, err := buildMessage(body, vars)
+	if err != nil {
+		return err
 	}
 	// A non-nil env map keeps env.NAME a missing-key error rather than a null-deref,
 	// matching how a real run materializes its resolved env (see expr.EnvActivation).
@@ -567,6 +577,7 @@ type invokeRequest struct {
 	config     types.Config
 	flow       string
 	body       []byte
+	vars       types.Variables // nil unless --vars was given
 	timeout    time.Duration
 	services   core.RuntimeServices
 	breakpoint *core.Breakpoint // nil unless --break-at was given
@@ -615,7 +626,7 @@ func invokeFlow(ctx context.Context, req invokeRequest) (*types.Message, error) 
 		<-done
 	}()
 
-	msg, err := buildMessage(req.body)
+	msg, err := buildMessage(req.body, req.vars)
 	if err != nil {
 		return nil, err
 	}
@@ -647,8 +658,11 @@ func awaitReady(ctx context.Context, service *runtime.Service, done <-chan error
 	}
 }
 
-// buildMessage creates a message, decoding body into it when non-empty.
-func buildMessage(body []byte) (*types.Message, error) {
+// buildMessage creates a message, decoding body into it when non-empty and seeding
+// vars when non-nil. Variables are how a real source hands a flow everything that is
+// not the body — the HTTP source copies request headers into them — so both `invoke`
+// and `eval` can seed them to reproduce what a block actually reads.
+func buildMessage(body []byte, vars types.Variables) (*types.Message, error) {
 	msg, err := types.NewMessage("")
 	if err != nil {
 		return nil, err
@@ -658,7 +672,23 @@ func buildMessage(body []byte) (*types.Message, error) {
 			return nil, err
 		}
 	}
+	if vars != nil {
+		msg.Variables = vars
+	}
 	return msg, nil
+}
+
+// parseVariables decodes a -vars JSON object into message variables. An empty string
+// means "none given" and yields a nil map, which buildMessage leaves untouched.
+func parseVariables(varsJSON string) (types.Variables, error) {
+	if varsJSON == "" {
+		return nil, nil
+	}
+	vars := types.Variables{}
+	if err := json.Unmarshal([]byte(varsJSON), &vars); err != nil {
+		return nil, fmt.Errorf("parse -vars JSON: %w", err)
+	}
+	return vars, nil
 }
 
 // resolveData returns the request body bytes: the literal -data value, or stdin

@@ -6,6 +6,10 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  // vitest.setup.ts is included so its `@testing-library/jest-dom/vitest` import is
+  // seen: that import is what augments Vitest's Assertion type with toBeInTheDocument,
+  // toBeDisabled, and friends. Without it the matchers work at runtime but every use
+  // is a type error.
+  "include": ["src/**/*.ts", "src/**/*.tsx", "vitest.setup.ts"],
   "exclude": ["node_modules"]
 }

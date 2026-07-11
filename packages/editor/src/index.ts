@@ -35,13 +35,30 @@ export {
 
 // Run capability
 export { RunProvider, useRun, type RunLogLine } from "./app/run/RunContext";
+export { planBreakpoint, type BreakpointPlan } from "./app/run/breakpoint";
+export {
+  useFlowRun,
+  type FlowRunEntry,
+  type FlowRunStatus,
+} from "./app/run/FlowRunContext";
+export { useConsole, type ConsoleTab } from "./app/run/console";
 export type {
   RunTransport,
   RunStatusSnapshot,
   CelEvalRequest,
   CelEvalResult,
+  FlowRunRequest,
+  FlowRunOutcome,
+  BreakOutcome,
 } from "./app/run/transport";
 export type { DevEnvStore } from "./app/state/devEnvStore";
+export {
+  EditorMetaProvider,
+  useEditorMeta,
+  EDITOR_META_RESOURCE,
+  type EditorMetaStore,
+} from "./app/providers/EditorMetaProvider";
+export type { TestInput, EditorMeta, FlowMeta } from "./app/meta/types";
 
 // Resource-store capability (backs the Resources tab)
 export {
@@ -59,7 +76,12 @@ export {
   toDefinitionYaml,
   fromDefinitionYaml,
 } from "./app/model/runConfig";
-export { validateDocument, type ValidationResult } from "./app/model/validate";
+export {
+  validateDocument,
+  issueMessages,
+  type ValidationResult,
+  type Issue,
+} from "./app/model/validate";
 export * from "./app/model/document";
 
 // Capability schema helpers (icon registry + connector/source specs) are exposed

@@ -12,6 +12,7 @@ import {
 function baseState(): EditorState {
   return {
     document: blankDocument(),
+    viewMode: "canvas",
     activeFlowId: null,
     selectedBlockId: null,
     selectedSourceFlowId: null,

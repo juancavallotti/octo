@@ -72,6 +72,89 @@ func TestEvalCommandRequiresExpr(t *testing.T) {
 	}
 }
 
+// TestParseVariables covers the --vars decoder shared by invoke and eval: an absent
+// flag means "none given" (nil, so buildMessage leaves the defaults alone), a valid
+// object decodes, and malformed JSON is a usage error rather than a silent empty map.
+func TestParseVariables(t *testing.T) {
+	t.Run("empty yields nil", func(t *testing.T) {
+		vars, err := parseVariables("")
+		if err != nil {
+			t.Fatalf("parseVariables: %v", err)
+		}
+		if vars != nil {
+			t.Errorf("vars = %+v, want nil", vars)
+		}
+	})
+
+	t.Run("decodes an object", func(t *testing.T) {
+		vars, err := parseVariables(`{"tier":"gold"}`)
+		if err != nil {
+			t.Fatalf("parseVariables: %v", err)
+		}
+		if tier, _ := vars.String("tier"); tier != "gold" {
+			t.Errorf("tier = %q, want %q", tier, "gold")
+		}
+	})
+
+	t.Run("malformed JSON errors", func(t *testing.T) {
+		if _, err := parseVariables("{not json"); err == nil {
+			t.Error("parseVariables on malformed JSON = nil, want error")
+		}
+	})
+}
+
+// TestBuildMessageSeedsVariables: invoke starts no sources, so nothing populates the
+// message for the flow. --vars is how a caller stands in for the source (the http one
+// copies request headers into variables), and it must coexist with a --data body.
+func TestBuildMessageSeedsVariables(t *testing.T) {
+	vars, err := parseVariables(`{"x-api-key":"dev"}`)
+	if err != nil {
+		t.Fatalf("parseVariables: %v", err)
+	}
+
+	msg, err := buildMessage([]byte(`{"amount":7}`), vars)
+	if err != nil {
+		t.Fatalf("buildMessage: %v", err)
+	}
+
+	if key, _ := msg.Variables.String("x-api-key"); key != "dev" {
+		t.Errorf("x-api-key = %q, want %q", key, "dev")
+	}
+	body, ok := msg.Body.(map[string]any)
+	if !ok {
+		t.Fatalf("body = %T, want a decoded JSON object", msg.Body)
+	}
+	if body["amount"] != 7.0 {
+		t.Errorf("body amount = %v, want 7", body["amount"])
+	}
+}
+
+// TestBuildMessageWithoutVars: omitting --vars must leave the message's own variables
+// untouched rather than replacing them with an empty map.
+func TestBuildMessageWithoutVars(t *testing.T) {
+	msg, err := buildMessage([]byte(`{}`), nil)
+	if err != nil {
+		t.Fatalf("buildMessage: %v", err)
+	}
+	if _, ok := msg.Variables.String("anything"); ok {
+		t.Error("a message built without -vars carries variables")
+	}
+}
+
+// TestInvokeFlagsParseVars checks --vars is actually registered on the invoke flagset
+// (it is a separate flagset from eval's, which had the flag first).
+func TestInvokeFlagsParseVars(t *testing.T) {
+	flags, err := parseInvokeFlags([]string{
+		"--config", "x.yaml", "--flow", "orders", "--vars", `{"tier":"gold"}`,
+	})
+	if err != nil {
+		t.Fatalf("parseInvokeFlags: %v", err)
+	}
+	if flags.vars != `{"tier":"gold"}` {
+		t.Errorf("vars = %q, want the JSON object", flags.vars)
+	}
+}
+
 // TestRunVersion checks that every version invocation form is handled in run()
 // and returns nil without falling through to the run/invoke flagsets (which do
 // not define the flag and would otherwise error).

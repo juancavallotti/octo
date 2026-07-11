@@ -1,0 +1,182 @@
+---
+title: "Debugging Flows"
+description: "Run one flow with a test input, stop it on any block, and read the message it was carrying."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+**Run** starts your whole integration: every source comes up and waits for real
+traffic. That is the right thing when you want to try an endpoint, and the wrong
+thing when you have one flow and one question about it.
+
+This page is about the other way to run: invoking a **single flow** with an input
+you supply, and stopping it on a block to see the message at that point. Nothing
+is listening, nothing is scheduled — the flow just runs, once, and tells you what
+came out.
+
+It is the same engine as [`octo invoke`](/guides/debugging-flows) on the command
+line. The editor is a front-end for that command.
+
+## Run a flow
+
+Every flow card carries a **▶** to the left of its name. Press it and a menu
+offers the inputs to run with:
+
+![A flow card with its run menu open, offering No input, two saved test inputs, and Add test input](/screenshots/editor-flow-run.png)
+
+- **No input** runs the flow with an empty message. Enough for a flow that builds
+  its own payload; not enough for one that reads `body.orderId`.
+- Below that are the flow's **saved test inputs**. Pick one and the flow runs
+  with it.
+
+The result lands on the console's **Output** tab, which opens by itself.
+
+<Callout type="warn">
+Invoking a flow does **not** start its sources. An HTTP-sourced flow is not
+served on a port, and a cron-sourced flow does not wait for its schedule — the
+flow runs immediately on the message *you* give it. That is the whole point, but
+it is also the most likely reason a flow behaves differently here than in a real
+run: whatever the source would have put on the message, your test input has to
+supply.
+</Callout>
+
+## Test inputs
+
+A test input is a named message: a JSON **body**, and JSON **variables**.
+
+![The add-test-input form, with a name, a JSON body and a variables map](/screenshots/editor-add-test-input.png)
+
+Variables matter more than they first appear. A source does not only hand over a
+body — the HTTP source copies request headers into the message's *variables*, and
+a flow that reads `vars["x-api-key"]` will fail with `no such key` if you only
+fill in the body. The variables field is where you stand in for that.
+
+Inputs are saved per flow, so the ones you use every day are a click away, and
+they survive a reload. Hover a row in the menu to edit or delete it.
+
+<Callout type="info">
+An integration you have not saved yet has nowhere to keep its inputs. You can
+still run it with a scratch input; the menu will tell you to save the flow first
+if you want to keep one.
+</Callout>
+
+### Where they are stored
+
+Test inputs live in **`.octo/editor-meta.json`**, next to your flows:
+
+```json
+{
+  "version": 1,
+  "resources": {
+    "orders.yaml": {
+      "flows": {
+        "orders": {
+          "inputs": [
+            {
+              "id": "3f2a…",
+              "name": "large order",
+              "data": "{\"orderId\": 42, \"amount\": 250}",
+              "vars": "{\"x-api-key\": \"dev-key\"}"
+            }
+          ]
+        }
+      }
+    }
+  }
+}
+```
+
+Two things follow from this, and both are deliberate:
+
+- **It is safe to commit.** Unlike [`.env.dev`](/editor/running-flows#the-dev-env-tab),
+  which holds real credentials, this file holds only the sample messages you
+  chose to type — so a team can share the inputs a flow is usually exercised
+  with. Keep secrets out of it and it stays shareable; if you must put one in a
+  variable, `.gitignore` the file.
+- **It never ships.** No flow *declares* `.octo/editor-meta.json` under
+  `resources:`, and a deployment only carries the resources its config declares.
+  It is editor metadata, not part of the integration, and it does not reach
+  production.
+
+The file is keyed by flow **name**, and the editor keeps it in step as you work:
+rename a flow and its saved inputs follow the new name.
+
+## Run to a block
+
+The question that actually gets asked of a misbehaving flow is not "what did it
+return" — it is **"what did the message look like when it got *here*"**. Hover any
+block and the same **▶** appears in its corner, beside the delete button.
+
+![A block hovered mid-flow, showing the run-to-here button beside its delete button](/screenshots/editor-breakpoint-hover.png)
+
+Press it and the flow runs from the top and **stops there**. Output shows the
+message that block was carrying — here, `set-payload` inside an `enrich`, with
+the `date` it had just written into the body:
+
+![The Output tab showing the message captured at a breakpoint](/screenshots/editor-breakpoint-result.png)
+
+The snapshot is taken **after** the block runs, so you see its effect — exactly
+what the next block would have received. Nothing downstream runs at all, so no
+later side effects fire.
+
+It reuses the input the flow was last run with, so you can move the breakpoint
+from block to block without re-picking an input each time.
+
+### "Never reached" is an answer
+
+Put the breakpoint inside an `if`'s `else` branch, run an input that takes
+`then`, and the result says the block was **never reached**.
+
+That is a normal outcome, not a failure — and it is frequently the thing you
+needed to learn. The branch you were staring at was never taken, so nothing in it
+could be the bug.
+
+If the flow *fails* on its way to your block, that is different: the error names
+the block that actually broke, and it goes to **Problems**.
+
+<Callout type="info">
+A block whose position cannot be described unambiguously has no ▶ — the editor
+would rather offer nothing than break on a *different* block. In practice this is
+rare; the editor addresses even unnamed, look-alike blocks correctly on its own.
+</Callout>
+
+## The console
+
+![The console header with its four tabs: Logs, Problems, Output and Dev .env](/screenshots/editor-console-tabs.png)
+
+Running a single flow uses two tabs that a full **Run** does not:
+
+- **Problems** — everything standing between you and a run: validation issues
+  (a missing required setting, a connection that points at nothing), and the
+  error from the last failed run. Click an issue and the editor selects the block
+  it belongs to. The check is continuous, so the tab is right as you type, not
+  only once you press Run.
+- **Output** — what your flows *produced*, newest first: the result message of a
+  full run, or the message captured at a breakpoint, with the flow name and the
+  input it ran with. Only output; no log lines.
+
+![The Problems tab showing why the last run failed](/screenshots/editor-problems-tab.png)
+
+The distinction is worth stating plainly: **Logs** is what the flow *said*,
+**Output** is what it *made*. A manual run is spawned quietly (errors only), so
+anything it does print is a problem, and it belongs on the other tab.
+
+A run whose message was **filtered** — a block returned nothing, so the flow
+dropped it — is reported as such on Output. Like "never reached", it is a result,
+not an error.
+
+## When you need the command line
+
+The editor covers the common case: one flow, one input, one breakpoint. When you
+want the full address grammar — breaking inside a loop body, on the *n*th case of
+a switch, or inside a flow reached through `flow-ref` — the CLI does all of it,
+against the same runtime:
+
+```bash
+octo invoke --config orders.yaml --flow orders \
+  --data '{"orderId": 42}' \
+  --break-at 'orders.each-order[body].classify[default].log'
+```
+
+See [Debugging a Flow](/guides/debugging-flows) for a worked tour, and the
+[CLI reference](/reference/cli#breakpoints) for the grammar.

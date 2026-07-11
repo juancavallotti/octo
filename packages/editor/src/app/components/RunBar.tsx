@@ -2,6 +2,7 @@
 
 import { Play, Square } from "lucide-react";
 import { useRun } from "../run/RunContext";
+import { issueMessages } from "../model/validate";
 
 /**
  * The RUN / STOP control in the header. It only appears when a runner binary is
@@ -36,7 +37,7 @@ export default function RunBar() {
 
   const blocked = !validation.ok;
   const title = blocked
-    ? `Fix before running:\n• ${validation.issues.join("\n• ")}`
+    ? `Fix before running:\n• ${issueMessages(validation).join("\n• ")}`
     : "Run this integration with hot reload";
 
   return (

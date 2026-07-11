@@ -7,11 +7,12 @@ import { CSS } from "@dnd-kit/utilities";
 import type { BlockNode } from "../model/document";
 import { useEditorState, EditorActionType } from "../state/editorState";
 import FlowNode from "./FlowNode";
+import BlockRunButton from "./BlockRunButton";
 
 /**
  * The shared draggable wrapper around a node, used by both leaf steps and
- * composites. It owns selection plus the drag-to-move grip and remove button so
- * that behaviour lives in one place.
+ * composites. It owns selection plus the drag-to-move grip and the hover actions
+ * (run-to-here, remove) so that behaviour lives in one place.
  *
  * Leaf steps render as the detached FlowNode pill (icon + label) with `children`
  * (a composite's nested sub-flows) below it. Composites pass `boxed` to instead
@@ -62,21 +63,26 @@ export default function NodeShell({
     </button>
   );
 
-  const remove = (
-    <button
-      type="button"
-      aria-label="Remove step"
-      onClick={(e) => {
-        e.stopPropagation();
-        dispatch({
-          type: EditorActionType.REMOVE_BLOCK,
-          data: { flowId, blockId: block.id },
-        });
-      }}
-      className="absolute -right-2 -top-2 rounded-full border border-black/10 bg-white p-0.5 text-zinc-400 opacity-0 shadow-sm transition-opacity hover:text-red-500 group-hover:opacity-100 dark:border-white/15 dark:bg-zinc-900"
-    >
-      <X size={14} />
-    </button>
+  // The node's hover actions, clustered at its top-right corner: run the flow up to
+  // this block, and remove it.
+  const actions = (
+    <div className="absolute -right-2 -top-2 flex items-center gap-1">
+      <BlockRunButton blockId={block.id} />
+      <button
+        type="button"
+        aria-label="Remove step"
+        onClick={(e) => {
+          e.stopPropagation();
+          dispatch({
+            type: EditorActionType.REMOVE_BLOCK,
+            data: { flowId, blockId: block.id },
+          });
+        }}
+        className="rounded-full border border-black/10 bg-white p-0.5 text-zinc-400 opacity-0 shadow-sm transition-opacity hover:text-red-500 group-hover:opacity-100 dark:border-white/15 dark:bg-zinc-900"
+      >
+        <X size={14} />
+      </button>
+    </div>
   );
 
   if (boxed) {
@@ -95,7 +101,7 @@ export default function NodeShell({
         ].join(" ")}
       >
         {grip}
-        {remove}
+        {actions}
         <div className="mb-2 flex items-center justify-center gap-2">
           {icon}
           <span className="whitespace-nowrap text-sm font-semibold leading-none">
@@ -124,7 +130,7 @@ export default function NodeShell({
     >
       <FlowNode icon={icon} label={label} sublabel={sublabel} selected={selected}>
         {grip}
-        {remove}
+        {actions}
       </FlowNode>
       {children}
     </div>

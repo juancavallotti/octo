@@ -5,7 +5,7 @@ import {
   emptyFlow,
   newBlock,
 } from "./document";
-import { validateDocument } from "./validate";
+import { issueMessages, validateDocument } from "./validate";
 
 /** A minimal runnable document: a cron-driven flow that logs. */
 function runnableDoc(): EditorDocument {
@@ -33,7 +33,7 @@ describe("validateDocument", () => {
   it("rejects a document with no flows", () => {
     const result = validateDocument(blankDocument());
     expect(result.ok).toBe(false);
-    expect(result.issues).toContain("Add at least one flow to run.");
+    expect(issueMessages(result)).toContain("Add at least one flow to run.");
   });
 
   it("flags a missing required setting", () => {
@@ -41,7 +41,7 @@ describe("validateDocument", () => {
     flow.process = [newBlock("set-payload")]; // `value` is required, no default
     const result = validateDocument({ flows: [flow], connectors: [], processors: [], env: [] });
     expect(result.ok).toBe(false);
-    expect(result.issues.some((i) => i.includes("Value is required"))).toBe(true);
+    expect(issueMessages(result).some((i) => i.includes("Value is required"))).toBe(true);
   });
 
   it("flags a dangling connector reference", () => {
@@ -51,7 +51,7 @@ describe("validateDocument", () => {
     flow.process = [rest];
     const result = validateDocument({ flows: [flow], connectors: [], processors: [], env: [] });
     expect(result.ok).toBe(false);
-    expect(result.issues.some((i) => i.includes('"nope"'))).toBe(true);
+    expect(issueMessages(result).some((i) => i.includes('"nope"'))).toBe(true);
   });
 
   it("resolves a connector reference that exists", () => {
@@ -77,7 +77,7 @@ describe("validateDocument", () => {
     flow.process = [rest];
     const result = validateDocument({ flows: [flow], connectors: [], processors: [], env: [] });
     expect(result.ok).toBe(false);
-    expect(result.issues.some((i) => i.includes("Connector is required"))).toBe(true);
+    expect(issueMessages(result).some((i) => i.includes("Connector is required"))).toBe(true);
   });
 
   it("flags a dangling flow reference", () => {
@@ -87,7 +87,7 @@ describe("validateDocument", () => {
     flow.process = [ref];
     const result = validateDocument({ flows: [flow], connectors: [], processors: [], env: [] });
     expect(result.ok).toBe(false);
-    expect(result.issues.some((i) => i.includes('"ghost"'))).toBe(true);
+    expect(issueMessages(result).some((i) => i.includes('"ghost"'))).toBe(true);
   });
 
   it("allows an unbound source when a single connector of the type exists", () => {
@@ -102,7 +102,7 @@ describe("validateDocument", () => {
     doc.connectors.push({ id: "c1", name: "clock-2", type: "cron", settings: {} });
     const result = validateDocument(doc);
     expect(result.ok).toBe(false);
-    expect(result.issues.some((i) => i.includes("choose one"))).toBe(true);
+    expect(issueMessages(result).some((i) => i.includes("choose one"))).toBe(true);
   });
 
   it("flags an explicit source binding that doesn't resolve", () => {
@@ -110,7 +110,7 @@ describe("validateDocument", () => {
     doc.flows[0].source!.connectorRef = "ghost";
     const result = validateDocument(doc);
     expect(result.ok).toBe(false);
-    expect(result.issues.some((i) => i.includes('"ghost"'))).toBe(true);
+    expect(issueMessages(result).some((i) => i.includes('"ghost"'))).toBe(true);
   });
 
   it("flags duplicate connection names", () => {
@@ -121,7 +121,7 @@ describe("validateDocument", () => {
     );
     const result = validateDocument(doc);
     expect(result.ok).toBe(false);
-    expect(result.issues.some((i) => i.includes("used more than once"))).toBe(true);
+    expect(issueMessages(result).some((i) => i.includes("used more than once"))).toBe(true);
   });
 
   it("flags an empty required branch and missing condition on a composite", () => {
@@ -130,8 +130,8 @@ describe("validateDocument", () => {
     flow.process = [ifb];
     const result = validateDocument({ flows: [flow], connectors: [], processors: [], env: [] });
     expect(result.ok).toBe(false);
-    expect(result.issues.some((i) => i.includes("Condition is required"))).toBe(true);
-    expect(result.issues.some((i) => i.includes("needs at least one step"))).toBe(true);
+    expect(issueMessages(result).some((i) => i.includes("Condition is required"))).toBe(true);
+    expect(issueMessages(result).some((i) => i.includes("needs at least one step"))).toBe(true);
   });
 
   it("accepts a composite once its condition and required branch are filled", () => {
@@ -145,6 +145,75 @@ describe("validateDocument", () => {
     expect(validateDocument({ flows: [flow], connectors: [], processors: [], env: [] })).toEqual({
       ok: true,
       issues: [],
+    });
+  });
+
+  // The ids are what let the Problems tab select the offending node when an issue is
+  // clicked; without them a problem can only be read, not navigated to.
+  describe("issue identity", () => {
+    it("points a block's issue at that block and its flow", () => {
+      const block = newBlock("set-payload"); // `value` is required, no default
+      const flow = emptyFlow("greet");
+      flow.process = [block];
+
+      const result = validateDocument({ flows: [flow], connectors: [], processors: [], env: [] });
+      const issue = result.issues.find((i) => i.message.includes("Value is required"));
+
+      expect(issue).toMatchObject({
+        severity: "error",
+        flowId: flow.id,
+        blockId: block.id,
+      });
+    });
+
+    // A block nested in a composite's branch must still be selectable — the point is
+    // to reach the block at fault, not the composite that happens to contain it.
+    it("points a nested block's issue at the nested block", () => {
+      const inner = newBlock("set-payload");
+      const branch = emptyFlow("");
+      branch.process = [inner];
+      const ifb = newBlock("if");
+      ifb.settings.condition = "body.ok";
+      ifb.slots!.then = [branch];
+      const flow = emptyFlow("router");
+      flow.process = [ifb];
+
+      const result = validateDocument({ flows: [flow], connectors: [], processors: [], env: [] });
+      const issue = result.issues.find((i) => i.message.includes("Value is required"));
+
+      expect(issue?.blockId).toBe(inner.id);
+      expect(issue?.flowId).toBe(branch.id);
+    });
+
+    it("leaves a document-wide issue unanchored", () => {
+      const result = validateDocument(blankDocument());
+      const issue = result.issues.find((i) => i.message === "Add at least one flow to run.");
+
+      expect(issue?.flowId).toBeUndefined();
+      expect(issue?.blockId).toBeUndefined();
+    });
+
+    // A connection is not a canvas node, so clicking its issue has nothing to select.
+    it("leaves a connection issue unanchored", () => {
+      const result = validateDocument({
+        flows: [],
+        connectors: [{ id: "c0", name: "api", type: "rest", settings: {} }],
+        processors: [],
+        env: [],
+      });
+      const issue = result.issues.find((i) => i.message.startsWith('Connection "api"'));
+
+      expect(issue).toBeDefined();
+      expect(issue?.blockId).toBeUndefined();
+    });
+
+    it("anchors a flow's source issue to the flow", () => {
+      const flow = emptyFlow("ticker");
+      flow.source = { connector: "cron", type: "cron", settings: {} }; // no schedule
+      const result = validateDocument({ flows: [flow], connectors: [], processors: [], env: [] });
+      const issue = result.issues.find((i) => i.message.includes("source"));
+
+      expect(issue?.flowId).toBe(flow.id);
     });
   });
 });

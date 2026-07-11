@@ -3,6 +3,7 @@
     "index",
     "docker",
     "running-flows",
+    "debugging-flows",
     "how-it-works"
   ],
   "title": "Standalone Editor"

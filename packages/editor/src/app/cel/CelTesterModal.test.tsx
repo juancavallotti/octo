@@ -33,6 +33,13 @@ function stubTransport(overrides?: Partial<RunTransport>): RunTransport {
     }),
     stop: async () => {},
     sync: async () => {},
+    invoke: async () => ({
+      ok: true,
+      dropped: false,
+      timedOut: false,
+      output: "",
+      logs: [],
+    }),
     evalCel: async () => ({ ok: true, result: 3 }),
     subscribeLogs: () => () => {},
     ...overrides,

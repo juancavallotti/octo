@@ -3,6 +3,7 @@ import { probeSchema } from "@octo/run-host";
 import {
   CAPABILITIES,
   fromDefinitionYaml,
+  issueMessages,
   validateDocument,
 } from "@octo/editor/runtime";
 import { fsResourceProvider } from "../run/resources";
@@ -22,8 +23,8 @@ export const dynamic = "force-dynamic";
 /** Validate a stored definition with the editor's pre-flight (best-effort). */
 function validate(definition: string): { valid: boolean; errors: string[] } {
   try {
-    const { ok, issues } = validateDocument(fromDefinitionYaml(definition));
-    return { valid: ok, errors: issues };
+    const result = validateDocument(fromDefinitionYaml(definition));
+    return { valid: result.ok, errors: issueMessages(result) };
   } catch (err) {
     return { valid: false, errors: [(err as Error).message] };
   }

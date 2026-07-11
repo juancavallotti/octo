@@ -3,13 +3,19 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, ChevronUp, Copy, Trash2 } from "lucide-react";
 import { useRun, type RunLogLine } from "../run/RunContext";
+import { useFlowRun } from "../run/FlowRunContext";
+import { useConsole } from "../run/console";
 import DevEnvPanel from "./DevEnvPanel";
+import ConsoleTabs from "./console/ConsoleTabs";
+import LogsTab from "./console/LogsTab";
+import ProblemsTab from "./console/ProblemsTab";
+import ResultsTab from "./console/ResultsTab";
 
 const MIN_HEIGHT = 120;
 const MAX_HEIGHT = 480;
 const DEFAULT_HEIGHT = 200;
 // The console height is a workspace-wide preference (not per-integration), so a
-// returning user keeps the layout they dragged to. Both tabs share one height.
+// returning user keeps the layout they dragged to. All tabs share one height.
 const HEIGHT_KEY = "octo.console.height";
 
 /** Read the persisted console height, clamped to bounds; DEFAULT_HEIGHT if none. */
@@ -20,58 +26,53 @@ function readStoredHeight(): number {
   if (!Number.isFinite(n)) return DEFAULT_HEIGHT;
   return Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, n));
 }
-// Stable reference for the no-capability case so the scroll effect's deps don't
-// change every render.
+
 const NO_LOGS: RunLogLine[] = [];
 
-type ConsoleTab = "logs" | "env";
-
 /**
- * Docked bottom panel with a tabbed console: the runner's live log stream and a
- * "Dev .env" editor for local secret values. It only renders when a runner is
- * available. The height is adjustable by dragging the top divider, and the panel
- * can be collapsed to just its header. Log lines auto-scroll to the bottom while
- * the user is already near it.
+ * The docked bottom console: Problems, Logs, Results, and the Dev .env editor. It only
+ * renders when a runner is available. Height is adjustable by dragging the top divider,
+ * and the panel collapses to its header.
+ *
+ * The tab and collapse state live in ConsoleProvider rather than here, because a flow
+ * run needs to be able to open the panel on the tab that answers what the user just
+ * asked — see FlowRunContext.
  */
 export default function LogPanel() {
   const run = useRun();
-  const [tab, setTab] = useState<ConsoleTab>("logs");
+  const flowRun = useFlowRun();
+  const { tab, setTab, override, setOverride, openTo } = useConsole();
   const [height, setHeight] = useState(readStoredHeight);
-  // Collapsed by default and follows the run state (opens when running), until
-  // the user overrides it with the toggle. Derived rather than synced in an
-  // effect so a run starting auto-expands the panel without a state write.
-  const [override, setOverride] = useState<boolean | null>(null);
-  // Brief "copied" confirmation on the test-URL copy button.
   const [copied, setCopied] = useState(false);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => {
-    if (copiedTimer.current) clearTimeout(copiedTimer.current);
-  }, []);
-  // Safe reads so all hooks run unconditionally even with no run capability.
+  useEffect(
+    () => () => {
+      if (copiedTimer.current) clearTimeout(copiedTimer.current);
+    },
+    [],
+  );
+
   const running = run?.running ?? false;
   const logs = run?.logs ?? NO_LOGS;
+  const results = flowRun?.results ?? [];
+  const issues = run?.validation.issues ?? [];
+  // Collapsed by default, following the run state, until the user overrides it.
   const collapsed = override ?? !running;
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const pinnedRef = useRef(true);
 
-  useEffect(() => {
-    if (collapsed || tab !== "logs") return;
-    const el = scrollRef.current;
-    if (el && pinnedRef.current) el.scrollTop = el.scrollHeight;
-  }, [logs, collapsed, tab]);
-
-  // Pressing Run should surface the log stream even if the Dev .env tab is active.
-  // Snap to "logs" on the false→true running transition (not while it stays true,
-  // so the user can freely switch back to Dev .env during a run).
+  // Pressing Run should surface the log stream. Snap on the false→true transition only,
+  // so the user can switch away freely while a run continues.
   const prevRunning = useRef(running);
   useEffect(() => {
-    if (running && !prevRunning.current) setTab("logs");
+    if (running && !prevRunning.current) openTo("logs");
     prevRunning.current = running;
-  }, [running]);
+  }, [running, openTo]);
 
-  // No RunProvider mounted, or no runner available => no log panel.
   if (!run || !run.available) return null;
   const { version, testUrl, clearLogs } = run;
+
+  // The last run's failure, shown under the validation issues: a document can be
+  // perfectly valid and still fail the moment it actually runs.
+  const runErrors = results[0]?.error ? [results[0].error] : [];
 
   function startResize(e: React.PointerEvent) {
     e.preventDefault();
@@ -79,7 +80,6 @@ export default function LogPanel() {
     const startHeight = height;
     let latest = startHeight;
     const onMove = (ev: PointerEvent) => {
-      // Dragging the top edge upwards grows the panel.
       const next = startHeight + (startY - ev.clientY);
       latest = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, next));
       setHeight(latest);
@@ -87,17 +87,10 @@ export default function LogPanel() {
     const onUp = () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
-      // Persist once at the end of the drag rather than on every pointer move.
       window.localStorage.setItem(HEIGHT_KEY, String(latest));
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
-  }
-
-  function onScroll() {
-    const el = scrollRef.current;
-    if (!el) return;
-    pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
   }
 
   return (
@@ -115,8 +108,7 @@ export default function LogPanel() {
         />
       )}
 
-      {/* Header — clicking anywhere on it toggles the panel; the action buttons
-          stop propagation so they keep their own behavior. */}
+      {/* Header — clicking it toggles the panel; the buttons stop propagation. */}
       <div
         role="button"
         tabIndex={0}
@@ -134,34 +126,18 @@ export default function LogPanel() {
           aria-hidden
           className={`h-2 w-2 rounded-full ${running ? "bg-emerald-500" : "bg-zinc-400"}`}
         />
-        <div className="flex items-center gap-0.5">
-          {(
-            [
-              ["logs", `Logs${running ? " — running" : ""}`],
-              ["env", "Dev .env"],
-            ] as const
-          ).map(([key, label]) => (
-            <button
-              key={key}
-              type="button"
-              aria-pressed={tab === key}
-              onClick={(e) => {
-                e.stopPropagation();
-                setTab(key);
-                if (collapsed) setOverride(false);
-              }}
-              className={`rounded px-2 py-0.5 text-xs font-medium tracking-tight transition-colors ${
-                tab === key
-                  ? "bg-black/[0.06] text-zinc-800 dark:bg-white/10 dark:text-zinc-100"
-                  : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        {tab === "logs" && version && (
-          <span className="text-xs text-zinc-400 tabular-nums dark:text-zinc-500">
+        <ConsoleTabs
+          active={tab}
+          running={running}
+          counts={{ problems: issues.length, results: results.length }}
+          onSelect={(next) => {
+            setTab(next);
+            if (collapsed) setOverride(false);
+          }}
+        />
+        {/* The runner's version identifies the whole console, not just the log stream. */}
+        {version && (
+          <span className="shrink-0 text-xs text-zinc-400 tabular-nums dark:text-zinc-500">
             — {version}
           </span>
         )}
@@ -200,15 +176,16 @@ export default function LogPanel() {
           </>
         )}
         <div className="ml-auto flex items-center gap-1">
-          {tab === "logs" && (
+          {(tab === "logs" || tab === "results") && (
             <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                clearLogs();
+                if (tab === "logs") clearLogs();
+                else flowRun?.clear();
               }}
-              aria-label="Clear logs"
-              title="Clear logs"
+              aria-label={tab === "logs" ? "Clear logs" : "Clear output"}
+              title={tab === "logs" ? "Clear logs" : "Clear output"}
               className="rounded p-1 text-zinc-500 hover:bg-black/5 dark:hover:bg-white/10"
             >
               <Trash2 className="h-3.5 w-3.5" />
@@ -233,29 +210,12 @@ export default function LogPanel() {
         </div>
       </div>
 
-      {/* Body */}
-      {!collapsed &&
-        (tab === "logs" ? (
-        <div
-          ref={scrollRef}
-          onScroll={onScroll}
-          className="flex-1 overflow-auto px-3 py-2 font-mono text-xs leading-relaxed text-zinc-700 dark:text-zinc-300"
-        >
-          {logs.length === 0 ? (
-            <p className="text-zinc-400 dark:text-zinc-600">
-              No output yet. Press Run to start the integration.
-            </p>
-          ) : (
-            logs.map((line) => (
-              <div key={line.seq} className="whitespace-pre-wrap break-words">
-                {line.text || " "}
-              </div>
-            ))
-          )}
-        </div>
-        ) : (
-          <DevEnvPanel />
-        ))}
+      {!collapsed && tab === "problems" && (
+        <ProblemsTab issues={issues} runErrors={runErrors} />
+      )}
+      {!collapsed && tab === "logs" && <LogsTab logs={logs} />}
+      {!collapsed && tab === "results" && <ResultsTab results={results} />}
+      {!collapsed && tab === "env" && <DevEnvPanel />}
     </section>
   );
 }

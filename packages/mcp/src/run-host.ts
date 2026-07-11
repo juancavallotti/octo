@@ -26,6 +26,17 @@ export interface RunLogLine {
   text: string;
 }
 
+/** The envelope a `breakAt` invoke returns: the message at the block, or why not. */
+export interface BreakOutcomeLike {
+  /** False when the flow never took the branch the block is on — a normal result. */
+  reached: boolean;
+  block: string;
+  /** The message as it looked after the addressed block ran. */
+  message?: unknown;
+  /** The flow's own failure, reported in-band. */
+  error?: string;
+}
+
 /** The outcome of a one-shot `invoke`: the flow's stdout result and its stderr logs. */
 export interface InvokeResultLike {
   ok: boolean;
@@ -35,6 +46,8 @@ export interface InvokeResultLike {
   dropped: boolean;
   output: string;
   logs: string[];
+  /** Present only for a `breakAt` invoke: what the flow was carrying at that block. */
+  breakpoint?: BreakOutcomeLike;
 }
 
 /** The outcome of a one-shot CEL `evalCel`: the evaluated result or the compile/eval error. */
@@ -64,9 +77,13 @@ export interface RunHostPort {
     flow: string,
     opts?: {
       data?: string;
+      vars?: string;
       env?: Record<string, string>;
       timeoutMs?: number;
       resources?: ResourceProvider;
+      /** Run until this block, then stop and report the message it produced. */
+      breakAt?: string;
+      logLevel?: "debug" | "info" | "warn" | "error";
     },
   ): Promise<InvokeResultLike>;
   /** Evaluate a CEL expression against an ad-hoc object (no flow run, no namespace). */
