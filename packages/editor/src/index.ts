@@ -36,6 +36,12 @@ export {
 // Run capability
 export { RunProvider, useRun, type RunLogLine } from "./app/run/RunContext";
 export { planBreakpoint, type BreakpointPlan } from "./app/run/breakpoint";
+export {
+  useFlowRun,
+  type FlowRunEntry,
+  type FlowRunStatus,
+} from "./app/run/FlowRunContext";
+export { useConsole, type ConsoleTab } from "./app/run/console";
 export type {
   RunTransport,
   RunStatusSnapshot,

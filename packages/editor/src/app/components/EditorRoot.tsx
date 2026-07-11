@@ -8,6 +8,8 @@ import {
 } from "../providers/FileSystemProvider";
 import { SaveProvider } from "../save/SaveContext";
 import { RunProvider } from "../run/RunContext";
+import { FlowRunProvider } from "../run/FlowRunContext";
+import { ConsoleProvider } from "../run/console";
 import type { RunTransport } from "../run/transport";
 import { DevEnvStoreProvider, type DevEnvStore } from "../state/devEnvStore";
 import {
@@ -103,9 +105,13 @@ export default function EditorRoot({
       <ResourceStoreProvider value={resources}>{tree}</ResourceStoreProvider>
     );
   if (run) {
+    // FlowRunProvider sits inside RunProvider and drives the console (it opens the tab
+    // that answers what the user just asked), so the console provider wraps them both.
     tree = (
       <RunProvider transport={run}>
-        <DevEnvStoreProvider value={devEnv ?? null}>{tree}</DevEnvStoreProvider>
+        <FlowRunProvider transport={run}>
+          <DevEnvStoreProvider value={devEnv ?? null}>{tree}</DevEnvStoreProvider>
+        </FlowRunProvider>
       </RunProvider>
     );
   }
@@ -121,7 +127,9 @@ export default function EditorRoot({
   // the document, so it sits inside the state provider.
   return (
     <EditorStateProvider>
-      <EditorMetaProvider store={meta ?? null}>{tree}</EditorMetaProvider>
+      <EditorMetaProvider store={meta ?? null}>
+        <ConsoleProvider>{tree}</ConsoleProvider>
+      </EditorMetaProvider>
     </EditorStateProvider>
   );
 }
