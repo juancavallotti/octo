@@ -29,7 +29,7 @@ Running `octo` with no arguments prints the help page above.
 | Subcommand | Purpose |
 | --- | --- |
 | [`run`](#octo-run) | Start the configured connectors and flows until interrupted (the default subcommand). |
-| [`invoke`](#octo-invoke) | Load a config, call one flow by name with a JSON body, and print its result. |
+| [`invoke`](#octo-invoke) | Load a config, call one flow by name with a JSON body, and print its result. Use [`--break-at`](#breakpoints) to stop at a block and inspect the message there. |
 | [`eval`](#octo-eval) | Evaluate a CEL expression against an ad-hoc message, without a config. |
 | [`schema`](#octo-schema) | Emit the capability catalogue (blocks and connectors) as JSON. `capabilities` is an alias. |
 | [`version`](#octo-version) | Print the release version and build date. |
@@ -93,6 +93,7 @@ octo invoke --config samples/hello-invoke.yaml --flow greet --data '{"name": "Ad
 | `--flow` | string | (required) | Name of the flow to invoke. |
 | `--data` | JSON | stdin | JSON request body. When omitted, piped stdin is read instead. |
 | `--timeout` | duration | `30s` | Maximum time to wait for the flow (Go duration, e.g. `10s`, `2m`). |
+| `--break-at` | address | (none) | Run until this block, print the message it produced, and stop. See [Breakpoints](#breakpoints). |
 
 The body can also arrive on stdin — `--data` and a pipe are interchangeable:
 
@@ -110,6 +111,202 @@ rejected it, or a block returned nothing), `invoke` logs
 `flow dropped the message` and prints no result. Any flow is callable this
 way, including flows without a `source:` (see
 [Flow File](/reference/flow-file#flows)).
+
+## Breakpoints
+
+`--break-at` answers a question a plain `invoke` cannot: **what did the message
+look like at this point in the flow?** The runtime wraps the block you address,
+runs the flow until it reaches that block, records the message the block
+produced, and stops — the rest of the chain never runs.
+
+```bash
+octo invoke --config samples/builtins-demo.yaml --flow demo \
+  --data '{"firedAt": "2026-07-10T12:00:00Z"}' \
+  --break-at 'demo.set-threshold'
+```
+
+```json
+{"reached":true,"block":"demo.set-threshold","message":{
+  "event_id":"5c12…","variables":{"threshold":100},
+  "body":{"firedAt":"2026-07-10T12:00:00Z","orders":[{"id":1,"amount":50},{"id":2,"amount":250}]}}}
+```
+
+The snapshot is the message **after** the addressed block ran — what the next
+block would have received. It carries the body and every variable set so far.
+
+Breakpoints are a debugging aid for `invoke` only. They are not a block you can
+write in a flow, they never appear in the editor palette, and they are refused
+outside invoke mode, so they can never halt live traffic.
+
+### The output envelope
+
+`--break-at` always prints one JSON object, whether or not the block was reached:
+
+| Field | Meaning |
+| --- | --- |
+| `reached` | Whether execution ever got to the block. |
+| `block` | The address you asked for, echoed back. |
+| `message` | The message the block produced. Present only when `reached` is true. |
+| `error` | The flow's failure, when it failed before reaching the block. |
+
+**A block that is never reached is a normal result, not an error.** If the flow
+takes the other branch of an `if`, matches a different `switch` case, or drops
+the message first, you get `reached: false` and exit code 0:
+
+```json
+{"reached":false,"block":"demo.any-orders[else].log"}
+```
+
+That is usually the most valuable answer the flag gives you — it tells you the
+branch you were debugging never ran at all.
+
+<Callout type="info">
+An **address that does not resolve** is a different thing entirely: it is a
+mistake in your command, so `invoke` exits **non-zero** and prints no envelope.
+A typo can never be mistaken for `reached: false`. The error lists what is
+actually there:
+
+```
+no block "nosuchblock" in that chain (blocks: seed-orders, set-threshold, any-orders, each-order, drop-threshold)
+has no branch "nope" (branches: then, else)
+```
+</Callout>
+
+### Addressing a block
+
+An address starts with the **flow name** and walks down to the block, one segment
+per step:
+
+```
+<flow>.<block>
+<flow>.<composite>[<branch>].<block>
+<flow>.<composite>[<branch>].<composite>[<branch>].<block>
+```
+
+A **bracket names the branch to descend into**. Every segment but the last names
+a composite and the branch to follow; the last segment names the block you want
+to break on.
+
+#### Naming a block
+
+Within a chain, a block is matched by its **`name`**, else its **`type`**, else
+its **`ref`** — in that order. So an unnamed block is still addressable, as long
+as it is the only one of its kind in that chain:
+
+```yaml
+process:
+  - type: set-payload
+    name: seed-orders     # -> demo.seed-orders
+  - type: log             # -> demo.log   (only one `log` in this chain)
+  - ref: shared-http      # -> demo.shared-http
+```
+
+If two blocks in the same chain would match, the address is **rejected** rather
+than guessed at — give the one you want a `name:`.
+
+#### Naming a branch
+
+Every composite exposes its branches by name:
+
+| Composite | Branch names |
+| --- | --- |
+| `if` | `then`, `else` |
+| `foreach`, `enrich`, `cache-scope` | `body` |
+| `handle-errors`, `ai-retry` | `process`, `error` |
+| `validate`, `jwt-validate` (filter blocks) | `onReject` |
+| `fork` | each branch's `name` — or its index (`0`, `1`, …) |
+| `switch` | each case's `name` — or its index — plus `default` |
+| `ai-router` | each route's `name`, plus `default` |
+| `ai-agent`, `mcp-router` | each tool's `name`, plus `default` |
+
+A bracket on the **flow** itself selects its error chain: `orders[error].notify`.
+
+### Examples
+
+Given this flow:
+
+```yaml
+flows:
+  - name: orders
+    process:
+      - type: set-payload
+        name: seed
+      - type: if
+        name: check-header
+        condition: "size(body.orders) > 0"
+        then:
+          process:
+            - type: rest
+              name: charge
+        else:
+          process:
+            - type: log
+      - type: foreach
+        name: each-order
+        items: "body.orders"
+        as: order
+        body:
+          process:
+            - type: switch
+              name: classify
+              cases:
+                - when: "vars.order.amount >= 100"
+                  process:
+                    - type: log
+              default:
+                process:
+                  - type: log
+      - type: fork
+        name: fanout
+        branches:
+          - name: audit
+            process:
+              - type: log
+                name: log-it
+          - name: notify
+            process:
+              - type: rest
+    error:
+      - type: log
+        name: notify-failure
+```
+
+| Address | Breaks on |
+| --- | --- |
+| `orders.seed` | The `set-payload`, in the flow's own chain. |
+| `orders.check-header[then].charge` | The `rest` inside the `if`'s **then** branch. |
+| `orders.check-header[else].log` | The `log` inside the **else** branch. Reports `reached: false` whenever the condition is true. |
+| `orders.each-order[body].classify` | The `switch`, on the **first** iteration of the loop — `vars.order` is the first item. |
+| `orders.each-order[body].classify[0].log` | The `log` inside the switch's **first case**. The loop keeps going until a message actually reaches it, so this fires on whichever iteration first matches `amount >= 100`. |
+| `orders.each-order[body].classify[default].log` | The `log` in the switch's **default** branch. |
+| `orders.fanout[audit].log-it` | A block inside a **fork branch**, addressed by the branch's name. |
+| `orders.fanout[1].rest` | The same, by branch **index**. |
+| `orders[error].notify-failure` | A block on the flow's **error chain**. Reports `reached: false` unless the flow fails. |
+
+The address may name a flow **other than** the one you invoke, which is how you
+break inside a flow reached through `flow-ref`. The stop folds back through the
+call, so the calling flow halts too:
+
+```bash
+octo invoke --config ./flows --flow caller --break-at 'sub.step'
+```
+
+### Things worth knowing
+
+- **The block after the breakpoint never runs.** That is the point — the flow
+  halts, so no downstream side effects fire.
+- **In a `foreach`, the breakpoint fires on the first iteration that reaches
+  it**, and the loop stops there. Breaking inside a `switch` case that only some
+  items match is a good way to inspect the first item that does.
+- **In a `cache-scope`, a cache hit skips the body entirely**, so a breakpoint
+  inside the body correctly reports `reached: false`. Nothing is written to the
+  cache when a breakpoint halts the body.
+- **A `fork`'s sibling branches still run to completion.** A breakpoint in one
+  branch does not cancel the others; the flow halts after the fork joins.
+- **The block you break on still runs.** The snapshot is taken *after* it. If it
+  fails or drops the message, there is no message to show and you get
+  `reached: false` — with the failure in `error`.
+- Numbers in the printed body are JSON numbers, so integers may show as floats.
 
 ## octo eval
 
