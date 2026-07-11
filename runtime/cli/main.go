@@ -97,6 +97,23 @@ Invoke flags:
   --flow <name>      name of the flow to invoke
   --data <json>      JSON request body (reads stdin when omitted)
   --timeout <dur>    max time to wait for the flow (default 30s)
+  --break-at <addr>  run until this block, then print the message and stop
+
+Breakpoint addresses (--break-at):
+  Address a block as <flow>.<block>, descending into a composite with a bracket
+  naming the branch to follow:
+
+    orders.charge                      a block in the flow's own chain
+    orders.checkHeader[else].api-call  the "else" branch of an if
+    orders.loop[body].transform        a foreach/enrich/cache-scope body
+    orders.guard[error].notify         a handle-errors error path
+    orders.fanout[audit].log-it        a fork branch, by its name
+    orders.pick[vip].comp              a switch case (or ai-router route, ai-agent tool)
+    orders[error].notify               the flow's own error chain
+
+  A block is named by its "name", else its type, else its ref; name it if two of
+  a kind share a chain. The output is a JSON envelope: {"reached":true,"message":
+  {...}} when the flow got there, {"reached":false} when it never did.
 
 Eval flags:
   --expr <cel>       CEL expression to evaluate (required)
@@ -309,30 +326,36 @@ func waitForChange(ctx context.Context, changed <-chan struct{}) bool {
 	}
 }
 
+// breakOutcome is the JSON envelope `octo invoke --break-at` prints on stdout.
+// Reached distinguishes "the flow ran through the block, here is the message it
+// produced" from "the flow never got there" — the latter is a normal result, not a
+// failure: the message may simply have taken a branch the block is not on. Error
+// carries a flow failure, which is likewise a debugging result rather than a CLI
+// error, so both cases exit 0 and a consumer can parse the envelope instead of
+// inspecting exit codes. An unresolvable address is not reported here at all; it is
+// a bad request and exits non-zero.
+type breakOutcome struct {
+	Reached bool           `json:"reached"`
+	Block   string         `json:"block"`
+	Message *types.Message `json:"message,omitempty"`
+	Error   string         `json:"error,omitempty"`
+}
+
 // invokeCommand calls a flow by name with data supplied on the command line (or
-// stdin), printing the result body as JSON. Sources are not started.
+// stdin), printing the result body as JSON. Sources are not started. With
+// --break-at it instead runs the flow until it reaches the addressed block, and
+// prints a breakOutcome envelope holding the message at that point.
 func invokeCommand(args []string) error {
-	fs := flag.NewFlagSet("invoke", flag.ContinueOnError)
-	fs.SetOutput(io.Discard) // suppress the default usage dump; we print our own
-	configPath := fs.String("config", "", "path to the runtime config (file or directory)")
-	flowName := fs.String("flow", "", "name of the flow to invoke")
-	data := fs.String("data", "", "JSON request body (reads stdin when omitted)")
-	timeout := fs.Duration("timeout", defaultInvokeTimeout, "max time to wait for the flow")
-	if err := fs.Parse(args); err != nil {
+	flags, err := parseInvokeFlags(args)
+	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			fmt.Println(usage)
 			return nil
 		}
-		return fmt.Errorf("parse invoke flags: %w", err)
-	}
-	if *configPath == "" {
-		return errors.New("config path is required")
-	}
-	if *flowName == "" {
-		return errors.New("flow name is required (-flow)")
+		return err
 	}
 
-	body, err := resolveData(*data)
+	body, err := resolveData(flags.data)
 	if err != nil {
 		return err
 	}
@@ -342,32 +365,113 @@ func invokeCommand(args []string) error {
 
 	// Build services first: their resource loader (rooted at the config directory)
 	// is needed to load the config's env resources.
-	svc, err := services.New(ctx, services.Options{ResourceRoot: configDir(*configPath)})
+	svc, err := services.New(ctx, services.Options{ResourceRoot: configDir(flags.configPath)})
 	if err != nil {
 		return fmt.Errorf("init runtime services: %w", err)
 	}
 	defer func() { _ = svc.Close() }()
 	teeDefaultLoggerToSink(svc)
 
-	config, err := runtime.LoadConfig(*configPath, svc.Resources())
+	config, err := runtime.LoadConfig(flags.configPath, svc.Resources())
 	if err != nil {
 		return err
 	}
 
-	result, err := invokeFlow(ctx, config, *flowName, body, *timeout, svc)
+	req := invokeRequest{
+		config:   config,
+		flow:     flags.flowName,
+		body:     body,
+		timeout:  flags.timeout,
+		services: svc,
+	}
+	if flags.breakAt != "" {
+		req.breakpoint = core.NewBreakpoint(flags.breakAt)
+	}
+
+	result, err := invokeFlow(ctx, req)
+	if req.breakpoint != nil {
+		return printBreakOutcome(req.breakpoint, err)
+	}
 	if err != nil {
 		return err
 	}
+	return printFlowResult(flags.flowName, result)
+}
+
+// invokeFlags holds the parsed flags of `octo invoke`.
+type invokeFlags struct {
+	configPath string
+	flowName   string
+	data       string
+	breakAt    string
+	timeout    time.Duration
+}
+
+// parseInvokeFlags parses and validates the invoke flags. It returns an error
+// wrapping flag.ErrHelp when the user asked for help, so the caller prints usage.
+func parseInvokeFlags(args []string) (invokeFlags, error) {
+	fs := flag.NewFlagSet("invoke", flag.ContinueOnError)
+	fs.SetOutput(io.Discard) // suppress the default usage dump; we print our own
+
+	var flags invokeFlags
+	fs.StringVar(&flags.configPath, "config", "", "path to the runtime config (file or directory)")
+	fs.StringVar(&flags.flowName, "flow", "", "name of the flow to invoke")
+	fs.StringVar(&flags.data, "data", "", "JSON request body (reads stdin when omitted)")
+	fs.StringVar(&flags.breakAt, "break-at", "",
+		"run until this block, then print the message and stop (<flow>.<block>[<branch>].<block>)")
+	fs.DurationVar(&flags.timeout, "timeout", defaultInvokeTimeout, "max time to wait for the flow")
+
+	if err := fs.Parse(args); err != nil {
+		return invokeFlags{}, fmt.Errorf("parse invoke flags: %w", err)
+	}
+	if flags.configPath == "" {
+		return invokeFlags{}, errors.New("config path is required")
+	}
+	if flags.flowName == "" {
+		return invokeFlags{}, errors.New("flow name is required (-flow)")
+	}
+	return flags, nil
+}
+
+// printFlowResult prints the flow's result body, the output of a plain invoke.
+func printFlowResult(flowName string, result *types.Message) error {
 	if result == nil {
-		slog.Info("flow dropped the message", "flow", *flowName)
+		slog.Info("flow dropped the message", "flow", flowName)
 		return nil
 	}
-
 	out, err := result.BodyJSON()
 	if err != nil {
 		return err
 	}
 	fmt.Println(string(out))
+	return nil
+}
+
+// printBreakOutcome prints the envelope for a --break-at run. runErr is whatever
+// invokeFlow returned: a flow failure becomes part of the envelope (the flow may
+// have failed before ever reaching the block, which is worth seeing), while a
+// service that would not start — an unresolvable address, a bad config — is a bad
+// request and is returned so the CLI exits non-zero.
+func printBreakOutcome(bp *core.Breakpoint, runErr error) error {
+	var callErr *flowCallError
+	if runErr != nil && !errors.As(runErr, &callErr) {
+		return runErr
+	}
+
+	outcome := breakOutcome{Block: bp.Address()}
+	if callErr != nil {
+		outcome.Error = callErr.Error()
+	}
+	if snapshot, ok := bp.Snapshot(); ok {
+		outcome.Reached = true
+		outcome.Message = snapshot
+	}
+
+	encoded, err := json.Marshal(outcome)
+	if err != nil {
+		return fmt.Errorf("encode breakpoint outcome: %w", err)
+	}
+	fmt.Println(string(encoded))
 	return nil
 }
 
@@ -457,15 +561,42 @@ func evalExpression(expression string, msg *types.Message, env map[string]any) e
 	return evalOutcome{OK: true, Result: result}
 }
 
+// invokeRequest is everything one `octo invoke` needs: the config to run, the flow
+// to call and what to call it with, and the optional breakpoint to break on.
+type invokeRequest struct {
+	config     types.Config
+	flow       string
+	body       []byte
+	timeout    time.Duration
+	services   core.RuntimeServices
+	breakpoint *core.Breakpoint // nil unless --break-at was given
+}
+
+// flowCallError marks an error raised by running the flow, as opposed to one from
+// building or starting the service. The two mean different things under --break-at:
+// a flow that fails is a debugging result to report in the envelope, while a service
+// that will not start (an unresolvable breakpoint address, a bad config) is a bad
+// request and must exit non-zero.
+type flowCallError struct{ err error }
+
+func (e *flowCallError) Error() string { return e.err.Error() }
+
+func (e *flowCallError) Unwrap() error { return e.err }
+
 // invokeFlow runs the service in invoke mode, waits until it is ready, calls the
-// named flow with body, then tears the service down. It returns the flow's result
-// (nil when the flow dropped the message).
-func invokeFlow(
-	ctx context.Context, config types.Config, flowName string, body []byte, timeout time.Duration,
-	svc core.RuntimeServices,
-) (*types.Message, error) {
-	service := runtime.NewService(config, core.DefaultRegistry(),
-		runtime.WithInvokeMode(), runtime.WithRuntimeServices(svc))
+// named flow, then tears the service down. It returns the flow's result (nil when
+// the flow dropped the message, or when it stopped at a breakpoint before producing
+// one).
+func invokeFlow(ctx context.Context, req invokeRequest) (*types.Message, error) {
+	opts := []runtime.ServiceOption{
+		runtime.WithInvokeMode(),
+		runtime.WithRuntimeServices(req.services),
+	}
+	if req.breakpoint != nil {
+		opts = append(opts, runtime.WithBreakpoint(req.breakpoint))
+	}
+
+	service := runtime.NewService(req.config, core.DefaultRegistry(), opts...)
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan error, 1)
 	go func() { done <- service.Run(runCtx) }()
@@ -484,16 +615,16 @@ func invokeFlow(
 		<-done
 	}()
 
-	msg, err := buildMessage(body)
+	msg, err := buildMessage(req.body)
 	if err != nil {
 		return nil, err
 	}
 
-	callCtx, callCancel := context.WithTimeout(ctx, timeout)
+	callCtx, callCancel := context.WithTimeout(ctx, req.timeout)
 	defer callCancel()
-	result, err := service.Flows().Call(callCtx, flowName, msg)
+	result, err := service.Flows().Call(callCtx, req.flow, msg)
 	if err != nil {
-		return nil, err
+		return nil, &flowCallError{err: err}
 	}
 	return result, nil
 }
