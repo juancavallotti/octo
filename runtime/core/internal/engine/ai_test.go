@@ -342,6 +342,44 @@ func TestAIAgentCallsToolThenFinishes(t *testing.T) {
 	}
 }
 
+// TestAIAgentStopsWhenToolBranchRequestsStop pins that a stop raised inside a tool
+// branch halts the agent at once. Tool branches run on the shared message, so
+// without the check the agent keeps calling the model — burning tokens and
+// iterations — and the next tool call overwrites the body with its arguments. The
+// model here is scripted to call the tool forever, so only the stop can end the
+// loop: if the agent ignored it, it would run to the iteration cap and fail.
+func TestAIAgentStopsWhenToolBranchRequestsStop(t *testing.T) {
+	var seen []any
+	reg := agentRegistry(&seen)
+	reg.MustRegister("stop-tool", func(types.Settings, core.BlockDeps) (core.MessageProcessor, error) {
+		return processorFunc(func(_ context.Context, msg *types.Message) (*types.Message, error) {
+			msg.RequestStop()
+			return msg, nil
+		}), nil
+	})
+
+	fake := &scriptedLLM{repeat: toolCallResp("halt", `{"a":1}`)}
+	cfg := types.BlockConfig{
+		Type: "ai-agent", Connector: "claude", Prompt: "enrich",
+		Tools: []types.ToolConfig{{
+			Name:        "halt",
+			Description: "halts the flow",
+			Process:     []types.BlockConfig{{Type: "stop-tool"}},
+		}},
+	}
+
+	out, err := mustBuildAI(t, reg, depsLLM(fake), cfg).Process(context.Background(), aiMessage(t))
+	if err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	if out == nil || !out.StopRequested() {
+		t.Fatal("a stop inside a tool branch must halt the agent and carry the flag out")
+	}
+	if len(fake.calls) != 1 {
+		t.Errorf("model called %d times, want 1: the agent must not iterate after a tool branch stops", len(fake.calls))
+	}
+}
+
 func TestAIAgentAccumulatesVariablesAcrossTools(t *testing.T) {
 	var seen []any
 	reg := agentRegistry(&seen)
