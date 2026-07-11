@@ -86,21 +86,82 @@ describe("parseEditorMeta", () => {
     });
   });
 
-  // Mocks are not implemented, but a file written by a newer editor must survive a
-  // round-trip through this one rather than being silently stripped.
-  it("preserves the reserved mocks list", () => {
-    const withMocks = {
-      resources: {
-        "a.yaml": {
-          flows: { f: { inputs: [], mocks: [{ block: "f.charge", result: "{}" }] } },
+  describe("mocks", () => {
+    const file = (flow: unknown) => JSON.stringify({ resources: { "a.yaml": { flows: { f: flow } } } });
+    const mocksOf = (json: string) => parseEditorMeta(json).resources["a.yaml"].flows.f.mocks;
+
+    it("round-trips a mock through parse and serialize", () => {
+      const meta = parseEditorMeta(
+        file({
+          inputs: [],
+          mocks: [
+            {
+              address: "f.charge",
+              enabled: true,
+              cases: [{ when: "body.amount > 100", error: "card declined" }],
+              default: { body: '{"ok":true}' },
+            },
+          ],
+        }),
+      );
+      expect(meta.resources["a.yaml"].flows.f.mocks).toEqual([
+        {
+          address: "f.charge",
+          enabled: true,
+          cases: [{ when: "body.amount > 100", error: "card declined" }],
+          default: { body: '{"ok":true}' },
         },
-      },
-    };
-    const meta = parseEditorMeta(JSON.stringify(withMocks));
-    expect(meta.resources["a.yaml"].flows.f.mocks).toEqual([
-      { block: "f.charge", result: "{}" },
-    ]);
-    expect(parseEditorMeta(serializeEditorMeta(meta))).toEqual(meta);
+      ]);
+      expect(parseEditorMeta(serializeEditorMeta(meta))).toEqual(meta);
+    });
+
+    // A mock is saved because the user wants it; the toggle is how they say otherwise.
+    it("treats a mock written without `enabled` as enabled", () => {
+      expect(mocksOf(file({ inputs: [], mocks: [{ address: "f.charge", cases: [] }] }))).toEqual([
+        { address: "f.charge", enabled: true, cases: [] },
+      ]);
+    });
+
+    it("keeps a disabled mock rather than dropping it", () => {
+      const mocks = mocksOf(
+        file({ inputs: [], mocks: [{ address: "f.charge", enabled: false, cases: [] }] }),
+      );
+      expect(mocks?.[0].enabled).toBe(false);
+    });
+
+    // The address is the only handle on a mock; without one it stands in for nothing.
+    it("drops a mock with no address", () => {
+      expect(mocksOf(file({ inputs: [], mocks: [{ cases: [] }, { address: "f.a", cases: [] }] })))
+        .toEqual([{ address: "f.a", enabled: true, cases: [] }]);
+    });
+
+    it("survives a hand-mangled entry without losing the rest of the file", () => {
+      const meta = parseEditorMeta(file({ inputs: [{ id: "i1", name: "one" }], mocks: "nonsense" }));
+      expect(meta.resources["a.yaml"].flows.f.inputs).toHaveLength(1);
+      expect(meta.resources["a.yaml"].flows.f.mocks).toBeUndefined();
+    });
+  });
+
+  describe("spies", () => {
+    const file = (spies: unknown) =>
+      JSON.stringify({ resources: { "a.yaml": { flows: { f: { inputs: [], spies } } } } });
+    const spiesOf = (json: string) => parseEditorMeta(json).resources["a.yaml"].flows.f.spies;
+
+    it("round-trips the spied addresses", () => {
+      const meta = parseEditorMeta(file(["f.seed", "f.fanout[audit].log-it"]));
+      expect(meta.resources["a.yaml"].flows.f.spies).toEqual(["f.seed", "f.fanout[audit].log-it"]);
+      expect(parseEditorMeta(serializeEditorMeta(meta))).toEqual(meta);
+    });
+
+    // A spy is on or it is not, so the same address twice means nothing extra — and the
+    // runtime rejects a duplicate outright ("spy %q is listed twice").
+    it("de-duplicates, and drops anything that is not an address", () => {
+      expect(spiesOf(file(["f.seed", "f.seed", "", 42, null]))).toEqual(["f.seed"]);
+    });
+
+    it("omits the key entirely when nothing is spied", () => {
+      expect(spiesOf(file([]))).toBeUndefined();
+    });
   });
 });
 

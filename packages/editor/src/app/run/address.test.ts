@@ -7,7 +7,13 @@ import {
   newBlock,
   withErrorChain,
 } from "../model/document";
-import { planBreakpoint } from "./breakpoint";
+import {
+  blockIdAddresses,
+  debugConflict,
+  namesNeededFor,
+  naturalAddress,
+  planBreakpoint,
+} from "./address";
 
 /** A document holding one top-level flow. */
 function docWith(flow: FlowDoc): EditorDocument {
@@ -247,5 +253,231 @@ describe("planBreakpoint", () => {
 
       expect(planBreakpoint(docWith(flow), target.id)).toBeNull();
     });
+  });
+});
+
+describe("naturalAddress", () => {
+  it("addresses a block by its name", () => {
+    const target = block("log", "audit");
+    const flow = emptyFlow("orders");
+    flow.process = [block("set-payload", "prep"), target];
+
+    expect(naturalAddress(docWith(flow), target.id)).toBe("orders.audit");
+  });
+
+  it("falls back to the type when the block is unnamed and alone in its chain", () => {
+    const target = block("log");
+    const flow = emptyFlow("orders");
+    flow.process = [block("set-payload"), target];
+
+    expect(naturalAddress(docWith(flow), target.id)).toBe("orders.log");
+  });
+
+  it("descends into a branch", () => {
+    const target = block("log", "inner");
+    const gate = newBlock("if");
+    gate.name = "check";
+    gate.slots!.then = [branch("", target)];
+    const flow = emptyFlow("orders");
+    flow.process = [gate];
+
+    expect(naturalAddress(docWith(flow), target.id)).toBe("orders.check[then].inner");
+  });
+
+  it("addresses the error chain", () => {
+    const target = block("log", "notify");
+    const flow = withErrorChain(emptyFlow("orders"));
+    flow.error!.process = [target];
+
+    expect(naturalAddress(docWith(flow), target.id)).toBe("orders[error].notify");
+  });
+
+  /**
+   * The whole difference from planBreakpoint. A breakpoint may invent a name because it
+   * is thrown away with the run; a mock's address is written to a file and has to be
+   * found again on the next reload, when every client id is new. So it invents nothing,
+   * and says so.
+   */
+  describe("inventing nothing", () => {
+    it("returns null when a sibling answers to the same label", () => {
+      const target = block("log");
+      const flow = emptyFlow("orders");
+      flow.process = [block("log"), target];
+
+      expect(naturalAddress(docWith(flow), target.id)).toBeNull();
+    });
+
+    it("returns null when the block's name would break the grammar", () => {
+      const target = block("log", "a.b");
+      const flow = emptyFlow("orders");
+      flow.process = [target];
+
+      expect(naturalAddress(docWith(flow), target.id)).toBeNull();
+    });
+
+    // An ambiguous composite makes everything under it unaddressable too.
+    it("returns null when an ancestor on the path is ambiguous", () => {
+      const target = block("log", "inner");
+      const first = newBlock("if");
+      const second = newBlock("if");
+      second.slots!.then = [branch("", target)];
+      const flow = emptyFlow("orders");
+      flow.process = [first, second];
+
+      expect(naturalAddress(docWith(flow), target.id)).toBeNull();
+    });
+
+    it("returns null for a block that is not in the document", () => {
+      expect(naturalAddress(docWith(emptyFlow("orders")), "nope")).toBeNull();
+    });
+  });
+});
+
+describe("namesNeededFor", () => {
+  // Nothing to do: the block already has a durable address, so placing a mock on it must
+  // not touch the document.
+  it("asks for no rename when the block is already addressable", () => {
+    const target = block("log", "audit");
+    const flow = emptyFlow("orders");
+    flow.process = [target];
+
+    expect(namesNeededFor(docWith(flow), target.id)).toEqual([]);
+  });
+
+  it("names an ambiguous block after its type", () => {
+    const target = block("log");
+    const flow = emptyFlow("orders");
+    flow.process = [block("log"), target];
+
+    expect(namesNeededFor(docWith(flow), target.id)).toEqual([
+      { blockId: target.id, name: "log-2" },
+    ]);
+  });
+
+  it("picks a name no sibling already holds", () => {
+    const target = block("log");
+    const flow = emptyFlow("orders");
+    flow.process = [block("log"), block("noop", "log-2"), target];
+
+    expect(namesNeededFor(docWith(flow), target.id)).toEqual([
+      { blockId: target.id, name: "log-3" },
+    ]);
+  });
+
+  /**
+   * The rename can land on a block the user never clicked. Here the target is perfectly
+   * addressable within its own branch — it is the ambiguous `if` *above* it that leaves it
+   * with no address, so that is what gets named.
+   */
+  it("names an ambiguous composite on the path rather than the target", () => {
+    const target = block("log", "inner");
+    const first = newBlock("if");
+    const second = newBlock("if");
+    second.slots!.then = [branch("", target)];
+    const flow = emptyFlow("orders");
+    flow.process = [first, second];
+    const doc = docWith(flow);
+
+    expect(namesNeededFor(doc, target.id)).toEqual([{ blockId: second.id, name: "if-2" }]);
+
+    second.name = "if-2";
+    expect(naturalAddress(doc, target.id)).toBe("orders.if-2[then].inner");
+  });
+
+  // Both levels can need one at once: an ambiguous composite AND an ambiguous target.
+  it("names every ambiguous block on the path", () => {
+    const target = block("log");
+    const first = newBlock("if");
+    const second = newBlock("if");
+    const sub = branch("", target);
+    sub.process = [block("log"), target]; // the target is ambiguous in here too
+    second.slots!.then = [sub];
+    const flow = emptyFlow("orders");
+    flow.process = [first, second];
+
+    expect(namesNeededFor(docWith(flow), target.id)).toEqual([
+      { blockId: second.id, name: "if-2" },
+      { blockId: target.id, name: "log-2" },
+    ]);
+  });
+
+  // Naming cannot rescue an unaddressable branch or flow, so the caller must not offer
+  // the affordance at all — exactly as run-to-here already hides itself.
+  it("returns null when no name could make the block addressable", () => {
+    const target = block("log", "log-it");
+    const fork = newBlock("fork");
+    fork.slots!.branches = [branch("1", block("log", "other")), branch("", target)];
+    const flow = emptyFlow("orders");
+    flow.process = [fork];
+
+    expect(namesNeededFor(docWith(flow), target.id)).toBeNull();
+  });
+
+  // The renames, once applied, must actually yield an address. This is the contract the
+  // UI leans on: rename, then read the address back.
+  it("yields a block that naturalAddress can then address", () => {
+    const target = block("log");
+    const flow = emptyFlow("orders");
+    flow.process = [block("log"), target];
+    const doc = docWith(flow);
+
+    for (const rename of namesNeededFor(doc, target.id)!) {
+      const found = flow.process.find((b) => b.id === rename.blockId)!;
+      found.name = rename.name;
+    }
+
+    expect(naturalAddress(doc, target.id)).toBe("orders.log-2");
+  });
+});
+
+describe("blockIdAddresses", () => {
+  it("maps every addressable block, at any depth, and omits the rest", () => {
+    const named = block("log", "audit");
+    const inner = block("log", "inner");
+    const gate = newBlock("if");
+    gate.name = "check";
+    gate.slots!.then = [branch("", inner)];
+    const twinA = block("noop");
+    const twinB = block("noop"); // ambiguous: neither is addressable
+    const flow = emptyFlow("orders");
+    flow.process = [named, gate, twinA, twinB];
+
+    const map = blockIdAddresses(docWith(flow));
+
+    expect(map.get(named.id)).toBe("orders.audit");
+    expect(map.get(gate.id)).toBe("orders.check");
+    expect(map.get(inner.id)).toBe("orders.check[then].inner");
+    expect(map.has(twinA.id)).toBe(false);
+    expect(map.has(twinB.id)).toBe(false);
+  });
+});
+
+describe("debugConflict", () => {
+  /**
+   * A mock deletes the subtree it replaces, so anything addressed inside it can never
+   * fire. The runtime rejects the run outright; its own error reads like a typo, so the
+   * editor says what actually happened.
+   */
+  it("reports a spy addressed inside a mocked block", () => {
+    const conflict = debugConflict(["orders.fanout"], ["orders.fanout[audit].log-it"]);
+    expect(conflict).toContain("inside the mocked block");
+    expect(conflict).toContain("orders.fanout[audit].log-it");
+  });
+
+  it("reports a breakpoint inside a mocked block", () => {
+    expect(debugConflict(["orders.charge"], ["orders.charge.inner"])).not.toBeNull();
+  });
+
+  it("allows a spy on the mocked block itself — it wraps the mock, it is not inside it", () => {
+    expect(debugConflict(["orders.charge"], ["orders.charge"])).toBeNull();
+  });
+
+  // The separator is what makes this safe: `orders.fan` is a different block entirely.
+  it("does not mistake a shared prefix for containment", () => {
+    expect(debugConflict(["orders.fan"], ["orders.fanout"])).toBeNull();
+  });
+
+  it("returns null when nothing is mocked", () => {
+    expect(debugConflict([], ["orders.charge"])).toBeNull();
   });
 });

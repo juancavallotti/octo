@@ -19,11 +19,20 @@ export {
 // Capability schema + icon registry. resolveIcon returns icon *components* but
 // only referencing them (not rendering) is server-safe, so a host can pick an
 // icon for a stored definition without pulling in the React editor.
+//
+// `setCapabilities` is exported here for the same reason the editor entrypoint
+// exports it: validateDocument checks block and connector types against the
+// *active* catalogue, and the bundled one is an empty fallback. A server-side host
+// that validates without injecting the runtime's schema first will find every type
+// unknown — so a headless host (an MCP route) has to inject it just as the editor
+// does. See docs/debug-seam.md and apps/*/app/mcp/route.ts.
 export {
   CAPABILITIES,
+  setCapabilities,
   resolveIcon,
   listConnectors,
   getConnectorSpec,
   getSourceSpec,
+  type Capabilities,
   type ListedSource,
 } from "./app/schema";

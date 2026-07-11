@@ -4,7 +4,7 @@ import { Loader2, Play } from "lucide-react";
 import { useEditorState } from "../state/editorState";
 import { useRun } from "../run/RunContext";
 import { useFlowRun } from "../run/FlowRunContext";
-import { planBreakpoint } from "../run/breakpoint";
+import { planBreakpoint } from "../run/address";
 
 /**
  * "Run to here": run the flow up to this block and show the message it was carrying,

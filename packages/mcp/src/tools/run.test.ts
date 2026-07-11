@@ -7,7 +7,7 @@ import { registerRunTools } from "./run";
 import { createNamespaceResolver } from "../namespace";
 import type { OctoMcpConfig } from "../backend";
 import type { RunHostPort, RunStatusLike } from "../run-host";
-import type { ResourceProvider } from "@octo/run-host";
+import type { MockSpec, ResourceProvider, SpyTrace } from "@octo/run-host";
 
 /** A stub run host that records the last start() and fakes exposable runs. */
 function stubRunHost(opts: { available?: boolean } = {}) {
@@ -27,6 +27,8 @@ function stubRunHost(opts: { available?: boolean } = {}) {
         timeoutMs?: number;
         resources?: ResourceProvider;
         breakAt?: string;
+        spies?: string[];
+        mocks?: Record<string, MockSpec>;
         logLevel?: "debug" | "info" | "warn" | "error";
       };
     };
@@ -72,6 +74,21 @@ function stubRunHost(opts: { available?: boolean } = {}) {
     invoke: async (ns, yaml, flow, opts) => {
       calls.ns = ns;
       calls.invoked = { yaml, flow, opts };
+
+      // Spies are read-only, so they only ADD to the outcome — a spied run still reports
+      // whatever it would have reported otherwise. One record per spied block.
+      const spies: SpyTrace[] | undefined = opts?.spies?.map((address) => ({
+        address,
+        records: [
+          {
+            seq: 1,
+            at: "2026-07-11T00:00:00Z",
+            input: { body: { amount: 250 } },
+            output: { body: { amount: 250 }, variables: { tier: "gold" } },
+          },
+        ],
+      }));
+
       // A breakAt run halts at the block and reports the message there instead of a
       // result body, exactly as the real runner's envelope does.
       if (opts?.breakAt) {
@@ -87,6 +104,7 @@ function stubRunHost(opts: { available?: boolean } = {}) {
             block: opts.breakAt,
             message: { body: { amount: 250 } },
           },
+          spies,
         };
       }
       return {
@@ -96,6 +114,7 @@ function stubRunHost(opts: { available?: boolean } = {}) {
         dropped: false,
         output: '{"result":"ok"}',
         logs: ["invoked greet"],
+        spies,
       };
     },
     evalCel: async (expression, opts) => {
@@ -324,6 +343,56 @@ describe("run tools", () => {
         block: "greet.charge",
         message: { body: { amount: 250 } },
       },
+    });
+  });
+
+  it("invoke_flow forwards spies and mocks to the runner", async () => {
+    const { host, calls } = stubRunHost();
+    const client = await connect(config(), host);
+    await client.callTool({
+      name: "invoke_flow",
+      arguments: {
+        id: "a",
+        flow: "greet",
+        spies: ["greet.seed", "greet.fanout[audit].log-it"],
+        mocks: {
+          "greet.charge": {
+            cases: [{ when: "body.amount > 100", error: "card declined" }],
+            default: { body: { ok: true } },
+          },
+        },
+      },
+    });
+    expect(calls.invoked?.opts?.spies).toEqual([
+      "greet.seed",
+      "greet.fanout[audit].log-it",
+    ]);
+    expect(calls.invoked?.opts?.mocks).toEqual({
+      "greet.charge": {
+        cases: [{ when: "body.amount > 100", error: "card declined" }],
+        default: { body: { ok: true } },
+      },
+    });
+  });
+
+  it("invoke_flow surfaces the spy traces", async () => {
+    const { host } = stubRunHost();
+    const client = await connect(config(), host);
+    const res = (await client.callTool({
+      name: "invoke_flow",
+      arguments: { id: "a", flow: "greet", spies: ["greet.seed"] },
+    })) as CallToolResult;
+    expect(res.isError).toBeFalsy();
+    expect(parse(res)).toMatchObject({
+      ok: true,
+      // A spy is read-only: the run still reports the result it would have reported.
+      output: '{"result":"ok"}',
+      spies: [
+        {
+          address: "greet.seed",
+          records: [{ seq: 1, input: { body: { amount: 250 } } }],
+        },
+      ],
     });
   });
 

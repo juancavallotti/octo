@@ -5,7 +5,7 @@
  * by a namespace slug; the handler resolves one per MCP session.
  */
 
-import type { ResourceProvider } from "@octo/run-host";
+import type { MockSpec, ResourceProvider, SpyTrace } from "@octo/run-host";
 
 /** A run's status snapshot — the fields run-host's `RunStatus` exposes. */
 export interface RunStatusLike {
@@ -49,6 +49,8 @@ export interface InvokeResultLike {
   logs: string[];
   /** Present only for a `breakAt` invoke: what the flow was carrying at that block. */
   breakpoint?: BreakOutcomeLike;
+  /** Present only for a `spies` invoke: every message that crossed each spied block. */
+  spies?: SpyTrace[];
 }
 
 /** The outcome of a one-shot CEL `evalCel`: the evaluated result or the compile/eval error. */
@@ -84,6 +86,10 @@ export interface RunHostPort {
       resources?: ResourceProvider;
       /** Run until this block, then stop and report the message it produced. */
       breakAt?: string;
+      /** Block addresses to record every message that crosses them. */
+      spies?: string[];
+      /** Block addresses to stand in for, so the real block never runs. */
+      mocks?: Record<string, MockSpec>;
       logLevel?: "debug" | "info" | "warn" | "error";
     },
   ): Promise<InvokeResultLike>;

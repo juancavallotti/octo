@@ -5,7 +5,9 @@ import {
   CAPABILITIES,
   fromDefinitionYaml,
   issueMessages,
+  setCapabilities,
   validateDocument,
+  type Capabilities,
 } from "@octo/editor/runtime";
 import { orchestratorResourceProvider } from "@/app/lib/runResources";
 import {
@@ -40,8 +42,31 @@ import { MCP_ORIGIN, RESOURCE_METADATA_PATH } from "./oauth-config";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/**
+ * Inject the runner's capability catalogue into the editor's schema registry.
+ *
+ * This route is a host of `@octo/editor` just as the editor page is, and it owes the
+ * same injection: `validateDocument` checks block and connector types against the
+ * *active* catalogue, and the bundled one is an empty fallback. Skip this and every
+ * validation reports "unknown block type" for perfectly good YAML — which would make
+ * the flow tools refuse every edit, since they validate before they save.
+ *
+ * Cheap to call on every request: `probeSchema` caches the parsed schema, and
+ * `setCapabilities` is an idempotent assignment. Deliberately not memoized here — a
+ * probe that failed because the binary was still building must be free to succeed
+ * later.
+ */
+async function primeCapabilities(): Promise<unknown> {
+  const schema = await probeSchema();
+  setCapabilities(schema as Capabilities | null);
+  return schema;
+}
+
 /** Validate a stored definition with the editor's pre-flight (best-effort). */
-function validate(definition: string): { valid: boolean; errors: string[] } {
+async function validate(
+  definition: string,
+): Promise<{ valid: boolean; errors: string[] }> {
+  await primeCapabilities();
   try {
     const result = validateDocument(fromDefinitionYaml(definition));
     return { valid: result.ok, errors: issueMessages(result) };
@@ -57,8 +82,9 @@ const handler = createOctoMcpHandler(
     // The runtime generates the capability schema (`octo schema`, probed and
     // cached by @octo/run-host — the same in-process runner the run tools use);
     // serve that so MCP reflects exactly what the binary supports. Falls back to
-    // the editor's empty bundled schema when no runner is configured.
-    runtimeSchema: async () => (await probeSchema()) ?? CAPABILITIES,
+    // the editor's empty bundled schema when no runner is configured. Same probe
+    // `validate` primes itself from.
+    runtimeSchema: async () => (await primeCapabilities()) ?? CAPABILITIES,
     // Stage a run's resources from the orchestrator; an inline definition (no id)
     // has none, so a run without a saved integration gets no resources.
     resources: (id) => (id ? orchestratorResourceProvider(id) : undefined),

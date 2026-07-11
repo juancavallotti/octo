@@ -99,15 +99,33 @@ Two things follow from this, and both are deliberate:
   production.
 
 The file is keyed by flow **name**, and the editor keeps it in step as you work:
-rename a flow and its saved inputs follow the new name.
+rename a flow and its saved inputs — and its mocks and spies — follow the new name.
+
+### Why mocking a block can name it
+
+A test input belongs to a flow. A [mock](#stand-in-for-a-block) or a
+[spy](#watch-a-block-without-stopping) belongs to a *block*, and has to still find
+that block tomorrow — so it is stored against the block's **address**, the same
+`orders.charge` path the [CLI](/guides/debugging-flows) uses.
+
+A block is addressed by its name, or by its type when it has none. Two unnamed
+`log` blocks in one chain therefore both answer to `log`, and neither has an
+address that could be written down and found again.
+
+So placing a mock or a spy on such a block **gives it a name** — you will see
+`log-2` appear on it. It is a real edit to your flow, and that is the point: the
+alternative is a key that silently stops matching the next time you open the
+project. Rename it to something better whenever you like; the mock follows.
 
 ## Run to a block
 
 The question that actually gets asked of a misbehaving flow is not "what did it
 return" — it is **"what did the message look like when it got *here*"**. Hover any
-block and the same **▶** appears in its corner, beside the delete button.
+block and a cluster of buttons appears in its corner: **▶** to run to it, 🧪 to
+[stand in for it](#stand-in-for-a-block), 👁 to [watch it](#watch-a-block-without-stopping),
+and ✕ to delete it.
 
-![A block hovered mid-flow, showing the run-to-here button beside its delete button](/screenshots/editor-breakpoint-hover.png)
+![A block hovered mid-flow, showing the run-to-here, mock and watch buttons beside its delete button](/screenshots/editor-breakpoint-hover.png)
 
 Press it and the flow runs from the top and **stops there**. Output shows the
 message that block was carrying — here, `set-payload` inside an `enrich`, with
@@ -138,6 +156,84 @@ the block that actually broke, and it goes to **Problems**.
 A block whose position cannot be described unambiguously has no ▶ — the editor
 would rather offer nothing than break on a *different* block. In practice this is
 rare; the editor addresses even unnamed, look-alike blocks correctly on its own.
+</Callout>
+
+## Stand in for a block
+
+Some blocks you would rather not run. A payment API charges a card; an LLM costs
+money and answers differently every time; a webhook tells someone something. The
+🧪 button on a block **replaces** it for the run — the real block never executes.
+
+![A REST Call block's mock form: one case failing with an error when a CEL condition holds, and an Otherwise default returning a canned body](/screenshots/editor-mock-form.png)
+
+A mock answers with **cases**, tried in order, each guarded by a CEL condition
+evaluated against the message the block *received*. Each case does exactly one
+thing, because a block can only do one thing: return a **body**, **fail** with an
+error, or **drop** the message.
+
+That makes an error path trivial to exercise. You do not need a broken upstream —
+you need a case that says the upstream broke:
+
+| When | Outcome |
+| --- | --- |
+| `body.amount > 100` | **error** — `card declined` |
+| *(otherwise)* | **body** — `{"charged": true}` |
+
+<Callout type="warn">
+**Always give the "otherwise".** A mock *replaces* the block, so there is no real
+block left to fall through to — and a message matching no case therefore **fails**
+the block. That is deliberate: if an unmatched message quietly fell through to the
+real block, a "mocked" payment call could still reach the network and spend money
+on a run you believed was stubbed. The editor warns you when the default is
+missing.
+</Callout>
+
+A mock stays on the canvas with its button lit until you turn it off. Unticking
+*"Stand in for this block"* keeps the spec but stops applying it, so switching
+mocking off for one run does not cost you what you wrote.
+
+Every run uses it — the flow's ▶ and a block's run-to-here alike. A run-to-here
+that quietly ignored your mocks would call the real payment API you thought you
+had stubbed out.
+
+## Watch a block without stopping
+
+A breakpoint answers *"what did the message look like here"* — once, and then the
+flow stops. The 👁 button answers the same question **without stopping anything**:
+it records every message that crosses the block and lets the flow run on.
+
+![A Set Payload block inside a For Each, its watch button lit to show a spy is on it](/screenshots/editor-spy-badge.png)
+
+The eye stays lit while the spy is on, so a block you are watching is obvious
+without hovering it.
+
+Because it does not stop the flow, a spy sees things a breakpoint cannot:
+
+- **A block that runs many times.** Inside a `foreach` body or a `fork` branch, a
+  block runs once per item — a spy records every crossing, in order.
+- **A block that produced no message at all.** A record shows what went in and
+  what came out, and "what came out" includes the two outcomes that are *not* a
+  message: the block **dropped** it, or the block **failed**.
+
+Run the flow and a count appears on the eye. Click it to read what it collected —
+here, eight crossings of a block inside a `foreach`, one per item, each showing the
+message that went in and the one that came out:
+
+![The spy popover on a block inside a foreach: eight records, each showing the message that went in and what came out](/screenshots/editor-spy-records.png)
+
+The heading is the block's **address** — `new-flow.foreach[body].set-payload`, the
+same path [`--spies`](/guides/debugging-flows#watch-a-block-without-stopping) takes
+on the command line.
+
+**Records add up across runs.** They are not reset when you run again, because the
+interesting thing about a spy is usually how *this* run differs from the last one.
+**Clear** empties them when you want a fresh start.
+
+<Callout type="info">
+You cannot watch — or break on — a block that sits **inside** a mocked block. The
+mock replaced the whole block, and everything under it went with it, so nothing in
+there can ever run. The editor says so rather than letting the run fail with a
+confusing "no such block".
 </Callout>
 
 ## The console

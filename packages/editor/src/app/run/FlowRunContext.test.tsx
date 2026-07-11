@@ -5,7 +5,8 @@ import { EditorStateProvider, useEditorState, EditorActionType } from "../state/
 import { emptyFlow, newBlock, type EditorDocument } from "../model/document";
 import { ConsoleProvider, useConsole } from "./console";
 import { FlowRunProvider, useFlowRun } from "./FlowRunContext";
-import type { FlowRunOutcome, RunTransport } from "./transport";
+import type { FlowRunOutcome, FlowRunRequest, RunTransport } from "./transport";
+import { EditorMetaProvider, useEditorMeta } from "../providers/EditorMetaProvider";
 
 /** A transport whose invoke returns whatever the test wants, and records the request. */
 function stubTransport(
@@ -293,5 +294,185 @@ describe("FlowRunProvider", () => {
 
     await waitFor(() => expect(results()).toContain("err=network down"));
     expect(tab()).toBe("problems");
+  });
+});
+
+/**
+ * The same thing again, with the editor-meta capability mounted so mocks and spies exist.
+ * The store is null, so they live for the session — which is all these tests need, and is
+ * exactly what an unsaved draft gets in the real editor.
+ */
+function DebugHarness({ doc }: { doc: EditorDocument }) {
+  const { state, dispatch } = useEditorState();
+  const flowRun = useFlowRun();
+  const meta = useEditorMeta();
+
+  const flow = state.document.flows[0];
+
+  return (
+    <div>
+      <button
+        onClick={() =>
+          dispatch({
+            type: EditorActionType.LOAD_INTEGRATION,
+            data: { id: "orders.yaml", name: "orders", document: doc, folderId: null },
+          })
+        }
+      >
+        load
+      </button>
+      <button onClick={() => flow && meta?.setSpy(flow.id, "orders.audit", true)}>
+        spy on audit
+      </button>
+      <button
+        onClick={() =>
+          flow &&
+          meta?.setMock(flow.id, {
+            address: "orders.audit",
+            enabled: true,
+            cases: [],
+            default: { body: '{"stubbed": true}' },
+          })
+        }
+      >
+        mock audit
+      </button>
+      <button
+        onClick={() =>
+          flow && meta?.setSpy(flow.id, "orders.audit[then].inner", true)
+        }
+      >
+        spy inside audit
+      </button>
+      <button onClick={() => flow && flowRun?.runFlow(flow.id)}>run flow</button>
+      <button onClick={() => flowRun?.clearSpies()}>clear spies</button>
+      <p data-testid="records">
+        {(flowRun?.spyRecords("orders.audit") ?? [])
+          .map((r) => `#${r.seq}:${JSON.stringify(r.output ?? r.error ?? "dropped")}`)
+          .join(" ")}
+      </p>
+      <ul data-testid="results">
+        {flowRun?.results.map((r) => (
+          <li key={r.id}>
+            {r.status}
+            {r.error ? ` err=${r.error}` : ""}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+async function setupDebug(transport: RunTransport) {
+  const user = userEvent.setup();
+  render(
+    <EditorStateProvider>
+      <EditorMetaProvider store={null}>
+        <ConsoleProvider>
+          <FlowRunProvider transport={transport}>
+            <DebugHarness doc={seedDoc()} />
+          </FlowRunProvider>
+        </ConsoleProvider>
+      </EditorMetaProvider>
+    </EditorStateProvider>,
+  );
+  await user.click(screen.getByText("load"));
+  return user;
+}
+
+const records = () => screen.getByTestId("records").textContent ?? "";
+
+describe("FlowRunProvider: mocks and spies", () => {
+  /** A transport that returns one spy record per run, with an increasing seq. */
+  function spyingTransport(onInvoke?: (req: FlowRunRequest) => void): RunTransport {
+    let seq = 0;
+    const t = stubTransport({}, onInvoke);
+    const inner = t.invoke;
+    t.invoke = async (req) => {
+      const outcome = await inner(req);
+      if (!req.spies?.length) return outcome;
+      seq++;
+      return {
+        ...outcome,
+        spies: req.spies.map((address) => ({
+          address,
+          records: [
+            { seq, at: "2026-07-11T00:00:00Z", input: {}, output: { run: seq } },
+          ],
+        })),
+      };
+    };
+    return t;
+  }
+
+  it("sends the spied addresses and the enabled mocks with the run", async () => {
+    let seen: FlowRunRequest | undefined;
+    const user = await setupDebug(spyingTransport((req) => (seen = req)));
+
+    await user.click(screen.getByText("spy on audit"));
+    await user.click(screen.getByText("mock audit"));
+    await user.click(screen.getByText("run flow"));
+
+    await waitFor(() => expect(seen?.spies).toEqual(["orders.audit"]));
+    // The meta file holds JSON text; the runner gets a value.
+    expect(seen?.mocks).toEqual({
+      "orders.audit": { default: { body: { stubbed: true } } },
+    });
+  });
+
+  it("sends nothing when nothing is mocked or spied", async () => {
+    let seen: FlowRunRequest | undefined;
+    const user = await setupDebug(spyingTransport((req) => (seen = req)));
+
+    await user.click(screen.getByText("run flow"));
+
+    await waitFor(() => expect(seen).toBeDefined());
+    expect(seen?.spies).toBeUndefined();
+    expect(seen?.mocks).toBeUndefined();
+  });
+
+  /**
+   * The point of the badge. A spy is left on while you iterate, and the interesting thing
+   * is how the message differs between one run and the next — so resetting per run would
+   * throw away the comparison the spy was turned on to make.
+   */
+  it("accumulates a spy's records across successive runs", async () => {
+    const user = await setupDebug(spyingTransport());
+    await user.click(screen.getByText("spy on audit"));
+
+    await user.click(screen.getByText("run flow"));
+    await waitFor(() => expect(records()).toContain('#1:{"run":1}'));
+
+    await user.click(screen.getByText("run flow"));
+    await waitFor(() => expect(records()).toContain('#2:{"run":2}'));
+    // The first run's record is still there.
+    expect(records()).toContain('#1:{"run":1}');
+  });
+
+  it("clears what the spies collected", async () => {
+    const user = await setupDebug(spyingTransport());
+    await user.click(screen.getByText("spy on audit"));
+    await user.click(screen.getByText("run flow"));
+    await waitFor(() => expect(records()).toContain("#1"));
+
+    await user.click(screen.getByText("clear spies"));
+    expect(records()).toBe("");
+  });
+
+  /**
+   * A mock deletes the subtree it replaces, so a spy inside one can never fire. The
+   * runtime rejects the run with `no block "x" in that chain`, which reads like a typo —
+   * so we refuse before spending a run, and say what actually happened.
+   */
+  it("refuses a run whose spy sits inside a mocked block, without invoking", async () => {
+    const invoked = vi.fn();
+    const user = await setupDebug(spyingTransport(invoked));
+
+    await user.click(screen.getByText("mock audit"));
+    await user.click(screen.getByText("spy inside audit"));
+    await user.click(screen.getByText("run flow"));
+
+    await waitFor(() => expect(results()).toContain("inside the mocked block"));
+    expect(invoked).not.toHaveBeenCalled();
   });
 });

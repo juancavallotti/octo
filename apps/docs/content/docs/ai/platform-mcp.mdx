@@ -52,7 +52,27 @@ independent dev runners without stepping on each other.
 | `list_flows` | The flows in an integration as `{ name, source }` (`source` is the trigger type, or `null` for a sourceless flow). |
 | `validate_definition` | Validate draft YAML against the runtime schema **without saving**; returns descriptive errors. |
 | `create_integration` | Create an integration from a name and a YAML definition. |
-| `update_integration` | Overwrite an integration's definition (and optionally rename it). |
+| `update_integration` | Overwrite an integration's **whole** definition (and optionally rename it). |
+
+### Flow tools
+
+An integration is one YAML file holding many flows. These edit **one** of them, leaving
+every other byte of the file — the other flows, the connectors, the comments — exactly as
+it was. Reach for them whenever you are changing a single flow: `update_integration` would
+have you reproduce the whole file from memory, and silently lose whatever you got wrong.
+
+Each mutating tool validates the spliced result before saving, so an edit that would leave
+the integration unloadable is refused rather than persisted.
+
+| Tool | What it does |
+| --- | --- |
+| `get_flow` | One flow's YAML, exactly as it appears in the file. Hand it back to `update_flow` to edit it. |
+| `add_flow` | Append a new flow. Errors when the name is already taken. |
+| `update_flow` | Replace a flow in place. Giving the replacement a different `name` renames it where it sits. |
+| `delete_flow` | Remove a flow by name. |
+
+In each, `definition` is the YAML of **that flow alone** — a mapping starting with `name:`
+— not the whole file and not a `flows:` list.
 
 ### Run and debug tools
 
@@ -60,10 +80,57 @@ independent dev runners without stepping on each other.
 | --- | --- |
 | `can_start_integration` | Pre-flight: is a runner available, does the definition validate? |
 | `run_integration` | Start (or restart) the integration in the dev runner, optionally injecting env vars; returns a test URL for networked integrations. |
-| `invoke_flow` | Run **one named flow once** — from a saved id or an inline definition — with optional JSON `data` and `env`, without starting sources. Returns `{ ok, timedOut, dropped, output, logs }`, where `output` is the flow's result message (`{event_id, variables, body}`) as JSON text. |
+| `invoke_flow` | Run **one named flow once** — from a saved id or an inline definition — with optional JSON `data`, `vars` and `env`, without starting sources. Returns `{ ok, timedOut, dropped, output, logs }`, where `output` is the flow's result message (`{event_id, variables, body}`) as JSON text. Takes `breakAt`, `spies` and `mocks` — see below. |
 | `evaluate_cel` | Evaluate a single CEL expression against sample `body`/`vars`/`env` without running a flow. |
 | `get_run_logs` | The session's runner log buffer, as plain text. |
 | `stop_integration` | Stop the session's running integration. |
+
+#### Debugging a flow with `invoke_flow`
+
+Three features compose on one run, each addressing a block by the same path grammar —
+`<flow>.<block>`, descending into a composite with a bracketed branch: `orders.charge`,
+`orders.checkHeader[else].api-call`, `orders[error].notify`.
+
+- **`breakAt`** — run until this block, then stop. The result carries
+  `breakpoint: { reached, block, message, error }`. `reached: false` means the flow took
+  another branch: a normal outcome, not an error.
+- **`spies`** — record every message crossing these blocks, **without changing what the flow
+  does**. The result carries `spies: [{ address, records }]`, where each record shows what
+  the block received and what it produced — including the two outcomes that are not a
+  message: it dropped, or it failed. `seq` orders records across *all* spies, so a
+  multi-spy trace reads as one timeline.
+- **`mocks`** — stand in for these blocks so the real one **never runs**. This is how a flow
+  whose blocks call a payment API or an LLM gets exercised without one.
+
+Two rules the runtime enforces, and both are easy to get wrong:
+
+**A mock replaces its target, so an unmatched message *fails* the block.** It does not fall
+through to the real block, because there is no real block left — keeping one wired would
+let a "mocked" HTTP call still reach the network, which is the failure mocking exists to
+prevent. Give a `default`, or a trailing case with `when: "true"`, unless you mean an
+unmatched message to be an error.
+
+**Each case does exactly one thing** — `body`, `error`, or `drop` — because a block either
+returns a message, fails, or filters it out. `vars` only goes alongside a `body`.
+
+```json
+{
+  "id": "orders-api",
+  "flow": "checkout",
+  "data": "{\"amount\": 250}",
+  "spies": ["checkout.validate"],
+  "mocks": {
+    "checkout.charge": {
+      "cases": [{ "when": "body.amount > 100", "error": "card declined" }],
+      "default": { "body": { "charged": true } }
+    }
+  }
+}
+```
+
+You cannot `breakAt` or spy a block **inside** a mocked block: the mock deleted that
+subtree, so nothing there can ever run, and the request is rejected rather than silently
+reporting nothing.
 
 ### Documentation tools
 

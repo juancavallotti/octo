@@ -2,13 +2,14 @@ import { z } from "zod";
 import { parse as parseYaml } from "yaml";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { OctoMcpConfig } from "../backend";
-import { guard, jsonResult } from "../result";
+import { addFlow, deleteFlow, getFlow, updateFlow } from "../flows";
+import { errorResult, guard, jsonResult, textResult } from "../result";
 
 /**
  * The integration-authoring tools: list the catalogue, open one to read its
- * definition, and create/update definitions. They delegate straight to the host's
- * injected {@link OctoMcpConfig.store}; the run-control tools live separately
- * (they also need the per-session namespace).
+ * definition, create/update whole definitions, and edit a single flow within one.
+ * They delegate straight to the host's injected {@link OctoMcpConfig.store}; the
+ * run-control tools live separately (they also need the per-session namespace).
  */
 export function registerIntegrationTools(
   server: McpServer,
@@ -67,7 +68,7 @@ export function registerIntegrationTools(
       },
     },
     ({ definition }) =>
-      guard(async () => jsonResult(config.validate(definition))),
+      guard(async () => jsonResult(await config.validate(definition))),
   );
 
   server.registerTool(
@@ -109,6 +110,105 @@ export function registerIntegrationTools(
     },
     ({ id, name, definition }) =>
       guard(async () => jsonResult(await store.update(id, name, definition))),
+  );
+
+  /**
+   * Write one flow back, having spliced it into the integration's definition. Every
+   * mutating flow tool ends here, so they all get the same two properties: the rest of
+   * the file is untouched (the splice is an AST edit — see ../flows.ts), and a splice
+   * that would produce a config the runtime cannot load is refused rather than saved.
+   *
+   * Validating here rather than in the caller is what makes the guarantee worth having:
+   * these tools exist to let an agent edit a flow without holding the whole file in its
+   * head, which means it also cannot see what it just broke elsewhere.
+   */
+  async function writeSpliced(id: string, definition: string) {
+    const { valid, errors } = await config.validate(definition);
+    if (!valid) {
+      return errorResult(
+        `that edit would leave the integration invalid, so nothing was saved:\n• ${errors.join("\n• ")}`,
+      );
+    }
+    return jsonResult(await store.update(id, undefined, definition));
+  }
+
+  server.registerTool(
+    "get_flow",
+    {
+      title: "Get one flow",
+      description:
+        "Read ONE flow's YAML out of a saved integration, exactly as it appears in the file (comments and all). Use this with `update_flow` to change a single flow without reproducing the rest of the definition. Use `list_flows` to discover names.",
+      inputSchema: {
+        id: z.string().min(1).describe("The integration id."),
+        flow: z.string().min(1).describe("The flow's name."),
+      },
+    },
+    ({ id, flow }) =>
+      guard(async () => {
+        const rec = await store.get(id);
+        return textResult(getFlow(rec.definition, flow));
+      }),
+  );
+
+  server.registerTool(
+    "update_flow",
+    {
+      title: "Update one flow",
+      description:
+        "Replace ONE flow in a saved integration, in place. `definition` is the YAML of that flow alone (a mapping starting with `name:`), NOT the whole file and NOT a `flows:` list. Everything else in the integration — the other flows, the connectors, the comments — is left exactly as it was, so this is the tool to reach for whenever you are changing a single flow: `update_integration` would make you reproduce the whole file from memory and silently lose whatever you got wrong.\n\nGiving the replacement a different `name` renames the flow where it sits. The edit is validated against the whole spliced definition before it is saved, and rejected if it would leave the integration unloadable — so a broken edit costs you nothing. Errors when no flow answers to `flow`.",
+      inputSchema: {
+        id: z.string().min(1).describe("The integration id."),
+        flow: z.string().min(1).describe("The name of the flow to replace."),
+        definition: z
+          .string()
+          .min(1)
+          .describe("The flow's new YAML — that flow alone, not the whole definition."),
+      },
+    },
+    ({ id, flow, definition }) =>
+      guard(async () => {
+        const rec = await store.get(id);
+        return writeSpliced(id, updateFlow(rec.definition, flow, definition));
+      }),
+  );
+
+  server.registerTool(
+    "add_flow",
+    {
+      title: "Add a flow",
+      description:
+        "Append ONE new flow to a saved integration. `definition` is the YAML of that flow alone (a mapping starting with `name:`), NOT the whole file. The rest of the integration is left exactly as it was. Errors when a flow of that name already exists — use `update_flow` to change an existing one. The result is validated before saving, so a bad flow cannot break the integration.",
+      inputSchema: {
+        id: z.string().min(1).describe("The integration id."),
+        definition: z
+          .string()
+          .min(1)
+          .describe("The new flow's YAML — that flow alone, not the whole definition."),
+      },
+    },
+    ({ id, definition }) =>
+      guard(async () => {
+        const rec = await store.get(id);
+        return writeSpliced(id, addFlow(rec.definition, definition));
+      }),
+  );
+
+  server.registerTool(
+    "delete_flow",
+    {
+      title: "Delete a flow",
+      description:
+        "Remove ONE flow from a saved integration by name, leaving the rest of the file untouched. Errors when no flow answers to that name. The result is validated before saving, so deleting a flow another one still references is refused rather than saved.",
+      inputSchema: {
+        id: z.string().min(1).describe("The integration id."),
+        flow: z.string().min(1).describe("The name of the flow to remove."),
+      },
+    },
+    ({ id, flow }) =>
+      guard(async () => {
+        const rec = await store.get(id);
+        return writeSpliced(id, deleteFlow(rec.definition, flow));
+      }),
   );
 }
 

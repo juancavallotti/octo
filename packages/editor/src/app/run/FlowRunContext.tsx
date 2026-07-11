@@ -12,10 +12,12 @@ import {
 import { newId, type EditorDocument } from "../model/document";
 import { toRunnableYaml } from "../model/runConfig";
 import { useEditorState } from "../state/editorState";
+import { useEditorMeta } from "../providers/EditorMetaProvider";
 import type { TestInput } from "../meta/types";
-import { planBreakpoint } from "./breakpoint";
+import { debugConflict, planBreakpoint } from "./address";
+import { toMockSpecs } from "./debug";
 import { useConsole } from "./console";
-import type { FlowRunOutcome, RunTransport } from "./transport";
+import type { FlowRunOutcome, RunTransport, SpyRecord, SpyTrace } from "./transport";
 
 /**
  * Running ONE flow, and what came back.
@@ -66,6 +68,18 @@ interface FlowRunValue {
   busyBlockIds: ReadonlySet<string>;
   /** True while any run is in flight. */
   busy: boolean;
+  /**
+   * What each spied block has seen, by address — ACROSS runs, not just the last one.
+   *
+   * A spy is something you leave on while you iterate, and the interesting thing is
+   * usually how the message differs between one run and the next. Resetting per run would
+   * throw away the comparison the user turned the spy on to make, so records accumulate
+   * until they clear them. (It is also the shape live spying will feed, when a running
+   * flow starts pushing records in rather than a one-shot invoke returning them.)
+   */
+  spyRecords(address: string): SpyRecord[];
+  /** Forget what a spy has collected — or, with no address, what all of them have. */
+  clearSpies(address?: string): void;
   /** Run a whole flow, optionally with a saved input. */
   runFlow(flowId: string, input?: TestInput): Promise<void>;
   /**
@@ -138,12 +152,14 @@ export function FlowRunProvider({
 }) {
   const { state } = useEditorState();
   const { openTo } = useConsole();
+  const meta = useEditorMeta();
   const doc = state.document;
   const integrationId = state.integration.id;
 
   const [results, setResults] = useState<FlowRunEntry[]>([]);
   const [busyBlockIds, setBusyBlockIds] = useState<ReadonlySet<string>>(new Set());
   const [busyCount, setBusyCount] = useState(0);
+  const [spies, setSpies] = useState<ReadonlyMap<string, SpyRecord[]>>(new Map());
   // The last input used per flow, so the block-level play button can reuse it instead
   // of making the user pick one every time they move the breakpoint.
   const lastInputRef = useRef<Map<string, TestInput>>(new Map());
@@ -157,6 +173,36 @@ export function FlowRunProvider({
     [openTo],
   );
 
+  /** Append what the spies saw on this run to what they saw on the last one. */
+  const collect = useCallback((traces: SpyTrace[] | undefined) => {
+    if (!traces || traces.length === 0) return;
+    setSpies((prev) => {
+      const next = new Map(prev);
+      for (const trace of traces) {
+        // An empty trace is not nothing: it says the run did not cross the block. But it
+        // is not a record either, so it adds none — and must not wipe the ones already
+        // there from a run that did.
+        if (trace.records.length === 0) continue;
+        next.set(trace.address, [...(next.get(trace.address) ?? []), ...trace.records]);
+      }
+      return next;
+    });
+  }, []);
+
+  /**
+   * The mocks and spies every run is made under, as the canvas currently shows them.
+   *
+   * Both are sent on EVERY run — a whole-flow run and a run-to-here alike. A mock the user
+   * placed is a statement about what the flow does, not about one invocation of it, and a
+   * run-to-here that quietly ignored it would call the real payment API the user thought
+   * they had stubbed out.
+   */
+  const debugArgs = useCallback(() => {
+    const mocks = toMockSpecs(meta?.enabledMocks() ?? []);
+    const spyAddresses = meta?.allSpies() ?? [];
+    return { mocks, spies: spyAddresses };
+  }, [meta]);
+
   /** Run `doc` and record the outcome. The one place a run is actually made. */
   const run = useCallback(
     async (args: {
@@ -168,6 +214,18 @@ export function FlowRunProvider({
       blockId?: string;
     }) => {
       const { runDoc, flowName, input, breakAt, breakpointLabel, blockId } = args;
+      const { mocks, spies: spyAddresses } = debugArgs();
+
+      // A mock deletes the subtree it replaces, so a spy or breakpoint inside one can
+      // never fire and the runtime rejects the run outright. Catch it before spending a
+      // run on it, and say what actually happened — the runner's own error would name a
+      // block that "does not exist", which reads like a typo.
+      const observers = [...spyAddresses, ...(breakAt ? [breakAt] : [])];
+      const conflict = debugConflict(Object.keys(mocks), observers);
+      if (conflict) {
+        record({ id: newId(), flowName, inputName: input?.name, breakpointLabel, status: "error", error: conflict });
+        return;
+      }
 
       setBusyCount((n) => n + 1);
       if (blockId) {
@@ -181,7 +239,12 @@ export function FlowRunProvider({
           data: input?.data,
           vars: input?.vars,
           breakAt,
+          ...(spyAddresses.length > 0 ? { spies: spyAddresses } : {}),
+          ...(Object.keys(mocks).length > 0 ? { mocks } : {}),
         });
+        // Spies report even when the flow failed — what a block was carrying when things
+        // went wrong is the most useful thing on the screen — so collect before judging.
+        collect(outcome.spies);
         record({
           id: newId(),
           flowName,
@@ -209,7 +272,7 @@ export function FlowRunProvider({
         }
       }
     },
-    [transport, integrationId, record],
+    [transport, integrationId, record, debugArgs, collect],
   );
 
   const remember = useCallback((flowId: string, input?: TestInput) => {
@@ -258,12 +321,20 @@ export function FlowRunProvider({
       results,
       busyBlockIds,
       busy: busyCount > 0,
+      spyRecords: (address) => spies.get(address) ?? [],
+      clearSpies: (address) =>
+        setSpies((prev) => {
+          if (address === undefined) return new Map();
+          const next = new Map(prev);
+          next.delete(address);
+          return next;
+        }),
       runFlow,
       runToBlock,
       lastInput: (flowId) => lastInputRef.current.get(flowId),
       clear: () => setResults([]),
     }),
-    [results, busyBlockIds, busyCount, runFlow, runToBlock],
+    [results, busyBlockIds, busyCount, spies, runFlow, runToBlock],
   );
 
   return <FlowRunContext.Provider value={value}>{children}</FlowRunContext.Provider>;

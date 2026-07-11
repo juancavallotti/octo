@@ -108,9 +108,16 @@ export interface OctoMcpConfig {
   store: IntegrationStore;
   /**
    * Validate a stored definition (the host wraps `@octo/editor`'s document
-   * validation). Used by `can_start_integration` before a run is attempted.
+   * validation). Used by `can_start_integration` before a run is attempted, and by
+   * every mutating flow tool before it saves.
+   *
+   * May be async: validation is only as good as the capability catalogue behind it,
+   * and a host generates that catalogue from the `octo` binary (see
+   * {@link OctoMcpConfig.runtimeSchema}) — an async probe. A host that validates
+   * against the editor's *bundled* fallback catalogue instead will find it empty and
+   * report every block type unknown.
    */
-  validate(definition: string): ValidationOutcome;
+  validate(definition: string): ValidationOutcome | Promise<ValidationOutcome>;
   /**
    * The runtime capability catalogue (blocks/connectors) served as the
    * `octo://runtime/schema` resource and the `getSchema` tool. The runtime is the

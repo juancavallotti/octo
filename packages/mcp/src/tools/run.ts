@@ -7,6 +7,60 @@ import { parseEnv } from "../env";
 import { errorResult, guard, jsonResult, textResult } from "../result";
 
 /**
+ * One canned outcome of a mocked block, mirroring the runtime's `core.MockCase`
+ * (runtime/core/mock.go). Declared structurally rather than as a JSON string so the tool
+ * schema itself teaches an agent the shape — the alternative is an opaque blob it has to
+ * guess at.
+ *
+ * The two rules the schema cannot express are stated in the field descriptions, because
+ * the runtime rejects a spec that breaks either and an agent has no other way to learn
+ * them: **exactly one** of `body`/`error`/`drop` per case, and `vars` only alongside a
+ * `body`.
+ */
+const mockCaseSchema = z.object({
+  when: z
+    .string()
+    .optional()
+    .describe(
+      "CEL condition, evaluated against the message the block RECEIVED — e.g. `body.amount > 100`, `vars.tier == \"vip\"`. Required on a case; forbidden on `default`.",
+    ),
+  body: z
+    .unknown()
+    .optional()
+    .describe(
+      "The body the block returns. A literal value, NOT an expression. Exactly one of body/error/drop.",
+    ),
+  vars: z
+    .record(z.string(), z.unknown())
+    .optional()
+    .describe(
+      "Variables set on the message alongside `body`, for blocks that report through one (e.g. an http call setting vars.status). Only valid together with `body`.",
+    ),
+  error: z
+    .string()
+    .optional()
+    .describe(
+      "Fail the block with this message — how an error path is tested without arranging for the real block to fail. Exactly one of body/error/drop.",
+    ),
+  drop: z
+    .boolean()
+    .optional()
+    .describe(
+      "Filter the message out, as a filter block would. Exactly one of body/error/drop.",
+    ),
+});
+
+const mockSpecSchema = z.object({
+  cases: z
+    .array(mockCaseSchema)
+    .optional()
+    .describe("Cases tried in order; the first whose `when` holds wins."),
+  default: mockCaseSchema
+    .optional()
+    .describe("What the block does when no case matched. Must NOT carry a `when`."),
+});
+
+/**
  * The run-control tools: check whether an integration can start, run it (returning
  * a test URL), stop it, and read its logs. Each run is keyed by the caller's
  * per-session namespace (resolved from the MCP session id), so concurrent clients
@@ -32,7 +86,7 @@ export function registerRunTools(
     ({ id }, extra) =>
       guard(async () => {
         const rec = await store.get(id);
-        const { valid, errors } = config.validate(rec.definition);
+        const { valid, errors } = await config.validate(rec.definition);
         const ns = resolveNamespace(extra.sessionId);
         return jsonResult({
           available: runHost.status(ns).available,
@@ -94,7 +148,7 @@ export function registerRunTools(
     {
       title: "Invoke a single flow",
       description:
-        "Run ONE named flow once and return its result and logs — without starting the integration's sources. Supply either a saved integration `id` or an inline `definition` (raw runtime YAML), the `flow` name, and optional `data` (JSON request body), `vars` (JSON seeding the message variables), and `env`. This is the fast way to test a flow: returns { ok, timedOut, dropped, output, logs } where `output` is the flow's result MESSAGE as JSON text — `{event_id, variables, body}`, so read `body` for the payload and `variables` for what the flow built up along the way — `dropped` is true when the flow filtered the message (no result), and `logs` are the runner's stderr lines. Because no source runs, nothing populates the message for you — a flow that reads `vars` (e.g. HTTP headers a real request would have carried) needs them supplied via `vars`. Pass `breakAt` to stop at a block and inspect the message there: the result then carries `breakpoint: { reached, block, message, error }`, where `reached:false` means the flow never took that branch (a normal outcome, not an error). Use `list_flows` to discover flow names.",
+        "Run ONE named flow once and return its result and logs — without starting the integration's sources. Supply either a saved integration `id` or an inline `definition` (raw runtime YAML), the `flow` name, and optional `data` (JSON request body), `vars` (JSON seeding the message variables), and `env`. This is the fast way to test a flow: returns { ok, timedOut, dropped, output, logs } where `output` is the flow's result MESSAGE as JSON text — `{event_id, variables, body}`, so read `body` for the payload and `variables` for what the flow built up along the way — `dropped` is true when the flow filtered the message (no result), and `logs` are the runner's stderr lines. Because no source runs, nothing populates the message for you — a flow that reads `vars` (e.g. HTTP headers a real request would have carried) needs them supplied via `vars`.\n\nThree debugging features can be combined on a run, each addressing blocks by the same path grammar — `<flow>.<block>`, descending into a composite with a bracketed branch: `orders.charge`, `orders.checkHeader[else].api-call`, `orders[error].notify`.\n\n• `breakAt` — run until this block, then stop. The result carries `breakpoint: { reached, block, message, error }`; `reached:false` means the flow never took that branch (a normal outcome, not an error).\n• `spies` — record every message crossing these blocks WITHOUT changing what the flow does. The result carries `spies: [{ address, records: [{ seq, at, input, output?, dropped?, error? }] }]`. A record shows what the block received and what it produced — including the two outcomes that are not a message: it dropped, or it failed. `seq` orders records across ALL spies, so a multi-spy trace reads as one timeline. An empty `records` list is a result, not a gap: the flow may simply have taken a branch that block is not on.\n• `mocks` — stand in for these blocks so the real one NEVER runs: the way to exercise a flow whose blocks call a payment API, an LLM, or anything else you don't want hit. Keyed by address.\n\nTwo mock rules the runtime enforces, both easy to get wrong. (1) A mock REPLACES its target, so a message matching no case FAILS the block — it does not fall through to the real block, because there is no real block left. Always give a `default`, or a trailing case with `when: \"true\"`, unless you mean an unmatched message to be an error. (2) A block either returns a message, fails, or drops it, so each case sets exactly ONE of `body` / `error` / `drop`; `vars` only goes alongside a `body`.\n\nAlso: you cannot `breakAt` or spy a block INSIDE a mocked block — the mock deleted that subtree, so nothing there can ever run, and the runtime rejects the whole request rather than silently reporting nothing. Use `list_flows` to discover flow names.",
       inputSchema: {
         id: z
           .string()
@@ -128,6 +182,18 @@ export function registerRunTools(
           .describe(
             "Optional breakpoint address: run until this block, then stop and report the message it produced. Addressed as `<flow>.<block>`, descending into a composite with a bracketed branch — e.g. `orders.charge`, `orders.checkHeader[else].api-call`, `orders[error].notify`.",
           ),
+        spies: z
+          .array(z.string().min(1))
+          .optional()
+          .describe(
+            "Optional block addresses to watch. Records every message crossing each one, without changing what the flow does. Returned as `spies`.",
+          ),
+        mocks: z
+          .record(z.string(), mockSpecSchema)
+          .optional()
+          .describe(
+            "Optional blocks to stand in for, keyed by address. The real block never runs — this is how a flow that calls a payment API or an LLM is exercised without one.",
+          ),
         logLevel: z
           .enum(["debug", "info", "warn", "error"])
           .optional()
@@ -140,7 +206,10 @@ export function registerRunTools(
           .describe("Max time to wait for the flow, in milliseconds (default 30000)."),
       },
     },
-    ({ id, definition, flow, data, vars, env, breakAt, logLevel, timeoutMs }, extra) =>
+    (
+      { id, definition, flow, data, vars, env, breakAt, spies, mocks, logLevel, timeoutMs },
+      extra,
+    ) =>
       guard(async () => {
         if ((id === undefined) === (definition === undefined)) {
           return errorResult("provide exactly one of id or definition");
@@ -162,6 +231,8 @@ export function registerRunTools(
           vars,
           env: parsedEnv,
           breakAt,
+          spies,
+          mocks,
           logLevel,
           timeoutMs,
           // `id` is undefined for an inline definition; the host decides what that
@@ -175,6 +246,7 @@ export function registerRunTools(
           output: r.output,
           logs: r.logs,
           breakpoint: r.breakpoint,
+          spies: r.spies,
         });
       }),
   );

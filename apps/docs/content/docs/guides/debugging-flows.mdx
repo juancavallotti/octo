@@ -438,6 +438,20 @@ See the [CLI reference](/reference/cli#breakpoints) for the full address grammar
 
 ## Without the command line
 
-The editor drives the same engine from the canvas: hover any block, press **▶**,
-and it runs the flow up to that block and shows you the message — no address to
-write. See [Debugging flows in the editor](/editor/debugging-flows).
+All three features are on the canvas too, and the editor writes the addresses for
+you. Hover any block and it offers the same three things, in the same order:
+
+| Button | Flag |
+| --- | --- |
+| **▶** | `--break-at` — run to here and show the message |
+| **🧪** | `--mocks` — stand in for this block |
+| **👁** | `--spies` — record what crosses it |
+
+A spy's records come back as a count on the block itself, and add up across runs.
+See [Debugging flows in the editor](/editor/debugging-flows).
+
+## Without a human
+
+An agent gets the same three through MCP's `invoke_flow`, which takes `breakAt`,
+`spies` and `mocks` directly — so it can stub out a payment API and watch an inner
+block without editing the flow. See [the MCP server](/ai/platform-mcp).
