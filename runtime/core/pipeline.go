@@ -50,6 +50,16 @@ type BlockDeps struct {
 	// implicit breakpoint block reads it, and it refuses to build without one, so a
 	// flow can never carry a breakpoint that was not asked for.
 	Breakpoint *Breakpoint
+	// Spies collects what crosses each addressed block, for the CLI's `invoke
+	// --spies`. Nil in every normal run, on the same terms as Breakpoint: only the
+	// implicit spy block reads it, and it refuses to build without one.
+	Spies *Spies
+	// Mocks holds the canned outcomes each addressed block is replaced with, for the
+	// CLI's `invoke --mocks`. Unlike the two above it collects nothing — it is an
+	// input to the run — but it reaches the engine the same way, and the implicit
+	// mock block refuses to build without it, so a flow can never carry a mock that
+	// was not asked for.
+	Mocks *Mocks
 }
 
 // BlockFactory builds a leaf processor from its settings and build-time deps.

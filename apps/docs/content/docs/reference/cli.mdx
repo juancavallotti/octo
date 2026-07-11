@@ -99,6 +99,9 @@ octo invoke --config samples/hello-invoke.yaml --flow greet --data '{"name": "Ad
 | `--vars` | JSON | (none) | JSON object seeding the message [variables](/concepts/state-and-data). |
 | `--timeout` | duration | `30s` | Maximum time to wait for the flow (Go duration, e.g. `10s`, `2m`). |
 | `--break-at` | address | (none) | Run until this block, print the message it produced, and stop. See [Breakpoints](#breakpoints). |
+| `--spies` | addresses | (none) | Comma-separated blocks to record every message that crosses. See [Spies](#spies). |
+| `--mocks` | JSON | (none) | Blocks to answer for instead of running. See [Mocks](#mocks). |
+| `--run-debug-config` | path | (none) | A file holding the whole run. See [Debug config](#debug-config-file). |
 
 The body can also arrive on stdin — `--data` and a pipe are interchangeable:
 
@@ -165,14 +168,22 @@ outside invoke mode, so they can never halt live traffic.
 
 ### The output envelope
 
-`--break-at` always prints one JSON object, whether or not the block was reached:
+A run that was asked to **observe** itself — with `--break-at`, `--spies`, or both
+— prints one JSON envelope instead of the bare result body:
 
 | Field | Meaning |
 | --- | --- |
-| `reached` | Whether execution ever got to the block. |
+| `reached` | Whether execution ever got to the block. Present **only** under `--break-at`. |
 | `block` | The address you asked for, echoed back. |
 | `message` | The message the block produced. Present only when `reached` is true. |
+| `result` | The flow's own result. Present when it was not stopped at a breakpoint. |
+| `dropped` | The flow filtered the message out and returned nothing. |
+| `spies` | What each spied block saw. See [Spies](#spies). |
 | `error` | The flow's failure, when it failed before reaching the block. |
+
+A `--mocks`-only run prints the **bare body**, like any other invoke — mocking
+changes what the flow does but produces no observations, so it stays pipeable
+into `jq`.
 
 **A block that is never reached is a normal result, not an error.** If the flow
 takes the other branch of an `if`, matches a different `switch` case, or drops
@@ -333,6 +344,168 @@ octo invoke --config ./flows --flow caller --break-at 'sub.step'
   `reached: false` — with the failure in `error`.
 - Numbers in the printed body are JSON numbers, so integers may show as floats.
 
+## Spies
+
+`--spies` records every message that crosses a block, and — unlike a breakpoint —
+leaves the run alone. It takes a comma-separated list of the same
+[block addresses](#addressing-a-block):
+
+```bash
+octo invoke --config samples/builtins-demo.yaml --flow demo \
+  --data '{"firedAt": "2026-07-10T12:00:00Z"}' \
+  --spies 'demo.set-threshold,demo.each-order[body].classify-order'
+```
+
+The envelope grows a `spies` array, one entry per address, in the order you gave
+them. Each entry holds the crossings in the order they happened:
+
+| Field | Meaning |
+| --- | --- |
+| `address` | The address you asked for, echoed back. |
+| `records` | One entry per crossing. **Empty** when the flow never reached the block. |
+| `records[].seq` | Orders records across *every* spy, so a multi-block trace reads in the order things actually happened. |
+| `records[].at` | When the crossing was recorded. |
+| `records[].input` | The message the block **received**. |
+| `records[].output` | The message it **returned**. Absent when it dropped or failed. |
+| `records[].dropped` | The block filtered the message out. |
+| `records[].error` | The block failed, with this message. |
+
+A block that runs many times — inside a `foreach` body, a `fork` branch, a
+`cache-scope` — reports **one record per crossing**, which is the point: a spy
+that showed only the first iteration would hide the one that went wrong.
+
+A spy also sees what nothing else can. A `fork` runs each branch on a clone and
+discards the branch's message, so a block inside one has no way to report through
+the flow's result; the spy's records leave out of band.
+
+## Mocks
+
+`--mocks` **replaces** a block with a canned answer, so its real work — an HTTP
+call, an LLM, a database write — never happens. It takes one JSON object keyed by
+block address:
+
+```bash
+octo invoke --config samples/error-handling.yaml --flow charge-flowlevel \
+  --data '{"amount": 250}' \
+  --mocks '{"charge-flowlevel.call-charge":{
+     "cases":[{"when":"body.amount > 100","body":{"id":"ch_1"}}],
+     "default":{"error":"unexpected input"}}}'
+```
+
+It is one JSON blob rather than a repeated flag because a spec is nested — a list
+of cases, each with an expression and an outcome — and there is no honest way to
+flatten that onto argv. For anything real, put it in a
+[debug config file](#debug-config-file) instead.
+
+### The mock spec
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `cases` | array | Tried **in order**; the first whose `when` holds is applied. |
+| `default` | case | Applied when no case matched. Has no `when`. |
+
+Each case has a condition and **exactly one** outcome:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `when` | CEL | Evaluated against the message the block **received** (`body`, `vars`, `env`, …). Required on a case, forbidden on the `default`. |
+| `body` | any | The body the block returned. A **literal value**, not an expression. |
+| `vars` | object | Variables the block set, alongside its `body` — for blocks that report through a variable, like an HTTP call setting `vars.status`. Only valid with a `body`. |
+| `error` | string | Fail the block with this message. |
+| `drop` | bool | Filter the message out, as a filter block would. |
+
+`body` is a literal rather than an expression on purpose: the dispatch already
+happened in `when`, so a mock keeps exactly one CEL surface.
+
+### Things worth knowing
+
+- **A mock replaces the block; it does not wrap it.** A wrapped HTTP call would
+  still fire.
+- **No matching case and no `default` fails the block** — it does *not* fall
+  through to the real one, which is gone from the flow. Keeping it wired would
+  mean a "mocked" call could still reach the network and spend money on a run you
+  believe is mocked. The escape hatch is one line: a `default`, or a trailing
+  case with `when: "true"`.
+- **A mocked failure is indistinguishable from a real one.** The mock takes the
+  target's label, so the error reads `block "call-charge": card declined` and an
+  error path branching on `vars.error.block` behaves exactly as in production.
+- **Mocking a composite removes everything inside it** — that is how you cut out
+  a whole sub-tree. A spy or breakpoint addressed *inside* a mocked block is
+  therefore rejected, rather than silently reporting nothing.
+
+### Combining the three flags
+
+They compose on the same block, and the nesting is fixed:
+
+```
+breakpoint[ spy[ mock ] ]
+```
+
+So a spy on a mocked block shows you what the flow fed it and what the mock
+answered, and a breakpoint on top stops the flow there. The order is not
+arbitrary — the mock has to be innermost because it replaces its target, and the
+breakpoint outermost because it halts the flow by marking the message, which a
+spy wrapped around it would record as part of the block's output.
+
+## Debug config file
+
+`--run-debug-config` reads a whole debugging run from one file, so a session is
+reproducible instead of a page of flags someone has to retype:
+
+```yaml title="debug.yaml"
+input:
+  data: { amount: 250 }
+  vars: { x-api-key: dev-key }
+breakAt: orders.charge
+spies:
+  - orders.validate
+  - orders.fanout[audit].log-it
+mocks:
+  orders.charge:
+    cases:
+      - when: 'body.amount > 100'
+        error: card declined
+    default:
+      drop: true
+```
+
+```bash
+octo invoke --config orders.yaml --flow orders --run-debug-config debug.yaml
+```
+
+| Section | Equivalent flag |
+| --- | --- |
+| `input.data` | `--data` |
+| `input.vars` | `--vars` |
+| `breakAt` | `--break-at` |
+| `spies` | `--spies` |
+| `mocks` | `--mocks` |
+
+Every section is optional. It is YAML, and JSON is accepted too — JSON is a
+subset of YAML, so a `--mocks` blob pastes straight in.
+
+**A flag overrides its section, whole.** `--spies` *replaces* the file's list
+rather than adding to it, so a flag always says exactly what the run will do —
+merging would leave no way to run the file with *fewer* spies than it lists.
+
+For the body the order is `--data`, then the file's `input.data`, then piped
+stdin. The file comes **before** stdin, unlike a bare `invoke`: a run fully
+described in a file must never sit waiting on a pipe for a body it already has.
+A file with no `input.data` still falls through to stdin.
+
+**Unknown keys are rejected.** A debug config is hand-written, and a typo'd key
+that was silently ignored would look exactly like a feature that does not work —
+a misspelled `spys:` would report no records at all, and you would go hunting for
+the bug in your flow:
+
+```
+parse debug config "debug.yaml": field spys not found in type main.debugConfig
+```
+
+Print the file's JSON Schema with
+[`octo schema --kind debug-config`](#octo-schema), so an editor can complete it
+and a validator can check it.
+
 ## octo eval
 
 Evaluates a CEL expression against an ad-hoc message — no config and no
@@ -409,7 +582,9 @@ octo schema --out capabilities.json
 
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
-| `--out` | path | stdout | Write the JSON to a file instead of stdout. |
+| `--kind` | enum | `capabilities` | Which schema: `capabilities`, or `debug-config` for a [debug config file](#debug-config-file). |
+| `--format` | enum | `json` | Print it as `json` or `yaml`. |
+| `--out` | path | stdout | Write it to a file instead of stdout. |
 
 The output is an object with two arrays:
 
@@ -435,6 +610,30 @@ and CI's documentation drift check compares it against the reference pages —
 every registered block and connector type must be documented by exactly one
 page. If you add a block or connector, `octo schema` is the source of truth
 the tooling holds the docs to.
+
+### The debug-config schema
+
+`--kind debug-config` prints the JSON Schema of a
+[`--run-debug-config`](#debug-config-file) file, so an editor can complete it and
+a validator can check it:
+
+```bash
+octo schema --kind debug-config --out debug.schema.json
+octo schema --kind debug-config --format yaml     # same document, as YAML
+```
+
+```yaml
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://octo.run/schemas/debug-config.json
+title: octo debug config
+type: object
+additionalProperties: false
+properties:
+    input: …
+    breakAt: …
+    spies: …
+    mocks: …
+```
 
 ## octo version
 

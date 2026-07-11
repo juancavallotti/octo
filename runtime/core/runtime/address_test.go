@@ -74,32 +74,28 @@ func sampleConfig() *types.Config {
 // test can assert what injection produced.
 func findBlock(t *testing.T, cfg *types.Config, addr string) types.BlockConfig {
 	t.Helper()
-	parsed, err := parseAddress(addr)
+	target, err := resolveTarget(cfg, breakpointBlockType, addr)
 	if err != nil {
-		t.Fatalf("parse %q: %v", addr, err)
-	}
-	flow, err := findFlow(cfg, parsed.flow)
-	if err != nil {
-		t.Fatalf("find flow: %v", err)
-	}
-	chain, err := flowChain(flow, parsed.chain)
-	if err != nil {
-		t.Fatalf("flow chain: %v", err)
-	}
-	for _, hop := range parsed.steps[:len(parsed.steps)-1] {
-		block, blockErr := selectBlock(*chain, hop.block, addr)
-		if blockErr != nil {
-			t.Fatalf("select %q: %v", hop.block, blockErr)
-		}
-		if chain, err = branchChain(block, hop.branch); err != nil {
-			t.Fatalf("branch %q: %v", hop.branch, err)
-		}
-	}
-	target, err := selectBlock(*chain, parsed.steps[len(parsed.steps)-1].block, addr)
-	if err != nil {
-		t.Fatalf("select target: %v", err)
+		t.Fatalf("resolveTarget(%q): %v", addr, err)
 	}
 	return *target
+}
+
+// TestResolveTargetNamesTheKindThatAsked: the resolver is shared by every debug
+// feature, and a bad address is a flag the user typed wrong — so the error has to
+// say which flag, not always "breakpoint".
+func TestResolveTargetNamesTheKindThatAsked(t *testing.T) {
+	for _, kind := range []string{"breakpoint", "spy", "mock"} {
+		t.Run(kind, func(t *testing.T) {
+			_, err := resolveTarget(sampleConfig(), kind, "orders.nope")
+			if err == nil {
+				t.Fatal("an unknown block must be rejected")
+			}
+			if want := kind + ` "orders.nope"`; !strings.Contains(err.Error(), want) {
+				t.Errorf("error = %q, want it to start with %q", err, want)
+			}
+		})
+	}
 }
 
 // TestInjectBreakpointReachesEveryComposite walks an address into each composite the
