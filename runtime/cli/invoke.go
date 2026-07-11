@@ -75,14 +75,24 @@ func invokeCommand(args []string) error {
 
 // buildInvokeRequest turns the parsed flags into the request invokeFlow runs: the
 // config to run, what to call the flow with, and the debug features to run it under.
-// Every flag is resolved here, before the service is built, so a bad address or a
+// Everything is resolved here, before the service is built, so a bad address or a
 // malformed mock spec fails as the bad request it is rather than mid-run.
+//
+// A --run-debug-config supplies any of those, and a flag overrides the section it
+// corresponds to — whole-section, not key by key. Merging a --spies list into the
+// file's would leave no way to run the file with fewer spies than it lists; replacing
+// it outright means a flag always says exactly what the run will do.
 func buildInvokeRequest(flags invokeFlags, svc core.RuntimeServices) (invokeRequest, error) {
-	body, err := resolveData(flags.data)
+	debug, err := loadDebugConfig(flags.runDebugConfig)
 	if err != nil {
 		return invokeRequest{}, err
 	}
-	vars, err := parseVariables(flags.vars)
+
+	body, err := resolveBody(flags.data, debug)
+	if err != nil {
+		return invokeRequest{}, err
+	}
+	vars, err := resolveVars(flags.vars, debug)
 	if err != nil {
 		return invokeRequest{}, err
 	}
@@ -99,16 +109,76 @@ func buildInvokeRequest(flags invokeFlags, svc core.RuntimeServices) (invokeRequ
 		timeout:  flags.timeout,
 		services: svc,
 	}
-	if flags.breakAt != "" {
-		req.breakpoint = core.NewBreakpoint(flags.breakAt)
+	if breakAt := override(flags.breakAt, debug.BreakAt); breakAt != "" {
+		req.breakpoint = core.NewBreakpoint(breakAt)
 	}
-	if req.spies, err = parseSpies(flags.spies); err != nil {
+	if req.spies, err = resolveSpies(flags.spies, debug); err != nil {
 		return invokeRequest{}, err
 	}
-	if req.mocks, err = parseMocks(flags.mocks); err != nil {
+	if req.mocks, err = resolveMocks(flags.mocks, debug); err != nil {
 		return invokeRequest{}, err
 	}
 	return req, nil
+}
+
+// override returns the flag when it was given, else the debug config's value.
+func override(fromFlag, fromFile string) string {
+	if fromFlag != "" {
+		return fromFlag
+	}
+	return fromFile
+}
+
+// resolveBody picks the request body: --data, else the debug config's input.data, else
+// piped stdin.
+//
+// The debug config comes BEFORE stdin, which is worth spelling out because the flag on
+// its own reads the other way round. `invoke` with no --data waits on stdin, and a
+// debug config exists precisely so the run is fully described in the file — so
+// consulting stdin first would make `invoke --run-debug-config x.yaml` block forever in
+// any script that inherits an open stdin, waiting for a body it already has. A file
+// that carries no input.data still falls through to stdin, so piping into a config that
+// only lists spies and mocks works as it reads.
+func resolveBody(data string, debug debugConfig) ([]byte, error) {
+	if data != "" {
+		return []byte(data), nil
+	}
+	body, err := debug.body()
+	if err != nil {
+		return nil, err
+	}
+	if len(body) > 0 {
+		return body, nil
+	}
+	return resolveData("")
+}
+
+// resolveVars picks the message variables: --vars, else the debug config's input.vars.
+func resolveVars(vars string, debug debugConfig) (types.Variables, error) {
+	parsed, err := parseVariables(vars)
+	if err != nil {
+		return nil, err
+	}
+	if parsed != nil {
+		return parsed, nil
+	}
+	return debug.Input.Vars, nil
+}
+
+// resolveSpies picks the spy collector: --spies, else the debug config's list.
+func resolveSpies(spies string, debug debugConfig) (*core.Spies, error) {
+	if strings.TrimSpace(spies) != "" {
+		return parseSpies(spies)
+	}
+	return debug.spies()
+}
+
+// resolveMocks picks the mock set: --mocks, else the debug config's specs.
+func resolveMocks(mocks string, debug debugConfig) (*core.Mocks, error) {
+	if strings.TrimSpace(mocks) != "" {
+		return parseMocks(mocks)
+	}
+	return debug.mocks()
 }
 
 // invokeFlags holds the parsed flags of `octo invoke`.
@@ -120,7 +190,10 @@ type invokeFlags struct {
 	breakAt    string
 	spies      string
 	mocks      string
-	timeout    time.Duration
+	// runDebugConfig is a file supplying any of the above; a flag overrides the
+	// section it corresponds to.
+	runDebugConfig string
+	timeout        time.Duration
 }
 
 // parseInvokeFlags parses and validates the invoke flags. It returns an error
@@ -140,6 +213,8 @@ func parseInvokeFlags(args []string) (invokeFlags, error) {
 		"comma-separated block addresses to record every message that crosses them")
 	fs.StringVar(&flags.mocks, "mocks", "",
 		`JSON object of block addresses to stand in for: {"<address>":{"cases":[…],"default":{…}}}`)
+	fs.StringVar(&flags.runDebugConfig, "run-debug-config", "",
+		"YAML/JSON file holding the whole run: input, breakAt, spies, mocks (a flag overrides its section)")
 	fs.DurationVar(&flags.timeout, "timeout", defaultInvokeTimeout, "max time to wait for the flow")
 
 	if err := fs.Parse(args); err != nil {

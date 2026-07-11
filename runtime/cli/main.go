@@ -87,10 +87,37 @@ Invoke flags:
   --break-at <addr>  run until this block, then print the message and stop
   --spies <addrs>    comma-separated blocks to record every message that crosses them
   --mocks <json>     blocks to answer for instead of running them (see below)
+  --run-debug-config <path>
+                     a file holding the whole run: input, breakAt, spies, mocks
 
   Sources are not started, so nothing populates the message for you. --vars is how
   you seed what a source normally would: the http source copies request headers into
   the message variables, so a flow that reads vars needs them supplied here.
+
+Debug config (--run-debug-config):
+  A whole debugging run in one file — YAML, or JSON, which is a subset of it. Check it
+  in next to the flow it exercises and the session is reproducible, instead of being a
+  page of flags someone has to retype.
+
+    input:
+      data: { amount: 250 }
+      vars: { x-api-key: dev-key }
+    breakAt: orders.charge
+    spies:
+      - orders.validate
+      - orders.fanout[audit].log-it
+    mocks:
+      orders.charge:
+        cases:
+          - when: 'body.amount > 100'
+            error: card declined
+        default:
+          drop: true
+
+  A flag overrides the section it corresponds to, whole: --spies replaces the file's
+  spy list rather than adding to it, so a flag always says exactly what the run does.
+  For the body the order is --data, then the file's input.data, then piped stdin — the
+  file comes before stdin so a fully-described run never sits waiting on a pipe.
 
 Mocks (--mocks):
   A JSON object keyed by block address. Each block lists cases tried in order: a CEL
