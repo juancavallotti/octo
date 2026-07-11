@@ -157,7 +157,12 @@ Eval flags:
   --env <json>       JSON object bound to env
 
 Schema flags:
-  --out <path>       write the JSON to a file instead of stdout
+  --kind <kind>      which schema: capabilities (default) or debug-config
+  --format <fmt>     json (default) or yaml
+  --out <path>       write it to a file instead of stdout
+
+  "octo schema --kind debug-config" prints the JSON Schema of a --run-debug-config
+  file, so an editor can complete it and a validator can check it.
 
 Flags accept one or two dashes (--config or -config).`
 

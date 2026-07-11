@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://octo.run/schemas/debug-config.json",
+  "title": "octo debug config",
+  "description": "A debugging run for `octo invoke --run-debug-config`: what to send the flow, where to stop, which blocks to watch, and which to stand in for. Every section is optional, and any of them can be overridden by the matching flag.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "input": {
+      "$ref": "#/$defs/input"
+    },
+    "breakAt": {
+      "type": "string",
+      "description": "Run until this block, then report the message it produced and stop. A block address: <flow>.<block>, descending into a composite with a bracket naming the branch, e.g. orders.checkHeader[else].api-call-1.",
+      "examples": ["orders.charge", "orders.fanout[audit].log-it"]
+    },
+    "spies": {
+      "type": "array",
+      "description": "Blocks to record every message that crosses. The flow runs to completion regardless; a spied block inside a fork branch or a loop body reports one record per crossing.",
+      "items": {
+        "type": "string",
+        "description": "A block address."
+      }
+    },
+    "mocks": {
+      "type": "object",
+      "description": "Blocks to answer for instead of running. The block is replaced, not wrapped, so its real work — the HTTP call, the LLM, the database write — never happens. Keyed by block address.",
+      "additionalProperties": {
+        "$ref": "#/$defs/mockSpec"
+      }
+    }
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "description": "What the flow is called with. Sources are not started under `invoke`, so nothing populates the message for you.",
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "description": "The request body, as a structured value rather than a JSON string. Overridden by --data, and by piped stdin only when this is absent."
+        },
+        "vars": {
+          "type": "object",
+          "description": "Message variables. This is how you seed what a source normally would: the http source copies request headers into the variables, so a flow that reads vars needs them supplied here.",
+          "additionalProperties": true
+        }
+      }
+    },
+    "mockSpec": {
+      "type": "object",
+      "description": "How one block is stood in for: cases tried in order, and an optional default for a message none of them matched. Without a default, a message that matches no case fails the block — it does not fall through to the real one, which is gone from the flow.",
+      "additionalProperties": false,
+      "anyOf": [
+        { "required": ["cases"] },
+        { "required": ["default"] }
+      ],
+      "properties": {
+        "cases": {
+          "type": "array",
+          "description": "Tried in order; the first whose `when` holds is applied.",
+          "items": {
+            "$ref": "#/$defs/mockCase"
+          }
+        },
+        "default": {
+          "$ref": "#/$defs/defaultCase"
+        }
+      }
+    },
+    "mockCase": {
+      "type": "object",
+      "description": "A condition, and what the block should have done when it holds.",
+      "additionalProperties": false,
+      "required": ["when"],
+      "properties": {
+        "when": {
+          "type": "string",
+          "description": "A CEL expression over the message the block RECEIVED — body, vars, env, eventID, correlationID. It is the only expression a mock carries: the outcome below is a literal value, because a mock is a canned response and the dispatch already happened here.",
+          "examples": ["body.amount > 100", "vars.tier == \"vip\"", "true"]
+        },
+        "body": {
+          "description": "The body the block returned. A literal value, not an expression."
+        },
+        "vars": {
+          "type": "object",
+          "description": "Variables the block set, alongside its body — for the blocks that report through a variable rather than the body, such as an http call setting vars.status. Only valid with a `body`.",
+          "additionalProperties": true
+        },
+        "error": {
+          "type": "string",
+          "description": "Fail the block with this message, which is how a flow's error path is exercised without arranging for the real block to fail.",
+          "examples": ["card declined"]
+        },
+        "drop": {
+          "type": "boolean",
+          "description": "Filter the message out, as a filter block would."
+        }
+      }
+    },
+    "defaultCase": {
+      "type": "object",
+      "description": "What the block does when no case matched. The same as a case, but with no `when` — it is what runs when nothing else did.",
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "description": "The body the block returned. A literal value, not an expression."
+        },
+        "vars": {
+          "type": "object",
+          "description": "Variables the block set, alongside its body. Only valid with a `body`.",
+          "additionalProperties": true
+        },
+        "error": {
+          "type": "string",
+          "description": "Fail the block with this message."
+        },
+        "drop": {
+          "type": "boolean",
+          "description": "Filter the message out."
+        }
+      }
+    }
+  }
+}
