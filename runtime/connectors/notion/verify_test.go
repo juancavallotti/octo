@@ -93,11 +93,106 @@ func TestVerifyPassesEventThrough(t *testing.T) {
 	}
 }
 
-func TestVerifyRequiresVerificationToken(t *testing.T) {
-	// A connector without a verification token cannot verify requests.
+// unsignedMessage builds a message as the http source would deliver it, with no
+// signature header — the shape Notion's handshake arrives in when the subscription
+// is still being set up.
+func unsignedMessage(t *testing.T, rawBody string) *types.Message {
+	t.Helper()
+	msg := blockMessage(t, nil)
+	if err := msg.SetBodyJSON([]byte(rawBody)); err != nil {
+		t.Fatalf("SetBodyJSON: %v", err)
+	}
+	msg.Variables.Set(defaultRawBodyVar, rawBody)
+	return msg
+}
+
+// A connector with no verification token must still build: the handshake that
+// delivers the token runs through this very block.
+func TestVerifyBuildsWithoutVerificationToken(t *testing.T) {
 	conn := startConnector(t, map[string]any{"token": "ntn-test"})
-	deps := depsFor(conn)
-	if _, err := newVerify(types.Settings{"connector": "notion"}, deps); err == nil {
-		t.Error("expected an error when the connector has no verification token")
+	if _, err := newVerify(types.Settings{"connector": "notion"}, depsFor(conn)); err != nil {
+		t.Errorf("newVerify without a verification token: %v", err)
+	}
+}
+
+// The bootstrap: with no token known, an unsigned handshake is accepted, its token
+// captured, and real events then verify against it without a restart.
+func TestVerifyBootstrapsHandshakeWithoutToken(t *testing.T) {
+	const handshake = "secret_bootstrapped"
+	conn := startConnector(t, map[string]any{"token": "ntn-test"})
+	proc, err := newVerify(types.Settings{"connector": "notion"}, depsFor(conn))
+	if err != nil {
+		t.Fatalf("newVerify: %v", err)
+	}
+
+	out, err := proc.Process(context.Background(), unsignedMessage(t, `{"verification_token":"`+handshake+`"}`))
+	if err != nil {
+		t.Fatalf("Process(handshake): %v", err)
+	}
+	if got, _ := out.Variables.String(verificationVar); got != handshake {
+		t.Errorf("%s = %q, want %q", verificationVar, got, handshake)
+	}
+	if got := conn.VerificationToken(); got != handshake {
+		t.Errorf("connector token = %q, want the captured %q", got, handshake)
+	}
+
+	// The captured token now authenticates real events, with no restart.
+	raw := `{"type":"page.content_updated","entity":{"id":"p1","type":"page"}}`
+	event := blockMessage(t, nil)
+	if err := event.SetBodyJSON([]byte(raw)); err != nil {
+		t.Fatalf("SetBodyJSON: %v", err)
+	}
+	event.Variables.Set(defaultRawBodyVar, raw)
+	event.Variables.Set(defaultSignatureHeader, computeSig(handshake, []byte(raw)))
+
+	if _, err := proc.Process(context.Background(), event); err != nil {
+		t.Errorf("Process(event signed with the captured token): %v", err)
+	}
+}
+
+// The bootstrap window closes once a token is known: a handshake is no longer a
+// free pass, so nobody can push a token into a running, configured service.
+func TestVerifyRejectsUnsignedHandshakeOnceTokenIsKnown(t *testing.T) {
+	proc, err := newVerify(types.Settings{"connector": "notion"}, blockDeps(t, ""))
+	if err != nil {
+		t.Fatalf("newVerify: %v", err)
+	}
+
+	msg := unsignedMessage(t, `{"verification_token":"attacker_token"}`)
+	if _, err := proc.Process(context.Background(), msg); err == nil {
+		t.Error("expected an unsigned handshake to be rejected once a token is configured")
+	}
+}
+
+// The exemption covers only a body that is nothing but the handshake — an event
+// cannot smuggle itself through by carrying a verification_token field.
+func TestVerifyRejectsUnsignedEventCarryingAToken(t *testing.T) {
+	conn := startConnector(t, map[string]any{"token": "ntn-test"})
+	proc, err := newVerify(types.Settings{"connector": "notion"}, depsFor(conn))
+	if err != nil {
+		t.Fatalf("newVerify: %v", err)
+	}
+
+	msg := unsignedMessage(t, `{"verification_token":"x","type":"page.content_updated"}`)
+	if _, err := proc.Process(context.Background(), msg); err == nil {
+		t.Error("expected an unsigned event carrying a verification_token to be rejected")
+	}
+	if got := conn.VerificationToken(); got != "" {
+		t.Errorf("connector captured %q from a non-handshake body", got)
+	}
+}
+
+// With no token known, a request that is not a handshake still has nothing to be
+// checked against, so it is rejected.
+func TestVerifyRejectsEventWithoutToken(t *testing.T) {
+	conn := startConnector(t, map[string]any{"token": "ntn-test"})
+	proc, err := newVerify(types.Settings{"connector": "notion"}, depsFor(conn))
+	if err != nil {
+		t.Fatalf("newVerify: %v", err)
+	}
+
+	msg := unsignedMessage(t, `{"type":"page.content_updated","entity":{"id":"p1"}}`)
+	if _, err := proc.Process(context.Background(), msg); err == nil {
+		t.Error("expected an event to be rejected while no verification token is known")
 	}
 }

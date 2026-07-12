@@ -16,6 +16,14 @@ import (
 // when its config does not name one.
 const defaultForeachVar = "item"
 
+// The modes a foreach block runs in: iterate (the default) threads the message
+// through the body once per element, for its side effects; map collects each
+// element's resulting body into an array that replaces the message body.
+const (
+	foreachModeIterate = "iterate"
+	foreachModeMap     = "map"
+)
+
 // scope is the internal skeleton for error-handling composites: it runs main and,
 // on failure, falls back to the alternative flow. It is not a user-facing block;
 // handle-errors builds on it (see builder.handleErrors). The optional onError hook
@@ -142,11 +150,16 @@ type switchBlock struct {
 // foreachBlock is a composite that runs its body once per element of the array
 // produced by items, binding each element to the variable named as. Iteration is
 // sequential and the message passes through after the loop.
+//
+// In map mode the loop is a transformation instead: each element's body runs on a
+// clone and its resulting body becomes one element of an array that replaces the
+// message body.
 type foreachBlock struct {
-	items *expr.Program
-	as    string
-	body  *Flow
-	env   map[string]any
+	items   *expr.Program
+	as      string
+	body    *Flow
+	mapMode bool
+	env     map[string]any
 }
 
 // enrichScope is a composite that runs its body flow on an isolated clone of the
@@ -253,10 +266,8 @@ func (s *switchBlock) Process(ctx context.Context, msg *types.Message) (*types.M
 	return msg, nil
 }
 
-// Process iterates the array produced by items, binding each element to the loop
-// variable and running the body in order. A body that drops the message stops
-// the loop; an error aborts it. The loop variable is restored to its pre-loop
-// state before the message passes through.
+// Process iterates the array produced by items, in map mode collecting each
+// element's result and otherwise threading the message through the body.
 func (f *foreachBlock) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
 	value, err := f.items.Eval(expr.MessageActivation(msg, f.env))
 	if err != nil {
@@ -267,6 +278,58 @@ func (f *foreachBlock) Process(ctx context.Context, msg *types.Message) (*types.
 		return nil, fmt.Errorf("foreach items must evaluate to an array, got %T", value)
 	}
 
+	if f.mapMode {
+		return f.mapItems(ctx, msg, items)
+	}
+	return f.iterate(ctx, msg, items)
+}
+
+// mapItems runs the body once per element and collects each run's resulting body
+// into an array that replaces the message body — the loop as a transformation
+// rather than a side effect.
+//
+// Each element runs on a clone, so the elements are independent: one iteration's
+// variables cannot leak into the next, and the loop variable never escapes. The
+// array is positional — as many elements out as in — so an iteration whose body
+// drops the message contributes a null rather than shortening the array or
+// dropping the whole message. A stop inside the body halts iteration, writes back
+// what was collected, and re-raises the stop on the way out.
+func (f *foreachBlock) mapItems(ctx context.Context, msg *types.Message, items []any) (*types.Message, error) {
+	mapped := make([]any, 0, len(items))
+	stopped := false
+
+	for _, item := range items {
+		clone := msg.Clone()
+		clone.Variables.Set(f.as, item)
+
+		out, err := f.body.Process(ctx, clone)
+		if err != nil {
+			return nil, err
+		}
+		if out == nil {
+			mapped = append(mapped, nil)
+			continue
+		}
+
+		mapped = append(mapped, out.Body)
+		if out.StopRequested() {
+			stopped = true
+			break
+		}
+	}
+
+	msg.Body = mapped
+	if stopped {
+		msg.RequestStop()
+	}
+	return msg, nil
+}
+
+// iterate runs the body once per element, threading the message through each run
+// so the body's effects accumulate on it. A body that drops the message drops it
+// here too; an error aborts. The loop variable is restored to its pre-loop state
+// before the message passes through.
+func (f *foreachBlock) iterate(ctx context.Context, msg *types.Message, items []any) (*types.Message, error) {
 	prev, had := msg.Variables[f.as]
 	for _, item := range items {
 		msg.Variables.Set(f.as, item)
@@ -462,7 +525,11 @@ func (b *builder) foreachBlock(cfg types.BlockConfig) (core.MessageProcessor, er
 	if cfg.Body == nil {
 		return nil, errors.New("foreach block requires a body flow")
 	}
-	if err := allowSlots(cfg, blockKindForeach, "items", "as", "body"); err != nil {
+	if err := allowSlots(cfg, blockKindForeach, "items", "as", "mode", "body"); err != nil {
+		return nil, err
+	}
+	mapMode, err := foreachMapMode(cfg.Mode)
+	if err != nil {
 		return nil, err
 	}
 
@@ -479,5 +546,25 @@ func (b *builder) foreachBlock(cfg types.BlockConfig) (core.MessageProcessor, er
 	if as == "" {
 		as = defaultForeachVar
 	}
-	return &foreachBlock{items: items, as: as, body: body, env: expr.EnvActivation(b.deps.Env)}, nil
+	return &foreachBlock{
+		items:   items,
+		as:      as,
+		body:    body,
+		mapMode: mapMode,
+		env:     expr.EnvActivation(b.deps.Env),
+	}, nil
+}
+
+// foreachMapMode reports whether the configured mode is map, rejecting any mode
+// that is neither of the two — a typo must fail the build rather than silently
+// iterate when a transformation was meant.
+func foreachMapMode(mode string) (bool, error) {
+	switch mode {
+	case "", foreachModeIterate:
+		return false, nil
+	case foreachModeMap:
+		return true, nil
+	default:
+		return false, fmt.Errorf("foreach block mode %q must be %q or %q", mode, foreachModeIterate, foreachModeMap)
+	}
 }

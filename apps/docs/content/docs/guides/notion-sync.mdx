@@ -24,9 +24,20 @@ integration — it only sees what you share.
 </Step>
 <Step>
 Declare the connector with the token. `verificationToken` can wait — the
-handshake below produces it.
+handshake below produces it — so declare its env var **not** `required`, with an
+empty default, and start the service with it unset. (A variable a setting
+references must be set or defaulted, or config load fails; the empty default is
+what lets the first run start with no token.)
 
 ```yaml
+env:
+  - name: NOTION_TOKEN
+    required: true
+  # Not required, and defaulted to empty: it does not exist until the handshake
+  # delivers it.
+  - name: NOTION_VERIFICATION_TOKEN
+    default: ""
+
 connectors:
   - name: notion
     type: notion
@@ -36,8 +47,9 @@ connectors:
 ```
 </Step>
 <Step>
-Create a webhook subscription in Notion pointing at this service's
-`/notion/events` route (use a tunnel such as ngrok while developing).
+Start the service, then create a webhook subscription in Notion pointing at its
+`/notion/events` route (use a tunnel such as ngrok while developing). The
+service has to be running to receive the handshake.
 </Step>
 </Steps>
 
@@ -71,11 +83,14 @@ process:
 
 ### The verification handshake
 
-Notion's **first** request to a new subscription is a one-time handshake
-carrying a `verification_token`. The flow logs it; you paste it back into
-Notion's UI to confirm the subscription, then set it as the connector's
-`verificationToken` so future signatures verify. `notion-verify-request`
-detects the handshake and captures the token into `vars.notionVerification`:
+Notion's **first** request to a new subscription is a one-time handshake carrying
+a `verification_token`. That request is the only way to learn the token — so it
+is also the only one whose signature cannot be checked, because the token it
+would be checked against is what the request carries.
+
+`notion-verify-request` resolves that chicken-and-egg: while no token is known,
+it accepts the handshake, captures the token for the running process, logs it,
+and sets `vars.notionVerification` so your flow can branch on it:
 
 ```yaml title="samples/notion-webhook.yaml (excerpt)"
 - type: if
@@ -93,17 +108,33 @@ detects the handshake and captures the token into `vars.notionVerification`:
       # ... handle real events
 ```
 
-So the bootstrap sequence is: run the service, create the subscription, copy the
-token from your logs into Notion's UI, export it as
-`NOTION_VERIFICATION_TOKEN`, restart. From then on every webhook is
-signature-checked.
+So the bootstrap sequence is:
+
+1. Run the service with `NOTION_VERIFICATION_TOKEN` unset.
+2. Create the subscription in Notion.
+3. Copy the token from your logs into Notion's UI to confirm the subscription.
+   Real events **verify against the captured token right away** — you do not have
+   to restart to start processing them.
+4. Export the token as `NOTION_VERIFICATION_TOKEN` so it survives a restart: the
+   captured one lives in memory, for the life of the process.
 
 ```bash
+# First run: no verification token exists yet.
 export NOTION_TOKEN=ntn_...
-export NOTION_VERIFICATION_TOKEN=...   # from the handshake, second run
 export NOTION_DATABASE_ID=...
 octo run --config samples/notion-webhook.yaml
+
+# Later runs: persist the token the handshake produced.
+export NOTION_VERIFICATION_TOKEN=secret_...
+octo run --config samples/notion-webhook.yaml
 ```
+
+<Callout type="warn">
+The handshake is accepted unsigned **only while no token is known**. Once one is
+configured or captured, an unsigned handshake is rejected like any other unsigned
+request — so nobody can push a new token into a running service. To rotate a
+subscription, unset `verificationToken` and restart to reopen the window.
+</Callout>
 
 ## React to page events: a title logger
 

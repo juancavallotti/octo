@@ -8,24 +8,33 @@ service:
 # Setup:
 #   1. Create a Notion integration (https://www.notion.com/my-integrations) and
 #      copy its token. Share the pages / data source you want to reach with it.
-#   2. Create a webhook subscription pointing at this service's /notion/events
-#      route (expose it with a tunnel such as ngrok while developing). Notion's
-#      first request is a one-time handshake carrying a verification_token — the
-#      webhook flow logs it (see notion-verify-request); paste it back into
-#      Notion's UI to confirm the subscription, then set it as the env var below.
-#   3. Export the credentials:
+#   2. Export the credentials. Leave NOTION_VERIFICATION_TOKEN unset for now —
+#      you do not have it yet, and the service starts without it:
 #        export NOTION_TOKEN=ntn_...
-#        export NOTION_VERIFICATION_TOKEN=secret_...   # from the handshake
 #        export NOTION_DATABASE_ID=...                 # a database to query
-#   4. Run: go run ./cli -config samples/notion-webhook.yaml
+#   3. Run: go run ./cli -config samples/notion-webhook.yaml
+#   4. Create a webhook subscription pointing at this service's /notion/events
+#      route (expose it with a tunnel such as ngrok while developing). Notion's
+#      first request is a one-time handshake carrying a verification_token.
+#      notion-verify-request accepts that request — the only one it can't check a
+#      signature on, since the token it would check against is what the request
+#      carries — captures the token, and logs it. Paste it into Notion's UI to
+#      confirm the subscription. Real events now verify against the captured
+#      token immediately; no restart needed.
+#   5. Persist it so it survives a restart, and re-run:
+#        export NOTION_VERIFICATION_TOKEN=secret_...   # from the handshake log
+#      Once a token is configured (or captured), an unsigned handshake is no
+#      longer accepted — the bootstrap window is closed.
 
 env:
   - name: HTTP_PORT
     default: "8080"
   - name: NOTION_TOKEN
     required: true
+  # Not required, and defaulted to empty: the token does not exist until Notion's
+  # handshake delivers it (step 4), so the first run has nothing to supply.
   - name: NOTION_VERIFICATION_TOKEN
-    required: true
+    default: ""
   - name: NOTION_DATABASE_ID
     required: true
 
@@ -67,6 +76,8 @@ flows:
     process:
       # Authenticate the request (aborts on a bad signature) and, for the
       # subscription handshake, capture the token into vars.notionVerification.
+      # While no verification token is known yet, the handshake is accepted
+      # unsigned and its token captured — that is how a new subscription starts.
       - type: notion-verify-request
         name: verify
         settings:

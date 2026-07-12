@@ -55,6 +55,7 @@ func blockSpec(b core.BlockMeta) (Block, error) {
 	}
 	applyDescriptions(fields, b.SrcDir, b.Config)
 	block.Fields = fields
+	block.AddressBranches = addressBranchesOf(b.Type, fields)
 	return block, nil
 }
 

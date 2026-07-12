@@ -91,6 +91,26 @@ export interface FieldSpec {
 /** Whether a block is a plain processor or a control-flow composite. */
 export type BlockCategory = "processor" | "control-flow";
 
+/**
+ * The branches a composite block exposes to a block address — the path grammar
+ * the debug features (breakpoints, spies, mocks) use to reach a block nested
+ * inside it, as in `orders.checkHeader[else].api-call`. A block on the way to the
+ * target must always name one of these, even when the composite has a single
+ * obvious chain. Absent on leaf blocks, which have nothing to descend into.
+ */
+export interface AddressBranchesSpec {
+  /** Branches addressed by a fixed name, e.g. `handle-errors[process]`. */
+  named?: string[];
+  /**
+   * Slots whose branches are addressed by the member's own name, or its index —
+   * e.g. `fork[notify]`, `switch[0]`. The names are per-config, so the schema can
+   * only name the slot that holds them.
+   */
+  byMember?: string[];
+  /** Human-readable summary of how to address into this block. */
+  note: string;
+}
+
 /** A block type the runtime supports as a step in a flow's process chain. */
 export interface BlockSpec {
   type: string;
@@ -106,6 +126,8 @@ export interface BlockSpec {
   icon: string;
   description: string;
   fields: FieldSpec[];
+  /** Set only for composites; see AddressBranchesSpec. */
+  addressBranches?: AddressBranchesSpec;
 }
 
 /** A source type a connector can expose to drive a flow. */

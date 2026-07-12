@@ -136,7 +136,7 @@ reporting nothing.
 
 | Tool | What it does |
 | --- | --- |
-| `getSchema` | No argument: a compact index of every block and connector type. With `elementName` (e.g. `"log"`, `"http"`): that element's full spec, including its fields. |
+| `getSchema` | No argument: a compact index of every block and connector type. With `elementName` (e.g. `"log"`, `"http"`): that element's full spec, including its fields — and, for a composite, the `addressBranches` a breakpoint/spy/mock address needs to descend into it (`handle-errors[process].<block>`). |
 | `getExamples` | No argument: an index of worked example integrations. With a slug: that example's full runtime YAML. |
 | `getCelFunctions` | The CEL variables and custom functions in scope for message expressions; pass a `functionName` for one entry. |
 

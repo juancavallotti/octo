@@ -534,7 +534,7 @@ func (s *Service) newSource(
 		return nil, fmt.Errorf("connector for source type %q does not provide sources", cfg.Type)
 	}
 
-	source, err := provider.NewSource(cfg, in)
+	source, err := provider.NewSource(cfg, in, core.SourceDeps{Resources: s.resourceLoader()})
 	if err != nil {
 		return nil, fmt.Errorf("new source %q: %w", cfg.Type, err)
 	}

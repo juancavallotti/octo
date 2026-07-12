@@ -62,6 +62,22 @@ type Field struct {
 	Fields      []Field    `json:"fields,omitempty"`
 }
 
+// AddressBranches mirrors types.ts AddressBranchesSpec: the branches a composite
+// block exposes to a block address, as used by the debug features (breakpoints,
+// spies, mocks) — `orders.checkHeader[else].api-call`. A block on the way to the
+// address's target must always name one of these, even when the composite has a
+// single obvious chain.
+//
+// Named lists the branches addressed by a fixed name (`handle-errors[process]`).
+// ByMember lists the slots whose branches are addressed by the member's own name,
+// or by its index (`fork[notify]`, `switch[0]`) — the names are per-config, so only
+// the slot holding them can be known from the schema.
+type AddressBranches struct {
+	Named    []string `json:"named,omitempty"`
+	ByMember []string `json:"byMember,omitempty"`
+	Note     string   `json:"note"`
+}
+
 // Block mirrors types.ts BlockSpec.
 type Block struct {
 	Type        string  `json:"type"`
@@ -71,6 +87,9 @@ type Block struct {
 	Icon        string  `json:"icon"`
 	Description string  `json:"description"`
 	Fields      []Field `json:"fields"`
+	// AddressBranches is set only for composites — a leaf block has no branches to
+	// descend into, and omits it.
+	AddressBranches *AddressBranches `json:"addressBranches,omitempty"`
 }
 
 // Source mirrors types.ts SourceSpec.

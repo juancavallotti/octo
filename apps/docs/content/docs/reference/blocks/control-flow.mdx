@@ -101,15 +101,16 @@ Scatters the message across parallel branches, then joins. Each branch receives 
 
 ## foreach
 
-Sequentially iterates an array, running the `body` sub-flow once per element with the element bound to a loop variable.
+Sequentially iterates an array, running the `body` sub-flow once per element with the element bound to a loop variable. `mode` picks what the loop is *for*: running the body for its side effects (`iterate`, the default), or transforming the array into a new one (`map`).
 
 | Key | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `items` | `expression` (array) | Yes | — | CEL expression that must evaluate to an array; anything else errors. |
 | `as` | string | No | `item` | Variable name each element is bound to (`vars.<as>` inside the body). |
+| `mode` | enum: `iterate` \| `map` | No | `iterate` | `iterate` threads the message through the body per element; `map` collects each element's resulting body into an array that replaces the message body. |
 | `body` | flow | Yes | — | Sub-flow run once per element, in order. |
 
-Semantics:
+### `iterate` mode (default)
 
 - Iteration is sequential and runs on the shared message, so body edits (body, variables) carry into the next iteration and past the loop.
 - The loop variable is restored to its pre-loop state (or removed) after the loop, so it does not leak.
@@ -126,6 +127,32 @@ Semantics:
         settings:
           message: '"order " + string(vars.order.id) + " amount=" + string(vars.order.amount)'
 ```
+
+### `map` mode
+
+Each element's body runs on its **own clone** of the message, and the body it produces becomes one element of a new array, which replaces the message body. This is how you reshape a payload — call an API per element, project each element to a new shape — without hand-appending to a variable.
+
+```yaml
+- type: foreach
+  name: enrich-orders
+  items: "body.orders"
+  as: order
+  mode: map
+  body:
+    process:
+      - type: set-payload
+        settings:
+          value: '{"id": vars.order.id, "total": vars.order.amount * 1.2}'
+# body is now the array of the objects each iteration produced
+```
+
+- **As many elements out as in.** An iteration whose body drops the message contributes `null` at that position rather than shortening the array or dropping the whole message — downstream blocks decide what a `null` element means.
+- **Iterations are independent.** Each runs on a clone of the incoming message, so one element's variables cannot leak into the next, and the loop variable never escapes. (This is the opposite of `iterate` mode, where edits accumulate on the shared message.)
+- A body error aborts the loop. A filter block inside the body that requests stop halts iteration, writes back what was collected so far, and bubbles the stop to the root.
+
+<Callout type="info">
+The mapped array replaces the message **body**. To keep the original body and put the result somewhere else, wrap the `foreach` in an [`enrich`](#enrich) block and use `setVars` to land the mapped array in a variable.
+</Callout>
 
 ## enrich
 

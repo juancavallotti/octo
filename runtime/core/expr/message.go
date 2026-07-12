@@ -23,8 +23,13 @@ var MessageVars = []string{"body", "vars", "eventID", "correlationID", "env", no
 // MessageContext carries the per-compile inputs a message extension may need.
 type MessageContext struct {
 	// Resources loads resources (e.g. templates) a function needs. It is never nil
-	// inside an extension: CompileMessage substitutes the no-op loader when unset.
+	// inside an extension: the compile substitutes the no-op loader when unset.
 	Resources core.ResourceLoader
+	// Vars are the variable names in scope for the expression being compiled —
+	// MessageVars for a message expression, SourcePayloadVars for a source payload.
+	// An extension that hands the activation to a function (templateResource does,
+	// via a macro) must build it from these rather than assuming the message set.
+	Vars []string
 }
 
 // MessageExtension contributes CEL environment options (custom functions, macros)
@@ -33,8 +38,8 @@ type MessageContext struct {
 type MessageExtension func(MessageContext) []cel.EnvOption
 
 // messageExtensions holds the registered extensions, applied in order by
-// CompileMessage. It is populated only from package init, so it is effectively
-// immutable after startup and needs no locking.
+// compileWithExtensions. It is populated only from package init, so it is
+// effectively immutable after startup and needs no locking.
 var messageExtensions []MessageExtension
 
 // RegisterMessageExtension adds ext to the extensions every message expression is
@@ -50,15 +55,23 @@ func RegisterMessageExtension(ext MessageExtension) {
 // this, so a capability added via RegisterMessageExtension becomes available
 // everywhere without editing call sites. res may be nil (a no-op loader is used).
 func CompileMessage(res core.ResourceLoader, expression string) (*Program, error) {
+	return compileWithExtensions(res, MessageVars, expression)
+}
+
+// compileWithExtensions declares vars and applies every registered extension,
+// bound to res and to that variable set. It is the single seam through which both
+// message expressions and source payloads reach the registered capabilities, so an
+// extension is wired in once and works in either scope.
+func compileWithExtensions(res core.ResourceLoader, vars []string, expression string) (*Program, error) {
 	if res == nil {
 		res = core.NoopResourceLoader{}
 	}
-	mc := MessageContext{Resources: res}
+	mc := MessageContext{Resources: res, Vars: vars}
 	opts := make([]cel.EnvOption, 0, len(messageExtensions))
 	for _, ext := range messageExtensions {
 		opts = append(opts, ext(mc)...)
 	}
-	return CompileWithOptions(expression, MessageVars, opts...)
+	return CompileWithOptions(expression, vars, opts...)
 }
 
 func init() {
@@ -74,6 +87,6 @@ func init() {
 			}
 			return tpl.Render(ctx)
 		}
-		return templateResourceOptions(MessageVars, resolve)
+		return templateResourceOptions(mc.Vars, resolve)
 	})
 }

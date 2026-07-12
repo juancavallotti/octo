@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/juancavallotti/octo/core"
@@ -174,6 +175,66 @@ func TestVerifySignatureNoToken(t *testing.T) {
 	if c.VerifySignature("sha256=whatever", []byte("x")) {
 		t.Error("signature verified without a configured verification token")
 	}
+}
+
+// A token captured from the subscription handshake verifies real events for the
+// rest of the process, so a fresh subscription starts working without a restart.
+func TestCaptureVerificationToken(t *testing.T) {
+	const captured = "fedcba9876543210fedcba9876543210"
+	c := startConnector(t, map[string]any{"token": "ntn-test"})
+
+	body := []byte(`{"type":"page.updated","entity":{"id":"p1","type":"page"}}`)
+	if c.VerifySignature(computeSig(captured, body), body) {
+		t.Fatal("verified before any token was known")
+	}
+
+	c.CaptureVerificationToken(captured)
+
+	if got := c.VerificationToken(); got != captured {
+		t.Errorf("VerificationToken() = %q, want the captured token", got)
+	}
+	if !c.VerifySignature(computeSig(captured, body), body) {
+		t.Error("an event signed with the captured token was rejected")
+	}
+	if c.VerifySignature("sha256=deadbeef", body) {
+		t.Error("a bad signature was accepted against the captured token")
+	}
+}
+
+// The configured token is the authority: a handshake cannot displace it.
+func TestConfiguredTokenWinsOverCaptured(t *testing.T) {
+	const configured = "0123456789abcdef0123456789abcdef"
+	c := startConnector(t, map[string]any{"token": "ntn-test", "verificationToken": configured})
+
+	c.CaptureVerificationToken("fedcba9876543210fedcba9876543210")
+
+	if got := c.VerificationToken(); got != configured {
+		t.Errorf("VerificationToken() = %q, want the configured token", got)
+	}
+	body := []byte(`{"type":"page.updated"}`)
+	if !c.VerifySignature(computeSig(configured, body), body) {
+		t.Error("an event signed with the configured token was rejected after a capture")
+	}
+}
+
+// Request goroutines verify while a handshake captures; run under -race.
+func TestCaptureVerificationTokenConcurrent(t *testing.T) {
+	c := startConnector(t, map[string]any{"token": "ntn-test"})
+	body := []byte(`{"type":"page.updated"}`)
+
+	var wg sync.WaitGroup
+	for i := range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if i%2 == 0 {
+				c.CaptureVerificationToken("fedcba9876543210fedcba9876543210")
+				return
+			}
+			c.VerifySignature(computeSig("fedcba9876543210fedcba9876543210", body), body)
+		}()
+	}
+	wg.Wait()
 }
 
 // computeSig builds the Notion signature the connector should accept.

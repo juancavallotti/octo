@@ -51,7 +51,7 @@ func newCronSource(t *testing.T, out chan<- *types.Message) *source {
 	src, err := (&Connector{}).NewSource(types.SourceConfig{
 		Connector: "daily-report",
 		Settings:  map[string]any{"schedule": "@every 1h", "payload": `{"kind":"tick"}`},
-	}, out)
+	}, out, core.SourceDeps{})
 	if err != nil {
 		t.Fatalf("NewSource: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestCronSourceEmitsPayload(t *testing.T) {
 			"schedule": "@every 1s",
 			"payload":  `{"kind": "tick"}`,
 		},
-	}, out)
+	}, out, core.SourceDeps{})
 	if err != nil {
 		t.Fatalf("NewSource: %v", err)
 	}
@@ -137,6 +137,50 @@ func TestCronSourceEmitsPayload(t *testing.T) {
 	}
 }
 
+// stubLoader serves one template resource by id, standing in for the runtime's
+// resource loader so a payload can render templateResource(id).
+type stubLoader struct{ text string }
+
+func (s stubLoader) Load(context.Context, core.ResourceKind, string) ([]byte, error) {
+	return []byte(s.text), nil
+}
+
+// A payload reaches the registered CEL extensions, templateResource among them,
+// rendered against the source's own scope (now, settings).
+func TestCronSourcePayloadRendersTemplateResource(t *testing.T) {
+	out := make(chan *types.Message, 1)
+	src, err := (&Connector{}).NewSource(types.SourceConfig{
+		Type: "cron",
+		Settings: map[string]any{
+			"schedule": "@every 1s",
+			"payload":  `{"test": templateResource("in")}`,
+		},
+	}, out, core.SourceDeps{Resources: stubLoader{text: "runs {{ settings.schedule }}"}})
+	if err != nil {
+		t.Fatalf("NewSource: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := src.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() { _ = src.Stop(context.Background()) }()
+
+	select {
+	case msg := <-out:
+		body, ok := msg.Body.(map[string]any)
+		if !ok {
+			t.Fatalf("body type = %T, want map", msg.Body)
+		}
+		if body["test"] != "runs @every 1s" {
+			t.Errorf("body test = %v, want %q", body["test"], "runs @every 1s")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for a cron tick")
+	}
+}
+
 func TestCronSourceRejectsBadConfig(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -149,7 +193,7 @@ func TestCronSourceRejectsBadConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			out := make(chan *types.Message)
-			if _, err := (&Connector{}).NewSource(types.SourceConfig{Settings: tt.settings}, out); err == nil {
+			if _, err := (&Connector{}).NewSource(types.SourceConfig{Settings: tt.settings}, out, core.SourceDeps{}); err == nil {
 				t.Errorf("expected an error for %s", tt.name)
 			}
 		})

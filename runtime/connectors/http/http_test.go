@@ -37,7 +37,7 @@ func startConnector(t *testing.T, settings map[string]any) (*Connector, string) 
 func newSource(t *testing.T, c *Connector, settings map[string]any) chan *types.Message {
 	t.Helper()
 	out := make(chan *types.Message, 1)
-	src, err := c.NewSource(types.SourceConfig{Type: "http", Settings: settings}, out)
+	src, err := c.NewSource(types.SourceConfig{Type: "http", Settings: settings}, out, core.SourceDeps{})
 	if err != nil {
 		t.Fatalf("NewSource: %v", err)
 	}
