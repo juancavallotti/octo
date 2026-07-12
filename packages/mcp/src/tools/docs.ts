@@ -27,7 +27,7 @@ export function registerDocsTools(
     {
       title: "Get runtime schema",
       description:
-        "The catalogue of blocks and connectors the runtime supports. Call with no argument for a compact index ({ type, kind, label, category, description }); pass `elementName` (a block or connector type, e.g. \"log\" or \"http\") to get that one element's full spec including its fields. Read this before authoring a definition instead of guessing type names or fields.",
+        "The catalogue of blocks and connectors the runtime supports. Call with no argument for a compact index ({ type, kind, label, category, description }); pass `elementName` (a block or connector type, e.g. \"log\" or \"http\") to get that one element's full spec including its fields. Read this before authoring a definition instead of guessing type names or fields. For a composite block (if, switch, foreach, fork, handle-errors, ai-agent, …), the spec also carries `addressBranches` — the branch names an `invoke_flow` breakpoint/spy/mock address must use to descend into it, e.g. `handle-errors[process].<block>`.",
       inputSchema: {
         elementName: z
           .string()

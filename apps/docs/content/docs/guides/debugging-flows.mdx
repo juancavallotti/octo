@@ -189,6 +189,28 @@ Each composite exposes its branches by name:
 | `ai-agent`, `mcp-router` | tool name, or `default` | `orders.agent[lookup].fetch` |
 | the flow itself | `error` | `orders[error].notify` |
 
+A composite on the way to your target **always** needs a branch, even when it has
+a single obvious chain: `weather.handle-errors[process].weather-step`, never
+`weather.weather-step`.
+
+This table is also machine-readable, so you never have to remember it — every
+composite publishes its branches in the schema, under `addressBranches`:
+
+```bash
+bin/octo schema | jq '.blocks[] | select(.type == "handle-errors").addressBranches'
+```
+
+```json
+{
+  "named": ["process", "error"],
+  "note": "A block on the way to an address target must name a branch of this one: handle-errors[<branch>].<block>. Branches: process, error — e.g. handle-errors[process].<block>."
+}
+```
+
+An AI agent driving the [MCP server](/ai/platform-mcp) gets the same thing from
+`getSchema("handle-errors")`, so it can write a nested address correctly the first
+time rather than learning it from a failed run.
+
 Within a chain a block is matched by its `name`, else its `type`, else its `ref`.
 Name the block if two of a kind share a chain — an ambiguous address is rejected
 rather than guessed at.
