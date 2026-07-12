@@ -22,6 +22,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/juancavallotti/octo/core"
@@ -77,13 +78,20 @@ type connectorSettings struct {
 // Connector holds Notion credentials and an HTTP client for the Notion API.
 // Blocks resolve it by name and either call the API through Call or verify an
 // inbound webhook through VerifySignature. It is safe for concurrent use:
-// *http.Client is, and the credentials are read-only after Start.
+// *http.Client is, the credentials are read-only after Start, and the one field
+// that is not — the token captured from a subscription handshake — is guarded by
+// mu, since request goroutines verify concurrently.
 type Connector struct {
 	client            *http.Client
 	baseURL           string
 	token             string
 	version           string
 	verificationToken string
+
+	// mu guards capturedToken, the verification token learned at runtime from
+	// Notion's subscription handshake when none was configured.
+	mu            sync.RWMutex
+	capturedToken string
 }
 
 // Start decodes the settings and builds the API client. A token is required; the
@@ -172,19 +180,40 @@ func (c *Connector) Call(ctx context.Context, httpMethod, path string, payload a
 	return decoded, nil
 }
 
-// VerificationToken returns the configured webhook verification token; it is
-// empty when the connector was set up for outbound calls only.
-func (c *Connector) VerificationToken() string { return c.verificationToken }
+// VerificationToken returns the webhook verification token in effect: the
+// configured one, else the one captured from a subscription handshake. It is empty
+// only while neither exists — the connector was set up for outbound calls only, or
+// a fresh subscription has yet to shake hands.
+func (c *Connector) VerificationToken() string {
+	if c.verificationToken != "" {
+		return c.verificationToken
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.capturedToken
+}
+
+// CaptureVerificationToken remembers the token Notion sent in its one-time
+// subscription handshake, so the rest of this process can verify real events
+// against it without a restart. It does not survive one: the token is logged for
+// the operator to persist as NOTION_VERIFICATION_TOKEN. A configured token always
+// wins, so capturing cannot displace it.
+func (c *Connector) CaptureVerificationToken(token string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.capturedToken = token
+}
 
 // VerifySignature reports whether sig is Notion's valid signature for rawBody. It
-// requires a configured verification token, and compares in constant time. Notion
-// signs the exact request bytes with HMAC-SHA256 keyed by the verification token
-// and prefixes the hex digest with "sha256=".
+// requires a verification token to be in effect, and compares in constant time.
+// Notion signs the exact request bytes with HMAC-SHA256 keyed by the verification
+// token and prefixes the hex digest with "sha256=".
 func (c *Connector) VerifySignature(sig string, rawBody []byte) bool {
-	if c.verificationToken == "" || sig == "" {
+	token := c.VerificationToken()
+	if token == "" || sig == "" {
 		return false
 	}
-	mac := hmac.New(sha256.New, []byte(c.verificationToken))
+	mac := hmac.New(sha256.New, []byte(token))
 	// hash.Hash.Write never errors; the assignment satisfies errcheck.
 	_, _ = mac.Write(rawBody)
 	expected := signaturePrefix + hex.EncodeToString(mac.Sum(nil))
