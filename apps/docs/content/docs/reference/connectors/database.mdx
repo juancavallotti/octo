@@ -22,6 +22,7 @@ The connector opens the pool on start (verifying the connection so a bad DSN fai
 | --- | --- | --- | --- | --- |
 | `driver` | enum: `postgres` \| `sqlite` | Yes | — | Database driver. `postgres` uses jackc/pgx; `sqlite` uses modernc.org/sqlite. |
 | `dsn` | string | Yes | — | Data source name (Postgres connection string or SQLite file path). |
+| `password` | string | No | — | Password merged into the DSN at startup, so only it has to be a secret. Postgres only. |
 | `maxOpenConns` | int | No | unlimited | Open connection pool cap (0 = unlimited). |
 | `maxIdleConns` | int | No | database/sql default | Idle connections kept in the pool. |
 | `connMaxLifetime` | string | No | — | Duration bounding connection reuse (e.g. `5m`). |
@@ -34,6 +35,26 @@ dsn: postgres://user:pw@localhost:5432/orders?sslmode=disable
 # SQLite (file path)
 dsn: file:./orders.db
 ```
+
+### Keeping only the password secret
+
+Put the password in `password` rather than inside the DSN, and the connection string stays plain config — host, user, database and `sslmode` are not secrets, and rotating the password touches one value instead of the whole DSN:
+
+```yaml
+env:
+  - name: DB_PASSWORD
+    required: true
+
+connectors:
+  - name: db
+    type: database
+    settings:
+      driver: postgres
+      dsn: postgres://app@db.internal:5432/app?sslmode=require
+      password: ${DB_PASSWORD}
+```
+
+Both Postgres DSN forms are supported — the URL form above and the keyword form (`host=db.internal user=app dbname=app`) — and the password is escaped or quoted for the form it is merged into, so it needs no hand-encoding. If the DSN already carries a password, the `password` setting overrides it and the connector logs a warning. `password` means nothing to SQLite, so setting it with `driver: sqlite` fails at startup rather than being silently ignored.
 
 ## `sql` block
 

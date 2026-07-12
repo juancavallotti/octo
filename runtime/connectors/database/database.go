@@ -55,6 +55,9 @@ type connectorSettings struct {
 	Driver string `json:"driver" octo:"label=Driver,type=enum,enum=postgres|sqlite,required"`
 	// Data source name (Postgres connection string or SQLite file path).
 	DSN string `json:"dsn" octo:"label=DSN,required"`
+	// Password merged into the DSN at startup, so only it has to be a secret and the
+	// DSN can stay in plain config. Postgres only.
+	Password string `json:"password" octo:"label=Password"`
 	// Open connection pool cap (0 = unlimited).
 	MaxOpenConns int `json:"maxOpenConns" octo:"label=Max open connections"`
 	// Idle connections kept in the pool.
@@ -86,7 +89,12 @@ func (c *Connector) Start(ctx context.Context, config types.ConnectorConfig) err
 		return fmt.Errorf("database connector %q: driver %q is not one of postgres/sqlite", config.Name, set.Driver)
 	}
 
-	db, err := sql.Open(driverName, set.DSN)
+	dsn, err := withPassword(set.Driver, set.DSN, set.Password, config.Name)
+	if err != nil {
+		return fmt.Errorf("database connector %q: %w", config.Name, err)
+	}
+
+	db, err := sql.Open(driverName, dsn)
 	if err != nil {
 		return fmt.Errorf("database connector %q: open: %w", config.Name, err)
 	}
