@@ -66,13 +66,14 @@ func registerFlowControlComposites() {
 // also under the "Flow Control" group.
 func registerIterationComposites() {
 	core.RegisterBlockMeta(core.BlockMeta{
-		Type:        "foreach",
-		Label:       "For Each",
-		Category:    core.CategoryControlFlow,
-		Group:       groupFlowControl,
-		Icon:        "Repeat",
-		Description: "Sequentially iterate over an array, running the body per element.",
-		Config:      reflect.TypeFor[foreachMeta](),
+		Type:     "foreach",
+		Label:    "For Each",
+		Category: core.CategoryControlFlow,
+		Group:    groupFlowControl,
+		Icon:     "Repeat",
+		Description: "Sequentially iterate over an array, running the body per element. In map mode, " +
+			"each element's resulting body is collected into an array that replaces the message body.",
+		Config: reflect.TypeFor[foreachMeta](),
 	})
 	core.RegisterBlockMeta(core.BlockMeta{
 		Type:     "enrich",
@@ -197,6 +198,10 @@ type foreachMeta struct {
 	Items string `json:"items" octo:"label=Items,type=cel,required"`
 	// Variable name bound to each element.
 	As string `json:"as" octo:"label=As,default=item"`
+	// How the body's results are treated: "iterate" threads the message through the
+	// body once per element (side effects); "map" collects each element's resulting
+	// body into an array that replaces the message body (transformation).
+	Mode string `json:"mode" octo:"label=Mode,type=enum,enum=iterate|map,default=iterate"`
 	// Flow run once per element.
 	Body *struct{} `json:"body" octo:"label=Body,type=flow,required"`
 }

@@ -81,6 +81,11 @@ type BlockConfig struct {
 	// As is the variable name a "foreach" block binds each element to; it
 	// defaults to "item" when unset.
 	As string `yaml:"as,omitempty"`
+	// Mode is how a "foreach" block treats its body's results: "iterate" (the
+	// default) threads the message through the body once per element, while "map"
+	// collects each element's resulting body into an array that replaces the
+	// message body.
+	Mode string `yaml:"mode,omitempty"`
 	// Body is the flow a "foreach", "cache-scope", or "enrich" block runs; foreach
 	// runs it once per element, cache-scope runs it on a cache miss, enrich runs it
 	// once on an isolated copy of the message.

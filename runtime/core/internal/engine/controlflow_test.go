@@ -2,6 +2,8 @@ package engine
 
 import (
 	"context"
+	"reflect"
+	"strconv"
 	"testing"
 
 	"github.com/juancavallotti/octo/core"
@@ -270,6 +272,170 @@ func TestForeachNonArrayErrors(t *testing.T) {
 	}
 }
 
+// mapRegistry adds the blocks a map-mode body needs: "to-body" replaces the body
+// with the loop variable (the shape a mapping body produces), "drop-odd" drops the
+// message for odd elements, and "stop-at" requests stop once it sees its element.
+func mapRegistry() *core.BlockRegistry {
+	reg := testRegistry()
+	reg.MustRegister("to-body", func(s types.Settings, _ core.BlockDeps) (core.MessageProcessor, error) {
+		varName, _ := s.String("var")
+		return processorFunc(func(_ context.Context, msg *types.Message) (*types.Message, error) {
+			msg.Body = map[string]any{"n": msg.Variables[varName]}
+			return msg, nil
+		}), nil
+	})
+	reg.MustRegister("drop-odd", func(s types.Settings, _ core.BlockDeps) (core.MessageProcessor, error) {
+		varName, _ := s.String("var")
+		return processorFunc(func(_ context.Context, msg *types.Message) (*types.Message, error) {
+			if n, ok := msg.Variables[varName].(float64); ok && int(n)%2 == 1 {
+				return nil, nil
+			}
+			return msg, nil
+		}), nil
+	})
+	reg.MustRegister("stop-at", func(s types.Settings, _ core.BlockDeps) (core.MessageProcessor, error) {
+		varName, _ := s.String("var")
+		at, _ := s.String("at")
+		return processorFunc(func(_ context.Context, msg *types.Message) (*types.Message, error) {
+			if n, ok := msg.Variables[varName].(float64); ok && at == strconv.Itoa(int(n)) {
+				msg.RequestStop()
+			}
+			return msg, nil
+		}), nil
+	})
+	return reg
+}
+
+// Map mode collects each iteration's resulting body into an array that replaces
+// the message body.
+func TestForeachMapCollectsBodies(t *testing.T) {
+	body := types.FlowConfig{Process: []types.BlockConfig{
+		{Type: "to-body", Settings: types.Settings{"var": "n"}},
+	}}
+	proc := mustBuild(t, mapRegistry(), types.BlockConfig{
+		Type: "foreach", Mode: "map", Items: "body.nums", As: "n", Body: &body,
+	})
+
+	msg := mustMessage(t)
+	msg.Body = map[string]any{"nums": []any{1.0, 2.0, 3.0}}
+	out, err := proc.Process(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+
+	want := []any{
+		map[string]any{"n": 1.0}, map[string]any{"n": 2.0}, map[string]any{"n": 3.0},
+	}
+	if !reflect.DeepEqual(out.Body, want) {
+		t.Errorf("body = %#v, want %#v", out.Body, want)
+	}
+	// The loop runs on clones, so the loop variable never touches the message.
+	if _, ok := out.Variables["n"]; ok {
+		t.Error("loop variable n leaked past the map")
+	}
+}
+
+// As many elements out as in: an iteration that drops the message contributes a
+// null rather than shortening the array or dropping the whole message.
+func TestForeachMapDroppedIterationYieldsNull(t *testing.T) {
+	body := types.FlowConfig{Process: []types.BlockConfig{
+		{Type: "drop-odd", Settings: types.Settings{"var": "n"}},
+		{Type: "to-body", Settings: types.Settings{"var": "n"}},
+	}}
+	proc := mustBuild(t, mapRegistry(), types.BlockConfig{
+		Type: "foreach", Mode: "map", Items: "body.nums", As: "n", Body: &body,
+	})
+
+	msg := mustMessage(t)
+	msg.Body = map[string]any{"nums": []any{1.0, 2.0, 3.0}}
+	out, err := proc.Process(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+
+	want := []any{nil, map[string]any{"n": 2.0}, nil}
+	if !reflect.DeepEqual(out.Body, want) {
+		t.Errorf("body = %#v, want %#v", out.Body, want)
+	}
+}
+
+// A stop inside the body halts iteration, writes back what was collected, and
+// re-raises the stop so the enclosing flow halts too.
+func TestForeachMapStopKeepsPartialArray(t *testing.T) {
+	body := types.FlowConfig{Process: []types.BlockConfig{
+		{Type: "to-body", Settings: types.Settings{"var": "n"}},
+		{Type: "stop-at", Settings: types.Settings{"var": "n", "at": "2"}},
+	}}
+	proc := mustBuild(t, mapRegistry(), types.BlockConfig{
+		Type: "foreach", Mode: "map", Items: "body.nums", As: "n", Body: &body,
+	})
+
+	msg := mustMessage(t)
+	msg.Body = map[string]any{"nums": []any{1.0, 2.0, 3.0}}
+	out, err := proc.Process(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+
+	want := []any{map[string]any{"n": 1.0}, map[string]any{"n": 2.0}}
+	if !reflect.DeepEqual(out.Body, want) {
+		t.Errorf("body = %#v, want %#v (collected up to the stop)", out.Body, want)
+	}
+	if !out.StopRequested() {
+		t.Error("the stop raised inside the body did not bubble out of the map")
+	}
+}
+
+// Iterations are independent: a variable set by one does not reach the next.
+func TestForeachMapIterationsAreIsolated(t *testing.T) {
+	var seen []any
+	reg := recordRegistry(&seen)
+	reg.MustRegister("leak", func(types.Settings, core.BlockDeps) (core.MessageProcessor, error) {
+		return processorFunc(func(_ context.Context, msg *types.Message) (*types.Message, error) {
+			msg.Variables.Set("leaked", "yes")
+			return msg, nil
+		}), nil
+	})
+	body := types.FlowConfig{Process: []types.BlockConfig{
+		{Type: "record", Settings: types.Settings{"var": "leaked"}},
+		{Type: "leak"},
+	}}
+	proc := mustBuild(t, reg, types.BlockConfig{
+		Type: "foreach", Mode: "map", Items: "body.nums", As: "n", Body: &body,
+	})
+
+	msg := mustMessage(t)
+	msg.Body = map[string]any{"nums": []any{1.0, 2.0}}
+	if _, err := proc.Process(context.Background(), msg); err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	// Each iteration starts from the original message, so neither sees the leak.
+	if len(seen) != 2 || seen[0] != nil || seen[1] != nil {
+		t.Errorf("seen = %#v, want [nil nil] — a variable leaked between iterations", seen)
+	}
+}
+
+// The default mode is unchanged: the message threads through and passes out.
+func TestForeachIterateModeIsDefault(t *testing.T) {
+	body := types.FlowConfig{Process: []types.BlockConfig{
+		{Type: "to-body", Settings: types.Settings{"var": "n"}},
+	}}
+	proc := mustBuild(t, mapRegistry(), types.BlockConfig{
+		Type: "foreach", Mode: "iterate", Items: "body.nums", As: "n", Body: &body,
+	})
+
+	msg := mustMessage(t)
+	msg.Body = map[string]any{"nums": []any{1.0, 2.0}}
+	out, err := proc.Process(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	// The body's last write wins; nothing is collected.
+	if want := (map[string]any{"n": 2.0}); !reflect.DeepEqual(out.Body, want) {
+		t.Errorf("body = %#v, want %#v", out.Body, want)
+	}
+}
+
 func TestForeachBuildValidation(t *testing.T) {
 	reg := testRegistry()
 	b := &builder{reg: reg, pool: pool.New(0, 0)}
@@ -285,6 +451,15 @@ func TestForeachBuildValidation(t *testing.T) {
 				Type: "foreach", Items: "body.nums",
 				Body: &types.FlowConfig{Process: []types.BlockConfig{{Type: "pass"}}},
 				Then: &types.FlowConfig{},
+			},
+		},
+		{
+			// A typo must fail the build rather than silently iterate when a
+			// transformation was meant.
+			name: "unknown mode",
+			block: types.BlockConfig{
+				Type: "foreach", Items: "body.nums", Mode: "maap",
+				Body: &types.FlowConfig{Process: []types.BlockConfig{{Type: "pass"}}},
 			},
 		},
 	}

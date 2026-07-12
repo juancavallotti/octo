@@ -238,7 +238,7 @@ under `settings`:
 ```
 
 The full slot vocabulary is: `process`, `error`, `branches`, `condition`,
-`then`, `else`, `cases`, `default`, `items`, `as`, `body`, `setBody`,
+`then`, `else`, `cases`, `default`, `items`, `as`, `mode`, `body`, `setBody`,
 `setVars`, `key`, `ttl`, `rules`, `onReject`, `rejectStatus`, `connector`,
 `prompt`, `guardrail`, `routes`, `tools`, `skills`, `maxIterations`,
 `maxAttempts`, `serverName`, `resources`, `prompts`, `memoryThreadId`,
@@ -331,12 +331,14 @@ Ordered, condition-guarded branches; the first case whose `when` is true runs.
 ### foreach
 
 Evaluates `items` to a list and runs `body` once per element, the element
-bound as a variable.
+bound as a variable. In `map` mode the loop is a transformation: each element's
+resulting body is collected into an array that replaces the message body.
 
 | Slot | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | `items` | expression | yes | — | Must evaluate to a list. |
 | `as` | string | no | `"item"` | Variable name each element is bound to (`vars.<as>`). |
+| `mode` | enum | no | `"iterate"` | `iterate` (side effects, shared message) or `map` (collect each element's body into a new array; each element runs on a clone). See [control flow](/reference/blocks/control-flow#map-mode). |
 | `body` | sub-flow | yes | — | Runs once per element. |
 
 ```yaml
