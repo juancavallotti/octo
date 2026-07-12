@@ -13,6 +13,30 @@ import (
 // ErrUnterminatedTemplate reports a {{ with no matching }} in a template.
 var ErrUnterminatedTemplate = errors.New("unterminated {{ in template")
 
+// TemplateVars are the variables a template's {{ }} spans may reference: the union
+// of every scope a template can be rendered from, since the same template resource
+// may be rendered by a message expression (body, vars, env, …) or by a source
+// payload (now, settings). A span naming a variable that is not in the scope it is
+// actually rendered from fails at render, not at parse — the parse cannot know
+// which scope will reach it.
+var TemplateVars = unionVars(MessageVars, SourcePayloadVars)
+
+// unionVars concatenates variable sets, dropping the duplicates the scopes share.
+func unionVars(sets ...[]string) []string {
+	seen := make(map[string]bool)
+	var union []string
+	for _, set := range sets {
+		for _, name := range set {
+			if seen[name] {
+				continue
+			}
+			seen[name] = true
+			union = append(union, name)
+		}
+	}
+	return union
+}
+
 // segment is one piece of a parsed template: literal text, or a compiled CEL
 // expression (from a {{ ... }} span) evaluated per render.
 type segment struct {
@@ -27,8 +51,8 @@ type Template struct {
 }
 
 // ParseTemplate splits text into literal and {{ expression }} segments, compiling
-// each expression once (with the standard message variables) so a malformed
-// expression fails at build time rather than per render.
+// each expression once (with TemplateVars) so a malformed expression fails at
+// build time rather than per render.
 func ParseTemplate(text string) (*Template, error) {
 	var segments []segment
 	rest := text
@@ -48,7 +72,7 @@ func ParseTemplate(text string) (*Template, error) {
 		if closeIdx < 0 {
 			return nil, ErrUnterminatedTemplate
 		}
-		program, err := Compile(strings.TrimSpace(after[:closeIdx]), MessageVars...)
+		program, err := Compile(strings.TrimSpace(after[:closeIdx]), TemplateVars...)
 		if err != nil {
 			return nil, err
 		}

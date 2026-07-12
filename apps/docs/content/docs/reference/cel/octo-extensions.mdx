@@ -37,6 +37,9 @@ any message exists, so it sees a smaller scope: only `now` (the trigger's fire
 time) and `settings` (the source's static settings map). The message variables
 above are not available there.
 
+Every function below — including `templateResource` — is available in a payload,
+resolved against that same scope.
+
 ```yaml
 source:
   connector: ticker
@@ -129,6 +132,11 @@ message, returning the rendered text. The template sees every in-scope
 variable: `{{ body.* }}`, `{{ vars.* }}`, `{{ env.* }}`, and so on. A missing
 or unparsable template declared in the config fails at load time, not per
 message.
+
+A template is a shared resource, so its `{{ }}` spans may name any variable from
+any scope it can be rendered in. Rendering it from a source payload gives it that
+scope instead — `{{ settings.* }}` and `{{ now }}` — and a span naming a variable
+the current scope does not have (`{{ body.x }}` in a payload) fails at render.
 
 ```yaml
 resources:

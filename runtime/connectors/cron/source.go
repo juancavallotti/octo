@@ -63,7 +63,7 @@ type source struct {
 //
 //nolint:ireturn // a SourceProvider returns the MessageSource interface
 func (c *Connector) NewSource(
-	cfg types.SourceConfig, out chan<- *types.Message, _ core.SourceDeps,
+	cfg types.SourceConfig, out chan<- *types.Message, deps core.SourceDeps,
 ) (core.MessageSource, error) {
 	var set settings
 	if err := cfg.Settings.Decode(&set); err != nil {
@@ -82,7 +82,7 @@ func (c *Connector) NewSource(
 	}
 
 	if set.Payload != "" {
-		program, compileErr := expr.CompileSourcePayload(set.Payload)
+		program, compileErr := expr.CompileSourcePayload(deps.Resources, set.Payload)
 		if compileErr != nil {
 			return nil, compileErr
 		}

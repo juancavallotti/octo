@@ -39,6 +39,22 @@ An invalid schedule fails at startup, not at runtime.
 
 The `payload` expression is evaluated on each tick with `now` (the fire time) available, plus the source's own `settings`. The result is JSON-encoded into the message body. With no payload, the body is empty.
 
+The payload sees the same [custom functions](/reference/cel/octo-extensions#functions) a message expression does, `templateResource(id)` included — so a tick can emit a body rendered from a template resource:
+
+```yaml
+resources:
+  templates:
+    - resource: templates/daily-digest.tmpl
+      as: digest
+
+# ...
+    settings:
+      schedule: "@every 24h"
+      payload: '{"text": templateResource("digest")}'
+```
+
+The template renders in the payload's scope, so its spans may use `{{ settings.* }}` and `{{ now }}` — not the message variables, which do not exist yet.
+
 <Callout type="info">
 Cron sources participate in leader election: when the service runs with multiple replicas, a schedule fires on exactly one replica per tick rather than on every replica.
 </Callout>
