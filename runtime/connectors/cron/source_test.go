@@ -51,7 +51,7 @@ func newCronSource(t *testing.T, out chan<- *types.Message) *source {
 	src, err := (&Connector{}).NewSource(types.SourceConfig{
 		Connector: "daily-report",
 		Settings:  map[string]any{"schedule": "@every 1h", "payload": `{"kind":"tick"}`},
-	}, out)
+	}, out, core.SourceDeps{})
 	if err != nil {
 		t.Fatalf("NewSource: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestCronSourceEmitsPayload(t *testing.T) {
 			"schedule": "@every 1s",
 			"payload":  `{"kind": "tick"}`,
 		},
-	}, out)
+	}, out, core.SourceDeps{})
 	if err != nil {
 		t.Fatalf("NewSource: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestCronSourceRejectsBadConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			out := make(chan *types.Message)
-			if _, err := (&Connector{}).NewSource(types.SourceConfig{Settings: tt.settings}, out); err == nil {
+			if _, err := (&Connector{}).NewSource(types.SourceConfig{Settings: tt.settings}, out, core.SourceDeps{}); err == nil {
 				t.Errorf("expected an error for %s", tt.name)
 			}
 		})

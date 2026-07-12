@@ -41,7 +41,9 @@ type source struct {
 // topics backend) are available on the context.
 //
 //nolint:ireturn // a SourceProvider returns the MessageSource interface
-func (c *Connector) NewSource(cfg types.SourceConfig, out chan<- *types.Message) (core.MessageSource, error) {
+func (c *Connector) NewSource(
+	cfg types.SourceConfig, out chan<- *types.Message, _ core.SourceDeps,
+) (core.MessageSource, error) {
 	var set sourceSettings
 	if err := cfg.Settings.Decode(&set); err != nil {
 		return nil, err

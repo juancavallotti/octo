@@ -19,10 +19,18 @@ type MessageSource interface {
 	Stop(ctx context.Context) error
 }
 
+// SourceDeps carries build-time services a source may need beyond its own config.
+// Most sources ignore it. Resources loads the resources a source's expressions may
+// reach — a cron payload calling templateResource(id) renders through it. It is
+// never nil: the runtime substitutes a no-op loader when none is wired.
+type SourceDeps struct {
+	Resources ResourceLoader
+}
+
 // SourceProvider is an optional capability a connector implements to supply
 // sources for flows bound to it. The returned source closes over the connector's
 // own resources (connections, transaction managers), which is why no separate
 // globals registry is needed. cfg.Type selects which source the connector builds.
 type SourceProvider interface {
-	NewSource(cfg types.SourceConfig, out chan<- *types.Message) (MessageSource, error)
+	NewSource(cfg types.SourceConfig, out chan<- *types.Message, deps SourceDeps) (MessageSource, error)
 }

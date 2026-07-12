@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/juancavallotti/octo/core"
 	"github.com/juancavallotti/octo/types"
 )
 
@@ -12,7 +13,7 @@ func TestNewSourceRejectsBadConfig(t *testing.T) {
 	c, _ := startConnector(t, nil)
 	out := make(chan *types.Message, 1)
 
-	if _, err := c.NewSource(types.SourceConfig{Settings: map[string]any{}}, out); err == nil {
+	if _, err := c.NewSource(types.SourceConfig{Settings: map[string]any{}}, out, core.SourceDeps{}); err == nil {
 		t.Error("expected an error for a missing path")
 	}
 }
@@ -22,10 +23,10 @@ func TestNewSourceRejectsDuplicateRoute(t *testing.T) {
 	out := make(chan *types.Message, 1)
 	settings := map[string]any{"path": "/orders/{id}"}
 
-	if _, err := c.NewSource(types.SourceConfig{Settings: settings}, out); err != nil {
+	if _, err := c.NewSource(types.SourceConfig{Settings: settings}, out, core.SourceDeps{}); err != nil {
 		t.Fatalf("first NewSource: %v", err)
 	}
-	if _, err := c.NewSource(types.SourceConfig{Settings: settings}, out); err == nil {
+	if _, err := c.NewSource(types.SourceConfig{Settings: settings}, out, core.SourceDeps{}); err == nil {
 		t.Error("expected an error registering the same route twice")
 	}
 }
@@ -72,7 +73,7 @@ func TestNormalizeBasePath(t *testing.T) {
 func TestSourceStopUnblocksShutdown(t *testing.T) {
 	c, _ := startConnector(t, nil)
 	out := make(chan *types.Message)
-	src, err := c.NewSource(types.SourceConfig{Settings: map[string]any{"path": "/x"}}, out)
+	src, err := c.NewSource(types.SourceConfig{Settings: map[string]any{"path": "/x"}}, out, core.SourceDeps{})
 	if err != nil {
 		t.Fatalf("NewSource: %v", err)
 	}

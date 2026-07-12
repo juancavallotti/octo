@@ -53,7 +53,9 @@ func (c *fakeConnector) Start(context.Context, types.ConnectorConfig) error { re
 func (c *fakeConnector) Stop(context.Context) error                         { return nil }
 
 //nolint:ireturn // satisfies the SourceProvider interface
-func (c *fakeConnector) NewSource(_ types.SourceConfig, out chan<- *types.Message) (core.MessageSource, error) {
+func (c *fakeConnector) NewSource(
+	_ types.SourceConfig, out chan<- *types.Message, _ core.SourceDeps,
+) (core.MessageSource, error) {
 	return &countingSource{out: out, count: c.count, done: make(chan struct{})}, nil
 }
 

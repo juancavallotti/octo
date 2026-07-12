@@ -176,6 +176,7 @@ func TestEventSourceForwardsDeliveries(t *testing.T) {
 	src, err := conn.NewSource(
 		types.SourceConfig{Type: "event", Settings: types.Settings{"subject": "orders"}},
 		out,
+		core.SourceDeps{},
 	)
 	if err != nil {
 		t.Fatalf("NewSource: %v", err)
@@ -203,7 +204,7 @@ func TestEventSourceForwardsDeliveries(t *testing.T) {
 
 func TestEventSourceRequiresSubject(t *testing.T) {
 	conn := &Connector{}
-	if _, err := conn.NewSource(types.SourceConfig{Type: "event"}, make(chan *types.Message)); err == nil {
+	if _, err := conn.NewSource(types.SourceConfig{Type: "event"}, make(chan *types.Message), core.SourceDeps{}); err == nil {
 		t.Error("expected an error when the source has no subject")
 	}
 }
