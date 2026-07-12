@@ -25,7 +25,7 @@ The `notion` connector holds the integration token and talks to the Notion API; 
 | --- | --- | --- | --- | --- |
 | `token` | string | Yes | — | Notion integration token used as a Bearer credential for the API. |
 | `notionVersion` | string | No | `2025-09-03` | `Notion-Version` header sent on every request; the data-sources query API requires `2025-09-03` or later. |
-| `verificationToken` | string | No | — | Verifies inbound Notion webhook signatures; required to receive events. |
+| `verificationToken` | string | No | — | Verifies inbound Notion webhook signatures. Leave it unset to [bootstrap a new subscription](#webhook-verification-handshake); set it once you have the token. |
 | `timeout` | duration | No | `30s` | Bounds each Notion API call. |
 
 An `apiBaseURL` setting also exists to override the API base (default `https://api.notion.com/v1`), mainly for tests; it is not exposed in the editor.
@@ -40,20 +40,49 @@ Notion signals errors with an HTTP status ≥ 400 carrying `{object: "error", co
 
 ## Webhook verification handshake
 
-Notion webhook subscriptions use a one-time handshake:
+A Notion webhook subscription is bootstrapped by a one-time handshake, and the token it delivers is the same one every later event is signed with. You do not have that token until Notion sends it, so **start the service with `verificationToken` unset** and let the handshake bring it in.
 
-1. When you create a subscription, Notion's **first request** to your endpoint carries a bare `{"verification_token": "secret_..."}` payload.
-2. The `notion-verify-request` block detects it and sets `vars.notionVerification` to the token, so the flow can branch and log or store it.
-3. Paste the token back into Notion's UI to confirm the subscription, and set it as the connector's `verificationToken`.
-4. Every subsequent event is signed: Notion sends `X-Notion-Signature: sha256=<hex>`, an HMAC-SHA256 over the exact request bytes keyed by the verification token, which the block verifies in constant time.
+The full pattern, start to finish:
+
+1. Configure the connector **without** a `verificationToken` and start the service. It runs, and the webhook route accepts requests.
+2. Create the subscription in Notion, pointing at your `/notion/events` route (use a tunnel such as ngrok while developing).
+3. Notion's **first request** carries a bare `{"verification_token": "secret_..."}` payload. `notion-verify-request` accepts it, captures the token, logs it, and sets `vars.notionVerification` so your flow can branch and log it too.
+4. Paste the token into Notion's UI to confirm the subscription. Real events **start verifying against the captured token immediately** — no restart.
+5. Persist the token as the connector's `verificationToken` (from an env var, e.g. `NOTION_VERIFICATION_TOKEN`) so it survives a restart. The captured token is held in memory only, for the life of the process.
+
+Every event after the handshake is signed: Notion sends `X-Notion-Signature: sha256=<hex>`, an HMAC-SHA256 over the exact request bytes keyed by the verification token, which the block verifies in constant time.
+
+```yaml
+env:
+  - name: NOTION_TOKEN
+    required: true
+  # Not required, and defaulted to empty: the token does not exist until the
+  # handshake delivers it, so the first run has nothing to supply. A referenced
+  # variable that is neither set nor defaulted fails at config load.
+  - name: NOTION_VERIFICATION_TOKEN
+    default: ""
+
+connectors:
+  - name: notion
+    type: notion
+    settings:
+      token: ${NOTION_TOKEN}
+      verificationToken: ${NOTION_VERIFICATION_TOKEN}   # empty on the first run
+```
+
+<Callout type="warn">
+The handshake is the **only** request accepted without a valid signature, and only while no token is known — neither configured nor already captured. Once a token exists, an unsigned handshake is rejected like any other unsigned request, so nobody can push a new token into a running service. The exemption also applies only to a body that is *nothing but* the handshake, so an event cannot smuggle itself through by carrying a `verification_token` field.
+</Callout>
+
+If you rotate the subscription later, unset `verificationToken` and restart to reopen the bootstrap window.
 
 ## `notion-verify-request` block
 
-**Notion Verify Request** — authenticate an inbound Notion webhook delivered over the `http` connector. It verifies the signature over the exact request bytes using the connector's `verificationToken`, and aborts the flow on a bad signature.
+**Notion Verify Request** — authenticate an inbound Notion webhook delivered over the `http` connector. It verifies the signature over the exact request bytes using the connector's `verificationToken`, and aborts the flow on a bad signature. While no token is known, it accepts and captures the [subscription handshake](#webhook-verification-handshake) — the one request whose signature cannot be checked, because the token to check it against is what the request carries.
 
 | Setting | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `connector` | string | Yes | — | Name of the `notion` connector to use. Its `verificationToken` must be set. |
+| `connector` | string | Yes | — | Name of the `notion` connector to use. Its `verificationToken` may be unset while bootstrapping a subscription. |
 | `signatureHeader` | string | No | `X-Notion-Signature` | Variable holding Notion's request signature. |
 | `rawBodyVar` | string | No | `rawBody` | Variable holding the exact request body; must match the http source's `rawBodyVar`. Optional when the http source uses raw-content mode (`rawBody: true`) — the block then reads the raw body directly and re-parses it into `body`. |
 
@@ -68,7 +97,7 @@ source:
     rawBody: true
 ```
 
-**Variables set:** for the subscription handshake, `vars.notionVerification` holds the `verification_token` so the flow can branch and capture it.
+**Variables set:** for the subscription handshake, `vars.notionVerification` holds the `verification_token` so the flow can branch and log it. The block also captures the token itself, so events verify against it without a restart even if your flow does nothing with the variable.
 
 ## `notion-event` block
 

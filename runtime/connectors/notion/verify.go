@@ -6,13 +6,17 @@
 // (rawBody: true, msg.RawBody()); in raw-content mode it then parses the verified
 // bytes back into Body so downstream body.* access keeps working. When the payload
 // is Notion's one-time subscription handshake (a bare {verification_token}) it
-// sets a marker variable so the flow can branch and capture the token.
+// sets a marker variable so the flow can branch and log the token — and, while no
+// token is known yet, accepts that one request unsigned and captures the token, so
+// a fresh subscription can be bootstrapped without one already in hand.
 package notion
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"reflect"
 
 	"github.com/juancavallotti/octo/core"
@@ -79,9 +83,9 @@ func newVerify(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor, 
 	if err != nil {
 		return nil, fmt.Errorf("notion-verify-request: %w", err)
 	}
-	if conn.VerificationToken() == "" {
-		return nil, errors.New("notion-verify-request requires the notion connector's verificationToken")
-	}
+	// No verificationToken is not a build error: a brand-new subscription has no
+	// token until Notion's handshake delivers one, and this block is what receives
+	// it. Refusing to build would make that handshake unreachable.
 	return &verifyProcessor{
 		conn:               conn,
 		sigVar:             orDefault(cfg.SignatureHeader, defaultSignatureHeader),
@@ -92,12 +96,14 @@ func newVerify(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor, 
 
 // Process verifies the signature and, for the subscription handshake, sets the
 // verification marker variable so the flow can branch and capture the token. It
-// aborts when the signature is missing or invalid.
+// aborts when the signature is missing or invalid — except for the one request that
+// cannot be checked, the handshake that bootstraps a subscription (see
+// bootstrapToken).
 func (p *verifyProcessor) Process(_ context.Context, msg *types.Message) (*types.Message, error) {
 	sig, _ := msg.Variables.String(p.sigVar)
 	raw := p.resolveRawBody(msg)
 
-	if !p.conn.VerifySignature(sig, raw) {
+	if !p.bootstrapToken(raw) && !p.conn.VerifySignature(sig, raw) {
 		return nil, errors.New("notion-verify-request: invalid request signature")
 	}
 
@@ -117,6 +123,46 @@ func (p *verifyProcessor) Process(_ context.Context, msg *types.Message) (*types
 		}
 	}
 	return msg, nil
+}
+
+// bootstrapToken captures the token from Notion's one-time subscription handshake
+// and reports whether it did, in which case the caller skips signature
+// verification. That is the chicken-and-egg this solves: the handshake is the only
+// way to learn the token, so it cannot itself be checked against one.
+//
+// The exemption is deliberately narrow. It applies only while no token is known —
+// neither configured nor already captured — so the window is exactly the bootstrap
+// window and closes for good the moment a token exists. Every later request,
+// handshake or event, must carry a valid signature. It also applies only to a body
+// that is nothing but the handshake, so an event payload cannot smuggle itself
+// through by carrying a verification_token field.
+func (p *verifyProcessor) bootstrapToken(raw []byte) bool {
+	if p.conn.VerificationToken() != "" {
+		return false
+	}
+	token, ok := handshakeToken(raw)
+	if !ok {
+		return false
+	}
+
+	p.conn.CaptureVerificationToken(token)
+	slog.Info("notion-verify-request: captured the webhook verification token from Notion's handshake; "+
+		"paste it into Notion to confirm the subscription, and set it as the connector's verificationToken "+
+		"(e.g. NOTION_VERIFICATION_TOKEN) so it survives a restart",
+		"verificationToken", token)
+	return true
+}
+
+// handshakeToken returns the token of Notion's subscription handshake payload — a
+// JSON object carrying a verification_token and nothing else. Any other shape,
+// including an event that merely has the field, is not a handshake.
+func handshakeToken(raw []byte) (string, bool) {
+	var body map[string]any
+	if err := json.Unmarshal(raw, &body); err != nil || len(body) != 1 {
+		return "", false
+	}
+	token, _ := body[verificationField].(string)
+	return token, token != ""
 }
 
 // resolveRawBody returns the exact request bytes for signature verification,
