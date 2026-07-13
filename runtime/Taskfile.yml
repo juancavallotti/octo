@@ -1,11 +1,11 @@
 version: '3'
 
-# Tasks for the Go runtime (types, core, connectors, services, octo).
+# Tasks for the Go runtime (types, core, connectors, services, octo, dolphin).
 # Included from the root Taskfile under the `runtime:` namespace, with the
 # working directory set to runtime/, so all paths here are relative to it.
 #
 # The Go module is rooted at the repo root (github.com/juancavallotti/octo) so
-# the CLI is `go install`-able; `./...` from here therefore covers exactly the
+# the CLIs are `go install`-able; `./...` from here therefore covers exactly the
 # runtime packages, and nothing else in the module.
 
 vars:
@@ -22,12 +22,27 @@ tasks:
     cmds:
       - '{{.GO}} test ./...'
 
+  # Both CLIs. Kept as an aggregator rather than one task that builds both, so that
+  # `bin/octo` — which the docs drift check shells out to — is still produced by a
+  # task of its own.
   build:
-    desc: Build the CLI binary
+    desc: Build the CLI binaries (octo + dolphin)
+    cmds:
+      - task: build:octo
+      - task: build:dolphin
+
+  build:octo:
+    desc: Build the octo CLI binary
     cmds:
       - mkdir -p ../bin
       # Stamp the build date into the binary so `octo --version` can report it.
       - '{{.GO}} build -ldflags "-X main.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" -o ../bin/octo ./octo'
+
+  build:dolphin:
+    desc: Build the dolphin test-runner binary
+    cmds:
+      - mkdir -p ../bin
+      - '{{.GO}} build -ldflags "-X main.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" -o ../bin/dolphin ./dolphin'
 
   tidy:
     desc: Tidy the module
@@ -53,3 +68,8 @@ tasks:
     desc: Print the generated editor capability schema (JSON) to stdout
     cmds:
       - cd octo && {{.GO}} run . schema
+
+  dolphin:
+    desc: 'Run dolphin (e.g. task runtime:dolphin -- run --config dolphin.yaml)'
+    cmds:
+      - cd dolphin && {{.GO}} run . {{.CLI_ARGS}}
