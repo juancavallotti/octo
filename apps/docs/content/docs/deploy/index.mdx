@@ -5,6 +5,7 @@ description: "Ways to deploy Octo: local k3d, Helm on any Kubernetes, or GCP wit
 
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Cards, Card } from 'fumadocs-ui/components/card';
+import { Anchor, Cloud, Container, Laptop, Package, Tag } from 'lucide-react';
 
 Octo's platform runs on Kubernetes: the editor UI, the orchestrator, the log
 aggregator, Postgres, and NATS, with integrations deployed as pods at runtime.
@@ -29,6 +30,7 @@ runtime image runs a directory of exactly that.
 
 <Cards>
   <Card
+    icon={<Container />}
     href="/deploy/self-hosted"
     title="Self-Hosted Integrations"
     description="Bake flows and resources into an image on the public runtime, and run it on Cloud Run or any container platform."
@@ -55,16 +57,19 @@ runtime when you deploy an integration from the editor — see
 
 <Cards>
   <Card
+    icon={<Laptop />}
     href="/deploy/local-k3d"
     title="Local Cluster (k3d)"
     description="Run the full platform locally with k3d and DevSpace, including hot reload."
   />
   <Card
+    icon={<Anchor />}
     href="/deploy/helm"
     title="Helm Chart"
     description="Install the Octo chart on any Kubernetes cluster and configure it through values."
   />
   <Card
+    icon={<Cloud />}
     href="/deploy/gcp-terraform"
     title="GCP with Terraform"
     description="The reference deployment: single-VM k3s, Traefik, Let's Encrypt, Cloud Build releases."
@@ -75,11 +80,13 @@ runtime when you deploy an integration from the editor — see
 
 <Cards>
   <Card
+    icon={<Package />}
     href="/deploy/docker-images"
     title="Docker Images"
     description="Every published image: what it does, where its Dockerfile lives, how it is built."
   />
   <Card
+    icon={<Tag />}
     href="/deploy/releases-and-upgrades"
     title="Releases and Upgrades"
     description="How versions are cut with release-please and how to roll an upgrade."

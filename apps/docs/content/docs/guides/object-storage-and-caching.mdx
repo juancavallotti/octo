@@ -5,6 +5,7 @@ description: "Persist state in the object store and memoize with cache scopes."
 
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Cards, Card } from 'fumadocs-ui/components/card';
+import { Cog, Database, Wand } from 'lucide-react';
 
 Flows are stateless by default: each message flows through and is gone. This
 guide adds state — `object-read`/`object-write` for values that persist between
@@ -187,7 +188,7 @@ same YAML runs everywhere:
 ## Where to go next
 
 <Cards>
-  <Card title="An AI Web App End to End" href="/guides/ai-web-app" description="Cache-scope plus ai-mapping plus HTML rendering in one app." />
-  <Card title="KV and Storage" href="/platform/kv-and-storage" description="How the platform scopes and persists your data." />
-  <Card title="Runtime Services" href="/concepts/runtime-services" description="The services layer behind stores, caches, and queues." />
+  <Card icon={<Wand />} title="An AI Web App End to End" href="/guides/ai-web-app" description="Cache-scope plus ai-mapping plus HTML rendering in one app." />
+  <Card icon={<Database />} title="KV and Storage" href="/platform/kv-and-storage" description="How the platform scopes and persists your data." />
+  <Card icon={<Cog />} title="Runtime Services" href="/concepts/runtime-services" description="The services layer behind stores, caches, and queues." />
 </Cards>

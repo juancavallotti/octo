@@ -4,6 +4,7 @@ description: "The three ways to run Octo and where to begin."
 ---
 
 import { Cards, Card } from 'fumadocs-ui/components/card';
+import { Download, Globe, Ship, SquarePen, Workflow } from 'lucide-react';
 
 There are three ways to use Octo, and they all execute the same flow YAML. Pick
 the one that matches how you want to work today — nothing you build is locked to
@@ -41,19 +42,19 @@ fastest way to understand the model. If you would rather not install anything,
 start with the editor quickstart instead.
 
 <Cards>
-  <Card href="/getting-started/installation" title="Installation">
+  <Card icon={<Download />} href="/getting-started/installation" title="Installation">
     Download the octo CLI, run it from Docker, or build it from source.
   </Card>
-  <Card href="/getting-started/first-flow" title="Your First Flow">
+  <Card icon={<Workflow />} href="/getting-started/first-flow" title="Your First Flow">
     Run a hello-world flow and invoke a flow directly from the CLI.
   </Card>
-  <Card href="/getting-started/editor-quickstart" title="Editor Quickstart">
+  <Card icon={<SquarePen />} href="/getting-started/editor-quickstart" title="Editor Quickstart">
     Design and run flows in the browser with zero setup.
   </Card>
-  <Card href="/getting-started/http-quickstart" title="HTTP Quickstart">
+  <Card icon={<Globe />} href="/getting-started/http-quickstart" title="HTTP Quickstart">
     Build your first real integration: an HTTP endpoint.
   </Card>
-  <Card href="/deploy" title="Deploy the Platform">
+  <Card icon={<Ship />} href="/deploy" title="Deploy the Platform">
     Stand up the full multi-user platform on Kubernetes.
   </Card>
 </Cards>

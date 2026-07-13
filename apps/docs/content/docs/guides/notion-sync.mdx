@@ -6,6 +6,7 @@ description: "Handle Notion webhooks, query data sources, and render pages as Ma
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Cards, Card } from 'fumadocs-ui/components/card';
 import { Steps, Step } from 'fumadocs-ui/components/steps';
+import { Bot, Code, FileText } from 'lucide-react';
 
 This guide connects a flow to a Notion workspace: it receives webhooks, verifies
 their signatures, reacts to page events, queries a data source, and renders page
@@ -254,7 +255,7 @@ This pairs naturally with AI flows: Markdown is the format LLMs read best, so
 ## Where to go next
 
 <Cards>
-  <Card title="Notion connector reference" href="/reference/connectors/notion" description="Every Notion block and setting." />
-  <Card title="Expressions" href="/concepts/expressions" description="CEL — including the map filter trick used for titles." />
-  <Card title="AI Agents" href="/ai/agents" description="Feed Notion content to an agent as context." />
+  <Card icon={<FileText />} title="Notion connector reference" href="/reference/connectors/notion" description="Every Notion block and setting." />
+  <Card icon={<Code />} title="Expressions" href="/concepts/expressions" description="CEL — including the map filter trick used for titles." />
+  <Card icon={<Bot />} title="AI Agents" href="/ai/agents" description="Feed Notion content to an agent as context." />
 </Cards>

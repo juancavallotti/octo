@@ -5,6 +5,7 @@ description: "Broadcast with topics or load-balance work with queues."
 
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Cards, Card } from 'fumadocs-ui/components/card';
+import { Puzzle, Radio, Server } from 'lucide-react';
 
 Octo ships two in-runtime messaging primitives: **events** broadcast a message to
 every subscriber, and **queues** deliver each message to exactly one competing
@@ -172,7 +173,7 @@ services module swap works.
 ## Where to go next
 
 <Cards>
-  <Card title="Composing Flows" href="/guides/composing-flows" description="The in-process counterpart: flow-ref and sourceless flows." />
-  <Card title="Clustering" href="/runtime/clustering" description="How queues and events behave across replicas." />
-  <Card title="Platform Event Bus" href="/platform/event-bus" description="The NATS backing on the deployed platform." />
+  <Card icon={<Puzzle />} title="Composing Flows" href="/guides/composing-flows" description="The in-process counterpart: flow-ref and sourceless flows." />
+  <Card icon={<Server />} title="Clustering" href="/runtime/clustering" description="How queues and events behave across replicas." />
+  <Card icon={<Radio />} title="Platform Event Bus" href="/platform/event-bus" description="The NATS backing on the deployed platform." />
 </Cards>

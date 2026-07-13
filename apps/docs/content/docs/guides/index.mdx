@@ -4,6 +4,7 @@ description: "Task-oriented guides built from runnable samples."
 ---
 
 import { Cards, Card } from 'fumadocs-ui/components/card';
+import { Bug, Clock, Database, FileCode, FileText, Globe, HardDrive, MessageSquare, Puzzle, Radio, Send, ShieldCheck, Shuffle, Sparkles, Wand } from 'lucide-react';
 
 Every guide in this section is built from a runnable sample in the repository's
 [`samples/`](https://github.com/juancavallotti/octo/tree/main/samples) directory.
@@ -14,13 +15,13 @@ zero setup beyond the `octo` binary.
 ## HTTP & APIs
 
 <Cards>
-  <Card href="/guides/rest-api" title="Build a REST API">
+  <Card icon={<Globe />} href="/guides/rest-api" title="Build a REST API">
     Serve HTTP endpoints with routing, path params, and response shaping.
   </Card>
-  <Card href="/guides/call-external-apis" title="Call External APIs">
+  <Card icon={<Send />} href="/guides/call-external-apis" title="Call External APIs">
     Use the HTTP client with auth, retries, and response caching.
   </Card>
-  <Card href="/guides/database-crud" title="Database CRUD">
+  <Card icon={<Database />} href="/guides/database-crud" title="Database CRUD">
     Query SQLite or Postgres with parameterized SQL.
   </Card>
 </Cards>
@@ -28,13 +29,13 @@ zero setup beyond the `octo` binary.
 ## Data
 
 <Cards>
-  <Card href="/guides/transforming-data" title="Transforming Data">
+  <Card icon={<Shuffle />} href="/guides/transforming-data" title="Transforming Data">
     Reshape payloads with multi-transform, enrich scopes, and CEL.
   </Card>
-  <Card href="/guides/validation-and-auth" title="Validation and Auth">
+  <Card icon={<ShieldCheck />} href="/guides/validation-and-auth" title="Validation and Auth">
     Validate input with CEL rules and protect endpoints with JWT.
   </Card>
-  <Card href="/guides/debugging-flows" title="Debugging a Flow">
+  <Card icon={<Bug />} href="/guides/debugging-flows" title="Debugging a Flow">
     Stop at any block and inspect the message — or learn the block was never reached.
   </Card>
 </Cards>
@@ -42,13 +43,13 @@ zero setup beyond the `octo` binary.
 ## Composition & messaging
 
 <Cards>
-  <Card href="/guides/composing-flows" title="Composing Flows">
+  <Card icon={<Puzzle />} href="/guides/composing-flows" title="Composing Flows">
     Call flows from flows: flow-ref, sourceless flows, and HTTP composition.
   </Card>
-  <Card href="/guides/events-and-queues" title="Events and Queues">
+  <Card icon={<Radio />} href="/guides/events-and-queues" title="Events and Queues">
     Broadcast with topics or load-balance work with queues.
   </Card>
-  <Card href="/guides/scheduled-jobs" title="Scheduled Jobs">
+  <Card icon={<Clock />} href="/guides/scheduled-jobs" title="Scheduled Jobs">
     Run flows on a cron schedule and write structured logs to files.
   </Card>
 </Cards>
@@ -56,7 +57,7 @@ zero setup beyond the `octo` binary.
 ## State
 
 <Cards>
-  <Card href="/guides/object-storage-and-caching" title="Object Storage and Caching">
+  <Card icon={<HardDrive />} href="/guides/object-storage-and-caching" title="Object Storage and Caching">
     Persist state in the object store and memoize with cache scopes.
   </Card>
 </Cards>
@@ -64,7 +65,7 @@ zero setup beyond the `octo` binary.
 ## Web
 
 <Cards>
-  <Card href="/guides/serving-html" title="Serving HTML">
+  <Card icon={<FileCode />} href="/guides/serving-html" title="Serving HTML">
     Render HTML pages from templates and parse form submissions.
   </Card>
 </Cards>
@@ -72,10 +73,10 @@ zero setup beyond the `octo` binary.
 ## Integrations
 
 <Cards>
-  <Card href="/guides/slack-bot" title="Build a Slack Bot">
+  <Card icon={<MessageSquare />} href="/guides/slack-bot" title="Build a Slack Bot">
     Receive Slack events, verify signatures, and reply to mentions.
   </Card>
-  <Card href="/guides/notion-sync" title="Work with Notion">
+  <Card icon={<FileText />} href="/guides/notion-sync" title="Work with Notion">
     Handle Notion webhooks, query data sources, and render pages as Markdown.
   </Card>
 </Cards>
@@ -83,10 +84,10 @@ zero setup beyond the `octo` binary.
 ## AI
 
 <Cards>
-  <Card href="/guides/ai-web-app" title="An AI Web App End to End">
+  <Card icon={<Wand />} href="/guides/ai-web-app" title="An AI Web App End to End">
     Cache LLM output and render it as HTML with an error fallback page.
   </Card>
-  <Card href="/ai" title="The AI section">
+  <Card icon={<Sparkles />} href="/ai" title="The AI section">
     The full AI documentation: agents, memory, skills, routing, and MCP.
   </Card>
 </Cards>

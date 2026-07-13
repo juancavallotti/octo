@@ -5,6 +5,7 @@ description: "Serve and accept non-JSON payloads with explicit content types, an
 
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Cards, Card } from 'fumadocs-ui/components/card';
+import { Braces, FileCode, FolderOpen, Globe } from 'lucide-react';
 
 Octo is JSON-first: every message body is decoded JSON, and an HTTP flow answers
 with `application/json` unless you say otherwise. **Raw content** is the opt-out —
@@ -135,8 +136,8 @@ reference through the flow.
 ## Where to go next
 
 <Cards>
-  <Card title="Serving HTML" href="/guides/serving-html" description="Render templates and parse forms end to end." />
-  <Card title="State and Data" href="/concepts/state-and-data" description="The message model: body, variables, and how they move." />
-  <Card title="HTTP reference" href="/reference/connectors/http" description="Every http source and http-client setting." />
-  <Card title="Resources" href="/concepts/resources" description="Declaring the templates raw content renders from." />
+  <Card icon={<FileCode />} title="Serving HTML" href="/guides/serving-html" description="Render templates and parse forms end to end." />
+  <Card icon={<Braces />} title="State and Data" href="/concepts/state-and-data" description="The message model: body, variables, and how they move." />
+  <Card icon={<Globe />} title="HTTP reference" href="/reference/connectors/http" description="Every http source and http-client setting." />
+  <Card icon={<FolderOpen />} title="Resources" href="/concepts/resources" description="Declaring the templates raw content renders from." />
 </Cards>
