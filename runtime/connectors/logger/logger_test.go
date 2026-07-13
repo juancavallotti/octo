@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/juancavallotti/octo/core"
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // shipperServices is a RuntimeServices that also ships logs to a captured handler,

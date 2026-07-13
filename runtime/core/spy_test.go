@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/juancavallotti/octo/core"
+	"github.com/juancavallotti/octo/runtime/core"
 )
 
 func TestNewSpiesRejectsBadAddresses(t *testing.T) {

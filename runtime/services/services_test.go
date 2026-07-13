@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/juancavallotti/octo/services"
-	_ "github.com/juancavallotti/octo/services/standalone" // self-registers as "standalone"
+	"github.com/juancavallotti/octo/runtime/services"
+	_ "github.com/juancavallotti/octo/runtime/services/standalone" // self-registers as "standalone"
 )
 
 // With RUNTIME_SERVICES_MODULE unset, the default module is selected and the

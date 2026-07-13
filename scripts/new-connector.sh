@@ -19,8 +19,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 readonly CONNECTORS_DIR="${REPO_ROOT}/runtime/connectors"
-readonly CLI_MAIN="${REPO_ROOT}/runtime/cli/main.go"
-readonly MODULE_PREFIX="github.com/juancavallotti/octo/connectors"
+readonly CLI_MAIN="${REPO_ROOT}/runtime/octo/main.go"
+readonly MODULE_PREFIX="github.com/juancavallotti/octo/runtime/connectors"
 readonly NAME_PATTERN='^[a-z][a-z0-9]*$'
 
 err() { printf 'error: %s\n' "$1" >&2; }
@@ -52,8 +52,8 @@ package ${name}
 import (
 	"context"
 
-	"github.com/juancavallotti/octo/core"
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // Connector is the ${name} connector.
@@ -86,8 +86,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/juancavallotti/octo/core"
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 func TestConnectorStartStop(t *testing.T) {
@@ -159,7 +159,7 @@ main() {
 
   # Format and tidy so the generated code is immediately compliant.
   (cd "${REPO_ROOT}/runtime/connectors" && go fmt ./... >/dev/null)
-  (cd "${REPO_ROOT}/runtime/cli" && go fmt ./... >/dev/null && go mod tidy >/dev/null 2>&1 || true)
+  (cd "${REPO_ROOT}/runtime/octo" && go fmt ./... >/dev/null && go mod tidy >/dev/null 2>&1 || true)
 
   printf '\nDone. Next steps:\n'
   printf '  1. Implement Start/Stop in %s\n' "${dir#"${REPO_ROOT}/"}/${name}.go"

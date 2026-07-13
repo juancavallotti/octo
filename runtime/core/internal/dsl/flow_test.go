@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 func TestParseFlowsWithComposites(t *testing.T) {

@@ -7,16 +7,17 @@
 # bundled octo binary. Build context must be the repo ROOT so this Dockerfile can
 # reach runtime/ (to build octo) and the pnpm workspace (apps/standalone + packages/*).
 
-# --- Stage 1: build the octo runtime binary from the Go workspace -------------
+# --- Stage 1: build the octo runtime binary from the Go module ----------------
 FROM golang:1.25-alpine AS runtime-build
 RUN apk add --no-cache git
 WORKDIR /src
+# The Go module is rooted at the repo root; all its packages live under runtime/.
+COPY go.mod go.sum ./
 COPY runtime/ ./runtime/
-WORKDIR /src/runtime/cli
 # -s -w strip the symbol table and DWARF debug info for a leaner binary.
 RUN CGO_ENABLED=0 go build \
     -ldflags "-s -w -X main.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    -o /out/octo .
+    -o /out/octo ./runtime/octo
 
 # --- Stage 2: build the Next.js standalone app (standalone output) ------------
 FROM node:22-alpine AS app-build

@@ -18,10 +18,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/juancavallotti/octo/core"
-	"github.com/juancavallotti/octo/core/runtime"
-	"github.com/juancavallotti/octo/services"
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/core/runtime"
+	"github.com/juancavallotti/octo/runtime/services"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // defaultInvokeTimeout bounds how long `invoke` waits for the flow by default.

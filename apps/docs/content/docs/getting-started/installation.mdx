@@ -9,10 +9,10 @@ import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
 import { DynamicCodeBlock } from 'fumadocs-ui/components/dynamic-codeblock';
 import { OCTO_VERSION } from '@/lib/version';
 
-There are three ways to get Octo, in increasing order of effort: download a
-[prebuilt CLI](#download-the-cli) for your platform, run it
-[from Docker](#run-from-docker) with no install at all, or
-[build from source](#build-from-source).
+There are four ways to get Octo, in increasing order of effort: download a
+[prebuilt CLI](#download-the-cli) for your platform, install it
+[with `go install`](#install-with-go), run it [from Docker](#run-from-docker)
+with no install at all, or [build from source](#build-from-source).
 
 ## Download the CLI
 
@@ -70,6 +70,28 @@ Continue to [Your First Flow](/getting-started/first-flow), or read
 [Running Flows Locally](/runtime/running-locally) for `run`, `invoke`, and
 `eval` in depth.
 
+## Install with go
+
+If you already have a Go toolchain (1.25 or later), `go install` fetches,
+compiles, and installs the CLI into `$(go env GOPATH)/bin` — no clone, no
+release archive:
+
+```bash
+go install github.com/juancavallotti/octo/runtime/octo@latest
+```
+
+Pin a release instead of tracking `@latest` by naming its tag:
+
+<DynamicCodeBlock lang="bash" code={`go install github.com/juancavallotti/octo/runtime/octo@v${OCTO_VERSION}`} />
+
+Make sure `$(go env GOPATH)/bin` is on your PATH, then confirm with
+`octo version`.
+
+<Callout type="info">
+  Binaries installed this way do not carry the build date that the released
+  archives do, so `octo version` reports the version without it.
+</Callout>
+
 ## Run from Docker
 
 Two public images on [Docker Hub](https://hub.docker.com/u/juancavallotti),
@@ -100,7 +122,7 @@ Open [http://localhost:3000](http://localhost:3000) and start editing. See the
 
 ### Prerequisites
 
-- **Go 1.25 or later** — the runtime is a Go workspace.
+- **Go 1.25 or later** — the runtime is a single Go module.
 - **[Task](https://taskfile.dev)** — the repository's build runner
   (`brew install go-task` on macOS).
 - **pnpm** — only needed if you plan to work on the web apps (editor, platform,

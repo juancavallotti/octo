@@ -15,7 +15,7 @@ import (
 	"os"
 	"sync"
 
-	"github.com/juancavallotti/octo/core"
+	"github.com/juancavallotti/octo/runtime/core"
 )
 
 // ModuleEnvVar names the environment variable selecting the runtime services

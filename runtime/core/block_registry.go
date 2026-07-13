@@ -6,7 +6,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // BlockRegistry holds leaf block factories keyed by block type. Composite kinds

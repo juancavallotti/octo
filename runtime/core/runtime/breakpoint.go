@@ -1,6 +1,6 @@
 package runtime
 
-import "github.com/juancavallotti/octo/types"
+import "github.com/juancavallotti/octo/runtime/types"
 
 // breakpointBlockType is the block type the injector wraps a target in. It matches
 // the engine's internal breakpoint kind, which the block builder recognizes.

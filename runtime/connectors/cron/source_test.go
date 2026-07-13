@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juancavallotti/octo/core"
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // fakeServices is a RuntimeServices whose leadership is fixed, to drive the cron

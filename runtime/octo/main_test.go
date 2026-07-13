@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // evalMessage builds a message for evalExpression tests: body from a decoded value and

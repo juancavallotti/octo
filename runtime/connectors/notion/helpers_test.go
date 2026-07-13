@@ -3,8 +3,8 @@ package notion
 import (
 	"testing"
 
-	"github.com/juancavallotti/octo/core"
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // verifyToken is the verification token blockDeps configures the connector with,

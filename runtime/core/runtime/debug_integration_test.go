@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juancavallotti/octo/core"
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // startBreakService runs svc in invoke mode with a breakpoint and waits until it is

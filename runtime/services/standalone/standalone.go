@@ -7,8 +7,8 @@ package standalone
 import (
 	"context"
 
-	"github.com/juancavallotti/octo/core"
-	"github.com/juancavallotti/octo/services"
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/services"
 )
 
 // Module is this provider's name, matched against RUNTIME_SERVICES_MODULE.

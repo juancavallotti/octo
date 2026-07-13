@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juancavallotti/octo/core"
+	"github.com/juancavallotti/octo/runtime/core"
 )
 
 func TestResourceLoaderLoadExisting(t *testing.T) {

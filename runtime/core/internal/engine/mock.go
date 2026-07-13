@@ -6,9 +6,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/juancavallotti/octo/core"
-	"github.com/juancavallotti/octo/core/expr"
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/core/expr"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // errMockUnwired is returned when a mock block is built without the specs to stand

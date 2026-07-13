@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/juancavallotti/octo/core"
+	"github.com/juancavallotti/octo/runtime/core"
 )
 
 // ErrUnterminatedTemplate reports a {{ with no matching }} in a template.

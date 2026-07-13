@@ -29,7 +29,7 @@ Build the binary and export a body to reuse. The flow's first block reads
 `body.firedAt`, so the body must supply it:
 
 ```bash
-go build -o bin/octo ./runtime/cli
+go build -o bin/octo ./runtime/octo
 export LOG_LEVEL=error                       # keep startup logs out of the way
 D='{"firedAt": "2026-07-10T12:00:00Z"}'
 ```

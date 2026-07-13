@@ -7,7 +7,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // Connector is a runtime component that can be started and stopped.

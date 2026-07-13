@@ -10,8 +10,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/juancavallotti/octo/core"
-	"github.com/juancavallotti/octo/core/schema"
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/core/schema"
 )
 
 // schemaFileMode is the permission for a schema written via --out. git tracks only

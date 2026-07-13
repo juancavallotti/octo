@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/juancavallotti/octo/core"
+	"github.com/juancavallotti/octo/runtime/core"
 )
 
 // resourceHTTPTimeout bounds each resource fetch from the orchestrator. Resources

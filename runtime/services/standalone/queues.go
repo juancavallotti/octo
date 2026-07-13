@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/juancavallotti/octo/core"
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // queueBuffer is the per-subject channel capacity. Publish is non-blocking up to

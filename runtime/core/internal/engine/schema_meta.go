@@ -10,7 +10,7 @@ package engine
 import (
 	"reflect"
 
-	"github.com/juancavallotti/octo/core"
+	"github.com/juancavallotti/octo/runtime/core"
 )
 
 // Palette groups the engine's blocks fall under in the editor sidebar.

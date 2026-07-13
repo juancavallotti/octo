@@ -11,10 +11,10 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/juancavallotti/octo/core"
-	"github.com/juancavallotti/octo/core/runtime"
-	"github.com/juancavallotti/octo/services"
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/core/runtime"
+	"github.com/juancavallotti/octo/runtime/services"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // This file holds `octo run`: starting the configured connectors and flows, and

@@ -7,20 +7,20 @@ import (
 	"path/filepath"
 	"strings"
 
-	_ "github.com/juancavallotti/octo/connectors/cron"
-	_ "github.com/juancavallotti/octo/connectors/database" // registers the "database" connector and "sql" block
-	_ "github.com/juancavallotti/octo/connectors/events"   // registers the "events" connector + source and the "publish-event" block
-	_ "github.com/juancavallotti/octo/connectors/http"
-	_ "github.com/juancavallotti/octo/connectors/httpclient"    // registers the "http-client" connector and "rest" block
-	_ "github.com/juancavallotti/octo/connectors/llm/aiblocks"  // registers the "ai-mapping" block
-	_ "github.com/juancavallotti/octo/connectors/llm/anthropic" // registers the "llm-anthropic" connector
-	_ "github.com/juancavallotti/octo/connectors/llm/gemini"    // registers the "llm-gemini" connector
-	_ "github.com/juancavallotti/octo/connectors/llm/openai"    // registers the "llm-openai" connector
-	_ "github.com/juancavallotti/octo/connectors/logger"        // registers the "logger" connector and "log" block
-	_ "github.com/juancavallotti/octo/connectors/notion"        // registers the "notion" connector and its blocks
-	_ "github.com/juancavallotti/octo/connectors/queue"         // registers the "queue" connector + source and the "queue-dispatch" block
-	_ "github.com/juancavallotti/octo/connectors/slack"         // registers the "slack" connector and its blocks
-	"github.com/juancavallotti/octo/core"
+	_ "github.com/juancavallotti/octo/runtime/connectors/cron"
+	_ "github.com/juancavallotti/octo/runtime/connectors/database" // registers the "database" connector and "sql" block
+	_ "github.com/juancavallotti/octo/runtime/connectors/events"   // registers the "events" connector + source and the "publish-event" block
+	_ "github.com/juancavallotti/octo/runtime/connectors/http"
+	_ "github.com/juancavallotti/octo/runtime/connectors/httpclient"    // registers the "http-client" connector and "rest" block
+	_ "github.com/juancavallotti/octo/runtime/connectors/llm/aiblocks"  // registers the "ai-mapping" block
+	_ "github.com/juancavallotti/octo/runtime/connectors/llm/anthropic" // registers the "llm-anthropic" connector
+	_ "github.com/juancavallotti/octo/runtime/connectors/llm/gemini"    // registers the "llm-gemini" connector
+	_ "github.com/juancavallotti/octo/runtime/connectors/llm/openai"    // registers the "llm-openai" connector
+	_ "github.com/juancavallotti/octo/runtime/connectors/logger"        // registers the "logger" connector and "log" block
+	_ "github.com/juancavallotti/octo/runtime/connectors/notion"        // registers the "notion" connector and its blocks
+	_ "github.com/juancavallotti/octo/runtime/connectors/queue"         // registers the "queue" connector + source and the "queue-dispatch" block
+	_ "github.com/juancavallotti/octo/runtime/connectors/slack"         // registers the "slack" connector and its blocks
+	"github.com/juancavallotti/octo/runtime/core"
 	// The active runtime-services provider is selected at build time by tag:
 	// standalone by default, k8s with -tags k8s. See providers_*.go.
 )

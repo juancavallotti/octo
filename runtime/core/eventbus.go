@@ -3,7 +3,7 @@ package core
 import (
 	"sync"
 
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // FlowEventHandler reacts to a published flow event. Handlers must not block;

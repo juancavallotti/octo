@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/juancavallotti/octo/core"
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // fakeLLM is a core.Connector + core.LLMClient that returns a canned response

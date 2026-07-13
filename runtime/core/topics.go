@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // Topics is a deployment-scoped broadcast pub/sub available to connectors and

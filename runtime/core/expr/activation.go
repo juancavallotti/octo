@@ -3,7 +3,7 @@ package expr
 import (
 	"time"
 
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // MessageActivation maps a message and its resolved env onto the variables a

@@ -5,7 +5,7 @@ import (
 
 	"github.com/google/cel-go/cel"
 
-	"github.com/juancavallotti/octo/core"
+	"github.com/juancavallotti/octo/runtime/core"
 )
 
 // nowVar is the CEL variable holding the evaluation (or trigger) time. Named once

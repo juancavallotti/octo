@@ -9,8 +9,8 @@ dist/
 # Local flow YAML the standalone app reads/writes under `task dev`.
 /.octo-flows/
 # Go build output left in a module dir by `go build` without -o (binary named
-# after the package dir, e.g. runtime/cli/cli). The canonical output is bin/.
-/runtime/cli/cli
+# after the package dir, e.g. runtime/octo/octo). The canonical output is bin/.
+/runtime/octo/octo
 /orchestrator/orchestrator
 # DevSpace's local state/cache dir.
 /.devspace/

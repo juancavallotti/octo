@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/juancavallotti/octo/core"
+	"github.com/juancavallotti/octo/runtime/core"
 )
 
 // kvServer is a minimal in-memory stand-in for the orchestrator store API, enough

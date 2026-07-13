@@ -3,7 +3,7 @@ package core
 import (
 	"context"
 
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // FlowCaller invokes a registered flow by name. It is the contract behind direct

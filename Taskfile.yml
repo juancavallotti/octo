@@ -131,7 +131,7 @@ tasks:
       - test -f docs/linting-policy.md
       - test -f docs/commit-and-review-policy.md
       - test -f docs/release-process.md
-      - test -f runtime/go.work
+      - test -f go.mod
 
   release-check:
     desc: Verify release readiness files exist
@@ -172,8 +172,8 @@ tasks:
       - docker build -t octo-logs:dev -f logs/Dockerfile ./logs
       - docker build -t octo-schema:dev -f sql/Dockerfile ./sql
       # Generic runtime image the orchestrator deploys per integration (build
-      # context is the runtime workspace).
-      - docker build -t octo-runtime:dev -f runtime/Dockerfile ./runtime
+      # context is the repo root, where the Go module is rooted).
+      - docker build -t octo-runtime:dev -f runtime/Dockerfile .
       # Load the images straight into the cluster's containerd (no registry needed).
       - k3d image import octo-platform:dev octo-orchestrator:dev octo-logs:dev octo-schema:dev octo-runtime:dev -c octo
 
@@ -266,7 +266,7 @@ tasks:
       - docker build -t {{.IMAGE_BASE}}/octo-orchestrator:{{.TAG}} -f orchestrator/Dockerfile ./orchestrator
       - docker build -t {{.IMAGE_BASE}}/octo-logs:{{.TAG}} -f logs/Dockerfile ./logs
       - docker build -t {{.IMAGE_BASE}}/octo-schema:{{.TAG}} -f sql/Dockerfile ./sql
-      - docker build -t {{.IMAGE_BASE}}/octo-runtime:{{.TAG}} -f runtime/Dockerfile ./runtime
+      - docker build -t {{.IMAGE_BASE}}/octo-runtime:{{.TAG}} -f runtime/Dockerfile .
       - docker push {{.IMAGE_BASE}}/octo-platform:{{.TAG}}
       - docker push {{.IMAGE_BASE}}/octo-orchestrator:{{.TAG}}
       - docker push {{.IMAGE_BASE}}/octo-logs:{{.TAG}}

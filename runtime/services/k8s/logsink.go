@@ -3,7 +3,7 @@ package k8s
 import (
 	"log/slog"
 
-	"github.com/juancavallotti/octo/core"
+	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/nats-io/nats.go"
 )
 

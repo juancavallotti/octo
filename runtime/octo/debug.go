@@ -10,8 +10,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/juancavallotti/octo/core"
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // debugOutcome is the JSON envelope `octo invoke` prints on stdout when it was asked

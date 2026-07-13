@@ -11,8 +11,8 @@ import (
 	"os"
 	"reflect"
 
-	"github.com/juancavallotti/octo/core"
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // logFileMode is the permission applied to log files the connector creates.

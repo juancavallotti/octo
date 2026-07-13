@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // TestTopicsBroadcast verifies a plain (non-queue-group) subscription fans every

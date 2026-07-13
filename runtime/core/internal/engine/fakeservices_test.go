@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/juancavallotti/octo/core"
+	"github.com/juancavallotti/octo/runtime/core"
 )
 
 // fakeKV is an in-memory, versioned KV with the same optimistic-concurrency

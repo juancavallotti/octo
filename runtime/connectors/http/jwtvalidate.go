@@ -35,8 +35,8 @@ import (
 	"sync"
 
 	"github.com/coreos/go-oidc/v3/oidc"
-	"github.com/juancavallotti/octo/core"
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 func init() {

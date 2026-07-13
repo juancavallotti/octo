@@ -1,6 +1,6 @@
 package expr
 
-import "github.com/juancavallotti/octo/core"
+import "github.com/juancavallotti/octo/runtime/core"
 
 // SourcePayloadVars are the variables a source's payload expression may reference
 // when it builds the initial message: the trigger time and the source's static

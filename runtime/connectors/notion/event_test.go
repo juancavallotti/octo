@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 func TestEventNormalizesAndFilters(t *testing.T) {
