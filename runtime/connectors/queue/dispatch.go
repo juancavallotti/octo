@@ -15,9 +15,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/juancavallotti/octo/core"
-	"github.com/juancavallotti/octo/core/expr"
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/core/expr"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 func init() {

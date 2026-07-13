@@ -113,7 +113,7 @@ export interface SpyTrace {
 /**
  * The envelope `octo invoke` prints on stdout when it was asked to *observe* the run —
  * with `--break-at`, with `--spies`, or both (see the CLI's `debugOutcome` in
- * runtime/cli/debug.go). A `--mocks`-only run observes nothing and prints a plain result
+ * runtime/octo/debug.go). A `--mocks`-only run observes nothing and prints a plain result
  * message instead, so it produces no envelope at all.
  *
  * `reached` is optional, and that is load-bearing: it is `false` for a breakpoint that

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juancavallotti/octo/core"
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/types"
 	"github.com/nats-io/nats-server/v2/server"
 	natsserver "github.com/nats-io/nats-server/v2/test"
 	"github.com/nats-io/nats.go"

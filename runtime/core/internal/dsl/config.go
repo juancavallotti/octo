@@ -6,7 +6,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // LoadFile reads the file at path and parses it into a Config.

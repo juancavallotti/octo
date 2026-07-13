@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // Block chain names addressable with a bracket. The first two are a flow's own

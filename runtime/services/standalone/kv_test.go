@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/juancavallotti/octo/core"
+	"github.com/juancavallotti/octo/runtime/core"
 )
 
 // ns is the namespace used by tests that exercise a single namespace.

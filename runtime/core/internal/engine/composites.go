@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/juancavallotti/octo/core"
-	"github.com/juancavallotti/octo/core/expr"
-	"github.com/juancavallotti/octo/core/internal/pool"
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/core/expr"
+	"github.com/juancavallotti/octo/runtime/core/internal/pool"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // defaultForeachVar is the variable name a foreach block binds each element to

@@ -3,7 +3,7 @@ package core
 import (
 	"context"
 
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // MessageProcessor transforms a single message. It is the unit of work a Block

@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juancavallotti/octo/core"
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // newHandleSource builds a source wired to the connector with a buffered output

@@ -3,8 +3,8 @@ package runtime
 import (
 	"testing"
 
-	"github.com/juancavallotti/octo/core"
-	"github.com/juancavallotti/octo/core/schema"
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/core/schema"
 )
 
 // listSlots are the block-config slots holding a list of sub-flows, each addressed

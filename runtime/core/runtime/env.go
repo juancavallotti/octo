@@ -11,9 +11,9 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/juancavallotti/octo/core"
-	"github.com/juancavallotti/octo/core/internal/dsl"
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/core/internal/dsl"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // envFileVar names the environment variable holding an extra .env file path,

@@ -30,7 +30,7 @@ jobs:
           ref: ${{ inputs.tag || github.ref }}
       - uses: actions/setup-go@v5
         with:
-          go-version-file: runtime/go.work
+          go-version-file: go.mod
       # `task build` builds the pnpm workspace (apps/platform + apps/standalone)
       # alongside the Go runtime, so Node + pnpm must be on PATH here too.
       - uses: pnpm/action-setup@v4
@@ -107,8 +107,8 @@ jobs:
           echo "version=${REF#v}" >> "$GITHUB_OUTPUT"
       - uses: docker/build-push-action@v6
         with:
-          # The whole Go workspace is the build context for this Dockerfile.
-          context: ./runtime
+          # The repo root is the build context: the Go module is rooted there.
+          context: .
           file: runtime/Dockerfile
           build-args: |
             GOTAGS=
@@ -137,9 +137,8 @@ jobs:
           ref: ${{ inputs.tag || github.ref }}
       - uses: actions/setup-go@v5
         with:
-          go-version-file: runtime/go.work
+          go-version-file: go.mod
       - name: Cross-compile the CLI
-        working-directory: runtime/cli
         env:
           CGO_ENABLED: "0"
           # -s -w strips the symbol table and DWARF; -trimpath drops local paths.
@@ -160,7 +159,7 @@ jobs:
             echo "==> building $GOOS/$GOARCH"
             GOOS="$GOOS" GOARCH="$GOARCH" go build -trimpath \
               -ldflags "$LDFLAGS_BASE -X main.BuildDate=$BUILD_DATE" \
-              -o "$staging/$bin" .
+              -o "$staging/$bin" ./runtime/octo
             if [ "$GOOS" = windows ]; then
               (cd "$staging" && zip -q "$DIST/octo_${GOOS}_${GOARCH}.zip" "$bin")
             else

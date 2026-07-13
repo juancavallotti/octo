@@ -3,7 +3,7 @@ package engine
 import (
 	"errors"
 
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // errorVarName is the message variable under which a processing error is exposed

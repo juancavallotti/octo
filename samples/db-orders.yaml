@@ -11,7 +11,7 @@ service:
 # with `git checkout samples/orders.db`.
 #
 # The default DB_DSN below is relative to that command's working directory
-# (runtime/cli), hence the ../../ prefix to reach samples/orders.db at the repo
+# (runtime/octo), hence the ../../ prefix to reach samples/orders.db at the repo
 # root. If you run the binary from somewhere else, override DB_DSN with a path
 # (or absolute path) that resolves from your working directory.
 #
@@ -40,7 +40,7 @@ env:
   - name: DB_DRIVER
     default: sqlite
   - name: DB_DSN
-    # Relative to the run directory (runtime/cli under `task run:sample`). Override
+    # Relative to the run directory (runtime/octo under `task run:sample`). Override
     # for Postgres, or to point at a different SQLite file.
     default: file:../../samples/orders.db
 

@@ -10,8 +10,8 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
-	"github.com/juancavallotti/octo/core"
-	"github.com/juancavallotti/octo/core/runtime"
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/core/runtime"
 )
 
 // watchDebounce is how long to wait after the last filesystem event before

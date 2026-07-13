@@ -5,8 +5,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/juancavallotti/octo/core"
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // errSpyUnwired is returned when a spy block is built without a collector to record

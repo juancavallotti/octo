@@ -3,7 +3,7 @@ package core
 import (
 	"sync"
 
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // Breakpoint collects the message a flow was carrying when execution reached an

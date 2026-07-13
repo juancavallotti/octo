@@ -12,7 +12,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
-	"github.com/juancavallotti/octo/core"
+	"github.com/juancavallotti/octo/runtime/core"
 )
 
 // fsResourceLoader is the standalone module's core.ResourceLoader: it serves

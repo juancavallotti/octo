@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/juancavallotti/octo/core"
-	"github.com/juancavallotti/octo/core/internal/pool"
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/core/internal/pool"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // breakpointRegistry returns a registry with the leaves the breakpoint tests wrap:

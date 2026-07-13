@@ -7,4 +7,4 @@ package main
 // and NATS-backed queues. The standalone provider is the default build (see
 // providers_standalone.go), so the two images stay disjoint. The orchestrator
 // always sets RUNTIME_SERVICES_MODULE=k8s for deployed pods.
-import _ "github.com/juancavallotti/octo/services/k8s" // registers the "k8s" services provider
+import _ "github.com/juancavallotti/octo/runtime/services/k8s" // registers the "k8s" services provider

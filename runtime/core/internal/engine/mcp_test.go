@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/juancavallotti/octo/core"
-	"github.com/juancavallotti/octo/core/internal/pool"
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/core/internal/pool"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // depsRes builds block deps carrying only an in-memory resource loader (an

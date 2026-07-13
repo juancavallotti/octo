@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/juancavallotti/octo/core"
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // errBreakpointUnwired is returned when a breakpoint block is built without a

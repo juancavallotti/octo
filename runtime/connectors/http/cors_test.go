@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // corsSettings used across the tests: two explicit origins, credentials on.

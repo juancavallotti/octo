@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/juancavallotti/octo/core"
+	"github.com/juancavallotti/octo/runtime/core"
 )
 
 // TestNewMocksValidatesSpecs: a mock is validated at the edge, so the flow builder

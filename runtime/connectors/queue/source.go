@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/juancavallotti/octo/core"
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // errSourceStopped is returned by a handler that is interrupted because the source

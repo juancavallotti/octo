@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/juancavallotti/octo/core"
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 const defaultMaxBodyBytes int64 = 1 << 20 // 1 MiB

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // TestTopicsFanOut verifies every subscriber on a subject receives every message

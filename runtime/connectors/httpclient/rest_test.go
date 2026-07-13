@@ -8,8 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/juancavallotti/octo/core"
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // restDeps starts an http-client connector pointed at baseURL and returns

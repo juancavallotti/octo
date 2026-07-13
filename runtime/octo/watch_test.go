@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juancavallotti/octo/core"
+	"github.com/juancavallotti/octo/runtime/core"
 )
 
 // fakeResourceWatcher is a ResourceLoader that also implements ResourceWatcher,

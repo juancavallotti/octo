@@ -10,9 +10,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/juancavallotti/octo/core"
-	"github.com/juancavallotti/octo/core/internal/pool"
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/core/internal/pool"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // Block type names handled directly by the flow builder rather than the block

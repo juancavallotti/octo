@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juancavallotti/octo/core"
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // startInvokeService runs svc in invoke mode and waits until it is ready, returning

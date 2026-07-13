@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/juancavallotti/octo/core"
-	"github.com/juancavallotti/octo/core/expr"
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/core/expr"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // defaultValidateStatus is the response status a validate block rejects with when

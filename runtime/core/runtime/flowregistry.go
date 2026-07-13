@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/juancavallotti/octo/core"
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // errFlowGone reports a send to a flow whose input channel was closed mid-send

@@ -3,8 +3,8 @@ package main
 import (
 	"testing"
 
-	"github.com/juancavallotti/octo/core"
-	"github.com/juancavallotti/octo/core/schema"
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/core/schema"
 )
 
 // TestGeneratedSchemaIsWellFormed is a smoke test over the generated capability

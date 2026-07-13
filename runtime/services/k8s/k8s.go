@@ -12,8 +12,8 @@ import (
 	"os"
 	"sort"
 
-	"github.com/juancavallotti/octo/core"
-	"github.com/juancavallotti/octo/services"
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/services"
 	"github.com/nats-io/nats.go"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"

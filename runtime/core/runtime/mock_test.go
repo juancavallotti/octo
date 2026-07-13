@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/juancavallotti/octo/core"
+	"github.com/juancavallotti/octo/runtime/core"
 )
 
 // dropSpec is a valid mock spec for the tests that only care about where the mock

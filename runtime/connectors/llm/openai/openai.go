@@ -18,8 +18,8 @@ import (
 	"github.com/openai/openai-go/v2/packages/param"
 	"github.com/openai/openai-go/v2/shared"
 
-	"github.com/juancavallotti/octo/core"
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 func init() {

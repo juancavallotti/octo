@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/juancavallotti/octo/core/expr"
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/core/expr"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // This file holds `octo eval`: evaluating one CEL expression against a message built

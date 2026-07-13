@@ -18,7 +18,7 @@
       "package-name": "octo",
       "changelog-path": "CHANGELOG.md",
       "extra-files": [
-        "runtime/cli/version.go",
+        "runtime/octo/version.go",
         "packages/mcp/src/handler.ts",
         "apps/docs/lib/version.ts",
         "helm/Chart.yaml",

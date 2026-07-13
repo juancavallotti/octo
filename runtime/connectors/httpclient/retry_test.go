@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // retrySettings with tiny backoff so tests never actually sleep long.

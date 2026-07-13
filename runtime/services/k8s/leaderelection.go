@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/juancavallotti/octo/core"
+	"github.com/juancavallotti/octo/runtime/core"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	coordinationv1 "k8s.io/client-go/kubernetes/typed/coordination/v1"
 	"k8s.io/client-go/tools/leaderelection"

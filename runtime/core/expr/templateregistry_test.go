@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/juancavallotti/octo/core"
+	"github.com/juancavallotti/octo/runtime/core"
 )
 
 // fakeLoader serves resources from an in-memory map; an absent id is not found.

@@ -21,7 +21,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/juancavallotti/octo/core"
+	"github.com/juancavallotti/octo/runtime/core"
 )
 
 const (

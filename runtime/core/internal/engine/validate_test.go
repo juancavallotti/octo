@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/juancavallotti/octo/core"
-	"github.com/juancavallotti/octo/core/internal/pool"
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/core/internal/pool"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 //nolint:ireturn // a test helper that returns the built MessageProcessor interface

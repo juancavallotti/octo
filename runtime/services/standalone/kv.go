@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/juancavallotti/octo/core"
+	"github.com/juancavallotti/octo/runtime/core"
 )
 
 // store is an in-memory, versioned store with optimistic concurrency, used for both

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/juancavallotti/octo/types"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // signedMessage builds a message as the http source would deliver it: the parsed
