@@ -20,7 +20,7 @@ import { registerPrompts } from "./prompts";
  * in release-please-config.json). Hosts share it so every deployment reports the
  * same octo release — override per host via {@link OctoMcpServerInfo.version}.
  */
-export const OCTO_MCP_VERSION = "0.4.0"; // x-release-please-version
+export const OCTO_MCP_VERSION = "0.4.1"; // x-release-please-version
 
 /**
  * Identity reported to clients during the MCP `initialize` handshake. Without a

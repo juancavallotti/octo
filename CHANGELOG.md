@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.4.1](https://github.com/juancavallotti/octo/compare/v0.4.0...v0.4.1) (2026-07-12)
+
+
+### Features
+
+* **database:** accept the password as a separate setting ([5c24d2d](https://github.com/juancavallotti/octo/commit/5c24d2d85d147ced62a890d958b2e8f11b1f40a4)), closes [#119](https://github.com/juancavallotti/octo/issues/119)
+* **foreach:** add a map mode that collects each iteration's body ([be9d983](https://github.com/juancavallotti/octo/commit/be9d98386256ac347ab0b9e3d13aec4568ec9464)), closes [#129](https://github.com/juancavallotti/octo/issues/129)
+* **notion:** capture the verification token in memory ([bf15b89](https://github.com/juancavallotti/octo/commit/bf15b89d15aafdeefd4faca28cf6a3465ef8b59b)), closes [#154](https://github.com/juancavallotti/octo/issues/154)
+* **schema:** publish each composite's addressable branches ([7888655](https://github.com/juancavallotti/octo/commit/788865582617c139a8a9dae4e9910acd65146aa7)), closes [#153](https://github.com/juancavallotti/octo/issues/153)
+
+
+### Bug Fixes
+
+* **expr:** source payloads see the registered CEL extensions ([158c9dd](https://github.com/juancavallotti/octo/commit/158c9dd661bf7faf455893c113563141d24db34d)), closes [#132](https://github.com/juancavallotti/octo/issues/132)
+* **notion:** bootstrap a webhook subscription without a token ([9a516cd](https://github.com/juancavallotti/octo/commit/9a516cd4ddd7ebdeeac5791c4833124a92a2a18a)), closes [#154](https://github.com/juancavallotti/octo/issues/154)
+
+
+### Refactoring
+
+* **core:** thread the resource loader into source construction ([9243fe5](https://github.com/juancavallotti/octo/commit/9243fe5c5a9917e7c062626bda820903ad8c4df9))
+
+
+### Documentation
+
+* **mcp:** point invoke_flow at getSchema for branch names ([33db20e](https://github.com/juancavallotti/octo/commit/33db20eafb0f28c1577e6bd84e2f0376bc6d55e2)), closes [#153](https://github.com/juancavallotti/octo/issues/153)
+
 ## [0.4.0](https://github.com/juancavallotti/octo/compare/v0.3.8...v0.4.0) (2026-07-11)
 
 
