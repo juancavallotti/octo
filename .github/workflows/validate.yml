@@ -26,6 +26,14 @@ jobs:
       - run: task runtime:lint
       - run: task runtime:test
       - run: task runtime:build
+      # The release builds the CLI archives from .goreleaser.yaml. Validate it here so
+      # a broken config surfaces on the PR that broke it, not on the release that
+      # needed it.
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: check
 
   platform:
     runs-on: ubuntu-latest

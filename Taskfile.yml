@@ -146,8 +146,10 @@ tasks:
       - test -f release-please-config.json
       - test -f .release-please-manifest.json
       - test -f README.md
-      # release-please stamps each CLI's version const — a missing version.go here
-      # means a binary that ships claiming whatever version it was born with, forever.
+      # GoReleaser builds the release archives for both CLIs, and release-please
+      # stamps each one's version const — a missing version.go here means a binary
+      # that ships claiming whatever version it was born with, forever.
+      - test -f .goreleaser.yaml
       - test -f runtime/octo/version.go
       - test -f runtime/dolphin/version.go
 
