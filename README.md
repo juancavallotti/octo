@@ -1,7 +1,7 @@
 # Octo
 
 **Octo** is a cloud-native integration runtime. The `octo` repository holds its
-stacks, including a Go workspace for the runtime engine and CLI.
+stacks, including a Go module for the runtime engine and CLI.
 
 **Documentation:** the docs site — overview, getting started, connector and CEL
 reference, guides, and the AI/MCP story — is built from [`apps/docs/`](apps/docs/)
@@ -31,6 +31,12 @@ binary on your PATH.
 
 <!-- x-release-please-end-version -->
 
+Have a Go toolchain? Install the CLI straight from source:
+
+```bash
+go install github.com/juancavallotti/octo/runtime/octo@latest
+```
+
 Prefer Docker? Two public images on Docker Hub, no install at all:
 
 ```bash
@@ -46,7 +52,7 @@ Building from source is one command (`task runtime:build`); see the
 
 ## Layout
 
-- `runtime/`: active Go workspace for the runtime engine and CLI.
+- `runtime/`: the Go module's packages — the runtime engine (`core`, `types`, `connectors`, `services`) and the `octo` CLI (`runtime/octo`). The module itself is rooted at the repo root so the CLI is `go install`-able.
 - `apps/standalone/`: the single-user Next.js visual editor (Docker image `juancavallotti/octo`). See [apps/standalone/README.md](apps/standalone/README.md).
 - `apps/platform/`: the orchestrator-backed multi-user Octo web app. See [apps/platform/README.md](apps/platform/README.md).
 - `apps/docs/`: the documentation site (Fumadocs). Content in `apps/docs/content/docs/`.
@@ -71,7 +77,7 @@ Read [docs/coding-standards.md](docs/coding-standards.md) for code style and des
 Read [docs/linting-policy.md](docs/linting-policy.md) for lint expectations.
 Read [docs/release-process.md](docs/release-process.md) before release-related work.
 
-The Go runtime workspace lives under [runtime/](runtime/).
+The Go runtime lives under [runtime/](runtime/); its module manifest is the root [go.mod](go.mod).
 
 ## Runtime architecture
 

@@ -53,7 +53,7 @@ The connector also accepts `maxIdleConns` and `connMaxLifetime` for pool tuning.
 
 <Callout type="info">
 The default SQLite DSN is relative to the working directory of
-`task run:sample` (which runs from `runtime/cli`, hence the `../../` prefix).
+`task run:sample` (which runs from `runtime/octo`, hence the `../../` prefix).
 If you run the binary from the repo root instead, override it:
 `DB_DSN=file:samples/orders.db bin/octo run --config samples/db-orders.yaml`.
 </Callout>

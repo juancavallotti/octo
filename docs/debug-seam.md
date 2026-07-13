@@ -268,8 +268,8 @@ The runtime:
 5. If it wraps: take the target's label, `unlabel` on the way out, clone what you
    record. If it removes blocks: add a conflict check.
 6. Flag in `cli/debug.go`, a section in the
-   [debug config](../runtime/cli/debugconfig.go), and a line in its
-   [schema](../runtime/cli/debugconfig.schema.json) — the drift test will fail
+   [debug config](../runtime/octo/debugconfig.go), and a line in its
+   [schema](../runtime/octo/debugconfig.schema.json) — the drift test will fail
    until you do.
 
 Then, for each consumer:
