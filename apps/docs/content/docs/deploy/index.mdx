@@ -12,11 +12,28 @@ There are three ways to get that stack running, from a laptop to a public
 deployment.
 
 <Callout type="info">
-  You do not need a cluster to try Octo. The standalone editor ships as a
-  single public Docker image with the runtime bundled — see
-  [Running from Docker](/editor/docker). This section is about deploying the
-  full platform.
+  **You do not need a cluster.** To try Octo, run the standalone editor from a
+  single public image — see [Running from Docker](/editor/docker). To *ship* a
+  single integration, bake its YAML into an image built on the public runtime
+  and deploy it to Cloud Run or any container platform — see
+  [Self-hosted integrations](/deploy/self-hosted). The rest of this section is
+  about deploying the full platform.
 </Callout>
+
+## Ship one integration, without the platform
+
+The platform earns its keep when you are running many integrations and want an
+editor, deployment history, and log aggregation behind them. A single
+integration needs none of that: it is YAML plus resources, and the public
+runtime image runs a directory of exactly that.
+
+<Cards>
+  <Card
+    href="/deploy/self-hosted"
+    title="Self-Hosted Integrations"
+    description="Bake flows and resources into an image on the public runtime, and run it on Cloud Run or any container platform."
+  />
+</Cards>
 
 ## Choose a deployment path
 

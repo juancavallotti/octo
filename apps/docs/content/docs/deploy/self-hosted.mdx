@@ -1,0 +1,375 @@
+---
+title: "Self-Hosted Integrations"
+description: "Bake your flows and resources into an image built on the public runtime, and run it on Cloud Run or any container platform."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Steps, Step } from 'fumadocs-ui/components/steps';
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
+import { DynamicCodeBlock } from 'fumadocs-ui/components/dynamic-codeblock';
+import { OCTO_VERSION } from '@/lib/version';
+
+An integration is just YAML plus the resources it references, and the public
+runtime image knows how to run a directory of exactly that. Copy your config
+into an image built on `juancavallotti/octo-runtime` and you get a
+self-contained, immutable artifact that runs anywhere a container runs — with
+no cluster, no orchestrator, and no Octo platform to operate.
+
+That artifact fits serverless container platforms particularly well. The
+runtime binds `0.0.0.0:8080` by default and speaks plain HTTP, which is exactly
+the contract Cloud Run, Fly, Container Apps, and App Runner expect. This page
+walks through building the image, then deploying it to
+[Cloud Run](#deploy-to-cloud-run), and closes with the
+[constraints](#what-does-not-survive-scale-to-zero) that scale-to-zero puts on
+your flows.
+
+<Callout type="info">
+  You can also **mount** a config directory into the stock image instead of
+  baking one in — see
+  [Running flows locally](/runtime/running-locally#run-it-from-docker). Mounting
+  is right for a laptop or a VM; baking is right when the platform pulls an
+  image and there is nowhere to mount from.
+</Callout>
+
+## Lay out the integration
+
+The runtime loads every `.yaml`/`.yml` file at the top level of its config
+directory and merges them into one config. Subdirectories are ignored for that
+scan, but they are still readable as [resources](/concepts/resources) — the
+config directory is the resource root:
+
+```
+orders/
+├── Dockerfile
+├── orders.yaml           # loaded
+├── notifications.yaml    # loaded, merged with orders.yaml
+└── templates/
+    └── receipt.tmpl      # a template resource, referenced as templates/receipt.tmpl
+```
+
+Names do not matter, only the extension. Duplicate flow, connector, or
+processor names across files are a load error, and `service:` may appear in at
+most one file.
+
+Here is `orders.yaml`. Note what it does **not** do: it never hardcodes a port,
+and it never hardcodes a secret.
+
+```yaml title="orders.yaml"
+service:
+  name: orders
+
+env:
+  - name: PORT
+    default: "8080"       # Cloud Run injects PORT; the default covers local runs
+  - name: STRIPE_KEY
+    required: true        # must come from the environment — see below
+
+resources:
+  templates:
+    - resource: templates/receipt.tmpl
+      as: receipt
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      port: ${PORT}       # a bare ${VAR} keeps its native type, so this is an int
+
+flows:
+  - name: receipt
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /orders/{id}/receipt
+    process:
+      - type: template-resource
+        settings:
+          id: receipt
+          rawBody: true
+          contentType: text/html; charset=utf-8
+```
+
+`required: true` is deliberately strict: it is **not** satisfied by a
+`default:`. The variable must be supplied by the OS environment or a `.env`
+file, so a deploy that forgets to wire `STRIPE_KEY` fails at config load with a
+clear error instead of starting up and failing on the first message.
+
+## Bake it into an image
+
+The public runtime image already ends with
+`CMD ["run", "--config", "/etc/octo/integrations"]`, so a `COPY` into that
+directory is the entire Dockerfile:
+
+<DynamicCodeBlock lang="dockerfile" code={`FROM juancavallotti/octo-runtime:${OCTO_VERSION}
+COPY . /etc/octo/integrations/`} />
+
+Pin the tag. `latest` moves with every Octo release, and an integration that
+was verified against one runtime should not silently pick up another.
+
+Two things about that base image shape how you extend it:
+
+- **There is no shell.** The base is distroless, so a `RUN` instruction in your
+  Dockerfile has nothing to execute and will fail. `COPY` is all you get. If you
+  need to generate or template anything, do it in a builder stage and copy the
+  result across.
+- **It runs as `nonroot`.** Files copied in are root-owned and world-readable,
+  which is all the runtime needs — it only ever reads its config.
+
+<Callout type="warn">
+  Do not `COPY` a `.env` file containing secrets. Anyone who can pull the image
+  can read it. Secrets belong in the platform's environment or secret store,
+  which the runtime reads as ordinary OS environment variables — and OS
+  environment wins over every `.env` source anyway.
+</Callout>
+
+Build and run it locally first. The image is the deployable, so exercise it as
+one:
+
+```bash
+docker build -t orders:1.0.0 .
+docker run --rm -p 8080:8080 -e STRIPE_KEY=sk_test_… orders:1.0.0
+curl localhost:8080/orders/42/receipt
+```
+
+## Deploy to Cloud Run
+
+Nothing about the image is Cloud Run specific — it listens on `0.0.0.0:8080`,
+logs to stderr, and exits on `SIGTERM`, which is the whole container contract.
+
+<Steps>
+
+<Step>
+### Push the image to Artifact Registry
+
+Cloud Run runs **`linux/amd64` only**. On an Apple Silicon machine `docker
+build` produces `arm64` by default and the deploy will fail at startup, so set
+`--platform` explicitly.
+
+```bash
+PROJECT=$(gcloud config get-value project)
+REPO=us-central1-docker.pkg.dev/$PROJECT/octo
+
+gcloud artifacts repositories create octo \
+  --repository-format=docker --location=us-central1
+
+gcloud auth configure-docker us-central1-docker.pkg.dev
+docker build --platform linux/amd64 -t $REPO/orders:1.0.0 .
+docker push $REPO/orders:1.0.0
+```
+</Step>
+
+<Step>
+### Store the secrets
+
+```bash
+echo -n 'sk_live_…' | gcloud secrets create stripe-key --data-file=-
+```
+</Step>
+
+<Step>
+### Deploy
+
+```bash
+gcloud run deploy orders \
+  --image $REPO/orders:1.0.0 \
+  --region us-central1 \
+  --port 8080 \
+  --set-env-vars LOG_LEVEL=info \
+  --set-secrets STRIPE_KEY=stripe-key:latest \
+  --allow-unauthenticated
+```
+
+Cloud Run injects `PORT` into the container and forbids you from setting it
+yourself — which is why the config reads `port: ${PORT}` rather than pinning a
+number. The values from `--set-env-vars` and `--set-secrets` arrive as OS
+environment variables and satisfy the `env:` block the same way a local shell
+would.
+</Step>
+
+</Steps>
+
+`gcloud run deploy` will happily take a source directory and build for you, but
+prefer pushing the image yourself: the point of baking the config in is that
+the artifact you tested is bit-for-bit the artifact that runs.
+
+### Health checks
+
+The runtime has **no built-in health endpoint** — it serves only the routes your
+flows declare. Cloud Run's default startup probe is a TCP check against the
+container port, which the HTTP connector satisfies as soon as it binds, so the
+default works without any help.
+
+If you want a real readiness signal, declare one as a flow and point an HTTP
+startup probe at it:
+
+```yaml
+  - name: healthz
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /healthz
+    process:
+      - type: set-payload
+        settings:
+          value: '{"status": "ok"}'
+```
+
+### Shutdown
+
+Cloud Run sends `SIGTERM` and then waits before killing the container. The
+runtime treats that as a graceful stop: sources stop accepting work first,
+connectors unwind in reverse order, and the HTTP server drains in-flight
+requests. Requests still parked waiting on a flow result are released with a
+`503` rather than held open, so keep flows well under the platform's grace
+period if you care about the tail.
+
+## What does not survive scale-to-zero
+
+The public image ships the **standalone** [services
+provider](/concepts/runtime-services): in-process queues, an in-memory KV store,
+and no leader election. That is the same provider a local `octo run` uses, and
+it is entirely per-process. On a platform that starts, stops, and duplicates
+your container at will, three consequences follow.
+
+| Feature | On a serverless platform |
+|---|---|
+| **HTTP flows** | Work exactly as they do locally. This is the sweet spot. |
+| **KV store** | In memory, per instance. Two instances do not share it, and a scaled-to-zero instance loses it. Use an external store for anything that must persist. |
+| **Queues and events** | In process. A message queued by one instance is invisible to every other, and anything in flight is lost when the instance goes away. |
+| **Cron** | Only fires while an instance is running. At zero instances, nothing fires. With N instances, the schedule fires N times — the standalone provider has no leader election, so every process considers itself the leader. |
+
+The practical rule: **on a scale-to-zero platform, ship request/response HTTP
+flows** and reach for managed infrastructure for anything stateful. Instead of a
+`cron` source, have Cloud Scheduler call an HTTP flow — that keeps the schedule
+outside the container, where it belongs when the container may not exist.
+
+If you genuinely need a durable cron, a shared KV, or queues that outlive an
+instance, that is what the platform's cluster deployment provides: leader-elected
+crons, an orchestrator-backed KV, and NATS-backed queues. See
+[Deployment overview](/deploy).
+
+<Callout type="info">
+  Pin the instance count (`--min-instances=1 --max-instances=1`) and a
+  standalone `cron` source will behave — one always-on process, firing once. You
+  are then paying for an always-on container, which is most of the reason to
+  reach for Cloud Run gone. Prefer Cloud Scheduler.
+</Callout>
+
+## Other platforms
+
+The image carries no assumptions beyond "listen on a port, log to stderr, handle
+`SIGTERM`", so the same artifact deploys unchanged elsewhere. Two worked
+examples — one entirely from a web console, one from a CLI.
+
+<Tabs items={['AWS App Runner (console)', 'Azure Container Apps']}>
+<Tab value="AWS App Runner (console)">
+
+App Runner can only pull from **Amazon ECR**, so push the image there first —
+this is the one step that is not clickable:
+
+```bash
+ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+ECR=$ACCOUNT.dkr.ecr.us-east-1.amazonaws.com
+
+aws ecr create-repository --repository-name orders
+aws ecr get-login-password | docker login --username AWS --password-stdin $ECR
+
+docker build --platform linux/amd64 -t $ECR/orders:1.0.0 .
+docker push $ECR/orders:1.0.0
+```
+
+App Runner runs `x86_64` images only, so `--platform linux/amd64` is required,
+not optional, when you build on an ARM machine.
+
+Then, in the AWS console:
+
+<Steps>
+
+<Step>
+### Create the service
+
+Go to **App Runner → Create service**. For **Source**, choose *Container
+registry*, provider *Amazon ECR*, and **Browse** to the `orders` image you just
+pushed. Pick *Manual* deployment unless you want every new image tag to roll
+out automatically.
+
+App Runner needs permission to pull from ECR: when prompted for an **ECR access
+role**, let the console *Create new service role*.
+</Step>
+
+<Step>
+### Configure the service
+
+Name the service `orders` and set **Port** to `8080` — that is what the HTTP
+connector binds by default.
+
+Under **Environment variables**, add each variable the config's `env:` block
+declares. `LOG_LEVEL` can be a plaintext value; for `STRIPE_KEY`, choose the
+*Secrets Manager* source and reference the secret's ARN. Either way it arrives
+in the container as an ordinary environment variable, which is exactly what the
+runtime reads — and OS environment beats every other source.
+</Step>
+
+<Step>
+### Set the health check
+
+The default health check is **TCP** against the service port, which the HTTP
+connector satisfies as soon as it binds — so the default works with no flow of
+your own.
+
+To use the `/healthz` flow from [above](#health-checks) instead, open **Health
+check**, switch the protocol to *HTTP*, and set the path to `/healthz`.
+</Step>
+
+<Step>
+### Create and deploy
+
+**Create & deploy**, then watch the *Event log* tab. When it reports the service
+is running, the *Default domain* at the top of the page serves your flows.
+</Step>
+
+</Steps>
+
+App Runner does not scale to zero by default — it idles at one instance — so a
+`cron` source will actually fire. It still scales *out* under load, and every
+instance fires its own tick, so cap **Max size** at 1 in the auto-scaling
+configuration if you depend on that.
+
+</Tab>
+<Tab value="Azure Container Apps">
+
+```bash
+az containerapp create \
+  --name orders --resource-group octo \
+  --image $REPO/orders:1.0.0 \
+  --target-port 8080 --ingress external \
+  --secrets stripe-key=sk_live_… \
+  --env-vars STRIPE_KEY=secretref:stripe-key LOG_LEVEL=info
+```
+
+`--target-port 8080` matches the connector's default bind port. Container Apps
+scales to zero by default, so the
+[stateless rule](#what-does-not-survive-scale-to-zero) applies in full.
+
+</Tab>
+</Tabs>
+
+The caveats travel with the runtime, not the platform: all of these scale to
+zero or scale out, so the
+[stateless rule](#what-does-not-survive-scale-to-zero) holds regardless of the
+logo.
+
+## Where to go next
+
+- [Docker images](/deploy/docker-images) — every published image and how each one
+  is built.
+- [Running flows locally](/runtime/running-locally#run-it-from-docker) — mounting
+  a config instead of baking one in, plus `--watch` and one-shot `invoke`.
+- [Resources](/concepts/resources) — how env files and templates resolve against
+  the config directory.
+- [Environment and configuration](/concepts/environment-and-config) — `env:`
+  declarations, `${VAR}` substitution, and precedence.
+- [Deployment overview](/deploy) — when you outgrow a single container and want
+  the full platform.

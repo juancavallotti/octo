@@ -1,6 +1,7 @@
 {
   "pages": [
     "index",
+    "self-hosted",
     "helm",
     "local-k3d",
     "gcp-terraform",
