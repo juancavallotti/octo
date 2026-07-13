@@ -11,6 +11,7 @@ dist/
 # Go build output left in a module dir by `go build` without -o (binary named
 # after the package dir, e.g. runtime/octo/octo). The canonical output is bin/.
 /runtime/octo/octo
+/runtime/dolphin/dolphin
 /orchestrator/orchestrator
 # DevSpace's local state/cache dir.
 /.devspace/
