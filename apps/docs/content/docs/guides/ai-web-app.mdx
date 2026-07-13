@@ -5,6 +5,7 @@ description: "Cache LLM output and render it as HTML with an error fallback page
 
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Cards, Card } from 'fumadocs-ui/components/card';
+import { ArrowLeftRight, FileCode, HardDrive, TriangleAlert } from 'lucide-react';
 
 This guide assembles everything into a complete AI web app: an HTTP endpoint
 that calls an LLM, caches the result so the model isn't hit on every page view,
@@ -277,8 +278,8 @@ page has real markup, the inline variant when a few lines of HTML are enough.
 ## Where to go next
 
 <Cards>
-  <Card title="Object Storage and Caching" href="/guides/object-storage-and-caching" description="cache-scope semantics: keys, TTLs, and invalidation." />
-  <Card title="Serving HTML" href="/guides/serving-html" description="Templates, raw content, and form handling in depth." />
-  <Card title="AI Mapping" href="/ai/ai-mapping" description="Structured JSON out of an LLM, with schemas and examples." />
-  <Card title="Error Handling" href="/concepts/error-handling" description="Flow error paths and failure routing." />
+  <Card icon={<HardDrive />} title="Object Storage and Caching" href="/guides/object-storage-and-caching" description="cache-scope semantics: keys, TTLs, and invalidation." />
+  <Card icon={<FileCode />} title="Serving HTML" href="/guides/serving-html" description="Templates, raw content, and form handling in depth." />
+  <Card icon={<ArrowLeftRight />} title="AI Mapping" href="/ai/ai-mapping" description="Structured JSON out of an LLM, with schemas and examples." />
+  <Card icon={<TriangleAlert />} title="Error Handling" href="/concepts/error-handling" description="Flow error paths and failure routing." />
 </Cards>

@@ -4,6 +4,7 @@ description: "An AI-native, cloud-native integration platform you can run anywhe
 ---
 
 import { Cards, Card } from 'fumadocs-ui/components/card';
+import { BookOpen, Cpu, LayoutDashboard, Library, Rocket, Ship, Sparkles, SquarePen, Workflow } from 'lucide-react';
 
 Octo is an integration platform built around a small, concurrent Go runtime that
 executes flows defined in YAML. Connectors turn the outside world into messages,
@@ -11,7 +12,27 @@ sources feed those messages into flows, and each flow runs its messages through
 an ordered chain of blocks. Around the runtime sit a visual editor for designing
 flows and a Kubernetes-native platform for deploying and operating them.
 
-## Why Octo
+## Why Octo exists
+
+AI moved the ceiling on what one person can build. Ideas that were once too
+ambitious for a personal project are suddenly within reach — and integration,
+the unglamorous work of making systems talk to each other, is exactly the kind
+of thing that used to be too big to take on alone.
+
+So Octo asks a question: what would an integration platform look like if it were
+born today? AI-native from the first commit instead of retrofitted. Cloud-native
+by default instead of ported. Open in spirit, not just in license.
+
+That means free in every sense. Free to run — no fee, no seat count, no license
+key, no call with sales. Free to learn from — the whole platform is on GitHub,
+and it is meant to be read. And free from the pressure that slowly bends a
+product away from its users: there are no paid cores, no enterprise tier, and no
+capability held back to give a commercial story something to sell. What is here
+is the whole thing.
+
+**Free as in freedom.**
+
+## What that means in practice
 
 Integration logic in Octo is declarative: you describe connectors, flows, and
 processors in a readable YAML file, and the runtime carries it. The same file
@@ -58,35 +79,35 @@ each message's body. The `process` chain has a single `log` block whose
 ## Explore the docs
 
 <Cards>
-  <Card href="/getting-started" title="Getting Started">
+  <Card icon={<Rocket />} href="/getting-started" title="Getting Started">
     Install the CLI, run your first flow, and pick between the CLI, the editor,
     and the platform.
   </Card>
-  <Card href="/concepts/flows" title="Core Concepts">
+  <Card icon={<Workflow />} href="/concepts/flows" title="Core Concepts">
     Flows, connectors, blocks, expressions, state, and error handling — the
     runtime model.
   </Card>
-  <Card href="/guides" title="Guides">
+  <Card icon={<BookOpen />} href="/guides" title="Guides">
     Task-oriented recipes: REST APIs, databases, scheduled jobs, Slack bots, and
     more.
   </Card>
-  <Card href="/ai" title="AI">
+  <Card icon={<Sparkles />} href="/ai" title="AI">
     LLM providers, agents, AI mapping and routing, and authoring flows over MCP.
   </Card>
-  <Card href="/reference" title="Reference">
+  <Card icon={<Library />} href="/reference" title="Reference">
     The flow file schema, every connector and block, CEL functions, and the CLI.
   </Card>
-  <Card href="/runtime" title="Runtime">
+  <Card icon={<Cpu />} href="/runtime" title="Runtime">
     The processing pipeline, running locally, clustering, and monitoring.
   </Card>
-  <Card href="/editor" title="Standalone Editor">
+  <Card icon={<SquarePen />} href="/editor" title="Standalone Editor">
     The visual editor in Docker: design, save, and run flows against files on
     disk.
   </Card>
-  <Card href="/platform" title="Platform">
+  <Card icon={<LayoutDashboard />} href="/platform" title="Platform">
     The multi-user control plane: integrations, deployments, secrets, and logs.
   </Card>
-  <Card href="/deploy" title="Deployment">
+  <Card icon={<Ship />} href="/deploy" title="Deployment">
     Stand up the platform on Kubernetes with Docker images, Helm, and Terraform.
   </Card>
 </Cards>

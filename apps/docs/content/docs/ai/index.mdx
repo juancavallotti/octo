@@ -4,6 +4,7 @@ description: "Why Octo is AI-native: agents, LLM connectors, AI blocks, and MCP.
 ---
 
 import { Cards, Card } from 'fumadocs-ui/components/card';
+import { ArrowLeftRight, Bot, Brain, Cloud, MessageSquare, RefreshCw, Route, Wrench } from 'lucide-react';
 
 Octo treats AI as a first-class part of an integration, not a bolt-on. LLM
 providers are connectors like any database or HTTP endpoint, AI capabilities
@@ -70,20 +71,20 @@ The integration runs in both directions:
 ## Explore the section
 
 <Cards>
-  <Card title="AI Agents" href="/ai/agents"
+  <Card icon={<Bot />} title="AI Agents" href="/ai/agents"
     description="The ai-agent block: prompt, tools, guardrails, and iteration limits." />
-  <Card title="Agent Memory" href="/ai/agent-memory"
+  <Card icon={<Brain />} title="Agent Memory" href="/ai/agent-memory"
     description="Per-thread conversation memory, compaction, and durable user facts." />
-  <Card title="Skills and Tools" href="/ai/agent-skills-and-tools"
+  <Card icon={<Wrench />} title="Skills and Tools" href="/ai/agent-skills-and-tools"
     description="Give agents lazy-loaded skills and flow-backed tools." />
-  <Card title="AI Router" href="/ai/ai-router"
+  <Card icon={<Route />} title="AI Router" href="/ai/ai-router"
     description="Route messages to named branches with an LLM." />
-  <Card title="AI Mapping" href="/ai/ai-mapping"
+  <Card icon={<ArrowLeftRight />} title="AI Mapping" href="/ai/ai-mapping"
     description="Map data to a target shape with prompts, examples, and schemas." />
-  <Card title="AI Retry" href="/ai/ai-retry"
+  <Card icon={<RefreshCw />} title="AI Retry" href="/ai/ai-retry"
     description="Self-healing pipelines: let an LLM revise a failing message and retry." />
-  <Card title="LLM Providers" href="/ai/llm-providers"
+  <Card icon={<Cloud />} title="LLM Providers" href="/ai/llm-providers"
     description="Configure the OpenAI, Anthropic, and Gemini connectors." />
-  <Card title="Capstone: A Production Slack Agent" href="/ai/slack-agent"
+  <Card icon={<MessageSquare />} title="Capstone: A Production Slack Agent" href="/ai/slack-agent"
     description="A complete Slack AI agent with memory, tools, skills, and async processing." />
 </Cards>

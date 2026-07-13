@@ -5,6 +5,7 @@ description: "Render HTML pages from templates and parse form submissions."
 
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Cards, Card } from 'fumadocs-ui/components/card';
+import { Code, FolderOpen, Wand } from 'lucide-react';
 
 Flows answer with JSON by default, but an HTTP flow can serve any content type.
 This guide renders an HTML page from a template and parses a form submission —
@@ -140,7 +141,7 @@ another rendered template for a classic confirmation page.
 ## Where to go next
 
 <Cards>
-  <Card title="An AI Web App End to End" href="/guides/ai-web-app" description="HTML rendering over an LLM call, with an error fallback page." />
-  <Card title="Resources" href="/concepts/resources" description="Declaring templates and other file resources." />
-  <Card title="Expressions" href="/concepts/expressions" description="CEL in placeholders, including helpers like fromFormData." />
+  <Card icon={<Wand />} title="An AI Web App End to End" href="/guides/ai-web-app" description="HTML rendering over an LLM call, with an error fallback page." />
+  <Card icon={<FolderOpen />} title="Resources" href="/concepts/resources" description="Declaring templates and other file resources." />
+  <Card icon={<Code />} title="Expressions" href="/concepts/expressions" description="CEL in placeholders, including helpers like fromFormData." />
 </Cards>

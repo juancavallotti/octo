@@ -4,6 +4,7 @@ description: "The engine: registries, sources, pipelines, and message processing
 ---
 
 import { Cards, Card } from 'fumadocs-ui/components/card';
+import { Activity, Server, Terminal, Waypoints } from 'lucide-react';
 
 The Octo runtime is a small Go engine that loads a YAML config and runs it. Connectors turn the outside world into messages, flows process those messages through ordered chains of blocks, and an event bus reports each message's outcome — the same model whether the runtime runs on your laptop or as a pod in a cluster.
 
@@ -69,8 +70,8 @@ Backpressure is built in: each flow's source emits into a bounded channel read b
 ## Learn more
 
 <Cards>
-  <Card title="Running Flows Locally" href="/runtime/running-locally" description="octo run, invoke, and eval — flags, hot reload, and concurrency tuning." />
-  <Card title="The Processing Pipeline" href="/runtime/processing-pipeline" description="Worker pools, composites, cloning, and error propagation in depth." />
-  <Card title="Clustering" href="/runtime/clustering" description="What changes when multiple replicas run the same integration." />
-  <Card title="Monitoring" href="/runtime/monitoring" description="Logs, log levels, and the platform's central log sink." />
+  <Card icon={<Terminal />} title="Running Flows Locally" href="/runtime/running-locally" description="octo run, invoke, and eval — flags, hot reload, and concurrency tuning." />
+  <Card icon={<Waypoints />} title="The Processing Pipeline" href="/runtime/processing-pipeline" description="Worker pools, composites, cloning, and error propagation in depth." />
+  <Card icon={<Server />} title="Clustering" href="/runtime/clustering" description="What changes when multiple replicas run the same integration." />
+  <Card icon={<Activity />} title="Monitoring" href="/runtime/monitoring" description="Logs, log levels, and the platform's central log sink." />
 </Cards>

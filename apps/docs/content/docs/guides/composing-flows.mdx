@@ -5,6 +5,7 @@ description: "Call flows from flows: flow-ref, sourceless flows, and HTTP compos
 
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Cards, Card } from 'fumadocs-ui/components/card';
+import { Radio, Send, Workflow } from 'lucide-react';
 
 As an integration grows, one long `process` list gets hard to read and impossible
 to reuse. This guide splits work into named flows and calls them with `flow-ref` —
@@ -205,7 +206,7 @@ sourceless flow into its own service later by giving it an HTTP source.
 ## Where to go next
 
 <Cards>
-  <Card title="Events and Queues" href="/guides/events-and-queues" description="Load-balance flow calls across replicas with queue-dispatch." />
-  <Card title="Flows" href="/concepts/flows" description="Sources, processors, workers, and buffers in depth." />
-  <Card title="Calling External APIs" href="/guides/call-external-apis" description="The rest block and http-client connector in detail." />
+  <Card icon={<Radio />} title="Events and Queues" href="/guides/events-and-queues" description="Load-balance flow calls across replicas with queue-dispatch." />
+  <Card icon={<Workflow />} title="Flows" href="/concepts/flows" description="Sources, processors, workers, and buffers in depth." />
+  <Card icon={<Send />} title="Calling External APIs" href="/guides/call-external-apis" description="The rest block and http-client connector in detail." />
 </Cards>

@@ -6,6 +6,7 @@ description: "Receive Slack events, verify signatures, and reply to mentions."
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Cards, Card } from 'fumadocs-ui/components/card';
 import { Steps, Step } from 'fumadocs-ui/components/steps';
+import { MessageSquare, Radio } from 'lucide-react';
 
 This guide builds a Slack bot that receives events over HTTP, verifies each
 request's signature, answers Slack's URL-verification handshake, and replies to
@@ -186,7 +187,7 @@ guide keeps this exact receive-verify-filter skeleton and swaps the echo for an
 AI agent with memory and tools.
 
 <Cards>
-  <Card title="Slack AI Agent" href="/ai/slack-agent" description="The full AI-agent version of this bot." />
-  <Card title="Slack connector reference" href="/reference/connectors/slack" description="Every Slack block and setting." />
-  <Card title="Events and Queues" href="/guides/events-and-queues" description="Offload slow work to stay inside Slack's 3-second window." />
+  <Card icon={<MessageSquare />} title="Slack AI Agent" href="/ai/slack-agent" description="The full AI-agent version of this bot." />
+  <Card icon={<MessageSquare />} title="Slack connector reference" href="/reference/connectors/slack" description="Every Slack block and setting." />
+  <Card icon={<Radio />} title="Events and Queues" href="/guides/events-and-queues" description="Offload slow work to stay inside Slack's 3-second window." />
 </Cards>

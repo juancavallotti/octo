@@ -4,6 +4,7 @@ description: "What the multi-user platform adds: deployments, secrets, and orche
 ---
 
 import { Cards, Card } from 'fumadocs-ui/components/card';
+import { Blocks, Camera, Database, KeyRound, Network, Radio, Rocket, Users } from 'lucide-react';
 
 The Octo platform is the cloud-native, multi-user counterpart to the [standalone editor](/editor): the same visual editor, backed by a control plane that stores integrations in Postgres and deploys each one as its own Kubernetes workload. Where the standalone editor reads flow files from a local directory, the platform gives a team shared storage, versioning, one-click deployments, and central operations.
 
@@ -30,14 +31,14 @@ Signing in lands you on the dashboard — an overview of your integrations and t
 Two services make up the control plane: the **platform app** (`apps/platform`, a Next.js app that serves the editor and fronts everything as a backend-for-frontend) and the **orchestrator** (`orchestrator/`, a Go HTTP API that owns the database and is the only component that talks to the Kubernetes API). [Architecture](/platform/architecture) walks through how they fit together.
 
 <Cards>
-  <Card title="Architecture" href="/platform/architecture" description="The platform app, orchestrator API, NATS, Postgres, and runtime workloads." />
-  <Card title="Integrations" href="/platform/integrations" description="Authoring, organizing, and managing integrations on the platform." />
-  <Card title="Deployments" href="/platform/deployments" description="Deploying integrations as Kubernetes workloads: rollouts and rollbacks." />
-  <Card title="Snapshots" href="/platform/snapshots" description="Version tags: freezing definitions and resources for deployment." />
-  <Card title="Resources and Secrets" href="/platform/resources-and-secrets" description="Integration resources, cluster secrets, and how values reach running flows." />
-  <Card title="KV Store and Persistence" href="/platform/kv-and-storage" description="The deployment-scoped key/value store and the platform database." />
-  <Card title="Users and API Keys" href="/platform/users-and-api-keys" description="Authentication, user management, and API tokens." />
-  <Card title="Event Bus" href="/platform/event-bus" description="How the orchestrator and runtimes coordinate over NATS." />
+  <Card icon={<Network />} title="Architecture" href="/platform/architecture" description="The platform app, orchestrator API, NATS, Postgres, and runtime workloads." />
+  <Card icon={<Blocks />} title="Integrations" href="/platform/integrations" description="Authoring, organizing, and managing integrations on the platform." />
+  <Card icon={<Rocket />} title="Deployments" href="/platform/deployments" description="Deploying integrations as Kubernetes workloads: rollouts and rollbacks." />
+  <Card icon={<Camera />} title="Snapshots" href="/platform/snapshots" description="Version tags: freezing definitions and resources for deployment." />
+  <Card icon={<KeyRound />} title="Resources and Secrets" href="/platform/resources-and-secrets" description="Integration resources, cluster secrets, and how values reach running flows." />
+  <Card icon={<Database />} title="KV Store and Persistence" href="/platform/kv-and-storage" description="The deployment-scoped key/value store and the platform database." />
+  <Card icon={<Users />} title="Users and API Keys" href="/platform/users-and-api-keys" description="Authentication, user management, and API tokens." />
+  <Card icon={<Radio />} title="Event Bus" href="/platform/event-bus" description="How the orchestrator and runtimes coordinate over NATS." />
 </Cards>
 
 ## Running the platform
