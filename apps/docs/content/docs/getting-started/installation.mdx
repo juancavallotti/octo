@@ -92,6 +92,35 @@ Make sure `$(go env GOPATH)/bin` is on your PATH, then confirm with
   archives do, so `octo version` reports the version without it.
 </Callout>
 
+## Install dolphin
+
+`dolphin` is octo's companion test runner: it drives the `octo` CLI to unit-test
+an integration. It ships from the same release, in the same versions, through the
+same two channels:
+
+<DynamicCodeBlock lang="bash" code={`# A prebuilt binary (Apple Silicon; swap the platform as above).
+curl -fsSL -o dolphin.tar.gz \\
+  https://github.com/juancavallotti/octo/releases/download/v${OCTO_VERSION}/dolphin_darwin_arm64.tar.gz
+tar -xzf dolphin.tar.gz
+sudo mv dolphin /usr/local/bin/dolphin
+
+# Or, with a Go toolchain:
+go install github.com/juancavallotti/octo/runtime/dolphin@latest`} />
+
+dolphin runs your tests by running the real `octo`, so it has to find one. It
+looks in three places and stops at the first hit:
+
+1. `$OCTO_PATH` — the binary itself, or a directory holding it
+2. `./octo` — in the current directory
+3. `octo` — on your PATH
+
+<Callout type="warn">
+  `$OCTO_PATH` is an override, not a hint. When it is set but does not name a
+  runnable octo, dolphin fails instead of falling back to the other two — testing
+  against a different build than the one you asked for is a worse outcome than not
+  testing at all.
+</Callout>
+
 ## Run from Docker
 
 Two public images on [Docker Hub](https://hub.docker.com/u/juancavallotti),
@@ -149,8 +178,8 @@ cd octo
 task runtime:build
 ```
 
-This compiles the CLI and writes it to `bin/octo`, stamping the build date into
-the binary.
+This compiles both CLIs and writes them to `bin/octo` and `bin/dolphin`, stamping
+the build date into each. `task runtime:build:octo` builds just the runtime.
 
 </Step>
 <Step>

@@ -27,12 +27,20 @@ using Conventional Commits.
 
 `.github/workflows/release.yml` gates on `release-check`, then publishes in parallel:
 
-- `publish-cli` — cross-compiles the `octo` CLI for macOS, Linux, and Windows
-  (amd64 + arm64 each) and attaches `octo_<os>_<arch>.tar.gz` / `.zip` plus
-  `checksums.txt` to the GitHub release. Pure Go, so `CGO_ENABLED=0` builds every
-  target on one Linux runner. Archives carry no version in their filename: the tag in
-  the release URL identifies them, which keeps the README download table to one
-  version string per line for release-please to rewrite.
+- `publish-cli` — runs GoReleaser (`.goreleaser.yaml`), which cross-compiles both
+  CLIs — `octo` and `dolphin` — for macOS, Linux, and Windows (amd64 + arm64 each) and
+  attaches `<cli>_<os>_<arch>.tar.gz` / `.zip` plus one combined `checksums.txt` to
+  the GitHub release. Both are pure Go, so `CGO_ENABLED=0` builds every target on one
+  Linux runner. release-please has already created the release and its notes by then,
+  so GoReleaser runs in `keep-existing` mode and only uploads the assets. Two
+  invariants in that config are load-bearing and must survive any edit to it:
+  archives carry **no version in their filename** (the tag in the release URL
+  identifies them, which keeps the README download tables to one version string per
+  line for release-please to rewrite), and the checksums file stays named
+  **`checksums.txt`** (the README and the install docs link to it by that name).
+  Nothing is injected at link time except the build date: the version each binary
+  reports is the const release-please stamped into the tagged commit, and `publish-cli`
+  fails the release if a const and the tag disagree.
 - `publish-standalone` — the standalone editor image, multi-arch, to Docker Hub as
   `juancavallotti/octo`.
 - `publish-runtime` — the runtime-only image, multi-arch, to Docker Hub as

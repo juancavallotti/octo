@@ -62,10 +62,13 @@ jobs in parallel:
   default, standalone-services build) and pushes the same two tags for
   `juancavallotti/octo-runtime`, so integrations can be run from Docker
   without a cluster. See [Docker images](/deploy/docker-images#octo-runtime).
-- **publish-cli** — cross-compiles the `octo` CLI for macOS, Linux, and
-  Windows (amd64 and arm64 each) and attaches the archives, plus a
-  `checksums.txt`, to the GitHub release. The CLI is pure Go, so
-  `CGO_ENABLED=0` builds every target from one Linux runner. The archives are
+- **publish-cli** — runs [GoReleaser](https://goreleaser.com) (`.goreleaser.yaml`),
+  which cross-compiles both CLIs — `octo` and `dolphin` — for macOS, Linux, and
+  Windows (amd64 and arm64 each) and attaches the twelve archives, plus one
+  combined `checksums.txt`, to the GitHub release. Both are pure Go, so
+  `CGO_ENABLED=0` builds every target from one Linux runner. release-please
+  created the release and wrote its notes before this job runs, so GoReleaser
+  works in `keep-existing` mode and only uploads the assets. The archives are
   what [Installation](/getting-started/installation#download-the-cli) links
   to.
 
