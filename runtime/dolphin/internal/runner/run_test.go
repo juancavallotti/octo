@@ -445,3 +445,50 @@ func TestTheFlowsOwnStdoutIsNotTheAnswer(t *testing.T) {
 			result.Status, result.Err)
 	}
 }
+
+// TestTheSuitesEnvBeatsTheAmbientOne.
+//
+// A suite says `env: {ANTHROPIC_API_KEY: test-key}` because it wants a FAKE key — that is
+// the entire point of writing one down. If the developer's real key, exported in their
+// shell, won over it, the test would quietly call the live API: it would pass on their
+// machine, bill them for it, and fail in CI where no such variable exists. The suite wins.
+func TestTheSuitesEnvBeatsTheAmbientOne(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "the-developers-real-key")
+
+	seen := filepath.Join(t.TempDir(), "seen")
+	octo := fakeOcto(t, fmt.Sprintf("printf '%%s' \"$ANTHROPIC_API_KEY\" > %s\n", seen)+okEnvelope)
+
+	tg := targets(t, 1, 1)
+	tg[0].File.Env = map[string]string{"ANTHROPIC_API_KEY": "test-key"}
+
+	Run(context.Background(), config(t, octo), tg)
+
+	got, err := os.ReadFile(seen) //nolint:gosec // G304: a path this test built
+	if err != nil {
+		t.Fatalf("read what the child saw: %v", err)
+	}
+	if string(got) != "test-key" {
+		t.Errorf("the child saw ANTHROPIC_API_KEY=%q, want the suite's test-key — "+
+			"a real key from the shell must never leak into a test", got)
+	}
+}
+
+// TestTheEnvFileIsHandedToOcto: dolphin does not parse .env files. octo already reads
+// $OCTO_ENV_FILE when it loads a config, and a second dotenv parser here would be a second
+// set of rules about quoting and comments to disagree with the first.
+func TestTheEnvFileIsHandedToOcto(t *testing.T) {
+	seen := filepath.Join(t.TempDir(), "seen")
+	octo := fakeOcto(t, fmt.Sprintf("printf '%%s' \"$OCTO_ENV_FILE\" > %s\n", seen)+okEnvelope)
+
+	cfg := config(t, octo)
+	cfg.EnvFile = "/tmp/test.env"
+	Run(context.Background(), cfg, targets(t, 1, 1))
+
+	got, err := os.ReadFile(seen) //nolint:gosec // G304: a path this test built
+	if err != nil {
+		t.Fatalf("read what the child saw: %v", err)
+	}
+	if string(got) != "/tmp/test.env" {
+		t.Errorf("the child saw OCTO_ENV_FILE=%q, want the --env-file path", got)
+	}
+}

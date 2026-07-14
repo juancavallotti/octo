@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -42,6 +43,10 @@ const timeoutGrace = 10 * time.Second
 // shown only when a case fails; at info level every case would print a page of
 // connector chatter nobody asked for.
 const childLogLevel = "LOG_LEVEL=error"
+
+// octoEnvFileVar is how octo is told to load an extra .env file, on top of ./.env. It is
+// octo's own variable, not one dolphin invented — see runtime.DotEnvPaths.
+const octoEnvFileVar = "OCTO_ENV_FILE"
 
 // debugConfigMode is the permission for the temp debug config written per case.
 const debugConfigMode = 0o600
@@ -120,6 +125,9 @@ type Options struct {
 	WorkDir string
 	// Verbose lets the child's logs through at their normal level.
 	Verbose bool
+	// EnvFile is a .env file every case runs with, under the suite's own env: block.
+	// It is passed to octo, which already reads it, rather than parsed here.
+	EnvFile string
 }
 
 // invoke executes one case and reports what octo said.
@@ -150,7 +158,7 @@ func invoke(ctx context.Context, opts Options, target suite.Target, index int, c
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	cmd.Env = childEnv(opts.Verbose)
+	cmd.Env = childEnv(opts, target.File.EnvFor(c))
 
 	started := time.Now()
 	runErr := cmd.Run()
@@ -301,15 +309,42 @@ func invokeArgs(target suite.Target, configPath, envelopePath string, timeout ti
 	}
 }
 
-// childEnv is the environment octo runs in. It inherits dolphin's — a flow's env
-// resources and ${NAME} references resolve against it, so a suite can be run with the
-// same variables as the real thing — with the log level quieted unless asked.
-func childEnv(verbose bool) []string {
-	env := os.Environ()
-	if verbose {
-		return env
+// childEnv is the environment octo runs in.
+//
+// It inherits dolphin's, so a flow's ${NAME} references resolve against the same
+// variables as the real thing, and then lays the run's own over it: the suite's env:
+// block, and the --env-file. Later entries win in exec, so the suite's fake key beats
+// whatever the developer happens to have exported — which is the point. A test that
+// quietly used your real ANTHROPIC_API_KEY because it was in your shell is a test that
+// passes on your machine, bills you for it, and fails in CI.
+//
+// The env file is handed to octo rather than parsed here: octo already reads
+// $OCTO_ENV_FILE when it loads a config, and a second .env parser in dolphin would be a
+// second set of rules about quoting and comments to disagree about.
+func childEnv(opts Options, env map[string]string) []string {
+	child := os.Environ()
+	if !opts.Verbose {
+		child = append(child, childLogLevel)
 	}
-	return append(env, childLogLevel)
+	if opts.EnvFile != "" {
+		child = append(child, octoEnvFileVar+"="+opts.EnvFile)
+	}
+	for _, name := range sortedNames(env) {
+		child = append(child, name+"="+env[name])
+	}
+	return child
+}
+
+// sortedNames keeps the child's environment stable between runs, so two runs of the same
+// suite produce the same command — and a bug that depends on the order of two variables
+// is a bug you can reproduce.
+func sortedNames(env map[string]string) []string {
+	names := make([]string, 0, len(env))
+	for name := range env {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // shellCommand renders the invocation as a line the user can paste into a terminal.

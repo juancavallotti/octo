@@ -39,6 +39,16 @@ type File struct {
 	// Mocks stand in for blocks in every case, unless the case overrides the address.
 	// This is where "no test in this file ever reaches the payment API" is said once.
 	Mocks map[string]core.MockSpec `yaml:"mocks" json:"mocks"`
+	// Env are environment variables every case runs with, overriding whatever dolphin
+	// inherited.
+	//
+	// A config's env is resolved when it is LOADED, before any block runs — so a flow
+	// whose connector reads ${ANTHROPIC_API_KEY} cannot even be built without one, and
+	// no amount of mocking the block that uses it helps. Without this, the suites you
+	// most want (the LLM call, the payment API, the database) are the ones you cannot
+	// write. A test key belongs in the test file: it is fake by construction, so it can
+	// be read, reviewed and committed.
+	Env map[string]string `yaml:"env" json:"env"`
 	// Timeout bounds every case in the file. A case may shorten or lengthen it.
 	Timeout time.Duration `yaml:"timeout" json:"timeout"`
 	Cases   []Case        `yaml:"cases" json:"cases"`
@@ -68,6 +78,10 @@ type Case struct {
 	// config section: a mock a case declares says exactly what that block will do,
 	// without the reader having to hold the file's version in their head too.
 	Mocks map[string]core.MockSpec `yaml:"mocks" json:"mocks"`
+	// Env overrides the file's, per VARIABLE — not whole-map like Mocks, because a
+	// variable is a scalar: a case that needs one value different should not have to
+	// restate the other five to get it.
+	Env map[string]string `yaml:"env" json:"env"`
 	// Expect is what the flow should have produced. An absent Expect still asserts
 	// something: that the flow completed and did not fail.
 	Expect Expectation `yaml:"expect" json:"expect"`
@@ -350,6 +364,22 @@ func (f File) MocksFor(c Case) map[string]core.MockSpec {
 	}
 	for address, spec := range c.Mocks {
 		merged[address] = spec
+	}
+	return merged
+}
+
+// EnvFor is the environment a case runs with: the file's, with the case's laid over it
+// variable by variable.
+func (f File) EnvFor(c Case) map[string]string {
+	if len(f.Env) == 0 && len(c.Env) == 0 {
+		return nil
+	}
+	merged := make(map[string]string, len(f.Env)+len(c.Env))
+	for name, value := range f.Env {
+		merged[name] = value
+	}
+	for name, value := range c.Env {
+		merged[name] = value
 	}
 	return merged
 }

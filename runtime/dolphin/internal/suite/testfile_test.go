@@ -230,6 +230,43 @@ func TestTimeoutFallsBackFromCaseToFileToDefault(t *testing.T) {
 	}
 }
 
+// TestEnvOverridesPerVariableNotWholeMap.
+//
+// Env is merged per VARIABLE, unlike mocks, which a case replaces per address whole-spec.
+// The difference is not an inconsistency: a mock is a behaviour, and reading a case's
+// mock should not require holding the file's version in your head too — while a variable
+// is a scalar, and making a case restate five variables to change a sixth would be
+// nothing but a chance to get one of the five wrong.
+func TestEnvOverridesPerVariableNotWholeMap(t *testing.T) {
+	file := load(t, `
+flow: orders
+env:
+  ANTHROPIC_API_KEY: test-key
+  DB_DSN: "file::memory:"
+cases:
+  - name: inherits the file's env
+  - name: overrides one of them
+    env:
+      DB_DSN: "file:fixture.db"
+`)
+
+	if got := file.EnvFor(file.Cases[0]); got["ANTHROPIC_API_KEY"] != "test-key" || got["DB_DSN"] != "file::memory:" {
+		t.Errorf("env = %v, want the file's", got)
+	}
+
+	got := file.EnvFor(file.Cases[1])
+	if got["DB_DSN"] != "file:fixture.db" {
+		t.Errorf("DB_DSN = %q, want the case's override", got["DB_DSN"])
+	}
+	if got["ANTHROPIC_API_KEY"] != "test-key" {
+		t.Errorf("ANTHROPIC_API_KEY = %q, want the file's — overriding one variable must not drop the others",
+			got["ANTHROPIC_API_KEY"])
+	}
+	if env := (File{}).EnvFor(Case{}); env != nil {
+		t.Errorf("env = %v, want nil when neither declared any", env)
+	}
+}
+
 // TestLoadTestFileRejects is the heart of it. A test file is hand-written, and every
 // mistake here is one that would otherwise produce a suite that passes while asserting
 // nothing — which is worse than having no suite at all. Each of these must be caught

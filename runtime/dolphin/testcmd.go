@@ -27,6 +27,7 @@ const workDirPattern = "dolphin-"
 type testFlags struct {
 	paths    []string
 	config   string
+	envFile  string
 	junit    string
 	parallel int
 	failFast bool
@@ -38,6 +39,15 @@ func testCommand(args []string) error {
 	flags, err := parseTestFlags(args)
 	if err != nil {
 		return err
+	}
+
+	// octo skips a .env file that is not there, which is right for octo — a missing .env
+	// is not a runtime error — and wrong here: a mistyped --env-file would run the whole
+	// suite without the variables it asked for and fail every case on something else.
+	if flags.envFile != "" {
+		if _, err := os.Stat(flags.envFile); err != nil {
+			return usageErr("--env-file: %w", err)
+		}
 	}
 
 	targets, err := suite.Discover(flags.paths, flags.config)
@@ -67,6 +77,7 @@ func testCommand(args []string) error {
 			Octo:    octo,
 			WorkDir: workDir,
 			Verbose: flags.verbose,
+			EnvFile: flags.envFile,
 		},
 		Parallel: flags.parallel,
 		FailFast: flags.failFast,
@@ -145,6 +156,8 @@ func parseTestFlags(args []string) (testFlags, error) {
 	var flags testFlags
 	fs.StringVar(&flags.config, "config", "",
 		"the flows to test against, when they are not the ones beside the suite")
+	fs.StringVar(&flags.envFile, "env-file", "",
+		"a .env file every case runs with (a suite's own env: block overrides it)")
 	fs.StringVar(&flags.junit, "junit", "", "write a JUnit XML report to this file")
 	fs.IntVar(&flags.parallel, "parallel", 0, "how many cases to run at once (default: one per CPU)")
 	fs.BoolVar(&flags.failFast, "fail-fast", false, "stop after the first failing case")

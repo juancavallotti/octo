@@ -87,6 +87,7 @@ Usage:
 
 Test flags:
   --config <path>   the flows to test against, when they are not the ones beside the suite
+  --env-file <path> a .env file every case runs with
   --junit <path>    write a JUnit XML report to this file
   --parallel <n>    how many cases to run at once (default: one per CPU)
   --fail-fast       stop after the first failing case
@@ -113,6 +114,18 @@ Suites:
   also how you name a flow file and a test file that are not a pair:
 
     dolphin test --config flows/orders.yaml tests/smoke_test.yaml
+
+Environment:
+  A config's env is resolved when it is LOADED, before any block runs — so a flow whose
+  connector reads ${ANTHROPIC_API_KEY} cannot even be built without one, and mocking the
+  block that uses it does not help. Supply it in the suite:
+
+    env:
+      ANTHROPIC_API_KEY: test-key
+
+  A suite's env: wins over --env-file, which wins over what you have exported. That order
+  is deliberate: a test that quietly used your real API key because it was in your shell
+  is a test that passes on your machine, bills you for it, and fails in CI.
 
 The octo binary:
   dolphin drives the real octo CLI. It looks for it in this order, and stops at the

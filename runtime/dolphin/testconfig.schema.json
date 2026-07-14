@@ -22,6 +22,12 @@
       "description": "Blocks to stand in for in EVERY case, unless the case overrides the address. This is where \"no test in this file ever reaches the payment API\" is said once. Keyed by block address.",
       "additionalProperties": { "$ref": "#/$defs/mockSpec" }
     },
+    "env": {
+      "type": "object",
+      "description": "Environment variables every case runs with, overriding the ones dolphin inherited. A config's env is resolved when it is LOADED, before any block runs, so a flow whose connector reads ${ANTHROPIC_API_KEY} cannot be built without one — and mocking the block that uses it does not help. A test key belongs here: it is fake by construction, so it can be read, reviewed and committed.",
+      "additionalProperties": { "type": "string" },
+      "examples": [{ "ANTHROPIC_API_KEY": "test-key", "DB_DSN": "file::memory:" }]
+    },
     "timeout": {
       "type": "string",
       "description": "How long any one case may take. A Go duration. Defaults to 30s, and a case may shorten or lengthen it.",
@@ -57,6 +63,11 @@
           "type": "object",
           "description": "Blocks to stand in for in this case. An address here REPLACES the file's mock for that block, whole — so a case's mock says exactly what that block will do, without the reader having to hold the file's version in their head too.",
           "additionalProperties": { "$ref": "#/$defs/mockSpec" }
+        },
+        "env": {
+          "type": "object",
+          "description": "Environment variables for this case, overriding the file's per VARIABLE — not whole-map like `mocks`, because a variable is a scalar: a case that needs one value different should not have to restate the others to get it.",
+          "additionalProperties": { "type": "string" }
         },
         "expect": { "$ref": "#/$defs/expect" },
         "spies": {
