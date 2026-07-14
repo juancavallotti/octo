@@ -1,0 +1,337 @@
+---
+title: "Testing a Flow"
+description: "Write a flow's tests beside it, stand in for the blocks that call the world, and run them in CI with dolphin."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+A flow that calls a payment API can only be run where that API is. So it gets run
+once, by hand, on the day it is written — and after that nobody dares touch it.
+
+`dolphin` is octo's test runner, and it removes the reason not to touch it. A test
+is a [debug config](/guides/debugging-flows#drive-it-all-from-a-file) with
+assertions: the same `input`, the same `mocks`, the same `spies` you would pass to
+`octo invoke` by hand, plus what should have happened. The mocks are what make the
+flow runnable anywhere — the HTTP call, the LLM, the database write never happen —
+and the assertions are what make running it mean something.
+
+Tests live **beside the flow**, named for it the way Go names its own:
+`orders.yaml` is tested by `orders_test.yaml`. octo skips `_test.yaml` when it
+loads a directory, so a suite can sit next to the flows it exercises without ever
+being mistaken for one.
+
+## Set up
+
+```bash
+task build                       # builds bin/octo and bin/dolphin
+export OCTO_PATH=$PWD/bin/octo   # dolphin runs your tests by running the real octo
+```
+
+`dolphin` shells out to `octo`, so it has to find one: `$OCTO_PATH`, then `./octo`,
+then your `PATH`. See [installation](/getting-started/installation#install-dolphin).
+
+## A first suite
+
+[`samples/error-handling.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/error-handling.yaml)
+charges a card over HTTP and has a flow-level `error:` chain to catch the failure.
+Its payments connector points at a discard port, so the real call **always** fails
+to connect — fine for a demo, useless for a test, because "it failed" is the only
+outcome it can produce.
+
+Mocking that one block is what lets the same flow show both paths:
+
+```yaml title="samples/error-handling_test.yaml"
+flow: charge-flowlevel
+
+# Every case runs with this, unless it says otherwise. This is where "no test in
+# this file ever reaches the payment API" is said once.
+mocks:
+  charge-flowlevel.call-charge:
+    cases:
+      - when: 'body.amount > 100'
+        error: card declined
+    default:
+      body: { id: ch_1, status: captured }
+
+inputs:
+  small:
+    data: { amount: 10 }
+  large:
+    data: { amount: 500 }
+
+cases:
+  - name: a charge the bank accepts comes back captured
+    input: small
+    expect:
+      body: { id: ch_1, status: captured }
+    spies:
+      charge-flowlevel.call-charge:
+        count: 1
+        records:
+          - input:
+              that: ['body.amount == 10']
+            output:
+              body: { id: ch_1, status: captured }
+
+  # The point of the sample: a failing block redirects to the flow's `error:` chain,
+  # whose output BECOMES the flow result — so the flow completes rather than failing.
+  - name: a declined card takes the flow error path and answers 502
+    input: large
+    expect:
+      vars: { httpStatus: 502 }
+      that:
+        - 'body.error.contains("card declined")'
+        - 'body.failedBlock == "call-charge"'
+    spies:
+      charge-flowlevel.call-charge:
+        count: 1
+        records:
+          - error: card declined
+```
+
+Point `dolphin` at the flow and it finds the suite beside it:
+
+```bash
+./bin/dolphin test samples/error-handling.yaml
+```
+
+```
+ok   samples/error-handling_test.yaml  (charge-flowlevel)  73ms
+
+2 passed, 0 failed, 0 errored, 0 skipped  (73ms)
+```
+
+Two things happened that are worth naming. The declined case asserts on
+`body.failedBlock` — a **mocked** failure is indistinguishable from the real block
+failing, so an error chain that branches on which block died behaves exactly as it
+would in production. And the spy proves the block was reached with the right amount
+*and* that it failed: without it, a flow that skipped the charge entirely and
+returned the error body for some other reason would still pass.
+
+## When it fails
+
+This is the part that decides whether a test runner is worth having. Change the
+expected `httpStatus` to 500 and run it again:
+
+```
+FAIL samples/error-handling_test.yaml  (charge-flowlevel)  44ms
+  --- FAIL: a declined card takes the flow error path and answers 502 (22ms)
+        expect.vars.httpStatus: want 500, got 502
+        reproduce: bin/octo invoke --config samples/error-handling.yaml \
+          --flow charge-flowlevel \
+          --run-debug-config /tmp/dolphin-2432200989/error-handling_test.1.yaml \
+          --timeout 30s --envelope-out /tmp/dolphin-2432200989/error-handling_test.1.outcome.json
+
+1 passed, 1 failed, 0 errored, 0 skipped  (44ms)
+
+the runs are in /tmp/dolphin-2432200989
+```
+
+The failure names the case, says what it wanted and what it got — and hands you a
+**real, runnable octo command** that reproduces it. The debug config for a failing
+case is deliberately kept (a command pointing at a file we deleted is not a
+command), so you can edit it, re-run it, break on a block inside it. That command
+is the single biggest thing driving the real binary buys: a failing test in CI is
+one paste away from a debugging session on your laptop.
+
+<Callout type="warn">
+A block's `value:` setting is a **CEL expression**, so `value: "502"` in a flow
+evaluates to the *number* 502 — the quotes are YAML's, not CEL's. When a type looks
+surprising, dolphin says so rather than making you guess: a mismatch that is only a
+type reads `want "502", got 502 (a string, not a number)`.
+</Callout>
+
+## Prove the loop looped
+
+`spies` are how you assert on what happened *inside* the flow, not just what came
+out of it. A block in a `foreach` body is crossed once per item, and every crossing
+is recorded — so the count *is* the iteration count.
+
+[`samples/builtins-demo.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/builtins-demo.yaml)
+seeds two orders and classifies each against a threshold:
+
+```yaml title="samples/builtins-demo_test.yaml"
+flow: demo
+
+# The flow's source is a cron ticker. Sources do not run under `invoke`, so the
+# message the ticker would have produced is supplied here instead.
+inputs:
+  ticked:
+    data: { firedAt: "2026-07-10T12:00:00Z" }
+
+cases:
+  - name: it seeds two orders and classifies each against the threshold
+    input: ticked
+    expect:
+      body:
+        firedAt: "2026-07-10T12:00:00Z"
+        orders:
+          - { id: 1, amount: 50 }
+          - { id: 2, amount: 250 }
+      that:
+        - '!has(vars.threshold)' # drop-threshold cleaned the scratch variable up
+    spies:
+      demo.each-order[body].classify-order:
+        count: 2
+        records:
+          - input:
+              that: ['vars.order.id == 1', 'vars.order.amount == 50']
+          - input:
+              that: ['vars.order.id == 2', 'vars.order.amount == 250']
+
+  - name: an empty order list takes the else branch and never classifies
+    input: ticked
+    mocks:                       # overrides the address for this case only
+      demo.seed-orders:
+        default:
+          body: { firedAt: "2026-07-10T12:00:00Z", orders: [] }
+    spies:
+      demo.each-order[body].classify-order:
+        count: 0                 # the assertion: the foreach body never ran
+    expect:
+      body: { firedAt: "2026-07-10T12:00:00Z", orders: [] }
+```
+
+`count: 0` is an assertion, and a valuable one — it is how a case proves a branch
+was **not** taken or an error path **not** reached. Records are positional: the
+first entry is the first crossing. Asserting on fewer crossings than happened is
+fine; naming more than happened is a failure.
+
+Addresses are the same [block-address grammar](/reference/cli#addressing-a-block)
+the debugging flags use, and they work unquoted as YAML keys.
+
+## What a case asserts
+
+Omitting `expect` entirely still asserts something: **the flow completed and did not
+fail.**
+
+| Key | Meaning |
+| --- | --- |
+| `body` | **Exact** deep-equal against the result body. A new field the flow started returning is a failure. |
+| `vars` | A **subset**: each key listed must be present and equal. |
+| `that` | CEL expressions over the result message; every one must be true. |
+| `dropped: true` | The flow filtered the message out and returned nothing. |
+| `error: "…"` | The flow failed, with a message **containing** this text. |
+
+`dropped` and `error` are exclusive with each other and with the message fields — a
+flow that dropped or failed returned no message to check.
+
+**Why `body` is exact but `vars` is a subset.** The body is the flow's answer, and a
+test should fail when a field appears in it that nobody expected. Variables are
+scratch space that the engine and the blocks add to, so pinning the whole map would
+break on every unrelated change. Reach for `that: ['vars.size() == 2']` when you do
+want it exact.
+
+The CEL is [the same CEL](/reference/cel) every block in the flow uses, over the
+same variables: `body`, `vars`, `eventID`, `correlationID`, `now`.
+
+<Callout type="info">
+**`env` is not bound in an assertion.** dolphin never loads your config — octo does,
+in the child process — so there is no resolved environment to evaluate against.
+Assert on what the flow *put in* the body or the variables instead.
+</Callout>
+
+## The environment
+
+A config's env is resolved when the config is **loaded**, before any block runs. So
+a flow whose connector reads `${ANTHROPIC_API_KEY}` cannot even be *built* without
+one — and mocking the block that would use it does not help, because the mock
+replaces the block long after the connector was configured.
+
+Give the suite its own environment:
+
+```yaml
+env:
+  ANTHROPIC_API_KEY: test-key
+  DB_DSN: 'file::memory:'
+```
+
+A test key belongs there in plain sight: it is fake by construction, so it can be
+read, reviewed, and committed. For a value several suites share, put it in a file:
+
+```bash
+./bin/dolphin test ./flows --env-file .env.test
+```
+
+**A suite's `env:` wins over `--env-file`, which wins over what you have exported.**
+That order is deliberate. A test that quietly used your real API key because it
+happened to be in your shell is a test that passes on your machine, bills you for
+it, and fails in CI.
+
+<Callout type="warn">
+**Mocking a block does not stop its connector from starting.** The mock replaces the
+*block*; the connector is started by the service regardless. A suite over a config
+with a `database` connector still opens the database — so its DSN has to be a valid
+one, even when every SQL block is mocked. `file::memory:` is usually the answer.
+</Callout>
+
+## In CI
+
+```yaml title=".github/workflows/validate.yml"
+- run: task runtime:build
+- run: task runtime:test:samples
+```
+
+`--junit <path>` writes a JUnit XML report — one `<testsuite>` per file, one
+`<testcase>` per case — which every CI system knows how to render:
+
+```bash
+./bin/dolphin test ./flows --junit report.xml
+```
+
+Exit codes are the contract:
+
+| Code | Meaning |
+| --- | --- |
+| **0** | Every case passed. |
+| **1** | A case ran and did not do what it said. **The flows are wrong.** |
+| **2** | A case never ran: a block address does not resolve, the config does not parse, there is no usable octo. **The suite is wrong.** |
+
+The split between 1 and 2 is what keeps a CI job from sending someone to debug a
+flow that was never called.
+
+This repository tests all of [its own samples](https://github.com/juancavallotti/octo/tree/main/samples)
+this way, so a sample that stops doing what its comments claim fails the build
+instead of misleading the next person who copies it.
+
+## Things worth knowing
+
+- **One case is one `octo` process.** The debug seam is a config *rewrite* — mocks
+  and spies are baked into the flow tree when it is built — so a service can only
+  ever serve the case it was built for. That is not a cost we chose; it is what the
+  seam is. It also means cases are fully isolated, and `dolphin` runs them in
+  parallel (one per CPU; `--parallel 1` to serialize).
+- **Sources do not run under `invoke`.** No cron ticks, no HTTP request arrives, no
+  queue delivers. Nothing populates the message for you, so a case seeds what the
+  source would have produced — including the variables an HTTP source copies out of
+  the request. That is what `input.vars` is for.
+- **Mocking a composite removes everything inside it.** The mock replaces the block,
+  and its whole subtree goes with it. So you cannot mock an `ai-router` and then
+  assert on which route ran — the routes are gone. Mock a block *inside* the
+  composite instead (`charge.resilient-charge[process].build-charge`): the composite
+  runs for real, and only the leaf is stood in for.
+- **A message matching no mock case fails the block.** It does not fall through to
+  the real one, which is no longer in the flow. Give the spec a `default` when you
+  want a catch-all — a "mocked" call that quietly still reached the network would be
+  the exact bug mocking exists to prevent.
+- **`skip: "a reason"`** reports the case as skipped and never runs it. The reason is
+  required, because a skip with no reason is a test nobody will ever come back to.
+- **A `cache-scope` hit skips its body.** Each case is a fresh process with an empty
+  in-memory cache, so a case can only ever exercise the miss.
+
+## The schema
+
+To have your editor complete a suite and a validator check it:
+
+```bash
+./bin/dolphin schema --format yaml
+```
+
+It is the same shape this guide walks through, described field by field — and it is
+drift-tested against the Go structs, so it cannot quietly fall out of date.
+
+## See also
+
+- [Debugging a flow](/guides/debugging-flows) — the mocks, spies, and breakpoints a
+  test is built out of, driven by hand.
+- [CLI reference](/reference/cli#mocks) — the full mock spec and address grammar.
