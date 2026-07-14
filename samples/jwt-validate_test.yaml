@@ -1,0 +1,89 @@
+# Tests the /me route: jwt-validate is a GATE. Nothing gets to `whoami` that the
+# block did not verify, and what it verified is what `whoami` echoes back.
+#
+# A dolphin suite tests ONE flow, so the second flow in this sample — the RFC 9728
+# protected-resource-metadata document — is not covered here. See the report.
+#
+# WHAT CANNOT BE TESTED, and why it is not faked:
+#   jwt-validate runs in `mode: discover`, so it resolves its signing keys by OIDC
+#   discovery against the issuer on the FIRST request — BEFORE it even looks for a
+#   token. The real 401 path ("no bearer token" -> body {error: unauthorized},
+#   vars.httpStatus 401, a WWW-Authenticate challenge, chain stopped) therefore
+#   cannot be reached without a live https://accounts.google.com, and the 200 path
+#   additionally needs a token signed by Google's private key. Neither belongs in
+#   CI. Mocking require-auth to *simulate* a rejection would assert nothing but the
+#   mock, so it is not done: the rejection is left as a skipped case below, and the
+#   two things that ARE real — the gate failing closed when keys cannot be
+#   resolved, and the claims contract `whoami` depends on — are tested.
+#
+# Sources do not run under invoke: the http route declares `headers: [Authorization]`,
+# so the bearer token arrives in vars.Authorization. Cases seed it there.
+flow: me
+
+cases:
+  # The gate fails CLOSED. When the keys cannot be resolved, jwt-validate does not
+  # wave the request through as "no token to check" — it fails the flow, and the
+  # protected block never runs. This is real: no mock, no network dependency (the
+  # host does not resolve, online or off).
+  - name: an issuer whose keys cannot be resolved fails the flow and never reaches whoami
+    env:
+      OIDC_ISSUER: https://issuer.invalid
+    input:
+      data: {}
+      vars:
+        Authorization: Bearer some.jwt.token
+    expect:
+      error: oidc discovery
+    spies:
+      me.whoami: { count: 0 }
+
+  # Same, with no token at all: the key-resolution failure is an operational error,
+  # not a 401 — the request is not silently treated as anonymous.
+  - name: an unresolvable issuer fails even a request with no token
+    env:
+      OIDC_ISSUER: https://issuer.invalid
+    input:
+      data: {}
+    expect:
+      error: oidc discovery
+    spies:
+      me.whoami: { count: 0 }
+
+  # The claims contract. require-auth is mocked ONLY to stand in for the OIDC
+  # verification (see the header); what is under test is the flow's half of the
+  # deal: `claimsVar: jwt` means the verified claims land in vars.jwt and the
+  # subject in vars.sub, and whoami must project exactly those two into the body.
+  # Rename claimsVar, or drop vars.sub, and this case fails.
+  - name: a verified token is echoed back as its subject and email, and nothing else
+    input:
+      data: {}
+      vars:
+        Authorization: Bearer valid.jwt.token
+    mocks:
+      me.require-auth:
+        default:
+          body: {}
+          vars:
+            sub: "1234567890"
+            jwt:
+              sub: "1234567890"
+              email: ada@example.com
+              aud: test-audience
+              iss: https://accounts.google.com
+    expect:
+      # compared exactly: whoami must not leak the rest of the claims
+      body:
+        sub: "1234567890"
+        email: ada@example.com
+    spies:
+      me.whoami: { count: 1 }
+
+  - name: a missing or invalid token is rejected with 401 and a WWW-Authenticate challenge
+    skip: >
+      needs a reachable OIDC issuer: jwt-validate resolves its signing keys by
+      discovery before it inspects the token, so even the no-token 401 requires a
+      live https://accounts.google.com. Mocking the block would assert only the
+      mock. Cover this by switching the sample to mode: inline in a fixture, or by
+      running it against a local issuer.
+    input:
+      data: {}

@@ -1,0 +1,57 @@
+# Tests what the sample claims: the `welcome` template resource declared in
+# config.yaml can be rendered two ways — by the template-resource BLOCK into a
+# variable, and by the templateResource() CEL function inline — and both paths
+# agree. The template embeds {{ env.GREETING }} and {{ body.name }}, so it also
+# pins that a template sees both the environment and the message.
+#
+# The flow has no source, so it is called by name and its input is just `data`.
+#
+# GREETING is the required variable the .env.dev ENV RESOURCE supplies, and these
+# cases pin that it really is the resource doing it: samples/.env.test also carries
+# a GREETING (`hello`), and what renders is the resource's value — an .env file
+# handed to octo does not outrank a resource the config imported. A case that wants
+# a different value sets it in its own `env:` block, which is the real process
+# environment and does outrank both.
+flow: greet
+
+cases:
+  # The headline: one template, two rendering paths, byte-identical output.
+  # The body is compared exactly, so an extra field in the set-payload fails it.
+  - name: the block and the CEL function render the same template to the same bytes
+    input:
+      data: { name: World }
+    expect:
+      body:
+        viaBlock: "Hello from .env.dev, World!\n" # GREETING, from the .env.dev resource
+        viaCel: "Hello from .env.dev, World!\n"
+      # `target: rendered` is the block's half of the contract
+      vars:
+        rendered: "Hello from .env.dev, World!\n"
+    spies:
+      greet.template-resource:
+        count: 1
+        records:
+          - output:
+              that: ['vars.rendered == "Hello from .env.dev, World!\n"']
+
+  # The template really does read the environment at render time: change GREETING
+  # and the rendered bytes change with it (and the process environment outranks the
+  # .env.dev resource). A template that had baked its greeting in would fail here.
+  - name: the rendered greeting follows the environment
+    env:
+      GREETING: Bonjour
+    input:
+      data: { name: Ada }
+    expect:
+      body:
+        viaBlock: "Bonjour, Ada!\n"
+        viaCel: "Bonjour, Ada!\n"
+
+  # And the message: {{ body.name }} is CEL over the message, so a body without a
+  # name is an error, not a blank. This pins that the template is evaluated rather
+  # than pasted.
+  - name: a template whose CEL cannot be evaluated fails the flow
+    input:
+      data: {}
+    expect:
+      error: 'no such key: name'

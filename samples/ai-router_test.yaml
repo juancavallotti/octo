@@ -1,0 +1,69 @@
+flow: triage
+
+# HONEST LIMITS, up front — this is the weakest of the AI suites, by construction.
+#
+# The sample's whole claim is "the model picks a route". That decision is made INSIDE
+# the ai-router block, and mocking a composite replaces the block AND its branches — so
+# a mock cannot say "the model chose billing" and then watch the billing route run: the
+# routes are gone with the block. Any case that mocked the router and asserted
+# {"team":"billing"} would be asserting its own mock. There is no such case here.
+#
+# What IS pinned:
+#   * that the router block BUILDS — its routes, their descriptions, the guardrail and
+#     the default path are all valid config — and that it really is wired to the claude
+#     connector and really does call it (case 1);
+#   * that a router which cannot decide FAILS the flow rather than quietly taking the
+#     default path (case 1);
+#   * what the flow hands the model: the ticket, unaltered (case 2).
+#
+# What is NOT pinned: the routing itself, the guardrail's default path, and the route
+# sub-flows. Those need a model, and no test may call one.
+
+cases:
+  # No mock at all, so the block is built and run for real — but the model is made
+  # UNREACHABLE instead of being called: the Anthropic SDK honours ANTHROPIC_BASE_URL,
+  # and 127.0.0.1:9 (discard) refuses the connection offline, in milliseconds. Nothing
+  # leaves the machine, nothing is spent, and the outcome is the same every time.
+  #
+  # The error text is the assertion: reaching "llm-anthropic complete" means the
+  # ai-router block was constructed from this config and got as far as asking the
+  # model. A sample that stopped being valid config would fail earlier, with a
+  # different message.
+  - name: the router is wired to the model, and a router that cannot decide fails the flow
+    input:
+      data:
+        subject: I was double charged
+        body: Please refund the extra charge.
+    env:
+      ANTHROPIC_BASE_URL: http://127.0.0.1:9
+    expect:
+      error: 'llm-anthropic complete: Post "http://127.0.0.1:9/v1/messages"'
+      # The discard port, named in full ON PURPOSE. A looser assertion — "llm-anthropic
+      # complete" — would also be satisfied by a 401 from the REAL api.anthropic.com, so
+      # if the SDK ever stopped honouring ANTHROPIC_BASE_URL this case would stay green
+      # while quietly calling out from CI. Naming the URL the call actually went to makes
+      # that impossible: a live call cannot produce this error.
+
+  # With the model stood in for, the only honest assertion left is on what the block
+  # RECEIVED — that is real, it is the flow's own doing: the ticket reaches the router
+  # as the message body, unaltered. The body below is the mock's, not the model's, and
+  # is asserted only so a route that started rewriting the result would be noticed.
+  - name: the ticket reaches the router untouched, and the taken route's body is the flow result
+    input:
+      data:
+        subject: I was double charged
+        body: Please refund the extra charge.
+    mocks:
+      triage.triage-ticket:
+        default:
+          body: { team: billing }
+    expect:
+      body: { team: billing }
+    spies:
+      triage.triage-ticket:
+        count: 1
+        records:
+          - input:
+              body:
+                subject: I was double charged
+                body: Please refund the extra charge.

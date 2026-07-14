@@ -1,0 +1,42 @@
+flow: demo
+
+# The flow's source is a cron ticker. Sources do not run under `invoke`, so the
+# message the ticker would have produced is supplied here instead.
+inputs:
+  ticked:
+    data: { firedAt: "2026-07-10T12:00:00Z" }
+
+cases:
+  - name: it seeds two orders and classifies each against the threshold
+    input: ticked
+    expect:
+      body:
+        firedAt: "2026-07-10T12:00:00Z"
+        orders:
+          - { id: 1, amount: 50 }
+          - { id: 2, amount: 250 }
+      that:
+        - '!has(vars.threshold)' # drop-threshold cleaned the scratch variable up
+    spies:
+      # A block inside a foreach body is crossed once per item, and every crossing
+      # is recorded — which is the only way to prove the loop actually looped.
+      demo.each-order[body].classify-order:
+        count: 2
+        records:
+          - input:
+              that: ['vars.order.id == 1', 'vars.order.amount == 50']
+          - input:
+              that: ['vars.order.id == 2', 'vars.order.amount == 250']
+
+  - name: an empty order list takes the else branch and never classifies
+    input: ticked
+    mocks:
+      demo.seed-orders:
+        default:
+          body: { firedAt: "2026-07-10T12:00:00Z", orders: [] }
+    spies:
+      # count: 0 is the assertion — the foreach body never ran.
+      demo.each-order[body].classify-order:
+        count: 0
+    expect:
+      body: { firedAt: "2026-07-10T12:00:00Z", orders: [] }

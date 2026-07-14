@@ -1,0 +1,76 @@
+flow: charge
+
+# ai-retry protects a process chain: it runs it, and only if the chain FAILS does the
+# model get involved (it revises the message and the chain is re-run, up to
+# maxAttempts; after that it falls through to the block's `error:` chain).
+#
+# So the LLM is not on the happy path at all — mocking the chain's only step,
+# `build-charge`, leaves the ai-retry composite itself running for real. That is what
+# makes this sample testable: the retry composite's own control flow is what we pin,
+# not the model's judgement.
+#
+# Both cases mock the INNER block, never `resilient-charge` itself: mocking the
+# composite would delete the protected chain with it and there would be nothing left
+# to retry.
+
+inputs:
+  order:
+    data:
+      order: { total: "42.00", currency: usd }
+
+cases:
+  # The chain succeeded, so the retry loop never engages: the model is never asked to
+  # revise, and — the assertion that proves it — the chain is run exactly ONCE. The
+  # composite's output is its chain's output, unwrapped.
+  - name: a chain that succeeds first time is run once and never retried
+    input: order
+    mocks:
+      charge.resilient-charge[process].build-charge:
+        default:
+          body: { amount: 4200, currency: usd }
+    expect:
+      body: { amount: 4200, currency: usd }
+    spies:
+      charge.resilient-charge[process].build-charge:
+        count: 1 # one crossing = no revision, no re-run
+        records:
+          # What the protected chain RECEIVES is the flow's own message, untouched:
+          # ai-retry is transparent on the way in.
+          - input:
+              body:
+                order: { total: "42.00", currency: usd }
+            output:
+              body: { amount: 4200, currency: usd }
+
+  # The failure half of the sample: when the chain fails and the loop cannot recover,
+  # ai-retry falls through to its `error:` chain, whose output BECOMES the block's
+  # result — the flow completes with a degraded body rather than failing.
+  #
+  # The recovery itself needs the model, and no test may call one. Instead the model
+  # is made UNREACHABLE (the Anthropic SDK honours ANTHROPIC_BASE_URL; a dead local
+  # port means the revise call fails offline, deterministically, in milliseconds). The
+  # revision therefore never happens, ai-retry gives up, and the error chain runs.
+  #
+  # What this pins: the error chain, the fall-through, and — via count: 1 — that a
+  # chain is NOT re-run when there is no revision to re-run it with. What it does NOT
+  # pin: a successful revision, i.e. the model actually repairing the message. That is
+  # the one thing in this sample no LLM-free test can reach.
+  - name: a chain that fails with no revision available falls through to the error chain
+    input: order
+    env:
+      ANTHROPIC_BASE_URL: http://127.0.0.1:9 # discard port: connection refused, no network
+    mocks:
+      charge.resilient-charge[process].build-charge:
+        default:
+          error: 'amount: expected integer, got string'
+    expect:
+      that:
+        - 'body.status == "degraded"'
+        # The error chain reads vars.error.message — so the failing block's message
+        # has to have reached it.
+        - 'body.reason.contains("amount: expected integer, got string")'
+    spies:
+      charge.resilient-charge[process].build-charge:
+        count: 1
+        records:
+          - error: 'amount: expected integer, got string'

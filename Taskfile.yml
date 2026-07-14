@@ -55,6 +55,10 @@ tasks:
     desc: Run tests across all modules (runtime + platform + standalone + orchestrator + logs)
     cmds:
       - task: runtime:test
+      # The sample flows, run through dolphin against a real octo. They are the runtime's
+      # end-to-end tests: the unit tests above prove the engine works, these prove a flow
+      # someone might actually copy still does what its comments say.
+      - task: runtime:test:samples
       - task: platform:test
       - task: standalone:test
       - task: orchestrator:test

@@ -1,0 +1,56 @@
+flow: emitter
+
+# events.yaml has three flows, but a suite names ONE flow, and the two subscriber flows
+# are fronted by an `events` source — which, like every source, does not run under
+# `invoke`. So the broadcast fan-out itself (both subscribers receiving every
+# notification) cannot be observed here; what is testable is the publisher, and that is
+# what this suite pins:
+#
+#   * a publish-event block with NO events connector declared builds and runs — the
+#     connector is implicit, which is the sample's claim. If it did not resolve, the
+#     block would fail and every case here would error.
+#   * publish is fire-and-forget: it broadcasts a CLONE and returns the current message
+#     unchanged, and a subject with nobody listening is not an error.
+#
+# The cron source does not run either, so the tick its payload ('{"tick": string(now)}')
+# would have produced is seeded below.
+
+inputs:
+  ticked:
+    data: { tick: "2026-07-10T12:00:00Z" }
+
+cases:
+  - name: a tick is broadcast and passes through publish-event unchanged
+    input: ticked
+    expect:
+      body: { tick: "2026-07-10T12:00:00Z" }
+    spies:
+      emitter.broadcast:
+        count: 1
+        records:
+          - input:
+              body: { tick: "2026-07-10T12:00:00Z" }
+            # Fire-and-forget: the block publishes a rekeyed clone to "notifications" and
+            # hands the SAME message on, so the flow result is the tick itself.
+            output:
+              body: { tick: "2026-07-10T12:00:00Z" }
+      # Not a claim that the fan-out is broken — the subscribers' `events` sources are
+      # not started under invoke, so nothing is subscribed. It pins that the publish is
+      # asynchronous fan-out and not an inline call of the subscriber chains, and that
+      # broadcasting to a subject with no listener completes rather than failing.
+      subscriber-a.emit-a:
+        count: 0
+      subscriber-b.emit-b:
+        count: 0
+
+  # The published message is a clone, so whatever the publisher was carrying — body AND
+  # variables — is still what the flow returns afterwards.
+  - name: the broadcast copy is a clone, so the publisher's own message keeps its vars
+    input:
+      data: { tick: "2026-07-10T12:00:00Z", seq: 7 }
+      vars: { region: eu-west-1 }
+    expect:
+      body: { tick: "2026-07-10T12:00:00Z", seq: 7 }
+      vars: { region: eu-west-1 }
+      that:
+        - 'vars.size() == 1' # publish-event leaves no trace on the message

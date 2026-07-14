@@ -1,0 +1,206 @@
+# Tests the sample's headline claim: /notion/events authenticates every request
+# against the connector's verification token, bootstraps a brand-new subscription
+# from Notion's one-time (unsigned) handshake, and — once a token is known —
+# refuses anything that is not correctly signed.
+#
+# The signatures below are REAL: Notion signs the exact request bytes with
+# HMAC-SHA256 keyed by the verification token, and .env.test pins that token to
+# "test-verification-token", so a suite can compute a valid one. Nothing here is
+# faked past the block under test.
+#
+# Sources do not run under invoke, so every case seeds what the http source would
+# have produced:
+#   vars["X-Notion-Signature"] — the header the source is told to copy (`headers:`)
+#   vars.rawBody               — the exact request bytes the signature is over
+#                                (notion-verify-request falls back to this variable
+#                                 when the message is not in native raw-content mode)
+#   data                       — the same bytes, parsed, which is what body.* reads
+flow: notion-webhook
+
+# The only block that reaches Notion's API. It reports through vars.notionPage and
+# leaves the body alone, so the mock hands back the body it was given.
+mocks:
+  notion-webhook.handshake-or-event[else].fetch-page:
+    default:
+      body:
+        type: page.content_updated
+        entityId: page-1
+        entityType: page
+        workspaceId: ws-1
+        timestamp: "2026-07-13T00:00:00Z"
+        raw:
+          type: page.content_updated
+          workspace_id: ws-1
+          timestamp: "2026-07-13T00:00:00Z"
+          entity: { id: page-1, type: page }
+      vars:
+        notionPage: { id: page-1, object: page }
+
+inputs:
+  # Notion's subscription handshake: a body that is nothing but the token.
+  handshake:
+    data: { verification_token: secret_abc123 }
+    vars:
+      rawBody: '{"verification_token":"secret_abc123"}'
+      X-Notion-Signature: sha256=b9a21a89b355a2f944338dc1875bc0b8cc3d71129de245b1badb0a0e243a4d26
+
+  # A signed page.content_updated event — the one event type the flow keeps.
+  page-updated:
+    data:
+      type: page.content_updated
+      workspace_id: ws-1
+      timestamp: "2026-07-13T00:00:00Z"
+      entity: { id: page-1, type: page }
+    vars:
+      rawBody: '{"type":"page.content_updated","workspace_id":"ws-1","timestamp":"2026-07-13T00:00:00Z","entity":{"id":"page-1","type":"page"}}'
+      X-Notion-Signature: sha256=ef1f6e442efe773c889e9990d11593150c42d721da2c2a5ac4c05fb235003fda
+
+  # A signed event of a type the flow does not care about.
+  page-created:
+    data:
+      type: page.created
+      workspace_id: ws-1
+      timestamp: "2026-07-13T00:00:00Z"
+      entity: { id: page-2, type: page }
+    vars:
+      rawBody: '{"type":"page.created","workspace_id":"ws-1","timestamp":"2026-07-13T00:00:00Z","entity":{"id":"page-2","type":"page"}}'
+      X-Notion-Signature: sha256=64322319fc635e1c4a46dd14bec4f563172ccd69487dc5d529ff726f2f9a5f8d
+
+cases:
+  # --- rejection: the point of notion-verify-request -------------------------
+  - name: an unsigned request is rejected and nothing downstream runs
+    input:
+      data:
+        type: page.content_updated
+        entity: { id: page-1, type: page }
+      vars:
+        rawBody: '{"type":"page.content_updated","entity":{"id":"page-1","type":"page"}}'
+        # no X-Notion-Signature at all
+    expect:
+      error: invalid request signature
+    spies:
+      notion-webhook.handshake-or-event[else].page-events: { count: 0 }
+      notion-webhook.handshake-or-event[else].fetch-page: { count: 0 }
+
+  - name: a request signed with the wrong key is rejected
+    input:
+      data:
+        type: page.content_updated
+        entity: { id: page-1, type: page }
+      vars:
+        rawBody: '{"type":"page.content_updated","entity":{"id":"page-1","type":"page"}}'
+        X-Notion-Signature: sha256=0000000000000000000000000000000000000000000000000000000000000000
+    expect:
+      error: invalid request signature
+    spies:
+      notion-webhook.handshake-or-event[else].fetch-page: { count: 0 }
+
+  # The signature is over the RAW BYTES, so a body that was tampered with after
+  # signing no longer verifies — this is what makes rawBody worth carrying.
+  - name: a valid signature over different bytes is rejected
+    input:
+      data: { type: page.content_updated, entity: { id: page-1, type: page } }
+      vars:
+        rawBody: '{"type":"page.content_updated","workspace_id":"ws-1","timestamp":"2026-07-13T00:00:00Z","entity":{"id":"page-999","type":"page"}}'
+        # the signature of the page-1 payload, presented for a page-999 body
+        X-Notion-Signature: sha256=ef1f6e442efe773c889e9990d11593150c42d721da2c2a5ac4c05fb235003fda
+    expect:
+      error: invalid request signature
+
+  # The sample's step 5: "once a token is configured, an unsigned handshake is no
+  # longer accepted — the bootstrap window is closed."
+  - name: an unsigned handshake is refused once a verification token is configured
+    input:
+      data: { verification_token: secret_abc123 }
+      vars:
+        rawBody: '{"verification_token":"secret_abc123"}'
+    expect:
+      error: invalid request signature
+    spies:
+      notion-webhook.handshake-or-event[then].log-token: { count: 0 }
+
+  # --- the bootstrap window (the sample's step 4) ----------------------------
+  # With NO token in effect, the handshake — the only request whose signature
+  # cannot be checked, because the token it would be checked against is what it
+  # carries — is accepted unsigned and its token captured into vars.
+  - name: with no token yet, an unsigned handshake is accepted and its token captured
+    env:
+      NOTION_VERIFICATION_TOKEN: ""
+    input:
+      data: { verification_token: secret_abc123 }
+      vars:
+        rawBody: '{"verification_token":"secret_abc123"}'
+    expect:
+      # the if/then branch only logs, so the handshake body passes through
+      body: { verification_token: secret_abc123 }
+      vars: { notionVerification: secret_abc123 }
+    spies:
+      notion-webhook.handshake-or-event[then].log-token: { count: 1 }
+      notion-webhook.handshake-or-event[else].page-events: { count: 0 }
+
+  # The bootstrap exemption is narrow: only a body that is NOTHING BUT the
+  # handshake gets it, so an event cannot smuggle itself through by carrying a
+  # verification_token field.
+  - name: with no token yet, an event carrying a verification_token is still rejected
+    env:
+      NOTION_VERIFICATION_TOKEN: ""
+    input:
+      data:
+        type: page.content_updated
+        verification_token: secret_abc123
+        entity: { id: page-1, type: page }
+      vars:
+        rawBody: '{"type":"page.content_updated","verification_token":"secret_abc123","entity":{"id":"page-1","type":"page"}}'
+    expect:
+      error: invalid request signature
+    spies:
+      notion-webhook.handshake-or-event[then].log-token: { count: 0 }
+
+  # --- the signed handshake, with a token already in effect ------------------
+  - name: a correctly signed handshake takes the token branch
+    input: handshake
+    expect:
+      body: { verification_token: secret_abc123 }
+      vars: { notionVerification: secret_abc123 }
+    spies:
+      notion-webhook.handshake-or-event[then].log-token: { count: 1 }
+      notion-webhook.handshake-or-event[else].page-events: { count: 0 }
+
+  # --- the event path --------------------------------------------------------
+  - name: a signed page content update is normalized and its page fetched
+    input: page-updated
+    expect:
+      # notion-event replaces the body with its normalized shape; the mocked
+      # fetch-page hands that body straight back.
+      that:
+        - 'body.type == "page.content_updated"'
+        - 'body.entityId == "page-1"'
+        - 'vars.notionPage.id == "page-1"'
+        - '!has(vars.notionVerification)'
+    spies:
+      notion-webhook.handshake-or-event[then].log-token: { count: 0 }
+      notion-webhook.handshake-or-event[else].page-events:
+        count: 1
+        records:
+          - output:
+              that: ['body.entityId == "page-1"', 'body.entityType == "page"']
+      # the page id the flow hands notion-retrieve-page comes from body.entityId,
+      # which only exists because notion-event normalized the raw webhook
+      notion-webhook.handshake-or-event[else].fetch-page:
+        count: 1
+        records:
+          - input:
+              that: ['body.entityId == "page-1"']
+      notion-webhook.handshake-or-event[else].log-page: { count: 1 }
+
+  - name: a signed event of an unwanted type is dropped before the page is fetched
+    input: page-created
+    expect:
+      dropped: true
+    spies:
+      notion-webhook.handshake-or-event[else].page-events:
+        count: 1
+        records:
+          - dropped: true
+      notion-webhook.handshake-or-event[else].fetch-page: { count: 0 }
+      notion-webhook.handshake-or-event[else].log-page: { count: 0 }

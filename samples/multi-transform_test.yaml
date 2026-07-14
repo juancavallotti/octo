@@ -1,0 +1,21 @@
+flow: order
+
+cases:
+  # The sample's claim is that the edits accumulate: step 2 reads the body step 1
+  # produced, step 3 reads the variable step 2 set. One case pins all of it.
+  - name: the transforms accumulate, so tax is charged on the computed subtotal
+    input:
+      data: { orderId: A-1, qty: 3, price: 10.0 }
+    expect:
+      body:
+        orderId: A-1
+        subtotal: 30
+        total: 33
+    spies:
+      order.price-order:
+        count: 1
+        records:
+          - input:
+              body: { orderId: A-1, qty: 3, price: 10 }
+            output:
+              that: ['body.total > body.subtotal']

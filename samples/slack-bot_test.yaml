@@ -1,0 +1,203 @@
+# Tests the Slack bot's front door: every request is authenticated before anything
+# else runs, Slack's URL-verification handshake is answered, and only real
+# @-mentions (never the bot's own messages) reach the reply.
+#
+# Sources do not run under invoke, so each case seeds what the http source would
+# have produced:
+#   vars["X-Slack-Signature"], vars["X-Slack-Request-Timestamp"] — the declared headers
+#   vars.rawBody  — the exact request bytes (the source's `rawBodyVar: rawBody`),
+#                   which is what slack-verify-request computes the HMAC over
+#   data          — the parsed payload, which is what body.* reads
+#
+# The REJECTION cases below run the real slack-verify-request against the real
+# signing secret (.env.test pins it to "test-signing-secret"). The ACCEPTED cases
+# cannot: Slack's signature is HMAC over "v0:<timestamp>:<body>" and the block
+# rejects any timestamp more than 5 minutes from now, so a signature written into
+# a committed file is stale the moment it is written. Those cases mock `verify`
+# — it is the only way to get past a clock-bound signature — and everything after
+# it (the branch, the filter, the reply) is the real flow. The block checks the
+# timestamp skew BEFORE the HMAC, so no committed case can isolate the HMAC
+# comparison itself; what these cases pin is that nothing unverifiable gets past
+# verify, whatever it is.
+flow: slack-events
+
+mocks:
+  # The two blocks that call Slack's Web API. slack-lookup-user reports through
+  # vars.slackUser; slack-send-message reports through vars.slackChannel/slackTs.
+  slack-events.challenge-or-event[else].whois:
+    default:
+      body: {} # replaced per case below
+  slack-events.challenge-or-event[else].reply:
+    default:
+      body: {}
+
+cases:
+  # --- rejection: no request gets past verify without a valid signature -------
+  - name: an unsigned request is rejected and nothing downstream runs
+    input:
+      data:
+        type: event_callback
+        event: { type: app_mention, user: U1, channel: C1, text: "<@B1> hi" }
+      vars:
+        rawBody: '{"type":"event_callback","event":{"type":"app_mention","user":"U1","channel":"C1","text":"<@B1> hi"}}'
+        # no X-Slack-Signature / X-Slack-Request-Timestamp
+    expect:
+      error: invalid request signature
+    spies:
+      slack-events.challenge-or-event[else].mentions: { count: 0 }
+      slack-events.challenge-or-event[else].whois: { count: 0 }
+      slack-events.challenge-or-event[else].reply: { count: 0 }
+
+  # Even the handshake — the request Slack sends before the app is live — has to be
+  # verified: an unverifiable one must not reach the [then] branch and be echoed.
+  - name: an unverifiable handshake never reaches the challenge branch
+    input:
+      data: { type: url_verification, challenge: abc123 }
+      vars:
+        rawBody: '{"type":"url_verification","challenge":"abc123"}'
+        X-Slack-Request-Timestamp: "1700000000"
+        X-Slack-Signature: v0=0000000000000000000000000000000000000000000000000000000000000000
+    expect:
+      error: invalid request signature
+    spies:
+      slack-events.challenge-or-event[then].set-payload: { count: 0 }
+
+  # A correctly signed request whose timestamp is old is still refused: the HMAC
+  # below IS the real v0 signature of this body at ts=1700000000, so this case
+  # fails for exactly one reason — the replay window — and would go green if the
+  # skew check were dropped.
+  - name: a correctly signed but stale request is rejected as a replay
+    input:
+      data: { type: url_verification, challenge: abc123 }
+      vars:
+        rawBody: '{"type":"url_verification","challenge":"abc123"}'
+        X-Slack-Request-Timestamp: "1700000000"
+        X-Slack-Signature: v0=e49b9c175e31920c300508a7c11d1ea4a962ec6e74884ed58a8f234bc044da21
+    expect:
+      error: invalid request signature
+
+  # --- the URL-verification handshake ---------------------------------------
+  # verify is mocked (see the header): it sets vars.slackChallenge on Slack's
+  # url_verification payload, and the flow must answer with the challenge value.
+  - name: the url-verification handshake is echoed back and no event handling runs
+    input:
+      data: { type: url_verification, challenge: abc123 }
+    mocks:
+      slack-events.verify:
+        default:
+          body: { type: url_verification, challenge: abc123 }
+          vars: { slackChallenge: true }
+    expect:
+      body: { challenge: abc123 }
+    spies:
+      slack-events.challenge-or-event[then].set-payload: { count: 1 }
+      slack-events.challenge-or-event[else].mentions: { count: 0 }
+      slack-events.challenge-or-event[else].reply: { count: 0 }
+
+  # --- the mention path ------------------------------------------------------
+  - name: an app_mention is normalized, the user resolved, and a reply sent to the same channel
+    input:
+      data:
+        type: event_callback
+        team_id: T1
+        event_id: Ev1
+        event: { type: app_mention, user: U1, channel: C1, text: "<@B1> hello", ts: "1.1" }
+    mocks:
+      slack-events.verify:
+        default:
+          body:
+            type: event_callback
+            team_id: T1
+            event_id: Ev1
+            event: { type: app_mention, user: U1, channel: C1, text: "<@B1> hello", ts: "1.1" }
+      slack-events.challenge-or-event[else].whois:
+        default:
+          # the real block passes the body through and reports through vars, so the
+          # mock hands back the normalized event slack-event produced
+          body:
+            type: app_mention
+            user: U1
+            channel: C1
+            text: "<@B1> hello"
+            ts: "1.1"
+            threadTs: null
+            botId: null
+            teamId: T1
+            eventId: Ev1
+            raw: { type: app_mention, user: U1, channel: C1, text: "<@B1> hello", ts: "1.1" }
+          vars:
+            slackUser: { id: U1, real_name: Ada }
+      slack-events.challenge-or-event[else].reply:
+        default:
+          body: { ok: true }
+    expect:
+      body: { ok: true }
+      vars: { slackUser: { id: U1, real_name: Ada } }
+    spies:
+      slack-events.challenge-or-event[else].mentions:
+        count: 1
+        records:
+          - output:
+              # slack-event flattens the envelope: the reply's `target` and `text`
+              # read body.channel / body.text / body.user off this shape.
+              that:
+                - 'body.type == "app_mention"'
+                - 'body.channel == "C1"'
+                - 'body.user == "U1"'
+                - 'body.teamId == "T1"'
+                - 'body.botId == null'
+      slack-events.challenge-or-event[else].whois:
+        count: 1
+        records:
+          - input:
+              that: ['body.user == "U1"'] # the id `by: id, user: body.user` looks up
+      slack-events.challenge-or-event[else].reply:
+        count: 1
+        records:
+          - input:
+              # what the reply block renders its text from
+              that: ['vars.slackUser.real_name == "Ada"', 'body.channel == "C1"', 'body.text == "<@B1> hello"']
+
+  # The filter `body.botId == null` exists to stop the bot answering itself, which
+  # would loop forever. This is the case that proves it.
+  - name: the bots own message is filtered out and never answered
+    input:
+      data:
+        type: event_callback
+        team_id: T1
+        event: { type: app_mention, user: U1, channel: C1, text: "<@B1> hi", bot_id: B1 }
+    mocks:
+      slack-events.verify:
+        default:
+          body:
+            type: event_callback
+            team_id: T1
+            event: { type: app_mention, user: U1, channel: C1, text: "<@B1> hi", bot_id: B1 }
+    expect:
+      dropped: true
+    spies:
+      slack-events.challenge-or-event[else].mentions:
+        count: 1
+        records:
+          - dropped: true
+      slack-events.challenge-or-event[else].whois: { count: 0 }
+      slack-events.challenge-or-event[else].reply: { count: 0 }
+
+  - name: an event that is not an app_mention is dropped before the api is called
+    input:
+      data:
+        type: event_callback
+        team_id: T1
+        event: { type: message, user: U1, channel: C1, text: hello }
+    mocks:
+      slack-events.verify:
+        default:
+          body:
+            type: event_callback
+            team_id: T1
+            event: { type: message, user: U1, channel: C1, text: hello }
+    expect:
+      dropped: true
+    spies:
+      slack-events.challenge-or-event[else].whois: { count: 0 }
+      slack-events.challenge-or-event[else].reply: { count: 0 }

@@ -1,0 +1,53 @@
+flow: forget
+
+# This suite tests the `forget` flow, and a suite is one flow — so the `chat` flow is
+# not exercised here. That is a deliberate choice, not an oversight:
+#
+#   * `chat` is one ai-agent block, and everything the sample claims about it — that
+#     the thread's transcript is LOADED before the run and SAVED after it, so the next
+#     invocation remembers — happens inside that block, around a model call. Mocking a
+#     composite replaces the block and its memory handling with it, so a mocked `chat`
+#     could only ever assert the mock's own reply. Worse, the claim is about state
+#     surviving BETWEEN invocations, and every dolphin case is its own process with its
+#     own in-memory KV store: two cases cannot share a thread. The persistence claim is
+#     out of reach of any LLM-free test.
+#   * `forget` is the half of the sample that needs no model at all, and it runs here
+#     for real — no mocks anywhere in this file.
+#
+# Invoking `forget` still BUILDS every flow in the config, so a `chat` agent whose
+# memory settings stopped being valid (a bad memoryCompaction, say) fails these cases
+# before they run. That is the coverage the chat flow gets: it is well-formed.
+
+cases:
+  # clear-agent-memory deletes at version 0, so wiping a thread that was never written
+  # is not an error — the sample's "forget" is idempotent, and can be called blind.
+  # The block passes the message through untouched (see the spy's output: the same body
+  # it received); the {"cleared": true} answer is the set-payload after it.
+  - name: forgetting a thread erases it idempotently and answers cleared
+    input:
+      data: { threadId: user-42 }
+    expect:
+      body: { cleared: true }
+    spies:
+      forget.wipe-thread:
+        count: 1
+        records:
+          - input:
+              body: { threadId: user-42 }
+            output:
+              body: { threadId: user-42 } # a wipe is a side effect; the message is unchanged
+
+  # The thread id is not a constant: `threadId: body.threadId` is CEL, evaluated
+  # against the message. A body with no threadId therefore fails the block rather than
+  # wiping some default thread — which is what proves the expression is really read
+  # from the caller's message.
+  - name: the thread id is read from the message body, so a message without one fails
+    input:
+      data: { user: 42 } # no threadId
+    expect:
+      error: 'clear-agent-memory threadId'
+    spies:
+      forget.wipe-thread:
+        count: 1
+        records:
+          - error: 'no such key: threadId'

@@ -1,0 +1,166 @@
+# Tests the mcp-router block as what the sample says it is: a protocol adapter.
+# One POST to /mcp is one JSON-RPC request and the flow's body is the JSON-RPC
+# response, so every case here is a real request/response pair — no mocks, no
+# network, no LLM. The router must advertise its tool flow as an MCP tool, its
+# template resource as an MCP resource AND as an MCP prompt, and route tools/call
+# into the tool's inline process.
+#
+# The http source does not run under invoke, so `data` is the request body it would
+# have handed the flow; no headers or vars are involved.
+flow: mcp
+
+cases:
+  - name: initialize advertises the server name and its three capabilities
+    input:
+      data: { jsonrpc: "2.0", id: 1, method: initialize }
+    expect:
+      # exact: the JSON-RPC envelope is the contract, id echoed included
+      body:
+        jsonrpc: "2.0"
+        id: 1
+        result:
+          protocolVersion: "2024-11-05"
+          serverInfo: { name: weather-tools, version: "0.1.0" }
+          capabilities: { tools: {}, resources: {}, prompts: {} }
+
+  # A tool flow declared in the block becomes an MCP tool, schema and all — and
+  # listing it must NOT execute it.
+  - name: tools list advertises the forecast tool with its input schema
+    input:
+      data: { jsonrpc: "2.0", id: 2, method: tools/list }
+    expect:
+      body:
+        jsonrpc: "2.0"
+        id: 2
+        result:
+          tools:
+            - name: forecast
+              description: Return a short weather forecast for a city.
+              inputSchema:
+                type: object
+                required: [city]
+                properties: { city: { type: string } }
+    spies:
+      mcp.weather-mcp[forecast].set-payload: { count: 0 }
+
+  # The routing claim: tools/call runs the tool's inline process, with the call's
+  # `arguments` as the message body, and wraps what it returns as MCP text content.
+  - name: a tools call is routed into the tool flow with its arguments as the body
+    input:
+      data:
+        jsonrpc: "2.0"
+        id: 3
+        method: tools/call
+        params: { name: forecast, arguments: { city: Paris } }
+    expect:
+      body:
+        jsonrpc: "2.0"
+        id: 3
+        result:
+          isError: false
+          content:
+            - type: text
+              text: '{"city":"Paris","summary":"Sunny, 24C"}'
+    spies:
+      mcp.weather-mcp[forecast].set-payload:
+        count: 1
+        records:
+          - input:
+              # the arguments arrive AS the body — that is how the tool reads body.city
+              body: { city: Paris }
+
+  # An unknown tool is a tool-level error (isError), not a JSON-RPC error: the
+  # protocol distinguishes them, and so must the router.
+  - name: an unknown tool is reported as a tool error, not a protocol error
+    input:
+      data:
+        jsonrpc: "2.0"
+        id: 4
+        method: tools/call
+        params: { name: nope, arguments: {} }
+    expect:
+      body:
+        jsonrpc: "2.0"
+        id: 4
+        result:
+          isError: true
+          content:
+            - type: text
+              text: 'unknown tool "nope"'
+    spies:
+      mcp.weather-mcp[forecast].set-payload: { count: 0 }
+
+  - name: template resources are advertised as mcp resources
+    input:
+      data: { jsonrpc: "2.0", id: 5, method: resources/list }
+    expect:
+      body:
+        jsonrpc: "2.0"
+        id: 5
+        result:
+          resources:
+            - uri: octo://guide
+              name: guide
+              description: Operator guide for the weather tools.
+              mimeType: text/markdown
+
+  - name: reading a resource returns the rendered template with its mime type
+    input:
+      data:
+        jsonrpc: "2.0"
+        id: 6
+        method: resources/read
+        params: { uri: octo://guide }
+    expect:
+      that:
+        - 'body.result.contents.size() == 1'
+        - 'body.result.contents[0].uri == "octo://guide"'
+        - 'body.result.contents[0].mimeType == "text/markdown"'
+        - 'body.result.contents[0].text.startsWith("# Weather tools")'
+        - 'body.result.contents[0].text.contains("`forecast` returns a short forecast")'
+
+  # The same template machinery serves prompts, and a prompt's arguments are the
+  # message the template renders against: {{ body.city }} in greet.md.
+  - name: getting a prompt renders its template against the prompt arguments
+    input:
+      data:
+        jsonrpc: "2.0"
+        id: 7
+        method: prompts/get
+        params: { name: assist, arguments: { city: Paris } }
+    expect:
+      that:
+        - 'body.result.description == "Prime an assistant to help a user in a given city."'
+        - 'body.result.messages.size() == 1'
+        - 'body.result.messages[0].role == "user"'
+        - 'body.result.messages[0].content.type == "text"'
+        - 'body.result.messages[0].content.text.startsWith("You are helping a user in Paris.")'
+
+  - name: prompts list advertises the declared arguments
+    input:
+      data: { jsonrpc: "2.0", id: 8, method: prompts/list }
+    expect:
+      body:
+        jsonrpc: "2.0"
+        id: 8
+        result:
+          prompts:
+            - name: assist
+              description: Prime an assistant to help a user in a given city.
+              arguments:
+                - name: city
+                  description: The user's city.
+                  required: true
+
+  # A method the router does not implement is a JSON-RPC error object, not a crash
+  # and not a result.
+  - name: an unknown method answers the json-rpc method-not-found error
+    input:
+      data: { jsonrpc: "2.0", id: 9, method: bogus/method }
+    expect:
+      body:
+        jsonrpc: "2.0"
+        id: 9
+        error:
+          code: -32601
+          message: 'method "bogus/method" not found'

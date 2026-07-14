@@ -1,0 +1,51 @@
+flow: charge-flowlevel
+
+# The payments connector points at a discard port, so the real `rest` block always
+# fails to connect. That is fine for a demo and useless for a test: "it failed" is
+# the only outcome it can produce. Mocking `call-charge` is what lets one flow show
+# both the happy path and the error path.
+mocks:
+  charge-flowlevel.call-charge:
+    cases:
+      - when: 'body.amount > 100'
+        error: card declined
+    default:
+      body: { id: ch_1, status: captured }
+
+inputs:
+  small:
+    data: { amount: 10 }
+  large:
+    data: { amount: 500 }
+
+cases:
+  - name: a charge the bank accepts comes back captured
+    input: small
+    expect:
+      body: { id: ch_1, status: captured }
+    spies:
+      charge-flowlevel.call-charge:
+        count: 1
+        records:
+          - input:
+              that: ['body.amount == 10']
+            output:
+              body: { id: ch_1, status: captured }
+
+  # The point of the sample: a failing block redirects to the flow's `error:` chain,
+  # whose output BECOMES the flow result — so the flow completes rather than failing.
+  - name: a declined card takes the flow error path and answers 502
+    input: large
+    expect:
+      # set-variable's `value` is CEL, so "502" in the flow evaluates to the NUMBER
+      # 502 — the quotes there are YAML's, not CEL's.
+      vars: { httpStatus: 502 }
+      that:
+        - 'body.error.contains("card declined")'
+        - 'body.failedBlock == "call-charge"'
+        - 'body.flow == "charge-flowlevel"'
+    spies:
+      charge-flowlevel.call-charge:
+        count: 1
+        records:
+          - error: card declined

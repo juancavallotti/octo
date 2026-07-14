@@ -1,0 +1,71 @@
+flow: weather
+
+# The source is a cron ticker and sources do not run under `invoke`, so the tick is
+# supplied as the case's input (the schedule fires with an empty body).
+#
+# fetch-forecast is a `rest` block against the public Open-Meteo API — the one thing in
+# this sample that leaves the process — so EVERY case mocks it. Nothing here touches
+# the network, and the connector's response cache is never exercised as a result: a
+# cache hit needs two ticks in one process, and a case is one message.
+mocks:
+  weather.fetch-forecast:
+    default:
+      # The shape Open-Meteo actually answers /v1/forecast with, trimmed to the fields
+      # the flow reads.
+      body:
+        latitude: 52.52
+        longitude: 13.41
+        current_units: { time: iso8601, temperature_2m: "°C" }
+        current: { time: "2026-07-13T12:00", temperature_2m: 21.4 }
+      vars: { statusCode: 200 }
+
+cases:
+  # The forecast the API returned is the message the rest of the flow works on, and it
+  # survives the log block unchanged — a log is a wire tap, not a transform.
+  - name: a tick fetches the forecast, which becomes the message body
+    input:
+      data: {}
+    expect:
+      body:
+        latitude: 52.52
+        longitude: 13.41
+        current_units: { time: iso8601, temperature_2m: "°C" }
+        current: { time: "2026-07-13T12:00", temperature_2m: 21.4 }
+    spies:
+      weather.fetch-forecast: { count: 1 }
+      weather.report:
+        count: 1
+        records:
+          - input:
+              # The report block's message CEL reads exactly these two fields; this is
+              # the contract the sample has with the Open-Meteo response.
+              that:
+                - "body.current.temperature_2m == 21.4"
+                - 'body.current_units.temperature_2m == "°C"'
+
+  # The reporting block depends on that response shape: a payload without `current`
+  # cannot be rendered, and the flow fails rather than logging something meaningless.
+  # This is what keeps the assertion above from being decorative.
+  - name: a response without the current reading fails the reporting block
+    input:
+      data: {}
+    mocks:
+      weather.fetch-forecast:
+        default:
+          body: { latitude: 52.52, longitude: 13.41 } # no `current`, no `current_units`
+    expect:
+      error: current
+
+  # There is no error chain on this flow, so an unreachable API is a flow failure, and
+  # nothing downstream runs.
+  - name: an upstream failure fails the flow and never reaches the report
+    input:
+      data: {}
+    mocks:
+      weather.fetch-forecast:
+        default:
+          error: "dial tcp: connection refused"
+    expect:
+      error: connection refused
+    spies:
+      weather.report: { count: 0 }
