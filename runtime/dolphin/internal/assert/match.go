@@ -72,8 +72,8 @@ func matchVars(where string, want types.Variables, got types.Variables) []string
 			continue
 		}
 		if !reflect.DeepEqual(normalized, actual) {
-			failures = append(failures, fmt.Sprintf("%s.vars.%s: want %s, got %s",
-				where, name, render(normalized), render(actual)))
+			failures = append(failures, fmt.Sprintf("%s.vars.%s: want %s, got %s%s",
+				where, name, render(normalized), render(actual), typeNote(normalized, actual)))
 		}
 	}
 	return failures
@@ -114,10 +114,28 @@ func matchThat(where string, expressions []string, msg *types.Message) []string 
 			continue
 		}
 		if !holds {
-			failures = append(failures, fmt.Sprintf("%s.that: %s is false", where, expression))
+			// The message comes with it. "body.total > 100 is false" tells the reader
+			// only what they already wrote; what they need is the value that made it
+			// false, and going and getting it means re-running the case by hand.
+			failures = append(failures, fmt.Sprintf("%s.that: %s is false\n      on: %s",
+				where, expression, describe(msg)))
 		}
 	}
 	return failures
+}
+
+// describe renders the message an assertion was judged against, compactly: the body, and
+// the variables when there are any. It is what turns "is false" from an accusation into
+// something the reader can act on.
+func describe(msg *types.Message) string {
+	if msg == nil {
+		return "(no message)"
+	}
+	described := "body " + render(msg.Body)
+	if len(msg.Variables) > 0 {
+		described += ", vars " + render(msg.Variables)
+	}
+	return described
 }
 
 // normalize puts a value from the test file into the shape the message carries.
@@ -137,6 +155,49 @@ func normalize(value any) (any, error) {
 		return nil, fmt.Errorf("cannot be compared: %w", err)
 	}
 	return normalized, nil
+}
+
+// typeNote calls out a mismatch that is only one of TYPE, which is the single most
+// confusing failure a runner can print: `want "502", got 502` reads as a bug in the
+// runner rather than in the test, and the reader has to know that JSON quotes are the
+// tell. It is a real trap here, because a flow's `value: "502"` is a CEL expression —
+// the quotes are YAML's, and CEL evaluates it to the NUMBER 502.
+func typeNote(want, got any) string {
+	wantType, gotType := jsonType(want), jsonType(got)
+	if wantType == gotType {
+		return ""
+	}
+	return fmt.Sprintf("  (%s, not %s)", article(wantType), article(gotType))
+}
+
+// jsonType names a value's type the way the message's JSON carries it, rather than the
+// way Go spells it — a reader debugging a flow thinks in bodies and variables, not in
+// float64 and map[string]interface {}.
+func jsonType(value any) string {
+	switch value.(type) {
+	case nil:
+		return "null"
+	case bool:
+		return "boolean"
+	case float64, int, int64:
+		return "number"
+	case string:
+		return "string"
+	case []any:
+		return "list"
+	case map[string]any:
+		return "object"
+	default:
+		return fmt.Sprintf("%T", value)
+	}
+}
+
+// article prefixes a type name with the right indefinite article.
+func article(name string) string {
+	if strings.ContainsAny(name[:1], "aeiou") {
+		return "an " + name
+	}
+	return "a " + name
 }
 
 // render shows a value the way the message carries it, as compact JSON, so a diff

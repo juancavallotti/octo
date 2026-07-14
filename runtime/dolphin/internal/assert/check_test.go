@@ -152,6 +152,36 @@ func TestAFalseExpressionFailsAndSaysWhichOne(t *testing.T) {
 	only(t, got, "expect.that: body.amount < 10 is false")
 }
 
+// TestAFalseExpressionShowsTheMessageItWasJudgedAgainst.
+//
+// "body.amount < 10 is false" tells the reader only what they already wrote. What they
+// need is the value that made it false — and without it the only way to get one is to
+// re-run the case by hand, which is the work the runner was supposed to have done.
+func TestAFalseExpressionShowsTheMessageItWasJudgedAgainst(t *testing.T) {
+	c := caseFrom(t, "name: a\nexpect:\n  that: ['body.amount < 10']\n")
+
+	got := Check(c, completed(msg(t, `{"amount":250}`, types.Variables{"tier": "gold"})))
+
+	only(t, got, `"amount":250`)
+	if !strings.Contains(strings.Join(got, "\n"), `"tier":"gold"`) {
+		t.Errorf("the failure does not show the variables it judged:\n  %s", strings.Join(got, "\n  "))
+	}
+}
+
+// TestAMismatchOfOnlyTypeSaysSo is the most confusing failure a runner can print.
+//
+// `want "502", got 502` reads as a bug in the runner rather than in the test, and only a
+// reader who knows that JSON quotes are the tell can see it. It is a real trap in octo:
+// a flow's `value: "502"` is a CEL expression, so the quotes are YAML's, and CEL evaluates
+// it to the NUMBER 502. The suite that finds this out should be told, not left guessing.
+func TestAMismatchOfOnlyTypeSaysSo(t *testing.T) {
+	c := caseFrom(t, "name: a\nexpect:\n  vars: { httpStatus: \"502\" }\n")
+
+	got := Check(c, completed(msg(t, `{}`, types.Variables{"httpStatus": 502})))
+
+	only(t, got, "a string, not a number")
+}
+
 // TestANonBooleanExpressionIsAMistake, not a falsy value.
 //
 // `body.total` is not an assertion. Reading it as one — truthy because it is non-zero —
