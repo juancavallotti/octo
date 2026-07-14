@@ -15,6 +15,9 @@ directly inside it (sorted by name, subdirectories ignored) is loaded and
 merged into a single config. The config's directory is the resource root that
 relative [resource](#resources) ids resolve against.
 
+Files ending in `_test.yaml` are **not** config — they are test suites for the
+flows beside them, and the loader skips them.
+
 ## Top-level keys
 
 ```yaml

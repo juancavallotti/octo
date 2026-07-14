@@ -12,12 +12,16 @@ import (
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
+// testFileSuffix marks a file as a test suite rather than a config: orders_test.yaml
+// tests orders.yaml. See IsTestFile.
+const testFileSuffix = "_test"
+
 // LoadConfig reads and parses the runtime config at path. When path is a
 // directory, every *.yaml/*.yml file in it is parsed and merged into one config
-// (see MergeConfigs); otherwise the single file is parsed. loader supplies the
-// declared env resources (resources.env) combined into the environment; it is
-// the runtime-services resource loader (rooted at the config directory in the
-// standalone module).
+// (see MergeConfigs), skipping test files (see IsTestFile); otherwise the single
+// file is parsed. loader supplies the declared env resources (resources.env)
+// combined into the environment; it is the runtime-services resource loader
+// (rooted at the config directory in the standalone module).
 func LoadConfig(path string, loader core.ResourceLoader) (types.Config, error) {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -60,8 +64,8 @@ func ParseConfig(data []byte) (types.Config, error) {
 	return cfg, nil
 }
 
-// loadDir parses and merges every YAML config file in dir. Files are loaded in
-// lexical order so duplicate-name errors are deterministic.
+// loadDir parses and merges every YAML config file in dir, skipping test files.
+// Files are loaded in lexical order so duplicate-name errors are deterministic.
 func loadDir(dir string) (types.Config, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -70,7 +74,7 @@ func loadDir(dir string) (types.Config, error) {
 
 	paths := make([]string, 0, len(entries))
 	for _, entry := range entries {
-		if entry.IsDir() || !isYAML(entry.Name()) {
+		if entry.IsDir() || !isYAML(entry.Name()) || IsTestFile(entry.Name()) {
 			continue
 		}
 		paths = append(paths, filepath.Join(dir, entry.Name()))
@@ -95,6 +99,27 @@ func loadDir(dir string) (types.Config, error) {
 func isYAML(name string) bool {
 	ext := strings.ToLower(filepath.Ext(name))
 	return ext == ".yaml" || ext == ".yml"
+}
+
+// IsTestFile reports whether name is a test file rather than a config file:
+// orders_test.yaml tests the flows in orders.yaml, the way orders_test.go tests
+// orders.go. A test file lives beside the flows it exercises — that is the whole
+// point of the convention — so the config loader has to walk past it, exactly as
+// the Go compiler walks past a _test.go.
+//
+// Skipping it is not cosmetic. A test file parses into an *empty* config today,
+// because the YAML decoder here ignores unknown keys, so it merges in silently and
+// contributes nothing. That is harmless by luck, not by design: it means a config
+// directory's contents depend on a decoder setting nobody would think to check, and
+// the day the loader rejects unknown keys, every project with a test file beside its
+// flows stops booting.
+//
+// This is the shared definition of the convention. dolphin discovers the files this
+// skips, so the two must never disagree about which is which — a file octo loads as
+// config and dolphin reads as a test suite would be a genuinely confusing bug.
+func IsTestFile(name string) bool {
+	base := strings.TrimSuffix(name, filepath.Ext(name))
+	return strings.HasSuffix(base, testFileSuffix)
 }
 
 // MergeConfigs combines multiple parsed configs into one: it concatenates

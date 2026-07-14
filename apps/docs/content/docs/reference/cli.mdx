@@ -58,6 +58,11 @@ When `--config` points to a directory, every `.yaml`/`.yml` file directly in it
 The config's directory also becomes the resource root that relative resource
 ids (templates, env files) resolve against.
 
+**Files ending in `_test.yaml` are skipped.** `orders_test.yaml` is a test suite
+for the flows in `orders.yaml`, the way `orders_test.go` tests `orders.go` — it
+lives beside them, and the runtime walks past it just as the Go compiler walks
+past a `_test.go`.
+
 Once every connector and flow has started, the runtime prints a ready banner
 to stdout:
 
