@@ -89,10 +89,30 @@ Invoke flags:
   --mocks <json>     blocks to answer for instead of running them (see below)
   --run-debug-config <path>
                      a file holding the whole run: input, breakAt, spies, mocks
+  --envelope         always print the outcome envelope, and report a flow failure in
+                     it rather than exiting non-zero
 
   Sources are not started, so nothing populates the message for you. --vars is how
   you seed what a source normally would: the http source copies request headers into
   the message variables, so a flow that reads vars needs them supplied here.
+
+The outcome envelope (--envelope):
+  A plain invoke says what happened three different ways: a flow that completed prints
+  its message, one that DROPPED the message prints nothing at all, and one that FAILED
+  prints nothing and exits 1 with the error in a log line. That is fine for a person
+  reading a terminal and unusable for a program: stdout cannot tell a drop from a
+  result, and a failure has to be scraped out of the logs.
+
+  --envelope prints one JSON object that says all three:
+
+    {"result":{"event_id":"…","variables":{…},"body":{…}}}   the flow completed
+    {"dropped":true}                                          a filter dropped it
+    {"error":"block \"charge\": card declined"}               the flow failed
+
+  A flow that fails exits 0 under --envelope: the flow failing is the answer to the
+  question that was asked, not a failure of the CLI. A run that could not START — an
+  unresolvable block address, a broken config — is a bad request and still exits
+  non-zero. This is what "dolphin" reads.
 
 Debug config (--run-debug-config):
   A whole debugging run in one file — YAML, or JSON, which is a subset of it. Check it
