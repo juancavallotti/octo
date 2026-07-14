@@ -1,7 +1,8 @@
 package main
 
-// This file holds `dolphin test`: find the suites, run their cases against octo, and
-// say what happened.
+// This file holds `dolphin test`: find the suites, run their cases against octo, and say
+// what happened. The saying is report's job; this wires the three together and turns the
+// tally into an exit code.
 
 import (
 	"context"
@@ -11,10 +12,10 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 
 	"github.com/juancavallotti/octo/runtime/dolphin/internal/assert"
+	"github.com/juancavallotti/octo/runtime/dolphin/internal/report"
 	"github.com/juancavallotti/octo/runtime/dolphin/internal/runner"
 	"github.com/juancavallotti/octo/runtime/dolphin/internal/suite"
 )
@@ -26,6 +27,7 @@ const workDirPattern = "dolphin-"
 type testFlags struct {
 	paths    []string
 	config   string
+	junit    string
 	parallel int
 	failFast bool
 	verbose  bool
@@ -43,17 +45,14 @@ func testCommand(args []string) error {
 		return &exitError{code: exitUsage, err: err}
 	}
 
-	bin, err := resolveOcto()
+	octo, err := readyOcto()
 	if err != nil {
-		return &exitError{code: exitUsage, err: err}
-	}
-	if _, err := bin.version(context.Background()); err != nil {
 		return &exitError{code: exitUsage, err: err}
 	}
 
 	// A failing case's debug config has to outlive the run: the command dolphin prints
-	// to reproduce it names that file, and a command pointing at a file we deleted is
-	// not a command. The directory is left behind, and the report says where.
+	// to reproduce it names that file, and a command pointing at a file we deleted is not
+	// a command. The directory is kept when anything failed, and the report says where.
 	workDir, err := os.MkdirTemp("", workDirPattern)
 	if err != nil {
 		return fmt.Errorf("make a working directory: %w", err)
@@ -62,107 +61,79 @@ func testCommand(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	report := runner.Run(ctx, runner.Config{
+	console := report.NewConsole(os.Stdout, flags.verbose)
+	results := runner.Run(ctx, runner.Config{
 		Options: runner.Options{
-			Octo:    bin.Path,
+			Octo:    octo,
 			WorkDir: workDir,
 			Verbose: flags.verbose,
 		},
 		Parallel: flags.parallel,
 		FailFast: flags.failFast,
 		Check:    assert.Check,
+		// Printed as each suite completes, in file order, so a long run reports as it
+		// goes rather than sitting silent and then printing everything at the end.
+		OnSuiteDone: console.Suite,
 	}, targets)
 
-	return summarize(report, workDir)
+	return finish(flags, console, results, workDir)
 }
 
-// summarize prints the report and returns the run's verdict.
-func summarize(report []runner.SuiteResult, workDir string) error {
-	var passed, failed, errored, skipped, notRun int
-	for _, s := range report {
-		for _, r := range s.Results {
-			switch r.Status {
-			case runner.Passed:
-				passed++
-			case runner.Failed:
-				failed++
-			case runner.Errored:
-				errored++
-			case runner.Skipped:
-				skipped++
-			case runner.NotRun:
-				notRun++
-			}
+// finish writes the reports and turns the tally into an exit code.
+func finish(flags testFlags, console *report.Console, results []runner.SuiteResult, workDir string) error {
+	totals := report.Tally(results)
+	console.Summary(results, keptWorkDir(totals, workDir))
+
+	if flags.junit != "" {
+		if err := report.JUnit(flags.junit, results); err != nil {
+			return err
 		}
 	}
+	return verdict(totals)
+}
 
-	for _, s := range report {
-		printSuite(s)
+// keptWorkDir removes the working directory when nothing failed — there is nothing left
+// to reproduce — and returns it when there is, so the report can say where it went.
+func keptWorkDir(totals report.Totals, workDir string) string {
+	if totals.Failing() {
+		return workDir
 	}
+	_ = os.RemoveAll(workDir)
+	return ""
+}
 
-	fmt.Printf("\n%d passed, %d failed, %d errored, %d skipped", passed, failed, errored, skipped)
-	if notRun > 0 {
-		fmt.Printf(", %d not run", notRun)
-	}
-	fmt.Println()
-
-	if failed+errored == 0 {
-		_ = os.RemoveAll(workDir) // nothing failed, so nothing needs reproducing
-		return nil
-	}
-	fmt.Printf("\nthe runs are in %s\n", workDir)
-
-	// An ERRORED case never ran: octo refused it, because a block address does not
-	// resolve or the config does not parse. That is the suite being wrong, not the
-	// flows — exit 2, the same as a malformed test file, so a CI job is not sent to
-	// debug a flow that was never even called. A failing case, which did run, is 1.
-	if errored > 0 {
+// verdict is the run's exit code.
+//
+// An ERRORED case never ran: octo refused it, because a block address does not resolve
+// or the config does not parse. That is the suite being wrong, not the flows — exit 2,
+// the same as a malformed test file — so a CI job is not sent to debug a flow that was
+// never called. A case that ran and did not do what it said is exit 1.
+func verdict(totals report.Totals) error {
+	switch {
+	case totals.Errored > 0:
 		return &exitError{
 			code: exitUsage,
-			err:  fmt.Errorf("%d case(s) could not be run — the suite or the config is wrong", errored),
+			err:  fmt.Errorf("%d case(s) could not be run — the suite or the config is wrong", totals.Errored),
 		}
-	}
-	return &exitError{code: exitFailed, err: fmt.Errorf("%d case(s) failed", failed)}
-}
-
-// printSuite prints one suite's results.
-func printSuite(s runner.SuiteResult) {
-	status := "ok  "
-	if s.Failed() {
-		status = "FAIL"
-	}
-	fmt.Printf("%s %s  (%s)\n", status, s.Target.File.Path, s.Target.File.Flow)
-
-	for _, r := range s.Results {
-		switch r.Status {
-		case runner.Failed:
-			fmt.Printf("  --- FAIL: %s\n", r.Case.Name)
-			for _, failure := range r.Failures {
-				fmt.Printf("        %s\n", indent(failure))
-			}
-			fmt.Printf("        reproduce: %s\n", r.Outcome.Command)
-		case runner.Errored:
-			fmt.Printf("  --- ERROR: %s\n        %s\n", r.Case.Name, r.Err)
-			if r.Outcome.Command != "" {
-				fmt.Printf("        reproduce: %s\n", r.Outcome.Command)
-			}
-		case runner.Skipped:
-			fmt.Printf("  --- SKIP: %s (%s)\n", r.Case.Name, r.Case.Skip)
-		case runner.NotRun:
-			fmt.Printf("  --- NOT RUN: %s\n", r.Case.Name)
-		case runner.Passed:
-		}
+	case totals.Failed > 0:
+		return &exitError{code: exitFailed, err: fmt.Errorf("%d case(s) failed", totals.Failed)}
+	default:
+		return nil
 	}
 }
 
-// failureIndent is what a failure's continuation lines are indented to, so that a
-// want/got diff lines up under the failure it belongs to instead of against the margin.
-const failureIndent = "\n        "
-
-// indent aligns a multi-line failure under its own first line. A body diff is two lines,
-// and a diff whose second line starts at the margin is one the eye cannot pair up.
-func indent(failure string) string {
-	return strings.ReplaceAll(failure, "\n", failureIndent)
+// readyOcto resolves the octo binary and proves it runs, before any case is spawned. A
+// run that is going to fail because there is no usable octo should say so once, up front,
+// rather than once per case.
+func readyOcto() (string, error) {
+	bin, err := resolveOcto()
+	if err != nil {
+		return "", err
+	}
+	if _, err := bin.version(context.Background()); err != nil {
+		return "", err
+	}
+	return bin.Path, nil
 }
 
 // parseTestFlags parses the flags of `dolphin test`. Paths may come before or after the
@@ -174,29 +145,42 @@ func parseTestFlags(args []string) (testFlags, error) {
 	var flags testFlags
 	fs.StringVar(&flags.config, "config", "",
 		"the flows to test against, when they are not the ones beside the suite")
+	fs.StringVar(&flags.junit, "junit", "", "write a JUnit XML report to this file")
 	fs.IntVar(&flags.parallel, "parallel", 0, "how many cases to run at once (default: one per CPU)")
 	fs.BoolVar(&flags.failFast, "fail-fast", false, "stop after the first failing case")
-	fs.BoolVar(&flags.verbose, "v", false, "let octo's logs through")
+	fs.BoolVar(&flags.verbose, "v", false, "name every case, and let octo's logs through")
 
-	if err := fs.Parse(args); err != nil {
+	paths, err := parseInterspersed(fs, args)
+	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			fmt.Println(usage)
 			return testFlags{}, nil
 		}
 		return testFlags{}, usageErr("parse test flags: %w", err)
 	}
-	flags.paths = positional(fs.Args())
+	flags.paths = paths
 	return flags, nil
 }
 
-// positional pulls the paths out of the remaining arguments, allowing them on either
-// side of the flags.
-func positional(args []string) []string {
-	paths := make([]string, 0, len(args))
-	for _, arg := range args {
-		if !strings.HasPrefix(arg, "-") {
-			paths = append(paths, arg)
+// parseInterspersed parses flags that may appear on either side of the paths, and returns
+// the paths.
+//
+// Go's flag package stops at the first non-flag argument, so `dolphin test ./flows
+// --junit report.xml` would leave --junit unparsed. Dropping it there would be the worst
+// outcome available: a CI job would get no report, and nothing would say why. So each
+// non-flag argument is taken as a path and parsing resumes after it — which is what
+// people will type, because it is what `go test` accepts.
+func parseInterspersed(fs *flag.FlagSet, args []string) ([]string, error) {
+	var paths []string
+	for {
+		if err := fs.Parse(args); err != nil {
+			return nil, err //nolint:wrapcheck // the caller labels it, and may be checking for flag.ErrHelp
 		}
+		args = fs.Args()
+		if len(args) == 0 {
+			return paths, nil
+		}
+		paths = append(paths, args[0])
+		args = args[1:]
 	}
-	return paths
 }

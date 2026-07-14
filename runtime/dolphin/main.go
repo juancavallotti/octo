@@ -86,9 +86,12 @@ Usage:
 
 Test flags:
   --config <path>   the flows to test against, when they are not the ones beside the suite
+  --junit <path>    write a JUnit XML report to this file
   --parallel <n>    how many cases to run at once (default: one per CPU)
   --fail-fast       stop after the first failing case
-  -v                let octo's logs through
+  -v                name every case, and let octo's logs through
+
+  Flags may come before or after the paths.
 
 Suites:
   A flow file is tested by the suite beside it, the way a Go file is: orders.yaml is
