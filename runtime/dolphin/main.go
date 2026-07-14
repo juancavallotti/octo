@@ -1,9 +1,11 @@
 // dolphin is octo's companion test runner: it drives the real octo CLI against an
-// integration and checks what comes back, so a flow can have a test suite the way
-// any other unit of code does.
+// integration and checks what comes back, so a flow can have a test suite the way any
+// other unit of code does.
 //
-// This is the bootstrap: dolphin finds the octo binary and reads its flags. Running
-// the cases in a config comes next — see `dolphin run`.
+// A flow file is tested by the suite beside it, as a Go file is — orders.yaml by
+// orders_test.yaml — and each case in it is one `octo invoke`, run with the mocks and
+// spies the case asked for. main is the command shell; the work is in internal/suite
+// (what a suite is), internal/runner (running one), and internal/assert (judging it).
 package main
 
 import (
@@ -11,19 +13,21 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"strings"
 
 	"github.com/juancavallotti/octo/runtime/core"
 )
 
 // Exit codes are a contract, because the thing that reads them is a CI job, not a
-// person. They are fixed now, before dolphin runs anything, so that a suite wired
-// up today keeps meaning the same thing once it does. 1 is reserved for "one or
-// more cases failed" and is not produced yet.
+// person.
+//
+// The line between 1 and 2 is the one that matters: 1 means the flows are wrong, 2
+// means the suite is. A CI job that cannot tell those apart sends someone to debug the
+// wrong thing — so a malformed test file, an unresolvable block address, or a missing
+// octo is never reported as a failing test.
 const (
-	exitOK             = 0 // every case passed
-	exitUsage          = 2 // bad flags, bad config, or no usable octo binary
-	exitNotImplemented = 3 // dolphin resolved everything but cannot run the cases yet
+	exitOK     = 0 // every case passed
+	exitFailed = 1 // one or more cases RAN and did not do what it said — the flows are wrong
+	exitUsage  = 2 // bad flags, a bad suite, an unresolvable address, no usable octo
 )
 
 // exitError carries the exit code a failure must produce, so the code lives with
@@ -42,8 +46,10 @@ func usageErr(format string, args ...any) error {
 	return &exitError{code: exitUsage, err: fmt.Errorf(format, args...)}
 }
 
-// exitCode is the process status for err. Anything that did not name a code is a
-// usage error: dolphin only fails on its own behalf until it can run tests.
+// exitCode is the process status for err. Anything that did not name a code is a usage
+// error — which is the safe default: a failure dolphin could not classify is dolphin's
+// own, and reporting it as 1 would tell a CI job the flows are broken when they may
+// never have been called.
 func exitCode(err error) int {
 	if err == nil {
 		return exitOK
@@ -74,12 +80,28 @@ func main() {
 const usage = `dolphin — unit-test octo integrations
 
 Usage:
-  dolphin [run] --config <path>   Run the cases in a dolphin test config (default)
+  dolphin [test] [path...]        Run the test suites at these paths (default: .)
   dolphin version                 Print the version and build date
   dolphin --help                  Show this help
 
-Run flags:
-  --config <path>   path to the dolphin test config
+Test flags:
+  --config <path>   the flows to test against, when they are not the ones beside the suite
+  --parallel <n>    how many cases to run at once (default: one per CPU)
+  --fail-fast       stop after the first failing case
+  -v                let octo's logs through
+
+Suites:
+  A flow file is tested by the suite beside it, the way a Go file is: orders.yaml is
+  tested by orders_test.yaml. The config is exactly what you point at.
+
+    dolphin test ./flows              every *_test.yaml in the directory, against it
+    dolphin test flows/orders.yaml    its companion orders_test.yaml, against that file
+    dolphin test flows/orders_test.yaml    the suite, against the flow file beside it
+
+  Use --config when the suite does not live beside the flows it exercises, which is
+  also how you name a flow file and a test file that are not a pair:
+
+    dolphin test --config flows/orders.yaml tests/smoke_test.yaml
 
 The octo binary:
   dolphin drives the real octo CLI. It looks for it in this order, and stops at the
@@ -95,14 +117,20 @@ The octo binary:
 
 Exit codes:
   0  every case passed
-  1  one or more cases failed
-  2  usage, config, or octo-binary error
-  3  running the cases is not implemented yet
+  1  one or more cases failed  — the flows are wrong
+  2  usage, suite, or octo-binary error  — the suite is wrong
+
+  The line between 1 and 2 is load-bearing: a CI job that cannot tell "your flow is
+  broken" from "your test file is broken" sends someone to debug the wrong thing.
 
 Flags accept one or two dashes (--config or -config).`
 
-// run dispatches to a subcommand. The default (no subcommand, or a leading flag) is
-// "run", so `dolphin --config x.yaml` works without typing it.
+// cmdTest names the one subcommand that does any work. It is also the default, so
+// `dolphin ./flows` and `dolphin --parallel 4` both work without typing it — and an
+// argument that is not "test" is a path, not an unknown command.
+const cmdTest = "test"
+
+// run dispatches to a subcommand.
 func run(args []string) error {
 	// Help and version are handled before dispatch: the subcommand flagsets do not
 	// define them. Go's flag package treats -x and --x alike, so honor both forms.
@@ -119,16 +147,8 @@ func run(args []string) error {
 		return nil
 	}
 
-	cmd := "run"
-	if !strings.HasPrefix(args[0], "-") {
-		cmd = args[0]
+	if args[0] == cmdTest {
 		args = args[1:]
 	}
-
-	switch cmd {
-	case "run":
-		return runCommand(args)
-	default:
-		return usageErr("unknown command %q (expected \"run\" or \"version\")", cmd)
-	}
+	return testCommand(args)
 }

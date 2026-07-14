@@ -261,9 +261,13 @@ func TestExitCode(t *testing.T) {
 		want int
 	}{
 		{name: "no error", err: nil, want: exitOK},
+		// The default matters: a malformed suite, an unresolvable address, anything
+		// dolphin itself could not do, exits 2. Only a case that actually ran and did
+		// not do what it said exits 1 — see exitFailed. A CI job reads these to decide
+		// whose bug it is.
 		{name: "a plain error is a usage error", err: errors.New("boom"), want: exitUsage},
 		{name: "a usage error", err: usageErr("boom"), want: exitUsage},
-		{name: "not implemented", err: &exitError{code: exitNotImplemented, err: errNotImplemented}, want: exitNotImplemented},
+		{name: "a failing run", err: &exitError{code: exitFailed, err: errors.New("1 failed")}, want: exitFailed},
 	}
 
 	for _, tc := range cases {
