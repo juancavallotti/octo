@@ -81,6 +81,7 @@ const usage = `dolphin — unit-test octo integrations
 
 Usage:
   dolphin [test] [path...]        Run the test suites at these paths (default: .)
+  dolphin schema                  Print the JSON Schema of a _test.yaml
   dolphin version                 Print the version and build date
   dolphin --help                  Show this help
 
@@ -92,6 +93,13 @@ Test flags:
   -v                name every case, and let octo's logs through
 
   Flags may come before or after the paths.
+
+Schema flags:
+  --format <fmt>    json (default) or yaml
+  --out <path>      write it to a file instead of stdout
+
+  "dolphin schema" prints the shape of a _test.yaml, so an editor can complete one and
+  a validator can check it.
 
 Suites:
   A flow file is tested by the suite beside it, the way a Go file is: orders.yaml is
@@ -131,7 +139,10 @@ Flags accept one or two dashes (--config or -config).`
 // cmdTest names the one subcommand that does any work. It is also the default, so
 // `dolphin ./flows` and `dolphin --parallel 4` both work without typing it — and an
 // argument that is not "test" is a path, not an unknown command.
-const cmdTest = "test"
+const (
+	cmdTest   = "test"
+	cmdSchema = "schema"
+)
 
 // run dispatches to a subcommand.
 func run(args []string) error {
@@ -150,6 +161,9 @@ func run(args []string) error {
 		return nil
 	}
 
+	if args[0] == cmdSchema {
+		return schemaCommand(args[1:])
+	}
 	if args[0] == cmdTest {
 		args = args[1:]
 	}
