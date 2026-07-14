@@ -1,0 +1,63 @@
+flow: orders
+
+# The sample's DB_DSN default is relative to `task run:sample`'s working directory
+# (runtime/octo), so it does not resolve from here — and pointing it at the committed
+# orders.db fixture would mean the tests WRITE to a file git tracks. An in-memory
+# database is neither: nothing on disk to find, nothing to leave behind.
+#
+# The sql blocks below are mocked, so no query runs against it either. The connector is
+# still started — a mock replaces the BLOCK, not the connector behind it — which is
+# exactly why the DSN still has to be a real one.
+env:
+  DB_DSN: "file::memory:"
+
+# The source is http, and sources do not run under invoke, so vars.method — which the
+# switch routes on — has to be seeded here the way the http source would.
+inputs:
+  post:
+    data: { item: widget, amount: 1500 }
+    vars: { method: POST }
+  get:
+    vars: { method: GET }
+
+cases:
+  - name: a POST inserts the order and returns the stored row
+    input: post
+    mocks:
+      # A switch's cases are addressed by name, or by index when they have none.
+      orders.route-by-method[0].insert-order:
+        default:
+          body: { id: 7, item: widget, amount: 1500 }
+    expect:
+      body: { id: 7, item: widget, amount: 1500 }
+    spies:
+      orders.route-by-method[0].insert-order:
+        count: 1
+        records:
+          # What the flow was about to write is the thing worth pinning: a regression
+          # that dropped the amount would still return the mocked row and pass without
+          # this.
+          - input:
+              body: { item: widget, amount: 1500 }
+
+  - name: a GET lists the orders as an array
+    input: get
+    mocks:
+      orders.route-by-method[1].list-orders:
+        default:
+          body:
+            - { id: 1, item: widget, amount: 1500 }
+    expect:
+      body:
+        - { id: 1, item: widget, amount: 1500 }
+
+  - name: an unsupported method is refused without touching the database
+    input:
+      vars: { method: DELETE }
+    spies:
+      orders.route-by-method[0].insert-order:
+        count: 0
+      orders.route-by-method[1].list-orders:
+        count: 0
+    expect:
+      body: { error: method DELETE not supported }

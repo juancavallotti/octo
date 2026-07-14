@@ -1,0 +1,127 @@
+flow: orders-api
+
+# The source is http and sources do not run under `invoke`, so every variable the
+# http source would have populated is seeded here by hand:
+#   * vars.method      — the request method the switch routes on
+#   * vars.id          — the {id} path parameter
+#   * vars["X-Tenant"] — the declared captured header
+#   * vars.query       — the query parameters (always a map, possibly empty)
+#
+# Nothing here is mocked: the flow-refs are in-process calls, so the `audit` and
+# `enrich-order` flows really run — and a spy addressed at a block INSIDE them is
+# what proves they did.
+
+inputs:
+  post-vip:
+    data: { item: widget, amount: 1500 }
+    vars:
+      method: POST
+      id: "42"
+      X-Tenant: acme
+      query: {}
+
+  post-small-eur:
+    data: { item: sticker, amount: 10 }
+    vars:
+      method: POST
+      id: "7"
+      X-Tenant: globex
+      query: { currency: EUR }
+
+cases:
+  # The sample's headline claim: a SYNC flow-ref runs the called flow and folds its
+  # body AND its variables back into the caller's message.
+  - name: a POST is enriched by the sync flow-ref, whose body and vars fold back in
+    input: post-vip
+    expect:
+      that:
+        - 'body.status == "accepted"'
+        - 'body.priority == "high"' # enrich-order's if/then branch
+        - 'body.order.orderId == "42"' # from vars.id, seeded above
+        - 'body.order.tenant == "acme"' # from vars["X-Tenant"]
+        - 'body.order.item == "widget"'
+        - 'body.order.amount == 1500'
+        - 'body.order.currency == "USD"' # resolve-currency's default
+        - 'body.order.requestId == correlationID'
+      vars:
+        currency: USD
+        # priority is set INSIDE enrich-order. Seeing it here is the proof that a
+        # sync flow-ref folds the called flow's VARIABLES back in, not just its body.
+        priority: high
+    spies:
+      orders-api.route-by-method[0].enrich-sync: { count: 1 }
+      # The called flow really ran, and it received a clone of the caller's message.
+      enrich-order.normalize-order:
+        count: 1
+        records:
+          - input:
+              body: { item: widget, amount: 1500 }
+              vars: { id: "42", currency: USD, X-Tenant: acme }
+      enrich-order.wrap-response:
+        count: 1
+        records:
+          - input:
+              vars: { priority: high } # the then-branch fired before the wrap
+      # The other two switch branches must not have run.
+      orders-api.route-by-method[1].lookup-order: { count: 0 }
+      orders-api.route-by-method[default].method-not-supported: { count: 0 }
+
+  # ?currency=EUR must win over the USD default, and a cheap order must take the
+  # ELSE branch of enrich-order's priority check.
+  - name: a query currency overrides the default and a small order is normal priority
+    input: post-small-eur
+    expect:
+      that:
+        - 'body.order.currency == "EUR"'
+        - 'body.order.amount == 10'
+        - 'body.priority == "normal"'
+      vars: { currency: EUR, priority: normal }
+    spies:
+      orders-api.route-by-method[0].enrich-sync: { count: 1 }
+      enrich-order.wrap-response:
+        count: 1
+        records:
+          - input:
+              vars: { priority: normal }
+
+  - name: a GET reflects the order id and resolved currency without enriching
+    input:
+      vars: { method: GET, id: "9", X-Tenant: acme, query: {} }
+    expect:
+      body: { orderId: "9", currency: USD, status: found }
+    spies:
+      orders-api.route-by-method[0].enrich-sync: { count: 0 }
+      enrich-order.normalize-order: { count: 0 } # the called flow was never entered
+      orders-api.route-by-method[1].lookup-order: { count: 1 }
+
+  # The switch's default branch.
+  - name: an unsupported method falls through to the default branch
+    input:
+      vars: { method: DELETE, id: "9", X-Tenant: acme, query: {} }
+    expect:
+      body: { error: method DELETE not supported }
+    spies:
+      orders-api.route-by-method[0].enrich-sync: { count: 0 }
+      orders-api.route-by-method[1].lookup-order: { count: 0 }
+      orders-api.route-by-method[default].method-not-supported: { count: 1 }
+
+  # The one-way flow-ref is fire-and-forget, but it must still RUN — on every
+  # request, whatever the method, before the routing switch. The spy is on a block
+  # INSIDE `audit`, not on the flow-ref block: "the caller crossed the block" would
+  # still pass if the audit flow itself were never dispatched.
+  - name: the one-way flow-ref really runs the audit flow, and folds nothing back
+    input:
+      vars: { method: GET, id: "5", X-Tenant: acme, query: {} }
+    expect:
+      body: { orderId: "5", currency: USD, status: found }
+      that:
+        # audit is one-way, so nothing it did comes back — it sets no variables and
+        # its (unchanged) body does not replace the caller's.
+        - '!has(vars.priority)'
+    spies:
+      orders-api.audit-async: { count: 1 }
+      audit.audit-log:
+        count: 1
+        records:
+          - input:
+              vars: { method: GET, id: "5" } # the audit flow got the caller's message

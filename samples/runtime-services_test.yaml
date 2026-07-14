@@ -1,0 +1,84 @@
+flow: report
+
+# The source is a cron ticker and sources do not run under `invoke`, so the tick is
+# supplied as each case's input (an empty body).
+#
+# The store and the cache are the standalone (in-process) services, so nothing here
+# reaches outside the process and object-read / object-write / cache-scope all run for
+# real — no mock stands in for them. The OAuth2 http-client connector is still built
+# (its ${API_CLIENT_ID}/${API_CLIENT_SECRET} come from samples/.env.test), but this
+# flow never calls it, so no token is ever fetched.
+#
+# What CANNOT be tested from here: the cache HIT on a later tick, and the `reset` flow
+# that busts it. A case is one message in its own process with a fresh store, and a
+# suite names one flow — so "the second tick is served from the cache" and
+# "invalidate-cache evicts it" have no place to happen. The hit path is approximated in
+# the last case by standing in for the cache scope itself.
+
+cases:
+  # The first tick of a cold service: nothing in the store, nothing in the cache.
+  - name: the first tick starts the counter at one and misses the cache
+    input:
+      data: {}
+    expect:
+      # The body is what the cache scope's body chain produced — the cache scope's
+      # result becomes the message.
+      that:
+        - 'body.report == "generated"'
+        - "body.event == eventID"
+        - "body.size() == 2"
+      vars: { counter: 1 } # has(vars.counter) was false, so the bump seeded 1.0
+    spies:
+      report.load-counter:
+        count: 1
+        records:
+          # An empty store: object-read found no "counter" and set no variable.
+          - output:
+              that: ["!has(vars.counter)"]
+      # The cache scope's body chain ran — this is the "cache MISS" the sample logs.
+      report.cached-report[body].compute: { count: 1 }
+      report.emit: { count: 1 }
+
+  # The counter round trip: what object-read loaded is what the bump adds to, and the
+  # bumped value is what object-write puts back. Mocking the READ is what lets a single
+  # message stand for the Nth tick of a long-running service.
+  - name: an existing counter is bumped and written back, not overwritten with one
+    input:
+      data: {}
+    mocks:
+      report.load-counter:
+        default:
+          body: {} # the cron tick's body, untouched by a read
+          vars: { counter: 41 } # as if the store already held 41 from earlier ticks
+    expect:
+      vars: { counter: 42 }
+    spies:
+      report.save-counter:
+        count: 1
+        records:
+          # The write receives the BUMPED value. A regression that wrote before it
+          # bumped, or wrote the loaded value, would still leave vars.counter == 42.
+          - input:
+              vars: { counter: 42 }
+
+  # A cache HIT, as far as one message can show it: the scope answers with a report an
+  # earlier tick generated, and that CACHED body — not a fresh one — is what the flow
+  # goes on to emit. Standing in for the scope block is the only way to produce a hit
+  # here; a real one needs a second tick in the same process, which invoke cannot give.
+  # (And a spy inside the scope is not available either: a mock replaces the block, so
+  # there is nothing in there to watch.)
+  - name: a cached report is emitted as-is, and the counter is bumped anyway
+    input:
+      data: {}
+    mocks:
+      report.cached-report:
+        default:
+          body: { report: generated, event: from-an-earlier-tick }
+    expect:
+      body: { report: generated, event: from-an-earlier-tick }
+      # The counter is NOT inside the cache scope: it is read, bumped and written on
+      # every tick, hit or miss. Moving it into the scope would freeze it at 1.
+      vars: { counter: 1 }
+    spies:
+      report.save-counter: { count: 1 }
+      report.emit: { count: 1 }

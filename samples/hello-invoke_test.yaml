@@ -1,0 +1,8 @@
+flow: greet
+
+cases:
+  - name: it greets the name in the body
+    input:
+      data: { name: Ada }
+    expect:
+      body: { greeting: "hello, Ada!" }

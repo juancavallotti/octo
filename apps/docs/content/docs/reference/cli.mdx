@@ -58,6 +58,11 @@ When `--config` points to a directory, every `.yaml`/`.yml` file directly in it
 The config's directory also becomes the resource root that relative resource
 ids (templates, env files) resolve against.
 
+**Files ending in `_test.yaml` are skipped.** `orders_test.yaml` is a test suite
+for the flows in `orders.yaml`, the way `orders_test.go` tests `orders.go` — it
+lives beside them, and the runtime walks past it just as the Go compiler walks
+past a `_test.go`.
+
 Once every connector and flow has started, the runtime prints a ready banner
 to stdout:
 
@@ -112,6 +117,8 @@ octo invoke --config orders.yaml --flow orders --data '{"orderId": 42}' | jq '.b
 | `--spies` | addresses | (none) | Comma-separated blocks to record every message that crosses. See [Spies](#spies). |
 | `--mocks` | JSON | (none) | Blocks to answer for instead of running. See [Mocks](#mocks). |
 | `--run-debug-config` | path | (none) | A file holding the whole run. See [Debug config](#debug-config-file). |
+| `--envelope` | bool | `false` | Always print the [outcome envelope](#the-outcome-envelope), reporting a flow failure in it rather than exiting non-zero. |
+| `--envelope-out` | string | — | Write the envelope to this file instead of stdout (implies `--envelope`). Use it when [the flow itself prints](#envelope-out--path--when-the-flow-itself-prints). |
 
 The body can also arrive on stdin — `--data` and a pipe are interchangeable:
 
@@ -193,7 +200,66 @@ A run that was asked to **observe** itself — with `--break-at`, `--spies`, or 
 
 A `--mocks`-only run prints its result message, like any other invoke — mocking
 changes what the flow does but produces no observations of its own, so there is
-no envelope to wrap them in.
+no envelope to wrap them in. Ask for it outright with
+[`--envelope`](#the-outcome-envelope).
+
+### The outcome envelope
+
+`--envelope` prints the same envelope for **any** run, even one that observed
+nothing. Use it when a *program* — rather than a person — reads the output.
+
+A plain invoke reports its three outcomes three different ways: a flow that
+completed prints its message, one that **dropped** the message prints nothing at
+all, and one that **failed** prints nothing and exits 1 with the error in a log
+line. Reading stdout, you cannot tell a drop from a result, and a failure has to
+be scraped out of the logs. `--envelope` says all three in one shape:
+
+```bash
+octo invoke --config samples/builtins-demo.yaml --flow demo --data '{"firedAt":"x"}' --envelope
+```
+
+```json
+{"result":{"event_id":"6708a609…","body":{"firedAt":"x","orders":[…]}}}
+```
+
+```json
+{"dropped":true}
+{"error":"block \"seed-orders\": upstream exploded"}
+```
+
+<Callout>
+  Under `--envelope`, **a flow that fails exits 0** — the flow failing is the
+  answer to the question you asked, not a failure of the CLI. A run that could not
+  **start** (an unresolvable block address, a broken config) is a bad request and
+  still exits non-zero, because there is no outcome to report.
+</Callout>
+
+#### `--envelope-out <path>` — when the flow itself prints
+
+**stdout is not the CLI's alone.** A [`log`](/docs/blocks/log) block writes through
+a logger connector, whose `output` defaults to `stdout` — so a flow that logs
+anything interleaves its own JSON with the envelope, and a program reading stdout
+gets two documents where it expected one. It cannot be quieted from outside,
+either: the connector takes its level and destination from the **config**, not the
+environment.
+
+`--envelope-out` writes the envelope to a file instead, on a channel the flow
+cannot reach. stdout stays entirely the flow's.
+
+```bash
+octo invoke --config samples/multi-transform.yaml --flow order \
+  --data '{"orderId":"A-1","qty":3,"price":10.0}' --envelope-out outcome.json
+
+# stdout is the flow's own log line:
+{"time":"…","level":"INFO","msg":"order A-1 subtotal=30 total=33"}
+
+# the answer is in the file:
+cat outcome.json
+{"result":{"event_id":"…","body":{"orderId":"A-1","subtotal":30,"total":33}}}
+```
+
+This is what `dolphin`, the test runner, reads — which is why it can test a flow
+that logs.
 
 **A block that is never reached is a normal result, not an error.** If the flow
 takes the other branch of an `if`, matches a different `switch` case, or drops

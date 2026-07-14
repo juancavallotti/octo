@@ -1,0 +1,96 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+#
+# The release artifacts for the two CLIs — octo, the runtime, and dolphin, its test
+# runner — cross-compiled for macOS, Linux and Windows on amd64 and arm64, and
+# attached to the GitHub release that release-please has already created for the tag.
+#
+# Two invariants below are load-bearing for the download tables in README.md and the
+# installation docs; both are called out at the setting that keeps them.
+version: 2
+
+project_name: octo
+
+# Not plain dist/, which `task helm:package` also writes into: `--clean` deletes
+# whatever directory this names.
+dist: dist/goreleaser
+
+builds:
+  # Both binaries are pure Go (sqlite comes from modernc, not cgo), so CGO_ENABLED=0
+  # lets one Linux runner build every target. These are the default (untagged) builds
+  # — no `tags:` here — so they carry the standalone services provider, exactly like
+  # the binaries `task runtime:build` produces.
+  - id: octo
+    main: ./runtime/octo
+    binary: octo
+    env: [CGO_ENABLED=0]
+    # Pinned, because goreleaser's default goarch list also includes 386: left to the
+    # default we would quietly start publishing an octo_linux_386 nobody asked for.
+    goos: [darwin, linux, windows]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    # -s -w strip the symbol table and DWARF. BuildDate is the only thing injected:
+    # Version is a const that release-please already stamped on the very commit being
+    # tagged, so injecting it too would let a released archive and a `go install` of
+    # the same tag disagree about what they are. publish-cli checks const == tag.
+    ldflags: ['-s -w -X main.BuildDate={{ .Date }}']
+    mod_timestamp: '{{ .CommitTimestamp }}'
+
+  - id: dolphin
+    main: ./runtime/dolphin
+    binary: dolphin
+    env: [CGO_ENABLED=0]
+    goos: [darwin, linux, windows]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags: ['-s -w -X main.BuildDate={{ .Date }}']
+    mod_timestamp: '{{ .CommitTimestamp }}'
+
+archives:
+  # The archive names carry NO version — the tag in the release URL already
+  # identifies them. That is not cosmetic: the download tables in README.md sit
+  # inside release-please's version markers, and its updater rewrites one version
+  # string per line, so each row's only version may be the one in its URL. The
+  # goreleaser default name_template embeds the version and would break every link.
+  - id: octo
+    ids: [octo]
+    name_template: 'octo_{{ .Os }}_{{ .Arch }}'
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files: [LICENSE, README.md]
+
+  - id: dolphin
+    ids: [dolphin]
+    name_template: 'dolphin_{{ .Os }}_{{ .Arch }}'
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files: [LICENSE]
+
+checksum:
+  # One file covering both archive sets, and named the way the README and the install
+  # docs link to it. The default is <project>_<version>_checksums.txt.
+  name_template: checksums.txt
+
+snapshot:
+  version_template: '{{ incpatch .Version }}-snapshot'
+
+changelog:
+  # release-please owns the notes and has already written them onto the release by the
+  # time this runs. github-native only ever applies to the one case where goreleaser
+  # has to create the release itself — a hand-pushed tag — and matches what the old
+  # `gh release create --generate-notes` fallback did there.
+  use: github-native
+
+release:
+  # release-please creates the release, changelog and all, BEFORE it calls the release
+  # workflow. keep-existing means goreleaser uploads the artifacts and leaves those
+  # notes alone; `replace` would destroy them and `append` would duplicate them. It is
+  # the goreleaser default, pinned here because it is the thing protecting the notes.
+  mode: keep-existing
+  # Re-running the workflow on the same tag overwrites the assets rather than failing,
+  # which is what `gh release upload --clobber` used to do.
+  replace_existing_artifacts: true
+  make_latest: true

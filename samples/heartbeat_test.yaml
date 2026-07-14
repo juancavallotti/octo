@@ -1,0 +1,38 @@
+flow: heartbeat
+
+# The `@every 2s` cron source does not run under `invoke`, so the message it would have
+# produced from its payload expression — {"firedAt": string(now), "kind": "tick"} — is
+# seeded here.
+inputs:
+  tick:
+    data: { firedAt: "2026-07-10T12:00:00Z", kind: tick }
+
+cases:
+  - name: the heartbeat-log processor runs once per tick and passes the tick through unchanged
+    input: tick
+    expect:
+      body: { firedAt: "2026-07-10T12:00:00Z", kind: tick }
+      that:
+        - 'vars.size() == 0' # a log block adds nothing to the message
+    spies:
+      # The block has no `name`, so it is addressed by the processor it refs.
+      heartbeat.heartbeat-log:
+        count: 1
+        records:
+          - input:
+              that: ['body.firedAt == "2026-07-10T12:00:00Z"', 'body.kind == "tick"']
+            output:
+              body: { firedAt: "2026-07-10T12:00:00Z", kind: tick }
+
+  # Pins that the log line is the CEL expression the sample configures — it reads
+  # body.firedAt, so a tick without one cannot be rendered and the block fails.
+  - name: the log line really reads body.firedAt, so a tick without one fails the block
+    input:
+      data: { kind: tick }
+    expect:
+      error: render log message
+    spies:
+      heartbeat.heartbeat-log:
+        count: 1
+        records:
+          - error: render log message

@@ -1,0 +1,105 @@
+flow: orders-api
+
+# The source is http and sources do not run under `invoke`, so the variables the http
+# source would have set — vars.method, the {id} path param, the captured X-Tenant
+# header — are seeded here by hand.
+#
+# The same is true of the QUEUE sources in front of the two worker flows: under invoke
+# nothing is subscribed to "audit-work" or "enrich-work". That difference is the whole
+# point of this sample, and it shows up here:
+#
+#   * audit-async (default dispatch, fire-and-forget) is NOT mocked. It really
+#     publishes, and with no subscriber to pick the message up the flow carries on
+#     anyway — which is what fire-and-forget means.
+#   * enrich-sync (awaitReply: true) IS mocked. It waits for a competing consumer to
+#     reply, and with no worker running it waits until the case times out (verified:
+#     unmocked, this flow dies with "context deadline exceeded"). The mock stands in
+#     for the worker's reply — a body AND variables, because the sample's claim is
+#     that both are folded back into the caller's message.
+
+inputs:
+  vip-order:
+    data: { item: widget, amount: 1500 }
+    vars: { method: POST, id: "42", X-Tenant: acme }
+
+cases:
+  # The reply the worker sends back BECOMES the caller's message: its body is the
+  # flow's result, and its variables are visible to the blocks after the dispatch —
+  # the final log block reads vars.priority, which only the worker ever sets.
+  - name: the awaited reply's body and vars are folded back into the caller
+    input: vip-order
+    mocks:
+      # What order-enricher would have replied with, had a replica been listening.
+      orders-api.enrich-sync:
+        cases:
+          - when: 'body.amount >= 1000.0 && vars.id == "42"'
+            body:
+              order: { orderId: "42", tenant: acme, item: widget, amount: 1500 }
+              priority: high
+              status: accepted
+            vars: { priority: high }
+    expect:
+      body:
+        order: { orderId: "42", tenant: acme, item: widget, amount: 1500 }
+        priority: high
+        status: accepted
+      vars: { priority: high } # folded back from the reply, not set by this flow
+    spies:
+      # The one-way dispatch ran for real, and it published the RAW order — it is the
+      # first block in the chain, before anything enriched the body. Reordering the
+      # two dispatches would break this.
+      orders-api.audit-async:
+        count: 1
+        records:
+          - input:
+              body: { item: widget, amount: 1500 }
+              vars: { id: "42", X-Tenant: acme }
+            # Fire-and-forget: the publish returns the message untouched. No worker is
+            # subscribed, nothing came back, and the flow continued anyway.
+            output:
+              body: { item: widget, amount: 1500 }
+      orders-api.enrich-sync:
+        count: 1
+        records:
+          - input:
+              body: { item: widget, amount: 1500 }
+
+  # awaitReply itself, pinned without a mock: a mock REPLACES the dispatch, so no case
+  # above would notice if `awaitReply: true` were deleted from the sample. Left real,
+  # with no replica subscribed to "enrich-work", the block waits for a reply that never
+  # comes and the case dies on its deadline. That wait IS request/reply. (A dispatch
+  # without awaitReply would return at once, and this flow would then fail on the log
+  # block instead, for want of vars.priority — a different error.)
+  - name: the awaited dispatch really waits for a worker reply
+    input: vip-order
+    timeout: 3s
+    expect:
+      error: deadline exceeded
+    spies:
+      orders-api.audit-async: { count: 1 } # the fire-and-forget publish did not wait
+
+  # A worker that fails the request/reply dispatch fails the caller: there is no
+  # flow-level error chain here, so the failure surfaces as the flow's failure.
+  - name: a worker error on the awaited dispatch fails the caller
+    input: vip-order
+    mocks:
+      orders-api.enrich-sync:
+        default:
+          error: no replica answered
+    expect:
+      error: no replica answered
+    spies:
+      # The fire-and-forget audit still went out, before the failure.
+      orders-api.audit-async: { count: 1 }
+
+  # The blocks after the awaited dispatch depend on the worker's VARIABLES, not just
+  # its body: a reply that carries a body but no priority variable cannot be logged,
+  # and the flow fails. This is what pins "the reply's variables are folded back in".
+  - name: a reply that carries no priority variable breaks the caller's final log
+    input: vip-order
+    mocks:
+      orders-api.enrich-sync:
+        default:
+          body: { order: { orderId: "42" }, status: accepted }
+    expect:
+      error: priority

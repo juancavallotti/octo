@@ -1,0 +1,70 @@
+flow: normalize-contact
+
+# HONEST LIMITS: the sample's claim is that the model reshapes the body to the target
+# shape and that the block ERRORS when the model's answer fails outputSchema. Both the
+# mapping and the validation happen inside the block, on the model's answer — mock the
+# block and both are gone. So this suite cannot pin the mapping, and cannot pin the
+# schema validation. (ai-retry_test.yaml pins what the error would compose with.)
+#
+# What is pinned: that the block builds from this config (prompt, examples, and a
+# well-formed outputSchema), that it is wired to the claude connector and calls it, and
+# what the flow feeds it.
+
+cases:
+  # Not mocked: the ai-mapping block is built and run for real, with the model made
+  # UNREACHABLE (the Anthropic SDK honours ANTHROPIC_BASE_URL; 127.0.0.1:9 refuses the
+  # connection offline, deterministically, in milliseconds — no network, no cost).
+  #
+  # Getting as far as "llm-anthropic complete" is the assertion: the block was
+  # constructed from this config — a malformed outputSchema or a missing connector
+  # would have failed earlier, with a different message — and it really does call the
+  # model rather than mapping the body itself.
+  - name: the mapping block builds from its schema and examples, and calls the model
+    input:
+      data:
+        name: Ada Lovelace
+        tel: (415) 555-0132
+        email: ADA@EX.COM
+    env:
+      ANTHROPIC_BASE_URL: http://127.0.0.1:9
+    expect:
+      error: 'llm-anthropic complete: Post "http://127.0.0.1:9/v1/messages"'
+      # The discard port, named in full ON PURPOSE. A looser assertion — "llm-anthropic
+      # complete" — would also be satisfied by a 401 from the REAL api.anthropic.com, so
+      # if the SDK ever stopped honouring ANTHROPIC_BASE_URL this case would stay green
+      # while quietly calling out from CI. Naming the URL the call actually went to makes
+      # that impossible: a live call cannot produce this error.
+
+  # With the model stood in for, the real assertion is the spy's INPUT: the raw contact
+  # is what the flow hands the mapper — whole, unaltered, and as the message body,
+  # which is what ai-mapping maps. The output body below is the mock's own and proves
+  # only that the block's result is the flow's result (nothing rewrites it downstream).
+  - name: the raw contact is what the mapper is fed, and its answer is the flow result
+    input:
+      data:
+        name: Ada Lovelace
+        tel: (415) 555-0132
+        email: ADA@EX.COM
+    mocks:
+      normalize-contact.normalize:
+        default:
+          body:
+            firstName: Ada
+            lastName: Lovelace
+            email: ada@ex.com
+            phone: "+14155550132"
+    expect:
+      body:
+        firstName: Ada
+        lastName: Lovelace
+        email: ada@ex.com
+        phone: "+14155550132"
+    spies:
+      normalize-contact.normalize:
+        count: 1
+        records:
+          - input:
+              body:
+                name: Ada Lovelace
+                tel: (415) 555-0132
+                email: ADA@EX.COM

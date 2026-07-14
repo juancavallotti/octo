@@ -1,0 +1,15 @@
+flow: order
+
+cases:
+  # The sample's claim is isolation: the scope rewrites the body and sets a variable
+  # on its own clone, and only what setVars names escapes. Both halves are asserted —
+  # the total came out, and the scope's scratch body and variable did not.
+  - name: only the total escapes the scope
+    input:
+      data: { orderId: A-1, qty: 3, price: 10.0 }
+    expect:
+      body: { orderId: A-1, qty: 3, price: 10 } # the original body, untouched
+      vars: { total: 30 }
+      that:
+        - '!has(vars.workingNote)' # the scope's scratch variable stayed inside
+        - '!has(body.note)' # and so did the body it wrote on its clone

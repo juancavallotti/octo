@@ -1,0 +1,42 @@
+flow: audit-ticks
+
+# The `@every 2s` cron source does not run under `invoke`, so the tick its payload
+# expression would have produced ({"date": string(now)}) is seeded here.
+inputs:
+  ticked:
+    data: { date: "2026-07-10T12:00:00Z" }
+
+cases:
+  # What the sample demonstrates: an inline log block bound to the NAMED `audit` logger
+  # connector (`settings.logger: audit`) rather than the process default. That binding is
+  # resolved when the block is BUILT — a log block naming a connector that is not
+  # configured fails with `logger connector "audit" is not configured` and the flow never
+  # runs — so a case that reaches the block at all has already proved the connector
+  # resolved and its file was opened. The block is unnamed, so it is addressed by its type.
+  - name: the tick is logged through the named audit logger and passes through unchanged
+    input: ticked
+    expect:
+      body: { date: "2026-07-10T12:00:00Z" }
+      that:
+        - 'vars.size() == 0' # a log block adds nothing to the message
+    spies:
+      audit-ticks.log:
+        count: 1
+        records:
+          - input:
+              body: { date: "2026-07-10T12:00:00Z" }
+            output:
+              body: { date: "2026-07-10T12:00:00Z" }
+
+  # Pins the configured line ('"tick at " + body.date'): rendering it is real work against
+  # the message, so a tick with no date fails the block instead of logging something else.
+  - name: the audit line really reads body.date, so a tick without one fails the block
+    input:
+      data: { kind: tick }
+    expect:
+      error: render log message
+    spies:
+      audit-ticks.log:
+        count: 1
+        records:
+          - error: render log message

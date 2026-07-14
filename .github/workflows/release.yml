@@ -118,12 +118,12 @@ jobs:
             docker.io/juancavallotti/octo-runtime:${{ steps.ver.outputs.version }}
             docker.io/juancavallotti/octo-runtime:latest
 
-  # Cross-compile the octo CLI and attach the archives to the GitHub release, so
-  # users can install it without a Go toolchain. The CLI is pure Go (sqlite comes
-  # from modernc, not cgo), so CGO_ENABLED=0 lets one Linux runner build every
-  # target. Archives are named without the version — the tag in the release URL
-  # already identifies them, and it keeps the README download links to a single
-  # version string per line for release-please to rewrite.
+  # Cross-compile both CLIs — octo, and dolphin, its test runner — and attach the
+  # archives to the GitHub release, so users can install them without a Go toolchain.
+  # GoReleaser does the work; .goreleaser.yaml is the source of truth for the targets,
+  # the archive names, and the checksums file. release-please has already created the
+  # release and its notes by the time this runs, so goreleaser only uploads the
+  # assets (release.mode: keep-existing).
   publish-cli:
     needs: release-check
     if: ${{ inputs.tag != '' || startsWith(github.ref, 'refs/tags/v') }}
@@ -135,47 +135,36 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.ref }}
+          # GoReleaser derives the version from git history and refuses a shallow clone.
+          fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - name: Cross-compile the CLI
+      # The binaries report a version const that release-please stamps into the commit
+      # being tagged — nothing is injected at link time, so if a const ever disagrees
+      # with the tag, the release would ship a binary lying about what it is. The most
+      # likely cause is a new CLI whose version.go was never added to the extra-files
+      # list in release-please-config.json, which this is here to catch.
+      - name: The version consts must match the tag
         env:
-          CGO_ENABLED: "0"
-          # -s -w strips the symbol table and DWARF; -trimpath drops local paths.
-          # These are the default (untagged) builds, so they carry the standalone
-          # services provider — the same binary `task runtime:build` produces.
-          LDFLAGS_BASE: "-s -w"
-        run: |
-          DIST="$GITHUB_WORKSPACE/dist"
-          mkdir -p "$DIST"
-          # Stamp the build date the same way `task runtime:build` does, so
-          # `octo version` reports it on released binaries too.
-          BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64 windows/arm64; do
-            GOOS="${target%/*}"
-            GOARCH="${target#*/}"
-            staging="$(mktemp -d)"
-            if [ "$GOOS" = windows ]; then bin=octo.exe; else bin=octo; fi
-            echo "==> building $GOOS/$GOARCH"
-            GOOS="$GOOS" GOARCH="$GOARCH" go build -trimpath \
-              -ldflags "$LDFLAGS_BASE -X main.BuildDate=$BUILD_DATE" \
-              -o "$staging/$bin" ./runtime/octo
-            if [ "$GOOS" = windows ]; then
-              (cd "$staging" && zip -q "$DIST/octo_${GOOS}_${GOARCH}.zip" "$bin")
-            else
-              tar -czf "$DIST/octo_${GOOS}_${GOARCH}.tar.gz" -C "$staging" "$bin"
-            fi
-            rm -rf "$staging"
-          done
-          cd "$DIST" && sha256sum octo_* > checksums.txt
-          cat checksums.txt
-      - name: Attach the archives to the release
-        env:
-          GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          # release-please creates the release before calling this workflow. A
-          # hand-pushed tag has none, so create it rather than fail the job.
-          gh release view "$TAG" >/dev/null 2>&1 \
-            || gh release create "$TAG" --title "$TAG" --generate-notes
-          gh release upload "$TAG" dist/* --clobber
+          want="${TAG#v}"
+          for f in runtime/octo/version.go runtime/dolphin/version.go; do
+            got="$(grep -o 'Version = "[^"]*"' "$f" | cut -d'"' -f2)"
+            if [ "$got" != "$want" ]; then
+              echo "::error file=$f::says $got, but the tag says $want — is $f listed in release-please-config.json extra-files?"
+              exit 1
+            fi
+            echo "$f: $got"
+          done
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          # Pin the version goreleaser builds rather than letting it infer one with
+          # `git describe`, which also covers the workflow_dispatch path.
+          GORELEASER_CURRENT_TAG: ${{ inputs.tag || github.ref_name }}

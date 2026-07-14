@@ -429,6 +429,13 @@ To have your editor complete the file and a validator check it, print its schema
 ./bin/octo schema --kind debug-config --format yaml
 ```
 
+<Callout type="info">
+A file like this one, plus **what should have happened**, is a test. That is all
+[`dolphin`](/guides/testing-flows) is: it writes a debug config per case, runs it
+through this same `invoke`, and checks the answer. A reproduction you checked in is
+one assertion away from a regression test that runs in CI.
+</Callout>
+
 ## Things worth knowing
 
 - **The block you break on still runs.** The snapshot is taken after it, so you

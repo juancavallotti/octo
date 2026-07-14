@@ -9,6 +9,7 @@
     "validation-and-auth",
     "composing-flows",
     "debugging-flows",
+    "testing-flows",
     "events-and-queues",
     "object-storage-and-caching",
     "serving-html",

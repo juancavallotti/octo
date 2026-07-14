@@ -1,0 +1,46 @@
+# Tests the PRODUCE half of raw content (the sample's flow 1, `page`): a
+# template-resource block with `rawBody: true` puts the message into raw-content
+# mode — Body becomes exactly {contentType, rawData} — which is what lets the http
+# source serve the rendered HTML with its own Content-Type instead of JSON-encoding
+# it. The SOURCE half (`submit`) is a second flow, and a dolphin suite tests one
+# flow, so it lives in submit_test.yaml beside this file.
+#
+# The http source does not run under invoke, so the path parameter it would have
+# extracted from /page/{name} is seeded by hand: vars.name.
+flow: page
+
+cases:
+  - name: the rendered page is a raw-content body carrying the html and its content type
+    input:
+      vars:
+        name: World # what the {name} path segment would have set
+    expect:
+      that:
+        # the raw-content envelope, and nothing else in the body: this is the shape
+        # the http source keys off to serve rawData verbatim
+        - 'body.size() == 2'
+        - 'body.contentType == "text/html; charset=utf-8"'
+        - 'body.rawData.startsWith("<!doctype html>")'
+        # the template interpolated {{ vars.name }} — the page is rendered, not
+        # served as a static file
+        - 'body.rawData.contains("<h1>Hello, World!</h1>")'
+        # and it is HTML, not JSON-escaped HTML
+        - '!body.rawData.contains("\\u003c")'
+
+  - name: a different path parameter renders a different page
+    input:
+      vars:
+        name: Ada
+    expect:
+      that:
+        - 'body.rawData.contains("<h1>Hello, Ada!</h1>")'
+        - 'body.contentType == "text/html; charset=utf-8"'
+
+  # The template reads vars.name, not body.name: a request that never went through
+  # the /page/{name} route has nothing to render and must fail rather than emit a
+  # half-rendered page.
+  - name: rendering without the path parameter fails the flow
+    input:
+      data: {}
+    expect:
+      error: 'no such key: name'

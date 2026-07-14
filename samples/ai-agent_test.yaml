@@ -1,0 +1,61 @@
+flow: enrich
+
+# HONEST LIMITS: the sample's claim is that the model accomplishes the task by calling
+# the block's branches as TOOLS, in a loop. The loop lives inside the ai-agent block,
+# and mocking a composite replaces the block AND its branches — the tools go with it.
+# So no case here can prove classify_size was called, or called twice, or that the
+# variables a tool set survived the loop. A mock that returned {"tier":"smb"} and then
+# asserted {"tier":"smb"} would be asserting itself; there is no such case.
+#
+# What is pinned: that the agent block builds — its tools, their inputSchemas, the
+# guardrail and the default path are valid config — that it is wired to the claude
+# connector and calls it, that an agent which cannot run fails the flow, and what the
+# flow feeds the model.
+#
+# What is NOT pinned: the tool loop, the tool result feeding back to the model, the
+# accumulation of variables across tool calls, maxIterations, and the guardrail's
+# default path. All of them need a model, and no test may call one.
+
+cases:
+  # Not mocked, so the agent is built and run for real — with the model UNREACHABLE:
+  # the Anthropic SDK honours ANTHROPIC_BASE_URL, and 127.0.0.1:9 (discard) refuses the
+  # connection offline, in milliseconds. No network, no cost, same outcome every run.
+  #
+  # Reaching "llm-anthropic complete" proves the ai-agent block was constructed from
+  # this config — a tool with a malformed inputSchema, or a missing default path, would
+  # have failed earlier and differently — and that it really does drive the model.
+  #
+  # It also pins a behaviour worth pinning: an agent that cannot reach the model FAILS.
+  # The default path is the guardrail for a model that declines or runs out of
+  # iterations, not a catch-all for a broken connector.
+  - name: the agent builds with its tools and calls the model, and a broken model fails the flow
+    input:
+      data: { company: Acme, domain: acme.example }
+    env:
+      ANTHROPIC_BASE_URL: http://127.0.0.1:9
+    expect:
+      error: 'llm-anthropic complete: Post "http://127.0.0.1:9/v1/messages"'
+      # The discard port, named in full ON PURPOSE. A looser assertion — "llm-anthropic
+      # complete" — would also be satisfied by a 401 from the REAL api.anthropic.com, so
+      # if the SDK ever stopped honouring ANTHROPIC_BASE_URL this case would stay green
+      # while quietly calling out from CI. Naming the URL the call actually went to makes
+      # that impossible: a live call cannot produce this error.
+
+  # The lead is what the agent is given: the spy's input is the flow's own doing and is
+  # a real assertion. The result body is the mock's, and is asserted only to pin that
+  # the agent's answer is the flow's answer, unwrapped.
+  - name: the inbound lead reaches the agent untouched, and the agent's answer is the flow result
+    input:
+      data: { company: Acme, domain: acme.example }
+    mocks:
+      enrich.enrich-lead:
+        default:
+          body: { tier: smb, fit: true }
+    expect:
+      body: { tier: smb, fit: true }
+    spies:
+      enrich.enrich-lead:
+        count: 1
+        records:
+          - input:
+              body: { company: Acme, domain: acme.example }

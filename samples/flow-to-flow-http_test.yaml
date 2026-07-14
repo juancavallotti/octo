@@ -1,0 +1,56 @@
+flow: greet-service
+
+# This sample is a pair of flows: `caller` POSTs to `greet-service` over a real HTTP
+# round trip. Only one of them can be tested here — a suite names one flow — and it has
+# to be the service.
+#
+# `caller` is a cron tick whose only step is the `rest` block that leaves the process.
+# Under invoke the http source never starts, so nothing is listening on 127.0.0.1:8080
+# and the call cannot be allowed to happen; mocking it would leave the case asserting a
+# body this file invented, which proves nothing about the sample. `greet-service` is
+# the side with real logic, and it is the contract `caller` depends on — so that is
+# what is pinned here, including the exact request `caller`'s cron payload builds.
+#
+# Not covered, therefore: caller's rest settings (POST /greet, body, X-Request-Id) and
+# its report-reply log. Running the two flows against each other needs the server up,
+# which is `task run:sample`, not `invoke`.
+
+cases:
+  # The http source does not run, so the request body is the case's input. The source
+  # would also have set correlationID from the X-Request-Id header; under invoke the
+  # engine generates one, and the flow's job is to echo whatever it is.
+  - name: a posted name comes back as the greeting the HTTP response carries
+    input:
+      data: { name: ada }
+    expect:
+      that:
+        - 'body.greeting == "Hello, ada!"'
+        - "body.requestId == correlationID" # the X-Request-Id echo
+        - "body.size() == 2" # set-payload REPLACES the body: no `name` left over
+
+  # The request `caller`'s cron payload actually builds — {"name": ..., "at": ...} —
+  # and the field of the reply `caller` then logs (body.greeting). If either side of
+  # this contract moved, flow A would log an empty greeting at runtime and nothing else
+  # in the sample would complain.
+  - name: the request flow A sends is answered with the greeting flow A logs
+    input:
+      data: { name: world, at: "2026-07-13T12:00:00Z" }
+    expect:
+      that:
+        - 'body.greeting == "Hello, world!"'
+        - "has(body.greeting)"
+        - "!has(body.at)"
+    spies:
+      greet-service.build-greeting:
+        count: 1
+        records:
+          - input:
+              body: { name: world, at: "2026-07-13T12:00:00Z" }
+
+  # The greeting is built by CEL over body.name: a request without one is a failure,
+  # not a "Hello, !".
+  - name: a request with no name fails rather than greeting nobody
+    input:
+      data: { nombre: ada }
+    expect:
+      error: name

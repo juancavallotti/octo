@@ -19,6 +19,7 @@
       "changelog-path": "CHANGELOG.md",
       "extra-files": [
         "runtime/octo/version.go",
+        "runtime/dolphin/version.go",
         "packages/mcp/src/handler.ts",
         "apps/docs/lib/version.ts",
         "helm/Chart.yaml",

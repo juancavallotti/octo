@@ -1,0 +1,53 @@
+# Tests the SOURCE half of raw content (the sample's flow 2, `submit`): the http
+# source accepts a non-JSON request body and stores it as {contentType, rawData},
+# and fromFormData() reverts that raw form string back into a structured JSON body.
+#
+# A dolphin suite tests one flow; the `page` flow is covered by config_test.yaml
+# beside this file.
+#
+# The source does not run under invoke, so each case seeds the raw-content envelope
+# the source would have produced as the input `data`.
+flow: submit
+
+cases:
+  - name: a urlencoded form body is parsed into a json object
+    input:
+      data:
+        contentType: application/x-www-form-urlencoded
+        rawData: name=Ann&city=Berlin
+    expect:
+      # exactly: the flow answers with the parsed form and nothing else — no
+      # leftover rawData, no contentType
+      body:
+        name: Ann
+        city: Berlin
+
+  # fromFormData is a real form decoder, not a split on & and =: it percent-decodes,
+  # turns + into a space, and collects a repeated key into a list.
+  - name: form encoding is decoded, not just split
+    input:
+      data:
+        contentType: application/x-www-form-urlencoded
+        rawData: name=Ann+Lee&city=S%C3%A3o%20Paulo&tag=a&tag=b
+    expect:
+      body:
+        name: Ann Lee
+        city: São Paulo
+        tag: [a, b]
+
+  - name: an empty form yields an empty body
+    input:
+      data:
+        contentType: application/x-www-form-urlencoded
+        rawData: ""
+    expect:
+      body: {}
+
+  # The flow is written against a raw-content body. A plain JSON post — a source
+  # without rawBody: true — has no rawData to parse, and must fail rather than
+  # quietly return nothing.
+  - name: a body that is not raw content fails the flow
+    input:
+      data: { name: Ann }
+    expect:
+      error: 'no such key: rawData'

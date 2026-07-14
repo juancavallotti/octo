@@ -1,0 +1,63 @@
+# WHAT THIS SUITE CAN AND CANNOT PROVE — read this before trusting it.
+#
+# Everything this sample demonstrates happens INSIDE the ai-agent block: the model
+# is shown each skill's name and description, decides a skill is relevant, calls the
+# implicit load_skill tool, and only then gets the rendered template. There is no
+# mockable seam between the block and Anthropic — a mock REPLACES the block, and
+# with it the skills, the tools and the guardrail — so a case can either call
+# Anthropic for real (a network call, with a real key, giving a non-deterministic
+# answer) or assert nothing about skill loading at all. Neither is a test, so
+# neither is written: the on-demand load, the lookup_order tool call and the
+# guardrail branch are left as SKIPPED cases below, named so the gap is visible.
+#
+# What the one live case does pin is the part of the sample that lives outside the
+# model: that this config BUILDS. The skill template resources (skills/refunds.md,
+# skills/shipping.md) are loaded when the config loads, the tool's JSON schema is
+# parsed, and the skill names are validated against the tool names and the reserved
+# load_skill name. Delete a skill file, rename an alias, name a skill `load_skill`,
+# or break the tool schema, and the case fails.
+#
+# (A "no ANTHROPIC_API_KEY -> refuses to start" case is not written either: octo
+# fails while LOADING the config, before the flow is invoked, and dolphin reports
+# that as a broken suite — exit 2 — rather than as a case whose flow failed. There
+# is no expectation that can hold it.)
+flow: support
+
+cases:
+  # The agent is stood in for, so no LLM is called. The assertion is not the body
+  # (that is the mock's) — it is that the flow ran at all, which it can only do if
+  # the whole config resolved: both skill resources, the tool schema, the guardrail
+  # chain, and the connector.
+  - name: the config builds — the skill resources, the tool and the connector all resolve
+    input:
+      data: { question: "Can I get a refund on an order delivered 2 weeks ago?" }
+    mocks:
+      support.support-assistant:
+        default:
+          body: { answer: "stood in for the model" }
+    # no `expect`: this asserts the flow completed and did not fail, and nothing
+    # that the mock itself supplied
+
+  - name: the model loads the refunds skill on demand before answering a refund question
+    skip: >
+      cannot be tested: the decision to call load_skill is made by the model inside
+      the ai-agent block, and mocking that block replaces the skills along with it.
+      Testing this needs a seam below the agent — a fake LLM connector, or an
+      llm-anthropic baseUrl pointed at a local stub.
+    input:
+      data: { question: "Can I get a refund on an order delivered 2 weeks ago?" }
+
+  - name: the agent calls the lookup_order tool and grounds its answer in the result
+    skip: >
+      cannot be tested: same reason. The tool branch
+      (support.support-assistant[lookup_order]) only runs when the model calls it,
+      and a mock of the agent replaces the branch too.
+    input:
+      data: { question: "When was order A-100 delivered?" }
+
+  - name: the guardrail default chain answers when the model never finishes
+    skip: >
+      cannot be tested: the `default:` chain is taken when the model refuses or runs
+      out of iterations, both of which are decisions inside the agent loop.
+    input:
+      data: { question: "" }

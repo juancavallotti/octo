@@ -32,6 +32,10 @@ env:
   OCTO_RUN_DIR: '{{.ROOT_DIR}}/.octo-run'
   # Where the standalone app reads/writes local flow YAML under `task dev`.
   OCTO_FS_DIR: '{{.ROOT_DIR}}/.octo-flows'
+  # The octo binary dolphin drives, so a dolphin run from this repo tests against the
+  # octo we just built and not whatever is on PATH. Distinct from OCTO_BIN_PATH above,
+  # which is the platform app's runner: different consumers, do not merge them.
+  OCTO_PATH: '{{.ROOT_DIR}}/bin/octo'
 
 # The kube context k3d creates for our cluster. Every cluster:* task pins to it
 # explicitly so a stray current-context (e.g. a remote EKS cluster) can never be
@@ -51,13 +55,17 @@ tasks:
     desc: Run tests across all modules (runtime + platform + standalone + orchestrator + logs)
     cmds:
       - task: runtime:test
+      # The sample flows, run through dolphin against a real octo. They are the runtime's
+      # end-to-end tests: the unit tests above prove the engine works, these prove a flow
+      # someone might actually copy still does what its comments say.
+      - task: runtime:test:samples
       - task: platform:test
       - task: standalone:test
       - task: orchestrator:test
       - task: logs:test
 
   build:
-    desc: Build all modules (CLI binary + platform + standalone + orchestrator + logs)
+    desc: Build all modules (CLI binaries + platform + standalone + orchestrator + logs)
     cmds:
       - task: runtime:build
       - task: platform:build
@@ -142,6 +150,12 @@ tasks:
       - test -f release-please-config.json
       - test -f .release-please-manifest.json
       - test -f README.md
+      # GoReleaser builds the release archives for both CLIs, and release-please
+      # stamps each one's version const — a missing version.go here means a binary
+      # that ships claiming whatever version it was born with, forever.
+      - test -f .goreleaser.yaml
+      - test -f runtime/octo/version.go
+      - test -f runtime/dolphin/version.go
 
   cluster:preflight:
     desc: Verify docker, k3d and devspace are installed

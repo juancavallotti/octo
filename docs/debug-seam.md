@@ -213,10 +213,10 @@ fired. A plain `bool` cannot express both. `TestBreakEnvelopeStaysCompatible` an
 
 If you grow the envelope, grow it **additively** and keep that sniff working.
 
-## The seam has three consumers, not one
+## The seam has four consumers, not one
 
 The CLI was the first, and for a while the only one. It is now the *bottom* of a
-stack, and a feature that stops there is only a third built:
+stack, and a feature that stops there is only a quarter built:
 
 ```
   editor canvas ─┐                         a block, clicked
@@ -224,6 +224,9 @@ stack, and a feature that stops there is only a third built:
   MCP tool ──────┘                  ├─► @octo/run-host ─► octo invoke ─► the seam
                                     │      (spawns it)      (flags)
   a human at a terminal ────────────┘
+
+  a _test.yaml ─────► dolphin ──────────► octo invoke ─► the seam
+                    (spawns it)         (--run-debug-config)
 ```
 
 **`packages/run-host`** (`session.ts`) is the one place that spawns the runner, so
@@ -255,6 +258,25 @@ The rules the schema *cannot* express — one outcome per case, an unmatched mes
 fails the block — go in the description, because the runtime enforces them and an
 agent has nowhere else to learn them.
 
+**dolphin** (`runtime/dolphin/`) is the one consumer that does not go through
+run-host: it spawns `octo invoke --run-debug-config` itself, because a test case
+*is* a debug config plus assertions. Two consequences follow from the seam being a
+config rewrite rather than a check in the execution loop, and both are structural:
+
+> **One case is one process.** Mocks and spies are baked into the flow tree at
+> *build* time, so a service can only ever serve the case it was built for. There is
+> no batching this.
+
+> **A mock removes the block's subtree.** So a suite cannot assert on a decision made
+> *inside* a mocked composite — mock an `ai-router` and its routes go with it. The
+> way around it is to mock a leaf *inside* the composite, which leaves the composite
+> itself running for real.
+
+It reads the outcome from `--envelope-out <file>`, not stdout: a flow with a `log`
+block writes to stdout too, and an envelope interleaved with a log line is not
+JSON. **stdout is not the CLI's private channel** — anything that has to be parsed
+needs a channel of its own.
+
 ## Adding a feature: the checklist
 
 The runtime:
@@ -284,7 +306,12 @@ Then, for each consumer:
    it needs a durable address (`naturalAddress`) and a place in `meta/types.ts` —
    and `meta/rename.ts` has to re-root it when a flow is renamed, because an
    address begins with the flow's name.
-10. Docs: the [CLI guide](../apps/docs/content/docs/guides/debugging-flows.mdx), the
+10. **dolphin**: the section on the test file (`runtime/dolphin/internal/suite/`),
+    its [schema](../runtime/dolphin/testconfig.schema.json) — drift-tested, so it
+    fails until you do — and the assertion for it in `internal/assert/`. A feature
+    that observes needs somewhere to say what it should have observed.
+11. Docs: the [CLI guide](../apps/docs/content/docs/guides/debugging-flows.mdx), the
+    [testing guide](../apps/docs/content/docs/guides/testing-flows.mdx), the
     [CLI reference](../apps/docs/content/docs/reference/cli.mdx), the
     [editor guide](../apps/docs/content/docs/editor/debugging-flows.mdx), and the
     [MCP reference](../apps/docs/content/docs/ai/platform-mcp.mdx).

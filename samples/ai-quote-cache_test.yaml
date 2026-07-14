@@ -1,0 +1,76 @@
+flow: quote-api
+
+# The sample composes three things behind an HTTP endpoint. Two of them run for real
+# here — cache-scope and multi-transform — and only the model is stood in for, by
+# mocking the block INSIDE the cache-scope body (`cached-quote[body].seneca`) rather
+# than the cache-scope itself: mocking the composite would delete the cached body with
+# it, and the memoization would never run.
+#
+# WHAT IS NOT TESTED, and cannot be: the cache HIT. Every dolphin case is its own
+# `octo invoke` process and the standalone KV store lives in that process's memory, so
+# the second request that would replay the cached quote never shares a store with the
+# first. A case can only ever observe the MISS. The suite pins the miss path and the
+# transforms; the "later calls are HITs" claim in the sample's header is out of reach.
+#
+# The http source does not run under invoke either, so the request that would arrive at
+# /quote is written out as the case's input instead.
+
+mocks:
+  # Stands in for Gemini. The flow's own prompt tells the model to ignore the input, so
+  # a single default is faithful: the block answers the same quote whatever it is sent.
+  quote-api.cached-quote[body].seneca:
+    default:
+      body:
+        quote: Difficulties strengthen the mind, as labor does the body.
+        author: Seneca
+
+cases:
+  # The first request through: nothing is cached, so the cache-scope runs its body (the
+  # log and the mapping both crossed exactly once), and multi-transform then derives
+  # the extra fields FROM the quote it got back.
+  #
+  # charCount is the assertion that matters: 57 is size() of the mocked quote string,
+  # computed by the flow — and the second transform reads the variable the first one
+  # set, which is the accumulation the sample's comment claims.
+  - name: a cold cache calls the model once and the transforms derive their fields from its quote
+    input:
+      data: {}
+      vars: { method: GET, path: /quote } # what the http source would have seeded
+    expect:
+      body:
+        quote: Difficulties strengthen the mind, as labor does the body.
+        author: Seneca
+        charCount: 57
+        servedBy: cache-scope + multi-transform
+      vars: { charCount: 57 }
+    spies:
+      quote-api.cached-quote[body].cache-miss:
+        count: 1 # the miss path — the cache did not serve this one
+      quote-api.cached-quote[body].seneca:
+        count: 1
+      quote-api.enrich:
+        count: 1
+        records:
+          # multi-transform receives exactly what the cache-scope produced: the mapped
+          # quote and nothing else. It is the block that adds charCount and servedBy.
+          - input:
+              body:
+                quote: Difficulties strengthen the mind, as labor does the body.
+                author: Seneca
+
+  # The transforms are computed, not constant: a different quote gives a different
+  # charCount. Without this, `charCount: 57` above could be a hard-coded 57 in the flow
+  # and the suite would not notice.
+  - name: charCount is computed from the quote, not fixed
+    input:
+      data: {}
+    mocks:
+      quote-api.cached-quote[body].seneca:
+        default:
+          body:
+            quote: "Luck is what happens when preparation meets opportunity."
+            author: Seneca
+    expect:
+      that:
+        - 'body.charCount == size(body.quote)'
+        - 'body.charCount == 56' # a different quote, a different count — 57 above was not a constant

@@ -35,18 +35,18 @@ func captureStdout(t *testing.T, fn func()) string {
 	return <-done
 }
 
-// printed runs printDebugOutcome and returns the raw line it printed.
+// printed runs reportDebugOutcome and returns the raw line it printed.
 func printed(t *testing.T, req invokeRequest, result *types.Message, runErr error) string {
 	t.Helper()
 	var printErr error
-	out := captureStdout(t, func() { printErr = printDebugOutcome(req, result, runErr) })
+	out := captureStdout(t, func() { printErr = reportDebugOutcome(req, result, runErr) })
 	if printErr != nil {
-		t.Fatalf("printDebugOutcome: %v", printErr)
+		t.Fatalf("reportDebugOutcome: %v", printErr)
 	}
 	return out
 }
 
-// envelope runs printDebugOutcome and decodes the envelope it printed.
+// envelope runs reportDebugOutcome and decodes the envelope it printed.
 func envelope(t *testing.T, req invokeRequest, result *types.Message, runErr error) debugOutcome {
 	t.Helper()
 	out := printed(t, req, result, runErr)
@@ -158,11 +158,11 @@ func TestBreakOutcomeStartupFailureExitsNonZero(t *testing.T) {
 
 	var printErr error
 	out := captureStdout(t, func() {
-		printErr = printDebugOutcome(breakReq(core.NewBreakpoint("orders.nope")), nil, startupErr)
+		printErr = reportDebugOutcome(breakReq(core.NewBreakpoint("orders.nope")), nil, startupErr)
 	})
 
 	if printErr == nil {
-		t.Fatal("printDebugOutcome returned nil for a startup failure, want the error (non-zero exit)")
+		t.Fatal("reportDebugOutcome returned nil for a startup failure, want the error (non-zero exit)")
 	}
 	if !errors.Is(printErr, startupErr) {
 		t.Errorf("returned %v, want the startup error", printErr)

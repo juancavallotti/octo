@@ -1,0 +1,72 @@
+flow: profile
+
+# The store is in-process and each case is its own `octo invoke`, so every case starts
+# with an EMPTY store — which is what lets the flow show a miss and a hit in one run.
+# Nothing here is mocked: an in-process object store is local and deterministic, and
+# mocking object-read would mean asserting the values this file made up rather than the
+# ones the store really returned.
+
+inputs:
+  pro:
+    data: { id: "A-1", plan: pro }
+
+cases:
+  # The sample's claim, end to end: the first read misses (default folded in,
+  # existsVar false), the write persists, and the second read of the SAME key hits
+  # (stored value wins over the default, existsVar true).
+  - name: the cold read misses and defaults, the write persists, and the warm read hits
+    input: pro
+    expect:
+      # object-read reports through variables; the body is untouched all the way through.
+      body: { id: "A-1", plan: pro }
+      vars:
+        profileExists: true
+        profile: { plan: pro }
+    spies:
+      # The log blocks are wire taps, so their INPUT is the message as it stood at that
+      # point in the flow — which is how the two states are pinned in a single run.
+      profile.emit-before:
+        count: 1
+        records:
+          - input:
+              that:
+                - 'vars.profileExists == false' # miss
+                - 'vars.profile.plan == "free"' # the `default` expression, folded in
+      profile.save-profile:
+        count: 1
+      profile.emit-after:
+        count: 1
+        records:
+          - input:
+              that:
+                - 'vars.profileExists == true' # hit
+                - 'vars.profile.plan == "pro"' # the stored value, not the default
+
+  # Proves the warm read genuinely reads what the write PUT there, and is not just the
+  # flow carrying its own body along: a mock REPLACES object-write, so nothing is
+  # persisted, and the second read of the key misses exactly like the first one.
+  - name: with the write stood out nothing is persisted, so the second read misses too
+    input: pro
+    mocks:
+      profile.save-profile:
+        default:
+          body: { id: "A-1", plan: pro } # object-write returns the message unchanged
+    expect:
+      body: { id: "A-1", plan: pro }
+      vars:
+        profileExists: false
+        profile: { plan: free }
+
+  # The key is a CEL expression over the message ('"profile:" + body.id'), so the two
+  # reads and the write address the same object only because they read the same field.
+  - name: the key is derived from body.id, so a message without one fails the first read
+    input:
+      data: { plan: pro }
+    expect:
+      error: load-before
+    spies:
+      # The flow failed at the first read: nothing downstream of it ran.
+      profile.save-profile:
+        count: 0
+      profile.emit-after:
+        count: 0

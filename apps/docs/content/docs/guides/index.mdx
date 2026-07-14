@@ -4,7 +4,7 @@ description: "Task-oriented guides built from runnable samples."
 ---
 
 import { Cards, Card } from 'fumadocs-ui/components/card';
-import { Bug, Clock, Database, FileCode, FileText, Globe, HardDrive, MessageSquare, Puzzle, Radio, Send, ShieldCheck, Shuffle, Sparkles, Wand } from 'lucide-react';
+import { Bug, Clock, Database, FileCode, FileText, FlaskConical, Globe, HardDrive, MessageSquare, Puzzle, Radio, Send, ShieldCheck, Shuffle, Sparkles, Wand } from 'lucide-react';
 
 Every guide in this section is built from a runnable sample in the repository's
 [`samples/`](https://github.com/juancavallotti/octo/tree/main/samples) directory.
@@ -37,6 +37,9 @@ zero setup beyond the `octo` binary.
   </Card>
   <Card icon={<Bug />} href="/guides/debugging-flows" title="Debugging a Flow">
     Stop at any block and inspect the message — or learn the block was never reached.
+  </Card>
+  <Card icon={<FlaskConical />} href="/guides/testing-flows" title="Testing a Flow">
+    Write a flow's tests beside it, mock what calls the world, and run them in CI.
   </Card>
 </Cards>
 

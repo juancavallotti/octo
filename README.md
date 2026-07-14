@@ -10,14 +10,17 @@ reference, guides, and the AI/MCP story — is built from [`apps/docs/`](apps/do
 
 ## Install
 
-Download a prebuilt `octo` CLI — no Go toolchain needed. Unpack it and put the
-binary on your PATH.
+Download a prebuilt CLI — no Go toolchain needed. Unpack it and put the binary on
+your PATH. `octo` is the runtime; `dolphin` is its companion test runner, which
+drives `octo` to unit-test an integration.
 
 <!-- The download links are rewritten on every release by release-please (see the
      extra-files entry in release-please-config.json). Keep exactly one version
      string per line inside the markers — the generic updater rewrites one match
      per line, which is why the archive names carry no version. -->
 <!-- x-release-please-start-version -->
+
+### octo — the runtime
 
 | Platform | Download |
 |---|---|
@@ -27,14 +30,26 @@ binary on your PATH.
 | Linux (arm64) | [octo_linux_arm64.tar.gz](https://github.com/juancavallotti/octo/releases/download/v0.4.1/octo_linux_arm64.tar.gz) |
 | Windows (x86-64) | [octo_windows_amd64.zip](https://github.com/juancavallotti/octo/releases/download/v0.4.1/octo_windows_amd64.zip) |
 | Windows (arm64) | [octo_windows_arm64.zip](https://github.com/juancavallotti/octo/releases/download/v0.4.1/octo_windows_arm64.zip) |
-| — | [checksums.txt](https://github.com/juancavallotti/octo/releases/download/v0.4.1/checksums.txt) |
+
+### dolphin — the test runner
+
+| Platform | Download |
+|---|---|
+| macOS (Apple Silicon) | [dolphin_darwin_arm64.tar.gz](https://github.com/juancavallotti/octo/releases/download/v0.4.1/dolphin_darwin_arm64.tar.gz) |
+| macOS (Intel) | [dolphin_darwin_amd64.tar.gz](https://github.com/juancavallotti/octo/releases/download/v0.4.1/dolphin_darwin_amd64.tar.gz) |
+| Linux (x86-64) | [dolphin_linux_amd64.tar.gz](https://github.com/juancavallotti/octo/releases/download/v0.4.1/dolphin_linux_amd64.tar.gz) |
+| Linux (arm64) | [dolphin_linux_arm64.tar.gz](https://github.com/juancavallotti/octo/releases/download/v0.4.1/dolphin_linux_arm64.tar.gz) |
+| Windows (x86-64) | [dolphin_windows_amd64.zip](https://github.com/juancavallotti/octo/releases/download/v0.4.1/dolphin_windows_amd64.zip) |
+| Windows (arm64) | [dolphin_windows_arm64.zip](https://github.com/juancavallotti/octo/releases/download/v0.4.1/dolphin_windows_arm64.zip) |
+| Both | [checksums.txt](https://github.com/juancavallotti/octo/releases/download/v0.4.1/checksums.txt) |
 
 <!-- x-release-please-end-version -->
 
-Have a Go toolchain? Install the CLI straight from source:
+Have a Go toolchain? Install either CLI straight from source:
 
 ```bash
 go install github.com/juancavallotti/octo/runtime/octo@latest
+go install github.com/juancavallotti/octo/runtime/dolphin@latest
 ```
 
 Prefer Docker? Two public images on Docker Hub, no install at all:
@@ -52,7 +67,7 @@ Building from source is one command (`task runtime:build`); see the
 
 ## Layout
 
-- `runtime/`: the Go module's packages — the runtime engine (`core`, `types`, `connectors`, `services`) and the `octo` CLI (`runtime/octo`). The module itself is rooted at the repo root so the CLI is `go install`-able.
+- `runtime/`: the Go module's packages — the runtime engine (`core`, `types`, `connectors`, `services`) and the two CLIs: `octo` (`runtime/octo`) and `dolphin` (`runtime/dolphin`), the test runner that drives it. The module itself is rooted at the repo root so both are `go install`-able.
 - `apps/standalone/`: the single-user Next.js visual editor (Docker image `juancavallotti/octo`). See [apps/standalone/README.md](apps/standalone/README.md).
 - `apps/platform/`: the orchestrator-backed multi-user Octo web app. See [apps/platform/README.md](apps/platform/README.md).
 - `apps/docs/`: the documentation site (Fumadocs). Content in `apps/docs/content/docs/`.

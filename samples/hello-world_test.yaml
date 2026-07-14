@@ -1,0 +1,42 @@
+flow: greet
+
+# The flow's source is a cron ticker, and sources do not run under `invoke` — so the
+# message the ticker's `payload` expression would have produced ({"date": string(now)})
+# is supplied here instead.
+inputs:
+  ticked:
+    data: { date: "2026-07-10T12:00:00Z" }
+
+cases:
+  # What the sample demonstrates: a named processor (`processors: - name: greeter`)
+  # referenced from the flow by `ref`, and a log block that is a pass-through wire tap.
+  # The block is addressed by the processor it refs, since it has no name of its own.
+  - name: the greeter processor referenced by ref runs and passes the message through unchanged
+    input: ticked
+    expect:
+      body: { date: "2026-07-10T12:00:00Z" }
+      that:
+        - 'vars.size() == 0' # a log block adds nothing to the message
+    spies:
+      greet.greeter:
+        count: 1
+        records:
+          - input:
+              body: { date: "2026-07-10T12:00:00Z" }
+            output:
+              body: { date: "2026-07-10T12:00:00Z" }
+
+  # The log line is a CEL expression over the message, not a fixed string: rendering it
+  # is real work that fails when the field it reads is not there. This is what pins that
+  # `greeter` actually reads body.date — a pass-through block that ignored its `message`
+  # would let this case through.
+  - name: the log line really reads body.date, so a message without one fails the block
+    input:
+      data: { greeting: "hi" }
+    expect:
+      error: render log message
+    spies:
+      greet.greeter:
+        count: 1
+        records:
+          - error: render log message

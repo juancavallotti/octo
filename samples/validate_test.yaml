@@ -1,0 +1,34 @@
+flow: order
+
+cases:
+  - name: a well-formed order is accepted
+    input:
+      data: { id: A-1, amount: 30.0 }
+    expect:
+      body: { orderId: A-1, amount: 30, status: accepted }
+
+  - name: an order with no id and no amount is rejected, and never reaches accept
+    input:
+      data: { amount: 0 }
+    expect:
+      body:
+        error: validation_failed
+        messages:
+          - order id is required
+          - amount must be positive
+      vars:
+        httpStatus: 422
+    spies:
+      # The whole point of a filter block: the rest of the chain does not run.
+      order.accept:
+        count: 0
+
+  # Every failing rule reports, not just the first: a caller fixing one field at a time
+  # because the API only ever tells them about one is the bug this pins.
+  - name: an order with an id but no amount reports only the amount rule
+    input:
+      data: { id: A-2, amount: 0 }
+    expect:
+      that:
+        - 'body.messages == ["amount must be positive"]'
+        - 'vars.validationErrors == ["amount must be positive"]'

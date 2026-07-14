@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/juancavallotti/octo/runtime/core"
 )
 
@@ -130,52 +128,6 @@ func TestSchemaDocumentKinds(t *testing.T) {
 	})
 }
 
-// TestFormatSchemaYAMLKeepsKeyOrder: a schema is read top to bottom, so `type` and
-// `description` belong above the properties they describe. Going through a map would
-// alphabetize them; the yaml.Node path keeps the order the document was written in.
-func TestFormatSchemaYAMLKeepsKeyOrder(t *testing.T) {
-	source := []byte(
-		`{"type":"object","description":"d","properties":{"zebra":{"type":"string"},"apple":{"type":"string"}}}`)
-
-	encoded, err := formatSchema(source, formatYAML)
-	if err != nil {
-		t.Fatalf("formatSchema: %v", err)
-	}
-
-	// It is YAML, and it round-trips to the same document.
-	var got map[string]any
-	if err := yaml.Unmarshal(encoded, &got); err != nil {
-		t.Fatalf("the yaml output does not parse: %v", err)
-	}
-	if got["type"] != "object" {
-		t.Errorf("yaml lost a field: %v", got)
-	}
-
-	text := string(encoded)
-	if indexOf(text, "type:") > indexOf(text, "properties:") {
-		t.Errorf("the yaml was reordered — `type` must still come before `properties`:\n%s", text)
-	}
-	if indexOf(text, "zebra:") > indexOf(text, "apple:") {
-		t.Errorf("the properties were alphabetized, losing the document's order:\n%s", text)
-	}
-
-	// Actually YAML, not the JSON it came from. Parsing JSON as YAML records every
-	// mapping as flow-style, and Marshal honors that — so without stripping the style
-	// the "yaml" output is one long braced line, which is just the JSON again.
-	if strings.Contains(text, `"type": "object"`) {
-		t.Errorf("the yaml output is still in JSON's flow style:\n%s", text)
-	}
-	if !strings.Contains(text, "\nproperties:\n") || !strings.Contains(text, "zebra:\n") {
-		t.Errorf("the yaml output is not indented block style:\n%s", text)
-	}
-}
-
-func TestFormatSchemaRejectsAnUnknownFormat(t *testing.T) {
-	if _, err := formatSchema([]byte(`{}`), "toml"); err == nil {
-		t.Fatal("an unknown format must be rejected")
-	}
-}
-
 // yamlFields returns the yaml names of a struct's fields.
 func yamlFields(t reflect.Type) []string {
 	names := make([]string, 0, t.NumField())
@@ -223,5 +175,3 @@ func remove(names []string, drop string) []string {
 	}
 	return kept
 }
-
-func indexOf(haystack, needle string) int { return strings.Index(haystack, needle) }
