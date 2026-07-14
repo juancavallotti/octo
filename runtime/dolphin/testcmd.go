@@ -14,6 +14,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/juancavallotti/octo/runtime/dolphin/internal/assert"
 	"github.com/juancavallotti/octo/runtime/dolphin/internal/runner"
 	"github.com/juancavallotti/octo/runtime/dolphin/internal/suite"
 )
@@ -69,60 +70,10 @@ func testCommand(args []string) error {
 		},
 		Parallel: flags.parallel,
 		FailFast: flags.failFast,
-		Check:    check,
+		Check:    assert.Check,
 	}, targets)
 
 	return summarize(report, workDir)
-}
-
-// check judges an outcome against what the case expected.
-//
-// The matchers are not here yet, so this checks the one thing every case asserts
-// whether it says so or not: that the flow COMPLETED. A case with no `expect` at all is
-// a smoke test, and a smoke test that passes when the flow blew up is not a test.
-//
-// Anything more than that, it refuses — loudly. Returning "no failures" for an
-// expectation it cannot evaluate would be the worst possible stub: the suite would go
-// green while asserting nothing, which is the exact failure a test runner exists to
-// prevent.
-func check(c suite.Case, outcome runner.Outcome) []string {
-	if failures := checkCompleted(c, outcome); len(failures) > 0 {
-		return failures
-	}
-	if !c.Expect.IsEmpty() || len(c.Spies) > 0 {
-		return []string{"dolphin cannot check `body`, `vars`, `that` or `spies` yet"}
-	}
-	return nil
-}
-
-// checkCompleted checks what the flow DID — completed, dropped, or failed — which is
-// the assertion every case makes, including the ones that make no others. A case with
-// no `expect` at all is a smoke test, and a smoke test that goes green when the flow
-// blew up is not a test.
-//
-// The `error` substring is checked here rather than left to the matchers, because
-// half-checking it would be worse than not checking it: a case expecting "card declined"
-// would pass on ANY failure, and a green run that proved the wrong thing is the one
-// outcome a test runner must never produce.
-func checkCompleted(c suite.Case, outcome runner.Outcome) []string {
-	switch {
-	case c.Expect.Error != "":
-		if outcome.Error == "" {
-			return []string{fmt.Sprintf("the flow did not fail, and the case expected it to fail with %q", c.Expect.Error)}
-		}
-		if !strings.Contains(outcome.Error, c.Expect.Error) {
-			return []string{fmt.Sprintf("the flow failed with %q, which does not contain %q", outcome.Error, c.Expect.Error)}
-		}
-	case c.Expect.Dropped:
-		if !outcome.Dropped {
-			return []string{"the flow did not drop the message, and the case expected it to"}
-		}
-	case outcome.Error != "":
-		return []string{fmt.Sprintf("the flow failed: %s", outcome.Error)}
-	case outcome.Dropped:
-		return []string{"the flow dropped the message"}
-	}
-	return nil
 }
 
 // summarize prints the report and returns the run's verdict.
@@ -187,7 +138,7 @@ func printSuite(s runner.SuiteResult) {
 		case runner.Failed:
 			fmt.Printf("  --- FAIL: %s\n", r.Case.Name)
 			for _, failure := range r.Failures {
-				fmt.Printf("        %s\n", failure)
+				fmt.Printf("        %s\n", indent(failure))
 			}
 			fmt.Printf("        reproduce: %s\n", r.Outcome.Command)
 		case runner.Errored:
@@ -202,6 +153,16 @@ func printSuite(s runner.SuiteResult) {
 		case runner.Passed:
 		}
 	}
+}
+
+// failureIndent is what a failure's continuation lines are indented to, so that a
+// want/got diff lines up under the failure it belongs to instead of against the margin.
+const failureIndent = "\n        "
+
+// indent aligns a multi-line failure under its own first line. A body diff is two lines,
+// and a diff whose second line starts at the margin is one the eye cannot pair up.
+func indent(failure string) string {
+	return strings.ReplaceAll(failure, "\n", failureIndent)
 }
 
 // parseTestFlags parses the flags of `dolphin test`. Paths may come before or after the
