@@ -24,24 +24,24 @@ drives `octo` to unit-test an integration.
 
 | Platform | Download |
 |---|---|
-| macOS (Apple Silicon) | [octo_darwin_arm64.tar.gz](https://github.com/juancavallotti/octo/releases/download/v0.4.1/octo_darwin_arm64.tar.gz) |
-| macOS (Intel) | [octo_darwin_amd64.tar.gz](https://github.com/juancavallotti/octo/releases/download/v0.4.1/octo_darwin_amd64.tar.gz) |
-| Linux (x86-64) | [octo_linux_amd64.tar.gz](https://github.com/juancavallotti/octo/releases/download/v0.4.1/octo_linux_amd64.tar.gz) |
-| Linux (arm64) | [octo_linux_arm64.tar.gz](https://github.com/juancavallotti/octo/releases/download/v0.4.1/octo_linux_arm64.tar.gz) |
-| Windows (x86-64) | [octo_windows_amd64.zip](https://github.com/juancavallotti/octo/releases/download/v0.4.1/octo_windows_amd64.zip) |
-| Windows (arm64) | [octo_windows_arm64.zip](https://github.com/juancavallotti/octo/releases/download/v0.4.1/octo_windows_arm64.zip) |
+| macOS (Apple Silicon) | [octo_darwin_arm64.tar.gz](https://github.com/juancavallotti/octo/releases/download/v0.4.2/octo_darwin_arm64.tar.gz) |
+| macOS (Intel) | [octo_darwin_amd64.tar.gz](https://github.com/juancavallotti/octo/releases/download/v0.4.2/octo_darwin_amd64.tar.gz) |
+| Linux (x86-64) | [octo_linux_amd64.tar.gz](https://github.com/juancavallotti/octo/releases/download/v0.4.2/octo_linux_amd64.tar.gz) |
+| Linux (arm64) | [octo_linux_arm64.tar.gz](https://github.com/juancavallotti/octo/releases/download/v0.4.2/octo_linux_arm64.tar.gz) |
+| Windows (x86-64) | [octo_windows_amd64.zip](https://github.com/juancavallotti/octo/releases/download/v0.4.2/octo_windows_amd64.zip) |
+| Windows (arm64) | [octo_windows_arm64.zip](https://github.com/juancavallotti/octo/releases/download/v0.4.2/octo_windows_arm64.zip) |
 
 ### dolphin — the test runner
 
 | Platform | Download |
 |---|---|
-| macOS (Apple Silicon) | [dolphin_darwin_arm64.tar.gz](https://github.com/juancavallotti/octo/releases/download/v0.4.1/dolphin_darwin_arm64.tar.gz) |
-| macOS (Intel) | [dolphin_darwin_amd64.tar.gz](https://github.com/juancavallotti/octo/releases/download/v0.4.1/dolphin_darwin_amd64.tar.gz) |
-| Linux (x86-64) | [dolphin_linux_amd64.tar.gz](https://github.com/juancavallotti/octo/releases/download/v0.4.1/dolphin_linux_amd64.tar.gz) |
-| Linux (arm64) | [dolphin_linux_arm64.tar.gz](https://github.com/juancavallotti/octo/releases/download/v0.4.1/dolphin_linux_arm64.tar.gz) |
-| Windows (x86-64) | [dolphin_windows_amd64.zip](https://github.com/juancavallotti/octo/releases/download/v0.4.1/dolphin_windows_amd64.zip) |
-| Windows (arm64) | [dolphin_windows_arm64.zip](https://github.com/juancavallotti/octo/releases/download/v0.4.1/dolphin_windows_arm64.zip) |
-| Both | [checksums.txt](https://github.com/juancavallotti/octo/releases/download/v0.4.1/checksums.txt) |
+| macOS (Apple Silicon) | [dolphin_darwin_arm64.tar.gz](https://github.com/juancavallotti/octo/releases/download/v0.4.2/dolphin_darwin_arm64.tar.gz) |
+| macOS (Intel) | [dolphin_darwin_amd64.tar.gz](https://github.com/juancavallotti/octo/releases/download/v0.4.2/dolphin_darwin_amd64.tar.gz) |
+| Linux (x86-64) | [dolphin_linux_amd64.tar.gz](https://github.com/juancavallotti/octo/releases/download/v0.4.2/dolphin_linux_amd64.tar.gz) |
+| Linux (arm64) | [dolphin_linux_arm64.tar.gz](https://github.com/juancavallotti/octo/releases/download/v0.4.2/dolphin_linux_arm64.tar.gz) |
+| Windows (x86-64) | [dolphin_windows_amd64.zip](https://github.com/juancavallotti/octo/releases/download/v0.4.2/dolphin_windows_amd64.zip) |
+| Windows (arm64) | [dolphin_windows_arm64.zip](https://github.com/juancavallotti/octo/releases/download/v0.4.2/dolphin_windows_arm64.zip) |
+| Both | [checksums.txt](https://github.com/juancavallotti/octo/releases/download/v0.4.2/checksums.txt) |
 
 <!-- x-release-please-end-version -->
 

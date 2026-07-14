@@ -1,5 +1,48 @@
 # Changelog
 
+## [0.4.2](https://github.com/juancavallotti/octo/compare/v0.4.1...v0.4.2) (2026-07-14)
+
+
+### Features
+
+* **cli:** make the octo CLI go-installable ([fde2e4a](https://github.com/juancavallotti/octo/commit/fde2e4ac67402240fb2ff1e0c149d4803346a41a))
+* **cli:** make the octo CLI go-installable ([e807f8d](https://github.com/juancavallotti/octo/commit/e807f8d22b2b160038f9f69ed2e4510a7b45736a))
+* **cli:** report a uniform outcome envelope from octo invoke ([20cdbce](https://github.com/juancavallotti/octo/commit/20cdbce83c7d91d389bb23ad97e56119950a9651))
+* **cli:** write the invoke envelope to a file ([9a72d44](https://github.com/juancavallotti/octo/commit/9a72d44e569428302bb529352e967437ad456a56))
+* **dolphin:** a test runner for octo flows ([3fbded2](https://github.com/juancavallotti/octo/commit/3fbded2ae563301c4ef22e7188300d09025aa823))
+* **dolphin:** assert on the result and on what the spies saw ([3213f49](https://github.com/juancavallotti/octo/commit/3213f49775bbfdc7afb5b52f64da1e4476956be3))
+* **dolphin:** bootstrap the dolphin CLI ([3b299f4](https://github.com/juancavallotti/octo/commit/3b299f45a3f7e091e7f5a55e3964bb4665b41688))
+* **dolphin:** console and JUnit XML reports ([cdb138d](https://github.com/juancavallotti/octo/commit/cdb138df28aa3451232ff0750ce14cab74f112e1))
+* **dolphin:** discover suites and pair them with their flows ([6076ccd](https://github.com/juancavallotti/octo/commit/6076ccd772dc4d97375c1c178aebb3e7f668c521))
+* **dolphin:** give a suite its own environment ([dca08f1](https://github.com/juancavallotti/octo/commit/dca08f15dc91529c7a2f32e368f4e4e0b6495c2c))
+* **dolphin:** print the test-file schema ([0b9ecf7](https://github.com/juancavallotti/octo/commit/0b9ecf7bec0b46fb592d2d6e67aa3b140677ef41))
+* **dolphin:** read octo's outcome from a file, not stdout ([0088498](https://github.com/juancavallotti/octo/commit/0088498bd4bffe01ddfd910a2ab20b1f9069a65a))
+* **dolphin:** run the cases against octo ([530dad3](https://github.com/juancavallotti/octo/commit/530dad3d2e48d496dc7a99fb9004473341a5eda3))
+* **dolphin:** the test file format ([d56d6a7](https://github.com/juancavallotti/octo/commit/d56d6a707da4bf0b4c4a62d2a46bbcb013642254))
+
+
+### Bug Fixes
+
+* **dolphin:** say what a failed assertion was judged against ([36dd26e](https://github.com/juancavallotti/octo/commit/36dd26e02db3636abc750a549f321d9e0b1cf0c6))
+* **runtime:** keep a non-scalar env value a string ([8eda3a4](https://github.com/juancavallotti/octo/commit/8eda3a49861cf5c3388c956af06d956d67b6b8f2))
+* **runtime:** skip *_test.yaml when loading a config directory ([ff09d80](https://github.com/juancavallotti/octo/commit/ff09d8027b2d7bead4e5105e1f603ad9ddc3c0d2))
+
+
+### Refactoring
+
+* **cli:** share the schema formatter between the CLIs ([f498a52](https://github.com/juancavallotti/octo/commit/f498a5272fc05ecd8a5a5f7c46adb8dda74c2afc))
+
+
+### Documentation
+
+* **deploy:** ship integrations as self-contained runtime images ([7fb94e3](https://github.com/juancavallotti/octo/commit/7fb94e33a67bc54c1c8b99aa69920d91ebb129d9))
+* document `go install` and drop the Go workspace framing ([1ecfefc](https://github.com/juancavallotti/octo/commit/1ecfefc2820d4699fa65c444b2b68f162165c685))
+* document the dolphin test runner ([f7e40d2](https://github.com/juancavallotti/octo/commit/f7e40d2b6e2c81f49c1602ee051b7eb6c10656aa))
+* give every card an icon ([37afa46](https://github.com/juancavallotti/octo/commit/37afa461687afc1c2ffe295c57034097907ab55d))
+* lead the home page with why Octo exists ([3a767b1](https://github.com/juancavallotti/octo/commit/3a767b10b5de52060aef62d74a16050f443ae33a))
+* self-hosted deploy guide, card icons, and a home page that says why ([8d79bd3](https://github.com/juancavallotti/octo/commit/8d79bd31f9340ad2361b69101c231636b9258805))
+* testing flows with dolphin ([57a5252](https://github.com/juancavallotti/octo/commit/57a52525dfe27609fe31c33ec77cfa6d6901b0d6))
+
 ## [0.4.1](https://github.com/juancavallotti/octo/compare/v0.4.0...v0.4.1) (2026-07-12)
 
 
