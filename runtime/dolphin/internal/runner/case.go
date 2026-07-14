@@ -46,6 +46,13 @@ const childLogLevel = "LOG_LEVEL=error"
 // debugConfigMode is the permission for the temp debug config written per case.
 const debugConfigMode = 0o600
 
+// The two files a case has in the run's workdir: the debug config octo is run from, and
+// the envelope octo answers in.
+const (
+	debugConfigExt = ".yaml"
+	envelopeExt    = ".outcome.json"
+)
+
 // errorField is how slog renders the error on octo's last log line before it exits. It
 // is what octoError unwraps, so the user reads octo's complaint and not its logging.
 const errorField = `error="`
@@ -129,7 +136,8 @@ func invoke(ctx context.Context, opts Options, target suite.Target, index int, c
 		return Outcome{}, err
 	}
 
-	args := invokeArgs(target, configPath, timeout)
+	envelopePath := caseFile(opts.WorkDir, target, index, envelopeExt)
+	args := invokeArgs(target, configPath, envelopePath, timeout)
 	outcome := Outcome{Command: shellCommand(opts.Octo, args)}
 
 	// The child gets longer than the flow does, so that a timeout is reported by octo —
@@ -152,7 +160,7 @@ func invoke(ctx context.Context, opts Options, target suite.Target, index int, c
 	if runErr != nil {
 		return outcome, invokeError(runCtx, runErr, outcome, timeout)
 	}
-	if err := decodeEnvelope(stdout.Bytes(), &outcome); err != nil {
+	if err := readEnvelope(envelopePath, &outcome); err != nil {
 		return outcome, err
 	}
 	return outcome, nil
@@ -215,16 +223,23 @@ func lastLine(s string) string {
 	return ""
 }
 
-// decodeEnvelope reads what octo printed into the outcome.
-func decodeEnvelope(stdout []byte, outcome *Outcome) error {
-	trimmed := bytes.TrimSpace(stdout)
-	if len(trimmed) == 0 {
-		return fmt.Errorf("octo printed no outcome (stderr: %s)", firstLine(outcome.Stderr))
+// readEnvelope reads the outcome octo wrote for this case.
+//
+// It is a FILE, not octo's stdout, and that is not fastidiousness: stdout belongs to the
+// flow as much as to the CLI. A `log` block over a logger connector writes its JSON
+// there, so a flow that logs anything — which is most real flows — would hand dolphin
+// two JSON documents where it expected one, and every case over that flow would error
+// with a parse failure that names nothing the user did wrong. --envelope-out gives the
+// answer a channel the flow cannot write to.
+func readEnvelope(path string, outcome *Outcome) error {
+	data, err := os.ReadFile(path) //nolint:gosec // G304: a path dolphin built, under its own workdir
+	if err != nil {
+		return fmt.Errorf("octo reported no outcome: %w (it said: %s)", err, firstLine(outcome.Stderr))
 	}
 
 	var env envelope
-	if err := json.Unmarshal(trimmed, &env); err != nil {
-		return fmt.Errorf("read octo's outcome: %w (it printed: %s)", err, firstLine(string(trimmed)))
+	if err := json.Unmarshal(bytes.TrimSpace(data), &env); err != nil {
+		return fmt.Errorf("read octo's outcome: %w (it wrote: %s)", err, firstLine(string(data)))
 	}
 
 	outcome.Result = env.Result
@@ -254,19 +269,24 @@ func writeDebugConfig(dir string, target suite.Target, index int, c suite.Case) 
 		return "", fmt.Errorf("encode the run for %q: %w", c.Name, err)
 	}
 
-	// Named after the suite and the case's position, so a workdir full of them can be
-	// read, and so two cases never collide.
-	base := filepath.Base(target.File.Path)
-	stem := strings.TrimSuffix(base, filepath.Ext(base))
-	path := filepath.Join(dir, fmt.Sprintf("%s.%d.yaml", stem, index))
+	path := caseFile(dir, target, index, debugConfigExt)
 	if err := os.WriteFile(path, encoded, debugConfigMode); err != nil {
 		return "", fmt.Errorf("write the run for %q: %w", c.Name, err)
 	}
 	return path, nil
 }
 
+// caseFile names one of a case's files in the run's workdir: the debug config it is run
+// from, and the envelope it is answered in. Named after the suite and the case's
+// position, so a workdir full of them can be read, and so two cases never collide.
+func caseFile(dir string, target suite.Target, index int, ext string) string {
+	base := filepath.Base(target.File.Path)
+	stem := strings.TrimSuffix(base, filepath.Ext(base))
+	return filepath.Join(dir, fmt.Sprintf("%s.%d%s", stem, index, ext))
+}
+
 // invokeArgs is the octo invocation for a case.
-func invokeArgs(target suite.Target, configPath string, timeout time.Duration) []string {
+func invokeArgs(target suite.Target, configPath, envelopePath string, timeout time.Duration) []string {
 	return []string{
 		"invoke",
 		"--config", target.Config,
@@ -275,8 +295,9 @@ func invokeArgs(target suite.Target, configPath string, timeout time.Duration) [
 		"--timeout", timeout.String(),
 		// Without this, a dropped flow prints nothing at all and a failed one prints its
 		// error to the logs and exits 1 — three outcomes in three shapes, none of them
-		// parseable. --envelope makes octo say all three the same way.
-		"--envelope",
+		// parseable. The envelope makes octo say all three the same way — and writing it
+		// to a file keeps it clear of the flow's own output, which shares stdout.
+		"--envelope-out", envelopePath,
 	}
 }
 

@@ -98,7 +98,26 @@ func TestNotRunIsTheZeroStatus(t *testing.T) {
 	}
 }
 
-const okEnvelope = `echo '{"result":{"event_id":"e1","body":{"ok":true}}}'`
+// emits is a fake octo body that answers with envelope, the way the real one does: in the
+// file named by --envelope-out, NOT on stdout.
+//
+// That is the contract, and it is worth a fake this fussy. stdout belongs to the flow —
+// a `log` block over a logger connector writes its JSON there — so an envelope printed to
+// stdout would be interleaved with the flow's own output, and dolphin would be parsing
+// whatever came out. A fake that printed the envelope on stdout would be testing a
+// protocol nobody speaks.
+func emits(envelope string) string {
+	return `
+out=""
+prev=""
+for arg in "$@"; do
+  if [ "$prev" = "--envelope-out" ]; then out="$arg"; fi
+  prev="$arg"
+done
+printf '%s\n' '` + envelope + `' > "$out"`
+}
+
+var okEnvelope = emits(`{"result":{"event_id":"e1","body":{"ok":true}}}`)
 
 // TestRunReportsInFileOrderNoMatterTheFinishingOrder is the property the whole
 // scheduler exists to preserve.
@@ -220,7 +239,7 @@ func TestSkippedCasesNeverSpawnOcto(t *testing.T) {
 // exits 0 and reports the failure in the envelope, so the case RAN — it is the checker's
 // business whether "the flow failed" is what the case wanted.
 func TestAFlowFailureIsAResultNotAnError(t *testing.T) {
-	octo := fakeOcto(t, `echo '{"error":"block \"charge\": card declined"}'`)
+	octo := fakeOcto(t, emits(`{"error":"block \"charge\": card declined"}`))
 
 	cfg := config(t, octo)
 	cfg.Check = func(_ suite.Case, o Outcome) []string {
@@ -384,7 +403,7 @@ func TestTheCommandIsRunnable(t *testing.T) {
 // TestSpiesComeBackKeyedByAddress.
 func TestSpiesComeBackKeyedByAddress(t *testing.T) {
 	octo := fakeOcto(t,
-		`echo '{"result":{"event_id":"e1"},"spies":[{"address":"demo.charge","records":[{"seq":1},{"seq":2}]}]}'`)
+		emits(`{"result":{"event_id":"e1"},"spies":[{"address":"demo.charge","records":[{"seq":1},{"seq":2}]}]}`))
 
 	report := Run(context.Background(), config(t, octo), targets(t, 1, 1))
 	spies := report[0].Results[0].Outcome.Spies
@@ -394,10 +413,10 @@ func TestSpiesComeBackKeyedByAddress(t *testing.T) {
 	}
 }
 
-// TestGarbageOnStdoutIsAnError: octo printing something dolphin cannot read must never
-// be mistaken for a passing case.
-func TestGarbageOnStdoutIsAnError(t *testing.T) {
-	octo := fakeOcto(t, `echo 'not json'`)
+// TestGarbageInTheEnvelopeIsAnError: octo answering with something dolphin cannot read
+// must never be mistaken for a passing case.
+func TestGarbageInTheEnvelopeIsAnError(t *testing.T) {
+	octo := fakeOcto(t, emits(`not json`))
 
 	report := Run(context.Background(), config(t, octo), targets(t, 1, 1))
 	result := report[0].Results[0]
@@ -407,5 +426,22 @@ func TestGarbageOnStdoutIsAnError(t *testing.T) {
 	}
 	if !strings.Contains(result.Err.Error(), "read octo's outcome") {
 		t.Errorf("err = %v", result.Err)
+	}
+}
+
+// TestTheFlowsOwnStdoutIsNotTheAnswer is the regression that moved the envelope into a
+// file. The fake here does what a real flow with a `log` block does — writes its own JSON
+// to stdout — and answers in the file besides. The case must pass: what the flow printed
+// is the flow's business, and dolphin must not be reading it.
+func TestTheFlowsOwnStdoutIsNotTheAnswer(t *testing.T) {
+	octo := fakeOcto(t, `echo '{"time":"2026-07-13T20:44:34Z","level":"INFO","msg":"order A-1"}'`+
+		okEnvelope)
+
+	report := Run(context.Background(), config(t, octo), targets(t, 1, 1))
+	result := report[0].Results[0]
+
+	if result.Status != Passed {
+		t.Errorf("status = %s (err: %v), want pass: a flow that logs to stdout is not a broken flow",
+			result.Status, result.Err)
 	}
 }
