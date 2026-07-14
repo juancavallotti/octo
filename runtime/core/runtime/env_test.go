@@ -116,6 +116,59 @@ func TestSubstituteTypedAndEmbedded(t *testing.T) {
 	}
 }
 
+// TestCoerceOnlyMakesScalars: the substitution gives ${PORT} its natural int type, and
+// that is ALL it may do. An environment variable is a string, and a good many ordinary
+// strings are accidentally valid YAML for a structure — a SQLite DSN most of all:
+//
+//	DB_DSN=file::memory:   parses as the map {"file::memory": null}
+//
+// which reached the database connector as an object and was rejected with "cannot
+// unmarshal object into ... dsn of type string" — a perfectly good DSN refused because
+// it contained a colon. Anything that is not a scalar stays the string it came in as.
+func TestCoerceOnlyMakesScalars(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  any
+	}{
+		{name: "an int fills an int setting", value: "8080", want: 8080},
+		{name: "a bool fills a bool setting", value: "true", want: true},
+		{name: "a float fills a float setting", value: "1.5", want: 1.5},
+		{name: "an empty value stays the empty string", value: "", want: ""},
+		{name: "a plain string stays a string", value: "s3cret", want: "s3cret"},
+		// The regression. Each of these is valid YAML for something that is not a scalar.
+		{name: "a sqlite memory dsn stays a string", value: "file::memory:", want: "file::memory:"},
+		{name: "a sqlite file dsn stays a string", value: "file:orders.db", want: "file:orders.db"},
+		{name: "a bracketed value stays a string", value: "[a, b]", want: "[a, b]"},
+		{name: "a key-like value stays a string", value: "key: value", want: "key: value"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := coerce(tc.value); got != tc.want {
+				t.Errorf("coerce(%q) = %#v, want %#v", tc.value, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestSubstituteKeepsADSNAString is the same regression, through the whole
+// substitution, so it cannot come back by a different route than coerce.
+func TestSubstituteKeepsADSNAString(t *testing.T) {
+	cfg := &types.Config{
+		Connectors: []types.ConnectorConfig{{Settings: types.Settings{"dsn": "${DB_DSN}"}}},
+	}
+	resolved := map[string]string{"DB_DSN": "file::memory:"}
+	declared := map[string]struct{}{"DB_DSN": {}}
+
+	if err := substituteConfig(cfg, resolved, declared); err != nil {
+		t.Fatalf("substituteConfig: %v", err)
+	}
+	if got := cfg.Connectors[0].Settings["dsn"]; got != "file::memory:" {
+		t.Errorf("dsn = %#v, want the string file::memory: — a DSN is not a map", got)
+	}
+}
+
 func TestSubstituteNestedFlowBlocks(t *testing.T) {
 	cfg := &types.Config{
 		Flows: []types.FlowConfig{{

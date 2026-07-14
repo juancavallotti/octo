@@ -327,9 +327,20 @@ func (s *substitutor) resolve(name string) (string, error) {
 	return value, nil
 }
 
-// coerce converts a resolved string into its natural YAML scalar type (int, bool,
-// float, or string), so e.g. ${PORT} can fill an int setting. An empty value stays
-// the empty string rather than becoming nil.
+// coerce converts a resolved string into its natural YAML SCALAR type (int, bool, or
+// float), so e.g. ${PORT} can fill an int setting. An empty value stays the empty
+// string rather than becoming nil.
+//
+// Scalars only, and that is the whole point of the type switch below. An environment
+// variable is a string; the coercion exists to spare an int setting from receiving
+// "8080", not to let a value become a structure. And plenty of ordinary strings are
+// accidentally valid YAML for one:
+//
+//	DB_DSN=file::memory:        parses as the MAP {"file::memory": null}
+//
+// which reached the database connector as an object and failed to decode — a real DSN,
+// rejected because it happened to contain a colon. Anything that does not parse as a
+// scalar is left as the string it already was.
 func coerce(value string) any {
 	if value == "" {
 		return ""
@@ -338,7 +349,12 @@ func coerce(value string) any {
 	if err := yaml.Unmarshal([]byte(value), &out); err != nil || out == nil {
 		return value
 	}
-	return out
+	switch out.(type) {
+	case bool, int, int64, float64:
+		return out
+	default:
+		return value
+	}
 }
 
 // sortedKeys returns the keys of set in sorted order, for stable log output.
