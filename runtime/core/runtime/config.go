@@ -12,9 +12,11 @@ import (
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
-// testFileSuffix marks a file as a test suite rather than a config: orders_test.yaml
-// tests orders.yaml. See IsTestFile.
-const testFileSuffix = "_test"
+// TestFileSuffix marks a file as a test suite rather than a config: orders_test.yaml
+// tests orders.yaml. It is exported alongside IsTestFile because dolphin derives a
+// suite's name from its flow file's and back again, and the two must agree — see
+// IsTestFile.
+const TestFileSuffix = "_test"
 
 // LoadConfig reads and parses the runtime config at path. When path is a
 // directory, every *.yaml/*.yml file in it is parsed and merged into one config
@@ -119,7 +121,7 @@ func isYAML(name string) bool {
 // config and dolphin reads as a test suite would be a genuinely confusing bug.
 func IsTestFile(name string) bool {
 	base := strings.TrimSuffix(name, filepath.Ext(name))
-	return strings.HasSuffix(base, testFileSuffix)
+	return strings.HasSuffix(base, TestFileSuffix)
 }
 
 // MergeConfigs combines multiple parsed configs into one: it concatenates
