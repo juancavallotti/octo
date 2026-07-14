@@ -8,11 +8,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/types"
 )
+
+// envelopeFileMode is the permission for the file --envelope-out writes. It can hold a
+// message that carried a token or a customer's data, so it is the caller's to read.
+const envelopeFileMode = 0o600
 
 // debugOutcome is the JSON envelope `octo invoke` prints on stdout when it was asked
 // to observe the run — with --break-at, with --spies, or both.
@@ -89,13 +94,15 @@ func parseMocks(raw string) (*core.Mocks, error) {
 	return mocks, nil
 }
 
-// printDebugOutcome prints the envelope for a run that was asked to observe itself.
+// reportDebugOutcome reports the envelope for a run that was asked to observe itself,
+// on stdout or, under --envelope-out, in a file.
+//
 // runErr is whatever invokeFlow returned: a flow failure becomes part of the envelope
 // (the flow may have failed before ever reaching the block, which is worth seeing,
 // and a spy will have recorded what it was carrying when it did), while a service
 // that would not start — an unresolvable address, a bad mock spec, a bad config — is
 // a bad request and is returned so the CLI exits non-zero.
-func printDebugOutcome(req invokeRequest, result *types.Message, runErr error) error {
+func reportDebugOutcome(req invokeRequest, result *types.Message, runErr error) error {
 	var callErr *flowCallError
 	if runErr != nil && !errors.As(runErr, &callErr) {
 		return runErr
@@ -133,7 +140,23 @@ func printDebugOutcome(req invokeRequest, result *types.Message, runErr error) e
 	if err != nil {
 		return fmt.Errorf("encode debug outcome: %w", err)
 	}
+	if req.envelopeOut != "" {
+		return writeEnvelope(req.envelopeOut, encoded)
+	}
 	fmt.Println(string(encoded))
+	return nil
+}
+
+// writeEnvelope writes the envelope to the file the caller named.
+//
+// Nothing else the flow does can reach this file, which is the whole point: the run's
+// own output — a `log` block over a logger connector, a block printing to stdout — no
+// longer has to be told apart from the CLI's answer, because they are not on the same
+// channel to begin with.
+func writeEnvelope(path string, encoded []byte) error {
+	if err := os.WriteFile(path, append(encoded, '\n'), envelopeFileMode); err != nil {
+		return fmt.Errorf("write the outcome envelope to %q: %w", path, err)
+	}
 	return nil
 }
 

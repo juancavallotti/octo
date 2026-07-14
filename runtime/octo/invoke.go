@@ -63,9 +63,10 @@ func invokeCommand(args []string) error {
 	// A run that was asked to observe something reports the debug envelope. A run that
 	// was only asked to mock is still a plain invoke — mocking changes what the flow
 	// does, but it produces no observations of its own, so it prints its result message
-	// like any other run. --envelope asks for it outright.
-	if req.envelope || req.breakpoint != nil || req.spies != nil {
-		return printDebugOutcome(req, result, err)
+	// like any other run. --envelope asks for it outright, and --envelope-out asks for
+	// it somewhere other than stdout.
+	if req.envelope || req.envelopeOut != "" || req.breakpoint != nil || req.spies != nil {
+		return reportDebugOutcome(req, result, err)
 	}
 	if err != nil {
 		return err
@@ -102,13 +103,14 @@ func buildInvokeRequest(flags invokeFlags, svc core.RuntimeServices) (invokeRequ
 	}
 
 	req := invokeRequest{
-		config:   config,
-		flow:     flags.flowName,
-		body:     body,
-		vars:     vars,
-		timeout:  flags.timeout,
-		services: svc,
-		envelope: flags.envelope,
+		config:      config,
+		flow:        flags.flowName,
+		body:        body,
+		vars:        vars,
+		timeout:     flags.timeout,
+		services:    svc,
+		envelope:    flags.envelope,
+		envelopeOut: flags.envelopeOut,
 	}
 	if breakAt := override(flags.breakAt, debug.BreakAt); breakAt != "" {
 		req.breakpoint = core.NewBreakpoint(breakAt)
@@ -197,6 +199,8 @@ type invokeFlags struct {
 	timeout        time.Duration
 	// envelope asks for the debug envelope even when nothing was observed.
 	envelope bool
+	// envelopeOut writes the envelope to a file instead of stdout.
+	envelopeOut string
 }
 
 // parseInvokeFlags parses and validates the invoke flags. It returns an error
@@ -221,6 +225,8 @@ func parseInvokeFlags(args []string) (invokeFlags, error) {
 	fs.DurationVar(&flags.timeout, "timeout", defaultInvokeTimeout, "max time to wait for the flow")
 	fs.BoolVar(&flags.envelope, "envelope", false,
 		"always print the outcome envelope, and report a flow failure in it rather than exiting non-zero")
+	fs.StringVar(&flags.envelopeOut, "envelope-out", "",
+		"write the outcome envelope to this file instead of stdout (implies --envelope)")
 
 	if err := fs.Parse(args); err != nil {
 		return invokeFlags{}, fmt.Errorf("parse invoke flags: %w", err)
@@ -278,6 +284,16 @@ type invokeRequest struct {
 	// shape. A flow failure becomes envelope.error and exits 0: the flow failing is
 	// the answer to the question that was asked, not a failure of the CLI.
 	envelope bool
+
+	// envelopeOut writes the envelope to this file rather than stdout.
+	//
+	// stdout is not the CLI's alone: a `log` block over a logger connector writes there
+	// too, so a flow that logs anything interleaves its own JSON with the envelope and a
+	// caller parsing stdout gets two documents where it expected one. That is not a
+	// misconfiguration to warn about — logging is what the block is for. So a program
+	// driving invoke asks for the envelope on a channel the flow cannot reach, and reads
+	// a file it named itself.
+	envelopeOut string
 }
 
 // flowCallError marks an error raised by running the flow, as opposed to one from

@@ -3,6 +3,9 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -135,7 +138,7 @@ func TestEnvelopeReportsEveryOutcomeInOneShape(t *testing.T) {
 	t.Run("a failed flow reports the failure and exits 0", func(t *testing.T) {
 		runErr := &flowCallError{err: errors.New("card declined")}
 
-		// printed() fails the test if printDebugOutcome returned an error, which is what
+		// printed() fails the test if reportDebugOutcome returned an error, which is what
 		// the CLI exits non-zero on — so reaching the assertions is itself the exit-0 check.
 		outcome := envelope(t, envelopeReq(), nil, runErr)
 
@@ -150,6 +153,76 @@ func TestEnvelopeReportsEveryOutcomeInOneShape(t *testing.T) {
 	})
 }
 
+// TestEnvelopeOutWritesTheEnvelopeToAFile is the answer to a problem stdout cannot
+// solve: it is not the CLI's alone.
+//
+// A `log` block writes through a logger connector, whose output defaults to stdout, so a
+// flow that logs anything — which is most real flows — interleaves its own JSON with the
+// envelope. A caller then reads two documents where it expected one, and fails to parse
+// an answer that was perfectly correct. It cannot be quieted from outside either: the
+// connector takes its level and destination from the CONFIG, not the environment, so
+// silencing it would mean editing the user's flow to suit the tool reading it.
+//
+// So the envelope gets a channel the flow cannot reach. What this pins is both halves:
+// the file has the answer, and stdout is left entirely to the flow.
+func TestEnvelopeOutWritesTheEnvelopeToAFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "outcome.json")
+	req := invokeRequest{envelopeOut: path}
+	result := &types.Message{Body: map[string]any{"ok": true}}
+
+	stdout := captureStdout(t, func() {
+		if err := reportDebugOutcome(req, result, nil); err != nil {
+			t.Fatalf("reportDebugOutcome: %v", err)
+		}
+	})
+
+	if stdout != "" {
+		t.Errorf("stdout = %q, want nothing: the envelope went to the file, and stdout is the flow's", stdout)
+	}
+
+	data, err := os.ReadFile(path) //nolint:gosec // G304: a path this test built
+	if err != nil {
+		t.Fatalf("read the envelope: %v", err)
+	}
+	var outcome debugOutcome
+	if err := json.Unmarshal(data, &outcome); err != nil {
+		t.Fatalf("decode the envelope %q: %v", data, err)
+	}
+	body, _ := outcome.Result.Body.(map[string]any)
+	if body["ok"] != true {
+		t.Errorf("envelope result = %v, want the flow's message", outcome.Result)
+	}
+}
+
+// TestEnvelopeOutSurvivesAFlowThatPrints is the regression itself, in miniature: a run
+// whose flow writes JSON to stdout still answers correctly, because the answer was never
+// on stdout to begin with.
+func TestEnvelopeOutSurvivesAFlowThatPrints(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "outcome.json")
+	req := invokeRequest{envelopeOut: path}
+
+	captureStdout(t, func() {
+		// Stand in for a log block over a logger connector: structured JSON, on stdout,
+		// while the flow runs.
+		fmt.Println(`{"time":"2026-07-13T20:44:34Z","level":"INFO","msg":"order A-1 total=33"}`)
+		if err := reportDebugOutcome(req, &types.Message{Body: map[string]any{"total": 33}}, nil); err != nil {
+			t.Fatalf("reportDebugOutcome: %v", err)
+		}
+	})
+
+	data, err := os.ReadFile(path) //nolint:gosec // G304: a path this test built
+	if err != nil {
+		t.Fatalf("read the envelope: %v", err)
+	}
+	var outcome debugOutcome
+	if err := json.Unmarshal(data, &outcome); err != nil {
+		t.Fatalf("the envelope is not readable JSON — the flow's own output got into it: %v", err)
+	}
+	if outcome.Result == nil {
+		t.Error("the envelope carries no result")
+	}
+}
+
 // TestEnvelopeStillExitsNonZeroOnABadRequest: the exit-0 rule above is for a flow that
 // FAILED, not for a run that could not start. An unresolvable block address or a broken
 // config is a bad request — there is no test result to report — so it must still exit
@@ -158,7 +231,7 @@ func TestEnvelopeStillExitsNonZeroOnABadRequest(t *testing.T) {
 	startupErr := errors.New(`spy "orders.nope": no block "nope" in that chain`)
 
 	var err error
-	captureStdout(t, func() { err = printDebugOutcome(envelopeReq(), nil, startupErr) })
+	captureStdout(t, func() { err = reportDebugOutcome(envelopeReq(), nil, startupErr) })
 
 	if err == nil {
 		t.Fatal("a service that would not start must be returned, so the CLI exits non-zero")

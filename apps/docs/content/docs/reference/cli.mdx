@@ -118,6 +118,7 @@ octo invoke --config orders.yaml --flow orders --data '{"orderId": 42}' | jq '.b
 | `--mocks` | JSON | (none) | Blocks to answer for instead of running. See [Mocks](#mocks). |
 | `--run-debug-config` | path | (none) | A file holding the whole run. See [Debug config](#debug-config-file). |
 | `--envelope` | bool | `false` | Always print the [outcome envelope](#the-outcome-envelope), reporting a flow failure in it rather than exiting non-zero. |
+| `--envelope-out` | string | — | Write the envelope to this file instead of stdout (implies `--envelope`). Use it when [the flow itself prints](#envelope-out--path--when-the-flow-itself-prints). |
 
 The body can also arrive on stdin — `--data` and a pipe are interchangeable:
 
@@ -233,7 +234,32 @@ octo invoke --config samples/builtins-demo.yaml --flow demo --data '{"firedAt":"
   still exits non-zero, because there is no outcome to report.
 </Callout>
 
-This is what `dolphin`, the test runner, reads.
+#### `--envelope-out <path>` — when the flow itself prints
+
+**stdout is not the CLI's alone.** A [`log`](/docs/blocks/log) block writes through
+a logger connector, whose `output` defaults to `stdout` — so a flow that logs
+anything interleaves its own JSON with the envelope, and a program reading stdout
+gets two documents where it expected one. It cannot be quieted from outside,
+either: the connector takes its level and destination from the **config**, not the
+environment.
+
+`--envelope-out` writes the envelope to a file instead, on a channel the flow
+cannot reach. stdout stays entirely the flow's.
+
+```bash
+octo invoke --config samples/multi-transform.yaml --flow order \
+  --data '{"orderId":"A-1","qty":3,"price":10.0}' --envelope-out outcome.json
+
+# stdout is the flow's own log line:
+{"time":"…","level":"INFO","msg":"order A-1 subtotal=30 total=33"}
+
+# the answer is in the file:
+cat outcome.json
+{"result":{"event_id":"…","body":{"orderId":"A-1","subtotal":30,"total":33}}}
+```
+
+This is what `dolphin`, the test runner, reads — which is why it can test a flow
+that logs.
 
 **A block that is never reached is a normal result, not an error.** If the flow
 takes the other branch of an `if`, matches a different `switch` case, or drops
