@@ -1,4 +1,7 @@
-package dsl
+// Package dotenv holds the single .env parser shared across the tree. octo core
+// loads .env files through it, and dolphin resolves its --env-file with it, so
+// there is exactly one set of quoting and comment rules for every tool to agree on.
+package dotenv
 
 import (
 	"bufio"
@@ -7,12 +10,12 @@ import (
 	"strings"
 )
 
-// ParseDotEnv parses the contents of a .env file into a name->value map. Each
+// Parse parses the contents of a .env file into a name->value map. Each
 // non-blank line is a KEY=VALUE assignment; blank lines and lines beginning with
 // '#' are ignored, an optional leading "export " is dropped, surrounding whitespace
 // is trimmed, and a value wrapped in matching single or double quotes is unquoted.
 // A non-empty, non-comment line without '=' is a parse error so typos surface early.
-func ParseDotEnv(data []byte) (map[string]string, error) {
+func Parse(data []byte) (map[string]string, error) {
 	values := make(map[string]string)
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 	for line := 1; scanner.Scan(); line++ {

@@ -63,8 +63,10 @@ export default function SpyBadge({ blockId }: { blockId: string }) {
             </button>
           </div>
           <ol className="flex flex-col divide-y divide-black/[0.06] overflow-auto dark:divide-white/[0.06]">
-            {debug.records.map((record) => (
-              <li key={record.seq} className="p-3">
+            {debug.records.map((record, i) => (
+              // seq restarts at 1 each run, and the badge accumulates across runs, so seq
+              // alone is not unique in the combined list — pair it with the position.
+              <li key={`${i}-${record.seq}`} className="p-3">
                 <Record record={record} />
               </li>
             ))}

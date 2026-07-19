@@ -106,6 +106,7 @@ func buildInvokeRequest(flags invokeFlags, svc core.RuntimeServices) (invokeRequ
 		config:      config,
 		flow:        flags.flowName,
 		body:        body,
+		contentType: flags.contentType,
 		vars:        vars,
 		timeout:     flags.timeout,
 		services:    svc,
@@ -189,10 +190,14 @@ type invokeFlags struct {
 	configPath string
 	flowName   string
 	data       string
-	vars       string
-	breakAt    string
-	spies      string
-	mocks      string
+	// contentType, when set, treats --data as a raw body of this MIME type rather than
+	// as JSON — the CLI counterpart of an http source's rawBody route. Empty keeps the
+	// JSON default.
+	contentType string
+	vars        string
+	breakAt     string
+	spies       string
+	mocks       string
 	// runDebugConfig is a file supplying any of the above; a flag overrides the
 	// section it corresponds to.
 	runDebugConfig string
@@ -213,6 +218,8 @@ func parseInvokeFlags(args []string) (invokeFlags, error) {
 	fs.StringVar(&flags.configPath, "config", "", "path to the runtime config (file or directory)")
 	fs.StringVar(&flags.flowName, "flow", "", "name of the flow to invoke")
 	fs.StringVar(&flags.data, "data", "", "JSON request body (reads stdin when omitted)")
+	fs.StringVar(&flags.contentType, "content-type", "",
+		"treat --data as a raw body of this MIME type instead of JSON (e.g. application/xml)")
 	fs.StringVar(&flags.vars, "vars", "", "JSON object seeding the message variables")
 	fs.StringVar(&flags.breakAt, "break-at", "",
 		"run until this block, then print the message and stop (<flow>.<block>[<branch>].<block>)")
@@ -264,15 +271,18 @@ func printFlowResult(flowName string, result *types.Message) error {
 // invokeRequest is everything one `octo invoke` needs: the config to run, the flow
 // to call and what to call it with, and the debug features to run it under.
 type invokeRequest struct {
-	config     types.Config
-	flow       string
-	body       []byte
-	vars       types.Variables // nil unless --vars was given
-	timeout    time.Duration
-	services   core.RuntimeServices
-	breakpoint *core.Breakpoint // nil unless --break-at was given
-	spies      *core.Spies      // nil unless --spies was given
-	mocks      *core.Mocks      // nil unless --mocks was given
+	config types.Config
+	flow   string
+	body   []byte
+	// contentType, when non-empty, makes body a raw body of this MIME type rather than
+	// JSON — mirrors the http source's rawBody switch.
+	contentType string
+	vars        types.Variables // nil unless --vars was given
+	timeout     time.Duration
+	services    core.RuntimeServices
+	breakpoint  *core.Breakpoint // nil unless --break-at was given
+	spies       *core.Spies      // nil unless --spies was given
+	mocks       *core.Mocks      // nil unless --mocks was given
 
 	// envelope reports the outcome in the debug envelope even when the run observed
 	// nothing. Without it, a plain invoke says what happened three different ways: a
@@ -345,7 +355,7 @@ func invokeFlow(ctx context.Context, req invokeRequest) (*types.Message, error) 
 		<-done
 	}()
 
-	msg, err := buildMessage(req.body, req.vars)
+	msg, err := buildMessage(req.body, req.vars, req.contentType)
 	if err != nil {
 		return nil, err
 	}
@@ -381,13 +391,20 @@ func awaitReady(ctx context.Context, service *runtime.Service, done <-chan error
 // vars when non-nil. Variables are how a real source hands a flow everything that is
 // not the body — the HTTP source copies request headers into them — so both `invoke`
 // and `eval` can seed them to reproduce what a block actually reads.
-func buildMessage(body []byte, vars types.Variables) (*types.Message, error) {
+//
+// A non-empty contentType makes body a raw body of that MIME type rather than JSON,
+// mirroring the http source's rawBody switch — so a flow that processes XML, CSV, or
+// form-encoded input can be invoked with a realistic payload. Empty keeps JSON, the
+// default contract for a message that never opts in.
+func buildMessage(body []byte, vars types.Variables, contentType string) (*types.Message, error) {
 	msg, err := types.NewMessage("")
 	if err != nil {
 		return nil, err
 	}
 	if len(body) > 0 {
-		if err := msg.SetBodyJSON(body); err != nil {
+		if contentType != "" {
+			msg.SetRawBody(contentType, string(body))
+		} else if err := msg.SetBodyJSON(body); err != nil {
 			return nil, err
 		}
 	}

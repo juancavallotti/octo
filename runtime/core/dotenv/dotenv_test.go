@@ -1,11 +1,11 @@
-package dsl
+package dotenv
 
 import (
 	"strings"
 	"testing"
 )
 
-func TestParseDotEnv(t *testing.T) {
+func TestParse(t *testing.T) {
 	data := []byte(`
 # a comment
 DB_HOST=localhost
@@ -16,9 +16,9 @@ EMPTY=
 SPACED  =  trimmed
 
 `)
-	values, err := ParseDotEnv(data)
+	values, err := Parse(data)
 	if err != nil {
-		t.Fatalf("ParseDotEnv: %v", err)
+		t.Fatalf("Parse: %v", err)
 	}
 
 	want := map[string]string{
@@ -39,7 +39,7 @@ SPACED  =  trimmed
 	}
 }
 
-func TestParseDotEnvErrors(t *testing.T) {
+func TestParseErrors(t *testing.T) {
 	tests := []struct {
 		name    string
 		data    string
@@ -50,7 +50,7 @@ func TestParseDotEnvErrors(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := ParseDotEnv([]byte(tc.data)); err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+			if _, err := Parse([]byte(tc.data)); err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 				t.Fatalf("err = %v, want containing %q", err, tc.wantErr)
 			}
 		})

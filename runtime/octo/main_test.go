@@ -112,7 +112,7 @@ func TestBuildMessageSeedsVariables(t *testing.T) {
 		t.Fatalf("parseVariables: %v", err)
 	}
 
-	msg, err := buildMessage([]byte(`{"amount":7}`), vars)
+	msg, err := buildMessage([]byte(`{"amount":7}`), vars, "")
 	if err != nil {
 		t.Fatalf("buildMessage: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestBuildMessageSeedsVariables(t *testing.T) {
 // TestBuildMessageWithoutVars: omitting --vars must leave the message's own variables
 // untouched rather than replacing them with an empty map.
 func TestBuildMessageWithoutVars(t *testing.T) {
-	msg, err := buildMessage([]byte(`{}`), nil)
+	msg, err := buildMessage([]byte(`{}`), nil, "")
 	if err != nil {
 		t.Fatalf("buildMessage: %v", err)
 	}

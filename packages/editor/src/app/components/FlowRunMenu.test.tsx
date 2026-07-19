@@ -24,14 +24,25 @@ function invalidDoc(): EditorDocument {
   return { flows: [flow], connectors: [], processors: [], env: [] };
 }
 
-function stubTransport(onInvoke: (req: FlowRunRequest) => void): RunTransport {
+/** A runnable document whose flow is driven by a cron source with the given payload. */
+function cronDoc(payload: string): EditorDocument {
+  const flow = emptyFlow("orders");
+  flow.process = [newBlock("log")];
+  flow.source = { connector: "cron", type: "cron", settings: { schedule: "* * * * * *", payload } };
+  return { flows: [flow], connectors: [], processors: [], env: [] };
+}
+
+function stubTransport(
+  onInvoke: (req: FlowRunRequest) => void,
+  evalCel?: RunTransport["evalCel"],
+): RunTransport {
   const snap = { available: true, running: false, version: null, testPath: null };
   return {
     status: async () => snap,
     start: async () => snap,
     stop: async () => {},
     sync: async () => {},
-    evalCel: async () => ({ ok: true }),
+    evalCel: evalCel ?? (async () => ({ ok: true })),
     subscribeLogs: () => () => {},
     invoke: async (req) => {
       onInvoke(req);
@@ -183,6 +194,58 @@ describe("FlowRunMenu", () => {
 
     await user.click(screen.getByLabelText("Run flow"));
     expect(screen.getByText("Save the flow to keep its test inputs.")).toBeInTheDocument();
+  });
+
+  // A cron source's payload IS the body the flow receives each tick, so the menu offers it
+  // ready-made — evaluated to a concrete body — instead of making the user retype it.
+  it("offers the cron source's payload and runs with the evaluated body", async () => {
+    const seen: FlowRunRequest[] = [];
+    const evalExprs: string[] = [];
+    const evalCel = vi.fn(async (req: { expression: string }) => {
+      evalExprs.push(req.expression);
+      return { ok: true, result: { date: "2026-07-18" } };
+    });
+    const user = await setup({
+      doc: cronDoc('{"date": string(now)}'),
+      transport: stubTransport((r) => seen.push(r), evalCel),
+    });
+
+    await user.click(screen.getByLabelText("Run flow"));
+    // A cron source can only send its payload, so that is the default and "No input"
+    // (an empty message the source would never produce) is dropped.
+    expect(screen.queryByText("No input")).not.toBeInTheDocument();
+    await user.click(screen.getByText("As the cron source would send it"));
+
+    // It evaluated the source's own payload expression...
+    await waitFor(() => expect(evalExprs).toContain('{"date": string(now)}'));
+    // ...and ran the flow with the evaluated body, serialized as the input's data.
+    await waitFor(() => expect(seen).toHaveLength(1));
+    expect(seen[0].data).toBe('{"date":"2026-07-18"}');
+  });
+
+  it("keeps 'No input' as the default for a non-cron flow", async () => {
+    const user = await setup({ doc: runnableDoc() });
+
+    await user.click(screen.getByLabelText("Run flow"));
+    expect(screen.getByText("No input")).toBeInTheDocument();
+    expect(screen.queryByText("As the cron source would send it")).not.toBeInTheDocument();
+  });
+
+  it("surfaces an error instead of running when the cron payload will not evaluate", async () => {
+    const seen: FlowRunRequest[] = [];
+    const evalCel = vi.fn(async () => ({ ok: false, error: "undeclared reference to 'oops'" }));
+    const user = await setup({
+      doc: cronDoc("oops"),
+      transport: stubTransport((r) => seen.push(r), evalCel),
+    });
+
+    await user.click(screen.getByLabelText("Run flow"));
+    await user.click(screen.getByText("As the cron source would send it"));
+
+    await waitFor(() =>
+      expect(screen.getByText(/undeclared reference to 'oops'/)).toBeInTheDocument(),
+    );
+    expect(seen).toHaveLength(0);
   });
 
   it("renders nothing without a run capability", async () => {

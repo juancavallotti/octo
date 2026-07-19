@@ -82,6 +82,9 @@ Invoke flags:
   --config <path>    path to the runtime config (file or directory)
   --flow <name>      name of the flow to invoke
   --data <json>      JSON request body (reads stdin when omitted)
+  --content-type <mime>
+                     treat --data as a raw body of this MIME type instead of JSON
+                     (e.g. application/xml), for flows fed by a raw-body source
   --vars <json>      JSON object seeding the message variables
   --timeout <dur>    max time to wait for the flow (default 30s)
   --break-at <addr>  run until this block, then print the message and stop
