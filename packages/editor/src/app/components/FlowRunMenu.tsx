@@ -1,14 +1,28 @@
 "use client";
 
 import { useState } from "react";
-import { Pencil, Play, Plus, Trash2 } from "lucide-react";
+import { Clock, Pencil, Play, Plus, Trash2 } from "lucide-react";
 import { Popover } from "../../components/ui";
 import { useRun } from "../run/RunContext";
 import { useFlowRun } from "../run/FlowRunContext";
+import { useEditorState } from "../state/editorState";
 import { useEditorMeta } from "../providers/EditorMetaProvider";
 import { issueMessages } from "../model/validate";
+import type { SourceNode } from "../model/document";
 import type { TestInput } from "../meta/types";
 import TestInputForm from "./TestInputForm";
+
+/**
+ * The CEL payload a cron source declares, or null for any other source. A cron source's
+ * `payload` *is* the body the flow receives on every tick, so we can offer it as a
+ * ready-made test input rather than making the user retype what the document already says.
+ * Other sources are only partially derivable, so they are out of scope (see #143).
+ */
+function cronPayloadOf(source: SourceNode | undefined): string | null {
+  if (!source || (source.connector !== "cron" && source.type !== "cron")) return null;
+  const payload = source.settings?.payload;
+  return typeof payload === "string" && payload.trim() !== "" ? payload : null;
+}
 
 /**
  * The play button on a flow card, and the menu it opens: the flow's saved test inputs,
@@ -25,12 +39,16 @@ export default function FlowRunMenu({ flowId }: { flowId: string }) {
   const run = useRun();
   const flowRun = useFlowRun();
   const meta = useEditorMeta();
+  const { state } = useEditorState();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<TestInput | "new" | null>(null);
+  const [deriving, setDeriving] = useState(false);
+  const [deriveError, setDeriveError] = useState<string | null>(null);
 
   if (!run?.available || !flowRun) return null;
 
   const inputs = meta?.inputs(flowId) ?? [];
+  const cronPayload = cronPayloadOf(state.document.flows.find((f) => f.id === flowId)?.source);
   const blocked = !run.validation.ok;
   const title = blocked
     ? `Fix before running:\n• ${issueMessages(run.validation).join("\n• ")}`
@@ -41,9 +59,38 @@ export default function FlowRunMenu({ flowId }: { flowId: string }) {
     void flowRun.runFlow(flowId, input);
   };
 
+  // Run the flow with the body its cron source would produce. The payload is a CEL
+  // expression (it may read `now`, the fire time), so we evaluate it to a concrete body
+  // through the same evalCel the CEL tester uses — no runtime change, and the derived
+  // input is never persisted: it is computed from the document, so saving it would just
+  // create a stale copy. An expression that fails to evaluate stays on screen as an error
+  // rather than running the flow with a body nobody meant.
+  const startFromCron = async () => {
+    if (!cronPayload) return;
+    setDeriving(true);
+    setDeriveError(null);
+    try {
+      const res = await run.evalCel({ expression: cronPayload });
+      if (!res.ok || res.error !== undefined) {
+        setDeriveError(res.error ?? "the cron payload did not evaluate");
+        return;
+      }
+      start({
+        id: "cron-derived",
+        name: "As the cron source would send it",
+        data: JSON.stringify(res.result ?? null),
+      });
+    } catch (err) {
+      setDeriveError((err as Error).message);
+    } finally {
+      setDeriving(false);
+    }
+  };
+
   const close = () => {
     setOpen(false);
     setEditing(null);
+    setDeriveError(null);
   };
 
   return (
@@ -100,6 +147,23 @@ export default function FlowRunMenu({ flowId }: { flowId: string }) {
                 </button>
               </li>
 
+              {cronPayload && (
+                <li>
+                  <button
+                    type="button"
+                    onClick={() => void startFromCron()}
+                    disabled={deriving}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-black/[0.04] disabled:opacity-50 dark:hover:bg-white/[0.06]"
+                  >
+                    <Clock size={13} className="shrink-0 text-zinc-400" />
+                    <span className="truncate">As the cron source would send it</span>
+                    <span className="ml-auto text-xs text-zinc-400">
+                      {deriving ? "evaluating…" : "from payload"}
+                    </span>
+                  </button>
+                </li>
+              )}
+
               {inputs.map((input) => (
                 <li key={input.id} className="group/row flex items-center">
                   <button
@@ -129,6 +193,12 @@ export default function FlowRunMenu({ flowId }: { flowId: string }) {
                 </li>
               ))}
             </ul>
+
+            {deriveError && (
+              <p className="border-t border-black/10 px-3 py-2 text-xs text-red-500 dark:border-white/10">
+                Couldn’t derive the cron input: {deriveError}
+              </p>
+            )}
 
             <div className="border-t border-black/10 dark:border-white/10">
               <button
