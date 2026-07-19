@@ -12,7 +12,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/juancavallotti/octo/runtime/core"
-	"github.com/juancavallotti/octo/runtime/core/internal/dsl"
+	"github.com/juancavallotti/octo/runtime/core/dotenv"
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
@@ -89,7 +89,7 @@ func loadDotEnv() (map[string]string, error) {
 			}
 			return nil, fmt.Errorf("read .env file %q: %w", path, err)
 		}
-		values, parseErr := dsl.ParseDotEnv(data)
+		values, parseErr := dotenv.Parse(data)
 		if parseErr != nil {
 			return nil, fmt.Errorf("%q: %w", path, parseErr)
 		}
@@ -118,7 +118,7 @@ func loadEnvResources(loader core.ResourceLoader, ids []string) map[string]strin
 			}
 			continue
 		}
-		values, parseErr := dsl.ParseDotEnv(data)
+		values, parseErr := dotenv.Parse(data)
 		if parseErr != nil {
 			slog.Warn("skipping env resource that failed to parse", "id", id, "error", parseErr)
 			continue

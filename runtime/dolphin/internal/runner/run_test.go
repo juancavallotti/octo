@@ -473,22 +473,106 @@ func TestTheSuitesEnvBeatsTheAmbientOne(t *testing.T) {
 	}
 }
 
-// TestTheEnvFileIsHandedToOcto: dolphin does not parse .env files. octo already reads
-// $OCTO_ENV_FILE when it loads a config, and a second dotenv parser here would be a second
-// set of rules about quoting and comments to disagree with the first.
-func TestTheEnvFileIsHandedToOcto(t *testing.T) {
+// fakeOctoResolvingGreeting stands in for octo just enough to test env precedence: it
+// resolves GREETING the way octo does — the real environment first, then whatever
+// $OCTO_ENV_FILE holds — and writes what it resolved to seen. So a child that inherited an
+// exported GREETING reports that, and one that did not falls through to the --env-file,
+// exactly as the real runtime's lookupEnv would.
+func fakeOctoResolvingGreeting(t *testing.T, seen string) string {
+	t.Helper()
+	body := fmt.Sprintf(`
+if [ -n "${GREETING+set}" ]; then
+  printf '%%s' "$GREETING" > %[1]s
+elif [ -n "$OCTO_ENV_FILE" ]; then
+  sed -n 's/^GREETING=//p' "$OCTO_ENV_FILE" | head -1 | tr -d '\n' > %[1]s
+else
+  : > %[1]s
+fi
+`, seen)
+	return fakeOcto(t, body+okEnvelope)
+}
+
+// TestTheEnvFileIsStillHandedToOcto: dolphin does not inject the file's values as real
+// variables — that would let --env-file outrank a config's own env resources, which octo
+// deliberately ranks above its .env chain. Instead the path is still passed as
+// $OCTO_ENV_FILE, so octo loads it into that chain and resources keep winning.
+func TestTheEnvFileIsStillHandedToOcto(t *testing.T) {
+	envFile := filepath.Join(t.TempDir(), "probe.env")
+	if err := os.WriteFile(envFile, []byte("GREETING=from-env-file\n"), 0o600); err != nil {
+		t.Fatalf("write env file: %v", err)
+	}
+
 	seen := filepath.Join(t.TempDir(), "seen")
 	octo := fakeOcto(t, fmt.Sprintf("printf '%%s' \"$OCTO_ENV_FILE\" > %s\n", seen)+okEnvelope)
 
 	cfg := config(t, octo)
-	cfg.EnvFile = "/tmp/test.env"
+	cfg.EnvFile = envFile
 	Run(context.Background(), cfg, targets(t, 1, 1))
 
 	got, err := os.ReadFile(seen) //nolint:gosec // G304: a path this test built
 	if err != nil {
 		t.Fatalf("read what the child saw: %v", err)
 	}
-	if string(got) != "/tmp/test.env" {
+	if string(got) != envFile {
 		t.Errorf("the child saw OCTO_ENV_FILE=%q, want the --env-file path", got)
+	}
+}
+
+// TestTheEnvFileBeatsAnExportedVariable pins the precedence dolphin documents but did not
+// used to honour. octo ranks the OS environment above its .env chain, so an exported
+// variable quietly beat the --env-file the run was told to use, and a suite leaning on the
+// file for a fake credential could run against the developer's real one. dolphin now drops
+// the exported value so the file's reaches octo instead.
+func TestTheEnvFileBeatsAnExportedVariable(t *testing.T) {
+	t.Setenv("GREETING", "REAL-SHELL-VALUE")
+
+	envFile := filepath.Join(t.TempDir(), "probe.env")
+	if err := os.WriteFile(envFile, []byte("GREETING=from-env-file\n"), 0o600); err != nil {
+		t.Fatalf("write env file: %v", err)
+	}
+
+	seen := filepath.Join(t.TempDir(), "seen")
+	octo := fakeOctoResolvingGreeting(t, seen)
+
+	cfg := config(t, octo)
+	cfg.EnvFile = envFile
+	Run(context.Background(), cfg, targets(t, 1, 1))
+
+	got, err := os.ReadFile(seen) //nolint:gosec // G304: a path this test built
+	if err != nil {
+		t.Fatalf("read what the child saw: %v", err)
+	}
+	if string(got) != "from-env-file" {
+		t.Errorf("the child saw GREETING=%q, want the --env-file's value — an exported "+
+			"variable must never beat the file a test runner was told to use", got)
+	}
+}
+
+// TestTheSuitesEnvBeatsTheEnvFile: the suite's own env: block is the last word, above even
+// the --env-file, so a suite can always pin a value regardless of what the file carries and
+// regardless of the ambient environment.
+func TestTheSuitesEnvBeatsTheEnvFile(t *testing.T) {
+	t.Setenv("GREETING", "REAL-SHELL-VALUE")
+
+	envFile := filepath.Join(t.TempDir(), "probe.env")
+	if err := os.WriteFile(envFile, []byte("GREETING=from-env-file\n"), 0o600); err != nil {
+		t.Fatalf("write env file: %v", err)
+	}
+
+	seen := filepath.Join(t.TempDir(), "seen")
+	octo := fakeOctoResolvingGreeting(t, seen)
+
+	cfg := config(t, octo)
+	cfg.EnvFile = envFile
+	tg := targets(t, 1, 1)
+	tg[0].File.Env = map[string]string{"GREETING": "from-suite-env"}
+	Run(context.Background(), cfg, tg)
+
+	got, err := os.ReadFile(seen) //nolint:gosec // G304: a path this test built
+	if err != nil {
+		t.Fatalf("read what the child saw: %v", err)
+	}
+	if string(got) != "from-suite-env" {
+		t.Errorf("the child saw GREETING=%q, want the suite's env: value", got)
 	}
 }

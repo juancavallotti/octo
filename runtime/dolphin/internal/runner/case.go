@@ -29,6 +29,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/core/dotenv"
 	"github.com/juancavallotti/octo/runtime/dolphin/internal/suite"
 	"github.com/juancavallotti/octo/runtime/types"
 )
@@ -158,7 +159,11 @@ func invoke(ctx context.Context, opts Options, target suite.Target, index int, c
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	cmd.Env = childEnv(opts, target.File.EnvFor(c))
+	env, err := childEnv(opts, target.File.EnvFor(c))
+	if err != nil {
+		return outcome, err
+	}
+	cmd.Env = env
 
 	started := time.Now()
 	runErr := cmd.Run()
@@ -311,18 +316,36 @@ func invokeArgs(target suite.Target, configPath, envelopePath string, timeout ti
 
 // childEnv is the environment octo runs in.
 //
-// It inherits dolphin's, so a flow's ${NAME} references resolve against the same
-// variables as the real thing, and then lays the run's own over it: the suite's env:
-// block, and the --env-file. Later entries win in exec, so the suite's fake key beats
-// whatever the developer happens to have exported — which is the point. A test that
-// quietly used your real ANTHROPIC_API_KEY because it was in your shell is a test that
-// passes on your machine, bills you for it, and fails in CI.
+// It inherits dolphin's — so a flow's ${NAME} references resolve against the same
+// variables as the real thing — then lays the run's own on top: the suite's env: block,
+// and the --env-file, which is handed to octo as $OCTO_ENV_FILE for octo to load into its
+// .env chain (below a config's own env resources, exactly as outside a test).
 //
-// The env file is handed to octo rather than parsed here: octo already reads
-// $OCTO_ENV_FILE when it loads a config, and a second .env parser in dolphin would be a
-// second set of rules about quoting and comments to disagree about.
-func childEnv(opts Options, env map[string]string) []string {
-	child := os.Environ()
+// The one twist is precedence. octo ranks the real environment above its .env chain, which
+// is right for octo but wrong for a test runner: it would let a variable the developer
+// happened to export beat the --env-file the run was told to use — so a suite leaning on
+// the file for a fake credential could quietly run against the real one, pass on that
+// machine, bill for it, and fail in CI. So before inheriting, dolphin drops any ambient
+// variable the --env-file itself defines (unless the suite's env: sets it, which wins
+// regardless). octo then reads that variable's value from the file, and the exported one
+// can no longer shadow it. A config's own env resources still outrank the file — that
+// precedence is octo's, and is left alone.
+func childEnv(opts Options, env map[string]string) ([]string, error) {
+	fileVars, err := envFileVars(opts.EnvFile)
+	if err != nil {
+		return nil, err
+	}
+
+	child := make([]string, 0, len(fileVars)+len(env)+2)
+	for _, kv := range os.Environ() {
+		name, _, _ := strings.Cut(kv, "=")
+		if _, masked := fileVars[name]; masked {
+			if _, setBySuite := env[name]; !setBySuite {
+				continue // the --env-file defines it; don't let the ambient value shadow the file
+			}
+		}
+		child = append(child, kv)
+	}
 	if !opts.Verbose {
 		child = append(child, childLogLevel)
 	}
@@ -332,7 +355,26 @@ func childEnv(opts Options, env map[string]string) []string {
 	for _, name := range sortedNames(env) {
 		child = append(child, name+"="+env[name])
 	}
-	return child
+	return child, nil
+}
+
+// envFileVars parses the --env-file into its name->value map, or an empty map when no file
+// was given. dolphin needs the names to keep the ambient environment from shadowing the
+// file (see childEnv); it reuses octo's own dotenv parser, so there is still exactly one set
+// of quoting and comment rules in the tree.
+func envFileVars(path string) (map[string]string, error) {
+	if path == "" {
+		return map[string]string{}, nil
+	}
+	data, err := os.ReadFile(path) //nolint:gosec // G304: operator-provided --env-file path
+	if err != nil {
+		return nil, fmt.Errorf("read --env-file %q: %w", path, err)
+	}
+	vars, err := dotenv.Parse(data)
+	if err != nil {
+		return nil, fmt.Errorf("--env-file %q: %w", path, err)
+	}
+	return vars, nil
 }
 
 // sortedNames keeps the child's environment stable between runs, so two runs of the same
