@@ -135,19 +135,11 @@ export default function FlowRunMenu({ flowId }: { flowId: string }) {
             </div>
 
             <ul className="max-h-[50vh] overflow-y-auto py-1">
-              <li>
-                <button
-                  type="button"
-                  onClick={() => start()}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
-                >
-                  <Play size={13} className="shrink-0 text-zinc-400" />
-                  No input
-                  <span className="ml-auto text-xs text-zinc-400">empty message</span>
-                </button>
-              </li>
-
-              {cronPayload && (
+              {/* A cron source can only ever send its own payload, so that IS the flow's
+                  input — offered first, as the default. An empty message is not something
+                  the source does, so "No input" is dropped for cron flows; other flows keep
+                  it as their default. */}
+              {cronPayload ? (
                 <li>
                   <button
                     type="button"
@@ -160,6 +152,18 @@ export default function FlowRunMenu({ flowId }: { flowId: string }) {
                     <span className="ml-auto text-xs text-zinc-400">
                       {deriving ? "evaluating…" : "from payload"}
                     </span>
+                  </button>
+                </li>
+              ) : (
+                <li>
+                  <button
+                    type="button"
+                    onClick={() => start()}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
+                  >
+                    <Play size={13} className="shrink-0 text-zinc-400" />
+                    No input
+                    <span className="ml-auto text-xs text-zinc-400">empty message</span>
                   </button>
                 </li>
               )}

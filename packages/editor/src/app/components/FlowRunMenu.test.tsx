@@ -211,6 +211,9 @@ describe("FlowRunMenu", () => {
     });
 
     await user.click(screen.getByLabelText("Run flow"));
+    // A cron source can only send its payload, so that is the default and "No input"
+    // (an empty message the source would never produce) is dropped.
+    expect(screen.queryByText("No input")).not.toBeInTheDocument();
     await user.click(screen.getByText("As the cron source would send it"));
 
     // It evaluated the source's own payload expression...
@@ -220,10 +223,11 @@ describe("FlowRunMenu", () => {
     expect(seen[0].data).toBe('{"date":"2026-07-18"}');
   });
 
-  it("does not offer a cron input for a non-cron flow", async () => {
+  it("keeps 'No input' as the default for a non-cron flow", async () => {
     const user = await setup({ doc: runnableDoc() });
 
     await user.click(screen.getByLabelText("Run flow"));
+    expect(screen.getByText("No input")).toBeInTheDocument();
     expect(screen.queryByText("As the cron source would send it")).not.toBeInTheDocument();
   });
 
