@@ -279,3 +279,45 @@ func TestEnvelopeFlagParses(t *testing.T) {
 		t.Error("--envelope did not set the flag")
 	}
 }
+
+// TestContentTypeFlagParses: the flag is empty by default, so a plain invoke stays JSON,
+// and carries the MIME type when given.
+func TestContentTypeFlagParses(t *testing.T) {
+	base := []string{"--config", "x.yaml", "--flow", "demo"}
+
+	off, err := parseInvokeFlags(base)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if off.contentType != "" {
+		t.Errorf("contentType = %q by default, want empty: a plain invoke must stay JSON", off.contentType)
+	}
+
+	on, err := parseInvokeFlags(append(base, "--content-type", "application/xml"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if on.contentType != "application/xml" {
+		t.Errorf("contentType = %q, want application/xml", on.contentType)
+	}
+}
+
+// TestBuildMessageRawBody: with a content type, --data becomes a raw body of that type,
+// left exactly as given rather than parsed as JSON — the one category of flow (XML, CSV,
+// form-encoded) that a JSON-only invoke could never feed.
+func TestBuildMessageRawBody(t *testing.T) {
+	msg, err := buildMessage([]byte(`<order><id>42</id></order>`), nil, "application/xml")
+	if err != nil {
+		t.Fatalf("buildMessage: %v", err)
+	}
+	ct, raw, ok := msg.RawBody()
+	if !ok {
+		t.Fatalf("message is not a raw body; a non-JSON --data must not be parsed as JSON")
+	}
+	if ct != "application/xml" {
+		t.Errorf("content type = %q, want application/xml", ct)
+	}
+	if raw != `<order><id>42</id></order>` {
+		t.Errorf("raw body = %q, want the bytes verbatim", raw)
+	}
+}

@@ -58,7 +58,7 @@ func evalCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	msg, err := buildMessage(body, vars)
+	msg, err := buildMessage(body, vars, "")
 	if err != nil {
 		return err
 	}

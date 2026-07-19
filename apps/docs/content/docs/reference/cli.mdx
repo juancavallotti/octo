@@ -111,6 +111,7 @@ octo invoke --config orders.yaml --flow orders --data '{"orderId": 42}' | jq '.b
 | `--config` | path | (required) | Path to the runtime config (file or directory). |
 | `--flow` | string | (required) | Name of the flow to invoke. |
 | `--data` | JSON | stdin | JSON request body. When omitted, piped stdin is read instead. |
+| `--content-type` | MIME | (none) | Treat `--data` as a [raw body](/concepts/raw-content) of this type instead of JSON. See [Raw bodies](#raw-bodies). |
 | `--vars` | JSON | (none) | JSON object seeding the message [variables](/concepts/state-and-data). |
 | `--timeout` | duration | `30s` | Maximum time to wait for the flow (Go duration, e.g. `10s`, `2m`). |
 | `--break-at` | address | (none) | Run until this block, print the message it produced, and stop. See [Breakpoints](#breakpoints). |
@@ -136,6 +137,26 @@ rejected it, or a block returned nothing), `invoke` logs
 `flow dropped the message` and prints no result. Any flow is callable this
 way, including flows without a `source:` (see
 [Flow File](/reference/flow-file#flows)).
+
+### Raw bodies
+
+`--data` is JSON by default, so a flow fed by a
+[raw-content source](/concepts/raw-content) — XML, CSV, form-encoded, anything
+non-JSON — could not be invoked with a realistic payload. `--content-type` opts
+the body out of JSON: the bytes of `--data` become the message body verbatim,
+tagged with the MIME type you give, exactly as an HTTP source configured with
+`rawBody: true` would receive them.
+
+```bash
+octo invoke --config orders.yaml --flow intake \
+  --content-type application/xml \
+  --data '<order><id>42</id></order>'
+```
+
+Inside the flow the body takes the raw-content shape — `body.contentType` and
+`body.rawData` — rather than a parsed object; see
+[Raw Content](/concepts/raw-content) for what the flow then does with it. Without
+`--content-type`, nothing changes: the body is parsed as JSON as before.
 
 ### Seeding variables
 
