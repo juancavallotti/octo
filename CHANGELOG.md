@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.4.3](https://github.com/juancavallotti/octo/compare/v0.4.2...v0.4.3) (2026-07-19)
+
+
+### Features
+
+* **cli:** octo invoke --content-type for raw (non-JSON) bodies ([0c97d1a](https://github.com/juancavallotti/octo/commit/0c97d1ad8c459d44ff692b377c4c23be91dbc6e0)), closes [#142](https://github.com/juancavallotti/octo/issues/142)
+* **editor:** default a cron flow's run to its source payload ([4729cb3](https://github.com/juancavallotti/octo/commit/4729cb3c04fd762353897011c0c9b266674aba2d))
+* **editor:** offer a cron source's payload as a ready-made test input ([37f0700](https://github.com/juancavallotti/octo/commit/37f0700ee4e101cdd6fa384a868c5a161d806b60)), closes [#143](https://github.com/juancavallotti/octo/issues/143)
+
+
+### Bug Fixes
+
+* **dolphin:** --env-file must beat an exported shell variable ([7c88663](https://github.com/juancavallotti/octo/commit/7c886636c4a1a5a85e9ede5e1de20f45cabac671)), closes [#162](https://github.com/juancavallotti/octo/issues/162)
+* **editor:** give spy records unique keys across runs ([392acb5](https://github.com/juancavallotti/octo/commit/392acb5f2185853beb4b52c29fbf5183865948e8))
+
 ## [0.4.2](https://github.com/juancavallotti/octo/compare/v0.4.1...v0.4.2) (2026-07-14)
 
 
