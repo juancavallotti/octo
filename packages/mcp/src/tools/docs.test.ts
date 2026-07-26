@@ -149,6 +149,20 @@ describe("getCelFunctions tool", () => {
     );
   });
 
+  // cel-go declares reverse on both string and list, so neither library may look
+  // like it lacks one, and a lookup by name has to answer with both.
+  it("carries reverse under both the strings and lists libraries", async () => {
+    const client = await connect();
+    const strings = JSON.parse((await call(client, "getCelFunctions", { library: "strings" })).text);
+    const lists = JSON.parse((await call(client, "getCelFunctions", { library: "lists" })).text);
+    expect(strings.functions.map((f: { name: string }) => f.name)).toContain("reverse");
+    expect(lists.functions.map((f: { name: string }) => f.name)).toContain("reverse");
+
+    const both = JSON.parse((await call(client, "getCelFunctions", { functionName: "reverse" })).text);
+    expect(both.name).toBe("reverse");
+    expect(both.entries.map((f: { library: string }) => f.library)).toEqual(["strings", "lists"]);
+  });
+
   it("filters the catalogue to one library", async () => {
     const client = await connect();
     const res = JSON.parse((await call(client, "getCelFunctions", { library: "sets" })).text);

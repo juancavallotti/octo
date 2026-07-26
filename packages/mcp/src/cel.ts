@@ -210,12 +210,16 @@ export const CEL_FUNCTIONS: CelFunction[] = [
     summary: "Index of the last occurrence, or -1.",
     example: `body.path.lastIndexOf("/")`,
   },
+  // cel-go declares reverse twice — once on string in the strings library, once
+  // on list in the lists library — so the catalogue carries it twice too. A
+  // single entry would leave whichever library it was not filed under looking
+  // like it has no reverse.
   {
     name: "reverse",
     library: "strings",
-    signature: "string.reverse() -> string | list.reverse() -> list",
-    summary: "Reverse a string (by rune) or a list.",
-    example: `body.items.reverse()`,
+    signature: "string.reverse() -> string",
+    summary: "Reverse a string by rune. Lists have their own reverse, in the lists library.",
+    example: `body.code.reverse()`,
   },
   {
     name: "format",
@@ -240,6 +244,14 @@ export const CEL_FUNCTIONS: CelFunction[] = [
     signature: "list.distinct() -> list",
     summary: "Drop duplicate elements, keeping first-seen order.",
     example: `body.tags.distinct()`,
+  },
+  {
+    name: "reverse",
+    library: "lists",
+    signature: "list.reverse() -> list",
+    summary:
+      "Reverse a list — compose with sort/sortBy for a descending order. Strings have their own reverse, in the strings library.",
+    example: `body.items.sortBy(i, i.amount).reverse()`,
   },
   {
     name: "flatten",
@@ -562,9 +574,14 @@ export const CEL_FUNCTIONS: CelFunction[] = [
   },
 ];
 
-/** Look up one function by name; undefined when unknown. */
-export function getCelFunction(name: string): CelFunction | undefined {
-  return CEL_FUNCTIONS.find((f) => f.name === name);
+/**
+ * Every entry with this name, in catalogue order; empty when unknown. A name can
+ * appear more than once when two libraries declare it on different receivers —
+ * `reverse` is a string function and a list function — and the caller wants both,
+ * not whichever the catalogue happens to list first.
+ */
+export function getCelFunctionsNamed(name: string): CelFunction[] {
+  return CEL_FUNCTIONS.filter((f) => f.name === name);
 }
 
 /** Every function from one library, in catalogue order. */

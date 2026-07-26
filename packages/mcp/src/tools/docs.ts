@@ -7,7 +7,7 @@ import {
   CEL_FUNCTIONS,
   CEL_VARIABLES,
   celLibraries,
-  getCelFunction,
+  getCelFunctionsNamed,
   getCelLibrary,
 } from "../cel";
 
@@ -103,7 +103,7 @@ export function registerDocsTools(
     {
       title: "Get CEL functions",
       description:
-        "The CEL variables and functions available to Octo message expressions (log messages, payloads, if/switch conditions, connector fields). Call with no argument for { variables, functions, libraries }; pass `functionName` (e.g. \"fromFormData\" or \"math.round\") for one function's signature, summary, and example, or `library` (octo, strings, lists, encoders, math, comprehensions, sets, regex, optional) for that library's functions. Use this to write expressions instead of guessing what's in scope. The CEL standard library (size, has, map, filter, startsWith, timestamp, …) is always available on top of these and is not listed here.",
+        "The CEL variables and functions available to Octo message expressions (log messages, payloads, if/switch conditions, connector fields). Call with no argument for { variables, functions, libraries }; pass `functionName` (e.g. \"fromFormData\" or \"math.round\") for one function's signature, summary, and example, or `library` (octo, strings, lists, encoders, math, comprehensions, sets, regex, optional) for that library's functions. A name two libraries declare on different receivers (reverse) comes back as { name, entries }. Use this to write expressions instead of guessing what's in scope. The CEL standard library (size, has, map, filter, startsWith, timestamp, …) is always available on top of these and is not listed here.",
       inputSchema: {
         functionName: z
           .string()
@@ -118,13 +118,15 @@ export function registerDocsTools(
     ({ functionName, library }) =>
       guard(async () => {
         if (functionName) {
-          const fn = getCelFunction(functionName);
-          if (!fn) {
+          // A name can be declared by two libraries on different receivers
+          // (reverse), so answer with every entry rather than an arbitrary one.
+          const fns = getCelFunctionsNamed(functionName);
+          if (fns.length === 0) {
             return errorResult(
               `Unknown CEL function "${functionName}". Call getCelFunctions with no argument to list the available functions.`,
             );
           }
-          return jsonResult(fn);
+          return jsonResult(fns.length === 1 ? fns[0] : { name: functionName, entries: fns });
         }
         if (library) {
           const functions = getCelLibrary(library);
