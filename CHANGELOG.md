@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.6.0](https://github.com/juancavallotti/octo/compare/v0.5.0...v0.6.0) (2026-07-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* **observability:** core.BlockEvents drops AddAsync, AsyncBlockListener, Dropped and Stop. The octo_block_events_dropped_total metric is removed.
+
+### Features
+
+* **editor:** label a composite's slot when it is not the block's body ([af64ff5](https://github.com/juancavallotti/octo/commit/af64ff5b450ee2543c2aeb73c13395352d5ef44b))
+* **engine:** let a block take over a flow and continue it on borrowed workers ([27ed139](https://github.com/juancavallotti/octo/commit/27ed1390d59f6ec325c21f02c53f099de70bc976))
+* **engine:** split and aggregate blocks ([#178](https://github.com/juancavallotti/octo/issues/178), [#179](https://github.com/juancavallotti/octo/issues/179)) ([5f3e001](https://github.com/juancavallotti/octo/commit/5f3e0014a8cf9f8a14563ad3b28cbe38b25249fc))
+
+
+### Bug Fixes
+
+* **core:** contain a panicking block listener instead of propagating it ([912e011](https://github.com/juancavallotti/octo/commit/912e011ad2d2c460ca1d46337e6973eaaa5e91a4))
+* **engine:** deliver a completed group outside the fold stripe ([85f5fbc](https://github.com/juancavallotti/octo/commit/85f5fbc026e6022e891ac604690d46d647efa3fb))
+* **engine:** make the aggregate's group index a real ledger ([5c87418](https://github.com/juancavallotti/octo/commit/5c87418b955477f4a63f55ca3204d2fd800c770e))
+* **observability:** deliver block events inline, not through a queue ([c314462](https://github.com/juancavallotti/octo/commit/c31446221857bbff9db5c0376167147bc0931bc7))
+* **runtime:** finish the shutdown even when the source fails to stop ([b1a2b69](https://github.com/juancavallotti/octo/commit/b1a2b69620e80e43f99c8e97ff4f0504dd4de5bf))
+
+
+### Performance
+
+* **observability:** cache the collectors a watched block resolves to ([374c0a3](https://github.com/juancavallotti/octo/commit/374c0a3d551a888b027a7b195dbd437f7fb9bd4d))
+
+
+### Documentation
+
+* block events are inline and filtered at the source ([c3c1071](https://github.com/juancavallotti/octo/commit/c3c107182be216f9a4c8f1c7ee38686ca9e12f9c))
+
 ## [0.5.0](https://github.com/juancavallotti/octo/compare/v0.4.3...v0.5.0) (2026-07-26)
 
 
