@@ -1,0 +1,325 @@
+---
+title: "Extension Libraries"
+description: "The cel-go utility libraries Octo enables: strings, lists, encoders, math, two-variable comprehensions, sets, and regex."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+On top of the CEL standard library and [Octo's own
+functions](/reference/cel/octo-extensions), the runtime enables seven of
+cel-go's utility libraries. Together they cover the reshaping an integration
+actually does: cleaning up strings, sorting and de-duplicating lists,
+base64-encoding, rounding money, turning a list into a lookup map, testing set
+membership, and pulling values out of semi-structured text.
+
+They are registered through the same seam as everything else, so they are
+available in **every** expression — block settings, `if`/`switch` conditions,
+`foreach` items, `validate` rules, connector fields, source payloads, and a
+template's `{{ }}` spans — with nothing to turn on.
+
+Reach for these before adding a [`foreach`](/reference/blocks/control-flow):
+most collection work that used to need a loop is now a single expression.
+
+Every example on this page was verified with
+[`octo eval`](/reference/cli#octo-eval); results are shown as it prints them.
+See [`samples/cel-extensions.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/cel-extensions.yaml)
+for a flow that uses most of them together.
+
+## Strings
+
+Receiver-style string manipulation. `format` also gives you interpolation
+without reaching for a template.
+
+| Expression | Result |
+| --- | --- |
+| `"  Ada Lovelace  ".trim()` | `"Ada Lovelace"` |
+| `"Ada.Lovelace@Example.COM".lowerAscii()` | `"ada.lovelace@example.com"` |
+| `"ada@example.com".upperAscii()` | `"ADA@EXAMPLE.COM"` |
+| `"a,b,c".split(",")` | `["a","b","c"]` |
+| `"a,b,c".split(",", 2)` | `["a","b,c"]` (the limit caps the pieces) |
+| `["admin", "billing"].join(", ")` | `"admin, billing"` |
+| `["a", "b", "c"].join()` | `"abc"` |
+| `"/v1/orders".replace("/v1/", "/v2/")` | `"/v2/orders"` |
+| `"banana".replace("a", "x", 2)` | `"bxnxna"` (a count caps the replacements) |
+| `"abcdef".substring(0, 3)` | `"abc"` |
+| `"abcdef".substring(3)` | `"def"` |
+| `"abc".charAt(1)` | `"b"` |
+| `"a:b:c".indexOf(":")` | `1` (`-1` when absent) |
+| `"a:b:c".lastIndexOf(":")` | `3` |
+| `"abc".reverse()` | `"cba"` |
+| `strings.quote("she said \"hi\"")` | `"\"she said \\\"hi\\\"\""` |
+
+### format
+
+`string.format(list)` substitutes each argument in order: `%s` renders any
+value, `%d` an integer, `%f` a double (`%.2f` fixes the precision), `%e`
+scientific notation, `%b`/`%o`/`%x`/`%X` binary, octal, and hex. A literal
+percent is `%%`.
+
+| Expression | Result |
+| --- | --- |
+| `"order %s: %d lines, %.2f total".format(["A-1", 3, 42.005])` | `"order A-1: 3 lines, 42.01 total"` |
+| `"%s scored %d%%".format(["Ada", 92])` | `"Ada scored 92%"` |
+
+In a flow — a log line that stays readable as it grows:
+
+```yaml
+- type: log
+  name: emit
+  settings:
+    message: '"order %s: %d lines".format([body.id, size(body.lines)])'
+```
+
+## Lists
+
+Collection reshaping. `sortBy` and `distinct` have no standard-CEL workaround
+at all — before these, both meant a `foreach`.
+
+| Expression | Result |
+| --- | --- |
+| `[1, 2, 2, 3, 3, 3].distinct()` | `[1,2,3]` |
+| `["b", "b", "c", "a"].distinct()` | `["b","c","a"]` (first-seen order) |
+| `[3, 1, 2].sort()` | `[1,2,3]` |
+| `[{"sku": "b", "qty": 5}, {"sku": "a", "qty": 1}].sortBy(i, i.qty)` | `[{"qty":1,"sku":"a"},{"qty":5,"sku":"b"}]` |
+| `[[1, 2], [3]].flatten()` | `[1,2,3]` |
+| `[1, [2, [3, [4]]]].flatten(2)` | `[1,2,3,[4]]` |
+| `[1, 2, 3, 4].slice(1, 3)` | `[2,3]` |
+| `[1, 2, 3].reverse()` | `[3,2,1]` |
+| `lists.range(4)` | `[0,1,2,3]` |
+| `[1, 2, 3].first()` | `1` |
+| `[1, 2, 3].last()` | `3` |
+| `[].first()` | `null` (empty is absent, not an error) |
+
+`sort` works on comparable scalars — int, uint, double, bool, duration,
+timestamp, string, bytes. Sorting a list of objects is `sortBy` with the key
+to sort on. Both sort ascending; compose with `reverse()` for descending.
+
+In a flow — the three most expensive lines, largest first:
+
+```yaml
+- type: set-payload
+  name: top-lines
+  settings:
+    value: 'body.lines.sortBy(l, l.amount).reverse().slice(0, 3)'
+```
+
+## Encoders
+
+Base64, which an expression previously could not do at all.
+
+| Expression | Result |
+| --- | --- |
+| `base64.encode(bytes("ada:secret"))` | `"YWRhOnNlY3JldA=="` |
+| `string(base64.decode("YWRhOnNlY3JldA=="))` | `"ada:secret"` |
+| `"Basic " + base64.encode(bytes("user:pass"))` | `"Basic dXNlcjpwYXNz"` |
+
+`encode` takes bytes, so convert first with `bytes(...)`; `decode` returns
+bytes, so wrap it in `string(...)` to read it as text. Encoding is standard
+base64 with padding, not the URL-safe alphabet.
+
+In a flow — a basic-auth header built from the environment:
+
+```yaml
+- type: rest
+  name: call-api
+  settings:
+    connector: orders-api
+    method: GET
+    path: /v1/orders
+    headers:
+      Authorization: '"Basic " + base64.encode(bytes(env.API_USER + ":" + env.API_TOKEN))'
+```
+
+## Math
+
+Aggregation over a mapped collection, and rounding.
+
+| Expression | Result |
+| --- | --- |
+| `math.greatest([3, 9, 4])` | `9` |
+| `math.greatest(1, 7, 3)` | `7` |
+| `math.least([3, 9, 4])` | `3` |
+| `math.round(2.5)` | `3` (ties away from zero) |
+| `math.round(-2.5)` | `-3` |
+| `math.ceil(1.2)` | `2` |
+| `math.floor(1.8)` | `1` |
+| `math.trunc(-1.8)` | `-1` |
+| `math.abs(-3)` | `3` |
+| `math.sign(-3)` | `-1` |
+| `math.sqrt(9.0)` | `3` |
+| `math.isFinite(1.0)` | `true` |
+| `math.isNaN(0.0/0.0)` | `true` |
+| `math.bitAnd(6, 3)` | `2` |
+| `math.bitShiftLeft(1, 4)` | `16` |
+
+`bitOr`, `bitXor`, `bitNot`, and `bitShiftRight` round out the bit operations.
+`isInf` completes the float guards alongside `isNaN` and `isFinite` — worth
+knowing about because JSON has a single number type, so a value that arrived
+as a double can be anything.
+
+For money, scale before rounding:
+
+| Expression | Result |
+| --- | --- |
+| `math.round(19.987 * 3.0 * 100.0) / 100.0` | `59.96` |
+
+`math.greatest` and `math.least` take either a list or a set of arguments,
+which is what makes a maximum over a collection a single expression:
+
+```yaml
+- type: set-variable
+  name: largest-line
+  settings:
+    name: topLine
+    value: 'math.greatest(body.lines.map(l, l.qty * l.unitPrice))'
+```
+
+<Callout type="info">
+  There is no `sum` — CEL has no fold, and neither the standard library nor
+  these extensions add one. Totalling a list still needs a
+  [`foreach`](/reference/blocks/control-flow) that accumulates into a variable.
+</Callout>
+
+## Two-variable comprehensions
+
+The standard macros (`map`, `filter`, `all`, `exists`) bind one variable, which
+on a map is the **key** — so the value is out of reach. These bind both, and add
+transforms that produce a map rather than a list.
+
+| Expression | Result |
+| --- | --- |
+| `{"a": 1, "b": 2}.transformMap(k, v, v * 10)` | `{"a":10,"b":20}` |
+| `{"Accept": "TEXT/HTML"}.transformMap(k, v, v.lowerAscii())` | `{"Accept":"text/html"}` |
+| `[{"sku": "a", "qty": 1}, {"sku": "b", "qty": 3}].transformMapEntry(i, l, {l.sku: l.qty})` | `{"a":1,"b":3}` |
+| `["a", "b", "c"].transformList(i, v, string(i) + ":" + v)` | `["0:a","1:b","2:c"]` |
+| `[1, 2, 3, 4].transformList(i, v, v % 2 == 0, v * 10)` | `[20,40]` (three-argument form filters first) |
+| `{"a": 1, "b": 2}.all(k, v, v > 0)` | `true` |
+| `{"a": 1, "b": 2}.exists(k, v, k == "b" && v == 2)` | `true` |
+| `[1, 2, 3].existsOne(i, v, v == 2)` | `true` |
+
+On a list the first variable is the **index**; on a map it is the key.
+`transformMap` keeps the keys and rewrites the values; `transformMapEntry`
+chooses both, so it is what turns a list into a lookup map — the reshaping
+that most often forced a `foreach`. An entry whose expression yields an empty
+map `{}` is skipped, which is how `transformMapEntry` filters.
+
+```yaml
+- type: set-payload
+  name: index-by-sku
+  settings:
+    value: 'body.lines.transformMapEntry(i, l, {l.sku: l.qty})'
+```
+
+## Sets
+
+List membership as a predicate, for routing and filtering on tags, scopes, or
+roles.
+
+| Expression | Result |
+| --- | --- |
+| `sets.contains(["read", "write", "admin"], ["read", "admin"])` | `true` |
+| `sets.contains(["read"], ["read", "write"])` | `false` |
+| `sets.equivalent([1, 2, 3], [3, 2, 1, 1])` | `true` (order and repeats ignored) |
+| `sets.intersects(["a"], ["b", "a"])` | `true` |
+| `sets.intersects([], ["a"])` | `false` (an empty list never intersects) |
+
+`sets.contains(a, b)` is true when every element of `b` appears in `a` — the
+subset test, so the required scopes go second:
+
+```yaml
+- type: if
+  name: may-write
+  condition: 'sets.contains(vars.scopes, ["orders:write"])'
+```
+
+## Regex
+
+Extraction from semi-structured text: the closest thing to a parser for a
+format Octo does not decode natively. Patterns are
+[RE2](https://github.com/google/re2/wiki/Syntax) — no backreferences or
+lookaheads, and linear-time by construction.
+
+| Expression | Result |
+| --- | --- |
+| `regex.extract("ORDER-1042 / eu-west", "ORDER-(\\d+)")` | `"1042"` |
+| `regex.extract("walk-in", "ORDER-(\\d+)")` | `null` (no match) |
+| `regex.extract("walk-in", "ORDER-(\\d+)").orValue("unknown")` | `"unknown"` |
+| `regex.extract("walk-in", "ORDER-(\\d+)").hasValue()` | `false` |
+| `regex.extractAll("id:1, id:22", "id:(\\d+)")` | `["1","22"]` |
+| `regex.extractAll("nothing here", "id:(\\d+)")` | `[]` |
+| `regex.replace("hello   world", "\\s+", " ")` | `"hello world"` |
+| `regex.replace("foo bar", "(fo)o (ba)r", "\\2 \\1")` | `"ba fo"` |
+| `regex.replace("banana", "a", "x", 2)` | `"bxnxna"` |
+
+`extract` and `extractAll` return the capture group when the pattern has
+exactly one, and the whole match when it has none. **More than one capture
+group is an error** — use a non-capturing group `(?:…)` for the parts you do
+not want. In `replace`, `\1`…`\9` insert the corresponding group.
+
+Remember the [YAML quoting rule](/reference/cel#the-yaml-quoting-rule): the
+pattern is a CEL string literal, so a regex `\d` is written `\\d` inside it.
+
+```yaml
+- type: set-variable
+  name: extract-order-id
+  settings:
+    name: orderId
+    value: 'regex.extract(body.reference, "ORDER-(\\d+)").orValue("unknown")'
+```
+
+### Absent results
+
+`regex.extract` reports "no match" as an **optional** — a successful result
+meaning absent, not a failure. Octo resolves an optional to its value, or to
+`null` when it is absent, so a miss flows on as a null field rather than
+failing the message. Three ways to handle one:
+
+| Expression | Result |
+| --- | --- |
+| `regex.extract("walk-in", "ORDER-(\\d+)")` | `null` — let it through as absent |
+| `regex.extract("walk-in", "ORDER-(\\d+)").orValue("unknown")` | `"unknown"` — substitute a default |
+| `regex.extract("walk-in", "ORDER-(\\d+)").hasValue()` | `false` — branch on it |
+
+`optional.unwrap` drops the misses from a list of them, which is how a whole
+column gets extracted at once:
+
+```
+optional.unwrap(["a1", "zz"].map(s, regex.extract(s, "a(\\d)")))
+# {"ok":true,"result":["1"]}
+```
+
+`first()` and `last()` on a list are optionals too, which is why `[].first()`
+is `null` instead of an out-of-range error.
+
+<Callout type="info">
+  Regex evaluation cost scales with the size of the input, and both the pattern
+  and the text can come from a message. RE2 rules out catastrophic
+  backtracking, so this is a throughput consideration on large payloads, not a
+  denial-of-service surface.
+</Callout>
+
+## What is not available
+
+The libraries are pinned to specific versions
+(`runtime/core/expr/stdext.go`), so this vocabulary does not shift under an
+existing flow when cel-go is upgraded. Deliberately outside it:
+
+- **`cel.bind()`** (the bindings library). It buys readability for an
+  expression that repeats a sub-term, not capability. `cel.bind(x, 2, x * x)`
+  fails to compile with `undeclared reference to 'cel'`.
+- **Protobuf and native-type helpers** (`proto.*`, `ext.NativeTypes`). Octo
+  messages are JSON-native; there are no protobuf messages or Go structs for
+  them to describe.
+- **A fold or `sum`.** CEL has no reduce. `[1, 2, 3].sum()` does not compile.
+- **String indexing.** `"abc"[0]` still does not parse — use `charAt(0)` or
+  `substring(0, 1)`.
+- **Slice syntax.** `[1,2,3][1:2]` does not parse; the list library's
+  `slice(1, 2)` is the supported form.
+- **Anything user-defined.** CEL has no user functions, and expressions cannot
+  define one. A transformation too large for an expression belongs in a
+  [`multi-transform`](/reference/blocks/data), a sub-flow, or an
+  [AI Mapping](/ai/ai-mapping) block.
+
+Names outside the catalogue fail at **compile** time, when the flow is built —
+so a typo like `"abc".toUpper()` fails the deployment with `undeclared
+reference to 'toUpper'`, never a live message.

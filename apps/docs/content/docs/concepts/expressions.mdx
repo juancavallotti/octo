@@ -90,6 +90,16 @@ octo eval --expr 'env.GREETING' --env '{"GREETING":"hi"}' --data '{}'
 
 `--data` binds to `body` (stdin is read when omitted), `--vars` to `vars`, and `--env` to `env`. The output envelope makes failure unambiguous: `ok` is `false` and `error` holds the compile or evaluation message.
 
+## What an expression can call
+
+Beyond the operators and macros of standard CEL, every Octo expression gets a
+set of utility functions: string manipulation (`trim`, `split`, `join`,
+`replace`, `upperAscii`, `format`), list reshaping (`distinct`, `sort`,
+`sortBy`, `flatten`, `slice`), `base64`, `math`, set membership, and regex
+extraction — plus Octo's own `toJson`, `fromJson`, `toFormData`, `fromFormData`,
+and `templateResource`. Most reshaping that looks like it needs a `foreach` is a
+single expression. See [Extension Libraries](/reference/cel/libraries).
+
 ## Going deeper
 
-This page covers where expressions live; the [CEL reference](/reference/cel) tours the language itself — operators, macros like `has()` and `map()`, type conversions, and the custom functions Octo adds (such as `templateResource` and `fromFormData`).
+This page covers where expressions live; the [CEL reference](/reference/cel) tours the language itself — operators, macros like `has()` and `map()`, type conversions, the [extension libraries](/reference/cel/libraries), and the custom functions Octo adds (such as `templateResource` and `fromFormData`).

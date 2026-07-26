@@ -5,13 +5,15 @@ description: "Reshape payloads with multi-transform, enrich scopes, and CEL."
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-In this guide you reshape message data three ways: chain ordered edits with
-`multi-transform`, compute in isolation with `enrich`, and branch and iterate
-with `if`, `foreach`, and `switch`. It follows
+In this guide you reshape message data four ways: chain ordered edits with
+`multi-transform`, compute in isolation with `enrich`, branch and iterate with
+`if`, `foreach`, and `switch`, and do the whole job in one expression with the
+CEL extension libraries. It follows
 [`samples/multi-transform.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/multi-transform.yaml),
 [`samples/enrich.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/enrich.yaml),
+[`samples/builtins-demo.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/builtins-demo.yaml),
 and
-[`samples/builtins-demo.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/builtins-demo.yaml).
+[`samples/cel-extensions.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/cel-extensions.yaml).
 
 Every expression in this guide is [CEL](/reference/cel): it sees `body` (the
 message payload), `vars` (the variables), plus `eventID` and `correlationID`.
@@ -183,6 +185,44 @@ Run it and watch each tick classify the two orders:
 bin/octo run --config samples/builtins-demo.yaml
 ```
 
+## Skip the loop with the extension libraries
+
+Before adding a `foreach`, check whether one expression does it. Octo enables
+cel-go's utility libraries in every expression field, and most reshaping —
+cleaning strings, sorting, de-duplicating, indexing a list by a key, pulling a
+value out of free text — is a one-liner with them.
+[`samples/cel-extensions.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/cel-extensions.yaml)
+normalizes a messy inbound order with no loop at all:
+
+```yaml
+- type: multi-transform
+  name: normalize-order
+  settings:
+    transforms:
+      # Pull the id out of free text; a miss falls back instead of failing.
+      - setVar: orderId
+        value: 'regex.extract(body.reference, "ORDER-(\\d+)").orValue("unknown")'
+      # Split, de-duplicate, and sort a comma-separated field.
+      - setVar: roles
+        value: 'body.customer.roles.split(",").distinct().sort()'
+      # The largest line value, rounded to cents.
+      - setVar: topLine
+        value: "math.round(math.greatest(body.lines.map(l, l.qty * l.unitPrice)) * 100.0) / 100.0"
+      # Turn the line list into a sku -> qty lookup map.
+      - setBody: '{"orderId": vars.orderId, "quantities": body.lines.transformMapEntry(i, l, {l.sku: l.qty})}'
+```
+
+```bash
+bin/octo invoke --config samples/cel-extensions.yaml --flow normalize \
+  --data '{"reference":" ORDER-1042 / eu-west ","customer":{"email":"Ada.Lovelace@Example.COM","roles":"admin,billing,billing"},"lines":[{"sku":"b-2","qty":3,"unitPrice":19.987},{"sku":"a-1","qty":1,"unitPrice":4.5}]}'
+# -> logs "order 1042 (eu-west): 2 lines, top line 59.96, roles admin, billing"
+```
+
+See [Extension Libraries](/reference/cel/libraries) for the full vocabulary —
+strings, lists, encoders, math, two-variable comprehensions, sets, and regex —
+and for what is deliberately left out (there is no `sum`, so totalling a list
+still wants the `foreach` above).
+
 ## CEL patterns worth stealing
 
 ```yaml
@@ -194,11 +234,15 @@ message: '"total=" + string(body.total)'
 
 # Guard a branch on collection size:
 condition: 'size(body.orders) > 0'
+
+# Reshape without a loop: sort, take the top three, keep just the names.
+value: 'body.items.sortBy(i, i.amount).reverse().slice(0, 3).map(i, i.name)'
 ```
 
 ## Where to go next
 
 - [Expressions](/concepts/expressions) — how CEL is wired through Octo.
 - [CEL reference](/reference/cel) — the language, macros, and Octo's extensions.
+- [Extension Libraries](/reference/cel/libraries) — strings, lists, math, sets, regex.
 - [Data blocks reference](/reference/blocks/data) — set-payload, set-variable, multi-transform, enrich.
 - [Composing Flows](/guides/composing-flows) — factor transforms into reusable flows.

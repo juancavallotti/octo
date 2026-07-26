@@ -6,10 +6,11 @@ description: "Variables and custom functions Octo adds to the CEL environment."
 import { Callout } from 'fumadocs-ui/components/callout';
 
 Every message expression in Octo is compiled in the same environment: the
-standard CEL library, six message variables, and a small set of custom
-functions the runtime registers. This page is the reference for that
-environment. (The same catalogue is served to AI tooling by the Octo MCP
-server's `getCelFunctions` tool.)
+standard CEL library, [seven cel-go utility
+libraries](/reference/cel/libraries), six message variables, and a small set of
+custom functions the runtime registers. This page is the reference for the
+variables and Octo's own functions. (The same catalogue is served to AI tooling
+by the Octo MCP server's `getCelFunctions` tool.)
 
 ## Variables
 
@@ -51,9 +52,10 @@ source:
 
 ## Functions
 
-Octo registers five functions on top of the CEL standard library. All of them
-are available in every message expression, in every source payload, and inside
-a template's `{{ }}` spans — the three environments expose the same set.
+Octo registers five functions of its own. They are available in every message
+expression, in every source payload, and inside a template's `{{ }}` spans —
+the three environments expose the same set, as do the [extension
+libraries](/reference/cel/libraries).
 
 ### toJson
 
@@ -171,7 +173,9 @@ flows:
 
 - **Results are JSON-native.** Whatever a CEL expression produces is bridged
   to JSON shapes: maps become objects, all numbers become JSON numbers, bytes
-  render as base64, timestamps as RFC 3339 strings, durations as seconds.
+  render as base64, timestamps as RFC 3339 strings, durations as seconds. An
+  [optional](/reference/cel/libraries#absent-results) resolves to the value it
+  holds, or to `null` when it holds none.
 - **Compile-time failure.** Expressions compile when the flow is built, so a
   typo fails the deployment (or the `run --watch` reload), never a live
   message.
