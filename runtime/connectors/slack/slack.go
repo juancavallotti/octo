@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/juancavallotti/octo/runtime/connectors/internal/httppool"
 	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/types"
 )
@@ -106,7 +107,9 @@ func (c *Connector) Start(_ context.Context, config types.ConnectorConfig) error
 	c.baseURL = strings.TrimRight(base, "/")
 	c.botToken = set.BotToken
 	c.signingSecret = set.SigningSecret
-	c.client = &http.Client{Timeout: timeout}
+	// A pooled transport: a nil one means http.DefaultTransport, whose idle pool
+	// is two connections per host — see httppool.
+	c.client = httppool.NewClient(timeout)
 	return nil
 }
 

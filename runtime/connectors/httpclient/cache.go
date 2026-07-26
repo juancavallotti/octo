@@ -55,10 +55,12 @@ func (c *responseCache) get(key string) (*http.Response, bool) {
 
 // store reads resp's body (bounded by maxBytes), records it under key, and
 // returns a fresh response carrying the same buffered body for the caller. It
-// closes resp.Body. The original response must not be used afterward.
+// drains and closes resp.Body — draining because a body abandoned short of EOF
+// costs the connection, and maxBytes is exactly the case that leaves one short.
+// The original response must not be used afterward.
 func (c *responseCache) store(key string, resp *http.Response, maxBytes int64) (*http.Response, error) {
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes))
-	_ = resp.Body.Close()
+	drainAndClose(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("read response body: %w", err)
 	}
@@ -129,7 +131,16 @@ func (l *limitedBody) Read(p []byte) (int, error) {
 	return l.reader.Read(p)
 }
 
+// Close drains what the limit hid before closing, so a truncated response does
+// not cost a connection. net/http only returns a connection to the idle pool
+// once its body reaches EOF; a caller reading to the limit and closing leaves
+// the rest unread, and the connection is dropped. That turns maxResponseBytes
+// into a silent pooling failure for any upstream that overruns it. The drain is
+// bounded — past maxDrainBytes the connection is worth less than the read.
 func (l *limitedBody) Close() error {
+	if rc, ok := l.closer.(io.Reader); ok {
+		_, _ = io.Copy(io.Discard, io.LimitReader(rc, maxDrainBytes))
+	}
 	//nolint:wrapcheck // io.Closer pass-through; wrapping would fabricate an error from a nil result
 	return l.closer.Close()
 }
