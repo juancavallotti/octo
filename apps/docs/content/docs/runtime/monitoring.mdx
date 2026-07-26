@@ -99,16 +99,18 @@ Each `types.BlockEvent` carries:
 
 Two caveats, both of which make a path a label rather than something you can always paste back. Two blocks that address ambiguously — two unnamed blocks of the same type in one chain — share a path; name one to give it its own. And a block, branch, route or tool name containing `.`, `[` or `]` produces a path the address parser splits the wrong way; nothing rejects such a name today, so avoid those characters if you want the path to round-trip.
 
-### Two kinds of listener
+### Registering a listener
 
 ```go
 events := core.DefaultBlockEvents()
 ```
 
-**Async** — for stats and metrics. Listeners run on one dispatcher goroutine, sequentially, after the fact, so they never slow a flow down:
+Listeners run **inline**, on the flow's own goroutine, and the flow waits for them: pre-invoke before the block runs, post-invoke after it returns. There is no queue and nothing is dropped, so a listener sees every invocation of the blocks it asked for.
+
+**`AddSyncFor`** — name the blocks you want. This is what telemetry should use: a block nobody named is never built into an event, so watching one address costs the rest of the config one comparison each.
 
 ```go
-events.AddAsync(func(ev types.BlockEvent) {
+events.AddSyncFor([]string{"orders.charge"}, func(_ context.Context, ev types.BlockEvent) {
     if ev.Kind != types.BlockPostInvoke {
         return
     }
@@ -117,9 +119,9 @@ events.AddAsync(func(ev types.BlockEvent) {
 })
 ```
 
-Delivery is at-most-once: the queue holds 1024 events, and when it fills, events are dropped and counted (`events.Dropped()`) rather than made to wait. Telemetry falling behind costs telemetry, not throughput.
+Because this runs on the message's critical path, a listener must be cheap: an atomic update is fine, a network call is not. Resolve label tuples to collectors once and cache them — `WithLabelValues` hashes its labels and takes a read lock on the vector's map, which is a shared cache line written by every core on every block.
 
-**Sync** — for debugging. Listeners run inline on the flow's own goroutine and the flow waits for them: pre-invoke before the block runs, post-invoke after it returns.
+**`AddSync`** — every block in every flow. For a debugger, or `--metrics-blocks '*'`. Blocking here holds the flow at this block, which is the point:
 
 ```go
 events.AddSync(func(ctx context.Context, ev types.BlockEvent) {
@@ -131,13 +133,17 @@ events.AddSync(func(ctx context.Context, ev types.BlockEvent) {
 })
 ```
 
-Both kinds **observe**. A listener cannot skip or abort a block; a flow runs the same way whether anything is listening or not.
+Listeners **observe**. One cannot skip or abort a block; a flow runs the same way whether anything is listening or not. A panic propagates into the flow deliberately — the listener is running as part of it.
 
 <Callout type="warn">
-**`ev.Message` is the live message, not a copy.** A sync listener runs while the flow is stopped at this block, so it may read the message and copy it (`Clone`, `Scoped`, `Reported`). An async listener must **not** touch `ev.Message.Body` or `ev.Message.Variables` and must not call a copy method — the flow has moved on and is mutating both, and a concurrent map read can panic the process. Every other field is a copy taken on the flow's goroutine and is safe anywhere. To inspect contents off the flow's goroutine, `Clone` in a sync listener and hand the copy to your own worker.
+**`ev.Message` is the live message, not a copy.** The flow is stopped at this block while your listener runs, so you may read the message and copy it (`Clone`, `Scoped`, `Reported`) — but only for as long as the listener is running. The flow resumes mutating it the moment you return, so never retain the pointer: `Variables` is a plain map, and reading it from another goroutine afterwards is a data race that can panic the process. To inspect contents elsewhere, `Clone` here and hand the copy to a worker you own. Every other field is copied on the flow's goroutine and is safe anywhere.
 </Callout>
 
-A sync listener is called from every goroutine a flow runs on — its worker pool, plus the shared pool for a `fork`'s branches — so it must be safe for concurrent use, and blocking one inside a fork branch holds a pool worker.
+A listener is called from every goroutine a flow runs on — its worker pool, plus the shared pool for a `fork`'s branches — so it must be safe for concurrent use, and blocking one inside a fork branch holds a pool worker.
+
+<Callout>
+**There is no async listener.** One existed until v0.6: a 1024-deep queue drained by a single goroutine, dropping when full. It could not work. The producers are every flow worker in the process and the consumer was one goroutine, so no buffer size makes the consumer keep up with sustained load — the depth only sets how long saturation takes before it starts dropping. And tail-dropping a full queue is not sampling, it is "discard during bursts", which loses data in proportion to how interesting the traffic is. If you need slow or blocking work, `Clone` in a listener and hand the copy to your own worker, where the loss policy is yours to choose.
+</Callout>
 
 Listening costs nothing until you register: with no listeners the engine does a nil check and an atomic load per block, allocating nothing.
 

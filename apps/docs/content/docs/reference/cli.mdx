@@ -75,10 +75,11 @@ octo run --config app.yaml --metrics \
   --metrics-blocks 'orders.charge,orders.fanout[audit].log-it'
 ```
 
-It is a separate flag because it is the expensive half: watching **any** block
-makes the engine emit an event around **every** block in every flow, not just the
-watched ones. Delivery is at-most-once, so under saturation the block counters
-under-report — `octo_block_events_dropped_total` says by how much.
+It is a separate flag because a watched block is timed **on the flow's own
+goroutine**, so the measurement lands on the message's critical path. The counters
+are exact — nothing is queued and nothing is dropped, at any load — and blocks you
+did not name cost one comparison each. `*` watches every block in every flow,
+which makes it a debugging tool rather than a steady-state setting.
 
 When `--config` points to a directory, every `.yaml`/`.yml` file directly in it
 (sorted by name, subdirectories ignored) is loaded and merged into one config.
