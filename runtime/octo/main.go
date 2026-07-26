@@ -21,8 +21,13 @@ import (
 	_ "github.com/juancavallotti/octo/runtime/connectors/queue"         // registers the "queue" connector + source and the "queue-dispatch" block
 	_ "github.com/juancavallotti/octo/runtime/connectors/slack"         // registers the "slack" connector and its blocks
 	"github.com/juancavallotti/octo/runtime/core"
-	// The active runtime-services provider is selected at build time by tag:
-	// standalone by default, k8s with -tags k8s. See providers_*.go.
+	"github.com/juancavallotti/octo/runtime/services"
+	// Build tags decide which runtime-services packages are COMPILED IN: standalone
+	// by default, k8s with -tags k8s (see providers_*.go). Which of the compiled-in
+	// providers is then ACTIVE is a separate, runtime decision, made by
+	// RUNTIME_SERVICES_MODULE — see the services package. Hosted runtime services
+	// are gated by tag the same way but have no such selection: every one compiled
+	// in runs. See hosted_*.go.
 )
 
 func main() {
@@ -185,9 +190,25 @@ Schema flags:
   --out <path>       write it to a file instead of stdout
 
   "octo schema --kind debug-config" prints the JSON Schema of a --run-debug-config
-  file, so an editor can complete it and a validator can check it.
+  file, so an editor can complete it and a validator can check it.`
 
-Flags accept one or two dashes (--config or -config).`
+// dashNote closes the help page. It is separate from usage so hosted-service
+// sections land above it: it is a note about every flag on the page, so it has to
+// come after the last one.
+const dashNote = `Flags accept one or two dashes (--config or -config).`
+
+// usageText is the help page as printed: the static page above, then a section
+// from every hosted runtime service compiled into this binary, then the closing
+// note. Hosted services bring their own `octo run` flags — they have no YAML to
+// configure them — so their documentation has to come from them; a flag that
+// exists but is absent from --help may as well not exist.
+func usageText() string {
+	hosted := services.HostedUsage()
+	if hosted == "" {
+		return usage + "\n\n" + dashNote
+	}
+	return usage + "\n\n" + hosted + "\n\n" + dashNote
+}
 
 func run(args []string) error {
 	// Handle top-level help and version before subcommand dispatch: the run/invoke
@@ -195,12 +216,12 @@ func run(args []string) error {
 	// intercepted here. Go's flag package treats -x and --x alike, so honor both
 	// dash forms.
 	if len(args) == 0 {
-		fmt.Println(usage)
+		fmt.Println(usageText())
 		return nil
 	}
 	switch args[0] {
 	case "-h", "-help", "--help", "help":
-		fmt.Println(usage)
+		fmt.Println(usageText())
 		return nil
 	case "-version", "--version", "version":
 		fmt.Println(versionLine())

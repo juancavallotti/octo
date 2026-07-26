@@ -41,7 +41,7 @@ func evalCommand(args []string) error {
 	envJSON := fs.String("env", "", "JSON object bound to env")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			fmt.Println(usage)
+			fmt.Println(usageText())
 			return nil
 		}
 		return fmt.Errorf("parse eval flags: %w", err)

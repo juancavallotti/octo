@@ -1,12 +1,27 @@
-// Package services selects and constructs the runtime services provider chosen at
-// startup by the RUNTIME_SERVICES_MODULE environment variable.
+// Package services is one of the runtime's two extension points — the other being
+// connectors. A runtime service lives in a subpackage (standalone, k8s,
+// observability, and future ones such as redis) and self-registers from an init
+// function, the way connectors do. A binary chooses which it ships by which
+// packages it blank-imports.
 //
-// Providers live in subpackages (standalone, k8s, and future ones such as redis).
-// Each self-registers from an init function by calling Register with its module
-// name: only the provider whose name matches the selected module becomes active,
-// the rest are no-ops. A binary blank-imports the provider packages it ships
-// (mirroring how connectors are wired), then calls New to build whichever one
-// selected itself.
+// A runtime service may implement either facet, or both:
+//
+// Provider — supplies core.RuntimeServices: leader election, KV, secrets, queues,
+// topics, resources. Providers are module-selected by the RUNTIME_SERVICES_MODULE
+// environment variable and call Register with their module name: only the one whose
+// name matches becomes active, the rest are no-ops, so every imported provider may
+// register unconditionally. New builds whichever selected itself. A provider may
+// also expose optional capabilities the interface does not name, by implementing a
+// side interface the caller type-asserts — see core.LogShipper.
+//
+// Hosted — runs for the life of the process instead of supplying capabilities:
+// it owns CLI flags rather than YAML settings, starts before the first flow
+// generation and stops after the last. Hosted services call RegisterHosted and are
+// not module-selected, so every one compiled in runs. See HostedService.
+//
+// New capability belongs in one of these two facets, in a connector, or in the
+// engine. It does not belong in a third registry: a reader looking for how the
+// runtime is extended should find two answers, not four.
 package services
 
 import (

@@ -94,8 +94,13 @@ func (bf *boundFlow) worker(ctx context.Context) {
 // handle runs one message through the root flow and publishes its outcome. All
 // events key on the inbound EventID (stable for the message's life, so it equals
 // out.EventID) to keep correlation consistent for request/response sources.
+//
+// The terminal event carries how long the message took, measured here rather than
+// left to a subscriber to derive by pairing: the clock covers the error path too,
+// because a message the error path recovered still cost what the error path spent.
 func (bf *boundFlow) handle(ctx context.Context, msg *types.Message) {
-	bf.publish(types.FlowEventStarted, msg.EventID, nil, nil)
+	bf.publish(types.FlowEventStarted, msg.EventID, 0, nil, nil)
+	started := time.Now()
 
 	out, err := bf.root.Process(ctx, msg)
 	if err != nil && bf.errorPath != nil {
@@ -113,20 +118,28 @@ func (bf *boundFlow) handle(ctx context.Context, msg *types.Message) {
 			out, err = recovered, nil
 		}
 	}
+	elapsed := time.Since(started)
+
 	switch {
 	case err != nil:
+		// A recovered failure is not reported here: the error path replaced the
+		// error with a result above, so the flow completes. Only an error nothing
+		// handled reaches this branch, which is what makes the failed event mean
+		// "unhandled".
 		slog.Error("flow processing failed", "flow", bf.name, "event_id", msg.EventID, "error", err)
-		bf.publish(types.FlowEventFailed, msg.EventID, err, msg)
+		bf.publish(types.FlowEventFailed, msg.EventID, elapsed, err, msg)
 	case out == nil:
-		bf.publish(types.FlowEventDropped, msg.EventID, nil, msg)
+		bf.publish(types.FlowEventDropped, msg.EventID, elapsed, nil, msg)
 	default:
-		bf.publish(types.FlowEventCompleted, msg.EventID, nil, out)
+		bf.publish(types.FlowEventCompleted, msg.EventID, elapsed, nil, out)
 	}
 }
 
 // publish emits a flow event if a bus is configured. result is the message to
-// attach to the event (nil for the started event).
-func (bf *boundFlow) publish(kind types.FlowEventKind, eventID string, err error, result *types.Message) {
+// attach to the event (nil for the started event), and elapsed is zero for it.
+func (bf *boundFlow) publish(
+	kind types.FlowEventKind, eventID string, elapsed time.Duration, err error, result *types.Message,
+) {
 	if bf.bus == nil {
 		return
 	}
@@ -135,7 +148,12 @@ func (bf *boundFlow) publish(kind types.FlowEventKind, eventID string, err error
 		Flow:       bf.name,
 		EventID:    eventID,
 		OccurredAt: time.Now(),
+		Duration:   elapsed,
 		Err:        err,
-		Result:     result,
+		// Naming the block a failure came from is what turns "this flow is erroring"
+		// into "this block is erroring". It is empty for anything that did not
+		// originate in a block, and for every non-failed event.
+		Block:  engine.FailingBlock(err),
+		Result: result,
 	})
 }

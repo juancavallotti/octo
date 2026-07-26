@@ -29,8 +29,25 @@ type FlowEvent struct {
 	EventID string
 	// OccurredAt is when the event was published.
 	OccurredAt time.Time
+	// Duration is how long the flow took to process the message, including its
+	// error path when one ran. It is set on the three terminal events and is zero
+	// on FlowEventStarted.
+	//
+	// It is measured where the flow runs rather than left to a subscriber pairing
+	// started with terminal, for the same reason BlockEvent.Duration is: a pairing
+	// subscriber needs a concurrent map keyed by EventID, and it is wrong for every
+	// message still in flight when the process dies.
+	//
+	// A flow reached through flow-ref is its own flow and times itself, so its
+	// duration nests inside the caller's rather than adding to it.
+	Duration time.Duration
 	// Err is set only for FlowEventFailed.
 	Err error
+	// Block is the label of the block the failure originated in. Set only for
+	// FlowEventFailed, and empty when the error did not come from a block. When a
+	// flow's error path itself fails, this is the block that failed inside the
+	// error path.
+	Block string
 	// Result is the message at the terminal event: the flow's output for
 	// FlowEventCompleted, or the input message for FlowEventDropped and
 	// FlowEventFailed. It is nil for FlowEventStarted. Subscribers must treat

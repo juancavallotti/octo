@@ -31,7 +31,9 @@ A message's life, end to end:
 1. **An external event fires** — an HTTP request arrives, a cron schedule ticks, a queue delivers. The connector's source builds a `*types.Message` with a fresh `EventID` and sends it on the flow's bounded channel.
 2. **A worker picks it up.** Each root flow has a dedicated pool of worker goroutines all reading that one channel. The worker publishes a `started` flow event, then runs the message through the root block chain.
 3. **Blocks run in order.** Each block receives the current message and returns the next one. A block returning `nil` drops the message and skips the rest of the chain; an error aborts it.
-4. **Exactly one terminal event is published**: `completed` (with the final message attached as `Result`), `dropped`, or `failed` (with the error). Every event keys on the inbound `EventID`, which is stable for the message's life.
+4. **Exactly one terminal event is published**: `completed` (with the final message attached as `Result`), `dropped`, or `failed` (with the error, and `Block` — the label of the block it came from). Every event keys on the inbound `EventID`, which is stable for the message's life, and carries `Duration`: how long the message took, including its error path.
+
+`failed` means **unhandled**. A message that failed but whose flow-level error path recovered it is published as `completed`, because that is what happened to it — so anything counting `failed` counts what nothing handled, not everything that went wrong.
 
 The flow-event bus (`core.DefaultEventBus()`) is a process-wide, synchronous fan-out pub/sub: every subscriber receives every event, and handlers must return quickly (dispatch long work to your own goroutine). Request/response sources are built on it — the `http` source subscribes once and matches each terminal event back to the waiting request by `EventID`, writing the completed message's body as the response. The bus never leaves the process; see [Monitoring](/runtime/monitoring) for what does.
 

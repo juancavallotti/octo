@@ -1,0 +1,56 @@
+---
+title: "Extending Octo"
+description: "The two extension points, and how to choose between them."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Everything above this section is about *using* Octo — writing flows in YAML. This section is about extending the runtime itself, in Go: adding a connector so flows can talk to something new, or adding a runtime service so the process itself can do something new.
+
+## Two extension points
+
+The runtime has exactly two, and that is deliberate. Someone asking "how do I add X?" should find two answers, not four.
+
+| | `connectors` | `services` |
+| --- | --- | --- |
+| Answers | What a flow can **do** | What the runtime **is** |
+| Referenced by | Name, in YAML | Nothing — it is not in the config |
+| Examples | `http`, `cron`, `database`, `slack` | `standalone`, `k8s`, `observability` |
+| Lives in | `runtime/connectors/<name>` | `runtime/services/<name>` |
+| Guide | [Connectors](/extending/connectors) | [Runtime services](/extending/runtime-services) |
+
+Both use package-level registration (`init`) and binary wiring via blank imports in `runtime/octo/main.go`, but they are selected differently: service **providers** are module-selected by `RUNTIME_SERVICES_MODULE`, while **hosted** services run whenever they are compiled in and blank-imported. Nothing is discovered by scanning, and nothing is configured by file path.
+
+<Callout type="warn">
+New capability goes into one of these two, or into the engine. Not into a third registry — a parallel seam is always locally reasonable and always leaves the next person one more place to look.
+</Callout>
+
+## Choosing
+
+```text
+Does a flow author reference it by name in YAML?
+├─ yes → a connector, with its blocks, sources, and schema metadata
+└─ no
+   ├─ Does it supply platform capability the runtime already names
+   │  (object store, queues, topics, leader election)?  → a services provider
+   ├─ Does it run for the life of the process with
+   │  its own CLI flags?                                → a hosted service
+   ├─ Does it only need to watch what flows do?         → the event seams
+   └─ Does it need to run a nested sub-flow?            → the engine
+```
+
+The last two are not extension points, and both are worth knowing about because they are where a lot of "I need to extend Octo" questions actually land:
+
+**The event seams.** `core.EventBus` (one event per message, per flow) and `core.BlockEvents` (one pair per block invocation) let you observe the runtime without registering anything into it. Subscribing is not extending: nothing you attach changes what a flow does, and there is no name to collide with. Reach for these first when the requirement is "know what happened" — see [Monitoring](/runtime/monitoring#block-events). The [observability service](/runtime/observability) is built entirely on them and registers no connector and no block.
+
+**The engine.** Composite blocks — anything with an inline sub-flow slot, like `fork`, `foreach`, `if`, `cache-scope` and the `ai-*` family — need the flow builder, which is internal to the engine. A connector package can only register **leaf** blocks. A block that wants to run a nested chain is an engine change.
+
+## Not extension points
+
+- **CLI subcommands.** `run`, `invoke`, `eval` and `schema` are a closed set. A hosted service extends the CLI by adding flags to `octo run`, which is the seam that exists.
+- **CEL functions.** They go through one seam, `expr.RegisterMessageExtension`, and all message expressions compile via `expr.CompileMessage`. Never compile at a call site.
+
+## Before you start
+
+- Read [`docs/coding-standards.md`](https://github.com/juancavallotti/octo/blob/main/docs/coding-standards.md) and [`docs/extension-points.md`](https://github.com/juancavallotti/octo/blob/main/docs/extension-points.md) in the repository — the latter is the normative version of this page.
+- CI enforces one rule that surprises people: **every registered connector, block and source must be documented**. `scripts/check-docs-drift.mjs` compares `octo schema` against the `octo_types` frontmatter of the reference pages and fails on any drift.

@@ -62,8 +62,13 @@ func TestApplyNoServiceWhenNoPort(t *testing.T) {
 	if len(ctr.Env) != 0 {
 		t.Errorf("expected no env vars by default, got %v", ctr.Env)
 	}
-	if len(ctr.Ports) != 0 {
-		t.Errorf("expected no container port for a non-networked workload, got %v", ctr.Ports)
+	// A non-networked workload declares no HTTP port, but still declares the admin
+	// port: a cron-driven integration needs probes exactly as much as an HTTP one.
+	if len(ctr.Ports) != 1 {
+		t.Fatalf("container ports = %v, want only the admin port", ctr.Ports)
+	}
+	if ctr.Ports[0].Name != adminPortName || ctr.Ports[0].ContainerPort != adminPort {
+		t.Errorf("container port = %v, want %s/%d", ctr.Ports[0], adminPortName, adminPort)
 	}
 
 	if _, err := c.clientset.CoreV1().Services(testNamespace).Get(ctx, name, metav1.GetOptions{}); err == nil {
@@ -107,8 +112,16 @@ func TestApplyDeclaredPortAndEnv(t *testing.T) {
 
 	dep, _ := c.clientset.AppsV1().Deployments(testNamespace).Get(ctx, name, metav1.GetOptions{})
 	ctr := dep.Spec.Template.Spec.Containers[0]
-	if ctr.Ports[0].ContainerPort != 9090 {
-		t.Errorf("container port = %d, want 9090", ctr.Ports[0].ContainerPort)
+	// The admin port comes first and is always present; the declared HTTP port
+	// follows it.
+	if len(ctr.Ports) != 2 {
+		t.Fatalf("container ports = %v, want the admin port and the HTTP port", ctr.Ports)
+	}
+	if ctr.Ports[0].Name != adminPortName || ctr.Ports[0].ContainerPort != adminPort {
+		t.Errorf("first container port = %v, want %s/%d", ctr.Ports[0], adminPortName, adminPort)
+	}
+	if ctr.Ports[1].Name != "http" || ctr.Ports[1].ContainerPort != 9090 {
+		t.Errorf("second container port = %v, want http/9090", ctr.Ports[1])
 	}
 	// Env is sorted by name: HTTP_HOST then HTTP_PORT.
 	wantEnv := map[string]string{"HTTP_HOST": "0.0.0.0", "HTTP_PORT": "9090"}
@@ -577,5 +590,85 @@ func TestEnsureInternalServiceIdempotent(t *testing.T) {
 	spec2 := Spec{ID: "d2", IntegrationID: "int-1", Slug: "orders", Port: 8080}
 	if err := c.ensureInternalService(ctx, spec2); err != nil {
 		t.Errorf("second ensure should be idempotent, got %v", err)
+	}
+}
+
+// Every deployment gets probes, networked or not: a cron- or queue-driven
+// integration has to tell the orchestrator it is up just as much as an HTTP one.
+func TestApplyProbesOnEveryDeployment(t *testing.T) {
+	tests := []struct {
+		name string
+		port int
+	}{
+		{name: "networked", port: 9090},
+		{name: "no http source", port: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := testClient()
+			ctx := context.Background()
+			spec := Spec{ID: "d1", IntegrationID: "int-1", Definition: "x: 1", Replicas: 1, Port: tt.port}
+			if err := c.Apply(ctx, spec); err != nil {
+				t.Fatalf("Apply: %v", err)
+			}
+
+			dep, err := c.clientset.AppsV1().Deployments(testNamespace).Get(ctx, resourceName("d1"), metav1.GetOptions{})
+			if err != nil {
+				t.Fatalf("get deployment: %v", err)
+			}
+			ctr := dep.Spec.Template.Spec.Containers[0]
+
+			if ctr.ReadinessProbe == nil {
+				t.Fatal("no readiness probe")
+			}
+			if got := ctr.ReadinessProbe.HTTPGet.Path; got != readinessPath {
+				t.Errorf("readiness path = %q, want %q", got, readinessPath)
+			}
+			// Addressed by name so the port number lives in one place, and so the
+			// probe follows the container port if it ever moves.
+			if got := ctr.ReadinessProbe.HTTPGet.Port.StrVal; got != adminPortName {
+				t.Errorf("readiness port = %q, want the %q port by name", got, adminPortName)
+			}
+			// Answering during startup is the point; a delay would hide it.
+			if got := ctr.ReadinessProbe.InitialDelaySeconds; got != 0 {
+				t.Errorf("readiness initialDelaySeconds = %d, want 0", got)
+			}
+
+			if ctr.LivenessProbe == nil {
+				t.Fatal("no liveness probe")
+			}
+			if got := ctr.LivenessProbe.HTTPGet.Path; got != livenessPath {
+				t.Errorf("liveness path = %q, want %q", got, livenessPath)
+			}
+			if got := ctr.LivenessProbe.HTTPGet.Port.StrVal; got != adminPortName {
+				t.Errorf("liveness port = %q, want the %q port by name", got, adminPortName)
+			}
+
+			// Liveness restarts the container, so it must be slower and more
+			// forgiving than readiness, which only gates traffic.
+			if ctr.LivenessProbe.PeriodSeconds <= ctr.ReadinessProbe.PeriodSeconds {
+				t.Errorf("liveness period %ds is not slower than readiness %ds",
+					ctr.LivenessProbe.PeriodSeconds, ctr.ReadinessProbe.PeriodSeconds)
+			}
+			if ctr.LivenessProbe.FailureThreshold <= ctr.ReadinessProbe.FailureThreshold {
+				t.Errorf("liveness threshold %d is not more forgiving than readiness %d",
+					ctr.LivenessProbe.FailureThreshold, ctr.ReadinessProbe.FailureThreshold)
+			}
+			if ctr.LivenessProbe.InitialDelaySeconds <= 0 {
+				t.Error("liveness has no initial delay; a slow start would be read as a wedge")
+			}
+
+			// The probes target a port the container actually declares.
+			var declared bool
+			for _, p := range ctr.Ports {
+				if p.Name == adminPortName && p.ContainerPort == adminPort {
+					declared = true
+				}
+			}
+			if !declared {
+				t.Errorf("probes target %q but the container declares %v", adminPortName, ctr.Ports)
+			}
+		})
 	}
 }

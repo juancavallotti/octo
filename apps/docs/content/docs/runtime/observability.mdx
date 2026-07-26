@@ -1,0 +1,175 @@
+---
+title: "Observability"
+description: "Health probes and Prometheus metrics on the runtime's admin port."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+By default your runtime serves an **admin port** — separate from any `http` connector — carrying liveness and readiness probes and, when you ask for them, Prometheus metrics. You can turn it off with `--observability=false`. This page covers what it exposes, what the numbers mean, and what they cost.
+
+## The admin port
+
+```bash
+octo run --config app.yaml
+# ... the admin port is already listening on :39999
+
+curl localhost:39999/healthz   # ok
+curl localhost:39999/readyz    # ready
+```
+
+| Endpoint | |
+| --- | --- |
+| `GET /healthz` | Liveness: `200 ok`, always, while the process is running. |
+| `GET /readyz` | Readiness: `200 ready`, or `503` naming the state. |
+| `GET /metrics` | Prometheus exposition. Served only with `--metrics`; `404` otherwise. |
+| `GET /` | An index of what is mounted. |
+
+It is a port of its own rather than a path on your `http` connector, for three reasons: a probe never collides with one of your routes, it never inherits a flow's CORS rules or timeouts, and it answers for a runtime that has **no HTTP source at all** — a cron- or queue-driven integration is exactly as probeable as a web one.
+
+Probes are on by default. A probe endpoint you have to enable is one most deployments will not have.
+
+| Flag | Environment | Default |
+| --- | --- | --- |
+| `--observability` | `OCTO_OBSERVABILITY` | `true` |
+| `--observability-addr` | `OCTO_OBSERVABILITY_ADDR` | `:39999` |
+| `--metrics` | `OCTO_METRICS` | `false` |
+| `--metrics-blocks` | `OCTO_METRICS_BLOCKS` | (none) |
+
+Each flag's default is its environment variable, so passing the flag always wins. These variables are read from the **process environment only**, not from a `.env` file — they are resolved when `octo run` parses its flags, before any config is loaded. `--observability=false` binds nothing at all.
+
+## Liveness and readiness are different questions
+
+**Liveness** asks whether the process is wedged. `/healthz` answers `200` unconditionally: the handler running at all is the answer. There is no gate behind it, because a gate could only ever say "yes" — and a process too stuck to answer is precisely what a liveness probe already detects by timing out.
+
+**Readiness** asks whether the runtime is serving. It has a real answer, and it changes:
+
+| State | `/readyz` | When |
+| --- | --- | --- |
+| `starting` | `503` | The process is up; connectors and flows are not. |
+| `ready` | `200` | Every connector and flow started. |
+| `reloading` | `503` | Under `--watch`: a config change is being rebuilt, or the config will not load. |
+| `draining` | `503` | A shutdown signal arrived; flows have not finished. |
+| `stopped` | `503` | The runtime has stopped. |
+
+The state is in the response body, because "why is this pod not ready" is the next question and a bare `503` sends you to the logs to find out.
+
+Two of these matter more than they look:
+
+**`starting` is why the port binds first.** The admin server comes up before connectors do, so a probe gets a real "not yet" instead of a refused connection. Refused connections and "starting" look the same to `curl` and completely different to an orchestrator deciding whether a pod is broken or merely young.
+
+**`draining` is set the moment a signal arrives, before flows drain.** A load balancer sees the pod leave the pool while there are still workers finishing what is in flight, which is most of the value of having readiness separate from liveness at all.
+
+`ready` means every connector *and* every flow started — for an HTTP-backed flow, that includes its listener being bound. So readiness is a true answer for cron and queue runtimes, not an HTTP-shaped approximation.
+
+<Callout type="info">
+On the platform you get this for free: the orchestrator points each deployment's `livenessProbe` and `readinessProbe` at this port, on every deployment, networked or not.
+</Callout>
+
+## Metrics
+
+```bash
+octo run --config app.yaml --metrics
+curl -s localhost:39999/metrics
+```
+
+### Per flow
+
+| Metric | Type | Labels |
+| --- | --- | --- |
+| `octo_flow_messages_total` | counter | `flow`, `outcome` (`completed`/`dropped`/`failed`) |
+| `octo_flow_errors_total` | counter | `flow`, `block` |
+| `octo_flow_duration_seconds` | histogram | `flow`, `outcome` |
+| `octo_flow_in_flight` | gauge | `flow` |
+
+**`octo_flow_in_flight` is the one to put on a dashboard first.** It is the number of messages a flow is processing right now, and it is the only signal that distinguishes "quiet" from "stuck". A flow whose workers are all blocked on a slow database shows in-flight pinned at its worker count (8 by default) while throughput and CPU both sit flat — a picture that is otherwise invisible from inside the process and easy to misread from outside it as an idle service.
+
+**`octo_flow_errors_total` counts unhandled failures only.** A message that failed and whose flow-level [error path](/concepts/error-handling) recovered it is reported as `completed`, so it is not counted here. That makes the metric an error *rate* rather than an incident count — and it means a flow that handles its errors reads as healthy, which is the honest answer.
+
+The `block` label names the block the failure came from, so you get "the `charge` block is failing" rather than "this integration is failing". It is empty for a failure that did not originate in a block.
+
+A flow that has taken no traffic still exports its series at zero, so a silent flow is visible as `0` rather than missing. Reloading the config under `--watch` only ever adds series — counters are never reset, because a reset makes `rate()` invent a spike.
+
+### Per block
+
+Off by default. Name the blocks you want, using the same address grammar [`--spies`](/reference/cli#addressing-a-block) accepts:
+
+```bash
+octo run --config app.yaml --metrics \
+  --metrics-blocks 'orders.charge,orders.fanout[audit].log-it'
+```
+
+| Metric | Type | Labels |
+| --- | --- | --- |
+| `octo_block_invocations_total` | counter | `flow`, `path`, `type`, `outcome` (`ok`/`dropped`/`error`) |
+| `octo_block_duration_seconds` | histogram | `flow`, `path`, `type` |
+| `octo_block_events_dropped_total` | counter | — |
+
+This is the difference between "this integration is slow" and "the `sql` block in this integration is slow". `*` watches every block, which is the fastest way to find where the time goes on a small config and a lot of series on a large one.
+
+<Callout type="warn">
+Watching **any** block makes the engine emit an event around **every** block, in every flow — the watched set filters what is recorded, not what is emitted. That is why this is a separate flag from `--metrics`, and why naming no address leaves the machinery completely off.
+</Callout>
+
+Two things to know before you trust the numbers:
+
+- **Delivery is at-most-once.** Per-block events go through a 1024-deep queue, and a full queue drops rather than slowing the flow down. `octo_block_events_dropped_total` is how many were lost; non-zero means the block counters are under-reporting. Telemetry falling behind costs telemetry, not throughput.
+- **A composite's duration includes its children's**, and the children emit their own events — so summing `octo_block_duration_seconds` across paths double-counts. The same applies across flows: a flow reached by `flow-ref` times itself, and its duration nests inside its caller's.
+
+### Process and build
+
+| Metric | |
+| --- | --- |
+| `octo_ready` | `1` when serving, `0` otherwise — the same signal `/readyz` answers, read at scrape time so the two cannot disagree. |
+| `octo_flows`, `octo_connectors` | The size of the running configuration. |
+| `octo_build_info` | Always `1`; the labels carry `version`, `build_date` and `services_module`. |
+| `go_*` | Goroutines, heap, allocation and GC behaviour. |
+| `process_*` | Resident memory, CPU seconds, open file descriptors. |
+
+The `go_*` and `process_*` families come from the standard Prometheus collectors and are the answer to most "why is this pod using that much memory" questions.
+
+## Cardinality and cost
+
+Every label is filled from your config — a flow's name, a block's address, a fixed outcome — and **none from message data**. Cardinality is therefore bounded by what you wrote, not by your traffic: no label can be a customer id, a URL path, or an error string.
+
+The costs, in the order they matter:
+
+- **Probes are free.** A listener and two handlers.
+- **`--metrics` is cheap.** The flow-event bus is already publishing whether or not anything listens, so the added work is a counter increment, a gauge step and one histogram observation on the flow's own goroutine.
+- **`--metrics-blocks` is the one with a real cost**, per the warning above.
+- **Scraping** walks the registry. Keep an eye on it only if you watch a very large number of blocks.
+
+## Prometheus configuration
+
+```yaml title="prometheus.yml (excerpt)"
+scrape_configs:
+  - job_name: octo
+    static_configs:
+      - targets: ['octo-host:39999']
+```
+
+Useful starting queries:
+
+```text
+# Throughput per flow
+sum(rate(octo_flow_messages_total[5m])) by (flow)
+
+# Error rate per flow, as a fraction
+sum(rate(octo_flow_errors_total[5m])) by (flow)
+  / sum(rate(octo_flow_messages_total[5m])) by (flow)
+
+# Which block is failing
+topk(5, sum(rate(octo_flow_errors_total[5m])) by (flow, block))
+
+# p95 latency per flow
+histogram_quantile(0.95,
+  sum(rate(octo_flow_duration_seconds_bucket[5m])) by (le, flow))
+
+# Saturation: every worker busy, throughput flat
+octo_flow_in_flight
+```
+
+## See also
+
+- [Monitoring](/runtime/monitoring) — logs, the `log` block, and the event seams these metrics are built on.
+- [CLI reference](/reference/cli#octo-run) — the flags and environment variables.
+- [Processing pipeline](/runtime/processing-pipeline) — what a flow event is and when each one fires.

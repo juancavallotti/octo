@@ -5,7 +5,9 @@ description: "Logs, log levels, the central log sink, and per-block events."
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-Octo gives you two ways to see what a flow is doing: **logs** — structured application logs you emit from flows, the runtime's own process logs, and, on the platform, a central sink that aggregates every replica's output into one searchable stream — and **block events**, a programmatic stream of every block invocation, for embedders wiring their own metrics. This page covers each layer and how they connect.
+Octo gives you two ways to see what a flow is doing: **logs** — structured application logs you emit from flows, the runtime's own process logs, and, on the platform, a central sink that aggregates every replica's output into one searchable stream — and **block events**, a programmatic stream of every block invocation. This page covers each layer and how they connect.
+
+For numbers rather than lines — health probes and Prometheus metrics on the runtime's admin port — see [Observability](/runtime/observability). It is built on the event streams described here, so you do not need to write Go to get per-flow and per-block metrics.
 
 ## Logging from flows: the log block
 
@@ -69,7 +71,9 @@ LOG_LEVEL=debug octo run --config my-flow.yaml
 Running standalone, stderr is the whole story — nothing is shipped anywhere. `LOG_LEVEL=debug` plus a `log` block with `full: true` is the standard local debugging setup.
 
 <Callout type="info">
-Flow lifecycle events (`started`/`completed`/`dropped`/`failed`) stay on a process-local bus (`core.EventBus`), and block events on a process-local dispatcher (`core.BlockEvents`) — two separate mechanisms, neither of which leaves the process. Nothing is shipped to a central trace or metrics store, and Octo exposes no metrics endpoint of its own. To export either, embed the runtime and subscribe (see below).
+Flow lifecycle events (`started`/`completed`/`dropped`/`failed`) stay on a process-local bus (`core.EventBus`), and block events on a process-local dispatcher (`core.BlockEvents`) — two separate mechanisms, neither of which leaves the process, and neither of which is shipped to a central trace store.
+
+They are, however, what the runtime's own metrics are built from: **[`--metrics`](/runtime/observability) exports per-flow numbers from the first stream, and `--metrics-blocks` adds per-block numbers from the second** on the admin port, with no Go code from you. Subscribe directly only when you want something the exported metrics do not cover.
 </Callout>
 
 ## Block events

@@ -35,7 +35,7 @@ func invokeCommand(args []string) error {
 	flags, err := parseInvokeFlags(args)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			fmt.Println(usage)
+			fmt.Println(usageText())
 			return nil
 		}
 		return err

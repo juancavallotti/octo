@@ -1,0 +1,132 @@
+---
+title: "Writing a runtime service"
+description: "The provider and hosted facets, and how to choose between them."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+A runtime service is part of what the runtime **is**, rather than something a flow can do. It is never named in a config: no flow references it, and there is no YAML for it.
+
+<Callout type="info">
+This page is about the Go extension point. It shares a name with [Runtime Services](/concepts/runtime-services) in Core Concepts, which is the flow author's view of the same layer — the object store, cache, queues and topics you use from YAML. This page is about how those get *supplied*.
+</Callout>
+
+A service lives in `runtime/services/<name>` and implements one of two facets, or both.
+
+| | Provider | Hosted |
+| --- | --- | --- |
+| Supplies | `core.RuntimeServices` | nothing — it *runs* |
+| Selected by | `RUNTIME_SERVICES_MODULE` | nothing; always on when compiled in |
+| Active at once | exactly one | all of them |
+| Configured by | environment | CLI flags on `octo run` |
+| Examples | `standalone`, `k8s` | `observability` |
+
+## The provider facet
+
+A provider supplies the platform capability flows depend on: leader election, the object store, secrets, queues, topics, resources. Providers are **module-selected** — exactly one is active — so registration is conditional by design:
+
+```go
+const Module = "standalone"
+
+func init() {
+	services.Register(Module, New) // a no-op unless this module is selected
+}
+
+func New(ctx context.Context, opts services.Options) (core.RuntimeServices, error) {
+	// ...
+}
+```
+
+Every imported provider registers unconditionally and only the selected one wins, which is why a binary can carry several without ambiguity. Which ones it carries is decided by build tag: `runtime/octo/providers_k8s.go` is behind `//go:build k8s`, so client-go and NATS stay out of the default binary entirely.
+
+### Adding a capability is usually the wrong move
+
+`core.RuntimeServices` is already annotated `//nolint:interfacebloat`. Widening it forces every provider to implement something most of them cannot.
+
+The pattern instead is an **optional side interface the caller type-asserts**. `core.LogShipper` is the worked example: the k8s module implements it to ship logs to a central sink, the standalone module does not, and the caller asserts and nil-checks rather than assuming.
+
+```go
+type LogShipper interface {
+	LogSink() slog.Handler // nil when this module ships no logs
+}
+
+// at the call site
+if shipper, ok := svc.(core.LogShipper); ok {
+	if sink := shipper.LogSink(); sink != nil {
+		// ...
+	}
+}
+```
+
+Copy that shape before you copy the interface.
+
+## The hosted facet
+
+A hosted service runs for the life of the process instead of supplying capability. It starts before the first flow generation, stops after the last, and spans every `--watch` reload. Because it has no YAML, it configures itself from **CLI flags**.
+
+```go
+func init() {
+	services.RegisterHosted(New()) // never a no-op
+}
+
+type Service struct{ /* ... */ }
+
+func (s *Service) Name() string  { return "observability" }
+func (s *Service) Usage() string { return "..." }
+
+func (s *Service) Flags(fs *flag.FlagSet) {
+	fs.BoolVar(&s.enabled, "observability", envBool("OCTO_OBSERVABILITY", true), "...")
+	// ... and one call per remaining flag: --observability-addr, --metrics,
+	// --metrics-blocks.
+}
+
+func (s *Service) Start(ctx context.Context, health *services.Health) error {
+	// bind the port here; must not block
+}
+
+func (s *Service) Stop(ctx context.Context) error { /* ... */ }
+```
+
+Hosted services are not module-selected: every one compiled in runs. A binary chooses which it ships purely by blank import — and by build tag, if it should be droppable (`//go:build !no_observability`).
+
+### Four things that are easy to get wrong
+
+**Make the flag's default the environment variable.** Then "flag wins when passed" falls out of `flag` for free, and `--help` prints what is actually in effect — no precedence code at all.
+
+```go
+fs.StringVar(&s.addr, "observability-addr", envString("OCTO_OBSERVABILITY_ADDR", ":39999"), "...")
+```
+
+Note these are read from the **process environment**, not from a `.env` file: flags are parsed before any config is loaded.
+
+**`Usage` is not optional if you have flags.** It is appended to `octo --help`. A flag that exists but is absent from the help page may as well not exist.
+
+**`Start` must not block, and its errors are fatal.** Bind the port there so a conflict fails the run, rather than logging a failure nobody reads and leaving the process up without the thing it was asked for.
+
+**`Stop` gets a live context.** The CLI passes one that outlives cancellation of the run, so a graceful drain has somewhere to happen.
+
+### Readiness
+
+`Start` receives the `*services.Health` gate the CLI drives as the runtime's lifecycle advances — `starting`, `ready`, `reloading`, `draining`, `stopped`. Read it; do not write it. The [observability service](/runtime/observability) turns it into `/readyz`.
+
+There is no liveness gate, on purpose: liveness asks whether the process is wedged, and a server answering at all is the answer.
+
+### Seeing the config
+
+Implement the optional `services.ConfigAware` to be handed each generation's config:
+
+```go
+func (s *Service) Configured(config types.Config) { /* ... */ }
+```
+
+It is called once per generation — again on every `--watch` reload. A generation is **not** a fresh start: anything you accumulate must survive it. The observability service uses this to pre-create each flow's metric series without ever resetting a counter, because a reset would make `rate()` read a reload as a restart and invent a spike.
+
+## Both facets
+
+Nothing stops a module from implementing both — a provider that also wants to run something for the life of the process registers with `services.Register` *and* `services.RegisterHosted`, with no new machinery.
+
+## See also
+
+- [Observability](/runtime/observability) — the only hosted service today, and the worked example above.
+- [Clustering](/runtime/clustering) — what the k8s provider supplies and why.
+- [Runtime Services](/concepts/runtime-services) — the same layer from a flow author's side.

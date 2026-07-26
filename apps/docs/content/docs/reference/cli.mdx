@@ -52,6 +52,33 @@ octo run --config samples/hello-world.yaml
 | --- | --- | --- | --- |
 | `--config` | path | (required) | Path to the runtime config — a YAML file or a directory. |
 | `--watch` | bool | `false` | Reload the runtime when the config changes. |
+| `--observability` | bool | `true` | Serve liveness and readiness probes on the admin port. `--observability=false` binds nothing. |
+| `--observability-addr` | address | `:39999` | Admin listen address for the probes and metrics. |
+| `--metrics` | bool | `false` | Also serve Prometheus metrics at `/metrics` on the admin port. |
+| `--metrics-blocks` | addresses | (none) | Comma-separated [block addresses](#addressing-a-block) to add per-block timings for, or `*` for every block. |
+
+These configure the [observability runtime service](/runtime/observability), which
+serves on a port of its own — separate from any `http` connector, so probes never
+collide with a user route and answer even for a runtime with no HTTP source at
+all. Each flag defaults to the environment variable of the same name (see
+[below](#environment-variables)), so passing the flag always wins.
+
+`--metrics` exports per-flow rate, errors and duration, the in-flight count per
+flow, and the Go runtime and process collectors. It is off by default because
+per-flow accounting is real work on the flow's own goroutine; probes are not.
+
+`--metrics-blocks` adds per-block timings for the blocks you name, in the same
+address grammar [`--spies`](#spies) accepts:
+
+```bash
+octo run --config app.yaml --metrics \
+  --metrics-blocks 'orders.charge,orders.fanout[audit].log-it'
+```
+
+It is a separate flag because it is the expensive half: watching **any** block
+makes the engine emit an event around **every** block in every flow, not just the
+watched ones. Delivery is at-most-once, so under saturation the block counters
+under-report — `octo_block_events_dropped_total` says by how much.
 
 When `--config` points to a directory, every `.yaml`/`.yml` file directly in it
 (sorted by name, subdirectories ignored) is loaded and merged into one config.
@@ -752,6 +779,15 @@ the VCS commit time, and the suffix is omitted when neither exists.
 | --- | --- |
 | `LOG_LEVEL` | Log verbosity for the process logger: `debug`, `info` (default), `warn`, or `error`. An invalid value logs a warning and falls back to `info`. Logs are written to stderr. |
 | `OCTO_ENV_FILE` | Path to an extra `.env` file loaded in addition to `./.env`, overlaying it. See [Flow File — env](/reference/flow-file#env). |
+| `OCTO_OBSERVABILITY` | Default for `--observability`. Accepts `true`/`false`, `1`/`0`, `on`/`off`, `yes`/`no` (case-insensitive). An unparseable value logs a warning and is ignored. |
+| `OCTO_OBSERVABILITY_ADDR` | Default for `--observability-addr`. |
+| `OCTO_METRICS` | Default for `--metrics`. Same accepted values as `OCTO_OBSERVABILITY`. |
+| `OCTO_METRICS_BLOCKS` | Default for `--metrics-blocks`: comma-separated [block addresses](#addressing-a-block), or `*` for every block. |
+
+The `OCTO_OBSERVABILITY*`, `OCTO_METRICS`, and `OCTO_METRICS_BLOCKS` variables are read from the **process environment only**,
+not from a `.env` file: they are resolved when `octo run` parses its flags, which
+happens before any config — and therefore any `.env` — is loaded. Passing the flag
+always wins over the variable.
 
 Config-declared environment variables (the `env:` section of a flow file) are
 resolved with the precedence OS environment > `.env` file > declared default;
