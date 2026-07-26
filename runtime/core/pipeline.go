@@ -31,10 +31,12 @@ type Block struct {
 	// breakpoint wrappers, which stand in their target's place and would
 	// otherwise emit a second event at the same address.
 	//
-	// The path is an observability label, not a resolvable handle. Two unnamed
-	// blocks of the same type in one chain mint the same path, where the address
-	// resolver would refuse the ambiguity — minting nothing for them would be
-	// worse than minting a label that happens to be shared.
+	// The path is an observability label, not a resolvable handle. Two cases mint
+	// one the resolver would not accept back: two unnamed blocks of the same type
+	// in one chain share a path, and a name carrying a '.', '[' or ']' — which
+	// nothing rejects today — produces segments the parser splits the wrong way.
+	// Minting nothing in those cases would be worse than minting a label that is
+	// shared or unparseable, since it would leave those blocks unobservable.
 	Path      string
 	Processor MessageProcessor
 }

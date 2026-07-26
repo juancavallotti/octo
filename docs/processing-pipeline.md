@@ -189,9 +189,14 @@ three outcomes and adds `Duration`, `Err`, and `Dropped`.
 `naturalAddress`; the spelling itself lives in one place, `core/blockpath.go`.
 `runtime/core/runtime/blockpath_resolve_test.go` pins the round trip.
 
-It is a label, not a handle: two blocks the resolver would call ambiguous (two
-unnamed blocks of the same type in one chain) mint the same path here, because a
-block that emitted nothing would be worse than one whose label is shared.
+It is a label, not a handle. Two cases mint one the resolver will not take back:
+two blocks it would call ambiguous (two unnamed blocks of the same type in one
+chain) share a path, and a name carrying a `.`, `[` or `]` — which nothing
+rejects today, at any level — comes out as segments the parser splits the wrong
+way. The builder mints anyway in both, because a block that emitted nothing at
+all would be worse than one whose label is shared or unparseable. The editor's
+`naturalAddress` takes the other choice for the same reason it must: a mock or a
+spy keyed by an ambiguous address would resolve to the wrong block.
 
 ### Two kinds of listener
 
@@ -199,7 +204,7 @@ block that emitted nothing would be worse than one whose label is shared.
 | --- | --- | --- |
 | Runs on | the flow's own goroutine, inline | one dispatcher goroutine, sequentially |
 | Blocking | stalls the flow (this is the point) | never stalls the flow |
-| Delivery | exactly once, before the block runs | at-most-once; dropped when the queue is full |
+| Delivery | exactly once, inline: pre before the block, post after it | at-most-once; dropped when the queue is full |
 | May read the message | yes, including `Clone`/`Scoped`/`Reported` | **no** — see below |
 | For | flow debugging | stats, prometheus |
 

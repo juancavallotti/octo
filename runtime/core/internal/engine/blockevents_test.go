@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/core/internal/pool"
@@ -326,6 +327,43 @@ func contains(haystack []string, needle string) bool {
 		}
 	}
 	return false
+}
+
+// TestBlockEventsDurationExcludesSyncListeners pins that Duration measures the
+// block, not the observing. A sync listener runs inline on the flow's goroutine,
+// and the debugger it exists for parks there for as long as a human takes — which
+// must not be reported as the block having taken that long.
+func TestBlockEventsDurationExcludesSyncListeners(t *testing.T) {
+	const park = 50 * time.Millisecond
+
+	events := core.NewBlockEvents()
+	var post types.BlockEvent
+	events.AddSync(func(_ context.Context, ev types.BlockEvent) {
+		switch ev.Kind {
+		case types.BlockPreInvoke:
+			time.Sleep(park) // stand in for a breakpoint holding the flow
+		case types.BlockPostInvoke:
+			post = ev
+		}
+	})
+
+	flow, err := BuildRoot(
+		types.FlowConfig{Name: "orders", Process: []types.BlockConfig{{Type: "pass", Name: "charge"}}},
+		testRegistry(), pool.New(0, 0), nil, core.BlockDeps{Events: events},
+	)
+	if err != nil {
+		t.Fatalf("BuildRoot: %v", err)
+	}
+	if _, err = flow.Process(context.Background(), mustMessage(t)); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+
+	if post.Kind != types.BlockPostInvoke {
+		t.Fatal("no post-invoke event was delivered")
+	}
+	if post.Duration >= park {
+		t.Errorf("Duration = %v, which includes the %v a sync listener parked for", post.Duration, park)
+	}
 }
 
 // TestBlockEventsOnlyReachTheWiredDispatcher pins that a flow emits to the

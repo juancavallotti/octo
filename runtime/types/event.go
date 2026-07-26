@@ -69,7 +69,8 @@ type BlockEvent struct {
 	//
 	// Path is a label, not a resolvable handle: two blocks the address resolver
 	// would call ambiguous (two unnamed blocks of the same type in one chain) mint
-	// the same path here.
+	// the same path here, and a name carrying a '.', '[' or ']' mints one the
+	// address parser splits the wrong way.
 	Flow string
 	Path string
 	// BlockType is the block's effective type, after any ref is resolved.

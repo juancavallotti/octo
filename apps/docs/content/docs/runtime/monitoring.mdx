@@ -69,7 +69,7 @@ LOG_LEVEL=debug octo run --config my-flow.yaml
 Running standalone, stderr is the whole story — nothing is shipped anywhere. `LOG_LEVEL=debug` plus a `log` block with `full: true` is the standard local debugging setup.
 
 <Callout type="info">
-Flow lifecycle events (`started`/`completed`/`dropped`/`failed`) and block events stay on a process-local bus — nothing is shipped to a central trace or metrics store, and Octo exposes no metrics endpoint of its own. To export metrics, embed the runtime and subscribe (see below).
+Flow lifecycle events (`started`/`completed`/`dropped`/`failed`) stay on a process-local bus (`core.EventBus`), and block events on a process-local dispatcher (`core.BlockEvents`) — two separate mechanisms, neither of which leaves the process. Nothing is shipped to a central trace or metrics store, and Octo exposes no metrics endpoint of its own. To export either, embed the runtime and subscribe (see below).
 </Callout>
 
 ## Block events
@@ -93,7 +93,7 @@ Each `types.BlockEvent` carries:
 
 `Path` is the block's address in the runtime's grammar, `<flow>[<chain>].<block>[<branch>].<block>` — for example `orders.checkHeader[else].api-call-1`. It is the same string [`octo invoke --spies`](/reference/cli) accepts, so a path you see in a metric is a path you can paste back into the CLI to watch that block.
 
-Two blocks that address ambiguously (two unnamed blocks of the same type in one chain) share a path. Name a block to give it one of its own.
+Two caveats, both of which make a path a label rather than something you can always paste back. Two blocks that address ambiguously — two unnamed blocks of the same type in one chain — share a path; name one to give it its own. And a block, branch, route or tool name containing `.`, `[` or `]` produces a path the address parser splits the wrong way; nothing rejects such a name today, so avoid those characters if you want the path to round-trip.
 
 ### Two kinds of listener
 
@@ -115,7 +115,7 @@ events.AddAsync(func(ev types.BlockEvent) {
 
 Delivery is at-most-once: the queue holds 1024 events, and when it fills, events are dropped and counted (`events.Dropped()`) rather than made to wait. Telemetry falling behind costs telemetry, not throughput.
 
-**Sync** — for debugging. Listeners run inline on the flow's own goroutine, before the block runs, and the flow waits for them:
+**Sync** — for debugging. Listeners run inline on the flow's own goroutine and the flow waits for them: pre-invoke before the block runs, post-invoke after it returns.
 
 ```go
 events.AddSync(func(ctx context.Context, ev types.BlockEvent) {

@@ -189,9 +189,12 @@ that only *changes* what a flow does, it inherits the mock's.
 
 `core.BlockEvents` (see [processing-pipeline.md](processing-pipeline.md#block-events))
 brackets **every** block with a pre- and post-invoke event carrying that block's
-address — which overlaps what a spy does, and is not subject to rule 8, because it
-retains nothing: a listener that keeps records is the listener's problem, not the
-runtime's.
+address — which overlaps what a spy does, but is not subject to rule 8, because
+what the runtime holds is bounded. The async queue is 1024 deep and drops rather
+than grows, so at worst that many events — and the messages they point at — stay
+alive until the pump drains them. A spy's collector has no such ceiling: it
+accumulates a clone of every crossing for the life of the process. A listener that
+keeps records past the callback is the listener's problem, not the runtime's.
 
 The spy is still its own feature, and the overlap is not yet worth collapsing:
 

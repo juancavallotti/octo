@@ -88,8 +88,11 @@ func (f *Flow) Process(ctx context.Context, msg *types.Message) (*types.Message,
 		observe := f.events != nil && block.Path != "" && f.events.Active()
 		var started time.Time
 		if observe {
+			f.events.Emit(ctx, f.event(types.BlockPreInvoke, block, current, time.Now()))
+			// Start the clock after the pre-invoke listeners, not before: a sync
+			// listener runs inline, and a debugger parked at a breakpoint would
+			// otherwise be billed to the block as a multi-second invocation.
 			started = time.Now()
-			f.events.Emit(ctx, f.event(types.BlockPreInvoke, block, current, started))
 		}
 
 		out, err := block.Processor.Process(ctx, current)
