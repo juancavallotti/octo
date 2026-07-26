@@ -1,11 +1,11 @@
 ---
 title: "Monitoring"
-description: "Logs, log levels, and the central log sink."
+description: "Logs, log levels, the central log sink, and per-block events."
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-Observability in Octo today is logs: structured application logs you emit from flows, the runtime's own process logs, and — on the platform — a central sink that aggregates every replica's output into one searchable stream. This page covers each layer and how they connect.
+Octo gives you two ways to see what a flow is doing: **logs** — structured application logs you emit from flows, the runtime's own process logs, and, on the platform, a central sink that aggregates every replica's output into one searchable stream — and **block events**, a programmatic stream of every block invocation, for embedders wiring their own metrics. This page covers each layer and how they connect.
 
 ## Logging from flows: the log block
 
@@ -69,8 +69,75 @@ LOG_LEVEL=debug octo run --config my-flow.yaml
 Running standalone, stderr is the whole story — nothing is shipped anywhere. `LOG_LEVEL=debug` plus a `log` block with `full: true` is the standard local debugging setup.
 
 <Callout type="info">
-Flow lifecycle events (`started`/`completed`/`dropped`/`failed`) stay on a process-local bus — they are not shipped to a central trace store. Log what you need to see. There is no metrics endpoint yet either; observability today is logs plus deployment status.
+Flow lifecycle events (`started`/`completed`/`dropped`/`failed`) and block events stay on a process-local bus — nothing is shipped to a central trace or metrics store, and Octo exposes no metrics endpoint of its own. To export metrics, embed the runtime and subscribe (see below).
 </Callout>
+
+## Block events
+
+The runtime brackets **every block it invokes** with a `pre-invoke` and a `post-invoke` event. It is the seam to build per-block metrics on, and the seam a flow debugger would use. There is no YAML for it and no CLI flag: you register listeners from Go, embedding the runtime.
+
+Each `types.BlockEvent` carries:
+
+| Field | |
+| --- | --- |
+| `Kind` | `pre-invoke` or `post-invoke` |
+| `Flow`, `Path`, `BlockType` | which block — see [the path](#the-path-is-an-address) |
+| `EventID`, `CorrelationID` | which message; joins to the flow-event stream |
+| `OccurredAt` | when |
+| `Message` | the live message — read the contract below |
+| `Duration`, `Err`, `Dropped` | `post-invoke` only: how long it took and how it ended |
+
+`post-invoke` fires for all three outcomes — the block returned a message, dropped it, or failed — so a counter never misses one.
+
+### The path is an address
+
+`Path` is the block's address in the runtime's grammar, `<flow>[<chain>].<block>[<branch>].<block>` — for example `orders.checkHeader[else].api-call-1`. It is the same string [`octo invoke --spies`](/reference/cli) accepts, so a path you see in a metric is a path you can paste back into the CLI to watch that block.
+
+Two blocks that address ambiguously (two unnamed blocks of the same type in one chain) share a path. Name a block to give it one of its own.
+
+### Two kinds of listener
+
+```go
+events := core.DefaultBlockEvents()
+```
+
+**Async** — for stats and metrics. Listeners run on one dispatcher goroutine, sequentially, after the fact, so they never slow a flow down:
+
+```go
+events.AddAsync(func(ev types.BlockEvent) {
+    if ev.Kind != types.BlockPostInvoke {
+        return
+    }
+    blockSeconds.WithLabelValues(ev.Flow, ev.Path, ev.BlockType, outcome(ev)).
+        Observe(ev.Duration.Seconds())
+})
+```
+
+Delivery is at-most-once: the queue holds 1024 events, and when it fills, events are dropped and counted (`events.Dropped()`) rather than made to wait. Telemetry falling behind costs telemetry, not throughput.
+
+**Sync** — for debugging. Listeners run inline on the flow's own goroutine, before the block runs, and the flow waits for them:
+
+```go
+events.AddSync(func(ctx context.Context, ev types.BlockEvent) {
+    if ev.Kind != types.BlockPreInvoke || !dbg.BreaksAt(ev.Path) {
+        return
+    }
+    dbg.Present(ev.Path, ev.Message.Reported())
+    dbg.WaitForResume(ctx)   // blocking here holds the flow at this block
+})
+```
+
+Both kinds **observe**. A listener cannot skip or abort a block; a flow runs the same way whether anything is listening or not.
+
+<Callout type="warn">
+**`ev.Message` is the live message, not a copy.** A sync listener runs while the flow is stopped at this block, so it may read the message and copy it (`Clone`, `Scoped`, `Reported`). An async listener must **not** touch `ev.Message.Body` or `ev.Message.Variables` and must not call a copy method — the flow has moved on and is mutating both, and a concurrent map read can panic the process. Every other field is a copy taken on the flow's goroutine and is safe anywhere. To inspect contents off the flow's goroutine, `Clone` in a sync listener and hand the copy to your own worker.
+</Callout>
+
+A sync listener is called from every goroutine a flow runs on — its worker pool, plus the shared pool for a `fork`'s branches — so it must be safe for concurrent use, and blocking one inside a fork branch holds a pool worker.
+
+Listening costs nothing until you register: with no listeners the engine does a nil check and an atomic load per block, allocating nothing.
+
+To give one `Service` its own dispatcher instead of the process-wide one — two runtimes in a process, or an isolated test — pass `runtime.WithBlockEvents(core.NewBlockEvents())`.
 
 ## On the platform: the central log sink
 

@@ -35,6 +35,10 @@ A message's life, end to end:
 
 The flow-event bus (`core.DefaultEventBus()`) is a process-wide, synchronous fan-out pub/sub: every subscriber receives every event, and handlers must return quickly (dispatch long work to your own goroutine). Request/response sources are built on it — the `http` source subscribes once and matches each terminal event back to the waiting request by `EventID`, writing the completed message's body as the response. The bus never leaves the process; see [Monitoring](/runtime/monitoring) for what does.
 
+### Block events: one level down
+
+Flow events are per message. **Block events** are per block: the engine brackets every block it invokes with a `pre-invoke` and a `post-invoke` `types.BlockEvent`, and `post-invoke` reports the outcome (`Duration`, `Err`, `Dropped`). They join the flow-event stream on `EventID`. See [Monitoring](/runtime/monitoring#block-events) for what they carry and how to listen.
+
 ### Early termination: filter blocks
 
 A filter block (`validate`, `jwt-validate`) that rejects a message can mark it with an internal stop flag. The flow engine checks the flag after every block: when set, the flow completes immediately with the message as the block configured it (body, HTTP status), skipping the rest of the chain. The flag rides in `Variables`, so it bubbles up through nested composite sub-flows and across `flow-ref` boundaries automatically. A stopped flow is reported `completed`, not `failed`.

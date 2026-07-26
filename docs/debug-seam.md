@@ -102,6 +102,17 @@ asymmetry matters: an address landing *on* an already-wrapped block must return
 the wrapper's slot, so the next injection nests *around* what is there rather
 than replacing it. (`TestInjectSpiesDescendsThroughAWrappedComposite`.)
 
+The flow builder mints the same addresses on the way down, for block events, and
+carries the mirror image of this rule: `builder.block` gives a spy or breakpoint
+wrapper no path of its own and builds its inner chain at the slot the wrapper
+sits in, rather than at a branch of it. Without that, a spied `orders.charge`
+would report as `orders.charge[process].charge` — a path that does not resolve,
+because the resolver peels the spy and then asks the leaf target for a `process`
+branch it does not have. A **mock** needs no such case: it stands in its target's
+place rather than wrapping it, so its natural path is already the address the
+user gave, and it reports under it. (`TestBlockPathSpyWrapperIsTransparent`,
+`TestBlockPathMockKeepsTargetAddress`.)
+
 ### 3. A wrapper must not change the program it observes
 
 A block error is labelled with the block's name, and an error path can branch on
@@ -173,6 +184,28 @@ want to relax it (see
 
 If you add an **observing** feature, it inherits the spy's problem. If you add one
 that only *changes* what a flow does, it inherits the mock's.
+
+## What block events do and do not replace
+
+`core.BlockEvents` (see [processing-pipeline.md](processing-pipeline.md#block-events))
+brackets **every** block with a pre- and post-invoke event carrying that block's
+address — which overlaps what a spy does, and is not subject to rule 8, because it
+retains nothing: a listener that keeps records is the listener's problem, not the
+runtime's.
+
+The spy is still its own feature, and the overlap is not yet worth collapsing:
+
+- `--spies` **validates its addresses against the config at build time**, so a
+  typo is an error naming the flag. A path filter over events would silently match
+  nothing.
+- A spy record is a **clone taken on both sides** (rule 5). A listener would have
+  to clone in a sync callback, which puts rule 8's unbounded-growth problem right
+  back where it was.
+- Wrapping is what makes `unlabel` and the injection order (rules 1 and 3) mean
+  what they mean; a listener does not wrap, so error labelling would change.
+
+Reimplementing spies on the event seam is a change of its own, with those three
+things to answer for.
 
 ## Conflicts
 
