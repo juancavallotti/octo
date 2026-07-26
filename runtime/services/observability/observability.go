@@ -26,7 +26,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/services"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 const (
@@ -53,6 +55,7 @@ const (
 const (
 	envEnabled = "OCTO_OBSERVABILITY"
 	envAddr    = "OCTO_OBSERVABILITY_ADDR"
+	envMetrics = "OCTO_METRICS"
 )
 
 func init() {
@@ -63,10 +66,13 @@ func init() {
 type Service struct {
 	enabled bool
 	addr    string
+	metrics bool
 
-	health *services.Health
-	server *http.Server
-	ln     net.Listener
+	health      *services.Health
+	collectors  *metrics
+	unsubscribe func()
+	server      *http.Server
+	ln          net.Listener
 }
 
 // New returns the service with nothing resolved yet; Flags fills it in.
@@ -83,6 +89,8 @@ func (s *Service) Flags(fs *flag.FlagSet) {
 		"serve liveness and readiness probes on the admin port")
 	fs.StringVar(&s.addr, "observability-addr", envString(envAddr, defaultAddr),
 		"admin listen address for probes and metrics")
+	fs.BoolVar(&s.metrics, "metrics", envBool(envMetrics, false),
+		"serve Prometheus metrics on the admin port")
 }
 
 // Usage implements services.HostedService.
@@ -93,30 +101,50 @@ func (s *Service) Usage() string {
   --observability-addr <addr>
                      admin listen address (default :39999)
 
+  --metrics          serve Prometheus metrics (default: off)
+
   The admin port is separate from any http connector, so probes never collide with
   a user route and answer even for a runtime with no HTTP source at all:
 
     GET /healthz     200 while the process is alive
     GET /readyz      200 once every connector and flow started; 503 with the
                      reason otherwise (starting, reloading, draining, stopped)
+    GET /metrics     Prometheus exposition, with --metrics
 
   Readiness turns false the moment a shutdown signal arrives, before flows drain,
   so a load balancer stops sending work while there are still workers to finish
   what is in flight.
 
+  --metrics exports per-flow rate, errors and duration, the in-flight count per
+  flow, and the Go runtime and process collectors (goroutines, heap, GC, RSS, CPU,
+  open files). Every label comes from the config — never from message data — so
+  cardinality is bounded by what you wrote.
+
   Each flag's default is its environment variable, so a deployment can set
-  OCTO_OBSERVABILITY / OCTO_OBSERVABILITY_ADDR instead. These are read from the
-  process environment, not from a .env file.`
+  OCTO_OBSERVABILITY / OCTO_OBSERVABILITY_ADDR / OCTO_METRICS instead. These are
+  read from the process environment, not from a .env file.`
 }
 
 // Start binds the admin listener and serves on it. Binding is synchronous so a
 // port conflict fails the run rather than becoming a log line nobody reads.
 func (s *Service) Start(ctx context.Context, health *services.Health) error {
 	if !s.enabled {
+		if s.metrics {
+			slog.Warn("observability: --metrics has no effect while --observability is false; " +
+				"nothing serves /metrics")
+		}
 		slog.Debug("observability disabled")
 		return nil
 	}
 	s.health = health
+
+	if s.metrics {
+		s.collectors = newMetrics(health)
+		// Subscribing costs nothing until a flow publishes: the bus is already
+		// publishing whether or not anyone listens, unlike the block-event
+		// dispatcher, which is why per-flow metrics need no address list.
+		s.unsubscribe = core.DefaultEventBus().Subscribe(s.collectors.onFlowEvent)
+	}
 
 	var lc net.ListenConfig
 	ln, err := lc.Listen(ctx, "tcp", s.addr)
@@ -138,8 +166,23 @@ func (s *Service) Start(ctx context.Context, health *services.Health) error {
 	return nil
 }
 
-// Stop shuts the admin server down, draining in-flight probes.
+// Configured records each generation's shape and pre-creates its flows' series,
+// so a flow that has taken no traffic reads as 0 rather than being absent. It
+// implements services.ConfigAware, and is called again on every --watch reload.
+func (s *Service) Configured(config types.Config) {
+	if s.collectors == nil {
+		return
+	}
+	s.collectors.observeConfig(config)
+}
+
+// Stop releases the flow-event subscription and shuts the admin server down,
+// draining in-flight probes.
 func (s *Service) Stop(ctx context.Context) error {
+	if s.unsubscribe != nil {
+		s.unsubscribe()
+		s.unsubscribe = nil
+	}
 	if s.server == nil {
 		return nil
 	}

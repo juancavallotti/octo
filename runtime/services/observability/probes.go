@@ -3,6 +3,8 @@ package observability
 import (
 	"net/http"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+
 	"github.com/juancavallotti/octo/runtime/services"
 )
 
@@ -11,6 +13,7 @@ const (
 	pathIndex   = "/"
 	pathHealthz = "/healthz"
 	pathReadyz  = "/readyz"
+	pathMetrics = "/metrics"
 )
 
 // handler builds the admin mux. It is a mux of its own, not the default one, so
@@ -19,6 +22,14 @@ func (s *Service) handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc(pathHealthz, s.handleHealthz)
 	mux.HandleFunc(pathReadyz, s.handleReadyz)
+	if s.collectors != nil {
+		mux.Handle(pathMetrics, promhttp.HandlerFor(s.collectors.registry, promhttp.HandlerOpts{
+			// A collector that fails should say so in the response rather than
+			// serving a half-scrape that reads as real data.
+			ErrorHandling: promhttp.HTTPErrorOnError,
+			Registry:      s.collectors.registry,
+		}))
+	}
 	mux.HandleFunc(pathIndex, s.handleIndex)
 	return mux
 }
@@ -58,11 +69,16 @@ func (s *Service) handleIndex(w http.ResponseWriter, r *http.Request) {
 	writePlain(w, http.StatusOK, s.index())
 }
 
-// index is the body of the root page: one line per mounted endpoint.
+// index is the body of the root page: one line per mounted endpoint. /metrics is
+// listed only when it is served, so the page never advertises a 404.
 func (s *Service) index() string {
-	return "octo admin\n\n" +
+	body := "octo admin\n\n" +
 		pathHealthz + "  liveness\n" +
 		pathReadyz + "   readiness\n"
+	if s.collectors != nil {
+		body += pathMetrics + "  prometheus metrics\n"
+	}
+	return body
 }
 
 // writePlain writes a text/plain response with a trailing newline, so the output

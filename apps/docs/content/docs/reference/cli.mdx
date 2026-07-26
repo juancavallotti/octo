@@ -53,13 +53,18 @@ octo run --config samples/hello-world.yaml
 | `--config` | path | (required) | Path to the runtime config — a YAML file or a directory. |
 | `--watch` | bool | `false` | Reload the runtime when the config changes. |
 | `--observability` | bool | `true` | Serve liveness and readiness probes on the admin port. `--observability=false` binds nothing. |
-| `--observability-addr` | address | `:39999` | Admin listen address for the probes. |
+| `--observability-addr` | address | `:39999` | Admin listen address for the probes and metrics. |
+| `--metrics` | bool | `false` | Also serve Prometheus metrics at `/metrics` on the admin port. |
 
-The last two configure the [observability runtime service](/runtime/observability),
-which serves `/healthz` and `/readyz` on a port of its own — separate from any
-`http` connector, so probes never collide with a user route and answer even for a
-runtime with no HTTP source at all. Each defaults to the environment variable of
-the same name (see [below](#environment-variables)).
+These configure the [observability runtime service](/runtime/observability), which
+serves on a port of its own — separate from any `http` connector, so probes never
+collide with a user route and answer even for a runtime with no HTTP source at
+all. Each flag defaults to the environment variable of the same name (see
+[below](#environment-variables)), so passing the flag always wins.
+
+`--metrics` exports per-flow rate, errors and duration, the in-flight count per
+flow, and the Go runtime and process collectors. It is off by default because
+per-flow accounting is real work on the flow's own goroutine; probes are not.
 
 When `--config` points to a directory, every `.yaml`/`.yml` file directly in it
 (sorted by name, subdirectories ignored) is loaded and merged into one config.
@@ -762,8 +767,9 @@ the VCS commit time, and the suffix is omitted when neither exists.
 | `OCTO_ENV_FILE` | Path to an extra `.env` file loaded in addition to `./.env`, overlaying it. See [Flow File — env](/reference/flow-file#env). |
 | `OCTO_OBSERVABILITY` | Default for `--observability`. Accepts `true`/`false`, `1`/`0`, `on`/`off`, `yes`/`no` (case-insensitive). An unparseable value logs a warning and is ignored. |
 | `OCTO_OBSERVABILITY_ADDR` | Default for `--observability-addr`. |
+| `OCTO_METRICS` | Default for `--metrics`. Same accepted values as `OCTO_OBSERVABILITY`. |
 
-The `OCTO_OBSERVABILITY*` variables are read from the **process environment only**,
+The `OCTO_OBSERVABILITY*` and `OCTO_METRICS` variables are read from the **process environment only**,
 not from a `.env` file: they are resolved when `octo run` parses its flags, which
 happens before any config — and therefore any `.env` — is loaded. Passing the flag
 always wins over the variable.
