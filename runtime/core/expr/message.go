@@ -2,6 +2,7 @@ package expr
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/google/cel-go/cel"
 
@@ -26,10 +27,17 @@ type MessageContext struct {
 	// inside an extension: the compile substitutes the no-op loader when unset.
 	Resources core.ResourceLoader
 	// Vars are the variable names in scope for the expression being compiled —
-	// MessageVars for a message expression, SourcePayloadVars for a source payload.
-	// An extension that hands the activation to a function (templateResource does,
-	// via a macro) must build it from these rather than assuming the message set.
+	// MessageVars for a message expression, SourcePayloadVars for a source payload,
+	// TemplateVars for a template span. An extension that hands the activation to a
+	// function (templateResource does, via a macro) must build it from these rather
+	// than assuming the message set.
 	Vars []string
+	// TemplateDepth is how many templates deep this expression is: 0 for a message
+	// expression or a source payload, 1 for a span inside a template one of those
+	// rendered, and so on. Templates may call templateResource themselves, so the
+	// only thing standing between a self-referencing template and an unbounded
+	// render is this counter — see maxTemplateDepth.
+	TemplateDepth int
 }
 
 // MessageExtension contributes CEL environment options (custom functions, macros)
@@ -55,32 +63,47 @@ func RegisterMessageExtension(ext MessageExtension) {
 // this, so a capability added via RegisterMessageExtension becomes available
 // everywhere without editing call sites. res may be nil (a no-op loader is used).
 func CompileMessage(res core.ResourceLoader, expression string) (*Program, error) {
-	return compileWithExtensions(res, MessageVars, expression)
+	return compileWithExtensions(MessageContext{Resources: res, Vars: MessageVars}, expression)
 }
 
-// compileWithExtensions declares vars and applies every registered extension,
-// bound to res and to that variable set. It is the single seam through which both
-// message expressions and source payloads reach the registered capabilities, so an
-// extension is wired in once and works in either scope.
-func compileWithExtensions(res core.ResourceLoader, vars []string, expression string) (*Program, error) {
-	if res == nil {
-		res = core.NoopResourceLoader{}
+// compileWithExtensions declares mc.Vars and applies every registered extension,
+// bound to mc. It is the single seam through which message expressions, source
+// payloads, and template spans reach the registered capabilities, so an extension
+// is wired in once and works in every scope. mc.Resources may be nil (a no-op
+// loader is used).
+func compileWithExtensions(mc MessageContext, expression string) (*Program, error) {
+	if mc.Resources == nil {
+		mc.Resources = core.NoopResourceLoader{}
 	}
-	mc := MessageContext{Resources: res, Vars: vars}
 	opts := make([]cel.EnvOption, 0, len(messageExtensions))
 	for _, ext := range messageExtensions {
 		opts = append(opts, ext(mc)...)
 	}
-	return CompileWithOptions(expression, vars, opts...)
+	return CompileWithOptions(expression, mc.Vars, opts...)
 }
+
+// maxTemplateDepth caps how many templates may nest through templateResource.
+// Templates reach the function through the same seam as everything else, so a
+// template that renders itself — directly or through a cycle — would otherwise
+// recurse until the stack gave out. The id is an expression argument, so the
+// cycle cannot be seen at parse time; the depth is carried through the compile
+// context and checked at render.
+const maxTemplateDepth = 8
 
 func init() {
 	// templateResource(id) renders a template resource against the current message.
 	// A fresh registry per compiled expression caches parsed templates for that
-	// expression; the loader itself is shared across the generation.
+	// expression; the loader itself is shared across the generation. Templates the
+	// registry parses compile one level deeper, so nesting is counted without any
+	// shared state — two concurrent renders never see each other's depth.
 	RegisterMessageExtension(func(mc MessageContext) []cel.EnvOption {
-		reg := NewTemplateRegistry(mc.Resources)
+		depth := mc.TemplateDepth
+		reg := newTemplateRegistry(mc.Resources, depth+1)
 		resolve := func(id string, ctx map[string]any) (string, error) {
+			if depth >= maxTemplateDepth {
+				return "", fmt.Errorf("templateResource %q: nested more than %d templates deep (recursive template?)",
+					id, maxTemplateDepth)
+			}
 			tpl, err := reg.Get(context.Background(), id)
 			if err != nil {
 				return "", err

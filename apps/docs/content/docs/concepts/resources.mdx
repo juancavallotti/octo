@@ -42,6 +42,15 @@ Template files are plain text with embedded `{{ CEL }}` expressions, evaluated a
 {{ env.GREETING }}, {{ body.name }}!
 ```
 
+A span is ordinary CEL in the same environment as any other expression, so every [custom function](/reference/cel/octo-extensions#functions) works inside one — including `templateResource`, which lets a template pull in another:
+
+```text title="templates/page.tmpl"
+{{ templateResource("header") }}
+<p>{{ toJson(body) }}</p>
+```
+
+Nesting is capped at 8 levels, so a template that renders itself fails with a clear error rather than recursing without end.
+
 ## Rendering a template
 
 There are two ways to render a declared template.

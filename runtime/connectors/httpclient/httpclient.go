@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/juancavallotti/octo/runtime/connectors/internal/httppool"
 	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/types"
 )
@@ -79,6 +80,8 @@ type connectorSettings struct {
 	Auth authSettings `json:"auth" octo:"label=Authentication,type=object"`
 	// Retry policy for rate-limited (429) responses.
 	Retry retrySettings `json:"retry" octo:"label=Retry,type=object"`
+	// Connection pool sizing for outbound requests.
+	Pool poolSettings `json:"pool" octo:"label=Connection pool,type=object"`
 	// Cache enables an in-memory response cache for GET requests (opt-in). It is
 	// intentionally untagged: it is not exposed in the editor schema.
 	Cache cacheSettings `json:"cache"`
@@ -92,6 +95,24 @@ type retrySettings struct {
 	MaxAttempts int `json:"maxAttempts" octo:"label=Max attempts,default=3"`
 	// Upper bound on each wait between attempts (also caps a large Retry-After).
 	MaxBackoff duration `json:"maxBackoff" octo:"label=Max backoff,type=string,default=30s"`
+}
+
+// poolSettings sizes the connection pool the client keeps for outbound requests.
+// It is the counterpart to a flow's workers: workers asks for N concurrent
+// outbound requests, and the pool decides how many of those connections survive
+// to serve the next N. Leaving it unset takes defaults sized for that, not Go's
+// idle pool of two.
+type poolSettings struct {
+	// Idle connections kept across all hosts.
+	MaxIdleConns int `json:"maxIdleConns" octo:"label=Max idle connections,default=100"`
+	// Idle connections kept per host — the one that matters, since a connector
+	// talks to a single base URL.
+	MaxIdleConnsPerHost int `json:"maxIdleConnsPerHost" octo:"label=Max idle connections per host,default=100"`
+	// How long an idle connection is kept before being closed.
+	IdleConnTimeout duration `json:"idleConnTimeout" octo:"label=Idle connection timeout,type=string,default=90s"`
+	// Disables connection reuse entirely — one connection per request. For an
+	// upstream that mishandles persistent connections.
+	DisableKeepAlives bool `json:"disableKeepAlives" octo:"label=Disable keep-alives"`
 }
 
 // authSettings selects and configures the authentication scheme. Type is "",
@@ -168,7 +189,7 @@ func (c *Connector) Start(ctx context.Context, config types.ConnectorConfig) err
 	if timeout <= 0 {
 		timeout = defaultTimeout
 	}
-	c.client = &http.Client{Timeout: timeout}
+	c.client = newPooledClient(set.Pool, timeout)
 	c.base = base
 	c.auth = set.Auth
 	c.headers = set.Headers
@@ -202,6 +223,21 @@ func (c *Connector) Start(ctx context.Context, config types.ConnectorConfig) err
 		"cache", c.cache != nil,
 	)
 	return nil
+}
+
+// newPooledClient builds the outbound client with an explicit transport. The
+// transport is the point: leaving it nil means http.DefaultTransport, whose idle
+// pool is two connections per host — see httppool for what that costs.
+func newPooledClient(pool poolSettings, timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout: timeout,
+		Transport: httppool.New(httppool.Settings{
+			MaxIdleConns:        pool.MaxIdleConns,
+			MaxIdleConnsPerHost: pool.MaxIdleConnsPerHost,
+			IdleConnTimeout:     time.Duration(pool.IdleConnTimeout),
+			DisableKeepAlives:   pool.DisableKeepAlives,
+		}),
+	}
 }
 
 // Stop releases idle keep-alive connections held by the client.
@@ -301,7 +337,7 @@ func (c *Connector) configureOAuth2(ctx context.Context, name string, auth authS
 		clientID:     auth.ClientID,
 		clientSecret: auth.ClientSecret,
 		scope:        strings.Join(auth.Scopes, " "),
-	}, &http.Client{Timeout: timeout}, secrets)
+	}, httppool.NewClient(timeout), secrets)
 }
 
 // authorize applies authentication to the request unless it already carries an

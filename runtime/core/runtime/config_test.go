@@ -1,9 +1,12 @@
 package runtime
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
@@ -122,5 +125,65 @@ func TestMergeConfigsRejectsDuplicates(t *testing.T) {
 				t.Fatalf("err = %v, want containing %q", err, tc.wantErr)
 			}
 		})
+	}
+}
+
+// TestLoadConfigDirResolvesAcrossFiles pins the ordering the whole load hangs on.
+// Substitution has to run before the documents are typed, but declarations are
+// still gathered across every file first — so a variable declared in one file
+// serves a reference in another, exactly as it did when the merge came first.
+func TestLoadConfigDirResolvesAcrossFiles(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, "a-env.yaml", `
+env:
+  - name: FLOW_WORKERS
+    default: "64"
+`)
+	writeConfig(t, dir, "b-flow.yaml", `
+flows:
+  - name: orders
+    workers: ${FLOW_WORKERS}
+    process:
+      - type: log
+`)
+
+	cfg, err := LoadConfig(dir, core.NoopResourceLoader{})
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if got := cfg.Flows[0].Workers; got != 64 {
+		t.Errorf("workers = %d, want 64 (declared in a sibling file)", got)
+	}
+	if got := cfg.ResolvedEnv["FLOW_WORKERS"]; got != "64" {
+		t.Errorf("ResolvedEnv[FLOW_WORKERS] = %q, want 64; the merge does not carry it", got)
+	}
+}
+
+// TestLoadConfigDirSkipsEmptyFile: an empty document has nothing to decode, and
+// that is not an error — the same as it was when the file went straight into the
+// decoder.
+func TestLoadConfigDirSkipsEmptyFile(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, "empty.yaml", "\n  \n")
+	writeConfig(t, dir, "flow.yaml", `
+flows:
+  - name: orders
+    process:
+      - type: log
+`)
+
+	cfg, err := LoadConfig(dir, core.NoopResourceLoader{})
+	if err != nil {
+		t.Fatalf("LoadConfig with an empty file: %v", err)
+	}
+	if len(cfg.Flows) != 1 {
+		t.Errorf("flows = %d, want 1", len(cfg.Flows))
+	}
+}
+
+func writeConfig(t *testing.T, dir, name, content string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }

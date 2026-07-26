@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -39,6 +40,42 @@ func TestResourceLoaderLoadSubfolder(t *testing.T) {
 	}
 }
 
+// TestResourceLoaderRelativeRoot pins that a relative --config behaves exactly
+// like the absolute path to the same tree. "octo run --config ." — and
+// "--config config.yaml", which configDir reduces to "." — used to fail every
+// template with `resource id "templates/p.tmpl" escapes the resource root`:
+// Clean(".") is ".", and resolve's Join folds the leading "./" back off its
+// result, so the prefix test could never match. Every other test here roots the
+// loader at t.TempDir(), which is absolute, and so cannot see this.
+func TestResourceLoaderRelativeRoot(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "templates", "p.tmpl"), "hi")
+	// A file just outside the tree, and one inside it under the same name:
+	// containment must still hold from a relative root, and must hold by refusing
+	// the id rather than by quietly resolving it to the inner file.
+	writeFile(t, filepath.Join(filepath.Dir(root), "secret"), "top")
+	writeFile(t, filepath.Join(root, "secret"), "inside")
+	t.Chdir(root)
+
+	for _, spec := range []string{".", "./", "./templates/.."} {
+		loader := newResourceLoader(spec)
+		data, err := loader.Load(context.Background(), core.ResourceKindTemplate, "templates/p.tmpl")
+		if err != nil {
+			t.Fatalf("Load with root %q: %v", spec, err)
+		}
+		if string(data) != "hi" {
+			t.Fatalf("Load with root %q = %q, want %q", spec, data, "hi")
+		}
+		out, err := loader.Load(context.Background(), core.ResourceKindEnv, "../secret")
+		if err == nil {
+			t.Fatalf("root %q: traversal returned %q, want an error", spec, out)
+		}
+		if !strings.Contains(err.Error(), "escapes the resource root") {
+			t.Fatalf("root %q: traversal err = %v, want the containment guard", spec, err)
+		}
+	}
+}
+
 func TestResourceLoaderLoadMissing(t *testing.T) {
 	loader := newResourceLoader(t.TempDir())
 	_, err := loader.Load(context.Background(), core.ResourceKindEnv, ".env.nope")
@@ -54,10 +91,88 @@ func TestResourceLoaderRejectsTraversal(t *testing.T) {
 	}
 	// A secret sitting outside the root must not be reachable via "..".
 	writeFile(t, filepath.Join(filepath.Dir(root), "secret"), "top")
+	// One inside the root too, so the assertion below has teeth: a resolver that
+	// clamps "../secret" back under the root would load this and succeed. Without
+	// it the test passes on a missing file and proves nothing about containment.
+	writeFile(t, filepath.Join(root, "secret"), "inside")
 
 	loader := newResourceLoader(root)
-	if _, err := loader.Load(context.Background(), core.ResourceKindEnv, "../secret"); err == nil {
-		t.Fatal("expected traversal to be rejected")
+	out, err := loader.Load(context.Background(), core.ResourceKindEnv, "../secret")
+	if err == nil {
+		t.Fatalf("traversal returned %q, want an error", out)
+	}
+	if !strings.Contains(err.Error(), "escapes the resource root") {
+		t.Fatalf("traversal err = %v, want the containment guard", err)
+	}
+}
+
+// TestResourceLoaderResolveAtFilesystemRoot covers a root with nothing above it.
+// A "root + separator" prefix test cannot admit its own children there — "/" plus
+// a separator is "//", which prefixes nothing — so every id under it read as an
+// escape. Rare for a config directory, but it is the same check every id runs.
+func TestResourceLoaderResolveAtFilesystemRoot(t *testing.T) {
+	loader := newResourceLoader(string(os.PathSeparator))
+	got, err := loader.resolve("templates/p.tmpl")
+	if err != nil {
+		t.Fatalf("resolve under the filesystem root: %v", err)
+	}
+	if want := filepath.Join("templates", "p.tmpl"); got != want {
+		t.Fatalf("resolve = %q, want %q", got, want)
+	}
+}
+
+// TestResourceLoaderRejectsOutwardSymlink covers the escape the lexical check
+// cannot see: "link/secret" has no ".." in it and stays under the root as a
+// string, but if link points outside, reading it reads outside. Containment has
+// to be decided on the path the filesystem walks, which is what the os.Root read
+// does. The inner symlink is the other half — a link that stays in the tree is an
+// ordinary file and must keep loading.
+func TestResourceLoaderRejectsOutwardSymlink(t *testing.T) {
+	base := t.TempDir()
+	root := filepath.Join(base, "cfg")
+	writeFile(t, filepath.Join(root, "templates", "p.tmpl"), "hi")
+	writeFile(t, filepath.Join(base, "outside", "secret"), "top")
+
+	if err := os.Symlink(filepath.Join(base, "outside"), filepath.Join(root, "link")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	// Relative target: an absolute one is refused even when it points back inside,
+	// which is os.Root's rule and the loader's documented limit.
+	if err := os.Symlink("templates", filepath.Join(root, "inner")); err != nil {
+		t.Fatal(err)
+	}
+
+	loader := newResourceLoader(root)
+	out, err := loader.Load(context.Background(), core.ResourceKindEnv, "link/secret")
+	if err == nil {
+		t.Fatalf("outward symlink returned %q, want an error", out)
+	}
+	if errors.Is(err, core.ErrResourceNotFound) {
+		t.Fatalf("outward symlink err = %v, want a containment error (the file exists)", err)
+	}
+
+	data, err := loader.Load(context.Background(), core.ResourceKindTemplate, "inner/p.tmpl")
+	if err != nil {
+		t.Fatalf("Load through an inner symlink: %v", err)
+	}
+	if string(data) != "hi" {
+		t.Fatalf("Load through an inner symlink = %q, want %q", data, "hi")
+	}
+}
+
+// TestResourceLoaderAllowsInnerDotDot pins the other side of the guard: a ".."
+// that stays inside the root is an ordinary path, not an escape.
+func TestResourceLoaderAllowsInnerDotDot(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "templates", "p.tmpl"), "hi")
+
+	loader := newResourceLoader(root)
+	data, err := loader.Load(context.Background(), core.ResourceKindTemplate, "partials/../templates/p.tmpl")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if string(data) != "hi" {
+		t.Fatalf("Load = %q, want %q", data, "hi")
 	}
 }
 

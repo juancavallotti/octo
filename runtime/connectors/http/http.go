@@ -123,9 +123,14 @@ type Connector struct {
 	reqTimeout time.Duration
 	cors       *corsConfig
 
-	serveOnce   sync.Once
-	stopOnce    sync.Once
-	done        chan struct{}
+	serveOnce sync.Once
+	stopOnce  sync.Once
+	done      chan struct{}
+	// serving is closed when the accept loop has returned — and so, since
+	// Server.Serve closes the listener it was handed on the way out, when the
+	// listener is really released. Stop waits on it: winning serveOnce only proves
+	// ensureServing ran, not that the goroutine reached Serve.
+	serving     chan struct{}
 	unsubscribe func()
 
 	mu      sync.Mutex
@@ -178,6 +183,7 @@ func (c *Connector) Start(ctx context.Context, config types.ConnectorConfig) err
 	}
 	c.ln = ln
 	c.done = make(chan struct{})
+	c.serving = make(chan struct{})
 	c.pending = make(map[string]chan result)
 	c.routes = make(map[string]struct{})
 
@@ -225,28 +231,53 @@ func (c *Connector) Stop(ctx context.Context) error {
 	if c.server == nil {
 		return nil
 	}
-	// Close the listener explicitly. Serving is deferred until the first source
-	// calls ensureServing, so on a failed config reload (connectors started but
-	// no request yet) server.Shutdown never sees the listener and the port would
-	// leak. If serving did start, Shutdown already closed it and this is a no-op
-	// "use of closed network connection" we ignore.
-	if c.ln != nil {
-		_ = c.ln.Close()
+	// Exactly one of ensureServing and this claims serveOnce, which decides who
+	// owns the listener. Claiming it here means no source ever started serving and
+	// none now can, so Shutdown will never see the listener and we must release it
+	// ourselves — otherwise a failed config reload (connectors started, no request
+	// yet) would leak the port. Losing the claim means Serve took the listener, and
+	// Shutdown closes it; closing it here too would race the accept loop's untrack
+	// and, whenever Shutdown won that race, surface the second close as
+	// "use of closed network connection" — a clean shutdown reported as a failure.
+	// Whichever path runs closes c.serving, so the wait below is the same wait
+	// either way and a second Stop finds it already closed.
+	c.serveOnce.Do(func() {
+		if c.ln != nil {
+			_ = c.ln.Close()
+		}
+		close(c.serving)
+	})
+	err := c.server.Shutdown(ctx)
+	if c.serving != nil {
+		// Shutdown closes the listeners it is tracking, but the accept loop may not
+		// have handed it this one yet: claiming serveOnce is not entering Serve. A
+		// Serve that starts after Shutdown returns ErrServerClosed immediately —
+		// still after releasing the listener in its own defer. Waiting for that
+		// return is what makes "Stop returned" mean "the port is free", so the next
+		// generation can re-bind it.
+		select {
+		case <-c.serving:
+		case <-ctx.Done():
+		}
 	}
-	if err := c.server.Shutdown(ctx); err != nil {
+	if err != nil {
 		return fmt.Errorf("http connector shutdown: %w", err)
 	}
 	return nil
 }
 
 // ensureServing starts the accept loop exactly once, after every route has been
-// registered. Sources call it from their Start.
+// registered. Sources call it from their Start. Stop races for the same once, so
+// a connector stopped before any source started serving never starts one — see
+// Stop, which claims the once to take the listener over.
 func (c *Connector) ensureServing() {
 	c.serveOnce.Do(func() { go c.serve() })
 }
 
-// serve runs the accept loop until the server is shut down.
+// serve runs the accept loop until the server is shut down, then signals Stop
+// that the listener has been released.
 func (c *Connector) serve() {
+	defer close(c.serving)
 	if err := c.server.Serve(c.ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		slog.Error("http connector serve failed", "error", err)
 	}

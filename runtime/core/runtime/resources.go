@@ -59,7 +59,7 @@ func warmTemplates(loader core.ResourceLoader, templates []types.TemplateResourc
 		if err != nil {
 			return fmt.Errorf("template resource %q: %w", t.Resource, err)
 		}
-		if _, err := expr.ParseTemplate(string(data)); err != nil {
+		if _, err := expr.ParseTemplate(string(data), loader); err != nil {
 			return fmt.Errorf("template resource %q: %w", t.Resource, err)
 		}
 	}

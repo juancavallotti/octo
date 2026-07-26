@@ -54,6 +54,10 @@ it in sync with code **in the same PR** — CI enforces part of this:
   workspace that may contain live credentials. Re-author with placeholder hosts
   and `env.*` references instead.
 - Preview locally with `task docs:dev`; build with `task docs:build`.
+- **Publishing**: the site goes to GitHub Pages from the release tag, not from
+  main, so it describes the version users can install. A docs change merged today
+  appears publicly at the next release (`docs-pages.yml`, called by
+  `release-please.yml`). Every PR still builds the docs in `validate.yml`.
 
 ## Refactoring policy
 

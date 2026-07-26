@@ -17,6 +17,8 @@ env:
     default: 0.0.0.0
   - name: HTTP_PORT
     default: "8080"
+  - name: FLOW_WORKERS
+    default: "8"
   - name: API_KEY
     required: true      # must be supplied externally; a default would not satisfy it
 ```
@@ -26,7 +28,7 @@ env:
 
 ## `${NAME}` substitution
 
-Settings values — connector settings, block settings, source settings — accept `${NAME}` references to declared variables:
+Any value in the config accepts `${NAME}` references to declared variables — settings at any depth, and the flow's own fields too:
 
 ```yaml
 connectors:
@@ -36,11 +38,23 @@ connectors:
       host: ${HTTP_HOST}
       port: ${HTTP_PORT}        # an exact ${VAR} keeps its type -> int 8080
       basePath: /api/v1
+
+flows:
+  - name: orders
+    workers: ${FLOW_WORKERS}    # the same, on a typed flow field
 ```
 
-A value that is *exactly* one `${NAME}` is substituted with the variable's natural type — `"8080"` becomes the integer `8080`, `"true"` a boolean — so env vars can fill numeric and boolean settings. A `${NAME}` embedded in a longer string is replaced textually and the value stays a string.
+A value that is *exactly* one `${NAME}` is substituted with the variable's natural type — `"8080"` becomes the integer `8080`, `"true"` a boolean — so env vars can fill numeric and boolean fields. A `${NAME}` embedded in a longer string is replaced textually and the value stays a string.
+
+`workers` is the case that makes this matter: it is exactly the setting you want to differ between a laptop and a production node, and baking it into the YAML means a separate config per environment — the opposite of promoting one artifact across them.
+
+The `env:` and `resources:` sections are the exceptions. They are read to build the environment before substitution runs, so they must be written literally.
 
 Two mistakes fail at load time with a clear message: referencing a name not declared under `env:`, and referencing a declared name that resolved to no value and has no default.
+
+<Callout type="warn">
+  **Changed in 0.5.0.** Substitution used to reach only `settings` values. A `${NAME}` anywhere else was left as literal text; now it is resolved, and a reference to a name that is not declared under `env:` fails the load instead of passing through. If a value legitimately contains `${...}`, declare the variable or rewrite the value.
+</Callout>
 
 ## `env.NAME` in expressions
 

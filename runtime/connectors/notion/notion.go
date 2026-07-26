@@ -25,6 +25,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/juancavallotti/octo/runtime/connectors/internal/httppool"
 	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/types"
 )
@@ -123,7 +124,9 @@ func (c *Connector) Start(_ context.Context, config types.ConnectorConfig) error
 	c.token = set.Token
 	c.version = version
 	c.verificationToken = set.VerificationToken
-	c.client = &http.Client{Timeout: timeout}
+	// A pooled transport: a nil one means http.DefaultTransport, whose idle pool
+	// is two connections per host — see httppool.
+	c.client = httppool.NewClient(timeout)
 	return nil
 }
 

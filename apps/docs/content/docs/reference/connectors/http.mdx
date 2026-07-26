@@ -138,6 +138,7 @@ The `http-client` connector (label: **HTTP Client**) owns a configured client fo
 | `maxResponseBytes` | int | No | `1048576` | Response body size cap. |
 | `auth` | object | No | none | Authentication applied to every request (below). |
 | `retry` | object | No | — | Retry policy for rate-limited (`429`) responses (below). |
+| `pool` | object | No | — | Connection pool sizing for outbound requests (below). |
 | `cache` | object | No | disabled | In-memory response cache for GET requests (below). Not exposed in the editor schema; configure it in YAML. |
 
 ### Authentication (`auth`)
@@ -163,6 +164,23 @@ When an upstream returns `429 Too Many Requests`, the connector honors the `Retr
 | --- | --- | --- | --- | --- |
 | `maxAttempts` | int | No | `3` | Total attempts including the first; `<= 1` disables retrying. |
 | `maxBackoff` | duration | No | `30s` | Upper bound on each wait between attempts (also caps a large `Retry-After`). |
+
+### Connection pool (`pool`)
+
+The connector keeps a pool of idle connections so outbound requests reuse them instead of dialling — and, against HTTPS, re-handshaking — every time. Size the pool against the flow's [`workers`](/reference/flow-file#flows): `workers: 512` asks for up to 512 concurrent outbound requests, and `maxIdleConnsPerHost` decides how many of those connections survive to serve the next batch. Set `maxIdleConnsPerHost` to at least the `workers` of the busiest flow calling this connector — below that, the excess is closed and re-dialled every round.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `maxIdleConns` | int | No | `100` | Idle connections kept across all hosts. |
+| `maxIdleConnsPerHost` | int | No | `100` | Idle connections kept per host — the one that matters, since a connector talks to a single base URL. |
+| `idleConnTimeout` | duration | No | `90s` | How long an idle connection is kept before being closed. |
+| `disableKeepAlives` | boolean | No | `false` | Disable connection reuse entirely — one connection per request. For an upstream that mishandles persistent connections. |
+
+<Callout type="info">
+  **Fixed in 0.5.0.** Before this the connector used Go's default transport, whose idle pool is **two** connections per host. Above two concurrent requests every further connection was closed rather than parked, so a proxying workload approached one new TCP connection — and one TLS handshake — per request, and could exhaust the ephemeral port range under sustained load. The `notion` and `slack` connectors shared the defect and now pool too, at these defaults.
+</Callout>
+
+Keep `maxResponseBytes` in mind when you size the pool: a connection returns to the pool only once its response body is read to the end. The connector drains what the cap hid, but only up to 4 KiB — past that the read is worth less than the connection, so the connection is dropped instead. Set `maxResponseBytes` above the responses you expect, and treat a cap that truncates by more than a few KiB as costing a connection per request.
 
 ### Cache (`cache`)
 

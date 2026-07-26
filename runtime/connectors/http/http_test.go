@@ -292,10 +292,111 @@ func TestStopReleasesPortWithoutServing(t *testing.T) {
 	if err := first.Stop(context.Background()); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
+	// Stop is idempotent, and the second call must not block waiting for an accept
+	// loop that the first call made sure would never run.
+	if err := first.Stop(context.Background()); err != nil {
+		t.Fatalf("second Stop on the same connector: %v", err)
+	}
 
 	second := &Connector{}
 	if err := second.Start(context.Background(), types.ConnectorConfig{Settings: settings}); err != nil {
 		t.Fatalf("re-bind %d after Stop: %v", port, err)
+	}
+	if err := second.Stop(context.Background()); err != nil {
+		t.Fatalf("second Stop: %v", err)
+	}
+}
+
+// TestStopAfterServingReturnsNoError pins the exit status of a clean shutdown.
+// Stop used to close the listener itself even when Serve had taken it, racing
+// the accept loop's untrack; whenever server.Shutdown won that race it closed
+// the same listener a second time and reported "use of closed network
+// connection", turning a clean SIGTERM into a non-zero exit that Kubernetes and
+// systemd read as a crash. The race makes the old failure intermittent, so this
+// asserts the contract rather than reproducing the losing schedule: a connector
+// that served must report no error from Stop. No other test would notice — they
+// all discard the error their cleanup Stop returns.
+func TestStopAfterServingReturnsNoError(t *testing.T) {
+	c := &Connector{}
+	settings := map[string]any{"host": "127.0.0.1", "port": 0}
+	if err := c.Start(context.Background(), types.ConnectorConfig{Settings: settings}); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	out := make(chan *types.Message, 1)
+	src, err := c.NewSource(types.SourceConfig{Type: "http", Settings: map[string]any{"path": "/ping"}}, out, core.SourceDeps{})
+	if err != nil {
+		t.Fatalf("NewSource: %v", err)
+	}
+	if err := src.Start(context.Background()); err != nil {
+		t.Fatalf("source Start: %v", err)
+	}
+
+	// Drive one request through: Shutdown only reports the double close for a
+	// listener it is tracking, and it takes ownership when Serve accepts it.
+	echoWorker(out, func(msg *types.Message) types.FlowEvent {
+		return types.FlowEvent{Kind: types.FlowEventCompleted, Result: msg}
+	})
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost,
+		"http://"+c.ln.Addr().String()+"/ping", bytes.NewReader([]byte(`{}`)))
+	if resp := do(t, req); resp.status != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", resp.status, resp.body)
+	}
+
+	// The shutdown order the runtime uses: sources drain first, then connectors.
+	if err := src.Stop(context.Background()); err != nil {
+		t.Fatalf("source Stop: %v", err)
+	}
+	if err := c.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop after serving: %v", err)
+	}
+}
+
+// TestStopReleasesPortAfterServing is the reload case of the same contract: a
+// connector that did serve must also have released its port by the time Stop
+// returns. Shutdown closes the listeners it is tracking, and the accept loop
+// tracks c.ln — but only once it reaches Serve, which claiming serveOnce does not
+// prove. Stop returning while that goroutine was still being scheduled left the
+// port held for a moment longer, and the next generation's Start raced it for the
+// bind. Stop now waits for the accept loop to return.
+func TestStopReleasesPortAfterServing(t *testing.T) {
+	port := freePort(t)
+	settings := map[string]any{"host": "127.0.0.1", "port": port}
+
+	first := &Connector{}
+	if err := first.Start(context.Background(), types.ConnectorConfig{Settings: settings}); err != nil {
+		t.Fatalf("first Start: %v", err)
+	}
+	out := make(chan *types.Message, 1)
+	src, err := first.NewSource(types.SourceConfig{Type: "http", Settings: map[string]any{"path": "/ping"}}, out, core.SourceDeps{})
+	if err != nil {
+		t.Fatalf("NewSource: %v", err)
+	}
+	if err := src.Start(context.Background()); err != nil {
+		t.Fatalf("source Start: %v", err)
+	}
+
+	// Serve one request, so the listener is genuinely owned by the accept loop.
+	echoWorker(out, func(msg *types.Message) types.FlowEvent {
+		return types.FlowEvent{Kind: types.FlowEventCompleted, Result: msg}
+	})
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost,
+		"http://"+first.ln.Addr().String()+"/ping", bytes.NewReader([]byte(`{}`)))
+	if resp := do(t, req); resp.status != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", resp.status, resp.body)
+	}
+
+	if err := src.Stop(context.Background()); err != nil {
+		t.Fatalf("source Stop: %v", err)
+	}
+	if err := first.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop after serving: %v", err)
+	}
+
+	// No retry loop: the point is that the port is free the instant Stop returns.
+	second := &Connector{}
+	if err := second.Start(context.Background(), types.ConnectorConfig{Settings: settings}); err != nil {
+		t.Fatalf("re-bind %d after a serving connector stopped: %v", port, err)
 	}
 	if err := second.Stop(context.Background()); err != nil {
 		t.Fatalf("second Stop: %v", err)
