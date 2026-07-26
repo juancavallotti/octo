@@ -162,7 +162,7 @@ type foreachBlock struct {
 	env     map[string]any
 }
 
-// enrichScope is a composite that runs its body flow on an isolated clone of the
+// enrichScope is a composite that runs its body flow on an isolated scope of the
 // message, then enriches the original message from the scope's result using CEL
 // expressions: setBody produces the new body, and each entry in setVars produces
 // a variable. The expressions are evaluated against the scope's result, so they
@@ -174,18 +174,23 @@ type enrichScope struct {
 	env     map[string]any
 }
 
-// Process runs the body on a clone, then applies the enrichment expressions
-// against the clone's result. A body error aborts; a body that drops the message
+// Process runs the body on a scope, then applies the enrichment expressions
+// against the scope's result. A body error aborts; a body that drops the message
 // drops it here too.
 //
+// The scope shares the incoming body rather than copying it: the body flow runs to
+// completion here, on this goroutine, before the message continues, and a body is
+// replace-only — so a body flow that sets one rebinds the scope's, leaving the
+// message it was called on untouched. Only what setBody/setVars name folds back.
+//
 // A body that requests stop halts the enclosing flow as well. The body runs on a
-// clone and only setBody/setVars fold back, so the flag — which rides in the
-// clone's Variables — would otherwise be discarded and the enclosing chain would
+// scope and only setBody/setVars fold back, so the flag — which rides in the
+// scope's Variables — would otherwise be discarded and the enclosing chain would
 // run on. The enrichment expressions still apply, so a stopped body enriches
 // exactly as a completed one does.
 func (e *enrichScope) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
-	clone := msg.Clone()
-	out, err := e.body.Process(ctx, clone)
+	scoped := msg.Scoped()
+	out, err := e.body.Process(ctx, scoped)
 	if err != nil {
 		return nil, err
 	}
