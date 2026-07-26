@@ -105,6 +105,24 @@ func TestCopyBody(t *testing.T) {
 		}
 	})
 
+	// A cycle is off-contract — no decode produces one — but a block can build one,
+	// and following it would overflow the stack, which no recover can catch. The
+	// depth cap turns that into the same graceful sharing an uncopyable leaf gets.
+	t.Run("a cyclic body is shared, not chased", func(t *testing.T) {
+		cyclic := map[string]any{"ok": "v"}
+		cyclic["self"] = cyclic
+
+		copied := copyBody(cyclic)
+
+		out, isMap := copied.(map[string]any)
+		if !isMap {
+			t.Fatalf("copyBody returned %T, want map[string]any", copied)
+		}
+		if out["ok"] != "v" {
+			t.Errorf("the copyable part was lost: %#v", out["ok"])
+		}
+	})
+
 	t.Run("scalars and nil are handed straight back", func(t *testing.T) {
 		for _, value := range []any{nil, "s", 1.5, true} {
 			if got := copyBody(value); !reflect.DeepEqual(got, value) {
