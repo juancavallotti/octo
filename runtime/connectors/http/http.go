@@ -123,9 +123,14 @@ type Connector struct {
 	reqTimeout time.Duration
 	cors       *corsConfig
 
-	serveOnce   sync.Once
-	stopOnce    sync.Once
-	done        chan struct{}
+	serveOnce sync.Once
+	stopOnce  sync.Once
+	done      chan struct{}
+	// serving is closed when the accept loop has returned — and so, since
+	// Server.Serve closes the listener it was handed on the way out, when the
+	// listener is really released. Stop waits on it: winning serveOnce only proves
+	// ensureServing ran, not that the goroutine reached Serve.
+	serving     chan struct{}
 	unsubscribe func()
 
 	mu      sync.Mutex
@@ -178,6 +183,7 @@ func (c *Connector) Start(ctx context.Context, config types.ConnectorConfig) err
 	}
 	c.ln = ln
 	c.done = make(chan struct{})
+	c.serving = make(chan struct{})
 	c.pending = make(map[string]chan result)
 	c.routes = make(map[string]struct{})
 
@@ -233,12 +239,28 @@ func (c *Connector) Stop(ctx context.Context) error {
 	// Shutdown closes it; closing it here too would race the accept loop's untrack
 	// and, whenever Shutdown won that race, surface the second close as
 	// "use of closed network connection" — a clean shutdown reported as a failure.
-	served := true
-	c.serveOnce.Do(func() { served = false })
-	if !served && c.ln != nil {
-		_ = c.ln.Close()
+	// Whichever path runs closes c.serving, so the wait below is the same wait
+	// either way and a second Stop finds it already closed.
+	c.serveOnce.Do(func() {
+		if c.ln != nil {
+			_ = c.ln.Close()
+		}
+		close(c.serving)
+	})
+	err := c.server.Shutdown(ctx)
+	if c.serving != nil {
+		// Shutdown closes the listeners it is tracking, but the accept loop may not
+		// have handed it this one yet: claiming serveOnce is not entering Serve. A
+		// Serve that starts after Shutdown returns ErrServerClosed immediately —
+		// still after releasing the listener in its own defer. Waiting for that
+		// return is what makes "Stop returned" mean "the port is free", so the next
+		// generation can re-bind it.
+		select {
+		case <-c.serving:
+		case <-ctx.Done():
+		}
 	}
-	if err := c.server.Shutdown(ctx); err != nil {
+	if err != nil {
 		return fmt.Errorf("http connector shutdown: %w", err)
 	}
 	return nil
@@ -247,13 +269,15 @@ func (c *Connector) Stop(ctx context.Context) error {
 // ensureServing starts the accept loop exactly once, after every route has been
 // registered. Sources call it from their Start. Stop races for the same once, so
 // a connector stopped before any source started serving never starts one — see
-// Stop, which reads the outcome to decide who closes the listener.
+// Stop, which claims the once to take the listener over.
 func (c *Connector) ensureServing() {
 	c.serveOnce.Do(func() { go c.serve() })
 }
 
-// serve runs the accept loop until the server is shut down.
+// serve runs the accept loop until the server is shut down, then signals Stop
+// that the listener has been released.
 func (c *Connector) serve() {
+	defer close(c.serving)
 	if err := c.server.Serve(c.ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		slog.Error("http connector serve failed", "error", err)
 	}
