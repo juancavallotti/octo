@@ -195,7 +195,7 @@ func TestSplitThenAggregateKeepsConcurrentMessagesApart(t *testing.T) {
 	// message's EventID, so the three groups never mix even though every element
 	// runs through the same blocks on the same pool.
 	const messages = 3
-	for i := 0; i < messages; i++ {
+	for i := range messages {
 		msg := mustMessage(t)
 		msg.Body = map[string]any{"lines": []any{i, i, i}}
 		bf.in <- msg

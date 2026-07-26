@@ -79,7 +79,7 @@ func (bf *boundFlow) start(ctx context.Context) error {
 	bf.ctx = ctx
 	bf.pool.Start()
 	bf.wg.Add(bf.workers)
-	for i := 0; i < bf.workers; i++ {
+	for range bf.workers {
 		go bf.worker(ctx)
 	}
 	if err := bf.startProcessors(ctx); err != nil {

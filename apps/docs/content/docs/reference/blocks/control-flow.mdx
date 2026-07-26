@@ -223,7 +223,7 @@ It is the only block that holds state between messages, which is what lets it co
 | `timeoutFrom` | enum: `first` \| `last` | No | `first` | Fixed window from the group opening, or a sliding idle window. |
 | `storeKey` | string | No | the block's address | Identifies what the group state and leader election are namespaced by. |
 | `maxGroups` | number | No | `1000` | How many groups may be open at once. |
-| `onOverflow` | enum: `fail` \| `complete` \| `drop` | No | `fail` | What to do at the cap. |
+| `onOverflow` | enum: `fail` \| `complete` \| `drop` | No | `fail` | At the cap: `fail` errors the message into the flow's error chain, `complete` releases the group that has been open the longest to make room, `drop` discards the message. |
 | `buildResponse` | flow | No | — | Sub-flow that shapes the caller's response for the message just absorbed. |
 
 ```yaml

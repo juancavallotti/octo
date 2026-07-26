@@ -29,7 +29,7 @@ func TestPoolRunsEveryTaskOnce(t *testing.T) {
 				done sync.WaitGroup
 			)
 			done.Add(tt.tasks)
-			for i := 0; i < tt.tasks; i++ {
+			for range tt.tasks {
 				p.Submit(func() {
 					ran.Add(1)
 					done.Done()
@@ -51,7 +51,7 @@ func TestPoolStopDrainsInFlight(t *testing.T) {
 
 	const n = 50
 	var ran atomic.Int64
-	for i := 0; i < n; i++ {
+	for range n {
 		p.Submit(func() { ran.Add(1) })
 	}
 
@@ -102,7 +102,7 @@ func TestTrySubmitRunsEveryAcceptedTask(t *testing.T) {
 		accepted int
 	)
 	var done sync.WaitGroup
-	for i := 0; i < n; i++ {
+	for range n {
 		// Counted before the submit, not after: an accepted task can be picked up
 		// and finished by a worker before TrySubmit has even returned.
 		done.Add(1)
@@ -139,11 +139,11 @@ func TestStopIsSafeWhileSubmittingConcurrently(t *testing.T) {
 	// Hammer the pool from several goroutines while it is being stopped: no call
 	// may panic, whatever it returns.
 	var wg sync.WaitGroup
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for j := 0; j < 200; j++ {
+			for range 200 {
 				p.TrySubmit(func() {})
 			}
 		}()

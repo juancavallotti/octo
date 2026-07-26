@@ -40,7 +40,7 @@ const (
 	// error chain, where it is visible and recoverable. The alternatives both lose
 	// something quietly, so neither is a good default.
 	aggregateOverflowFail = "fail"
-	// aggregateOverflowComplete releases the group closest to its deadline early,
+	// aggregateOverflowComplete releases the group that has been open the longest,
 	// which emits a partial group.
 	aggregateOverflowComplete = "complete"
 	// aggregateOverflowDrop discards the message.
@@ -157,10 +157,26 @@ type groupState struct {
 	Deadline int64 `json:"deadline,omitempty"`
 }
 
-// groupIndex lists the open groups by deadline. core.KV has no scan or list, so
-// the reaper cannot discover expired groups without an index of its own.
+// groupIndex lists the open groups. core.KV has no scan or list, so the reaper
+// cannot discover expired groups without an index of its own — and because it
+// names every open group, it doubles as the ledger that bounds how many there
+// are.
 type groupIndex struct {
-	Groups map[string]int64 `json:"groups"`
+	Groups map[string]groupEntry `json:"groups"`
+}
+
+// groupEntry is what the index remembers about one group: enough to answer both
+// questions asked of it without reading the group itself.
+type groupEntry struct {
+	// FirstAt is when the group's slot was claimed. The sweep does not need it,
+	// but the overflow policy does, and it is the only ordering that always
+	// exists: Deadline is 0 for every group of an aggregate with no
+	// completionTimeout, so ordering by it would have picked whichever group the
+	// map happened to hand over first rather than the oldest.
+	FirstAt int64 `json:"firstAt"`
+	// Deadline is when the group times out, 0 when it has none — which, while the
+	// sweep is running, also marks a slot claimed for a group that never appeared.
+	Deadline int64 `json:"deadline,omitempty"`
 }
 
 // aggregate combines messages into groups and continues the flow once per
@@ -187,6 +203,15 @@ type aggregate struct {
 	// folds serializes concurrent folds into the same group on this replica, so
 	// the optimistic loop only has to resolve genuine cross-replica races.
 	folds foldLocks
+	// index does the same for the group index, which is a single hot key every
+	// new group and every open group's write-back touches. Without it a burst of
+	// new groups would spend its whole retry budget losing to its own siblings —
+	// and losing that race refuses a message, where the fold's equivalent only
+	// delays a timeout.
+	//
+	// It is always taken after a fold stripe, never before: releasing a group
+	// takes that group's stripe and then rewrites the index.
+	index sync.Mutex
 
 	lease    core.Leadership
 	done     chan struct{}
@@ -401,25 +426,44 @@ func (a *aggregate) Process(ctx context.Context, msg *types.Message) (*types.Mes
 // makes the group correct across replicas without any of them coordinating.
 //
 // dropped reports that an overflow policy discarded the message.
-func (a *aggregate) foldMessage(ctx context.Context, msg *types.Message, key string) (bool, error) {
+func (a *aggregate) foldMessage(ctx context.Context, msg *types.Message, key string) (dropped bool, err error) {
 	kv := core.RuntimeServicesFromContext(ctx).KV()
 	hash := hashedKey(key)
 	stateKey := a.groupStateKey(hash)
 
-	defer a.folds.lock(hash)()
+	// Admission comes first, and outside the stripe lock. That ordering is
+	// load-bearing: under onOverflow: complete, claiming a slot may evict another
+	// group, and evicting one takes the evicted group's stripe. Stripes are shared
+	// by design, so holding this group's across an eviction would deadlock outright
+	// whenever the two collide.
+	admitted, claimed, err := a.reserve(ctx, hash)
+	if err != nil {
+		return false, err
+	}
+	if !admitted {
+		return true, nil
+	}
 
-	for attempt := 0; attempt < aggregateWriteAttempts; attempt++ {
+	defer a.folds.lock(hash)()
+	// Registered after the lock, so it runs before the unlock. A slot claimed for
+	// a group the fold never went on to create would otherwise be held forever:
+	// there is no group behind it, so nothing completes it and no deadline expires
+	// it.
+	defer func() {
+		if claimed && err != nil {
+			a.forgetGroup(ctx, hash)
+		}
+	}()
+
+	for range aggregateWriteAttempts {
 		entry, found, err := kv.Get(ctx, core.NamespaceSystem, stateKey)
 		if err != nil {
 			return false, fmt.Errorf("aggregate: read group %q: %w", key, err)
 		}
 
-		state, admitted, err := a.loadGroup(ctx, msg, key, entry, found)
+		state, err := a.loadGroup(msg, key, entry, found)
 		if err != nil {
 			return false, err
-		}
-		if !admitted {
-			return true, nil
 		}
 
 		reason, complete, err := a.applyMessage(msg, &state)
@@ -446,31 +490,26 @@ func (a *aggregate) foldMessage(ctx context.Context, msg *types.Message, key str
 	return false, fmt.Errorf("%w: %q after %d attempts", errGroupContended, key, aggregateWriteAttempts)
 }
 
-// loadGroup decodes the stored group, or opens a new one — applying the overflow
-// policy, which may refuse the message outright.
+// loadGroup decodes the stored group, or opens a new one. Its slot in the index
+// has already been claimed by the time this runs.
 func (a *aggregate) loadGroup(
-	ctx context.Context, msg *types.Message, key string, entry core.Entry, found bool,
-) (groupState, bool, error) {
+	msg *types.Message, key string, entry core.Entry, found bool,
+) (groupState, error) {
 	state := groupState{Key: key, Size: sizeUnknown}
 	if found {
 		if err := json.Unmarshal(entry.Value, &state); err != nil {
-			return state, false, fmt.Errorf("aggregate: decode group %q: %w", key, err)
+			return state, fmt.Errorf("aggregate: decode group %q: %w", key, err)
 		}
-		return state, true, nil
-	}
-
-	admitted, err := a.admit(ctx)
-	if err != nil || !admitted {
-		return state, false, err
+		return state, nil
 	}
 	state.CorrelationID = msg.CorrelationID
 	state.FirstAt = nowNanos()
-	return state, true, nil
+	return state, nil
 }
 
 // commitComplete releases a group that a condition just satisfied. A group that
 // completed on its very first message was never stored, so there is nothing to
-// delete.
+// delete — but its slot was still claimed, so the index is cleared either way.
 func (a *aggregate) commitComplete(
 	ctx context.Context, hash, stateKey string, entry core.Entry, stored bool,
 	state *groupState, reason string,
@@ -483,8 +522,8 @@ func (a *aggregate) commitComplete(
 			}
 			return false, fmt.Errorf("release: %w", err)
 		}
-		a.forgetGroup(ctx, hash)
 	}
+	a.forgetGroup(ctx, hash)
 	return false, a.release(ctx, state, reason)
 }
 
@@ -503,7 +542,7 @@ func (a *aggregate) commitOpen(
 		}
 		return false, fmt.Errorf("write: %w", err)
 	}
-	a.trackGroup(ctx, hash, state.Deadline)
+	a.trackGroup(ctx, hash, state)
 	return false, nil
 }
 
@@ -665,24 +704,83 @@ func (a *aggregate) release(ctx context.Context, state *groupState, reason strin
 	return nil
 }
 
-// admit decides whether a new group may be opened, applying the overflow policy
-// when the block is already at capacity. It reports false when the policy
-// discards the message.
-func (a *aggregate) admit(ctx context.Context) (bool, error) {
-	index, _, err := a.readIndex(ctx)
-	if err != nil {
-		return false, err
+// reserve claims this group's slot in the index before the group is opened, and
+// is what makes maxGroups a cap rather than a suggestion. Reading the count and
+// writing the group afterwards would let every message in a burst of new groups
+// see the same room, all of which only one of them was entitled to: the folds of
+// two different groups are not serialized against each other, by design. Here
+// the check and the claim are one compare-and-swap, so exactly maxGroups of them
+// win and the rest meet the overflow policy.
+//
+// admitted is false when the policy discarded the message. claimed reports that
+// this call is the one that put the group in the index, so a fold that then
+// fails can give the slot back.
+func (a *aggregate) reserve(ctx context.Context, hash string) (admitted, claimed bool, err error) {
+	for range aggregateWriteAttempts {
+		claimed, full, err := a.claimSlot(ctx, hash)
+		if err != nil {
+			return false, false, err
+		}
+		if !full {
+			return true, claimed, nil
+		}
+		// At capacity. The policy runs with the index lock released, because
+		// releasing a group takes that group's fold stripe and rewrites the index
+		// itself. If it makes room, go back and claim what opened up.
+		admitted, err := a.overflow(ctx)
+		if err != nil || !admitted {
+			return false, false, err
+		}
 	}
-	if len(index.Groups) < a.maxGroups {
-		return true, nil
-	}
+	return false, false, fmt.Errorf("%w: group index of %q", errGroupContended, a.storeKey)
+}
 
+// claimSlot puts the group in the index when it is not already there and there
+// is room for it, reporting which of the two happened. full means the block is
+// at capacity and the caller must apply the overflow policy.
+func (a *aggregate) claimSlot(ctx context.Context, hash string) (claimed, full bool, err error) {
+	a.index.Lock()
+	defer a.index.Unlock()
+
+	for range aggregateWriteAttempts {
+		index, version, err := a.readIndex(ctx)
+		if err != nil {
+			return false, false, err
+		}
+		if _, held := index.Groups[hash]; held {
+			// Already counted — an open group, or one whose slot an earlier message
+			// claimed. Either way there is nothing to admit.
+			return false, false, nil
+		}
+		if len(index.Groups) >= a.maxGroups {
+			return false, true, nil
+		}
+
+		index.Groups[hash] = groupEntry{FirstAt: nowNanos()}
+		conflict, err := a.writeIndex(ctx, index, version)
+		if err != nil {
+			return false, false, err
+		}
+		if !conflict {
+			return true, false, nil
+		}
+	}
+	return false, false, fmt.Errorf("%w: group index of %q", errGroupContended, a.storeKey)
+}
+
+// overflow applies the policy for a block already holding maxGroups groups. It
+// reports whether the message may go on to open a group.
+func (a *aggregate) overflow(ctx context.Context) (bool, error) {
 	switch a.onOverflow {
 	case aggregateOverflowDrop:
 		slog.Warn("aggregate at capacity: message dropped",
 			"storeKey", a.storeKey, "maxGroups", a.maxGroups)
 		return false, nil
 	case aggregateOverflowComplete:
+		index, _, err := a.readIndex(ctx)
+		if err != nil {
+			return false, err
+		}
 		if err := a.releaseOldest(ctx, index); err != nil {
 			return false, err
 		}
@@ -690,20 +788,25 @@ func (a *aggregate) admit(ctx context.Context) (bool, error) {
 	default:
 		return false, fmt.Errorf(
 			"aggregate: %d groups open (maxGroups); raise maxGroups, narrow the correlation, or set onOverflow",
-			len(index.Groups))
+			a.maxGroups)
 	}
 }
 
-// releaseOldest completes the group nearest its deadline to make room. It emits a
-// partial group, which is why it is not the default policy.
+// releaseOldest completes the group that has been open the longest to make room.
+// It emits a partial group, which is why it is not the default policy.
+//
+// Ordering is by when the group opened rather than by when it expires, because
+// an aggregate that completes on size or on a predicate has no deadlines at all
+// and every entry would compare equal — leaving the choice to Go's randomized
+// map iteration. Ties break on the hash so the victim is at least deterministic.
 func (a *aggregate) releaseOldest(ctx context.Context, index groupIndex) error {
 	var (
-		oldest   string
-		deadline int64
+		oldest  string
+		firstAt int64
 	)
-	for hash, at := range index.Groups {
-		if oldest == "" || at < deadline {
-			oldest, deadline = hash, at
+	for hash, entry := range index.Groups {
+		if oldest == "" || entry.FirstAt < firstAt || (entry.FirstAt == firstAt && hash < oldest) {
+			oldest, firstAt = hash, entry.FirstAt
 		}
 	}
 	if oldest == "" {
@@ -759,8 +862,14 @@ func (a *aggregate) sweep(ctx context.Context) {
 	}
 
 	now := nowNanos()
-	for hash, deadline := range index.Groups {
-		if deadline == 0 || deadline > now {
+	for hash, entry := range index.Groups {
+		if entry.Deadline == 0 {
+			// This aggregate has a timeout, so every group it opens gets a deadline.
+			// An entry without one is a slot claimed for a group that never appeared.
+			a.reclaimStale(ctx, hash)
+			continue
+		}
+		if entry.Deadline > now {
 			continue
 		}
 		if err := a.completeStored(ctx, hash, aggregateReasonTimeout); err != nil {
@@ -768,6 +877,27 @@ func (a *aggregate) sweep(ctx context.Context) {
 				"storeKey", a.storeKey, "error", err)
 		}
 	}
+}
+
+// reclaimStale gives back a slot held by no group: a claim whose fold died with
+// the process, or an entry whose removal ran out of retries. Left alone it would
+// count against maxGroups forever, since there is nothing behind it to complete
+// or expire.
+//
+// The group is checked rather than assumed absent, so a real group — one carried
+// over from a generation of the config that had no completionTimeout, and so no
+// deadline — is left where it is. A claim that is merely in flight may be
+// reclaimed here, which costs nothing: the fold re-tracks the group when it
+// commits, moments later.
+func (a *aggregate) reclaimStale(ctx context.Context, hash string) {
+	defer a.folds.lock(hash)()
+
+	kv := core.RuntimeServicesFromContext(ctx).KV()
+	_, found, err := kv.Get(ctx, core.NamespaceSystem, a.groupStateKey(hash))
+	if err != nil || found {
+		return
+	}
+	a.forgetGroup(ctx, hash)
 }
 
 // completeStored releases a group read straight from the store, for the paths
@@ -821,16 +951,33 @@ func (a *aggregate) readIndex(ctx context.Context) (groupIndex, int64, error) {
 	if err != nil {
 		return groupIndex{}, 0, fmt.Errorf("aggregate: read group index: %w", err)
 	}
-	index := groupIndex{Groups: map[string]int64{}}
+	index := groupIndex{Groups: map[string]groupEntry{}}
 	if found {
 		if err := json.Unmarshal(entry.Value, &index); err != nil {
 			return groupIndex{}, 0, fmt.Errorf("aggregate: decode group index: %w", err)
 		}
 		if index.Groups == nil {
-			index.Groups = map[string]int64{}
+			index.Groups = map[string]groupEntry{}
 		}
 	}
 	return index, entry.Version, nil
+}
+
+// writeIndex stores the index at the version it was read at, reporting a lost
+// race rather than treating it as a failure.
+func (a *aggregate) writeIndex(ctx context.Context, index groupIndex, version int64) (conflict bool, err error) {
+	encoded, err := json.Marshal(index)
+	if err != nil {
+		return false, fmt.Errorf("aggregate: encode group index: %w", err)
+	}
+	kv := core.RuntimeServicesFromContext(ctx).KV()
+	if _, err := kv.Set(ctx, core.NamespaceSystem, a.indexKey(), encoded, version); err != nil {
+		if errors.Is(err, core.ErrVersionConflict) {
+			return true, nil
+		}
+		return false, fmt.Errorf("aggregate: write group index: %w", err)
+	}
+	return false, nil
 }
 
 // trackGroup and forgetGroup keep the reaper's index in step with the groups.
@@ -838,12 +985,16 @@ func (a *aggregate) readIndex(ctx context.Context) (groupIndex, int64, error) {
 // been folded successfully, so failing the flow would misreport what happened.
 // The cost of a stale entry is bounded — a missing one delays a timeout until
 // the group is written again, a leftover one resolves on the next sweep.
-func (a *aggregate) trackGroup(ctx context.Context, hash string, deadline int64) {
+func (a *aggregate) trackGroup(ctx context.Context, hash string, state *groupState) {
+	// The reservation carried the moment the slot was claimed; correct it to when
+	// the group actually opened, so the overflow policy orders by the group's own
+	// clock rather than by an approximation of it.
+	want := groupEntry{FirstAt: state.FirstAt, Deadline: state.Deadline}
 	a.updateIndex(ctx, func(index *groupIndex) bool {
-		if at, ok := index.Groups[hash]; ok && at == deadline {
+		if entry, ok := index.Groups[hash]; ok && entry == want {
 			return false
 		}
-		index.Groups[hash] = deadline
+		index.Groups[hash] = want
 		return true
 	})
 }
@@ -860,8 +1011,10 @@ func (a *aggregate) forgetGroup(ctx context.Context, hash string) {
 
 // updateIndex applies mutate under the same optimistic loop the groups use.
 func (a *aggregate) updateIndex(ctx context.Context, mutate func(*groupIndex) bool) {
-	kv := core.RuntimeServicesFromContext(ctx).KV()
-	for attempt := 0; attempt < aggregateWriteAttempts; attempt++ {
+	a.index.Lock()
+	defer a.index.Unlock()
+
+	for range aggregateWriteAttempts {
 		index, version, err := a.readIndex(ctx)
 		if err != nil {
 			slog.Error("aggregate group index", "storeKey", a.storeKey, "error", err)
@@ -870,17 +1023,13 @@ func (a *aggregate) updateIndex(ctx context.Context, mutate func(*groupIndex) bo
 		if !mutate(&index) {
 			return
 		}
-		encoded, err := json.Marshal(index)
+		conflict, err := a.writeIndex(ctx, index, version)
 		if err != nil {
 			slog.Error("aggregate group index", "storeKey", a.storeKey, "error", err)
 			return
 		}
-		if _, err := kv.Set(ctx, core.NamespaceSystem, a.indexKey(), encoded, version); err != nil {
-			if errors.Is(err, core.ErrVersionConflict) {
-				continue
-			}
-			slog.Error("aggregate group index", "storeKey", a.storeKey, "error", err)
-			return
+		if conflict {
+			continue
 		}
 		return
 	}

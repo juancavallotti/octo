@@ -45,7 +45,7 @@ func New(workers, queue int) *Pool {
 // submitted.
 func (p *Pool) Start() {
 	p.wg.Add(p.workers)
-	for i := 0; i < p.workers; i++ {
+	for range p.workers {
 		go p.worker()
 	}
 }

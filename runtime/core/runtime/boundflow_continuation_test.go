@@ -26,7 +26,7 @@ func (f *fanout) Start(context.Context) error         { f.started = true; return
 func (f *fanout) Stop(context.Context) error          { f.stopped = true; return nil }
 
 func (f *fanout) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
-	for i := 0; i < f.times; i++ {
+	for range f.times {
 		elem := msg.Clone()
 		if _, err := elem.Rekey(); err != nil {
 			return nil, err

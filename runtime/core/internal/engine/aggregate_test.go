@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -257,7 +258,7 @@ func TestAggregateCompletionSizeAsAConstant(t *testing.T) {
 
 	// completionSize is an expression, so a constant batch size and "however many
 	// this split produced" are the same field.
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		msg := mustMessage(t)
 		msg.Body = float64(i)
 		feed(ctx, t, block, msg)
@@ -436,6 +437,125 @@ func TestAggregateOverflowPolicies(t *testing.T) {
 	}
 }
 
+func TestAggregateOverflowReleasesTheOldestGroupWithoutATimeout(t *testing.T) {
+	// onOverflow: complete does not require a completionTimeout — an aggregate can
+	// complete on size or on a predicate alone — so the victim cannot be chosen by
+	// deadline: every group would have none and the choice would fall to Go's
+	// randomized map iteration. Repeated because that failure is probabilistic:
+	// picking by chance lands on the oldest sometimes.
+	for run := range 8 {
+		ctx, _ := withFakeServices(context.Background())
+		block, cont := buildAggregate(t, types.BlockConfig{
+			MaxGroups: 3, OnOverflow: aggregateOverflowComplete,
+		})
+
+		// Three groups opened in order, none of them complete, none with a deadline.
+		feed(ctx, t, block,
+			groupMessage(t, "oldest", 0, 5, "a"),
+			groupMessage(t, "middle", 0, 5, "b"),
+			groupMessage(t, "newest", 0, 5, "c"),
+		)
+		if got := len(cont.resumed()); got != 0 {
+			t.Fatalf("run %d: released %d groups before the cap was reached", run, got)
+		}
+
+		feed(ctx, t, block, groupMessage(t, "fourth", 0, 5, "d"))
+
+		released := cont.resumed()
+		if len(released) != 1 {
+			t.Fatalf("run %d: released %d groups, want 1", run, len(released))
+		}
+		if key, _ := released[0].Variables.String(varAggregateKey); key != "oldest" {
+			t.Fatalf("run %d: released group %q, want the oldest", run, key)
+		}
+		if reason, _ := released[0].Variables.String(varAggregateReason); reason != aggregateReasonOverflow {
+			t.Errorf("run %d: reason = %q, want %q", run, reason, aggregateReasonOverflow)
+		}
+	}
+}
+
+func TestAggregateCapHoldsWhenGroupsOpenConcurrently(t *testing.T) {
+	const (
+		maxGroups = 5
+		arrivals  = 50
+	)
+	ctx, _ := withFakeServices(context.Background())
+	block, _ := buildAggregate(t, types.BlockConfig{
+		MaxGroups: maxGroups, OnOverflow: aggregateOverflowDrop,
+	})
+
+	// Every message opens a group of its own, all at once. Reading the count and
+	// writing the group afterwards would let all fifty see the same empty index:
+	// folds of *different* groups are deliberately not serialized against each
+	// other, so nothing but an atomic claim bounds this.
+	var (
+		wg       sync.WaitGroup
+		mu       sync.Mutex
+		admitted int
+	)
+	for i := range arrivals {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			out, err := block.Process(ctx, groupMessage(t, fmt.Sprintf("g%d", i), 0, 5, i))
+			if err != nil {
+				t.Errorf("Process: %v", err)
+				return
+			}
+			if out == nil {
+				return // the overflow policy dropped it
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			admitted++
+		}(i)
+	}
+	wg.Wait()
+
+	if admitted != maxGroups {
+		t.Errorf("admitted %d messages, want exactly maxGroups (%d)", admitted, maxGroups)
+	}
+}
+
+func TestAggregateOverflowEvictsAcrossASharedStripe(t *testing.T) {
+	// Fold stripes are shared by design, so an eviction can land on the stripe of
+	// the very message that triggered it. Admission therefore runs before the
+	// stripe is taken; doing it under the lock deadlocks outright here, since a
+	// sync.Mutex is not reentrant.
+	victim, trigger := collidingKeys(t)
+
+	ctx, _ := withFakeServices(context.Background())
+	block, cont := buildAggregate(t, types.BlockConfig{
+		MaxGroups: 1, OnOverflow: aggregateOverflowComplete,
+	})
+
+	feed(ctx, t, block, groupMessage(t, victim, 0, 5, "a"))
+	feed(ctx, t, block, groupMessage(t, trigger, 0, 5, "b"))
+
+	released := cont.resumed()
+	if len(released) != 1 {
+		t.Fatalf("released %d groups, want 1", len(released))
+	}
+	if key, _ := released[0].Variables.String(varAggregateKey); key != victim {
+		t.Errorf("released group %q, want %q", key, victim)
+	}
+}
+
+// collidingKeys finds two correlation keys whose groups share a fold stripe.
+func collidingKeys(t *testing.T) (victim, trigger string) {
+	t.Helper()
+	victim = "collide-0"
+	stripe := stripeOf(hashedKey(victim))
+	for i := 1; i < 10_000; i++ {
+		candidate := fmt.Sprintf("collide-%d", i)
+		if stripeOf(hashedKey(candidate)) == stripe {
+			return victim, candidate
+		}
+	}
+	t.Fatalf("no key sharing a stripe with %q in 10000 candidates", victim)
+	return "", ""
+}
+
 func TestAggregateReaperCompletesOnTimeout(t *testing.T) {
 	ctx := withElection(context.Background(), true)
 	block, cont := buildAggregate(t, types.BlockConfig{CompletionTimeout: "10ms"})
@@ -514,7 +634,7 @@ func TestAggregateFoldsConcurrentlyExactlyOnce(t *testing.T) {
 	const n = 20
 	var wg sync.WaitGroup
 	wg.Add(n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		go func(i int) {
 			defer wg.Done()
 			if _, err := block.Process(ctx, groupMessage(t, "g1", i, n, i)); err != nil {
