@@ -41,6 +41,7 @@ const RESERVED_SLOTS = new Set([
   "body",
   "default",
   "onReject",
+  "buildResponse",
 ]);
 
 /** The prefix of a synthetic name. Deliberately unlikely to collide with a real one. */
