@@ -4,7 +4,8 @@
     "running-locally",
     "processing-pipeline",
     "clustering",
-    "monitoring"
+    "monitoring",
+    "observability"
   ],
   "title": "Runtime"
 }
