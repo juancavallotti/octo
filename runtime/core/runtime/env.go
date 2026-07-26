@@ -31,6 +31,12 @@ var placeholderPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 // string.
 var exactPlaceholder = regexp.MustCompile(`^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$`)
 
+// strTag is YAML's string tag. yaml.v3 keeps its own copy unexported, and a
+// substituted node has to be able to say "this stayed a string" explicitly —
+// leaving the tag off would hand the value back to the resolver, which is the
+// opposite of what an unquoted DSN or date needs.
+const strTag = "!!str"
+
 // DotEnvPaths returns the .env files consulted during config loading, in load
 // order: ./.env first, then $OCTO_ENV_FILE (if set) which overlays it. Paths are
 // returned whether or not they exist so callers (e.g. the file watcher) can watch
@@ -43,37 +49,44 @@ func DotEnvPaths() []string {
 	return paths
 }
 
-// applyEnv resolves the config's declared environment variables and substitutes
-// ${NAME} references throughout its settings. It is a no-op for a config with no
-// env declarations and no references. loader supplies the declared env resources
-// (section resources.env) combined on top of the built-in .env chain.
-func applyEnv(cfg *types.Config, loader core.ResourceLoader) error {
+// envDecls are the parts of a config that must be read before substitution can
+// run: the variable declarations themselves, and the env resources that supply
+// their values. They are decoded from the raw document, ahead of any rewriting,
+// which is why both sections stay literal — a ${NAME} in either would have to
+// resolve before the environment exists.
+type envDecls struct {
+	Env       []types.EnvVar        `yaml:"env"`
+	Resources types.ResourcesConfig `yaml:"resources"`
+}
+
+// resolveDeclared resolves the declared variables of one or more config documents
+// against the .env chain and the declared env resources, returning the resolved
+// values and the set of declared names. decls arrive already merged across files,
+// so a variable declared in one file serves a reference in another.
+func resolveDeclared(decls envDecls, loader core.ResourceLoader) (map[string]string, map[string]struct{}, error) {
 	dotenv, err := loadDotEnv()
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	// Overlay declared env resources on the built-in ./.env + $OCTO_ENV_FILE chain,
 	// in listed order. A missing resource is skipped; one that fails to load or
 	// parse is warned and skipped so the runtime falls back to the env it already
 	// has. A genuinely missing required variable is still caught by resolveEnv below.
-	for k, v := range loadEnvResources(loader, cfg.Resources.Env) {
+	for k, v := range loadEnvResources(loader, decls.Resources.Env) {
 		dotenv[k] = v
 	}
-	resolved, err := resolveEnv(cfg.Env, dotenv)
+	resolved, err := resolveEnv(decls.Env, dotenv)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
-	declared := make(map[string]struct{}, len(cfg.Env))
-	for _, decl := range cfg.Env {
+	declared := make(map[string]struct{}, len(decls.Env))
+	for _, decl := range decls.Env {
 		declared[decl.Name] = struct{}{}
 	}
 	if len(declared) > 0 {
 		slog.Info("resolved environment variables", "count", len(resolved), "declared", sortedKeys(declared))
 	}
-	// Keep the resolved values so expressions can read them as env.NAME, not just
-	// the ${NAME} substitution below.
-	cfg.ResolvedEnv = resolved
-	return substituteConfig(cfg, resolved, declared)
+	return resolved, declared, nil
 }
 
 // loadDotEnv reads the .env files from DotEnvPaths, merging them so a later file
@@ -166,140 +179,93 @@ func lookupEnv(name string, dotenv map[string]string) (value string, supplied bo
 	return "", false
 }
 
-// substituteConfig rewrites every ${NAME} reference in the config's settings.
-func substituteConfig(cfg *types.Config, resolved map[string]string, declared map[string]struct{}) error {
+// literalSections are the top-level keys substitution leaves alone. Both are read
+// off the raw document to build the environment in the first place, so a ${NAME}
+// in either would have to resolve before there is anything to resolve it with.
+var literalSections = map[string]struct{}{"env": {}, "resources": {}}
+
+// substituteDocument rewrites every ${NAME} reference in a parsed config
+// document, in place, before it is decoded into typed fields. Rewriting the node
+// tree rather than the decoded config is what lets a reference fill a field of
+// any type: workers: ${FLOW_WORKERS} is a string when the decoder sees it, so
+// substituting afterwards was always too late for anything but a settings map.
+func substituteDocument(doc *yaml.Node, resolved map[string]string, declared map[string]struct{}) error {
+	if doc == nil {
+		return nil
+	}
 	s := &substitutor{resolved: resolved, declared: declared}
-	for i := range cfg.Connectors {
-		if err := s.settings(cfg.Connectors[i].Settings); err != nil {
-			return err
-		}
-	}
-	for i := range cfg.Processors {
-		if err := s.settings(cfg.Processors[i].Settings); err != nil {
-			return err
-		}
-	}
-	for i := range cfg.Flows {
-		if err := s.flow(&cfg.Flows[i]); err != nil {
-			return err
-		}
-	}
-	return nil
+	return s.node(doc, true)
 }
 
-// substitutor carries the resolved values and declared-name set through the config
-// walk.
+// substitutor carries the resolved values and declared-name set through the
+// document walk.
 type substitutor struct {
 	resolved map[string]string
 	declared map[string]struct{}
 }
 
-// flow substitutes references in a flow's source and every block, recursing into
-// the sub-flows a composite block embeds.
-func (s *substitutor) flow(cfg *types.FlowConfig) error {
-	if cfg == nil {
+// node substitutes references in every scalar value at or below n. topLevel marks
+// the document's own mapping, whose literalSections are skipped.
+//
+// Mapping keys are left alone: a substituted key could collide with a sibling, and
+// no key is a place a variable belongs. Aliases are left alone too — the anchor
+// they point at is itself part of the tree and gets substituted there, so
+// following them would rewrite the same scalar twice.
+func (s *substitutor) node(n *yaml.Node, topLevel bool) error {
+	switch n.Kind {
+	case yaml.ScalarNode:
+		return s.scalar(n)
+	case yaml.MappingNode:
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			if topLevel {
+				if _, literal := literalSections[n.Content[i].Value]; literal {
+					continue
+				}
+			}
+			if err := s.node(n.Content[i+1], false); err != nil {
+				return err
+			}
+		}
+		return nil
+	case yaml.DocumentNode, yaml.SequenceNode:
+		for _, child := range n.Content {
+			// A document's single child is the top-level mapping.
+			if err := s.node(child, topLevel && n.Kind == yaml.DocumentNode); err != nil {
+				return err
+			}
+		}
+		return nil
+	default: // yaml.AliasNode, or a zero node from an empty document
 		return nil
 	}
-	if cfg.Source != nil {
-		if err := s.settings(cfg.Source.Settings); err != nil {
-			return err
-		}
-	}
-	for i := range cfg.Process {
-		if err := s.block(&cfg.Process[i]); err != nil {
-			return err
-		}
-	}
-	for i := range cfg.Error {
-		if err := s.block(&cfg.Error[i]); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
-// block substitutes references in a block's settings and any sub-flows it carries.
-// The sub-flow slots mirror BlockConfig's composite fields.
-func (s *substitutor) block(cfg *types.BlockConfig) error {
-	if err := s.settings(cfg.Settings); err != nil {
-		return err
-	}
-	// handle-errors carries bare block chains rather than sub-flow configs.
-	for i := range cfg.Process {
-		if err := s.block(&cfg.Process[i]); err != nil {
-			return err
-		}
-	}
-	for i := range cfg.Error {
-		if err := s.block(&cfg.Error[i]); err != nil {
-			return err
-		}
-	}
-	subFlows := []*types.FlowConfig{cfg.Then, cfg.Else, cfg.Default, cfg.Body}
-	for i := range cfg.Branches {
-		subFlows = append(subFlows, &cfg.Branches[i])
-	}
-	for i := range cfg.Cases {
-		subFlows = append(subFlows, &cfg.Cases[i].Flow)
-	}
-	for _, sub := range subFlows {
-		if err := s.flow(sub); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// settings substitutes references in every value of a settings map, in place.
-func (s *substitutor) settings(set types.Settings) error {
-	for k, v := range set {
-		nv, err := s.value(v)
-		if err != nil {
-			return err
-		}
-		set[k] = nv
-	}
-	return nil
-}
-
-// value substitutes references in a settings value, recursing into nested maps and
-// slices. A value that is exactly one ${NAME} reference is replaced with the
-// variable's native type; an embedded reference is replaced textually (staying a
-// string).
-func (s *substitutor) value(v any) (any, error) {
-	switch val := v.(type) {
-	case string:
-		return s.scalar(val)
-	case types.Settings:
-		return val, s.settings(val)
-	case map[string]any:
-		return val, s.settings(val)
-	case []any:
-		for i := range val {
-			nv, err := s.value(val[i])
-			if err != nil {
-				return nil, err
-			}
-			val[i] = nv
-		}
-		return val, nil
-	default:
-		return v, nil
-	}
-}
-
-// scalar substitutes references in a single string value.
-func (s *substitutor) scalar(str string) (any, error) {
-	if m := exactPlaceholder.FindStringSubmatch(str); m != nil {
+// scalar substitutes references in a single scalar node, in place.
+//
+// A value that is exactly one ${NAME} takes the variable's natural type: clearing
+// the node's tag and quoting style hands it back to the decoder to resolve, so
+// ${PORT} can fill an int field. Whether the author quoted the placeholder makes
+// no difference, matching how this behaved when it ran over decoded settings.
+// Anything coerce leaves a string — an empty value, a DSN like file::memory:, a
+// date — is pinned to !!str so it decodes as the string it already was. An
+// embedded reference is textual and stays a string either way.
+func (s *substitutor) scalar(n *yaml.Node) error {
+	if m := exactPlaceholder.FindStringSubmatch(n.Value); m != nil {
 		value, err := s.resolve(m[1])
 		if err != nil {
-			return nil, err
+			return err
 		}
-		return coerce(value), nil
+		n.Value = value
+		if _, isString := coerce(value).(string); isString {
+			n.Tag = strTag
+		} else {
+			n.Tag, n.Style = "", 0
+		}
+		return nil
 	}
 
 	var subErr error
-	out := placeholderPattern.ReplaceAllStringFunc(str, func(match string) string {
+	out := placeholderPattern.ReplaceAllStringFunc(n.Value, func(match string) string {
 		name := placeholderPattern.FindStringSubmatch(match)[1]
 		value, err := s.resolve(name)
 		if err != nil {
@@ -309,16 +275,17 @@ func (s *substitutor) scalar(str string) (any, error) {
 		return value
 	})
 	if subErr != nil {
-		return nil, subErr
+		return subErr
 	}
-	return out, nil
+	n.Value = out
+	return nil
 }
 
 // resolve returns a referenced variable's value, erroring when the name is
 // undeclared or declared but resolved to no value (and has no default).
 func (s *substitutor) resolve(name string) (string, error) {
 	if _, ok := s.declared[name]; !ok {
-		return "", fmt.Errorf("settings reference undeclared environment variable %q (add it under env:)", name)
+		return "", fmt.Errorf("config references undeclared environment variable %q (add it under env:)", name)
 	}
 	value, ok := s.resolved[name]
 	if !ok {

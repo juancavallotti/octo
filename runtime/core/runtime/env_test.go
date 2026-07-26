@@ -9,6 +9,24 @@ import (
 
 func strptr(s string) *string { return &s }
 
+// parseYAML runs a config document through the whole load path — declarations
+// resolved, ${NAME} substituted, then decoded. Substitution rewrites the document
+// before it is typed, so there is no longer a decoded config to substitute into:
+// these tests exercise it the way the runtime does, from source.
+func parseYAML(t *testing.T, doc string) (types.Config, error) {
+	t.Helper()
+	return ParseConfig([]byte(doc))
+}
+
+func mustParseYAML(t *testing.T, doc string) types.Config {
+	t.Helper()
+	cfg, err := parseYAML(t, doc)
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	return cfg
+}
+
 func TestResolveEnvPrecedence(t *testing.T) {
 	t.Setenv("DB_HOST", "from-os")
 	decls := []types.EnvVar{
@@ -58,43 +76,55 @@ func TestResolveEnvRequiredIgnoresDefault(t *testing.T) {
 }
 
 func TestSubstituteUndeclared(t *testing.T) {
-	cfg := &types.Config{
-		Connectors: []types.ConnectorConfig{{Settings: types.Settings{"host": "${MISSING}"}}},
-	}
-	err := substituteConfig(cfg, map[string]string{}, map[string]struct{}{})
+	_, err := parseYAML(t, `
+connectors:
+  - name: api
+    type: http
+    settings:
+      host: ${MISSING}
+`)
 	if err == nil || !strings.Contains(err.Error(), "undeclared") {
 		t.Fatalf("err = %v, want undeclared error", err)
 	}
 }
 
 func TestSubstituteDeclaredButUnresolved(t *testing.T) {
-	cfg := &types.Config{
-		Connectors: []types.ConnectorConfig{{Settings: types.Settings{"host": "${HOST}"}}},
-	}
-	declared := map[string]struct{}{"HOST": {}}
-	err := substituteConfig(cfg, map[string]string{}, declared)
+	_, err := parseYAML(t, `
+env:
+  - name: HOST
+connectors:
+  - name: api
+    type: http
+    settings:
+      host: ${HOST}
+`)
 	if err == nil || !strings.Contains(err.Error(), "no default") {
 		t.Fatalf("err = %v, want unresolved error", err)
 	}
 }
 
 func TestSubstituteTypedAndEmbedded(t *testing.T) {
-	cfg := &types.Config{
-		Connectors: []types.ConnectorConfig{{Settings: types.Settings{
-			"port":    "${PORT}",
-			"debug":   "${DEBUG}",
-			"address": "host:${PORT}",
-			"nested": map[string]any{
-				"key":  "${SECRET}",
-				"list": []any{"${PORT}", "literal"},
-			},
-		}}},
-	}
-	resolved := map[string]string{"PORT": "8080", "DEBUG": "true", "SECRET": "s3cret"}
-	declared := map[string]struct{}{"PORT": {}, "DEBUG": {}, "SECRET": {}}
-	if err := substituteConfig(cfg, resolved, declared); err != nil {
-		t.Fatalf("substituteConfig: %v", err)
-	}
+	cfg := mustParseYAML(t, `
+env:
+  - name: PORT
+    default: "8080"
+  - name: DEBUG
+    default: "true"
+  - name: SECRET
+    default: s3cret
+connectors:
+  - name: api
+    type: http
+    settings:
+      port: ${PORT}
+      debug: ${DEBUG}
+      address: host:${PORT}
+      nested:
+        key: ${SECRET}
+        list:
+          - ${PORT}
+          - literal
+`)
 
 	got := cfg.Connectors[0].Settings
 	if got["port"] != 8080 {
@@ -106,13 +136,36 @@ func TestSubstituteTypedAndEmbedded(t *testing.T) {
 	if got["address"] != "host:8080" {
 		t.Errorf("address = %#v, want string host:8080", got["address"])
 	}
-	nested := got["nested"].(map[string]any)
+	// The decoder gives a nested untyped map the outer map's type, so this is a
+	// types.Settings rather than a bare map[string]any.
+	nested := got["nested"].(types.Settings)
 	if nested["key"] != "s3cret" {
 		t.Errorf("nested.key = %#v, want s3cret", nested["key"])
 	}
 	list := nested["list"].([]any)
 	if list[0] != 8080 || list[1] != "literal" {
 		t.Errorf("nested.list = %#v, want [8080 literal]", list)
+	}
+}
+
+// TestSubstituteQuotedPlaceholderStillTypes: whether the author quoted the
+// placeholder makes no difference to the result. Quoting is how you write a
+// placeholder that YAML would otherwise mangle, not a request for a string, and
+// this behaved the same when substitution ran over already-decoded settings —
+// where the quotes were long gone by the time it looked.
+func TestSubstituteQuotedPlaceholderStillTypes(t *testing.T) {
+	cfg := mustParseYAML(t, `
+env:
+  - name: PORT
+    default: "8080"
+connectors:
+  - name: api
+    type: http
+    settings:
+      port: "${PORT}"
+`)
+	if got := cfg.Connectors[0].Settings["port"]; got != 8080 {
+		t.Errorf("port = %#v, want int 8080", got)
 	}
 }
 
@@ -152,43 +205,65 @@ func TestCoerceOnlyMakesScalars(t *testing.T) {
 	}
 }
 
-// TestSubstituteKeepsADSNAString is the same regression, through the whole
-// substitution, so it cannot come back by a different route than coerce.
-func TestSubstituteKeepsADSNAString(t *testing.T) {
-	cfg := &types.Config{
-		Connectors: []types.ConnectorConfig{{Settings: types.Settings{"dsn": "${DB_DSN}"}}},
-	}
-	resolved := map[string]string{"DB_DSN": "file::memory:"}
-	declared := map[string]struct{}{"DB_DSN": {}}
-
-	if err := substituteConfig(cfg, resolved, declared); err != nil {
-		t.Fatalf("substituteConfig: %v", err)
-	}
-	if got := cfg.Connectors[0].Settings["dsn"]; got != "file::memory:" {
+// TestSubstituteKeepsValuesUntyped is the same regression, through the whole
+// substitution, so it cannot come back by a different route than coerce. It
+// matters more now that substitution rewrites YAML: a value handed back to the
+// decoder untagged would be re-resolved, and each of these resolves to something
+// that is not the string it started as.
+func TestSubstituteKeepsValuesUntyped(t *testing.T) {
+	cfg := mustParseYAML(t, `
+env:
+  - name: DB_DSN
+    default: "file::memory:"
+  - name: EMPTY
+    default: ""
+  - name: RELEASED_ON
+    default: "2026-07-25"
+connectors:
+  - name: db
+    type: database
+    settings:
+      dsn: ${DB_DSN}
+      empty: ${EMPTY}
+      releasedOn: ${RELEASED_ON}
+`)
+	settings := cfg.Connectors[0].Settings
+	if got := settings["dsn"]; got != "file::memory:" {
 		t.Errorf("dsn = %#v, want the string file::memory: — a DSN is not a map", got)
+	}
+	if got := settings["empty"]; got != "" {
+		t.Errorf("empty = %#v, want the empty string, not nil", got)
+	}
+	if got := settings["releasedOn"]; got != "2026-07-25" {
+		t.Errorf("releasedOn = %#v, want the string 2026-07-25, not a timestamp", got)
 	}
 }
 
 func TestSubstituteNestedFlowBlocks(t *testing.T) {
-	cfg := &types.Config{
-		Flows: []types.FlowConfig{{
-			Source: &types.SourceConfig{Settings: types.Settings{"path": "${PATH}"}},
-			Process: []types.BlockConfig{{
-				Type: "handle-errors",
-				Process: []types.BlockConfig{
-					{Type: "log", Settings: types.Settings{"level": "${LEVEL}"}},
-				},
-				Error: []types.BlockConfig{
-					{Type: "log", Settings: types.Settings{"level": "${LEVEL}"}},
-				},
-			}},
-		}},
-	}
-	resolved := map[string]string{"PATH": "/orders", "LEVEL": "info"}
-	declared := map[string]struct{}{"PATH": {}, "LEVEL": {}}
-	if err := substituteConfig(cfg, resolved, declared); err != nil {
-		t.Fatalf("substituteConfig: %v", err)
-	}
+	cfg := mustParseYAML(t, `
+env:
+  - name: PATH_
+    default: /orders
+  - name: LEVEL
+    default: info
+flows:
+  - name: orders
+    source:
+      connector: api
+      type: http
+      settings:
+        path: ${PATH_}
+    process:
+      - type: handle-errors
+        process:
+          - type: log
+            settings:
+              level: ${LEVEL}
+        error:
+          - type: log
+            settings:
+              level: ${LEVEL}
+`)
 	if got := cfg.Flows[0].Source.Settings["path"]; got != "/orders" {
 		t.Errorf("source path = %#v, want /orders", got)
 	}
@@ -198,9 +273,85 @@ func TestSubstituteNestedFlowBlocks(t *testing.T) {
 	}
 }
 
+// TestSubstituteRootFlowScalars is the reported bug: workers is exactly the
+// setting you want to differ between a laptop and a production node, and it is
+// typed, so it never survived to the settings walk — the load died in the decoder
+// with `cannot unmarshal !!str into int`. buffer and pool are the same shape.
+func TestSubstituteRootFlowScalars(t *testing.T) {
+	t.Setenv("FLOW_POOL", "24")
+	cfg := mustParseYAML(t, `
+env:
+  - name: FLOW_WORKERS
+    default: "64"
+  - name: FLOW_BUFFER
+    default: "128"
+  - name: FLOW_POOL
+    default: "8"
+flows:
+  - name: orders
+    workers: ${FLOW_WORKERS}
+    buffer: ${FLOW_BUFFER}
+    pool: ${FLOW_POOL}
+    process:
+      - type: log
+`)
+	flow := cfg.Flows[0]
+	if flow.Workers != 64 {
+		t.Errorf("workers = %d, want 64 (from the declared default)", flow.Workers)
+	}
+	if flow.Buffer != 128 {
+		t.Errorf("buffer = %d, want 128", flow.Buffer)
+	}
+	if flow.Pool != 24 {
+		t.Errorf("pool = %d, want 24 (the OS environment beats the default)", flow.Pool)
+	}
+}
+
+// TestSubstituteReachesNonSettingsScalars: substitution now runs over the whole
+// document, so a reference works wherever a value does — not only under settings.
+func TestSubstituteReachesNonSettingsScalars(t *testing.T) {
+	cfg := mustParseYAML(t, `
+env:
+  - name: SERVICE_NAME
+    default: orders-service
+  - name: MIN_TOTAL
+    default: "100"
+service:
+  name: ${SERVICE_NAME}
+flows:
+  - name: orders
+    process:
+      - type: if
+        condition: body.total > ${MIN_TOTAL}
+        then:
+          process:
+            - type: log
+`)
+	if got := cfg.Service.Name; got != "orders-service" {
+		t.Errorf("service.name = %q, want orders-service", got)
+	}
+	if got := cfg.Flows[0].Process[0].Condition; got != "body.total > 100" {
+		t.Errorf("condition = %q, want body.total > 100", got)
+	}
+}
+
+// TestEnvDeclarationsStayLiteral: the env and resources sections are read to build
+// the environment in the first place, so a reference in either would have to
+// resolve before there is anything to resolve it with. They are left alone.
+func TestEnvDeclarationsStayLiteral(t *testing.T) {
+	cfg := mustParseYAML(t, `
+env:
+  - name: GREETING
+    default: "${NOT_A_REFERENCE}"
+`)
+	if got := cfg.Env[0].Default; got == nil || *got != "${NOT_A_REFERENCE}" {
+		t.Errorf("default = %v, want the literal ${NOT_A_REFERENCE}", got)
+	}
+}
+
 func TestParseConfigSubstitutesFromOSEnv(t *testing.T) {
 	t.Setenv("HTTP_PORT", "9090")
-	yaml := []byte(`
+	cfg := mustParseYAML(t, `
 env:
   - name: HTTP_PORT
     default: "8080"
@@ -210,10 +361,6 @@ connectors:
     settings:
       port: ${HTTP_PORT}
 `)
-	cfg, err := ParseConfig(yaml)
-	if err != nil {
-		t.Fatalf("ParseConfig: %v", err)
-	}
 	if got := cfg.Connectors[0].Settings["port"]; got != 9090 {
 		t.Errorf("port = %#v, want int 9090", got)
 	}

@@ -54,9 +54,9 @@ service:
 ## env
 
 Declares the environment variables the config depends on. A variable **must**
-be declared here before any settings value may reference it as `${NAME}` —
+be declared here before any value may reference it as `${NAME}` —
 referencing an undeclared variable fails the load with
-`settings reference undeclared environment variable`.
+`config references undeclared environment variable`.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -78,13 +78,25 @@ file named in `$OCTO_ENV_FILE` when set, overlaid by any
 [`resources.env`](#resources) files in listed order. A referenced variable
 that resolves to no value and has no default fails the load.
 
-**Substitution:** `${NAME}` references are rewritten in every settings value —
-connector settings, processor settings, and block settings throughout the flow
-tree (including nested maps and lists). A value that is *exactly* one
-placeholder is replaced with the variable's natural YAML type, so
-`port: ${HTTP_PORT}` can fill an integer setting; a placeholder embedded in a
-longer string is substituted textually and stays a string. Substitution
-applies only to `settings` values, not to composite slots like `condition`.
+**Substitution:** `${NAME}` references are rewritten in **every value in the
+document** — settings at any depth, a block's `condition`, a flow's
+[`workers`](#flows), `service.name`, all of it. The two exceptions are the
+`env:` and [`resources:`](#resources) sections themselves, which are read to
+build the environment in the first place and so must be written literally.
+
+A value that is *exactly* one placeholder is replaced with the variable's
+natural YAML type, so `port: ${HTTP_PORT}` fills an integer setting and
+`workers: ${FLOW_WORKERS}` an integer flow field. Quoting the placeholder makes
+no difference. A placeholder embedded in a longer string is substituted
+textually and stays a string.
+
+<Callout type="warn">
+  **Changed in 0.5.0.** Substitution used to reach only `settings` values.
+  A `${NAME}` anywhere else was left as literal text; now it is resolved, and a
+  reference to a name that is not declared under `env:` fails the load instead
+  of passing through. If a value legitimately contains `${...}` — some prompt
+  text, say — declare the variable or rewrite the value.
+</Callout>
 
 **In expressions:** the resolved variables are also readable in CEL as
 `env.NAME` — see [Octo Extensions](/reference/cel/octo-extensions#variables).

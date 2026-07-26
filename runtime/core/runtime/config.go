@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/core/internal/dsl"
 	"github.com/juancavallotti/octo/runtime/types"
@@ -30,17 +32,18 @@ func LoadConfig(path string, loader core.ResourceLoader) (types.Config, error) {
 		return types.Config{}, fmt.Errorf("stat config path %q: %w", path, err)
 	}
 
-	var cfg types.Config
+	var docs []*yaml.Node
 	if info.IsDir() {
-		cfg, err = loadDir(path)
+		docs, err = loadDir(path)
 	} else {
-		cfg, err = dsl.LoadFile(path)
+		docs, err = loadOne(path)
 	}
 	if err != nil {
 		return types.Config{}, err
 	}
 
-	if err := applyEnv(&cfg, loader); err != nil {
+	cfg, err := resolveDocuments(docs, loader)
+	if err != nil {
 		return types.Config{}, err
 	}
 	// Load and parse declared templates now so a missing or malformed one fails at
@@ -54,24 +57,77 @@ func LoadConfig(path string, loader core.ResourceLoader) (types.Config, error) {
 // ParseConfig parses the runtime config from raw config bytes, resolving declared
 // environment variables and substituting ${NAME} references.
 func ParseConfig(data []byte) (types.Config, error) {
-	cfg, err := dsl.Parse(data)
+	doc, err := dsl.ParseDocument(data)
 	if err != nil {
 		return types.Config{}, err
 	}
 	// The byte-parse entrypoint has no config directory, so declared env resources
 	// cannot be resolved; the no-op loader reports them missing (which is skipped).
-	if err := applyEnv(&cfg, core.NoopResourceLoader{}); err != nil {
+	return resolveDocuments([]*yaml.Node{doc}, core.NoopResourceLoader{})
+}
+
+// resolveDocuments turns parsed config documents into one typed, fully resolved
+// config: it reads the env declarations across all of them, resolves the
+// environment once, substitutes ${NAME} references throughout each document, then
+// decodes and merges.
+//
+// The order is the point. Substitution rewrites the YAML before it is typed, so a
+// reference can fill a field of any type — workers: ${FLOW_WORKERS} as readily as
+// a settings value. And declarations are gathered across every document first, so
+// a variable declared in one file still serves a reference in another, exactly as
+// it did when the merge came first.
+func resolveDocuments(docs []*yaml.Node, loader core.ResourceLoader) (types.Config, error) {
+	decls, err := mergeEnvDecls(docs)
+	if err != nil {
 		return types.Config{}, err
 	}
+	resolved, declared, err := resolveDeclared(decls, loader)
+	if err != nil {
+		return types.Config{}, err
+	}
+
+	configs := make([]types.Config, 0, len(docs))
+	for _, doc := range docs {
+		if err := substituteDocument(doc, resolved, declared); err != nil {
+			return types.Config{}, err
+		}
+		cfg, decodeErr := dsl.Decode(doc)
+		if decodeErr != nil {
+			return types.Config{}, decodeErr
+		}
+		configs = append(configs, cfg)
+	}
+
+	cfg, err := MergeConfigs(configs)
+	if err != nil {
+		return types.Config{}, err
+	}
+	// Keep the resolved values so expressions can read them as env.NAME, not just
+	// through ${NAME} substitution. The merge does not carry them: ResolvedEnv is
+	// not a decoded field.
+	cfg.ResolvedEnv = resolved
 	return cfg, nil
 }
 
-// loadDir parses and merges every YAML config file in dir, skipping test files.
-// Files are loaded in lexical order so duplicate-name errors are deterministic.
-func loadDir(dir string) (types.Config, error) {
+// loadOne parses a single config file into its document node.
+func loadOne(path string) ([]*yaml.Node, error) {
+	data, err := dsl.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	doc, err := dsl.ParseDocument(data)
+	if err != nil {
+		return nil, err
+	}
+	return []*yaml.Node{doc}, nil
+}
+
+// loadDir parses every YAML config file in dir, skipping test files. Files are
+// parsed in lexical order so duplicate-name errors are deterministic.
+func loadDir(dir string) ([]*yaml.Node, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return types.Config{}, fmt.Errorf("read config dir %q: %w", dir, err)
+		return nil, fmt.Errorf("read config dir %q: %w", dir, err)
 	}
 
 	paths := make([]string, 0, len(entries))
@@ -82,19 +138,53 @@ func loadDir(dir string) (types.Config, error) {
 		paths = append(paths, filepath.Join(dir, entry.Name()))
 	}
 	if len(paths) == 0 {
-		return types.Config{}, fmt.Errorf("no .yaml/.yml config files in %q", dir)
+		return nil, fmt.Errorf("no .yaml/.yml config files in %q", dir)
 	}
 	sort.Strings(paths)
 
-	configs := make([]types.Config, 0, len(paths))
+	docs := make([]*yaml.Node, 0, len(paths))
 	for _, p := range paths {
-		cfg, loadErr := dsl.LoadFile(p)
+		doc, loadErr := loadOne(p)
 		if loadErr != nil {
-			return types.Config{}, loadErr
+			return nil, loadErr
 		}
-		configs = append(configs, cfg)
+		docs = append(docs, doc...)
 	}
-	return MergeConfigs(configs)
+	return docs, nil
+}
+
+// mergeEnvDecls reads the env declarations and env resources from every document,
+// ahead of substitution. Duplicate variable declarations across files are allowed
+// and the first wins, matching how the decoded merge treats them; env resources
+// keep first-seen order so the combined load order stays deterministic.
+func mergeEnvDecls(docs []*yaml.Node) (envDecls, error) {
+	var merged envDecls
+	seenVar := make(map[string]struct{})
+	seenRes := make(map[string]struct{})
+	for _, doc := range docs {
+		if doc == nil || doc.Kind == 0 {
+			continue
+		}
+		var decls envDecls
+		if err := doc.Decode(&decls); err != nil {
+			return envDecls{}, fmt.Errorf("parse config: %w", err)
+		}
+		for _, v := range decls.Env {
+			if _, dup := seenVar[v.Name]; dup {
+				continue
+			}
+			seenVar[v.Name] = struct{}{}
+			merged.Env = append(merged.Env, v)
+		}
+		for _, id := range decls.Resources.Env {
+			if _, dup := seenRes[id]; dup {
+				continue
+			}
+			seenRes[id] = struct{}{}
+			merged.Resources.Env = append(merged.Resources.Env, id)
+		}
+	}
+	return merged, nil
 }
 
 // isYAML reports whether name has a YAML extension.
