@@ -1,7 +1,10 @@
 package observability
 
 import (
+	"context"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -40,20 +43,43 @@ const (
 // blockMetrics reports per-block timings for an explicitly named set of block
 // addresses.
 //
-// It is opt-in, and per-address rather than per-flow, because it is the expensive
-// half of the feature twice over. Registering ANY async block listener flips
-// core.BlockEvents.Active() process-wide, so the engine starts emitting a pre- and
-// post-invoke event around every block in every flow, not just the watched ones —
-// that is the real cost, and it is why per-flow metrics are on with --metrics and
-// these are not. And a label per block path is a much larger series count than a
-// label per flow.
+// It is opt-in, and per-address rather than per-flow, because watching a block
+// costs something on the flow's own goroutine — the engine builds an event around
+// it and this records it inline — and because a label per block path is a much
+// larger series count than a label per flow. Naming addresses keeps both bounded
+// by what someone asked for. `*` gives that up on purpose.
 type blockMetrics struct {
-	// watch is the set of block addresses to report, or nil when watching all.
+	// watch is the set of block addresses to report, or empty when watching all.
 	watch map[string]struct{}
 	all   bool
 
 	invocations *prometheus.CounterVec
 	duration    *prometheus.HistogramVec
+
+	// series caches the collectors each block resolves to. Updates run inline on
+	// every flow worker at once, and WithLabelValues hashes its labels and takes a
+	// read lock on the vector's map — one shared cache line, written by every core
+	// on every block. The cache turns that into an atomic load and a map read.
+	//
+	// It is copy-on-write: readers hold an immutable snapshot, and a miss rebuilds
+	// it under fill. Growth is bounded by the number of distinct block paths in the
+	// config, so it stops growing once traffic has touched each of them once.
+	series atomic.Pointer[map[seriesKey]*blockSeries]
+	fill   sync.Mutex
+}
+
+// seriesKey identifies one block's series. It is the label tuple that does not
+// vary with the outcome.
+type seriesKey struct {
+	flow, path, blockType string
+}
+
+// blockSeries is the resolved collectors for one block: a counter per outcome and
+// the duration observer. Resolving all three counters up front costs two extra
+// lookups on a block's first invocation and saves one on every invocation after.
+type blockSeries struct {
+	ok, dropped, errored prometheus.Counter
+	duration             prometheus.Observer
 }
 
 // newBlockMetrics builds the per-block collectors for the given addresses and
@@ -81,6 +107,7 @@ func newBlockMetrics(reg *prometheus.Registry, addresses []string, events *core.
 			Buckets: prometheus.ExponentialBuckets(blockBucketStart, blockBucketFactor, blockBucketCount),
 		}, []string{labelFlow, labelPath, labelType}),
 	}
+	b.series.Store(&map[seriesKey]*blockSeries{})
 
 	for _, address := range addresses {
 		if address == watchAll {
@@ -92,23 +119,38 @@ func newBlockMetrics(reg *prometheus.Registry, addresses []string, events *core.
 
 	reg.MustRegister(b.invocations, b.duration)
 
-	// The dispatcher owns the running total of what it discarded, so read it at
-	// scrape time instead of keeping a second copy in step with it. Async delivery
-	// is at-most-once, so a non-zero value here means the counters above are
-	// under-reporting — which is worth knowing and impossible to infer otherwise.
+	// The dispatcher owns the running total, so read it at scrape time instead of
+	// keeping a second copy in step with it. A contained panic means a listener saw
+	// an event and recorded nothing, so a non-zero value here means the counters
+	// above are under-reporting — which is worth knowing and impossible to infer
+	// from the counters themselves.
 	reg.MustRegister(prometheus.NewCounterFunc(prometheus.CounterOpts{
 		Namespace: namespace,
-		Name:      "block_events_dropped_total",
-		Help: "Block events discarded because the dispatcher's queue was full. " +
-			"Non-zero means the block counters are under-reporting.",
+		Name:      "block_listener_panics_total",
+		Help: "Block-event listener panics the runtime contained. " +
+			"Non-zero means the block counters are under-reporting; the log has the stack.",
 	}, func() float64 {
 		if events == nil {
 			return 0
 		}
-		return float64(events.Dropped())
+		return float64(events.Panics())
 	}))
 
 	return b
+}
+
+// paths returns the addresses to register with the dispatcher, or nil to ask for
+// every block. Registering the set is what keeps an unwatched block from being
+// built into an event at all — the filter belongs on the producer, not here.
+func (b *blockMetrics) paths() []string {
+	if b.all {
+		return nil
+	}
+	addresses := make([]string, 0, len(b.watch))
+	for address := range b.watch {
+		addresses = append(addresses, address)
+	}
+	return addresses
 }
 
 // watches reports whether a block path is one this is reporting on.
@@ -120,16 +162,77 @@ func (b *blockMetrics) watches(path string) bool {
 	return ok
 }
 
-// onBlockEvent records one watched block invocation. It runs on the dispatcher's
-// own goroutine, after the fact, so a slow update costs telemetry rather than
-// throughput — and it must not dereference the event's message, which the flow has
-// long since moved on and started mutating.
-func (b *blockMetrics) onBlockEvent(event types.BlockEvent) {
+// onBlockEvent records one watched block invocation. It is a sync listener: it
+// runs on the flow's own goroutine, in the middle of the block it is timing, so
+// everything it does is on the message's critical path. That budget buys a map
+// read and two atomic adds, and nothing else — no allocation, no lock, and no
+// call that can block.
+//
+// Inline is what makes the numbers true. Recording these off the goroutine meant
+// a queue between the flow and the counters, and a queue between a fleet of
+// producers and one consumer drops under exactly the load worth measuring.
+func (b *blockMetrics) onBlockEvent(_ context.Context, event types.BlockEvent) {
+	// A watched block still emits a pre-invoke, which carries no duration and no
+	// outcome; counting it would double every number.
 	if event.Kind != types.BlockPostInvoke || !b.watches(event.Path) {
 		return
 	}
-	b.invocations.WithLabelValues(event.Flow, event.Path, event.BlockType, blockOutcome(event)).Inc()
-	b.duration.WithLabelValues(event.Flow, event.Path, event.BlockType).Observe(event.Duration.Seconds())
+
+	series := b.seriesFor(seriesKey{flow: event.Flow, path: event.Path, blockType: event.BlockType})
+	series.counter(blockOutcome(event)).Inc()
+	series.duration.Observe(event.Duration.Seconds())
+}
+
+// counter returns the pre-resolved counter for one outcome.
+//
+//nolint:ireturn // the prometheus API hands back the Counter interface
+func (s *blockSeries) counter(outcome string) prometheus.Counter {
+	switch outcome {
+	case outcomeError:
+		return s.errored
+	case outcomeDropped:
+		return s.dropped
+	default:
+		return s.ok
+	}
+}
+
+// seriesFor returns the cached collectors for a block, resolving and caching them
+// on its first invocation.
+func (b *blockMetrics) seriesFor(key seriesKey) *blockSeries {
+	if series, ok := (*b.series.Load())[key]; ok {
+		return series
+	}
+	return b.resolve(key)
+}
+
+// resolve fills the cache for one block. It is the slow path — taken once per
+// block path per process — so it takes a lock and rebuilds the map wholesale,
+// leaving the read path free of both.
+func (b *blockMetrics) resolve(key seriesKey) *blockSeries {
+	b.fill.Lock()
+	defer b.fill.Unlock()
+
+	// Another goroutine may have resolved the same block while this one waited.
+	current := *b.series.Load()
+	if series, ok := current[key]; ok {
+		return series
+	}
+
+	series := &blockSeries{
+		ok:       b.invocations.WithLabelValues(key.flow, key.path, key.blockType, outcomeOK),
+		dropped:  b.invocations.WithLabelValues(key.flow, key.path, key.blockType, outcomeDropped),
+		errored:  b.invocations.WithLabelValues(key.flow, key.path, key.blockType, outcomeError),
+		duration: b.duration.WithLabelValues(key.flow, key.path, key.blockType),
+	}
+
+	next := make(map[seriesKey]*blockSeries, len(current)+1)
+	for k, v := range current {
+		next[k] = v
+	}
+	next[key] = series
+	b.series.Store(&next)
+	return series
 }
 
 // blockOutcome classifies a post-invoke event: a block either failed, filtered the

@@ -207,40 +207,67 @@ all would be worse than one whose label is shared or unparseable. The editor's
 `naturalAddress` takes the other choice for the same reason it must: a mock or a
 spy keyed by an ambiguous address would resolve to the wrong block.
 
-### Two kinds of listener
+### Registering a listener
 
-| | Sync (`AddSync`) | Async (`AddAsync`) |
+Delivery is inline, always: a listener runs on the flow's own goroutine, before
+the block for `pre-invoke` and after it returns for `post-invoke`, and the flow
+waits for it. Nothing is queued, so nothing is ever dropped — every watched
+invocation is delivered exactly once.
+
+A listener declares the blocks it wants when it registers:
+
+| | `AddSyncFor(paths, fn)` | `AddSync(fn)` |
 | --- | --- | --- |
-| Runs on | the flow's own goroutine, inline | one dispatcher goroutine, sequentially |
-| Blocking | stalls the flow (this is the point) | never stalls the flow |
-| Delivery | exactly once, inline: pre before the block, post after it | at-most-once; dropped when the queue is full |
-| May read the message | yes, including `Clone`/`Scoped`/`Reported` | **no** — see below |
-| For | flow debugging | stats, prometheus |
+| Receives | only the named block paths | every block in every flow |
+| Cost to other blocks | one atomic load and a map lookup | the full event, built for every block |
+| For | telemetry on known blocks | debugging, `--metrics-blocks '*'` |
 
-Both observe. A listener cannot skip or abort a block; the flow's control flow is
-the same whether anything is listening or not.
+Registering for an empty path set registers nothing: a listener that asked for no
+block is not one that wants every block.
+
+Listeners observe. A listener cannot skip or abort a block; the flow's control
+flow is the same whether anything is listening or not. A panic is contained for
+the same reason: it is logged with its stack, counted in `BlockEvents.Panics()`
+and exported as `octo_block_listener_panics_total`, and the block carries on.
+`Emit` runs on a flow worker, so a propagating panic would take the process with
+it — telemetry is not worth a message, still less the runtime, and a listener
+that could kill the flow it is watching would not be an observer.
+
+A contained panic still means a listener saw an event and recorded nothing, so a
+non-zero count means whatever it feeds is under-reporting.
 
 **The message contract.** Every field of a `BlockEvent` except `Message` is
 copied on the flow's goroutine and is safe to read anywhere. `Message` is the
-live message. A sync listener holds the flow still, so it may read and copy it.
-An async listener must not touch `Message.Body` or `Message.Variables` and must
-not call a copy method: the flow has moved on and is mutating both, and
-`Variables` is a plain map, so a concurrent read is a data race that can panic
-the process. To take contents off the flow's goroutine, `Clone` in a sync
-listener and hand the copy to your own worker.
+live message, and the flow is stopped at this block while the listener runs, so a
+listener may read and copy it (`Clone`, `Scoped`, `Reported`). That holds only
+while the listener is running: the flow resumes mutating the message as soon as
+it returns, so a listener must not retain the pointer. `Variables` is a plain
+map, so reading it from another goroutine afterwards is a data race that can
+panic the process — `Clone` here and hand the copy to a worker you own.
 
-A sync listener is called from every goroutine a flow runs on — the flow's worker
+A listener is called from every goroutine a flow runs on — the flow's worker
 pool, and the shared pool for a fork's branches — so it must be safe for
 concurrent use, and one that blocks inside a fork branch occupies a pool worker.
 
-**Cost.** Nothing is built, timed, or allocated until a listener exists: the
-engine's loop pays a nil check, an atomic load, and a length check per block
-(measured at 0 allocs/op, no detectable difference from having no dispatcher at
-all). Async delivery is a non-blocking send onto a 1024-deep queue; when it is
-full the event is dropped and counted (`BlockEvents.Dropped`), because telemetry
-falling behind must cost telemetry rather than throughput. One consequence: an
-async listener may see a `post-invoke` whose `pre-invoke` was dropped, which is
-why `Duration` is measured by the engine rather than left to pairing.
+**Cost.** Nothing is built, timed, or allocated for a block nobody asked about.
+The engine tests the block's path before it makes an event, so the loop pays a
+nil check and an atomic load when nothing is registered, and one further map
+lookup per unwatched block when something is. Measured on an idle M1 Pro,
+parallel, 0 allocs throughout: ~0.2ns/op registered-nothing, ~1.2ns/op for an
+unwatched block, ~3.5ns/op for a watched one (event built, listener called,
+panic contained). Treat the ordering as the durable part — these are small
+enough to be dominated by whatever else the machine is doing.
+
+**Why there is no async variant.** There was one — a queue and a drain goroutine
+— and it was removed. The producers are every flow worker in the process and the
+consumer was a single goroutine, so no buffer size makes the consumer keep up
+with sustained load; the depth only sets how long saturation takes to start
+dropping. Tail-dropping a full queue is also not sampling, it is "discard during
+bursts", which biases telemetry against exactly the traffic worth measuring. For
+the work a telemetry listener actually does — an atomic increment — the channel
+send being used to avoid it cost more than the work. A listener that genuinely
+must do slow or blocking work should `Clone` what it needs and hand the copy to a
+worker it owns, so the loss policy is its own rather than the runtime's.
 
 ## Lifecycle
 

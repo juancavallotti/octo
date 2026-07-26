@@ -1,10 +1,12 @@
 package observability
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"io"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -64,21 +66,38 @@ func TestNewBlockMetricsIsNilWithoutAddresses(t *testing.T) {
 	}
 }
 
-// Only the named blocks are reported. Everything else still reaches the listener —
-// the engine emits for every block once anything is watched — and is discarded.
+// Only the named blocks are reported. The dispatcher filters too, so an unwatched
+// block does not normally reach the listener at all; this pins the listener's own
+// guard, which is what makes it correct in isolation.
 func TestBlockMetricsReportsOnlyWatchedPaths(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	b := newBlockMetrics(reg, []string{"orders.charge"}, nil)
 
-	b.onBlockEvent(blockEvent("orders", "orders.charge", "rest", 10*time.Millisecond, nil, false))
-	b.onBlockEvent(blockEvent("orders", "orders.validate", "filter", time.Millisecond, nil, false))
-	b.onBlockEvent(blockEvent("audit", "audit.log", "log", time.Millisecond, nil, false))
+	b.onBlockEvent(t.Context(), blockEvent("orders", "orders.charge", "rest", 10*time.Millisecond, nil, false))
+	b.onBlockEvent(t.Context(), blockEvent("orders", "orders.validate", "filter", time.Millisecond, nil, false))
+	b.onBlockEvent(t.Context(), blockEvent("audit", "audit.log", "log", time.Millisecond, nil, false))
 
 	if got := testutil.ToFloat64(b.invocations.WithLabelValues("orders", "orders.charge", "rest", outcomeOK)); got != 1 {
 		t.Errorf("watched block invocations = %v, want 1", got)
 	}
-	if got := testutil.CollectAndCount(b.invocations); got != 1 {
-		t.Errorf("series = %d, want 1 — only the watched address may be reported", got)
+	// Resolving a block pre-creates its counter for all three outcomes, so one
+	// watched block is three series and an unwatched one is none.
+	if got := testutil.CollectAndCount(b.invocations); got != 3 {
+		t.Errorf("series = %d, want 3 — only the watched address may be reported", got)
+	}
+}
+
+// The addresses handed to the dispatcher are what keeps an unwatched block from
+// being built into an event. '*' asks for everything instead.
+func TestBlockMetricsPaths(t *testing.T) {
+	named := newBlockMetrics(prometheus.NewRegistry(), []string{"orders.charge"}, nil)
+	if got := named.paths(); len(got) != 1 || got[0] != "orders.charge" {
+		t.Errorf("paths() = %v, want [orders.charge]", got)
+	}
+
+	all := newBlockMetrics(prometheus.NewRegistry(), []string{watchAll}, nil)
+	if got := all.paths(); got != nil {
+		t.Errorf("paths() = %v with *, want nil — * registers unfiltered", got)
 	}
 }
 
@@ -86,14 +105,39 @@ func TestBlockMetricsWatchAll(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	b := newBlockMetrics(reg, []string{watchAll}, nil)
 
-	b.onBlockEvent(blockEvent("orders", "orders.charge", "rest", time.Millisecond, nil, false))
-	b.onBlockEvent(blockEvent("audit", "audit.log", "log", time.Millisecond, nil, false))
+	b.onBlockEvent(t.Context(), blockEvent("orders", "orders.charge", "rest", time.Millisecond, nil, false))
+	b.onBlockEvent(t.Context(), blockEvent("audit", "audit.log", "log", time.Millisecond, nil, false))
 
 	if !b.all {
 		t.Error("* did not set watch-all")
 	}
-	if got := testutil.CollectAndCount(b.invocations); got != 2 {
-		t.Errorf("series = %d, want 2 — * reports every block", got)
+	if got := testutil.CollectAndCount(b.invocations); got != 6 {
+		t.Errorf("series = %d, want 6 — * reports every block, three outcomes each", got)
+	}
+}
+
+// The resolved collectors are cached per block, and the cache must survive the
+// concurrent first-sighting that every flow worker races into on startup.
+func TestBlockMetricsSeriesCacheIsStableUnderConcurrency(t *testing.T) {
+	b := newBlockMetrics(prometheus.NewRegistry(), []string{watchAll}, nil)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 100; j++ {
+				b.onBlockEvent(t.Context(), blockEvent("orders", "orders.charge", "rest", time.Millisecond, nil, false))
+			}
+		}()
+	}
+	wg.Wait()
+
+	if got := testutil.ToFloat64(b.invocations.WithLabelValues("orders", "orders.charge", "rest", outcomeOK)); got != 800 {
+		t.Errorf("invocations = %v, want 800 — every inline update must land", got)
+	}
+	if got := len(*b.series.Load()); got != 1 {
+		t.Errorf("cached series = %d, want 1 — one block resolves once", got)
 	}
 }
 
@@ -129,7 +173,7 @@ func TestBlockMetricsIgnoresPreInvoke(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	b := newBlockMetrics(reg, []string{"orders.charge"}, nil)
 
-	b.onBlockEvent(types.BlockEvent{
+	b.onBlockEvent(t.Context(), types.BlockEvent{
 		Kind: types.BlockPreInvoke, Flow: "orders", Path: "orders.charge", BlockType: "rest",
 	})
 
@@ -142,8 +186,8 @@ func TestBlockMetricsObservesDuration(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	b := newBlockMetrics(reg, []string{"orders.charge"}, nil)
 
-	b.onBlockEvent(blockEvent("orders", "orders.charge", "rest", 4*time.Millisecond, nil, false))
-	b.onBlockEvent(blockEvent("orders", "orders.charge", "rest", 8*time.Millisecond, nil, false))
+	b.onBlockEvent(t.Context(), blockEvent("orders", "orders.charge", "rest", 4*time.Millisecond, nil, false))
+	b.onBlockEvent(t.Context(), blockEvent("orders", "orders.charge", "rest", 8*time.Millisecond, nil, false))
 
 	metric := b.duration.WithLabelValues("orders", "orders.charge", "rest")
 	if got := testutil.CollectAndCount(b.duration); got != 1 {
@@ -154,37 +198,53 @@ func TestBlockMetricsObservesDuration(t *testing.T) {
 	}
 }
 
-// The dispatcher owns the running total of what it dropped; the counter reads it
-// at scrape time, so it can never lag behind.
-func TestBlockEventsDroppedIsReadFromTheDispatcher(t *testing.T) {
+// Watching a named block must not make the engine observe anything else: the
+// dispatcher is registered for that address only, so every other block is never
+// built into an event.
+func TestWatchedAddressesRegisterOnlyThosePaths(t *testing.T) {
+	events := core.NewBlockEvents()
+	b := newBlockMetrics(prometheus.NewRegistry(), []string{"orders.charge"}, nil)
+	events.AddSyncFor(b.paths(), b.onBlockEvent)
+
+	if !events.Observes("orders.charge") {
+		t.Error("the watched address is not observed")
+	}
+	if events.Observes("orders.validate") {
+		t.Error("an unwatched block is observed; every block would pay for the measurement")
+	}
+}
+
+// A contained panic means a listener saw an event and recorded nothing, so the
+// block counters are under-reporting. The dispatcher owns the total; the counter
+// reads it at scrape time, so the two cannot drift.
+func TestBlockListenerPanicsAreReadFromTheDispatcher(t *testing.T) {
 	events := core.NewBlockEvents()
 	reg := prometheus.NewRegistry()
 	newBlockMetrics(reg, []string{"orders.charge"}, events)
 
-	// A listener that never returns fills the queue, so Emit starts dropping.
-	block := make(chan struct{})
-	events.AddAsync(func(types.BlockEvent) { <-block })
-	for i := 0; i < 2048; i++ {
-		events.Emit(t.Context(), blockEvent("orders", "orders.charge", "rest", 0, nil, false))
-	}
-	close(block)
+	events.AddSyncFor([]string{"orders.charge"}, func(context.Context, types.BlockEvent) {
+		panic("boom")
+	})
+	events.Emit(t.Context(), blockEvent("orders", "orders.charge", "rest", 0, nil, false))
+	events.Emit(t.Context(), blockEvent("orders", "orders.charge", "rest", 0, nil, false))
 
-	if events.Dropped() == 0 {
-		t.Skip("the dispatcher drained faster than the test could fill it")
+	if got := events.Panics(); got != 2 {
+		t.Fatalf("dispatcher counted %d panics, want 2", got)
 	}
+
 	families, err := reg.Gather()
 	if err != nil {
 		t.Fatalf("Gather: %v", err)
 	}
 	for _, family := range families {
-		if family.GetName() == "octo_block_events_dropped_total" {
-			if got := family.GetMetric()[0].GetCounter().GetValue(); got != float64(events.Dropped()) {
-				t.Errorf("octo_block_events_dropped_total = %v, want the dispatcher's %d", got, events.Dropped())
+		if family.GetName() == "octo_block_listener_panics_total" {
+			if got := family.GetMetric()[0].GetCounter().GetValue(); got != 2 {
+				t.Errorf("octo_block_listener_panics_total = %v, want 2", got)
 			}
 			return
 		}
 	}
-	t.Fatal("octo_block_events_dropped_total is not registered")
+	t.Fatal("octo_block_listener_panics_total is not registered")
 }
 
 // Watching nothing must leave the process-wide dispatcher inactive: the whole cost

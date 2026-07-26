@@ -4,7 +4,6 @@ import (
 	"context"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/types"
@@ -20,7 +19,7 @@ func TestBlockEventsInactiveUntilRegistered(t *testing.T) {
 		t.Fatal("a dispatcher with no listeners reports active")
 	}
 	events.AddSync(nil)
-	events.AddAsync(nil)
+	events.AddSyncFor([]string{"orders.charge"}, nil)
 	if events.Active() {
 		t.Fatal("nil listeners made the dispatcher active")
 	}
@@ -31,8 +30,9 @@ func TestBlockEventsInactiveUntilRegistered(t *testing.T) {
 	}
 }
 
-// TestBlockEventsSyncRunsInline pins the sync contract: the listener has run, in
-// registration order, by the time Emit returns.
+// TestBlockEventsSyncRunsInline pins the delivery contract: every listener has
+// run, in registration order, by the time Emit returns. Nothing is queued and
+// nothing is dropped.
 func TestBlockEventsSyncRunsInline(t *testing.T) {
 	events := core.NewBlockEvents()
 
@@ -57,103 +57,129 @@ func TestBlockEventsSyncRunsInline(t *testing.T) {
 	}
 }
 
-// TestBlockEventsAsyncDeliversSequentially checks every event reaches every async
-// listener, in emit order, on one goroutine — a listener may keep unsynchronized
-// state, so overlap would be a broken contract, not just a surprise.
-func TestBlockEventsAsyncDeliversSequentially(t *testing.T) {
+// TestBlockEventsObservesOnlyRegisteredPaths is the whole point of the filter: the
+// engine asks before it builds an event, so a block nobody named never becomes one.
+func TestBlockEventsObservesOnlyRegisteredPaths(t *testing.T) {
 	events := core.NewBlockEvents()
-	defer events.Stop()
 
-	var (
-		seen    []string
-		inside  bool
-		overlap bool
-	)
-	events.AddAsync(func(ev types.BlockEvent) {
-		if inside {
-			overlap = true
+	if events.Observes("orders.charge") {
+		t.Fatal("a dispatcher with no listeners observes a path")
+	}
+
+	events.AddSyncFor([]string{"orders.charge"}, func(context.Context, types.BlockEvent) {})
+	if !events.Observes("orders.charge") {
+		t.Error("a registered path is not observed")
+	}
+	if events.Observes("orders.validate") {
+		t.Error("an unregistered path is observed; every block would be built into an event")
+	}
+
+	// A second listener widens the set without disturbing the first.
+	events.AddSyncFor([]string{"audit.log"}, func(context.Context, types.BlockEvent) {})
+	for _, path := range []string{"orders.charge", "audit.log"} {
+		if !events.Observes(path) {
+			t.Errorf("path %q is not observed after a second registration", path)
 		}
-		inside = true
-		seen = append(seen, ev.Path)
-		inside = false
+	}
+	if events.Observes("orders.validate") {
+		t.Error("a second filtered listener made an unrelated path observed")
+	}
+}
+
+// An unfiltered listener wants everything, so Observes must answer yes for a path
+// nobody named.
+func TestBlockEventsUnfilteredListenerObservesEverything(t *testing.T) {
+	events := core.NewBlockEvents()
+	events.AddSyncFor([]string{"orders.charge"}, func(context.Context, types.BlockEvent) {})
+	events.AddSync(func(context.Context, types.BlockEvent) {})
+
+	if !events.Observes("anything.at.all") {
+		t.Error("an unfiltered listener did not make every path observed")
+	}
+}
+
+// Registering for no path registers nothing. Treating an empty set as "everything"
+// is how watching one address would turn into watching the whole process.
+func TestBlockEventsEmptyPathSetRegistersNothing(t *testing.T) {
+	events := core.NewBlockEvents()
+	events.AddSyncFor(nil, func(context.Context, types.BlockEvent) {})
+
+	if events.Active() {
+		t.Fatal("registering for no path made the dispatcher active")
+	}
+	if events.Observes("orders.charge") {
+		t.Error("registering for no path observed a block")
+	}
+}
+
+// A filtered listener must not see the blocks it did not ask for, even when
+// another listener widened what the dispatcher observes.
+func TestBlockEventsDeliversOnlyWhatEachListenerAskedFor(t *testing.T) {
+	events := core.NewBlockEvents()
+
+	var charge, all []string
+	events.AddSyncFor([]string{"orders.charge"}, func(_ context.Context, ev types.BlockEvent) {
+		charge = append(charge, ev.Path)
+	})
+	events.AddSync(func(_ context.Context, ev types.BlockEvent) {
+		all = append(all, ev.Path)
 	})
 
-	for _, path := range []string{"orders.a", "orders.b", "orders.c"} {
+	for _, path := range []string{"orders.charge", "orders.validate"} {
 		events.Emit(context.Background(), preEvent(path))
 	}
-	events.Stop()
 
-	if overlap {
-		t.Error("async listeners overlapped; delivery must be sequential")
+	if len(charge) != 1 || charge[0] != "orders.charge" {
+		t.Errorf("filtered listener saw %v, want only [orders.charge]", charge)
 	}
-	want := []string{"orders.a", "orders.b", "orders.c"}
-	if len(seen) != len(want) {
-		t.Fatalf("delivered %v, want %v", seen, want)
-	}
-	for i := range want {
-		if seen[i] != want[i] {
-			t.Fatalf("delivered %v, want %v", seen, want)
-		}
+	if len(all) != 2 {
+		t.Errorf("unfiltered listener saw %v, want both blocks", all)
 	}
 }
 
-// TestBlockEventsDropsWhenAsyncFallsBehind is the backpressure contract: Emit
-// returns promptly even while a listener is wedged, and says how much it lost.
-func TestBlockEventsDropsWhenAsyncFallsBehind(t *testing.T) {
+// A listener is an observer, so a broken one must not change the flow's outcome.
+// Emit runs on a flow worker, and a panic unwinding through one takes the process
+// with it — so containing it is the difference between losing a metric and losing
+// the runtime.
+func TestBlockEventsContainsAListenerPanic(t *testing.T) {
 	events := core.NewBlockEvents()
-	defer events.Stop()
 
-	release := make(chan struct{})
-	entered := make(chan struct{}, 1)
-	events.AddAsync(func(types.BlockEvent) {
-		select {
-		case entered <- struct{}{}:
-		default:
-		}
-		<-release
-	})
-
-	// Wedge the pump, then emit far more than the queue can hold.
-	events.Emit(context.Background(), preEvent("orders.wedge"))
-	<-entered
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for i := 0; i < 4096; i++ {
-			events.Emit(context.Background(), preEvent("orders.flood"))
-		}
-	}()
-
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		close(release)
-		t.Fatal("Emit blocked while an async listener was wedged")
-	}
-
-	if events.Dropped() == 0 {
-		t.Error("flooding a wedged listener dropped nothing")
-	}
-	close(release)
-}
-
-// TestBlockEventsAsyncPanicDoesNotKillThePump checks one bad listener costs its own
-// event rather than every future event in the process.
-func TestBlockEventsAsyncPanicDoesNotKillThePump(t *testing.T) {
-	events := core.NewBlockEvents()
-	defer events.Stop()
-
-	var delivered int
-	events.AddAsync(func(types.BlockEvent) { panic("boom") })
-	events.AddAsync(func(types.BlockEvent) { delivered++ })
+	var after int
+	events.AddSync(func(context.Context, types.BlockEvent) { panic("boom") })
+	events.AddSync(func(context.Context, types.BlockEvent) { after++ })
 
 	events.Emit(context.Background(), preEvent("orders.a"))
 	events.Emit(context.Background(), preEvent("orders.b"))
-	events.Stop()
 
-	if delivered != 2 {
-		t.Fatalf("delivered %d events after a panicking listener, want 2", delivered)
+	// The listener registered after the panicking one still ran, both times: one
+	// bad listener costs its own event, not every listener's.
+	if after != 2 {
+		t.Errorf("listeners after a panicking one ran %d times, want 2", after)
+	}
+	if got := events.Panics(); got != 2 {
+		t.Errorf("Panics() = %d, want 2 — a swallowed panic must stay countable", got)
+	}
+}
+
+// A panic must not leave the dispatcher wedged: the next event is delivered
+// normally, and a listener that recovers on its own is not counted.
+func TestBlockEventsPanicCountIsOnlyForSwallowedPanics(t *testing.T) {
+	events := core.NewBlockEvents()
+
+	var seen int
+	events.AddSync(func(context.Context, types.BlockEvent) {
+		defer func() { _ = recover() }()
+		seen++
+		panic("handled by the listener itself")
+	})
+
+	events.Emit(context.Background(), preEvent("orders.a"))
+
+	if seen != 1 {
+		t.Errorf("listener ran %d times, want 1", seen)
+	}
+	if got := events.Panics(); got != 0 {
+		t.Errorf("Panics() = %d, want 0 — the listener recovered its own panic", got)
 	}
 }
 
@@ -161,7 +187,6 @@ func TestBlockEventsAsyncPanicDoesNotKillThePump(t *testing.T) {
 // against a concurrent emit path; it is the case -race is here to check.
 func TestBlockEventsRegisterWhileEmitting(t *testing.T) {
 	events := core.NewBlockEvents()
-	defer events.Stop()
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -169,23 +194,15 @@ func TestBlockEventsRegisterWhileEmitting(t *testing.T) {
 		defer wg.Done()
 		for i := 0; i < 200; i++ {
 			events.Emit(context.Background(), preEvent("orders.a"))
+			events.Observes("orders.a")
 		}
 	}()
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 50; i++ {
 			events.AddSync(func(context.Context, types.BlockEvent) {})
-			events.AddAsync(func(types.BlockEvent) {})
+			events.AddSyncFor([]string{"orders.a"}, func(context.Context, types.BlockEvent) {})
 		}
 	}()
 	wg.Wait()
-}
-
-// TestBlockEventsStopIsIdempotent guards the drain path against a second call,
-// which would otherwise close an already-closed channel.
-func TestBlockEventsStopIsIdempotent(t *testing.T) {
-	events := core.NewBlockEvents()
-	events.AddAsync(func(types.BlockEvent) {})
-	events.Stop()
-	events.Stop()
 }

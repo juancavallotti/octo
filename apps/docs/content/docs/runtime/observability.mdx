@@ -102,17 +102,17 @@ octo run --config app.yaml --metrics \
 | --- | --- | --- |
 | `octo_block_invocations_total` | counter | `flow`, `path`, `type`, `outcome` (`ok`/`dropped`/`error`) |
 | `octo_block_duration_seconds` | histogram | `flow`, `path`, `type` |
-| `octo_block_events_dropped_total` | counter | — |
+| `octo_block_listener_panics_total` | counter | — |
 
 This is the difference between "this integration is slow" and "the `sql` block in this integration is slow". `*` watches every block, which is the fastest way to find where the time goes on a small config and a lot of series on a large one.
 
 <Callout type="warn">
-Watching **any** block makes the engine emit an event around **every** block, in every flow — the watched set filters what is recorded, not what is emitted. That is why this is a separate flag from `--metrics`, and why naming no address leaves the machinery completely off.
+A watched block is measured **on the flow's own goroutine**, in the middle of the block it is timing, so the measurement is on the message's critical path. It is two atomic updates and no allocation, which is small against any block that does real work — but it is not free, which is why this is a separate flag from `--metrics`. Blocks you did not name cost one comparison each; `'*'` puts the cost on every block in every flow and is a debugging tool, not a steady-state setting.
 </Callout>
 
 Two things to know before you trust the numbers:
 
-- **Delivery is at-most-once.** Per-block events go through a 1024-deep queue, and a full queue drops rather than slowing the flow down. `octo_block_events_dropped_total` is how many were lost; non-zero means the block counters are under-reporting. Telemetry falling behind costs telemetry, not throughput.
+- **The counters are exact.** Every watched invocation is recorded inline, so nothing is sampled and nothing is dropped, however hard the runtime is being pushed. (Before v0.6 these went through a queue and were dropped under load, which under-reported precisely when traffic was heaviest; `octo_block_events_dropped_total` was how many were lost and no longer exists.) The one way to lose a measurement now is a listener that panics — contained, logged with its stack, and counted in `octo_block_listener_panics_total`, which should be zero.
 - **A composite's duration includes its children's**, and the children emit their own events — so summing `octo_block_duration_seconds` across paths double-counts. The same applies across flows: a flow reached by `flow-ref` times itself, and its duration nests inside its caller's.
 
 ### Process and build

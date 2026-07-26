@@ -3,16 +3,12 @@ package core
 import (
 	"context"
 	"log/slog"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
 
 	"github.com/juancavallotti/octo/runtime/types"
 )
-
-// asyncBuffer is the depth of the queue feeding the async listeners. It matches
-// the per-subscription buffer the topics service uses, for the same reason: the
-// producer is the flow itself, and it must never wait on an observer.
-const asyncBuffer = 1024
 
 // SyncBlockListener observes a block invocation on the flow's own goroutine,
 // before the block runs and again after it returns. The flow waits for it, so a
@@ -23,69 +19,92 @@ const asyncBuffer = 1024
 // Reported): nothing else is touching the message while this runs.
 //
 // One flow runs on many goroutines — a worker pool per flow, and fork branches on
-// a shared pool — so a listener must be safe for concurrent use. A panic in a sync
-// listener propagates into the flow, deliberately: it is running as part of the
-// flow, and swallowing it would hide the bug.
+// a shared pool — so a listener must be safe for concurrent use, and must be cheap:
+// its cost is paid once per watched block per message, on the hot path.
 //
-// A sync listener observes; it cannot skip or abort the block.
+// A sync listener observes; it cannot skip or abort the block. A panic is contained
+// for the same reason: it is logged with its stack and counted, and the block
+// carries on. Telemetry is not worth a message, still less the process — and a
+// listener that could kill the flow it is watching would not be an observer.
+//
+// Inline is the only delivery this dispatcher offers. A queued, off-goroutine
+// variant used to exist and was removed: the producers are every flow worker in
+// the process and the consumer was a single goroutine, so no buffer size makes the
+// consumer keep up with sustained load — it only sets how long saturation takes to
+// start dropping. Worse, tail-dropping a full queue is not sampling, it is
+// "discard during bursts", which biases telemetry against exactly the traffic
+// worth measuring. A listener that genuinely must do slow or blocking work should
+// Clone what it needs here and hand the copy to a worker it owns, so the loss
+// policy is its own rather than the runtime's.
 type SyncBlockListener func(ctx context.Context, event types.BlockEvent)
 
-// AsyncBlockListener observes a block invocation after the fact, on the
-// dispatcher's own goroutine. All async listeners share that one goroutine and are
-// called in registration order, one event at a time.
-//
-// Delivery is at-most-once: when the queue is full the event is dropped rather
-// than made to wait, so a slow listener costs telemetry rather than throughput.
-//
-// It must not dereference event.Message.Body or event.Message.Variables — see the
-// contract on types.BlockEvent.Message. Everything else on the event is a value
-// copied on the flow's goroutine and is safe.
-type AsyncBlockListener func(event types.BlockEvent)
+// registration pairs a listener with the block paths it asked for.
+type registration struct {
+	fn SyncBlockListener
+	// paths is the set of block paths this listener wants, or nil for every path.
+	paths map[string]struct{}
+}
+
+// wants reports whether this listener asked for the given block path.
+func (r registration) wants(path string) bool {
+	if r.paths == nil {
+		return true
+	}
+	_, ok := r.paths[path]
+	return ok
+}
 
 // listeners is one immutable snapshot of the registered listeners. It is replaced
 // wholesale on registration so the emit path can read it without a lock.
 type listeners struct {
-	sync  []SyncBlockListener
-	async []AsyncBlockListener
+	registered []registration
+	// paths is the union of every filtered listener's set, which is what Observes
+	// answers from. It is nil when all is true, because then it would not be read.
+	paths map[string]struct{}
+	// all is set when any listener registered without a filter, so every block is
+	// observed.
+	all bool
+}
+
+// observes reports whether any registered listener asked for this block path.
+func (l *listeners) observes(path string) bool {
+	if l.all {
+		return true
+	}
+	if len(l.paths) == 0 {
+		return false
+	}
+	_, ok := l.paths[path]
+	return ok
 }
 
 // BlockEvents dispatches the pre- and post-invoke events the flow engine emits
-// around every block. It is the seam behind flow debugging (sync) and per-block
-// telemetry (async).
+// around every block. It is the seam behind flow debugging and per-block telemetry.
 //
 // It is the block-level counterpart to EventBus, which carries per-message flow
-// events. The two differ where the cost does: EventBus fans out under a read lock
-// on the terminal event of a whole flow, while this sits on the per-block hot path,
-// so its registered set is read through an atomic and its slow consumers are
-// pushed onto a queue instead of being waited for.
+// events. The two differ where the cost does: EventBus fans out on the terminal
+// event of a whole flow, while this sits on the per-block hot path — so its
+// registered set is read through an atomic, and a listener declares up front which
+// block paths it wants, so a block nobody asked about costs one atomic load and a
+// map lookup rather than a built event.
 //
-// The zero-listener case costs one atomic load: see Active.
+// The zero-listener case costs one atomic load: see Observes.
 type BlockEvents struct {
 	// set is the current listeners, replaced (never mutated) on registration.
 	set atomic.Pointer[listeners]
 	// mu serializes registration. The emit path never takes it.
 	mu sync.Mutex
 
-	// ch feeds the async listeners. It is allocated once, in New, so Emit never
-	// races a lazily-created channel.
-	ch chan types.BlockEvent
-	// startPump spawns the drain goroutine on the first async registration, so a
-	// dispatcher nobody listens to asynchronously never starts one.
-	startPump sync.Once
-	stopPump  sync.Once
-	done      chan struct{}
-	wg        sync.WaitGroup
-
-	dropped  atomic.Int64
-	warnOnce sync.Once
+	// panics counts listener panics the emit path swallowed. A swallowed panic
+	// means a listener saw an event and recorded nothing, so whatever it feeds is
+	// under-reporting — the same thing a full queue used to mean, and just as
+	// impossible to infer from the numbers themselves.
+	panics atomic.Int64
 }
 
 // NewBlockEvents returns a dispatcher with no listeners.
 func NewBlockEvents() *BlockEvents {
-	e := &BlockEvents{
-		ch:   make(chan types.BlockEvent, asyncBuffer),
-		done: make(chan struct{}),
-	}
+	e := &BlockEvents{}
 	e.set.Store(&listeners{})
 	return e
 }
@@ -98,10 +117,37 @@ func DefaultBlockEvents() *BlockEvents {
 	return defaultBlockEvents
 }
 
-// AddSync registers a listener called inline, on the flow's goroutine. It takes
-// effect on the next block invoked.
+// AddSync registers a listener for every block in every flow. It takes effect on
+// the next block invoked.
+//
+// Watching everything makes the engine build and dispatch an event around every
+// block in the process; prefer AddSyncFor when the set of interesting blocks is
+// known.
 func (e *BlockEvents) AddSync(listener SyncBlockListener) {
-	if listener == nil {
+	e.add(registration{fn: listener})
+}
+
+// AddSyncFor registers a listener that receives events only for the named block
+// paths. Other blocks are not dispatched to it, and — unless something else is
+// watching them — are not built into events at all.
+//
+// Passing no paths registers nothing: a listener that asked for no block is not a
+// listener that wants every block, and treating it as one is how watching a single
+// address turns into watching the process.
+func (e *BlockEvents) AddSyncFor(paths []string, listener SyncBlockListener) {
+	if len(paths) == 0 {
+		return
+	}
+	set := make(map[string]struct{}, len(paths))
+	for _, path := range paths {
+		set[path] = struct{}{}
+	}
+	e.add(registration{fn: listener, paths: set})
+}
+
+// add installs one registration, rebuilding the snapshot the emit path reads.
+func (e *BlockEvents) add(reg registration) {
+	if reg.fn == nil {
 		return
 	}
 	e.mu.Lock()
@@ -109,129 +155,70 @@ func (e *BlockEvents) AddSync(listener SyncBlockListener) {
 
 	current := e.set.Load()
 	next := &listeners{
-		sync:  append(append([]SyncBlockListener(nil), current.sync...), listener),
-		async: current.async,
+		registered: append(append([]registration(nil), current.registered...), reg),
+		all:        current.all || reg.paths == nil,
+	}
+	if !next.all {
+		next.paths = make(map[string]struct{}, len(current.paths)+len(reg.paths))
+		for path := range current.paths {
+			next.paths[path] = struct{}{}
+		}
+		for path := range reg.paths {
+			next.paths[path] = struct{}{}
+		}
 	}
 	e.set.Store(next)
 }
 
-// AddAsync registers a listener called off the flow's goroutine, and starts the
-// drain goroutine if this is the first one. It takes effect on the next block
-// invoked.
-func (e *BlockEvents) AddAsync(listener AsyncBlockListener) {
-	if listener == nil {
-		return
-	}
-	e.mu.Lock()
-	current := e.set.Load()
-	next := &listeners{
-		sync:  current.sync,
-		async: append(append([]AsyncBlockListener(nil), current.async...), listener),
-	}
-	e.set.Store(next)
-	e.mu.Unlock()
-
-	e.startPump.Do(func() {
-		e.wg.Add(1)
-		go e.pump()
-	})
-}
-
-// Active reports whether anything is listening. The engine calls it once per block,
-// so it is one atomic load and two length checks — the whole cost of the feature
-// when nobody has registered.
+// Active reports whether anything is listening at all.
 func (e *BlockEvents) Active() bool {
-	set := e.set.Load()
-	return len(set.sync) > 0 || len(set.async) > 0
+	return len(e.set.Load().registered) > 0
 }
 
-// Emit delivers the event: every sync listener inline, in registration order, then
-// the async queue. It runs on the flow's goroutine, so it does exactly as much work
-// as it must and never blocks on the queue.
+// Observes reports whether any listener asked about this block path. The engine
+// calls it once per block, before it builds anything, so the whole cost of the
+// feature is one atomic load when nobody has registered — and one atomic load plus
+// a map lookup for a block nobody watches when someone has.
+func (e *BlockEvents) Observes(path string) bool {
+	return e.set.Load().observes(path)
+}
+
+// Emit delivers the event to every listener that asked for its path, inline, in
+// registration order. It runs on the flow's goroutine and returns once they have
+// all been called, so a listener has observed the block by the time the flow moves
+// on — there is no queue, and nothing is dropped.
 func (e *BlockEvents) Emit(ctx context.Context, event types.BlockEvent) {
-	set := e.set.Load()
-	for _, listener := range set.sync {
-		listener(ctx, event)
-	}
-	if len(set.async) == 0 {
-		return
-	}
-
-	select {
-	case e.ch <- event:
-	default:
-		// At-most-once: a listener that fell behind loses events rather than
-		// slowing the flow down to its speed. Warn once — a saturated queue would
-		// otherwise turn the log into the next bottleneck — and keep the count.
-		e.dropped.Add(1)
-		e.warnOnce.Do(func() {
-			slog.Warn("block events: async listeners fell behind, dropping events",
-				"flow", event.Flow, "path", event.Path, "buffer", asyncBuffer)
-		})
-	}
-}
-
-// Dropped returns how many events were discarded because the async queue was full.
-func (e *BlockEvents) Dropped() int64 { return e.dropped.Load() }
-
-// Stop drains what is queued, calls the async listeners for it, and stops the drain
-// goroutine. It is idempotent.
-//
-// A Service does not call it: the default dispatcher is process-wide and outlives
-// any one generation of a hot-reloading runtime, the same way DefaultEventBus does.
-// It exists for tests that need delivery to have happened before they assert, and
-// for an embedder that owns its own dispatcher.
-//
-// The queue is never closed, only abandoned: closing it would race an in-flight
-// Emit into a panic, and guarding that would put a lock on the hot path. Events
-// emitted after Stop are buffered and never delivered.
-func (e *BlockEvents) Stop() {
-	e.stopPump.Do(func() {
-		close(e.done)
-		e.wg.Wait()
-		if dropped := e.dropped.Load(); dropped > 0 {
-			slog.Warn("block events: dropped events", "count", dropped)
-		}
-	})
-}
-
-// pump is the single goroutine behind the async listeners. Calling them one event
-// at a time is the contract: a listener may keep unsynchronized state.
-func (e *BlockEvents) pump() {
-	defer e.wg.Done()
-	for {
-		select {
-		case event := <-e.ch:
-			e.deliver(event)
-		case <-e.done:
-			// Drain what is already queued before leaving, so a test that stops the
-			// dispatcher sees everything it emitted.
-			for {
-				select {
-				case event := <-e.ch:
-					e.deliver(event)
-				default:
-					return
-				}
-			}
+	for _, reg := range e.set.Load().registered {
+		if reg.wants(event.Path) {
+			e.call(ctx, reg.fn, event)
 		}
 	}
 }
 
-// deliver calls each async listener, containing a panic so one bad listener costs
-// its own event rather than every future event for the whole process.
-func (e *BlockEvents) deliver(event types.BlockEvent) {
-	for _, listener := range e.set.Load().async {
-		e.call(listener, event)
-	}
-}
+// Panics returns how many listener panics were contained. Non-zero means a
+// listener is failing to record what it saw.
+func (e *BlockEvents) Panics() int64 { return e.panics.Load() }
 
-func (e *BlockEvents) call(listener AsyncBlockListener, event types.BlockEvent) {
+// call invokes one listener, containing a panic so a broken observer costs its own
+// event rather than the message it was watching — or, since a panic unwinding
+// through a flow worker takes the process with it, rather than the runtime.
+//
+// It is a function of its own so the deferred recover is not inside Emit's loop,
+// which would stop the compiler open-coding it.
+func (e *BlockEvents) call(ctx context.Context, listener SyncBlockListener, event types.BlockEvent) {
 	defer func() {
-		if r := recover(); r != nil {
-			slog.Error("block events: async listener panicked",
-				"flow", event.Flow, "path", event.Path, "panic", r)
+		r := recover()
+		if r == nil {
+			return
 		}
+		e.panics.Add(1)
+		// Every panic is logged, not just the first: a listener that panics once
+		// usually panics on every event, and a flood of these is the signal. The
+		// stack is what makes the line actionable — without it the report names the
+		// block, which is never where the bug is.
+		slog.Error("block events: listener panicked, event not recorded",
+			"flow", event.Flow, "path", event.Path, "kind", event.Kind,
+			"panic", r, "stack", string(debug.Stack()))
 	}()
-	listener(event)
+	listener(ctx, event)
 }

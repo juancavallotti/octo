@@ -139,11 +139,12 @@ Reach for them before either extension point when the requirement is "know what
 happened". The observability service is entirely built on them — it registers no
 connector and no block, and touches no engine internals.
 
-The contract, in short: flow-event handlers and **sync** block listeners run
-inline on the flow's own goroutine and must return fast; **async** block listeners
-run on the dispatcher's goroutine, are at-most-once (a full queue drops and
-counts), and must not dereference `BlockEvent.Message.Body` or `.Variables`. The
-full version, with the cost analysis, is in
+The contract, in short: flow-event handlers and block listeners all run inline on
+the flow's own goroutine and must return fast. Block listeners name the paths they
+want (`AddSyncFor`) so a block nobody asked about is never built into an event,
+and delivery is exactly once — there is no queue and nothing is dropped. A
+listener may read and copy `BlockEvent.Message` while it runs, but must not retain
+the pointer. The full version, with the cost analysis, is in
 [processing-pipeline.md](processing-pipeline.md) and
 [the monitoring page](../apps/docs/content/docs/runtime/monitoring.mdx).
 

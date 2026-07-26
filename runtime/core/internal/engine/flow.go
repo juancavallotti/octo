@@ -77,15 +77,17 @@ type Flow struct {
 // message, or (nil, nil) if a block dropped it, or an error if a block aborted.
 //
 // Each block is bracketed by a pre- and a post-invoke event when a dispatcher is
-// wired and something is listening. Observing costs three predicted branches per
-// block otherwise, and nothing is built, timed or allocated until a listener
-// exists. Listeners observe: the outcome of the loop is the same either way.
+// wired and a listener asked for that block's path. A block nobody asked about
+// costs two predicted branches and an atomic load, and nothing is built, timed or
+// allocated for it — which is why the path is tested before the event is made
+// rather than inside the listener. Listeners observe: the outcome of the loop is
+// the same either way.
 func (f *Flow) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
 	current := msg
 	for i := range f.Blocks {
 		block := f.Blocks[i]
 
-		observe := f.events != nil && block.Path != "" && f.events.Active()
+		observe := f.events != nil && block.Path != "" && f.events.Observes(block.Path)
 		var started time.Time
 		if observe {
 			f.events.Emit(ctx, f.event(types.BlockPreInvoke, block, current, time.Now()))
