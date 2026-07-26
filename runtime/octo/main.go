@@ -22,9 +22,12 @@ import (
 	_ "github.com/juancavallotti/octo/runtime/connectors/slack"         // registers the "slack" connector and its blocks
 	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/services"
-	// The active runtime-services provider is selected at build time by tag:
-	// standalone by default, k8s with -tags k8s. See providers_*.go. Hosted
-	// runtime services are gated the same way; see hosted_*.go.
+	// Build tags decide which runtime-services packages are COMPILED IN: standalone
+	// by default, k8s with -tags k8s (see providers_*.go). Which of the compiled-in
+	// providers is then ACTIVE is a separate, runtime decision, made by
+	// RUNTIME_SERVICES_MODULE — see the services package. Hosted runtime services
+	// are gated by tag the same way but have no such selection: every one compiled
+	// in runs. See hosted_*.go.
 )
 
 func main() {

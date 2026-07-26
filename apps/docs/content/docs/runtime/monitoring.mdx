@@ -73,7 +73,7 @@ Running standalone, stderr is the whole story — nothing is shipped anywhere. `
 <Callout type="info">
 Flow lifecycle events (`started`/`completed`/`dropped`/`failed`) stay on a process-local bus (`core.EventBus`), and block events on a process-local dispatcher (`core.BlockEvents`) — two separate mechanisms, neither of which leaves the process, and neither of which is shipped to a central trace store.
 
-They are, however, what the runtime's own metrics are built from: **[`--metrics`](/runtime/observability) exports per-flow and per-block numbers derived from these two streams** on the admin port, with no Go code from you. Subscribe directly only when you want something the exported metrics do not cover.
+They are, however, what the runtime's own metrics are built from: **[`--metrics`](/runtime/observability) exports per-flow numbers from the first stream, and `--metrics-blocks` adds per-block numbers from the second** on the admin port, with no Go code from you. Subscribe directly only when you want something the exported metrics do not cover.
 </Callout>
 
 ## Block events

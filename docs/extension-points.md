@@ -15,7 +15,7 @@ answers and be done, not four answers and a judgement call. A parallel seam
 package is the failure mode this page exists to prevent: it is always locally
 reasonable and always leaves the next person one more place to look.
 
-```
+```text
 runtime/
   services/     <- extension point 1: what the runtime IS
     standalone/     provider   (core.RuntimeServices)
@@ -27,9 +27,14 @@ runtime/
     internal/engine/  <- not an extension point; see "The engine" below
 ```
 
-Both work the same way: a subpackage, an `init` that registers, and a blank import
-in `runtime/octo/main.go` deciding what the binary ships. Nothing is discovered,
-nothing is configured by path.
+Both are wired the same way: a subpackage, an `init` that registers, and a blank
+import in `runtime/octo/main.go` deciding what the binary ships. Nothing is
+discovered, nothing is configured by path.
+
+They are *activated* differently, which is the part worth keeping straight. A
+build tag decides which packages are compiled in. Among the providers compiled in,
+`RUNTIME_SERVICES_MODULE` then selects the one that is active; hosted services have
+no such selection and every one compiled in runs.
 
 ## `services` — what the runtime is
 
@@ -162,7 +167,7 @@ adding one would be the third extension point this page is about.
 
 ## Choosing, in one pass
 
-```
+```text
 Does a flow author reference it by name in YAML?
 ├─ yes → connector (+ its blocks, sources, meta, and docs page)
 └─ no

@@ -76,6 +76,8 @@ func (s *Service) Usage() string { return "..." }
 
 func (s *Service) Flags(fs *flag.FlagSet) {
 	fs.BoolVar(&s.enabled, "observability", envBool("OCTO_OBSERVABILITY", true), "...")
+	// ... and one call per remaining flag: --observability-addr, --metrics,
+	// --metrics-blocks.
 }
 
 func (s *Service) Start(ctx context.Context, health *services.Health) error {

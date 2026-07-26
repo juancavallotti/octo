@@ -40,9 +40,22 @@ const (
 	// a user's http connector wanted.
 	defaultAddr = ":39999"
 
-	// readHeaderTimeout matches the http connector's default. A probe endpoint is
-	// as reachable as any other, so it gets the same slow-loris guard.
+	// Request timeouts. The admin port is unauthenticated and everything it serves
+	// is small and fast — a probe answers in microseconds, a scrape walks a
+	// registry — so every phase is bounded. Without them a client that opens a
+	// connection and then stalls, mid-header or mid-body, holds a goroutine and a
+	// socket for as long as it likes.
+	//
+	// readHeaderTimeout matches the http connector's default.
 	readHeaderTimeout = 10 * time.Second
+	// readTimeout covers the whole request, so a stalled body is bounded too.
+	readTimeout = 15 * time.Second
+	// writeTimeout is generous relative to the work: it only has to cover writing
+	// an exposition page, and cutting a scrape short is worse than serving it late.
+	writeTimeout = 30 * time.Second
+	// idleTimeout closes a kept-alive connection nothing is using. Prometheus
+	// reuses connections between scrapes, so this sits above a typical interval.
+	idleTimeout = 90 * time.Second
 
 	// shutdownTimeout bounds the drain on stop. Probes and scrapes are short; a
 	// server that has not drained in this long is not going to.
@@ -174,7 +187,9 @@ func (s *Service) Start(ctx context.Context, health *services.Health) error {
 	s.server = &http.Server{
 		Handler:           s.handler(),
 		ReadHeaderTimeout: readHeaderTimeout,
-		IdleTimeout:       readHeaderTimeout,
+		ReadTimeout:       readTimeout,
+		WriteTimeout:      writeTimeout,
+		IdleTimeout:       idleTimeout,
 	}
 
 	go func() {

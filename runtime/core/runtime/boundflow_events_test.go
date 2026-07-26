@@ -255,19 +255,23 @@ func TestFlowEventBlockSurvivesErrorPathWrapping(t *testing.T) {
 	}
 }
 
-// A flow with no bus must not panic when publishing, and a flow with one must
-// report a duration that is plausible rather than merely non-zero.
+// The reported duration must be plausible from both ends: at least as long as the
+// work the flow actually did, and no longer than the wall time of the whole run.
+//
+// It uses slow-pass rather than pass deliberately. A pass block can finish inside
+// the clock's resolution, so "greater than zero" would be an assertion about the
+// platform's timer granularity rather than about what the runtime reports.
 func TestFlowEventDurationIsBounded(t *testing.T) {
 	rec := &recorder{}
-	bf := newEventFlow(t, []types.BlockConfig{{Type: "pass"}}, nil, rec)
+	bf := newEventFlow(t, []types.BlockConfig{{Type: "slow-pass"}}, nil, rec)
 
 	before := time.Now()
 	runOne(t, bf)
 	wall := time.Since(before)
 
 	ev := rec.terminal(t)
-	if ev.Duration <= 0 {
-		t.Errorf("Duration = %v, want > 0", ev.Duration)
+	if ev.Duration < slowBlockDelay {
+		t.Errorf("Duration = %v, want at least the block's %v", ev.Duration, slowBlockDelay)
 	}
 	if ev.Duration > wall {
 		t.Errorf("Duration = %v exceeds the wall time of the whole run (%v)", ev.Duration, wall)

@@ -5,7 +5,7 @@ description: "Health probes and Prometheus metrics on the runtime's admin port."
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-Every runtime serves an **admin port** — separate from any `http` connector — carrying liveness and readiness probes and, when you ask for them, Prometheus metrics. This page covers what it exposes, what the numbers mean, and what they cost.
+By default your runtime serves an **admin port** — separate from any `http` connector — carrying liveness and readiness probes and, when you ask for them, Prometheus metrics. You can turn it off with `--observability=false`. This page covers what it exposes, what the numbers mean, and what they cost.
 
 ## The admin port
 

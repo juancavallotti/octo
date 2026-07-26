@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/core/runtime"
@@ -19,6 +20,11 @@ import (
 
 // This file holds `octo run`: starting the configured connectors and flows, and
 // reloading them on a config change under --watch.
+
+// hostedStopTimeout bounds how long the hosted runtime services get to shut down
+// between them. It is generous, because the point is to cap a service that has
+// wedged rather than to hurry one that is draining.
+const hostedStopTimeout = 30 * time.Second
 
 // runCommand starts the configured connectors and flows until interrupted. With
 // --watch it reloads on config changes.
@@ -90,8 +96,11 @@ func startHosted(ctx context.Context, hosted []services.HostedService, health *s
 	started := make([]services.HostedService, 0, len(hosted))
 	stop := func() {
 		// Shutdown runs after the run context is cancelled, so it needs a context
-		// that is not already done — otherwise a graceful drain has nowhere to happen.
-		stopCtx := context.WithoutCancel(ctx)
+		// that is not already done — otherwise a graceful drain has nowhere to
+		// happen. It is bounded all the same: a service that will not stop must not
+		// be able to hold the process open forever.
+		stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), hostedStopTimeout)
+		defer cancel()
 		for i := len(started) - 1; i >= 0; i-- {
 			if err := started[i].Stop(stopCtx); err != nil {
 				slog.Error("hosted service failed to stop", "service", started[i].Name(), "error", err)
@@ -152,6 +161,13 @@ func runOnce(
 func announceWhenReady(ctx context.Context, service *runtime.Service, health *services.Health) {
 	select {
 	case <-service.Started():
+		// Both channels can be ready at once, and select picks between them at
+		// random. A generation that is already being torn down must not reopen
+		// readiness on its way out, so re-check: a cancelled context here means
+		// this announcement is stale before it is written.
+		if ctx.Err() != nil {
+			return
+		}
 		health.SetState(services.StateReady)
 		fmt.Println(readyBanner())
 	case <-ctx.Done():
@@ -218,24 +234,40 @@ func runGeneration(
 	defer cancel()
 	done := make(chan error, 1)
 	service := runtime.NewService(config, core.DefaultRegistry(), runtime.WithRuntimeServices(svc))
-	go announceWhenReady(runCtx, service, health)
+	announced := make(chan struct{})
+	go func() {
+		defer close(announced)
+		announceWhenReady(runCtx, service, health)
+	}()
 	go func() { done <- service.Run(runCtx) }()
+
+	// settle records this generation's final readiness state. It cancels first so
+	// the announcer always wakes — a generation that failed before reporting ready
+	// leaves Started() closed forever — and waits for it to exit, so a late
+	// announcement can never land after the state written here.
+	settle := func(state services.State) {
+		cancel()
+		<-announced
+		health.SetState(state)
+	}
 
 	select {
 	case <-ctx.Done():
 		<-done
-		health.SetState(services.StateStopped)
+		settle(services.StateStopped)
 		return false, nil
 	case <-changed:
 		slog.Info("config changed, reloading")
 		// Readiness goes false for the whole rebuild: the old generation's sources
-		// are about to stop and the new one's are not up yet.
+		// are about to stop and the new one's are not up yet. settle writes it again
+		// once the generation has fully stopped; this write is the prompt one.
 		health.SetState(services.StateReloading)
 		cancel()
 		<-done
+		settle(services.StateReloading)
 		return true, nil
 	case runErr := <-done:
-		health.SetState(services.StateReloading)
+		settle(services.StateReloading)
 		if runErr != nil && !errors.Is(runErr, context.Canceled) {
 			return false, runErr
 		}

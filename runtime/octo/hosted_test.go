@@ -6,6 +6,7 @@ import (
 	"flag"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/juancavallotti/octo/runtime/services"
 	"github.com/juancavallotti/octo/runtime/types"
@@ -47,18 +48,30 @@ func (c *configAware) Configured(config types.Config) {
 // A hosted service's flags have no YAML to document them, so its section has to
 // reach the help page — and the "one or two dashes" note is about every flag on
 // the page, so it must stay last.
+//
+// It asserts against the real registry rather than registering a fake: the hosted
+// registry is process-wide with no unregister, so a fake would leak into every
+// other test in this package and redefine its flags on a repeat run.
 func TestUsageTextIncludesHostedSections(t *testing.T) {
-	services.RegisterHosted(&fakeHosted{name: "fake-usage", usage: "Fake flags:\n  --fake-usage-flag", log: new([]string)})
-
 	got := usageText()
-	if !strings.Contains(got, "Fake flags:\n  --fake-usage-flag") {
-		t.Error("usageText() is missing the hosted service's section")
+
+	if !strings.Contains(got, "octo — run and invoke octo integration flows") {
+		t.Error("usageText() is missing the static help page")
 	}
 	if !strings.HasSuffix(got, dashNote) {
 		t.Errorf("usageText() does not end with the dash note; got tail %q", got[max(0, len(got)-80):])
 	}
-	if !strings.Contains(got, "octo — run and invoke octo integration flows") {
-		t.Error("usageText() is missing the static help page")
+	for _, service := range services.Hosted() {
+		usage := strings.TrimSpace(service.Usage())
+		if usage == "" {
+			continue
+		}
+		if !strings.Contains(got, usage) {
+			t.Errorf("usageText() is missing the %q service's section", service.Name())
+		}
+		if strings.Index(got, usage) > strings.LastIndex(got, dashNote) {
+			t.Errorf("the %q service's section is below the dash note that describes it", service.Name())
+		}
 	}
 }
 
@@ -111,11 +124,22 @@ func TestStartHostedUnwindsOnFailure(t *testing.T) {
 }
 
 // The stop context outlives cancellation of the run, so a graceful drain has
-// somewhere to happen.
-func TestStartHostedStopUsesLiveContext(t *testing.T) {
+// somewhere to happen — but it is bounded, so a service that wedges cannot hold
+// the process open forever. Both are asserted from inside Stop, which is the only
+// moment they are true: the context is released as soon as stop() returns.
+func TestStartHostedStopUsesLiveBoundedContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	var stopCtx context.Context
-	hosted := []services.HostedService{&contextCapturingHosted{onStop: func(c context.Context) { stopCtx = c }}}
+	var (
+		called   bool
+		liveErr  error
+		deadline time.Time
+		bounded  bool
+	)
+	hosted := []services.HostedService{&contextCapturingHosted{onStop: func(c context.Context) {
+		called = true
+		liveErr = c.Err()
+		deadline, bounded = c.Deadline()
+	}}}
 
 	stop, err := startHosted(ctx, hosted, services.NewHealth())
 	if err != nil {
@@ -124,11 +148,17 @@ func TestStartHostedStopUsesLiveContext(t *testing.T) {
 	cancel()
 	stop()
 
-	if stopCtx == nil {
+	if !called {
 		t.Fatal("Stop was not called")
 	}
-	if stopCtx.Err() != nil {
-		t.Fatalf("Stop context is already done (%v); a drain has nowhere to happen", stopCtx.Err())
+	if liveErr != nil {
+		t.Errorf("Stop context was already done (%v); a drain has nowhere to happen", liveErr)
+	}
+	if !bounded {
+		t.Fatal("Stop context has no deadline; a wedged service would hold the process open forever")
+	}
+	if remaining := time.Until(deadline); remaining <= 0 || remaining > hostedStopTimeout {
+		t.Errorf("Stop deadline is %v away, want (0, %v]", remaining, hostedStopTimeout)
 	}
 }
 
