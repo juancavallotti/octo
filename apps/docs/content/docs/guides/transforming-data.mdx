@@ -86,7 +86,7 @@ flows:
             - type: set-payload
               name: summary
               settings:
-                # The scope rewrites the body on its own copy; it stays isolated.
+                # The scope rebinds its own body; it stays isolated.
                 value: '{"total": body.qty * body.price, "note": "scope-only body"}'
       - type: log
         name: emit

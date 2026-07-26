@@ -60,8 +60,8 @@ func copyBody(body any) (value any, copied bool) {
 
 // jsonCopy deep-copies a value through a JSON round-trip, normalizing it to
 // decoded-JSON kinds on the way. It is the fallback for values that break the
-// body contract, and the only path that can encounter a cyclic value — where it
-// returns an error rather than recursing forever.
+// body contract. Structural copy paths can recurse on cyclic map[string]any or
+// []any values, while jsonCopy reports cycles encountered during JSON encoding.
 func jsonCopy(value any) (any, bool) {
 	raw, err := json.Marshal(value)
 	if err != nil {
