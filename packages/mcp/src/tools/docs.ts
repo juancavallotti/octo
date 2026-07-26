@@ -3,7 +3,13 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { resolveRuntimeSchema, type OctoMcpConfig } from "../backend";
 import { errorResult, guard, jsonResult } from "../result";
 import { EXAMPLES, getExample } from "../examples";
-import { CEL_FUNCTIONS, CEL_VARIABLES, getCelFunction } from "../cel";
+import {
+  CEL_FUNCTIONS,
+  CEL_VARIABLES,
+  celLibraries,
+  getCelFunction,
+  getCelLibrary,
+} from "../cel";
 
 /**
  * Documentation tools: serve the runtime schema and the worked examples on demand,
@@ -97,26 +103,43 @@ export function registerDocsTools(
     {
       title: "Get CEL functions",
       description:
-        "The CEL variables and custom functions available to Octo message expressions (log messages, payloads, if/switch conditions, connector fields). Call with no argument for { variables, functions }; pass `functionName` (e.g. \"fromFormData\") for one function's signature, summary, and example. Use this to write expressions instead of guessing what's in scope.",
+        "The CEL variables and functions available to Octo message expressions (log messages, payloads, if/switch conditions, connector fields). Call with no argument for { variables, functions, libraries }; pass `functionName` (e.g. \"fromFormData\" or \"math.round\") for one function's signature, summary, and example, or `library` (octo, strings, lists, encoders, math, comprehensions, sets, regex, optional) for that library's functions. Use this to write expressions instead of guessing what's in scope. The CEL standard library (size, has, map, filter, startsWith, timestamp, …) is always available on top of these and is not listed here.",
       inputSchema: {
         functionName: z
           .string()
           .optional()
           .describe("A CEL function name to fetch one entry; omit for the full catalogue."),
+        library: z
+          .string()
+          .optional()
+          .describe("A library name to fetch just its functions; omit for all of them."),
       },
     },
-    ({ functionName }) =>
+    ({ functionName, library }) =>
       guard(async () => {
-        if (!functionName) {
-          return jsonResult({ variables: CEL_VARIABLES, functions: CEL_FUNCTIONS });
+        if (functionName) {
+          const fn = getCelFunction(functionName);
+          if (!fn) {
+            return errorResult(
+              `Unknown CEL function "${functionName}". Call getCelFunctions with no argument to list the available functions.`,
+            );
+          }
+          return jsonResult(fn);
         }
-        const fn = getCelFunction(functionName);
-        if (!fn) {
-          return errorResult(
-            `Unknown CEL function "${functionName}". Call getCelFunctions with no argument to list the available functions.`,
-          );
+        if (library) {
+          const functions = getCelLibrary(library);
+          if (functions.length === 0) {
+            return errorResult(
+              `Unknown CEL library "${library}". Available: ${celLibraries().join(", ")}.`,
+            );
+          }
+          return jsonResult({ library, functions });
         }
-        return jsonResult(fn);
+        return jsonResult({
+          variables: CEL_VARIABLES,
+          functions: CEL_FUNCTIONS,
+          libraries: celLibraries(),
+        });
       }),
   );
 }

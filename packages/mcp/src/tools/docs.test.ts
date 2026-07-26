@@ -131,10 +131,47 @@ describe("getCelFunctions tool", () => {
     expect(fn.signature).toContain("fromFormData");
   });
 
+  it("returns a namespaced extension function by its dotted name", async () => {
+    const client = await connect();
+    const fn = JSON.parse((await call(client, "getCelFunctions", { functionName: "math.round" })).text);
+    expect(fn.library).toBe("math");
+    expect(fn.signature).toContain("math.round");
+  });
+
+  it("lists the extension libraries alongside the functions", async () => {
+    const client = await connect();
+    const cat = JSON.parse((await call(client, "getCelFunctions")).text);
+    expect(cat.libraries).toEqual(
+      expect.arrayContaining(["octo", "strings", "lists", "encoders", "math", "sets", "regex"]),
+    );
+    expect(cat.functions.map((f: { name: string }) => f.name)).toEqual(
+      expect.arrayContaining(["upperAscii", "sortBy", "base64.encode", "regex.extract"]),
+    );
+  });
+
+  it("filters the catalogue to one library", async () => {
+    const client = await connect();
+    const res = JSON.parse((await call(client, "getCelFunctions", { library: "sets" })).text);
+    expect(res.library).toBe("sets");
+    expect(res.functions.map((f: { name: string }) => f.name)).toEqual([
+      "sets.contains",
+      "sets.equivalent",
+      "sets.intersects",
+    ]);
+  });
+
   it("errors on an unknown function", async () => {
     const client = await connect();
     const res = await call(client, "getCelFunctions", { functionName: "nope" });
     expect(res.isError).toBe(true);
     expect(res.text).toContain("Unknown CEL function");
+  });
+
+  it("errors on an unknown library and names the valid ones", async () => {
+    const client = await connect();
+    const res = await call(client, "getCelFunctions", { library: "nope" });
+    expect(res.isError).toBe(true);
+    expect(res.text).toContain("Unknown CEL library");
+    expect(res.text).toContain("strings");
   });
 });
