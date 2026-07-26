@@ -53,9 +53,10 @@ const (
 // read from the process environment only: a runtime's .env file is loaded during
 // config load, which happens after the flags are parsed.
 const (
-	envEnabled = "OCTO_OBSERVABILITY"
-	envAddr    = "OCTO_OBSERVABILITY_ADDR"
-	envMetrics = "OCTO_METRICS"
+	envEnabled      = "OCTO_OBSERVABILITY"
+	envAddr         = "OCTO_OBSERVABILITY_ADDR"
+	envMetrics      = "OCTO_METRICS"
+	envMetricBlocks = "OCTO_METRICS_BLOCKS"
 )
 
 func init() {
@@ -64,9 +65,10 @@ func init() {
 
 // Service is the observability runtime service.
 type Service struct {
-	enabled bool
-	addr    string
-	metrics bool
+	enabled      bool
+	addr         string
+	metrics      bool
+	metricBlocks string
 
 	health      *services.Health
 	collectors  *metrics
@@ -91,6 +93,8 @@ func (s *Service) Flags(fs *flag.FlagSet) {
 		"admin listen address for probes and metrics")
 	fs.BoolVar(&s.metrics, "metrics", envBool(envMetrics, false),
 		"serve Prometheus metrics on the admin port")
+	fs.StringVar(&s.metricBlocks, "metrics-blocks", envString(envMetricBlocks, ""),
+		"comma-separated block addresses to report per-block timings for, or * for all")
 }
 
 // Usage implements services.HostedService.
@@ -102,6 +106,10 @@ func (s *Service) Usage() string {
                      admin listen address (default :39999)
 
   --metrics          serve Prometheus metrics (default: off)
+  --metrics-blocks <addrs>
+                     comma-separated block addresses to report per-block timings
+                     for, in the same grammar "invoke --spies" accepts, or * for
+                     every block
 
   The admin port is separate from any http connector, so probes never collide with
   a user route and answer even for a runtime with no HTTP source at all:
@@ -119,6 +127,15 @@ func (s *Service) Usage() string {
   flow, and the Go runtime and process collectors (goroutines, heap, GC, RSS, CPU,
   open files). Every label comes from the config — never from message data — so
   cardinality is bounded by what you wrote.
+
+  --metrics-blocks adds per-block timings, for named blocks only:
+
+    --metrics-blocks orders.charge,orders.fanout[audit].log-it
+
+  It is opt-in because it is the expensive half: watching ANY block makes the
+  engine emit an event around EVERY block, in every flow, not just the watched
+  ones. Delivery is at-most-once, so under saturation the block counters
+  under-report — octo_block_events_dropped_total is how much.
 
   Each flag's default is its environment variable, so a deployment can set
   OCTO_OBSERVABILITY / OCTO_OBSERVABILITY_ADDR / OCTO_METRICS instead. These are
@@ -144,6 +161,7 @@ func (s *Service) Start(ctx context.Context, health *services.Health) error {
 		// publishing whether or not anyone listens, unlike the block-event
 		// dispatcher, which is why per-flow metrics need no address list.
 		s.unsubscribe = core.DefaultEventBus().Subscribe(s.collectors.onFlowEvent)
+		s.watchBlocks()
 	}
 
 	var lc net.ListenConfig
@@ -164,6 +182,32 @@ func (s *Service) Start(ctx context.Context, health *services.Health) error {
 	}()
 	slog.Info("observability listening", "addr", ln.Addr().String())
 	return nil
+}
+
+// watchBlocks registers the per-block listener when --metrics-blocks named any
+// address. Nothing is registered otherwise, which is what keeps the block-event
+// dispatcher inactive — and the engine's per-block emission off — by default.
+//
+// The listener is async, so a slow update costs telemetry rather than throughput,
+// at the price of at-most-once delivery. It registers on the process-wide
+// dispatcher once, for the life of the process, so a --watch reload does not
+// accumulate a listener per generation (the dispatcher has no unsubscribe).
+func (s *Service) watchBlocks() {
+	addresses := parseAddresses(s.metricBlocks)
+	if len(addresses) == 0 {
+		return
+	}
+
+	events := core.DefaultBlockEvents()
+	blocks := newBlockMetrics(s.collectors.registry, addresses, events)
+	events.AddAsync(blocks.onBlockEvent)
+
+	if blocks.all {
+		slog.Warn("observability: --metrics-blocks '*' reports every block; " +
+			"on a large config that is a lot of time series")
+	}
+	slog.Info("observability: reporting per-block metrics",
+		"blocks", len(addresses), "all", blocks.all)
 }
 
 // Configured records each generation's shape and pre-creates its flows' series,

@@ -55,6 +55,7 @@ octo run --config samples/hello-world.yaml
 | `--observability` | bool | `true` | Serve liveness and readiness probes on the admin port. `--observability=false` binds nothing. |
 | `--observability-addr` | address | `:39999` | Admin listen address for the probes and metrics. |
 | `--metrics` | bool | `false` | Also serve Prometheus metrics at `/metrics` on the admin port. |
+| `--metrics-blocks` | addresses | (none) | Comma-separated [block addresses](#addressing-a-block) to add per-block timings for, or `*` for every block. |
 
 These configure the [observability runtime service](/runtime/observability), which
 serves on a port of its own — separate from any `http` connector, so probes never
@@ -65,6 +66,19 @@ all. Each flag defaults to the environment variable of the same name (see
 `--metrics` exports per-flow rate, errors and duration, the in-flight count per
 flow, and the Go runtime and process collectors. It is off by default because
 per-flow accounting is real work on the flow's own goroutine; probes are not.
+
+`--metrics-blocks` adds per-block timings for the blocks you name, in the same
+address grammar [`--spies`](#spies) accepts:
+
+```bash
+octo run --config app.yaml --metrics \
+  --metrics-blocks 'orders.charge,orders.fanout[audit].log-it'
+```
+
+It is a separate flag because it is the expensive half: watching **any** block
+makes the engine emit an event around **every** block in every flow, not just the
+watched ones. Delivery is at-most-once, so under saturation the block counters
+under-report — `octo_block_events_dropped_total` says by how much.
 
 When `--config` points to a directory, every `.yaml`/`.yml` file directly in it
 (sorted by name, subdirectories ignored) is loaded and merged into one config.
