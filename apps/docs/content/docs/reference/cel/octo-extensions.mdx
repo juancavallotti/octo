@@ -52,7 +52,8 @@ source:
 ## Functions
 
 Octo registers five functions on top of the CEL standard library. All of them
-are available in every message expression.
+are available in every message expression, in every source payload, and inside
+a template's `{{ }}` spans — the three environments expose the same set.
 
 ### toJson
 
@@ -135,8 +136,14 @@ message.
 
 A template is a shared resource, so its `{{ }}` spans may name any variable from
 any scope it can be rendered in. Rendering it from a source payload gives it that
-scope instead — `{{ settings.* }}` and `{{ now }}` — and a span naming a variable
-the current scope does not have (`{{ body.x }}` in a payload) fails at render.
+scope instead — `{{ settings.* }}` and `{{ now }}`. A span naming a variable the
+current scope does not supply (`{{ body.x }}` in a payload) reads as null rather
+than failing, so write templates against the scope you render them from.
+
+`templateResource` is itself available inside a template, so templates compose:
+a page template can pull in a shared header with
+`{{ templateResource("header") }}`. Nesting is capped at 8 levels, so a template
+that renders itself fails with a clear error instead of recursing without end.
 
 ```yaml
 resources:

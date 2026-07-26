@@ -14,5 +14,5 @@ var SourcePayloadVars = []string{nowVar, "settings"}
 // exactly as it does in a message expression, resolved against the source's own
 // scope. res may be nil (a no-op loader is used).
 func CompileSourcePayload(res core.ResourceLoader, expression string) (*Program, error) {
-	return compileWithExtensions(res, SourcePayloadVars, expression)
+	return compileWithExtensions(MessageContext{Resources: res, Vars: SourcePayloadVars}, expression)
 }
