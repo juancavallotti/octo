@@ -1,7 +1,9 @@
 # Extension Points
 
 Where new runtime capability goes, and — more often the useful question — where it
-does not. This page is the rule; the published docs carry the walkthroughs.
+does not. This page is the rule; the walkthroughs live in
+[the extending section](../apps/docs/content/docs/extending/) of the published
+docs.
 
 ## The one idea
 
