@@ -8,6 +8,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
@@ -84,7 +85,7 @@ type blockSeries struct {
 // newBlockMetrics builds the per-block collectors for the given addresses and
 // registers them on reg. It returns nil when no address was named, which is what
 // keeps the block-event dispatcher inactive by default.
-func newBlockMetrics(reg *prometheus.Registry, addresses []string) *blockMetrics {
+func newBlockMetrics(reg *prometheus.Registry, addresses []string, events *core.BlockEvents) *blockMetrics {
 	if len(addresses) == 0 {
 		return nil
 	}
@@ -117,6 +118,24 @@ func newBlockMetrics(reg *prometheus.Registry, addresses []string) *blockMetrics
 	}
 
 	reg.MustRegister(b.invocations, b.duration)
+
+	// The dispatcher owns the running total, so read it at scrape time instead of
+	// keeping a second copy in step with it. A contained panic means a listener saw
+	// an event and recorded nothing, so a non-zero value here means the counters
+	// above are under-reporting — which is worth knowing and impossible to infer
+	// from the counters themselves.
+	reg.MustRegister(prometheus.NewCounterFunc(prometheus.CounterOpts{
+		Namespace: namespace,
+		Name:      "block_listener_panics_total",
+		Help: "Block-event listener panics the runtime contained. " +
+			"Non-zero means the block counters are under-reporting; the log has the stack.",
+	}, func() float64 {
+		if events == nil {
+			return 0
+		}
+		return float64(events.Panics())
+	}))
+
 	return b
 }
 

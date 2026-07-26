@@ -17,7 +17,7 @@ import (
 // BenchmarkBlockMetricsRecord is the shipped path: the label tuple resolves out of
 // the copy-on-write cache, and the update is two atomic adds.
 func BenchmarkBlockMetricsRecord(b *testing.B) {
-	m := newBlockMetrics(prometheus.NewRegistry(), []string{watchAll})
+	m := newBlockMetrics(prometheus.NewRegistry(), []string{watchAll}, nil)
 	event := blockEvent("orders", "orders.charge", "rest", 3*time.Millisecond, nil, false)
 
 	b.ReportAllocs()
@@ -34,7 +34,7 @@ func BenchmarkBlockMetricsRecord(b *testing.B) {
 // vector's label hashing and the read lock on its map — one cache line, written by
 // every core on every block.
 func BenchmarkBlockMetricsRecordUncached(b *testing.B) {
-	m := newBlockMetrics(prometheus.NewRegistry(), []string{watchAll})
+	m := newBlockMetrics(prometheus.NewRegistry(), []string{watchAll}, nil)
 	event := blockEvent("orders", "orders.charge", "rest", 3*time.Millisecond, nil, false)
 
 	b.ReportAllocs()
@@ -51,7 +51,7 @@ func BenchmarkBlockMetricsRecordUncached(b *testing.B) {
 // A pre-invoke event for a watched block is dispatched and discarded here, so the
 // rejection has to be cheap too.
 func BenchmarkBlockMetricsRejectsPreInvoke(b *testing.B) {
-	m := newBlockMetrics(prometheus.NewRegistry(), []string{watchAll})
+	m := newBlockMetrics(prometheus.NewRegistry(), []string{watchAll}, nil)
 	event := types.BlockEvent{
 		Kind: types.BlockPreInvoke, Flow: "orders", Path: "orders.charge", BlockType: "rest",
 	}

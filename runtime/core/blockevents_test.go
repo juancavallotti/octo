@@ -137,6 +137,52 @@ func TestBlockEventsDeliversOnlyWhatEachListenerAskedFor(t *testing.T) {
 	}
 }
 
+// A listener is an observer, so a broken one must not change the flow's outcome.
+// Emit runs on a flow worker, and a panic unwinding through one takes the process
+// with it — so containing it is the difference between losing a metric and losing
+// the runtime.
+func TestBlockEventsContainsAListenerPanic(t *testing.T) {
+	events := core.NewBlockEvents()
+
+	var after int
+	events.AddSync(func(context.Context, types.BlockEvent) { panic("boom") })
+	events.AddSync(func(context.Context, types.BlockEvent) { after++ })
+
+	events.Emit(context.Background(), preEvent("orders.a"))
+	events.Emit(context.Background(), preEvent("orders.b"))
+
+	// The listener registered after the panicking one still ran, both times: one
+	// bad listener costs its own event, not every listener's.
+	if after != 2 {
+		t.Errorf("listeners after a panicking one ran %d times, want 2", after)
+	}
+	if got := events.Panics(); got != 2 {
+		t.Errorf("Panics() = %d, want 2 — a swallowed panic must stay countable", got)
+	}
+}
+
+// A panic must not leave the dispatcher wedged: the next event is delivered
+// normally, and a listener that recovers on its own is not counted.
+func TestBlockEventsPanicCountIsOnlyForSwallowedPanics(t *testing.T) {
+	events := core.NewBlockEvents()
+
+	var seen int
+	events.AddSync(func(context.Context, types.BlockEvent) {
+		defer func() { _ = recover() }()
+		seen++
+		panic("handled by the listener itself")
+	})
+
+	events.Emit(context.Background(), preEvent("orders.a"))
+
+	if seen != 1 {
+		t.Errorf("listener ran %d times, want 1", seen)
+	}
+	if got := events.Panics(); got != 0 {
+		t.Errorf("Panics() = %d, want 0 — the listener recovered its own panic", got)
+	}
+}
+
 // TestBlockEventsRegisterWhileEmitting exercises the copy-on-write registration
 // against a concurrent emit path; it is the case -race is here to check.
 func TestBlockEventsRegisterWhileEmitting(t *testing.T) {

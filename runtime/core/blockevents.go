@@ -2,6 +2,8 @@ package core
 
 import (
 	"context"
+	"log/slog"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
 
@@ -18,11 +20,12 @@ import (
 //
 // One flow runs on many goroutines — a worker pool per flow, and fork branches on
 // a shared pool — so a listener must be safe for concurrent use, and must be cheap:
-// its cost is paid once per watched block per message, on the hot path. A panic
-// propagates into the flow, deliberately: it is running as part of the flow, and
-// swallowing it would hide the bug.
+// its cost is paid once per watched block per message, on the hot path.
 //
-// A sync listener observes; it cannot skip or abort the block.
+// A sync listener observes; it cannot skip or abort the block. A panic is contained
+// for the same reason: it is logged with its stack and counted, and the block
+// carries on. Telemetry is not worth a message, still less the process — and a
+// listener that could kill the flow it is watching would not be an observer.
 //
 // Inline is the only delivery this dispatcher offers. A queued, off-goroutine
 // variant used to exist and was removed: the producers are every flow worker in
@@ -91,6 +94,12 @@ type BlockEvents struct {
 	set atomic.Pointer[listeners]
 	// mu serializes registration. The emit path never takes it.
 	mu sync.Mutex
+
+	// panics counts listener panics the emit path swallowed. A swallowed panic
+	// means a listener saw an event and recorded nothing, so whatever it feeds is
+	// under-reporting — the same thing a full queue used to mean, and just as
+	// impossible to infer from the numbers themselves.
+	panics atomic.Int64
 }
 
 // NewBlockEvents returns a dispatcher with no listeners.
@@ -181,7 +190,35 @@ func (e *BlockEvents) Observes(path string) bool {
 func (e *BlockEvents) Emit(ctx context.Context, event types.BlockEvent) {
 	for _, reg := range e.set.Load().registered {
 		if reg.wants(event.Path) {
-			reg.fn(ctx, event)
+			e.call(ctx, reg.fn, event)
 		}
 	}
+}
+
+// Panics returns how many listener panics were contained. Non-zero means a
+// listener is failing to record what it saw.
+func (e *BlockEvents) Panics() int64 { return e.panics.Load() }
+
+// call invokes one listener, containing a panic so a broken observer costs its own
+// event rather than the message it was watching — or, since a panic unwinding
+// through a flow worker takes the process with it, rather than the runtime.
+//
+// It is a function of its own so the deferred recover is not inside Emit's loop,
+// which would stop the compiler open-coding it.
+func (e *BlockEvents) call(ctx context.Context, listener SyncBlockListener, event types.BlockEvent) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			return
+		}
+		e.panics.Add(1)
+		// Every panic is logged, not just the first: a listener that panics once
+		// usually panics on every event, and a flood of these is the signal. The
+		// stack is what makes the line actionable — without it the report names the
+		// block, which is never where the bug is.
+		slog.Error("block events: listener panicked, event not recorded",
+			"flow", event.Flow, "path", event.Path, "kind", event.Kind,
+			"panic", r, "stack", string(debug.Stack()))
+	}()
+	listener(ctx, event)
 }

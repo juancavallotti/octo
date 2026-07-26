@@ -102,6 +102,7 @@ octo run --config app.yaml --metrics \
 | --- | --- | --- |
 | `octo_block_invocations_total` | counter | `flow`, `path`, `type`, `outcome` (`ok`/`dropped`/`error`) |
 | `octo_block_duration_seconds` | histogram | `flow`, `path`, `type` |
+| `octo_block_listener_panics_total` | counter | — |
 
 This is the difference between "this integration is slow" and "the `sql` block in this integration is slow". `*` watches every block, which is the fastest way to find where the time goes on a small config and a lot of series on a large one.
 
@@ -111,7 +112,7 @@ A watched block is measured **on the flow's own goroutine**, in the middle of th
 
 Two things to know before you trust the numbers:
 
-- **The counters are exact.** Every watched invocation is recorded inline, so nothing is sampled and nothing is dropped, however hard the runtime is being pushed. (Before v0.6 these went through a queue and were dropped under load, which under-reported precisely when traffic was heaviest; `octo_block_events_dropped_total` was how many were lost and no longer exists.)
+- **The counters are exact.** Every watched invocation is recorded inline, so nothing is sampled and nothing is dropped, however hard the runtime is being pushed. (Before v0.6 these went through a queue and were dropped under load, which under-reported precisely when traffic was heaviest; `octo_block_events_dropped_total` was how many were lost and no longer exists.) The one way to lose a measurement now is a listener that panics — contained, logged with its stack, and counted in `octo_block_listener_panics_total`, which should be zero.
 - **A composite's duration includes its children's**, and the children emit their own events — so summing `octo_block_duration_seconds` across paths double-counts. The same applies across flows: a flow reached by `flow-ref` times itself, and its duration nests inside its caller's.
 
 ### Process and build

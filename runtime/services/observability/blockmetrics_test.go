@@ -1,6 +1,7 @@
 package observability
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"io"
@@ -60,7 +61,7 @@ func TestParseAddresses(t *testing.T) {
 // Naming no address registers nothing, which is what keeps the block-event
 // dispatcher — and the engine's per-block emission — off by default.
 func TestNewBlockMetricsIsNilWithoutAddresses(t *testing.T) {
-	if got := newBlockMetrics(prometheus.NewRegistry(), nil); got != nil {
+	if got := newBlockMetrics(prometheus.NewRegistry(), nil, nil); got != nil {
 		t.Error("newBlockMetrics with no addresses returned a collector; nothing should be watched")
 	}
 }
@@ -70,7 +71,7 @@ func TestNewBlockMetricsIsNilWithoutAddresses(t *testing.T) {
 // guard, which is what makes it correct in isolation.
 func TestBlockMetricsReportsOnlyWatchedPaths(t *testing.T) {
 	reg := prometheus.NewRegistry()
-	b := newBlockMetrics(reg, []string{"orders.charge"})
+	b := newBlockMetrics(reg, []string{"orders.charge"}, nil)
 
 	b.onBlockEvent(t.Context(), blockEvent("orders", "orders.charge", "rest", 10*time.Millisecond, nil, false))
 	b.onBlockEvent(t.Context(), blockEvent("orders", "orders.validate", "filter", time.Millisecond, nil, false))
@@ -89,12 +90,12 @@ func TestBlockMetricsReportsOnlyWatchedPaths(t *testing.T) {
 // The addresses handed to the dispatcher are what keeps an unwatched block from
 // being built into an event. '*' asks for everything instead.
 func TestBlockMetricsPaths(t *testing.T) {
-	named := newBlockMetrics(prometheus.NewRegistry(), []string{"orders.charge"})
+	named := newBlockMetrics(prometheus.NewRegistry(), []string{"orders.charge"}, nil)
 	if got := named.paths(); len(got) != 1 || got[0] != "orders.charge" {
 		t.Errorf("paths() = %v, want [orders.charge]", got)
 	}
 
-	all := newBlockMetrics(prometheus.NewRegistry(), []string{watchAll})
+	all := newBlockMetrics(prometheus.NewRegistry(), []string{watchAll}, nil)
 	if got := all.paths(); got != nil {
 		t.Errorf("paths() = %v with *, want nil — * registers unfiltered", got)
 	}
@@ -102,7 +103,7 @@ func TestBlockMetricsPaths(t *testing.T) {
 
 func TestBlockMetricsWatchAll(t *testing.T) {
 	reg := prometheus.NewRegistry()
-	b := newBlockMetrics(reg, []string{watchAll})
+	b := newBlockMetrics(reg, []string{watchAll}, nil)
 
 	b.onBlockEvent(t.Context(), blockEvent("orders", "orders.charge", "rest", time.Millisecond, nil, false))
 	b.onBlockEvent(t.Context(), blockEvent("audit", "audit.log", "log", time.Millisecond, nil, false))
@@ -118,7 +119,7 @@ func TestBlockMetricsWatchAll(t *testing.T) {
 // The resolved collectors are cached per block, and the cache must survive the
 // concurrent first-sighting that every flow worker races into on startup.
 func TestBlockMetricsSeriesCacheIsStableUnderConcurrency(t *testing.T) {
-	b := newBlockMetrics(prometheus.NewRegistry(), []string{watchAll})
+	b := newBlockMetrics(prometheus.NewRegistry(), []string{watchAll}, nil)
 
 	var wg sync.WaitGroup
 	for i := 0; i < 8; i++ {
@@ -170,7 +171,7 @@ func TestBlockMetricsOutcomes(t *testing.T) {
 // every number.
 func TestBlockMetricsIgnoresPreInvoke(t *testing.T) {
 	reg := prometheus.NewRegistry()
-	b := newBlockMetrics(reg, []string{"orders.charge"})
+	b := newBlockMetrics(reg, []string{"orders.charge"}, nil)
 
 	b.onBlockEvent(t.Context(), types.BlockEvent{
 		Kind: types.BlockPreInvoke, Flow: "orders", Path: "orders.charge", BlockType: "rest",
@@ -183,7 +184,7 @@ func TestBlockMetricsIgnoresPreInvoke(t *testing.T) {
 
 func TestBlockMetricsObservesDuration(t *testing.T) {
 	reg := prometheus.NewRegistry()
-	b := newBlockMetrics(reg, []string{"orders.charge"})
+	b := newBlockMetrics(reg, []string{"orders.charge"}, nil)
 
 	b.onBlockEvent(t.Context(), blockEvent("orders", "orders.charge", "rest", 4*time.Millisecond, nil, false))
 	b.onBlockEvent(t.Context(), blockEvent("orders", "orders.charge", "rest", 8*time.Millisecond, nil, false))
@@ -202,7 +203,7 @@ func TestBlockMetricsObservesDuration(t *testing.T) {
 // built into an event.
 func TestWatchedAddressesRegisterOnlyThosePaths(t *testing.T) {
 	events := core.NewBlockEvents()
-	b := newBlockMetrics(prometheus.NewRegistry(), []string{"orders.charge"})
+	b := newBlockMetrics(prometheus.NewRegistry(), []string{"orders.charge"}, nil)
 	events.AddSyncFor(b.paths(), b.onBlockEvent)
 
 	if !events.Observes("orders.charge") {
@@ -211,6 +212,39 @@ func TestWatchedAddressesRegisterOnlyThosePaths(t *testing.T) {
 	if events.Observes("orders.validate") {
 		t.Error("an unwatched block is observed; every block would pay for the measurement")
 	}
+}
+
+// A contained panic means a listener saw an event and recorded nothing, so the
+// block counters are under-reporting. The dispatcher owns the total; the counter
+// reads it at scrape time, so the two cannot drift.
+func TestBlockListenerPanicsAreReadFromTheDispatcher(t *testing.T) {
+	events := core.NewBlockEvents()
+	reg := prometheus.NewRegistry()
+	newBlockMetrics(reg, []string{"orders.charge"}, events)
+
+	events.AddSyncFor([]string{"orders.charge"}, func(context.Context, types.BlockEvent) {
+		panic("boom")
+	})
+	events.Emit(t.Context(), blockEvent("orders", "orders.charge", "rest", 0, nil, false))
+	events.Emit(t.Context(), blockEvent("orders", "orders.charge", "rest", 0, nil, false))
+
+	if got := events.Panics(); got != 2 {
+		t.Fatalf("dispatcher counted %d panics, want 2", got)
+	}
+
+	families, err := reg.Gather()
+	if err != nil {
+		t.Fatalf("Gather: %v", err)
+	}
+	for _, family := range families {
+		if family.GetName() == "octo_block_listener_panics_total" {
+			if got := family.GetMetric()[0].GetCounter().GetValue(); got != 2 {
+				t.Errorf("octo_block_listener_panics_total = %v, want 2", got)
+			}
+			return
+		}
+	}
+	t.Fatal("octo_block_listener_panics_total is not registered")
 }
 
 // Watching nothing must leave the process-wide dispatcher inactive: the whole cost

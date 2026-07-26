@@ -220,7 +220,7 @@ func (s *Service) watchBlocks() {
 	}
 
 	events := core.DefaultBlockEvents()
-	blocks := newBlockMetrics(s.collectors.registry, addresses)
+	blocks := newBlockMetrics(s.collectors.registry, addresses, events)
 
 	if blocks.all {
 		events.AddSync(blocks.onBlockEvent)

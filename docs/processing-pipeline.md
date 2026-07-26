@@ -226,9 +226,15 @@ Registering for an empty path set registers nothing: a listener that asked for n
 block is not one that wants every block.
 
 Listeners observe. A listener cannot skip or abort a block; the flow's control
-flow is the same whether anything is listening or not. A panic propagates into
-the flow deliberately — the listener is running as part of it, and swallowing the
-panic would hide the bug.
+flow is the same whether anything is listening or not. A panic is contained for
+the same reason: it is logged with its stack, counted in `BlockEvents.Panics()`
+and exported as `octo_block_listener_panics_total`, and the block carries on.
+`Emit` runs on a flow worker, so a propagating panic would take the process with
+it — telemetry is not worth a message, still less the runtime, and a listener
+that could kill the flow it is watching would not be an observer.
+
+A contained panic still means a listener saw an event and recorded nothing, so a
+non-zero count means whatever it feeds is under-reporting.
 
 **The message contract.** Every field of a `BlockEvent` except `Message` is
 copied on the flow's goroutine and is safe to read anywhere. `Message` is the
@@ -245,9 +251,12 @@ concurrent use, and one that blocks inside a fork branch occupies a pool worker.
 
 **Cost.** Nothing is built, timed, or allocated for a block nobody asked about.
 The engine tests the block's path before it makes an event, so the loop pays a
-nil check and an atomic load when nothing is registered (~1ns/op, 0 allocs), and
-one further map lookup per unwatched block when something is (~9ns/op, 0 allocs).
-A watched block pays for its own event and its listeners.
+nil check and an atomic load when nothing is registered, and one further map
+lookup per unwatched block when something is. Measured on an idle M1 Pro,
+parallel, 0 allocs throughout: ~0.2ns/op registered-nothing, ~1.2ns/op for an
+unwatched block, ~3.5ns/op for a watched one (event built, listener called,
+panic contained). Treat the ordering as the durable part — these are small
+enough to be dominated by whatever else the machine is doing.
 
 **Why there is no async variant.** There was one — a queue and a drain goroutine
 — and it was removed. The producers are every flow worker in the process and the

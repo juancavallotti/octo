@@ -133,7 +133,9 @@ events.AddSync(func(ctx context.Context, ev types.BlockEvent) {
 })
 ```
 
-Listeners **observe**. One cannot skip or abort a block; a flow runs the same way whether anything is listening or not. A panic propagates into the flow deliberately — the listener is running as part of it.
+Listeners **observe**. One cannot skip or abort a block; a flow runs the same way whether anything is listening or not. A panic is contained for the same reason — it is logged with its stack, counted, and the block carries on. `Emit` runs on a flow worker, so a propagating panic would take the process down; a listener that could kill the flow it is watching would not be an observer.
+
+A contained panic still means that listener recorded nothing, so `octo_block_listener_panics_total` (and `events.Panics()`) is how much it missed. Non-zero means whatever it feeds is under-reporting — check the log for the stack.
 
 <Callout type="warn">
 **`ev.Message` is the live message, not a copy.** The flow is stopped at this block while your listener runs, so you may read the message and copy it (`Clone`, `Scoped`, `Reported`) — but only for as long as the listener is running. The flow resumes mutating it the moment you return, so never retain the pointer: `Variables` is a plain map, and reading it from another goroutine afterwards is a data race that can panic the process. To inspect contents elsewhere, `Clone` here and hand the copy to a worker you own. Every other field is copied on the flow's goroutine and is safe anywhere.
