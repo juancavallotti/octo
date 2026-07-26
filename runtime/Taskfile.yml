@@ -22,6 +22,15 @@ tasks:
     cmds:
       - '{{.GO}} test ./...'
 
+  # Diagnostics, not assertions — deliberately not wired into `test`, because
+  # benchmark numbers on shared CI hardware are noise. Run it by hand when
+  # changing something whose cost scales with the payload: message copying, the
+  # composite blocks that copy per element or per branch.
+  bench:
+    desc: Run the runtime benchmarks
+    cmds:
+      - '{{.GO}} test -run "^$" -bench . -benchmem ./...'
+
   # The samples are the runtime's end-to-end tests, and dolphin is how they are run: a
   # sample that no longer does what its comments claim now fails CI instead of misleading
   # the next person who copies it. It is also the only test of octo's own debug seam from

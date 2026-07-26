@@ -216,29 +216,6 @@ func (m *Message) shallow() *Message {
 	return &out
 }
 
-// copyBody returns a deep copy of a message body via a JSON round-trip. Body is
-// JSON-only by the type's contract, so the round-trip is well defined; as with
-// SetBodyJSON it normalizes to decoded-JSON kinds (numbers float64, objects
-// map[string]any, arrays []any).
-//
-// copied is false when the value will not round-trip — a body that breaks the
-// contract. The original is handed back, still shared, because there is no copy
-// to be had and losing the body would be worse than aliasing it.
-func copyBody(body any) (value any, copied bool) {
-	if body == nil {
-		return nil, true
-	}
-	raw, err := json.Marshal(body)
-	if err != nil {
-		return body, false
-	}
-	var decoded any
-	if json.Unmarshal(raw, &decoded) != nil {
-		return body, false
-	}
-	return decoded, true
-}
-
 // SetBodyJSON decodes raw JSON into Body. Per encoding/json rules numbers
 // become float64, objects map[string]any and arrays []any.
 func (m *Message) SetBodyJSON(raw []byte) error {

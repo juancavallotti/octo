@@ -1,0 +1,182 @@
+package types
+
+import (
+	"encoding/json"
+	"fmt"
+	"reflect"
+	"testing"
+)
+
+// containerIdentity reports which container a value points at, so a test can tell
+// "the same map" from "an equal map".
+func containerIdentity(t *testing.T, value any) uintptr {
+	t.Helper()
+	v := reflect.ValueOf(value)
+	if kind := v.Kind(); kind != reflect.Map && kind != reflect.Slice {
+		t.Fatalf("value of kind %s has no container identity to compare", kind)
+	}
+	return v.Pointer()
+}
+
+func TestCopyBody(t *testing.T) {
+	t.Run("nested containers are independent", func(t *testing.T) {
+		original := map[string]any{
+			"outer": map[string]any{"inner": "before"},
+			"list":  []any{map[string]any{"n": 1.0}},
+		}
+
+		copied, ok := copyBody(original)
+		if !ok {
+			t.Fatal("copyBody reported a body it could not copy")
+		}
+		out := copied.(map[string]any)
+		out["outer"].(map[string]any)["inner"] = "after"
+		out["list"].([]any)[0].(map[string]any)["n"] = 2.0
+
+		if got := original["outer"].(map[string]any)["inner"]; got != "before" {
+			t.Errorf("mutating a nested map in the copy changed the original: %v", got)
+		}
+		if got := original["list"].([]any)[0].(map[string]any)["n"]; got != 1.0 {
+			t.Errorf("mutating a map inside a slice in the copy changed the original: %v", got)
+		}
+	})
+
+	t.Run("containers are new storage", func(t *testing.T) {
+		original := map[string]any{"list": []any{1.0}}
+
+		copied, _ := copyBody(original)
+		out := copied.(map[string]any)
+
+		if containerIdentity(t, out) == containerIdentity(t, original) {
+			t.Error("the copy points at the original map")
+		}
+		if containerIdentity(t, out["list"]) == containerIdentity(t, original["list"]) {
+			t.Error("the copy points at the original slice")
+		}
+	})
+
+	t.Run("the result round-trips identically to the original", func(t *testing.T) {
+		var original any
+		raw := []byte(`{"s":"v","n":1.5,"b":true,"null":null,"list":[1,{"k":"v"}],"obj":{"deep":[]}}`)
+		if err := json.Unmarshal(raw, &original); err != nil {
+			t.Fatalf("Unmarshal returned error: %v", err)
+		}
+
+		copied, ok := copyBody(original)
+		if !ok {
+			t.Fatal("copyBody reported a body it could not copy")
+		}
+		if !reflect.DeepEqual(copied, original) {
+			t.Errorf("copy = %#v, want %#v", copied, original)
+		}
+	})
+
+	// The structural walk skips serialization, so values off the JSON-kinds
+	// contract must still reach the round-trip that normalizes them — otherwise a
+	// body would silently keep kinds that CEL cannot resolve.
+	t.Run("off-contract values are normalized as before", func(t *testing.T) {
+		type point struct {
+			X int `json:"x"`
+		}
+		original := map[string]any{"n": 3, "p": point{X: 4}}
+
+		copied, ok := copyBody(original)
+		if !ok {
+			t.Fatal("copyBody reported a body it could not copy")
+		}
+		out := copied.(map[string]any)
+
+		if got, want := out["n"], 3.0; got != want {
+			t.Errorf("int normalized to %#v, want %#v", got, want)
+		}
+		got, isMap := out["p"].(map[string]any)
+		if !isMap {
+			t.Fatalf("struct normalized to %T, want map[string]any", out["p"])
+		}
+		if got["x"] != 4.0 {
+			t.Errorf("struct field = %#v, want 4.0", got["x"])
+		}
+	})
+
+	t.Run("an uncopyable leaf is reported all the way up", func(t *testing.T) {
+		original := map[string]any{"ok": "v", "bad": make(chan int)}
+
+		copied, ok := copyBody(original)
+		if ok {
+			t.Error("copyBody claimed to copy a body holding an uncopyable leaf")
+		}
+		out := copied.(map[string]any)
+		if out["ok"] != "v" {
+			t.Errorf("the copyable part was lost: %#v", out["ok"])
+		}
+	})
+
+	t.Run("scalars and nil are handed straight back", func(t *testing.T) {
+		for _, value := range []any{nil, "s", 1.5, true} {
+			got, ok := copyBody(value)
+			if !ok || !reflect.DeepEqual(got, value) {
+				t.Errorf("copyBody(%#v) = %#v, %v; want the value back", value, got, ok)
+			}
+		}
+	})
+
+	// A nil container marshals to null and decodes back to an untyped nil; the
+	// structural path has to agree rather than inventing an empty container.
+	t.Run("nil containers become untyped nil", func(t *testing.T) {
+		for name, value := range map[string]any{
+			"map":   map[string]any(nil),
+			"slice": []any(nil),
+		} {
+			got, ok := copyBody(value)
+			if !ok || got != nil {
+				t.Errorf("copyBody(nil %s) = %#v, %v; want nil, true", name, got, ok)
+			}
+		}
+	})
+}
+
+// benchBody builds a records-shaped body of n elements — the shape a foreach map
+// or a fork branch actually copies.
+func benchBody(n int) any {
+	records := make([]any, n)
+	for i := range records {
+		records[i] = map[string]any{
+			"id":     fmt.Sprintf("rec-%d", i),
+			"amount": float64(i) * 1.5,
+			"active": i%2 == 0,
+			"nested": map[string]any{"tags": []any{"a", "b"}},
+		}
+	}
+	return map[string]any{"records": records}
+}
+
+func BenchmarkCopyBody(b *testing.B) {
+	for _, n := range []int{100, 400, 1600} {
+		body := benchBody(n)
+		b.Run(fmt.Sprintf("records=%d", n), func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				if _, ok := copyBody(body); !ok {
+					b.Fatal("copyBody failed")
+				}
+			}
+		})
+	}
+}
+
+// BenchmarkJSONCopy measures the off-contract fallback, which is also the
+// implementation copyBody replaced. It is the baseline the structural walk is
+// worth reading against: same shape, same sizes, both linear.
+func BenchmarkJSONCopy(b *testing.B) {
+	for _, n := range []int{100, 400, 1600} {
+		body := benchBody(n)
+		b.Run(fmt.Sprintf("records=%d", n), func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				if _, ok := jsonCopy(body); !ok {
+					b.Fatal("jsonCopy failed")
+				}
+			}
+		})
+	}
+}
