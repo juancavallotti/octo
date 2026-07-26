@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -192,7 +193,11 @@ func TestAggregateLeavesAGapForAMissingElement(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	got := accOf(t, cont.resumed()[0])
+	released := cont.resumed()
+	if len(released) == 0 {
+		t.Fatal("the group never completed on its timeout")
+	}
+	got := accOf(t, released[0])
 	if len(got) != 3 || got[0] != "a" || got[1] != nil || got[2] != "c" {
 		t.Fatalf("aggregated %v, want [a <nil> c] with the gap preserved", got)
 	}
@@ -484,6 +489,13 @@ func TestAggregateCapHoldsWhenGroupsOpenConcurrently(t *testing.T) {
 		MaxGroups: maxGroups, OnOverflow: aggregateOverflowDrop,
 	})
 
+	// Built up front: groupMessage reports failures with t.Fatalf, which is only
+	// defined on the goroutine running the test.
+	msgs := make([]*types.Message, arrivals)
+	for i := range arrivals {
+		msgs[i] = groupMessage(t, fmt.Sprintf("g%d", i), 0, 5, i)
+	}
+
 	// Every message opens a group of its own, all at once. Reading the count and
 	// writing the group afterwards would let all fifty see the same empty index:
 	// folds of *different* groups are deliberately not serialized against each
@@ -493,11 +505,11 @@ func TestAggregateCapHoldsWhenGroupsOpenConcurrently(t *testing.T) {
 		mu       sync.Mutex
 		admitted int
 	)
-	for i := range arrivals {
+	for _, msg := range msgs {
 		wg.Add(1)
-		go func(i int) {
+		go func(msg *types.Message) {
 			defer wg.Done()
-			out, err := block.Process(ctx, groupMessage(t, fmt.Sprintf("g%d", i), 0, 5, i))
+			out, err := block.Process(ctx, msg)
 			if err != nil {
 				t.Errorf("Process: %v", err)
 				return
@@ -508,12 +520,131 @@ func TestAggregateCapHoldsWhenGroupsOpenConcurrently(t *testing.T) {
 			mu.Lock()
 			defer mu.Unlock()
 			admitted++
-		}(i)
+		}(msg)
 	}
 	wg.Wait()
 
 	if admitted != maxGroups {
 		t.Errorf("admitted %d messages, want exactly maxGroups (%d)", admitted, maxGroups)
+	}
+}
+
+func TestAggregateIgnoresAnImplausiblePosition(t *testing.T) {
+	tests := []struct {
+		name  string
+		index int
+		size  int
+	}{
+		// groupIndex is an ordinary message variable that anything upstream can
+		// set. Padding to whatever it names would let one message allocate a slice
+		// of that size under the fold lock and then encode it into the store.
+		{name: "past the ceiling", index: maxPositionedIndex * 2, size: sizeUnknown},
+		{name: "past the group's own size", index: 50, size: 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, _ := withFakeServices(context.Background())
+			block, cont := buildAggregate(t, types.BlockConfig{
+				Correlation: `"g"`, CompletionSize: "2",
+			})
+
+			out := groupMessage(t, "g", tt.index, tt.size, "a")
+			feed(ctx, t, block, out, groupMessage(t, "g", 1, tt.size, "b"))
+
+			released := cont.resumed()
+			if len(released) != 1 {
+				t.Fatalf("released %d groups, want 1", len(released))
+			}
+			// Appended rather than positioned: two messages in, two items out.
+			if got := accOf(t, released[0]); len(got) != 2 {
+				t.Fatalf("aggregated %d items from 2 messages", len(got))
+			}
+		})
+	}
+}
+
+// refusingContinuation is a continuation that will not take a group, standing in
+// for a flow that cannot accept the handover.
+type refusingContinuation struct {
+	recordingContinuation
+	refuse error
+}
+
+func (r *refusingContinuation) Resume(ctx context.Context, msg *types.Message) error {
+	if r.refuse != nil {
+		return r.refuse
+	}
+	return r.recordingContinuation.Resume(ctx, msg)
+}
+
+func TestAggregateKeepsAGroupTheContinuationRefuses(t *testing.T) {
+	ctx, _ := withFakeServices(context.Background())
+	block, _ := buildAggregate(t, types.BlockConfig{Correlation: `"g"`, CompletionSize: "2"})
+	cont := &refusingContinuation{refuse: errors.New("nowhere to put it")}
+	block.SetContinuation(cont)
+
+	// Completing takes the group out of the store — it has to, or a message
+	// arriving during the handover would fold into a group already on its way out.
+	// So a refused delivery is the one moment the accumulated messages exist
+	// nowhere else, and losing them there would lose them for good.
+	unpositioned := func(body string) *types.Message {
+		msg := mustMessage(t)
+		msg.Body = body
+		return msg
+	}
+	feed(ctx, t, block, unpositioned("a"))
+	if _, err := block.Process(ctx, unpositioned("b")); err == nil {
+		t.Fatal("a refused delivery should surface as an error")
+	}
+
+	// The group is back, so what it holds is still there to be delivered later.
+	cont.refuse = nil
+	feed(ctx, t, block, unpositioned("c"))
+
+	released := cont.resumed()
+	if len(released) != 1 {
+		t.Fatalf("released %d groups, want 1", len(released))
+	}
+	if got := accOf(t, released[0]); len(got) != 3 {
+		t.Fatalf("aggregated %v, want the two put back plus the third", got)
+	}
+}
+
+// foldingContinuation folds another message into the block while it is being
+// handed a completed group.
+type foldingContinuation struct {
+	recordingContinuation
+	block *aggregate
+	next  *types.Message
+	once  sync.Once
+}
+
+func (f *foldingContinuation) Resume(ctx context.Context, msg *types.Message) error {
+	f.once.Do(func() { _, _ = f.block.Process(ctx, f.next) })
+	return f.recordingContinuation.Resume(ctx, msg)
+}
+
+func TestAggregateDoesNotHoldTheStripeWhileDelivering(t *testing.T) {
+	// Delivery is caller-runs, so the whole downstream flow can run on this
+	// goroutine — and a flow containing another aggregate folds while it does.
+	// Holding the stripe across that serializes every unrelated group hashing to
+	// it, and deadlocks outright when the two collide, which is what these two
+	// keys arrange.
+	delivered, folded := collidingKeys(t)
+
+	ctx, _ := withFakeServices(context.Background())
+	block, _ := buildAggregate(t, types.BlockConfig{CompletionSize: "2"})
+	cont := &foldingContinuation{block: block, next: groupMessage(t, folded, 0, 2, "x")}
+	block.SetContinuation(cont)
+
+	feed(ctx, t, block,
+		groupMessage(t, delivered, 0, 2, "a"),
+		groupMessage(t, delivered, 1, 2, "b"),
+	)
+
+	if got := len(cont.resumed()); got != 1 {
+		t.Fatalf("released %d groups, want 1", got)
 	}
 }
 
@@ -589,22 +720,39 @@ func TestAggregateReaperCompletesOnTimeout(t *testing.T) {
 	}
 }
 
-func TestAggregateReaperOnlyRunsOnTheLeader(t *testing.T) {
-	ctx := withElection(context.Background(), false)
-	block, cont := buildAggregate(t, types.BlockConfig{CompletionTimeout: "10ms"})
-
-	if err := block.Start(ctx); err != nil {
-		t.Fatalf("Start: %v", err)
+func TestAggregateSweepOnlyRunsOnTheLeader(t *testing.T) {
+	tests := []struct {
+		name     string
+		leader   bool
+		released int
+	}{
+		{name: "a standby leaves the group alone", leader: false, released: 0},
+		{name: "the leader reaps it", leader: true, released: 1},
 	}
-	t.Cleanup(func() { _ = block.Stop(context.Background()) })
 
-	feed(ctx, t, block, groupMessage(t, "g1", 0, 5, "a"))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := withElection(context.Background(), tt.leader)
+			block, cont := buildAggregate(t, types.BlockConfig{CompletionTimeout: "10ms"})
 
-	// A standby replica must leave the group alone, or every replica would emit
-	// the same timed-out group.
-	time.Sleep(100 * time.Millisecond)
-	if got := len(cont.resumed()); got != 0 {
-		t.Fatalf("a non-leader released %d groups, want 0", got)
+			if err := block.Start(ctx); err != nil {
+				t.Fatalf("Start: %v", err)
+			}
+			t.Cleanup(func() { _ = block.Stop(context.Background()) })
+
+			feed(ctx, t, block, groupMessage(t, "g1", 0, 5, "a"))
+			time.Sleep(20 * time.Millisecond) // past the group's deadline
+
+			// Driven straight rather than waited on: reapInterval clamps to a second,
+			// so a test that slept for less than one tick would pass with the
+			// leadership gate deleted. Both halves are asserted for the same reason —
+			// "nothing was released" only means something if the leader releases.
+			block.sweep(ctx)
+
+			if got := len(cont.resumed()); got != tt.released {
+				t.Fatalf("released %d groups, want %d", got, tt.released)
+			}
+		})
 	}
 }
 
@@ -632,15 +780,22 @@ func TestAggregateFoldsConcurrentlyExactlyOnce(t *testing.T) {
 	// read-modify-write is what makes this safe: a version conflict means someone
 	// folded first, so the retry folds onto their result instead of overwriting it.
 	const n = 20
+	// Built up front: groupMessage reports failures with t.Fatalf, which is only
+	// defined on the goroutine running the test.
+	msgs := make([]*types.Message, n)
+	for i := range n {
+		msgs[i] = groupMessage(t, "g1", i, n, i)
+	}
+
 	var wg sync.WaitGroup
 	wg.Add(n)
-	for i := range n {
-		go func(i int) {
+	for _, msg := range msgs {
+		go func(msg *types.Message) {
 			defer wg.Done()
-			if _, err := block.Process(ctx, groupMessage(t, "g1", i, n, i)); err != nil {
+			if _, err := block.Process(ctx, msg); err != nil {
 				t.Errorf("Process: %v", err)
 			}
-		}(i)
+		}(msg)
 	}
 	wg.Wait()
 

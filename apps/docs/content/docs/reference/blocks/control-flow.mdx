@@ -242,7 +242,7 @@ It is the only block that holds state between messages, which is what lets it co
 **All three completion conditions may be combined; the first to fire wins.**
 
 - **Completion is a count, never a last-marker.** Elements run concurrently and routinely finish out of order, so "I saw the last one" would close a group of five with three arrived and silently drop two. There is deliberately no `groupLast` variable.
-- **`append` re-joins in the split's order.** Elements are placed by `groupIndex`, not by the order they finished, so the same input yields the same array every run. Messages with no `groupIndex` — events off a source — are appended in arrival order, the only order they have. A group that completes with an element missing leaves `null` in the gap rather than renumbering the survivors.
+- **`append` re-joins in the split's order.** Elements are placed by `groupIndex`, not by the order they finished, so the same input yields the same array every run. Messages with no `groupIndex` — events off a source — are appended in arrival order, the only order they have, as is one whose position is beyond the group's size or beyond 100,000. A group that completes with an element missing leaves `null` in the gap rather than renumbering the survivors.
 - **Only the timeout fires without a message.** Nothing re-evaluates a sitting group, so a group whose other conditions may never be met needs a `completionTimeout` — and after an element failed, that is the only thing that will ever close it. `vars.aggregateReason` tells the rest of the flow whether it received a whole group or a partial one.
 
 ### The completed message

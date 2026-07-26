@@ -93,6 +93,12 @@ const (
 // folds racing within this process are serialized by foldLocks first.
 const aggregateWriteAttempts = 5
 
+// maxPositionedIndex bounds how far a positioned message may pad the appended
+// accumulator. A group large enough to reach it should be folding with
+// strategy: expression anyway — append rewrites the whole group on every
+// message, so its cost is quadratic in stored bytes long before this.
+const maxPositionedIndex = 100_000
+
 // foldStripes is how many mutexes serialize in-process folds. Contention on one
 // group is the normal case here, not the exception — every element of a split
 // folds into the same group, and a flow runs them concurrently by design. Left
@@ -427,9 +433,7 @@ func (a *aggregate) Process(ctx context.Context, msg *types.Message) (*types.Mes
 //
 // dropped reports that an overflow policy discarded the message.
 func (a *aggregate) foldMessage(ctx context.Context, msg *types.Message, key string) (dropped bool, err error) {
-	kv := core.RuntimeServicesFromContext(ctx).KV()
 	hash := hashedKey(key)
-	stateKey := a.groupStateKey(hash)
 
 	// Admission comes first, and outside the stripe lock. That ordering is
 	// load-bearing: under onOverflow: complete, claiming a slot may evict another
@@ -444,36 +448,60 @@ func (a *aggregate) foldMessage(ctx context.Context, msg *types.Message, key str
 		return true, nil
 	}
 
-	defer a.folds.lock(hash)()
-	// Registered after the lock, so it runs before the unlock. A slot claimed for
-	// a group the fold never went on to create would otherwise be held forever:
-	// there is no group behind it, so nothing completes it and no deadline expires
-	// it.
-	defer func() {
-		if claimed && err != nil {
+	completed, reason, err := a.foldLocked(ctx, msg, key, hash)
+	if err != nil {
+		// A slot claimed for a group the fold never went on to create would be held
+		// forever: there is no group behind it, so nothing completes it and no
+		// deadline expires it.
+		if claimed {
 			a.forgetGroup(ctx, hash)
 		}
-	}()
+		return false, err
+	}
+	if completed == nil {
+		return false, nil
+	}
+	return false, a.deliver(ctx, hash, completed, reason)
+}
+
+// foldLocked is the fold itself, holding the group's stripe for the whole
+// optimistic loop. It is the read-modify-write the object-write block
+// established: a version conflict means another replica got there first, so
+// re-read and fold onto its result rather than overwrite it. That is what makes
+// the group correct across replicas without any of them coordinating.
+//
+// A completed group is returned rather than delivered, and the reason it
+// completed with it. Delivering it here would run the whole downstream flow
+// under the stripe — resume is caller-runs, so the tail can execute on this very
+// goroutine — and every unrelated group hashing to the same stripe would queue
+// behind it.
+func (a *aggregate) foldLocked(
+	ctx context.Context, msg *types.Message, key, hash string,
+) (*groupState, string, error) {
+	kv := core.RuntimeServicesFromContext(ctx).KV()
+	stateKey := a.groupStateKey(hash)
+
+	defer a.folds.lock(hash)()
 
 	for range aggregateWriteAttempts {
 		entry, found, err := kv.Get(ctx, core.NamespaceSystem, stateKey)
 		if err != nil {
-			return false, fmt.Errorf("aggregate: read group %q: %w", key, err)
+			return nil, "", fmt.Errorf("aggregate: read group %q: %w", key, err)
 		}
 
 		state, err := a.loadGroup(msg, key, entry, found)
 		if err != nil {
-			return false, err
+			return nil, "", err
 		}
 
 		reason, complete, err := a.applyMessage(msg, &state)
 		if err != nil {
-			return false, err
+			return nil, "", err
 		}
 
 		var conflict bool
 		if complete {
-			conflict, err = a.commitComplete(ctx, hash, stateKey, entry, found, &state, reason)
+			conflict, err = a.commitComplete(ctx, hash, stateKey, entry, found)
 		} else {
 			conflict, err = a.commitOpen(ctx, hash, stateKey, entry, &state)
 		}
@@ -483,11 +511,53 @@ func (a *aggregate) foldMessage(ctx context.Context, msg *types.Message, key str
 			continue
 		}
 		if err != nil {
-			return false, fmt.Errorf("aggregate: group %q: %w", key, err)
+			return nil, "", fmt.Errorf("aggregate: group %q: %w", key, err)
 		}
-		return false, nil
+		if complete {
+			return &state, reason, nil
+		}
+		return nil, "", nil
 	}
-	return false, fmt.Errorf("%w: %q after %d attempts", errGroupContended, key, aggregateWriteAttempts)
+	return nil, "", fmt.Errorf("%w: %q after %d attempts", errGroupContended, key, aggregateWriteAttempts)
+}
+
+// deliver continues the flow with a completed group, putting the group back if
+// the continuation will not take it.
+//
+// The group is out of the store before this runs, and has to be: a message
+// arriving during the handover must open a fresh group rather than fold into one
+// already on its way out. So a refused delivery is the one case where the
+// accumulated messages exist nowhere but in this call, and writing them back is
+// the only alternative to losing them with the error.
+func (a *aggregate) deliver(ctx context.Context, hash string, state *groupState, reason string) error {
+	if err := a.release(ctx, state, reason); err != nil {
+		a.restore(ctx, hash, state)
+		return err
+	}
+	return nil
+}
+
+// restore puts a group back after a failed delivery, so what it holds can still
+// be retried or reaped.
+//
+// It is a create, not a write: if a message has already opened a new group under
+// the same key, that group is the live one and merging into it is not this
+// call's business. Losing the old one is then real, so it is logged with what it
+// was holding rather than passed over.
+func (a *aggregate) restore(ctx context.Context, hash string, state *groupState) {
+	defer a.folds.lock(hash)()
+
+	encoded, err := json.Marshal(state)
+	if err == nil {
+		kv := core.RuntimeServicesFromContext(ctx).KV()
+		_, err = kv.Set(ctx, core.NamespaceSystem, a.groupStateKey(hash), encoded, 0)
+	}
+	if err != nil {
+		slog.Error("aggregate could not put back a group whose delivery failed",
+			"storeKey", a.storeKey, "key", state.Key, "count", state.Count, "error", err)
+		return
+	}
+	a.trackGroup(ctx, hash, state)
 }
 
 // loadGroup decodes the stored group, or opens a new one. Its slot in the index
@@ -507,12 +577,12 @@ func (a *aggregate) loadGroup(
 	return state, nil
 }
 
-// commitComplete releases a group that a condition just satisfied. A group that
-// completed on its very first message was never stored, so there is nothing to
-// delete — but its slot was still claimed, so the index is cleared either way.
+// commitComplete takes a group out of the store once a condition has satisfied
+// it, leaving the caller to deliver it. A group that completed on its very first
+// message was never stored, so there is nothing to delete — but its slot was
+// still claimed, so the index is cleared either way.
 func (a *aggregate) commitComplete(
 	ctx context.Context, hash, stateKey string, entry core.Entry, stored bool,
-	state *groupState, reason string,
 ) (conflict bool, err error) {
 	if stored {
 		kv := core.RuntimeServicesFromContext(ctx).KV()
@@ -524,7 +594,7 @@ func (a *aggregate) commitComplete(
 		}
 	}
 	a.forgetGroup(ctx, hash)
-	return false, a.release(ctx, state, reason)
+	return false, nil
 }
 
 // commitOpen writes back a group that is still waiting for more messages.
@@ -585,7 +655,7 @@ func (a *aggregate) applyMessage(msg *types.Message, state *groupState) (string,
 // accumulate produces the group's new accumulator.
 func (a *aggregate) accumulate(msg *types.Message, state *groupState) (any, error) {
 	if a.appendMode {
-		return placeInOrder(state.Acc, msg), nil
+		return placeInOrder(state.Acc, msg, state), nil
 	}
 	value, err := a.fold.Eval(expr.MessageActivation(a.withGroup(msg, state), a.env))
 	if err != nil {
@@ -607,17 +677,20 @@ func (a *aggregate) accumulate(msg *types.Message, state *groupState) (any, erro
 //
 // A message with no position — events batched off a source, which were never a
 // collection to begin with — is appended, since arrival is the only order it
-// has.
+// has. So is one whose position is not plausible for this group: groupIndex is
+// an ordinary message variable that anything upstream can set, and padding to
+// whatever it names would let one message allocate a slice of that size under
+// the fold lock and then encode it into the store.
 //
 // A group that completes without every position filled (a timeout with an
 // element still missing) leaves a null in the gap rather than a shorter array.
 // That matches how foreach's map mode reports a dropped iteration, and it says
 // *which* element is missing instead of quietly renumbering the rest.
-func placeInOrder(acc any, msg *types.Message) []any {
+func placeInOrder(acc any, msg *types.Message, state *groupState) []any {
 	items, _ := acc.([]any)
 
 	index, positioned := msg.Variables.Int(varGroupIndex)
-	if !positioned || index < 0 {
+	if !positioned || index < 0 || index >= positionLimit(msg, state) {
 		return append(items, msg.Body)
 	}
 	for len(items) <= index {
@@ -625,6 +698,25 @@ func placeInOrder(acc any, msg *types.Message) []any {
 	}
 	items[index] = msg.Body
 	return items
+}
+
+// positionLimit is the exclusive bound on a position the accumulator will pad
+// to: the group's expected size where it is known, and a fixed ceiling where it
+// is not. The ceiling still applies to a known size, since that size is a
+// message variable too.
+//
+// The group's own size is preferred over the message's because it is sticky —
+// learned once and not re-read from every arrival — but on the first message of
+// a group it has not been learned yet, which is why the message's is consulted
+// at all.
+func positionLimit(msg *types.Message, state *groupState) int {
+	if state.Size > 0 {
+		return min(state.Size, maxPositionedIndex)
+	}
+	if size, ok := msg.Variables.Int(varGroupSize); ok && size > 0 {
+		return min(size, maxPositionedIndex)
+	}
+	return maxPositionedIndex
 }
 
 // learnSize records the group's expected total the first time a message reveals
@@ -901,37 +993,47 @@ func (a *aggregate) reclaimStale(ctx context.Context, hash string) {
 }
 
 // completeStored releases a group read straight from the store, for the paths
-// that have no message in hand: the timeout sweep and the overflow policy. The
-// delete is version-checked, so a group another replica completed first is
-// simply gone and this call does nothing.
+// that have no message in hand: the timeout sweep and the overflow policy.
 func (a *aggregate) completeStored(ctx context.Context, hash, reason string) error {
+	state, err := a.takeStored(ctx, hash)
+	if err != nil || state == nil {
+		return err
+	}
+	// Delivered with the stripe released, for the reason foldLocked gives.
+	return a.deliver(ctx, hash, state, reason)
+}
+
+// takeStored lifts a group out of the store, or reports that there is nothing to
+// take. The delete is version-checked, so a group another replica completed
+// first is simply gone and this call does nothing.
+func (a *aggregate) takeStored(ctx context.Context, hash string) (*groupState, error) {
 	kv := core.RuntimeServicesFromContext(ctx).KV()
 	stateKey := a.groupStateKey(hash)
 
-	// Take the same stripe a fold would, so the sweep cannot delete a group out
-	// from under a message that is mid-fold on this replica.
+	// Take the same stripe a fold would, so this cannot delete a group out from
+	// under a message that is mid-fold on this replica.
 	defer a.folds.lock(hash)()
 
 	entry, found, err := kv.Get(ctx, core.NamespaceSystem, stateKey)
 	if err != nil {
-		return fmt.Errorf("aggregate: read group: %w", err)
+		return nil, fmt.Errorf("aggregate: read group: %w", err)
 	}
 	if !found {
 		a.forgetGroup(ctx, hash)
-		return nil
+		return nil, nil
 	}
 	var state groupState
 	if err := json.Unmarshal(entry.Value, &state); err != nil {
-		return fmt.Errorf("aggregate: decode group: %w", err)
+		return nil, fmt.Errorf("aggregate: decode group: %w", err)
 	}
 	if err := kv.Delete(ctx, core.NamespaceSystem, stateKey, entry.Version); err != nil {
 		if errors.Is(err, core.ErrVersionConflict) {
-			return nil
+			return nil, nil
 		}
-		return fmt.Errorf("aggregate: release group: %w", err)
+		return nil, fmt.Errorf("aggregate: release group: %w", err)
 	}
 	a.forgetGroup(ctx, hash)
-	return a.release(ctx, &state, reason)
+	return &state, nil
 }
 
 // groupStateKey and indexKey namespace everything this block stores under its
