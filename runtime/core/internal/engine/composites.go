@@ -151,9 +151,9 @@ type switchBlock struct {
 // produced by items, binding each element to the variable named as. Iteration is
 // sequential and the message passes through after the loop.
 //
-// In map mode the loop is a transformation instead: each element's body runs on a
-// clone and its resulting body becomes one element of an array that replaces the
-// message body.
+// In map mode the loop is a transformation instead: each element's body runs on
+// its own scope and its resulting body becomes one element of an array that
+// replaces the message body.
 type foreachBlock struct {
 	items   *expr.Program
 	as      string
@@ -288,10 +288,17 @@ func (f *foreachBlock) Process(ctx context.Context, msg *types.Message) (*types.
 // into an array that replaces the message body — the loop as a transformation
 // rather than a side effect.
 //
-// Each element runs on a clone, so the elements are independent: one iteration's
-// variables cannot leak into the next, and the loop variable never escapes. The
-// array is positional — as many elements out as in — so an iteration whose body
-// drops the message contributes a null rather than shortening the array or
+// Each element runs on its own scope, so the elements are independent: one
+// iteration's variables cannot leak into the next, and the loop variable never
+// escapes. The scopes share the incoming body rather than each copying it, which
+// is what keeps the loop linear in the size of the collection: in map mode the
+// body is usually the collection itself, so a copy per element copied all n
+// elements n times. Sharing is safe because a body is replace-only — an iteration
+// that sets a body rebinds its own scope's, leaving every later iteration to start
+// from the original.
+//
+// The array is positional — as many elements out as in — so an iteration whose
+// body drops the message contributes a null rather than shortening the array or
 // dropping the whole message. A stop inside the body halts iteration, writes back
 // what was collected, and re-raises the stop on the way out.
 func (f *foreachBlock) mapItems(ctx context.Context, msg *types.Message, items []any) (*types.Message, error) {
@@ -299,10 +306,10 @@ func (f *foreachBlock) mapItems(ctx context.Context, msg *types.Message, items [
 	stopped := false
 
 	for _, item := range items {
-		clone := msg.Clone()
-		clone.Variables.Set(f.as, item)
+		scoped := msg.Scoped()
+		scoped.Variables.Set(f.as, item)
 
-		out, err := f.body.Process(ctx, clone)
+		out, err := f.body.Process(ctx, scoped)
 		if err != nil {
 			return nil, err
 		}
