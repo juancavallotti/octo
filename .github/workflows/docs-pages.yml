@@ -2,22 +2,30 @@ name: docs-pages
 
 # Builds apps/docs (Fumadocs static export) and publishes it to GitHub Pages.
 #
-# Replaces the legacy "Deploy from a branch" (main /docs) Pages source. That
-# setup auto-triggered a Pages deployment on *every* push to main, so a release
-# (feature merge + release-please merge landing seconds apart) fired two
-# deployments that raced for the single github-pages environment — the loser
-# failed with "Deployment failed, try again later." The concurrency group below
-# serializes deployments, and the paths filter means non-docs pushes don't
-# deploy at all.
+# Publishes at a release, not on every merge to main. The site documents the
+# runtime a reader can actually install, and publishing each merge put behaviour
+# on the page days or weeks before the release that carried it — a setting
+# documented here and rejected by the installed binary reads as a bug in the
+# product. release-please calls this workflow with the tag it just cut, so what
+# ships to Pages is the docs as of that tag.
+#
+# Nothing is lost by not building here on every push: validate.yml builds the
+# docs on every PR and push, so broken MDX or a dead link still fails on the
+# change that broke it. workflow_dispatch republishes by hand — with a ref, to
+# put a specific tag back on the site; without one, to publish the default
+# branch ahead of a release.
 on:
-  push:
-    branches: [main]
-    paths:
-      - "apps/docs/**"
-      - "samples/**"
-      - "scripts/check-docs-drift.mjs"
-      - ".github/workflows/docs-pages.yml"
+  workflow_call:
+    inputs:
+      ref:
+        description: "Commit-ish to build and publish — the release tag."
+        required: true
+        type: string
   workflow_dispatch:
+    inputs:
+      ref:
+        description: "Commit-ish to build and publish (e.g. v0.5.0). Blank = the default branch."
+        required: false
 
 permissions:
   contents: read
@@ -38,6 +46,10 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The release tag when called or dispatched with one, else the ref this
+          # run was triggered on.
+          ref: ${{ inputs.ref || github.ref }}
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:

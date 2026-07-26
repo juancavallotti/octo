@@ -32,3 +32,18 @@ jobs:
     with:
       tag: ${{ needs.release-please.outputs.tag_name }}
     secrets: inherit
+
+  # The docs site ships with the release, from the same tag, so the page a reader
+  # lands on describes the version they can install — see docs-pages.yml. Pages
+  # deployment needs its own token scopes, which a called workflow takes from the
+  # job that calls it, hence the permissions here.
+  docs:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/docs-pages.yml
+    with:
+      ref: ${{ needs.release-please.outputs.tag_name }}

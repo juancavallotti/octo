@@ -6,7 +6,9 @@ stacks, including a Go module for the runtime engine and CLI.
 **Documentation:** the docs site — overview, getting started, connector and CEL
 reference, guides, and the AI/MCP story — is built from [`apps/docs/`](apps/docs/)
 (Fumadocs, statically exported) and published with GitHub Pages at
-<https://juancavallotti.github.io/octo/>. Preview locally with `task docs:dev`.
+<https://juancavallotti.github.io/octo/>. The site is published from each release
+tag, so it describes the version you can install — not unreleased `main`. Preview
+locally with `task docs:dev`.
 
 ## Install
 
