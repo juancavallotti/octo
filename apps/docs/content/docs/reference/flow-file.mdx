@@ -341,7 +341,7 @@ resulting body is collected into an array that replaces the message body.
 | --- | --- | --- | --- | --- |
 | `items` | expression | yes | — | Must evaluate to a list. |
 | `as` | string | no | `"item"` | Variable name each element is bound to (`vars.<as>`). |
-| `mode` | enum | no | `"iterate"` | `iterate` (side effects, shared message) or `map` (collect each element's body into a new array; each element runs on a clone). See [control flow](/reference/blocks/control-flow#map-mode). |
+| `mode` | enum | no | `"iterate"` | `iterate` (side effects, shared message) or `map` (collect each element's body into a new array; each element runs on its own scope). See [control flow](/reference/blocks/control-flow#map-mode). |
 | `body` | sub-flow | yes | — | Runs once per element. |
 
 ```yaml
@@ -362,9 +362,9 @@ back — the incoming body survives while the sub-flow fetches extra data.
 
 | Slot | Type | Required | Description |
 | --- | --- | --- | --- |
-| `body` | sub-flow | yes | Runs once on an isolated clone. |
-| `setBody` | expression | no | Evaluated against the clone's result; becomes the propagated body. Empty leaves the incoming body unchanged. |
-| `setVars` | map of name → expression | no | Each expression is evaluated against the clone's result and set on the message's vars. |
+| `body` | sub-flow | yes | Runs once on an isolated scope. |
+| `setBody` | expression | no | Evaluated against the scope's result; becomes the propagated body. Empty leaves the incoming body unchanged. |
+| `setVars` | map of name → expression | no | Each expression is evaluated against the scope's result and set on the message's vars. |
 
 ```yaml
 - type: enrich

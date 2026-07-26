@@ -58,7 +58,7 @@ from the body step 1 built.
 
 ## Compute in isolation with enrich
 
-`enrich` runs a body sub-flow on an **isolated clone** of the message, then
+`enrich` runs a body sub-flow on an **isolated scope** of the message, then
 merges back only what you name: `setBody` rewrites the original body from the
 scope's result, `setVars` pulls named values out. Everything else the scope did
 — scratch variables, intermediate bodies — stays inside.
@@ -86,7 +86,7 @@ flows:
             - type: set-payload
               name: summary
               settings:
-                # The scope rewrites the body on its clone; it stays isolated.
+                # The scope rewrites the body on its own copy; it stays isolated.
                 value: '{"total": body.qty * body.price, "note": "scope-only body"}'
       - type: log
         name: emit
