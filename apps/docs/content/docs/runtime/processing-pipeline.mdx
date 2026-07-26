@@ -80,12 +80,12 @@ Three behaviors to know:
 
 ### enrich: isolated scope, controlled merge
 
-`enrich` runs its `body` chain on an isolated `msg.Clone()`, then merges specific results back into the original message:
+`enrich` runs its `body` chain on an isolated **scope** of the message, then merges specific results back into the original:
 
-- `setBody` (a CEL expression) — when set, evaluated against the *clone's* final state and installed as the original message's new body.
-- `setVars` (a map of variable name → CEL expression) — each evaluated against the clone's result and set on the original message.
+- `setBody` (a CEL expression) — when set, evaluated against the *scope's* final state and installed as the original message's new body.
+- `setVars` (a map of variable name → CEL expression) — each evaluated against the scope's result and set on the original message.
 
-Everything else the body did to the clone stays isolated. Omitting both `setBody` and `setVars` runs the body purely for side-effects. A body error aborts the message; a body that drops the message drops it here too.
+Everything else the body did to the scope stays isolated. Omitting both `setBody` and `setVars` runs the body purely for side-effects. A body error aborts the message; a body that drops the message drops it here too.
 
 ### if, switch, foreach
 
@@ -95,13 +95,32 @@ These run sequentially on the calling worker, operating on the message in place 
 - **`switch`** runs the first case whose `when` is true, else `default`, else passes through. A condition that does not evaluate to a boolean is an error.
 - **`foreach`** evaluates `items` to an array and runs `body` once per element, binding each element to the loop variable (`as`, default `item`). Iteration is sequential; a body error aborts, a body drop drops the whole message, and a stop request halts iteration. The loop variable is restored to its pre-loop state afterward, so it does not leak.
 
-## Message cloning semantics
+## Message copying semantics
 
-`Message.Clone()` is what gives fork branches and enrich scopes their isolation. Its exact semantics matter when debugging:
+Isolation between a message and a sub-run of it comes from one of two copies. They differ in exactly one thing — whether the body is copied — and that difference is what decides how a composite scales with payload size.
 
-- **Body is deep-copied via a JSON round-trip.** This is well defined because bodies are JSON-only by contract — and it *normalizes* the body to decoded-JSON kinds: numbers become `float64`, objects `map[string]any`, arrays `[]any`.
+**The body is replace-only.** A block assigns a whole new value to the body rather than writing into the value already there. Every built-in block works this way, and it is what makes sharing a body safe. A custom block that must write in place has to take the body through the runtime's copy-on-write accessor first, which copies it out before the write lands.
+
+### Clone — copies everything
+
+Used where the copy leaves the goroutine or outlives the caller: **fork** branches, `flow-ref`, `queue-dispatch`, `publish-event`, and debug snapshots (`--spies`, `--break-at`).
+
+- **Body is deep-copied**, and *normalized* to decoded-JSON kinds on the way: numbers become `float64`, objects `map[string]any`, arrays `[]any`. This is well defined because bodies are JSON-only by contract.
 - **Variables get a fresh map, but values are copied shallowly.** Rebinding a variable in a branch never affects the original; mutating a deeply nested reference value stored *inside* a variable can, because that inner value remains shared.
-- **`EventID` is retained.** A clone is the same logical event. When a message is handed to another flow — `flow-ref`, `queue-dispatch` — it is *rekeyed* with a fresh `EventID` instead, so the sub-invocation correlates independently and its terminal event does not collide with the originating flow's.
+
+### Scope — shares the body
+
+Used where a sub-flow runs to completion on the same worker before the original is touched again: **`foreach` in `map` mode** (one scope per element) and **`enrich`**.
+
+- **Variables are still copied**, so isolation is unchanged: a variable set inside the scope cannot leak out, and a loop variable never escapes.
+- **The body is shared, not copied.** This is what keeps `foreach mode: map` linear in the size of the collection. In map mode the body usually *is* the collection, so a copy per element copied all n elements n times — quadratic, and invisible until the collection got big.
+- **No normalization happens**, because nothing is copied. A body already in decoded-JSON kinds — which is every body the runtime itself produces, whether from a CEL expression or a decoded response — is unaffected. A custom block that assigns a raw Go value (a struct, a `time.Time`) to the body should go through the JSON-decoding setter so the body meets the contract before a scope reads it.
+
+Both copies **retain the `EventID`** — a copy is the same logical event. When a message is handed to another flow (`flow-ref`, `queue-dispatch`) it is *rekeyed* with a fresh `EventID` instead, so the sub-invocation correlates independently and its terminal event does not collide with the originating flow's.
+
+<Callout type="warn">
+  Anything that clones copies the *whole* body every time it runs. Inside a `foreach mode: map` body, that body is the entire collection, so the loop is quadratic again no matter how cheap the scope was. For the blocks above — `flow-ref`, `queue-dispatch`, `publish-event` — put a `set-payload` first to narrow the message to just what the sub-flow needs. The debug options clone too, twice per crossing: a `--spies` or `--break-at` address inside a map body is quadratic by construction, so read timings from an unspied run.
+</Callout>
 
 ## Error propagation
 

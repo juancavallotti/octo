@@ -38,7 +38,7 @@ func testRegistry() *core.BlockRegistry {
 	return reg
 }
 
-func mustMessage(t *testing.T) *types.Message {
+func mustMessage(t testing.TB) *types.Message {
 	t.Helper()
 	msg, err := types.NewMessage("")
 	if err != nil {

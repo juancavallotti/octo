@@ -130,7 +130,7 @@ Sequentially iterates an array, running the `body` sub-flow once per element wit
 
 ### `map` mode
 
-Each element's body runs on its **own clone** of the message, and the body it produces becomes one element of a new array, which replaces the message body. This is how you reshape a payload — call an API per element, project each element to a new shape — without hand-appending to a variable.
+Each element's body runs on its **own scope** of the message, and the body it produces becomes one element of a new array, which replaces the message body. This is how you reshape a payload — call an API per element, project each element to a new shape — without hand-appending to a variable.
 
 ```yaml
 - type: foreach
@@ -147,7 +147,7 @@ Each element's body runs on its **own clone** of the message, and the body it pr
 ```
 
 - **As many elements out as in.** An iteration whose body drops the message contributes `null` at that position rather than shortening the array or dropping the whole message — downstream blocks decide what a `null` element means.
-- **Iterations are independent.** Each runs on a clone of the incoming message, so one element's variables cannot leak into the next, and the loop variable never escapes. (This is the opposite of `iterate` mode, where edits accumulate on the shared message.)
+- **Iterations are independent.** Each runs on its own scope of the incoming message, so one element's variables cannot leak into the next, and the loop variable never escapes. (This is the opposite of `iterate` mode, where edits accumulate on the shared message.) A scope copies the variables but *shares* the body, which is what keeps the loop linear in the size of the collection — see [message copying semantics](/runtime/processing-pipeline#message-copying-semantics).
 - A body error aborts the loop. A filter block inside the body that requests stop halts iteration, writes back what was collected so far, and bubbles the stop to the root.
 
 <Callout type="info">
@@ -156,12 +156,12 @@ The mapped array replaces the message **body**. To keep the original body and pu
 
 ## enrich
 
-Runs a `body` sub-flow on an **isolated clone** of the message, then merges back only what you name: `setBody` computes the new body and each `setVars` entry sets one variable. Everything else the scope did (scratch variables, intermediate bodies) stays isolated.
+Runs a `body` sub-flow on an **isolated scope** of the message, then merges back only what you name: `setBody` computes the new body and each `setVars` entry sets one variable. Everything else the scope did (scratch variables, intermediate bodies) stays isolated.
 
 | Key | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `body` | flow | Yes | — | Sub-flow run once on an isolated clone of the message. |
-| `setBody` | `expression` | No | — | Evaluated against the **scope's result** (the enriched clone); its value becomes the message body. Omitted: the incoming body is unchanged. |
+| `body` | flow | Yes | — | Sub-flow run once on an isolated scope of the message. |
+| `setBody` | `expression` | No | — | Evaluated against the **scope's result**; its value becomes the message body. Omitted or empty: the incoming body is unchanged. |
 | `setVars` | map of string → `expression` | No | — | Each expression is evaluated against the scope's result and set as a variable on the message. |
 
 **Errors:** a body error aborts the block; a body that drops the message drops it here too.

@@ -40,7 +40,7 @@ func tagFlow(tag string) types.FlowConfig {
 }
 
 //nolint:ireturn // a test helper that returns the built MessageProcessor interface
-func mustBuild(t *testing.T, reg *core.BlockRegistry, cfg types.BlockConfig) core.MessageProcessor {
+func mustBuild(t testing.TB, reg *core.BlockRegistry, cfg types.BlockConfig) core.MessageProcessor {
 	t.Helper()
 	block, err := (&builder{reg: reg, pool: pool.New(0, 0)}).block(cfg)
 	if err != nil {
@@ -412,6 +412,85 @@ func TestForeachMapIterationsAreIsolated(t *testing.T) {
 	// Each iteration starts from the original message, so neither sees the leak.
 	if len(seen) != 2 || seen[0] != nil || seen[1] != nil {
 		t.Errorf("seen = %#v, want [nil nil] — a variable leaked between iterations", seen)
+	}
+}
+
+// The map loop hands every iteration the same body value rather than a per-element
+// copy. Copying it per element is what made map mode quadratic in the collection
+// size (#166), because in map mode the body IS the collection being iterated.
+//
+// Identity is the deterministic form of that assertion: reintroducing a per-element
+// copy flips every one of these and fails in microseconds. A wall-clock or
+// allocation threshold would be flaky in CI and would still pass a copy that was
+// merely linear with a large constant.
+func TestForeachMapSharesTheIncomingBody(t *testing.T) {
+	var seen []any
+	reg := testRegistry()
+	reg.MustRegister("record-body", func(types.Settings, core.BlockDeps) (core.MessageProcessor, error) {
+		return processorFunc(func(_ context.Context, msg *types.Message) (*types.Message, error) {
+			seen = append(seen, reflect.ValueOf(msg.Body).Pointer())
+			return msg, nil
+		}), nil
+	})
+	body := types.FlowConfig{Process: []types.BlockConfig{{Type: "record-body"}}}
+	proc := mustBuild(t, reg, types.BlockConfig{
+		Type: "foreach", Mode: "map", Items: "body.nums", As: "n", Body: &body,
+	})
+
+	msg := mustMessage(t)
+	msg.Body = map[string]any{"nums": []any{1.0, 2.0, 3.0}}
+	// Capture before Process: map mode replaces the body with the collected array.
+	want := reflect.ValueOf(msg.Body).Pointer()
+
+	if _, err := proc.Process(context.Background(), msg); err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+
+	if len(seen) != 3 {
+		t.Fatalf("body ran %d times, want 3", len(seen))
+	}
+	for i, got := range seen {
+		if got != want {
+			t.Errorf("iteration %d got a copy of the body, not the body itself", i)
+		}
+	}
+}
+
+// Sharing the body is safe because a body is replace-only. An iteration that
+// insists on mutating in place must go through MutableBody, which copies out
+// first — so the collection every later iteration reads is still intact.
+func TestForeachMapIterationCannotCorruptTheSharedBody(t *testing.T) {
+	var seen []any
+	reg := recordRegistry(&seen)
+	reg.MustRegister("truncate", func(types.Settings, core.BlockDeps) (core.MessageProcessor, error) {
+		return processorFunc(func(_ context.Context, msg *types.Message) (*types.Message, error) {
+			msg.MutableBody().(map[string]any)["nums"] = []any{}
+			return msg, nil
+		}), nil
+	})
+	reg.MustRegister("record-len", func(types.Settings, core.BlockDeps) (core.MessageProcessor, error) {
+		return processorFunc(func(_ context.Context, msg *types.Message) (*types.Message, error) {
+			seen = append(seen, len(msg.Body.(map[string]any)["nums"].([]any)))
+			return msg, nil
+		}), nil
+	})
+	body := types.FlowConfig{Process: []types.BlockConfig{
+		{Type: "record-len"},
+		{Type: "truncate"},
+	}}
+	proc := mustBuild(t, reg, types.BlockConfig{
+		Type: "foreach", Mode: "map", Items: "body.nums", As: "n", Body: &body,
+	})
+
+	msg := mustMessage(t)
+	msg.Body = map[string]any{"nums": []any{1.0, 2.0, 3.0}}
+	if _, err := proc.Process(context.Background(), msg); err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+
+	want := []any{3, 3, 3}
+	if !reflect.DeepEqual(seen, want) {
+		t.Errorf("lengths seen = %#v, want %#v — an iteration corrupted the shared body", seen, want)
 	}
 }
 

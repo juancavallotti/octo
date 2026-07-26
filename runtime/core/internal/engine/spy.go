@@ -35,11 +35,15 @@ type spyBlock struct {
 
 // Process runs the wrapped block and records the crossing.
 //
-// The input is cloned before the block runs, not after: blocks mutate the message in
-// place and return the same pointer, so a record taken afterwards would show the
-// input already overwritten by the output. The output is cloned for the mirror-image
-// reason — the live message travels on, and a later block would rewrite a record
-// that pointed at it.
+// The input is cloned before the block runs, not after: blocks rewrite the fields of
+// the message they are given and return the same pointer, so a record taken
+// afterwards would show the input already overwritten by the output. The output is
+// cloned for the mirror-image reason — the live message travels on, and a later
+// block would rewrite a record that pointed at it.
+//
+// These are full clones rather than scopes: a record outlives the message it was
+// taken from and is read by another goroutine, which is the line a scope's shared
+// body must not cross.
 func (b *spyBlock) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
 	in := msg.Clone()
 

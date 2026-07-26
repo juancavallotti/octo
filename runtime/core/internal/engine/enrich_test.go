@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
 	"github.com/juancavallotti/octo/runtime/core"
@@ -9,7 +10,7 @@ import (
 )
 
 // enrichRegistry extends the shared test registry with a "bodyvar" leaf that, on
-// the isolated clone, rewrites the body to a map and sets a scratch variable, so
+// the isolated scope, rewrites the body to a map and sets a scratch variable, so
 // tests can observe what the enrich expressions pull back and what stays isolated.
 func enrichRegistry() *core.BlockRegistry {
 	reg := testRegistry()
@@ -111,7 +112,7 @@ func TestEnrichSetVarsFromScopeResult(t *testing.T) {
 func TestEnrichIsolationWithoutExpressions(t *testing.T) {
 	reg := enrichRegistry()
 	// No setBody/setVars: the body runs purely for side-effects and nothing from
-	// the isolated clone escapes.
+	// the isolated scope escapes.
 	e := buildEnrich(t, reg, types.BlockConfig{Body: bodyFlow()})
 
 	msg := enrichInput(t)
@@ -123,6 +124,33 @@ func TestEnrichIsolationWithoutExpressions(t *testing.T) {
 	}
 	if _, ok := msg.Variables.Bool("leaked"); ok {
 		t.Error("scope-only variable leaked to the parent")
+	}
+}
+
+// The scope gets its isolation from copied variables, not from a copied body —
+// so enriching a large message costs no copy of it. Isolation itself is covered
+// by the tests above; this pins the cost.
+func TestEnrichSharesTheIncomingBody(t *testing.T) {
+	var seen any
+	reg := testRegistry()
+	reg.MustRegister("record-body", func(types.Settings, core.BlockDeps) (core.MessageProcessor, error) {
+		return processorFunc(func(_ context.Context, msg *types.Message) (*types.Message, error) {
+			seen = reflect.ValueOf(msg.Body).Pointer()
+			return msg, nil
+		}), nil
+	})
+	body := types.FlowConfig{Process: []types.BlockConfig{{Type: "record-body"}}}
+	e := buildEnrich(t, reg, types.BlockConfig{Body: &body})
+
+	msg := mustMessage(t)
+	msg.Body = map[string]any{"k": "v"}
+	want := reflect.ValueOf(msg.Body).Pointer()
+
+	if _, err := e.Process(context.Background(), msg); err != nil {
+		t.Fatalf("enrich Process: %v", err)
+	}
+	if seen != want {
+		t.Error("the scope got a copy of the body instead of the body itself")
 	}
 }
 
