@@ -167,7 +167,7 @@ When an upstream returns `429 Too Many Requests`, the connector honors the `Retr
 
 ### Connection pool (`pool`)
 
-The connector keeps a pool of idle connections so outbound requests reuse them instead of dialling — and, against HTTPS, re-handshaking — every time. The pool is the counterpart to a flow's [`workers`](/reference/flow-file#flows): `workers: 512` asks for up to 512 concurrent outbound requests, and `maxIdleConnsPerHost` decides how many of those connections survive to serve the next batch. Sizing the pool below `workers` means the excess is closed and re-dialled each round.
+The connector keeps a pool of idle connections so outbound requests reuse them instead of dialling — and, against HTTPS, re-handshaking — every time. Size the pool against the flow's [`workers`](/reference/flow-file#flows): `workers: 512` asks for up to 512 concurrent outbound requests, and `maxIdleConnsPerHost` decides how many of those connections survive to serve the next batch. Set `maxIdleConnsPerHost` to at least the `workers` of the busiest flow calling this connector — below that, the excess is closed and re-dialled every round.
 
 | Setting | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
@@ -180,7 +180,7 @@ The connector keeps a pool of idle connections so outbound requests reuse them i
   **Fixed in 0.5.0.** Before this the connector used Go's default transport, whose idle pool is **two** connections per host. Above two concurrent requests every further connection was closed rather than parked, so a proxying workload approached one new TCP connection — and one TLS handshake — per request, and could exhaust the ephemeral port range under sustained load. The `notion` and `slack` connectors shared the defect and now pool too, at these defaults.
 </Callout>
 
-Note that `maxResponseBytes` interacts with pooling: a connection is only reusable once its response body is read to the end. The connector drains a truncated body for you, so the cap costs bandwidth rather than connections.
+Keep `maxResponseBytes` in mind when you size the pool: a connection returns to the pool only once its response body is read to the end. The connector drains what the cap hid, but only up to 4 KiB — past that the read is worth less than the connection, so the connection is dropped instead. Set `maxResponseBytes` above the responses you expect, and treat a cap that truncates by more than a few KiB as costing a connection per request.
 
 ### Cache (`cache`)
 
