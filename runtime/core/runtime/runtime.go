@@ -494,7 +494,7 @@ func (s *Service) buildFlow(ctx context.Context, cfg types.FlowConfig, set *conn
 		}
 	}
 
-	return &boundFlow{
+	bf := &boundFlow{
 		name:       cfg.Name,
 		source:     source,
 		root:       root,
@@ -505,7 +505,21 @@ func (s *Service) buildFlow(ctx context.Context, cfg types.FlowConfig, set *conn
 		pool:       p,
 		implicit:   implicit,
 		sourceDesc: sourceDesc,
-	}, nil
+	}
+
+	bf.installResume()
+	return bf, nil
+}
+
+// installResume hands each root chain the hook its continuations resume through.
+// It closes over the bound flow because scheduling a resumed tail needs the
+// worker pool and reporting it needs the event bus and the error path — none of
+// which the engine has. It runs well before the source admits any traffic.
+func (bf *boundFlow) installResume() {
+	bf.root.SetResume(bf.resume)
+	if bf.errorPath != nil {
+		bf.errorPath.SetResume(bf.resume)
+	}
 }
 
 // buildSource picks the source for a flow: an implicit source when the flow has

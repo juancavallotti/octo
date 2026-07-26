@@ -71,6 +71,31 @@ type Flow struct {
 	// events dispatches this flow's block events. It is nil when nothing is
 	// listening, which is the loop's fast exit.
 	events *core.BlockEvents
+	// resume schedules a resumed tail of this flow and reports its outcome. The
+	// runtime installs it on a root flow (SetResume); it is nil for a sub-flow and
+	// for a flow built outside the runtime, which is what makes a block that needs
+	// a continuation fail loudly rather than silently drop the work it took over.
+	//
+	// It is read at resume time rather than captured, so it may be installed after
+	// the flow — and its continuations — are built.
+	resume core.FlowResume
+}
+
+// SetResume installs the hook a continuation uses to schedule the rest of this
+// flow. Only the runtime calls it, on a root flow, before the source starts.
+func (f *Flow) SetResume(r core.FlowResume) { f.resume = r }
+
+// LifecycleProcessors returns this chain's blocks that own background work, in
+// chain order. The runtime starts and stops them around the flow's own
+// lifecycle. It looks only at this chain's blocks, not into composites' sub-flows.
+func (f *Flow) LifecycleProcessors() []core.LifecycleProcessor {
+	var procs []core.LifecycleProcessor
+	for i := range f.Blocks {
+		if proc, ok := f.Blocks[i].Processor.(core.LifecycleProcessor); ok {
+			procs = append(procs, proc)
+		}
+	}
+	return procs
 }
 
 // Process runs msg through the flow's blocks in order. It returns the final
@@ -206,6 +231,13 @@ type builder struct {
 	// composite slot holds.
 	flowName string
 
+	// root reports that this builder is assembling a root chain — a flow's own
+	// process or error chain — rather than a composite's sub-flow. Only a root
+	// chain has a meaningful "rest of the flow" to hand a block that takes over,
+	// so it is both where continuations are wired and the test a takeover block
+	// applies to reject being nested.
+	root bool
+
 	// path is the address of the node whose children this builder builds:
 	//
 	//   - while building a chain, it is the slot the chain hangs off ("orders",
@@ -230,7 +262,10 @@ func newBuilder(
 	if err != nil {
 		return nil, err
 	}
-	return &builder{reg: blocks, pool: p, defs: defs, deps: deps, flowName: flowName, path: path}, nil
+	return &builder{
+		reg: blocks, pool: p, defs: defs, deps: deps,
+		flowName: flowName, path: path, root: true,
+	}, nil
 }
 
 // at returns a builder that builds the children of the node at path.
@@ -244,7 +279,12 @@ func (b *builder) at(path string) *builder {
 // is what every composite builder descends through, so each sub-flow's blocks
 // address as `<composite>[<branch>].<block>`.
 func (b *builder) branch(name string) *builder {
-	return b.at(core.JoinBranch(b.path, name))
+	child := b.at(core.JoinBranch(b.path, name))
+	// Descending into a branch leaves the root chain: the sub-flow ends at the
+	// composite that owns it, which then post-processes the result, so there is no
+	// "rest of the flow" to continue into from in here.
+	child.root = false
+	return child
 }
 
 // processorDefs indexes named processor definitions by name, rejecting
@@ -274,7 +314,13 @@ func (b *builder) flow(cfg types.FlowConfig) (*Flow, error) {
 		}
 		blocks = append(blocks, block)
 	}
-	return &Flow{Name: cfg.Name, Blocks: blocks, flowName: b.flowName, events: b.deps.Events}, nil
+	flow := &Flow{Name: cfg.Name, Blocks: blocks, flowName: b.flowName, events: b.deps.Events}
+	if b.root {
+		if err := flow.wireContinuations(); err != nil {
+			return nil, err
+		}
+	}
+	return flow, nil
 }
 
 // subFlow builds a nested flow, rejecting root-only fields.

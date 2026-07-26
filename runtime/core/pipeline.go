@@ -16,6 +16,38 @@ type MessageProcessor interface {
 	Process(ctx context.Context, msg *types.Message) (*types.Message, error)
 }
 
+// ContinuationAware is an optional capability a processor implements when it
+// takes over the flow rather than returning the next message. The flow builder
+// hands it the Continuation covering the blocks that follow it, once the flow is
+// assembled.
+//
+// It is wired only for a block in a root chain. A composite's sub-flow ends at
+// the composite, which then post-processes the result, so there is no meaningful
+// "rest of the flow" to hand down; a processor that needs a continuation and is
+// given none must fail its build rather than run without one.
+type ContinuationAware interface {
+	SetContinuation(c Continuation)
+}
+
+// LifecycleProcessor is an optional capability a processor implements when it
+// owns background work — a ticker, a leadership lease, anything that outlives a
+// single Process call. The runtime starts it after the flow's pool is up and
+// before the source admits traffic, and stops it after in-flight messages drain
+// and before the pool is torn down, so nothing it started can submit to a pool
+// that is already stopping.
+type LifecycleProcessor interface {
+	Start(ctx context.Context) error
+	Stop(ctx context.Context) error
+}
+
+// StateScoped is an optional capability a processor implements when it owns
+// persistent state under a key that must be its alone. Two blocks sharing one
+// would silently read and write each other's state, so the runtime collects the
+// keys across every flow and refuses a config that repeats one.
+type StateScoped interface {
+	StateKey() string
+}
+
 // Block is a configured, named stage in a flow wrapping one MessageProcessor.
 // The Processor is either a leaf (built from a BlockFactory) or a composite that
 // embeds sub-flows (built by the flow builder). The block itself stays a thin
