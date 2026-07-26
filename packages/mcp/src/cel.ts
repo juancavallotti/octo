@@ -389,6 +389,41 @@ export const CEL_FUNCTIONS: CelFunction[] = [
       "Bitwise AND. bitOr, bitXor, bitNot, bitShiftLeft, and bitShiftRight round out the set.",
     example: `math.bitAnd(body.flags, 4)`,
   },
+  {
+    name: "math.bitOr",
+    library: "math",
+    signature: "math.bitOr(int, int) -> int",
+    summary: "Bitwise OR.",
+    example: `math.bitOr(body.flags, 2)`,
+  },
+  {
+    name: "math.bitXor",
+    library: "math",
+    signature: "math.bitXor(int, int) -> int",
+    summary: "Bitwise exclusive OR.",
+    example: `math.bitXor(body.flags, 1)`,
+  },
+  {
+    name: "math.bitNot",
+    library: "math",
+    signature: "math.bitNot(int) -> int",
+    summary: "Bitwise NOT.",
+    example: `math.bitNot(body.mask)`,
+  },
+  {
+    name: "math.bitShiftLeft",
+    library: "math",
+    signature: "math.bitShiftLeft(int, int) -> int",
+    summary: "Bitwise left shift.",
+    example: `math.bitShiftLeft(body.flags, 1)`,
+  },
+  {
+    name: "math.bitShiftRight",
+    library: "math",
+    signature: "math.bitShiftRight(int, int) -> int",
+    summary: "Bitwise right shift.",
+    example: `math.bitShiftRight(body.flags, 1)`,
+  },
 
   // --- two-variable comprehensions ---
   {
@@ -497,12 +532,33 @@ export const CEL_FUNCTIONS: CelFunction[] = [
     example: `body.items.first().orValue("none")`,
   },
   {
+    name: "last",
+    library: "optional",
+    signature: "list.last() -> optional(T)",
+    summary: "The last element as an optional, so an empty list is absent rather than an error.",
+    example: `body.items.last().orValue("none")`,
+  },
+  {
     name: "optional.of",
     library: "optional",
     signature: "optional.of(value) -> optional(T)",
     summary:
       "Wrap a value as a present optional. optional.none() is the absent one, and optional.unwrap(list) drops the absent entries from a list.",
     example: `optional.of(body.id)`,
+  },
+  {
+    name: "optional.none",
+    library: "optional",
+    signature: "optional.none() -> optional(T)",
+    summary: "Construct an absent optional value.",
+    example: `optional.none()`,
+  },
+  {
+    name: "optional.unwrap",
+    library: "optional",
+    signature: "optional.unwrap(list(optional(T))) -> list(T)",
+    summary: "Drop absent optionals from a list and unwrap the present values.",
+    example: `optional.unwrap([optional.of(body.id), optional.none()])`,
   },
 ];
 

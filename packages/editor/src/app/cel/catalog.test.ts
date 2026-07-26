@@ -49,6 +49,12 @@ describe("cel catalog", () => {
       "decode",
     ]);
     expect(namespaceMembers("nope")).toBeUndefined();
+    // Inherited Object properties are not namespaces. Without an own-property
+    // check these resolve to something truthy that is not a list of entries, and
+    // the completion menu filters it as one.
+    for (const inherited of ["constructor", "toString", "hasOwnProperty", "__proto__"]) {
+      expect(namespaceMembers(inherited)).toBeUndefined();
+    }
     expect(EXT_NAMESPACE_ROOTS.map((e) => e.name).sort()).toEqual(
       Object.keys(EXT_NAMESPACES).sort(),
     );

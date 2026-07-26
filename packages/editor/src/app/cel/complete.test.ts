@@ -174,6 +174,11 @@ describe("namespaced extension functions", () => {
   it("does not treat a deeper path as a namespace", () => {
     expect(completionsAt("body.math.", 10).items).toHaveLength(0);
   });
+
+  it("does not treat an inherited Object property as a namespace", () => {
+    expect(completionsAt("constructor.", 12).items).toHaveLength(0);
+    expect(completionsAt("toString.", 9).items).toHaveLength(0);
+  });
 });
 
 describe("applyCompletion", () => {

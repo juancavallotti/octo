@@ -787,6 +787,9 @@ export function allCompletions(): CelEntry[] {
 
 /** The members of a namespace (`math` → its functions), or undefined if unknown. */
 export function namespaceMembers(name: string): CelEntry[] | undefined {
+  if (!Object.prototype.hasOwnProperty.call(EXT_NAMESPACES, name)) {
+    return undefined;
+  }
   return EXT_NAMESPACES[name];
 }
 
@@ -797,7 +800,7 @@ export function namespaceMembers(name: string): CelEntry[] | undefined {
 export function lookup(name: string): CelEntry | undefined {
   const dot = name.indexOf(".");
   if (dot > 0) {
-    const members = EXT_NAMESPACES[name.slice(0, dot)];
+    const members = namespaceMembers(name.slice(0, dot));
     return members?.find((e) => e.name === name.slice(dot + 1));
   }
   return allCompletions().find((e) => e.name === name);
