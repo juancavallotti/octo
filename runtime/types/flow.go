@@ -168,6 +168,62 @@ type BlockConfig struct {
 	// (each with named arguments) and renders on prompts/get. The "mcp-router"
 	// reuses the Tools slot to expose flows as MCP tools.
 	Prompts []MCPPromptConfig `yaml:"prompts,omitempty"`
+
+	// BuildResponse is the shared "takeover" slot: the sub-flow a block runs on the
+	// original message once it has taken the flow asynchronous, to shape what the
+	// caller gets back before the chain stops. It is the asynchronous sibling of
+	// OnReject — the work carries on elsewhere, so this is the caller's receipt
+	// rather than its result. Empty stops with the message as it stands.
+	BuildResponse *FlowConfig `yaml:"buildResponse,omitempty"`
+
+	// Delimiter is the separator a "split" block cuts on in mode "delimiter".
+	Delimiter string `yaml:"delimiter,omitempty"`
+	// ChunkSize is how many runes a "split" block puts in each element in mode
+	// "chunk".
+	ChunkSize int `yaml:"chunkSize,omitempty"`
+	// OnError is a "split" block's policy when an element cannot be dispatched:
+	// "skip" (the default) logs and carries on, "abort" fails the block. It governs
+	// dispatch only — an element that fails once it is running fails in its own
+	// invocation, which is the point of splitting.
+	OnError string `yaml:"onError,omitempty"`
+
+	// StoreKey is the identity an "aggregate" block's group state and leader
+	// election are namespaced by. It defaults to the block's own address, which is
+	// stable until the block moves; setting it explicitly keeps in-flight groups
+	// alive across an edit to the flow.
+	StoreKey string `yaml:"storeKey,omitempty"`
+	// Correlation is an "aggregate" block's CEL expression for which group a
+	// message belongs to. It defaults to vars.groupId, the variable a "split"
+	// block sets, which is what pairs the two with no configuration.
+	Correlation string `yaml:"correlation,omitempty"`
+	// Strategy is how an "aggregate" block combines messages: "append" (the
+	// default) collects bodies into an array, "expression" folds through Expression.
+	Strategy string `yaml:"strategy,omitempty"`
+	// Expression is an "aggregate" block's fold, evaluated with the group so far in
+	// vars.group; its result becomes the new accumulator.
+	Expression string `yaml:"expression,omitempty"`
+	// CompletionSize is an "aggregate" block's capacity condition: a CEL expression
+	// yielding the number of messages the group expects. It is an expression rather
+	// than a number so it can be dynamic — "batches of 100" and "however many this
+	// split produced" are then the same field. It defaults to vars.groupSize.
+	CompletionSize string `yaml:"completionSize,omitempty"`
+	// CompletionTimeout is an "aggregate" block's time condition, a duration string
+	// ("5s"). It is the only condition that fires without a message arriving, so it
+	// is what bounds a group whose other conditions may never be met.
+	CompletionTimeout string `yaml:"completionTimeout,omitempty"`
+	// CompletionExpression is an "aggregate" block's predicate condition, evaluated
+	// after each fold against the message and vars.group.
+	CompletionExpression string `yaml:"completionExpression,omitempty"`
+	// TimeoutFrom is what CompletionTimeout is measured from: "first" (the default,
+	// a fixed window from the group opening) or "last" (a sliding idle window).
+	TimeoutFrom string `yaml:"timeoutFrom,omitempty"`
+	// MaxGroups caps how many groups an "aggregate" block keeps open at once, so a
+	// high-cardinality correlation cannot grow without bound.
+	MaxGroups int `yaml:"maxGroups,omitempty"`
+	// OnOverflow is what an "aggregate" block does at MaxGroups: "fail" (the
+	// default) errors the message into the flow's error chain, "complete" releases
+	// the oldest group early, "drop" discards the message.
+	OnOverflow string `yaml:"onOverflow,omitempty"`
 }
 
 // MCPResourceConfig is one resource an "mcp-router" advertises. URI is the stable

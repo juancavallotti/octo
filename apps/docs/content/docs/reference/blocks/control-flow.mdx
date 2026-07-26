@@ -10,6 +10,8 @@ octo_types:
   - validate
   - handle-errors
   - cache-scope
+  - split
+  - aggregate
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
@@ -152,6 +154,134 @@ Each element's body runs on its **own scope** of the message, and the body it pr
 
 <Callout type="info">
 The mapped array replaces the message **body**. To keep the original body and put the result somewhere else, wrap the `foreach` in an [`enrich`](#enrich) block and use `setVars` to land the mapped array in a variable.
+</Callout>
+
+## split
+
+Splits one message into many. Each element continues through **the rest of the flow** as an invocation of its own, so elements are processed concurrently and each has its own error fate.
+
+This is the point at which a flow becomes asynchronous. The blocks after `split` no longer run for the message that arrived — they run once per element, on borrowed workers — so the caller is answered by the `buildResponse` slot instead.
+
+| Key | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `mode` | enum: `expression` \| `lines` \| `delimiter` \| `chunk` | No | `expression` | How the message is carved into elements. |
+| `items` | `expression` (array) | Yes for `expression` mode | — | CEL expression that must evaluate to an array. |
+| `delimiter` | string | Yes for `delimiter` mode | — | Separator to cut the text body on. |
+| `chunkSize` | number | Yes for `chunk` mode | — | Characters per element. |
+| `onError` | enum: `skip` \| `abort` | No | `skip` | What to do when an element cannot be dispatched. |
+| `buildResponse` | flow | No | — | Sub-flow that shapes the caller's response, run once after every element is dispatched. |
+
+```yaml
+- type: split
+  name: lines
+  items: "body.lines"
+  buildResponse:
+    process:
+      - type: set-payload
+        settings:
+          value: '{"accepted": vars.groupSize}'
+# every block below here runs once per line
+```
+
+- **`expression` mode** takes the same input `foreach` does. **`lines`, `delimiter` and `chunk`** tokenize a text body (a raw-content payload or a string) one element at a time, which is what makes a large payload tractable rather than requiring the whole collection in memory first.
+- **Per-element error isolation.** Each element is a full invocation with its own event ID, so one bad record fails alone and the flow's `error:` chain recovers it independently. This is the gap `foreach` cannot close: there, one failing element aborts the loop.
+- **Backpressure is automatic.** Elements are scheduled onto the flow's pool while it has room, and run on the splitting worker when it does not — so a split can never outrun what the flow can absorb, and peak memory stays flat. Size it with the flow's [`pool`](/reference/flow-file) setting.
+- `onError` governs **dispatch** only. An element that fails once it is running always fails on its own.
+
+### Correlation variables
+
+Every element carries three variables. They are the entire contract between `split` and [`aggregate`](#aggregate), which is why the two pair with no configuration.
+
+| Variable | Type | Description |
+|---|---|---|
+| `groupId` | string | Identifies the group: the event ID of the message being split. |
+| `groupIndex` | number | The element's 0-based position. |
+| `groupSize` | number | How many messages the group holds, or `-1` while not yet known. |
+
+In `expression` mode the total is known up front, so every element carries it. A tokenizing mode cannot know it while emitting, so `groupSize` is `-1` on every element except the last, which carries the real count. Either way the group learns its size exactly once.
+
+The `buildResponse` sub-flow always sees the **real** total, because it runs after every element has been dispatched — so `vars.groupSize` in a receipt is honest even in a streaming mode.
+
+<Callout type="info">
+`split` and `aggregate` must be **top-level blocks** in a flow's `process` or `error` chain. Inside another block's slot there is no "rest of the flow" to continue into, so nesting one fails at startup. Both also require at least one block after them.
+</Callout>
+
+## aggregate
+
+Combines many messages into one. Messages are grouped by a CEL expression and held until the group completes — by size, by timeout, or by a predicate — then the completed group continues through the rest of the flow as a single message.
+
+It is the only block that holds state between messages, which is what lets it combine messages that arrive **over time** (batch 100 webhook events; every event in a five-second window), not just elements of one body.
+
+| Key | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `correlation` | `expression` | No | `vars.groupId` | Which group a message belongs to. |
+| `strategy` | enum: `append` \| `expression` | No | `append` | `append` collects bodies into an array; `expression` folds through `expression`. |
+| `expression` | `expression` | Yes for `expression` strategy | — | Fold whose result becomes the new accumulator. |
+| `completionSize` | `expression` (number) | No | `vars.groupSize` | How many messages the group expects; it completes when the count reaches this. |
+| `completionTimeout` | duration | No | — | How long a group may stay open (e.g. `5s`). |
+| `completionExpression` | `expression` (bool) | No | — | Predicate checked after each message. |
+| `timeoutFrom` | enum: `first` \| `last` | No | `first` | Fixed window from the group opening, or a sliding idle window. |
+| `storeKey` | string | No | the block's address | Identifies what the group state and leader election are namespaced by. |
+| `maxGroups` | number | No | `1000` | How many groups may be open at once. |
+| `onOverflow` | enum: `fail` \| `complete` \| `drop` | No | `fail` | What to do at the cap. |
+| `buildResponse` | flow | No | — | Sub-flow that shapes the caller's response for the message just absorbed. |
+
+```yaml
+# Re-join a split — no configuration needed, the defaults read the split's variables.
+- type: aggregate
+  name: rejoin
+  completionTimeout: 10s
+
+# Or batch events that never came from a split.
+- type: aggregate
+  correlation: "body.customerId"
+  completionSize: "100"
+  completionTimeout: "5s"
+```
+
+**All three completion conditions may be combined; the first to fire wins.**
+
+- **Completion is a count, never a last-marker.** Elements run concurrently and routinely finish out of order, so "I saw the last one" would close a group of five with three arrived and silently drop two. There is deliberately no `groupLast` variable.
+- **`append` re-joins in the split's order.** Elements are placed by `groupIndex`, not by the order they finished, so the same input yields the same array every run. Messages with no `groupIndex` — events off a source — are appended in arrival order, the only order they have. A group that completes with an element missing leaves `null` in the gap rather than renumbering the survivors.
+- **Only the timeout fires without a message.** Nothing re-evaluates a sitting group, so a group whose other conditions may never be met needs a `completionTimeout` — and after an element failed, that is the only thing that will ever close it. `vars.aggregateReason` tells the rest of the flow whether it received a whole group or a partial one.
+
+### The completed message
+
+| Variable | Description |
+|---|---|
+| `aggregateKey` | The correlation key the group folded under. |
+| `aggregateCount` | How many messages it holds. |
+| `aggregateReason` | `size`, `timeout`, `expression`, or `overflow`. |
+
+The message inherits the `correlationID` of the group's first message rather than overwriting it. The three `group*` variables are cleared — they described the group that just closed, and forwarding them would make a second aggregation stage put every message in a batch of one.
+
+### `vars.group` — the group so far
+
+Every expression the block evaluates sees the accumulated state under `vars.group`, so a predicate can ask about the group rather than only the message in hand.
+
+| Field | Description |
+|---|---|
+| `key` | The correlation key. |
+| `count` | Messages folded so far. |
+| `size` | The learned total, or `-1`. |
+| `acc` | The accumulator — under `append`, the array of bodies. |
+| `firstAt` / `lastAt` | RFC3339 timestamps. |
+| `ageMs` / `idleMs` | Milliseconds since the group opened / since the last message. |
+
+```yaml
+completionExpression: "vars.group.count >= 5 && vars.group.idleMs > 2000"
+```
+
+The **fold** expression sees `vars.group` *before* its message is folded (`acc` is the previous accumulator, `null` on a new group); `completionSize` and `completionExpression` see it *after*.
+
+### State and clustering
+
+Group state lives in the runtime [KV store](/runtime/runtime-services) under optimistic concurrency, so any replica can fold into a group and two replicas can never each hold half of one. The timeout sweep is gated on [leader election](/runtime/clustering), so a group is reaped once per cluster rather than once per replica. Both work the same way in the standalone module, where the store is in-process and leadership is permanent.
+
+`storeKey` defaults to the block's own address, which is stable until the block moves. Set it explicitly to keep in-flight groups alive across an edit that renames or moves the block — otherwise those groups are stranded until their deadline. Two blocks may not share one; the runtime rejects a config where they do.
+
+<Callout type="warn">
+`strategy: append` rewrites the whole group on every message, so the stored bytes grow quadratically with group size. That is fine for batching a hundred events, and wrong for re-joining a fifty-thousand-element split — use `strategy: expression` with a running accumulator for large groups.
 </Callout>
 
 ## enrich

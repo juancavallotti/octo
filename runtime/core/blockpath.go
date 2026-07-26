@@ -24,13 +24,18 @@ import "strconv"
 // routes, an ai-agent's tools — is addressed by the member's own name instead,
 // or by its index (see MemberBranch).
 const (
-	BranchProcess  = "process"
-	BranchError    = "error"
-	BranchThen     = "then"
-	BranchElse     = "else"
-	BranchBody     = "body"
-	BranchDefault  = "default"
-	BranchOnReject = "onReject"
+	BranchProcess = "process"
+	BranchError   = "error"
+	BranchThen    = "then"
+	BranchElse    = "else"
+	BranchBody    = "body"
+	BranchDefault = "default"
+	// BranchOnReject and BranchBuildResponse are the two chains that shape what a
+	// caller gets back rather than carrying the message onward: the first when a
+	// filter rejects it, the second when a block takes the flow asynchronous and
+	// the caller needs an answer before the real work has finished.
+	BranchOnReject      = "onReject"
+	BranchBuildResponse = "buildResponse"
 )
 
 // BlockLabel is how a block is named in an address: its name, else its type,

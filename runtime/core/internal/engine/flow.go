@@ -27,10 +27,17 @@ const (
 	blockKindEnrich       = "enrich"
 	blockKindValidate     = "validate"
 	blockKindCacheScope   = "cache-scope"
-	blockKindAIRouter     = "ai-router"
-	blockKindAIAgent      = "ai-agent"
-	blockKindAIRetry      = "ai-retry"
-	blockKindMCPRouter    = "mcp-router"
+	// blockKindSplit and blockKindAggregate take over the flow rather than
+	// returning the next message: they continue it themselves, on borrowed
+	// workers. They carry no sub-flow of their own beyond the buildResponse slot,
+	// but the builder still owns them — only it knows whether they sit in a root
+	// chain, which is what they require.
+	blockKindSplit     = "split"
+	blockKindAggregate = "aggregate"
+	blockKindAIRouter  = "ai-router"
+	blockKindAIAgent   = "ai-agent"
+	blockKindAIRetry   = "ai-retry"
+	blockKindMCPRouter = "mcp-router"
 	// blockKindBreakpoint is injected by the runtime around an addressed block for
 	// `invoke --break-at`; it is never authored in a flow (see breakpoint.go).
 	blockKindBreakpoint = "breakpoint"
@@ -96,6 +103,18 @@ func (f *Flow) LifecycleProcessors() []core.LifecycleProcessor {
 		}
 	}
 	return procs
+}
+
+// StateKeys returns the identities this chain's blocks store state under, so the
+// runtime can reject a config where two of them would collide.
+func (f *Flow) StateKeys() []string {
+	var keys []string
+	for i := range f.Blocks {
+		if scoped, ok := f.Blocks[i].Processor.(core.StateScoped); ok {
+			keys = append(keys, scoped.StateKey())
+		}
+	}
+	return keys
 }
 
 // Process runs msg through the flow's blocks in order. It returns the final
@@ -430,6 +449,8 @@ func (b *builder) compositeBuilders() map[string]func(types.BlockConfig) (core.M
 		blockKindEnrich:       b.enrich,
 		blockKindValidate:     b.validateBlock,
 		blockKindCacheScope:   b.cacheScope,
+		blockKindSplit:        b.splitBlock,
+		blockKindAggregate:    b.aggregateBlock,
 		blockKindAIRouter:     b.aiRouter,
 		blockKindAIAgent:      b.aiAgent,
 		blockKindAIRetry:      b.aiRetry,
@@ -500,6 +521,34 @@ func compositeSlots(cfg types.BlockConfig) []string {
 	add(cfg.MemoryThreadID != "", "memoryThreadId")
 	add(cfg.MemoryMaxTokens != 0, "memoryMaxTokens")
 	add(cfg.MemoryCompaction != "", "memoryCompaction")
+	return append(slots, takeoverSlots(cfg)...)
+}
+
+// takeoverSlots lists the slots owned by the blocks that take the flow over
+// (split, aggregate). They are split out from compositeSlots only to keep that
+// function's length in check; together the two are still the single source of
+// truth for which slots exist.
+func takeoverSlots(cfg types.BlockConfig) []string {
+	var slots []string
+	add := func(set bool, name string) {
+		if set {
+			slots = append(slots, name)
+		}
+	}
+	add(cfg.BuildResponse != nil, "buildResponse")
+	add(cfg.Delimiter != "", "delimiter")
+	add(cfg.ChunkSize != 0, "chunkSize")
+	add(cfg.OnError != "", "onError")
+	add(cfg.StoreKey != "", "storeKey")
+	add(cfg.Correlation != "", "correlation")
+	add(cfg.Strategy != "", "strategy")
+	add(cfg.Expression != "", "expression")
+	add(cfg.CompletionSize != "", "completionSize")
+	add(cfg.CompletionTimeout != "", "completionTimeout")
+	add(cfg.CompletionExpression != "", "completionExpression")
+	add(cfg.TimeoutFrom != "", "timeoutFrom")
+	add(cfg.MaxGroups != 0, "maxGroups")
+	add(cfg.OnOverflow != "", "onOverflow")
 	return slots
 }
 

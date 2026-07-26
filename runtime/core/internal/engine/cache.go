@@ -12,8 +12,6 @@ package engine
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -51,10 +49,7 @@ type cacheEnvelope struct {
 
 // cacheKey hashes the evaluated key expression so the stored key is bounded and
 // safe for backends that put it in a URL path (the k8s KV API).
-func cacheKey(raw string) string {
-	sum := sha256.Sum256([]byte(raw))
-	return hex.EncodeToString(sum[:])
-}
+func cacheKey(raw string) string { return hashedKey(raw) }
 
 // cacheScope memoizes the body its wrapped flow produces, keyed by an evaluated
 // expression. On a fresh hit it restores the cached body and skips the flow.

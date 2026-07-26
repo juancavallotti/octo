@@ -280,6 +280,9 @@ var reservedBranches = map[string]func(*types.BlockConfig) *[]types.BlockConfig{
 	core.BranchBody:     func(b *types.BlockConfig) *[]types.BlockConfig { return subChain(b.Body) },
 	core.BranchDefault:  func(b *types.BlockConfig) *[]types.BlockConfig { return subChain(b.Default) },
 	core.BranchOnReject: func(b *types.BlockConfig) *[]types.BlockConfig { return subChain(b.OnReject) },
+	core.BranchBuildResponse: func(b *types.BlockConfig) *[]types.BlockConfig {
+		return subChain(b.BuildResponse)
+	},
 }
 
 // subChain returns a sub-flow's block chain, or nil when the slot is unset.

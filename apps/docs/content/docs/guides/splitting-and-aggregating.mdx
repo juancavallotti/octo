@@ -1,0 +1,200 @@
+---
+title: "Splitting and Aggregating"
+description: "Process a collection element by element, then re-join the results."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+In this guide you break one message into many with `split`, process each element
+independently, and re-join them with `aggregate`. You will also see what changes
+when a flow becomes asynchronous, and how to answer the caller once it has. It
+follows
+[`samples/split-aggregate.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/split-aggregate.yaml).
+
+## Why not `foreach`
+
+[`foreach` in `map` mode](/reference/blocks/control-flow#foreach) also walks a
+collection and produces one, so it is worth being precise about when it is not
+enough. `foreach` is a splitter and an aggregator fused into one block: it
+materializes the whole collection, runs the body once per element in order, and
+writes each result back positionally.
+
+That fusion costs three things:
+
+- **The collection must fit in memory**, because `items` is an expression that
+  evaluates to an array before the loop starts.
+- **Elements are not independent.** One element's error aborts the loop, so a
+  single bad record in fifty thousand fails the other 49,999.
+- **The join is immediate and positional.** There is no way to re-join on a
+  condition, and no way to combine messages that were never one collection.
+
+`split` and `aggregate` are the same two halves, separated. Use `foreach` when
+the collection is small and you want the result back on the same message; reach
+for these when you do not.
+
+## Splitting an order into lines
+
+```yaml
+flows:
+  - name: order
+    process:
+      - type: split
+        name: lines
+        items: "body.lines"
+        buildResponse:
+          process:
+            - type: set-payload
+              settings:
+                value: '{"accepted": vars.groupSize}'
+
+      # Everything below here runs once per line.
+      - type: set-payload
+        name: price-line
+        settings:
+          value: '{"sku": body.sku, "total": body.qty * body.price}'
+```
+
+The important thing to read here is what `split` does to the blocks *after* it.
+They are no longer the rest of this message's journey — they are the rest of
+**each element's** journey, and each element runs them as an invocation of its
+own, concurrently, with its own event ID.
+
+That has a consequence worth stating plainly: **one element failing does not
+affect the others.** A line that fails to price fails alone, hits the flow's
+`error:` chain on its own, and the other lines carry on. This is the isolation
+`foreach` cannot give you.
+
+<Callout type="info">
+`split` needs no concurrency setting. Elements are scheduled onto the flow's
+shared pool while it has room and run on the splitting worker when it does not,
+so a split can never outrun what the flow can absorb. Size it with the flow's
+`pool` setting.
+</Callout>
+
+### Answering the caller
+
+The real work has moved off the caller's thread, so there is nothing left to
+return — the caller would otherwise get whatever the message happened to look
+like at the moment it was handed over. That is what `buildResponse` is for: it
+runs once, on the original message, after every element has been dispatched, and
+whatever it produces is what the caller receives.
+
+It sees `vars.groupSize`, the number of elements actually dispatched, so a
+receipt can be honest about how much work was accepted:
+
+```json
+{ "accepted": 2 }
+```
+
+## Re-joining them
+
+```yaml
+      - type: aggregate
+        name: rejoin
+        completionTimeout: 10s
+
+      # And from here down, once per completed group.
+      - type: log
+        settings:
+          message: '"re-joined " + string(vars.aggregateCount) + " lines"'
+```
+
+That is the whole configuration. `aggregate` pairs with `split` out of the box
+because `split` stamps every element with `groupId` and `groupSize`, and those
+are exactly what `aggregate`'s `correlation` and `completionSize` default to.
+
+The group completes when its count reaches its size, and the re-joined array is
+in the order the lines were **sent**, not the order they finished — elements are
+placed by the position the split gave them. The same input produces the same
+array every run.
+
+<Callout type="warn">
+Set a `completionTimeout` on any re-join. If an element fails, the count never
+reaches the size and nothing else will ever close the group — the timeout is the
+only condition that fires without a message arriving. `vars.aggregateReason`
+tells the rest of the flow whether it got a whole group (`size`) or a partial one
+(`timeout`), and a missing element leaves a `null` in its position rather than
+renumbering the survivors.
+</Callout>
+
+## Aggregating without a split
+
+The second half is useful on its own. Because `aggregate` holds state between
+messages, it can combine messages that were never one collection — a hundred
+webhook events, or every event in a five-second window:
+
+```yaml
+- type: aggregate
+  correlation: "body.customerId"
+  completionSize: "100"
+  completionTimeout: "5s"
+```
+
+All three completion conditions can be combined and the first to fire wins:
+size, timeout, and a predicate over the group so far.
+
+```yaml
+completionExpression: "vars.group.count >= 5 && vars.group.idleMs > 2000"
+```
+
+`vars.group` is the accumulated state — `count`, `size`, `acc`, `ageMs`,
+`idleMs` — so a predicate can ask about the group rather than only the message in
+hand.
+
+### Large groups
+
+The default `append` strategy keeps every body, and rewrites the whole group on
+each message, so its stored size grows quadratically. For a big re-join, fold as
+you go instead:
+
+```yaml
+- type: aggregate
+  strategy: expression
+  expression: >
+    vars.group.acc == null ? body.total : vars.group.acc + body.total
+```
+
+The fold sees the group *before* the current message, so `acc` is the previous
+accumulator and `null` on the first. What it returns becomes the new one.
+
+## Running it
+
+```bash
+octo invoke --config samples/split-aggregate.yaml --flow order \
+  --data '{"orderId":"A-1","lines":[{"sku":"x","qty":2,"price":10.0},{"sku":"y","qty":1,"price":5.5}]}'
+```
+
+You get the receipt back immediately, and the re-joined order appears in the
+logs once the lines have been priced and combined.
+
+## In a cluster
+
+Group state lives in the runtime [KV store](/runtime/runtime-services) under
+optimistic concurrency, so any replica can fold into a group and two replicas
+can never each end up holding half of one. The timeout sweep is gated on
+[leader election](/runtime/clustering), so a group is reaped once per cluster
+rather than once per replica.
+
+Nothing about this is configurable, and nothing changes for a single process:
+standalone uses an in-process store and a permanent leader, so the same
+configuration behaves the same way in both.
+
+One thing is worth knowing. Group state is namespaced by `storeKey`, which
+defaults to the block's address in the flow. If you rename or move the block,
+in-flight groups are stranded until their deadline. Set it explicitly when that
+matters — for example when you expect to edit a flow that runs long windows:
+
+```yaml
+- type: aggregate
+  storeKey: order-totals
+  completionTimeout: 30s
+```
+
+## Limits
+
+- `split` and `aggregate` must be **top-level blocks** in a flow's chain. Inside
+  another block's slot there is no "rest of the flow" to continue into, and
+  nesting one fails at startup rather than at runtime.
+- There is no synchronous split-and-join yet: the flow after a `split` is
+  asynchronous, and the caller is answered from `buildResponse`. Use `foreach`
+  in `map` mode when you need the joined result on the same message.

@@ -375,14 +375,40 @@ func (s *Service) buildFlows(ctx context.Context, set *connectorSet) ([]*boundFl
 	}
 
 	flows := make([]*boundFlow, 0, len(s.config.Flows))
+	// One state key must mean one block. Two blocks sharing one would read and
+	// write each other's stored state — an aggregator would fold two unrelated
+	// streams into the same groups and emit them twice — so the collision is
+	// caught here, where the whole config is in view, rather than in production.
+	stateKeys := make(map[string]string, len(s.config.Flows))
 	for i := range s.config.Flows {
 		flow, err := s.buildFlow(ctx, s.config.Flows[i], set)
 		if err != nil {
 			return nil, fmt.Errorf("build flow %q: %w", s.config.Flows[i].Name, err)
 		}
+		if err := claimStateKeys(stateKeys, s.config.Flows[i].Name, flow); err != nil {
+			return nil, err
+		}
 		flows = append(flows, flow)
 	}
 	return flows, nil
+}
+
+// claimStateKeys records each of the flow's state keys against its owner,
+// failing when one is already claimed.
+func claimStateKeys(claimed map[string]string, name string, flow *boundFlow) error {
+	keys := flow.root.StateKeys()
+	if flow.errorPath != nil {
+		keys = append(keys, flow.errorPath.StateKeys()...)
+	}
+	for _, key := range keys {
+		if owner, taken := claimed[key]; taken {
+			return fmt.Errorf(
+				"flow %q: state key %q is already used by flow %q; give one of the blocks its own storeKey",
+				name, key, owner)
+		}
+		claimed[key] = name
+	}
+	return nil
 }
 
 // applyDebug rewrites the config with the debug blocks the caller asked for. It is
