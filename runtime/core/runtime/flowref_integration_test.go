@@ -9,11 +9,19 @@ import (
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
-// startInvokeService runs svc in invoke mode and waits until it is ready, returning
-// a cancel/cleanup the caller defers.
+// startInvokeService runs a service for cfg in invoke mode and waits until it is
+// ready, returning a cancel/cleanup the caller defers.
 func startInvokeService(t *testing.T, cfg types.Config) (*Service, func()) {
 	t.Helper()
 	svc := NewService(cfg, core.DefaultRegistry(), WithInvokeMode())
+	return svc, startService(t, svc)
+}
+
+// startService runs svc and waits until it is ready, returning a cancel/cleanup the
+// caller defers. It is the harness for a test that needs to build the Service
+// itself, to pass an option startInvokeService does not.
+func startService(t *testing.T, svc *Service) func() {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- svc.Run(ctx) }()
@@ -25,7 +33,7 @@ func startInvokeService(t *testing.T, cfg types.Config) (*Service, func()) {
 		cancel()
 		t.Fatal("service did not become ready")
 	}
-	return svc, func() {
+	return func() {
 		cancel()
 		<-done
 	}

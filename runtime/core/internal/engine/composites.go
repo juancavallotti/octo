@@ -386,11 +386,13 @@ func (b *builder) handleErrors(cfg types.BlockConfig) (core.MessageProcessor, er
 		return nil, err
 	}
 
-	main, err := b.flow(types.FlowConfig{Process: cfg.Process})
+	// Both slots are the block's own chains rather than a sub-flow's, which is
+	// exactly how an address reads them: `<block>[process]` and `<block>[error]`.
+	main, err := b.branch(core.BranchProcess).flow(types.FlowConfig{Process: cfg.Process})
 	if err != nil {
 		return nil, fmt.Errorf("handle-errors process: %w", err)
 	}
-	alternative, err := b.flow(types.FlowConfig{Process: cfg.Error})
+	alternative, err := b.branch(core.BranchError).flow(types.FlowConfig{Process: cfg.Error})
 	if err != nil {
 		return nil, fmt.Errorf("handle-errors error: %w", err)
 	}
@@ -416,7 +418,10 @@ func (b *builder) fork(cfg types.BlockConfig) (core.MessageProcessor, error) {
 
 	branches := make([]Flow, 0, len(cfg.Branches))
 	for i := range cfg.Branches {
-		branch, err := b.subFlow(cfg.Branches[i])
+		// A branch is addressed by its own name, else by its index. The index is the
+		// one in this slot: allowSlots guarantees a block populates only one
+		// list-valued slot, so it matches the flattened view listMembers takes.
+		branch, err := b.branch(core.MemberBranch(cfg.Branches[i].Name, i)).subFlow(cfg.Branches[i])
 		if err != nil {
 			return nil, fmt.Errorf("fork branch %d: %w", i, err)
 		}
@@ -441,14 +446,14 @@ func (b *builder) ifBlock(cfg types.BlockConfig) (core.MessageProcessor, error) 
 	if err != nil {
 		return nil, err
 	}
-	then, err := b.subFlow(*cfg.Then)
+	then, err := b.branch(core.BranchThen).subFlow(*cfg.Then)
 	if err != nil {
 		return nil, fmt.Errorf("if then: %w", err)
 	}
 
 	block := &ifBlock{condition: condition, then: then, env: expr.EnvActivation(b.deps.Env)}
 	if cfg.Else != nil {
-		els, elseErr := b.subFlow(*cfg.Else)
+		els, elseErr := b.branch(core.BranchElse).subFlow(*cfg.Else)
 		if elseErr != nil {
 			return nil, fmt.Errorf("if else: %w", elseErr)
 		}
@@ -476,7 +481,9 @@ func (b *builder) switchBlock(cfg types.BlockConfig) (core.MessageProcessor, err
 		if err != nil {
 			return nil, err
 		}
-		flow, err := b.subFlow(c.Flow)
+		// A case is addressed by its flow's own name, else by its index in this slot
+		// (see the fork branch above for why the slot-local index is the right one).
+		flow, err := b.branch(core.MemberBranch(c.Flow.Name, i)).subFlow(c.Flow)
 		if err != nil {
 			return nil, fmt.Errorf("switch case %d: %w", i, err)
 		}
@@ -485,7 +492,7 @@ func (b *builder) switchBlock(cfg types.BlockConfig) (core.MessageProcessor, err
 
 	block := &switchBlock{cases: cases, env: expr.EnvActivation(b.deps.Env)}
 	if cfg.Default != nil {
-		def, err := b.subFlow(*cfg.Default)
+		def, err := b.branch(core.BranchDefault).subFlow(*cfg.Default)
 		if err != nil {
 			return nil, fmt.Errorf("switch default: %w", err)
 		}
@@ -503,7 +510,7 @@ func (b *builder) enrich(cfg types.BlockConfig) (core.MessageProcessor, error) {
 		return nil, err
 	}
 
-	body, err := b.subFlow(*cfg.Body)
+	body, err := b.branch(core.BranchBody).subFlow(*cfg.Body)
 	if err != nil {
 		return nil, fmt.Errorf("enrich body: %w", err)
 	}
@@ -549,7 +556,7 @@ func (b *builder) foreachBlock(cfg types.BlockConfig) (core.MessageProcessor, er
 	if err != nil {
 		return nil, err
 	}
-	body, err := b.subFlow(*cfg.Body)
+	body, err := b.branch(core.BranchBody).subFlow(*cfg.Body)
 	if err != nil {
 		return nil, fmt.Errorf("foreach body: %w", err)
 	}

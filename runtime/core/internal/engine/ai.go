@@ -118,7 +118,9 @@ func (b *builder) aiRouter(cfg types.BlockConfig) (core.MessageProcessor, error)
 		if _, dup := routes[route.Name]; dup {
 			return nil, fmt.Errorf("ai-router route %q is defined more than once", route.Name)
 		}
-		flow, flowErr := b.subFlow(types.FlowConfig{Process: route.Process})
+		// A route is addressed by its own name, which is required above.
+		flow, flowErr := b.branch(core.MemberBranch(route.Name, i)).
+			subFlow(types.FlowConfig{Process: route.Process})
 		if flowErr != nil {
 			return nil, fmt.Errorf("ai-router route %q: %w", route.Name, flowErr)
 		}
@@ -136,7 +138,7 @@ func (b *builder) aiRouter(cfg types.BlockConfig) (core.MessageProcessor, error)
 		connector: cfg.Connector,
 	}
 	if cfg.Default != nil {
-		guardrail, defErr := b.subFlow(*cfg.Default)
+		guardrail, defErr := b.branch(core.BranchDefault).subFlow(*cfg.Default)
 		if defErr != nil {
 			return nil, fmt.Errorf("ai-router default: %w", defErr)
 		}
@@ -285,7 +287,9 @@ func (b *builder) aiRetry(cfg types.BlockConfig) (core.MessageProcessor, error) 
 		return nil, err
 	}
 
-	main, err := b.flow(types.FlowConfig{Process: cfg.Process})
+	// Both slots are the block's own chains, addressed as `<block>[process]` and
+	// `<block>[error]` — the same shape handle-errors has.
+	main, err := b.branch(core.BranchProcess).flow(types.FlowConfig{Process: cfg.Process})
 	if err != nil {
 		return nil, fmt.Errorf("ai-retry process: %w", err)
 	}
@@ -304,7 +308,7 @@ func (b *builder) aiRetry(cfg types.BlockConfig) (core.MessageProcessor, error) 
 		connector:   cfg.Connector,
 	}
 	if len(cfg.Error) > 0 {
-		alternative, altErr := b.flow(types.FlowConfig{Process: cfg.Error})
+		alternative, altErr := b.branch(core.BranchError).flow(types.FlowConfig{Process: cfg.Error})
 		if altErr != nil {
 			return nil, fmt.Errorf("ai-retry error: %w", altErr)
 		}
@@ -554,7 +558,7 @@ func (b *builder) aiAgent(cfg types.BlockConfig) (core.MessageProcessor, error) 
 		return nil, err
 	}
 	if cfg.Default != nil {
-		guardrail, defErr := b.subFlow(*cfg.Default)
+		guardrail, defErr := b.branch(core.BranchDefault).subFlow(*cfg.Default)
 		if defErr != nil {
 			return nil, fmt.Errorf("ai-agent default: %w", defErr)
 		}
@@ -614,7 +618,10 @@ func (b *builder) agentTools(kind string, configs []types.ToolConfig) (map[strin
 		if err != nil {
 			return nil, nil, err
 		}
-		flow, err := b.subFlow(types.FlowConfig{Process: tool.Process})
+		// A tool branch is addressed by its own name, which is required above. This
+		// serves the ai-agent and the mcp-router alike: b is already the builder for
+		// whichever of the two blocks is being built.
+		flow, err := b.branch(core.MemberBranch(tool.Name, i)).subFlow(types.FlowConfig{Process: tool.Process})
 		if err != nil {
 			return nil, nil, fmt.Errorf("ai-agent tool %q: %w", tool.Name, err)
 		}

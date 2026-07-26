@@ -5,21 +5,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/types"
-)
-
-// Block chain names addressable with a bracket. The first two are a flow's own
-// chains; the rest are the branches of a composite block. A composite's list-valued
-// branches (a fork's branches, a switch's cases, an ai-router's routes, an
-// ai-agent's tools) are addressed by the member's own name instead, or by its index.
-const (
-	branchProcess  = "process"
-	branchError    = "error"
-	branchThen     = "then"
-	branchElse     = "else"
-	branchBody     = "body"
-	branchDefault  = "default"
-	branchOnReject = "onReject"
 )
 
 // address is a parsed block address: the flow the block is in, which of that flow's
@@ -110,14 +97,7 @@ func isDebugWrapper(block types.BlockConfig) bool {
 // blockLabel is how a block is identified in errors and addresses: its name, else
 // its type, else the processor it refs.
 func blockLabel(cfg types.BlockConfig) string {
-	switch {
-	case cfg.Name != "":
-		return cfg.Name
-	case cfg.Type != "":
-		return cfg.Type
-	default:
-		return cfg.Ref
-	}
+	return core.BlockLabel(cfg.Name, cfg.Type, cfg.Ref)
 }
 
 // parseAddress splits the address into its flow, chain, and steps.
@@ -140,7 +120,7 @@ func (r resolver) parseAddress() (address, error) {
 		return address{}, fmt.Errorf("%s %q: address must start with a flow name", r.kind, r.addr)
 	}
 	if chain == "" {
-		chain = branchProcess
+		chain = core.BranchProcess
 	}
 
 	steps, err := r.parseSteps(segments[1:])
@@ -222,13 +202,13 @@ func (r resolver) findFlow(cfg *types.Config, name string) (*types.FlowConfig, e
 // asked for it.
 func (r resolver) flowChain(flow *types.FlowConfig, chain string) (*[]types.BlockConfig, error) {
 	switch chain {
-	case branchProcess:
+	case core.BranchProcess:
 		return &flow.Process, nil
-	case branchError:
+	case core.BranchError:
 		return &flow.Error, nil
 	default:
 		return nil, fmt.Errorf(
-			"%s: flow %q has no chain %q (want %q or %q)", r.kind, flow.Name, chain, branchProcess, branchError)
+			"%s: flow %q has no chain %q (want %q or %q)", r.kind, flow.Name, chain, core.BranchProcess, core.BranchError)
 	}
 }
 
@@ -284,7 +264,8 @@ func (r resolver) branchChain(block *types.BlockConfig, branch string) (*[]types
 // reservedOrder lists the reserved branch names in the order they are reported, so
 // the "branches: …" hint on a bad address is stable.
 var reservedOrder = []string{
-	branchProcess, branchError, branchThen, branchElse, branchBody, branchDefault, branchOnReject,
+	core.BranchProcess, core.BranchError, core.BranchThen, core.BranchElse,
+	core.BranchBody, core.BranchDefault, core.BranchOnReject,
 }
 
 // reservedBranches maps each branch name every composite spells the same way to the
@@ -292,13 +273,13 @@ var reservedOrder = []string{
 // that slot set, so a slot this block does not use reports as "no such branch"
 // rather than resolving to an empty chain.
 var reservedBranches = map[string]func(*types.BlockConfig) *[]types.BlockConfig{
-	branchProcess:  func(b *types.BlockConfig) *[]types.BlockConfig { return ownChain(&b.Process) },
-	branchError:    func(b *types.BlockConfig) *[]types.BlockConfig { return ownChain(&b.Error) },
-	branchThen:     func(b *types.BlockConfig) *[]types.BlockConfig { return subChain(b.Then) },
-	branchElse:     func(b *types.BlockConfig) *[]types.BlockConfig { return subChain(b.Else) },
-	branchBody:     func(b *types.BlockConfig) *[]types.BlockConfig { return subChain(b.Body) },
-	branchDefault:  func(b *types.BlockConfig) *[]types.BlockConfig { return subChain(b.Default) },
-	branchOnReject: func(b *types.BlockConfig) *[]types.BlockConfig { return subChain(b.OnReject) },
+	core.BranchProcess:  func(b *types.BlockConfig) *[]types.BlockConfig { return ownChain(&b.Process) },
+	core.BranchError:    func(b *types.BlockConfig) *[]types.BlockConfig { return ownChain(&b.Error) },
+	core.BranchThen:     func(b *types.BlockConfig) *[]types.BlockConfig { return subChain(b.Then) },
+	core.BranchElse:     func(b *types.BlockConfig) *[]types.BlockConfig { return subChain(b.Else) },
+	core.BranchBody:     func(b *types.BlockConfig) *[]types.BlockConfig { return subChain(b.Body) },
+	core.BranchDefault:  func(b *types.BlockConfig) *[]types.BlockConfig { return subChain(b.Default) },
+	core.BranchOnReject: func(b *types.BlockConfig) *[]types.BlockConfig { return subChain(b.OnReject) },
 }
 
 // subChain returns a sub-flow's block chain, or nil when the slot is unset.
@@ -387,19 +368,10 @@ func branchNames(block *types.BlockConfig) []string {
 		}
 	}
 	for i, member := range listMembers(block) {
-		names = append(names, memberName(member.name, i))
+		names = append(names, core.MemberBranch(member.name, i))
 	}
 	if len(names) == 0 {
 		return []string{"none: this is a leaf block"}
 	}
 	return names
-}
-
-// memberName is how a member of a list-valued branch is addressed: its name, or its
-// index when it has none.
-func memberName(name string, index int) string {
-	if name != "" {
-		return name
-	}
-	return strconv.Itoa(index)
 }

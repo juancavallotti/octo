@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/core/internal/pool"
@@ -62,15 +63,44 @@ func (e *blockError) Unwrap() error { return e.err }
 type Flow struct {
 	Name   string
 	Blocks []core.Block
+	// flowName is the name of the root flow this one belongs to, which is what a
+	// block event reports. It is not Name: a composite's sub-flow is usually
+	// unnamed, and where it is named (a fork branch, a switch case) the name is the
+	// branch's, not the flow's.
+	flowName string
+	// events dispatches this flow's block events. It is nil when nothing is
+	// listening, which is the loop's fast exit.
+	events *core.BlockEvents
 }
 
 // Process runs msg through the flow's blocks in order. It returns the final
 // message, or (nil, nil) if a block dropped it, or an error if a block aborted.
+//
+// Each block is bracketed by a pre- and a post-invoke event when a dispatcher is
+// wired and something is listening. Observing costs three predicted branches per
+// block otherwise, and nothing is built, timed or allocated until a listener
+// exists. Listeners observe: the outcome of the loop is the same either way.
 func (f *Flow) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
 	current := msg
 	for i := range f.Blocks {
 		block := f.Blocks[i]
+
+		observe := f.events != nil && block.Path != "" && f.events.Active()
+		var started time.Time
+		if observe {
+			f.events.Emit(ctx, f.event(types.BlockPreInvoke, block, current, time.Now()))
+			// Start the clock after the pre-invoke listeners, not before: a sync
+			// listener runs inline, and a debugger parked at a breakpoint would
+			// otherwise be billed to the block as a multi-second invocation.
+			started = time.Now()
+		}
+
 		out, err := block.Processor.Process(ctx, current)
+
+		if observe {
+			f.events.Emit(ctx, f.outcome(block, current, out, err, started))
+		}
+
 		if err != nil {
 			return nil, &blockError{label: blockLabel(block.Type, block.Name), err: err}
 		}
@@ -89,9 +119,44 @@ func (f *Flow) Process(ctx context.Context, msg *types.Message) (*types.Message,
 	return current, nil
 }
 
+// event builds one block event for msg. Every field but the message is a copy
+// taken here, on the flow's goroutine, so an async listener can read them safely.
+func (f *Flow) event(
+	kind types.BlockEventKind, block core.Block, msg *types.Message, at time.Time,
+) types.BlockEvent {
+	return types.BlockEvent{
+		Kind:          kind,
+		Flow:          f.flowName,
+		Path:          block.Path,
+		BlockType:     block.Type,
+		EventID:       msg.EventID,
+		CorrelationID: msg.CorrelationID,
+		OccurredAt:    at,
+		Message:       msg,
+	}
+}
+
+// outcome builds the post-invoke event for all three outcomes. The message it
+// carries is what the block produced, falling back to its input for the two
+// outcomes that produce none — a drop and a failure — so a listener always has the
+// message the block was working on.
+func (f *Flow) outcome(
+	block core.Block, in, out *types.Message, err error, started time.Time,
+) types.BlockEvent {
+	msg := out
+	if msg == nil {
+		msg = in
+	}
+	event := f.event(types.BlockPostInvoke, block, msg, time.Now())
+	event.Duration = event.OccurredAt.Sub(started)
+	event.Err = err
+	event.Dropped = err == nil && out == nil
+	return event
+}
+
 // BuildRoot assembles the root Flow for a top-level flow config, resolving named
 // processor definitions and threading the shared pool and block deps used by leaf
-// and composite blocks.
+// and composite blocks. Its blocks' paths root at the flow's own name.
 func BuildRoot(
 	cfg types.FlowConfig,
 	blocks *core.BlockRegistry,
@@ -99,21 +164,85 @@ func BuildRoot(
 	processors []types.ProcessorConfig,
 	deps core.BlockDeps,
 ) (*Flow, error) {
-	defs, err := processorDefs(processors)
+	b, err := newBuilder(blocks, p, processors, deps, cfg.Name, cfg.Name)
 	if err != nil {
 		return nil, err
 	}
-	return (&builder{reg: blocks, pool: p, defs: defs, deps: deps}).flow(cfg)
+	return b.flow(cfg)
+}
+
+// BuildErrorPath assembles the flow-level error chain as a root-level flow of its
+// own: it owns the same pool and deps as the process chain, but its blocks' paths
+// root at the flow's error chain (`<flow>[error]`) so they address the way the
+// resolver reads them.
+func BuildErrorPath(
+	cfg types.FlowConfig,
+	blocks *core.BlockRegistry,
+	p *pool.Pool,
+	processors []types.ProcessorConfig,
+	deps core.BlockDeps,
+) (*Flow, error) {
+	b, err := newBuilder(blocks, p, processors, deps, cfg.Name, core.JoinBranch(cfg.Name, core.BranchError))
+	if err != nil {
+		return nil, err
+	}
+	return b.flow(types.FlowConfig{Name: cfg.Name, Process: cfg.Error})
 }
 
 // builder threads the shared context needed to assemble a flow tree: the leaf
-// block registry, the shared worker pool composites schedule on, and the named
-// processor definitions blocks resolve through ref.
+// block registry, the shared worker pool composites schedule on, the named
+// processor definitions blocks resolve through ref, and where in the flow the
+// nodes it is building sit.
 type builder struct {
 	reg  *core.BlockRegistry
 	pool *pool.Pool
 	defs map[string]types.ProcessorConfig
 	deps core.BlockDeps
+
+	// flowName is the name of the root flow being built, constant for one build.
+	// It is not Flow.Name, which is the (often empty) name of the sub-flow a
+	// composite slot holds.
+	flowName string
+
+	// path is the address of the node whose children this builder builds:
+	//
+	//   - while building a chain, it is the slot the chain hangs off ("orders",
+	//     "orders[error]", "orders.fanout[audit]"), and each block in the chain is
+	//     path + "." + label;
+	//   - while building one block's processor, it is that block's own address
+	//     ("orders.fanout"), and each branch of it is path + "[" + branch + "]".
+	//
+	// The transition between the two happens exactly once, in block().
+	path string
+}
+
+// newBuilder indexes the processor definitions and roots a builder at path.
+func newBuilder(
+	blocks *core.BlockRegistry,
+	p *pool.Pool,
+	processors []types.ProcessorConfig,
+	deps core.BlockDeps,
+	flowName, path string,
+) (*builder, error) {
+	defs, err := processorDefs(processors)
+	if err != nil {
+		return nil, err
+	}
+	return &builder{reg: blocks, pool: p, defs: defs, deps: deps, flowName: flowName, path: path}, nil
+}
+
+// at returns a builder that builds the children of the node at path.
+func (b *builder) at(path string) *builder {
+	child := *b
+	child.path = path
+	return &child
+}
+
+// branch returns the builder for one branch of the block this builder is on. It
+// is what every composite builder descends through, so each sub-flow's blocks
+// address as `<composite>[<branch>].<block>`.
+func (b *builder) branch(name string) *builder {
+	return b.at(core.JoinBranch(b.path, name))
 }
 
 // processorDefs indexes named processor definitions by name, rejecting
@@ -143,7 +272,7 @@ func (b *builder) flow(cfg types.FlowConfig) (*Flow, error) {
 		}
 		blocks = append(blocks, block)
 	}
-	return &Flow{Name: cfg.Name, Blocks: blocks}, nil
+	return &Flow{Name: cfg.Name, Blocks: blocks, flowName: b.flowName, events: b.deps.Events}, nil
 }
 
 // subFlow builds a nested flow, rejecting root-only fields.
@@ -163,6 +292,10 @@ func (b *builder) subFlow(cfg types.FlowConfig) (*Flow, error) {
 // block resolves a block's effective type and settings (applying ref), then
 // builds its processor. Composite kinds build their typed sub-flows; any other
 // type is a leaf resolved through the registry.
+//
+// It is also where a block's address is minted, and where the builder crosses
+// from "the chain at b.path" to "the block at b.path" — everything the processor
+// builds below is a branch of this block.
 func (b *builder) block(cfg types.BlockConfig) (core.Block, error) {
 	if cfg.Type == "" && cfg.Ref == "" {
 		return core.Block{}, errors.New("block requires a type or a ref")
@@ -173,11 +306,35 @@ func (b *builder) block(cfg types.BlockConfig) (core.Block, error) {
 		return core.Block{}, err
 	}
 
-	processor, err := b.processor(cfg, effType, effSettings)
+	// The address label reads the block as it was authored (name, else type, else
+	// ref), not the effective type a ref resolves to — a block declared as
+	// `{ref: charge-api}` is addressed by that ref. blockLabel below is the
+	// separate, effective-type label an error carries.
+	path := core.JoinBlock(b.path, core.BlockLabel(cfg.Name, cfg.Type, cfg.Ref))
+
+	// A spy or breakpoint wrapper is transparent to an address: the injector gave
+	// it its target's own label, so its inner chain hangs off the slot the wrapper
+	// sits in rather than off a branch of it, and the wrapper itself reports no
+	// path so the block it wraps is not observed twice. This is the mirror image of
+	// unwrapDebug in core/runtime/address.go. A mock needs no such case: it stands
+	// in its target's place rather than wrapping it, so its natural path is already
+	// the address the user gave.
+	inner, reported := path, path
+	if isDebugWrapper(effType) {
+		inner, reported = b.path, ""
+	}
+
+	processor, err := b.at(inner).processor(cfg, effType, effSettings)
 	if err != nil {
 		return core.Block{}, fmt.Errorf("block %q: %w", blockLabel(effType, cfg.Name), err)
 	}
-	return core.Block{Name: cfg.Name, Type: effType, Processor: processor}, nil
+	return core.Block{Name: cfg.Name, Type: effType, Path: reported, Processor: processor}, nil
+}
+
+// isDebugWrapper reports whether the type is one of the wrappers the runtime
+// injects around an addressed block, which stand in that block's place.
+func isDebugWrapper(effType string) bool {
+	return effType == blockKindSpy || effType == blockKindBreakpoint
 }
 
 // resolve applies a block's ref, returning the effective type and settings. When

@@ -88,7 +88,7 @@ func (b *builder) cacheScope(cfg types.BlockConfig) (core.MessageProcessor, erro
 		return nil, err
 	}
 
-	body, err := b.subFlow(*cfg.Body)
+	body, err := b.branch(core.BranchBody).subFlow(*cfg.Body)
 	if err != nil {
 		return nil, fmt.Errorf("cache-scope body: %w", err)
 	}

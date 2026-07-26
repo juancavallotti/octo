@@ -167,6 +167,72 @@ event followed by exactly one terminal event: `completed`, `dropped`, or
 `failed` (`types.FlowEvent`). Subscribe with `core.DefaultEventBus().Subscribe`
 to observe success and error outcomes (metrics, dead-lettering, etc.).
 
+## Block events
+
+Flow events are per message; **block events** are per block. Every block the
+engine invokes is bracketed by a `pre-invoke` and a `post-invoke`
+`types.BlockEvent`, dispatched through `core.BlockEvents`
+(`core.DefaultBlockEvents`, or a Service's own via `runtime.WithBlockEvents`).
+The two vocabularies join on `EventID`.
+
+An event carries its kind, the block's **path**, the block's type, the message's
+`EventID`/`CorrelationID`, and the live message. `post-invoke` fires for all
+three outcomes and adds `Duration`, `Err`, and `Dropped`.
+
+### The path is an address
+
+`BlockEvent.Path` is the block's address in the grammar
+`<flow>[<chain>].<block>[<branch>].<block>` — the same string
+`octo invoke --spies` accepts. The flow builder mints it on the way down
+(`engine.builder.path`), the resolver walks it back down the config
+(`core/runtime/address.go`), and the editor derives the same string as
+`naturalAddress`; the spelling itself lives in one place, `core/blockpath.go`.
+`runtime/core/runtime/blockpath_resolve_test.go` pins the round trip.
+
+It is a label, not a handle. Two cases mint one the resolver will not take back:
+two blocks it would call ambiguous (two unnamed blocks of the same type in one
+chain) share a path, and a name carrying a `.`, `[` or `]` — which nothing
+rejects today, at any level — comes out as segments the parser splits the wrong
+way. The builder mints anyway in both, because a block that emitted nothing at
+all would be worse than one whose label is shared or unparseable. The editor's
+`naturalAddress` takes the other choice for the same reason it must: a mock or a
+spy keyed by an ambiguous address would resolve to the wrong block.
+
+### Two kinds of listener
+
+| | Sync (`AddSync`) | Async (`AddAsync`) |
+| --- | --- | --- |
+| Runs on | the flow's own goroutine, inline | one dispatcher goroutine, sequentially |
+| Blocking | stalls the flow (this is the point) | never stalls the flow |
+| Delivery | exactly once, inline: pre before the block, post after it | at-most-once; dropped when the queue is full |
+| May read the message | yes, including `Clone`/`Scoped`/`Reported` | **no** — see below |
+| For | flow debugging | stats, prometheus |
+
+Both observe. A listener cannot skip or abort a block; the flow's control flow is
+the same whether anything is listening or not.
+
+**The message contract.** Every field of a `BlockEvent` except `Message` is
+copied on the flow's goroutine and is safe to read anywhere. `Message` is the
+live message. A sync listener holds the flow still, so it may read and copy it.
+An async listener must not touch `Message.Body` or `Message.Variables` and must
+not call a copy method: the flow has moved on and is mutating both, and
+`Variables` is a plain map, so a concurrent read is a data race that can panic
+the process. To take contents off the flow's goroutine, `Clone` in a sync
+listener and hand the copy to your own worker.
+
+A sync listener is called from every goroutine a flow runs on — the flow's worker
+pool, and the shared pool for a fork's branches — so it must be safe for
+concurrent use, and one that blocks inside a fork branch occupies a pool worker.
+
+**Cost.** Nothing is built, timed, or allocated until a listener exists: the
+engine's loop pays a nil check, an atomic load, and a length check per block
+(measured at 0 allocs/op, no detectable difference from having no dispatcher at
+all). Async delivery is a non-blocking send onto a 1024-deep queue; when it is
+full the event is dropped and counted (`BlockEvents.Dropped`), because telemetry
+falling behind must cost telemetry rather than throughput. One consequence: an
+async listener may see a `post-invoke` whose `pre-invoke` was dropped, which is
+why `Duration` is measured by the engine rather than left to pairing.
+
 ## Lifecycle
 
 The `core.Service` owns the start/stop lifecycle and the acquire/release

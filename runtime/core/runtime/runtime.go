@@ -37,7 +37,10 @@ type Service struct {
 	// can run without the work its real blocks would do. Invoke-mode only; see
 	// WithMocks.
 	mocks *core.Mocks
-	ready chan struct{}
+	// events dispatches the pre/post-invoke events every block emits. It defaults to
+	// the process-wide dispatcher; see WithBlockEvents.
+	events *core.BlockEvents
+	ready  chan struct{}
 }
 
 // ServiceOption customizes a Service at construction.
@@ -85,6 +88,18 @@ func WithMocks(mocks *core.Mocks) ServiceOption {
 	return func(s *Service) { s.mocks = mocks }
 }
 
+// WithBlockEvents wires the dispatcher the flows' blocks emit their pre- and
+// post-invoke events to, in place of the process-wide default. Use it to give a
+// Service a dispatcher of its own — a test that must not see another test's
+// listeners, or an embedder running two Services in one process.
+//
+// It needs no invoke-mode guard, unlike the debug options above: block events
+// retain nothing and cost nothing until something registers a listener, so they
+// are safe on a source-backed service carrying live traffic.
+func WithBlockEvents(events *core.BlockEvents) ServiceOption {
+	return func(s *Service) { s.events = events }
+}
+
 // WithRuntimeServices wires the runtime services (leader election, KV) this
 // generation exposes to connectors and blocks. The services are injected into the
 // run context and the block dependencies. They are owned by the caller (the CLI
@@ -108,6 +123,7 @@ func NewService(config types.Config, registry *core.Registry, opts ...ServiceOpt
 		blocks:   core.DefaultBlockRegistry(),
 		bus:      bus,
 		flows:    newFlowRegistry(bus),
+		events:   core.DefaultBlockEvents(),
 		ready:    make(chan struct{}),
 	}
 	for _, opt := range opts {
@@ -461,6 +477,7 @@ func (s *Service) buildFlow(ctx context.Context, cfg types.FlowConfig, set *conn
 		Breakpoint: s.breakpoint,
 		Spies:      s.spies,
 		Mocks:      s.mocks,
+		Events:     s.events,
 	}
 	root, err := engine.BuildRoot(cfg, s.blocks, p, s.config.Processors, deps)
 	if err != nil {
@@ -469,12 +486,9 @@ func (s *Service) buildFlow(ctx context.Context, cfg types.FlowConfig, set *conn
 
 	var errorPath *engine.Flow
 	if len(cfg.Error) > 0 {
-		// The error path is a root-level chain (it owns the same pool/deps); build
-		// it from a synthetic flow carrying only the error blocks.
-		errorPath, err = engine.BuildRoot(
-			types.FlowConfig{Name: cfg.Name, Process: cfg.Error},
-			s.blocks, p, s.config.Processors, deps,
-		)
+		// The error path is a root-level chain (it owns the same pool/deps), but its
+		// blocks address off the flow's error chain rather than its process chain.
+		errorPath, err = engine.BuildErrorPath(cfg, s.blocks, p, s.config.Processors, deps)
 		if err != nil {
 			return nil, fmt.Errorf("flow %q error path: %w", cfg.Name, err)
 		}

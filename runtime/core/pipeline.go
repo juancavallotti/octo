@@ -21,8 +21,23 @@ type MessageProcessor interface {
 // embeds sub-flows (built by the flow builder). The block itself stays a thin
 // record; any embedded flows live inside the composite processor.
 type Block struct {
-	Name      string
-	Type      string
+	Name string
+	Type string
+	// Path is the block's address in the runtime's grammar (see blockpath.go),
+	// minted by the flow builder from the block's position in the config. It is
+	// what a block event reports as the place it came from.
+	//
+	// It is empty for a block that must not report: the implicit spy and
+	// breakpoint wrappers, which stand in their target's place and would
+	// otherwise emit a second event at the same address.
+	//
+	// The path is an observability label, not a resolvable handle. Two cases mint
+	// one the resolver would not accept back: two unnamed blocks of the same type
+	// in one chain share a path, and a name carrying a '.', '[' or ']' — which
+	// nothing rejects today — produces segments the parser splits the wrong way.
+	// Minting nothing in those cases would be worse than minting a label that is
+	// shared or unparseable, since it would leave those blocks unobservable.
+	Path      string
 	Processor MessageProcessor
 }
 
@@ -60,6 +75,14 @@ type BlockDeps struct {
 	// mock block refuses to build without it, so a flow can never carry a mock that
 	// was not asked for.
 	Mocks *Mocks
+	// Events dispatches the pre- and post-invoke events emitted around every block.
+	// Unlike the rest of BlockDeps it is read by the flow itself rather than by a
+	// block factory — it arrives here because this is already the channel through
+	// which the runtime hands build-time services to the engine.
+	//
+	// It is nil when no dispatcher is wired, which is the engine's fast exit: a nil
+	// check per block is the whole cost of the feature for a flow nobody observes.
+	Events *BlockEvents
 }
 
 // BlockFactory builds a leaf processor from its settings and build-time deps.
