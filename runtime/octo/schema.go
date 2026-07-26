@@ -44,7 +44,7 @@ func schemaCommand(args []string) error {
 	out := fs.String("out", "", "write the schema to this file instead of stdout")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			fmt.Println(usage)
+			fmt.Println(usageText())
 			return nil
 		}
 		return fmt.Errorf("parse schema flags: %w", err)
