@@ -199,17 +199,38 @@ func TestMessageClone(t *testing.T) {
 	})
 
 	// A body that breaks the JSON-only contract cannot be copied at all. Handing
-	// back the original beats losing it, but the clone must not then claim to own
-	// storage it shares — otherwise a later in-place write would corrupt both.
-	t.Run("a body that will not round-trip stays shared", func(t *testing.T) {
+	// back the original beats losing it, and the clone records residual aliasing
+	// separately from pending copy-on-write.
+	t.Run("a body that will not round-trip records residual aliasing", func(t *testing.T) {
 		msg := &Message{Body: make(chan int)}
 
 		clone := msg.Clone()
 		if clone.Body == nil {
 			t.Fatal("clone dropped a body it could not copy")
 		}
-		if !clone.bodyShared {
-			t.Error("clone claims to own a body it could not copy")
+		if clone.bodyShared {
+			t.Error("clone should not keep copy-on-write pending")
+		}
+		if !clone.bodyAliased {
+			t.Error("clone did not record residual aliasing")
+		}
+	})
+
+	// Scoped marks the message it is called on, and every message the runtime maps,
+	// enriches or reports carries that mark afterwards. A clone of one still owns
+	// its body outright, so it must not inherit a copy-on-write that is not pending
+	// — otherwise its first MutableBody re-copies a body nobody else can see.
+	t.Run("a clone of a scoped message owns its body", func(t *testing.T) {
+		msg := &Message{Body: map[string]any{"k": "v"}}
+		_ = msg.Scoped()
+
+		clone := msg.Clone()
+		if clone.bodyShared {
+			t.Error("clone inherited a pending copy-on-write it does not need")
+		}
+		before := containerIdentity(t, clone.Body)
+		if containerIdentity(t, clone.MutableBody()) != before {
+			t.Error("MutableBody re-copied a body the clone already owned")
 		}
 	})
 }
@@ -306,6 +327,23 @@ func TestMessageScoped(t *testing.T) {
 		first := containerIdentity(t, scoped.MutableBody())
 		if containerIdentity(t, scoped.MutableBody()) != first {
 			t.Error("a second MutableBody copied again")
+		}
+	})
+
+	t.Run("partial copy is attempted once and aliasing is tracked", func(t *testing.T) {
+		msg := &Message{Body: map[string]any{"ok": "v", "bad": make(chan int)}}
+		scoped := msg.Scoped()
+
+		first := containerIdentity(t, scoped.MutableBody())
+		if !scoped.bodyAliased {
+			t.Error("MutableBody did not record residual aliasing after partial copy")
+		}
+		if scoped.bodyShared {
+			t.Error("MutableBody left copy-on-write pending after the first copy attempt")
+		}
+
+		if containerIdentity(t, scoped.MutableBody()) != first {
+			t.Error("a second MutableBody recopied after a partial copy")
 		}
 	})
 
