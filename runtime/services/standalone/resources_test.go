@@ -116,8 +116,47 @@ func TestResourceLoaderResolveAtFilesystemRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve under the filesystem root: %v", err)
 	}
-	if want := filepath.Join(loader.root, "templates", "p.tmpl"); got != want {
+	if want := filepath.Join("templates", "p.tmpl"); got != want {
 		t.Fatalf("resolve = %q, want %q", got, want)
+	}
+}
+
+// TestResourceLoaderRejectsOutwardSymlink covers the escape the lexical check
+// cannot see: "link/secret" has no ".." in it and stays under the root as a
+// string, but if link points outside, reading it reads outside. Containment has
+// to be decided on the path the filesystem walks, which is what the os.Root read
+// does. The inner symlink is the other half — a link that stays in the tree is an
+// ordinary file and must keep loading.
+func TestResourceLoaderRejectsOutwardSymlink(t *testing.T) {
+	base := t.TempDir()
+	root := filepath.Join(base, "cfg")
+	writeFile(t, filepath.Join(root, "templates", "p.tmpl"), "hi")
+	writeFile(t, filepath.Join(base, "outside", "secret"), "top")
+
+	if err := os.Symlink(filepath.Join(base, "outside"), filepath.Join(root, "link")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	// Relative target: an absolute one is refused even when it points back inside,
+	// which is os.Root's rule and the loader's documented limit.
+	if err := os.Symlink("templates", filepath.Join(root, "inner")); err != nil {
+		t.Fatal(err)
+	}
+
+	loader := newResourceLoader(root)
+	out, err := loader.Load(context.Background(), core.ResourceKindEnv, "link/secret")
+	if err == nil {
+		t.Fatalf("outward symlink returned %q, want an error", out)
+	}
+	if errors.Is(err, core.ErrResourceNotFound) {
+		t.Fatalf("outward symlink err = %v, want a containment error (the file exists)", err)
+	}
+
+	data, err := loader.Load(context.Background(), core.ResourceKindTemplate, "inner/p.tmpl")
+	if err != nil {
+		t.Fatalf("Load through an inner symlink: %v", err)
+	}
+	if string(data) != "hi" {
+		t.Fatalf("Load through an inner symlink = %q, want %q", data, "hi")
 	}
 }
 

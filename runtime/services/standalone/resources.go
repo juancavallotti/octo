@@ -19,9 +19,11 @@ import (
 // resources from the filesystem, rooted at the config file's directory, so a
 // resource id maps directly to a relative path under that root. The env resource
 // ".env.dev" resolves to "<root>/.env.dev"; the template "templates/welcome.tmpl"
-// resolves to "<root>/templates/welcome.tmpl". Ids are confined to the root; any
-// id escaping it via ".." is rejected. It also implements core.ResourceWatcher,
-// notifying of changes to any file under the root.
+// resolves to "<root>/templates/welcome.tmpl". Ids are confined to the root: an
+// id escaping it via ".." is rejected lexically, and one escaping it through a
+// symlink is rejected by the kernel, because the read goes through an os.Root.
+// It also implements core.ResourceWatcher, notifying of changes to any file under
+// the root.
 type fsResourceLoader struct {
 	root string
 }
@@ -46,12 +48,32 @@ func newResourceLoader(root string) *fsResourceLoader {
 // Load reads the resource id under the root. kind is ignored: the id alone maps to
 // a path. A file that does not exist yields core.ErrResourceNotFound; an id that
 // escapes the root, or an unreadable file, yields a real error.
+//
+// The read goes through os.Root rather than os.ReadFile because resolve's answer
+// is lexical, and a lexical answer is not the whole containment question: if
+// "<root>/link" is a symlink to somewhere else, "link/secret" is a path under the
+// root that names a file outside it. os.Root resolves each component against the
+// opened root directory and refuses the ones that leave, so the escape is decided
+// by the kernel on the path actually walked, not by the string. A relative
+// symlink landing inside the root is followed as usual; an absolute one is
+// refused even where it points back inside, which is os.Root's rule.
 func (l *fsResourceLoader) Load(_ context.Context, _ core.ResourceKind, id string) ([]byte, error) {
-	full, err := l.resolve(id)
+	rel, err := l.resolve(id)
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(full) //nolint:gosec // G304: id confined to root by resolve
+	root, err := os.OpenRoot(l.root)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			// No root directory at all: every resource under it is missing, which is
+			// the answer a caller resolving an optional resource expects.
+			return nil, core.ErrResourceNotFound
+		}
+		return nil, fmt.Errorf("open resource root %q: %w", l.root, err)
+	}
+	defer func() { _ = root.Close() }()
+
+	data, err := root.ReadFile(rel)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, core.ErrResourceNotFound
@@ -61,9 +83,11 @@ func (l *fsResourceLoader) Load(_ context.Context, _ core.ResourceKind, id strin
 	return data, nil
 }
 
-// resolve maps a resource id to an absolute path under the root, rejecting any id
-// that escapes it. Containment is decided by filepath.Rel: a relative path that
-// starts with ".." left the root, anything else did not.
+// resolve maps a resource id to a cleaned path relative to the root, rejecting
+// any id that escapes it. Containment is decided by filepath.Rel: a relative path
+// that starts with ".." left the root, anything else did not. The result is
+// relative because Load reads it through an os.Root, which resolves it against
+// the root directory itself.
 //
 // Rel rather than a "root + separator" prefix test, on the joined-but-unclamped
 // path, for two reasons. A root that is itself a filesystem root has no such
@@ -72,14 +96,16 @@ func (l *fsResourceLoader) Load(_ context.Context, _ core.ResourceKind, id strin
 // absolute path ("/" + id) silently rewrote "../secret" to "<root>/secret"
 // instead of refusing it, which is safe but answers a different question than the
 // one asked: the guard could then never fire, and the id resolved somewhere the
-// caller did not name. A ".." that stays inside the root is still fine.
+// caller did not name. A ".." that stays inside the root is still fine — Join
+// folds it away here, so os.Root never has to walk through a directory the id
+// only mentioned on its way back out.
 func (l *fsResourceLoader) resolve(id string) (string, error) {
 	full := filepath.Join(l.root, id)
 	rel, err := filepath.Rel(l.root, full)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
 		return "", fmt.Errorf("resource id %q escapes the resource root", id)
 	}
-	return full, nil
+	return rel, nil
 }
 
 // OnChange watches the root subtree and calls fn for every file change, mapping
