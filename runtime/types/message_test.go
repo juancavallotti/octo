@@ -197,6 +197,21 @@ func TestMessageClone(t *testing.T) {
 			t.Errorf("clone of empty message = %+v, want nil body and variables", clone)
 		}
 	})
+
+	// A body that breaks the JSON-only contract cannot be copied at all. Handing
+	// back the original beats losing it, but the clone must not then claim to own
+	// storage it shares — otherwise a later in-place write would corrupt both.
+	t.Run("a body that will not round-trip stays shared", func(t *testing.T) {
+		msg := &Message{Body: make(chan int)}
+
+		clone := msg.Clone()
+		if clone.Body == nil {
+			t.Fatal("clone dropped a body it could not copy")
+		}
+		if !clone.bodyShared {
+			t.Error("clone claims to own a body it could not copy")
+		}
+	})
 }
 
 func TestReported(t *testing.T) {

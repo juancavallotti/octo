@@ -62,6 +62,14 @@ type Message struct {
 	// rawData with the given MIME type instead of JSON-encoding Body. Defaults
 	// to false; JSON remains the contract for every message that does not opt in.
 	RawContent bool `json:"raw_content,omitempty"`
+
+	// bodyShared reports that Body points at a value another Message also points
+	// at, so mutating it in place would be visible there. It is unexported and
+	// untagged: encoding/json ignores it, so a decoded message gets the zero
+	// value, false, which correctly says "this message owns its body outright".
+	// The polarity is deliberate — a stale true costs one wasted copy, while only
+	// a stale false would be unsafe.
+	bodyShared bool
 }
 
 // SetRawBody puts the message into raw-content mode: Body becomes the shape
@@ -177,30 +185,58 @@ func newEventID() (string, error) {
 // survives the round-trip intact because its rawData is a string, not raw bytes:
 // the {contentType, rawData} map re-decodes to the same shape.
 func (m *Message) Clone() *Message {
-	clone := *m
+	clone := m.shallow()
+	body, copied := copyBody(m.Body)
+	clone.Body = body
+	// Some bodies cannot be copied at all, leaving the clone pointing at part of
+	// the original's storage — record that rather than claim it owns it.
+	clone.bodyShared = !copied
+	return clone
+}
+
+// shallow returns a copy of the message that still points at the receiver's Body:
+// the struct fields, a fresh Variables map and fresh BodySchema bytes. It is the
+// common core of the copying constructors, none of which leaves a body shared
+// without recording that it did.
+func (m *Message) shallow() *Message {
+	out := *m
 
 	if m.Variables != nil {
-		clone.Variables = make(Variables, len(m.Variables))
+		out.Variables = make(Variables, len(m.Variables))
 		for k, v := range m.Variables {
-			clone.Variables[k] = v
+			out.Variables[k] = v
 		}
 	}
 
 	if len(m.BodySchema) > 0 {
-		clone.BodySchema = make(json.RawMessage, len(m.BodySchema))
-		copy(clone.BodySchema, m.BodySchema)
+		out.BodySchema = make(json.RawMessage, len(m.BodySchema))
+		copy(out.BodySchema, m.BodySchema)
 	}
 
-	if m.Body != nil {
-		if raw, err := json.Marshal(m.Body); err == nil {
-			var decoded any
-			if json.Unmarshal(raw, &decoded) == nil {
-				clone.Body = decoded
-			}
-		}
-	}
+	return &out
+}
 
-	return &clone
+// copyBody returns a deep copy of a message body via a JSON round-trip. Body is
+// JSON-only by the type's contract, so the round-trip is well defined; as with
+// SetBodyJSON it normalizes to decoded-JSON kinds (numbers float64, objects
+// map[string]any, arrays []any).
+//
+// copied is false when the value will not round-trip — a body that breaks the
+// contract. The original is handed back, still shared, because there is no copy
+// to be had and losing the body would be worse than aliasing it.
+func copyBody(body any) (value any, copied bool) {
+	if body == nil {
+		return nil, true
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return body, false
+	}
+	var decoded any
+	if json.Unmarshal(raw, &decoded) != nil {
+		return body, false
+	}
+	return decoded, true
 }
 
 // SetBodyJSON decodes raw JSON into Body. Per encoding/json rules numbers
