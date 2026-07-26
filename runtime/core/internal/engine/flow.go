@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/core/internal/pool"
@@ -62,15 +63,41 @@ func (e *blockError) Unwrap() error { return e.err }
 type Flow struct {
 	Name   string
 	Blocks []core.Block
+	// flowName is the name of the root flow this one belongs to, which is what a
+	// block event reports. It is not Name: a composite's sub-flow is usually
+	// unnamed, and where it is named (a fork branch, a switch case) the name is the
+	// branch's, not the flow's.
+	flowName string
+	// events dispatches this flow's block events. It is nil when nothing is
+	// listening, which is the loop's fast exit.
+	events *core.BlockEvents
 }
 
 // Process runs msg through the flow's blocks in order. It returns the final
 // message, or (nil, nil) if a block dropped it, or an error if a block aborted.
+//
+// Each block is bracketed by a pre- and a post-invoke event when a dispatcher is
+// wired and something is listening. Observing costs three predicted branches per
+// block otherwise, and nothing is built, timed or allocated until a listener
+// exists. Listeners observe: the outcome of the loop is the same either way.
 func (f *Flow) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
 	current := msg
 	for i := range f.Blocks {
 		block := f.Blocks[i]
+
+		observe := f.events != nil && block.Path != "" && f.events.Active()
+		var started time.Time
+		if observe {
+			started = time.Now()
+			f.events.Emit(ctx, f.event(types.BlockPreInvoke, block, current, started))
+		}
+
 		out, err := block.Processor.Process(ctx, current)
+
+		if observe {
+			f.events.Emit(ctx, f.outcome(block, current, out, err, started))
+		}
+
 		if err != nil {
 			return nil, &blockError{label: blockLabel(block.Type, block.Name), err: err}
 		}
@@ -89,6 +116,41 @@ func (f *Flow) Process(ctx context.Context, msg *types.Message) (*types.Message,
 	return current, nil
 }
 
+// event builds one block event for msg. Every field but the message is a copy
+// taken here, on the flow's goroutine, so an async listener can read them safely.
+func (f *Flow) event(
+	kind types.BlockEventKind, block core.Block, msg *types.Message, at time.Time,
+) types.BlockEvent {
+	return types.BlockEvent{
+		Kind:          kind,
+		Flow:          f.flowName,
+		Path:          block.Path,
+		BlockType:     block.Type,
+		EventID:       msg.EventID,
+		CorrelationID: msg.CorrelationID,
+		OccurredAt:    at,
+		Message:       msg,
+	}
+}
+
+// outcome builds the post-invoke event for all three outcomes. The message it
+// carries is what the block produced, falling back to its input for the two
+// outcomes that produce none — a drop and a failure — so a listener always has the
+// message the block was working on.
+func (f *Flow) outcome(
+	block core.Block, in, out *types.Message, err error, started time.Time,
+) types.BlockEvent {
+	msg := out
+	if msg == nil {
+		msg = in
+	}
+	event := f.event(types.BlockPostInvoke, block, msg, time.Now())
+	event.Duration = event.OccurredAt.Sub(started)
+	event.Err = err
+	event.Dropped = err == nil && out == nil
+	return event
+}
+
 // BuildRoot assembles the root Flow for a top-level flow config, resolving named
 // processor definitions and threading the shared pool and block deps used by leaf
 // and composite blocks. Its blocks' paths root at the flow's own name.
@@ -99,7 +161,7 @@ func BuildRoot(
 	processors []types.ProcessorConfig,
 	deps core.BlockDeps,
 ) (*Flow, error) {
-	b, err := newBuilder(blocks, p, processors, deps, cfg.Name)
+	b, err := newBuilder(blocks, p, processors, deps, cfg.Name, cfg.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -117,7 +179,7 @@ func BuildErrorPath(
 	processors []types.ProcessorConfig,
 	deps core.BlockDeps,
 ) (*Flow, error) {
-	b, err := newBuilder(blocks, p, processors, deps, core.JoinBranch(cfg.Name, core.BranchError))
+	b, err := newBuilder(blocks, p, processors, deps, cfg.Name, core.JoinBranch(cfg.Name, core.BranchError))
 	if err != nil {
 		return nil, err
 	}
@@ -133,6 +195,11 @@ type builder struct {
 	pool *pool.Pool
 	defs map[string]types.ProcessorConfig
 	deps core.BlockDeps
+
+	// flowName is the name of the root flow being built, constant for one build.
+	// It is not Flow.Name, which is the (often empty) name of the sub-flow a
+	// composite slot holds.
+	flowName string
 
 	// path is the address of the node whose children this builder builds:
 	//
@@ -152,13 +219,13 @@ func newBuilder(
 	p *pool.Pool,
 	processors []types.ProcessorConfig,
 	deps core.BlockDeps,
-	path string,
+	flowName, path string,
 ) (*builder, error) {
 	defs, err := processorDefs(processors)
 	if err != nil {
 		return nil, err
 	}
-	return &builder{reg: blocks, pool: p, defs: defs, deps: deps, path: path}, nil
+	return &builder{reg: blocks, pool: p, defs: defs, deps: deps, flowName: flowName, path: path}, nil
 }
 
 // at returns a builder that builds the children of the node at path.
@@ -202,7 +269,7 @@ func (b *builder) flow(cfg types.FlowConfig) (*Flow, error) {
 		}
 		blocks = append(blocks, block)
 	}
-	return &Flow{Name: cfg.Name, Blocks: blocks}, nil
+	return &Flow{Name: cfg.Name, Blocks: blocks, flowName: b.flowName, events: b.deps.Events}, nil
 }
 
 // subFlow builds a nested flow, rejecting root-only fields.

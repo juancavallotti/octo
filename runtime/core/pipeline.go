@@ -73,6 +73,14 @@ type BlockDeps struct {
 	// mock block refuses to build without it, so a flow can never carry a mock that
 	// was not asked for.
 	Mocks *Mocks
+	// Events dispatches the pre- and post-invoke events emitted around every block.
+	// Unlike the rest of BlockDeps it is read by the flow itself rather than by a
+	// block factory — it arrives here because this is already the channel through
+	// which the runtime hands build-time services to the engine.
+	//
+	// It is nil when no dispatcher is wired, which is the engine's fast exit: a nil
+	// check per block is the whole cost of the feature for a flow nobody observes.
+	Events *BlockEvents
 }
 
 // BlockFactory builds a leaf processor from its settings and build-time deps.
