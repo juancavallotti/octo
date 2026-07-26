@@ -302,6 +302,51 @@ func TestStopReleasesPortWithoutServing(t *testing.T) {
 	}
 }
 
+// TestStopAfterServingReturnsNoError pins the exit status of a clean shutdown.
+// Stop used to close the listener itself even when Serve had taken it, racing
+// the accept loop's untrack; whenever server.Shutdown won that race it closed
+// the same listener a second time and reported "use of closed network
+// connection", turning a clean SIGTERM into a non-zero exit that Kubernetes and
+// systemd read as a crash. The race makes the old failure intermittent, so this
+// asserts the contract rather than reproducing the losing schedule: a connector
+// that served must report no error from Stop. No other test would notice — they
+// all discard the error their cleanup Stop returns.
+func TestStopAfterServingReturnsNoError(t *testing.T) {
+	c := &Connector{}
+	settings := map[string]any{"host": "127.0.0.1", "port": 0}
+	if err := c.Start(context.Background(), types.ConnectorConfig{Settings: settings}); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	out := make(chan *types.Message, 1)
+	src, err := c.NewSource(types.SourceConfig{Type: "http", Settings: map[string]any{"path": "/ping"}}, out, core.SourceDeps{})
+	if err != nil {
+		t.Fatalf("NewSource: %v", err)
+	}
+	if err := src.Start(context.Background()); err != nil {
+		t.Fatalf("source Start: %v", err)
+	}
+
+	// Drive one request through: Shutdown only reports the double close for a
+	// listener it is tracking, and it takes ownership when Serve accepts it.
+	echoWorker(out, func(msg *types.Message) types.FlowEvent {
+		return types.FlowEvent{Kind: types.FlowEventCompleted, Result: msg}
+	})
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost,
+		"http://"+c.ln.Addr().String()+"/ping", bytes.NewReader([]byte(`{}`)))
+	if resp := do(t, req); resp.status != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", resp.status, resp.body)
+	}
+
+	// The shutdown order the runtime uses: sources drain first, then connectors.
+	if err := src.Stop(context.Background()); err != nil {
+		t.Fatalf("source Stop: %v", err)
+	}
+	if err := c.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop after serving: %v", err)
+	}
+}
+
 // freePort binds an ephemeral loopback port, closes it, and returns the number
 // so a test can re-bind it deterministically.
 func freePort(t *testing.T) int {

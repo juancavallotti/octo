@@ -225,12 +225,17 @@ func (c *Connector) Stop(ctx context.Context) error {
 	if c.server == nil {
 		return nil
 	}
-	// Close the listener explicitly. Serving is deferred until the first source
-	// calls ensureServing, so on a failed config reload (connectors started but
-	// no request yet) server.Shutdown never sees the listener and the port would
-	// leak. If serving did start, Shutdown already closed it and this is a no-op
-	// "use of closed network connection" we ignore.
-	if c.ln != nil {
+	// Exactly one of ensureServing and this claims serveOnce, which decides who
+	// owns the listener. Claiming it here means no source ever started serving and
+	// none now can, so Shutdown will never see the listener and we must release it
+	// ourselves — otherwise a failed config reload (connectors started, no request
+	// yet) would leak the port. Losing the claim means Serve took the listener, and
+	// Shutdown closes it; closing it here too would race the accept loop's untrack
+	// and, whenever Shutdown won that race, surface the second close as
+	// "use of closed network connection" — a clean shutdown reported as a failure.
+	served := true
+	c.serveOnce.Do(func() { served = false })
+	if !served && c.ln != nil {
 		_ = c.ln.Close()
 	}
 	if err := c.server.Shutdown(ctx); err != nil {
@@ -240,7 +245,9 @@ func (c *Connector) Stop(ctx context.Context) error {
 }
 
 // ensureServing starts the accept loop exactly once, after every route has been
-// registered. Sources call it from their Start.
+// registered. Sources call it from their Start. Stop races for the same once, so
+// a connector stopped before any source started serving never starts one — see
+// Stop, which reads the outcome to decide who closes the listener.
 func (c *Connector) ensureServing() {
 	c.serveOnce.Do(func() { go c.serve() })
 }
