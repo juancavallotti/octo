@@ -1,5 +1,84 @@
 # Changelog
 
+## [0.5.0](https://github.com/juancavallotti/octo/compare/v0.4.3...v0.5.0) (2026-07-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* **config:** ${NAME} substitution now applies to every value in a config document, not only to `settings` values. A reference in a position that was previously left alone — a block `condition`, a flow `name`, an `ai-agent` `prompt` — is now resolved, and one naming a variable that is not declared under `env:` fails the load instead of surviving as literal text. The `env:` and `resources:` sections are read to build the environment before substitution runs, so they stay literal. The undeclared-reference error is no longer worded as being about settings.
+
+### Features
+
+* **core:** add the block event dispatcher ([cd56ff8](https://github.com/juancavallotti/octo/commit/cd56ff86a151c94e93b205bf2563d533b4023b44))
+* **editor,mcp:** catalogue the CEL extension libraries ([f4afd55](https://github.com/juancavallotti/octo/commit/f4afd55a98110fef24d203b537153582a61898b3))
+* **engine:** carry a flow's duration and failing block on its terminal event ([50799b6](https://github.com/juancavallotti/octo/commit/50799b6b21c6939b3e7ffa5b90cf63fb0ac25c57))
+* **engine:** emit pre/post-invoke around every block ([6ce3237](https://github.com/juancavallotti/octo/commit/6ce323707639166815ff9c41e6112bfdc6824079))
+* **engine:** mint each block's flow path at build time ([068e2ab](https://github.com/juancavallotti/octo/commit/068e2ab0b4bffa9a58feae4d64088f3c5542c372))
+* **expr:** enable cel-go's strings, lists, encoders, math, comprehensions, sets, and regex libraries ([fb6360f](https://github.com/juancavallotti/octo/commit/fb6360f442e093b26ba6bb29acabacac1ebc11bd))
+* **expr:** enable the cel-go utility extension libraries ([d636df1](https://github.com/juancavallotti/octo/commit/d636df13da2fee8d87a325104a31e1dc2df10f79)), closes [#174](https://github.com/juancavallotti/octo/issues/174)
+* native health probes and Prometheus metrics ([5ebfc4d](https://github.com/juancavallotti/octo/commit/5ebfc4db4e1edeea3e2885f80a5bdb23fdd01766))
+* **observability:** expose per-block metrics for addressed blocks ([1fc0580](https://github.com/juancavallotti/octo/commit/1fc05809395bf8328b33ca4362c877961745e0c4))
+* **observability:** expose per-flow prometheus metrics ([9902fca](https://github.com/juancavallotti/octo/commit/9902fca2f7c15d38ea13a977c5a6e5dc2fb068b1))
+* **observability:** serve liveness and readiness probes on an admin port ([934e1aa](https://github.com/juancavallotti/octo/commit/934e1aa2c68539ab7a68ae219956eef09977ebc8))
+* **orchestrator:** give runtime deployments liveness and readiness probes ([720ebea](https://github.com/juancavallotti/octo/commit/720ebeaa59fa9423eb93aaa138244d762cadf357))
+* **runtime:** pre/post-invoke block events, addressed by flow path ([cbcd4c8](https://github.com/juancavallotti/octo/commit/cbcd4c8fb83690667dffcdae5c01afcb45b6116f))
+* **runtime:** wire block events into the service ([162a046](https://github.com/juancavallotti/octo/commit/162a046584f8dd8e224efc0ad26d087871cf9771))
+* **samples:** add cel-extensions, a no-foreach normalization flow ([30e8a18](https://github.com/juancavallotti/octo/commit/30e8a18fd063432eb36fb9a3b92d1e52921d38a7))
+* **services:** add a hosted-service facet for process-lifetime runtime services ([366070b](https://github.com/juancavallotti/octo/commit/366070bad408c721859a42de31aa8a33b05b1c89))
+* **types:** add Message.Scoped and MutableBody for copy-on-write bodies ([a04b32b](https://github.com/juancavallotti/octo/commit/a04b32b94e857ec572f3a06e5bac456c04421e00))
+* **types:** add the block invoke event payload ([c614981](https://github.com/juancavallotti/octo/commit/c614981ade10f954215f45c2fd473bd524fbdb79))
+
+
+### Bug Fixes
+
+* address CodeRabbit review on the observability PR ([4907d51](https://github.com/juancavallotti/octo/commit/4907d51bd7485c0a9de6778dfc4171bce3836c41))
+* **config:** substitute ${NAME} before decode, in every value ([8dcc4db](https://github.com/juancavallotti/octo/commit/8dcc4dbfe597ec79807a30247e63cde2cb928044)), closes [#168](https://github.com/juancavallotti/octo/issues/168)
+* **editor,mcp:** resolve namespaces by own property, and list every optional and bit function ([8869dbe](https://github.com/juancavallotti/octo/commit/8869dbe170fc844adcfe569a71a1aed90536fab4))
+* **engine:** measure a block's duration without its pre-invoke listeners ([b9a2bc1](https://github.com/juancavallotti/octo/commit/b9a2bc1400306179217a0c071418a1fbdb7365d0))
+* **expr:** give template {{ }} spans the registered CEL functions ([d4d9140](https://github.com/juancavallotti/octo/commit/d4d9140fb46e2e1106b63c539a1ef48a938a9f1f)), closes [#170](https://github.com/juancavallotti/octo/issues/170)
+* five runtime bugs found by the performance lab ([#167](https://github.com/juancavallotti/octo/issues/167)–[#171](https://github.com/juancavallotti/octo/issues/171)) ([da926d8](https://github.com/juancavallotti/octo/commit/da926d80184d07fbdc1125fdc5cc5e2affc129f3))
+* **httpclient:** pool outbound connections instead of dialling per request ([e8ceb4f](https://github.com/juancavallotti/octo/commit/e8ceb4f1f38a2d7b8a198454f62848e95d0c4ca0)), closes [#167](https://github.com/juancavallotti/octo/issues/167)
+* **http:** exit zero on a clean SIGTERM shutdown ([9c8d7f7](https://github.com/juancavallotti/octo/commit/9c8d7f7726271d29ed71a0d39527d0f93b917a4f)), closes [#171](https://github.com/juancavallotti/octo/issues/171)
+* **http:** hold Stop open until the accept loop releases the port ([d8cefd8](https://github.com/juancavallotti/octo/commit/d8cefd8a9c12eecde53d6a1a1593dedde9e45a72))
+* **mcp:** file reverse under both the strings and lists libraries ([7c19a50](https://github.com/juancavallotti/octo/commit/7c19a506b3cf89f653a3f84ff76d1b3669973262))
+* **observability:** bind before metric subscriptions ([82ec92a](https://github.com/juancavallotti/octo/commit/82ec92a3b6f24314617f13076319f48fd3d38847))
+* **resources:** decide resource containment with filepath.Rel ([2d6185c](https://github.com/juancavallotti/octo/commit/2d6185c14daa59a3e63683e53946ffc403caa436))
+* **resources:** refuse a resource id that leaves the root by symlink ([d2e6f26](https://github.com/juancavallotti/octo/commit/d2e6f26ab6365dcf73fc54e8bb833fb4b7889d54))
+* **resources:** resolve template resources under a relative --config ([9f801d2](https://github.com/juancavallotti/octo/commit/9f801d2523e74e85daf1bd8c3f6c5e2ff044a973)), closes [#169](https://github.com/juancavallotti/octo/issues/169)
+* **samples,docs:** carry money in integer cents instead of rounding doubles ([8159d97](https://github.com/juancavallotti/octo/commit/8159d97de159230191f3ceedd8c5099f7a37b43f))
+* **types:** bound the body walk so a cycle cannot overflow the stack ([27af9a1](https://github.com/juancavallotti/octo/commit/27af9a163730dc55ee7c8df27ee28d14d14c956d))
+* **types:** track residual body aliasing apart from pending copy-on-write ([bdaddc9](https://github.com/juancavallotti/octo/commit/bdaddc972ef8fde2aadd4d050a530e171e37c765))
+
+
+### Performance
+
+* **engine:** map foreach iterations over a shared body ([aebe38b](https://github.com/juancavallotti/octo/commit/aebe38b8f32c852cd2ecebffa748c2255910167a)), closes [#166](https://github.com/juancavallotti/octo/issues/166)
+* **engine:** run enrich scopes over a shared body ([bffb271](https://github.com/juancavallotti/octo/commit/bffb27169fcc085a28266eed090d5e69e58bfe16))
+* make foreach map mode linear in the collection size ([dd065f8](https://github.com/juancavallotti/octo/commit/dd065f8a0f602c5a847e5f28cb67fbf155200be6))
+* **types:** deep-copy message bodies structurally instead of through JSON ([32cc61e](https://github.com/juancavallotti/octo/commit/32cc61e1047060ae655d310dc10b80516d7fa6b3))
+
+
+### Refactoring
+
+* **core:** extract the block-path grammar into core ([4027f90](https://github.com/juancavallotti/octo/commit/4027f900b8317e18814ce1149bf9265e5dc93eff))
+* **types:** drop the write-only body aliasing flag ([bf58325](https://github.com/juancavallotti/octo/commit/bf58325b2067124fc6fab352ce3e5f2e7ded1ea8))
+* **types:** extract the body deep-copy out of Message.Clone ([4f67aa7](https://github.com/juancavallotti/octo/commit/4f67aa7db1771a22bf8c2435e134b26044430aaf))
+
+
+### Documentation
+
+* add the extending section ([ad97578](https://github.com/juancavallotti/octo/commit/ad97578c220258065c300f98d4b747963b894578))
+* align observability and extension docs ([bc2e734](https://github.com/juancavallotti/octo/commit/bc2e7346986fa1a136e4a8744c2bde2694a066d9))
+* **cel:** add the extension libraries reference ([25501c1](https://github.com/juancavallotti/octo/commit/25501c1cfddc4fbe042325945e48f6b00e515410))
+* declare FLOW_WORKERS in the substitution example ([a013212](https://github.com/juancavallotti/octo/commit/a013212e2e3a0d5d1b340c73191e7ae6b1122a92))
+* describe message scoping alongside cloning ([f45c1ba](https://github.com/juancavallotti/octo/commit/f45c1bab834302a46b2ccde2d101492af84d7eea))
+* document block invoke events ([533f629](https://github.com/juancavallotti/octo/commit/533f629d72d112bdfdad84e0c0988a79cfbc69d7))
+* document the admin port, probes, and metrics ([de865bf](https://github.com/juancavallotti/octo/commit/de865bf7a109bcf75a471901dc0a5bc6bf49e232))
+* finish the clone-to-scope pass over the block references ([0cc993b](https://github.com/juancavallotti/octo/commit/0cc993befbe1dfdc76c42d3d19d2d3d4a6faccc7))
+* **http:** bound what the pool section promises about reuse ([2da7842](https://github.com/juancavallotti/octo/commit/2da7842720171bdd34d85792624ab5d976e655ef))
+* sharpen the wording on body scoping and cycle handling ([6993790](https://github.com/juancavallotti/octo/commit/6993790247657d3a96a3b9c617dce803016e5544))
+* state the runtime extension points ([9f3c2eb](https://github.com/juancavallotti/octo/commit/9f3c2eb5264b4c11fa468923bb448ee770077e53))
+
 ## [0.4.3](https://github.com/juancavallotti/octo/compare/v0.4.2...v0.4.3) (2026-07-19)
 
 
