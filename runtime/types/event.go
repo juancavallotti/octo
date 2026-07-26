@@ -103,22 +103,21 @@ type BlockEvent struct {
 	// the one it produced (post-invoke, and the input when it dropped or failed).
 	// It is a reference, not a copy — which is what makes emitting one cheap.
 	//
-	// A sync listener runs on the flow's own goroutine, with nothing else touching
-	// the message: it may read the message and may call Clone, Scoped or Reported.
+	// Listeners run on the flow's own goroutine, with nothing else touching the
+	// message, so a listener may read it and may call Clone, Scoped or Reported.
 	//
-	// An async listener must not dereference Message.Body or Message.Variables, and
-	// must not call any copy method: the flow has moved on and is mutating both.
-	// Variables is a plain map, so a concurrent read is a data race that can panic
-	// the process. To take contents off the flow's goroutine, Clone in a sync
-	// listener and hand the copy to your own worker.
+	// That holds only for as long as the listener is running. The flow resumes
+	// mutating the message the moment the listener returns, so a listener must not
+	// retain the pointer: to take contents elsewhere, Clone here and hand the copy
+	// to a worker it owns. Variables is a plain map, so reading it from another
+	// goroutine is a data race that can panic the process.
 	Message *Message
 
 	// Duration is how long the invocation took. Post-invoke only.
 	//
 	// It is measured here rather than left to a listener pairing pre with post,
 	// because pairing is not reliable: a fork runs the same Path on several
-	// goroutines at once, and an async listener may see a post whose pre was
-	// dropped when the dispatcher's buffer was full.
+	// goroutines at once, so a listener cannot tell which pre belongs to which post.
 	Duration time.Duration
 	// Err is the error the block failed with. Post-invoke only.
 	Err error

@@ -145,10 +145,11 @@ func (s *Service) Usage() string {
 
     --metrics-blocks orders.charge,orders.fanout[audit].log-it
 
-  It is opt-in because it is the expensive half: watching ANY block makes the
-  engine emit an event around EVERY block, in every flow, not just the watched
-  ones. Delivery is at-most-once, so under saturation the block counters
-  under-report — octo_block_events_dropped_total is how much.
+  It is opt-in because it is measured on the flow's own goroutine: a watched
+  block pays for its own timing, so the counters are exact and never dropped,
+  but the cost lands on the message rather than beside it. Only the named blocks
+  are measured; every other block costs one comparison. '*' watches every block
+  in every flow and is a debugging tool, not a steady-state setting.
 
   Each flag's default is its environment variable, so a deployment can set
   OCTO_OBSERVABILITY / OCTO_OBSERVABILITY_ADDR / OCTO_METRICS instead. These are
@@ -205,10 +206,13 @@ func (s *Service) Start(ctx context.Context, health *services.Health) error {
 // address. Nothing is registered otherwise, which is what keeps the block-event
 // dispatcher inactive — and the engine's per-block emission off — by default.
 //
-// The listener is async, so a slow update costs telemetry rather than throughput,
-// at the price of at-most-once delivery. It registers on the process-wide
-// dispatcher once, for the life of the process, so a --watch reload does not
-// accumulate a listener per generation (the dispatcher has no unsubscribe).
+// The listener is registered for the named addresses, not for everything, so the
+// engine builds an event only around the blocks someone asked about. `*` is the
+// exception and says so: it asks for every block in the process.
+//
+// It registers on the process-wide dispatcher once, for the life of the process,
+// so a --watch reload does not accumulate a listener per generation (the
+// dispatcher has no unsubscribe).
 func (s *Service) watchBlocks() {
 	addresses := parseAddresses(s.metricBlocks)
 	if len(addresses) == 0 {
@@ -216,12 +220,15 @@ func (s *Service) watchBlocks() {
 	}
 
 	events := core.DefaultBlockEvents()
-	blocks := newBlockMetrics(s.collectors.registry, addresses, events)
-	events.AddAsync(blocks.onBlockEvent)
+	blocks := newBlockMetrics(s.collectors.registry, addresses)
 
 	if blocks.all {
+		events.AddSync(blocks.onBlockEvent)
 		slog.Warn("observability: --metrics-blocks '*' reports every block; " +
-			"on a large config that is a lot of time series")
+			"on a large config that is a lot of time series, and every block in " +
+			"every flow pays for the measurement")
+	} else {
+		events.AddSyncFor(blocks.paths(), blocks.onBlockEvent)
 	}
 	slog.Info("observability: reporting per-block metrics",
 		"blocks", len(addresses), "all", blocks.all)

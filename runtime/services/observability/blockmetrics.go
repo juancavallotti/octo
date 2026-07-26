@@ -1,11 +1,11 @@
 package observability
 
 import (
+	"context"
 	"strings"
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
@@ -40,15 +40,13 @@ const (
 // blockMetrics reports per-block timings for an explicitly named set of block
 // addresses.
 //
-// It is opt-in, and per-address rather than per-flow, because it is the expensive
-// half of the feature twice over. Registering ANY async block listener flips
-// core.BlockEvents.Active() process-wide, so the engine starts emitting a pre- and
-// post-invoke event around every block in every flow, not just the watched ones —
-// that is the real cost, and it is why per-flow metrics are on with --metrics and
-// these are not. And a label per block path is a much larger series count than a
-// label per flow.
+// It is opt-in, and per-address rather than per-flow, because watching a block
+// costs something on the flow's own goroutine — the engine builds an event around
+// it and this records it inline — and because a label per block path is a much
+// larger series count than a label per flow. Naming addresses keeps both bounded
+// by what someone asked for. `*` gives that up on purpose.
 type blockMetrics struct {
-	// watch is the set of block addresses to report, or nil when watching all.
+	// watch is the set of block addresses to report, or empty when watching all.
 	watch map[string]struct{}
 	all   bool
 
@@ -59,7 +57,7 @@ type blockMetrics struct {
 // newBlockMetrics builds the per-block collectors for the given addresses and
 // registers them on reg. It returns nil when no address was named, which is what
 // keeps the block-event dispatcher inactive by default.
-func newBlockMetrics(reg *prometheus.Registry, addresses []string, events *core.BlockEvents) *blockMetrics {
+func newBlockMetrics(reg *prometheus.Registry, addresses []string) *blockMetrics {
 	if len(addresses) == 0 {
 		return nil
 	}
@@ -91,24 +89,21 @@ func newBlockMetrics(reg *prometheus.Registry, addresses []string, events *core.
 	}
 
 	reg.MustRegister(b.invocations, b.duration)
-
-	// The dispatcher owns the running total of what it discarded, so read it at
-	// scrape time instead of keeping a second copy in step with it. Async delivery
-	// is at-most-once, so a non-zero value here means the counters above are
-	// under-reporting — which is worth knowing and impossible to infer otherwise.
-	reg.MustRegister(prometheus.NewCounterFunc(prometheus.CounterOpts{
-		Namespace: namespace,
-		Name:      "block_events_dropped_total",
-		Help: "Block events discarded because the dispatcher's queue was full. " +
-			"Non-zero means the block counters are under-reporting.",
-	}, func() float64 {
-		if events == nil {
-			return 0
-		}
-		return float64(events.Dropped())
-	}))
-
 	return b
+}
+
+// paths returns the addresses to register with the dispatcher, or nil to ask for
+// every block. Registering the set is what keeps an unwatched block from being
+// built into an event at all — the filter belongs on the producer, not here.
+func (b *blockMetrics) paths() []string {
+	if b.all {
+		return nil
+	}
+	addresses := make([]string, 0, len(b.watch))
+	for address := range b.watch {
+		addresses = append(addresses, address)
+	}
+	return addresses
 }
 
 // watches reports whether a block path is one this is reporting on.
@@ -120,14 +115,21 @@ func (b *blockMetrics) watches(path string) bool {
 	return ok
 }
 
-// onBlockEvent records one watched block invocation. It runs on the dispatcher's
-// own goroutine, after the fact, so a slow update costs telemetry rather than
-// throughput — and it must not dereference the event's message, which the flow has
-// long since moved on and started mutating.
-func (b *blockMetrics) onBlockEvent(event types.BlockEvent) {
+// onBlockEvent records one watched block invocation. It is a sync listener: it
+// runs on the flow's own goroutine, in the middle of the block it is timing, so
+// everything it does is on the message's critical path: a label lookup and two
+// atomic adds, and nothing that allocates or can block.
+//
+// Inline is what makes the numbers true. Recording these off the goroutine meant
+// a queue between the flow and the counters, and a queue between a fleet of
+// producers and one consumer drops under exactly the load worth measuring.
+func (b *blockMetrics) onBlockEvent(_ context.Context, event types.BlockEvent) {
+	// A watched block still emits a pre-invoke, which carries no duration and no
+	// outcome; counting it would double every number.
 	if event.Kind != types.BlockPostInvoke || !b.watches(event.Path) {
 		return
 	}
+
 	b.invocations.WithLabelValues(event.Flow, event.Path, event.BlockType, blockOutcome(event)).Inc()
 	b.duration.WithLabelValues(event.Flow, event.Path, event.BlockType).Observe(event.Duration.Seconds())
 }
