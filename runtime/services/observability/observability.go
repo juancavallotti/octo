@@ -1,0 +1,194 @@
+// Package observability is the runtime service that lets a deployment see the
+// process from the outside: liveness and readiness probes, and (behind a flag)
+// Prometheus metrics.
+//
+// It is a hosted runtime service — it supplies no core.RuntimeServices, runs for
+// the life of the process, and configures itself from `octo run` flags rather than
+// from a config file. It sits beside the standalone and k8s providers because it
+// is the same service under either: sharing it is the only reason it is not
+// duplicated into both.
+//
+// It serves on an admin port of its own rather than on the http connector's, so a
+// probe never collides with a user route, never inherits a flow's CORS or
+// timeouts, and answers whether or not the integration has an HTTP source at all.
+package observability
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"log/slog"
+	"net"
+	"net/http"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/juancavallotti/octo/runtime/services"
+)
+
+const (
+	// serviceName identifies the service in logs and startup errors.
+	serviceName = "observability"
+
+	// defaultAddr is the admin listen address. The port is deliberately far from
+	// anything a flow would bind, so enabling probes by default cannot take a port
+	// a user's http connector wanted.
+	defaultAddr = ":39999"
+
+	// readHeaderTimeout matches the http connector's default. A probe endpoint is
+	// as reachable as any other, so it gets the same slow-loris guard.
+	readHeaderTimeout = 10 * time.Second
+
+	// shutdownTimeout bounds the drain on stop. Probes and scrapes are short; a
+	// server that has not drained in this long is not going to.
+	shutdownTimeout = 5 * time.Second
+)
+
+// Environment variables, each the default for the flag of the same name. They are
+// read from the process environment only: a runtime's .env file is loaded during
+// config load, which happens after the flags are parsed.
+const (
+	envEnabled = "OCTO_OBSERVABILITY"
+	envAddr    = "OCTO_OBSERVABILITY_ADDR"
+)
+
+func init() {
+	services.RegisterHosted(New())
+}
+
+// Service is the observability runtime service.
+type Service struct {
+	enabled bool
+	addr    string
+
+	health *services.Health
+	server *http.Server
+	ln     net.Listener
+}
+
+// New returns the service with nothing resolved yet; Flags fills it in.
+func New() *Service { return &Service{} }
+
+// Name implements services.HostedService.
+func (s *Service) Name() string { return serviceName }
+
+// Flags registers the service's `octo run` flags. Each default is the
+// environment-resolved value, so passing the flag wins over the environment
+// without any precedence code, and --help prints what is actually in effect.
+func (s *Service) Flags(fs *flag.FlagSet) {
+	fs.BoolVar(&s.enabled, "observability", envBool(envEnabled, true),
+		"serve liveness and readiness probes on the admin port")
+	fs.StringVar(&s.addr, "observability-addr", envString(envAddr, defaultAddr),
+		"admin listen address for probes and metrics")
+}
+
+// Usage implements services.HostedService.
+func (s *Service) Usage() string {
+	return `Observability flags (octo run):
+  --observability=false
+                     do not serve probes at all (default: serve them)
+  --observability-addr <addr>
+                     admin listen address (default :39999)
+
+  The admin port is separate from any http connector, so probes never collide with
+  a user route and answer even for a runtime with no HTTP source at all:
+
+    GET /healthz     200 while the process is alive
+    GET /readyz      200 once every connector and flow started; 503 with the
+                     reason otherwise (starting, reloading, draining, stopped)
+
+  Readiness turns false the moment a shutdown signal arrives, before flows drain,
+  so a load balancer stops sending work while there are still workers to finish
+  what is in flight.
+
+  Each flag's default is its environment variable, so a deployment can set
+  OCTO_OBSERVABILITY / OCTO_OBSERVABILITY_ADDR instead. These are read from the
+  process environment, not from a .env file.`
+}
+
+// Start binds the admin listener and serves on it. Binding is synchronous so a
+// port conflict fails the run rather than becoming a log line nobody reads.
+func (s *Service) Start(ctx context.Context, health *services.Health) error {
+	if !s.enabled {
+		slog.Debug("observability disabled")
+		return nil
+	}
+	s.health = health
+
+	var lc net.ListenConfig
+	ln, err := lc.Listen(ctx, "tcp", s.addr)
+	if err != nil {
+		return fmt.Errorf("listen on %s: %w", s.addr, err)
+	}
+	s.ln = ln
+	s.server = &http.Server{
+		Handler:           s.handler(),
+		ReadHeaderTimeout: readHeaderTimeout,
+	}
+
+	go func() {
+		if serveErr := s.server.Serve(ln); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			slog.Error("observability server stopped", "error", serveErr)
+		}
+	}()
+	slog.Info("observability listening", "addr", ln.Addr().String())
+	return nil
+}
+
+// Stop shuts the admin server down, draining in-flight probes.
+func (s *Service) Stop(ctx context.Context) error {
+	if s.server == nil {
+		return nil
+	}
+	shutdownCtx, cancel := context.WithTimeout(ctx, shutdownTimeout)
+	defer cancel()
+	if err := s.server.Shutdown(shutdownCtx); err != nil {
+		return fmt.Errorf("shut down observability server: %w", err)
+	}
+	return nil
+}
+
+// Addr returns the address the admin server actually bound, which is not s.addr
+// when the configured port was 0. It is empty when the service is not serving.
+func (s *Service) Addr() string {
+	if s.ln == nil {
+		return ""
+	}
+	return s.ln.Addr().String()
+}
+
+// envString returns the environment variable's value, or fallback when it is
+// unset or empty.
+func envString(name, fallback string) string {
+	if v, ok := os.LookupEnv(name); ok && v != "" {
+		return v
+	}
+	return fallback
+}
+
+// envBool parses a boolean environment variable, accepting what strconv does
+// (1/t/T/true/TRUE, 0/f/F/false/FALSE) plus the conversational on/off/yes/no. An
+// unparseable value is logged and ignored rather than failing the run: a typo in
+// a deployment's environment should not stop the runtime from starting.
+func envBool(name string, fallback bool) bool {
+	raw, ok := os.LookupEnv(name)
+	if !ok || raw == "" {
+		return fallback
+	}
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "on", "yes":
+		return true
+	case "off", "no":
+		return false
+	}
+	v, err := strconv.ParseBool(raw)
+	if err != nil {
+		slog.Warn("observability: ignoring unparseable environment variable",
+			"var", name, "value", raw, "default", fallback)
+		return fallback
+	}
+	return v
+}
