@@ -167,6 +167,15 @@ event followed by exactly one terminal event: `completed`, `dropped`, or
 `failed` (`types.FlowEvent`). Subscribe with `core.DefaultEventBus().Subscribe`
 to observe success and error outcomes (metrics, dead-lettering, etc.).
 
+A terminal event carries `Duration` — how long the message took, including its
+error path — measured where the flow runs rather than left to a subscriber to
+derive by pairing `started` with the terminal. A `failed` event also carries
+`Block`, the label of the block the failure came from.
+
+`failed` means **unhandled**. A message its flow's error path recovered is
+published as `completed`, because that is what happened to it, so a counter over
+`failed` counts what nothing handled rather than everything that went wrong.
+
 ## Block events
 
 Flow events are per message; **block events** are per block. Every block the
