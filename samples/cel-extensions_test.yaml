@@ -1,0 +1,71 @@
+flow: normalize
+
+inputs:
+  # A messy order: padded free-text reference, mixed-case email, a repeated role,
+  # and line prices that do not land on a cent.
+  messy:
+    data:
+      reference: " ORDER-1042 / eu-west "
+      customer:
+        email: "Ada.Lovelace@Example.COM"
+        roles: "admin,billing,billing"
+      lines:
+        - { sku: "b-2", qty: 3, unitPrice: 19.987 }
+        - { sku: "a-1", qty: 1, unitPrice: 4.5 }
+
+cases:
+  - name: it normalizes every field with the extension libraries, no foreach
+    input: messy
+    expect:
+      body:
+        orderId: "1042" # regex.extract pulled the capture group
+        region: "eu-west" # trim + split + index
+        email: "ada.lovelace@example.com" # lowerAscii
+        roles: ["admin", "billing"] # split + distinct + sort
+        topLine: 59.96 # math.greatest of the line values, rounded to cents
+        idempotencyKey: "MTA0MjphZGEubG92ZWxhY2VAZXhhbXBsZS5jb20=" # base64.encode
+        quantities: { "b-2": 3, "a-1": 1 } # transformMapEntry: list -> lookup map
+      that:
+        # sets.contains saw the billing role, so the if branch ran.
+        - "vars.invoiceable"
+        # The assertions themselves compile through the same CEL seam, so the
+        # libraries are available here too.
+        - 'body.roles.join(",") == "admin,billing"'
+        - 'sets.equivalent(body.quantities.transformList(k, v, k), ["a-1", "b-2"])'
+    spies:
+      normalize.billing-contact[then].mark-invoiceable:
+        count: 1
+
+  # regex.extract returns an optional, not an error: a reference with no id in it
+  # falls through to orValue rather than failing the message.
+  - name: a reference with no order id falls back instead of failing
+    input:
+      data:
+        reference: "walk-in / eu-west"
+        customer: { email: "b@example.com", roles: "sales" }
+        lines: [{ sku: "a-1", qty: 2, unitPrice: 3.0 }]
+    expect:
+      body:
+        orderId: "unknown"
+        region: "eu-west"
+        email: "b@example.com"
+        roles: ["sales"]
+        topLine: 6
+        idempotencyKey: "dW5rbm93bjpiQGV4YW1wbGUuY29t"
+        quantities: { "a-1": 2 }
+
+  - name: a customer without the billing role is not marked invoiceable
+    input:
+      data:
+        reference: "ORDER-7 / us-east"
+        customer: { email: "c@example.com", roles: "support,support" }
+        lines: [{ sku: "z-9", qty: 1, unitPrice: 1.006 }]
+    expect:
+      that:
+        - "!has(vars.invoiceable)"
+        - 'body.roles == ["support"]'
+        # math.round takes 100.6 to 101, so the price lands on a whole cent.
+        - "body.topLine == 1.01"
+    spies:
+      normalize.billing-contact[then].mark-invoiceable:
+        count: 0

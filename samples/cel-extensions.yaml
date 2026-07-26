@@ -1,0 +1,103 @@
+service:
+  name: cel-extensions
+
+# Demonstrates the cel-go utility libraries Octo registers on top of the CEL
+# standard library: strings, lists, encoders, math, two-variable comprehensions,
+# sets, and regex. Every function below is available in any expression field —
+# block settings, conditions, validation rules, source payloads, and template
+# {{ }} spans — with no extra configuration.
+#
+# The flow takes a messy inbound order and normalizes it without a single
+# `foreach`: it pulls the id out of a free-text reference, cleans up the customer
+# email, de-duplicates roles, prices the lines, and builds a sku -> qty lookup.
+#
+# Run it (standalone services module, in-process store):
+#   octo invoke --config samples/cel-extensions.yaml --flow normalize \
+#     --data '{"reference":" ORDER-1042 / eu-west ","customer":{"email":"Ada.Lovelace@Example.COM","roles":"admin,billing,billing"},"lines":[{"sku":"b-2","qty":3,"unitPrice":19.987},{"sku":"a-1","qty":1,"unitPrice":4.5}]}'
+#   # -> logs "order 1042 (eu-west): 2 lines, top line 59.96, roles admin, billing"
+
+connectors:
+  - name: out
+    type: logger
+    settings:
+      format: json
+      level: info
+
+flows:
+  - name: normalize
+    process:
+      # One block, seven CEL edits — each one reads what the previous produced.
+      - type: multi-transform
+        name: normalize-order
+        settings:
+          transforms:
+            # regex.extract pulls the first capture group out of free text. It
+            # returns an optional, so a reference that carries no id reads as null
+            # rather than failing the message; orValue supplies a fallback instead.
+            - setVar: orderId
+              value: 'regex.extract(body.reference, "ORDER-(\\d+)").orValue("unknown")'
+
+            # strings: trim the padding, split on the separator, take the tail.
+            - setVar: region
+              value: 'body.reference.trim().split(" / ")[1]'
+
+            # strings again: emails are case-insensitive, so normalize before use.
+            - setVar: email
+              value: 'body.customer.email.lowerAscii()'
+
+            # lists: split a comma-separated field, drop repeats, sort it. distinct
+            # and sort have no standard-CEL equivalent — this needed a foreach.
+            - setVar: roles
+              value: 'body.customer.roles.split(",").distinct().sort()'
+
+            # math: the largest line value, rounded to cents. round returns a
+            # double, so multiply-round-divide is the money-safe form.
+            - setVar: topLine
+              value: 'math.round(math.greatest(body.lines.map(l, l.qty * l.unitPrice)) * 100.0) / 100.0'
+
+            # encoders: a stable idempotency key for the downstream API. base64
+            # encodes bytes, so the string is converted first.
+            - setVar: idempotencyKey
+              value: 'base64.encode(bytes(vars.orderId + ":" + vars.email))'
+
+            # two-variable comprehensions: transformMapEntry turns the line list
+            # into a sku -> qty lookup, with the index and the element both in
+            # scope. Reshaping a list into a map is what previously forced a loop.
+            - setBody: |
+                {
+                  "orderId": vars.orderId,
+                  "region": vars.region,
+                  "email": vars.email,
+                  "roles": vars.roles,
+                  "topLine": vars.topLine,
+                  "idempotencyKey": vars.idempotencyKey,
+                  "quantities": body.lines.transformMapEntry(i, l, {l.sku: l.qty})
+                }
+
+      # sets.contains tests list membership without a comprehension: true when
+      # every element of the second list appears in the first.
+      - type: if
+        name: billing-contact
+        condition: 'sets.contains(body.roles, ["billing"])'
+        then:
+          process:
+            - type: set-variable
+              name: mark-invoiceable
+              settings:
+                name: invoiceable
+                value: "true"
+
+      # strings.format interpolates without concatenating and without a template:
+      # %s for strings, %d for ints, %.2f for a fixed-precision double.
+      - type: log
+        name: emit
+        settings:
+          logger: out
+          message: >-
+            "order %s (%s): %d lines, top line %.2f, roles %s".format([
+              body.orderId,
+              body.region,
+              size(body.quantities),
+              body.topLine,
+              body.roles.join(", ")
+            ])
