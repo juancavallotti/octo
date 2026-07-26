@@ -218,6 +218,57 @@ func TestBoundFlowStartFailsWhenABlockCannotStart(t *testing.T) {
 	_ = bf.stop(context.Background())
 }
 
+// failingSource refuses to stop, standing in for a source whose teardown errors.
+type failingSource struct {
+	fakeSource
+	err error
+}
+
+func (f failingSource) Stop(context.Context) error { return f.err }
+
+func TestBoundFlowShutdownCompletesWhenTheSourceFails(t *testing.T) {
+	want := errors.New("source will not stop")
+	block := &blockedLifecycle{}
+	reg := testBlocks()
+	reg.MustRegister("bg", func(types.Settings, core.BlockDeps) (core.MessageProcessor, error) {
+		return block, nil
+	})
+
+	p := pool.New(0, 0)
+	root, err := engine.BuildRoot(
+		types.FlowConfig{Process: []types.BlockConfig{{Type: "bg"}}},
+		reg, p, nil, core.BlockDeps{},
+	)
+	if err != nil {
+		t.Fatalf("BuildRoot: %v", err)
+	}
+	bf := &boundFlow{
+		name: "test", source: failingSource{err: want}, root: root, workers: 1,
+		in: make(chan *types.Message, 1), bus: core.NewEventBus(), pool: p,
+	}
+
+	if err := bf.start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+
+	// The failure is reported, but it is not a reason to abandon the shutdown: the
+	// workers would be left parked on a channel nobody closes, a block's own
+	// goroutine still running, and the pool never reclaimed.
+	if err := bf.stop(context.Background()); !errors.Is(err, want) {
+		t.Fatalf("stop error = %v, want it to wrap %v", err, want)
+	}
+
+	block.mu.Lock()
+	stopped := block.done
+	block.mu.Unlock()
+	if !stopped {
+		t.Error("the block should have been stopped even though the source failed")
+	}
+	if p.TrySubmit(func() {}) {
+		t.Error("the pool should have been torn down even though the source failed")
+	}
+}
+
 // blockedLifecycle keeps resuming until told to stop, so a test can check the
 // pool is still usable while background work is live and that Stop quiets it
 // before the pool is torn down.

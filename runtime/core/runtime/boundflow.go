@@ -97,16 +97,19 @@ func (bf *boundFlow) start(ctx context.Context) error {
 // and that work schedules more of its own, which is exactly what a split feeding
 // an aggregate does. Quieting the blocks first stops any *new* work appearing
 // from a reaper's timer; waiting on inflight then lets the existing tree finish.
+//
+// No step is skipped because an earlier one failed. Errors are collected and the
+// shutdown runs to the end: a source that fails to stop is a reason to report a
+// problem, not a reason to strand the workers on a channel nobody will close,
+// leave a reaper firing at a torn-down flow, and never reclaim the pool.
 func (bf *boundFlow) stop(ctx context.Context) error {
-	if err := bf.source.Stop(ctx); err != nil {
-		return err
-	}
+	errs := []error{bf.source.Stop(ctx)}
 	close(bf.in)
 	bf.wg.Wait()
-	err := bf.stopProcessors(ctx)
+	errs = append(errs, bf.stopProcessors(ctx))
 	bf.inflight.Wait()
 	bf.pool.Stop()
-	return err
+	return errors.Join(errs...)
 }
 
 // startProcessors starts every root-level block that owns background work, in

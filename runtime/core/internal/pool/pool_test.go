@@ -103,10 +103,14 @@ func TestTrySubmitRunsEveryAcceptedTask(t *testing.T) {
 	)
 	var done sync.WaitGroup
 	for i := 0; i < n; i++ {
+		// Counted before the submit, not after: an accepted task can be picked up
+		// and finished by a worker before TrySubmit has even returned.
+		done.Add(1)
 		if p.TrySubmit(func() { defer done.Done(); ran.Add(1) }) {
-			done.Add(1)
 			accepted++
+			continue
 		}
+		done.Done()
 	}
 	done.Wait()
 	p.Stop()
