@@ -21,12 +21,17 @@ import (
 // OS-assigned port.
 func newMetricsService(t *testing.T) *Service {
 	t.Helper()
+	// Neutralize the ambient environment: these flags default to it, so a
+	// developer or CI runner with OCTO_OBSERVABILITY set would otherwise get a
+	// service that never binds and a pile of confusing failures downstream.
+	t.Setenv(envEnabled, "false")
+	t.Setenv(envMetrics, "false")
 
 	svc := New()
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	svc.Flags(fs)
-	if err := fs.Parse([]string{"--observability-addr", "127.0.0.1:0", "--metrics"}); err != nil {
+	if err := fs.Parse([]string{"--observability=true", "--observability-addr", "127.0.0.1:0", "--metrics"}); err != nil {
 		t.Fatalf("parse: %v", err)
 	}
 

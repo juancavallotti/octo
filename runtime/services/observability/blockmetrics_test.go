@@ -190,6 +190,11 @@ func TestBlockEventsDroppedIsReadFromTheDispatcher(t *testing.T) {
 // Watching nothing must leave the process-wide dispatcher inactive: the whole cost
 // of the feature when it is off is that Active() stays false.
 func TestNoBlockAddressesLeavesDispatcherInactive(t *testing.T) {
+	// --metrics-blocks defaults to the environment, so an ambient
+	// OCTO_METRICS_BLOCKS would make this test watch blocks and assert the
+	// opposite of what it says.
+	t.Setenv(envMetricBlocks, "")
+
 	svc := New()
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
