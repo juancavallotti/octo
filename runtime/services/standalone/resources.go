@@ -62,11 +62,21 @@ func (l *fsResourceLoader) Load(_ context.Context, _ core.ResourceKind, id strin
 }
 
 // resolve maps a resource id to an absolute path under the root, rejecting any id
-// that would escape it. Cleaning the id as an absolute path strips leading ".."
-// segments; the prefix assertion then catches anything still outside the root.
+// that escapes it. Containment is decided by filepath.Rel: a relative path that
+// starts with ".." left the root, anything else did not.
+//
+// Rel rather than a "root + separator" prefix test, on the joined-but-unclamped
+// path, for two reasons. A root that is itself a filesystem root has no such
+// prefix — "/" plus a separator is "//", which prefixes none of its own children
+// — so the assertion refused every id under it. And pre-cleaning the id as an
+// absolute path ("/" + id) silently rewrote "../secret" to "<root>/secret"
+// instead of refusing it, which is safe but answers a different question than the
+// one asked: the guard could then never fire, and the id resolved somewhere the
+// caller did not name. A ".." that stays inside the root is still fine.
 func (l *fsResourceLoader) resolve(id string) (string, error) {
-	full := filepath.Join(l.root, filepath.Clean("/"+id))
-	if full != l.root && !strings.HasPrefix(full, l.root+string(os.PathSeparator)) {
+	full := filepath.Join(l.root, id)
+	rel, err := filepath.Rel(l.root, full)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
 		return "", fmt.Errorf("resource id %q escapes the resource root", id)
 	}
 	return full, nil
