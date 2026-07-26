@@ -5,6 +5,7 @@ import (
 	"flag"
 	"io"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -78,8 +79,10 @@ func TestBlockMetricsReportsOnlyWatchedPaths(t *testing.T) {
 	if got := testutil.ToFloat64(b.invocations.WithLabelValues("orders", "orders.charge", "rest", outcomeOK)); got != 1 {
 		t.Errorf("watched block invocations = %v, want 1", got)
 	}
-	if got := testutil.CollectAndCount(b.invocations); got != 1 {
-		t.Errorf("series = %d, want 1 — only the watched address may be reported", got)
+	// Resolving a block pre-creates its counter for all three outcomes, so one
+	// watched block is three series and an unwatched one is none.
+	if got := testutil.CollectAndCount(b.invocations); got != 3 {
+		t.Errorf("series = %d, want 3 — only the watched address may be reported", got)
 	}
 }
 
@@ -107,8 +110,33 @@ func TestBlockMetricsWatchAll(t *testing.T) {
 	if !b.all {
 		t.Error("* did not set watch-all")
 	}
-	if got := testutil.CollectAndCount(b.invocations); got != 2 {
-		t.Errorf("series = %d, want 2 — * reports every block", got)
+	if got := testutil.CollectAndCount(b.invocations); got != 6 {
+		t.Errorf("series = %d, want 6 — * reports every block, three outcomes each", got)
+	}
+}
+
+// The resolved collectors are cached per block, and the cache must survive the
+// concurrent first-sighting that every flow worker races into on startup.
+func TestBlockMetricsSeriesCacheIsStableUnderConcurrency(t *testing.T) {
+	b := newBlockMetrics(prometheus.NewRegistry(), []string{watchAll})
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 100; j++ {
+				b.onBlockEvent(t.Context(), blockEvent("orders", "orders.charge", "rest", time.Millisecond, nil, false))
+			}
+		}()
+	}
+	wg.Wait()
+
+	if got := testutil.ToFloat64(b.invocations.WithLabelValues("orders", "orders.charge", "rest", outcomeOK)); got != 800 {
+		t.Errorf("invocations = %v, want 800 — every inline update must land", got)
+	}
+	if got := len(*b.series.Load()); got != 1 {
+		t.Errorf("cached series = %d, want 1 — one block resolves once", got)
 	}
 }
 

@@ -3,6 +3,8 @@ package observability
 import (
 	"context"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -52,6 +54,31 @@ type blockMetrics struct {
 
 	invocations *prometheus.CounterVec
 	duration    *prometheus.HistogramVec
+
+	// series caches the collectors each block resolves to. Updates run inline on
+	// every flow worker at once, and WithLabelValues hashes its labels and takes a
+	// read lock on the vector's map — one shared cache line, written by every core
+	// on every block. The cache turns that into an atomic load and a map read.
+	//
+	// It is copy-on-write: readers hold an immutable snapshot, and a miss rebuilds
+	// it under fill. Growth is bounded by the number of distinct block paths in the
+	// config, so it stops growing once traffic has touched each of them once.
+	series atomic.Pointer[map[seriesKey]*blockSeries]
+	fill   sync.Mutex
+}
+
+// seriesKey identifies one block's series. It is the label tuple that does not
+// vary with the outcome.
+type seriesKey struct {
+	flow, path, blockType string
+}
+
+// blockSeries is the resolved collectors for one block: a counter per outcome and
+// the duration observer. Resolving all three counters up front costs two extra
+// lookups on a block's first invocation and saves one on every invocation after.
+type blockSeries struct {
+	ok, dropped, errored prometheus.Counter
+	duration             prometheus.Observer
 }
 
 // newBlockMetrics builds the per-block collectors for the given addresses and
@@ -79,6 +106,7 @@ func newBlockMetrics(reg *prometheus.Registry, addresses []string) *blockMetrics
 			Buckets: prometheus.ExponentialBuckets(blockBucketStart, blockBucketFactor, blockBucketCount),
 		}, []string{labelFlow, labelPath, labelType}),
 	}
+	b.series.Store(&map[seriesKey]*blockSeries{})
 
 	for _, address := range addresses {
 		if address == watchAll {
@@ -117,8 +145,9 @@ func (b *blockMetrics) watches(path string) bool {
 
 // onBlockEvent records one watched block invocation. It is a sync listener: it
 // runs on the flow's own goroutine, in the middle of the block it is timing, so
-// everything it does is on the message's critical path: a label lookup and two
-// atomic adds, and nothing that allocates or can block.
+// everything it does is on the message's critical path. That budget buys a map
+// read and two atomic adds, and nothing else — no allocation, no lock, and no
+// call that can block.
 //
 // Inline is what makes the numbers true. Recording these off the goroutine meant
 // a queue between the flow and the counters, and a queue between a fleet of
@@ -130,8 +159,61 @@ func (b *blockMetrics) onBlockEvent(_ context.Context, event types.BlockEvent) {
 		return
 	}
 
-	b.invocations.WithLabelValues(event.Flow, event.Path, event.BlockType, blockOutcome(event)).Inc()
-	b.duration.WithLabelValues(event.Flow, event.Path, event.BlockType).Observe(event.Duration.Seconds())
+	series := b.seriesFor(seriesKey{flow: event.Flow, path: event.Path, blockType: event.BlockType})
+	series.counter(blockOutcome(event)).Inc()
+	series.duration.Observe(event.Duration.Seconds())
+}
+
+// counter returns the pre-resolved counter for one outcome.
+//
+//nolint:ireturn // the prometheus API hands back the Counter interface
+func (s *blockSeries) counter(outcome string) prometheus.Counter {
+	switch outcome {
+	case outcomeError:
+		return s.errored
+	case outcomeDropped:
+		return s.dropped
+	default:
+		return s.ok
+	}
+}
+
+// seriesFor returns the cached collectors for a block, resolving and caching them
+// on its first invocation.
+func (b *blockMetrics) seriesFor(key seriesKey) *blockSeries {
+	if series, ok := (*b.series.Load())[key]; ok {
+		return series
+	}
+	return b.resolve(key)
+}
+
+// resolve fills the cache for one block. It is the slow path — taken once per
+// block path per process — so it takes a lock and rebuilds the map wholesale,
+// leaving the read path free of both.
+func (b *blockMetrics) resolve(key seriesKey) *blockSeries {
+	b.fill.Lock()
+	defer b.fill.Unlock()
+
+	// Another goroutine may have resolved the same block while this one waited.
+	current := *b.series.Load()
+	if series, ok := current[key]; ok {
+		return series
+	}
+
+	series := &blockSeries{
+		ok:       b.invocations.WithLabelValues(key.flow, key.path, key.blockType, outcomeOK),
+		dropped:  b.invocations.WithLabelValues(key.flow, key.path, key.blockType, outcomeDropped),
+		errored:  b.invocations.WithLabelValues(key.flow, key.path, key.blockType, outcomeError),
+		duration: b.duration.WithLabelValues(key.flow, key.path, key.blockType),
+	}
+
+	next := make(map[seriesKey]*blockSeries, len(current)+1)
+	for k, v := range current {
+		next[k] = v
+	}
+	next[key] = series
+	b.series.Store(&next)
+	return series
 }
 
 // blockOutcome classifies a post-invoke event: a block either failed, filtered the
