@@ -28,6 +28,7 @@ func mustParseYAML(t *testing.T, doc string) types.Config {
 }
 
 func TestResolveEnvPrecedence(t *testing.T) {
+	unsetEnv(t, "DB_PORT", "DB_USER")
 	t.Setenv("DB_HOST", "from-os")
 	decls := []types.EnvVar{
 		{Name: "DB_HOST", Default: strptr("default-host")},
@@ -52,6 +53,7 @@ func TestResolveEnvPrecedence(t *testing.T) {
 }
 
 func TestResolveEnvRequired(t *testing.T) {
+	unsetEnv(t, "API_KEY")
 	decls := []types.EnvVar{{Name: "API_KEY", Required: true}}
 
 	if _, err := resolveEnv(decls, nil); err == nil || !strings.Contains(err.Error(), "API_KEY") {
@@ -68,6 +70,7 @@ func TestResolveEnvRequired(t *testing.T) {
 }
 
 func TestResolveEnvRequiredIgnoresDefault(t *testing.T) {
+	unsetEnv(t, "API_KEY")
 	// A default must not satisfy a required variable.
 	decls := []types.EnvVar{{Name: "API_KEY", Required: true, Default: strptr("d")}}
 	if _, err := resolveEnv(decls, nil); err == nil {
@@ -89,6 +92,7 @@ connectors:
 }
 
 func TestSubstituteDeclaredButUnresolved(t *testing.T) {
+	unsetEnv(t, "HOST")
 	_, err := parseYAML(t, `
 env:
   - name: HOST
@@ -104,6 +108,7 @@ connectors:
 }
 
 func TestSubstituteTypedAndEmbedded(t *testing.T) {
+	unsetEnv(t, "PORT", "DEBUG", "SECRET")
 	cfg := mustParseYAML(t, `
 env:
   - name: PORT
@@ -154,6 +159,7 @@ connectors:
 // this behaved the same when substitution ran over already-decoded settings —
 // where the quotes were long gone by the time it looked.
 func TestSubstituteQuotedPlaceholderStillTypes(t *testing.T) {
+	unsetEnv(t, "PORT")
 	cfg := mustParseYAML(t, `
 env:
   - name: PORT
@@ -211,6 +217,7 @@ func TestCoerceOnlyMakesScalars(t *testing.T) {
 // decoder untagged would be re-resolved, and each of these resolves to something
 // that is not the string it started as.
 func TestSubstituteKeepsValuesUntyped(t *testing.T) {
+	unsetEnv(t, "DB_DSN", "EMPTY", "RELEASED_ON")
 	cfg := mustParseYAML(t, `
 env:
   - name: DB_DSN
@@ -240,6 +247,7 @@ connectors:
 }
 
 func TestSubstituteNestedFlowBlocks(t *testing.T) {
+	unsetEnv(t, "PATH_", "LEVEL")
 	cfg := mustParseYAML(t, `
 env:
   - name: PATH_
@@ -278,6 +286,7 @@ flows:
 // typed, so it never survived to the settings walk — the load died in the decoder
 // with `cannot unmarshal !!str into int`. buffer and pool are the same shape.
 func TestSubstituteRootFlowScalars(t *testing.T) {
+	unsetEnv(t, "FLOW_WORKERS", "FLOW_BUFFER")
 	t.Setenv("FLOW_POOL", "24")
 	cfg := mustParseYAML(t, `
 env:
@@ -310,6 +319,7 @@ flows:
 // TestSubstituteReachesNonSettingsScalars: substitution now runs over the whole
 // document, so a reference works wherever a value does — not only under settings.
 func TestSubstituteReachesNonSettingsScalars(t *testing.T) {
+	unsetEnv(t, "SERVICE_NAME", "MIN_TOTAL")
 	cfg := mustParseYAML(t, `
 env:
   - name: SERVICE_NAME
