@@ -40,7 +40,7 @@ func tagFlow(tag string) types.FlowConfig {
 }
 
 //nolint:ireturn // a test helper that returns the built MessageProcessor interface
-func mustBuild(t *testing.T, reg *core.BlockRegistry, cfg types.BlockConfig) core.MessageProcessor {
+func mustBuild(t testing.TB, reg *core.BlockRegistry, cfg types.BlockConfig) core.MessageProcessor {
 	t.Helper()
 	block, err := (&builder{reg: reg, pool: pool.New(0, 0)}).block(cfg)
 	if err != nil {
