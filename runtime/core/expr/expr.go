@@ -13,6 +13,8 @@ import (
 	"reflect"
 
 	"github.com/google/cel-go/cel"
+	"github.com/google/cel-go/common/types"
+	"github.com/google/cel-go/common/types/ref"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -74,6 +76,10 @@ func (p *Program) Eval(activation map[string]any) (any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("evaluate expression: %w", err)
 	}
+	out, absent := unwrapOptional(out)
+	if absent {
+		return nil, nil
+	}
 
 	native, err := out.ConvertToNative(structValueType)
 	if err != nil {
@@ -84,6 +90,27 @@ func (p *Program) Eval(activation map[string]any) (any, error) {
 		return nil, fmt.Errorf("expression result has unexpected type %T", native)
 	}
 	return value.AsInterface(), nil
+}
+
+// unwrapOptional resolves an optional result to the value it holds, reporting
+// absence separately. Functions from the regex library return optional<T> — a
+// successful "no match" rather than a failure — and an optional has no JSON
+// counterpart, so an absent one becomes null and a present one becomes its value.
+// Anything else passes through untouched. Optionals nest (optional.of(x) over an
+// x that is itself optional), so this unwraps until it reaches a plain value.
+//
+//nolint:ireturn // mirrors the ref.Val the caller already holds
+func unwrapOptional(val ref.Val) (ref.Val, bool) {
+	for {
+		opt, ok := val.(*types.Optional)
+		if !ok {
+			return val, false
+		}
+		if !opt.HasValue() {
+			return val, true
+		}
+		val = opt.GetValue()
+	}
 }
 
 // EvalString evaluates the program and renders the result as a string. A string

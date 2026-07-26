@@ -22,7 +22,10 @@ map, `eventID`, `correlationID`, the resolved `env`, and `now`, the evaluation
 time. The result is always a JSON-native value (object, array, string, number,
 boolean, or null), matching the runtime's JSON message contract. See
 [Octo Extensions](/reference/cel/octo-extensions) for the full variable list
-and the custom functions Octo adds.
+and the custom functions Octo adds, and [Extension
+Libraries](/reference/cel/libraries) for the cel-go utility libraries — string
+manipulation, list reshaping, base64, math, sets, and regex — available in
+every expression.
 
 ## Where expressions appear
 
@@ -115,6 +118,9 @@ bin/octo eval --expr 'body.missing'
   strings, lists, maps, conversions, timestamps, and equality.
 - [Macros](/reference/cel/macros) — the comprehension macros: `filter`, `map`,
   `all`, `exists`, `exists_one`.
+- [Extension Libraries](/reference/cel/libraries) — the cel-go utility
+  libraries Octo enables (strings, lists, encoders, math, two-variable
+  comprehensions, sets, regex), and what is deliberately left out.
 - [Octo Extensions](/reference/cel/octo-extensions) — the variables in scope
   and the custom functions Octo registers (`toJson`, `fromJson`, `toFormData`,
   `fromFormData`, `templateResource`).

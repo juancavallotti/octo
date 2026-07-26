@@ -138,7 +138,7 @@ reporting nothing.
 | --- | --- |
 | `getSchema` | No argument: a compact index of every block and connector type. With `elementName` (e.g. `"log"`, `"http"`): that element's full spec, including its fields — and, for a composite, the `addressBranches` a breakpoint/spy/mock address needs to descend into it (`handle-errors[process].<block>`). |
 | `getExamples` | No argument: an index of worked example integrations. With a slug: that example's full runtime YAML. |
-| `getCelFunctions` | The CEL variables and custom functions in scope for message expressions; pass a `functionName` for one entry. |
+| `getCelFunctions` | The CEL variables and functions in scope for message expressions — Octo's own plus the [extension libraries](/reference/cel/libraries); pass a `functionName` for one entry, or a `library` (strings, lists, encoders, math, comprehensions, sets, regex, optional) for one family. |
 
 These exist as tools (not only resources) because some MCP clients surface
 only tools; they let an agent fetch exactly one block spec or one example

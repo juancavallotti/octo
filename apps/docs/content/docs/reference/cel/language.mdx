@@ -80,12 +80,14 @@ path](/reference/flow-file#error).
 backreferences or lookaheads. It is also available as a global:
 `matches("hello", "^h")` is the same as `"hello".matches("^h")`.
 
+The table above is standard CEL. Octo also enables cel-go's strings library, so
+`trim`, `split`, `join`, `replace`, `substring`, `upperAscii`, `lowerAscii`, and
+`format` are available on top of it — see [Extension
+Libraries](/reference/cel/libraries#strings).
+
 <Callout type="warn">
-  Octo's CEL environment does not enable the optional strings extension:
-  helpers such as `split`, `lowerAscii`, `replace`, and string indexing
-  (`"abc"[0]`) are not available and fail to compile. Build strings with `+`,
-  `string()`, and `matches`, or reshape data with an [AI
-  Mapping](/ai/ai-mapping) block when transformation gets complex.
+  String indexing (`"abc"[0]`) is not part of CEL and fails to compile. Use
+  `"abc".charAt(0)` or `"abc".substring(0, 1)`.
 </Callout>
 
 ## Lists and maps
@@ -106,6 +108,9 @@ Indexing past the end of a list or reading a missing key is an evaluation
 error (`no such key`), not `null` — see [Presence and
 defaults](#presence-and-defaults). There is no slice syntax (`[1,2,3][1:2]`
 does not parse) and maps cannot be concatenated with `+`.
+
+Sorting, de-duplicating, flattening, and slicing a list come from the lists
+library — see [Extension Libraries](/reference/cel/libraries#lists).
 
 ## Presence and defaults
 

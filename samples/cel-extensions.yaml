@@ -1,0 +1,112 @@
+service:
+  name: cel-extensions
+
+# Demonstrates the cel-go utility libraries Octo registers on top of the CEL
+# standard library: strings, lists, encoders, math, two-variable comprehensions,
+# sets, and regex. Every function below is available in any expression field —
+# block settings, conditions, validation rules, source payloads, and template
+# {{ }} spans — with no extra configuration.
+#
+# The flow takes a messy inbound order and normalizes it without a single
+# `foreach`: it pulls the id out of a free-text reference, cleans up the customer
+# email, de-duplicates roles, prices the lines, and builds a sku -> qty lookup.
+#
+# Money is carried in integer cents throughout. JSON has one number type and it
+# is a binary double, so a decimal price cannot be held exactly: 1.005 is stored
+# slightly below it, and rounding to cents lands a cent low. Integers up to 2^53
+# are exact in a double, so cents need no rounding at all — only the log line
+# divides, to display.
+#
+# Run it (standalone services module, in-process store):
+#   octo invoke --config samples/cel-extensions.yaml --flow normalize \
+#     --data '{"reference":" ORDER-1042 / eu-west ","customer":{"email":"Ada.Lovelace@Example.COM","roles":"admin,billing,billing"},"lines":[{"sku":"b-2","qty":3,"unitPriceCents":1999},{"sku":"a-1","qty":1,"unitPriceCents":450}]}'
+#   # -> logs "order 1042 (eu-west): 2 lines, top line 59.97, roles admin, billing"
+
+connectors:
+  - name: out
+    type: logger
+    settings:
+      format: json
+      level: info
+
+flows:
+  - name: normalize
+    process:
+      # One block, seven CEL edits — each one reads what the previous produced.
+      - type: multi-transform
+        name: normalize-order
+        settings:
+          transforms:
+            # regex.extract pulls the first capture group out of free text. It
+            # returns an optional, so a reference that carries no id reads as null
+            # rather than failing the message; orValue supplies a fallback instead.
+            - setVar: orderId
+              value: 'regex.extract(body.reference, "ORDER-(\\d+)").orValue("unknown")'
+
+            # strings: trim the padding, split on the separator, take the tail.
+            - setVar: region
+              value: 'body.reference.trim().split(" / ")[1]'
+
+            # strings again: emails are case-insensitive, so normalize before use.
+            - setVar: email
+              value: 'body.customer.email.lowerAscii()'
+
+            # lists: split a comma-separated field, drop repeats, sort it. distinct
+            # and sort have no standard-CEL equivalent — this needed a foreach.
+            - setVar: roles
+              value: 'body.customer.roles.split(",").distinct().sort()'
+
+            # math: the largest line total. greatest takes a list, so mapping
+            # then aggregating is one expression. Cents are integers, so there
+            # is nothing to round — see the note at the top of this file.
+            - setVar: topLineCents
+              value: 'math.greatest(body.lines.map(l, l.qty * l.unitPriceCents))'
+
+            # encoders: a stable idempotency key for the downstream API. base64
+            # encodes bytes, so the string is converted first.
+            - setVar: idempotencyKey
+              value: 'base64.encode(bytes(vars.orderId + ":" + vars.email))'
+
+            # two-variable comprehensions: transformMapEntry turns the line list
+            # into a sku -> qty lookup, with the index and the element both in
+            # scope. Reshaping a list into a map is what previously forced a loop.
+            - setBody: |
+                {
+                  "orderId": vars.orderId,
+                  "region": vars.region,
+                  "email": vars.email,
+                  "roles": vars.roles,
+                  "topLineCents": vars.topLineCents,
+                  "idempotencyKey": vars.idempotencyKey,
+                  "quantities": body.lines.transformMapEntry(i, l, {l.sku: l.qty})
+                }
+
+      # sets.contains tests list membership without a comprehension: true when
+      # every element of the second list appears in the first.
+      - type: if
+        name: billing-contact
+        condition: 'sets.contains(body.roles, ["billing"])'
+        then:
+          process:
+            - type: set-variable
+              name: mark-invoiceable
+              settings:
+                name: invoiceable
+                value: "true"
+
+      # strings.format interpolates without concatenating and without a template:
+      # %s for strings, %d for ints, %.2f for a fixed-precision double. Dividing
+      # the cents here is the one place a fractional amount is wanted, and it is
+      # for display only — nothing downstream reads it back.
+      - type: log
+        name: emit
+        settings:
+          logger: out
+          message: >-
+            "order %s (%s): %d lines, top line %.2f, roles %s".format([
+              body.orderId,
+              body.region,
+              size(body.quantities),
+              body.topLineCents / 100.0,
+              body.roles.join(", ")
+            ])

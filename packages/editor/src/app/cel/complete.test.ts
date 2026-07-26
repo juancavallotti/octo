@@ -129,6 +129,56 @@ describe("literal receiver methods", () => {
     const names = completionsAt('[1,2].m', 7).items.map((e) => e.name);
     expect(names).toEqual(["map"]);
   });
+
+  it("offers the two-variable comprehensions after a map literal", () => {
+    const names = completionsAt('{"a":1}.', 8).items.map((e) => e.name);
+    expect(names).toEqual(
+      expect.arrayContaining(["transformMap", "transformMapEntry", "existsOne"]),
+    );
+    expect(names).not.toContain("sortBy");
+  });
+
+  it("offers the extension methods on a string literal", () => {
+    const names = completionsAt('"hello".', 8).items.map((e) => e.name);
+    expect(names).toEqual(expect.arrayContaining(["upperAscii", "trim", "split"]));
+  });
+});
+
+describe("namespaced extension functions", () => {
+  it("offers the namespace prefixes as top-level completions", () => {
+    const names = completionsAt("mat", 3).items.map((e) => e.name);
+    expect(names).toContain("math");
+  });
+
+  it("offers a namespace's members after its dot", () => {
+    const names = completionsAt("math.", 5).items.map((e) => e.name);
+    expect(names).toEqual(expect.arrayContaining(["greatest", "round", "isFinite"]));
+  });
+
+  it("filters namespace members by the typed prefix", () => {
+    expect(completionsAt("base64.en", 9).items.map((e) => e.name)).toEqual(["encode"]);
+    expect(completionsAt("regex.ex", 8).items.map((e) => e.name)).toEqual([
+      "extract",
+      "extractAll",
+    ]);
+  });
+
+  // A namespace is not data, so it must win over the member provider — which would
+  // otherwise resolve `math.` against the JSON samples and offer nothing.
+  it("resolves a namespace even when a member provider is supplied", () => {
+    const members: MemberProvider = () => undefined;
+    const names = completionsAt("sets.", 5, { members }).items.map((e) => e.name);
+    expect(names).toEqual(["contains", "equivalent", "intersects"]);
+  });
+
+  it("does not treat a deeper path as a namespace", () => {
+    expect(completionsAt("body.math.", 10).items).toHaveLength(0);
+  });
+
+  it("does not treat an inherited Object property as a namespace", () => {
+    expect(completionsAt("constructor.", 12).items).toHaveLength(0);
+    expect(completionsAt("toString.", 9).items).toHaveLength(0);
+  });
 });
 
 describe("applyCompletion", () => {
@@ -151,5 +201,19 @@ describe("applyCompletion", () => {
     const q = tokenAt(text, 7); // caret after "bo"
     const r = applyCompletion(text, q, lookup("body")!);
     expect(r.text).toBe("size(body) > 0");
+  });
+
+  it("inserts the dot for a namespace so its members complete next", () => {
+    const q = tokenAt("mat", 3);
+    const r = applyCompletion("mat", q, lookup("math")!);
+    expect(r.text).toBe("math.");
+    expect(r.caret).toBe("math.".length);
+  });
+
+  it("inserts only the member after a namespace dot", () => {
+    const text = "math.gr";
+    const q = tokenAt(text, text.length);
+    const r = applyCompletion(text, q, lookup("math.greatest")!);
+    expect(r.text).toBe("math.greatest(");
   });
 });

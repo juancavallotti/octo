@@ -1,6 +1,8 @@
 import {
   allCompletions,
   LIST_METHODS,
+  MAP_METHODS,
+  namespaceMembers,
   STRING_METHODS,
   type CelEntry,
 } from "./catalog";
@@ -99,11 +101,12 @@ export function memberContext(
 export function literalReceiver(
   text: string,
   dotIndex: number,
-): "list" | "string" | null {
+): "list" | "map" | "string" | null {
   let j = dotIndex - 1;
   while (j >= 0 && /\s/.test(text[j])) j--;
   const ch = text[j];
   if (ch === "]") return "list";
+  if (ch === "}") return "map";
   if (ch === '"' || ch === "'") return "string";
   return null;
 }
@@ -133,14 +136,20 @@ export function completionsAt(
     const lower = query.token.toLowerCase();
     const byPrefix = (list: CelEntry[]) =>
       list.filter((e) => e.name.toLowerCase().startsWith(lower));
-    // 1) A list/string literal receiver (`[...]. ` / `"...". `) → its methods.
+    // 1) A list/map/string literal receiver (`[...]. ` / `{...}. ` / `"...". `).
     const lit = literalReceiver(text, query.range[0] - 1);
     if (lit === "list") return { query, items: byPrefix(LIST_METHODS) };
+    if (lit === "map") return { query, items: byPrefix(MAP_METHODS) };
     if (lit === "string") return { query, items: byPrefix(STRING_METHODS) };
-    // 2) An identifier path resolved by the provider (e.g. JSON samples). The
+    // 2) A namespaced function family (`math.`, `regex.`, …). These are globals,
+    //    not member calls, so they resolve from the catalogue rather than the data
+    //    — and they win over the provider, which cannot know these names.
+    const path = memberContext(text, caret);
+    const ns = path?.base.length === 1 ? namespaceMembers(path.base[0]) : undefined;
+    if (ns) return { query, items: byPrefix(ns) };
+    // 3) An identifier path resolved by the provider (e.g. JSON samples). The
     //    provider decides what a resolved list/string/object offers.
-    const ctx = opts?.members ? memberContext(text, caret) : null;
-    const entries = ctx && opts?.members ? opts.members(ctx.base) : undefined;
+    const entries = path && opts?.members ? opts.members(path.base) : undefined;
     if (!entries) return { query, items: [] };
     return { query, items: byPrefix(entries) };
   }
@@ -152,10 +161,18 @@ export function completionsAt(
   return { query, items };
 }
 
+/** What accepting an entry inserts: a call opens its paren, a namespace its dot. */
+function insertionFor(entry: CelEntry): string {
+  if (entry.kind === "function") return `${entry.name}(`;
+  if (entry.kind === "namespace") return `${entry.name}.`;
+  return entry.name;
+}
+
 /**
  * Apply an accepted completion: replace the query range with the entry's name.
- * Functions get an opening paren and the caret placed inside; variables/other
- * leave the caret after the inserted name. Returns the new text and caret.
+ * Functions get an opening paren and the caret placed inside, a namespace gets the
+ * dot that offers its members next; variables/other leave the caret after the
+ * inserted name. Returns the new text and caret.
  */
 export function applyCompletion(
   text: string,
@@ -163,7 +180,7 @@ export function applyCompletion(
   entry: CelEntry,
 ): { text: string; caret: number } {
   const [start, end] = query.range;
-  const insert = entry.kind === "function" ? `${entry.name}(` : entry.name;
+  const insert = insertionFor(entry);
   const next = text.slice(0, start) + insert + text.slice(end);
   return { text: next, caret: start + insert.length };
 }

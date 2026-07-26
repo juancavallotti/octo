@@ -3,6 +3,7 @@
     "index",
     "language",
     "macros",
+    "libraries",
     "octo-extensions"
   ],
   "title": "CEL"
