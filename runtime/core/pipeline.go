@@ -21,8 +21,21 @@ type MessageProcessor interface {
 // embeds sub-flows (built by the flow builder). The block itself stays a thin
 // record; any embedded flows live inside the composite processor.
 type Block struct {
-	Name      string
-	Type      string
+	Name string
+	Type string
+	// Path is the block's address in the runtime's grammar (see blockpath.go),
+	// minted by the flow builder from the block's position in the config. It is
+	// what a block event reports as the place it came from.
+	//
+	// It is empty for a block that must not report: the implicit spy and
+	// breakpoint wrappers, which stand in their target's place and would
+	// otherwise emit a second event at the same address.
+	//
+	// The path is an observability label, not a resolvable handle. Two unnamed
+	// blocks of the same type in one chain mint the same path, where the address
+	// resolver would refuse the ambiguity — minting nothing for them would be
+	// worse than minting a label that happens to be shared.
+	Path      string
 	Processor MessageProcessor
 }
 

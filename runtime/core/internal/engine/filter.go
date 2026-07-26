@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
@@ -54,7 +55,7 @@ func buildOnReject(b *builder, cfg *types.FlowConfig) (*Flow, error) {
 	if cfg == nil || len(cfg.Process) == 0 {
 		return nil, nil
 	}
-	flow, err := b.subFlow(*cfg)
+	flow, err := b.branch(core.BranchOnReject).subFlow(*cfg)
 	if err != nil {
 		return nil, fmt.Errorf("onReject: %w", err)
 	}
