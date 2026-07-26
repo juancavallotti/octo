@@ -214,6 +214,114 @@ func TestMessageClone(t *testing.T) {
 	})
 }
 
+func TestMessageScoped(t *testing.T) {
+	// The point of the whole exercise: a scope costs no body copy.
+	t.Run("the body is shared with the original", func(t *testing.T) {
+		msg := &Message{Body: map[string]any{"k": "v"}}
+
+		scoped := msg.Scoped()
+
+		if containerIdentity(t, scoped.Body) != containerIdentity(t, msg.Body) {
+			t.Error("Scoped copied the body instead of sharing it")
+		}
+	})
+
+	t.Run("variables are independent", func(t *testing.T) {
+		msg, err := NewMessage("corr-1")
+		if err != nil {
+			t.Fatalf("NewMessage returned error: %v", err)
+		}
+		msg.Variables.Set("flag", true)
+
+		scoped := msg.Scoped()
+		scoped.Variables.Set("flag", false)
+		scoped.Variables.Set("extra", "added")
+
+		if got, _ := msg.Variables.Bool("flag"); !got {
+			t.Error("mutating scoped variables changed the original")
+		}
+		if _, ok := msg.Variables.String("extra"); ok {
+			t.Error("adding a scoped variable leaked into the original")
+		}
+	})
+
+	t.Run("body schema bytes are independent", func(t *testing.T) {
+		msg := &Message{BodySchema: json.RawMessage(`{"type":"object"}`)}
+
+		scoped := msg.Scoped()
+		scoped.BodySchema[0] = 'X'
+
+		if msg.BodySchema[0] == 'X' {
+			t.Error("mutating the scoped body schema changed the original")
+		}
+	})
+
+	t.Run("identity fields are preserved", func(t *testing.T) {
+		msg, err := NewMessage("corr-1")
+		if err != nil {
+			t.Fatalf("NewMessage returned error: %v", err)
+		}
+
+		scoped := msg.Scoped()
+		if scoped.EventID != msg.EventID || scoped.CorrelationID != msg.CorrelationID {
+			t.Errorf("scoped identity mismatch: got %+v, want %+v", scoped, msg)
+		}
+	})
+
+	t.Run("MutableBody copies a shared body before it is written", func(t *testing.T) {
+		msg := &Message{Body: map[string]any{"k": "v"}}
+		scoped := msg.Scoped()
+
+		scoped.MutableBody().(map[string]any)["k"] = "mutated"
+
+		if got := msg.Body.(map[string]any)["k"]; got != "v" {
+			t.Errorf("writing through the scope's MutableBody changed the original: %v", got)
+		}
+		if containerIdentity(t, scoped.Body) == containerIdentity(t, msg.Body) {
+			t.Error("MutableBody left the body shared")
+		}
+	})
+
+	// Scoped marks both sides, so it does not matter which one writes first.
+	t.Run("MutableBody on the original copies too", func(t *testing.T) {
+		msg := &Message{Body: map[string]any{"k": "v"}}
+		scoped := msg.Scoped()
+
+		msg.MutableBody().(map[string]any)["k"] = "mutated"
+
+		if got := scoped.Body.(map[string]any)["k"]; got != "v" {
+			t.Errorf("writing through the original's MutableBody changed the scope: %v", got)
+		}
+	})
+
+	t.Run("MutableBody hands back a body this message already owns", func(t *testing.T) {
+		msg := &Message{Body: map[string]any{"k": "v"}}
+
+		before := containerIdentity(t, msg.Body)
+		if containerIdentity(t, msg.MutableBody()) != before {
+			t.Error("MutableBody copied a body that was never shared")
+		}
+
+		scoped := msg.Scoped()
+		first := containerIdentity(t, scoped.MutableBody())
+		if containerIdentity(t, scoped.MutableBody()) != first {
+			t.Error("a second MutableBody copied again")
+		}
+	})
+
+	t.Run("nil body and variables do not panic", func(t *testing.T) {
+		msg := &Message{EventID: "id"}
+
+		scoped := msg.Scoped()
+		if scoped.Variables != nil || scoped.Body != nil {
+			t.Errorf("scope of empty message = %+v, want nil body and variables", scoped)
+		}
+		if scoped.MutableBody() != nil {
+			t.Error("MutableBody invented a body")
+		}
+	})
+}
+
 func TestReported(t *testing.T) {
 	t.Run("hides the stop flag, keeps the flow's own variables", func(t *testing.T) {
 		msg, err := NewMessage("")
@@ -243,6 +351,18 @@ func TestReported(t *testing.T) {
 
 		if !msg.StopRequested() {
 			t.Error("Reported cleared the stop flag on the message it was called on")
+		}
+	})
+
+	// It edits variables only, so it has no reason to copy a result body that the
+	// caller is about to serialize.
+	t.Run("does not copy the body", func(t *testing.T) {
+		msg := &Message{Body: map[string]any{"k": "v"}}
+
+		reported := msg.Reported()
+
+		if containerIdentity(t, reported.Body) != containerIdentity(t, msg.Body) {
+			t.Error("Reported deep-copied the body to delete a variable")
 		}
 	})
 

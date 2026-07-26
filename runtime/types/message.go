@@ -48,8 +48,13 @@ type Message struct {
 	// typed accessors on Variables rather than asserting types directly.
 	Variables Variables `json:"variables,omitempty"`
 
-	// Body is the decoded JSON payload. Pipeline stages may mutate it in
-	// place; SetBodyJSON and BodyJSON bridge to and from wire bytes.
+	// Body is the decoded JSON payload. It is replace-only: a pipeline stage
+	// assigns a new value to Body rather than writing into the value already
+	// there, because a message may share its body with a scoped copy (see
+	// Scoped). Assigning Body transfers exclusive ownership of that value to
+	// this message, so never hand the same value to two live messages. A stage
+	// that must write in place goes through MutableBody first. SetBodyJSON and
+	// BodyJSON bridge to and from wire bytes.
 	Body any `json:"body,omitempty"`
 
 	// BodySchema is the JSON Schema describing Body, stored as raw JSON.
@@ -129,8 +134,12 @@ func (m *Message) StopRequested() bool {
 // the flow. It is bookkeeping between the engine and its blocks, so reporting a
 // filtered flow's message as though it carried a variable the flow set itself would
 // be a lie. Variables the flow really set are untouched.
+//
+// It scopes rather than clones: only Variables are edited, so deep-copying an
+// entire result body to delete one key would be pure waste on the way to a
+// caller that is about to serialize it.
 func (m *Message) Reported() *Message {
-	reported := m.Clone()
+	reported := m.Scoped()
 	delete(reported.Variables, stopVar)
 	return reported
 }
@@ -171,19 +180,21 @@ func newEventID() (string, error) {
 	return hex.EncodeToString(buf), nil
 }
 
-// Clone returns a copy of the message safe for concurrent use by independent
-// branches (e.g. a fork's parallel flows). The copy gets fresh Variables and
-// BodySchema backing storage and a deep copy of Body via a JSON round-trip, so
-// top-level mutations on the copy do not affect the original.
+// Clone returns a copy of the message that shares nothing mutable with it: fresh
+// Variables and BodySchema backing storage and a deep copy of Body. It is the copy
+// to take whenever the result outlives the caller's frame or leaves its goroutine
+// — a fork branch, a flow-ref, a queue or event publish, a debug snapshot. Use
+// Scoped instead for a sub-flow that runs to completion before the original is
+// touched again; it is the same isolation without the body copy.
 //
-// Body is JSON-only by the type's contract, so the round-trip is well defined;
-// as with SetBodyJSON it normalizes Body to decoded-JSON kinds (numbers become
-// float64, objects map[string]any, arrays []any). Values stored inside Variables
-// are copied shallowly, so deeply nested reference values remain shared.
+// Body is JSON-only by the type's contract, so the copy normalizes it to
+// decoded-JSON kinds (numbers become float64, objects map[string]any, arrays
+// []any) — see copyBody. Values stored inside Variables are copied shallowly, so
+// deeply nested reference values remain shared.
 //
-// RawContent is copied by the shallow struct copy, and a raw-content Body
-// survives the round-trip intact because its rawData is a string, not raw bytes:
-// the {contentType, rawData} map re-decodes to the same shape.
+// RawContent is copied by the shallow struct copy, and a raw-content Body survives
+// intact because its rawData is a string, not raw bytes: the {contentType,
+// rawData} map copies to the same shape.
 func (m *Message) Clone() *Message {
 	clone := m.shallow()
 	body, copied := copyBody(m.Body)
@@ -192,6 +203,49 @@ func (m *Message) Clone() *Message {
 	// the original's storage — record that rather than claim it owns it.
 	clone.bodyShared = !copied
 	return clone
+}
+
+// Scoped returns a copy for a sub-flow that runs to completion on this goroutine
+// before the receiver is touched again — a foreach map iteration, an enrich scope.
+// It is Clone without the body deep-copy: the sub-flow gets its own Variables, so
+// a variable it sets cannot leak and a loop variable cannot escape, but both
+// messages read the same Body.
+//
+// That is what keeps mapping a collection linear in its size. In map mode the body
+// IS the collection, so deep-copying it per element copied the whole collection
+// once per element.
+//
+// Sharing is invisible because Body is replace-only (see the field's doc): a block
+// rebinds Body on its own message and the other side never sees it. A block that
+// must mutate the body in place calls MutableBody first, which copies out. Both
+// messages are marked, so it does not matter which one mutates.
+//
+// Note that this marks the receiver too, which is unusual for a copying method: it
+// is what makes the sharing symmetric. Use Clone, not Scoped, whenever the copy
+// leaves this goroutine — sharing is only safe while one goroutine can touch
+// either side.
+func (m *Message) Scoped() *Message {
+	scoped := m.shallow()
+	m.bodyShared = true
+	scoped.bodyShared = true
+	return scoped
+}
+
+// MutableBody returns Body for mutation in place, first replacing it with a
+// private deep copy when the body is shared with another message (see Scoped). It
+// is the only supported way to write into a body rather than replace it.
+//
+// The copy happens at most once per message: afterwards this message owns its
+// body outright and later calls hand back the same value. A body that cannot be
+// copied stays shared and is returned as-is — the caller mutates at its own risk,
+// exactly as it would have before, since there is no copy to be had.
+func (m *Message) MutableBody() any {
+	if m.bodyShared {
+		body, copied := copyBody(m.Body)
+		m.Body = body
+		m.bodyShared = !copied
+	}
+	return m.Body
 }
 
 // shallow returns a copy of the message that still points at the receiver's Body:
