@@ -199,20 +199,17 @@ func TestMessageClone(t *testing.T) {
 	})
 
 	// A body that breaks the JSON-only contract cannot be copied at all. Handing
-	// back the original beats losing it, and the clone records residual aliasing
-	// separately from pending copy-on-write.
-	t.Run("a body that will not round-trip records residual aliasing", func(t *testing.T) {
-		msg := &Message{Body: make(chan int)}
+	// it back beats losing it, and there is nothing to retry afterwards.
+	t.Run("a body that will not round-trip is kept, not dropped", func(t *testing.T) {
+		body := make(chan int)
+		msg := &Message{Body: body}
 
 		clone := msg.Clone()
-		if clone.Body == nil {
-			t.Fatal("clone dropped a body it could not copy")
+		if clone.Body != any(body) {
+			t.Errorf("clone Body = %#v, want the original handed back", clone.Body)
 		}
 		if clone.bodyShared {
-			t.Error("clone should not keep copy-on-write pending")
-		}
-		if !clone.bodyAliased {
-			t.Error("clone did not record residual aliasing")
+			t.Error("clone should not leave a copy-on-write pending it can never satisfy")
 		}
 	})
 
@@ -330,13 +327,17 @@ func TestMessageScoped(t *testing.T) {
 		}
 	})
 
-	t.Run("partial copy is attempted once and aliasing is tracked", func(t *testing.T) {
-		msg := &Message{Body: map[string]any{"ok": "v", "bad": make(chan int)}}
+	// A body holding something uncopyable copies as far as it can and no further.
+	// Retrying would walk the whole body again to reach the same result, so the
+	// one attempt is final.
+	t.Run("a partial copy is attempted once", func(t *testing.T) {
+		bad := make(chan int)
+		msg := &Message{Body: map[string]any{"ok": "v", "bad": bad}}
 		scoped := msg.Scoped()
 
 		first := containerIdentity(t, scoped.MutableBody())
-		if !scoped.bodyAliased {
-			t.Error("MutableBody did not record residual aliasing after partial copy")
+		if got := scoped.Body.(map[string]any)["bad"]; got != any(bad) {
+			t.Errorf("uncopyable leaf = %#v, want it handed back as-is", got)
 		}
 		if scoped.bodyShared {
 			t.Error("MutableBody left copy-on-write pending after the first copy attempt")

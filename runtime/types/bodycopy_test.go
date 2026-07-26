@@ -25,11 +25,7 @@ func TestCopyBody(t *testing.T) {
 			"list":  []any{map[string]any{"n": 1.0}},
 		}
 
-		copied, ok := copyBody(original)
-		if !ok {
-			t.Fatal("copyBody reported a body it could not copy")
-		}
-		out := copied.(map[string]any)
+		out := copyBody(original).(map[string]any)
 		out["outer"].(map[string]any)["inner"] = "after"
 		out["list"].([]any)[0].(map[string]any)["n"] = 2.0
 
@@ -44,8 +40,7 @@ func TestCopyBody(t *testing.T) {
 	t.Run("containers are new storage", func(t *testing.T) {
 		original := map[string]any{"list": []any{1.0}}
 
-		copied, _ := copyBody(original)
-		out := copied.(map[string]any)
+		out := copyBody(original).(map[string]any)
 
 		if containerIdentity(t, out) == containerIdentity(t, original) {
 			t.Error("the copy points at the original map")
@@ -62,10 +57,7 @@ func TestCopyBody(t *testing.T) {
 			t.Fatalf("Unmarshal returned error: %v", err)
 		}
 
-		copied, ok := copyBody(original)
-		if !ok {
-			t.Fatal("copyBody reported a body it could not copy")
-		}
+		copied := copyBody(original)
 		if !reflect.DeepEqual(copied, original) {
 			t.Errorf("copy = %#v, want %#v", copied, original)
 		}
@@ -80,11 +72,7 @@ func TestCopyBody(t *testing.T) {
 		}
 		original := map[string]any{"n": 3, "p": point{X: 4}}
 
-		copied, ok := copyBody(original)
-		if !ok {
-			t.Fatal("copyBody reported a body it could not copy")
-		}
-		out := copied.(map[string]any)
+		out := copyBody(original).(map[string]any)
 
 		if got, want := out["n"], 3.0; got != want {
 			t.Errorf("int normalized to %#v, want %#v", got, want)
@@ -98,24 +86,29 @@ func TestCopyBody(t *testing.T) {
 		}
 	})
 
-	t.Run("an uncopyable leaf is reported all the way up", func(t *testing.T) {
-		original := map[string]any{"ok": "v", "bad": make(chan int)}
+	// A value that will not encode is handed back rather than dropped, so the
+	// copyable part of the body survives and the rest stays shared.
+	t.Run("an uncopyable leaf is kept, not dropped", func(t *testing.T) {
+		bad := make(chan int)
+		original := map[string]any{"ok": "v", "bad": bad}
 
-		copied, ok := copyBody(original)
-		if ok {
-			t.Error("copyBody claimed to copy a body holding an uncopyable leaf")
-		}
-		out := copied.(map[string]any)
+		out := copyBody(original).(map[string]any)
+
 		if out["ok"] != "v" {
 			t.Errorf("the copyable part was lost: %#v", out["ok"])
+		}
+		if out["bad"] != any(bad) {
+			t.Errorf("the uncopyable leaf = %#v, want it handed back as-is", out["bad"])
+		}
+		if containerIdentity(t, out) == containerIdentity(t, original) {
+			t.Error("the surrounding map was shared instead of copied")
 		}
 	})
 
 	t.Run("scalars and nil are handed straight back", func(t *testing.T) {
 		for _, value := range []any{nil, "s", 1.5, true} {
-			got, ok := copyBody(value)
-			if !ok || !reflect.DeepEqual(got, value) {
-				t.Errorf("copyBody(%#v) = %#v, %v; want the value back", value, got, ok)
+			if got := copyBody(value); !reflect.DeepEqual(got, value) {
+				t.Errorf("copyBody(%#v) = %#v, want the value back", value, got)
 			}
 		}
 	})
@@ -127,13 +120,15 @@ func TestCopyBody(t *testing.T) {
 			"map":   map[string]any(nil),
 			"slice": []any(nil),
 		} {
-			got, ok := copyBody(value)
-			if !ok || got != nil {
-				t.Errorf("copyBody(nil %s) = %#v, %v; want nil, true", name, got, ok)
+			if got := copyBody(value); got != nil {
+				t.Errorf("copyBody(nil %s) = %#v, want nil", name, got)
 			}
 		}
 	})
 }
+
+// bodySink holds each benchmarked copy so the call cannot be optimized away.
+var bodySink any
 
 // benchBody builds a records-shaped body of n elements — the shape a foreach map
 // or a fork branch actually copies.
@@ -156,9 +151,7 @@ func BenchmarkCopyBody(b *testing.B) {
 		b.Run(fmt.Sprintf("records=%d", n), func(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
-				if _, ok := copyBody(body); !ok {
-					b.Fatal("copyBody failed")
-				}
+				bodySink = copyBody(body)
 			}
 		})
 	}
@@ -173,9 +166,7 @@ func BenchmarkJSONCopy(b *testing.B) {
 		b.Run(fmt.Sprintf("records=%d", n), func(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
-				if _, ok := jsonCopy(body); !ok {
-					b.Fatal("jsonCopy failed")
-				}
+				bodySink = jsonCopy(body)
 			}
 		})
 	}

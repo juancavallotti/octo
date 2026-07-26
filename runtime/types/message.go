@@ -68,16 +68,14 @@ type Message struct {
 	// to false; JSON remains the contract for every message that does not opt in.
 	RawContent bool `json:"raw_content,omitempty"`
 
-	// bodyShared reports that Body points at a value another Message also points
-	// at, so mutating it in place would be visible there. MutableBody clears this
-	// after the first copy attempt, so it means "copy-on-write still pending", not
-	// "the entire body is now alias-free".
+	// bodyShared reports that a copy-on-write of Body is still pending: another
+	// Message points at the same value, so writing into it in place would be
+	// visible there. MutableBody clears it after its one copy, and Scoped sets it
+	// on both sides. It is unexported and untagged, so encoding/json ignores it
+	// and a decoded message gets the zero value, false — correct, since it owns
+	// its body outright. The polarity is deliberate: a stale true costs one wasted
+	// copy, while only a stale false would be unsafe.
 	bodyShared bool
-
-	// bodyAliased reports that the last copy attempt left uncopyable leaves shared
-	// (copyBody returned copied=false). It records residual aliasing separately
-	// from bodyShared so MutableBody does not repeat full-body traversal.
-	bodyAliased bool
 }
 
 // SetRawBody puts the message into raw-content mode: Body becomes the shape
@@ -200,14 +198,10 @@ func newEventID() (string, error) {
 // rawData} map copies to the same shape.
 func (m *Message) Clone() *Message {
 	clone := m.shallow()
-	body, copied := copyBody(m.Body)
-	clone.Body = body
+	clone.Body = copyBody(m.Body)
 	// The clone owns this body outright, so nothing is pending — clear the flag
 	// rather than inherit it from a receiver that happens to be in a scope pair.
 	clone.bodyShared = false
-	// Some bodies cannot be copied all the way down; keep that signal, but this is
-	// not a pending copy-on-write share with the source message.
-	clone.bodyAliased = !copied
 	return clone
 }
 
@@ -241,17 +235,15 @@ func (m *Message) Scoped() *Message {
 // private deep copy when the body is shared with another message (see Scoped). It
 // is the only supported way to write into a body rather than replace it.
 //
-// The copy happens at most once per message: afterwards this message owns its
-// top-level body and later calls hand back the same value. If copying fails for
-// some leaves, bodyAliased records that they remain shared and returned as-is —
-// the caller mutates at its own risk, exactly as it would have before, since
-// there is no copy to be had.
+// The copy happens at most once per message — a body copyBody cannot fully copy
+// would never copy on a retry either, so a second call hands back the same value
+// rather than walking it again. Any part that could not be copied stays shared
+// and is returned as-is; the caller mutates it at its own risk, exactly as it
+// would have before, since there is no copy to be had.
 func (m *Message) MutableBody() any {
 	if m.bodyShared {
-		body, copied := copyBody(m.Body)
-		m.Body = body
+		m.Body = copyBody(m.Body)
 		m.bodyShared = false
-		m.bodyAliased = !copied
 	}
 	return m.Body
 }

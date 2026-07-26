@@ -15,44 +15,37 @@ import "encoding/json"
 // to the kinds the contract promises — numbers float64, objects map[string]any,
 // arrays []any — exactly as the whole body used to be handled.
 //
-// copied is false when some part of the value would not round-trip. The original
-// is handed back for that part, still shared, because there is no copy to be had
-// and losing the body would be worse than aliasing it. It is reported all the way
-// up: a container holding one uncopyable leaf is itself only partly copied, and a
-// caller that writes in place needs to know.
-func copyBody(body any) (value any, copied bool) {
+// A value that will not round-trip either — a channel, a func — is handed back
+// as-is, so that part stays shared with the original. Losing the body would be
+// worse than aliasing it, and such a value is a contract violation to begin with:
+// a body is JSON, and every body the runtime produces already is.
+func copyBody(body any) any {
 	switch typed := body.(type) {
 	case nil:
-		return nil, true
+		return nil
 	case string, float64, bool:
 		// Immutable: sharing is copying.
-		return body, true
+		return body
 	case map[string]any:
 		if typed == nil {
 			// A round-trip renders a nil map as null and decodes it back to an
 			// untyped nil; match that rather than inventing an empty map.
-			return nil, true
+			return nil
 		}
 		out := make(map[string]any, len(typed))
-		copied = true
 		for k, v := range typed {
-			child, childCopied := copyBody(v)
-			out[k] = child
-			copied = copied && childCopied
+			out[k] = copyBody(v)
 		}
-		return out, copied
+		return out
 	case []any:
 		if typed == nil {
-			return nil, true
+			return nil
 		}
 		out := make([]any, len(typed))
-		copied = true
 		for i, v := range typed {
-			child, childCopied := copyBody(v)
-			out[i] = child
-			copied = copied && childCopied
+			out[i] = copyBody(v)
 		}
-		return out, copied
+		return out
 	default:
 		return jsonCopy(body)
 	}
@@ -60,16 +53,19 @@ func copyBody(body any) (value any, copied bool) {
 
 // jsonCopy deep-copies a value through a JSON round-trip, normalizing it to
 // decoded-JSON kinds on the way. It is the fallback for values that break the
-// body contract. Structural copy paths can recurse on cyclic map[string]any or
-// []any values, while jsonCopy reports cycles encountered during JSON encoding.
-func jsonCopy(value any) (any, bool) {
+// body contract, and returns the value untouched when it will not encode.
+//
+// The structural walk above can recurse forever on a cycle through map[string]any
+// or []any; only this path turns one into an error instead. Bodies come from a
+// JSON decode or a CEL result, so neither can be cyclic today.
+func jsonCopy(value any) any {
 	raw, err := json.Marshal(value)
 	if err != nil {
-		return value, false
+		return value
 	}
 	var decoded any
 	if json.Unmarshal(raw, &decoded) != nil {
-		return value, false
+		return value
 	}
-	return decoded, true
+	return decoded
 }
