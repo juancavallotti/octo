@@ -10,6 +10,7 @@ at the repo root to install all workspace dependencies.
 Required reading:
 
 - [docs/coding-standards.md](docs/coding-standards.md) — Go code
+- [docs/extension-points.md](docs/extension-points.md) — where new runtime capability goes: the runtime has exactly two extension points (`services` and `connectors`), and adding a third is the failure mode that page prevents
 - [docs/editor-coding-standards.md](docs/editor-coding-standards.md) — `apps/` (Next.js) code
 - [docs/linting-policy.md](docs/linting-policy.md)
 - [docs/commit-and-review-policy.md](docs/commit-and-review-policy.md)
