@@ -328,27 +328,62 @@ func contains(haystack []string, needle string) bool {
 	return false
 }
 
-// TestBlockEventsSilentWithoutListeners checks a wired dispatcher nobody listens
-// to changes nothing, and that a flow built without one runs at all.
-func TestBlockEventsSilentWithoutListeners(t *testing.T) {
-	events := core.NewBlockEvents()
-	var called bool
-	events.AddAsync(func(types.BlockEvent) { called = true })
-	events.Stop() // drain and stop before any emit, so nothing can be delivered
+// TestBlockEventsOnlyReachTheWiredDispatcher pins that a flow emits to the
+// dispatcher it was built with and to nothing else. The interesting half is the
+// unwired one: if the engine ever fell back to core.DefaultBlockEvents() when
+// BlockDeps carries none, every flow built straight through BuildRoot — every
+// test in this package, and dolphin — would start firing an embedder's
+// process-wide listeners.
+//
+// Both listeners are sync, so the assertion needs no waiting: everything that is
+// going to be delivered has been by the time Process returns. Async delivery is
+// the dispatcher's business, and is tested there.
+func TestBlockEventsOnlyReachTheWiredDispatcher(t *testing.T) {
+	cfg := types.FlowConfig{Name: "orders", Process: []types.BlockConfig{
+		{Type: "enrich", Name: "lookup", Body: &types.FlowConfig{
+			Process: []types.BlockConfig{{Type: "pass", Name: "inner"}},
+		}},
+	}}
 
-	flow, err := BuildRoot(
-		types.FlowConfig{Name: "orders", Process: []types.BlockConfig{{Type: "pass"}}},
-		testRegistry(), pool.New(0, 0), nil, core.BlockDeps{},
-	)
-	if err != nil {
-		t.Fatalf("BuildRoot: %v", err)
-	}
-	if _, err = flow.Process(context.Background(), mustMessage(t)); err != nil {
-		t.Fatalf("process: %v", err)
-	}
-	if called {
-		t.Fatal("a flow built with no dispatcher emitted an event")
-	}
+	t.Run("no dispatcher wired", func(t *testing.T) {
+		flow, err := BuildRoot(cfg, testRegistry(), pool.New(0, 0), nil, core.BlockDeps{})
+		if err != nil {
+			t.Fatalf("BuildRoot: %v", err)
+		}
+		// White-box, because the failure this guards against is a fallback to the
+		// process-wide dispatcher, which no listener of our own could observe.
+		if flow.events != nil {
+			t.Error("a flow built with no dispatcher picked one up anyway")
+		}
+		if _, err = flow.Process(context.Background(), mustMessage(t)); err != nil {
+			t.Fatalf("process: %v", err)
+		}
+	})
+
+	t.Run("dispatcher wired", func(t *testing.T) {
+		wired := core.NewBlockEvents()
+		var paths []string
+		// Sync, so the assertion needs no waiting: everything that is going to be
+		// delivered has been by the time Process returns. Async delivery is the
+		// dispatcher's business and is tested there.
+		wired.AddSync(func(_ context.Context, ev types.BlockEvent) {
+			if ev.Kind == types.BlockPreInvoke {
+				paths = append(paths, ev.Path)
+			}
+		})
+
+		flow, err := BuildRoot(cfg, testRegistry(), pool.New(0, 0), nil, core.BlockDeps{Events: wired})
+		if err != nil {
+			t.Fatalf("BuildRoot: %v", err)
+		}
+		if _, err = flow.Process(context.Background(), mustMessage(t)); err != nil {
+			t.Fatalf("process: %v", err)
+		}
+
+		// The sub-flow inside the composite has to reach the same dispatcher: it is
+		// built by a different builder, so it is its own chance to lose the wiring.
+		wantTrace(t, paths, []string{"orders.lookup", "orders.lookup[body].inner"})
+	})
 }
 
 // BenchmarkFlowProcessNoListeners is the number that answers "what does the hot
