@@ -103,13 +103,13 @@ func (bf *boundFlow) start(ctx context.Context) error {
 // problem, not a reason to strand the workers on a channel nobody will close,
 // leave a reaper firing at a torn-down flow, and never reclaim the pool.
 func (bf *boundFlow) stop(ctx context.Context) error {
-	errs := []error{bf.source.Stop(ctx)}
+	sourceErr := bf.source.Stop(ctx)
 	close(bf.in)
 	bf.wg.Wait()
-	errs = append(errs, bf.stopProcessors(ctx))
+	blockErr := bf.stopProcessors(ctx)
 	bf.inflight.Wait()
 	bf.pool.Stop()
-	return errors.Join(errs...)
+	return errors.Join(sourceErr, blockErr)
 }
 
 // startProcessors starts every root-level block that owns background work, in
