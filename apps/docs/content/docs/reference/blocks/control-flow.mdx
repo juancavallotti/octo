@@ -161,7 +161,7 @@ Runs a `body` sub-flow on an **isolated scope** of the message, then merges back
 | Key | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `body` | flow | Yes | — | Sub-flow run once on an isolated scope of the message. |
-| `setBody` | `expression` | No | — | Evaluated against the **scope's result**; its value becomes the message body. Omitted: the incoming body is unchanged. |
+| `setBody` | `expression` | No | — | Evaluated against the **scope's result**; its value becomes the message body. Omitted or empty: the incoming body is unchanged. |
 | `setVars` | map of string → `expression` | No | — | Each expression is evaluated against the scope's result and set as a variable on the message. |
 
 **Errors:** a body error aborts the block; a body that drops the message drops it here too.

@@ -119,7 +119,7 @@ Used where a sub-flow runs to completion on the same worker before the original 
 Both copies **retain the `EventID`** — a copy is the same logical event. When a message is handed to another flow (`flow-ref`, `queue-dispatch`) it is *rekeyed* with a fresh `EventID` instead, so the sub-invocation correlates independently and its terminal event does not collide with the originating flow's.
 
 <Callout type="warn">
-  A block that clones — `flow-ref`, `queue-dispatch`, `publish-event` — copies the *whole* body every time it runs. Inside a `foreach mode: map` body, that body is the entire collection, so the loop is quadratic again no matter how cheap the scope was. Put a `set-payload` before such a block to narrow the message to just what the sub-flow needs.
+  Anything that clones copies the *whole* body every time it runs. Inside a `foreach mode: map` body, that body is the entire collection, so the loop is quadratic again no matter how cheap the scope was. For the blocks above — `flow-ref`, `queue-dispatch`, `publish-event` — put a `set-payload` first to narrow the message to just what the sub-flow needs. The debug options clone too, twice per crossing: a `--spies` or `--break-at` address inside a map body is quadratic by construction, so read timings from an unspied run.
 </Callout>
 
 ## Error propagation
