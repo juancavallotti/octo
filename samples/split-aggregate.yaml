@@ -1,0 +1,77 @@
+service:
+  name: split-aggregate
+
+# Demonstrates the two canonical EIP patterns Octo's foreach cannot express,
+# split and aggregate, and the asynchronous shape they share.
+#
+# The split takes the flow over: each order line continues through the rest of
+# the chain as its own invocation, so lines are priced concurrently and a bad
+# line fails alone instead of taking the other lines down with it. Because the
+# real work has moved off the caller's thread, the split's buildResponse slot is
+# what answers the caller — here a receipt naming how many lines were accepted.
+#
+# The aggregate then re-joins them. It needs no configuration to do so: the split
+# stamps every line with vars.groupId and vars.groupSize, which are exactly the
+# defaults the aggregate's correlation and completionSize read. Completion is a
+# count rather than a last-marker, so it does not matter which line finishes
+# first — and lines genuinely do finish out of order, since they run in parallel.
+#
+# The timeout is not decoration. If a line ever failed, the count would never
+# reach the size and the group would sit open forever; completionTimeout is the
+# only thing that bounds it, and vars.aggregateReason tells the tail whether it
+# received a whole group or a partial one.
+#
+# Run it (standalone services module, in-process store):
+#   octo invoke --config samples/split-aggregate.yaml --flow order \
+#     --data '{"orderId":"A-1","lines":[{"sku":"x","qty":2,"price":10.0},{"sku":"y","qty":1,"price":5.5}]}'
+#   # -> returns {"accepted": 2} immediately, and logs the re-joined order total.
+
+connectors:
+  - name: out
+    type: logger
+    settings:
+      format: json
+      level: info
+
+flows:
+  - name: order
+    process:
+      # One message in, many out. Each line continues down the chain below.
+      - type: split
+        name: lines
+        items: body.lines
+        buildResponse:
+          process:
+            # Runs once, on the original message, after every line is dispatched —
+            # so vars.groupSize is the real total even though the caller is being
+            # answered before any line has been priced.
+            - type: set-payload
+              name: receipt
+              settings:
+                value: '{"accepted": vars.groupSize}'
+
+      # From here down, the flow runs once per line, on a borrowed worker.
+      - type: set-payload
+        name: price-line
+        settings:
+          value: '{"sku": body.sku, "total": body.qty * body.price}'
+
+      # Many messages in, one out. The group completes when its count reaches the
+      # size the split announced; the timeout bounds a group whose lines did not
+      # all arrive.
+      - type: aggregate
+        name: rejoin
+        completionTimeout: 10s
+        # The default append strategy collects the lines into an array. They are
+        # placed by the position the split gave them, not by the order they
+        # happened to finish in — so the re-joined order matches the order they
+        # were sent in, every run.
+
+      # And from here down, once per completed group.
+      - type: log
+        name: emit
+        settings:
+          logger: out
+          message: >
+            "order re-joined: " + string(vars.aggregateCount) + " lines [" +
+            body.map(l, string(l.sku)).join(",") + "] (" + vars.aggregateReason + ")"

@@ -825,6 +825,204 @@
       ]
     },
     {
+      "type": "split",
+      "label": "Split",
+      "category": "control-flow",
+      "group": "Flow Control",
+      "icon": "Split",
+      "description": "Split one message into many. Each element continues through the rest of the flow as its own invocation, so elements are processed concurrently and one failing element does not affect the others. The flow becomes asynchronous here: the buildResponse slot shapes what the caller gets back.",
+      "fields": [
+        {
+          "name": "mode",
+          "label": "Mode",
+          "type": "enum",
+          "required": false,
+          "default": "expression",
+          "enum": [
+            "expression",
+            "lines",
+            "delimiter",
+            "chunk"
+          ],
+          "description": "How the message is carved into elements. 'expression' evaluates a CEL collection; the others tokenize a text body one element at a time, which is what makes a large payload tractable."
+        },
+        {
+          "name": "items",
+          "label": "Items",
+          "type": "cel",
+          "required": false,
+          "showIf": {
+            "field": "mode",
+            "equals": "expression"
+          },
+          "description": "CEL expression evaluating to the array to split."
+        },
+        {
+          "name": "delimiter",
+          "label": "Delimiter",
+          "type": "string",
+          "required": false,
+          "showIf": {
+            "field": "mode",
+            "equals": "delimiter"
+          },
+          "description": "Separator to cut the text body on."
+        },
+        {
+          "name": "chunkSize",
+          "label": "Chunk size",
+          "type": "number",
+          "required": false,
+          "showIf": {
+            "field": "mode",
+            "equals": "chunk"
+          },
+          "description": "How many characters each element holds."
+        },
+        {
+          "name": "onError",
+          "label": "On error",
+          "type": "enum",
+          "required": false,
+          "default": "skip",
+          "enum": [
+            "skip",
+            "abort"
+          ],
+          "description": "What to do when an element cannot be dispatched: skip it, or fail the block. An element that fails once it is running always fails on its own."
+        },
+        {
+          "name": "buildResponse",
+          "label": "Build response",
+          "type": "flow",
+          "required": false,
+          "description": "Flow that shapes the response to the caller, run once on the original message after every element has been dispatched. It sees vars.groupSize (the real total) and vars.groupId."
+        }
+      ],
+      "addressBranches": {
+        "named": [
+          "buildResponse"
+        ],
+        "note": "A block on the way to an address target must name a branch of this one: split[<branch>].<block>. Branches: buildResponse — e.g. split[buildResponse].<block>."
+      }
+    },
+    {
+      "type": "aggregate",
+      "label": "Aggregate",
+      "category": "control-flow",
+      "group": "Flow Control",
+      "icon": "Merge",
+      "description": "Combine many messages into one. Messages are grouped by a CEL expression and held until the group completes — by size, by timeout, or by a predicate — then the group continues through the rest of the flow as a single message. Pairs with split with no configuration.",
+      "fields": [
+        {
+          "name": "correlation",
+          "label": "Correlation",
+          "type": "cel",
+          "required": false,
+          "default": "vars.groupId",
+          "description": "CEL expression for which group a message belongs to. Defaults to the variable a split sets, which is what pairs the two with no configuration."
+        },
+        {
+          "name": "strategy",
+          "label": "Strategy",
+          "type": "enum",
+          "required": false,
+          "default": "append",
+          "enum": [
+            "append",
+            "expression"
+          ],
+          "description": "How messages are combined: collect bodies into an array, or fold through an expression (a running total, a merge, keep-latest)."
+        },
+        {
+          "name": "expression",
+          "label": "Expression",
+          "type": "cel",
+          "required": false,
+          "showIf": {
+            "field": "strategy",
+            "equals": "expression"
+          },
+          "description": "CEL fold whose result becomes the new accumulator. It sees the group so far as vars.group (before this message) and the incoming body and vars."
+        },
+        {
+          "name": "completionSize",
+          "label": "Completion size",
+          "type": "cel",
+          "required": false,
+          "default": "vars.groupSize",
+          "description": "CEL expression for how many messages the group expects; the group completes when the count reaches it. An expression rather than a number so it can be dynamic — a constant batch size and 'however many this split produced' are the same field."
+        },
+        {
+          "name": "completionTimeout",
+          "label": "Completion timeout",
+          "type": "string",
+          "required": false,
+          "description": "How long a group may stay open (e.g. '5s'). The only condition that fires without a message arriving, so it is what bounds a group whose other conditions may never be met."
+        },
+        {
+          "name": "completionExpression",
+          "label": "Completion expression",
+          "type": "cel",
+          "required": false,
+          "description": "CEL predicate checked after each message, over the incoming message and the group so far in vars.group (count, size, acc, ageMs, idleMs)."
+        },
+        {
+          "name": "timeoutFrom",
+          "label": "Timeout from",
+          "type": "enum",
+          "required": false,
+          "default": "first",
+          "enum": [
+            "first",
+            "last"
+          ],
+          "description": "Whether the timeout runs from the group's first message (a fixed window) or its last (a sliding idle window)."
+        },
+        {
+          "name": "storeKey",
+          "label": "Store key",
+          "type": "string",
+          "required": false,
+          "description": "Identity the group state and leader election are namespaced by. Defaults to the block's own address; set it explicitly to keep in-flight groups alive across an edit that moves or renames the block."
+        },
+        {
+          "name": "maxGroups",
+          "label": "Max groups",
+          "type": "number",
+          "required": false,
+          "default": 1000,
+          "description": "How many groups may be open at once, so a high-cardinality correlation cannot grow without bound."
+        },
+        {
+          "name": "onOverflow",
+          "label": "On overflow",
+          "type": "enum",
+          "required": false,
+          "default": "fail",
+          "enum": [
+            "fail",
+            "complete",
+            "drop"
+          ],
+          "description": "What to do at the cap: fail the message into the flow's error chain, release the oldest group early, or drop the message."
+        },
+        {
+          "name": "buildResponse",
+          "label": "Build response",
+          "type": "flow",
+          "required": false,
+          "description": "Flow that shapes the response to the caller of the message just absorbed, run once per incoming message."
+        }
+      ],
+      "addressBranches": {
+        "named": [
+          "buildResponse"
+        ],
+        "note": "A block on the way to an address target must name a branch of this one: aggregate[<branch>].<block>. Branches: buildResponse — e.g. aggregate[buildResponse].<block>."
+      }
+    },
+    {
       "type": "invalidate-cache",
       "label": "Invalidate Cache",
       "category": "processor",

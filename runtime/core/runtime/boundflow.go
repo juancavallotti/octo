@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -34,6 +35,11 @@ type boundFlow struct {
 	bus       *core.EventBus
 	pool      *pool.Pool
 	wg        sync.WaitGroup
+	// inflight counts the resumed tails that have not finished. A tail may resume
+	// again — a split whose elements reach an aggregate is the ordinary case — so
+	// draining the source workers says nothing about whether the continuation tree
+	// below them is done. Shutdown waits on this before the pool is torn down.
+	inflight sync.WaitGroup
 	// implicit is true when the flow is driven by an implicit source (it is
 	// callable by name and acquires no external resources). Implicit flows start
 	// before source-backed ones so they are registered before any real source
@@ -41,6 +47,10 @@ type boundFlow struct {
 	implicit bool
 	// sourceDesc is a human-readable description of the flow's source, for logs.
 	sourceDesc string
+	// ctx is the flow's own context, captured at start. Resumed tails run under it
+	// (with cancellation stripped) so they carry the runtime services and are not
+	// tied to the lifetime of whichever message scheduled them.
+	ctx context.Context //nolint:containedctx // captured at start for resumed tails
 }
 
 // resolveWorkers returns the configured worker count or the default.
@@ -59,28 +69,82 @@ func resolveBuffer(configured int) int {
 	return defaultBuffer
 }
 
-// start starts the shared pool, spawns the worker pool, and then starts the
-// source. The pool and workers are ready before any message is produced.
+// start starts the shared pool, spawns the worker pool, starts any block that
+// owns background work, and then starts the source. Everything a message can
+// touch is ready before the source produces one.
 func (bf *boundFlow) start(ctx context.Context) error {
+	// Captured so a resumed tail can run under the flow's own context — and so
+	// the runtime services on it — rather than under the context of whichever
+	// message happened to schedule it.
+	bf.ctx = ctx
 	bf.pool.Start()
 	bf.wg.Add(bf.workers)
-	for i := 0; i < bf.workers; i++ {
+	for range bf.workers {
 		go bf.worker(ctx)
+	}
+	if err := bf.startProcessors(ctx); err != nil {
+		return err
 	}
 	return bf.source.Start(ctx)
 }
 
-// stop stops the source, closes the channel, drains in-flight messages, then
-// stops the shared pool. The pool is torn down last so no worker submits to a
-// closed pool.
+// stop shuts the flow down from the front: nothing new arrives, then everything
+// already in flight is allowed to finish, and only then is the pool torn down.
+//
+// Every step is load-bearing, and the middle two are the ones that are easy to
+// get wrong. Draining the source workers is not enough, because a block that
+// took the flow over has scheduled work that outlives the message it came from —
+// and that work schedules more of its own, which is exactly what a split feeding
+// an aggregate does. Quieting the blocks first stops any *new* work appearing
+// from a reaper's timer; waiting on inflight then lets the existing tree finish.
+//
+// No step is skipped because an earlier one failed. Errors are collected and the
+// shutdown runs to the end: a source that fails to stop is a reason to report a
+// problem, not a reason to strand the workers on a channel nobody will close,
+// leave a reaper firing at a torn-down flow, and never reclaim the pool.
 func (bf *boundFlow) stop(ctx context.Context) error {
-	if err := bf.source.Stop(ctx); err != nil {
-		return err
-	}
+	sourceErr := bf.source.Stop(ctx)
 	close(bf.in)
 	bf.wg.Wait()
+	blockErr := bf.stopProcessors(ctx)
+	bf.inflight.Wait()
 	bf.pool.Stop()
+	return errors.Join(sourceErr, blockErr)
+}
+
+// startProcessors starts every root-level block that owns background work, in
+// both the process and the error chain.
+func (bf *boundFlow) startProcessors(ctx context.Context) error {
+	for _, proc := range bf.lifecycleProcessors() {
+		if err := proc.Start(ctx); err != nil {
+			return fmt.Errorf("flow %q: start block: %w", bf.name, err)
+		}
+	}
 	return nil
+}
+
+// stopProcessors stops them all, collecting rather than short-circuiting on the
+// first error: one block failing to stop must not leave the others running.
+func (bf *boundFlow) stopProcessors(ctx context.Context) error {
+	var errs []error
+	for _, proc := range bf.lifecycleProcessors() {
+		if err := proc.Stop(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("flow %q: stop block: %w", bf.name, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// lifecycleProcessors collects the blocks with background work from both root
+// chains. Only root-level blocks are visited: a composite's sub-flows are its
+// own business, and the blocks that need a lifecycle today are exactly the ones
+// that take over the flow, which may only appear in a root chain anyway.
+func (bf *boundFlow) lifecycleProcessors() []core.LifecycleProcessor {
+	procs := bf.root.LifecycleProcessors()
+	if bf.errorPath != nil {
+		procs = append(procs, bf.errorPath.LifecycleProcessors()...)
+	}
+	return procs
 }
 
 // worker processes messages until the channel is closed and drained.
@@ -91,18 +155,74 @@ func (bf *boundFlow) worker(ctx context.Context) {
 	}
 }
 
-// handle runs one message through the root flow and publishes its outcome. All
-// events key on the inbound EventID (stable for the message's life, so it equals
-// out.EventID) to keep correlation consistent for request/response sources.
+// handle runs one message through the whole root flow.
+func (bf *boundFlow) handle(ctx context.Context, msg *types.Message) {
+	bf.run(ctx, msg, bf.root)
+}
+
+// resume runs msg through tail — the rest of a flow, handed to a block that took
+// over execution. It is the hook the engine's continuations call, installed on
+// each root chain at build time.
+//
+// The work is detached from the context that scheduled it. A block that takes
+// the flow over has already accepted responsibility for the message and told the
+// caller so; abandoning it because the originating request went away would make
+// the acceptance a lie. What bounds it instead is the flow's own shutdown, which
+// waits for the whole continuation tree before the pool is torn down.
+//
+// Scheduling is caller-runs: onto the pool when there is room, otherwise on this
+// goroutine. That is both the backpressure — a split fanning out 50,000 elements
+// ends up pricing them itself once the pool is saturated, so it can never
+// outrun the flow — and the reason the fan-out cannot deadlock. Parking on the
+// pool instead would let a tail that resumes again (a split feeding an
+// aggregate, the canonical pairing) wait on a queue only it could drain.
+func (bf *boundFlow) resume(_ context.Context, msg *types.Message, tail core.MessageProcessor) error {
+	ctx := bf.runCtx()
+
+	// Counted before the work starts and released only when the tail has run. A
+	// tail that resumes again registers its own work before this one is released,
+	// so the count cannot reach zero while the tree is still growing.
+	bf.inflight.Add(1)
+	run := func() {
+		defer bf.inflight.Done()
+		bf.run(ctx, msg, tail)
+	}
+	if !bf.pool.TrySubmit(run) {
+		run()
+	}
+	return nil
+}
+
+// runCtx returns the flow's own context, carrying the runtime services a block
+// reaches for, with cancellation stripped. See resume for why the work outlives
+// the message that scheduled it.
+func (bf *boundFlow) runCtx() context.Context {
+	if bf.ctx == nil {
+		return context.Background()
+	}
+	return context.WithoutCancel(bf.ctx)
+}
+
+// run puts one message through proc and publishes its outcome. proc is the whole
+// root flow for a message off the source, or the tail of it for a message a
+// block resumed — and that is the only difference between the two. A resumed
+// tail is an invocation in its own right: it publishes its own started and
+// terminal events, keyed on its own EventID, and the flow's error chain recovers
+// it the same way. That is what gives a split per-element error isolation, since
+// one element failing is one failed invocation among many.
+//
+// All events key on the inbound EventID (stable for the message's life, so it
+// equals out.EventID) to keep correlation consistent for request/response
+// sources.
 //
 // The terminal event carries how long the message took, measured here rather than
 // left to a subscriber to derive by pairing: the clock covers the error path too,
 // because a message the error path recovered still cost what the error path spent.
-func (bf *boundFlow) handle(ctx context.Context, msg *types.Message) {
+func (bf *boundFlow) run(ctx context.Context, msg *types.Message, proc core.MessageProcessor) {
 	bf.publish(types.FlowEventStarted, msg.EventID, 0, nil, nil)
 	started := time.Now()
 
-	out, err := bf.root.Process(ctx, msg)
+	out, err := proc.Process(ctx, msg)
 	if err != nil && bf.errorPath != nil {
 		// Recovery: expose the failure as vars.error and run the error path. On
 		// success its output replaces the result; if it also fails, that error

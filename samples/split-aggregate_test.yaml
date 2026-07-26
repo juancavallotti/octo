@@ -1,0 +1,40 @@
+flow: order
+
+cases:
+  # The sample's synchronous claim: the caller is answered from the buildResponse
+  # slot, with a real count, before any line has been priced. vars.groupSize is
+  # the total the split actually dispatched, which is why the receipt can be
+  # honest about it rather than reporting "unknown".
+  - name: the caller gets a receipt naming every line accepted
+    input:
+      data:
+        orderId: A-1
+        lines:
+          - { sku: x, qty: 2, price: 10.0 }
+          - { sku: y, qty: 1, price: 5.5 }
+    expect:
+      body: { accepted: 2 }
+      vars: { groupSize: 2 }
+      that:
+        # Every element is stamped with this id and the aggregate groups by it,
+        # which is the whole contract between the two blocks.
+        - "size(vars.groupId) > 0"
+
+  - name: a single-line order still splits and is answered the same way
+    input:
+      data:
+        orderId: A-2
+        lines:
+          - { sku: z, qty: 4, price: 2.25 }
+    expect:
+      body: { accepted: 1 }
+      vars: { groupSize: 1 }
+
+  # An order with no lines dispatches nothing rather than one blank element, and
+  # the receipt says so. The group never opens, so nothing is left waiting.
+  - name: an empty order dispatches nothing
+    input:
+      data: { orderId: A-3, lines: [] }
+    expect:
+      body: { accepted: 0 }
+      vars: { groupSize: 0 }

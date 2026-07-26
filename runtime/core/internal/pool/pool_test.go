@@ -4,6 +4,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestPoolRunsEveryTaskOnce(t *testing.T) {
@@ -28,7 +29,7 @@ func TestPoolRunsEveryTaskOnce(t *testing.T) {
 				done sync.WaitGroup
 			)
 			done.Add(tt.tasks)
-			for i := 0; i < tt.tasks; i++ {
+			for range tt.tasks {
 				p.Submit(func() {
 					ran.Add(1)
 					done.Done()
@@ -50,7 +51,7 @@ func TestPoolStopDrainsInFlight(t *testing.T) {
 
 	const n = 50
 	var ran atomic.Int64
-	for i := 0; i < n; i++ {
+	for range n {
 		p.Submit(func() { ran.Add(1) })
 	}
 
@@ -75,4 +76,79 @@ func TestPoolPanicsWhenExhausted(t *testing.T) {
 		}
 	}()
 	p.Submit(func() {})
+}
+
+func TestTrySubmitRefusesAFullQueue(t *testing.T) {
+	p := New(1, 1)
+
+	// No workers started, so the one slot fills and stays full. Refusing is the
+	// answer that lets a caller run the work itself; blocking here is what would
+	// deadlock a pool whose own tasks schedule more work.
+	if !p.TrySubmit(func() {}) {
+		t.Fatal("the first task should fit")
+	}
+	if p.TrySubmit(func() {}) {
+		t.Fatal("a full queue should refuse rather than accept or block")
+	}
+}
+
+func TestTrySubmitRunsEveryAcceptedTask(t *testing.T) {
+	p := New(2, 8)
+	p.Start()
+
+	const n = 100
+	var (
+		ran      atomic.Int64
+		accepted int
+	)
+	var done sync.WaitGroup
+	for range n {
+		// Counted before the submit, not after: an accepted task can be picked up
+		// and finished by a worker before TrySubmit has even returned.
+		done.Add(1)
+		if p.TrySubmit(func() { defer done.Done(); ran.Add(1) }) {
+			accepted++
+			continue
+		}
+		done.Done()
+	}
+	done.Wait()
+	p.Stop()
+
+	if got := ran.Load(); got != int64(accepted) {
+		t.Errorf("ran %d of %d accepted tasks", got, accepted)
+	}
+}
+
+func TestTrySubmitAfterStopRefuses(t *testing.T) {
+	p := New(1, 4)
+	p.Start()
+	p.Stop()
+
+	// A block's own goroutine can outlive the flow by an instant; it should get an
+	// answer rather than a panic on a closed channel.
+	if p.TrySubmit(func() {}) {
+		t.Fatal("a stopped pool should refuse work")
+	}
+}
+
+func TestStopIsSafeWhileSubmittingConcurrently(t *testing.T) {
+	p := New(1, 1)
+	p.Start()
+
+	// Hammer the pool from several goroutines while it is being stopped: no call
+	// may panic, whatever it returns.
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 200 {
+				p.TrySubmit(func() {})
+			}
+		}()
+	}
+	time.Sleep(5 * time.Millisecond)
+	p.Stop()
+	wg.Wait()
 }

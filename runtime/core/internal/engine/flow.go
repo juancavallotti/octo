@@ -27,10 +27,17 @@ const (
 	blockKindEnrich       = "enrich"
 	blockKindValidate     = "validate"
 	blockKindCacheScope   = "cache-scope"
-	blockKindAIRouter     = "ai-router"
-	blockKindAIAgent      = "ai-agent"
-	blockKindAIRetry      = "ai-retry"
-	blockKindMCPRouter    = "mcp-router"
+	// blockKindSplit and blockKindAggregate take over the flow rather than
+	// returning the next message: they continue it themselves, on borrowed
+	// workers. They carry no sub-flow of their own beyond the buildResponse slot,
+	// but the builder still owns them — only it knows whether they sit in a root
+	// chain, which is what they require.
+	blockKindSplit     = "split"
+	blockKindAggregate = "aggregate"
+	blockKindAIRouter  = "ai-router"
+	blockKindAIAgent   = "ai-agent"
+	blockKindAIRetry   = "ai-retry"
+	blockKindMCPRouter = "mcp-router"
 	// blockKindBreakpoint is injected by the runtime around an addressed block for
 	// `invoke --break-at`; it is never authored in a flow (see breakpoint.go).
 	blockKindBreakpoint = "breakpoint"
@@ -71,6 +78,43 @@ type Flow struct {
 	// events dispatches this flow's block events. It is nil when nothing is
 	// listening, which is the loop's fast exit.
 	events *core.BlockEvents
+	// resume schedules a resumed tail of this flow and reports its outcome. The
+	// runtime installs it on a root flow (SetResume); it is nil for a sub-flow and
+	// for a flow built outside the runtime, which is what makes a block that needs
+	// a continuation fail loudly rather than silently drop the work it took over.
+	//
+	// It is read at resume time rather than captured, so it may be installed after
+	// the flow — and its continuations — are built.
+	resume core.FlowResume
+}
+
+// SetResume installs the hook a continuation uses to schedule the rest of this
+// flow. Only the runtime calls it, on a root flow, before the source starts.
+func (f *Flow) SetResume(r core.FlowResume) { f.resume = r }
+
+// LifecycleProcessors returns this chain's blocks that own background work, in
+// chain order. The runtime starts and stops them around the flow's own
+// lifecycle. It looks only at this chain's blocks, not into composites' sub-flows.
+func (f *Flow) LifecycleProcessors() []core.LifecycleProcessor {
+	var procs []core.LifecycleProcessor
+	for i := range f.Blocks {
+		if proc, ok := f.Blocks[i].Processor.(core.LifecycleProcessor); ok {
+			procs = append(procs, proc)
+		}
+	}
+	return procs
+}
+
+// StateKeys returns the identities this chain's blocks store state under, so the
+// runtime can reject a config where two of them would collide.
+func (f *Flow) StateKeys() []string {
+	var keys []string
+	for i := range f.Blocks {
+		if scoped, ok := f.Blocks[i].Processor.(core.StateScoped); ok {
+			keys = append(keys, scoped.StateKey())
+		}
+	}
+	return keys
 }
 
 // Process runs msg through the flow's blocks in order. It returns the final
@@ -206,6 +250,13 @@ type builder struct {
 	// composite slot holds.
 	flowName string
 
+	// root reports that this builder is assembling a root chain — a flow's own
+	// process or error chain — rather than a composite's sub-flow. Only a root
+	// chain has a meaningful "rest of the flow" to hand a block that takes over,
+	// so it is both where continuations are wired and the test a takeover block
+	// applies to reject being nested.
+	root bool
+
 	// path is the address of the node whose children this builder builds:
 	//
 	//   - while building a chain, it is the slot the chain hangs off ("orders",
@@ -230,7 +281,10 @@ func newBuilder(
 	if err != nil {
 		return nil, err
 	}
-	return &builder{reg: blocks, pool: p, defs: defs, deps: deps, flowName: flowName, path: path}, nil
+	return &builder{
+		reg: blocks, pool: p, defs: defs, deps: deps,
+		flowName: flowName, path: path, root: true,
+	}, nil
 }
 
 // at returns a builder that builds the children of the node at path.
@@ -244,7 +298,12 @@ func (b *builder) at(path string) *builder {
 // is what every composite builder descends through, so each sub-flow's blocks
 // address as `<composite>[<branch>].<block>`.
 func (b *builder) branch(name string) *builder {
-	return b.at(core.JoinBranch(b.path, name))
+	child := b.at(core.JoinBranch(b.path, name))
+	// Descending into a branch leaves the root chain: the sub-flow ends at the
+	// composite that owns it, which then post-processes the result, so there is no
+	// "rest of the flow" to continue into from in here.
+	child.root = false
+	return child
 }
 
 // processorDefs indexes named processor definitions by name, rejecting
@@ -274,7 +333,13 @@ func (b *builder) flow(cfg types.FlowConfig) (*Flow, error) {
 		}
 		blocks = append(blocks, block)
 	}
-	return &Flow{Name: cfg.Name, Blocks: blocks, flowName: b.flowName, events: b.deps.Events}, nil
+	flow := &Flow{Name: cfg.Name, Blocks: blocks, flowName: b.flowName, events: b.deps.Events}
+	if b.root {
+		if err := flow.wireContinuations(); err != nil {
+			return nil, err
+		}
+	}
+	return flow, nil
 }
 
 // subFlow builds a nested flow, rejecting root-only fields.
@@ -384,6 +449,8 @@ func (b *builder) compositeBuilders() map[string]func(types.BlockConfig) (core.M
 		blockKindEnrich:       b.enrich,
 		blockKindValidate:     b.validateBlock,
 		blockKindCacheScope:   b.cacheScope,
+		blockKindSplit:        b.splitBlock,
+		blockKindAggregate:    b.aggregateBlock,
 		blockKindAIRouter:     b.aiRouter,
 		blockKindAIAgent:      b.aiAgent,
 		blockKindAIRetry:      b.aiRetry,
@@ -454,6 +521,34 @@ func compositeSlots(cfg types.BlockConfig) []string {
 	add(cfg.MemoryThreadID != "", "memoryThreadId")
 	add(cfg.MemoryMaxTokens != 0, "memoryMaxTokens")
 	add(cfg.MemoryCompaction != "", "memoryCompaction")
+	return append(slots, takeoverSlots(cfg)...)
+}
+
+// takeoverSlots lists the slots owned by the blocks that take the flow over
+// (split, aggregate). They are split out from compositeSlots only to keep that
+// function's length in check; together the two are still the single source of
+// truth for which slots exist.
+func takeoverSlots(cfg types.BlockConfig) []string {
+	var slots []string
+	add := func(set bool, name string) {
+		if set {
+			slots = append(slots, name)
+		}
+	}
+	add(cfg.BuildResponse != nil, "buildResponse")
+	add(cfg.Delimiter != "", "delimiter")
+	add(cfg.ChunkSize != 0, "chunkSize")
+	add(cfg.OnError != "", "onError")
+	add(cfg.StoreKey != "", "storeKey")
+	add(cfg.Correlation != "", "correlation")
+	add(cfg.Strategy != "", "strategy")
+	add(cfg.Expression != "", "expression")
+	add(cfg.CompletionSize != "", "completionSize")
+	add(cfg.CompletionTimeout != "", "completionTimeout")
+	add(cfg.CompletionExpression != "", "completionExpression")
+	add(cfg.TimeoutFrom != "", "timeoutFrom")
+	add(cfg.MaxGroups != 0, "maxGroups")
+	add(cfg.OnOverflow != "", "onOverflow")
 	return slots
 }
 

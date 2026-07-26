@@ -19,6 +19,9 @@ const (
 	groupAILLM        = "AI & LLM"
 	groupStorageCache = "Storage & Cache"
 	groupData         = "Data"
+	// iconSplit is shared by the split block and the fork-shaped composites that
+	// draw the same way.
+	iconSplit = "Split"
 )
 
 // registerFlowControlComposites registers the plain control-flow composites
@@ -47,7 +50,7 @@ func registerFlowControlComposites() {
 		Label:       "If",
 		Category:    core.CategoryControlFlow,
 		Group:       groupFlowControl,
-		Icon:        "Split",
+		Icon:        iconSplit,
 		Description: "Conditional branching on a CEL boolean expression.",
 		Config:      reflect.TypeFor[ifMeta](),
 	})
@@ -56,7 +59,7 @@ func registerFlowControlComposites() {
 		Label:       "Switch",
 		Category:    core.CategoryControlFlow,
 		Group:       groupFlowControl,
-		Icon:        "Split",
+		Icon:        iconSplit,
 		Description: "Multi-case routing; runs the first matching case or the default.",
 		Config:      reflect.TypeFor[switchMeta](),
 	})
@@ -96,6 +99,36 @@ func registerIterationComposites() {
 			"(or a built-in response) and stopping the flow so the rest of the chain never runs. " +
 			"Failing rule messages are exposed as vars.validationErrors.",
 		Config: reflect.TypeFor[validateMeta](),
+	})
+	registerTakeoverComposites()
+}
+
+// registerTakeoverComposites registers the two blocks that take the flow
+// asynchronous — the canonical EIP splitter and aggregator.
+func registerTakeoverComposites() {
+	core.RegisterBlockMeta(core.BlockMeta{
+		Type:     blockKindSplit,
+		Label:    "Split",
+		Category: core.CategoryControlFlow,
+		Group:    groupFlowControl,
+		Icon:     iconSplit,
+		Description: "Split one message into many. Each element continues through the rest of the flow " +
+			"as its own invocation, so elements are processed concurrently and one failing element " +
+			"does not affect the others. The flow becomes asynchronous here: the buildResponse slot " +
+			"shapes what the caller gets back.",
+		Config: reflect.TypeFor[splitMeta](),
+	})
+	core.RegisterBlockMeta(core.BlockMeta{
+		Type:     blockKindAggregate,
+		Label:    "Aggregate",
+		Category: core.CategoryControlFlow,
+		Group:    groupFlowControl,
+		Icon:     "Merge",
+		Description: "Combine many messages into one. Messages are grouped by a CEL expression and held " +
+			"until the group completes — by size, by timeout, or by a predicate — then the group " +
+			"continues through the rest of the flow as a single message. Pairs with split with no " +
+			"configuration.",
+		Config: reflect.TypeFor[aggregateMeta](),
 	})
 }
 
@@ -305,6 +338,69 @@ type mcpRouterMeta struct {
 	// Template resources advertised as MCP prompts and rendered on prompts/get; the
 	// supplied arguments are exposed to the template as the body.
 	Prompts *struct{} `json:"prompts" octo:"label=Prompts,type=mcp-prompt-list"`
+}
+
+// splitMeta describes the split composite's editor fields.
+type splitMeta struct {
+	// How the message is carved into elements. 'expression' evaluates a CEL
+	// collection; the others tokenize a text body one element at a time, which is
+	// what makes a large payload tractable.
+	Mode string `json:"mode" octo:"label=Mode,type=enum,enum=expression|lines|delimiter|chunk,default=expression"`
+	// CEL expression evaluating to the array to split.
+	Items string `json:"items" octo:"label=Items,type=cel,showIf=mode=expression"`
+	// Separator to cut the text body on.
+	Delimiter string `json:"delimiter" octo:"label=Delimiter,type=string,showIf=mode=delimiter"`
+	// How many characters each element holds.
+	ChunkSize int `json:"chunkSize" octo:"label=Chunk size,type=number,showIf=mode=chunk"`
+	// What to do when an element cannot be dispatched: skip it, or fail the block.
+	// An element that fails once it is running always fails on its own.
+	OnError string `json:"onError" octo:"label=On error,type=enum,enum=skip|abort,default=skip"`
+	// What to answer the caller with, now that the work continues asynchronously
+	// below. Runs once on the original message; sees vars.groupSize, the real
+	// number of elements dispatched.
+	BuildResponse *struct{} `json:"buildResponse" octo:"label=Build response,type=flow"`
+}
+
+// aggregateMeta describes the aggregate composite's editor fields.
+type aggregateMeta struct {
+	// CEL expression for which group a message belongs to. Defaults to the
+	// variable a split sets, which is what pairs the two with no configuration.
+	Correlation string `json:"correlation" octo:"label=Correlation,type=cel,default=vars.groupId"`
+	// How messages are combined: collect bodies into an array, or fold through an
+	// expression (a running total, a merge, keep-latest).
+	Strategy string `json:"strategy" octo:"label=Strategy,type=enum,enum=append|expression,default=append"`
+	// CEL fold whose result becomes the new accumulator. It sees the group so far
+	// as vars.group (before this message) and the incoming body and vars.
+	Expression string `json:"expression" octo:"label=Expression,type=cel,showIf=strategy=expression"`
+	// CEL expression for how many messages the group expects; the group completes
+	// when the count reaches it. An expression rather than a number so it can be
+	// dynamic — a constant batch size and 'however many this split produced' are
+	// the same field.
+	CompletionSize string `json:"completionSize" octo:"label=Completion size,type=cel,default=vars.groupSize"`
+	// How long a group may stay open (e.g. '5s'). The only condition that fires
+	// without a message arriving, so it is what bounds a group whose other
+	// conditions may never be met.
+	CompletionTimeout string `json:"completionTimeout" octo:"label=Completion timeout,type=string"`
+	// CEL predicate checked after each message, over the incoming message and the
+	// group so far in vars.group (count, size, acc, ageMs, idleMs).
+	CompletionExpression string `json:"completionExpression" octo:"label=Completion expression,type=cel"`
+	// Whether the timeout runs from the group's first message (a fixed window) or
+	// its last (a sliding idle window).
+	TimeoutFrom string `json:"timeoutFrom" octo:"label=Timeout from,type=enum,enum=first|last,default=first"`
+	// Identity the group state and leader election are namespaced by. Defaults to
+	// the block's own address; set it explicitly to keep in-flight groups alive
+	// across an edit that moves or renames the block.
+	StoreKey string `json:"storeKey" octo:"label=Store key,type=string"`
+	// How many groups may be open at once, so a high-cardinality correlation
+	// cannot grow without bound.
+	MaxGroups int `json:"maxGroups" octo:"label=Max groups,type=number,default=1000"`
+	// What to do at the cap: fail the message into the flow's error chain, release
+	// the oldest group early, or drop the message.
+	OnOverflow string `json:"onOverflow" octo:"label=On overflow,type=enum,enum=fail|complete|drop,default=fail"`
+	// What to answer the caller with for the message just absorbed into a group.
+	// Runs once per incoming message; the group itself continues below only once
+	// it completes.
+	BuildResponse *struct{} `json:"buildResponse" octo:"label=Build response,type=flow"`
 }
 
 // cacheScopeMeta describes the cache-scope composite's editor slots.

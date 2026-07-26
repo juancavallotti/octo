@@ -6,6 +6,7 @@
     "database-crud",
     "scheduled-jobs",
     "transforming-data",
+    "splitting-and-aggregating",
     "validation-and-auth",
     "composing-flows",
     "debugging-flows",

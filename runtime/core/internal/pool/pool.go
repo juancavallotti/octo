@@ -19,6 +19,11 @@ type Pool struct {
 	workers int
 	tasks   chan func()
 	wg      sync.WaitGroup
+
+	// mu guards closed and, with it, the send in SubmitWait: a submitter holds it
+	// for read across the send, so Stop cannot close the queue underneath one.
+	mu     sync.RWMutex
+	closed bool
 }
 
 // New builds a pool with a bounded task queue. workers and queue are clamped to
@@ -40,7 +45,7 @@ func New(workers, queue int) *Pool {
 // submitted.
 func (p *Pool) Start() {
 	p.wg.Add(p.workers)
-	for i := 0; i < p.workers; i++ {
+	for range p.workers {
 		go p.worker()
 	}
 }
@@ -65,10 +70,48 @@ func (p *Pool) Submit(task func()) {
 	}
 }
 
+// TrySubmit enqueues a task if there is room, reporting whether it did. Where
+// Submit treats a full queue as a bug and panics, TrySubmit treats it as the
+// expected answer, for a caller that has somewhere else to put the work — see
+// the caller-runs policy in the runtime's resume.
+//
+// Blocking here instead would be the obvious alternative and is a trap: the
+// tasks are flows, a flow may itself schedule more work, and a pool whose
+// workers are all parked waiting to submit can never drain the queue that would
+// release them. Refusing lets the caller run the work itself, which cannot
+// deadlock.
+//
+// It reports false once the pool is closed, so a block's own goroutine that
+// outlives the flow by an instant gets an answer rather than a panic.
+func (p *Pool) TrySubmit(task func()) bool {
+	// Held for read across the send so Stop, which needs the write lock, cannot
+	// close the queue underneath it.
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if p.closed {
+		return false
+	}
+	select {
+	case p.tasks <- task:
+		return true
+	default:
+		return false
+	}
+}
+
 // Stop closes the task queue and waits for in-flight tasks to finish. It must be
 // called only after every submitter has stopped (i.e. after the outer workers
-// drain).
+// drain); the closed flag only makes a late submitter fail cleanly rather than
+// panic, it does not make Stop safe to call early.
 func (p *Pool) Stop() {
+	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		return
+	}
+	p.closed = true
 	close(p.tasks)
+	p.mu.Unlock()
+
 	p.wg.Wait()
 }

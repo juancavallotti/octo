@@ -13,10 +13,21 @@ configuration schema, the concurrency model, and the start/stop lifecycle.
 > **Status.** The structure and the composite *execution model* are now defined:
 > processing is a hybrid of single-threaded composition and opt-in concurrency
 > (see [Execution model](#execution-model)). `handle-errors` runs sequentially;
-> `fork` runs its branches concurrently on a flow-owned worker pool. Still
-> deferred: multi-output processors (what a block returns when it emits more than
-> one message), fire-and-forget stages, cross-composite backpressure, and the
-> `loop` composite.
+> `fork` runs its branches concurrently on a flow-owned worker pool.
+>
+> Multi-output is answered, but not by changing what a block returns. A block
+> that produces more than one message takes the flow over instead: it is handed
+> a **continuation** — the rest of its chain — and resumes it once per message it
+> produces, on borrowed workers. Each resumed tail is a full invocation with its
+> own event ID, its own flow events and its own error fate, which is what gives
+> `split` per-element error isolation and lets `aggregate` continue a group
+> minutes after the message that opened it returned. A block may only do this
+> from a root chain, and answers the waiting caller through its `buildResponse`
+> slot. See [Continuations](#continuations).
+>
+> Still deferred: fire-and-forget stages, cross-composite backpressure, the
+> `loop` composite, and a synchronous split/join composite (today the two halves
+> are independent and the join is asynchronous).
 
 ## Concepts
 
@@ -127,6 +138,47 @@ event-per-message guarantee) intact. `handle-errors` proves the simple half
   submits more work than the pool can accept (e.g. deeply nested forks), the pool
   is exhausted and **panics** rather than risk a silent deadlock. Size `pool` for
   the flow's fan-out. This is a deliberate limitation of the current model.
+  Continuations do not share it: they are scheduled with a non-blocking
+  `TrySubmit` and fall back to running on the calling goroutine (see below).
+
+## Continuations
+
+A block whose output is not one message per input takes the flow over instead of
+returning the next message. At build time such a block is handed a
+`core.Continuation`: the chain that follows it, which it may resume zero, one, or
+many times, immediately or long afterwards.
+
+- **A continuation is bound to a position, not to an invocation.** Every block
+  that takes over gets its own, covering the blocks after it, so nothing has to
+  be correlated at resume time. Because every replica builds the same flow from
+  the same config, a group completed on one replica resumes at the same place on
+  any other — which is what lets `aggregate` fire from a reaper goroutine with no
+  message in hand.
+- **A resumed tail is a full invocation.** It publishes its own started and
+  terminal flow events keyed on its own event ID, and the flow-level `error:`
+  chain recovers it. That is the whole of `split`'s per-element error isolation:
+  one bad element is one failed invocation among many.
+- **Scheduling is caller-runs.** A resumed tail goes onto the shared pool when it
+  has room and runs on the calling goroutine when it does not. That is both the
+  backpressure — a split fanning out 50,000 elements ends up doing the work
+  itself once the pool saturates, so it cannot outrun the flow — and the reason
+  the fan-out cannot deadlock: a tail that resumes again (a split feeding an
+  aggregate) would otherwise be able to wait on a queue only it could drain.
+- **Root chains only.** A composite's sub-flow ends at the composite, which then
+  post-processes the result, so there is no "rest of the flow" to hand down. A
+  block that needs a continuation and is nested fails at build time.
+- **Answering the caller.** The synchronous half of the flow ends where the block
+  takes over, so the block runs its `buildResponse` sub-flow on the original
+  message and requests stop. With no such slot the message stops as it stands.
+- **Shutdown.** Draining the source workers says nothing about the continuation
+  tree below them, so the bound flow counts resumed tails and waits for them
+  after quieting the blocks that own timers, and before the pool is stopped.
+
+Two optional capabilities carry this on the `MessageProcessor` seam:
+`core.ContinuationAware` (the builder hands it the continuation) and
+`core.LifecycleProcessor` (the runtime starts and stops its background work with
+the flow). `core.StateScoped` is a third, used to reject two blocks claiming one
+persistent-state key.
 
 ## Error handling
 
