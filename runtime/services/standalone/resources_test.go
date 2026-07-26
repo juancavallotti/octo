@@ -39,6 +39,35 @@ func TestResourceLoaderLoadSubfolder(t *testing.T) {
 	}
 }
 
+// TestResourceLoaderRelativeRoot pins that a relative --config behaves exactly
+// like the absolute path to the same tree. "octo run --config ." — and
+// "--config config.yaml", which configDir reduces to "." — used to fail every
+// template with `resource id "templates/p.tmpl" escapes the resource root`:
+// Clean(".") is ".", and resolve's Join folds the leading "./" back off its
+// result, so the prefix test could never match. Every other test here roots the
+// loader at t.TempDir(), which is absolute, and so cannot see this.
+func TestResourceLoaderRelativeRoot(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "templates", "p.tmpl"), "hi")
+	// A file just outside the tree: containment must still hold from a relative root.
+	writeFile(t, filepath.Join(filepath.Dir(root), "secret"), "top")
+	t.Chdir(root)
+
+	for _, spec := range []string{".", "./", "./templates/.."} {
+		loader := newResourceLoader(spec)
+		data, err := loader.Load(context.Background(), core.ResourceKindTemplate, "templates/p.tmpl")
+		if err != nil {
+			t.Fatalf("Load with root %q: %v", spec, err)
+		}
+		if string(data) != "hi" {
+			t.Fatalf("Load with root %q = %q, want %q", spec, data, "hi")
+		}
+		if out, err := loader.Load(context.Background(), core.ResourceKindEnv, "../secret"); err == nil {
+			t.Fatalf("root %q: traversal returned %q, want an error", spec, out)
+		}
+	}
+}
+
 func TestResourceLoaderLoadMissing(t *testing.T) {
 	loader := newResourceLoader(t.TempDir())
 	_, err := loader.Load(context.Background(), core.ResourceKindEnv, ".env.nope")

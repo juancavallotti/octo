@@ -27,9 +27,20 @@ type fsResourceLoader struct {
 }
 
 // newResourceLoader returns a filesystem loader rooted at root — the config
-// directory. root is cleaned once so containment checks are stable.
+// directory. root is made absolute once (Abs cleans too) so every downstream
+// comparison is between absolute paths. A relative root is not merely untidy: it
+// is wrong. "--config ." cleans to ".", and resolve's Join then folds the "./"
+// away, so "templates/p.tmpl" no longer has the root as a prefix and every id
+// reads as an escape.
 func newResourceLoader(root string) *fsResourceLoader {
-	return &fsResourceLoader{root: filepath.Clean(root)}
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		// Abs only fails when the working directory is unreadable. Fall back to the
+		// cleaned path rather than refusing to build a loader at all.
+		slog.Warn("resource root could not be made absolute", "root", root, "error", err)
+		abs = filepath.Clean(root)
+	}
+	return &fsResourceLoader{root: abs}
 }
 
 // Load reads the resource id under the root. kind is ignored: the id alone maps to
