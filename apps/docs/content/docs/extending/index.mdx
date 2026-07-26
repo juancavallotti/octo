@@ -19,7 +19,7 @@ The runtime has exactly two, and that is deliberate. Someone asking "how do I ad
 | Lives in | `runtime/connectors/<name>` | `runtime/services/<name>` |
 | Guide | [Connectors](/extending/connectors) | [Runtime services](/extending/runtime-services) |
 
-Both work identically: a package, an `init` that registers, and a blank import in `runtime/octo/main.go` deciding what a binary ships. Nothing is discovered by scanning, and nothing is configured by file path.
+Both use package-level registration (`init`) and binary wiring via blank imports in `runtime/octo/main.go`, but they are selected differently: service **providers** are module-selected by `RUNTIME_SERVICES_MODULE`, while **hosted** services run whenever they are compiled in and blank-imported. Nothing is discovered by scanning, and nothing is configured by file path.
 
 <Callout type="warn">
 New capability goes into one of these two, or into the engine. Not into a third registry — a parallel seam is always locally reasonable and always leaves the next person one more place to look.
@@ -52,5 +52,5 @@ The last two are not extension points, and both are worth knowing about because 
 
 ## Before you start
 
-- Read [`docs/coding-standards.md`](https://github.com/juancavallotti/octo) and `docs/extension-points.md` in the repository — the latter is the normative version of this page.
+- Read [`docs/coding-standards.md`](https://github.com/juancavallotti/octo/blob/main/docs/coding-standards.md) and [`docs/extension-points.md`](https://github.com/juancavallotti/octo/blob/main/docs/extension-points.md) in the repository — the latter is the normative version of this page.
 - CI enforces one rule that surprises people: **every registered connector, block and source must be documented**. `scripts/check-docs-drift.mjs` compares `octo schema` against the `octo_types` frontmatter of the reference pages and fails on any drift.

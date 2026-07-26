@@ -782,8 +782,9 @@ the VCS commit time, and the suffix is omitted when neither exists.
 | `OCTO_OBSERVABILITY` | Default for `--observability`. Accepts `true`/`false`, `1`/`0`, `on`/`off`, `yes`/`no` (case-insensitive). An unparseable value logs a warning and is ignored. |
 | `OCTO_OBSERVABILITY_ADDR` | Default for `--observability-addr`. |
 | `OCTO_METRICS` | Default for `--metrics`. Same accepted values as `OCTO_OBSERVABILITY`. |
+| `OCTO_METRICS_BLOCKS` | Default for `--metrics-blocks`: comma-separated [block addresses](#addressing-a-block), or `*` for every block. |
 
-The `OCTO_OBSERVABILITY*` and `OCTO_METRICS` variables are read from the **process environment only**,
+The `OCTO_OBSERVABILITY*`, `OCTO_METRICS`, and `OCTO_METRICS_BLOCKS` variables are read from the **process environment only**,
 not from a `.env` file: they are resolved when `octo run` parses its flags, which
 happens before any config — and therefore any `.env` — is loaded. Passing the flag
 always wins over the variable.
