@@ -2,7 +2,7 @@ flow: normalize
 
 inputs:
   # A messy order: padded free-text reference, mixed-case email, a repeated role,
-  # and line prices that do not land on a cent.
+  # and prices in cents (see the note in the sample about why).
   messy:
     data:
       reference: " ORDER-1042 / eu-west "
@@ -10,8 +10,8 @@ inputs:
         email: "Ada.Lovelace@Example.COM"
         roles: "admin,billing,billing"
       lines:
-        - { sku: "b-2", qty: 3, unitPrice: 19.987 }
-        - { sku: "a-1", qty: 1, unitPrice: 4.5 }
+        - { sku: "b-2", qty: 3, unitPriceCents: 1999 }
+        - { sku: "a-1", qty: 1, unitPriceCents: 450 }
 
 cases:
   - name: it normalizes every field with the extension libraries, no foreach
@@ -22,7 +22,7 @@ cases:
         region: "eu-west" # trim + split + index
         email: "ada.lovelace@example.com" # lowerAscii
         roles: ["admin", "billing"] # split + distinct + sort
-        topLine: 59.96 # math.greatest of the line values, rounded to cents
+        topLineCents: 5997 # math.greatest over the mapped line totals
         idempotencyKey: "MTA0MjphZGEubG92ZWxhY2VAZXhhbXBsZS5jb20=" # base64.encode
         quantities: { "b-2": 3, "a-1": 1 } # transformMapEntry: list -> lookup map
       that:
@@ -43,14 +43,14 @@ cases:
       data:
         reference: "walk-in / eu-west"
         customer: { email: "b@example.com", roles: "sales" }
-        lines: [{ sku: "a-1", qty: 2, unitPrice: 3.0 }]
+        lines: [{ sku: "a-1", qty: 2, unitPriceCents: 300 }]
     expect:
       body:
         orderId: "unknown"
         region: "eu-west"
         email: "b@example.com"
         roles: ["sales"]
-        topLine: 6
+        topLineCents: 600
         idempotencyKey: "dW5rbm93bjpiQGV4YW1wbGUuY29t"
         quantities: { "a-1": 2 }
 
@@ -59,13 +59,15 @@ cases:
       data:
         reference: "ORDER-7 / us-east"
         customer: { email: "c@example.com", roles: "support,support" }
-        lines: [{ sku: "z-9", qty: 1, unitPrice: 1.006 }]
+        lines: [{ sku: "z-9", qty: 3, unitPriceCents: 1005 }]
     expect:
       that:
         - "!has(vars.invoiceable)"
         - 'body.roles == ["support"]'
-        # math.round takes 100.6 to 101, so the price lands on a whole cent.
-        - "body.topLine == 1.01"
+        # Integer cents stay exact through the arithmetic, with no rounding step
+        # to get wrong: scale-round-divide on a decimal price is not exact —
+        # math.round(1.005 * 100.0) / 100.0 is 1.00, a cent low.
+        - "body.topLineCents == 3015"
     spies:
       normalize.billing-contact[then].mark-invoiceable:
         count: 0

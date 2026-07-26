@@ -205,18 +205,23 @@ normalizes a messy inbound order with no loop at all:
       # Split, de-duplicate, and sort a comma-separated field.
       - setVar: roles
         value: 'body.customer.roles.split(",").distinct().sort()'
-      # The largest line value, rounded to cents.
-      - setVar: topLine
-        value: "math.round(math.greatest(body.lines.map(l, l.qty * l.unitPrice)) * 100.0) / 100.0"
+      # The largest line total. Prices are in integer cents, so it stays exact.
+      - setVar: topLineCents
+        value: 'math.greatest(body.lines.map(l, l.qty * l.unitPriceCents))'
       # Turn the line list into a sku -> qty lookup map.
       - setBody: '{"orderId": vars.orderId, "quantities": body.lines.transformMapEntry(i, l, {l.sku: l.qty})}'
 ```
 
 ```bash
 bin/octo invoke --config samples/cel-extensions.yaml --flow normalize \
-  --data '{"reference":" ORDER-1042 / eu-west ","customer":{"email":"Ada.Lovelace@Example.COM","roles":"admin,billing,billing"},"lines":[{"sku":"b-2","qty":3,"unitPrice":19.987},{"sku":"a-1","qty":1,"unitPrice":4.5}]}'
-# -> logs "order 1042 (eu-west): 2 lines, top line 59.96, roles admin, billing"
+  --data '{"reference":" ORDER-1042 / eu-west ","customer":{"email":"Ada.Lovelace@Example.COM","roles":"admin,billing,billing"},"lines":[{"sku":"b-2","qty":3,"unitPriceCents":1999},{"sku":"a-1","qty":1,"unitPriceCents":450}]}'
+# -> logs "order 1042 (eu-west): 2 lines, top line 59.97, roles admin, billing"
 ```
+
+The prices are in integer cents on purpose: a JSON number is a binary double,
+so a decimal price cannot be held exactly and rounding it back into shape
+loses a cent on some values. See the
+[warning under Math](/reference/cel/libraries#math).
 
 See [Extension Libraries](/reference/cel/libraries) for the full vocabulary —
 strings, lists, encoders, math, two-variable comprehensions, sets, and regex —

@@ -157,11 +157,30 @@ Aggregation over a mapped collection, and rounding.
 knowing about because JSON has a single number type, so a value that arrived
 as a double can be anything.
 
-For money, scale before rounding:
+<Callout type="warn">
+  **Do not round money into shape.** A JSON number is a binary double, so a
+  decimal price is not held exactly and the usual scale-round-divide trick
+  silently loses a cent on the values where it matters most:
 
-| Expression | Result |
-| --- | --- |
-| `math.round(19.987 * 3.0 * 100.0) / 100.0` | `59.96` |
+```bash
+bin/octo eval --expr 'math.round(1.005 * 100.0) / 100.0'
+# {"ok":true,"result":1}          <- not 1.01
+
+bin/octo eval --expr 'math.round(1.015 * 100.0) / 100.0'
+# {"ok":true,"result":1.01}       <- this one happens to work
+```
+
+  Which values break is a property of the binary representation, not something
+  you can predict by looking. Carry money in **integer minor units** (cents)
+  end to end: integers up to 2^53 are exact in a double, multiplying by a
+  quantity keeps them exact, and no rounding step exists to get wrong. Divide
+  only to display, where `"%.2f".format([cents / 100.0])` is presentation and
+  nothing reads it back. [`samples/cel-extensions.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/cel-extensions.yaml)
+  does it this way.
+</Callout>
+
+`math.round` is still the right tool for a value that is genuinely fractional —
+a rate, a score, a percentage — where a cent is not on the line.
 
 `math.greatest` and `math.least` take either a list or a set of arguments,
 which is what makes a maximum over a collection a single expression:
@@ -170,8 +189,8 @@ which is what makes a maximum over a collection a single expression:
 - type: set-variable
   name: largest-line
   settings:
-    name: topLine
-    value: 'math.greatest(body.lines.map(l, l.qty * l.unitPrice))'
+    name: topLineCents
+    value: 'math.greatest(body.lines.map(l, l.qty * l.unitPriceCents))'
 ```
 
 <Callout type="info">

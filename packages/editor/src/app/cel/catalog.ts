@@ -409,8 +409,8 @@ export const EXT_NAMESPACES: Record<string, CelEntry[]> = {
       kind: "function",
       signature: "math.round(double) -> double",
       summary:
-        "Round to the nearest whole number, ties away from zero. For money, scale first: math.round(x * 100.0) / 100.0.",
-      example: "math.round(body.total * 100.0) / 100.0",
+        "Round to the nearest whole number, ties away from zero. Not for money: a JSON number is a binary double, so math.round(1.005 * 100.0) / 100.0 is 1.00, a cent low. Carry money in integer minor units (cents) instead.",
+      example: "math.round(body.score)",
     },
     {
       name: "trunc",
