@@ -155,6 +155,13 @@ func (s *Service) Start(ctx context.Context, health *services.Health) error {
 	}
 	s.health = health
 
+	var lc net.ListenConfig
+	ln, err := lc.Listen(ctx, "tcp", s.addr)
+	if err != nil {
+		return fmt.Errorf("listen on %s: %w", s.addr, err)
+	}
+	s.ln = ln
+
 	if s.metrics {
 		s.collectors = newMetrics(health)
 		// Subscribing costs nothing until a flow publishes: the bus is already
@@ -164,15 +171,10 @@ func (s *Service) Start(ctx context.Context, health *services.Health) error {
 		s.watchBlocks()
 	}
 
-	var lc net.ListenConfig
-	ln, err := lc.Listen(ctx, "tcp", s.addr)
-	if err != nil {
-		return fmt.Errorf("listen on %s: %w", s.addr, err)
-	}
-	s.ln = ln
 	s.server = &http.Server{
 		Handler:           s.handler(),
 		ReadHeaderTimeout: readHeaderTimeout,
+		IdleTimeout:       readHeaderTimeout,
 	}
 
 	go func() {
@@ -265,13 +267,14 @@ func envBool(name string, fallback bool) bool {
 	if !ok || raw == "" {
 		return fallback
 	}
-	switch strings.ToLower(strings.TrimSpace(raw)) {
+	trimmed := strings.TrimSpace(raw)
+	switch strings.ToLower(trimmed) {
 	case "on", "yes":
 		return true
 	case "off", "no":
 		return false
 	}
-	v, err := strconv.ParseBool(raw)
+	v, err := strconv.ParseBool(trimmed)
 	if err != nil {
 		slog.Warn("observability: ignoring unparseable environment variable",
 			"var", name, "value", raw, "default", fallback)

@@ -15,6 +15,8 @@ import (
 // health gate driving its readiness. It is stopped on cleanup.
 func newTestService(t *testing.T) (*Service, *services.Health) {
 	t.Helper()
+	t.Setenv(envEnabled, "false")
+	t.Setenv(envMetrics, "false")
 
 	svc := New()
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
@@ -22,7 +24,7 @@ func newTestService(t *testing.T) (*Service, *services.Health) {
 	svc.Flags(fs)
 	// Port 0 lets the OS pick, so tests never collide with each other or with
 	// whatever is already on 39999.
-	if err := fs.Parse([]string{"--observability-addr", "127.0.0.1:0"}); err != nil {
+	if err := fs.Parse([]string{"--observability=true", "--observability-addr", "127.0.0.1:0"}); err != nil {
 		t.Fatalf("parse: %v", err)
 	}
 
@@ -174,7 +176,7 @@ func TestStartFailsOnPortConflict(t *testing.T) {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	second.Flags(fs)
-	if err := fs.Parse([]string{"--observability-addr", first.Addr()}); err != nil {
+	if err := fs.Parse([]string{"--observability=true", "--observability-addr", first.Addr()}); err != nil {
 		t.Fatalf("parse: %v", err)
 	}
 
