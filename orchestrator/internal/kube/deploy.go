@@ -29,6 +29,30 @@ const (
 	// does not bind the resolved port.
 	runtimePort = 8080
 
+	// adminPort is where the runtime's observability service serves its probes. It
+	// matches that service's default (--observability-addr :39999) and is present on
+	// every deployment, networked or not: a cron-driven integration needs probes
+	// exactly as much as an HTTP one.
+	adminPort = 39999
+	// adminPortName names the container port the probes target.
+	adminPortName = "admin"
+	// livenessPath answers whether the process is wedged; readinessPath answers
+	// whether it is serving. See the runtime's observability service.
+	livenessPath  = "/healthz"
+	readinessPath = "/readyz"
+
+	// Probe timings. Readiness is checked often and reacts fast, because it gates
+	// traffic: a rolling update should not send requests to a pod that is still
+	// starting connectors, and a pod that goes unready should leave the Service
+	// promptly. Liveness is checked rarely and forgivingly, because it restarts the
+	// container: a slow start or a brief stall must not be mistaken for a wedge.
+	readinessPeriodSeconds   = 5
+	readinessFailureThresh   = 3
+	livenessPeriodSeconds    = 30
+	livenessFailureThresh    = 6
+	livenessInitialDelaySecs = 15
+	probeTimeoutSeconds      = 3
+
 	// Runtime-services env var names injected into each deployed pod. They mirror
 	// the constants the runtime's k8s services module reads (RUNTIME_SERVICES_MODULE
 	// selects the backend; the rest identify the deployment and the KV endpoint, with
@@ -296,16 +320,20 @@ func (c *Client) DeleteInternalService(ctx context.Context, slug string) error {
 
 // deployment builds the Deployment object: spec.Replicas runtime pods (clamped to
 // a minimum of 1) with the integration ConfigMap mounted read-only at the config
-// path, any supplied env vars set, and the runtime port declared only when the
-// integration has an HTTP source (a non-networked workload exposes no port).
+// path, any supplied env vars set, the runtime port declared only when the
+// integration has an HTTP source (a non-networked workload exposes no port), and
+// probes on the admin port every deployment has.
 func (c *Client) deployment(name string, labels map[string]string, spec Spec) *appsv1.Deployment {
 	replicas := spec.Replicas
 	if replicas < 1 {
 		replicas = 1
 	}
-	var ports []corev1.ContainerPort
+	// The admin port is always declared: the observability service is compiled into
+	// the runtime image and on by default, so every pod serves probes whether or
+	// not the integration serves HTTP.
+	ports := []corev1.ContainerPort{{Name: adminPortName, ContainerPort: adminPort}}
 	if spec.networked() {
-		ports = []corev1.ContainerPort{{Name: "http", ContainerPort: spec.port()}}
+		ports = append(ports, corev1.ContainerPort{Name: "http", ContainerPort: spec.port()})
 	}
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Labels: labels},
@@ -326,6 +354,8 @@ func (c *Client) deployment(name string, labels map[string]string, spec Spec) *a
 						ImagePullPolicy: corev1.PullIfNotPresent,
 						Env:             c.podEnv(spec),
 						Ports:           ports,
+						LivenessProbe:   livenessProbe(),
+						ReadinessProbe:  readinessProbe(),
 						VolumeMounts: []corev1.VolumeMount{{
 							Name:      "integration",
 							MountPath: configMountPath,
@@ -342,6 +372,48 @@ func (c *Client) deployment(name string, labels map[string]string, spec Spec) *a
 					}},
 				},
 			},
+		},
+	}
+}
+
+// readinessProbe gates traffic on the runtime actually serving: /readyz answers
+// 200 only once every connector and flow of the current generation has started,
+// and 503 while it is starting, reloading under --watch, or draining. It is
+// checked often and gives up quickly, so a rolling update does not send requests
+// to a pod that is not ready and an unready pod leaves the Service promptly.
+//
+// It has no initial delay: answering during startup is the whole point, and the
+// admin server binds before connectors do.
+func readinessProbe() *corev1.Probe {
+	return &corev1.Probe{
+		ProbeHandler:     httpProbe(readinessPath),
+		PeriodSeconds:    readinessPeriodSeconds,
+		TimeoutSeconds:   probeTimeoutSeconds,
+		FailureThreshold: readinessFailureThresh,
+	}
+}
+
+// livenessProbe restarts a wedged container. It is deliberately slower and more
+// forgiving than readiness, because the cost of a false positive is a restart:
+// /healthz answers unconditionally, so a failure means the process could not
+// serve a trivial request at all.
+func livenessProbe() *corev1.Probe {
+	return &corev1.Probe{
+		ProbeHandler:        httpProbe(livenessPath),
+		InitialDelaySeconds: livenessInitialDelaySecs,
+		PeriodSeconds:       livenessPeriodSeconds,
+		TimeoutSeconds:      probeTimeoutSeconds,
+		FailureThreshold:    livenessFailureThresh,
+	}
+}
+
+// httpProbe builds an HTTP GET handler against the admin port, addressed by name
+// so the port number lives in exactly one place.
+func httpProbe(path string) corev1.ProbeHandler {
+	return corev1.ProbeHandler{
+		HTTPGet: &corev1.HTTPGetAction{
+			Path: path,
+			Port: intstr.FromString(adminPortName),
 		},
 	}
 }
