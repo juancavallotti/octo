@@ -27,6 +27,7 @@ func newClient(baseDomain string, objects ...runtime.Object) *Client {
 		runtimeImage:  "octo-runtime:dev",
 		baseDomain:    baseDomain,
 		clusterIssuer: "letsencrypt-prod",
+		ingressClass:  "traefik",
 	}
 }
 
@@ -365,6 +366,76 @@ func TestApplyCreatesIngressWhenExposed(t *testing.T) {
 	}
 	if ing.Spec.TLS[0].Hosts[0] != "shop.octo.example.com" {
 		t.Errorf("TLS host = %v, want shop.octo.example.com", ing.Spec.TLS)
+	}
+	if ing.Spec.IngressClassName == nil || *ing.Spec.IngressClassName != "traefik" {
+		t.Errorf("ingress class = %v, want traefik", ing.Spec.IngressClassName)
+	}
+}
+
+func TestApplyIngressClassEmptyOmitsField(t *testing.T) {
+	c := newClient("octo.example.com")
+	c.ingressClass = ""
+	ctx := context.Background()
+	spec := Spec{ID: "d1", IntegrationID: "int-1", Definition: "x: 1", Replicas: 1, Slug: "orders", Port: 9090, Expose: true, Subdomain: "shop"}
+
+	if err := c.Apply(ctx, spec); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	ing, err := c.clientset.NetworkingV1().Ingresses(testNamespace).Get(ctx, resourceName("d1"), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get ingress: %v", err)
+	}
+	if ing.Spec.IngressClassName != nil {
+		t.Errorf("ingress class = %v, want nil (cluster default IngressClass claims it)", *ing.Spec.IngressClassName)
+	}
+}
+
+func TestApplyIngressExtraAnnotationsMerged(t *testing.T) {
+	c := newClient("octo.example.com")
+	c.extraAnnotations = map[string]string{
+		"nginx.ingress.kubernetes.io/proxy-body-size": "50m",
+		// A colliding key must not override the cert-manager annotation.
+		"cert-manager.io/cluster-issuer": "should-not-win",
+	}
+	ctx := context.Background()
+	spec := Spec{ID: "d1", IntegrationID: "int-1", Definition: "x: 1", Replicas: 1, Slug: "orders", Port: 9090, Expose: true, Subdomain: "shop"}
+
+	if err := c.Apply(ctx, spec); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	ing, err := c.clientset.NetworkingV1().Ingresses(testNamespace).Get(ctx, resourceName("d1"), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get ingress: %v", err)
+	}
+	if got := ing.Annotations["nginx.ingress.kubernetes.io/proxy-body-size"]; got != "50m" {
+		t.Errorf("extra annotation = %q, want 50m", got)
+	}
+	if got := ing.Annotations["cert-manager.io/cluster-issuer"]; got != "letsencrypt-prod" {
+		t.Errorf("cert-manager annotation = %q, want letsencrypt-prod (must win over a colliding extra annotation)", got)
+	}
+}
+
+func TestApplyIngressNoTLSWithoutIssuerOrWildcard(t *testing.T) {
+	c := newClient("octo.example.com")
+	c.clusterIssuer = ""
+	ctx := context.Background()
+	spec := Spec{ID: "d1", IntegrationID: "int-1", Definition: "x: 1", Replicas: 1, Slug: "orders", Port: 9090, Expose: true, Subdomain: "shop"}
+
+	if err := c.Apply(ctx, spec); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	ing, err := c.clientset.NetworkingV1().Ingresses(testNamespace).Get(ctx, resourceName("d1"), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get ingress: %v", err)
+	}
+	if len(ing.Spec.TLS) != 0 {
+		t.Errorf("TLS = %v, want none (cluster terminates TLS elsewhere)", ing.Spec.TLS)
+	}
+	if _, ok := ing.Annotations["cert-manager.io/cluster-issuer"]; ok {
+		t.Errorf("cluster-issuer annotation should be absent, got %v", ing.Annotations)
+	}
+	if rule := ing.Spec.Rules[0]; rule.Host != "shop.octo.example.com" {
+		t.Errorf("ingress host = %q, want shop.octo.example.com", rule.Host)
 	}
 }
 

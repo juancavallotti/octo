@@ -39,12 +39,8 @@ const (
 	// image integration pods are deployed; both are overridable via env.
 	defaultNamespace    = "octo-dev"
 	defaultRuntimeImage = "octo-runtime:dev"
-	// defaultClusterIssuer is the cert-manager ClusterIssuer used for external
-	// per-integration TLS. defaultBaseDomain is empty: external endpoints stay
-	// disabled until BASE_DOMAIN is set.
-	defaultClusterIssuer = "letsencrypt-prod"
-	shutdownTimeout      = 10 * time.Second
-	dbQueryTimeout       = 5 * time.Second
+	shutdownTimeout     = 10 * time.Second
+	dbQueryTimeout      = 5 * time.Second
 	// deploymentSnapshotTimeout bounds the DB + cluster work to compute one
 	// deployment snapshot published from the informer callback.
 	deploymentSnapshotTimeout = 15 * time.Second
@@ -84,13 +80,25 @@ func run() error {
 		slog.Info("connected to database pool")
 	}
 
+	extraAnnotations, err := ingressAnnotationsConfig()
+	if err != nil {
+		return err
+	}
+
 	srv, err := newServer(ctx, database, kubeConfig{
-		namespace:         envOr("KUBE_NAMESPACE", defaultNamespace),
-		runtimeImage:      envOr("RUNTIME_IMAGE", defaultRuntimeImage),
-		baseDomain:        os.Getenv("BASE_DOMAIN"),
-		clusterIssuer:     envOr("CLUSTER_ISSUER", defaultClusterIssuer),
+		namespace:    envOr("KUBE_NAMESPACE", defaultNamespace),
+		runtimeImage: envOr("RUNTIME_IMAGE", defaultRuntimeImage),
+		baseDomain:   os.Getenv("BASE_DOMAIN"),
+		// Empty ("") means no TLS annotation and no per-host cert: letsencrypt-prod
+		// only exists because this project's own k3s bootstrap creates it, so it must
+		// not be assumed as a default on an arbitrary cluster.
+		clusterIssuer:     os.Getenv("CLUSTER_ISSUER"),
 		wildcardTLSSecret: os.Getenv("WILDCARD_TLS_SECRET"),
-		runtimeServices:   runtimeServicesConfig(),
+		// Empty omits IngressClassName, letting the cluster's default IngressClass
+		// (if any) claim the per-integration Ingress.
+		ingressClass:     os.Getenv("INGRESS_CLASS"),
+		extraAnnotations: extraAnnotations,
+		runtimeServices:  runtimeServicesConfig(),
 	})
 	if err != nil {
 		return err
@@ -126,10 +134,28 @@ type kubeConfig struct {
 	baseDomain        string
 	clusterIssuer     string
 	wildcardTLSSecret string
+	ingressClass      string
+	extraAnnotations  map[string]string
 	// runtimeServices is injected into each deployed runtime pod so it can reach
 	// leader election + the KV API. Disabled (zero value) when ORCHESTRATOR_URL is
 	// unset, so the feature stays inert until the deploy is wired for it.
 	runtimeServices kube.RuntimeServices
+}
+
+// ingressAnnotationsConfig parses INGRESS_ANNOTATIONS, a JSON object of extra
+// annotations merged onto every per-integration Ingress (e.g. controller-specific
+// body-size or timeout annotations). Unset means none; malformed JSON is a
+// startup error rather than a silently-ignored one.
+func ingressAnnotationsConfig() (map[string]string, error) {
+	raw := os.Getenv("INGRESS_ANNOTATIONS")
+	if raw == "" {
+		return nil, nil
+	}
+	var ann map[string]string
+	if err := json.Unmarshal([]byte(raw), &ann); err != nil {
+		return nil, fmt.Errorf("parse INGRESS_ANNOTATIONS: %w", err)
+	}
+	return ann, nil
 }
 
 // runtimeServicesConfig reads the runtime-services env injected into deployed
@@ -252,7 +278,7 @@ func newServer(ctx context.Context, database *db.DB, kc kubeConfig) (http.Handle
 		// Deployment management needs both the database and in-cluster Kubernetes
 		// access. Outside a cluster (e.g. local `go run`) kube.New fails and the
 		// routes stay disabled, mirroring how the DB-less case disables the rest.
-		if kubeClient, err := kube.New(kc.namespace, kc.runtimeImage, kc.baseDomain, kc.clusterIssuer, kc.wildcardTLSSecret, kc.runtimeServices); err != nil {
+		if kubeClient, err := kube.New(kc.namespace, kc.runtimeImage, kc.baseDomain, kc.clusterIssuer, kc.wildcardTLSSecret, kc.ingressClass, kc.extraAnnotations, kc.runtimeServices); err != nil {
 			slog.Warn("kubernetes access unavailable; deployment routes disabled", "error", err)
 		} else {
 			deploymentRepo := deployment.NewRepo(database.Pool())
