@@ -123,6 +123,12 @@ func resolvePoolSettings(set connectorSettings) (maxOpen, maxIdle int, lifetime 
 		if err != nil {
 			return 0, 0, 0, fmt.Errorf("parse connMaxLifetime: %w", err)
 		}
+		// time.ParseDuration accepts a signed duration, but SetConnMaxLifetime
+		// treats <= 0 as unlimited — a negative value would silently bypass the
+		// driver's default instead of erroring or unambiguously meaning unlimited.
+		if lifetime < 0 {
+			return 0, 0, 0, fmt.Errorf("connMaxLifetime %q must not be negative", set.ConnMaxLifetime)
+		}
 	}
 	return maxOpen, maxIdle, lifetime, nil
 }

@@ -358,8 +358,8 @@ connectors:
 
 flows:
   - name: ingest-orders
-    workers: 8          # per-flow worker pool size; defaults to max(8, GOMAXPROCS × 4) (set 1 for FIFO)
-    buffer: 128         # source -> worker channel depth; defaults to max(64, workers)
+    workers: 32         # per-flow worker pool size, explicit override here; omit for max(8, GOMAXPROCS × 4) (set 1 for FIFO)
+    buffer: 256         # source -> worker channel depth, explicit override here; omit for max(64, workers)
     pool: 16            # shared pool for concurrent composites; defaults to 8
     source:
       connector: orders-kafka   # references connectors[].name

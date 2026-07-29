@@ -77,6 +77,18 @@ func TestResolvePoolSettingsRejectsBadLifetime(t *testing.T) {
 	}
 }
 
+// TestResolvePoolSettingsRejectsNegativeLifetime confirms a negative
+// connMaxLifetime is rejected rather than silently accepted: time.ParseDuration
+// parses signed durations, but sql.DB.SetConnMaxLifetime treats <= 0 as
+// unlimited, so a negative value would otherwise bypass the driver's default
+// without any error.
+func TestResolvePoolSettingsRejectsNegativeLifetime(t *testing.T) {
+	_, _, _, err := resolvePoolSettings(connectorSettings{Driver: "postgres", ConnMaxLifetime: "-5m"})
+	if err == nil {
+		t.Fatal("expected an error for a negative connMaxLifetime")
+	}
+}
+
 // TestStartAppliesDefaultPoolSettings confirms the resolved defaults actually
 // reach the *sql.DB, not just resolvePoolSettings' return values. sql.DBStats
 // only exposes a getter for MaxOpenConnections — there is no public accessor

@@ -72,12 +72,18 @@ func TestEventBusIgnoresNilHandler(t *testing.T) {
 // any handler ran, so a subscriber present at the start still fires once even
 // if another handler removes it mid-call. It stops firing on the next Publish,
 // once the removal's snapshot is the one in effect.
+//
+// The unsubscriber is subscribed (and so fires) before the counted handler, so
+// the removal happens mid-iteration, before this same Publish call reaches the
+// handler it just removed — the case that actually exercises the guarantee,
+// rather than one where the counted handler already ran before removal.
 func TestEventBusUnsubscribeDuringPublish(t *testing.T) {
 	bus := NewEventBus()
 
 	var bCount int
-	bUnsubscribe := bus.Subscribe(func(types.FlowEvent) { bCount++ })
+	var bUnsubscribe func()
 	bus.Subscribe(func(types.FlowEvent) { bUnsubscribe() })
+	bUnsubscribe = bus.Subscribe(func(types.FlowEvent) { bCount++ })
 
 	bus.Publish(types.FlowEvent{Kind: types.FlowEventCompleted})
 	if bCount != 1 {
