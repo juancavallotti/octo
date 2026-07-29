@@ -1,4 +1,5 @@
 import { createMcpHandler } from "mcp-handler";
+import type { Implementation } from "@modelcontextprotocol/sdk/types.js";
 import * as defaultRunHost from "@octo/run-host";
 import type { OctoMcpConfig } from "./backend";
 import type { RunHostPort } from "./run-host";
@@ -12,6 +13,7 @@ import {
   registerRuntimeSchemaResource,
 } from "./resource";
 import { registerPrompts } from "./prompts";
+import { OCTO_ICON_DATA_URI } from "./icon";
 
 /**
  * The Octo MCP server version reported to clients in the `initialize` handshake.
@@ -34,6 +36,13 @@ export interface OctoMcpServerInfo {
   version: string;
   /** Human-facing display name, e.g. `Octo`. */
   title?: string;
+  /**
+   * Visual identifiers for the server, per the MCP icons extension. Defaults to
+   * Octo's logo so clients render it directly instead of falling back to
+   * scraping the host app's favicon; a host only needs to set this to brand a
+   * deployment differently.
+   */
+  icons?: Implementation["icons"];
 }
 
 /** Default identity when a host doesn't override {@link OctoMcpHandlerOptions.serverInfo}. */
@@ -41,6 +50,7 @@ const DEFAULT_SERVER_INFO: OctoMcpServerInfo = {
   name: "octo",
   version: OCTO_MCP_VERSION,
   title: "Octo",
+  icons: [{ src: OCTO_ICON_DATA_URI, mimeType: "image/png", sizes: ["256x256"] }],
 };
 
 /** Knobs for the MCP route handler beyond the backend {@link OctoMcpConfig}. */
@@ -66,7 +76,7 @@ export interface OctoMcpHandlerOptions {
    * generic {@link DEFAULT_SERVER_INFO}; hosts should pass their own so clients
    * can tell deployments apart (e.g. `octo-platform` vs `octo-standalone`).
    */
-  serverInfo?: OctoMcpServerInfo;
+  serverInfo?: Partial<OctoMcpServerInfo>;
 }
 
 /**
@@ -94,7 +104,7 @@ export function createOctoMcpHandler(
       registerPrompts(server, config);
     },
     {
-      serverInfo: options.serverInfo ?? DEFAULT_SERVER_INFO,
+      serverInfo: { ...DEFAULT_SERVER_INFO, ...options.serverInfo },
       capabilities: {
         tools: {},
         resources: {},
