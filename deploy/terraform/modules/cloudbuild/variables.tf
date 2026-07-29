@@ -71,6 +71,12 @@ variable "domain" {
   default     = "octo.juancavallotti.com"
 }
 
+variable "apps_domain" {
+  type        = string
+  description = "Base hostname per-integration subdomains live under, passed to the release apply as -var apps_domain (_APPS_DOMAIN). Empty = same as domain."
+  default     = ""
+}
+
 variable "state_bucket" {
   type        = string
   description = "GCS bucket backing the release Terraform state (objectAdmin granted to the build SA). Required when enable_deploy = true."

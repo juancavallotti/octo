@@ -2,7 +2,7 @@
 # everything to Artifact Registry, then (optionally) roll the cluster by applying the
 # Terraform release root. Provisioned and triggered by deploy/terraform/infra
 # (enable_cloudbuild=true); the trigger supplies _IMAGE_BASE/_REGION, maps _TAG to the
-# pushed git tag, and sets _DEPLOY/_INSTANCE/_ZONE/_DOMAIN.
+# pushed git tag, and sets _DEPLOY/_INSTANCE/_ZONE/_DOMAIN/_APPS_DOMAIN.
 #
 # Run manually (build + push only):
 #   gcloud builds submit --config cloudbuild.yaml \
@@ -17,7 +17,8 @@ substitutions:
   _DEPLOY: "false"
   _INSTANCE: octo
   _ZONE: us-west1-a
-  _DOMAIN: octo.juancavallotti.com
+  _DOMAIN: octopaas.dev
+  _APPS_DOMAIN: apps.octopaas.dev
 
 options:
   machineType: E2_HIGHCPU_8
@@ -135,6 +136,7 @@ steps:
           -var project_id="$PROJECT_ID" \
           -var region="${_REGION}" \
           -var domain="${_DOMAIN}" \
+          -var apps_domain="${_APPS_DOMAIN}" \
           -var instance_name="${_INSTANCE}" \
           -var zone="${_ZONE}" \
           -var image_tag="${_TAG}" \

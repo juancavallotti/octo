@@ -103,6 +103,7 @@ module "cloudbuild" {
   instance_name            = var.instance_name
   zone                     = var.zone
   domain                   = var.domain
+  apps_domain              = local.apps_domain_eff
   state_bucket             = local.state_bucket
   vm_service_account_email = module.base.service_account_email
 }
