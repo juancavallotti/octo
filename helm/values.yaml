@@ -25,10 +25,22 @@ orchestrator:
   service:
     port: 8090
   # Stage 2 (per-integration external endpoints). When baseDomain is set the
-  # orchestrator creates a Traefik Ingress per externally-exposed deployment at
-  # {subdomain}.{baseDomain}, issuing TLS via clusterIssuer. Empty = internal only.
+  # orchestrator creates an Ingress per externally-exposed deployment at
+  # {subdomain}.{baseDomain}. clusterIssuer empty = no TLS annotation and no
+  # per-host cert (wildcardTLS or an externally-terminated cluster still work);
+  # set it only to a ClusterIssuer that actually exists on the target cluster —
+  # it is not assumed, unlike the k3s bootstrap's own letsencrypt-prod.
   baseDomain: ""
   clusterIssuer: ""
+  # IngressClassName on every per-integration Ingress. Empty omits the field,
+  # letting the cluster's default IngressClass (if any) claim it — the safe
+  # choice on a cluster that isn't this project's own k3s bootstrap.
+  ingressClass: traefik
+  # Extra annotations merged onto every per-integration Ingress — e.g.
+  # controller-specific body-size or timeout annotations. The cert-manager
+  # cluster-issuer annotation (when clusterIssuer is set) always wins on
+  # key collision.
+  ingressAnnotations: {}
 
 # Log-aggregator service: consumes the NATS internal.logs subject (competing
 # consumer) and persists events to Postgres; serves the read query API the

@@ -46,11 +46,20 @@ type Client struct {
 	namespace     string
 	runtimeImage  string
 	baseDomain    string // parent domain for external endpoints ("" = disabled)
-	clusterIssuer string // cert-manager ClusterIssuer for per-host external TLS
+	clusterIssuer string // cert-manager ClusterIssuer for per-host external TLS ("" = no TLS annotation, no per-host cert)
 	// wildcardTLSSecret, when set, is a pre-issued *.{baseDomain} TLS Secret that
 	// every per-integration ingress references instead of issuing a per-host cert
 	// via clusterIssuer. Empty = per-host issuance (the clusterIssuer path).
 	wildcardTLSSecret string
+	// ingressClass names the IngressClass every per-integration Ingress declares.
+	// Empty omits the field entirely, letting the cluster's default IngressClass
+	// (if any) claim it — the correct behavior on a cluster that isn't this
+	// project's own k3s bootstrap.
+	ingressClass string
+	// extraAnnotations are merged onto every per-integration Ingress, underneath
+	// the cert-manager cluster-issuer annotation (which always wins on key
+	// collision) — e.g. controller-specific body-size or timeout annotations.
+	extraAnnotations map[string]string
 	// runtimeServices is the env the orchestrator injects so deployed runtime pods
 	// can reach leader election + the KV API. Zero value disables injection.
 	runtimeServices RuntimeServices
@@ -68,9 +77,10 @@ type corelisterDeployments = appslisters.DeploymentNamespaceLister
 // New builds a Client from the in-cluster config. It returns an error when the
 // orchestrator is not running inside a cluster (e.g. local `go run`), letting the
 // caller disable deployment features rather than crash. baseDomain may be empty,
-// which disables external endpoints (Apply then ignores Spec.Expose). rs carries
-// the runtime-services env injected into deployed pods; its zero value disables it.
-func New(namespace, runtimeImage, baseDomain, clusterIssuer, wildcardTLSSecret string, rs RuntimeServices) (*Client, error) {
+// which disables external endpoints (Apply then ignores Spec.Expose). ingressClass
+// empty omits IngressClassName from every per-integration Ingress. rs carries the
+// runtime-services env injected into deployed pods; its zero value disables it.
+func New(namespace, runtimeImage, baseDomain, clusterIssuer, wildcardTLSSecret, ingressClass string, extraAnnotations map[string]string, rs RuntimeServices) (*Client, error) {
 	cfg, err := rest.InClusterConfig()
 	if err != nil {
 		return nil, fmt.Errorf("kube: in-cluster config: %w", err)
@@ -86,6 +96,8 @@ func New(namespace, runtimeImage, baseDomain, clusterIssuer, wildcardTLSSecret s
 		baseDomain:        baseDomain,
 		clusterIssuer:     clusterIssuer,
 		wildcardTLSSecret: wildcardTLSSecret,
+		ingressClass:      ingressClass,
+		extraAnnotations:  extraAnnotations,
 		runtimeServices:   rs,
 	}, nil
 }

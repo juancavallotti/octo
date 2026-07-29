@@ -159,23 +159,40 @@ func (c *Client) Apply(ctx context.Context, spec Spec) error {
 	return nil
 }
 
-// ingress builds the per-deployment Traefik Ingress: host {subdomain}.{baseDomain}
-// routed to the deployment's Service. TLS comes from the shared wildcard Secret
-// when one is configured, otherwise cert-manager issues a per-host cert via the
-// ClusterIssuer annotation.
+// ingress builds the per-deployment Ingress: host {subdomain}.{baseDomain} routed
+// to the deployment's Service. TLS comes from the shared wildcard Secret when one
+// is configured; otherwise, if a ClusterIssuer is set, cert-manager issues a
+// per-host cert via its annotation; otherwise the Ingress carries no TLS at all
+// (the cluster terminates TLS elsewhere, or this endpoint is plain HTTP).
 func (c *Client) ingress(name string, labels map[string]string, spec Spec) *networkingv1.Ingress {
 	host := c.ExternalHost(spec.Subdomain)
-	ingressClass := "traefik"
 	pathType := networkingv1.PathTypePrefix
 
-	tlsSecret := name + "-tls"
-	var annotations map[string]string
-	if c.wildcardTLSSecret != "" {
+	// Copy extraAnnotations rather than mutate the shared map, and let the
+	// cert-manager annotation win on key collision.
+	annotations := make(map[string]string, len(c.extraAnnotations)+1)
+	for k, v := range c.extraAnnotations {
+		annotations[k] = v
+	}
+
+	var tls []networkingv1.IngressTLS
+	switch {
+	case c.wildcardTLSSecret != "":
 		// The wildcard cert already covers {subdomain}.{baseDomain}; reference its
 		// Secret and add no cert-manager annotation so no per-host cert is issued.
-		tlsSecret = c.wildcardTLSSecret
-	} else {
-		annotations = map[string]string{"cert-manager.io/cluster-issuer": c.clusterIssuer}
+		tls = []networkingv1.IngressTLS{{Hosts: []string{host}, SecretName: c.wildcardTLSSecret}}
+	case c.clusterIssuer != "":
+		annotations["cert-manager.io/cluster-issuer"] = c.clusterIssuer
+		tls = []networkingv1.IngressTLS{{Hosts: []string{host}, SecretName: name + "-tls"}}
+	}
+	if len(annotations) == 0 {
+		annotations = nil
+	}
+
+	var ingressClassName *string
+	if c.ingressClass != "" {
+		ic := c.ingressClass
+		ingressClassName = &ic
 	}
 
 	return &networkingv1.Ingress{
@@ -185,11 +202,8 @@ func (c *Client) ingress(name string, labels map[string]string, spec Spec) *netw
 			Annotations: annotations,
 		},
 		Spec: networkingv1.IngressSpec{
-			IngressClassName: &ingressClass,
-			TLS: []networkingv1.IngressTLS{{
-				Hosts:      []string{host},
-				SecretName: tlsSecret,
-			}},
+			IngressClassName: ingressClassName,
+			TLS:              tls,
 			Rules: []networkingv1.IngressRule{{
 				Host: host,
 				IngressRuleValue: networkingv1.IngressRuleValue{

@@ -72,6 +72,14 @@ spec:
             - name: WILDCARD_TLS_SECRET
               value: {{ .Values.wildcardTLS.secretName | quote }}
             {{- end }}
+            {{- if .Values.orchestrator.ingressClass }}
+            - name: INGRESS_CLASS
+              value: {{ .Values.orchestrator.ingressClass | quote }}
+            {{- end }}
+            {{- if .Values.orchestrator.ingressAnnotations }}
+            - name: INGRESS_ANNOTATIONS
+              value: {{ .Values.orchestrator.ingressAnnotations | toJson | quote }}
+            {{- end }}
           readinessProbe:
             httpGet:
               path: /healthz
