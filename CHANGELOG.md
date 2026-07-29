@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.6.1](https://github.com/juancavallotti/octo/compare/v0.6.0...v0.6.1) (2026-07-29)
+
+
+### Features
+
+* **deploy:** support a separate domain for per-integration subdomains ([d820c33](https://github.com/juancavallotti/octo/commit/d820c3351c5dad85476ad6e181ede9a5114e1ff0))
+* **deploy:** support a separate domain for per-integration subdomains ([fae630d](https://github.com/juancavallotti/octo/commit/fae630db447b460daa73e87c728eacf27511e88a))
+* **release:** publish the PaaS images publicly on Docker Hub ([7a0ca28](https://github.com/juancavallotti/octo/commit/7a0ca281d8d03b4e97ad6946e1433ceb7100abe5))
+* **release:** publish the PaaS images publicly on Docker Hub ([7640bff](https://github.com/juancavallotti/octo/commit/7640bff79aa29a3c809784cfdafec3cc76d0823c))
+* **runtime:** derive default flow workers from GOMAXPROCS ([4f57a61](https://github.com/juancavallotti/octo/commit/4f57a6163bed2a53020e3d2e368eb12c5b7e3cb2)), closes [#197](https://github.com/juancavallotti/octo/issues/197)
+
+
+### Bug Fixes
+
+* address CodeRabbit review on the runtime quick-wins PR ([0cc5ab3](https://github.com/juancavallotti/octo/commit/0cc5ab34a782042ce1833d37e380fb83aae88cf6))
+* **build:** restore repo-root context for the runtime image build ([ac255b9](https://github.com/juancavallotti/octo/commit/ac255b90b66ea484b42e208d50fd582080d8066c))
+* **database:** default the connection pool instead of falling through to Go's built-in of 2 ([0760392](https://github.com/juancavallotti/octo/commit/076039298db37b34e59e92ee7fdef7aac636daff)), closes [#190](https://github.com/juancavallotti/octo/issues/190)
+* **deploy:** correct wildcard-cert docs (CodeRabbit review) ([a564c2b](https://github.com/juancavallotti/octo/commit/a564c2be670d8767bc26be2af38dbfa65cbabba4))
+* **deploy:** plumb apps_domain through Cloud Build's automatic deploy ([6c6edc3](https://github.com/juancavallotti/octo/commit/6c6edc3fbb97b659571defef7e3b00dec7b24367))
+* **orchestrator:** make per-integration Ingress class/annotations/TLS configurable ([6f949ce](https://github.com/juancavallotti/octo/commit/6f949ceb8f69c4a4d936de8858df62b242d9bc18))
+* **orchestrator:** make per-integration Ingress class/annotations/TLS configurable ([c0415f1](https://github.com/juancavallotti/octo/commit/c0415f1d7959e268420a5313797527ca26c57044)), closes [#201](https://github.com/juancavallotti/octo/issues/201)
+
+
+### Performance
+
+* **core:** switch the event bus to copy-on-write ([1e6e213](https://github.com/juancavallotti/octo/commit/1e6e21339dd31aad244a4a923514e177148475c8)), closes [#205](https://github.com/juancavallotti/octo/issues/205)
+
 ## [0.6.0](https://github.com/juancavallotti/octo/compare/v0.5.0...v0.6.0) (2026-07-26)
 
 
