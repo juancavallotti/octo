@@ -27,6 +27,7 @@ import {
   Radio,
   FileText,
   Box,
+  ScatterChart,
   type LucideIcon,
 } from "lucide-react";
 import { SlackIcon } from "./slack-icon";
@@ -105,6 +106,7 @@ const ICONS: Record<string, LucideIcon> = {
   Layers,
   Radio,
   FileText,
+  ScatterChart,
   Slack: SlackIcon,
   Notion: NotionIcon,
   Mcp: McpIcon,

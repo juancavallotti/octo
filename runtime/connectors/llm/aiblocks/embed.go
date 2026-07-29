@@ -24,7 +24,7 @@ func init() {
 		Label:    "AI Embed",
 		Category: "processor",
 		Group:    "AI & LLM",
-		Icon:     "Sparkles",
+		Icon:     "ScatterChart",
 		Description: "Turn text into one or more embedding vectors via an OpenAI or Gemini connector, " +
 			"stored in a variable. Anthropic connectors are rejected: Anthropic has no embeddings API.",
 		Config: reflect.TypeFor[embedSettings](),
