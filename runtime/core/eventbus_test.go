@@ -65,3 +65,27 @@ func TestEventBusIgnoresNilHandler(t *testing.T) {
 	bus.Subscribe(nil)
 	bus.Publish(types.FlowEvent{Kind: types.FlowEventStarted}) // must not panic
 }
+
+// TestEventBusUnsubscribeDuringPublish confirms that unsubscribing a handler
+// from inside another handler's callback does not affect the Publish call
+// already in progress: the snapshot that call is iterating was fixed before
+// any handler ran, so a subscriber present at the start still fires once even
+// if another handler removes it mid-call. It stops firing on the next Publish,
+// once the removal's snapshot is the one in effect.
+func TestEventBusUnsubscribeDuringPublish(t *testing.T) {
+	bus := NewEventBus()
+
+	var bCount int
+	bUnsubscribe := bus.Subscribe(func(types.FlowEvent) { bCount++ })
+	bus.Subscribe(func(types.FlowEvent) { bUnsubscribe() })
+
+	bus.Publish(types.FlowEvent{Kind: types.FlowEventCompleted})
+	if bCount != 1 {
+		t.Fatalf("bCount = %d after first Publish, want 1 (subscriber was in the snapshot)", bCount)
+	}
+
+	bus.Publish(types.FlowEvent{Kind: types.FlowEventCompleted})
+	if bCount != 1 {
+		t.Fatalf("bCount = %d after second Publish, want 1 (subscriber was removed before this snapshot)", bCount)
+	}
+}
