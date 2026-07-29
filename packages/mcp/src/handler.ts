@@ -76,7 +76,7 @@ export interface OctoMcpHandlerOptions {
    * generic {@link DEFAULT_SERVER_INFO}; hosts should pass their own so clients
    * can tell deployments apart (e.g. `octo-platform` vs `octo-standalone`).
    */
-  serverInfo?: OctoMcpServerInfo;
+  serverInfo?: Partial<OctoMcpServerInfo>;
 }
 
 /**
