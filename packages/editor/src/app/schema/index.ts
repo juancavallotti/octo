@@ -27,11 +27,13 @@ import {
   Radio,
   FileText,
   Box,
+  ScatterChart,
   type LucideIcon,
 } from "lucide-react";
 import { SlackIcon } from "./slack-icon";
 import { NotionIcon } from "./notion-icon";
 import { McpIcon } from "./mcp-icon";
+import { PineconeIcon } from "./pinecone-icon";
 import capsJson from "./capabilities.json";
 import type {
   BlockSpec,
@@ -105,9 +107,11 @@ const ICONS: Record<string, LucideIcon> = {
   Layers,
   Radio,
   FileText,
+  ScatterChart,
   Slack: SlackIcon,
   Notion: NotionIcon,
   Mcp: McpIcon,
+  Pinecone: PineconeIcon,
 };
 
 /** Resolve a block's icon name to a component, falling back to a generic box. */

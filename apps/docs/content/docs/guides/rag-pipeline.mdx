@@ -1,0 +1,295 @@
+---
+title: "Build a RAG Pipeline"
+description: "Embed text with Gemini, store and search it in Pinecone, and let an agent answer from what it retrieves."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Cards, Card } from 'fumadocs-ui/components/card';
+import { Steps, Step } from 'fumadocs-ui/components/steps';
+import { Bot, FlaskConical, Sparkles, Waypoints } from 'lucide-react';
+
+RAG (retrieval-augmented generation) is the shape most real LLM integration work takes: embed your own content, store the vectors, and at query time retrieve whatever is most similar before asking a model to answer. This guide builds all of it — embed, upsert, search, answer — with the `ai-embed` block, the `pinecone` connector, and an [ai-agent](/ai/agents) that decides for itself when to search. It follows
+[`samples/rag-pipeline`](https://github.com/juancavallotti/octo/tree/main/samples/rag-pipeline).
+
+Three flows, and the middle one is the hinge:
+
+| Flow | Source | What it does |
+|---|---|---|
+| `ingest` | `POST /documents` | Embeds a document and upserts it into the index. |
+| `search` | none — it is *called* | Embeds a phrase, returns the closest documents. |
+| `ask` | `POST /ask` | An agent that calls `search` as a tool, then answers. |
+
+## Set up Gemini and Pinecone
+
+Unlike most samples, this one needs two real external accounts before it runs —
+there's no local stand-in for a vector index.
+
+<Steps>
+<Step>
+Get a Gemini API key from [aistudio.google.com/apikey](https://aistudio.google.com/apikey).
+</Step>
+<Step>
+Create a Pinecone account and an index at [app.pinecone.io](https://app.pinecone.io):
+  - **Dimension: `768`** — must match the `ai-embed` block's `dimensions` setting below.
+  - **Metric: `cosine`**.
+
+Copy the index name and an API key.
+</Step>
+<Step>
+Export the credentials and run it:
+
+```bash
+export GEMINI_API_KEY=...
+export PINECONE_API_KEY=...
+export PINECONE_INDEX=...   # the index name from step 2
+task run:sample -- rag-pipeline
+```
+</Step>
+</Steps>
+
+<Callout type="warn">
+The `pinecone` connector looks its index up at startup, and that lookup is also
+what validates it: the index's actual dimension is compared against the
+connector's `dimension` setting, so a mismatch — the classic Pinecone failure
+mode — fails at boot with a clear error instead of a confusing one on the first
+upsert.
+</Callout>
+
+## Embed and store: the ingest flow
+
+`ai-embed` turns `body.text` into a vector and puts it in `vars.vector`;
+`pinecone-upsert` writes it into the index, keyed by `body.id`. Upserting the
+same id again overwrites it — ingestion is idempotent by id.
+
+```yaml title="samples/rag-pipeline/config.yaml (excerpt)"
+- name: ingest
+  source:
+    connector: api
+    type: http
+    settings:
+      path: /documents
+  process:
+    - type: ai-embed
+      name: embed-document
+      settings:
+        connector: gemini
+        text: body.text
+        model: gemini-embedding-001
+        dimensions: 768
+        resultVar: vector
+    - type: pinecone-upsert
+      name: store
+      settings:
+        connector: pinecone
+        vectors: '[{"id": body.id, "values": vars.vector, "metadata": {"text": body.text}}]'
+```
+
+Note where each step's output goes, because it is the whole of why this flow is
+two blocks and not four:
+
+- **`ai-embed` writes to a variable.** `pinecone-upsert` still needs `body.id`
+  and `body.text` to build the record, so the document has to survive the embed
+  step. The vector is an input to the next block, not the payload.
+- **`pinecone-upsert` writes to the body**, because no `resultVar` names a
+  variable. The endpoint answers `{"upserted": 1}` with no `set-payload` in
+  between. Every `pinecone-*` block follows that rule — see
+  [Results: the body, or a variable](/reference/connectors/pinecone#results-the-body-or-a-variable).
+
+`ai-embed` takes an OpenAI- or Gemini-backed connector; Anthropic has no
+embeddings API, so pointing it at an `llm-anthropic` connector fails at flow
+build time rather than on the first request.
+
+`pinecone-upsert`'s `vectors` field is a single CEL expression evaluating to a
+*list* of `{id, values, metadata}` objects. One document in, one-element list;
+send an array from `body` instead and the same block batches it in one call,
+chunked automatically if it's large. `metadata` carries whatever you want back at
+search time — here, just the original text, since that's what retrieval has to
+hand the model.
+
+```bash
+curl -s localhost:8080/documents -d '{
+  "id": "plateau",
+  "text": "Plateaus in bouldering are usually a training-variety problem, not a strength problem."
+}'
+# -> {"upserted": 1}
+```
+
+## Retrieval as a flow of its own
+
+`search` is the mirror image of `ingest` — embed, then query instead of upsert —
+and it has **no source**. It isn't an endpoint; it's the retrieval step, named
+once so that everything needing retrieval refers to it instead of repeating it.
+
+```yaml title="samples/rag-pipeline/config.yaml (excerpt)"
+- name: search
+  process:
+    - type: ai-embed
+      name: embed-query
+      settings:
+        connector: gemini
+        text: body.query
+        model: gemini-embedding-001
+        dimensions: 768
+        resultVar: queryVector
+    - type: pinecone-query
+      name: find-similar
+      settings:
+        connector: pinecone
+        vector: vars.queryVector
+        topK: 3
+        includeMetadata: true
+```
+
+Again no `resultVar` on the query, so the matches are the flow's body — a list of
+`{id, score, metadata}`. Nothing reshapes them on the way out, which is what
+makes the next section a one-liner.
+
+Run retrieval on its own, without any model deciding anything:
+
+```bash
+octo invoke -config samples/rag-pipeline -flow search -data '{"query": "training plateau"}'
+# -> [{"id": "plateau", "score": 0.52, "metadata": {"text": "Plateaus in bouldering are..."}}]
+```
+
+Notice the query shares no words with the stored text. That is the point of
+embeddings: the match is on meaning, not keywords.
+
+## Answering: retrieval as an agent tool
+
+The naive way to close the loop is a fixed chain — embed, query, prompt. It works
+until a question needs two different searches, or none. So `ask` hands retrieval
+to the model as a **tool** and lets it decide:
+
+```yaml title="samples/rag-pipeline/config.yaml (excerpt)"
+- name: ask
+  source:
+    connector: api
+    type: http
+    settings:
+      path: /ask
+  process:
+    - type: ai-agent
+      name: answer-question
+      connector: gemini
+      maxIterations: 5
+      prompt: >
+        Answer the user's question in body.question about their knowledge base.
+        Call search_documents with a short phrase describing what you need; it
+        returns the closest documents, each with its id and its text under
+        metadata. Answer using ONLY the text those documents contain, and
+        respond with a JSON object {"answer": "...", "sources": ["id", ...]}
+        listing the ids you used.
+      guardrail: >
+        If the documents that come back do not contain the answer, do not guess
+        from your own knowledge — take the default path instead.
+      tools:
+        - name: search_documents
+          description: >
+            Search the knowledge base for the documents most similar in meaning
+            to a phrase. Returns a list of {id, score, metadata}.
+          inputSchema: |
+            {
+              "type": "object",
+              "required": ["query"],
+              "properties": { "query": { "type": "string" } }
+            }
+          process:
+            - type: flow-ref
+              name: retrieve
+              settings:
+                flow: search
+      default:
+        process:
+          - type: set-payload
+            settings:
+              value: '{"answer": "I could not find that in the knowledge base.", "sources": []}'
+```
+
+The tool body is a single [`flow-ref`](/guides/composing-flows), and it fits
+because both ends already line up:
+
+- An agent tool's **arguments arrive as its branch's message body**. The schema
+  says the model must send `{"query": "..."}` — exactly what `search` reads.
+- A tool's **result is its branch's output body**. `search` ends with the matches
+  *as* its body, so they go back to the model as-is. A `pinecone-query` writing
+  to a variable would need a `set-payload` here to fish them back out.
+
+```bash
+curl -s localhost:8080/ask -d '{"question": "I stopped improving. What should I change?"}'
+# -> {"answer": "Vary your training rather than chasing strength...", "sources": ["plateau"]}
+```
+
+The `sources` field is not decoration: it is how you tell retrieval from
+invention. Combined with the `guardrail` — which sends a question the documents
+can't answer down the `default` path instead of into a guess — it's the minimum
+honesty a RAG endpoint owes its caller.
+
+<Callout type="info">
+Both flows use `ai-embed`'s single-vs-batch behaviour: `text` evaluates to a
+string here, so each call embeds one text and the result is one vector. Give it a
+list instead and the result is a list of vectors, in the same order — see
+[ai-embed](/reference/blocks/ai#ai-embed).
+</Callout>
+
+## Multi-tenancy: namespaces
+
+Namespaces are how Pinecone isolates tenants inside one index, so every
+`pinecone-*` block takes a `namespace` expression (falling back to the
+connector's default when empty). A multi-tenant version of this pipeline routes
+`body.tenantId` to a different namespace per request rather than hardcoding one.
+See [Namespaces](/reference/connectors/pinecone#namespaces).
+
+## Testing it without an index
+
+The sample ships three suites — one per flow — and they run in CI with fake
+credentials against no network at all. Two tricks make a pipeline like this
+testable:
+
+1. **A configured `host` skips the startup lookup.** The connector normally
+   resolves its index by name, which is a real control-plane call at boot — fatal
+   in a test. Given the index host it addresses the index directly and startup
+   touches nothing, so `PINECONE_HOST` in `samples/.env.test` is what lets these
+   flows be built at all.
+2. **A refused port proves a block really calls out.** Mock the embedder, point
+   `PINECONE_HOST` at `127.0.0.1:9`, and the upsert fails with a dial error
+   naming that exact address — proof the block resolved its connector and issued
+   the RPC, which a mocked block can never show, and an assertion no live index
+   could ever satisfy.
+
+```yaml title="samples/rag-pipeline/ingest_test.yaml (excerpt)"
+- name: the vector really goes to Pinecone, and a broken index fails the flow
+  input:
+    data: { id: plateau, text: "Plateaus are a training-variety problem." }
+  env:
+    PINECONE_HOST: 127.0.0.1:9
+  mocks:
+    ingest.embed-document:
+      default:
+        body: { id: plateau, text: "Plateaus are a training-variety problem." }
+        vars: { vector: [0.1, 0.2, 0.3] }
+  expect:
+    error: 'pinecone-upsert: upsert chunk: rpc error: code = Unavailable'
+```
+
+The same trick works on the model: the Gemini SDK honours
+`GOOGLE_GEMINI_BASE_URL`, so a case that points it at the discard port proves
+`ai-embed` and `ai-agent` really drive the model without spending a token. What
+none of it can prove is the model's *choice* to call the tool — that needs a
+model, and no test may call one. See [Testing a Flow](/guides/testing-flows).
+
+## Where to go next
+
+<Cards>
+  <Card icon={<Waypoints />} href="/reference/connectors/pinecone" title="Pinecone connector reference">
+    Every pinecone-* block and setting, including fetch and delete.
+  </Card>
+  <Card icon={<Sparkles />} href="/reference/blocks/ai#ai-embed" title="ai-embed reference">
+    The embed block's full settings, including batch behaviour.
+  </Card>
+  <Card icon={<Bot />} href="/ai/agents" title="AI Agents">
+    Tool loops, guardrails, memory, and what the default path is for.
+  </Card>
+  <Card icon={<FlaskConical />} href="/guides/testing-flows" title="Testing a Flow">
+    Mocks, spies, and the suites that run beside every sample.
+  </Card>
+</Cards>

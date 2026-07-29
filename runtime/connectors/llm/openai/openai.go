@@ -60,8 +60,9 @@ type Connector struct {
 }
 
 var (
-	_ core.Connector = (*Connector)(nil)
-	_ core.LLMClient = (*Connector)(nil)
+	_ core.Connector   = (*Connector)(nil)
+	_ core.LLMClient   = (*Connector)(nil)
+	_ core.EmbedClient = (*Connector)(nil)
 )
 
 // Start parses the settings, validates the API key, and builds the client so a
@@ -133,6 +134,55 @@ func (c *Connector) Complete(ctx context.Context, req core.LLMRequest) (*core.LL
 		return nil, fmt.Errorf("llm-openai complete: %w", err)
 	}
 	return translateResponse(cc)
+}
+
+// Embed embeds a batch of texts in one request, translating the SDK's
+// index-tagged results back into request order — the SDK documents input as an
+// array but doesn't promise the response preserves that order.
+func (c *Connector) Embed(ctx context.Context, req core.EmbedRequest) (*core.EmbedResponse, error) {
+	if len(req.Input) == 0 {
+		return nil, fmt.Errorf("llm-openai embed: input is required")
+	}
+
+	params := sdk.EmbeddingNewParams{
+		Input: sdk.EmbeddingNewParamsInputUnion{OfArrayOfStrings: req.Input},
+		Model: req.Model,
+	}
+	if req.Dimensions > 0 {
+		params.Dimensions = param.NewOpt(int64(req.Dimensions))
+	}
+
+	resp, err := c.client.Embeddings.New(ctx, params)
+	if err != nil {
+		return nil, fmt.Errorf("llm-openai embed: %w", err)
+	}
+	return translateEmbedResponse(resp, len(req.Input))
+}
+
+// translateEmbedResponse reorders the SDK's index-tagged embeddings back into
+// request order and converts each to float32.
+func translateEmbedResponse(resp *sdk.CreateEmbeddingResponse, want int) (*core.EmbedResponse, error) {
+	if len(resp.Data) != want {
+		return nil, fmt.Errorf("llm-openai embed: response had %d embeddings, want %d", len(resp.Data), want)
+	}
+	vectors := make([][]float32, want)
+	for _, d := range resp.Data {
+		if d.Index < 0 || int(d.Index) >= want {
+			return nil, fmt.Errorf("llm-openai embed: response embedding index %d out of range", d.Index)
+		}
+		vectors[d.Index] = toFloat32(d.Embedding)
+	}
+	return &core.EmbedResponse{Vectors: vectors}, nil
+}
+
+// toFloat32 narrows the SDK's float64 embedding values to the runtime's float32
+// vector representation.
+func toFloat32(in []float64) []float32 {
+	out := make([]float32, len(in))
+	for i, v := range in {
+		out[i] = float32(v)
+	}
+	return out
 }
 
 // toMessages converts the conversation to SDK message params, prepending the

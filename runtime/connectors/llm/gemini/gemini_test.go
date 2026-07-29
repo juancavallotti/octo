@@ -164,3 +164,67 @@ func TestCompleteEndToEnd(t *testing.T) {
 		t.Error("request missing toolConfig")
 	}
 }
+
+// TestEmbedEndToEnd drives Embed against a canned embeddings response, proving
+// the request carries every input and the requested output dimensionality, and
+// that the response vectors are returned in request order.
+func TestEmbedEndToEnd(t *testing.T) {
+	const cannedResponse = `{
+		"embeddings": [
+			{"values": [0.1, 0.2]},
+			{"values": [0.3, 0.4]}
+		]
+	}`
+
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, cannedResponse)
+	}))
+	defer srv.Close()
+
+	c := &Connector{}
+	if err := c.Start(context.Background(), types.ConnectorConfig{
+		Name: "gem", Settings: types.Settings{"apiKey": "test", "baseURL": srv.URL},
+	}); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+
+	resp, err := c.Embed(context.Background(), core.EmbedRequest{
+		Model:      "gemini-embedding-001",
+		Input:      []string{"first", "second"},
+		Dimensions: 2,
+	})
+	if err != nil {
+		t.Fatalf("embed: %v", err)
+	}
+
+	if len(resp.Vectors) != 2 || resp.Vectors[0][0] != float32(0.1) || resp.Vectors[1][0] != float32(0.3) {
+		t.Errorf("vectors = %+v", resp.Vectors)
+	}
+
+	reqs, ok := gotBody["requests"].([]any)
+	if !ok || len(reqs) != 2 {
+		t.Fatalf("request requests = %v, want a 2-element batch", gotBody["requests"])
+	}
+	first, ok := reqs[0].(map[string]any)
+	if !ok || first["outputDimensionality"] != float64(2) {
+		t.Errorf("request outputDimensionality = %v, want 2", first["outputDimensionality"])
+	}
+}
+
+// TestEmbedRequiresInput proves Embed rejects an empty batch before making a
+// request.
+func TestEmbedRequiresInput(t *testing.T) {
+	c := &Connector{}
+	if err := c.Start(context.Background(), types.ConnectorConfig{
+		Name: "gem", Settings: types.Settings{"apiKey": "test"},
+	}); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if _, err := c.Embed(context.Background(), core.EmbedRequest{Model: "gemini-embedding-001"}); err == nil {
+		t.Error("expected error for empty input")
+	}
+}

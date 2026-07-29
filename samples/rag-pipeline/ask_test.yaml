@@ -1,0 +1,59 @@
+flow: ask
+
+# HONEST LIMITS: the sample's claim is that the agent decides for itself when to
+# search and answers out of what came back. The deciding is the model's, and no
+# test may call a model — so no case here can show the tool being called, the
+# matches reaching the model, or the guardrail sending a hopeless question down
+# the default path.
+#
+# What the tool DOES once called is not a gap, though: it is a flow-ref to
+# `search`, and `search` is pinned block by block in search_test.yaml. The
+# untested part is the model's choice to call it, not what happens after.
+#
+# What is pinned here: that the agent block builds out of this config — its tool,
+# the tool's inputSchema, the guardrail and the default path are all valid, and
+# the flow-ref inside the tool resolves to a real flow — that it is wired to the
+# gemini connector and calls it, and that the question reaches it untouched and
+# its answer leaves the flow untouched.
+
+cases:
+  # Not mocked, so the agent is built and run for real — with the model
+  # UNREACHABLE. Reaching "llm-gemini complete" proves the whole block was
+  # constructed from this config: a tool with a malformed inputSchema, a
+  # flow-ref naming a flow that does not exist, or a missing default path would
+  # each have failed earlier and differently.
+  #
+  # It also pins a behaviour worth pinning: an agent that cannot reach the model
+  # FAILS. The default path is the guardrail for a model that declines or runs
+  # out of iterations, not a catch-all for a broken connector.
+  - name: the agent builds with its retrieval tool and calls the model, and a broken model fails the flow
+    input:
+      data: { question: "I stopped improving. What should I change?" }
+    env:
+      GOOGLE_GEMINI_BASE_URL: http://127.0.0.1:9
+    expect:
+      error: 'ai-agent: llm-gemini complete: doRequest: error sending request: Post "http://127.0.0.1:9/v1beta/models/gemini-3.5-flash:generateContent"'
+
+  # The question is what the agent is given: the spy's input is the flow's own
+  # doing and is a real assertion. The result body is the mock's, and is asserted
+  # only to pin that the agent's answer is the endpoint's answer, unwrapped — no
+  # step reshapes it on the way out.
+  - name: the question reaches the agent untouched, and the agent's answer is the flow result
+    input:
+      data: { question: "I stopped improving. What should I change?" }
+    mocks:
+      ask.answer-question:
+        default:
+          body:
+            answer: Vary your training rather than chasing strength.
+            sources: [plateau]
+    expect:
+      body:
+        answer: Vary your training rather than chasing strength.
+        sources: [plateau]
+    spies:
+      ask.answer-question:
+        count: 1
+        records:
+          - input:
+              body: { question: "I stopped improving. What should I change?" }

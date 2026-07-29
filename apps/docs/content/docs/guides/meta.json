@@ -16,7 +16,8 @@
     "serving-html",
     "slack-bot",
     "notion-sync",
-    "ai-web-app"
+    "ai-web-app",
+    "rag-pipeline"
   ],
   "title": "Guides"
 }

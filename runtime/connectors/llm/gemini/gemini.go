@@ -62,8 +62,9 @@ type Connector struct {
 }
 
 var (
-	_ core.Connector = (*Connector)(nil)
-	_ core.LLMClient = (*Connector)(nil)
+	_ core.Connector   = (*Connector)(nil)
+	_ core.LLMClient   = (*Connector)(nil)
+	_ core.EmbedClient = (*Connector)(nil)
 )
 
 // Start parses the settings, validates the API key, and builds the client so a
@@ -140,6 +141,44 @@ func (c *Connector) Complete(ctx context.Context, req core.LLMRequest) (*core.LL
 		return nil, fmt.Errorf("llm-gemini complete: %w", err)
 	}
 	return translateResponse(resp), nil
+}
+
+// Embed embeds a batch of texts in one request. Gemini documents the response as
+// preserving request order, so no reordering is needed (contrast OpenAI, which
+// tags each embedding with an index instead of promising order).
+func (c *Connector) Embed(ctx context.Context, req core.EmbedRequest) (*core.EmbedResponse, error) {
+	if len(req.Input) == 0 {
+		return nil, fmt.Errorf("llm-gemini embed: input is required")
+	}
+
+	contents := make([]*genai.Content, len(req.Input))
+	for i, text := range req.Input {
+		contents[i] = genai.NewContentFromText(text, genai.RoleUser)
+	}
+
+	cfg := &genai.EmbedContentConfig{}
+	if req.Dimensions > 0 {
+		if req.Dimensions > math.MaxInt32 {
+			return nil, fmt.Errorf("llm-gemini embed: dimensions %d exceeds int32", req.Dimensions)
+		}
+		dims := int32(req.Dimensions) //nolint:gosec // bounds-checked above
+		cfg.OutputDimensionality = &dims
+	}
+
+	resp, err := c.client.Models.EmbedContent(ctx, req.Model, contents, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("llm-gemini embed: %w", err)
+	}
+	if len(resp.Embeddings) != len(req.Input) {
+		return nil, fmt.Errorf("llm-gemini embed: response had %d embeddings, want %d",
+			len(resp.Embeddings), len(req.Input))
+	}
+
+	vectors := make([][]float32, len(resp.Embeddings))
+	for i, e := range resp.Embeddings {
+		vectors[i] = e.Values
+	}
+	return &core.EmbedResponse{Vectors: vectors}, nil
 }
 
 // toContents converts the conversation to SDK contents. Assistant turns map to
