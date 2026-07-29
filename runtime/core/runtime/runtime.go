@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	goruntime "runtime"
 	"sync"
 
 	"github.com/juancavallotti/octo/runtime/core"
@@ -473,7 +474,8 @@ func (s *Service) debugAddresses() []resolver {
 }
 
 func (s *Service) buildFlow(ctx context.Context, cfg types.FlowConfig, set *connectorSet) (*boundFlow, error) {
-	in := make(chan *types.Message, resolveBuffer(cfg.Buffer))
+	workers := resolveWorkers(cfg.Workers, goruntime.GOMAXPROCS(0))
+	in := make(chan *types.Message, resolveBuffer(cfg.Buffer, workers))
 
 	// A flow with no configured source — or any flow in invoke mode — is driven
 	// by an implicit source: it acquires no resources and becomes callable by
@@ -521,16 +523,17 @@ func (s *Service) buildFlow(ctx context.Context, cfg types.FlowConfig, set *conn
 	}
 
 	bf := &boundFlow{
-		name:       cfg.Name,
-		source:     source,
-		root:       root,
-		errorPath:  errorPath,
-		workers:    resolveWorkers(cfg.Workers),
-		in:         in,
-		bus:        s.bus,
-		pool:       p,
-		implicit:   implicit,
-		sourceDesc: sourceDesc,
+		name:           cfg.Name,
+		source:         source,
+		root:           root,
+		errorPath:      errorPath,
+		workers:        workers,
+		workersDerived: cfg.Workers <= 0,
+		in:             in,
+		bus:            s.bus,
+		pool:           p,
+		implicit:       implicit,
+		sourceDesc:     sourceDesc,
 	}
 
 	bf.installResume()
@@ -603,7 +606,8 @@ func (s *Service) newSource(
 func (s *Service) startFlows(ctx context.Context, flows []*boundFlow) ([]*boundFlow, error) {
 	started := make([]*boundFlow, 0, len(flows))
 	for _, flow := range orderForStart(flows) {
-		slog.Info("starting flow", "flow", flow.name, "workers", flow.workers, "source", flow.sourceDesc)
+		slog.Info("starting flow", "flow", flow.name, "workers", flow.workers,
+			"workersOrigin", workersOrigin(flow.workersDerived), "source", flow.sourceDesc)
 		if err := flow.start(ctx); err != nil {
 			return started, fmt.Errorf("start flow %q: %w", flow.name, err)
 		}

@@ -168,3 +168,45 @@ func TestBoundFlowDrainsBeforeStopReturns(t *testing.T) {
 		t.Errorf("completed events = %d, want %d", got, n)
 	}
 }
+
+func TestResolveWorkers(t *testing.T) {
+	cases := []struct {
+		name       string
+		configured int
+		gomaxprocs int
+		want       int
+	}{
+		{"unconfigured, single core: floor binds", 0, 1, 8},
+		{"unconfigured, two cores: floor still binds", 0, 2, 8},
+		{"unconfigured, eight cores: derived", 0, 8, 32},
+		{"unconfigured, thirty-two cores: derived", 0, 32, 128},
+		{"configured wins regardless of gomaxprocs", 5, 8, 5},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := resolveWorkers(tc.configured, tc.gomaxprocs); got != tc.want {
+				t.Errorf("resolveWorkers(%d, %d) = %d, want %d", tc.configured, tc.gomaxprocs, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestResolveBuffer(t *testing.T) {
+	cases := []struct {
+		name       string
+		configured int
+		workers    int
+		want       int
+	}{
+		{"unconfigured, few workers: floor binds", 0, 8, 64},
+		{"unconfigured, many workers: floor tracks workers", 0, 100, 100},
+		{"configured wins regardless of workers", 200, 8, 200},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := resolveBuffer(tc.configured, tc.workers); got != tc.want {
+				t.Errorf("resolveBuffer(%d, %d) = %d, want %d", tc.configured, tc.workers, got, tc.want)
+			}
+		})
+	}
+}

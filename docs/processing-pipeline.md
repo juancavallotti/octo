@@ -128,8 +128,9 @@ event-per-message guarantee) intact. `handle-errors` proves the simple half
    each spawning its own goroutines. The pool is started before the source emits
    and stopped after the per-flow workers drain.
 
-- **No cross-flow ordering.** Flows default to 8 workers, so messages may complete
-  out of order. Set `workers: 1` for FIFO processing within a flow.
+- **No cross-flow ordering.** Flows default to `max(8, GOMAXPROCS × 4)` workers
+  (8 on a single-core container, 32 on 8 cores), so messages may complete out of
+  order. Set `workers: 1` for FIFO processing within a flow.
 - **Backpressure** comes from the bounded source channel (`buffer`): when workers
   fall behind, the channel fills and the source blocks.
 - A failing message aborts only that message — the worker survives poison
@@ -357,8 +358,8 @@ connectors:
 
 flows:
   - name: ingest-orders
-    workers: 8          # per-flow worker pool size; defaults to 8 (set 1 for FIFO)
-    buffer: 128         # source -> worker channel depth; defaults to 64
+    workers: 8          # per-flow worker pool size; defaults to max(8, GOMAXPROCS × 4) (set 1 for FIFO)
+    buffer: 128         # source -> worker channel depth; defaults to max(64, workers)
     pool: 16            # shared pool for concurrent composites; defaults to 8
     source:
       connector: orders-kafka   # references connectors[].name
