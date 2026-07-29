@@ -42,7 +42,7 @@ steps:
     args: ["build", "-t", "${_IMAGE_BASE}/octo-schema:${_TAG}", "-t", "${_IMAGE_BASE}/octo-schema:latest", "-f", "sql/Dockerfile", "./sql"]
   - id: build-runtime
     name: gcr.io/cloud-builders/docker
-    args: ["build", "-t", "${_IMAGE_BASE}/octo-runtime:${_TAG}", "-t", "${_IMAGE_BASE}/octo-runtime:latest", "-f", "runtime/Dockerfile", "./runtime"]
+    args: ["build", "-t", "${_IMAGE_BASE}/octo-runtime:${_TAG}", "-t", "${_IMAGE_BASE}/octo-runtime:latest", "-f", "runtime/Dockerfile", "."]
 
   # Push the images explicitly (not via the trailing `images:` block) so they are in
   # the registry *before* the deploy step's octo-pull reads them by tag.
