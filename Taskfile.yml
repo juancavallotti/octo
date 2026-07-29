@@ -333,7 +333,7 @@ tasks:
     requires:
       vars: [TAG]
     vars:
-      DOMAIN: '{{.DOMAIN | default "octo.juancavallotti.com"}}'
+      DOMAIN: '{{.DOMAIN | default "octopaas.dev"}}'
       INSTANCE: '{{.INSTANCE | default "octo"}}'
       ZONE: '{{.ZONE | default "us-west1-a"}}'
     cmds:

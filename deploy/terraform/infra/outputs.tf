@@ -9,8 +9,8 @@ output "static_ip" {
 }
 
 output "url" {
-  description = "Public HTTPS URL once DNS resolves and cert-manager issues the cert."
-  value       = module.base.url
+  description = "Public HTTPS URL of the editor once DNS resolves and cert-manager issues the cert. May differ from apps_domain (module.base.url), which is what DNS is actually managed for."
+  value       = "https://${var.domain}"
 }
 
 output "ssh_command" {

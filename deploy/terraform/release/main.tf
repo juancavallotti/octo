@@ -16,6 +16,9 @@ locals {
   # The release state bucket (matches the literal in backend.tf). Also holds oidc.json
   # so the Cloud Build deploy step can read the OIDC creds without the local tfvars.
   state_bucket = "octo-tfstate-${var.project_id}"
+  # The domain per-integration subdomains + the wildcard cert actually use. Falls
+  # back to `domain` for the original single-domain setup.
+  apps_domain_eff = var.apps_domain != "" ? var.apps_domain : var.domain
 }
 
 # Operator access token for pulling the OCI chart from Artifact Registry.
@@ -157,6 +160,7 @@ module "octo" {
   image_tag         = var.image_tag
   registry_password = data.google_client_config.current.access_token
   domain            = var.domain
+  apps_domain       = local.apps_domain_eff
   postgres_password = random_password.postgres.result
   cluster_issuer    = var.cluster_issuer
   wildcard_tls      = var.wildcard_tls

@@ -39,7 +39,12 @@ variable "registry_password" {
 
 variable "domain" {
   type        = string
-  description = "Editor hostname; per-integration subdomains live under *.{domain}."
+  description = "Editor hostname (ingress.host). Always gets its own per-host TLS cert, independent of apps_domain."
+}
+
+variable "apps_domain" {
+  type        = string
+  description = "Base hostname per-integration subdomains live under (orchestrator.baseDomain) and the domain the wildcard cert covers. May differ from `domain`."
 }
 
 variable "postgres_password" {
