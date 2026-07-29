@@ -1,0 +1,89 @@
+flow: ingest
+
+# HONEST LIMITS: no case here calls Gemini or Pinecone, so nothing about the
+# quality of an embedding or the state of an index is pinned. What is pinned is
+# the wiring, which is what this flow actually consists of: that the document
+# reaches the embedder, that the vector the embedder produced reaches the upsert
+# alongside the ORIGINAL body (the reason `vector` is a variable and not the
+# body), and that the upsert really calls Pinecone.
+#
+# That the upsert's count becomes the body when no resultVar is set is a property
+# of the block, not of this flow, and is pinned by the connector's Go tests
+# (runtime/connectors/pinecone). Here it can only be taken as given.
+#
+# The http source does not run under invoke, so the POSTed document is written
+# out as the case's input instead.
+
+cases:
+  # Not mocked, so ai-embed is built and run for real — with Gemini UNREACHABLE:
+  # the genai SDK honours GOOGLE_GEMINI_BASE_URL, and 127.0.0.1:9 (discard)
+  # refuses the connection offline, in milliseconds. No network, no cost, same
+  # outcome every run.
+  #
+  # Naming the URL in full is deliberate: a looser assertion would also be
+  # satisfied by a 400 from the REAL generativelanguage.googleapis.com, so if the
+  # SDK ever stopped honouring the variable this case would stay green while
+  # quietly calling out from CI.
+  - name: the document is really embedded, and a broken embedder fails the flow
+    input:
+      data: { id: plateau, text: "Plateaus are a training-variety problem." }
+    env:
+      GOOGLE_GEMINI_BASE_URL: http://127.0.0.1:9
+    expect:
+      error: 'ai-embed: llm-gemini embed: doRequest: error sending request: Post "http://127.0.0.1:9/v1beta/models/gemini-embedding-001:batchEmbedContents"'
+
+  # Same trick one block along, and the reason the connector takes a `host` at
+  # all: pointed at the discard port, the index is addressable and dead. The
+  # embedding is mocked, so the upsert runs for real and gets as far as the wire.
+  #
+  # Reaching a dial failure proves the block resolved its connector and issued
+  # the RPC — the parts a mocked upsert can never show — and the refused address
+  # named in full is what makes it impossible for a live index to satisfy.
+  - name: the vector really goes to Pinecone, and a broken index fails the flow
+    input:
+      data: { id: plateau, text: "Plateaus are a training-variety problem." }
+    env:
+      PINECONE_HOST: 127.0.0.1:9
+    mocks:
+      ingest.embed-document:
+        # A mock must declare a body, so this one restates the document rather
+        # than passing it through. That is the one thing these cases cannot show
+        # about ai-embed — that it leaves the body alone — and it is covered by
+        # the block's own tests instead.
+        default:
+          body: { id: plateau, text: "Plateaus are a training-variety problem." }
+          vars: { vector: [0.1, 0.2, 0.3] }
+    expect:
+      error: 'pinecone-upsert: upsert chunk: rpc error: code = Unavailable desc = connection error: desc = "transport: Error while dialing: dial tcp 127.0.0.1:9: connect: connection refused"'
+
+  # Both calls stood in for, so what is left is the flow's own doing: the spy's
+  # input is what the upsert was HANDED, and it is the assertion that matters —
+  # the document arrives intact, with the embedder's vector beside it. If
+  # ai-embed ever replaced the body with the vector, body.id would be gone here
+  # and the upsert would have nothing to key on.
+  - name: the upsert receives the original document and the vector the embedder returned
+    input:
+      data: { id: plateau, text: "Plateaus are a training-variety problem." }
+    mocks:
+      ingest.embed-document:
+        # A mock must declare a body, so this one restates the document rather
+        # than passing it through. That is the one thing these cases cannot show
+        # about ai-embed — that it leaves the body alone — and it is covered by
+        # the block's own tests instead.
+        default:
+          body: { id: plateau, text: "Plateaus are a training-variety problem." }
+          vars: { vector: [0.1, 0.2, 0.3] }
+      ingest.store:
+        default:
+          body: { upserted: 1 }
+    expect:
+      # The upsert's answer is the endpoint's answer, unwrapped: no set-payload
+      # stands between them.
+      body: { upserted: 1 }
+    spies:
+      ingest.store:
+        count: 1
+        records:
+          - input:
+              body: { id: plateau, text: "Plateaus are a training-variety problem." }
+              vars: { vector: [0.1, 0.2, 0.3] }

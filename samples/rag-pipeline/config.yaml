@@ -1,0 +1,194 @@
+service:
+  name: rag-pipeline
+
+# A RAG (retrieval-augmented generation) pipeline, end to end: embed text with
+# Gemini, store and search it in Pinecone, and let an agent answer questions out
+# of what it retrieves. Three flows, and the middle one is the hinge:
+#
+#   ingest — POST /documents: embed a document and upsert it into the index
+#   search — retrieval on its own: embed a phrase, return the closest documents
+#   ask    — POST /ask: an ai-agent that calls `search` as a TOOL, then answers
+#
+# `search` has no source of its own. It is not an endpoint — it is the retrieval
+# step, named once so the agent's tool is a single flow-ref to it rather than a
+# second copy of the same two blocks. Reuse is the point: change how retrieval
+# works (a metadata filter, a different topK) and the agent changes with it.
+#
+# Nothing between pinecone-query and the model reshapes anything, and that is
+# deliberate: with no resultVar, the matches ARE the tool's output body, which is
+# exactly what gets handed back to the model as the tool result.
+#
+# ai-embed rejects an llm-anthropic connector (Anthropic has no embeddings API) —
+# it takes an OpenAI- or Gemini-backed one. This sample uses Gemini for both
+# halves: gemini-embedding-001 at 768 dimensions (one of Google's three
+# recommended sizes — smaller than the 3072 default, plenty for a demo index),
+# and the connector's default chat model for the agent.
+#
+# Setup:
+#   1. Get a Gemini API key: https://aistudio.google.com/apikey
+#   2. Create a Pinecone account and an index (https://app.pinecone.io):
+#        - Dimension: 768   (must match the ai-embed "dimensions" setting below)
+#        - Metric: cosine
+#      Copy its name and an API key.
+#   3. Export the credentials and run:
+#        export GEMINI_API_KEY=...
+#        export PINECONE_API_KEY=...
+#        export PINECONE_INDEX=...        # the index name from step 2
+#        go run ./cli run -config ../samples/rag-pipeline
+#   4. Ingest a couple of documents, then ask about them:
+#        curl -s localhost:8080/documents -d '{
+#          "id": "plateau",
+#          "text": "Plateaus in bouldering are usually a training-variety problem, not a strength problem."
+#        }'
+#        curl -s localhost:8080/documents -d '{
+#          "id": "rest",
+#          "text": "Two rest days between hard sessions is what most climbers under-do."
+#        }'
+#        curl -s localhost:8080/ask -d '{"question": "I stopped improving. What should I change?"}'
+#      The agent searches for itself, and answers out of what came back — citing
+#      the ids it used, so you can tell retrieval from invention.
+#
+#   You can also run retrieval alone, without the model deciding anything:
+#        go run ./cli invoke -config ../samples/rag-pipeline -flow search \
+#          -data '{"query": "training plateau"}'
+
+env:
+  - name: HTTP_HOST
+    default: 0.0.0.0
+  - name: HTTP_PORT
+    default: "8080"
+  - name: GEMINI_API_KEY
+    required: true
+  - name: PINECONE_API_KEY
+    required: true
+  - name: PINECONE_INDEX
+    required: true
+  # The index host, from the Pinecone console. Leave it empty and the connector
+  # looks the index up at startup, which is also what checks the dimension below
+  # — the right default for a real run. Set it and startup makes no network call
+  # at all, which is what the suites beside this file need.
+  - name: PINECONE_HOST
+    default: ""
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      host: ${HTTP_HOST}
+      port: ${HTTP_PORT}
+      requestTimeout: 60s
+  - name: gemini
+    type: llm-gemini
+    settings:
+      apiKey: ${GEMINI_API_KEY}
+  - name: pinecone
+    type: pinecone
+    settings:
+      apiKey: ${PINECONE_API_KEY}
+      index: ${PINECONE_INDEX}
+      host: ${PINECONE_HOST}
+      dimension: 768
+
+flows:
+  # POST /documents {id, text} — embed the text and upsert it, keyed by id.
+  # Upserting again with the same id overwrites it (Pinecone's upsert is
+  # idempotent by id), so re-ingesting a document updates it in place.
+  #
+  # The vector goes to a VARIABLE here, on purpose: pinecone-upsert still needs
+  # body.id and body.text to build the record, so the body has to survive the
+  # embed step. The upsert's own count then replaces it — {"upserted": 1} is the
+  # endpoint's answer, and no set-payload is needed to say it.
+  - name: ingest
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /documents
+    process:
+      - type: ai-embed
+        name: embed-document
+        settings:
+          connector: gemini
+          text: body.text
+          model: gemini-embedding-001
+          dimensions: 768
+          resultVar: vector
+      - type: pinecone-upsert
+        name: store
+        settings:
+          connector: pinecone
+          vectors: '[{"id": body.id, "values": vars.vector, "metadata": {"text": body.text}}]'
+
+  # Retrieval, on its own: {query} in, the closest documents out. No source —
+  # it is called, by the agent's tool below and by `octo invoke`, not triggered.
+  - name: search
+    process:
+      - type: ai-embed
+        name: embed-query
+        settings:
+          connector: gemini
+          text: body.query
+          model: gemini-embedding-001
+          dimensions: 768
+          resultVar: queryVector
+      - type: pinecone-query
+        name: find-similar
+        settings:
+          connector: pinecone
+          vector: vars.queryVector
+          topK: 3
+          includeMetadata: true
+          # No resultVar: the matches become the body, which is this flow's
+          # result — and, through the flow-ref below, the agent's tool result.
+
+  # POST /ask {question} — the generation half. The agent decides what to search
+  # for, calls the tool as many times as it needs (maxIterations caps it), and
+  # answers from what came back. Retrieval is a tool rather than a fixed step
+  # before the model, so a question needing two different searches gets them.
+  - name: ask
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /ask
+    process:
+      - type: ai-agent
+        name: answer-question
+        connector: gemini
+        maxIterations: 5
+        prompt: >
+          Answer the user's question in body.question about their knowledge base.
+          Call search_documents with a short phrase describing what you need; it
+          returns the closest documents, each with its id and its text under
+          metadata. Answer using ONLY the text those documents contain, and
+          respond with a JSON object {"answer": "...", "sources": ["id", ...]}
+          listing the ids you used.
+        guardrail: >
+          If the documents that come back do not contain the answer, do not guess
+          from your own knowledge — take the default path instead.
+        tools:
+          - name: search_documents
+            description: >
+              Search the knowledge base for the documents most similar in meaning
+              to a phrase. Returns a list of {id, score, metadata}.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["query"],
+                "properties": {
+                  "query": { "type": "string" }
+                }
+              }
+            process:
+              # The tool's arguments arrive as this branch's body — {query: ...},
+              # which is exactly what `search` reads — and the branch's output
+              # body is what the model gets back. So the tool is one line.
+              - type: flow-ref
+                name: retrieve
+                settings:
+                  flow: search
+        default:
+          process:
+            - type: set-payload
+              settings:
+                value: '{"answer": "I could not find that in the knowledge base.", "sources": []}'

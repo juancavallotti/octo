@@ -1,0 +1,84 @@
+flow: search
+
+# `search` is the sample's hinge: an endpoint calls it, and so does the agent's
+# tool, through a flow-ref. It is also the only part of the retrieval path a test
+# can reach — the agent's copy of it runs only when a model decides to call the
+# tool, which no case may do (see ask_test.yaml). So this file is where retrieval
+# is pinned, and what it pins holds for both callers.
+#
+# HONEST LIMITS: nothing here embeds or searches for real, so no case can say a
+# query vector finds the right document. The claim under test is narrower and
+# still worth making: the phrase becomes a vector, the vector becomes the query,
+# and the matches leave the flow unreshaped.
+#
+# The flow has no source, so its input is simply what a caller passes — which
+# under `octo invoke -flow search` and under the agent's tool is the same shape.
+
+cases:
+  # Unmocked, with Gemini unreachable: the discard port named in full, so a live
+  # call could not produce this error. See ingest_test.yaml for why that matters.
+  - name: the query phrase is really embedded, and a broken embedder fails the flow
+    input:
+      data: { query: training plateau }
+    env:
+      GOOGLE_GEMINI_BASE_URL: http://127.0.0.1:9
+    expect:
+      error: 'ai-embed: llm-gemini embed: doRequest: error sending request: Post "http://127.0.0.1:9/v1beta/models/gemini-embedding-001:batchEmbedContents"'
+
+  # The embedding is mocked and the index is pointed at the discard port, so
+  # reaching a dial failure is proof the query block resolved its connector and
+  # issued the search — with the refused address named in full, so a live index
+  # could not produce it.
+  - name: the query vector really reaches Pinecone, and a broken index fails the flow
+    input:
+      data: { query: training plateau }
+    env:
+      PINECONE_HOST: 127.0.0.1:9
+    mocks:
+      search.embed-query:
+        # A mock must declare a body, so this one restates the query rather than
+        # passing it through — see ingest_test.yaml.
+        default:
+          body: { query: training plateau }
+          vars: { queryVector: [0.1, 0.2, 0.3] }
+    expect:
+      error: 'pinecone-query: rpc error: code = Unavailable desc = connection error: desc = "transport: Error while dialing: dial tcp 127.0.0.1:9: connect: connection refused"'
+
+  # Both calls stood in for. The spy is the real assertion: the query block is
+  # handed the vector the embedder produced, and the phrase is still in the body
+  # (ai-embed leaves it alone — a query block reading `body.query` after the
+  # embed step depends on that).
+  #
+  # The result body is the mock's, and pins one thing: the matches leave `search`
+  # as the body, with nothing between the query block and the flow's edge. That
+  # is what makes the agent's tool a single flow-ref rather than a flow-ref plus
+  # a set-payload — so if a reshaping step were ever added here, this case is
+  # what would notice.
+  - name: the matches leave the flow as the body, unreshaped
+    input:
+      data: { query: training plateau }
+    mocks:
+      search.embed-query:
+        # A mock must declare a body, so this one restates the query rather than
+        # passing it through — see ingest_test.yaml.
+        default:
+          body: { query: training plateau }
+          vars: { queryVector: [0.1, 0.2, 0.3] }
+      search.find-similar:
+        default:
+          body:
+            - id: plateau
+              score: 0.82
+              metadata: { text: "Plateaus are a training-variety problem." }
+    expect:
+      that:
+        - "size(body) == 1"
+        - 'body[0].id == "plateau"'
+        - 'body[0].metadata.text.startsWith("Plateaus")'
+    spies:
+      search.find-similar:
+        count: 1
+        records:
+          - input:
+              body: { query: training plateau }
+              vars: { queryVector: [0.1, 0.2, 0.3] }
