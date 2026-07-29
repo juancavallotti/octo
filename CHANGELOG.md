@@ -1,5 +1,42 @@
 # Changelog
 
+## [0.6.2](https://github.com/juancavallotti/octo/compare/v0.6.1...v0.6.2) (2026-07-29)
+
+
+### Features
+
+* **ai:** add ai-embed block ([abf104c](https://github.com/juancavallotti/octo/commit/abf104cab154a1f4289cffde710975ec1b14a6b9))
+* **llm/gemini:** implement Embed ([1c8da59](https://github.com/juancavallotti/octo/commit/1c8da591f53846675afd5194b78739c55f26d3bc))
+* **llm/openai:** implement Embed ([437d6af](https://github.com/juancavallotti/octo/commit/437d6af0bf46b6746fdf35f8ab6e9f22d425bd15))
+* **llm:** add EmbedClient interface and DTOs ([26c3d2f](https://github.com/juancavallotti/octo/commit/26c3d2ff029ef3370f3729375e22bffce16b8878))
+* **pinecone:** add connector with eager dimension validation ([99f5f20](https://github.com/juancavallotti/octo/commit/99f5f201c1f6562d2248633184efc2747e393082))
+* **pinecone:** add delete block ([a5a3e99](https://github.com/juancavallotti/octo/commit/a5a3e99d84d8c1b77af591ea3a536b914217a15e))
+* **pinecone:** add fetch block ([262f8b3](https://github.com/juancavallotti/octo/commit/262f8b381f2e03a35c340e3a5d681761bb46bcf0))
+* **pinecone:** add query block ([7dcc28a](https://github.com/juancavallotti/octo/commit/7dcc28a9ccad6b1bc1573e34363f3d4a1120a9e2))
+* **pinecone:** add upsert block ([ab008d1](https://github.com/juancavallotti/octo/commit/ab008d1c7d1089ed33cb1f66a717678f086183d3))
+* **pinecone:** results to the body, a direct index host, and review fixes ([c3e6cc6](https://github.com/juancavallotti/octo/commit/c3e6cc63a4d2c794f6d1bb7ab4c3c9bc2c7ad38e))
+* **runtime:** register pinecone package ([a6f3d5c](https://github.com/juancavallotti/octo/commit/a6f3d5c13062ad51d83be796d1c43b8a5fe1f8cd))
+* **samples:** add a RAG pipeline sample with an answering agent ([e7b4098](https://github.com/juancavallotti/octo/commit/e7b4098c8b9b019744f1bef106f8b414c4e79f32))
+
+
+### Bug Fixes
+
+* **ai:** give ai-embed its own icon ([cbb2eb6](https://github.com/juancavallotti/octo/commit/cbb2eb67a047294d9800f220fe0a700639adcb10))
+* **deploy:** publish Cloud Build's private images under the -paas names ([88454c3](https://github.com/juancavallotti/octo/commit/88454c32584876cbab20fa4b6284d487a8a1dc36))
+* **deploy:** publish Cloud Build's private images under the -paas names ([d6e28ec](https://github.com/juancavallotti/octo/commit/d6e28ec135f1dea25c45a94ff53018830a0efc35))
+* **mcp:** advertise Octo's icon in the initialize handshake ([a0d82ed](https://github.com/juancavallotti/octo/commit/a0d82edfcfcdec4c40edfd177ef52922858125c2))
+* **mcp:** advertise Octo's icon in the initialize handshake ([f6ce709](https://github.com/juancavallotti/octo/commit/f6ce70982b7e5db9695654c9a76c40695d85298f))
+* **mcp:** allow partial serverInfo overrides in handler options ([111bd2d](https://github.com/juancavallotti/octo/commit/111bd2dcd6bea4086f32bdc23eb0946b666327a3))
+* **pinecone:** give it its own palette group and brand icon ([b2d68e7](https://github.com/juancavallotti/octo/commit/b2d68e7a9228395a16e97efce1e8ae7805c7f0f8))
+
+
+### Documentation
+
+* **ai:** distinguish connector instances from connector types ([3d0a934](https://github.com/juancavallotti/octo/commit/3d0a934c1e7946984f9288620cb02009f77a2fd6))
+* **ai:** document ai-embed ([69cc4fc](https://github.com/juancavallotti/octo/commit/69cc4fc3cd3dfe92e11d2fc9be6e97a2d71fa382))
+* **guides:** document the RAG pipeline ([e51845b](https://github.com/juancavallotti/octo/commit/e51845b457a40ebf2ba4838ced64b26353a3d956))
+* **pinecone:** add connector reference page ([faa0a05](https://github.com/juancavallotti/octo/commit/faa0a0504f9053f6af221370c0661f84d5abdbc3))
+
 ## [0.6.1](https://github.com/juancavallotti/octo/compare/v0.6.0...v0.6.1) (2026-07-29)
 
 
