@@ -118,6 +118,72 @@ jobs:
             docker.io/juancavallotti/octo-runtime:${{ steps.ver.outputs.version }}
             docker.io/juancavallotti/octo-runtime:latest
 
+  # Publish the PaaS-side images — the editor, orchestrator, log aggregator,
+  # schema applier, and the k8s-flavoured runtime the orchestrator deploys per
+  # integration — to public Docker Hub, multi-arch. Previously private, built by
+  # cloudbuild.yaml into Artifact Registry only (see #199).
+  #
+  # The "-paas" suffix (rather than reusing octo-runtime with a tag or suffix for
+  # the k8s build) is deliberate: that image isn't actually k8s-specific tuning,
+  # it's this cluster/PaaS deployment as a whole, and every image in it gets the
+  # same suffix for a consistent, unambiguous identity — distinct from octo /
+  # octo-runtime above, the standalone "try it locally" images. Distinct
+  # repository names (not a shared name with a different tag) matter most for the
+  # runtime: the k8s build needs the orchestrator to exist and cannot run
+  # standalone, and the standalone build cannot do leader election — publishing
+  # both under one name would be a live incident waiting for whoever pulls the
+  # wrong one.
+  publish-paas-images:
+    needs: release-check
+    if: ${{ inputs.tag != '' || startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        include:
+          - image: octo-platform-paas
+            context: .
+            dockerfile: apps/platform/Dockerfile
+          - image: octo-orchestrator-paas
+            context: ./orchestrator
+            dockerfile: orchestrator/Dockerfile
+          - image: octo-logs-paas
+            context: ./logs
+            dockerfile: logs/Dockerfile
+          - image: octo-schema-paas
+            context: ./sql
+            dockerfile: sql/Dockerfile
+          - image: octo-runtime-paas
+            # The repo root is the build context: the Go module is rooted there.
+            context: .
+            dockerfile: runtime/Dockerfile
+            buildArgs: GOTAGS=k8s
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - id: ver
+        run: |
+          REF="${{ inputs.tag || github.ref_name }}"
+          echo "version=${REF#v}" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          build-args: ${{ matrix.buildArgs || '' }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            docker.io/juancavallotti/${{ matrix.image }}:${{ steps.ver.outputs.version }}
+            docker.io/juancavallotti/${{ matrix.image }}:latest
+
   # Cross-compile both CLIs — octo, and dolphin, its test runner — and attach the
   # archives to the GitHub release, so users can install them without a Go toolchain.
   # GoReleaser does the work; .goreleaser.yaml is the source of truth for the targets,
