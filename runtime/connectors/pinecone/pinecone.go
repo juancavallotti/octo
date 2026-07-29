@@ -27,14 +27,21 @@ func init() {
 		return &Connector{}
 	})
 
-	core.RegisterExtension(core.ExtensionMeta{Group: "Integration", Icon: "ScatterChart"})
+	// Package-level editor defaults: the pinecone connector and every
+	// pinecone-* block share the Pinecone palette group and brand icon unless
+	// they set their own — mirrors the notion package.
+	core.RegisterExtension(core.ExtensionMeta{Group: displayName, Icon: displayName})
 
 	core.RegisterConnectorMeta(core.ConnectorMeta{
 		Type:     "pinecone",
-		Label:    "Pinecone",
+		Label:    displayName,
 		Settings: reflect.TypeFor[connectorSettings](),
 	})
 }
+
+// displayName is the editor-facing label, palette group, and icon for the
+// pinecone connector and its blocks.
+const displayName = "Pinecone"
 
 // connectorSettings are the knobs the pinecone connector exposes.
 type connectorSettings struct {
