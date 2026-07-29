@@ -8,7 +8,8 @@
     "logger",
     "slack",
     "notion",
-    "llm"
+    "llm",
+    "pinecone"
   ],
   "title": "Connectors"
 }

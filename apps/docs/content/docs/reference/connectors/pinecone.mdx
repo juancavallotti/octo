@@ -1,0 +1,132 @@
+---
+title: "Pinecone"
+description: "The Pinecone vector store connector and its upsert/query/fetch/delete blocks."
+octo_types:
+  - pinecone
+  - pinecone-upsert
+  - pinecone-query
+  - pinecone-fetch
+  - pinecone-delete
+---
+
+The `pinecone` connector owns a Pinecone index — the API key and index addressing — and the `pinecone-upsert`, `pinecone-query`, `pinecone-fetch`, and `pinecone-delete` blocks bind to it by name. Pair it with [ai-embed](/reference/blocks/ai#ai-embed) for the common RAG shape: embed text, upsert the vector, then embed a query and search for matches.
+
+**Provides a source:** no — it is a service connector. **Blocks that bind to it:** `pinecone-upsert`, `pinecone-query`, `pinecone-fetch`, `pinecone-delete`.
+
+## `pinecone` connector
+
+The connector describes the index on start and compares its actual dimension against the configured one, so a mismatched embedding model and index — the classic Pinecone failure mode — fails at startup rather than on the first upsert. It then opens the data-plane connection blocks call through.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `apiKey` | string | Yes | — | Authenticates with the Pinecone API; source from `${PINECONE_API_KEY}`. Never logged. |
+| `index` | string | Yes | — | Name of the Pinecone index to connect to. |
+| `dimension` | int | Yes | — | Expected vector dimension; must match the index's actual dimension or `Start` fails. |
+| `namespace` | string | No | Pinecone's default namespace | Default namespace used when a block doesn't specify its own. |
+| `host` | string | No | Pinecone API | Overrides the control-plane API endpoint (for testing). |
+
+```yaml
+env:
+  - name: PINECONE_API_KEY
+    required: true
+
+connectors:
+  - name: docs-index
+    type: pinecone
+    settings:
+      apiKey: ${PINECONE_API_KEY}
+      index: docs
+      dimension: 1536
+```
+
+### Namespaces
+
+Namespaces are Pinecone's multi-tenancy mechanism, so every block exposes its own `namespace` as a CEL [expression](/concepts/expressions) rather than a connector-wide constant — a flow serving multiple tenants can route `body.tenantId` (or similar) to a different namespace per message. An empty (or unset) `namespace` field uses the connector's default namespace.
+
+## `pinecone-upsert` block
+
+Upsert vectors into the index. `vectors` evaluates to a list of `{id, values, metadata}` objects; a large batch is chunked automatically to stay under Pinecone's per-request vector limit — one `vectors` expression can cover an arbitrarily large batch without the flow author doing the chunking.
+
+| Setting | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `connector` | string | Yes | — | Name of the `pinecone` connector to use. |
+| `vectors` | `expression` (list) | Yes | — | Evaluates to a list of `{id, values, metadata}` objects. `metadata` is optional per entry. |
+| `namespace` | `expression` (string) | No | connector default | Target namespace. |
+| `resultVar` | string | No | `pineconeUpserted` | Variable the total upserted-vector count is stored in. |
+
+```yaml
+- type: pinecone-upsert
+  name: index-chunks
+  settings:
+    connector: docs-index
+    vectors: |
+      body.chunks.map(c, {"id": c.id, "values": c.vector, "metadata": {"source": c.source}})
+    namespace: body.tenantId
+```
+
+## `pinecone-query` block
+
+Query the index for the vectors most similar to a query vector, with an optional metadata filter, and store the matches.
+
+| Setting | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `connector` | string | Yes | — | Name of the `pinecone` connector to use. |
+| `vector` | `expression` (list of numbers) | Yes | — | The query vector. |
+| `topK` | int | No | `10` | Number of matches to return. |
+| `filter` | `expression` (object) | No | — | Metadata filter, evaluated to a [Pinecone filter object](https://docs.pinecone.io/guides/data/filter-with-metadata). |
+| `namespace` | `expression` (string) | No | connector default | Namespace to query. |
+| `includeValues` | boolean | No | `false` | Include each match's vector values in the response. |
+| `includeMetadata` | boolean | No | `true` | Include each match's metadata in the response. |
+| `resultVar` | string | No | `pineconeMatches` | Variable the matches are stored in: a list of `{id, score, values?, metadata?}`. |
+
+```yaml
+- type: pinecone-query
+  name: find-similar
+  settings:
+    connector: docs-index
+    vector: vars.queryVector
+    topK: 5
+    filter: '{"source": {"$eq": "handbook"}}'
+    namespace: body.tenantId
+    resultVar: matches
+```
+
+## `pinecone-fetch` block
+
+Fetch vectors by id.
+
+| Setting | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `connector` | string | Yes | — | Name of the `pinecone` connector to use. |
+| `ids` | `expression` (list of strings) | Yes | — | Vector ids to fetch. |
+| `namespace` | `expression` (string) | No | connector default | Namespace to fetch from. |
+| `resultVar` | string | No | `pineconeVectors` | Variable the fetched vectors are stored in, keyed by id: `{id: {values?, metadata?}}`. |
+
+```yaml
+- type: pinecone-fetch
+  name: get-vectors
+  settings:
+    connector: docs-index
+    ids: body.ids
+```
+
+## `pinecone-delete` block
+
+Delete vectors: by id, by metadata filter, or the whole namespace. **Set exactly one** of `ids`, `filter`, or `deleteAll` — zero or more than one fails at startup.
+
+| Setting | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `connector` | string | Yes | — | Name of the `pinecone` connector to use. |
+| `ids` | `expression` (list of strings) | One of `ids`/`filter`/`deleteAll` | — | Vector ids to delete. |
+| `filter` | `expression` (object) | One of `ids`/`filter`/`deleteAll` | — | Metadata filter selecting vectors to delete. |
+| `deleteAll` | boolean | One of `ids`/`filter`/`deleteAll` | `false` | Delete every vector in the namespace. |
+| `namespace` | `expression` (string) | No | connector default | Namespace to delete from. |
+
+```yaml
+- type: pinecone-delete
+  name: wipe-tenant
+  settings:
+    connector: docs-index
+    deleteAll: true
+    namespace: body.tenantId
+```
