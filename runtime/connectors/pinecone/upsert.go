@@ -24,14 +24,15 @@ func init() {
 		Label:    "Pinecone Upsert",
 		Category: core.CategoryProcessor,
 		Description: "Upsert vectors ({id, values, metadata}) into a Pinecone index, chunking " +
-			"automatically to stay under the API's per-request limit.",
+			"automatically to stay under the API's per-request limit. Reports the count as " +
+			"the message body ({upserted: n}), or in a variable when one is named.",
 		Config: reflect.TypeFor[upsertSettings](),
 	})
 }
 
-// defaultUpsertResultVar names the variable the upserted-vector count is
-// stored in.
-const defaultUpsertResultVar = "pineconeUpserted"
+// upsertedKey is the field the upserted-vector count is reported under when the
+// count replaces the body.
+const upsertedKey = "upserted"
 
 // upsertChunkSize caps how many vectors go in one UpsertVectors call, matching
 // Pinecone's documented per-request limit.
@@ -45,8 +46,9 @@ type upsertSettings struct {
 	Vectors string `json:"vectors" octo:"label=Vectors,required,type=cel"`
 	// CEL expression for the target namespace; empty uses the connector default.
 	Namespace string `json:"namespace" octo:"label=Namespace,type=cel"`
-	// Variable the total upserted-vector count is stored in.
-	ResultVar string `json:"resultVar" octo:"label=Result variable,default=pineconeUpserted"`
+	// When set, store the total upserted-vector count here and leave the body; when
+	// empty, the body becomes {upserted: n}.
+	ResultVar string `json:"resultVar" octo:"label=Result variable"`
 }
 
 // upsertProcessor evaluates the vectors expression and upserts the result.
@@ -84,13 +86,14 @@ func newUpsert(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor, 
 		conn:      conn,
 		vectors:   vectors,
 		namespace: namespace,
-		resultVar: orDefault(cfg.ResultVar, defaultUpsertResultVar),
+		resultVar: cfg.ResultVar,
 		env:       expr.EnvActivation(deps.Env),
 	}, nil
 }
 
 // Process evaluates the vectors expression, upserts the result in chunks of
-// upsertChunkSize, and stores the total upserted count in the result variable.
+// upsertChunkSize, and reports the total upserted count: as the body
+// ({upserted: n}), or in the result variable when one is named.
 func (p *upsertProcessor) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
 	activation := expr.MessageActivation(msg, p.env)
 
@@ -116,15 +119,26 @@ func (p *upsertProcessor) Process(ctx context.Context, msg *types.Message) (*typ
 	if err != nil {
 		return nil, fmt.Errorf("pinecone-upsert: namespace: %w", err)
 	}
-	idxConn := p.conn.IndexConnection(namespace)
+	idxConn, err := p.conn.IndexConnection(namespace)
+	if err != nil {
+		return nil, fmt.Errorf("pinecone-upsert: %w", err)
+	}
 
 	total, err := upsertInChunks(ctx, idxConn, vectors)
 	if err != nil {
 		return nil, fmt.Errorf("pinecone-upsert: %w", err)
 	}
 
-	msg.Variables.Set(p.resultVar, total)
-	return msg, nil
+	// int, not the SDK's uint32: a CEL comparison against an unsigned number needs
+	// the `1u` literal, and no flow author expects to write that.
+	count := int(total)
+	if p.resultVar != "" {
+		msg.Variables.Set(p.resultVar, count)
+		return msg, nil
+	}
+	// A bare count would be a valid body, but a naked number is a poor HTTP
+	// response and a poor thing to write CEL against, so it goes back named.
+	return deliver(msg, "", map[string]any{upsertedKey: count}), nil
 }
 
 // upsertInChunks calls UpsertVectors once per upsertChunkSize-sized slice of

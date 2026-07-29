@@ -11,6 +11,7 @@ import (
 
 	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/core/expr"
+	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // resolveConnector binds a block to its pinecone connector by name.
@@ -54,12 +55,20 @@ func compileRequired(res core.ResourceLoader, block, field, src string) (*expr.P
 	return program, nil
 }
 
-// orDefault returns value when it is non-empty, otherwise fallback.
-func orDefault(value, fallback string) string {
-	if value == "" {
-		return fallback
+// deliver hands a block's result back to the message: into resultVar when the
+// block names one, otherwise as the body.
+//
+// The body is the default on purpose. A query's matches, a fetch's vectors —
+// these are the payload the next block works on, and an HTTP flow that ends
+// there should answer with them. Naming a variable is how you say "keep the
+// body I came in with", which is the exception, not the rule.
+func deliver(msg *types.Message, resultVar string, result any) *types.Message {
+	if resultVar != "" {
+		msg.Variables.Set(resultVar, result)
+		return msg
 	}
-	return value
+	msg.Body = result
+	return msg
 }
 
 // evalNamespace evaluates an optional namespace expression, returning "" (the

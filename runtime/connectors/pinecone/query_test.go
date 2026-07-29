@@ -40,8 +40,11 @@ func TestNewQueryDefaults(t *testing.T) {
 	if !p.includeMetadata {
 		t.Error("includeMetadata should default to true")
 	}
-	if p.resultVar != defaultQueryResultVar {
-		t.Errorf("resultVar = %q, want default %q", p.resultVar, defaultQueryResultVar)
+	// Empty is the default, and empty means "the matches are the body" — see
+	// deliver. A default variable name here would make the block silently keep a
+	// body nobody asked it to keep.
+	if p.resultVar != "" {
+		t.Errorf("resultVar = %q, want empty (the matches become the body)", p.resultVar)
 	}
 }
 

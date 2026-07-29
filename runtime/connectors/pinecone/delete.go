@@ -137,7 +137,10 @@ func (p *deleteProcessor) Process(ctx context.Context, msg *types.Message) (*typ
 	if err != nil {
 		return nil, fmt.Errorf("pinecone-delete: namespace: %w", err)
 	}
-	idxConn := p.conn.IndexConnection(namespace)
+	idxConn, err := p.conn.IndexConnection(namespace)
+	if err != nil {
+		return nil, fmt.Errorf("pinecone-delete: %w", err)
+	}
 
 	switch p.mode {
 	case deleteByIDs:

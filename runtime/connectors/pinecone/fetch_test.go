@@ -1,6 +1,7 @@
 package pinecone
 
 import (
+	"reflect"
 	"testing"
 
 	sdk "github.com/pinecone-io/go-pinecone/v5/pinecone"
@@ -34,8 +35,27 @@ func TestNewFetchDefaultResultVar(t *testing.T) {
 	if !ok {
 		t.Fatalf("proc is %T, want *fetchProcessor", proc)
 	}
-	if p.resultVar != defaultFetchResultVar {
-		t.Errorf("resultVar = %q, want default %q", p.resultVar, defaultFetchResultVar)
+	// Empty by default: the fetched vectors become the body (see deliver).
+	if p.resultVar != "" {
+		t.Errorf("resultVar = %q, want empty (the vectors become the body)", p.resultVar)
+	}
+}
+
+func TestDeliver(t *testing.T) {
+	result := []any{map[string]any{"id": "a"}}
+
+	body := &types.Message{Body: map[string]any{"query": "hi"}}
+	if got := deliver(body, "", result); !reflect.DeepEqual(got.Body, result) {
+		t.Errorf("with no result variable, body = %+v, want the result", got.Body)
+	}
+
+	kept := &types.Message{Body: map[string]any{"query": "hi"}}
+	got := deliver(kept, "matches", result)
+	if !reflect.DeepEqual(got.Body, map[string]any{"query": "hi"}) {
+		t.Errorf("with a result variable, body = %+v, want the incoming body untouched", got.Body)
+	}
+	if stored, ok := got.Variables["matches"]; !ok || !reflect.DeepEqual(stored, result) {
+		t.Errorf("vars[matches] = %+v, want the result", stored)
 	}
 }
 
