@@ -10,9 +10,11 @@ metadata:
   {{- $tls := .Values.ingress.tls | default dict }}
   {{- /* The editor's own host always gets its own per-host cert (HTTP-01 via
          ingress-shim), independent of wildcardTLS: that cert covers
-         orchestrator.baseDomain, which may be a different domain than
-         ingress.host (e.g. a delegated subdomain used only for per-integration
-         wildcards while the editor stays on the registrar-locked apex). */}}
+         ingress.host. The separate wildcard certificate covers
+         orchestrator.baseDomain and *.orchestrator.baseDomain, which may be
+         different from ingress.host (e.g. a delegated subdomain used only for
+         per-integration wildcards while the editor stays on the
+         registrar-locked apex). */}}
   {{- if and $tls.enabled $tls.clusterIssuer }}
   {{- $ann = merge (dict "cert-manager.io/cluster-issuer" $tls.clusterIssuer) $ann }}
   {{- end }}
