@@ -5,8 +5,17 @@
 
 # --- Required ---
 project_id       = "your-gcp-project-id"
-domain           = "octo.juancavallotti.com" # editor host; subdomains live under *.{domain}
-dns_managed_zone = "your-clouddns-zone-name"  # Cloud DNS zone NAME, e.g. "juancavallotti-com"
+domain           = "octo.juancavallotti.com" # editor host; subdomains live under *.{apps_domain} (below)
+dns_managed_zone = "your-clouddns-zone-name"  # Cloud DNS zone NAME backing apps_domain (or domain, if apps_domain is unset)
+
+# --- Optional: split domains ---
+# Per-integration subdomains (and the wildcard cert) can live under a different
+# domain than the editor itself — useful when `domain`'s registrar won't let you
+# delegate the whole zone to Cloud DNS (e.g. Cloudflare Registrar) but a subdomain
+# of it can still be NS-delegated. Leave unset for the original single-domain
+# behavior (everything lives under `domain`, which must then be Cloud-DNS-managed
+# itself). When set, dns_managed_zone above must back apps_domain, not domain.
+# apps_domain = "apps.octo.juancavallotti.com"
 
 # --- Cloud Build (optional) ---
 # Connect the GitHub repo to Cloud Build once (console: Cloud Build -> Triggers ->
@@ -35,7 +44,8 @@ dns_managed_zone = "your-clouddns-zone-name"  # Cloud DNS zone NAME, e.g. "juanc
 # instance_name = "octo"
 # repository_id = "octo"
 # cluster_issuer = "letsencrypt-prod"
-# wildcard_tls   = true # one *.{domain} cert via DNS-01, shared by all subdomains
+# wildcard_tls   = true # one *.{apps_domain} cert via DNS-01 (or *.{domain} when
+#                       # apps_domain is unset), shared by all subdomains
 #                       # (set false to fall back to per-host HTTP-01 certs)
 #
 # Infra-only knobs (uncommenting these is fine; a `terraform apply` on the release

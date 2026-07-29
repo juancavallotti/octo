@@ -1,8 +1,10 @@
-{{- if .Values.wildcardTLS.enabled -}}
-# One cert-manager Certificate covering the apex host and every subdomain, issued
-# via the DNS-01 ClusterIssuer. The resulting Secret is referenced by the editor
-# ingress and by the per-integration ingresses the orchestrator creates, so every
-# {slug}.{host} validates against this shared wildcard cert.
+{{- if and .Values.wildcardTLS.enabled .Values.orchestrator.baseDomain -}}
+# One cert-manager Certificate covering orchestrator.baseDomain and every
+# subdomain under it, issued via the DNS-01 ClusterIssuer. The resulting Secret is
+# referenced by the per-integration ingresses the orchestrator creates, so every
+# {slug}.{baseDomain} validates against this shared wildcard cert. baseDomain may
+# differ from ingress.host — the editor's own host always gets its own per-host
+# cert instead (see platform/ingress.yaml), so it is not part of this cert's SANs.
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -12,8 +14,8 @@ metadata:
 spec:
   secretName: {{ .Values.wildcardTLS.secretName | quote }}
   dnsNames:
-    - {{ .Values.ingress.host | quote }}
-    - {{ printf "*.%s" .Values.ingress.host | quote }}
+    - {{ .Values.orchestrator.baseDomain | quote }}
+    - {{ printf "*.%s" .Values.orchestrator.baseDomain | quote }}
   issuerRef:
     name: {{ .Values.wildcardTLS.clusterIssuer | quote }}
     kind: ClusterIssuer

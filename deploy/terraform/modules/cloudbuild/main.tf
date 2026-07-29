@@ -51,9 +51,10 @@ resource "google_cloudbuild_trigger" "publish" {
     _TAG = "$TAG_NAME"
     # Deploy step: roll the cluster after publishing (off unless enable_deploy).
     _DEPLOY   = var.enable_deploy ? "true" : "false"
-    _INSTANCE = var.instance_name
-    _ZONE     = var.zone
-    _DOMAIN   = var.domain
+    _INSTANCE    = var.instance_name
+    _ZONE        = var.zone
+    _DOMAIN      = var.domain
+    _APPS_DOMAIN = var.apps_domain
   }
 
   depends_on = [google_project_service.cloudbuild]

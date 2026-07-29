@@ -52,10 +52,11 @@ resource "helm_release" "octo" {
     value = var.cluster_issuer
   }
 
-  # Per-integration external endpoints (Stage 2) live under *.{domain}.
+  # Per-integration external endpoints (Stage 2) live under *.{apps_domain}, which
+  # may be a different (Cloud-DNS-delegated) domain than the editor's own host.
   set {
     name  = "orchestrator.baseDomain"
-    value = var.domain
+    value = var.apps_domain
   }
   set {
     name  = "orchestrator.clusterIssuer"

@@ -17,6 +17,9 @@ locals {
   # API reachable by the release root; default to the SSH ranges so the kube API is
   # no more exposed than SSH already is.
   kube_api_source_ranges = coalesce(var.kube_api_source_ranges, var.ssh_source_ranges)
+  # The domain DNS records (apex + wildcard) actually get created for. Falls back
+  # to `domain` for the original single-domain setup.
+  apps_domain_eff = var.apps_domain != "" ? var.apps_domain : var.domain
 }
 
 # --- Artifact Registry (images + OCI chart) ---
@@ -35,12 +38,16 @@ module "registry" {
 module "base" {
   source = "../modules/base"
 
-  project_id             = var.project_id
-  region                 = var.region
-  zone                   = var.zone
-  machine_type           = var.machine_type
-  instance_name          = var.instance_name
-  domain                 = var.domain
+  project_id    = var.project_id
+  region        = var.region
+  zone          = var.zone
+  machine_type  = var.machine_type
+  instance_name = var.instance_name
+  # DNS (apex + wildcard A records) is managed for apps_domain, not necessarily
+  # `domain` itself — see apps_domain_eff above. The editor's own `domain` still
+  # drives the k3s API's --tls-san below (and the infra `url` output), regardless
+  # of whether it matches apps_domain.
+  domain                 = local.apps_domain_eff
   dns_managed_zone       = var.dns_managed_zone
   ssh_source_ranges      = var.ssh_source_ranges
   kube_api_source_ranges = local.kube_api_source_ranges
@@ -96,6 +103,7 @@ module "cloudbuild" {
   instance_name            = var.instance_name
   zone                     = var.zone
   domain                   = var.domain
+  apps_domain              = local.apps_domain_eff
   state_bucket             = local.state_bucket
   vm_service_account_email = module.base.service_account_email
 }

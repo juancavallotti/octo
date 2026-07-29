@@ -31,15 +31,27 @@ variable "repository_id" {
 
 variable "domain" {
   type        = string
-  description = "Fully-qualified hostname the editor is served on (cert-manager issues a Let's Encrypt cert for it). Per-integration subdomains live under *.{domain}."
+  description = "Fully-qualified hostname the editor is served on (cert-manager issues a Let's Encrypt cert for it). Per-integration subdomains live under *.{apps_domain}, which defaults to this domain — see apps_domain."
   default     = "octo.juancavallotti.com"
+}
+
+# apps_domain lets per-integration subdomains live under a different,
+# Cloud-DNS-delegated domain than the editor's own host — e.g. when domain's
+# registrar won't allow delegating the whole zone (Cloudflare Registrar, for one)
+# but a subdomain of it can still be NS-delegated to Cloud DNS. Empty (the
+# default) keeps the original single-domain behavior: everything lives under
+# `domain`, which must then itself be a Cloud DNS zone Terraform can manage.
+variable "apps_domain" {
+  type        = string
+  description = "Base hostname per-integration subdomains live under ({slug}.{apps_domain}) and the domain the wildcard cert covers. Empty = same as `domain`."
+  default     = ""
 }
 
 # --- Infra-only values (also set in the shared octo.tfvars) ---
 
 variable "dns_managed_zone" {
   type        = string
-  description = "Name (not DNS name) of the existing Cloud DNS managed zone."
+  description = "Name (not DNS name) of the existing Cloud DNS managed zone backing apps_domain (or domain, when apps_domain is unset)."
 }
 
 variable "machine_type" {

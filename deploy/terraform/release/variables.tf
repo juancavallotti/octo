@@ -35,8 +35,16 @@ variable "namespace" {
 
 variable "domain" {
   type        = string
-  description = "Editor hostname; must match the k3s deployment. Per-integration subdomains live under *.{domain}."
+  description = "Editor hostname; must match the k3s deployment. Per-integration subdomains live under *.{apps_domain}, which defaults to this domain — see apps_domain."
   default     = "octo.juancavallotti.com"
+}
+
+# Mirrors the infra root's apps_domain — see its comment there. Must resolve to
+# the same effective value on both roots (both read the same shared octo.tfvars).
+variable "apps_domain" {
+  type        = string
+  description = "Base hostname per-integration subdomains live under (orchestrator.baseDomain) and the domain the wildcard cert covers. Empty = same as `domain`."
+  default     = ""
 }
 
 variable "image_tag" {
