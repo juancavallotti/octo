@@ -18,7 +18,9 @@ resource "helm_release" "octo" {
   wait    = true
   timeout = var.timeout
 
-  # Image coordinates.
+  # Image coordinates. Per-component repository names are left at the chart
+  # defaults (the "-paas" names, #199) — cloudbuild.yaml pushes Artifact Registry
+  # images under those same names, so only registry + tag need overriding here.
   set {
     name  = "image.registry"
     value = var.image_base
