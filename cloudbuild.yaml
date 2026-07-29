@@ -31,19 +31,19 @@ steps:
   # the pnpm workspace (apps/platform).
   - id: build-platform
     name: gcr.io/cloud-builders/docker
-    args: ["build", "-t", "${_IMAGE_BASE}/octo-platform:${_TAG}", "-t", "${_IMAGE_BASE}/octo-platform:latest", "-f", "apps/platform/Dockerfile", "."]
+    args: ["build", "-t", "${_IMAGE_BASE}/octo-platform-paas:${_TAG}", "-t", "${_IMAGE_BASE}/octo-platform-paas:latest", "-f", "apps/platform/Dockerfile", "."]
   - id: build-orchestrator
     name: gcr.io/cloud-builders/docker
-    args: ["build", "-t", "${_IMAGE_BASE}/octo-orchestrator:${_TAG}", "-t", "${_IMAGE_BASE}/octo-orchestrator:latest", "-f", "orchestrator/Dockerfile", "./orchestrator"]
+    args: ["build", "-t", "${_IMAGE_BASE}/octo-orchestrator-paas:${_TAG}", "-t", "${_IMAGE_BASE}/octo-orchestrator-paas:latest", "-f", "orchestrator/Dockerfile", "./orchestrator"]
   - id: build-logs
     name: gcr.io/cloud-builders/docker
-    args: ["build", "-t", "${_IMAGE_BASE}/octo-logs:${_TAG}", "-t", "${_IMAGE_BASE}/octo-logs:latest", "-f", "logs/Dockerfile", "./logs"]
+    args: ["build", "-t", "${_IMAGE_BASE}/octo-logs-paas:${_TAG}", "-t", "${_IMAGE_BASE}/octo-logs-paas:latest", "-f", "logs/Dockerfile", "./logs"]
   - id: build-schema
     name: gcr.io/cloud-builders/docker
-    args: ["build", "-t", "${_IMAGE_BASE}/octo-schema:${_TAG}", "-t", "${_IMAGE_BASE}/octo-schema:latest", "-f", "sql/Dockerfile", "./sql"]
+    args: ["build", "-t", "${_IMAGE_BASE}/octo-schema-paas:${_TAG}", "-t", "${_IMAGE_BASE}/octo-schema-paas:latest", "-f", "sql/Dockerfile", "./sql"]
   - id: build-runtime
     name: gcr.io/cloud-builders/docker
-    args: ["build", "-t", "${_IMAGE_BASE}/octo-runtime:${_TAG}", "-t", "${_IMAGE_BASE}/octo-runtime:latest", "-f", "runtime/Dockerfile", "."]
+    args: ["build", "-t", "${_IMAGE_BASE}/octo-runtime-paas:${_TAG}", "-t", "${_IMAGE_BASE}/octo-runtime-paas:latest", "-f", "runtime/Dockerfile", "."]
 
   # Push the images explicitly (not via the trailing `images:` block) so they are in
   # the registry *before* the deploy step's octo-pull reads them by tag.
@@ -55,7 +55,7 @@ steps:
       - -c
       - |
         set -e
-        for img in octo-platform octo-orchestrator octo-logs octo-schema octo-runtime; do
+        for img in octo-platform-paas octo-orchestrator-paas octo-logs-paas octo-schema-paas octo-runtime-paas; do
           for t in "${_TAG}" latest; do
             docker push "${_IMAGE_BASE}/$img:$t"
           done

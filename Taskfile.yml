@@ -267,7 +267,7 @@ tasks:
   # --- Publishing to Artifact Registry (for the GCP/k3s deployment) ---
   # IMAGE_BASE is the repository path output by deploy/terraform/infra (image_base),
   # e.g. us-central1-docker.pkg.dev/PROJECT/octo. The five images live under it
-  # (IMAGE_BASE/octo-platform:TAG ...) and the OCI chart under IMAGE_BASE/octo.
+  # (IMAGE_BASE/octo-platform-paas:TAG ...) and the OCI chart under IMAGE_BASE/octo.
 
   images:push:
     desc: 'Build the five octo images and push them to Artifact Registry (set IMAGE_BASE and TAG; run `gcloud auth configure-docker <region>-docker.pkg.dev` first)'
@@ -276,16 +276,16 @@ tasks:
     cmds:
       # Same build contexts as cluster:images; the platform context is the repo
       # root so its Dockerfile reaches both runtime/ and the pnpm workspace.
-      - docker build -t {{.IMAGE_BASE}}/octo-platform:{{.TAG}} -f apps/platform/Dockerfile .
-      - docker build -t {{.IMAGE_BASE}}/octo-orchestrator:{{.TAG}} -f orchestrator/Dockerfile ./orchestrator
-      - docker build -t {{.IMAGE_BASE}}/octo-logs:{{.TAG}} -f logs/Dockerfile ./logs
-      - docker build -t {{.IMAGE_BASE}}/octo-schema:{{.TAG}} -f sql/Dockerfile ./sql
-      - docker build -t {{.IMAGE_BASE}}/octo-runtime:{{.TAG}} -f runtime/Dockerfile .
-      - docker push {{.IMAGE_BASE}}/octo-platform:{{.TAG}}
-      - docker push {{.IMAGE_BASE}}/octo-orchestrator:{{.TAG}}
-      - docker push {{.IMAGE_BASE}}/octo-logs:{{.TAG}}
-      - docker push {{.IMAGE_BASE}}/octo-schema:{{.TAG}}
-      - docker push {{.IMAGE_BASE}}/octo-runtime:{{.TAG}}
+      - docker build -t {{.IMAGE_BASE}}/octo-platform-paas:{{.TAG}} -f apps/platform/Dockerfile .
+      - docker build -t {{.IMAGE_BASE}}/octo-orchestrator-paas:{{.TAG}} -f orchestrator/Dockerfile ./orchestrator
+      - docker build -t {{.IMAGE_BASE}}/octo-logs-paas:{{.TAG}} -f logs/Dockerfile ./logs
+      - docker build -t {{.IMAGE_BASE}}/octo-schema-paas:{{.TAG}} -f sql/Dockerfile ./sql
+      - docker build -t {{.IMAGE_BASE}}/octo-runtime-paas:{{.TAG}} -f runtime/Dockerfile .
+      - docker push {{.IMAGE_BASE}}/octo-platform-paas:{{.TAG}}
+      - docker push {{.IMAGE_BASE}}/octo-orchestrator-paas:{{.TAG}}
+      - docker push {{.IMAGE_BASE}}/octo-logs-paas:{{.TAG}}
+      - docker push {{.IMAGE_BASE}}/octo-schema-paas:{{.TAG}}
+      - docker push {{.IMAGE_BASE}}/octo-runtime-paas:{{.TAG}}
 
   helm:lint:
     desc: Lint the octo Helm chart
