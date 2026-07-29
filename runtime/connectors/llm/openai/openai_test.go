@@ -182,3 +182,75 @@ func TestCompleteEndToEnd(t *testing.T) {
 		t.Errorf("request tool_choice = %v, want type=function", gotBody["tool_choice"])
 	}
 }
+
+// TestEmbedEndToEnd drives Embed against a canned embeddings response served out
+// of index order, proving the request shape (batched input, model, dimensions)
+// and that the response is reordered back to request order rather than trusted
+// as-is.
+func TestEmbedEndToEnd(t *testing.T) {
+	const cannedResponse = `{
+		"object": "list",
+		"model": "text-embedding-3-small",
+		"data": [
+			{"object": "embedding", "index": 1, "embedding": [0.4, 0.5]},
+			{"object": "embedding", "index": 0, "embedding": [0.1, 0.2]}
+		],
+		"usage": {"prompt_tokens": 4, "total_tokens": 4}
+	}`
+
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, cannedResponse)
+	}))
+	defer srv.Close()
+
+	c := &Connector{}
+	if err := c.Start(context.Background(), types.ConnectorConfig{
+		Name: "gpt", Settings: types.Settings{"apiKey": "sk-test", "baseURL": srv.URL},
+	}); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+
+	resp, err := c.Embed(context.Background(), core.EmbedRequest{
+		Model:      "text-embedding-3-small",
+		Input:      []string{"first", "second"},
+		Dimensions: 2,
+	})
+	if err != nil {
+		t.Fatalf("embed: %v", err)
+	}
+
+	if len(resp.Vectors) != 2 {
+		t.Fatalf("vectors = %d, want 2", len(resp.Vectors))
+	}
+	if resp.Vectors[0][0] != float32(0.1) || resp.Vectors[1][0] != float32(0.4) {
+		t.Errorf("vectors not reordered to request order: %+v", resp.Vectors)
+	}
+
+	if gotBody["model"] != "text-embedding-3-small" {
+		t.Errorf("request model = %v", gotBody["model"])
+	}
+	if input, ok := gotBody["input"].([]any); !ok || len(input) != 2 {
+		t.Errorf("request input = %v, want 2-element array", gotBody["input"])
+	}
+	if gotBody["dimensions"] != float64(2) {
+		t.Errorf("request dimensions = %v, want 2", gotBody["dimensions"])
+	}
+}
+
+// TestEmbedRequiresInput proves Embed rejects an empty batch before making a
+// request, rather than sending OpenAI a call it would reject anyway.
+func TestEmbedRequiresInput(t *testing.T) {
+	c := &Connector{}
+	if err := c.Start(context.Background(), types.ConnectorConfig{
+		Name: "gpt", Settings: types.Settings{"apiKey": "sk-test"},
+	}); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if _, err := c.Embed(context.Background(), core.EmbedRequest{Model: "text-embedding-3-small"}); err == nil {
+		t.Error("expected error for empty input")
+	}
+}
