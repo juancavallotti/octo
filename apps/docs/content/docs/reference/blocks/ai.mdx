@@ -5,6 +5,7 @@ octo_types:
   - ai-agent
   - ai-router
   - ai-mapping
+  - ai-embed
   - ai-retry
   - clear-agent-memory
   - mcp-router
@@ -14,7 +15,7 @@ import { Callout } from 'fumadocs-ui/components/callout';
 
 Reference for the AI block family. For narrative guides see the [AI section](/ai) — [agents](/ai/agents), [routing](/ai/ai-router), [mapping](/ai/ai-mapping), [retry](/ai/ai-retry), [memory](/ai/agent-memory), and [MCP servers](/ai/mcp-server).
 
-`ai-agent`, `ai-router`, `ai-retry`, and `mcp-router` are **composites**: their keys sit at the top level of the block, not under `settings:`. `ai-mapping` and `clear-agent-memory` are leaf blocks configured under `settings:`. The `connector` field on each LLM-driven block names a configured [LLM provider connector](/reference/connectors/llm) (`llm-anthropic`, `llm-openai`, or `llm-gemini`); any provider works.
+`ai-agent`, `ai-router`, `ai-retry`, and `mcp-router` are **composites**: their keys sit at the top level of the block, not under `settings:`. `ai-mapping`, `ai-embed`, and `clear-agent-memory` are leaf blocks configured under `settings:`. The `connector` field on each LLM-driven block names a configured [LLM provider connector](/reference/connectors/llm) (`llm-anthropic`, `llm-openai`, or `llm-gemini`); any provider works, **except `ai-embed`, which only accepts `llm-openai` or `llm-gemini`** — Anthropic has no embeddings API.
 
 ## ai-agent
 
@@ -151,6 +152,43 @@ Leaf block: reshapes the message body to a target shape described by a prompt, o
       {"type": "object", "required": ["firstName", "lastName", "email"],
        "properties": {"firstName": {"type": "string"}, "lastName": {"type": "string"},
                       "email": {"type": "string"}, "phone": {"type": "string"}}}
+```
+
+## ai-embed
+
+Leaf block: turns text into one or more embedding vectors and stores them in a variable. Unlike `ai-mapping`, it never touches the message body — the vector is auxiliary, alongside whatever the body already holds.
+
+| Setting | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `connector` | string | Yes | — | Name of the LLM connector to embed with. Only `llm-openai` and `llm-gemini` are accepted; an `llm-anthropic` connector fails at startup. |
+| `text` | `expression` (string or list of strings) | Yes | — | Text to embed. A string embeds singly; a list embeds as one batch call. The shape decides the result shape (below). |
+| `model` | string | Yes | — | Provider-specific embedding model id (e.g. `text-embedding-3-small`, `gemini-embedding-001`). |
+| `dimensions` | int | No | model default | Requests a shortened output embedding, on models that support it (OpenAI `text-embedding-3-*`, newer Gemini embedding models). |
+| `resultVar` | string | No | `embedding` | Variable the result is stored in. |
+
+**Result shape:** when `text` evaluates to a string, `resultVar` holds a single vector (a list of numbers). When it evaluates to a list of strings, `resultVar` holds a list of vectors, one per input, in order.
+
+```yaml
+- type: ai-embed
+  name: embed-question
+  settings:
+    connector: openai-embeddings
+    text: body.question
+    model: text-embedding-3-small
+    dimensions: 1024
+    resultVar: questionVector
+```
+
+Batch form, embedding several chunks in one call:
+
+```yaml
+- type: ai-embed
+  name: embed-chunks
+  settings:
+    connector: openai-embeddings
+    text: body.chunks.map(c, c.text)
+    model: text-embedding-3-small
+    resultVar: chunkVectors
 ```
 
 ## ai-retry
