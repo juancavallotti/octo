@@ -5,22 +5,24 @@
 nameOverride: ""
 fullnameOverride: ""
 
-# Shared image coordinates. registry is the Artifact Registry base
-# (e.g. us-central1-docker.pkg.dev/PROJECT/octo); leave empty to use bare local
-# :dev image names. Per-component repository names are appended to it.
+# Shared image coordinates. Defaults to the public images on Docker Hub (see
+# #199) so `helm install` works with no --set for anyone standing up their own
+# cluster; the Terraform release root overrides both to Artifact Registry +
+# the deployed version tag for this project's own production deployment.
+# Per-component repository names are appended to registry.
 image:
-  registry: ""
-  tag: dev
+  registry: "docker.io/juancavallotti"
+  tag: latest
   pullPolicy: IfNotPresent
 
 platform:
-  repository: octo-platform
+  repository: octo-platform-paas
   replicas: 1
   service:
     port: 3000
 
 orchestrator:
-  repository: octo-orchestrator
+  repository: octo-orchestrator-paas
   replicas: 1
   service:
     port: 8090
@@ -34,7 +36,7 @@ orchestrator:
 # consumer) and persists events to Postgres; serves the read query API the
 # platform's /logs view calls. Replicas scale safely (NATS queue group).
 logs:
-  repository: octo-logs
+  repository: octo-logs-paas
   replicas: 1
   service:
     port: 8091
@@ -43,7 +45,7 @@ logs:
 # orchestrator as RUNTIME_IMAGE; pre-pulled into containerd at provision so
 # integration pods (imagePullPolicy IfNotPresent) never hit the registry later.
 runtime:
-  repository: octo-runtime
+  repository: octo-runtime-paas
   # Runtime-services backend the orchestrator injects into each deployed runtime
   # pod (RUNTIME_SERVICES_MODULE). "k8s" = Lease-based leader election (so a cron
   # connector fires on one replica) + the orchestrator-backed KV store; "standalone"
@@ -61,7 +63,7 @@ kv:
 # Schema applier image (built from sql/Dockerfile); run as a post-install/upgrade
 # hook job to apply sql/schema.sql idempotently.
 schema:
-  repository: octo-schema
+  repository: octo-schema-paas
 
 postgres:
   image:
