@@ -2,6 +2,7 @@ package core
 
 import (
 	"sync"
+	"sync/atomic"
 
 	"github.com/juancavallotti/octo/runtime/types"
 )
@@ -20,9 +21,9 @@ type subscription struct {
 // subscriber receives every event. It is safe for concurrent Publish and
 // Subscribe.
 type EventBus struct {
-	mu          sync.RWMutex
+	mu          sync.Mutex
 	nextID      uint64
-	subscribers []subscription
+	subscribers atomic.Pointer[[]subscription]
 }
 
 // NewEventBus returns an empty event bus.
@@ -42,7 +43,10 @@ func (b *EventBus) Subscribe(handler FlowEventHandler) (unsubscribe func()) {
 	b.mu.Lock()
 	id := b.nextID
 	b.nextID++
-	b.subscribers = append(b.subscribers, subscription{id: id, handler: handler})
+	cur := b.snapshot()
+	next := append(make([]subscription, 0, len(cur)+1), cur...)
+	next = append(next, subscription{id: id, handler: handler})
+	b.subscribers.Store(&next)
 	b.mu.Unlock()
 	return func() { b.unsubscribe(id) }
 }
@@ -51,26 +55,39 @@ func (b *EventBus) Subscribe(handler FlowEventHandler) (unsubscribe func()) {
 func (b *EventBus) unsubscribe(id uint64) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	for i := range b.subscribers {
-		if b.subscribers[i].id == id {
-			b.subscribers = append(b.subscribers[:i], b.subscribers[i+1:]...)
+	cur := b.snapshot()
+	for i := range cur {
+		if cur[i].id == id {
+			next := append([]subscription{}, cur[:i]...)
+			next = append(next, cur[i+1:]...)
+			b.subscribers.Store(&next)
 			return
 		}
 	}
 }
 
-// Publish delivers event to every current subscriber. Handlers are invoked
-// synchronously, so by contract they must return quickly.
-func (b *EventBus) Publish(event types.FlowEvent) {
-	b.mu.RLock()
-	handlers := make([]FlowEventHandler, len(b.subscribers))
-	for i := range b.subscribers {
-		handlers[i] = b.subscribers[i].handler
+// snapshot returns the current subscriber slice, or nil if none has been
+// stored yet. Callers under mu use it as the base to copy from; Publish uses
+// it directly since it never mutates what it reads.
+func (b *EventBus) snapshot() []subscription {
+	if p := b.subscribers.Load(); p != nil {
+		return *p
 	}
-	b.mu.RUnlock()
+	return nil
+}
 
-	for _, handler := range handlers {
-		handler(event)
+// Publish delivers event to every current subscriber. Handlers are invoked
+// synchronously, so by contract they must return quickly. A snapshot taken
+// before an unsubscribe may still call the removed handler once — this was
+// already true of the previous RWMutex-based implementation, so it is not a
+// new behavioral risk, just documented here.
+func (b *EventBus) Publish(event types.FlowEvent) {
+	p := b.subscribers.Load()
+	if p == nil {
+		return
+	}
+	for _, s := range *p {
+		s.handler(event)
 	}
 }
 

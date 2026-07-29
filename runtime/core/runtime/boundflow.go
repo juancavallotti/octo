@@ -15,8 +15,15 @@ import (
 )
 
 const (
+	// defaultWorkers and defaultBuffer are floors, not the value used outright:
+	// resolveWorkers derives from GOMAXPROCS above this floor, and
+	// resolveBuffer's floor tracks the resolved worker count instead.
 	defaultWorkers = 8
 	defaultBuffer  = 64
+	// workersPerProc scales the derived worker default: max(8, GOMAXPROCS*4)
+	// gives 32 workers on an 8-core host — headroom for a blocking flow without
+	// being wildly oversubscribed for a compute-bound one.
+	workersPerProc = 4
 )
 
 // boundFlow is a runnable top-level pipeline: a source feeding a root Flow, run
@@ -31,10 +38,14 @@ type boundFlow struct {
 	// (recovery); the failing error is exposed to it as vars.error.
 	errorPath *engine.Flow
 	workers   int
-	in        chan *types.Message
-	bus       *core.EventBus
-	pool      *pool.Pool
-	wg        sync.WaitGroup
+	// workersDerived is true when workers came from the GOMAXPROCS-derived
+	// default rather than the flow's own config — surfaced only for the
+	// startup log's "derived"/"configured" marker.
+	workersDerived bool
+	in             chan *types.Message
+	bus            *core.EventBus
+	pool           *pool.Pool
+	wg             sync.WaitGroup
 	// inflight counts the resumed tails that have not finished. A tail may resume
 	// again — a split whose elements reach an aggregate is the ordinary case — so
 	// draining the source workers says nothing about whether the continuation tree
@@ -53,20 +64,35 @@ type boundFlow struct {
 	ctx context.Context //nolint:containedctx // captured at start for resumed tails
 }
 
-// resolveWorkers returns the configured worker count or the default.
-func resolveWorkers(configured int) int {
+// resolveWorkers returns the configured worker count, or — when unconfigured —
+// max(defaultWorkers, gomaxprocs*workersPerProc), so a flow scales with the
+// host/container instead of a flat constant. gomaxprocs is a parameter rather
+// than read from the stdlib runtime package here, so this stays a pure,
+// table-testable function; the one real call site passes the live value.
+func resolveWorkers(configured, gomaxprocs int) int {
 	if configured > 0 {
 		return configured
 	}
-	return defaultWorkers
+	return max(defaultWorkers, gomaxprocs*workersPerProc)
 }
 
-// resolveBuffer returns the configured channel depth or the default.
-func resolveBuffer(configured int) int {
+// resolveBuffer returns the configured channel depth, or — when unconfigured —
+// max(defaultBuffer, workers), so the source channel is never shallower than
+// the pool of workers reading it.
+func resolveBuffer(configured, workers int) int {
 	if configured > 0 {
 		return configured
 	}
-	return defaultBuffer
+	return max(defaultBuffer, workers)
+}
+
+// workersOrigin labels the startup log with whether a flow's worker count came
+// from its own config or from the GOMAXPROCS-derived default.
+func workersOrigin(derived bool) string {
+	if derived {
+		return "derived"
+	}
+	return "configured"
 }
 
 // start starts the shared pool, spawns the worker pool, starts any block that
