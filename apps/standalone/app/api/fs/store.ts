@@ -75,7 +75,13 @@ function resolveSafe(id: string): string {
   return full;
 }
 
-function slugify(name: string): string {
+/**
+ * Turn a display name into a safe filename stem. Exported because the suite store
+ * names files from a flow name the same way, and one rule shared beats two that
+ * drift: it is what guarantees a flow's own save can never mint a name that lands
+ * in the suite namespace (`orders_test` slugs to `orders-test`).
+ */
+export function slugify(name: string): string {
   return (
     name
       .trim()
