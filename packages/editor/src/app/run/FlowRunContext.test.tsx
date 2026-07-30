@@ -9,6 +9,7 @@ import {
 import { emptyFlow, newBlock, type EditorDocument } from "../model/document";
 import { ConsoleProvider, useConsole } from "./console";
 import { FlowRunProvider, useFlowRun } from "./FlowRunContext";
+import { emptyTotals } from "./transport";
 import type { FlowRunOutcome, FlowRunRequest, RunTransport } from "./transport";
 import {
   EditorMetaProvider,
@@ -36,6 +37,15 @@ function stubTransport(
     sync: async () => {},
     evalCel: async () => ({ ok: true }),
     subscribeLogs: () => () => {},
+    // These fixtures exercise RUN, not the Testing tab: no dolphin configured.
+    test: async () => ({
+      ok: false,
+      timedOut: false,
+      totals: emptyTotals(),
+      suites: [],
+      logs: [],
+      error: "no test runner",
+    }),
     invoke: async (req) => {
       onInvoke?.(req);
       return {

@@ -18,6 +18,7 @@ import {
   status,
   stop,
   sync,
+  test,
 } from "@octo/run-host";
 import type {
   CelEvalRequest,
@@ -25,6 +26,8 @@ import type {
   FlowRunOutcome,
   FlowRunRequest,
   RunStatusSnapshot,
+  TestRunOutcome,
+  TestRunRequest,
 } from "@octo/editor";
 import type { ActionResult } from "@octo/http";
 import { ensureRunNamespace } from "@/app/run/namespace";
@@ -156,6 +159,55 @@ export async function runInvoke(
           logs: r.logs,
           breakpoint: r.breakpoint,
           spies: r.spies,
+        },
+      };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
+  });
+}
+
+/**
+ * Run a flow's dolphin suites — the Testing tab's Run.
+ *
+ * The suites travel in the request rather than being read from the resource store, so
+ * the tab runs the edit in front of the user; `runInvoke` takes `yaml` for the same
+ * reason. It spawns runners, so it takes the write roles like invoke does.
+ *
+ * The outcome is copied field by field rather than spread. run-host's own result carries
+ * dolphin's exit code, which is a detail of how the run was made and not something the
+ * UI should reason about — the verdict is the tally.
+ */
+export async function runTest(
+  req: TestRunRequest,
+): Promise<ActionResult<TestRunOutcome>> {
+  return withWrite(async () => {
+    const ns = await ensureRunNamespace();
+    if (!status(ns).testAvailable) {
+      return { ok: false, error: "Test runner not available (DOLPHIN_BIN_PATH unset)." };
+    }
+    if (typeof req?.yaml !== "string" || req.yaml.trim() === "") {
+      return { ok: false, error: "missing `yaml`" };
+    }
+    if (!Array.isArray(req?.suites) || req.suites.length === 0) {
+      return { ok: false, error: "no test suites to run" };
+    }
+    try {
+      const r = await test(ns, {
+        yaml: req.yaml,
+        suites: req.suites,
+        env: req.env,
+        resources: resourcesFor(req.integrationId),
+      });
+      return {
+        ok: true,
+        data: {
+          ok: r.ok,
+          timedOut: r.timedOut,
+          totals: r.totals,
+          suites: r.suites,
+          logs: r.logs,
+          ...(r.error !== undefined ? { error: r.error } : {}),
         },
       };
     } catch (err) {

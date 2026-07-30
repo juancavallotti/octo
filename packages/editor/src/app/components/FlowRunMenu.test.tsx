@@ -14,6 +14,7 @@ import {
 import { ConsoleProvider } from "../run/console";
 import { FlowRunProvider } from "../run/FlowRunContext";
 import { RunProvider } from "../run/RunContext";
+import { emptyTotals } from "../run/transport";
 import type { FlowRunRequest, RunTransport } from "../run/transport";
 import FlowRunMenu from "./FlowRunMenu";
 
@@ -63,6 +64,15 @@ function stubTransport(
     sync: async () => {},
     evalCel: evalCel ?? (async () => ({ ok: true })),
     subscribeLogs: () => () => {},
+    // These fixtures exercise RUN, not the Testing tab: no dolphin configured.
+    test: async () => ({
+      ok: false,
+      timedOut: false,
+      totals: emptyTotals(),
+      suites: [],
+      logs: [],
+      error: "no test runner",
+    }),
     invoke: async (req) => {
       onInvoke(req);
       return {

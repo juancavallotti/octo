@@ -59,6 +59,20 @@ export type {
   FlowRunOutcome,
   BreakOutcome,
 } from "./app/run/transport";
+// The Testing tab's half of the transport contract — a host implements `test()` with
+// these, and maps them onto whatever @octo/run-host returns.
+export { emptyTotals } from "./app/run/testTransport";
+export type {
+  TestRunRequest,
+  TestRunOutcome,
+  TestSuiteInput,
+  TestSuiteResult,
+  TestCaseResult,
+  TestCaseStatus,
+  TestCaseOutcome,
+  TestFailure,
+  TestTotals,
+} from "./app/run/testTransport";
 export type { DevEnvStore } from "./app/state/devEnvStore";
 export {
   EditorMetaProvider,

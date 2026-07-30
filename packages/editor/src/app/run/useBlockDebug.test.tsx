@@ -11,6 +11,7 @@ import { EditorMetaProvider } from "../providers/EditorMetaProvider";
 import { ConsoleProvider } from "./console";
 import { FlowRunProvider } from "./FlowRunContext";
 import { useBlockDebug } from "./useBlockDebug";
+import { emptyTotals } from "./transport";
 import type { RunTransport } from "./transport";
 
 const transport: RunTransport = {
@@ -34,6 +35,15 @@ const transport: RunTransport = {
   sync: async () => {},
   evalCel: async () => ({ ok: true }),
   subscribeLogs: () => () => {},
+  // These fixtures exercise RUN, not the Testing tab: no dolphin configured.
+  test: async () => ({
+    ok: false,
+    timedOut: false,
+    totals: emptyTotals(),
+    suites: [],
+    logs: [],
+    error: "no test runner",
+  }),
   invoke: async () => ({
     ok: true,
     dropped: false,

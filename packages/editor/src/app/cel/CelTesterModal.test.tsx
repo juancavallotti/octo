@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import CelTesterModal from "./CelTesterModal";
 import { RunProvider } from "../run/RunContext";
+import { emptyTotals } from "../run/transport";
 import type { RunTransport } from "../run/transport";
 
 // EditorState is read by RunProvider (validation/sync); stub it so the module
@@ -46,6 +47,15 @@ function stubTransport(overrides?: Partial<RunTransport>): RunTransport {
     }),
     evalCel: async () => ({ ok: true, result: 3 }),
     subscribeLogs: () => () => {},
+    // These fixtures exercise RUN, not the Testing tab: no dolphin configured.
+    test: async () => ({
+      ok: false,
+      timedOut: false,
+      totals: emptyTotals(),
+      suites: [],
+      logs: [],
+      error: "no test runner",
+    }),
     ...overrides,
   };
 }
