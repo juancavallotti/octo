@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { mkdtemp, rm, readdir, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -108,5 +108,34 @@ describe("standalone flow store", () => {
       { id: "a.yaml", name: "a" },
       { id: "b.yaml", name: "b" },
     ]);
+  });
+
+  // A dolphin suite lives beside the flow it tests, exactly as octo's own directory
+  // loader expects (runtime/core/runtime/config.go skips these). Listing one would
+  // offer it in the folder picker as an integration of its own.
+  it("does not list test suites as flows", async () => {
+    await writeFile(path.join(dir, "orders.yaml"), "");
+    await writeFile(path.join(dir, "orders_test.yaml"), "");
+    await writeFile(path.join(dir, "refunds_test.yml"), "");
+
+    expect(await listFlows()).toEqual([{ id: "orders.yaml", name: "orders" }]);
+  });
+
+  // Excluding suites from the listing alone would leave the split a convention. The
+  // damaging direction is a write: it would replace a suite with a flow definition.
+  it("refuses to read or write a test suite as a flow", async () => {
+    await writeFile(path.join(dir, "orders_test.yaml"), "flow: orders\n");
+
+    await expect(readFlow("orders_test.yaml")).rejects.toThrow(/test suites/);
+    await expect(writeFlow("orders_test.yaml", "clobbered")).rejects.toThrow(/test suites/);
+    // The suite is untouched.
+    expect(await readFile(path.join(dir, "orders_test.yaml"), "utf8")).toBe("flow: orders\n");
+  });
+
+  // slugify maps every non-alphanumeric to `-`, so the editor's own save path cannot
+  // mint a name that collides with the suite namespace.
+  it("cannot create a flow whose name would look like a test suite", async () => {
+    const created = await createFlow("orders_test", "x");
+    expect(created.id).toBe("orders-test.yaml");
   });
 });

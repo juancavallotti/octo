@@ -65,10 +65,11 @@ export interface ResourceEntry {
 }
 
 /**
- * List the resource files under the flows root, depth-first. Flows themselves —
- * top-level single-segment `*.yaml`/`*.yml` files (see store.ts) — are excluded,
- * as are dot-directories and node_modules; dotfiles like `.env.dev` are kept.
- * Names are returned posix-style (with `/`) regardless of platform.
+ * List the resource files under the flows root, depth-first. Every top-level
+ * single-segment `*.yaml`/`*.yml` is excluded, because those belong to the other two
+ * stores sharing this root: a flow document (store.ts) or a dolphin test suite
+ * (testSuiteStore.ts). Dot-directories and node_modules are skipped too; dotfiles like
+ * `.env.dev` are kept. Names are returned posix-style (with `/`) regardless of platform.
  */
 export async function listResources(): Promise<ResourceEntry[]> {
   const root = path.resolve(fsRoot());
@@ -89,7 +90,7 @@ export async function listResources(): Promise<ResourceEntry[]> {
         continue;
       }
       if (!entry.isFile()) continue;
-      // A top-level *.yaml/*.yml is a flow document, not a resource.
+      // A top-level *.yaml/*.yml is a flow document or a test suite, not a resource.
       if (rel === "" && /\.ya?ml$/i.test(entry.name)) continue;
       const content = (await readResource(childRel)) ?? "";
       out.push({ name: childRel, content });
