@@ -20,6 +20,10 @@ import {
   EditorMetaProvider,
   type EditorMetaStore,
 } from "../providers/EditorMetaProvider";
+import {
+  TestSuiteProvider,
+  type TestSuiteStore,
+} from "../providers/TestSuiteProvider";
 import IntegrationLoader from "./IntegrationLoader";
 import LogPanel from "./LogPanel";
 import EditorBody from "./EditorBody";
@@ -48,6 +52,7 @@ export default function EditorRoot({
   devEnv,
   resources,
   meta,
+  tests,
   onSaved,
 }: {
   integrationId?: string;
@@ -73,6 +78,11 @@ export default function EditorRoot({
    * inputs. Omit and inputs still work — they just live for the session.
    */
   meta?: EditorMetaStore | null;
+  /**
+   * Test-suite capability (`<flow>_test.yaml`), backing the Testing tab. Omit and the
+   * tab is hidden entirely — unlike meta, a test you cannot store is not worth writing.
+   */
+  tests?: TestSuiteStore | null;
   /** Called after a save with the stored record (e.g. to update the URL). */
   onSaved?: (stored: StoredDocument) => void;
 }) {
@@ -121,6 +131,12 @@ export default function EditorRoot({
         <SaveProvider onSaved={onSaved}>{tree}</SaveProvider>
       </FileSystemProvider>
     );
+
+  // Suites are mounted only when the host backs them, because that null is what hides
+  // the Testing tab — the one capability where absence means "not offered" rather than
+  // "works, but forgets". It wraps the whole tree rather than the tab, because the
+  // canvas reads it too: the flow ▶ menu offers a suite's cases as scenarios.
+  if (tests) tree = <TestSuiteProvider store={tests}>{tree}</TestSuiteProvider>;
 
   // Meta is mounted even without a store: test inputs still work for an unsaved draft,
   // they simply are not written down (the provider reports canPersist: false). It reads

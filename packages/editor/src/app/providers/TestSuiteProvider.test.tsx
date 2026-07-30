@@ -1,0 +1,293 @@
+import { useEffect, type ReactNode } from "react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, act } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import {
+  EditorStateProvider,
+  useEditorState,
+  EditorActionType,
+} from "../state/editorState";
+import {
+  TestSuiteProvider,
+  useTestSuites,
+  type TestSuiteFile,
+  type TestSuiteStore,
+} from "./TestSuiteProvider";
+
+/** How long the provider waits before writing; one place so a retune moves one number. */
+const DEBOUNCE_MS = 2000;
+const PAST_DEBOUNCE_MS = DEBOUNCE_MS + 100;
+
+/**
+ * A store backed by plain maps, one per document, recording what it was asked to do.
+ * Keyed by document so a reload can be told apart from a stale render.
+ */
+function fakeStore(docs: Record<string, TestSuiteFile[]> = {}) {
+  const byDoc = new Map(
+    Object.entries(docs).map(([id, files]) => [
+      id,
+      new Map(files.map((f) => [f.flow, f.content])),
+    ]),
+  );
+  const filesFor = (id: string | null) => {
+    const key = id ?? "";
+    const found = byDoc.get(key);
+    if (found) return found;
+    const fresh = new Map<string, string>();
+    byDoc.set(key, fresh);
+    return fresh;
+  };
+  const saves: { id: string | null; flow: string; content: string }[] = [];
+  const removes: { id: string | null; flow: string }[] = [];
+  const store: TestSuiteStore = {
+    list: async (id) => [...filesFor(id)].map(([flow, content]) => ({ flow, content })),
+    save: async (id, flow, content) => {
+      saves.push({ id, flow, content });
+      filesFor(id).set(flow, content);
+    },
+    remove: async (id, flow) => {
+      removes.push({ id, flow });
+      filesFor(id).delete(flow);
+    },
+    canEdit: (id) => !!id,
+  };
+  return { store, saves, removes };
+}
+
+/** Renders the capability's current view and exposes buttons to drive it. */
+function Probe() {
+  const suites = useTestSuites();
+  const { dispatch } = useEditorState();
+  if (!suites) return <p>no capability</p>;
+  return (
+    <div>
+      <p data-testid="loaded">{String(suites.loaded)}</p>
+      <p data-testid="persist">{String(suites.canPersist)}</p>
+      <p data-testid="orders">{suites.suiteFor("orders") ?? "none"}</p>
+      <p data-testid="all">
+        {suites
+          .all()
+          .map((s) => s.flow)
+          .join(",")}
+      </p>
+      <button onClick={() => suites.setSuite("orders", "flow: orders\nv2\n")}>edit</button>
+      <button onClick={() => void suites.removeSuite("orders")}>delete</button>
+      <button
+        onClick={() =>
+          dispatch({ type: EditorActionType.SET_INTEGRATION_ID, data: { id: "two" } })
+        }
+      >
+        open other
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Mounts the provider against a document. `integrationId` null is an unsaved draft,
+ * which is the editor's initial state and needs no dispatch.
+ */
+function renderProvider(store: TestSuiteStore | null, integrationId: string | null = "one") {
+  function Seed({ children }: { children: ReactNode }) {
+    const { dispatch } = useEditorState();
+    useEffect(() => {
+      if (integrationId) {
+        dispatch({ type: EditorActionType.SET_INTEGRATION_ID, data: { id: integrationId } });
+      }
+    }, [dispatch]);
+    return <>{children}</>;
+  }
+  return render(
+    <EditorStateProvider>
+      <Seed>
+        <TestSuiteProvider store={store}>
+          <Probe />
+        </TestSuiteProvider>
+      </Seed>
+    </EditorStateProvider>,
+  );
+}
+
+describe("TestSuiteProvider", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** Advance past the save debounce and let the writes it fires settle. */
+  async function settleDebounce() {
+    await act(async () => {
+      vi.advanceTimersByTime(PAST_DEBOUNCE_MS);
+    });
+  }
+
+  // EditorRoot omits the provider entirely when the host backs no store, and that
+  // absence is what hides the tab. Mounted with a null store anyway, it must still
+  // render rather than throw — it simply reports that nothing can be kept.
+  it("reports nothing persistable when mounted without a store", () => {
+    render(
+      <EditorStateProvider>
+        <TestSuiteProvider store={null}>
+          <Probe />
+        </TestSuiteProvider>
+      </EditorStateProvider>,
+    );
+
+    expect(screen.getByTestId("persist")).toHaveTextContent("false");
+    expect(screen.getByTestId("loaded")).toHaveTextContent("true");
+    expect(screen.getByTestId("orders")).toHaveTextContent("none");
+  });
+
+  it("loads the suites stored against the open document", async () => {
+    const { store } = fakeStore({
+      one: [
+        { flow: "refunds", content: "flow: refunds\n" },
+        { flow: "orders", content: "flow: orders\n" },
+      ],
+    });
+    renderProvider(store);
+
+    // Listed by flow name, not by the order the store handed them back.
+    expect(await screen.findByText("orders,refunds")).toBeInTheDocument();
+    expect(screen.getByTestId("orders")).toHaveTextContent("flow: orders");
+    expect(screen.getByTestId("loaded")).toHaveTextContent("true");
+    expect(screen.getByTestId("persist")).toHaveTextContent("true");
+  });
+
+  // An edit must be visible at once — the tab renders from this — while the write is
+  // debounced, so typing in the YAML view does not write a file per keystroke.
+  it("shows an edit immediately and writes it once the pause is over", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const { store, saves } = fakeStore({ one: [{ flow: "orders", content: "flow: orders\n" }] });
+    renderProvider(store);
+    await screen.findByText("orders");
+
+    await user.click(screen.getByRole("button", { name: "edit" }));
+
+    expect(screen.getByTestId("orders")).toHaveTextContent("v2");
+    expect(saves).toEqual([]);
+
+    await settleDebounce();
+
+    expect(saves).toEqual([{ id: "one", flow: "orders", content: "flow: orders\nv2\n" }]);
+  });
+
+  // Writing every suite on every debounce would churn the mtime of files a terminal
+  // may be watching, and rewrite content the user never touched.
+  it("writes only the suites that changed", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const { store, saves } = fakeStore({
+      one: [
+        { flow: "orders", content: "flow: orders\n" },
+        { flow: "refunds", content: "flow: refunds\n" },
+      ],
+    });
+    renderProvider(store);
+    await screen.findByText("orders,refunds");
+
+    await user.click(screen.getByRole("button", { name: "edit" }));
+    await settleDebounce();
+
+    expect(saves.map((s) => s.flow)).toEqual(["orders"]);
+  });
+
+  // A deletion is not something to leave pending: the user asked for the file to go.
+  it("deletes a suite immediately rather than on the debounce", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const { store, removes } = fakeStore({ one: [{ flow: "orders", content: "x" }] });
+    renderProvider(store);
+    await screen.findByText("orders");
+
+    await user.click(screen.getByRole("button", { name: "delete" }));
+
+    expect(removes).toEqual([{ id: "one", flow: "orders" }]);
+    expect(screen.getByTestId("orders")).toHaveTextContent("none");
+  });
+
+  // Edit, then delete before the debounce fires. Letting the queued write land after
+  // the delete would recreate the file the user just removed.
+  it("does not resurrect a suite deleted while its write was pending", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const { store, saves, removes } = fakeStore({ one: [{ flow: "orders", content: "x" }] });
+    renderProvider(store);
+    await screen.findByText("orders");
+
+    await user.click(screen.getByRole("button", { name: "edit" }));
+    await user.click(screen.getByRole("button", { name: "delete" }));
+    await settleDebounce();
+
+    expect(removes).toEqual([{ id: "one", flow: "orders" }]);
+    expect(saves).toEqual([]);
+    expect(screen.getByTestId("orders")).toHaveTextContent("none");
+  });
+
+  // A draft has no id to key by. Authoring still works — it would be strange to refuse
+  // typing — but nothing is written, and the tab says so via canPersist.
+  it("reports a draft as unpersistable and keeps its suites for the session", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const { store, saves } = fakeStore();
+    renderProvider(store, null);
+    await screen.findByTestId("persist");
+
+    expect(screen.getByTestId("persist")).toHaveTextContent("false");
+
+    await user.click(screen.getByRole("button", { name: "edit" }));
+    await settleDebounce();
+
+    expect(screen.getByTestId("orders")).toHaveTextContent("v2");
+    expect(saves).toEqual([]);
+  });
+
+  // A host may back suites but refuse writes for this document (a read-only view).
+  // Same contract as a draft: the content is there, it just does not get written.
+  it("respects a store that will not accept writes for this document", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const { store, saves } = fakeStore({ one: [{ flow: "orders", content: "flow: orders\n" }] });
+    renderProvider({ ...store, canEdit: () => false });
+    await screen.findByText("orders");
+
+    expect(screen.getByTestId("persist")).toHaveTextContent("false");
+
+    await user.click(screen.getByRole("button", { name: "edit" }));
+    await settleDebounce();
+
+    expect(screen.getByTestId("orders")).toHaveTextContent("v2");
+    expect(saves).toEqual([]);
+  });
+
+  // Suites belong to a document, so opening another must not leave the previous one's
+  // on screen — they would be attributed to flows that do not exist here.
+  it("reloads when another document is opened", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const { store } = fakeStore({
+      one: [{ flow: "orders", content: "flow: orders\n" }],
+      two: [{ flow: "invoices", content: "flow: invoices\n" }],
+    });
+    renderProvider(store);
+    await screen.findByText("orders");
+
+    await user.click(screen.getByRole("button", { name: "open other" }));
+
+    expect(await screen.findByText("invoices")).toBeInTheDocument();
+    expect(screen.getByTestId("orders")).toHaveTextContent("none");
+  });
+
+  // An unreadable store is not worth blocking the editor over; the tab shows an empty
+  // document rather than hanging on a load that will never settle.
+  it("survives a store that cannot be read", async () => {
+    const store: TestSuiteStore = {
+      list: async () => {
+        throw new Error("nope");
+      },
+      save: async () => {},
+      remove: async () => {},
+      canEdit: () => true,
+    };
+    renderProvider(store);
+
+    expect(await screen.findByText("none")).toBeInTheDocument();
+    expect(screen.getByTestId("loaded")).toHaveTextContent("true");
+  });
+});

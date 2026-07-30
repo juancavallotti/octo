@@ -67,6 +67,12 @@ export {
   type EditorMetaStore,
 } from "./app/providers/EditorMetaProvider";
 export type { TestInput, EditorMeta, FlowMeta } from "./app/meta/types";
+export {
+  TestSuiteProvider,
+  useTestSuites,
+  type TestSuiteStore,
+  type TestSuiteFile,
+} from "./app/providers/TestSuiteProvider";
 
 // Resource-store capability (backs the Resources tab)
 export {
