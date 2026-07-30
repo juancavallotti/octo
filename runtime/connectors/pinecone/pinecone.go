@@ -29,7 +29,18 @@ import (
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
+// init is this module's manifest: the one place that says what importing this
+// package puts into the runtime, in a deterministic order. Each block's own
+// registration lives beside the block as a registerX function called from here.
 func init() {
+	registerConnector()
+	registerQuery()
+	registerUpsert()
+	registerFetch()
+	registerDelete()
+}
+
+func registerConnector() {
 	core.MustRegisterConnector("pinecone", func() core.Connector {
 		return &Connector{}
 	})

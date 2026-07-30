@@ -16,7 +16,7 @@ import (
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
-func init() {
+func registerEmbed() {
 	core.MustRegisterBlock("ai-embed", newAIEmbed)
 
 	core.RegisterBlockMeta(core.BlockMeta{

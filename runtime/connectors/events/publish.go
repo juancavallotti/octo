@@ -18,7 +18,7 @@ import (
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
-func init() {
+func registerPublish() {
 	core.MustRegisterBlock("publish-event", newPublish)
 
 	core.RegisterBlockMeta(core.BlockMeta{

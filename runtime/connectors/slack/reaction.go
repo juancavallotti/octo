@@ -13,7 +13,7 @@ import (
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
-func init() {
+func registerAddReaction() {
 	core.MustRegisterBlock("slack-add-reaction", newAddReaction)
 
 	core.RegisterBlockMeta(core.BlockMeta{

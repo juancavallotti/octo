@@ -1,12 +1,6 @@
-// Package aiblocks provides leaf processor blocks powered by an LLM connector.
-// The composite AI elements (ai-router, ai-agent, ai-retry) are built by the
-// flow engine; the leaf elements that fit the block registry live here.
-//
-// The only leaf today is "ai-mapping": it reshapes the message body to a target
-// shape described by a prompt, optional input/output examples, and an optional
-// output JSON Schema (validated). Blocks here bind to an LLM provider by name and
-// type-assert to core.LLMClient — the shared interface — so they work with any
-// configured provider (llm-anthropic, llm-openai, llm-gemini).
+// This file provides the "ai-mapping" block: it reshapes the message body to a
+// target shape described by a prompt, optional input/output examples, and an
+// optional output JSON Schema (validated).
 package aiblocks
 
 import (
@@ -23,7 +17,7 @@ import (
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
-func init() {
+func registerMapping() {
 	core.MustRegisterBlock("ai-mapping", newAIMapping)
 
 	core.RegisterBlockMeta(core.BlockMeta{

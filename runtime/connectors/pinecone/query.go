@@ -15,7 +15,7 @@ import (
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
-func init() {
+func registerQuery() {
 	core.MustRegisterBlock("pinecone-query", newQuery)
 
 	core.RegisterBlockMeta(core.BlockMeta{

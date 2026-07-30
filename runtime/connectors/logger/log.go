@@ -23,7 +23,7 @@ import (
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
-func init() {
+func registerLog() {
 	core.MustRegisterBlock("log", newLog)
 
 	core.RegisterBlockMeta(core.BlockMeta{

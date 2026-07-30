@@ -17,7 +17,7 @@ import (
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
-func init() {
+func registerPageToMarkdown() {
 	core.MustRegisterBlock("notion-page-to-markdown", newPageToMarkdown)
 
 	core.RegisterBlockMeta(core.BlockMeta{

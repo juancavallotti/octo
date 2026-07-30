@@ -20,7 +20,7 @@ import (
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
-func init() {
+func registerDispatch() {
 	core.MustRegisterBlock("queue-dispatch", newDispatch)
 
 	core.RegisterBlockMeta(core.BlockMeta{

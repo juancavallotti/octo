@@ -30,7 +30,20 @@ import (
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
+// init is this module's manifest: the one place that says what importing this
+// package puts into the runtime, in a deterministic order. Each block's own
+// registration lives beside the block as a registerX function called from here.
 func init() {
+	registerConnector()
+	registerVerify()
+	registerEvent()
+	registerRetrievePage()
+	registerRetrieveBlocks()
+	registerPageToMarkdown()
+	registerQueryDataSource()
+}
+
+func registerConnector() {
 	core.MustRegisterConnector("notion", func() core.Connector {
 		return &Connector{}
 	})

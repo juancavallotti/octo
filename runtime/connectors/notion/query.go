@@ -17,7 +17,7 @@ import (
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
-func init() {
+func registerQueryDataSource() {
 	core.MustRegisterBlock("notion-query-datasource", newQueryDataSource)
 
 	core.RegisterBlockMeta(core.BlockMeta{
