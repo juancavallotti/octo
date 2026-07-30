@@ -8,6 +8,7 @@ import { orchestratorFileSystem } from "@/app/providers/orchestratorFileSystem";
 import { bffRunTransport } from "@/app/run/transport";
 import { bffDevEnvStore } from "@/app/run/devEnvStore";
 import { bffEditorMetaStore } from "@/app/run/editorMetaStore";
+import { bffTestSuiteStore } from "@/app/run/testSuiteStore";
 import { makeResourceStore } from "@/app/run/resourceStore";
 import EditorHeader from "./EditorHeader";
 
@@ -68,6 +69,7 @@ export default function PlatformEditor({
       devEnv={available ? bffDevEnvStore : null}
       resources={available ? resourceStore : null}
       meta={available ? bffEditorMetaStore : null}
+      tests={available ? bffTestSuiteStore : null}
       onSaved={(stored) => {
         idRef.current = stored.id;
         resourceStore.setIntegrationId(stored.id);
