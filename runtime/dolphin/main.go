@@ -89,6 +89,7 @@ Test flags:
   --config <path>   the flows to test against, when they are not the ones beside the suite
   --env-file <path> a .env file every case runs with
   --junit <path>    write a JUnit XML report to this file
+  --report-json <path>  write a machine-readable JSON report to this file
   --parallel <n>    how many cases to run at once (default: one per CPU)
   --fail-fast       stop after the first failing case
   -v                name every case, and let octo's logs through
