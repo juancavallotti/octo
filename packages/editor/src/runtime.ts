@@ -39,10 +39,12 @@ export {
   type MockOutcome,
 } from "./app/suite/types";
 export { parseSuite, type ParsedSuite } from "./app/suite/parse";
-export { serializeSuite } from "./app/suite/serialize";
+export { serializeSuite, serializeCase } from "./app/suite/serialize";
 export { validateSuite, type SuiteIssue } from "./app/suite/validate";
+export { hasComments } from "./app/suite/comments";
 export {
   addCase,
+  appendCase,
   removeCase,
   updateCase,
   nameTaken,
@@ -62,6 +64,43 @@ export {
   type ValidationResult,
   type Issue,
 } from "./app/model/validate";
+// The editor's own bookkeeping — `.octo/editor-meta.json`: the test inputs, mocks and
+// spies the canvas shows. Exposed for the same reason the suite model is: an agent that
+// has just debugged a flow should be able to leave the setup behind, and a second parser
+// for this file would drift from the one the editor reads it with.
+//
+// Note the difference in what the two models hold, because it decides what a tool's
+// schema looks like. A mock HERE keeps `body` and `vars` as JSON *text* — the editor
+// edits them in a box, and half-written text has to survive — while a suite holds
+// values. Anything writing both has to convert.
+export {
+  emptyMeta,
+  emptyFlowMeta,
+  isValidCase,
+  type EditorMeta,
+  type FileMeta,
+  type FlowMeta,
+  type TestInput,
+  type MockCase,
+  type BlockMock,
+} from "./app/meta/types";
+export {
+  parseEditorMeta,
+  serializeEditorMeta,
+  fileMetaFor,
+  withFileMeta,
+} from "./app/meta/parse";
+export { flowIdNames, syncFlowNames, renameFlow, readdress } from "./app/meta/rename";
+// Block addresses: the names a mock, a spy and a breakpoint all call a block by. Every
+// address-taking tool needs these, both to offer the valid ones and to refuse an
+// address that names nothing rather than write a mock that can never fire.
+export {
+  naturalAddress,
+  blockIdAddresses,
+  namesNeededFor,
+  debugConflict,
+  type BlockRename,
+} from "./app/run/address";
 // Capability schema + icon registry. resolveIcon returns icon *components* but
 // only referencing them (not rendering) is server-safe, so a host can pick an
 // icon for a stored definition without pulling in the React editor.

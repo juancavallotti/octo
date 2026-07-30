@@ -37,8 +37,12 @@ export function flowIdNames(doc: EditorDocument): Map<string, string> {
  * first segment moves; everything below it names blocks, which the rename did not touch.
  *
  * An address not rooted at `before` is returned as it was.
+ *
+ * Exported because the editor is not the only thing that renames a flow: an MCP agent's
+ * `update_flow` does too, and a second implementation of this rule would be a second
+ * chance to get it wrong — silently, since a stale address still *looks* like a mock.
  */
-function readdress(address: string, before: string, after: string): string {
+export function readdress(address: string, before: string, after: string): string {
   if (address === before) return after;
   for (const sep of [".", "["]) {
     if (address.startsWith(before + sep)) {
@@ -72,48 +76,74 @@ function readdressEntry(entry: FlowMeta, before: string, after: string): FlowMet
 }
 
 /**
+ * Move one flow's entry to its new name and re-root every address that named it.
+ *
+ * The whole rename, by name alone — which is how anything other than the editor's
+ * reducer knows about one. An agent that renames a flow through MCP has two names and no
+ * client ids, and this is the same code path {@link syncFlowNames} takes, so the file
+ * comes out the same whichever end asked for it.
+ *
+ * A rename onto a name already in use is refused: two flows cannot share one in a valid
+ * document, and merging their entries would be worse than leaving the stale key for the
+ * (invalid) document to resolve.
+ *
+ * The addresses are re-rooted across EVERY entry, not just the renamed flow's — an
+ * address names a block by a path starting at a flow, and it means that flow wherever the
+ * address happens to be filed.
+ */
+export function renameFlow(
+  meta: FileMeta,
+  before: string,
+  after: string,
+): { meta: FileMeta; changed: boolean } {
+  if (before === after || after in meta.flows) return { meta, changed: false };
+
+  let changed = false;
+  const flows = { ...meta.flows };
+  if (before in flows) {
+    flows[after] = flows[before];
+    delete flows[before];
+    changed = true;
+  }
+
+  // Even with nothing saved under the old name, another entry may hold an address into
+  // the flow that just got renamed — so this runs whether or not the key moved.
+  const readdressed: Record<string, FlowMeta> = {};
+  for (const [name, entry] of Object.entries(flows)) {
+    const next = readdressEntry(entry, before, after);
+    if (next !== entry) changed = true;
+    readdressed[name] = next;
+  }
+
+  return changed ? { meta: { ...meta, flows: readdressed }, changed } : { meta, changed: false };
+}
+
+/**
  * Move each renamed flow's entry to its new key. Only ids present in *both* maps count
  * as a rename: an id only in `prev` was deleted (its entry is left alone rather than
  * dropped — a flow removed by accident should not take its test inputs with it), and
  * an id only in `next` is new.
  *
- * A rename that would land on a key already in use is skipped: two flows cannot share
- * a name in a valid document, and silently merging their inputs would be worse than
- * leaving the stale key for the (invalid) document to resolve.
- *
- * The addresses inside are re-rooted across EVERY entry, not just the renamed flow's —
- * an address names a block by a path starting at a flow, and it means that flow wherever
- * the address happens to be filed.
+ * Each one is then a {@link renameFlow}, which is where the rules about collisions and
+ * addresses live.
  */
 export function syncFlowNames(
   meta: FileMeta,
   prev: Map<string, string>,
   next: Map<string, string>,
 ): { meta: FileMeta; changed: boolean } {
-  let flows = { ...meta.flows };
+  let current = meta;
   let changed = false;
 
   for (const [id, before] of prev) {
     const after = next.get(id);
     if (after === undefined || after === before) continue; // gone, or not renamed
-    if (after in flows) continue; // name collision: leave it to the user to resolve
-
-    if (before in flows) {
-      flows[after] = flows[before];
-      delete flows[before];
+    const step = renameFlow(current, before, after);
+    if (step.changed) {
+      current = step.meta;
       changed = true;
     }
-
-    // Even with nothing saved under the old name, another entry may hold an address into
-    // the flow that just got renamed — so this runs whether or not the key moved.
-    const readdressed: Record<string, FlowMeta> = {};
-    for (const [name, entry] of Object.entries(flows)) {
-      const next = readdressEntry(entry, before, after);
-      if (next !== entry) changed = true;
-      readdressed[name] = next;
-    }
-    flows = readdressed;
   }
 
-  return changed ? { meta: { flows }, changed } : { meta, changed: false };
+  return { meta: current, changed };
 }
