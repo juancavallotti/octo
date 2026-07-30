@@ -6,6 +6,7 @@ import { nameTaken } from "../../suite/edit";
 import CaseInputField from "./CaseInputField";
 import CaseExpectField from "./CaseExpectField";
 import KeyValueField from "./KeyValueField";
+import MocksField from "./MocksField";
 
 const FIELD =
   "w-full rounded-md border border-black/10 dark:border-white/15 bg-transparent px-2 py-1 text-sm outline-none focus:border-black/30 dark:focus:border-white/30";
@@ -79,6 +80,15 @@ export default function CaseForm({
       <CaseExpectField
         value={value.expect}
         onChange={(expect) => onChange(withOptional(value, "expect", expect))}
+      />
+
+      <MocksField
+        flow={suite.flow}
+        label="Mocks"
+        hint="Only for this case. An address here replaces the file's mock for that block whole, rather than amending it."
+        value={value.mocks}
+        replacing={Object.keys(suite.mocks ?? {})}
+        onChange={(mocks) => onChange(withOptional(value, "mocks", mocks))}
       />
 
       <details className="text-xs">

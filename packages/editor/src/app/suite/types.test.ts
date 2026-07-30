@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { isEmptyExpect, isSharedInput, isValidDuration, outcomeOf } from "./types";
+import {
+  isEmptyExpect,
+  isSharedInput,
+  isValidDuration,
+  mockOutcomeOf,
+  outcomeOf,
+} from "./types";
 
 describe("isValidDuration", () => {
   // The value goes to Go verbatim, so the form checks the spelling here rather than
@@ -49,5 +55,20 @@ describe("isSharedInput", () => {
     expect(isSharedInput("vip")).toBe(true);
     expect(isSharedInput({ data: 1 })).toBe(false);
     expect(isSharedInput(undefined)).toBe(false);
+  });
+});
+
+describe("mockOutcomeOf", () => {
+  it("reads the one thing a mocked block does", () => {
+    expect(mockOutcomeOf({ when: "x", body: { ok: true } })).toBe("body");
+    expect(mockOutcomeOf({ when: "x", error: "boom" })).toBe("error");
+    expect(mockOutcomeOf({ when: "x", drop: true })).toBe("drop");
+  });
+
+  // A case that has not said yet is on its way to returning a message, which is what
+  // almost every mock is for — so `body` is the fall-through, not a fourth state.
+  it("falls through to body when nothing has been said", () => {
+    expect(mockOutcomeOf(undefined)).toBe("body");
+    expect(mockOutcomeOf({})).toBe("body");
   });
 });

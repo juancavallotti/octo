@@ -14,7 +14,7 @@
  * able to hold a half-written file long enough for the user to finish it.
  */
 
-import type { MockSpec } from "../run/transport";
+import type { MockSpec, MockCaseSpec } from "../run/transport";
 
 export type { MockSpec, MockCaseSpec } from "../run/transport";
 
@@ -81,6 +81,20 @@ export function outcomeOf(expect: Expectation | undefined): Outcome {
   if (expect?.error) return "error";
   if (expect?.dropped) return "dropped";
   return "message";
+}
+
+/** The three things a mocked block can do. Same shape as a flow's, one level down. */
+export type MockOutcome = "body" | "error" | "drop";
+
+/**
+ * What one mock case says the block does. `body` is the fall-through rather than a
+ * fourth "nothing" state: a case that has not said yet is on its way to returning a
+ * message, which is what almost every mock is for.
+ */
+export function mockOutcomeOf(c: MockCaseSpec | undefined): MockOutcome {
+  if (c?.error) return "error";
+  if (c?.drop) return "drop";
+  return "body";
 }
 
 /** Whether a message matcher asserts anything at all. */

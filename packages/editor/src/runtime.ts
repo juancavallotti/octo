@@ -26,6 +26,7 @@ export {
   isEmptyExpect,
   isValidDuration,
   outcomeOf,
+  mockOutcomeOf,
   type Suite,
   type SuiteCase,
   type SuiteInput,
@@ -35,6 +36,7 @@ export {
   type RecordExpect,
   type SpyExpect,
   type Outcome,
+  type MockOutcome,
 } from "./app/suite/types";
 export { parseSuite, type ParsedSuite } from "./app/suite/parse";
 export { serializeSuite } from "./app/suite/serialize";

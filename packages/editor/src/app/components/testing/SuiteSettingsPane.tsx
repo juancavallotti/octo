@@ -4,6 +4,7 @@ import { isValidDuration, type Suite } from "../../suite/types";
 import { DEFAULT_CASE_TIMEOUT } from "../../suite/merge";
 import KeyValueField from "./KeyValueField";
 import SuiteInputsField from "./SuiteInputsField";
+import MocksField from "./MocksField";
 
 const FIELD =
   "w-full rounded-md border border-black/10 dark:border-white/15 bg-transparent px-2 py-1 text-sm outline-none focus:border-black/30 dark:focus:border-white/30";
@@ -97,6 +98,14 @@ export default function SuiteSettingsPane({
       <SuiteInputsField
         value={suite.inputs}
         onChange={(inputs) => set("inputs", inputs)}
+      />
+
+      <MocksField
+        flow={suite.flow}
+        label="Mocks"
+        hint="Stand-ins for blocks in every case, unless a case overrides the address."
+        value={suite.mocks}
+        onChange={(mocks) => set("mocks", mocks)}
       />
     </div>
   );
