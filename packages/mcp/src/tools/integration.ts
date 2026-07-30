@@ -1,8 +1,10 @@
 import { z } from "zod";
 import { parse as parseYaml } from "yaml";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { OctoMcpConfig } from "../backend";
-import { addFlow, deleteFlow, getFlow, updateFlow } from "../flows";
+import { addFlow, deleteFlow, flowNameOf, getFlow, updateFlow } from "../flows";
+import { renameFlowMeta } from "./meta";
 import { errorResult, guard, jsonResult, textResult } from "../result";
 
 /**
@@ -155,7 +157,7 @@ export function registerIntegrationTools(
     {
       title: "Update one flow",
       description:
-        "Replace ONE flow in a saved integration, in place. `definition` is the YAML of that flow alone (a mapping starting with `name:`), NOT the whole file and NOT a `flows:` list. Everything else in the integration — the other flows, the connectors, the comments — is left exactly as it was, so this is the tool to reach for whenever you are changing a single flow: `update_integration` would make you reproduce the whole file from memory and silently lose whatever you got wrong.\n\nGiving the replacement a different `name` renames the flow where it sits. The edit is validated against the whole spliced definition before it is saved, and rejected if it would leave the integration unloadable — so a broken edit costs you nothing. Errors when no flow answers to `flow`.",
+        "Replace ONE flow in a saved integration, in place. `definition` is the YAML of that flow alone (a mapping starting with `name:`), NOT the whole file and NOT a `flows:` list. Everything else in the integration — the other flows, the connectors, the comments — is left exactly as it was, so this is the tool to reach for whenever you are changing a single flow: `update_integration` would make you reproduce the whole file from memory and silently lose whatever you got wrong.\n\nGiving the replacement a different `name` renames the flow where it sits, and the editor's saved test inputs, mocks and spies move with it — block addresses begin with the flow's name, so they are re-rooted too. The edit is validated against the whole spliced definition before it is saved, and rejected if it would leave the integration unloadable — so a broken edit costs you nothing. Errors when no flow answers to `flow`.",
       inputSchema: {
         id: z.string().min(1).describe("The integration id."),
         flow: z.string().min(1).describe("The name of the flow to replace."),
@@ -168,9 +170,48 @@ export function registerIntegrationTools(
     ({ id, flow, definition }) =>
       guard(async () => {
         const rec = await store.get(id);
-        return writeSpliced(id, updateFlow(rec.definition, flow, definition));
+        const result = await writeSpliced(id, updateFlow(rec.definition, flow, definition));
+        if (result.isError) return result;
+        return withRenamedMeta(id, flow, flowNameOf(definition), result);
       }),
   );
+
+  /**
+   * Carry the editor's bookkeeping across a rename, once the definition is safely saved.
+   *
+   * A block address opens with its flow's name, so a rename orphans the meta entry AND
+   * every mock and spy address inside it. Skipping this would not lose them visibly — it
+   * would leave them listed in the file and drawn on the canvas, firing for nothing,
+   * which is the one outcome worse than dropping them.
+   *
+   * The definition is already written by the time this runs, so a meta store that fails
+   * must not turn a successful edit into an error the agent might undo. It reports as a
+   * second content block instead: the rename happened, this part did not, here is what
+   * to do about it.
+   */
+  async function withRenamedMeta(
+    id: string,
+    before: string,
+    after: string,
+    result: CallToolResult,
+  ): Promise<CallToolResult> {
+    if (!config.metaStore || before === after) return result;
+    try {
+      await renameFlowMeta(config.metaStore, id, before, after);
+      return result;
+    } catch (err) {
+      return {
+        ...result,
+        content: [
+          ...result.content,
+          {
+            type: "text" as const,
+            text: `The flow was renamed, but the editor's saved inputs, mocks and spies for "${before}" could not be moved to "${after}": ${(err as Error).message}. They still name the old flow, so they will not fire — re-place them with set_mock/set_spy, or retry the rename.`,
+          },
+        ],
+      };
+    }
+  }
 
   server.registerTool(
     "add_flow",

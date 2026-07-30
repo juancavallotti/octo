@@ -7,6 +7,7 @@ import {
   fromDefinitionYaml,
   isValidCase,
   parseEditorMeta,
+  renameFlow,
   serializeEditorMeta,
   withFileMeta,
   type BlockMock,
@@ -275,6 +276,30 @@ export function registerMetaTools(server: McpServer, config: OctoMcpConfig): voi
         return jsonResult(entry.spies ?? []);
       }),
   );
+}
+
+/**
+ * Follow a flow rename through the meta file: move its entry, and re-root every mock and
+ * spy address that named it.
+ *
+ * A block address opens with the flow's name — `orders.charge`, `orders[error].notify` —
+ * so renaming the flow invalidates the key AND everything filed under it. Leaving them
+ * behind is worse than never having written them: the file still lists the mocks, the
+ * canvas still draws the badges, and not one of them fires again.
+ *
+ * The rules live in the editor (`renameFlow`), which is also what the canvas takes when
+ * a user renames a flow there — so an agent's rename and a user's leave the same file.
+ */
+export async function renameFlowMeta(
+  metaStore: MetaStore,
+  id: string,
+  before: string,
+  after: string,
+): Promise<void> {
+  const meta = parseEditorMeta(await metaStore.load(id));
+  const { meta: file, changed } = renameFlow(fileMetaFor(meta, id), before, after);
+  if (!changed) return;
+  await metaStore.save(id, serializeEditorMeta(withFileMeta(meta, id, file)));
 }
 
 /** The flow an address is rooted at — its first segment, before any `.` or `[`. */

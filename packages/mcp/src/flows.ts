@@ -170,6 +170,15 @@ function checkFlow(flowYaml: string): { text: string; name: string } {
   return { text: flowYaml, name };
 }
 
+/**
+ * The `name` a flow's own YAML declares — what {@link updateFlow} will call it once the
+ * splice lands. Exported so a caller can tell a rename from an in-place edit without
+ * parsing the flow a second time, and by the same rules.
+ */
+export function flowNameOf(flowYaml: string): string {
+  return checkFlow(flowYaml).name;
+}
+
 /** The names of every top-level flow in the definition, in file order. */
 export function flowNames(definition: string): string[] {
   return namesOf(parse(definition).seq);
