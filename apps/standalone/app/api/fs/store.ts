@@ -76,12 +76,11 @@ function resolveSafe(id: string): string {
 }
 
 /**
- * Turn a display name into a safe filename stem. Exported because the suite store
- * names files from a flow name the same way, and one rule shared beats two that
- * drift: it is what guarantees a flow's own save can never mint a name that lands
- * in the suite namespace (`orders_test` slugs to `orders-test`).
+ * Turn a display name into a safe filename stem. Collapsing every non-alphanumeric to
+ * `-` is also what keeps a flow's own save out of the suite namespace next door:
+ * `orders_test` slugs to `orders-test`, so it can never land on a `*_test.yaml`.
  */
-export function slugify(name: string): string {
+function slugify(name: string): string {
   return (
     name
       .trim()

@@ -10,6 +10,15 @@ export {
   toRunnableYaml,
   toDefinitionYaml,
 } from "./app/model/runConfig";
+// How a dolphin suite is named and which flow it tests. Both hosts store suites
+// differently — on disk beside the flows, or as orchestrator resources — but they must
+// agree on this or a suite reads as missing in the tab that wrote it.
+export {
+  SUITE_SUFFIX,
+  isSuiteFileName,
+  suiteFileName,
+  flowOfSuite,
+} from "./app/suite/naming";
 export {
   validateDocument,
   issueMessages,
