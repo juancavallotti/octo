@@ -6,17 +6,28 @@ import {
   ResourceStoreProvider,
   type ResourceStore,
 } from "../providers/ResourceStoreProvider";
+import {
+  TestSuiteProvider,
+  type TestSuiteStore,
+} from "../providers/TestSuiteProvider";
 import ViewModeToggle from "./ViewModeToggle";
 
-/** A store that is never called: the toggle only asks whether one is mounted. */
+/** Stores that are never called: the toggle only asks whether one is mounted. */
 const store = {} as ResourceStore;
+const tests = { list: async () => [], canEdit: () => true } as unknown as TestSuiteStore;
 
-function renderToggle(resources: ResourceStore | null = null) {
+function renderToggle(
+  resources: ResourceStore | null = null,
+  suites: TestSuiteStore | null = null,
+) {
+  const toggle = (
+    <ResourceStoreProvider value={resources}>
+      <ViewModeToggle />
+    </ResourceStoreProvider>
+  );
   return render(
     <EditorStateProvider>
-      <ResourceStoreProvider value={resources}>
-        <ViewModeToggle />
-      </ResourceStoreProvider>
+      {suites ? <TestSuiteProvider store={suites}>{toggle}</TestSuiteProvider> : toggle}
     </EditorStateProvider>,
   );
 }
@@ -46,5 +57,27 @@ describe("ViewModeToggle", () => {
   it("offers Resources when the host backs it", () => {
     renderToggle(store);
     expect(screen.getByRole("button", { name: "Resources" })).toBeInTheDocument();
+  });
+
+  // Same rule as Resources, and for the same reason: a tab whose store is absent has
+  // nothing to show and no way to explain itself.
+  it("hides Testing when no test-suite store is mounted", () => {
+    renderToggle(store, null);
+    expect(screen.queryByRole("button", { name: "Testing" })).toBeNull();
+  });
+
+  it("offers Testing when the host backs it", async () => {
+    renderToggle(null, tests);
+    const testing = screen.getByRole("button", { name: "Testing" });
+
+    await userEvent.click(testing);
+    expect(testing).toHaveAttribute("aria-pressed", "true");
+  });
+
+  // The two capabilities are independent: a host may back one and not the other.
+  it("gates the two capability tabs separately", () => {
+    renderToggle(null, tests);
+    expect(screen.queryByRole("button", { name: "Resources" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Testing" })).toBeInTheDocument();
   });
 });
