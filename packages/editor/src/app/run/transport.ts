@@ -144,6 +144,14 @@ export interface RunStatusSnapshot {
   running: boolean;
   /** The runner's `--version` line, or null when unknown/unavailable. */
   version: string | null;
+  /**
+   * Whether the host can run test suites — a *second* binary (dolphin), so this is not
+   * implied by `available`. Either can be missing on its own: a host with a runner but
+   * no test runner still runs flows, and only the Testing tab's run controls go dead.
+   */
+  testAvailable: boolean;
+  /** dolphin's `version` line, or null when unknown/unavailable. */
+  testVersion: string | null;
   /** App-relative path that proxies to the running networked integration, or null. */
   testPath: string | null;
 }

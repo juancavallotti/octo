@@ -33,7 +33,12 @@ export {
   type ResourceFile,
   type ResourceProvider,
 } from "./resources";
-export { probeVersion, cachedVersion } from "./version";
+export {
+  probeVersion,
+  cachedVersion,
+  probeTestVersion,
+  cachedTestVersion,
+} from "./version";
 export { probeSchema, cachedSchema } from "./schema";
 export {
   ensureNamespace,

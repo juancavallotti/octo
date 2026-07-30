@@ -23,12 +23,16 @@ function stubTransport(overrides?: Partial<RunTransport>): RunTransport {
       available: true,
       running: false,
       version: null,
+      testAvailable: false,
+      testVersion: null,
       testPath: null,
     }),
     start: async () => ({
       available: true,
       running: true,
       version: null,
+      testAvailable: false,
+      testVersion: null,
       testPath: null,
     }),
     stop: async () => {},
@@ -75,7 +79,10 @@ describe("CelTesterModal", () => {
   it("surfaces a CEL evaluation error", async () => {
     renderModal(
       stubTransport({
-        evalCel: async () => ({ ok: false, error: "undeclared reference to 'nope'" }),
+        evalCel: async () => ({
+          ok: false,
+          error: "undeclared reference to 'nope'",
+        }),
       }),
     );
 
@@ -86,9 +93,7 @@ describe("CelTesterModal", () => {
     await waitFor(() => expect(runButton).not.toBeDisabled());
     fireEvent.click(runButton);
 
-    expect(
-      await screen.findByText(/undeclared reference/),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/undeclared reference/)).toBeInTheDocument();
   });
 
   it("rejects invalid body JSON before calling the runner", async () => {
@@ -105,7 +110,9 @@ describe("CelTesterModal", () => {
     await waitFor(() => expect(runButton).not.toBeDisabled());
     fireEvent.click(runButton);
 
-    expect(await screen.findByText(/body must be valid JSON/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/body must be valid JSON/),
+    ).toBeInTheDocument();
     expect(evalCel).not.toHaveBeenCalled();
   });
 });

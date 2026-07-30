@@ -14,13 +14,33 @@ import { useBlockDebug } from "./useBlockDebug";
 import type { RunTransport } from "./transport";
 
 const transport: RunTransport = {
-  status: async () => ({ available: true, running: false, version: null, testPath: null }),
-  start: async () => ({ available: true, running: false, version: null, testPath: null }),
+  status: async () => ({
+    available: true,
+    running: false,
+    version: null,
+    testAvailable: false,
+    testVersion: null,
+    testPath: null,
+  }),
+  start: async () => ({
+    available: true,
+    running: false,
+    version: null,
+    testAvailable: false,
+    testVersion: null,
+    testPath: null,
+  }),
   stop: async () => {},
   sync: async () => {},
   evalCel: async () => ({ ok: true }),
   subscribeLogs: () => () => {},
-  invoke: async () => ({ ok: true, dropped: false, timedOut: false, output: "{}", logs: [] }),
+  invoke: async () => ({
+    ok: true,
+    dropped: false,
+    timedOut: false,
+    output: "{}",
+    logs: [],
+  }),
 };
 
 /** Shows the debug state of the FIRST block in the flow, and lets a test place a mock. */
@@ -36,7 +56,12 @@ function Harness({ doc, index = 0 }: { doc: EditorDocument; index?: number }) {
         onClick={() =>
           dispatch({
             type: EditorActionType.LOAD_INTEGRATION,
-            data: { id: "orders.yaml", name: "orders", document: doc, folderId: null },
+            data: {
+              id: "orders.yaml",
+              name: "orders",
+              document: doc,
+              folderId: null,
+            },
           })
         }
       >
@@ -44,7 +69,9 @@ function Harness({ doc, index = 0 }: { doc: EditorDocument; index?: number }) {
       </button>
       <button onClick={() => debug?.toggleSpy()}>toggle spy</button>
       <button
-        onClick={() => debug?.setMock({ enabled: true, cases: [], default: { drop: true } })}
+        onClick={() =>
+          debug?.setMock({ enabled: true, cases: [], default: { drop: true } })
+        }
       >
         mock it
       </button>

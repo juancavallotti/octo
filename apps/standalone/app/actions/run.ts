@@ -7,7 +7,16 @@
  * stream stays an SSE route (`/api/run/logs`), which reads the same cookie.
  */
 
-import { evalCel, invoke, probeVersion, start, status, stop, sync } from "@octo/run-host";
+import {
+  evalCel,
+  invoke,
+  probeTestVersion,
+  probeVersion,
+  start,
+  status,
+  stop,
+  sync,
+} from "@octo/run-host";
 import type {
   CelEvalRequest,
   CelEvalResult,
@@ -21,7 +30,9 @@ import { fsResourceProvider } from "../run/resources";
 
 /** Whether RUN is available, whether this browser's runner is live, and its version. */
 export async function runStatus(): Promise<ActionResult<RunStatusSnapshot>> {
-  await probeVersion(); // warm the version cache so status() can read it
+  // Warm both version caches so status() can read them synchronously. Two
+  // binaries, two probes: dolphin can be absent while octo is present.
+  await Promise.all([probeVersion(), probeTestVersion()]);
   const ns = await ensureRunNamespace();
   return { ok: true, data: status(ns) };
 }

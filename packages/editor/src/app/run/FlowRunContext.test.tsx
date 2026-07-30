@@ -1,19 +1,34 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { EditorStateProvider, useEditorState, EditorActionType } from "../state/editorState";
+import {
+  EditorStateProvider,
+  useEditorState,
+  EditorActionType,
+} from "../state/editorState";
 import { emptyFlow, newBlock, type EditorDocument } from "../model/document";
 import { ConsoleProvider, useConsole } from "./console";
 import { FlowRunProvider, useFlowRun } from "./FlowRunContext";
 import type { FlowRunOutcome, FlowRunRequest, RunTransport } from "./transport";
-import { EditorMetaProvider, useEditorMeta } from "../providers/EditorMetaProvider";
+import {
+  EditorMetaProvider,
+  useEditorMeta,
+} from "../providers/EditorMetaProvider";
 
 /** A transport whose invoke returns whatever the test wants, and records the request. */
 function stubTransport(
   outcome: Partial<FlowRunOutcome> = {},
   onInvoke?: (req: Parameters<RunTransport["invoke"]>[0]) => void,
 ): RunTransport {
-  const snap = { available: true, running: false, version: null, testPath: null };
+  const snap = {
+    available: true,
+    running: false,
+    version: null,
+    // These fixtures exercise RUN, not the Testing tab: no dolphin configured.
+    testAvailable: false,
+    testVersion: null,
+    testPath: null,
+  };
   return {
     status: async () => snap,
     start: async () => snap,
@@ -28,7 +43,8 @@ function stubTransport(
         dropped: false,
         timedOut: false,
         // What `octo invoke` really prints: the result message, not the body alone.
-        output: '{"event_id":"e1","variables":{"tier":"gold"},"body":{"greeting":"hi"}}',
+        output:
+          '{"event_id":"e1","variables":{"tier":"gold"},"body":{"greeting":"hi"}}',
         logs: [],
         ...outcome,
       };
@@ -63,13 +79,20 @@ function Harness({ doc }: { doc: EditorDocument }) {
         onClick={() =>
           dispatch({
             type: EditorActionType.LOAD_INTEGRATION,
-            data: { id: "orders.yaml", name: "orders", document: doc, folderId: null },
+            data: {
+              id: "orders.yaml",
+              name: "orders",
+              document: doc,
+              folderId: null,
+            },
           })
         }
       >
         load
       </button>
-      <button onClick={() => flow && flowRun?.runFlow(flow.id)}>run flow</button>
+      <button onClick={() => flow && flowRun?.runFlow(flow.id)}>
+        run flow
+      </button>
       <button onClick={() => flow && block && flowRun?.runToBlock(block.id)}>
         run to block
       </button>
@@ -228,21 +251,29 @@ describe("FlowRunProvider", () => {
       function Nested() {
         const { state, dispatch } = useEditorState();
         const flowRun = useFlowRun();
-        const target = state.document.flows[0]?.process[0]?.slots?.then?.[0]?.process[0];
+        const target =
+          state.document.flows[0]?.process[0]?.slots?.then?.[0]?.process[0];
         return (
           <div>
             <button
               onClick={() =>
                 dispatch({
                   type: EditorActionType.LOAD_INTEGRATION,
-                  data: { id: "o.yaml", name: "orders", document: doc, folderId: null },
+                  data: {
+                    id: "o.yaml",
+                    name: "orders",
+                    document: doc,
+                    folderId: null,
+                  },
                 })
               }
             >
               load
             </button>
             {target && (
-              <button onClick={() => flowRun?.runToBlock(target.id)}>run nested</button>
+              <button onClick={() => flowRun?.runToBlock(target.id)}>
+                run nested
+              </button>
             )}
           </div>
         );
@@ -273,7 +304,7 @@ describe("FlowRunProvider", () => {
           breakpoint: {
             reached: false,
             block: "orders.audit",
-            error: "block \"audit\": upstream refused",
+            error: 'block "audit": upstream refused',
           },
         }),
       );
@@ -315,13 +346,20 @@ function DebugHarness({ doc }: { doc: EditorDocument }) {
         onClick={() =>
           dispatch({
             type: EditorActionType.LOAD_INTEGRATION,
-            data: { id: "orders.yaml", name: "orders", document: doc, folderId: null },
+            data: {
+              id: "orders.yaml",
+              name: "orders",
+              document: doc,
+              folderId: null,
+            },
           })
         }
       >
         load
       </button>
-      <button onClick={() => flow && meta?.setSpy(flow.id, "orders.audit", true)}>
+      <button
+        onClick={() => flow && meta?.setSpy(flow.id, "orders.audit", true)}
+      >
         spy on audit
       </button>
       <button
@@ -344,11 +382,16 @@ function DebugHarness({ doc }: { doc: EditorDocument }) {
       >
         spy inside audit
       </button>
-      <button onClick={() => flow && flowRun?.runFlow(flow.id)}>run flow</button>
+      <button onClick={() => flow && flowRun?.runFlow(flow.id)}>
+        run flow
+      </button>
       <button onClick={() => flowRun?.clearSpies()}>clear spies</button>
       <p data-testid="records">
         {(flowRun?.spyRecords("orders.audit") ?? [])
-          .map((r) => `#${r.seq}:${JSON.stringify(r.output ?? r.error ?? "dropped")}`)
+          .map(
+            (r) =>
+              `#${r.seq}:${JSON.stringify(r.output ?? r.error ?? "dropped")}`,
+          )
           .join(" ")}
       </p>
       <ul data-testid="results">
@@ -384,7 +427,9 @@ const records = () => screen.getByTestId("records").textContent ?? "";
 
 describe("FlowRunProvider: mocks and spies", () => {
   /** A transport that returns one spy record per run, with an increasing seq. */
-  function spyingTransport(onInvoke?: (req: FlowRunRequest) => void): RunTransport {
+  function spyingTransport(
+    onInvoke?: (req: FlowRunRequest) => void,
+  ): RunTransport {
     let seq = 0;
     const t = stubTransport({}, onInvoke);
     const inner = t.invoke;
@@ -397,7 +442,12 @@ describe("FlowRunProvider: mocks and spies", () => {
         spies: req.spies.map((address) => ({
           address,
           records: [
-            { seq, at: "2026-07-11T00:00:00Z", input: {}, output: { run: seq } },
+            {
+              seq,
+              at: "2026-07-11T00:00:00Z",
+              input: {},
+              output: { run: seq },
+            },
           ],
         })),
       };
