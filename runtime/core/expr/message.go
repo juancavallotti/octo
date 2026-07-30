@@ -90,7 +90,7 @@ func compileWithExtensions(mc MessageContext, expression string) (*Program, erro
 // context and checked at render.
 const maxTemplateDepth = 8
 
-func init() {
+func registerTemplateResourceExtension() {
 	// templateResource(id) renders a template resource against the current message.
 	// A fresh registry per compiled expression caches parsed templates for that
 	// expression; the loader itself is shared across the generation. Templates the

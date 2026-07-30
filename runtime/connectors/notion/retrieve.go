@@ -15,7 +15,7 @@ import (
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
-func init() {
+func registerRetrievePage() {
 	core.MustRegisterBlock("notion-retrieve-page", newRetrievePage)
 
 	core.RegisterBlockMeta(core.BlockMeta{

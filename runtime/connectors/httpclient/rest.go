@@ -24,7 +24,7 @@ import (
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
-func init() {
+func registerREST() {
 	core.MustRegisterBlock("rest", newREST)
 
 	// Group ("Integration") and Icon ("Globe") are inherited from the package

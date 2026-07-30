@@ -17,7 +17,7 @@ import (
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
-func init() {
+func registerRetrieveBlocks() {
 	core.MustRegisterBlock("notion-retrieve-blocks", newRetrieveBlocks)
 
 	core.RegisterBlockMeta(core.BlockMeta{

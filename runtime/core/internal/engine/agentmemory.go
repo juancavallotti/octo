@@ -41,7 +41,7 @@ const memoryWriteAttempts = 5
 // transcripts. There is no tokenizer in the runtime, so this is an approximation.
 const charsPerToken = 4
 
-func init() {
+func registerClearAgentMemory() {
 	core.MustRegisterBlock("clear-agent-memory", newClearAgentMemory)
 
 	core.RegisterBlockMeta(core.BlockMeta{

@@ -1,4 +1,4 @@
-package aiblocks
+package engine
 
 import (
 	"context"
@@ -24,16 +24,6 @@ func (f *fakeLLM) Complete(_ context.Context, req core.LLMRequest) (*core.LLMRes
 	return f.resp, f.err
 }
 
-// depsWith wires a connector under the name "claude", which every test uses.
-func depsWith(_ string, conn core.Connector) core.BlockDeps {
-	return core.BlockDeps{Connector: func(n string) (core.Connector, bool) {
-		if n == "claude" {
-			return conn, true
-		}
-		return nil, false
-	}}
-}
-
 func textResponse(s string) *core.LLMResponse {
 	return &core.LLMResponse{Text: s, StopReason: core.LLMStopEndTurn}
 }
@@ -52,7 +42,7 @@ func newMessageWith(t *testing.T, bodyJSON string) *types.Message {
 
 func TestNewAIMappingValidation(t *testing.T) {
 	fake := &fakeLLM{}
-	deps := depsWith("claude", fake)
+	deps := depsLLM(fake)
 
 	if _, err := newAIMapping(types.Settings{"connector": "claude"}, deps); err == nil {
 		t.Error("expected error when prompt is missing")
@@ -77,7 +67,7 @@ func TestAIMappingTransformsBody(t *testing.T) {
 	proc, err := newAIMapping(types.Settings{
 		"connector": "claude",
 		"prompt":    "split the name",
-	}, depsWith("claude", fake))
+	}, depsLLM(fake))
 	if err != nil {
 		t.Fatalf("build: %v", err)
 	}
@@ -105,7 +95,7 @@ func TestAIMappingValidatesAgainstSchema(t *testing.T) {
 		fake := &fakeLLM{resp: textResponse(`{"amount": 42}`)}
 		proc, err := newAIMapping(types.Settings{
 			"connector": "claude", "prompt": "build charge", "outputSchema": schema,
-		}, depsWith("claude", fake))
+		}, depsLLM(fake))
 		if err != nil {
 			t.Fatalf("build: %v", err)
 		}
@@ -122,7 +112,7 @@ func TestAIMappingValidatesAgainstSchema(t *testing.T) {
 		fake := &fakeLLM{resp: textResponse(`{"amount": "not-a-number"}`)}
 		proc, err := newAIMapping(types.Settings{
 			"connector": "claude", "prompt": "build charge", "outputSchema": schema,
-		}, depsWith("claude", fake))
+		}, depsLLM(fake))
 		if err != nil {
 			t.Fatalf("build: %v", err)
 		}
@@ -135,7 +125,7 @@ func TestAIMappingValidatesAgainstSchema(t *testing.T) {
 func TestAIMappingHandlesNonJSONAndFences(t *testing.T) {
 	t.Run("non-JSON errors", func(t *testing.T) {
 		fake := &fakeLLM{resp: textResponse("sorry, I cannot help")}
-		proc, _ := newAIMapping(types.Settings{"connector": "claude", "prompt": "x"}, depsWith("claude", fake))
+		proc, _ := newAIMapping(types.Settings{"connector": "claude", "prompt": "x"}, depsLLM(fake))
 		if _, err := proc.Process(context.Background(), newMessageWith(t, `{}`)); err == nil {
 			t.Error("expected error for non-JSON response")
 		}
@@ -143,7 +133,7 @@ func TestAIMappingHandlesNonJSONAndFences(t *testing.T) {
 
 	t.Run("markdown fence is stripped", func(t *testing.T) {
 		fake := &fakeLLM{resp: textResponse("```json\n{\"ok\":true}\n```")}
-		proc, _ := newAIMapping(types.Settings{"connector": "claude", "prompt": "x"}, depsWith("claude", fake))
+		proc, _ := newAIMapping(types.Settings{"connector": "claude", "prompt": "x"}, depsLLM(fake))
 		out, err := proc.Process(context.Background(), newMessageWith(t, `{}`))
 		if err != nil {
 			t.Fatalf("process: %v", err)

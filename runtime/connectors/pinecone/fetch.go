@@ -13,7 +13,7 @@ import (
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
-func init() {
+func registerFetch() {
 	core.MustRegisterBlock("pinecone-fetch", newFetch)
 
 	core.RegisterBlockMeta(core.BlockMeta{

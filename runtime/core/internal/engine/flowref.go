@@ -14,7 +14,7 @@ import (
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
-func init() {
+func registerFlowRef() {
 	core.MustRegisterBlock("flow-ref", newFlowRef)
 
 	core.RegisterBlockMeta(core.BlockMeta{

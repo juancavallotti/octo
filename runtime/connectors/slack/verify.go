@@ -21,7 +21,7 @@ import (
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
-func init() {
+func registerVerify() {
 	core.MustRegisterBlock("slack-verify-request", newVerify)
 
 	core.RegisterBlockMeta(core.BlockMeta{

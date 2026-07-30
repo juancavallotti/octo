@@ -16,7 +16,7 @@ import (
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
-func init() {
+func registerSetters() {
 	core.MustRegisterBlock("set-payload", newSetPayload)
 	core.MustRegisterBlock("set-variable", newSetVariable)
 	core.MustRegisterBlock("delete-variable", newDeleteVariable)

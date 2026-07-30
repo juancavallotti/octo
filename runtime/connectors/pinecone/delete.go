@@ -14,7 +14,7 @@ import (
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
-func init() {
+func registerDelete() {
 	core.MustRegisterBlock("pinecone-delete", newDelete)
 
 	core.RegisterBlockMeta(core.BlockMeta{

@@ -19,7 +19,15 @@ import (
 // Owner read/write only, since logs can carry sensitive payload data.
 const logFileMode = 0o600
 
+// init is this module's manifest: the one place that says what importing this
+// package puts into the runtime, in a deterministic order. Each block's own
+// registration lives beside the block as a registerX function called from here.
 func init() {
+	registerConnector()
+	registerLog()
+}
+
+func registerConnector() {
 	core.MustRegisterConnector("logger", func() core.Connector {
 		return &Connector{}
 	})

@@ -14,7 +14,7 @@ import (
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
-func init() {
+func registerLookupUser() {
 	core.MustRegisterBlock("slack-lookup-user", newLookupUser)
 
 	core.RegisterBlockMeta(core.BlockMeta{

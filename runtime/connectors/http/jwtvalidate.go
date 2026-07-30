@@ -39,7 +39,7 @@ import (
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
-func init() {
+func registerJWTValidate() {
 	core.MustRegisterBlock("jwt-validate", newJWTValidate)
 
 	core.RegisterBlockMeta(core.BlockMeta{

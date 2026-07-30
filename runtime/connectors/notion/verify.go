@@ -23,7 +23,7 @@ import (
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
-func init() {
+func registerVerify() {
 	core.MustRegisterBlock("notion-verify-request", newVerify)
 
 	core.RegisterBlockMeta(core.BlockMeta{

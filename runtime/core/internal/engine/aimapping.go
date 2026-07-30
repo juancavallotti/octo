@@ -1,13 +1,7 @@
-// Package aiblocks provides leaf processor blocks powered by an LLM connector.
-// The composite AI elements (ai-router, ai-agent, ai-retry) are built by the
-// flow engine; the leaf elements that fit the block registry live here.
-//
-// The only leaf today is "ai-mapping": it reshapes the message body to a target
-// shape described by a prompt, optional input/output examples, and an optional
-// output JSON Schema (validated). Blocks here bind to an LLM provider by name and
-// type-assert to core.LLMClient — the shared interface — so they work with any
-// configured provider (llm-anthropic, llm-openai, llm-gemini).
-package aiblocks
+// This file provides the "ai-mapping" block: it reshapes the message body to a
+// target shape described by a prompt, optional input/output examples, and an
+// optional output JSON Schema (validated).
+package engine
 
 import (
 	"bytes"
@@ -23,14 +17,19 @@ import (
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
-func init() {
-	core.MustRegisterBlock("ai-mapping", newAIMapping)
+// blockTypeAIMapping is the registry name and YAML type of the ai-mapping block.
+// Unlike the ai-* composites in flow.go, it is dispatched by the block registry,
+// not by the builder.
+const blockTypeAIMapping = "ai-mapping"
+
+func registerAIMapping() {
+	core.MustRegisterBlock(blockTypeAIMapping, newAIMapping)
 
 	core.RegisterBlockMeta(core.BlockMeta{
-		Type:     "ai-mapping",
+		Type:     blockTypeAIMapping,
 		Label:    "AI Mapping",
-		Category: "processor",
-		Group:    "AI & LLM",
+		Category: core.CategoryProcessor,
+		Group:    groupAILLM,
 		Icon:     "Sparkles",
 		Description: "Reshape the message body to a target shape described by a prompt; validates " +
 			"against an optional output schema and errors on failure.",
@@ -80,7 +79,7 @@ func newAIMapping(raw types.Settings, deps core.BlockDeps) (core.MessageProcesso
 		return nil, fmt.Errorf("ai-mapping block: prompt is required")
 	}
 
-	client, err := resolveLLM(cfg.Connector, deps)
+	client, err := resolveLLM(blockTypeAIMapping, cfg.Connector, deps)
 	if err != nil {
 		return nil, err
 	}
@@ -175,22 +174,6 @@ func buildSystemPrompt(prompt string, inputExample, outputExample, outputSchema 
 	return b.String()
 }
 
-// stripJSONFence removes a surrounding ```json ... ``` (or bare ``` ... ```)
-// markdown fence if the model wrapped its answer in one despite instructions.
-func stripJSONFence(s string) string {
-	s = strings.TrimSpace(s)
-	if !strings.HasPrefix(s, "```") {
-		return s
-	}
-	s = strings.TrimPrefix(s, "```")
-	s = strings.TrimPrefix(s, "json")
-	s = strings.TrimPrefix(s, "JSON")
-	if i := strings.LastIndex(s, "```"); i >= 0 {
-		s = s[:i]
-	}
-	return strings.TrimSpace(s)
-}
-
 // asJSONDocument normalizes a settings value that may be either a JSON document
 // (a native YAML map) or a string containing JSON into raw JSON bytes. It returns
 // nil for an empty value.
@@ -207,28 +190,4 @@ func asJSONDocument(raw json.RawMessage) (json.RawMessage, error) {
 		return json.RawMessage(strings.TrimSpace(s)), nil
 	}
 	return raw, nil
-}
-
-// resolveLLM binds a block to an LLM provider connector by name, asserting the
-// shared core.LLMClient interface rather than a concrete connector type so any
-// provider satisfies it. Returning the interface is intentional: it is what lets
-// a block bind to any provider connector.
-//
-//nolint:ireturn // the shared interface is the binding mechanism, by design
-func resolveLLM(name string, deps core.BlockDeps) (core.LLMClient, error) {
-	if name == "" {
-		return nil, fmt.Errorf("ai-mapping block: connector is required")
-	}
-	if deps.Connector == nil {
-		return nil, fmt.Errorf("ai-mapping block: connector %q requested but no connectors are available", name)
-	}
-	connector, ok := deps.Connector(name)
-	if !ok {
-		return nil, fmt.Errorf("ai-mapping block: connector %q is not configured", name)
-	}
-	client, ok := connector.(core.LLMClient)
-	if !ok {
-		return nil, fmt.Errorf("ai-mapping block: connector %q is not an LLM provider", name)
-	}
-	return client, nil
 }

@@ -15,7 +15,7 @@ import (
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
-func init() {
+func registerEvent() {
 	core.MustRegisterBlock("notion-event", newEvent)
 
 	core.RegisterBlockMeta(core.BlockMeta{

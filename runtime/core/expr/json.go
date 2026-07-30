@@ -18,7 +18,7 @@ const (
 	fromJSONFuncName = "fromJson"
 )
 
-func init() {
+func registerJSONExtension() {
 	RegisterMessageExtension(func(MessageContext) []cel.EnvOption { return jsonOptions() })
 }
 

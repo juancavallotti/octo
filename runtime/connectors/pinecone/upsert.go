@@ -16,7 +16,7 @@ import (
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
-func init() {
+func registerUpsert() {
 	core.MustRegisterBlock("pinecone-upsert", newUpsert)
 
 	core.RegisterBlockMeta(core.BlockMeta{

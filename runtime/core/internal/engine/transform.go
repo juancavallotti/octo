@@ -17,7 +17,7 @@ import (
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
-func init() {
+func registerMultiTransform() {
 	core.MustRegisterBlock("multi-transform", newMultiTransform)
 
 	core.RegisterBlockMeta(core.BlockMeta{

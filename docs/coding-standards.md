@@ -57,6 +57,46 @@ cannot follow a rule, document the reason in the code or the pull request.
   their contents.
 - Keep packages small and purpose-driven.
 
+## `init()` — exactly one per loadable module
+
+`init()` has one sanctioned use in this codebase: a loadable module registers
+itself, so a blank import in `runtime/octo/main.go` (or a build tag) decides what
+the binary ships. See [extension-points.md](extension-points.md).
+
+That contract is per **module**, so the rule is per module too:
+
+- **Exactly one `func init()` per loadable module**, in the module's root file —
+  the file carrying the package doc, usually named after the package. It registers
+  everything the module contributes.
+- **Per-block registration bodies stay beside their blocks**, as ordinary named
+  `registerXxx()` functions called from that one `init()`. They keep owning their
+  own metadata; they just stop being side effects.
+- The `init()` is the module's **manifest**: the one place that says what importing
+  this package puts into the runtime, in a deterministic order rather than in
+  filename order. A new block is then a visible edit to a file a reviewer reads.
+- Keep registration calls **in the module's own package directory**.
+  `RegisterBlockMeta` / `RegisterConnectorMeta` / `RegisterExtension` bind metadata
+  to the caller's source directory (`callerDir()` in `runtime/core/schema_meta.go`).
+  Naming a function is safe; hoisting a shared registration helper into another
+  package silently reattaches every palette group and icon default to the helper's
+  directory.
+- Do not use `init()` for anything else — no configuration, no globals that could
+  be built lazily, no ordering games between files.
+
+`gochecknoinits` enforces this. It is enabled in
+[../runtime/.golangci.yml](../runtime/.golangci.yml) with an exclusion allowlist
+naming the one permitted file per module; that allowlist *is* the enumeration of
+loadable modules. Adding a module means adding an entry there. A second `init()`
+inside a module fails CI rather than passing as a convention. Test files are
+exempt: fixtures that register throwaway blocks ship in nothing.
+
+The allowlist carries exactly one entry that is not a module manifest, and it is
+there because the language leaves no alternative:
+`runtime/octo/hosted_observability.go` stamps the version into the observability
+service, which cannot import package `main` back to read it. Prefer wiring like
+this at a call site; reach for `init()` only when an import cycle makes that
+impossible, and say so in a comment on the `init()` and on its allowlist entry.
+
 ## Package organization
 
 - Prefer small, cohesive packages over one large catch-all package. Each package

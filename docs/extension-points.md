@@ -31,6 +31,50 @@ Both are wired the same way: a subpackage, an `init` that registers, and a blank
 import in `runtime/octo/main.go` deciding what the binary ships. Nothing is
 discovered, nothing is configured by path.
 
+### One `init()` per module
+
+**Exactly one `func init()` per loadable module**, in the module's root file. That
+`init()` is the module's *manifest*: it registers everything the module
+contributes, in a written-down order, and it is the answer to "what does importing
+this package put into the runtime?"
+
+The registration itself stays where it belongs — beside the block it registers — as
+an ordinary named function called from the manifest:
+
+```go
+// pinecone.go — the module's one entry point
+func init() {
+	registerConnector()
+	registerQuery()
+	registerUpsert()
+	registerFetch()
+	registerDelete()
+}
+
+// query.go — was an init(), now named and called from above
+func registerQuery() {
+	core.MustRegisterBlock("pinecone-query", newQuery)
+	core.RegisterBlockMeta(core.BlockMeta{ /* unchanged */ })
+}
+```
+
+The unit of loading is a package, so the unit of registration must be a package
+too. One `init()` per file gives you the opposite: side effects that run in
+filename order, and a new block that extends the runtime's surface without
+touching any file a reviewer would think to open.
+
+Two things to keep straight when writing one:
+
+- **Stay in the module's own directory.** `RegisterBlockMeta` /
+  `RegisterConnectorMeta` / `RegisterExtension` bind metadata to the caller's
+  source directory (`callerDir()`, `runtime/core/schema_meta.go`). Naming a
+  function is safe; moving a registration helper into a *different* package
+  reattaches its palette group and icon defaults to that package's directory.
+- **`gochecknoinits` enforces the rule.** It is enabled in
+  `runtime/.golangci.yml` with an allowlist naming the one permitted file per
+  module — that allowlist is the enumeration of loadable modules. A new module adds
+  an entry; a second `init()` inside a module fails CI.
+
 They are *activated* differently, which is the part worth keeping straight. A
 build tag decides which packages are compiled in. Among the providers compiled in,
 `RUNTIME_SERVICES_MODULE` then selects the one that is active; hosted services have
@@ -108,9 +152,10 @@ are the ones people forget:
 | `core.RegisterConnectorMeta` / `RegisterBlockMeta` | the editor schema | `runtime/core/schema_meta.go` |
 | `core.RegisterExtension` | package-level palette defaults (group, icon) | `runtime/core/schema_meta.go` |
 
-`runtime/connectors/logger` is the smallest complete example: one `init` doing a
-connector registration, an extension default, and connector meta, with the block
-registered alongside.
+`runtime/connectors/logger` is the smallest complete example: `logger.go` holds the
+module's one `init`, calling `registerConnector` (the connector, an extension
+default, and connector meta) and `registerLog` (the block, over in `log.go`).
+`runtime/connectors/pinecone` is the same shape at five blocks.
 
 Sources are **not** a separate registry. A connector implements `SourceProvider`
 and builds them, so a source closes over the connector's own connections instead
@@ -151,11 +196,18 @@ the pointer. The full version, with the cost analysis, is in
 ## What is deliberately not an extension point
 
 **The engine.** Composite blocks — anything with an inline sub-flow slot (`fork`,
-`foreach`, `if`, `cache-scope`, the `ai-*` family) — live in
+`foreach`, `if`, `cache-scope`, `ai-router`, `ai-agent`, `ai-retry`) — live in
 `runtime/core/internal/engine` and cannot live anywhere else: building a sub-flow
-needs the builder, which is internal. Connector packages register **leaf** blocks
-only. A block that wants to run a nested chain is an engine change, not a
-connector.
+needs the builder, which is internal. A block that wants to run a nested chain is
+an engine change, not a connector.
+
+The engine also owns the **leaf** blocks that belong to no connector: `ai-mapping`
+and `ai-embed` bind to whatever LLM connector a flow names, through the shared
+`core.LLMClient` / `core.EmbedClient` interfaces, so they are provider-agnostic
+runtime capability rather than part of any one provider's package. The test is
+ownership, not shape: a leaf block goes in a connector package when it reaches a
+resource *that package owns*, and in the engine when it works against an interface
+any provider can satisfy. `connectors/llm/` holds LLM provider connectors only.
 
 **CLI subcommands.** `run`, `invoke`, `eval`, `schema` are a closed switch in
 `runtime/octo/main.go`. A hosted service extends the CLI by adding *flags to
@@ -177,7 +229,9 @@ Does a flow author reference it by name in YAML?
    ├─ Does it run for the life of the process with
    │  its own flags?                                  → services: hosted facet
    ├─ Does it only need to watch what flows do?       → EventBus / BlockEvents
-   └─ Does it need to run a nested sub-flow?          → the engine
+   ├─ Does it need to run a nested sub-flow?          → the engine
+   └─ Is it a leaf block that owns no resource, binding
+      to any provider through a shared interface?     → the engine
 ```
 
 If the answer is "none of these", the answer is still not a new registry. Say so

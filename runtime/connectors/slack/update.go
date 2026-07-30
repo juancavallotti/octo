@@ -15,7 +15,7 @@ import (
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
-func init() {
+func registerUpdateMessage() {
 	core.MustRegisterBlock("slack-update-message", newUpdateMessage)
 
 	core.RegisterBlockMeta(core.BlockMeta{

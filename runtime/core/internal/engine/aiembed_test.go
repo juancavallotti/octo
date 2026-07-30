@@ -1,4 +1,4 @@
-package aiblocks
+package engine
 
 import (
 	"context"
@@ -26,7 +26,7 @@ func (f *fakeEmbedder) Embed(_ context.Context, req core.EmbedRequest) (*core.Em
 
 func TestNewAIEmbedValidation(t *testing.T) {
 	fake := &fakeEmbedder{}
-	deps := depsWith("claude", fake)
+	deps := depsLLM(fake)
 
 	if _, err := newAIEmbed(types.Settings{"connector": "claude", "text": "body.text"}, deps); err == nil {
 		t.Error("expected error when model is missing")
@@ -52,7 +52,7 @@ func TestNewAIEmbedValidation(t *testing.T) {
 // which pointing ai-embed at an llm-anthropic connector fails at build time.
 func TestResolveEmbedRejectsNonEmbedConnector(t *testing.T) {
 	fake := &fakeLLM{} // Connector + LLMClient, no Embed method — stands in for llm-anthropic.
-	deps := depsWith("claude", fake)
+	deps := depsLLM(fake)
 
 	_, err := newAIEmbed(types.Settings{"connector": "claude", "model": "m", "text": "body.text"}, deps)
 	if err == nil || !strings.Contains(err.Error(), "does not support embeddings") {
@@ -66,7 +66,7 @@ func TestAIEmbedSingleText(t *testing.T) {
 		"connector": "claude",
 		"model":     "text-embedding-3-small",
 		"text":      "body.text",
-	}, depsWith("claude", fake))
+	}, depsLLM(fake))
 	if err != nil {
 		t.Fatalf("newAIEmbed: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestAIEmbedBatchText(t *testing.T) {
 		"model":     "text-embedding-3-small",
 		"text":      "body.texts",
 		"resultVar": "vecs",
-	}, depsWith("claude", fake))
+	}, depsLLM(fake))
 	if err != nil {
 		t.Fatalf("newAIEmbed: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestAIEmbedRejectsNonStringElements(t *testing.T) {
 		"connector": "claude",
 		"model":     "m",
 		"text":      "body.texts",
-	}, depsWith("claude", fake))
+	}, depsLLM(fake))
 	if err != nil {
 		t.Fatalf("newAIEmbed: %v", err)
 	}

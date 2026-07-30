@@ -3,7 +3,7 @@
 // and stores the vector(s) in a variable. Unlike ai-mapping, it never touches the
 // message body — a vector is an auxiliary value alongside the original body, not
 // a replacement for it.
-package aiblocks
+package engine
 
 import (
 	"context"
@@ -16,14 +16,17 @@ import (
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
-func init() {
-	core.MustRegisterBlock("ai-embed", newAIEmbed)
+// blockTypeAIEmbed is the registry name and YAML type of the ai-embed block.
+const blockTypeAIEmbed = "ai-embed"
+
+func registerAIEmbed() {
+	core.MustRegisterBlock(blockTypeAIEmbed, newAIEmbed)
 
 	core.RegisterBlockMeta(core.BlockMeta{
-		Type:     "ai-embed",
+		Type:     blockTypeAIEmbed,
 		Label:    "AI Embed",
-		Category: "processor",
-		Group:    "AI & LLM",
+		Category: core.CategoryProcessor,
+		Group:    groupAILLM,
 		Icon:     "ScatterChart",
 		Description: "Turn text into one or more embedding vectors via an OpenAI or Gemini connector, " +
 			"stored in a variable. Anthropic connectors are rejected: Anthropic has no embeddings API.",

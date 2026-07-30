@@ -23,7 +23,7 @@ const (
 	regexVersion                = 0
 )
 
-func init() {
+func registerStandardExtensions() {
 	RegisterMessageExtension(func(MessageContext) []cel.EnvOption { return standardExtensionOptions() })
 }
 

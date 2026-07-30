@@ -22,7 +22,7 @@ import (
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
-func init() {
+func registerSQL() {
 	core.MustRegisterBlock("sql", newSQL)
 
 	core.RegisterBlockMeta(core.BlockMeta{
