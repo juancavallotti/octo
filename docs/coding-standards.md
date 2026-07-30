@@ -90,6 +90,13 @@ loadable modules. Adding a module means adding an entry there. A second `init()`
 inside a module fails CI rather than passing as a convention. Test files are
 exempt: fixtures that register throwaway blocks ship in nothing.
 
+The allowlist carries exactly one entry that is not a module manifest, and it is
+there because the language leaves no alternative:
+`runtime/octo/hosted_observability.go` stamps the version into the observability
+service, which cannot import package `main` back to read it. Prefer wiring like
+this at a call site; reach for `init()` only when an import cycle makes that
+impossible, and say so in a comment on the `init()` and on its allowlist entry.
+
 ## Package organization
 
 - Prefer small, cohesive packages over one large catch-all package. Each package
