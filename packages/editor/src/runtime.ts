@@ -10,15 +10,43 @@ export {
   toRunnableYaml,
   toDefinitionYaml,
 } from "./app/model/runConfig";
-// How a dolphin suite is named and which flow it tests. Both hosts store suites
-// differently — on disk beside the flows, or as orchestrator resources — but they must
-// agree on this or a suite reads as missing in the tab that wrote it.
+// The dolphin test-suite model: how a suite is named, read, written, and how a case
+// resolves against the file it lives in. Pure, so an MCP server can author a suite
+// without the React editor — and shared, because both hosts and every consumer must
+// agree with dolphin about what a suite means.
 export {
   SUITE_SUFFIX,
   isSuiteFileName,
   suiteFileName,
   flowOfSuite,
 } from "./app/suite/naming";
+export {
+  emptySuite,
+  isSharedInput,
+  isEmptyExpect,
+  isValidDuration,
+  outcomeOf,
+  type Suite,
+  type SuiteCase,
+  type SuiteInput,
+  type CaseInput,
+  type Expectation,
+  type MessageExpect,
+  type RecordExpect,
+  type SpyExpect,
+  type Outcome,
+} from "./app/suite/types";
+export { parseSuite, type ParsedSuite } from "./app/suite/parse";
+export { serializeSuite } from "./app/suite/serialize";
+export { validateSuite, type SuiteIssue } from "./app/suite/validate";
+export {
+  DEFAULT_CASE_TIMEOUT,
+  inputFor,
+  mocksFor,
+  envFor,
+  timeoutFor,
+  spiedBy,
+} from "./app/suite/merge";
 export {
   validateDocument,
   issueMessages,
