@@ -5,6 +5,7 @@ import { isValidDuration, type SuiteCase, type Suite } from "../../suite/types";
 import { nameTaken } from "../../suite/edit";
 import CaseInputField from "./CaseInputField";
 import CaseExpectField from "./CaseExpectField";
+import KeyValueField from "./KeyValueField";
 
 const FIELD =
   "w-full rounded-md border border-black/10 dark:border-white/15 bg-transparent px-2 py-1 text-sm outline-none focus:border-black/30 dark:focus:border-white/30";
@@ -82,9 +83,20 @@ export default function CaseForm({
 
       <details className="text-xs">
         <summary className="cursor-pointer text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">
-          Skip and timeout
+          Environment, skip and timeout
         </summary>
         <div className="mt-2 flex flex-col gap-3">
+          <KeyValueField
+            label="Environment"
+            // Per VARIABLE, not whole-map: a variable is a scalar, so overriding one
+            // leaves the rest of the file's environment in place.
+            hint="Overrides the file's, one variable at a time."
+            value={value.env}
+            onChange={(env) => onChange(withOptional(value, "env", env))}
+            keyPlaceholder="SOME_KEY"
+            valuePlaceholder="not-a-real-key"
+            addLabel="Add variable"
+          />
           <label className="flex flex-col gap-1">
             <span className="flex items-baseline justify-between text-xs font-medium text-zinc-500">
               Skip

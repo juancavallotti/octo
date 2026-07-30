@@ -207,7 +207,7 @@ describe("CaseForm", () => {
   it("flags a timeout that is not a Go duration", async () => {
     const { user } = await openSuite(ONE_CASE);
 
-    await user.click(screen.getByText("Skip and timeout"));
+    await user.click(screen.getByText("Environment, skip and timeout"));
     await user.type(screen.getByPlaceholderText("30s"), "3 seconds");
 
     expect(screen.getByText(/Not a Go duration/)).toBeInTheDocument();

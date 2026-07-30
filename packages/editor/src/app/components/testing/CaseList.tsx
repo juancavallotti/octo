@@ -5,7 +5,7 @@ import type { SuiteCase } from "../../suite/types";
 import type { SuiteIssue } from "../../suite/validate";
 
 /**
- * The cases in the open suite: the middle column of the form view.
+ * The cases in the open suite: the lower half of the form view's middle column.
  *
  * A case is identified by its position, not its name, because the name is the thing being
  * edited — keying on it would tear the selection out from under anyone renaming a case
@@ -27,7 +27,7 @@ export default function CaseList({
   onRemove: (index: number) => void;
 }) {
   return (
-    <div className="flex w-52 shrink-0 flex-col border-r border-black/10 dark:border-white/10">
+    <div className="flex min-h-0 flex-1 flex-col">
       <ul className="min-h-0 flex-1 overflow-y-auto py-1">
         {cases.map((c, i) => {
           const active = i === selected;
