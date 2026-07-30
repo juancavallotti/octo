@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { isValidDuration, type SuiteCase, type Suite } from "../../suite/types";
 import { nameTaken } from "../../suite/edit";
+import { useSuiteRun } from "../../run/SuiteRunContext";
+import { sampleOf } from "./sample";
 import CaseInputField from "./CaseInputField";
 import CaseExpectField from "./CaseExpectField";
 import KeyValueField from "./KeyValueField";
@@ -37,6 +39,9 @@ export default function CaseForm({
 }) {
   const value = suite.cases[index];
   const [name, setName] = useState(value.name);
+  // What the last run made of THIS case, so an assertion can be tried against the real
+  // message rather than against nothing.
+  const lastRun = useSuiteRun()?.outcomeFor(value.name);
 
   const clash = name.trim() !== "" && nameTaken(suite, name, index);
   const blank = name.trim() === "";
@@ -80,6 +85,7 @@ export default function CaseForm({
 
       <CaseExpectField
         value={value.expect}
+        sample={sampleOf(lastRun?.result)}
         onChange={(expect) => onChange(withOptional(value, "expect", expect))}
       />
 
@@ -95,6 +101,7 @@ export default function CaseForm({
       <SpiesField
         flow={suite.flow}
         value={value.spies}
+        crossings={lastRun?.spies}
         onChange={(spies) => onChange(withOptional(value, "spies", spies))}
       />
 

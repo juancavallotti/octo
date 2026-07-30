@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { MessageExpect, RecordExpect } from "../../suite/types";
 import MessageExpectFields from "./MessageExpectFields";
 import Segmented from "./Segmented";
+import { sampleOf } from "./sample";
 
 /** The three ways out of a block. `input` is not one of them — see below. */
 type Way = "output" | "dropped" | "error";
@@ -34,11 +35,15 @@ function wayOf(r: RecordExpect | undefined): Way {
  */
 export default function RecordField({
   value,
+  seen,
   onChange,
 }: {
   value: RecordExpect;
+  /** The crossing the last run recorded in this position, if there was one. */
+  seen?: unknown;
   onChange: (next: RecordExpect) => void;
 }) {
+  const crossing = seen as { input?: unknown; output?: unknown } | undefined;
   const [way, setWay] = useState<Way>(() => wayOf(value));
 
   const pick = (next: Way) => {
@@ -60,6 +65,7 @@ export default function RecordField({
         </span>
         <MessageExpectFields
           value={value.input}
+          sample={sampleOf(crossing?.input)}
           bodyPlaceholder='{ "orderId": 42 }'
           onChange={(input) => onChange(clean({ ...value, input }))}
         />
@@ -73,6 +79,7 @@ export default function RecordField({
       {way === "output" && (
         <MessageExpectFields
           value={value.output}
+          sample={sampleOf(crossing?.output)}
           onChange={(output) => onChange(clean({ ...value, output }))}
         />
       )}

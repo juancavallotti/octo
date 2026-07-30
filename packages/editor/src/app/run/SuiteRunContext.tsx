@@ -13,7 +13,7 @@ import { useEditorState } from "../state/editorState";
 import { useRun } from "./RunContext";
 import { useConsole } from "./console";
 import { toRunnableYaml } from "../model/runConfig";
-import type { TestRunOutcome } from "./testTransport";
+import type { TestCaseOutcome, TestRunOutcome } from "./testTransport";
 
 /**
  * Running a dolphin suite, and the last thing it said.
@@ -40,6 +40,12 @@ export interface SuiteRunValue {
   /** Why the run could not be made at all — distinct from a run whose tests failed. */
   error: string | null;
   run: (flow: string, content: string) => Promise<void>;
+  /**
+   * What the last run's named case actually produced, so the form can offer to evaluate
+   * an assertion against it. Only ever the OPEN suite's, because opening another flow
+   * clears the report.
+   */
+  outcomeFor: (caseName: string) => TestCaseOutcome | undefined;
   /** Forget the last report, e.g. when another suite is opened. */
   clear: () => void;
 }
@@ -94,9 +100,17 @@ export function SuiteRunProvider({ children }: { children: ReactNode }) {
     [consoleTabs, run, state.document, state.integration.id],
   );
 
+  const outcomeFor = useCallback(
+    (caseName: string) =>
+      outcome?.suites
+        .flatMap((s) => s.cases)
+        .find((c) => c.name === caseName)?.outcome,
+    [outcome],
+  );
+
   const value = useMemo<SuiteRunValue>(
-    () => ({ running, outcome, flow, error, run: start, clear }),
-    [running, outcome, flow, error, start, clear],
+    () => ({ running, outcome, flow, error, run: start, outcomeFor, clear }),
+    [running, outcome, flow, error, start, outcomeFor, clear],
   );
 
   return <SuiteRunContext.Provider value={value}>{children}</SuiteRunContext.Provider>;

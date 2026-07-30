@@ -5,6 +5,8 @@ import { Plus, Trash2 } from "lucide-react";
 import CelEditor from "../../cel/CelEditor";
 import type { MessageExpect } from "../../suite/types";
 import JsonValueField from "./JsonValueField";
+import TryExpression from "./TryExpression";
+import type { CelSample } from "./sample";
 
 /**
  * What a message should look like: the body exactly, the variables it must at least
@@ -27,11 +29,14 @@ import JsonValueField from "./JsonValueField";
 export default function MessageExpectFields({
   value,
   onChange,
+  sample = null,
   bodyPlaceholder = '{ "charged": true }',
 }: {
   value: MessageExpect | undefined;
   /** Called with undefined when the matcher no longer asserts anything. */
   onChange: (next: MessageExpect | undefined) => void;
+  /** The message the last run produced here, so an expression can be tried against it. */
+  sample?: CelSample | null;
   bodyPlaceholder?: string;
 }) {
   const [that, setThat] = useState<string[]>(() => value?.that ?? []);
@@ -71,23 +76,26 @@ export default function MessageExpectFields({
           </span>
         </span>
         {that.map((expression, i) => (
-          <div key={i} className="flex items-center gap-1">
-            <div className="min-w-0 flex-1">
-              <CelEditor
-                value={expression}
-                onChange={(next) => writeThat(that.map((e, at) => (at === i ? next : e)))}
-                placeholder="body.total > 0"
-                minHeight={28}
-              />
+          <div key={i} className="flex flex-col gap-0.5">
+            <div className="flex items-center gap-1">
+              <div className="min-w-0 flex-1">
+                <CelEditor
+                  value={expression}
+                  onChange={(next) => writeThat(that.map((e, at) => (at === i ? next : e)))}
+                  placeholder="body.total > 0"
+                  minHeight={28}
+                />
+              </div>
+              <button
+                type="button"
+                aria-label={`Remove expression ${i + 1}`}
+                onClick={() => writeThat(that.filter((_, at) => at !== i))}
+                className="shrink-0 text-zinc-400 hover:text-red-500"
+              >
+                <Trash2 size={13} />
+              </button>
             </div>
-            <button
-              type="button"
-              aria-label={`Remove expression ${i + 1}`}
-              onClick={() => writeThat(that.filter((_, at) => at !== i))}
-              className="shrink-0 text-zinc-400 hover:text-red-500"
-            >
-              <Trash2 size={13} />
-            </button>
+            <TryExpression expression={expression} sample={sample} />
           </div>
         ))}
         <button
