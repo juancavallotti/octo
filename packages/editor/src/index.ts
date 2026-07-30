@@ -44,11 +44,8 @@ export {
   type BreakpointPlan,
   type BlockRename,
 } from "./app/run/address";
-export {
-  useFlowRun,
-  type FlowRunEntry,
-  type FlowRunStatus,
-} from "./app/run/FlowRunContext";
+export { useFlowRun } from "./app/run/FlowRunContext";
+export type { FlowRunEntry, FlowRunStatus } from "./app/run/outcome";
 export { useConsole, type ConsoleTab } from "./app/run/console";
 export type {
   RunTransport,

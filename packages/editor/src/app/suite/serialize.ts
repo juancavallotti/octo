@@ -36,6 +36,14 @@ export function serializeSuite(suite: Suite): string {
   return YAML.stringify(out, { lineWidth: 0 });
 }
 
+/**
+ * One case, as the entry it would become under `cases:` — a list of one, indentation and
+ * all, so a preview of what is about to be appended reads as the file will.
+ */
+export function serializeCase(c: SuiteCase): string {
+  return YAML.stringify([plainCase(c)], { lineWidth: 0 });
+}
+
 function plainCase(c: SuiteCase): Record<string, unknown> {
   const out: Record<string, unknown> = { name: c.name };
   if (c.input !== undefined) {

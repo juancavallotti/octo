@@ -23,7 +23,12 @@ export function updateCase(suite: Suite, index: number, next: SuiteCase): Suite 
  * worth having first and the one people forget to write.
  */
 export function addCase(suite: Suite, name: string): Suite {
-  return { ...suite, cases: [...suite.cases, { name }] };
+  return appendCase(suite, { name });
+}
+
+/** Append a case that already says something — what a promoted run arrives as. */
+export function appendCase(suite: Suite, c: SuiteCase): Suite {
+  return { ...suite, cases: [...suite.cases, c] };
 }
 
 export function removeCase(suite: Suite, index: number): Suite {

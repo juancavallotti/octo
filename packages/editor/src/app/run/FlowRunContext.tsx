@@ -17,13 +17,9 @@ import type { TestInput } from "../meta/types";
 import { debugConflict, planBreakpoint } from "./address";
 import { toMockSpecs } from "./debug";
 import { useConsole } from "./console";
-import type {
-  FlowRunOutcome,
-  MockSpec,
-  RunTransport,
-  SpyRecord,
-  SpyTrace,
-} from "./transport";
+import { classify, crossings, inputValues, type FlowRunEntry } from "./outcome";
+import type { RunSetup } from "../suite/promote";
+import type { MockSpec, RunTransport, SpyRecord, SpyTrace } from "./transport";
 
 /**
  * Running ONE flow, and what came back.
@@ -40,32 +36,6 @@ import type {
 
 /** How many runs to keep. Old results are interesting; ancient ones are not. */
 const MAX_RESULTS = 50;
-
-export type FlowRunStatus =
-  | "running"
-  /** The flow completed and produced a message. */
-  | "ok"
-  /** The flow filtered the message — a block returned nothing. No output, not a failure. */
-  | "dropped"
-  /** A breakpoint the flow never got to, because it took another branch. Not a failure. */
-  | "not-reached"
-  /** The flow failed, or the run could not be made. */
-  | "error"
-  | "timeout";
-
-export interface FlowRunEntry {
-  id: string;
-  flowName: string;
-  /** The input it was run with, when it was run with a saved one. */
-  inputName?: string;
-  /** The block it was told to stop at, when this was a run-to-here. */
-  breakpointLabel?: string;
-  status: FlowRunStatus;
-  /** The flow's result body, or the message captured at the breakpoint. */
-  output?: unknown;
-  /** Why it failed — the flow's own error, or why the run could not be made. */
-  error?: string;
-}
 
 /**
  * What one run stands in for and what it watches, REPLACING what the canvas has set up
@@ -123,53 +93,6 @@ interface FlowRunValue {
 }
 
 const FlowRunContext = createContext<FlowRunValue | null>(null);
-
-/**
- * Read the flow's result message — `{event_id, variables, body}` — which `octo invoke`
- * prints as JSON on stdout. It is the same shape a breakpoint reports, so the Results
- * tab shows a finished run and a run stopped at a block in the same terms.
- */
-function parseOutput(text: string): unknown {
-  const trimmed = text.trim();
-  if (trimmed === "") return undefined;
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    return trimmed; // not JSON: show it as it came
-  }
-}
-
-/**
- * Turn what the runner reported into one status plus what to show for it. The three
- * "nothing came back" cases are meaningfully different and must not be flattened into a
- * single failure: a dropped message means a filter rejected it, an unreached breakpoint
- * means the flow took another branch, and only a real error is an error.
- */
-function classify(
-  outcome: FlowRunOutcome,
-  breaking: boolean,
-): Pick<FlowRunEntry, "status" | "output" | "error"> {
-  if (outcome.timedOut) return { status: "timeout", error: "The flow did not finish in time." };
-  if (!outcome.ok) {
-    return {
-      status: "error",
-      // A run that could not be made reports why; otherwise the runner's stderr is the
-      // only account we have of what went wrong.
-      error: outcome.error ?? outcome.logs.join("\n") ?? "The run failed.",
-    };
-  }
-
-  if (breaking) {
-    const bp = outcome.breakpoint;
-    if (!bp) return { status: "error", error: "The runner reported no breakpoint." };
-    if (bp.error) return { status: "error", error: bp.error };
-    if (!bp.reached) return { status: "not-reached" };
-    return { status: "ok", output: bp.message };
-  }
-
-  if (outcome.dropped) return { status: "dropped" };
-  return { status: "ok", output: parseOutput(outcome.output) };
-}
 
 export function FlowRunProvider({
   transport,
@@ -261,6 +184,15 @@ export function FlowRunProvider({
         return;
       }
 
+      // Everything the run is made with, kept on the result so it can be promoted into a
+      // test case. Known before the call, so a run that never came back still carries the
+      // setup that provoked it.
+      const sent = inputValues(input);
+      const ran: RunSetup = {
+        ...(sent ? { input: sent } : {}),
+        ...(Object.keys(mocks).length > 0 ? { mocks } : {}),
+      };
+
       setBusyCount((n) => n + 1);
       if (blockId) {
         setBusyBlockIds((prev) => new Set(prev).add(blockId));
@@ -284,6 +216,7 @@ export function FlowRunProvider({
           flowName,
           inputName: input?.name,
           breakpointLabel,
+          ran: { ...ran, ...crossings(spyAddresses, outcome.spies) },
           ...classify(outcome, breakAt !== undefined),
         });
       } catch (err) {
@@ -292,6 +225,7 @@ export function FlowRunProvider({
           flowName,
           inputName: input?.name,
           breakpointLabel,
+          ran,
           status: "error",
           error: (err as Error).message,
         });
