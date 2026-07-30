@@ -17,6 +17,8 @@ import {
   type RunTransport,
   type CelEvalRequest,
   type CelEvalResult,
+  type TestRunOutcome,
+  type TestRunRequest,
 } from "./transport";
 
 /**
@@ -45,6 +47,14 @@ interface RunContextValue {
   validation: ValidationResult;
   /** The runner's `--version` line, or null when unknown/unavailable. */
   version: string | null;
+  /**
+   * Whether the dolphin binary is configured. Separate from {@link available} because
+   * the two are separate binaries: a host can ship octo and not dolphin, in which case
+   * flows still run and only the Testing tab's Run goes dead.
+   */
+  testAvailable: boolean;
+  /** dolphin's `version` line, or null when unknown/unavailable. */
+  testVersion: string | null;
   /** Absolute URL that proxies to the running networked integration, or null. */
   testUrl: string | null;
   start: () => Promise<void>;
@@ -52,6 +62,13 @@ interface RunContextValue {
   clearLogs: () => void;
   /** Evaluate a one-shot CEL expression (CEL tester); delegates to the transport. */
   evalCel: (req: CelEvalRequest) => Promise<CelEvalResult>;
+  /**
+   * Run dolphin suites; delegates to the transport, like evalCel. Stateless here on
+   * purpose: a test run starts no long-lived process, so there is nothing for this
+   * provider to track. Whether a run is in flight, and what it produced, belong to the
+   * tab that asked.
+   */
+  runTests: (req: TestRunRequest) => Promise<TestRunOutcome>;
 }
 
 const RunContext = createContext<RunContextValue | null>(null);
@@ -70,6 +87,8 @@ export function RunProvider({
   const [available, setAvailable] = useState(false);
   const [running, setRunning] = useState(false);
   const [version, setVersion] = useState<string | null>(null);
+  const [testAvailable, setTestAvailable] = useState(false);
+  const [testVersion, setTestVersion] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [logs, setLogs] = useState<RunLogLine[]>([]);
@@ -112,6 +131,8 @@ export function RunProvider({
         if (cancelled) return;
         setAvailable(s.available);
         setVersion(s.version);
+        setTestAvailable(s.testAvailable);
+        setTestVersion(s.testVersion);
         setTestPath(s.testPath);
         if (s.running) {
           setRunning(true);
@@ -206,6 +227,11 @@ export function RunProvider({
     [transport],
   );
 
+  const runTests = useCallback(
+    (req: TestRunRequest): Promise<TestRunOutcome> => transport.test(req),
+    [transport],
+  );
+
   const value: RunContextValue = {
     available,
     running,
@@ -214,11 +240,14 @@ export function RunProvider({
     logs,
     validation,
     version,
+    testAvailable,
+    testVersion,
     testUrl,
     start,
     stop,
     clearLogs,
     evalCel,
+    runTests,
   };
 
   return <RunContext.Provider value={value}>{children}</RunContext.Provider>;

@@ -1,0 +1,144 @@
+import { type ReactNode } from "react";
+import { describe, it, expect } from "vitest";
+import { renderHook, act, waitFor } from "@testing-library/react";
+import { EditorStateProvider } from "../state/editorState";
+import { RunProvider } from "./RunContext";
+import { ConsoleProvider } from "./console";
+import { emptyTotals, type TestRunOutcome } from "./testTransport";
+import type { RunTransport } from "./transport";
+import { SuiteRunProvider, useSuiteRun } from "./SuiteRunContext";
+
+/**
+ * The provider on its own. The Testing tab drives it through a button that disables
+ * itself while a run is in flight — which means the tab's tests cannot reach the guard
+ * against a SECOND call arriving before the state update that disables it. This can.
+ */
+
+const snapshot = {
+  available: true,
+  running: false,
+  version: null,
+  testAvailable: true,
+  testVersion: null,
+  testPath: null,
+};
+
+function outcome(): TestRunOutcome {
+  return {
+    ok: true,
+    timedOut: false,
+    totals: { ...emptyTotals(), cases: 1, passed: 1 },
+    suites: [],
+    logs: [],
+  };
+}
+
+function harness(test: RunTransport["test"]) {
+  const transport: RunTransport = {
+    status: async () => snapshot,
+    start: async () => snapshot,
+    stop: async () => {},
+    sync: async () => {},
+    invoke: async () => ({ ok: true, dropped: false, timedOut: false, output: "", logs: [] }),
+    evalCel: async () => ({ ok: true }),
+    subscribeLogs: () => () => {},
+    test,
+  };
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <EditorStateProvider>
+      <ConsoleProvider>
+        <RunProvider transport={transport}>
+          <SuiteRunProvider>{children}</SuiteRunProvider>
+        </RunProvider>
+      </ConsoleProvider>
+    </EditorStateProvider>
+  );
+  // Non-null throughout: the provider is mounted, so the context is never absent here.
+  return renderHook(() => useSuiteRun()!, { wrapper });
+}
+
+describe("useSuiteRun", () => {
+  // Two runs would not corrupt each other — the server is stateless — but they would
+  // produce two reports for a screen that shows one, and the later one might land first.
+  it("ignores a second run started before the first has settled", async () => {
+    let calls = 0;
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { result } = harness(async () => {
+      calls++;
+      await pending;
+      return outcome();
+    });
+
+    await act(async () => {
+      void result.current.run("orders", "flow: orders\n");
+      void result.current.run("orders", "flow: orders\n");
+    });
+
+    expect(calls).toBe(1);
+
+    await act(async () => {
+      release();
+    });
+    await waitFor(() => expect(result.current.running).toBe(false));
+    expect(result.current.outcome).not.toBeNull();
+  });
+
+  // A rejection is not a report. Leaving a stale one on screen beside a new error would
+  // read as though the failing run had produced it.
+  it("clears the last report when a run cannot be made", async () => {
+    let fail = false;
+    const { result } = harness(async () => {
+      if (fail) throw new Error("no runner");
+      return outcome();
+    });
+
+    await act(async () => {
+      await result.current.run("orders", "flow: orders\n");
+    });
+    expect(result.current.outcome).not.toBeNull();
+
+    fail = true;
+    await act(async () => {
+      await result.current.run("orders", "flow: orders\n");
+    });
+
+    expect(result.current.outcome).toBeNull();
+    expect(result.current.error).toBe("no runner");
+  });
+
+  it("clears a previous error when a later run succeeds", async () => {
+    let fail = true;
+    const { result } = harness(async () => {
+      if (fail) throw new Error("no runner");
+      return outcome();
+    });
+
+    await act(async () => {
+      await result.current.run("orders", "flow: orders\n");
+    });
+    expect(result.current.error).toBe("no runner");
+
+    fail = false;
+    await act(async () => {
+      await result.current.run("orders", "flow: orders\n");
+    });
+
+    expect(result.current.error).toBeNull();
+    expect(result.current.outcome).not.toBeNull();
+  });
+
+  it("forgets everything on clear", async () => {
+    const { result } = harness(async () => outcome());
+
+    await act(async () => {
+      await result.current.run("orders", "flow: orders\n");
+    });
+    act(() => result.current.clear());
+
+    expect(result.current.outcome).toBeNull();
+    expect(result.current.error).toBeNull();
+  });
+});

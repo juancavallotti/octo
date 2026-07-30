@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { FlaskConical, Plus, Trash2 } from "lucide-react";
 import { useEditorState } from "../../state/editorState";
+import { useRun } from "../../run/RunContext";
 import { useTestSuites } from "../../providers/TestSuiteProvider";
 import { parseSuite } from "../../suite/parse";
 import { suiteFileName } from "../../suite/naming";
@@ -10,6 +11,8 @@ import SuiteRail, { type RailFlow } from "./SuiteRail";
 import SuiteYamlEditor from "./SuiteYamlEditor";
 import SuiteIssues from "./SuiteIssues";
 import EmptyState from "./EmptyState";
+import TestingToolbar from "./TestingToolbar";
+import { useSuiteRun } from "../../run/SuiteRunContext";
 import { scaffoldSuite } from "./scaffold";
 
 /**
@@ -25,17 +28,26 @@ import { scaffoldSuite } from "./scaffold";
  *                      invitation
  *
  * What is deliberately NOT a state here is "no dolphin binary". Authoring works
- * regardless; only running is gated (F3), because a user who has written tests must be
- * able to find out why they cannot run rather than watch the tab disappear.
+ * regardless and only the Run button is gated, because a user who has written tests must
+ * be able to find out why they cannot run them rather than watch the tab disappear.
  *
- * Selection lives in useState rather than a reducer. It is one string; when the form
- * view arrives and brings per-suite mode, a selected case and run results with it, that
- * is the point at which a reducer earns its place.
+ * Selection lives in useState rather than a reducer. It is one string, and the run keeps
+ * its own; when the form view arrives and brings per-suite mode and a selected case with
+ * it, that is the point at which a reducer earns its place.
  */
 export default function TestingView() {
   const { state } = useEditorState();
+  const run = useRun();
   const suites = useTestSuites();
+  const suiteRun = useSuiteRun();
   const [selected, setSelected] = useState<string | null>(null);
+
+  // A report belongs to the suite that produced it, so opening another flow drops it —
+  // otherwise the console would show one suite's verdict under another's name.
+  const select = (flow: string) => {
+    setSelected(flow);
+    suiteRun?.clear();
+  };
 
   // Top-level flows only: those are what `octo invoke` — and so a suite — addresses.
   const flowNames = useMemo(
@@ -83,10 +95,10 @@ export default function TestingView() {
       <SuiteRail
         flows={rows}
         selected={active}
-        onSelect={setSelected}
+        onSelect={select}
         onAdd={(flow) => {
           suites.setSuite(flow, scaffoldSuite(flow));
-          setSelected(flow);
+          select(flow);
         }}
         canAdd
       />
@@ -115,14 +127,21 @@ export default function TestingView() {
           </EmptyState>
         ) : (
           <>
-            <div className="flex items-center gap-2 border-b border-black/10 px-3 py-1.5 dark:border-white/10">
-              <code className="min-w-0 flex-1 truncate text-[11px] text-zinc-500 dark:text-zinc-400">
-                {suiteFileName(active)}
-              </code>
-              <span className="shrink-0 text-[11px] text-zinc-400 dark:text-zinc-500">
-                {parsed!.suite.cases.length}{" "}
-                {parsed!.suite.cases.length === 1 ? "case" : "cases"}
-              </span>
+            <TestingToolbar
+              fileName={suiteFileName(active)}
+              cases={parsed!.suite.cases.length}
+              totals={suiteRun?.outcome?.totals ?? null}
+              running={suiteRun?.running ?? false}
+              testAvailable={run?.testAvailable ?? false}
+              // A suite dolphin would refuse takes every case in it down, so running is
+              // not something to find out about the hard way.
+              blockedReason={
+                parsed!.issues.length > 0
+                  ? "Fix the problems above: dolphin will not load this suite."
+                  : undefined
+              }
+              onRun={() => void suiteRun?.run(active, content)}
+            >
               <button
                 type="button"
                 aria-label={`Delete tests for ${active}`}
@@ -132,7 +151,7 @@ export default function TestingView() {
               >
                 <Trash2 size={13} />
               </button>
-            </div>
+            </TestingToolbar>
             <SuiteIssues issues={parsed!.issues} />
             <SuiteYamlEditor
               value={content}
@@ -144,3 +163,4 @@ export default function TestingView() {
     </div>
   );
 }
+

@@ -9,6 +9,7 @@ import {
 import { SaveProvider } from "../save/SaveContext";
 import { RunProvider } from "../run/RunContext";
 import { FlowRunProvider } from "../run/FlowRunContext";
+import { SuiteRunProvider } from "../run/SuiteRunContext";
 import { ConsoleProvider } from "../run/console";
 import type { RunTransport } from "../run/transport";
 import { DevEnvStoreProvider, type DevEnvStore } from "../state/devEnvStore";
@@ -120,7 +121,12 @@ export default function EditorRoot({
     tree = (
       <RunProvider transport={run}>
         <FlowRunProvider transport={run}>
-          <DevEnvStoreProvider value={devEnv ?? null}>{tree}</DevEnvStoreProvider>
+          {/* Suite runs report into the console like every other kind of run, so this
+              sits above both the Testing tab that starts one and the panel that shows
+              what came back. */}
+          <SuiteRunProvider>
+            <DevEnvStoreProvider value={devEnv ?? null}>{tree}</DevEnvStoreProvider>
+          </SuiteRunProvider>
         </FlowRunProvider>
       </RunProvider>
     );
