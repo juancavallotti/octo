@@ -18,6 +18,18 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
+// init is this module's manifest: the one place that says which CEL capabilities
+// this package contributes to every message expression, in a deterministic order.
+// Each extension's own registration lives beside its implementation as a
+// registerX function called from here. Order is the order extensions are applied
+// at compile time, so it is listed rather than left to file names.
+func init() {
+	registerFormDataExtension()
+	registerJSONExtension()
+	registerTemplateResourceExtension()
+	registerStandardExtensions()
+}
+
 // structValueType is the conversion target that bridges any CEL result to a
 // JSON-native Go value, keeping results consistent with the runtime's JSON-only
 // message contract (objects become map[string]any, numbers float64, and so on).

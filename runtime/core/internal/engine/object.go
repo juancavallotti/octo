@@ -27,7 +27,7 @@ import (
 // conflict, so a concurrent writer cannot make it spin forever.
 const objectWriteAttempts = 5
 
-func init() {
+func registerObjectBlocks() {
 	core.MustRegisterBlock("object-read", newObjectRead)
 	core.MustRegisterBlock("object-write", newObjectWrite)
 	core.MustRegisterBlock("object-delete", newObjectDelete)

@@ -20,7 +20,7 @@ const (
 	fromFormDataFuncName = "fromFormData"
 )
 
-func init() {
+func registerFormDataExtension() {
 	RegisterMessageExtension(func(MessageContext) []cel.EnvOption { return formDataOptions() })
 }
 

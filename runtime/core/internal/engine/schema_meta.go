@@ -178,7 +178,7 @@ func registerAIComposites() {
 	})
 }
 
-func init() {
+func registerComposites() {
 	registerFlowControlComposites()
 	registerIterationComposites()
 	registerAIComposites()

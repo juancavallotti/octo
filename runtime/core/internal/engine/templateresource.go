@@ -11,7 +11,7 @@ import (
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
-func init() {
+func registerTemplateResource() {
 	core.MustRegisterBlock("template-resource", newTemplateResource)
 
 	core.RegisterBlockMeta(core.BlockMeta{

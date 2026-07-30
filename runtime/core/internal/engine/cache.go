@@ -26,7 +26,7 @@ import (
 // defaultCacheTTL bounds a cache-scope entry when its settings name no ttl.
 const defaultCacheTTL = 60 * time.Second
 
-func init() {
+func registerInvalidateCache() {
 	core.MustRegisterBlock("invalidate-cache", newInvalidateCache)
 
 	core.RegisterBlockMeta(core.BlockMeta{

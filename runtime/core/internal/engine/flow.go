@@ -16,6 +16,22 @@ import (
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
+// init is this module's manifest: the one place that says what the engine puts
+// into the block registry and the editor schema, in a deterministic order. Each
+// block's own registration lives beside the block as a registerX function called
+// from here. registerComposites covers the control-flow blocks the builder
+// dispatches itself (schema-only meta — they have no settings struct).
+func init() {
+	registerComposites()
+	registerSetters()
+	registerMultiTransform()
+	registerObjectBlocks()
+	registerTemplateResource()
+	registerFlowRef()
+	registerInvalidateCache()
+	registerClearAgentMemory()
+}
+
 // Block type names handled directly by the flow builder rather than the block
 // registry, because they compose sub-flows via typed config slots.
 const (
