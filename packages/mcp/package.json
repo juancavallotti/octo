@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.26.0",
+    "@octo/editor": "workspace:*",
     "@octo/run-host": "workspace:*",
     "mcp-handler": "^1.1.0",
     "yaml": "^2.9.0",

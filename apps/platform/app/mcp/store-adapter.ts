@@ -1,6 +1,7 @@
 import type {
   IntegrationRecord,
   IntegrationStore,
+  MetaStore,
   ResourceRecord,
   ResourceStore,
 } from "@octo/mcp";
@@ -101,5 +102,39 @@ export const orchestratorResourceStore: ResourceStore = {
     ),
   remove: async (integrationId, resourceId) => {
     unwrap(await client.deleteResource(integrationId, resourceId));
+  },
+};
+
+/**
+ * The editor-meta resource name, mirroring the editor's own EDITOR_META_RESOURCE and
+ * `bffEditorMetaStore` — the store an agent writes through has to be the same file the
+ * canvas reads, or the mocks it places will not be there when the user looks.
+ *
+ * Inlined rather than imported for the same reason the browser-side store inlines it:
+ * this is the name, not a shape worth a dependency.
+ */
+const EDITOR_META_RESOURCE = ".octo/editor-meta.json";
+
+/**
+ * The platform host's {@link MetaStore}: the integration's `.octo/editor-meta.json`,
+ * kept as a `template` resource because that is what the orchestrator offers for a
+ * non-env file. Nothing renders it, and nothing declares it, so a deployed runtime never
+ * pulls it — and the Resources view hides everything under `.octo/`, so it stays out of
+ * the user's file list too.
+ */
+export const orchestratorMetaStore: MetaStore = {
+  load: async (integrationId) => {
+    const resources = unwrap(await client.listResources(integrationId));
+    return resources.find((r) => r.name === EDITOR_META_RESOURCE)?.content ?? "";
+  },
+  save: async (integrationId, content) => {
+    unwrap(
+      await client.upsertResourceByName(
+        integrationId,
+        "template",
+        EDITOR_META_RESOURCE,
+        content,
+      ),
+    );
   },
 };

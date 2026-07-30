@@ -12,6 +12,7 @@ import {
 import { orchestratorResourceProvider } from "@/app/lib/runResources";
 import {
   orchestratorIntegrationStore,
+  orchestratorMetaStore,
   orchestratorResourceStore,
 } from "./store-adapter";
 import { verifyMcpToken } from "./verify-token";
@@ -90,6 +91,9 @@ const handler = createOctoMcpHandler(
     resources: (id) => (id ? orchestratorResourceProvider(id) : undefined),
     // Full CRUD over an integration's stored resources (env files, templates).
     resourceStore: orchestratorResourceStore,
+    // The editor's own bookkeeping, so an agent that has just debugged a flow can leave
+    // the mocks, spies and test inputs behind for whoever opens the canvas next.
+    metaStore: orchestratorMetaStore,
     // Absolutize a run's test URL when the public origin is known (Auth.js's
     // canonical var); otherwise the bare /editor/runs/<ns>/ path is returned.
     baseUrl: process.env.AUTH_URL,

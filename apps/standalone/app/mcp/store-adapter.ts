@@ -1,6 +1,7 @@
 import type {
   IntegrationRecord,
   IntegrationStore,
+  MetaStore,
   ResourceRecord,
   ResourceStore,
 } from "@octo/mcp";
@@ -94,5 +95,27 @@ export const fsResourceStore: ResourceStore = {
   },
   remove: async (_integrationId, resourceId) => {
     await resources.deleteResource(resourceId);
+  },
+};
+
+/**
+ * The editor-meta file name, mirroring the editor's own EDITOR_META_RESOURCE and the
+ * `editorMeta` server action — the store an agent writes through has to be the same file
+ * the canvas reads, or the mocks it places will not be there when the user looks.
+ */
+const EDITOR_META_RESOURCE = ".octo/editor-meta.json";
+
+/**
+ * The standalone host's {@link MetaStore}: `.octo/editor-meta.json` under the flows
+ * directory, beside the flows it describes.
+ *
+ * Storage here is flat and shared across every flow file, so the integration id names no
+ * file — one document describes the whole directory. It is still keyed by that id
+ * *inside* the file, which is why the id is passed through untouched rather than dropped.
+ */
+export const fsMetaStore: MetaStore = {
+  load: async () => (await resources.readResource(EDITOR_META_RESOURCE)) ?? "",
+  save: async (_integrationId, content) => {
+    await resources.writeResource(EDITOR_META_RESOURCE, content);
   },
 };

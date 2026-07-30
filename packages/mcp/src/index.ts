@@ -10,6 +10,7 @@
 export type {
   IntegrationRecord,
   IntegrationStore,
+  MetaStore,
   OctoMcpConfig,
   ResourceRecord,
   ResourceStore,
