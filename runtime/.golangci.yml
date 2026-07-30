@@ -43,6 +43,7 @@ linters:
     - lll            # line length
     - ireturn        # don't return interfaces (avoid interface pollution)
     - interfacebloat # keep interfaces small
+    - gochecknoinits # one init() per loadable module — see the allowlist below
     # Security
     - gosec
 
@@ -116,6 +117,64 @@ linters:
           - wrapcheck
           - lll
           - dupl
+          # Test fixtures register throwaway blocks for the test binary only; they
+          # ship in nothing and are not part of any module's surface.
+          - gochecknoinits
+
+      # gochecknoinits allowlist — the enumeration of loadable modules.
+      #
+      # init() earns its place here for exactly one reason (docs/extension-points.md):
+      # a module registers itself so a blank import in runtime/octo/main.go, or a
+      # build tag, decides what the binary ships. That contract is per *module*, so
+      # exactly one file per module — its root file — may carry an init(), and that
+      # init() is the module's manifest: what importing this package puts into the
+      # runtime, in a deterministic order. Per-block registration bodies stay beside
+      # their blocks as ordinary registerX functions called from the manifest.
+      #
+      # Adding an entry below is how a new loadable module is declared, reviewed in
+      # one place. A second init() anywhere inside a module fails CI.
+      - path: ^connectors/cron/cron\.go$
+        linters: [gochecknoinits]
+      - path: ^connectors/database/database\.go$
+        linters: [gochecknoinits]
+      - path: ^connectors/events/events\.go$
+        linters: [gochecknoinits]
+      - path: ^connectors/http/http\.go$
+        linters: [gochecknoinits]
+      - path: ^connectors/httpclient/httpclient\.go$
+        linters: [gochecknoinits]
+      - path: ^connectors/llm/aiblocks/aiblocks\.go$
+        linters: [gochecknoinits]
+      - path: ^connectors/llm/anthropic/anthropic\.go$
+        linters: [gochecknoinits]
+      - path: ^connectors/llm/gemini/gemini\.go$
+        linters: [gochecknoinits]
+      - path: ^connectors/llm/openai/openai\.go$
+        linters: [gochecknoinits]
+      - path: ^connectors/logger/logger\.go$
+        linters: [gochecknoinits]
+      - path: ^connectors/notion/notion\.go$
+        linters: [gochecknoinits]
+      - path: ^connectors/pinecone/pinecone\.go$
+        linters: [gochecknoinits]
+      - path: ^connectors/queue/queue\.go$
+        linters: [gochecknoinits]
+      - path: ^connectors/slack/slack\.go$
+        linters: [gochecknoinits]
+      - path: ^services/k8s/k8s\.go$
+        linters: [gochecknoinits]
+      - path: ^services/observability/observability\.go$
+        linters: [gochecknoinits]
+      - path: ^services/standalone/standalone\.go$
+        linters: [gochecknoinits]
+      - path: ^core/expr/expr\.go$
+        linters: [gochecknoinits]
+      - path: ^core/internal/engine/flow\.go$
+        linters: [gochecknoinits]
+      # Not a loadable module: package main stamps the build info into the hosted
+      # observability service, which cannot import package main back.
+      - path: ^octo/hosted_observability\.go$
+        linters: [gochecknoinits]
 
 formatters:
   enable:
