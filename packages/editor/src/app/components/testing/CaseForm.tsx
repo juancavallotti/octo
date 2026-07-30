@@ -7,6 +7,7 @@ import CaseInputField from "./CaseInputField";
 import CaseExpectField from "./CaseExpectField";
 import KeyValueField from "./KeyValueField";
 import MocksField from "./MocksField";
+import SpiesField from "./SpiesField";
 
 const FIELD =
   "w-full rounded-md border border-black/10 dark:border-white/15 bg-transparent px-2 py-1 text-sm outline-none focus:border-black/30 dark:focus:border-white/30";
@@ -89,6 +90,12 @@ export default function CaseForm({
         value={value.mocks}
         replacing={Object.keys(suite.mocks ?? {})}
         onChange={(mocks) => onChange(withOptional(value, "mocks", mocks))}
+      />
+
+      <SpiesField
+        flow={suite.flow}
+        value={value.spies}
+        onChange={(spies) => onChange(withOptional(value, "spies", spies))}
       />
 
       <details className="text-xs">
