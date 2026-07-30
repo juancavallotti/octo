@@ -31,7 +31,7 @@ export default function ViewModeToggle() {
       aria-label="Editor view"
       className="flex items-center gap-0.5 rounded-md border border-black/10 dark:border-white/15 p-0.5"
     >
-      {OPTIONS.map(({ mode, label, icon: Icon }) => {
+      {options.map(({ mode, label, icon: Icon }) => {
         const active = state.viewMode === mode;
         return (
           <button
