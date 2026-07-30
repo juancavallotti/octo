@@ -349,6 +349,7 @@ function DebugHarness({ doc }: { doc: EditorDocument }) {
   const meta = useEditorMeta();
 
   const flow = state.document.flows[0];
+  const block = flow?.process[0];
 
   return (
     <div>
@@ -394,6 +395,23 @@ function DebugHarness({ doc }: { doc: EditorDocument }) {
       </button>
       <button onClick={() => flow && flowRun?.runFlow(flow.id)}>
         run flow
+      </button>
+      {/* A suite case as the ▶ menu replays one: its own input, and an override that
+          states the whole world it runs in — here, deliberately an empty one. */}
+      <button
+        onClick={() =>
+          flow &&
+          flowRun?.runFlow(
+            flow.id,
+            { id: "s1", name: "a vip order", data: '{"vip":true}' },
+            { mocks: {}, spies: [] },
+          )
+        }
+      >
+        run scenario
+      </button>
+      <button onClick={() => block && flowRun?.runToBlock(block.id)}>
+        run to block
       </button>
       <button onClick={() => flowRun?.clearSpies()}>clear spies</button>
       <p data-testid="records">
@@ -478,6 +496,45 @@ describe("FlowRunProvider: mocks and spies", () => {
     expect(seen?.mocks).toEqual({
       "orders.audit": { default: { body: { stubbed: true } } },
     });
+  });
+
+  /**
+   * An override is a complete statement of the world a run happens in, so an EMPTY one
+   * means "no mocks, no spies" — not "whatever the canvas has". Falling back per field
+   * would let a case that mocks a block but watches none quietly pick up the canvas's
+   * spies, and a run would stop meaning what the case says.
+   */
+  it("replaces the canvas's setup with an override, even an empty one", async () => {
+    let seen: FlowRunRequest | undefined;
+    const user = await setupDebug(spyingTransport((req) => (seen = req)));
+
+    await user.click(screen.getByText("spy on audit"));
+    await user.click(screen.getByText("mock audit"));
+    await user.click(screen.getByText("run scenario"));
+
+    await waitFor(() => expect(seen).toBeDefined());
+    expect(seen?.mocks).toBeUndefined();
+    expect(seen?.spies).toBeUndefined();
+    expect(seen?.data).toBe('{"vip":true}');
+  });
+
+  /**
+   * Only a third of an overridden run — the input — could be remembered, and a later
+   * run-to-here would then send a test case's body through the canvas's mocks: neither
+   * the scenario nor the setup on screen, with the case's name on the result claiming it
+   * was the former.
+   */
+  it("does not remember an overridden run's input for run-to-here", async () => {
+    const seen: FlowRunRequest[] = [];
+    const user = await setupDebug(spyingTransport((req) => seen.push(req)));
+
+    await user.click(screen.getByText("run scenario"));
+    await waitFor(() => expect(seen).toHaveLength(1));
+    await user.click(screen.getByText("run to block"));
+
+    await waitFor(() => expect(seen).toHaveLength(2));
+    expect(seen[1].breakAt).toBe("orders.audit");
+    expect(seen[1].data).toBeUndefined();
   });
 
   it("sends nothing when nothing is mocked or spied", async () => {

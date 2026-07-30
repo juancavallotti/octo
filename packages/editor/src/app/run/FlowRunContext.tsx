@@ -17,7 +17,13 @@ import type { TestInput } from "../meta/types";
 import { debugConflict, planBreakpoint } from "./address";
 import { toMockSpecs } from "./debug";
 import { useConsole } from "./console";
-import type { FlowRunOutcome, RunTransport, SpyRecord, SpyTrace } from "./transport";
+import type {
+  FlowRunOutcome,
+  MockSpec,
+  RunTransport,
+  SpyRecord,
+  SpyTrace,
+} from "./transport";
 
 /**
  * Running ONE flow, and what came back.
@@ -61,6 +67,24 @@ export interface FlowRunEntry {
   error?: string;
 }
 
+/**
+ * What one run stands in for and what it watches, REPLACING what the canvas has set up
+ * rather than adding to it.
+ *
+ * Replacement is not a preference, it is dolphin's rule (`File.MocksFor`): a test case is
+ * a complete statement of the world it runs in, so a caller that hands one over is saying
+ * "these mocks, no others". Merging the canvas's mocks in would give the ▶ menu a
+ * different run than `dolphin test` does from the same case — the same scenario, two
+ * verdicts, and nothing on screen to explain the difference.
+ *
+ * An override that omits a field still replaces it: `{ mocks }` with no `spies` runs with
+ * no spies, not with the canvas's.
+ */
+export interface RunOverrides {
+  mocks?: Record<string, MockSpec>;
+  spies?: string[];
+}
+
 interface FlowRunValue {
   /** Newest first. */
   results: FlowRunEntry[];
@@ -80,8 +104,12 @@ interface FlowRunValue {
   spyRecords(address: string): SpyRecord[];
   /** Forget what a spy has collected — or, with no address, what all of them have. */
   clearSpies(address?: string): void;
-  /** Run a whole flow, optionally with a saved input. */
-  runFlow(flowId: string, input?: TestInput): Promise<void>;
+  /**
+   * Run a whole flow, optionally with a saved input, and optionally standing in for the
+   * canvas's mocks and spies with {@link RunOverrides} — which is how a suite case is
+   * replayed from the ▶ menu.
+   */
+  runFlow(flowId: string, input?: TestInput, overrides?: RunOverrides): Promise<void>;
   /**
    * Run until execution reaches `blockId`, then stop and report the message there. The
    * flow to run is derived from where the block sits, so a caller holding only a block
@@ -212,9 +240,15 @@ export function FlowRunProvider({
       breakAt?: string;
       breakpointLabel?: string;
       blockId?: string;
+      overrides?: RunOverrides;
     }) => {
       const { runDoc, flowName, input, breakAt, breakpointLabel, blockId } = args;
-      const { mocks, spies: spyAddresses } = debugArgs();
+      // An override replaces the canvas's setup outright — see RunOverrides. Each field
+      // falls back to nothing rather than to debugArgs(), or a case that mocks a block
+      // but watches none would silently pick up the canvas's spies.
+      const source = args.overrides ?? debugArgs();
+      const mocks = source.mocks ?? {};
+      const spyAddresses = source.spies ?? [];
 
       // A mock deletes the subtree it replaces, so a spy or breakpoint inside one can
       // never fire and the runtime rejects the run outright. Catch it before spending a
@@ -280,11 +314,15 @@ export function FlowRunProvider({
   }, []);
 
   const runFlow = useCallback(
-    async (flowId: string, input?: TestInput) => {
+    async (flowId: string, input?: TestInput, overrides?: RunOverrides) => {
       const flow = doc.flows.find((f) => f.id === flowId);
       if (!flow) return;
-      remember(flowId, input);
-      await run({ runDoc: doc, flowName: flow.name, input });
+      // An overridden run is NOT remembered for run-to-here. Only a third of it could be
+      // — the input — and a later run-to-here would then send a test case's body through
+      // the canvas's mocks: neither the scenario nor the setup on screen, with the case's
+      // name on the result to say it was the former.
+      if (!overrides) remember(flowId, input);
+      await run({ runDoc: doc, flowName: flow.name, input, overrides });
     },
     [doc, run, remember],
   );
