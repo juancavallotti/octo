@@ -1,14 +1,15 @@
 # Bundled platform app + runtime image (octo-editor image).
 #
 # apps/platform is a Next.js app that shells out to the `octo` runtime binary via
-# OCTO_BIN_PATH (see apps/platform/app/api/run/session.ts), so a single image
-# carries both: the compiled Go binary plus the Next.js standalone server.
+# OCTO_BIN_PATH (see apps/platform/app/api/run/session.ts) and to `dolphin` via
+# DOLPHIN_BIN_PATH for the editor's Testing tab, so a single image carries all
+# three: the two compiled Go binaries plus the Next.js standalone server.
 #
 # IMPORTANT: build context must be the repo ROOT (not apps/platform/) so this
-# Dockerfile can reach runtime/ (to build octo) and the whole pnpm workspace.
+# Dockerfile can reach runtime/ (to build the CLIs) and the whole pnpm workspace.
 # devspace.yaml / cloudbuild.yaml set the context accordingly.
 
-# --- Stage 1: build the octo runtime binary from the Go module ----------------
+# --- Stage 1: build the octo and dolphin binaries from the Go module ----------
 FROM golang:1.25-alpine AS runtime-build
 RUN apk add --no-cache git
 WORKDIR /src
@@ -18,6 +19,12 @@ COPY runtime/ ./runtime/
 RUN CGO_ENABLED=0 go build \
     -ldflags "-X main.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     -o /out/octo ./runtime/octo
+# dolphin, the test runner the Testing tab drives. Built in this stage so it comes
+# from the same module at the same commit as the octo above it — the two are one
+# release train, and a mismatched pair is the one skew this image cannot have.
+RUN CGO_ENABLED=0 go build \
+    -ldflags "-X main.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    -o /out/dolphin ./runtime/dolphin
 
 # --- Stage 2: build the Next.js platform app (standalone output) ---------------
 FROM node:22-alpine AS editor-build
@@ -49,6 +56,7 @@ ENV NODE_ENV=production \
     PORT=3000 \
     HOSTNAME=0.0.0.0 \
     OCTO_BIN_PATH=/usr/local/bin/octo \
+    DOLPHIN_BIN_PATH=/usr/local/bin/dolphin \
     OCTO_RUN_DIR=/app/.octo-run
 
 # Next.js standalone bundle (server + hoisted node_modules) plus static assets
@@ -56,9 +64,10 @@ ENV NODE_ENV=production \
 COPY --from=editor-build /app/apps/platform/.next/standalone ./
 COPY --from=editor-build /app/apps/platform/.next/static ./apps/platform/.next/static
 COPY --from=editor-build /app/apps/platform/public ./apps/platform/public
-# The octo runtime the RUN feature spawns. Kept OUTSIDE /app so the dev image's
-# DevSpace source-sync can never delete it.
+# The octo runtime the RUN feature spawns, and the dolphin the Testing tab does.
+# Kept OUTSIDE /app so the dev image's DevSpace source-sync can never delete them.
 COPY --from=runtime-build /out/octo /usr/local/bin/octo
+COPY --from=runtime-build /out/dolphin /usr/local/bin/dolphin
 
 # OCTO_RUN_DIR must be writable at runtime; back it with an emptyDir in k8s.
 RUN mkdir -p /app/.octo-run
