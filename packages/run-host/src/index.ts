@@ -41,6 +41,18 @@ export {
 } from "./version";
 export { probeSchema, cachedSchema } from "./schema";
 export {
+  test,
+  type TestRunArgs,
+  type TestRunOutcome,
+  type TestSuiteInput,
+  type TestSuiteResult,
+  type TestCaseResult,
+  type TestCaseOutcome,
+  type TestCaseStatus,
+  type TestFailure,
+  type TestTotals,
+} from "./test";
+export {
   ensureNamespace,
   isValidNamespace,
   readNamespace,

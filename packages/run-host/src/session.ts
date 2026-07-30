@@ -281,7 +281,12 @@ function session(ns: string): Session {
 
 /** Per-namespace directory holding that user's rendered config file, under
  * OCTO_RUN_DIR (set by `task dev`) or the system temp dir. */
-function namespaceDir(ns: string): string {
+/**
+ * The directory a namespace's files live under. Exported for test.ts, which stages a
+ * dolphin run beside — but not inside — whatever this namespace's long-running runner
+ * is using, so the two never collide.
+ */
+export function namespaceDir(ns: string): string {
   return join(process.env.OCTO_RUN_DIR || tmpdir(), ns);
 }
 
@@ -318,7 +323,7 @@ export function currentConfigPath(ns: string): string | null {
 }
 
 /** Atomic write (write sibling temp + rename) so `octo`'s dir watcher sees one event. */
-async function writeConfig(path: string, yaml: string): Promise<void> {
+export async function writeConfig(path: string, yaml: string): Promise<void> {
   const tmp = `${path}.tmp-${randomUUID()}`;
   await writeFile(tmp, yaml, "utf8");
   await rename(tmp, path);
