@@ -2,14 +2,25 @@
 
 import { Loader2, Play } from "lucide-react";
 import type { TestTotals } from "../../run/testTransport";
+import Segmented from "./Segmented";
 
 /**
- * The Testing tab's toolbar: run the open suite, and the tally of what happened.
+ * The Testing tab's toolbar: run the open suite, switch between the two views of it, and
+ * the tally of what happened.
  *
  * The Run button stays VISIBLE when there is no dolphin binary and explains itself in a
  * tooltip, rather than disappearing. Someone who has just written a suite needs to learn
- * why they cannot run it; a button that is not there teaches nothing.
+ * why they cannot run it; a button that is not there teaches nothing. Form is gated the
+ * same way, for the same reason.
  */
+
+/** Which view of the open suite is showing. Per suite, not per editor. */
+export type SuiteViewMode = "form" | "yaml";
+
+const VIEWS: { key: SuiteViewMode; label: string }[] = [
+  { key: "form", label: "Form" },
+  { key: "yaml", label: "YAML" },
+];
 
 /** The tally chips, in the order a reader cares about them. */
 const CHIPS: { key: keyof TestTotals; label: string; className: string }[] = [
@@ -27,6 +38,9 @@ export default function TestingToolbar({
   running,
   testAvailable,
   blockedReason,
+  mode,
+  onMode,
+  formBlockedReason,
   onRun,
   children,
 }: {
@@ -38,6 +52,10 @@ export default function TestingToolbar({
   testAvailable: boolean;
   /** Why Run is unavailable beyond a missing binary (a suite dolphin would refuse). */
   blockedReason?: string;
+  mode: SuiteViewMode;
+  onMode: (next: SuiteViewMode) => void;
+  /** Why the form is unavailable — a file it could not read without deleting some of it. */
+  formBlockedReason?: string;
   onRun: () => void;
   /** Trailing controls (the delete button). */
   children?: React.ReactNode;
@@ -63,6 +81,15 @@ export default function TestingToolbar({
         )}
         {running ? "Running…" : "Run tests"}
       </button>
+
+      <Segmented
+        options={VIEWS}
+        value={mode}
+        onChange={onMode}
+        disabled={formBlockedReason ? ["form"] : []}
+        disabledReason={formBlockedReason}
+        ariaLabel="Suite view"
+      />
 
       <code className="min-w-0 flex-1 truncate text-[11px] text-zinc-500 dark:text-zinc-400">
         {fileName}

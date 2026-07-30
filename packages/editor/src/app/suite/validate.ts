@@ -34,6 +34,15 @@ export interface SuiteIssue {
   message: string;
   severity: "error" | "warning";
   caseIndex?: number;
+  /**
+   * The file says something the model cannot hold, so re-serializing it would DELETE
+   * that something. Set by parse.ts on everything it could not read; never by the rules
+   * below, which are about content that was read fine and dolphin will nonetheless
+   * reject. The form view is disabled while any of these stand — it can only write back
+   * what it understood, and quietly dropping a key the user typed is the one failure
+   * they would have no way to notice.
+   */
+  lossy?: boolean;
 }
 
 /** The keys each level of the format accepts, mirroring dolphin's KnownFields decoding. */

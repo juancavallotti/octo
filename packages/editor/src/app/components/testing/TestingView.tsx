@@ -1,17 +1,14 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { FlaskConical, Plus, Trash2 } from "lucide-react";
+import { FlaskConical, Plus } from "lucide-react";
 import { useEditorState } from "../../state/editorState";
-import { useRun } from "../../run/RunContext";
 import { useTestSuites } from "../../providers/TestSuiteProvider";
 import { parseSuite } from "../../suite/parse";
 import { suiteFileName } from "../../suite/naming";
 import SuiteRail, { type RailFlow } from "./SuiteRail";
-import SuiteYamlEditor from "./SuiteYamlEditor";
-import SuiteIssues from "./SuiteIssues";
+import SuiteEditor from "./SuiteEditor";
 import EmptyState from "./EmptyState";
-import TestingToolbar from "./TestingToolbar";
 import { useSuiteRun } from "../../run/SuiteRunContext";
 import { scaffoldSuite } from "./scaffold";
 
@@ -31,13 +28,13 @@ import { scaffoldSuite } from "./scaffold";
  * regardless and only the Run button is gated, because a user who has written tests must
  * be able to find out why they cannot run them rather than watch the tab disappear.
  *
- * Selection lives in useState rather than a reducer. It is one string, and the run keeps
- * its own; when the form view arrives and brings per-suite mode and a selected case with
- * it, that is the point at which a reducer earns its place.
+ * Selection lives in useState rather than a reducer, and stayed there once the form
+ * arrived: the view mode belongs to the open suite and the selected case belongs to the
+ * open suite's form, so both live where they are used and both are correctly forgotten
+ * when another flow is opened. A reducer here would have had to remember to do that.
  */
 export default function TestingView() {
   const { state } = useEditorState();
-  const run = useRun();
   const suites = useTestSuites();
   const suiteRun = useSuiteRun();
   const [selected, setSelected] = useState<string | null>(null);
@@ -70,7 +67,6 @@ export default function TestingView() {
 
   const active = selected && flowNames.includes(selected) ? selected : null;
   const content = active ? suites.suiteFor(active) : undefined;
-  const parsed = content === undefined ? null : parseSuite(content);
 
   if (!suites.canPersist) {
     return (
@@ -126,38 +122,15 @@ export default function TestingView() {
             so <code>dolphin test</code> gives the same verdict from a terminal.
           </EmptyState>
         ) : (
-          <>
-            <TestingToolbar
-              fileName={suiteFileName(active)}
-              cases={parsed!.suite.cases.length}
-              totals={suiteRun?.outcome?.totals ?? null}
-              running={suiteRun?.running ?? false}
-              testAvailable={run?.testAvailable ?? false}
-              // A suite dolphin would refuse takes every case in it down, so running is
-              // not something to find out about the hard way.
-              blockedReason={
-                parsed!.issues.length > 0
-                  ? "Fix the problems above: dolphin will not load this suite."
-                  : undefined
-              }
-              onRun={() => void suiteRun?.run(active, content)}
-            >
-              <button
-                type="button"
-                aria-label={`Delete tests for ${active}`}
-                title={`Delete tests for ${active}`}
-                onClick={() => void suites.removeSuite(active)}
-                className="shrink-0 rounded p-1 text-zinc-400 hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-400"
-              >
-                <Trash2 size={13} />
-              </button>
-            </TestingToolbar>
-            <SuiteIssues issues={parsed!.issues} />
-            <SuiteYamlEditor
-              value={content}
-              onChange={(next) => suites.setSuite(active, next)}
-            />
-          </>
+          // Keyed on the flow so the open suite's view mode and selected case are the
+          // open suite's, and are gone when another one is opened.
+          <SuiteEditor
+            key={active}
+            flow={active}
+            content={content}
+            onChange={(next) => suites.setSuite(active, next)}
+            onRemove={() => void suites.removeSuite(active)}
+          />
         )}
       </div>
     </div>

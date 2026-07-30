@@ -51,14 +51,26 @@ export function parseSuite(content: string): ParsedSuite {
   } catch (err) {
     return {
       suite: { flow: "", cases: [] },
-      issues: [{ message: `not valid YAML: ${(err as Error).message}`, severity: "error" }],
+      issues: [
+        {
+          message: `not valid YAML: ${(err as Error).message}`,
+          severity: "error",
+          lossy: true,
+        },
+      ],
     };
   }
   if (doc === null || doc === undefined) return { suite: { flow: "", cases: [] }, issues };
   if (!isRecord(doc)) {
     return {
       suite: { flow: "", cases: [] },
-      issues: [{ message: "a suite is a mapping of `flow` and `cases`", severity: "error" }],
+      issues: [
+        {
+          message: "a suite is a mapping of `flow` and `cases`",
+          severity: "error",
+          lossy: true,
+        },
+      ],
     };
   }
 
@@ -76,7 +88,13 @@ export function parseSuite(content: string): ParsedSuite {
   const timeout = str(doc.timeout);
   if (timeout) suite.timeout = timeout;
 
-  return { suite, issues: [...issues, ...validateSuite(suite)] };
+  // Everything collected above is something this parser could not read, and so could not
+  // put in the model — which makes it exactly the set that re-serializing would delete.
+  // The rules from validateSuite are the opposite: read fine, rejected by dolphin.
+  return {
+    suite,
+    issues: [...issues.map((i) => ({ ...i, lossy: true })), ...validateSuite(suite)],
+  };
 }
 
 function readCases(raw: unknown, issues: SuiteIssue[]): SuiteCase[] {

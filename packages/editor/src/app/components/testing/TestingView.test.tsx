@@ -72,6 +72,12 @@ function renderView(
 const suite = (flow: string, ...cases: string[]) =>
   `flow: ${flow}\ncases:\n${cases.map((c) => `  - name: ${c}\n`).join("")}`;
 
+/** The form opens by default, so the raw file is one click away. */
+const showYaml = (user: ReturnType<typeof userEvent.setup>) =>
+  user.click(screen.getByRole("button", { name: "YAML" }));
+
+const yamlBox = () => screen.getByRole("textbox") as HTMLTextAreaElement;
+
 describe("TestingView", () => {
   // A suite is a file that has to live somewhere. Offering to author one against a
   // draft would promise a committed artifact and deliver a session-scoped one.
@@ -114,9 +120,10 @@ describe("TestingView", () => {
     renderView(store, docWithFlows("orders"));
 
     await user.click(await screen.findByRole("button", { name: "orders" }));
+    await showYaml(user);
 
     expect(screen.getByText("orders_test.yaml")).toBeInTheDocument();
-    expect(screen.getByRole("textbox")).toHaveValue(suite("orders", "it runs"));
+    expect(yamlBox()).toHaveValue(suite("orders", "it runs"));
   });
 
   it("invites a flow with no suite to start one, and names the file it will become", async () => {
@@ -139,11 +146,13 @@ describe("TestingView", () => {
 
     await user.click(await screen.findByRole("button", { name: "orders" }));
     await user.click(screen.getByRole("button", { name: "Add tests" }));
+    await showYaml(user);
 
-    const written = (screen.getByRole("textbox") as HTMLTextAreaElement).value;
+    const written = yamlBox().value;
     expect(written).toContain("flow: orders");
     expect(written).toContain("- name: it runs");
-    // No problems: the starter is a file dolphin loads as-is.
+    // No problems: the starter is a file dolphin loads as-is. (The comment banner is not
+    // one — it belongs to the form view, which this test has left.)
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
@@ -172,9 +181,10 @@ describe("TestingView", () => {
     renderView(store, docWithFlows("orders"));
 
     await user.click(await screen.findByRole("button", { name: "orders" }));
-    await user.type(screen.getByRole("textbox"), "#");
+    await showYaml(user);
+    await user.type(yamlBox(), "#");
 
-    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toContain("#");
+    expect(yamlBox().value).toContain("#");
   });
 
   it("deletes a suite", async () => {

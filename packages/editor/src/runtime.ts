@@ -40,6 +40,13 @@ export { parseSuite, type ParsedSuite } from "./app/suite/parse";
 export { serializeSuite } from "./app/suite/serialize";
 export { validateSuite, type SuiteIssue } from "./app/suite/validate";
 export {
+  addCase,
+  removeCase,
+  updateCase,
+  nameTaken,
+  uniqueCaseName,
+} from "./app/suite/edit";
+export {
   DEFAULT_CASE_TIMEOUT,
   inputFor,
   mocksFor,
