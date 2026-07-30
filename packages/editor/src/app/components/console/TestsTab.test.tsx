@@ -168,6 +168,17 @@ describe("TestsTab", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Test runner not available.");
   });
 
+  // The console has a fixed, user-dragged height and a report is as long as the run was,
+  // so the tab owns a scroll region like every other one. Without it a long report grows
+  // past the panel and the bottom of it cannot be reached at all.
+  it("scrolls its own body", async () => {
+    renderTab(transportWith(failing));
+    await clickGo();
+
+    const scroller = screen.getByText("it charges").closest(".overflow-auto");
+    expect(scroller).toHaveClass("flex-1");
+  });
+
   it("distinguishes a timeout from an unreadable report", async () => {
     renderTab(transportWith({ ...passing, ok: false, timedOut: true, suites: [] }));
     await clickGo();
