@@ -196,11 +196,18 @@ the pointer. The full version, with the cost analysis, is in
 ## What is deliberately not an extension point
 
 **The engine.** Composite blocks — anything with an inline sub-flow slot (`fork`,
-`foreach`, `if`, `cache-scope`, the `ai-*` family) — live in
+`foreach`, `if`, `cache-scope`, `ai-router`, `ai-agent`, `ai-retry`) — live in
 `runtime/core/internal/engine` and cannot live anywhere else: building a sub-flow
-needs the builder, which is internal. Connector packages register **leaf** blocks
-only. A block that wants to run a nested chain is an engine change, not a
-connector.
+needs the builder, which is internal. A block that wants to run a nested chain is
+an engine change, not a connector.
+
+The engine also owns the **leaf** blocks that belong to no connector: `ai-mapping`
+and `ai-embed` bind to whatever LLM connector a flow names, through the shared
+`core.LLMClient` / `core.EmbedClient` interfaces, so they are provider-agnostic
+runtime capability rather than part of any one provider's package. The test is
+ownership, not shape: a leaf block goes in a connector package when it reaches a
+resource *that package owns*, and in the engine when it works against an interface
+any provider can satisfy. `connectors/llm/` holds LLM provider connectors only.
 
 **CLI subcommands.** `run`, `invoke`, `eval`, `schema` are a closed switch in
 `runtime/octo/main.go`. A hosted service extends the CLI by adding *flags to
@@ -222,7 +229,9 @@ Does a flow author reference it by name in YAML?
    ├─ Does it run for the life of the process with
    │  its own flags?                                  → services: hosted facet
    ├─ Does it only need to watch what flows do?       → EventBus / BlockEvents
-   └─ Does it need to run a nested sub-flow?          → the engine
+   ├─ Does it need to run a nested sub-flow?          → the engine
+   └─ Is it a leaf block that owns no resource, binding
+      to any provider through a shared interface?     → the engine
 ```
 
 If the answer is "none of these", the answer is still not a new registry. Say so

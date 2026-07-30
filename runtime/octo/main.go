@@ -12,7 +12,6 @@ import (
 	_ "github.com/juancavallotti/octo/runtime/connectors/events"   // registers the "events" connector + source and the "publish-event" block
 	_ "github.com/juancavallotti/octo/runtime/connectors/http"
 	_ "github.com/juancavallotti/octo/runtime/connectors/httpclient"    // registers the "http-client" connector and "rest" block
-	_ "github.com/juancavallotti/octo/runtime/connectors/llm/aiblocks"  // registers the "ai-mapping" block
 	_ "github.com/juancavallotti/octo/runtime/connectors/llm/anthropic" // registers the "llm-anthropic" connector
 	_ "github.com/juancavallotti/octo/runtime/connectors/llm/gemini"    // registers the "llm-gemini" connector
 	_ "github.com/juancavallotti/octo/runtime/connectors/llm/openai"    // registers the "llm-openai" connector

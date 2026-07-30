@@ -30,6 +30,8 @@ func init() {
 	registerFlowRef()
 	registerInvalidateCache()
 	registerClearAgentMemory()
+	registerAIMapping()
+	registerAIEmbed()
 }
 
 // Block type names handled directly by the flow builder rather than the block

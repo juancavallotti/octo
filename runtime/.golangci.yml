@@ -143,8 +143,6 @@ linters:
         linters: [gochecknoinits]
       - path: ^connectors/httpclient/httpclient\.go$
         linters: [gochecknoinits]
-      - path: ^connectors/llm/aiblocks/aiblocks\.go$
-        linters: [gochecknoinits]
       - path: ^connectors/llm/anthropic/anthropic\.go$
         linters: [gochecknoinits]
       - path: ^connectors/llm/gemini/gemini\.go$
