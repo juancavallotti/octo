@@ -13,6 +13,7 @@ import {
   stop,
   sync,
 } from "./session";
+import { allocateAdminPort, allocatePort, releaseAdminPort, releasePort } from "./ports";
 
 /** Fixed namespace for the single-user test surface. */
 const NS = "testns00";
@@ -143,6 +144,94 @@ describe("run session", () => {
     const started = await start(NS, "service:\n  name: internal\n");
     expect(started.exposable).toBe(false);
     expect(started.port).toBeNull();
+  });
+
+  // The runtime's observability service binds a fixed :39999 by default, which a
+  // second run on this host would fight over. Every run gets an admin port of its
+  // own — internal-only ones too, since probes do not need an HTTP source.
+  it("gives every run its own admin port, released when it stops", async () => {
+    process.env.OCTO_BIN_PATH = await fakeBin(
+      dir,
+      "octo-admin",
+      'printf "admin %s\\n" "$OCTO_OBSERVABILITY_ADDR"\nsleep 2',
+    );
+
+    await start(NS, "service:\n  name: internal\n");
+    await vi.waitFor(
+      () => {
+        const line = texts().find((t) => t.startsWith("admin "));
+        expect(line).toMatch(/^admin 127\.0\.0\.1:41\d{3}$/);
+      },
+      { timeout: 4000 },
+    );
+    const first = texts().find((t) => t.startsWith("admin "))!;
+
+    // A stopped run frees its admin port, so the next run gets the same one back
+    // rather than walking up the pool for as long as the editor is up.
+    await stop(NS);
+    await start(NS, "service:\n  name: internal\n");
+    await vi.waitFor(
+      () => {
+        expect(texts().some((t) => t.startsWith("admin "))).toBe(true);
+      },
+      { timeout: 4000 },
+    );
+    expect(texts().find((t) => t.startsWith("admin "))).toBe(first);
+  });
+
+  // The dev .env is the user's, but the port wiring is the host's: a stray
+  // OCTO_OBSERVABILITY_ADDR must not point two runs at one admin port.
+  it("keeps the dev env from clobbering the admin port", async () => {
+    process.env.OCTO_BIN_PATH = await fakeBin(
+      dir,
+      "octo-admin-env",
+      'printf "admin %s\\n" "$OCTO_OBSERVABILITY_ADDR"\nsleep 2',
+    );
+
+    await start(NS, "service:\n  name: internal\n", {
+      OCTO_OBSERVABILITY_ADDR: "127.0.0.1:39999",
+    });
+    await vi.waitFor(
+      () => {
+        const line = texts().find((t) => t.startsWith("admin "));
+        expect(line).toMatch(/^admin 127\.0\.0\.1:41\d{3}$/);
+      },
+      { timeout: 4000 },
+    );
+  });
+
+  // A start that cannot get one of its ports must not keep the other, or leave the
+  // config and staged resources behind: a caller retrying a failing start would eat
+  // the HTTP pool a port at a time and litter the run dir with env files.
+  it("rolls the start back when a port pool is exhausted", async () => {
+    process.env.OCTO_BIN_PATH = await fakeBin(dir, "octo-noop", "sleep 1");
+
+    const drained: number[] = [];
+    try {
+      for (;;) drained.push(allocateAdminPort());
+    } catch {
+      // Exhausting the admin pool is the point: the next start cannot get one.
+    }
+
+    try {
+      // Check a port out and back, so we know which one a start would take next.
+      const probe = allocatePort();
+      releasePort(probe);
+
+      const yaml =
+        "service:\n  name: net\nenv:\n  - name: HTTP_PORT\n    default: \"8080\"\n";
+      await expect(start(NS, yaml)).rejects.toThrow(/admin port/);
+
+      const after = allocatePort();
+      expect(after).toBe(probe); // the failed start kept nothing
+      releasePort(after);
+
+      expect(status(NS).running).toBe(false);
+      expect(status(NS).port).toBeNull();
+      expect(await readdir(join(dir, NS))).toEqual([]); // no config left behind
+    } finally {
+      for (const p of drained) releaseAdminPort(p);
+    }
   });
 
   it("ignores sync when nothing is running", async () => {

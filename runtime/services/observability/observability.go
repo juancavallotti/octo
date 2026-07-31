@@ -136,6 +136,11 @@ func (s *Service) Usage() string {
   so a load balancer stops sending work while there are still workers to finish
   what is in flight.
 
+  An admin port that cannot be bound — another runtime already has it — is logged
+  as an error and the runtime carries on without probes or metrics: a second run
+  on one host must not fail over a port none of its flows asked for. Give each
+  run its own --observability-addr to have both serve.
+
   --metrics exports per-flow rate, errors and duration, the in-flight count per
   flow, and the Go runtime and process collectors (goroutines, heap, GC, RSS, CPU,
   open files). Every label comes from the config — never from message data — so
@@ -156,8 +161,16 @@ func (s *Service) Usage() string {
   read from the process environment, not from a .env file.`
 }
 
-// Start binds the admin listener and serves on it. Binding is synchronous so a
-// port conflict fails the run rather than becoming a log line nobody reads.
+// Start binds the admin listener and serves on it.
+//
+// A bind failure does not fail the run. Probes and metrics are something a
+// runtime carries, not something it is: a second `octo run` on a host that
+// already has one — two editor runs, a run beside a locally started service —
+// would otherwise die on the fixed admin port while every flow it was asked to
+// serve was perfectly startable. So the failure is logged at error level and the
+// process continues with nothing on the admin port; a deployment that depends on
+// probes finds out from the probes themselves, which is where it would find out
+// anyway.
 func (s *Service) Start(ctx context.Context, health *services.Health) error {
 	if !s.enabled {
 		if s.metrics {
@@ -172,7 +185,11 @@ func (s *Service) Start(ctx context.Context, health *services.Health) error {
 	var lc net.ListenConfig
 	ln, err := lc.Listen(ctx, "tcp", s.addr)
 	if err != nil {
-		return fmt.Errorf("listen on %s: %w", s.addr, err)
+		// Loud, and degraded: nothing serves probes or metrics for the rest of the
+		// process, but the flows run. See the note on Start.
+		slog.Error("observability: could not bind the admin port, continuing without probes or metrics",
+			"addr", s.addr, "error", err)
+		return nil
 	}
 	s.ln = ln
 

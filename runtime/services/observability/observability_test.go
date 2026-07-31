@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"testing"
@@ -168,9 +169,15 @@ func TestDisabledBindsNothing(t *testing.T) {
 	}
 }
 
-// A port conflict fails the run rather than becoming a log line nobody reads.
-func TestStartFailsOnPortConflict(t *testing.T) {
+// A port conflict is survivable: a second runtime on one host loses its probes,
+// not its run. The failure is logged at error level and Start still succeeds.
+func TestStartRecoversFromPortConflict(t *testing.T) {
 	first, _ := newTestService(t)
+
+	var logs strings.Builder
+	restore := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(restore) })
 
 	second := New()
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
@@ -180,12 +187,23 @@ func TestStartFailsOnPortConflict(t *testing.T) {
 		t.Fatalf("parse: %v", err)
 	}
 
-	err := second.Start(context.Background(), services.NewHealth())
-	if err == nil {
-		t.Fatal("Start on a taken port = nil, want an error")
+	if err := second.Start(context.Background(), services.NewHealth()); err != nil {
+		t.Fatalf("Start on a taken port = %v, want nil — a busy admin port must not fail the run", err)
 	}
-	if !strings.Contains(err.Error(), first.Addr()) {
-		t.Errorf("error %q does not name the address it could not bind", err)
+	if addr := second.Addr(); addr != "" {
+		t.Errorf("second service bound %s, want nothing", addr)
+	}
+	// Stop must be safe on a service whose listener never came up.
+	if err := second.Stop(context.Background()); err != nil {
+		t.Errorf("Stop after a failed bind: %v", err)
+	}
+
+	logged := logs.String()
+	if !strings.Contains(logged, "level=ERROR") {
+		t.Errorf("a failed bind was not logged at error level:\n%s", logged)
+	}
+	if !strings.Contains(logged, first.Addr()) {
+		t.Errorf("the log line does not name the address it could not bind:\n%s", logged)
 	}
 }
 
