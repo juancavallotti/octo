@@ -9,6 +9,7 @@ import {
 import { SaveProvider } from "../save/SaveContext";
 import { RunProvider } from "../run/RunContext";
 import { FlowRunProvider } from "../run/FlowRunContext";
+import { SuiteRunProvider } from "../run/SuiteRunContext";
 import { ConsoleProvider } from "../run/console";
 import type { RunTransport } from "../run/transport";
 import { DevEnvStoreProvider, type DevEnvStore } from "../state/devEnvStore";
@@ -20,6 +21,10 @@ import {
   EditorMetaProvider,
   type EditorMetaStore,
 } from "../providers/EditorMetaProvider";
+import {
+  TestSuiteProvider,
+  type TestSuiteStore,
+} from "../providers/TestSuiteProvider";
 import IntegrationLoader from "./IntegrationLoader";
 import LogPanel from "./LogPanel";
 import EditorBody from "./EditorBody";
@@ -48,6 +53,9 @@ export default function EditorRoot({
   devEnv,
   resources,
   meta,
+  metaToken,
+  tests,
+  testsToken,
   onSaved,
 }: {
   integrationId?: string;
@@ -73,6 +81,19 @@ export default function EditorRoot({
    * inputs. Omit and inputs still work — they just live for the session.
    */
   meta?: EditorMetaStore | null;
+  /**
+   * Bumped when something else wrote the meta file — its own token rather than
+   * `reloadToken`, because a mock an agent placed should appear without asking, while
+   * the document behind it has unsaved edits to protect.
+   */
+  metaToken?: string | number;
+  /**
+   * Test-suite capability (`<flow>_test.yaml`), backing the Testing tab. Omit and the
+   * tab is hidden entirely — unlike meta, a test you cannot store is not worth writing.
+   */
+  tests?: TestSuiteStore | null;
+  /** Bumped when something else wrote a suite for this document. */
+  testsToken?: string | number;
   /** Called after a save with the stored record (e.g. to update the URL). */
   onSaved?: (stored: StoredDocument) => void;
 }) {
@@ -110,7 +131,12 @@ export default function EditorRoot({
     tree = (
       <RunProvider transport={run}>
         <FlowRunProvider transport={run}>
-          <DevEnvStoreProvider value={devEnv ?? null}>{tree}</DevEnvStoreProvider>
+          {/* Suite runs report into the console like every other kind of run, so this
+              sits above both the Testing tab that starts one and the panel that shows
+              what came back. */}
+          <SuiteRunProvider>
+            <DevEnvStoreProvider value={devEnv ?? null}>{tree}</DevEnvStoreProvider>
+          </SuiteRunProvider>
         </FlowRunProvider>
       </RunProvider>
     );
@@ -122,12 +148,24 @@ export default function EditorRoot({
       </FileSystemProvider>
     );
 
+  // Suites are mounted only when the host backs them, because that null is what hides
+  // the Testing tab — the one capability where absence means "not offered" rather than
+  // "works, but forgets". It wraps the whole tree rather than the tab, because the
+  // canvas reads it too: the flow ▶ menu offers a suite's cases as scenarios.
+  if (tests) {
+    tree = (
+      <TestSuiteProvider store={tests} reloadToken={testsToken}>
+        {tree}
+      </TestSuiteProvider>
+    );
+  }
+
   // Meta is mounted even without a store: test inputs still work for an unsaved draft,
   // they simply are not written down (the provider reports canPersist: false). It reads
   // the document, so it sits inside the state provider.
   return (
     <EditorStateProvider>
-      <EditorMetaProvider store={meta ?? null}>
+      <EditorMetaProvider store={meta ?? null} reloadToken={metaToken}>
         <ConsoleProvider>{tree}</ConsoleProvider>
       </EditorMetaProvider>
     </EditorStateProvider>

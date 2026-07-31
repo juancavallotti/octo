@@ -1,12 +1,20 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { EditorStateProvider, useEditorState, EditorActionType } from "../state/editorState";
+import {
+  EditorStateProvider,
+  useEditorState,
+  EditorActionType,
+} from "../state/editorState";
 import { emptyFlow, newBlock, type EditorDocument } from "../model/document";
-import { EditorMetaProvider, type EditorMetaStore } from "../providers/EditorMetaProvider";
+import {
+  EditorMetaProvider,
+  type EditorMetaStore,
+} from "../providers/EditorMetaProvider";
 import { ConsoleProvider } from "../run/console";
 import { FlowRunProvider } from "../run/FlowRunContext";
 import { RunProvider } from "../run/RunContext";
+import { emptyTotals } from "../run/transport";
 import type { FlowRunRequest, RunTransport } from "../run/transport";
 import FlowRunMenu from "./FlowRunMenu";
 
@@ -28,7 +36,11 @@ function invalidDoc(): EditorDocument {
 function cronDoc(payload: string): EditorDocument {
   const flow = emptyFlow("orders");
   flow.process = [newBlock("log")];
-  flow.source = { connector: "cron", type: "cron", settings: { schedule: "* * * * * *", payload } };
+  flow.source = {
+    connector: "cron",
+    type: "cron",
+    settings: { schedule: "* * * * * *", payload },
+  };
   return { flows: [flow], connectors: [], processors: [], env: [] };
 }
 
@@ -36,7 +48,15 @@ function stubTransport(
   onInvoke: (req: FlowRunRequest) => void,
   evalCel?: RunTransport["evalCel"],
 ): RunTransport {
-  const snap = { available: true, running: false, version: null, testPath: null };
+  const snap = {
+    available: true,
+    running: false,
+    version: null,
+    // These fixtures exercise RUN, not the Testing tab: no dolphin configured.
+    testAvailable: false,
+    testVersion: null,
+    testPath: null,
+  };
   return {
     status: async () => snap,
     start: async () => snap,
@@ -44,15 +64,33 @@ function stubTransport(
     sync: async () => {},
     evalCel: evalCel ?? (async () => ({ ok: true })),
     subscribeLogs: () => () => {},
+    // These fixtures exercise RUN, not the Testing tab: no dolphin configured.
+    test: async () => ({
+      ok: false,
+      timedOut: false,
+      totals: emptyTotals(),
+      suites: [],
+      logs: [],
+      error: "no test runner",
+    }),
     invoke: async (req) => {
       onInvoke(req);
-      return { ok: true, dropped: false, timedOut: false, output: "{}", logs: [] };
+      return {
+        ok: true,
+        dropped: false,
+        timedOut: false,
+        output: "{}",
+        logs: [],
+      };
     },
   };
 }
 
 /** A meta store seeded with the given file content. */
-function stubMeta(content: string, onSave?: (c: string) => void): EditorMetaStore {
+function stubMeta(
+  content: string,
+  onSave?: (c: string) => void,
+): EditorMetaStore {
   return {
     load: async () => content,
     save: async (_id, c) => onSave?.(c),
@@ -69,7 +107,12 @@ function Harness({ doc }: { doc: EditorDocument }) {
         onClick={() =>
           dispatch({
             type: EditorActionType.LOAD_INTEGRATION,
-            data: { id: "orders.yaml", name: "orders", document: doc, folderId: null },
+            data: {
+              id: "orders.yaml",
+              name: "orders",
+              document: doc,
+              folderId: null,
+            },
           })
         }
       >
@@ -111,7 +154,14 @@ const SAVED = JSON.stringify({
     "orders.yaml": {
       flows: {
         orders: {
-          inputs: [{ id: "i1", name: "happy path", data: '{"orderId":42}', vars: '{"tier":"gold"}' }],
+          inputs: [
+            {
+              id: "i1",
+              name: "happy path",
+              data: '{"orderId":42}',
+              vars: '{"tier":"gold"}',
+            },
+          ],
         },
       },
     },
@@ -140,7 +190,9 @@ describe("FlowRunMenu", () => {
     });
 
     await user.click(screen.getByLabelText("Run flow"));
-    await waitFor(() => expect(screen.getByText("happy path")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("happy path")).toBeInTheDocument(),
+    );
     await user.click(screen.getByText("happy path"));
 
     await waitFor(() => expect(seen).toHaveLength(1));
@@ -159,9 +211,13 @@ describe("FlowRunMenu", () => {
     await user.click(screen.getByRole("button", { name: "Add" }));
 
     // It appears in the menu immediately...
-    await waitFor(() => expect(screen.getByText("empty cart")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("empty cart")).toBeInTheDocument(),
+    );
     // ...and is written down (debounced) under the flow's name.
-    await waitFor(() => expect(saved.length).toBeGreaterThan(0), { timeout: 3000 });
+    await waitFor(() => expect(saved.length).toBeGreaterThan(0), {
+      timeout: 3000,
+    });
     expect(saved[saved.length - 1]).toContain("empty cart");
   });
 
@@ -172,7 +228,10 @@ describe("FlowRunMenu", () => {
     await user.click(screen.getByText("Add test input"));
     await user.type(screen.getByPlaceholderText("happy path"), "broken");
     // `{{` is user-event's escape for a literal brace.
-    await user.type(screen.getByPlaceholderText('{ "orderId": 42 }'), "{{not json");
+    await user.type(
+      screen.getByPlaceholderText('{ "orderId": 42 }'),
+      "{{not json",
+    );
 
     expect(screen.getByText("That isn't valid JSON.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add" })).toBeDisabled();
@@ -184,7 +243,10 @@ describe("FlowRunMenu", () => {
 
     const button = screen.getByLabelText("Run flow");
     expect(button).toBeDisabled();
-    expect(button).toHaveAttribute("title", expect.stringContaining("Fix before running"));
+    expect(button).toHaveAttribute(
+      "title",
+      expect.stringContaining("Fix before running"),
+    );
   });
 
   it("warns that inputs are not kept for an unsaved draft", async () => {
@@ -193,7 +255,9 @@ describe("FlowRunMenu", () => {
     });
 
     await user.click(screen.getByLabelText("Run flow"));
-    expect(screen.getByText("Save the flow to keep its test inputs.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Save the flow to keep its test inputs."),
+    ).toBeInTheDocument();
   });
 
   // A cron source's payload IS the body the flow receives each tick, so the menu offers it
@@ -228,12 +292,17 @@ describe("FlowRunMenu", () => {
 
     await user.click(screen.getByLabelText("Run flow"));
     expect(screen.getByText("No input")).toBeInTheDocument();
-    expect(screen.queryByText("As the cron source would send it")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("As the cron source would send it"),
+    ).not.toBeInTheDocument();
   });
 
   it("surfaces an error instead of running when the cron payload will not evaluate", async () => {
     const seen: FlowRunRequest[] = [];
-    const evalCel = vi.fn(async () => ({ ok: false, error: "undeclared reference to 'oops'" }));
+    const evalCel = vi.fn(async () => ({
+      ok: false,
+      error: "undeclared reference to 'oops'",
+    }));
     const user = await setup({
       doc: cronDoc("oops"),
       transport: stubTransport((r) => seen.push(r), evalCel),
@@ -243,7 +312,9 @@ describe("FlowRunMenu", () => {
     await user.click(screen.getByText("As the cron source would send it"));
 
     await waitFor(() =>
-      expect(screen.getByText(/undeclared reference to 'oops'/)).toBeInTheDocument(),
+      expect(
+        screen.getByText(/undeclared reference to 'oops'/),
+      ).toBeInTheDocument(),
     );
     expect(seen).toHaveLength(0);
   });

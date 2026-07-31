@@ -1,6 +1,6 @@
 "use client";
 
-import { KeyRound, ScrollText, TriangleAlert, Braces } from "lucide-react";
+import { KeyRound, ScrollText, TriangleAlert, Braces, FlaskConical } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { ConsoleTab } from "../../run/console";
 
@@ -21,6 +21,7 @@ const TABS: TabSpec[] = [
   { key: "logs", label: "Logs", icon: ScrollText },
   { key: "problems", label: "Problems", icon: TriangleAlert },
   { key: "results", label: "Output", icon: Braces },
+  { key: "tests", label: "Tests", icon: FlaskConical },
   { key: "env", label: "Dev .env", icon: KeyRound },
 ];
 
@@ -42,8 +43,9 @@ export default function ConsoleTabs({
       {TABS.map(({ key, label, icon: Icon }) => {
         const count = counts?.[key] ?? 0;
         const selected = active === key;
-        // Problems is the one tab that should draw the eye when it has something to say.
-        const alarming = key === "problems" && count > 0;
+        // Problems and Tests draw the eye when they have something bad to say; their
+        // counts are failures, so a green run shows no badge at all.
+        const alarming = (key === "problems" || key === "tests") && count > 0;
         return (
           <button
             key={key}

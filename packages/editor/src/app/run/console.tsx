@@ -23,7 +23,7 @@ import {
  * it sticks.
  */
 
-export type ConsoleTab = "problems" | "logs" | "results" | "env";
+export type ConsoleTab = "problems" | "logs" | "results" | "tests" | "env";
 
 interface ConsoleValue {
   tab: ConsoleTab;

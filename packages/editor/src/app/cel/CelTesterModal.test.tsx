@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import CelTesterModal from "./CelTesterModal";
 import { RunProvider } from "../run/RunContext";
+import { emptyTotals } from "../run/transport";
 import type { RunTransport } from "../run/transport";
 
 // EditorState is read by RunProvider (validation/sync); stub it so the module
@@ -23,12 +24,16 @@ function stubTransport(overrides?: Partial<RunTransport>): RunTransport {
       available: true,
       running: false,
       version: null,
+      testAvailable: false,
+      testVersion: null,
       testPath: null,
     }),
     start: async () => ({
       available: true,
       running: true,
       version: null,
+      testAvailable: false,
+      testVersion: null,
       testPath: null,
     }),
     stop: async () => {},
@@ -42,6 +47,15 @@ function stubTransport(overrides?: Partial<RunTransport>): RunTransport {
     }),
     evalCel: async () => ({ ok: true, result: 3 }),
     subscribeLogs: () => () => {},
+    // These fixtures exercise RUN, not the Testing tab: no dolphin configured.
+    test: async () => ({
+      ok: false,
+      timedOut: false,
+      totals: emptyTotals(),
+      suites: [],
+      logs: [],
+      error: "no test runner",
+    }),
     ...overrides,
   };
 }
@@ -75,7 +89,10 @@ describe("CelTesterModal", () => {
   it("surfaces a CEL evaluation error", async () => {
     renderModal(
       stubTransport({
-        evalCel: async () => ({ ok: false, error: "undeclared reference to 'nope'" }),
+        evalCel: async () => ({
+          ok: false,
+          error: "undeclared reference to 'nope'",
+        }),
       }),
     );
 
@@ -86,9 +103,7 @@ describe("CelTesterModal", () => {
     await waitFor(() => expect(runButton).not.toBeDisabled());
     fireEvent.click(runButton);
 
-    expect(
-      await screen.findByText(/undeclared reference/),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/undeclared reference/)).toBeInTheDocument();
   });
 
   it("rejects invalid body JSON before calling the runner", async () => {
@@ -105,7 +120,9 @@ describe("CelTesterModal", () => {
     await waitFor(() => expect(runButton).not.toBeDisabled());
     fireEvent.click(runButton);
 
-    expect(await screen.findByText(/body must be valid JSON/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/body must be valid JSON/),
+    ).toBeInTheDocument();
     expect(evalCel).not.toHaveBeenCalled();
   });
 });

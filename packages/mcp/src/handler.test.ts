@@ -11,11 +11,23 @@ import type { RunHostPort } from "./run-host";
  * `res.text()`), exercising the fast error paths instead.
  */
 
+/** An empty tally, for a stub that never runs anything. */
+const NO_TOTALS = {
+  cases: 0,
+  passed: 0,
+  failed: 0,
+  errored: 0,
+  skipped: 0,
+  notRun: 0,
+  elapsedMs: 0,
+};
+
 const stubRunHost: RunHostPort = {
   status: () => ({ available: false, running: false, version: null, exposable: false, port: null, testPath: null }),
   start: async () => ({ available: false, running: false, version: null, exposable: false, port: null, testPath: null }),
   stop: async () => ({ available: false, running: false, version: null, exposable: false, port: null, testPath: null }),
   invoke: async () => ({ ok: false, exitCode: null, timedOut: false, dropped: false, output: "", logs: [] }),
+  test: async () => ({ ok: false, exitCode: null, timedOut: false, totals: NO_TOTALS, suites: [], logs: [] }),
   evalCel: async () => ({ ok: false, error: "unavailable", logs: [] }),
   snapshot: () => [],
   newNamespace: () => "ns-1",

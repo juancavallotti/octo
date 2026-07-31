@@ -1,7 +1,8 @@
 "use client";
 
 import { CircleSlash, Filter, Play, SquareDashedBottom } from "lucide-react";
-import type { FlowRunEntry, FlowRunStatus } from "../../run/FlowRunContext";
+import type { FlowRunEntry, FlowRunStatus } from "../../run/outcome";
+import SaveAsTestCase from "../testing/SaveAsTestCase";
 
 /**
  * What the flows produced. Results are *output* — the message a run returned, or the
@@ -81,6 +82,11 @@ function Entry({ entry }: { entry: FlowRunEntry }) {
             {entry.inputName}
           </span>
         )}
+        {/* Pushed to the end of the row: what you do with a result once you have read it,
+            not part of reading it. */}
+        <div className="ml-auto">
+          <SaveAsTestCase entry={entry} />
+        </div>
       </div>
 
       {entry.error && (

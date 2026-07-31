@@ -4,61 +4,8 @@ import type { OctoMcpConfig } from "../backend";
 import type { RunHostPort, RunStatusLike } from "../run-host";
 import type { NamespaceResolver } from "../namespace";
 import { parseEnv } from "../env";
+import { mockSpecSchema } from "../mocks";
 import { errorResult, guard, jsonResult, textResult } from "../result";
-
-/**
- * One canned outcome of a mocked block, mirroring the runtime's `core.MockCase`
- * (runtime/core/mock.go). Declared structurally rather than as a JSON string so the tool
- * schema itself teaches an agent the shape — the alternative is an opaque blob it has to
- * guess at.
- *
- * The two rules the schema cannot express are stated in the field descriptions, because
- * the runtime rejects a spec that breaks either and an agent has no other way to learn
- * them: **exactly one** of `body`/`error`/`drop` per case, and `vars` only alongside a
- * `body`.
- */
-const mockCaseSchema = z.object({
-  when: z
-    .string()
-    .optional()
-    .describe(
-      "CEL condition, evaluated against the message the block RECEIVED — e.g. `body.amount > 100`, `vars.tier == \"vip\"`. Required on a case; forbidden on `default`.",
-    ),
-  body: z
-    .unknown()
-    .optional()
-    .describe(
-      "The body the block returns. A literal value, NOT an expression. Exactly one of body/error/drop.",
-    ),
-  vars: z
-    .record(z.string(), z.unknown())
-    .optional()
-    .describe(
-      "Variables set on the message alongside `body`, for blocks that report through one (e.g. an http call setting vars.status). Only valid together with `body`.",
-    ),
-  error: z
-    .string()
-    .optional()
-    .describe(
-      "Fail the block with this message — how an error path is tested without arranging for the real block to fail. Exactly one of body/error/drop.",
-    ),
-  drop: z
-    .boolean()
-    .optional()
-    .describe(
-      "Filter the message out, as a filter block would. Exactly one of body/error/drop.",
-    ),
-});
-
-const mockSpecSchema = z.object({
-  cases: z
-    .array(mockCaseSchema)
-    .optional()
-    .describe("Cases tried in order; the first whose `when` holds wins."),
-  default: mockCaseSchema
-    .optional()
-    .describe("What the block does when no case matched. Must NOT carry a `when`."),
-});
 
 /**
  * The run-control tools: check whether an integration can start, run it (returning

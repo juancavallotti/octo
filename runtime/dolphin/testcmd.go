@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/juancavallotti/octo/runtime/dolphin/internal/assert"
 	"github.com/juancavallotti/octo/runtime/dolphin/internal/report"
@@ -25,13 +26,14 @@ const workDirPattern = "dolphin-"
 
 // testFlags are the parsed flags of `dolphin test`.
 type testFlags struct {
-	paths    []string
-	config   string
-	envFile  string
-	junit    string
-	parallel int
-	failFast bool
-	verbose  bool
+	paths      []string
+	config     string
+	envFile    string
+	junit      string
+	reportJSON string
+	parallel   int
+	failFast   bool
+	verbose    bool
 }
 
 // testCommand runs the suites the user named.
@@ -72,6 +74,10 @@ func testCommand(args []string) error {
 	defer stop()
 
 	console := report.NewConsole(os.Stdout, flags.verbose)
+	// Timed from here rather than from the top of the command, so the wall clock covers
+	// the same work the per-case times do — the two are meant to be compared, and a
+	// figure that also counted discovery and the octo probe would not be comparable.
+	started := time.Now()
 	results := runner.Run(ctx, runner.Config{
 		Options: runner.Options{
 			Octo:    octo,
@@ -87,18 +93,39 @@ func testCommand(args []string) error {
 		OnSuiteDone: console.Suite,
 	}, targets)
 
-	return finish(flags, console, results, workDir)
+	return finish(flags, console, results, workDir, time.Since(started))
 }
 
-// finish writes the reports and turns the tally into an exit code.
-func finish(flags testFlags, console *report.Console, results []runner.SuiteResult, workDir string) error {
+// finish writes the reports and turns the tally into an exit code. wall is how long the
+// whole run took, which only this level knows: the runner reports each case's own time,
+// and under --parallel those do not add up to the clock on the wall.
+func finish(
+	flags testFlags,
+	console *report.Console,
+	results []runner.SuiteResult,
+	workDir string,
+	wall time.Duration,
+) error {
 	totals := report.Tally(results)
-	console.Summary(results, keptWorkDir(totals, workDir))
+	kept := keptWorkDir(totals, workDir)
+	console.Summary(results, kept)
+	var errs []error
 
 	if flags.junit != "" {
 		if err := report.JUnit(flags.junit, results); err != nil {
-			return err
+			errs = append(errs, err)
 		}
+	}
+	// Written for every verdict, not just a green one: a reader's whole reason for
+	// asking is to find out WHICH cases failed, so the report a failing run produces is
+	// the one that matters most.
+	if flags.reportJSON != "" {
+		if err := report.JSON(flags.reportJSON, results, wall, kept, versionLine()); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if len(errs) > 0 {
+		return errors.Join(errs...)
 	}
 	return verdict(totals)
 }
@@ -159,6 +186,8 @@ func parseTestFlags(args []string) (testFlags, error) {
 	fs.StringVar(&flags.envFile, "env-file", "",
 		"a .env file every case runs with (a suite's own env: block overrides it)")
 	fs.StringVar(&flags.junit, "junit", "", "write a JUnit XML report to this file")
+	fs.StringVar(&flags.reportJSON, "report-json", "",
+		"write a machine-readable JSON report to this file")
 	fs.IntVar(&flags.parallel, "parallel", 0, "how many cases to run at once (default: one per CPU)")
 	fs.BoolVar(&flags.failFast, "fail-fast", false, "stop after the first failing case")
 	fs.BoolVar(&flags.verbose, "v", false, "name every case, and let octo's logs through")

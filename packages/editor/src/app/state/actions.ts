@@ -208,8 +208,11 @@ export interface SetFlowMetaPayload {
   value: string | number | undefined;
 }
 
-/** Which view the editor body shows. */
-export type SetViewModePayload = "canvas" | "yaml" | "resources";
+/**
+ * Which view the editor body shows. `resources` and `testing` are capability-backed —
+ * the toggle only offers them when the host mounted the store behind them.
+ */
+export type SetViewModePayload = "canvas" | "yaml" | "resources" | "testing";
 
 export interface SetEnvPayload {
   env: EnvVar[];

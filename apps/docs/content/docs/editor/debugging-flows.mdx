@@ -276,3 +276,14 @@ octo invoke --config orders.yaml --flow orders \
 
 See [Debugging a Flow](/guides/debugging-flows) for a worked tour, and the
 [CLI reference](/reference/cli#breakpoints) for the grammar.
+
+## Keeping what you worked out
+
+Everything on this page is scratch. The test inputs and the mocks live in the
+editor's own bookkeeping file, and the answer lives in your head — so the next person
+to touch the flow starts where you did.
+
+The [Testing tab](/editor/testing-flows) is where a session becomes a committed test:
+the same input, the same mocks, plus what should have happened, in a
+`<flow>_test.yaml` that CI and `dolphin test` both run. A result on the **Output** tab
+carries **Save as test case** to get you there in one step.

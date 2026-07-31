@@ -24,10 +24,10 @@ func TestFlagsWorkOnEitherSideOfThePaths(t *testing.T) {
 		name string
 		args []string
 	}{
-		{name: "flags first", args: []string{"--junit", "r.xml", "--parallel", "2", "-v", "./flows", "./more"}},
-		{name: "flags last", args: []string{"./flows", "./more", "--junit", "r.xml", "--parallel", "2", "-v"}},
-		{name: "flags around", args: []string{"--junit", "r.xml", "./flows", "--parallel", "2", "./more", "-v"}},
-		{name: "an = form", args: []string{"./flows", "--junit=r.xml", "--parallel=2", "./more", "-v"}},
+		{name: "flags first", args: []string{"--junit", "r.xml", "--report-json", "r.json", "--parallel", "2", "-v", "./flows", "./more"}},
+		{name: "flags last", args: []string{"./flows", "./more", "--junit", "r.xml", "--report-json", "r.json", "--parallel", "2", "-v"}},
+		{name: "flags around", args: []string{"--junit", "r.xml", "./flows", "--report-json", "r.json", "--parallel", "2", "./more", "-v"}},
+		{name: "an = form", args: []string{"./flows", "--junit=r.xml", "--report-json=r.json", "--parallel=2", "./more", "-v"}},
 	}
 
 	for _, tc := range tests {
@@ -39,6 +39,9 @@ func TestFlagsWorkOnEitherSideOfThePaths(t *testing.T) {
 
 			if flags.junit != "r.xml" {
 				t.Errorf("--junit = %q, want r.xml — the flag was dropped", flags.junit)
+			}
+			if flags.reportJSON != "r.json" {
+				t.Errorf("--report-json = %q, want r.json — the flag was dropped", flags.reportJSON)
 			}
 			if flags.parallel != 2 {
 				t.Errorf("--parallel = %d, want 2", flags.parallel)

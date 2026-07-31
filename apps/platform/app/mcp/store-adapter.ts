@@ -1,13 +1,20 @@
 import type {
   IntegrationRecord,
   IntegrationStore,
+  MetaStore,
   ResourceRecord,
   ResourceStore,
+  SuiteStore,
 } from "@octo/mcp";
 import type { ActionResult } from "@octo/http";
 import type { Integration, Resource } from "@/app/model/orchestrator";
 import { publishIntegrationEvent } from "@/app/lib/integrationEvents";
 import * as client from "@/app/actions/_client";
+import {
+  deleteSuiteFile,
+  listSuiteFiles,
+  saveSuiteFile,
+} from "@/app/lib/suiteResources";
 
 /**
  * The platform host's {@link IntegrationStore}: a thin shim over the orchestrator
@@ -101,5 +108,60 @@ export const orchestratorResourceStore: ResourceStore = {
     ),
   remove: async (integrationId, resourceId) => {
     unwrap(await client.deleteResource(integrationId, resourceId));
+  },
+};
+
+/**
+ * The editor-meta resource name, mirroring the editor's own EDITOR_META_RESOURCE and
+ * `bffEditorMetaStore` — the store an agent writes through has to be the same file the
+ * canvas reads, or the mocks it places will not be there when the user looks.
+ *
+ * Inlined rather than imported for the same reason the browser-side store inlines it:
+ * this is the name, not a shape worth a dependency.
+ */
+const EDITOR_META_RESOURCE = ".octo/editor-meta.json";
+
+/**
+ * The platform host's {@link MetaStore}: the integration's `.octo/editor-meta.json`,
+ * kept as a `template` resource because that is what the orchestrator offers for a
+ * non-env file. Nothing renders it, and nothing declares it, so a deployed runtime never
+ * pulls it — and the Resources view hides everything under `.octo/`, so it stays out of
+ * the user's file list too.
+ */
+export const orchestratorMetaStore: MetaStore = {
+  load: async (integrationId) => {
+    const resources = unwrap(await client.listResources(integrationId));
+    return resources.find((r) => r.name === EDITOR_META_RESOURCE)?.content ?? "";
+  },
+  save: async (integrationId, content) => {
+    unwrap(
+      await client.upsertResourceByName(
+        integrationId,
+        "template",
+        EDITOR_META_RESOURCE,
+        content,
+      ),
+    );
+    // An editor with this integration open is showing the mocks and spies this file
+    // holds. Without the announcement they stay as they were until a reload, and an
+    // agent that placed one would look to the user like it did nothing.
+    void publishIntegrationEvent({ type: "integration.meta-updated", id: integrationId });
+  },
+};
+
+/**
+ * The platform host's {@link SuiteStore}: the integration's dolphin suites, over the
+ * same `.octo/tests/` storage the Testing tab writes — so a suite an agent authors is
+ * the one the tab shows, and the one CI runs.
+ */
+export const orchestratorSuiteStore: SuiteStore = {
+  list: async (integrationId) => unwrap(await listSuiteFiles(integrationId)),
+  save: async (integrationId, flow, content) => {
+    unwrap(await saveSuiteFile(integrationId, flow, content));
+    void publishIntegrationEvent({ type: "integration.tests-updated", id: integrationId });
+  },
+  remove: async (integrationId, flow) => {
+    unwrap(await deleteSuiteFile(integrationId, flow));
+    void publishIntegrationEvent({ type: "integration.tests-updated", id: integrationId });
   },
 };

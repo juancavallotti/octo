@@ -12,6 +12,8 @@ import type {
   FlowRunRequest,
   RunStatusSnapshot,
   RunTransport,
+  TestRunOutcome,
+  TestRunRequest,
 } from "@octo/editor";
 import {
   runEvalCel,
@@ -20,6 +22,7 @@ import {
   runStatus,
   runStop,
   runSync,
+  runTest,
 } from "../actions/run";
 import { unwrap } from "../actions/result";
 
@@ -46,6 +49,10 @@ export const localRunTransport: RunTransport = {
 
   async evalCel(req: CelEvalRequest): Promise<CelEvalResult> {
     return unwrap(await runEvalCel(req));
+  },
+
+  async test(req: TestRunRequest): Promise<TestRunOutcome> {
+    return unwrap(await runTest(req));
   },
 
   subscribeLogs(onLine) {

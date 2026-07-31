@@ -4,10 +4,11 @@
 #   docker run -p 3000:3000 -v "$PWD:/work" juancavallotti/octo
 #
 # Flows are read/written under /work (mount a host dir there); RUN spawns the
-# bundled octo binary. Build context must be the repo ROOT so this Dockerfile can
-# reach runtime/ (to build octo) and the pnpm workspace (apps/standalone + packages/*).
+# bundled octo binary and the Testing tab spawns the bundled dolphin. Build context
+# must be the repo ROOT so this Dockerfile can reach runtime/ (to build both CLIs)
+# and the pnpm workspace (apps/standalone + packages/*).
 
-# --- Stage 1: build the octo runtime binary from the Go module ----------------
+# --- Stage 1: build the octo and dolphin binaries from the Go module ----------
 FROM golang:1.25-alpine AS runtime-build
 RUN apk add --no-cache git
 WORKDIR /src
@@ -18,6 +19,12 @@ COPY runtime/ ./runtime/
 RUN CGO_ENABLED=0 go build \
     -ldflags "-s -w -X main.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     -o /out/octo ./runtime/octo
+# dolphin, the test runner the Testing tab drives. Built in this stage so it comes
+# from the same module at the same commit as the octo above it — the two are one
+# release train, and a mismatched pair is the one skew this image cannot have.
+RUN CGO_ENABLED=0 go build \
+    -ldflags "-s -w -X main.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    -o /out/dolphin ./runtime/dolphin
 
 # --- Stage 2: build the Next.js standalone app (standalone output) ------------
 FROM node:22-alpine AS app-build
@@ -47,6 +54,7 @@ ENV NODE_ENV=production \
     PORT=3000 \
     HOSTNAME=0.0.0.0 \
     OCTO_BIN_PATH=/usr/local/bin/octo \
+    DOLPHIN_BIN_PATH=/usr/local/bin/dolphin \
     OCTO_RUN_DIR=/app/.octo-run \
     OCTO_FS_DIR=/work
 
@@ -55,8 +63,9 @@ ENV NODE_ENV=production \
 COPY --from=app-build /app/apps/standalone/.next/standalone ./
 COPY --from=app-build /app/apps/standalone/.next/static ./apps/standalone/.next/static
 COPY --from=app-build /app/apps/standalone/public ./apps/standalone/public
-# The octo runtime the RUN feature spawns.
+# The octo runtime the RUN feature spawns, and the dolphin the Testing tab does.
 COPY --from=runtime-build /out/octo /usr/local/bin/octo
+COPY --from=runtime-build /out/dolphin /usr/local/bin/dolphin
 
 # OCTO_RUN_DIR holds rendered run configs; /work is the (mountable) flow store.
 RUN mkdir -p /app/.octo-run /work

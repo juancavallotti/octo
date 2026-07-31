@@ -33,8 +33,25 @@ export {
   type ResourceFile,
   type ResourceProvider,
 } from "./resources";
-export { probeVersion, cachedVersion } from "./version";
+export {
+  probeVersion,
+  cachedVersion,
+  probeTestVersion,
+  cachedTestVersion,
+} from "./version";
 export { probeSchema, cachedSchema } from "./schema";
+export {
+  test,
+  type TestRunArgs,
+  type TestRunOutcome,
+  type TestSuiteInput,
+  type TestSuiteResult,
+  type TestCaseResult,
+  type TestCaseOutcome,
+  type TestCaseStatus,
+  type TestFailure,
+  type TestTotals,
+} from "./test";
 export {
   ensureNamespace,
   isValidNamespace,

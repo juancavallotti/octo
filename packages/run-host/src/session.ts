@@ -3,7 +3,7 @@ import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { cachedVersion } from "./version";
+import { cachedTestVersion, cachedVersion } from "./version";
 import { allocatePort, isExposable, releasePort } from "./ports";
 import { LogBuffer, type LogLine } from "./logbuffer";
 import { ensureReaper } from "./reaper";
@@ -204,6 +204,16 @@ export interface RunStatus {
   running: boolean;
   /** The runner's `--version` line, probed once; null until known/if unavailable. */
   version: string | null;
+  /**
+   * Whether a dolphin binary is configured (DOLPHIN_BIN_PATH). Deliberately separate
+   * from `available`: the two are different binaries and either can be missing on its
+   * own, so a host with a runner but no test runner reports RUN as usable and the
+   * Testing tab's run buttons as not. Collapsing them would either hide a working
+   * feature or offer a broken one.
+   */
+  testAvailable: boolean;
+  /** dolphin's `version` line, probed once; null until known/if unavailable. */
+  testVersion: string | null;
   /** Whether the current run declares HTTP_PORT, i.e. is networked/testable. */
   exposable: boolean;
   /** Allocated HTTP listen port for a networked run, null otherwise. */
@@ -271,7 +281,12 @@ function session(ns: string): Session {
 
 /** Per-namespace directory holding that user's rendered config file, under
  * OCTO_RUN_DIR (set by `task dev`) or the system temp dir. */
-function namespaceDir(ns: string): string {
+/**
+ * The directory a namespace's files live under. Exported for test.ts, which stages a
+ * dolphin run beside — but not inside — whatever this namespace's long-running runner
+ * is using, so the two never collide.
+ */
+export function namespaceDir(ns: string): string {
   return join(process.env.OCTO_RUN_DIR || tmpdir(), ns);
 }
 
@@ -283,6 +298,8 @@ function statusOf(s: Session): RunStatus {
     available: !!process.env.OCTO_BIN_PATH,
     running: s.proc !== null,
     version: cachedVersion(),
+    testAvailable: !!process.env.DOLPHIN_BIN_PATH,
+    testVersion: cachedTestVersion(),
     exposable: s.exposable,
     port: s.port,
     testPath: networked ? `/editor/runs/${s.namespace}/` : null,
@@ -306,7 +323,7 @@ export function currentConfigPath(ns: string): string | null {
 }
 
 /** Atomic write (write sibling temp + rename) so `octo`'s dir watcher sees one event. */
-async function writeConfig(path: string, yaml: string): Promise<void> {
+export async function writeConfig(path: string, yaml: string): Promise<void> {
   const tmp = `${path}.tmp-${randomUUID()}`;
   await writeFile(tmp, yaml, "utf8");
   await rename(tmp, path);

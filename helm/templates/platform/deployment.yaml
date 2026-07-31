@@ -27,6 +27,10 @@ spec:
             # Image defaults; OCTO_RUN_DIR is backed by the writable emptyDir below.
             - name: OCTO_BIN_PATH
               value: /usr/local/bin/octo
+            # The test runner the editor's Testing tab spawns. Unset would leave
+            # the tab able to author suites but not run them.
+            - name: DOLPHIN_BIN_PATH
+              value: /usr/local/bin/dolphin
             - name: OCTO_RUN_DIR
               value: /app/.octo-run
             # Enables the integration/folder management UI; the editor's BFF proxy

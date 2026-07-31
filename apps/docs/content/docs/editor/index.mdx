@@ -34,9 +34,10 @@ bottom.
 - **Open / new menu** — lists every YAML file in your mounted directory and
   opens one, or starts a blank flow. The store is flat: files live directly in
   the directory, with no folders.
-- **View toggle** — switches the workspace between the visual **Design** view,
-  a read-only **YAML** preview of the exact document that will be saved, and a
-  **Resources** view for the flow's env files and templates.
+- **View toggle** — switches the workspace between the visual **Canvas**, a
+  read-only **YAML** preview of the exact document that will be saved, a
+  **Resources** view for the flow's env files and templates, and **Testing**,
+  where a flow's [dolphin test suite](/editor/testing-flows) is written and run.
 - **Save** and **Run** — Save writes the YAML to your directory; Run starts the
   flow with the bundled runtime. See [Running flows](/editor/running-flows).
 
@@ -66,9 +67,10 @@ inline expression tester.
 ### Console
 
 The bottom panel docks a tabbed console: **Logs** streams the output of a
-running flow live, and **Dev .env** edits local-only values for the flow's
-declared environment variables. It expands automatically when a run starts and
-can be resized or collapsed.
+running flow live, **Problems** and **Output** report what a single-flow run
+made of it, **Tests** shows the last test run's verdict, and **Dev .env** edits
+local-only values for the flow's declared environment variables. It expands
+automatically when a run starts and can be resized or collapsed.
 
 ![The editor's tabbed console: Logs and Dev .env, with a run's test URL in the header](/screenshots/editor-console.png)
 

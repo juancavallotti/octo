@@ -75,6 +75,41 @@ export interface ResourceStore {
   remove(integrationId: string, resourceId: string): Promise<void>;
 }
 
+/**
+ * Read and write the editor's own bookkeeping for one integration —
+ * `.octo/editor-meta.json`, which holds the test inputs, block mocks and spies the
+ * canvas shows.
+ *
+ * Raw content in both directions, exactly as the editor's own capability moves it: the
+ * host decides where the file lives, and every bit of parsing stays in one place
+ * (`@octo/editor/runtime`), so an agent's writes and the editor's reads cannot disagree
+ * about the format.
+ *
+ * The file is design-time and *undeclared*: no config references it, so a deployed
+ * runtime never pulls it and losing it costs only the debug setup.
+ */
+export interface MetaStore {
+  /** The file's content, or "" when the integration has none yet. */
+  load(integrationId: string): Promise<string>;
+  save(integrationId: string, content: string): Promise<void>;
+}
+
+/**
+ * Read and write an integration's dolphin test suites — one `<flow>_test.yaml` per flow.
+ *
+ * A different kind of file from {@link MetaStore}'s, and the difference is the point. The
+ * meta file is design-time scratch that only the editor reads; a suite is a real,
+ * committed artifact that CI and `dolphin test` in a terminal run and agree with. That is
+ * what makes a test an agent leaves behind worth anything.
+ */
+export interface SuiteStore {
+  /** Every suite stored against this integration, as { flow, content }. */
+  list(integrationId: string): Promise<{ flow: string; content: string }[]>;
+  /** Write one flow's suite, creating it when it is new. */
+  save(integrationId: string, flow: string, content: string): Promise<void>;
+  remove(integrationId: string, flow: string): Promise<void>;
+}
+
 /** The outcome of validating a definition before a run. */
 export interface ValidationOutcome {
   valid: boolean;
@@ -146,6 +181,19 @@ export interface OctoMcpConfig {
    * registered (but `list_env_keys` still works from the definition alone).
    */
   resourceStore?: ResourceStore;
+  /**
+   * The editor's bookkeeping file, backing the flow-meta tools (`get_flow_meta`,
+   * `set_test_input`, `set_mock`, `set_spy` and their deletes). Omit on a host that
+   * keeps none — the tools then aren't registered, but `list_block_addresses` still
+   * works from the definition alone.
+   */
+  metaStore?: MetaStore;
+  /**
+   * The integration's dolphin test suites, backing the test-authoring tools
+   * (`list_test_suites`, `get_test_suite`, `set_test_suite`, `set_test_case`,
+   * `delete_test_case`, `run_tests`). Omit on a host that keeps none.
+   */
+  suiteStore?: SuiteStore;
   /**
    * Public origin used to absolutize a run's test path (e.g.
    * `http://localhost:3000`). When unset, the bare `/editor/runs/<ns>/` path is

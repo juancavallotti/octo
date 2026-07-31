@@ -7,6 +7,7 @@ import { localRunTransport } from "@/app/run/localRunTransport";
 import { localDevEnvStore } from "@/app/run/devEnvStore";
 import { localDiskResourceStore } from "@/app/run/resourceStore";
 import { localEditorMetaStore } from "@/app/run/editorMetaStore";
+import { localTestSuiteStore } from "@/app/run/testSuiteStore";
 import { localDiskFileSystem } from "@/app/providers/localDiskFileSystem";
 import StandaloneHeader from "./StandaloneHeader";
 
@@ -38,13 +39,21 @@ export default function StandaloneEditor({
     idRef.current = file;
   }, [file]);
 
-  // Bumped when the MCP server writes the file we have open, so the editor
-  // live-reloads it (a clean editor silently, a dirty one via a banner).
+  /**
+   * One counter per kind of file, because the editor does a different thing with
+   * each: the definition may need the user's say-so before it replaces unsaved work,
+   * while a suite or a mock written elsewhere should simply appear.
+   */
   const [reloadToken, setReloadToken] = useState(0);
+  const [testsToken, setTestsToken] = useState(0);
+  const [metaToken, setMetaToken] = useState(0);
   useEffect(
     () =>
       subscribeIntegrationEvents((event) => {
-        if (event.id === idRef.current) setReloadToken((n) => n + 1);
+        if (event.id !== idRef.current) return;
+        if (event.type === "integration.tests-updated") setTestsToken((n) => n + 1);
+        else if (event.type === "integration.meta-updated") setMetaToken((n) => n + 1);
+        else setReloadToken((n) => n + 1);
       }),
     [],
   );
@@ -58,6 +67,9 @@ export default function StandaloneEditor({
       devEnv={localDevEnvStore}
       resources={localDiskResourceStore}
       meta={localEditorMetaStore}
+      metaToken={metaToken}
+      tests={localTestSuiteStore}
+      testsToken={testsToken}
       header={<StandaloneHeader />}
       onSaved={(stored) => {
         // Reflect the open file in the URL so a reload reopens it; the header

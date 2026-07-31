@@ -6,8 +6,8 @@ description: "Run the editor with Docker and mount your flows directory."
 import { Callout } from 'fumadocs-ui/components/callout';
 
 The standalone editor ships as a self-contained public Docker image that
-bundles the editor, the `octo` runtime binary, and an MCP server. Run it with
-one command:
+bundles the editor, the `octo` runtime binary, the `dolphin` test runner, and an
+MCP server. Run it with one command:
 
 ```bash
 docker run -p 3000:3000 -v "$PWD:/work" juancavallotti/octo
@@ -35,17 +35,29 @@ flow YAML (for example the repo's `samples/`) to browse and edit it.
 ## Environment variables
 
 The app is configured entirely through environment variables. The image sets
-working defaults for all three:
+working defaults for all four:
 
-| Variable        | Purpose                                                             | Image default         |
-| --------------- | ------------------------------------------------------------------- | --------------------- |
-| `OCTO_FS_DIR`   | Directory the editor reads/writes flow YAML and resources in        | `/work`               |
-| `OCTO_BIN_PATH` | Path to the `octo` binary the Run feature spawns; unset hides Run   | `/usr/local/bin/octo` |
-| `OCTO_RUN_DIR`  | Where rendered run configs and staged resources are written         | `/app/.octo-run`      |
+| Variable           | Purpose                                                                | Image default            |
+| ------------------ | ---------------------------------------------------------------------- | ------------------------ |
+| `OCTO_FS_DIR`      | Directory the editor reads/writes flow YAML and resources in           | `/work`                  |
+| `OCTO_BIN_PATH`    | Path to the `octo` binary the Run feature spawns; unset hides Run      | `/usr/local/bin/octo`    |
+| `DOLPHIN_BIN_PATH` | Path to the `dolphin` test runner the Testing tab spawns               | `/usr/local/bin/dolphin` |
+| `OCTO_RUN_DIR`     | Where rendered run configs and staged resources are written            | `/app/.octo-run`         |
 
 Outside Docker, `OCTO_FS_DIR` defaults to `./flows`, `OCTO_RUN_DIR` to the OS
-temp directory, and `OCTO_BIN_PATH` is unset — with no binary configured, the
-Run button and console do not appear.
+temp directory, and both binary paths are unset — with no `octo` configured, the
+Run button and console do not appear; with no `dolphin`, the
+[Testing tab](/editor/testing-flows) still lets you write suites but its **Run
+tests** button is disabled and says why.
+
+<Callout type="info">
+Three environment variables name a binary and they are **not** interchangeable.
+`OCTO_BIN_PATH` is the `octo` the *app* spawns for a run. `DOLPHIN_BIN_PATH` is
+the `dolphin` the app spawns for a test run. `OCTO_PATH` is the `octo` that
+*dolphin* drives, one process per case — the app sets it to `OCTO_BIN_PATH` for
+every test run, so the tests can never be run against a different runtime than
+the one the editor uses.
+</Callout>
 
 You can also set `OCTO_DOCS_URL` to a documentation site URL; the bundled
 [MCP server](/ai/mcp-server) surfaces it in its authoring prompt.
@@ -88,10 +100,10 @@ the repo root:
 task dev
 ```
 
-This builds the `octo` runner from the Go module, then starts the Next.js
-dev server with the Run feature wired up: `OCTO_BIN_PATH` points at
-`bin/octo`, `OCTO_RUN_DIR` at `.octo-run/`, and `OCTO_FS_DIR` at
-`.octo-flows/` in the repo root.
+This builds the `octo` runner and `dolphin` from the Go module, then starts the
+Next.js dev server with both wired up: `OCTO_BIN_PATH` points at `bin/octo`,
+`DOLPHIN_BIN_PATH` at `bin/dolphin`, `OCTO_RUN_DIR` at `.octo-run/`, and
+`OCTO_FS_DIR` at `.octo-flows/` in the repo root.
 
 Running the app directly (`pnpm --filter standalone dev`) uses the `./flows`
 default for the flow store and leaves Run disabled unless you set

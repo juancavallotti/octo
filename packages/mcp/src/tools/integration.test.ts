@@ -4,7 +4,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { registerIntegrationTools } from "./integration";
-import type { IntegrationRecord, OctoMcpConfig } from "../backend";
+import type { IntegrationRecord, MetaStore, OctoMcpConfig } from "../backend";
 
 /** A trivial in-memory IntegrationStore for exercising the tools end to end. */
 function fakeStore(seed: IntegrationRecord[] = []) {
@@ -47,6 +47,22 @@ async function connect(config: OctoMcpConfig): Promise<Client> {
 
 function baseConfig(store: OctoMcpConfig["store"]): OctoMcpConfig {
   return { store, validate: () => ({ valid: true, errors: [] }), runtimeSchema: {} };
+}
+
+/** An in-memory `.octo/editor-meta.json`, seeded with one integration's flows. */
+function metaFile(flows: Record<string, unknown>): MetaStore & { content: string } {
+  const held = {
+    content: JSON.stringify({ version: 1, resources: { a: { flows } } }, null, 2),
+  };
+  return {
+    get content() {
+      return held.content;
+    },
+    load: async () => held.content,
+    save: async (_id, content) => {
+      held.content = content;
+    },
+  };
 }
 
 /** Parse the JSON a tool returned in its first text content block. */
@@ -319,6 +335,85 @@ flows:
       expect(res.isError).toBe(true);
       expect(text(res)).toContain("nothing was saved");
       expect(store.rows.get("a")!.definition).toBe(DEF); // untouched
+    });
+
+    /**
+     * A block address opens with its flow's name, so a rename orphans the editor's
+     * bookkeeping AND every address inside it. Left behind, the mocks stay listed in the
+     * file and drawn on the canvas and never fire again — worse than losing them, because
+     * nothing says they are gone.
+     */
+    it("carries the editor's inputs, mocks and spies across a rename", async () => {
+      const store = seeded();
+      const meta = metaFile({
+        charge: {
+          inputs: [{ id: "i1", name: "a vip order" }],
+          mocks: [{ address: "charge.call-stripe", enabled: true, cases: [], default: { drop: true } }],
+          spies: ["charge.call-stripe"],
+        },
+      });
+      const client = await connect({ ...baseConfig(store), metaStore: meta });
+
+      const res = (await client.callTool({
+        name: "update_flow",
+        arguments: {
+          id: "a",
+          flow: "charge",
+          definition: "name: settle\nprocess:\n  - type: rest\n    name: call-stripe\n",
+        },
+      })) as CallToolResult;
+      expect(res.isError).toBeFalsy();
+
+      const written = JSON.parse(meta.content).resources.a.flows;
+      expect(written.charge).toBeUndefined();
+      expect(written.settle.inputs[0].name).toBe("a vip order");
+      // Re-rooted, not merely moved: an address still naming "charge" would fire for
+      // nothing.
+      expect(written.settle.mocks[0].address).toBe("settle.call-stripe");
+      expect(written.settle.spies).toEqual(["settle.call-stripe"]);
+    });
+
+    it("leaves the meta alone when the flow was edited but not renamed", async () => {
+      const store = seeded();
+      const meta = metaFile({ charge: { inputs: [{ id: "i1", name: "a vip order" }] } });
+      const before = meta.content;
+      const client = await connect({ ...baseConfig(store), metaStore: meta });
+
+      await client.callTool({
+        name: "update_flow",
+        arguments: {
+          id: "a",
+          flow: "charge",
+          definition: "name: charge\nprocess:\n  - type: log\n    name: pretend\n",
+        },
+      });
+
+      expect(meta.content).toBe(before);
+    });
+
+    /**
+     * The definition is already saved by the time the meta is touched, so a store that
+     * fails must not report the rename as failed — an agent that undid it would leave the
+     * user worse off than the stale addresses do.
+     */
+    it("reports a meta store that failed without failing the rename", async () => {
+      const store = seeded();
+      const meta = metaFile({ charge: { inputs: [] } });
+      meta.save = async () => {
+        throw new Error("the disk is full");
+      };
+      const client = await connect({ ...baseConfig(store), metaStore: meta });
+
+      const res = (await client.callTool({
+        name: "update_flow",
+        arguments: { id: "a", flow: "charge", definition: "name: settle\nprocess: []\n" },
+      })) as CallToolResult;
+
+      expect(res.isError).toBeFalsy();
+      expect(store.rows.get("a")!.definition).toContain("name: settle");
+      const blocks = res.content as { text: string }[];
+      expect(blocks[blocks.length - 1].text).toContain("the disk is full");
+      expect(blocks[blocks.length - 1].text).toContain("will not fire");
     });
 
     it("errors when the flow does not exist, naming the ones that do", async () => {

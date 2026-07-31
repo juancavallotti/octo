@@ -1,5 +1,6 @@
 # The bundled platform app + runtime (octo-platform image). The Next.js server runs
-# on 3000 and spawns the bundled octo binary via OCTO_BIN_PATH for the RUN feature.
+# on 3000 and spawns the bundled octo binary via OCTO_BIN_PATH for the RUN feature,
+# and the bundled dolphin via DOLPHIN_BIN_PATH for the editor's Testing tab.
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -28,6 +29,10 @@ spec:
             # emptyDir below so the editor can write rendered configs at runtime.
             - name: OCTO_BIN_PATH
               value: /usr/local/bin/octo
+            # The test runner the editor's Testing tab spawns. Unset would leave
+            # the tab able to author suites but not run them.
+            - name: DOLPHIN_BIN_PATH
+              value: /usr/local/bin/dolphin
             - name: OCTO_RUN_DIR
               value: /app/.octo-run
             # Enables the integration/folder management UI; the editor's BFF

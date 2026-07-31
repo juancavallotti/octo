@@ -44,11 +44,8 @@ export {
   type BreakpointPlan,
   type BlockRename,
 } from "./app/run/address";
-export {
-  useFlowRun,
-  type FlowRunEntry,
-  type FlowRunStatus,
-} from "./app/run/FlowRunContext";
+export { useFlowRun } from "./app/run/FlowRunContext";
+export type { FlowRunEntry, FlowRunStatus } from "./app/run/outcome";
 export { useConsole, type ConsoleTab } from "./app/run/console";
 export type {
   RunTransport,
@@ -59,6 +56,20 @@ export type {
   FlowRunOutcome,
   BreakOutcome,
 } from "./app/run/transport";
+// The Testing tab's half of the transport contract — a host implements `test()` with
+// these, and maps them onto whatever @octo/run-host returns.
+export { emptyTotals } from "./app/run/testTransport";
+export type {
+  TestRunRequest,
+  TestRunOutcome,
+  TestSuiteInput,
+  TestSuiteResult,
+  TestCaseResult,
+  TestCaseStatus,
+  TestCaseOutcome,
+  TestFailure,
+  TestTotals,
+} from "./app/run/testTransport";
 export type { DevEnvStore } from "./app/state/devEnvStore";
 export {
   EditorMetaProvider,
@@ -67,6 +78,12 @@ export {
   type EditorMetaStore,
 } from "./app/providers/EditorMetaProvider";
 export type { TestInput, EditorMeta, FlowMeta } from "./app/meta/types";
+export {
+  TestSuiteProvider,
+  useTestSuites,
+  type TestSuiteStore,
+  type TestSuiteFile,
+} from "./app/providers/TestSuiteProvider";
 
 // Resource-store capability (backs the Resources tab)
 export {

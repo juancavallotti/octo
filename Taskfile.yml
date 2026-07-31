@@ -36,6 +36,13 @@ env:
   # octo we just built and not whatever is on PATH. Distinct from OCTO_BIN_PATH above,
   # which is the platform app's runner: different consumers, do not merge them.
   OCTO_PATH: '{{.ROOT_DIR}}/bin/octo'
+  # The dolphin binary the app spawns for the editor's Testing tab. That makes three
+  # binary variables, and they are three because they answer three different questions:
+  #   OCTO_BIN_PATH     which octo does the APP run?      (RUN, invoke, schema)
+  #   OCTO_PATH         which octo does DOLPHIN drive?    (dolphin's own override)
+  #   DOLPHIN_BIN_PATH  which dolphin does the APP run?   (the Testing tab)
+  # Unset leaves the Testing tab visible but unable to run, which is the honest state.
+  DOLPHIN_BIN_PATH: '{{.ROOT_DIR}}/bin/dolphin'
 
 # The kube context k3d creates for our cluster. Every cluster:* task pins to it
 # explicitly so a stray current-context (e.g. a remote EKS cluster) can never be

@@ -1,11 +1,12 @@
 # Dev image for `devspace dev` (task cluster:dev). Runs `next dev` so the app
 # hot-reloads as DevSpace syncs source from the host into /app/apps/platform.
-# Still bundles the octo binary so the RUN feature works in-cluster.
+# Still bundles the octo and dolphin binaries so the RUN feature and the editor's
+# Testing tab both work in-cluster.
 #
 # Build context must be the repo ROOT (same as the prod image) so it can reach
-# runtime/ to build octo and the whole pnpm workspace.
+# runtime/ to build the CLIs and the whole pnpm workspace.
 
-# --- Stage 1: build the octo runtime binary ----------------------------------
+# --- Stage 1: build the octo and dolphin binaries -----------------------------
 FROM golang:1.25-alpine AS runtime-build
 RUN apk add --no-cache git
 WORKDIR /src
@@ -14,6 +15,10 @@ COPY runtime/ ./runtime/
 RUN CGO_ENABLED=0 go build \
     -ldflags "-X main.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     -o /out/octo ./runtime/octo
+# dolphin, the test runner the Testing tab drives — same module, same commit.
+RUN CGO_ENABLED=0 go build \
+    -ldflags "-X main.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    -o /out/dolphin ./runtime/dolphin
 
 # --- Stage 2: platform dev server --------------------------------------------
 FROM node:22-alpine
@@ -23,6 +28,7 @@ ENV NODE_ENV=development \
     PORT=3000 \
     HOSTNAME=0.0.0.0 \
     OCTO_BIN_PATH=/usr/local/bin/octo \
+    DOLPHIN_BIN_PATH=/usr/local/bin/dolphin \
     OCTO_RUN_DIR=/app/.octo-run
 # Install deps from the workspace lockfile; source is layered on top and then
 # live-synced by DevSpace at runtime (node_modules/.next are excluded).
@@ -34,8 +40,9 @@ RUN pnpm install --frozen-lockfile
 COPY tsconfig.base.json ./
 COPY packages/ ./packages/
 COPY apps/platform/ ./apps/platform/
-# octo lives OUTSIDE /app so DevSpace's source-sync can't delete it.
+# The CLIs live OUTSIDE /app so DevSpace's source-sync can't delete them.
 COPY --from=runtime-build /out/octo /usr/local/bin/octo
+COPY --from=runtime-build /out/dolphin /usr/local/bin/dolphin
 RUN mkdir -p /app/.octo-run
 WORKDIR /app/apps/platform
 EXPOSE 3000

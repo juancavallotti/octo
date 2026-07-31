@@ -5,7 +5,13 @@
  * by a namespace slug; the handler resolves one per MCP session.
  */
 
-import type { MockSpec, ResourceProvider, SpyTrace } from "@octo/run-host";
+import type {
+  MockSpec,
+  ResourceProvider,
+  SpyTrace,
+  TestRunArgs,
+  TestRunOutcome,
+} from "@octo/run-host";
 
 /** A run's status snapshot — the fields run-host's `RunStatus` exposes. */
 export interface RunStatusLike {
@@ -103,6 +109,14 @@ export interface RunHostPort {
       timeoutMs?: number;
     },
   ): Promise<EvalResultLike>;
+  /**
+   * Run dolphin over one or more test suites against a config, and report what happened.
+   *
+   * The args and outcome are run-host's own rather than a structural copy: the report is
+   * a dozen nested shapes, and a second declaration of them would drift from the one
+   * dolphin actually writes — which is the contract this whole seam exists to preserve.
+   */
+  test(ns: string, args: TestRunArgs): Promise<TestRunOutcome>;
   snapshot(ns: string): RunLogLine[];
   /** Mint a fresh, valid namespace slug. */
   newNamespace(): string;

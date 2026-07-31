@@ -2,7 +2,7 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { readResource, writeResource } from "./resourceStore";
+import { listResources, readResource, writeResource } from "./resourceStore";
 
 // A real temp directory backs the store (OCTO_FS_DIR); each test starts clean.
 let dir: string;
@@ -43,5 +43,19 @@ describe("standalone resource store", () => {
     // Written inside the root (clamped), never in the parent directory.
     expect(await readFile(path.join(dir, "evil"), "utf8")).toBe("x");
     await expect(access(path.join(dir, "..", "evil"))).rejects.toThrow();
+  });
+
+  // The flows root is shared three ways: store.ts owns the flow documents,
+  // testSuiteStore.ts owns the `*_test.yaml` suites, and this store owns the rest.
+  // Neither of the other two's files may show up in the Resources tab.
+  it("lists neither flows nor test suites as resources", async () => {
+    await writeResource("orders.yaml", "flow");
+    await writeResource("orders_test.yaml", "suite");
+    await writeResource(".env.dev", "A=1");
+    await writeResource("templates/welcome.tmpl", "hi");
+
+    const names = (await listResources()).map((r) => r.name);
+
+    expect(names).toEqual([".env.dev", "templates/welcome.tmpl"]);
   });
 });

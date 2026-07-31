@@ -7,6 +7,12 @@
  * local process. The concrete transports live in the apps that embed the editor.
  */
 
+import type { TestRunOutcome, TestRunRequest } from "./testTransport";
+
+// The Testing tab's types live next door — they are as long again as the rest of this
+// contract — but they are part of it, so they are re-exported from here.
+export * from "./testTransport";
+
 /** A one-shot CEL evaluation request (no flow run) — the CEL tester's input. */
 export interface CelEvalRequest {
   /** The CEL expression to evaluate. */
@@ -144,6 +150,14 @@ export interface RunStatusSnapshot {
   running: boolean;
   /** The runner's `--version` line, or null when unknown/unavailable. */
   version: string | null;
+  /**
+   * Whether the host can run test suites — a *second* binary (dolphin), so this is not
+   * implied by `available`. Either can be missing on its own: a host with a runner but
+   * no test runner still runs flows, and only the Testing tab's run controls go dead.
+   */
+  testAvailable: boolean;
+  /** dolphin's `version` line, or null when unknown/unavailable. */
+  testVersion: string | null;
   /** App-relative path that proxies to the running networked integration, or null. */
   testPath: string | null;
 }
@@ -185,4 +199,20 @@ export interface RunTransport {
    * de-duplication are the provider's concern, not the transport's.
    */
   subscribeLogs(onLine: (seq: number, text: string) => void): () => void;
+  /**
+   * Run a flow's dolphin suites and return the report — the Testing tab's Run.
+   *
+   * Distinct from {@link invoke} in what it asserts, not in what it runs: dolphin drives
+   * `octo invoke` once per case, so this is the same debug path with the suite's
+   * expectations checked against the result. Availability is its own flag
+   * ({@link RunStatusSnapshot.testAvailable}) because dolphin can be absent while octo
+   * is present.
+   *
+   * Two different failures, told apart the same way {@link invoke} tells them apart: it
+   * REJECTS when the call could not be made (no runner, no session, a transport error),
+   * and resolves with `ok: false` when dolphin ran but produced no report worth reading.
+   * A run whose tests merely failed resolves with `ok: true` — that is the report the
+   * user came for, and {@link TestTotals} holds the verdict.
+   */
+  test(req: TestRunRequest): Promise<TestRunOutcome>;
 }

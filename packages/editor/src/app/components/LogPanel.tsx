@@ -4,12 +4,14 @@ import { useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, ChevronUp, Copy, Trash2 } from "lucide-react";
 import { useRun, type RunLogLine } from "../run/RunContext";
 import { useFlowRun } from "../run/FlowRunContext";
-import { useConsole } from "../run/console";
+import { useConsole, type ConsoleTab } from "../run/console";
+import { useSuiteRun } from "../run/SuiteRunContext";
 import DevEnvPanel from "./DevEnvPanel";
 import ConsoleTabs from "./console/ConsoleTabs";
 import LogsTab from "./console/LogsTab";
 import ProblemsTab from "./console/ProblemsTab";
 import ResultsTab from "./console/ResultsTab";
+import TestsTab from "./console/TestsTab";
 
 const MIN_HEIGHT = 120;
 const MAX_HEIGHT = 480;
@@ -17,6 +19,13 @@ const DEFAULT_HEIGHT = 200;
 // The console height is a workspace-wide preference (not per-integration), so a
 // returning user keeps the layout they dragged to. All tabs share one height.
 const HEIGHT_KEY = "octo.console.height";
+
+/** What the clear button says, per tab. Absent means the tab has nothing to clear. */
+const CLEAR_LABEL: Partial<Record<ConsoleTab, string>> = {
+  logs: "Clear logs",
+  results: "Clear output",
+  tests: "Clear test results",
+};
 
 /** Read the persisted console height, clamped to bounds; DEFAULT_HEIGHT if none. */
 function readStoredHeight(): number {
@@ -55,6 +64,11 @@ export default function LogPanel() {
   const running = run?.running ?? false;
   const logs = run?.logs ?? NO_LOGS;
   const results = flowRun?.results ?? [];
+  const suiteRun = useSuiteRun();
+  // The badge counts what went WRONG, so a green run is quiet and a bad one is not.
+  const testFailures = suiteRun?.outcome
+    ? suiteRun.outcome.totals.failed + suiteRun.outcome.totals.errored
+    : 0;
   const issues = run?.validation.issues ?? [];
   // Collapsed by default, following the run state, until the user overrides it.
   const collapsed = override ?? !running;
@@ -129,7 +143,11 @@ export default function LogPanel() {
         <ConsoleTabs
           active={tab}
           running={running}
-          counts={{ problems: issues.length, results: results.length }}
+          counts={{
+            problems: issues.length,
+            results: results.length,
+            tests: testFailures,
+          }}
           onSelect={(next) => {
             setTab(next);
             if (collapsed) setOverride(false);
@@ -176,16 +194,17 @@ export default function LogPanel() {
           </>
         )}
         <div className="ml-auto flex items-center gap-1">
-          {(tab === "logs" || tab === "results") && (
+          {(tab === "logs" || tab === "results" || tab === "tests") && (
             <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 if (tab === "logs") clearLogs();
+                else if (tab === "tests") suiteRun?.clear();
                 else flowRun?.clear();
               }}
-              aria-label={tab === "logs" ? "Clear logs" : "Clear output"}
-              title={tab === "logs" ? "Clear logs" : "Clear output"}
+              aria-label={CLEAR_LABEL[tab] ?? "Clear"}
+              title={CLEAR_LABEL[tab] ?? "Clear"}
               className="rounded p-1 text-zinc-500 hover:bg-black/5 dark:hover:bg-white/10"
             >
               <Trash2 className="h-3.5 w-3.5" />
@@ -215,6 +234,7 @@ export default function LogPanel() {
       )}
       {!collapsed && tab === "logs" && <LogsTab logs={logs} />}
       {!collapsed && tab === "results" && <ResultsTab results={results} />}
+      {!collapsed && tab === "tests" && <TestsTab />}
       {!collapsed && tab === "env" && <DevEnvPanel />}
     </section>
   );

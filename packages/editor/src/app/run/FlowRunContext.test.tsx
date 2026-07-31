@@ -1,19 +1,35 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { EditorStateProvider, useEditorState, EditorActionType } from "../state/editorState";
+import {
+  EditorStateProvider,
+  useEditorState,
+  EditorActionType,
+} from "../state/editorState";
 import { emptyFlow, newBlock, type EditorDocument } from "../model/document";
 import { ConsoleProvider, useConsole } from "./console";
 import { FlowRunProvider, useFlowRun } from "./FlowRunContext";
+import { emptyTotals } from "./transport";
 import type { FlowRunOutcome, FlowRunRequest, RunTransport } from "./transport";
-import { EditorMetaProvider, useEditorMeta } from "../providers/EditorMetaProvider";
+import {
+  EditorMetaProvider,
+  useEditorMeta,
+} from "../providers/EditorMetaProvider";
 
 /** A transport whose invoke returns whatever the test wants, and records the request. */
 function stubTransport(
   outcome: Partial<FlowRunOutcome> = {},
   onInvoke?: (req: Parameters<RunTransport["invoke"]>[0]) => void,
 ): RunTransport {
-  const snap = { available: true, running: false, version: null, testPath: null };
+  const snap = {
+    available: true,
+    running: false,
+    version: null,
+    // These fixtures exercise RUN, not the Testing tab: no dolphin configured.
+    testAvailable: false,
+    testVersion: null,
+    testPath: null,
+  };
   return {
     status: async () => snap,
     start: async () => snap,
@@ -21,6 +37,15 @@ function stubTransport(
     sync: async () => {},
     evalCel: async () => ({ ok: true }),
     subscribeLogs: () => () => {},
+    // These fixtures exercise RUN, not the Testing tab: no dolphin configured.
+    test: async () => ({
+      ok: false,
+      timedOut: false,
+      totals: emptyTotals(),
+      suites: [],
+      logs: [],
+      error: "no test runner",
+    }),
     invoke: async (req) => {
       onInvoke?.(req);
       return {
@@ -28,7 +53,8 @@ function stubTransport(
         dropped: false,
         timedOut: false,
         // What `octo invoke` really prints: the result message, not the body alone.
-        output: '{"event_id":"e1","variables":{"tier":"gold"},"body":{"greeting":"hi"}}',
+        output:
+          '{"event_id":"e1","variables":{"tier":"gold"},"body":{"greeting":"hi"}}',
         logs: [],
         ...outcome,
       };
@@ -63,13 +89,20 @@ function Harness({ doc }: { doc: EditorDocument }) {
         onClick={() =>
           dispatch({
             type: EditorActionType.LOAD_INTEGRATION,
-            data: { id: "orders.yaml", name: "orders", document: doc, folderId: null },
+            data: {
+              id: "orders.yaml",
+              name: "orders",
+              document: doc,
+              folderId: null,
+            },
           })
         }
       >
         load
       </button>
-      <button onClick={() => flow && flowRun?.runFlow(flow.id)}>run flow</button>
+      <button onClick={() => flow && flowRun?.runFlow(flow.id)}>
+        run flow
+      </button>
       <button onClick={() => flow && block && flowRun?.runToBlock(block.id)}>
         run to block
       </button>
@@ -228,21 +261,29 @@ describe("FlowRunProvider", () => {
       function Nested() {
         const { state, dispatch } = useEditorState();
         const flowRun = useFlowRun();
-        const target = state.document.flows[0]?.process[0]?.slots?.then?.[0]?.process[0];
+        const target =
+          state.document.flows[0]?.process[0]?.slots?.then?.[0]?.process[0];
         return (
           <div>
             <button
               onClick={() =>
                 dispatch({
                   type: EditorActionType.LOAD_INTEGRATION,
-                  data: { id: "o.yaml", name: "orders", document: doc, folderId: null },
+                  data: {
+                    id: "o.yaml",
+                    name: "orders",
+                    document: doc,
+                    folderId: null,
+                  },
                 })
               }
             >
               load
             </button>
             {target && (
-              <button onClick={() => flowRun?.runToBlock(target.id)}>run nested</button>
+              <button onClick={() => flowRun?.runToBlock(target.id)}>
+                run nested
+              </button>
             )}
           </div>
         );
@@ -273,7 +314,7 @@ describe("FlowRunProvider", () => {
           breakpoint: {
             reached: false,
             block: "orders.audit",
-            error: "block \"audit\": upstream refused",
+            error: 'block "audit": upstream refused',
           },
         }),
       );
@@ -308,6 +349,7 @@ function DebugHarness({ doc }: { doc: EditorDocument }) {
   const meta = useEditorMeta();
 
   const flow = state.document.flows[0];
+  const block = flow?.process[0];
 
   return (
     <div>
@@ -315,13 +357,20 @@ function DebugHarness({ doc }: { doc: EditorDocument }) {
         onClick={() =>
           dispatch({
             type: EditorActionType.LOAD_INTEGRATION,
-            data: { id: "orders.yaml", name: "orders", document: doc, folderId: null },
+            data: {
+              id: "orders.yaml",
+              name: "orders",
+              document: doc,
+              folderId: null,
+            },
           })
         }
       >
         load
       </button>
-      <button onClick={() => flow && meta?.setSpy(flow.id, "orders.audit", true)}>
+      <button
+        onClick={() => flow && meta?.setSpy(flow.id, "orders.audit", true)}
+      >
         spy on audit
       </button>
       <button
@@ -344,11 +393,33 @@ function DebugHarness({ doc }: { doc: EditorDocument }) {
       >
         spy inside audit
       </button>
-      <button onClick={() => flow && flowRun?.runFlow(flow.id)}>run flow</button>
+      <button onClick={() => flow && flowRun?.runFlow(flow.id)}>
+        run flow
+      </button>
+      {/* A suite case as the ▶ menu replays one: its own input, and an override that
+          states the whole world it runs in — here, deliberately an empty one. */}
+      <button
+        onClick={() =>
+          flow &&
+          flowRun?.runFlow(
+            flow.id,
+            { id: "s1", name: "a vip order", data: '{"vip":true}' },
+            { mocks: {}, spies: [] },
+          )
+        }
+      >
+        run scenario
+      </button>
+      <button onClick={() => block && flowRun?.runToBlock(block.id)}>
+        run to block
+      </button>
       <button onClick={() => flowRun?.clearSpies()}>clear spies</button>
       <p data-testid="records">
         {(flowRun?.spyRecords("orders.audit") ?? [])
-          .map((r) => `#${r.seq}:${JSON.stringify(r.output ?? r.error ?? "dropped")}`)
+          .map(
+            (r) =>
+              `#${r.seq}:${JSON.stringify(r.output ?? r.error ?? "dropped")}`,
+          )
           .join(" ")}
       </p>
       <ul data-testid="results">
@@ -384,7 +455,9 @@ const records = () => screen.getByTestId("records").textContent ?? "";
 
 describe("FlowRunProvider: mocks and spies", () => {
   /** A transport that returns one spy record per run, with an increasing seq. */
-  function spyingTransport(onInvoke?: (req: FlowRunRequest) => void): RunTransport {
+  function spyingTransport(
+    onInvoke?: (req: FlowRunRequest) => void,
+  ): RunTransport {
     let seq = 0;
     const t = stubTransport({}, onInvoke);
     const inner = t.invoke;
@@ -397,7 +470,12 @@ describe("FlowRunProvider: mocks and spies", () => {
         spies: req.spies.map((address) => ({
           address,
           records: [
-            { seq, at: "2026-07-11T00:00:00Z", input: {}, output: { run: seq } },
+            {
+              seq,
+              at: "2026-07-11T00:00:00Z",
+              input: {},
+              output: { run: seq },
+            },
           ],
         })),
       };
@@ -418,6 +496,45 @@ describe("FlowRunProvider: mocks and spies", () => {
     expect(seen?.mocks).toEqual({
       "orders.audit": { default: { body: { stubbed: true } } },
     });
+  });
+
+  /**
+   * An override is a complete statement of the world a run happens in, so an EMPTY one
+   * means "no mocks, no spies" — not "whatever the canvas has". Falling back per field
+   * would let a case that mocks a block but watches none quietly pick up the canvas's
+   * spies, and a run would stop meaning what the case says.
+   */
+  it("replaces the canvas's setup with an override, even an empty one", async () => {
+    let seen: FlowRunRequest | undefined;
+    const user = await setupDebug(spyingTransport((req) => (seen = req)));
+
+    await user.click(screen.getByText("spy on audit"));
+    await user.click(screen.getByText("mock audit"));
+    await user.click(screen.getByText("run scenario"));
+
+    await waitFor(() => expect(seen).toBeDefined());
+    expect(seen?.mocks).toBeUndefined();
+    expect(seen?.spies).toBeUndefined();
+    expect(seen?.data).toBe('{"vip":true}');
+  });
+
+  /**
+   * Only a third of an overridden run — the input — could be remembered, and a later
+   * run-to-here would then send a test case's body through the canvas's mocks: neither
+   * the scenario nor the setup on screen, with the case's name on the result claiming it
+   * was the former.
+   */
+  it("does not remember an overridden run's input for run-to-here", async () => {
+    const seen: FlowRunRequest[] = [];
+    const user = await setupDebug(spyingTransport((req) => seen.push(req)));
+
+    await user.click(screen.getByText("run scenario"));
+    await waitFor(() => expect(seen).toHaveLength(1));
+    await user.click(screen.getByText("run to block"));
+
+    await waitFor(() => expect(seen).toHaveLength(2));
+    expect(seen[1].breakAt).toBe("orders.audit");
+    expect(seen[1].data).toBeUndefined();
   });
 
   it("sends nothing when nothing is mocked or spied", async () => {

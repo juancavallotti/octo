@@ -88,9 +88,16 @@ const EditorMetaContext = createContext<EditorMetaValue | null>(null);
 
 export function EditorMetaProvider({
   store,
+  reloadToken,
   children,
 }: {
   store: EditorMetaStore | null;
+  /**
+   * Bumped by the host when something else wrote this file — an MCP agent placing a
+   * mock or saving a test input. Without it the canvas shows what it read on mount,
+   * and an agent that mocked a block looks to the user like it did nothing.
+   */
+  reloadToken?: string | number;
   children: ReactNode;
 }) {
   const { state } = useEditorState();
@@ -102,33 +109,51 @@ export function EditorMetaProvider({
   // it happened to. Seeded on load, updated by the sync effect.
   const namesRef = useRef<Map<string, string>>(new Map());
   const dirtyRef = useRef(false);
+  // Orders in-flight loads, so a slow one cannot land after a newer one.
+  const loadSeq = useRef(0);
 
   const canPersist = !!store && !!documentKey && store.canEdit(documentKey);
 
-  // Load the file whenever the open document changes.
-  useEffect(() => {
-    let cancelled = false;
-    namesRef.current = flowIdNames(doc);
+  const refresh = useCallback(async () => {
+    const seq = ++loadSeq.current;
     if (!store || !documentKey) {
       setMeta(emptyMeta());
       return;
     }
-    store
-      .load(documentKey)
-      .then((content) => {
-        if (!cancelled) setMeta(parseEditorMeta(content));
-      })
-      .catch(() => {
-        // A meta file we cannot read is not worth an error: the editor simply has no
-        // saved inputs for this document.
-        if (!cancelled) setMeta(emptyMeta());
-      });
-    return () => {
-      cancelled = true;
-    };
+    let parsed = emptyMeta();
+    try {
+      parsed = parseEditorMeta(await store.load(documentKey));
+    } catch {
+      // A meta file we cannot read is not worth an error: the editor simply has no
+      // saved inputs for this document.
+    }
+    if (seq !== loadSeq.current) return;
+    setMeta(parsed);
+  }, [store, documentKey]);
+
+  // Load the file whenever the open document changes.
+  useEffect(() => {
+    namesRef.current = flowIdNames(doc);
+    void refresh();
     // `doc` is deliberately not a dependency: this reloads per document, not per edit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store, documentKey]);
+  }, [refresh]);
+
+  /**
+   * Re-read when the host says something else wrote the file.
+   *
+   * Skipped while an edit of ours is still pending its debounced write: the file on
+   * disk is a version behind by construction, and adopting it would undo the mock the
+   * user just placed and then save the undo. The pending write lands within the
+   * debounce and is itself announced, so nothing is lost by waiting.
+   */
+  const seenToken = useRef(reloadToken);
+  useEffect(() => {
+    if (reloadToken === seenToken.current) return;
+    seenToken.current = reloadToken;
+    if (dirtyRef.current) return;
+    void refresh();
+  }, [reloadToken, refresh]);
 
   // Follow flow renames. Client ids are stable within a session, so a changed name
   // under the same id is a rename; on a reload every id is new and this is a no-op.
