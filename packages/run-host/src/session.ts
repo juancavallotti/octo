@@ -4,7 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { cachedTestVersion, cachedVersion } from "./version";
-import { allocatePort, isExposable, releasePort } from "./ports";
+import {
+  allocateAdminPort,
+  allocatePort,
+  isExposable,
+  releaseAdminPort,
+  releasePort,
+} from "./ports";
 import { LogBuffer, type LogLine } from "./logbuffer";
 import { ensureReaper } from "./reaper";
 import {
@@ -234,6 +240,12 @@ export interface Session {
   logs: LogBuffer;
   /** Allocated HTTP port for a networked run; null when not running or internal-only. */
   port: number | null;
+  /**
+   * Allocated admin port for the runner's observability service (probes and
+   * metrics); null when not running. Every run gets one, networked or not — the
+   * runtime serves probes whether or not the integration has an HTTP source.
+   */
+  adminPort: number | null;
   /** Whether the current run declares HTTP_PORT (set on start). */
   exposable: boolean;
   /** Absolute paths of resource files staged for the current run, removed on stop. */
@@ -268,6 +280,7 @@ function session(ns: string): Session {
       configPath: null,
       logs: new LogBuffer(),
       port: null,
+      adminPort: null,
       exposable: false,
       stagedResources: [],
       declaredResources: [],
@@ -374,13 +387,22 @@ export async function start(
   s.exposable = exposable;
   s.port = port;
 
-  // Base process env, then the dev env values; HTTP_PORT/HTTP_HOST are applied
-  // last so a stray dev value can't clobber the proxy wiring.
+  // Every run — networked or not — also gets an admin port for the runtime's
+  // observability service, which is on by default and otherwise binds the same
+  // fixed :39999 in every run on this host: the first run would take it and every
+  // later one would come up without probes or metrics. Loopback, because only this
+  // host reaches it.
+  const adminPort = allocateAdminPort();
+  s.adminPort = adminPort;
+
+  // Base process env, then the dev env values; the port wiring is applied last so
+  // a stray dev value can't clobber it.
   const env: NodeJS.ProcessEnv = { ...process.env, ...(devEnv ?? {}) };
   if (port !== null) {
     env.HTTP_PORT = String(port);
     env.HTTP_HOST = "127.0.0.1";
   }
+  env.OCTO_OBSERVABILITY_ADDR = `127.0.0.1:${adminPort}`;
 
   s.logs.push(`▶ starting octo — ${configPath}`);
   if (port !== null) {
@@ -398,10 +420,14 @@ export async function start(
     const finish = () => {
       if (s.proc === proc) {
         s.proc = null;
-        // Free this generation's port when it exits on its own (crash/exit).
+        // Free this generation's ports when it exits on its own (crash/exit).
         if (port !== null && s.port === port) {
           releasePort(port);
           s.port = null;
+        }
+        if (s.adminPort === adminPort) {
+          releaseAdminPort(adminPort);
+          s.adminPort = null;
         }
       }
       resolve();
@@ -816,6 +842,10 @@ export async function stop(ns: string): Promise<RunStatus> {
   if (s.port !== null) {
     releasePort(s.port);
     s.port = null;
+  }
+  if (s.adminPort !== null) {
+    releaseAdminPort(s.adminPort);
+    s.adminPort = null;
   }
   s.exposable = false;
   if (s.configPath) {

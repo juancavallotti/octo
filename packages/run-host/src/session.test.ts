@@ -145,6 +145,60 @@ describe("run session", () => {
     expect(started.port).toBeNull();
   });
 
+  // The runtime's observability service binds a fixed :39999 by default, which a
+  // second run on this host would fight over. Every run gets an admin port of its
+  // own — internal-only ones too, since probes do not need an HTTP source.
+  it("gives every run its own admin port, released when it stops", async () => {
+    process.env.OCTO_BIN_PATH = await fakeBin(
+      dir,
+      "octo-admin",
+      'printf "admin %s\\n" "$OCTO_OBSERVABILITY_ADDR"\nsleep 2',
+    );
+
+    await start(NS, "service:\n  name: internal\n");
+    await vi.waitFor(
+      () => {
+        const line = texts().find((t) => t.startsWith("admin "));
+        expect(line).toMatch(/^admin 127\.0\.0\.1:41\d{3}$/);
+      },
+      { timeout: 4000 },
+    );
+    const first = texts().find((t) => t.startsWith("admin "))!;
+
+    // A stopped run frees its admin port, so the next run gets the same one back
+    // rather than walking up the pool for as long as the editor is up.
+    await stop(NS);
+    await start(NS, "service:\n  name: internal\n");
+    await vi.waitFor(
+      () => {
+        expect(texts().some((t) => t.startsWith("admin "))).toBe(true);
+      },
+      { timeout: 4000 },
+    );
+    expect(texts().find((t) => t.startsWith("admin "))).toBe(first);
+  });
+
+  // The dev .env is the user's, but the port wiring is the host's: a stray
+  // OCTO_OBSERVABILITY_ADDR must not point two runs at one admin port.
+  it("keeps the dev env from clobbering the admin port", async () => {
+    process.env.OCTO_BIN_PATH = await fakeBin(
+      dir,
+      "octo-admin-env",
+      'printf "admin %s\\n" "$OCTO_OBSERVABILITY_ADDR"\nsleep 2',
+    );
+
+    await start(NS, "service:\n  name: internal\n", {
+      OCTO_OBSERVABILITY_ADDR: "127.0.0.1:39999",
+    });
+    await vi.waitFor(
+      () => {
+        const line = texts().find((t) => t.startsWith("admin "));
+        expect(line).toMatch(/^admin 127\.0\.0\.1:41\d{3}$/);
+      },
+      { timeout: 4000 },
+    );
+  });
+
   it("ignores sync when nothing is running", async () => {
     delete process.env.OCTO_BIN_PATH;
     const result = await sync(NS, "service:\n  name: x\n");
