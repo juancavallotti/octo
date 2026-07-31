@@ -8,6 +8,18 @@ const STORAGE_KEY = "octo_run_tab";
  * server-side half, and the dependency only runs the other way). */
 const HOST_ACCEPTS = /^[A-Za-z0-9_-]{8,64}$/;
 
+/** Stands in for another tab of this browser that is still holding `id` — it answers
+ * the claim exactly as a live tab's own defender would. */
+function holdTabId(id: string): BroadcastChannel {
+  const ch = new BroadcastChannel("octo_run_tab");
+  ch.onmessage = (ev: MessageEvent) => {
+    if (ev.data?.type === "claim" && ev.data.id === id) {
+      ch.postMessage({ type: "taken", id });
+    }
+  };
+  return ch;
+}
+
 beforeEach(() => {
   resetTabIdForTest();
   window.sessionStorage.clear();
@@ -42,6 +54,29 @@ describe("runTabId", () => {
     resetTabIdForTest();
     window.sessionStorage.clear();
     expect(await runTabId()).not.toBe(first);
+  });
+
+  // Duplicating a tab hands the copy its opener's sessionStorage, id and all, so
+  // storage alone would put both on one runner — the very thing this exists to stop.
+  it("takes a fresh id when a live tab still holds the stored one", async () => {
+    const inherited = await runTabId();
+    const sibling = holdTabId(inherited);
+    resetTabIdForTest(); // the duplicate: same storage, no memoized id
+
+    const id = await runTabId();
+    expect(id).not.toBe(inherited);
+    expect(window.sessionStorage.getItem(STORAGE_KEY)).toBe(id);
+
+    sibling.close();
+  });
+
+  // The other side of the same coin: a plain reload has no live claimant, and must
+  // not be handed a new runner just because it asked.
+  it("keeps the stored id when no tab answers", async () => {
+    const first = await runTabId();
+    resetTabIdForTest();
+
+    expect(await runTabId()).toBe(first);
   });
 
   // Safari's private mode and sandboxed frames throw on access rather than

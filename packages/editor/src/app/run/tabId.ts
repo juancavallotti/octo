@@ -10,10 +10,24 @@
  * id is opaque and carries no authority on its own — the server mixes it with a
  * secret the browser can't read, so a forged one only ever reaches another
  * namespace of the same browser's.
+ *
+ * The one thing sessionStorage does not give us for free: a tab created *from*
+ * another one — "Duplicate tab", window.open, ctrl-clicking a target=_blank link —
+ * inherits a copy of its opener's storage, and so its id. That is a likely way to
+ * reach for a second integration, and it would land both tabs back on one runner,
+ * so an inherited id is checked against the tabs already holding it.
  */
 
 /** sessionStorage key holding this tab's id. */
 const STORAGE_KEY = "octo_run_tab";
+
+/** Channel the tabs of one browser use to sort out who holds which id. */
+const CHANNEL = "octo_run_tab";
+
+/** How long to let live tabs object to an inherited id. Only ever paid once, on a
+ * load that inherited one, and RunProvider asks for status on mount — so it lands
+ * well before anything a user could click. */
+const CLAIM_TIMEOUT_MS = 75;
 
 /**
  * Resolved once per tab. Deliberately a promise even though nothing awaits yet:
@@ -52,8 +66,67 @@ function writeStored(id: string): void {
   }
 }
 
+/** Opened once this tab has an id to defend, and left open for the tab's life. */
+let channel: BroadcastChannel | null = null;
+
+/** Answers other tabs asking whether `id` is already taken, and keeps answering as
+ * long as this tab holds it. Absent BroadcastChannel (older Safari, some sandboxed
+ * frames) simply means no one can be asked — see {@link claim}. */
+function defend(id: string): void {
+  if (typeof BroadcastChannel === "undefined") return;
+  channel?.close();
+  channel = new BroadcastChannel(CHANNEL);
+  channel.onmessage = (ev: MessageEvent) => {
+    if (ev.data?.type === "claim" && ev.data.id === id) {
+      channel?.postMessage({ type: "taken", id });
+    }
+  };
+}
+
 /**
- * runTabId returns this tab's id, minting and persisting one on first use.
+ * Resolves true when a live tab already holds `id` — i.e. this tab is a duplicate
+ * and needs its own.
+ *
+ * Silence is taken as "free". That is the safe direction: a false negative here
+ * costs a tab an unnecessary fresh runner, while a false positive would put two
+ * tabs back on one.
+ */
+function claim(id: string): Promise<boolean> {
+  if (typeof BroadcastChannel === "undefined") return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const asking = new BroadcastChannel(CHANNEL);
+    const done = (taken: boolean) => {
+      clearTimeout(timer);
+      asking.close();
+      resolve(taken);
+    };
+    const timer = setTimeout(() => done(false), CLAIM_TIMEOUT_MS);
+    asking.onmessage = (ev: MessageEvent) => {
+      if (ev.data?.type === "taken" && ev.data.id === id) done(true);
+    };
+    asking.postMessage({ type: "claim", id });
+  });
+}
+
+/** Establishes this tab's id: keep what was stored unless another tab still holds
+ * it, in which case this load is a duplicate and starts fresh. */
+async function establish(): Promise<string> {
+  const stored = readStored();
+  // Nothing stored means nothing to conflict with — this tab is the first to use it.
+  if (!stored) {
+    const id = mintTabId();
+    writeStored(id);
+    defend(id);
+    return id;
+  }
+  const id = (await claim(stored)) ? mintTabId() : stored;
+  if (id !== stored) writeStored(id);
+  defend(id);
+  return id;
+}
+
+/**
+ * runTabId returns this tab's id, establishing one on first use.
  *
  * Returns `""` when there is no browser — the editor is server-rendered, and a host
  * that sends no tab id gets its plain cookie namespace, which is how RUN behaved
@@ -62,12 +135,7 @@ function writeStored(id: string): void {
  */
 export function runTabId(): Promise<string> {
   if (typeof window === "undefined") return Promise.resolve("");
-  if (!resolved) {
-    const existing = readStored();
-    const id = existing ?? mintTabId();
-    if (!existing) writeStored(id);
-    resolved = Promise.resolve(id);
-  }
+  if (!resolved) resolved = establish();
   return resolved;
 }
 
@@ -75,4 +143,6 @@ export function runTabId(): Promise<string> {
 export function resetTabIdForTest(): void {
   resolved = null;
   inMemory = null;
+  channel?.close();
+  channel = null;
 }
