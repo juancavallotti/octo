@@ -2,9 +2,14 @@
 
 /**
  * Server actions for the editor's RUN feature (standalone). They drive the
- * in-process @octo/run-host directly (no HTTP, no auth — local-only), keyed by
- * this browser's run namespace (a cookie, minted here when absent). The live log
- * stream stays an SSE route (`/api/run/logs`), which reads the same cookie.
+ * in-process @octo/run-host directly (no HTTP, no auth — local-only), keyed by the
+ * calling tab's run namespace. The live log stream stays an SSE route
+ * (`/api/run/logs`), which resolves the same namespace from the same two halves.
+ *
+ * Every action leads with `tabId`, the browser half of that namespace (see
+ * `../run/namespace`). It is a separate parameter rather than a field on the
+ * request objects because those types belong to @octo/editor, which has no business
+ * knowing how a host keys its runners.
  */
 
 import {
@@ -32,19 +37,20 @@ import { ensureRunNamespace } from "../run/namespace";
 import { fsResourceProvider } from "../run/resources";
 
 /** Whether RUN is available, whether this browser's runner is live, and its version. */
-export async function runStatus(): Promise<ActionResult<RunStatusSnapshot>> {
+export async function runStatus(tabId: string): Promise<ActionResult<RunStatusSnapshot>> {
   // Warm both version caches so status() can read them synchronously. Two
   // binaries, two probes: dolphin can be absent while octo is present.
   await Promise.all([probeVersion(), probeTestVersion()]);
-  const ns = await ensureRunNamespace();
+  const ns = await ensureRunNamespace(tabId);
   return { ok: true, data: status(ns) };
 }
 
 /** Render the config and (re)start this browser's runner. */
 export async function runStart(
+  tabId: string,
   yaml: string,
 ): Promise<ActionResult<RunStatusSnapshot>> {
-  const ns = await ensureRunNamespace();
+  const ns = await ensureRunNamespace(tabId);
   if (!status(ns).available) {
     return { ok: false, error: "Runner not available (OCTO_BIN_PATH unset)." };
   }
@@ -62,16 +68,17 @@ export async function runStart(
 }
 
 /** Stop this browser's runner and clean up its config file. */
-export async function runStop(): Promise<ActionResult<RunStatusSnapshot>> {
-  const ns = await ensureRunNamespace();
+export async function runStop(tabId: string): Promise<ActionResult<RunStatusSnapshot>> {
+  const ns = await ensureRunNamespace(tabId);
   return { ok: true, data: await stop(ns) };
 }
 
 /** Evaluate a single CEL expression against an ad-hoc object (no flow run). */
 export async function runEvalCel(
+  tabId: string,
   req: CelEvalRequest,
 ): Promise<ActionResult<CelEvalResult>> {
-  const ns = await ensureRunNamespace();
+  const ns = await ensureRunNamespace(tabId);
   if (!status(ns).available) {
     return { ok: false, error: "Runner not available (OCTO_BIN_PATH unset)." };
   }
@@ -101,9 +108,10 @@ export async function runEvalCel(
  * shows). That is a policy of the host, not of the caller.
  */
 export async function runInvoke(
+  tabId: string,
   req: FlowRunRequest,
 ): Promise<ActionResult<FlowRunOutcome>> {
-  const ns = await ensureRunNamespace();
+  const ns = await ensureRunNamespace(tabId);
   if (!status(ns).available) {
     return { ok: false, error: "Runner not available (OCTO_BIN_PATH unset)." };
   }
@@ -151,9 +159,10 @@ export async function runInvoke(
  * UI should reason about — the verdict is the tally.
  */
 export async function runTest(
+  tabId: string,
   req: TestRunRequest,
 ): Promise<ActionResult<TestRunOutcome>> {
-  const ns = await ensureRunNamespace();
+  const ns = await ensureRunNamespace(tabId);
   if (!status(ns).testAvailable) {
     return { ok: false, error: "Test runner not available (DOLPHIN_BIN_PATH unset)." };
   }
@@ -187,8 +196,8 @@ export async function runTest(
 }
 
 /** Rewrite this browser's watched config so the runner hot-reloads. */
-export async function runSync(yaml: string): Promise<ActionResult<void>> {
-  const ns = await ensureRunNamespace();
+export async function runSync(tabId: string, yaml: string): Promise<ActionResult<void>> {
+  const ns = await ensureRunNamespace(tabId);
   if (typeof yaml !== "string" || yaml.trim() === "") {
     return { ok: false, error: "missing `yaml`" };
   }

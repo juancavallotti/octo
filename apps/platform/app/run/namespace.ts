@@ -2,21 +2,25 @@ import { cookies } from "next/headers";
 import {
   NAMESPACE_COOKIE,
   NAMESPACE_MAX_AGE_SECONDS,
+  deriveNamespace,
   isValidNamespace,
   newNamespace,
 } from "@octo/run-host";
 
 /**
- * Read this browser's run namespace from its cookie, minting and setting one when
- * absent — the server-action counterpart to run-host's request-based
- * `ensureNamespace(req)`. The cookie name/lifetime come from run-host so the SSE
- * log stream and the `/editor/runs/<ns>/` reverse proxy (which read the same
- * cookie) stay in sync.
+ * Resolve the run namespace for a caller: this browser's cookie (minted and set
+ * when absent) mixed with the calling tab's id, so each tab drives its own runner.
+ * The server-action counterpart to run-host's request-based `ensureNamespace(req)`,
+ * which the SSE log stream uses to reach the same namespace.
+ *
+ * `tabId` arrives from the client and is therefore untrusted; `deriveNamespace`
+ * both validates it and keeps the cookie — which the client cannot read — as the
+ * half that decides *whose* runners are reachable at all.
  */
-export async function ensureRunNamespace(): Promise<string> {
+export async function ensureRunNamespace(tabId?: string): Promise<string> {
   const jar = await cookies();
   const existing = jar.get(NAMESPACE_COOKIE)?.value;
-  if (existing && isValidNamespace(existing)) return existing;
+  if (existing && isValidNamespace(existing)) return deriveNamespace(existing, tabId);
   const ns = newNamespace();
   jar.set(NAMESPACE_COOKIE, ns, {
     path: "/",
@@ -24,5 +28,5 @@ export async function ensureRunNamespace(): Promise<string> {
     sameSite: "lax",
     maxAge: NAMESPACE_MAX_AGE_SECONDS,
   });
-  return ns;
+  return deriveNamespace(ns, tabId);
 }

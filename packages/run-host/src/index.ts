@@ -53,8 +53,10 @@ export {
   type TestTotals,
 } from "./test";
 export {
+  deriveNamespace,
   ensureNamespace,
   isValidNamespace,
+  isValidTabId,
   readNamespace,
   newNamespace,
   NAMESPACE_COOKIE,

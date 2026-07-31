@@ -1,6 +1,7 @@
 import {
   snapshot,
   subscribe,
+  deriveNamespace,
   ensureNamespace,
   type LogLine,
 } from "@octo/run-host";
@@ -12,12 +13,17 @@ export const dynamic = "force-dynamic";
 const KEEPALIVE_MS = 15000;
 
 /**
- * GET /api/run/logs — Server-Sent Events stream of this user's runner log lines.
+ * GET /api/run/logs — Server-Sent Events stream of this tab's runner log lines.
  * On connect it replays the namespace's buffered lines, then streams new ones live
  * until the client disconnects (which cancels the stream and unsubscribes).
+ *
+ * The tab id rides in the query string because an EventSource cannot set headers;
+ * it is untrusted, and `deriveNamespace` both validates it and keeps the cookie as
+ * the half that decides whose logs are reachable.
  */
 export function GET(req: Request) {
-  const { ns, setCookie } = ensureNamespace(req);
+  const { ns: base, setCookie } = ensureNamespace(req);
+  const ns = deriveNamespace(base, new URL(req.url).searchParams.get("tab"));
   const encoder = new TextEncoder();
   let cleanup = () => {};
 
