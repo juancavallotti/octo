@@ -67,14 +67,20 @@ export const localRunTransport: RunTransport = {
   subscribeLogs(onLine) {
     let es: EventSource | null = null;
     let closed = false;
-    void runTabId().then((tab) => {
-      if (closed) return;
-      es = new EventSource(`/api/run/logs?tab=${encodeURIComponent(tab)}`);
-      es.onmessage = (ev) => {
-        const seq = Number(ev.lastEventId);
-        onLine(seq, ev.data);
-      };
-    });
+    void runTabId()
+      .then((tab) => {
+        if (closed) return;
+        es = new EventSource(`/api/run/logs?tab=${encodeURIComponent(tab)}`);
+        es.onmessage = (ev) => {
+          const seq = Number(ev.lastEventId);
+          onLine(seq, ev.data);
+        };
+      })
+      .catch(() => {
+        // Opening the stream is the last thing that can fail here, and there is
+        // nowhere to report it to: the panel stays empty rather than the failure
+        // surfacing as an unhandled rejection.
+      });
     return () => {
       closed = true;
       es?.close();

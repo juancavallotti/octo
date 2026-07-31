@@ -41,9 +41,15 @@ let resolved: Promise<string> | null = null;
  * so the id at least stays stable for the life of the page. */
 let inMemory: string | null = null;
 
-/** mintTabId returns a fresh id in the shape the host validates: url-safe, bounded. */
+/** mintTabId returns a fresh id in the shape the host validates: url-safe, bounded.
+ *
+ * randomUUID is restricted to secure contexts, so a host served over plain HTTP —
+ * an internal deployment on a LAN, say — does not have it. getRandomValues carries
+ * no such restriction, and 16 random bytes is the same 32 hex characters. */
 function mintTabId(): string {
-  return crypto.randomUUID().replace(/-/g, "");
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID().replace(/-/g, "");
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 /** Reads the stored id, treating an unusable sessionStorage as "nothing stored". */
@@ -87,9 +93,16 @@ function defend(id: string): void {
  * Resolves true when a live tab already holds `id` — i.e. this tab is a duplicate
  * and needs its own.
  *
- * Silence is taken as "free". That is the safe direction: a false negative here
- * costs a tab an unnecessary fresh runner, while a false positive would put two
- * tabs back on one.
+ * Silence means free, and that is forced rather than chosen: the ordinary case is a
+ * reload with no sibling to answer, and treating silence as taken would hand it a
+ * new id every time — losing exactly the runner-survives-a-reload property this
+ * whole mechanism exists to provide.
+ *
+ * So the errors are not symmetric. A wrong `true` costs one unnecessary fresh
+ * runner. A wrong `false` — a sibling that misses the window — leaves two tabs on
+ * one runner, which is the old behaviour, for that tab only, until it reloads.
+ * Hence a window generous enough that a live tab answering a same-origin broadcast
+ * will not realistically miss it.
  */
 function claim(id: string): Promise<boolean> {
   if (typeof BroadcastChannel === "undefined") return Promise.resolve(false);
@@ -135,7 +148,12 @@ async function establish(): Promise<string> {
  */
 export function runTabId(): Promise<string> {
   if (typeof window === "undefined") return Promise.resolve("");
-  if (!resolved) resolved = establish();
+  // Never rejects. A browser that cannot produce an id at all — no usable crypto, a
+  // sandbox that blocks BroadcastChannel outright — sends none and gets the plain
+  // cookie namespace, which is how RUN behaved before tabs were separated: one
+  // shared runner. Since the answer is memoized, a rejection would instead be
+  // memoized too, and break every RUN call for the life of the page.
+  if (!resolved) resolved = establish().catch(() => "");
   return resolved;
 }
 

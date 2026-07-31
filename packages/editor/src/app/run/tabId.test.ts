@@ -25,8 +25,23 @@ beforeEach(() => {
   window.sessionStorage.clear();
 });
 
+/**
+ * Models a browser without the secure-context-only API.
+ *
+ * It has to actually be absent: the code under test checks `typeof === "function"`,
+ * so a spy returning undefined would sail straight past. `randomUUID` lives on the
+ * prototype here, which makes `delete` a no-op — shadow it with an own property
+ * instead, and drop the shadow afterwards to reveal the real one again.
+ */
+function withoutRandomUUID(): void {
+  Object.defineProperty(crypto, "randomUUID", { value: undefined, configurable: true });
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
+  // crypto is shared by every test in this worker, so the shadow must not outlive
+  // the case that set it.
+  delete (crypto as { randomUUID?: unknown }).randomUUID;
 });
 
 describe("runTabId", () => {
@@ -77,6 +92,27 @@ describe("runTabId", () => {
     resetTabIdForTest();
 
     expect(await runTabId()).toBe(first);
+  });
+
+  // randomUUID is secure-context-only, so a host served over plain HTTP does not
+  // have it. Minting has to keep working there, or every tab falls back to sharing.
+  it("mints without randomUUID, as an insecure context must", async () => {
+    withoutRandomUUID();
+
+    expect(await runTabId()).toMatch(HOST_ACCEPTS);
+  });
+
+  // The answer is memoized, so a rejection would be memoized too and break every
+  // later RUN call for the life of the page. Degrade to "no tab" instead: the host
+  // reads that as the plain cookie namespace, i.e. how RUN behaved before tabs.
+  it("resolves to no id rather than rejecting when one cannot be made", async () => {
+    withoutRandomUUID();
+    vi.spyOn(crypto, "getRandomValues").mockImplementation(() => {
+      throw new Error("no crypto here");
+    });
+
+    await expect(runTabId()).resolves.toBe("");
+    await expect(runTabId()).resolves.toBe("");
   });
 
   // Safari's private mode and sandboxed frames throw on access rather than
