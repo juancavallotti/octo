@@ -27,13 +27,10 @@ import SpyBody from "./SpyBody";
 export default function SpiesField({
   flow,
   value,
-  crossings,
   onChange,
 }: {
   flow: string;
   value: Record<string, SpyExpect> | undefined;
-  /** What each watched block actually saw on the last run, by address. */
-  crossings?: Record<string, unknown[]>;
   onChange: (next: Record<string, SpyExpect> | undefined) => void;
 }) {
   const { state } = useEditorState();
@@ -87,7 +84,6 @@ export default function SpiesField({
           <SpyBody
             key={address}
             value={spy}
-            seen={crossings?.[address]}
             onChange={(next) =>
               write({ ...Object.fromEntries(entries), [address]: next })
             }

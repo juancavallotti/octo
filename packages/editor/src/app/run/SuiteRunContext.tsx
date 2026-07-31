@@ -14,7 +14,7 @@ import { useRun } from "./RunContext";
 import { useConsole } from "./console";
 import { toRunnableYaml } from "../model/runConfig";
 import type { SkippedSuite } from "../suite/runAll";
-import type { TestCaseOutcome, TestRunOutcome, TestSuiteInput } from "./testTransport";
+import type { TestRunOutcome, TestSuiteInput } from "./testTransport";
 
 /**
  * Running dolphin suites, and the last thing they said.
@@ -49,17 +49,6 @@ export interface SuiteRunValue {
   /** Why the run could not be made at all — distinct from a run whose tests failed. */
   error: string | null;
   run: (targets: TestSuiteInput[], skipped?: SkippedSuite[]) => Promise<void>;
-  /**
-   * What the last run's named case actually produced, so the form can offer to evaluate
-   * an assertion against it.
-   *
-   * Scoped by flow because a run may carry several suites and a case name is only unique
-   * WITHIN one — every scaffolded suite starts with a case called "it runs". The flow is
-   * the name the suite was sent under (the store's key), not the one the file declares:
-   * those diverge if someone edits `flow:` in the YAML view, and the key is what every
-   * caller has.
-   */
-  outcomeFor: (flow: string, caseName: string) => TestCaseOutcome | undefined;
   /** Forget the last report. */
   clear: () => void;
 }
@@ -127,17 +116,9 @@ export function SuiteRunProvider({ children }: { children: ReactNode }) {
     [consoleTabs, run, state.document, state.integration.id],
   );
 
-  const outcomeFor = useCallback(
-    (flow: string, caseName: string) =>
-      outcome?.suites
-        .find((s) => s.name === flow)
-        ?.cases.find((c) => c.name === caseName)?.outcome,
-    [outcome],
-  );
-
   const value = useMemo<SuiteRunValue>(
-    () => ({ running, outcome, flows, skipped, error, run: start, outcomeFor, clear }),
-    [running, outcome, flows, skipped, error, start, outcomeFor, clear],
+    () => ({ running, outcome, flows, skipped, error, run: start, clear }),
+    [running, outcome, flows, skipped, error, start, clear],
   );
 
   return <SuiteRunContext.Provider value={value}>{children}</SuiteRunContext.Provider>;

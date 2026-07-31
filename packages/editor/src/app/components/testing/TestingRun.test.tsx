@@ -21,7 +21,7 @@ import {
   type TestRunOutcome,
   type TestRunRequest,
 } from "../../run/testTransport";
-import type { CelEvalRequest, RunTransport } from "../../run/transport";
+import type { RunTransport } from "../../run/transport";
 import { blankDocument, emptyFlow } from "../../model/document";
 import TestingView from "./TestingView";
 
@@ -40,19 +40,13 @@ function stubTransport(
   { testAvailable = true }: { testAvailable?: boolean } = {},
 ) {
   const requests: TestRunRequest[] = [];
-  // What the form asked to evaluate, which is how the last run's message for a case
-  // becomes observable from outside it.
-  const evals: CelEvalRequest[] = [];
   const transport: RunTransport = {
     status: async () => snapshot(testAvailable),
     start: async () => snapshot(testAvailable),
     stop: async () => {},
     sync: async () => {},
     invoke: async () => ({ ok: true, dropped: false, timedOut: false, output: "", logs: [] }),
-    evalCel: async (req) => {
-      evals.push(req);
-      return { ok: true, result: true };
-    },
+    evalCel: async () => ({ ok: true, result: true }),
     subscribeLogs: () => () => {},
     test: async (req) => {
       requests.push(req);
@@ -60,7 +54,7 @@ function stubTransport(
       return result;
     },
   };
-  return { transport, requests, evals };
+  return { transport, requests };
 }
 
 function outcome(over: Partial<TestRunOutcome> = {}): TestRunOutcome {
@@ -344,56 +338,6 @@ describe("the report and the suite it belongs to", () => {
     expect(screen.getByText("it runs")).toBeInTheDocument();
     expect(within(toolbar()).getByText("1 case")).toBeInTheDocument();
     expect(within(toolbar()).queryByText("1 passed")).toBeNull();
-  });
-
-  // A case name is unique only within a FILE, and every scaffolded suite starts with one
-  // called "it runs". Looking a case up by name alone would offer one suite's message
-  // inside another suite's form, under an assertion that never produced it.
-  it("attributes a case's outcome to the suite that ran it", async () => {
-    const user = userEvent.setup();
-    const shared =
-      "flow: FLOW\ncases:\n  - name: it runs\n    expect:\n      that:\n        - body.ok\n";
-    const ran = (flow: string) => ({
-      name: flow,
-      flow,
-      cases: [
-        {
-          name: "it runs",
-          status: "passed" as const,
-          elapsedMs: 10,
-          outcome: { result: { body: { from: flow } } },
-        },
-      ],
-    });
-    const { transport, evals } = stubTransport(
-      outcome({
-        totals: { ...emptyTotals(), cases: 2, passed: 2, elapsedMs: 20 },
-        suites: [ran("orders"), ran("refunds")],
-      }),
-    );
-    renderTab(
-      transport,
-      fakeStore([
-        { flow: "orders", content: shared.replace("FLOW", "orders") },
-        { flow: "refunds", content: shared.replace("FLOW", "refunds") },
-      ]),
-      ["orders", "refunds"],
-    );
-
-    await user.click(await openSuite(user));
-    // Orders' own slice of the run, not the whole run's two.
-    await waitFor(() =>
-      expect(within(toolbar()).getByText("1 passed")).toBeInTheDocument(),
-    );
-
-    // Open refunds' case and try its assertion. The message it is evaluated against is the
-    // one refunds produced, not the identically-named case from orders.
-    await user.click(screen.getByRole("button", { name: "refunds" }));
-    await user.click(await screen.findByRole("button", { name: "it runs" }));
-    await user.click(screen.getByRole("button", { name: "Try" }));
-
-    await waitFor(() => expect(evals).toHaveLength(1));
-    expect(evals[0].data).toBe(JSON.stringify({ from: "refunds" }));
   });
 
   // The server is stateless, so two runs would not corrupt each other — they would just
