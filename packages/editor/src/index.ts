@@ -45,6 +45,9 @@ export {
   type BlockRename,
 } from "./app/run/address";
 export { useFlowRun } from "./app/run/FlowRunContext";
+// A host's RunTransport pairs this with its own namespace cookie so each tab drives
+// its own runner; see the module doc for why it must be called lazily.
+export { runTabId } from "./app/run/tabId";
 export type { FlowRunEntry, FlowRunStatus } from "./app/run/outcome";
 export { useConsole, type ConsoleTab } from "./app/run/console";
 export type {

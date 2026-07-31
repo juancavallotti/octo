@@ -30,7 +30,14 @@ const host = {
   probeTestVersion: vi.fn(),
 };
 vi.mock("@octo/run-host", () => host);
-vi.mock("@/app/run/namespace", () => ({ ensureRunNamespace: async () => "ns-1" }));
+
+// Stands in for the real cookie+tab derivation: what matters at this boundary is
+// that the action hands the caller's tab id over and runs whatever namespace comes
+// back, so two tabs never land on one runner.
+const namespace = {
+  ensureRunNamespace: vi.fn(async (tabId?: string) => (tabId ? `ns-${tabId}` : "ns-cookie")),
+};
+vi.mock("@/app/run/namespace", () => namespace);
 vi.mock("@/app/lib/runResources", () => ({
   orchestratorResourceProvider: (id: string) => ({ marker: id }),
 }));
@@ -57,6 +64,8 @@ function hostOutcome(over: Record<string, unknown> = {}) {
   };
 }
 
+const TAB = "tab-a";
+
 const req = {
   yaml: "flows: []\n",
   integrationId: "int-1",
@@ -72,16 +81,26 @@ beforeEach(() => {
 describe("runTest", () => {
   // Spawning a runner is a write, whatever it is called.
   it("takes the write roles, not just a session", async () => {
-    await runTest(req);
+    await runTest(TAB, req);
 
     expect(gate.write).toHaveBeenCalled();
     expect(gate.read).not.toHaveBeenCalled();
   });
 
-  it("resolves the open integration's resources so a case can load them", async () => {
-    await runTest(req);
+  // Two tabs of one browser must reach two runners — otherwise starting a suite in
+  // one tab tears down whatever the other had running.
+  it("runs each tab against its own namespace", async () => {
+    await runTest(TAB, req);
+    await runTest("tab-b", req);
 
-    expect(host.test).toHaveBeenCalledWith("ns-1", {
+    expect(namespace.ensureRunNamespace).toHaveBeenNthCalledWith(1, TAB);
+    expect(host.test.mock.calls.map((c) => c[0])).toEqual(["ns-tab-a", "ns-tab-b"]);
+  });
+
+  it("resolves the open integration's resources so a case can load them", async () => {
+    await runTest(TAB, req);
+
+    expect(host.test).toHaveBeenCalledWith("ns-tab-a", {
       yaml: req.yaml,
       suites: req.suites,
       env: undefined,
@@ -91,16 +110,16 @@ describe("runTest", () => {
 
   // An unsaved draft has no id, so there is nothing to resolve resources against.
   it("runs a draft with no resource provider", async () => {
-    await runTest({ ...req, integrationId: undefined });
+    await runTest(TAB, { ...req, integrationId: undefined });
 
     expect(host.test).toHaveBeenCalledWith(
-      "ns-1",
+      "ns-tab-a",
       expect.objectContaining({ resources: undefined }),
     );
   });
 
   it("does not leak the exit code to the browser", async () => {
-    const result = await runTest(req);
+    const result = await runTest(TAB, req);
 
     expect(result.ok && Object.keys(result.data).sort()).toEqual([
       "logs",
@@ -114,7 +133,7 @@ describe("runTest", () => {
   it("refuses when no test runner is configured", async () => {
     host.status.mockReturnValue({ available: true, testAvailable: false });
 
-    expect(await runTest(req)).toEqual({
+    expect(await runTest(TAB, req)).toEqual({
       ok: false,
       error: "Test runner not available (DOLPHIN_BIN_PATH unset).",
     });
@@ -122,8 +141,8 @@ describe("runTest", () => {
   });
 
   it("refuses a request with nothing to run", async () => {
-    expect(await runTest({ ...req, yaml: "" })).toEqual({ ok: false, error: "missing `yaml`" });
-    expect(await runTest({ ...req, suites: [] })).toEqual({
+    expect(await runTest(TAB, { ...req, yaml: "" })).toEqual({ ok: false, error: "missing `yaml`" });
+    expect(await runTest(TAB, { ...req, suites: [] })).toEqual({
       ok: false,
       error: "no test suites to run",
     });
@@ -133,6 +152,6 @@ describe("runTest", () => {
   it("turns a thrown runner error into a failed result", async () => {
     host.test.mockRejectedValue(new Error("spawn ENOENT"));
 
-    expect(await runTest(req)).toEqual({ ok: false, error: "spawn ENOENT" });
+    expect(await runTest(TAB, req)).toEqual({ ok: false, error: "spawn ENOENT" });
   });
 });

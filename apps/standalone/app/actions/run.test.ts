@@ -18,7 +18,14 @@ const host = {
   probeTestVersion: vi.fn(),
 };
 vi.mock("@octo/run-host", () => host);
-vi.mock("../run/namespace", () => ({ ensureRunNamespace: async () => "ns-1" }));
+
+// Stands in for the real cookie+tab derivation: what matters at this boundary is
+// that the action hands the caller's tab id over and runs whatever namespace comes
+// back, so two tabs never land on one runner.
+const namespace = {
+  ensureRunNamespace: vi.fn(async (tabId?: string) => (tabId ? `ns-${tabId}` : "ns-cookie")),
+};
+vi.mock("../run/namespace", () => namespace);
 vi.mock("../run/resources", () => ({ fsResourceProvider: { marker: "fs" } }));
 
 const { runTest } = await import("./run");
@@ -44,6 +51,8 @@ function hostOutcome(over: Record<string, unknown> = {}) {
   };
 }
 
+const TAB = "tab-a";
+
 const req = {
   yaml: "flows: []\n",
   suites: [{ name: "orders", content: "flow: orders\ncases: []\n" }],
@@ -56,11 +65,21 @@ beforeEach(() => {
 });
 
 describe("runTest", () => {
+  // Two tabs of one browser must reach two runners — otherwise starting a suite in
+  // one tab tears down whatever the other had running.
+  it("runs each tab against its own namespace", async () => {
+    await runTest(TAB, req);
+    await runTest("tab-b", req);
+
+    expect(namespace.ensureRunNamespace).toHaveBeenNthCalledWith(1, TAB);
+    expect(host.test.mock.calls.map((c) => c[0])).toEqual(["ns-tab-a", "ns-tab-b"]);
+  });
+
   it("runs the suites and passes the resource provider through", async () => {
-    const result = await runTest({ ...req, env: { A: "1" } });
+    const result = await runTest(TAB, { ...req, env: { A: "1" } });
 
     expect(result.ok).toBe(true);
-    expect(host.test).toHaveBeenCalledWith("ns-1", {
+    expect(host.test).toHaveBeenCalledWith("ns-tab-a", {
       yaml: req.yaml,
       suites: req.suites,
       env: { A: "1" },
@@ -71,7 +90,7 @@ describe("runTest", () => {
   // dolphin's exit code is a detail of how the run was made. The UI reasons about the
   // tally, and a field that crosses a typed boundary should be a decision.
   it("does not leak the exit code to the browser", async () => {
-    const result = await runTest(req);
+    const result = await runTest(TAB, req);
 
     expect(result.ok && Object.keys(result.data).sort()).toEqual([
       "logs",
@@ -85,7 +104,7 @@ describe("runTest", () => {
   // dolphin exits non-zero when a case fails, and a failing case is the whole point of
   // asking. Reporting that as a failed action would hide the report the user came for.
   it("reports a run whose tests failed as a successful run", async () => {
-    const result = await runTest(req);
+    const result = await runTest(TAB, req);
 
     expect(result).toEqual({
       ok: true,
@@ -102,7 +121,7 @@ describe("runTest", () => {
   it("carries an unreadable-report error through", async () => {
     host.test.mockResolvedValue(hostOutcome({ ok: false, error: "no report was written" }));
 
-    const result = await runTest(req);
+    const result = await runTest(TAB, req);
     expect(result).toMatchObject({ ok: true, data: { ok: false, error: "no report was written" } });
   });
 
@@ -110,7 +129,7 @@ describe("runTest", () => {
   it("refuses when no test runner is configured", async () => {
     host.status.mockReturnValue({ available: true, testAvailable: false });
 
-    expect(await runTest(req)).toEqual({
+    expect(await runTest(TAB, req)).toEqual({
       ok: false,
       error: "Test runner not available (DOLPHIN_BIN_PATH unset).",
     });
@@ -118,11 +137,11 @@ describe("runTest", () => {
   });
 
   it("refuses a request with nothing to run", async () => {
-    expect(await runTest({ ...req, yaml: "  " })).toEqual({
+    expect(await runTest(TAB, { ...req, yaml: "  " })).toEqual({
       ok: false,
       error: "missing `yaml`",
     });
-    expect(await runTest({ ...req, suites: [] })).toEqual({
+    expect(await runTest(TAB, { ...req, suites: [] })).toEqual({
       ok: false,
       error: "no test suites to run",
     });
@@ -132,6 +151,6 @@ describe("runTest", () => {
   it("turns a thrown runner error into a failed result", async () => {
     host.test.mockRejectedValue(new Error("spawn ENOENT"));
 
-    expect(await runTest(req)).toEqual({ ok: false, error: "spawn ENOENT" });
+    expect(await runTest(TAB, req)).toEqual({ ok: false, error: "spawn ENOENT" });
   });
 });
