@@ -4,7 +4,6 @@ import { useState } from "react";
 import { outcomeOf, type Expectation, type Outcome } from "../../suite/types";
 import MessageExpectFields from "./MessageExpectFields";
 import Segmented from "./Segmented";
-import type { CelSample } from "./sample";
 
 const OUTCOMES: { key: Outcome; label: string }[] = [
   { key: "message", label: "Message" },
@@ -30,12 +29,9 @@ const FIELD =
  */
 export default function CaseExpectField({
   value,
-  sample = null,
   onChange,
 }: {
   value: Expectation | undefined;
-  /** The message the last run produced for this case, if there was one. */
-  sample?: CelSample | null;
   onChange: (next: Expectation | undefined) => void;
 }) {
   const [outcome, setOutcome] = useState<Outcome>(() => outcomeOf(value));
@@ -81,7 +77,6 @@ export default function CaseExpectField({
       {outcome === "message" && (
         <MessageExpectFields
           value={value}
-          sample={sample}
           onChange={(next) => onChange(next as Expectation | undefined)}
         />
       )}

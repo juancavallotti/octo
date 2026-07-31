@@ -118,7 +118,7 @@ export default function SuiteEditor({
       <SuiteIssues issues={issues} />
 
       {mode === "form" ? (
-        <SuiteFormView flow={flow} suite={suite} issues={issues} onChange={apply} />
+        <SuiteFormView suite={suite} issues={issues} onChange={apply} />
       ) : (
         <SuiteYamlEditor value={content} onChange={onChange} />
       )}

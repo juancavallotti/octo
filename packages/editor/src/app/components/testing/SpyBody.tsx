@@ -17,12 +17,9 @@ interface Row {
 /** One spy's count and records, split out so each one owns its record identities. */
 export default function SpyBody({
   value,
-  seen,
   onChange,
 }: {
   value: SpyExpect;
-  /** The crossings the last run recorded here, positionally matching the records. */
-  seen?: unknown[];
   onChange: (next: SpyExpect) => void;
 }) {
   const nextId = useRef(0);
@@ -83,7 +80,6 @@ export default function SpyBody({
           </div>
           <RecordField
             value={row.value}
-            seen={seen?.[i]}
             onChange={(next) =>
               write(
                 rows.map((r) => (r.id === row.id ? { ...r, value: next } : r)),
