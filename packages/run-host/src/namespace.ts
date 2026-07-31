@@ -1,12 +1,25 @@
-import { randomBytes } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 
 /**
- * Per-user run namespaces. The editor's RUN feature is multi-user: each browser
- * gets an 8-char namespace slug carried in an HttpOnly cookie, and the session
- * manager keys every running `octo` process by that slug. A cookie (not
- * localStorage) is used so the SSE log stream and the `/editor/runs/<ns>/` reverse
- * proxy — both plain server requests that can't set custom headers — carry the
- * identity automatically.
+ * Per-tab run namespaces. The editor's RUN feature is multi-user *and* multi-tab:
+ * the session manager keys every running `octo` process by an 8-char namespace
+ * slug, and two tabs sharing a slug fight over one runner — `start` stops whatever
+ * the other tab had going. So a namespace is composed of two halves:
+ *
+ *   - the *identity* half, an 8-char slug in an HttpOnly cookie. A cookie (not
+ *     localStorage) because the SSE log stream is a plain browser request that
+ *     can't set custom headers, and because HttpOnly keeps it unreadable — and so
+ *     unforgeable — from script.
+ *   - the *tab* half, an opaque id the browser keeps in sessionStorage (per-tab by
+ *     definition, and stable across reloads) and sends up with each call.
+ *
+ * {@link deriveNamespace} mixes them. Because the cookie half never leaves the
+ * server, a client that lies about its tab id only ever reaches another namespace
+ * of its own — which is precisely the feature — and never another user's.
+ *
+ * The `/editor/runs/<ns>/` reverse proxy does not read the cookie at all: it takes
+ * the (already-derived) namespace from the URL path and treats it as an
+ * unguessable token.
  */
 
 /** Cookie name holding the run namespace slug. Exported so an app that mints the
@@ -37,6 +50,48 @@ export function newNamespace(): string {
   const bytes = randomBytes(8);
   let out = "";
   for (let i = 0; i < bytes.length; i++) out += ALPHABET[bytes[i] % ALPHABET.length];
+  return out;
+}
+
+/** Shape of the per-tab id a browser sends up. Deliberately wider than the slug
+ * alphabet (the editor mints a UUID's hex) but bounded, so a garbage or oversized
+ * value is rejected rather than hashed. */
+const TAB_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
+
+/** isValidTabId reports whether a client-supplied tab id is well-formed. */
+export function isValidTabId(tab: string): boolean {
+  return TAB_ID_RE.test(tab);
+}
+
+/** Largest multiple of the alphabet size that fits in a byte; bytes at or above it
+ * are rejected rather than folded, so every slug character is drawn uniformly. */
+const REJECT_AT = 256 - (256 % ALPHABET.length);
+
+/**
+ * deriveNamespace mixes a browser's cookie namespace with one of its tabs' ids to
+ * get that tab's own namespace, in the same 8-char slug shape (so it stays valid as
+ * both a directory name and a URL segment).
+ *
+ * The cookie namespace is the secret and keys the HMAC, which is what makes the
+ * result unguessable by anyone who doesn't already hold the cookie.
+ *
+ * An absent or malformed tab id yields the cookie namespace unchanged. That is the
+ * single fallback seam — every caller can hand this a raw untrusted value — and it
+ * keeps callers that have no tab (a stale bundle, curl) working as they did before.
+ */
+export function deriveNamespace(base: string, tab: string | null | undefined): string {
+  if (!tab || !isValidTabId(tab)) return base;
+  // One 32-byte digest all but always yields the 8 characters (a byte is rejected
+  // ~1.6% of the time), but "all but always" is not "always" — keep drawing from
+  // further rounds so the result is guaranteed to be a full, valid slug.
+  let out = "";
+  for (let round = 0; out.length < 8; round++) {
+    const digest = createHmac("sha256", base).update(`${tab}:${round}`).digest();
+    for (let i = 0; i < digest.length && out.length < 8; i++) {
+      if (digest[i] >= REJECT_AT) continue;
+      out += ALPHABET[digest[i] % ALPHABET.length];
+    }
+  }
   return out;
 }
 
