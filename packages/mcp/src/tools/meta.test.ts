@@ -168,6 +168,49 @@ describe("flow meta tools", () => {
     expect(read).toMatchObject({ inputs: [{ name: "a vip order" }] });
   });
 
+  it("refuses to save a test input for a flow that does not exist", async () => {
+    const meta = fakeMetaStore();
+    const client = await connect(config(meta));
+
+    const res = await call(client, "set_test_input", {
+      id: "a",
+      flow: "refund",
+      name: "missing",
+    });
+
+    expect(res.isError).toBe(true);
+    expect(text(res)).toContain('"orders", "reports"');
+    expect(meta.content).toBe("");
+  });
+
+  it("accepts a valid flow even when no block address names it", async () => {
+    const sparse = [
+      "service:",
+      "  name: Demo",
+      "flows:",
+      "  - name: orders",
+      "    process:",
+      "      - type: log",
+      "        name: audit",
+      "  - name: empty",
+      "    process: []",
+    ].join("\n");
+    const meta = fakeMetaStore();
+    const client = await connect(config(meta, sparse));
+
+    const saved = parse(
+      await call(client, "set_test_input", { id: "a", flow: "empty", name: "blank" }),
+    ) as { id: string; name: string };
+
+    expect(saved.name).toBe("blank");
+    expect(saved.id).toBeTruthy();
+    expect(parse(await call(client, "get_flow_meta", { id: "a", flow: "empty" }))).toEqual({
+      inputs: [{ id: saved.id, name: "blank" }],
+      mocks: [],
+      spies: [],
+    });
+  });
+
   it("replaces an input given its id, rather than adding a second", async () => {
     const meta = fakeMetaStore();
     const client = await connect(config(meta));

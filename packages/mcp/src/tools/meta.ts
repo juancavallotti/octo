@@ -14,6 +14,7 @@ import {
   type FlowMeta,
   type TestInput,
 } from "@octo/editor/runtime";
+import { flowNames } from "../flows";
 import type { IntegrationStore, MetaStore, OctoMcpConfig } from "../backend";
 import { fromStoredCase, mockCaseSchema, toStoredCase } from "../mocks";
 import { guard, jsonResult } from "../result";
@@ -130,6 +131,12 @@ export function registerMetaTools(server: McpServer, config: OctoMcpConfig): voi
     },
     ({ id, flow, name, data, vars, inputId }) =>
       guard(async () => {
+        const rec = await store.get(id);
+        requireFlow(
+          flow,
+          [...blockIdAddresses(fromDefinitionYaml(rec.definition)).values()],
+          rec.definition,
+        );
         const input: TestInput = {
           id: inputId ?? crypto.randomUUID(),
           name,
@@ -332,6 +339,26 @@ function requireAddress(address: string, valid: string[]): void {
         ? `Addresses in "${flow}": ${here.join(", ")}.`
         : `No block in "${flow}" has an address.`) +
       " A block only has one when its name is unique among its siblings and free of '.', '[' and ']' — give it one with `update_flow` and it will appear in `list_block_addresses`.",
+  );
+}
+
+/**
+ * Refuse a flow no definition or block address can name, saying which ones do.
+ *
+ * A test input is saved into one flow's meta entry. If the flow does not exist, or if
+ * the definition has flows that no block address can cover, the definition's top-level
+ * flow list is the source of truth for what is valid. That keeps empty or otherwise
+ * unaddressable flows writable instead of making their inputs impossible to save.
+ */
+function requireFlow(flow: string, addresses: string[], definition: string): void {
+  const fromAddresses = [...new Set(addresses.map(flowOf))];
+  const fromDefinition = [...new Set(flowNames(definition))];
+  const valid = fromAddresses.length === fromDefinition.length ? fromAddresses : fromDefinition;
+  if (valid.includes(flow)) return;
+  throw new Error(
+    `no flow named "${flow}" in this integration (it has: ${valid
+      .map((name) => `"${name}"`)
+      .join(", ")})`,
   );
 }
 
