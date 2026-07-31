@@ -2,7 +2,8 @@
 
 import type { ReactNode } from "react";
 import { useSuiteRun } from "../../run/SuiteRunContext";
-import CaseResults from "./CaseResults";
+import type { SkippedSuite } from "../../suite/runAll";
+import SuiteResults from "./SuiteResults";
 
 /**
  * The panel body. Every console tab owns its own scroll region — the console has a fixed,
@@ -40,7 +41,19 @@ export default function TestsTab() {
     return (
       <Body>
         <p className="px-3 py-2 text-xs text-zinc-500 dark:text-zinc-400">
-          Running {run.flow ? <code>{run.flow}</code> : null}…
+          {run.flows.length === 1 ? (
+            <>
+              Running <code>{run.flows[0]}</code>…
+            </>
+          ) : (
+            `Running ${run.flows.length} suites…`
+          )}
+          {/* dolphin runs one case at a time on purpose (a suite may open a real dev
+              database), and there is no progress stream — so a big run is a long wait
+              behind a spinner, and saying so beats looking stuck. */}
+          {run.flows.length > 3 && (
+            <span className="text-zinc-400 dark:text-zinc-500"> this can take a while.</span>
+          )}
         </p>
       </Body>
     );
@@ -80,12 +93,13 @@ export default function TestsTab() {
     );
   }
 
-  const cases = run.outcome.suites.flatMap((s) => s.cases);
-  if (cases.length === 0) {
+  const suites = run.outcome.suites;
+  if (suites.every((s) => s.cases.length === 0)) {
     return (
       <Body>
+        <Skipped skipped={run.skipped} />
         <p className="px-3 py-2 text-xs text-zinc-500 dark:text-zinc-400">
-          The suite ran, but it has no cases.
+          The run produced no cases.
         </p>
       </Body>
     );
@@ -93,7 +107,27 @@ export default function TestsTab() {
 
   return (
     <Body>
-      <CaseResults cases={cases} />
+      <Skipped skipped={run.skipped} />
+      {suites.map((suite) => (
+        <SuiteResults key={suite.name} suite={suite} />
+      ))}
     </Body>
+  );
+}
+
+/**
+ * The suites that were left out of the run, and why.
+ *
+ * Above the results, not below them: the tally underneath is only the truth about what
+ * ran, and a green one that silently covered three suites which never did would be a
+ * worse answer than a red one.
+ */
+function Skipped({ skipped }: { skipped: SkippedSuite[] }) {
+  if (skipped.length === 0) return null;
+  return (
+    <p className="border-b border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-800 dark:text-amber-200/90">
+      {skipped.length === 1 ? "1 suite was" : `${skipped.length} suites were`} not run:{" "}
+      {skipped.map((s) => `${s.flow} (${s.reason})`).join(", ")}
+    </p>
   );
 }

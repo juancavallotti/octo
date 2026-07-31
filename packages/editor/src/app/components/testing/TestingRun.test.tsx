@@ -1,6 +1,6 @@
 import { useEffect, type ReactNode } from "react";
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
   EditorStateProvider,
@@ -21,7 +21,7 @@ import {
   type TestRunOutcome,
   type TestRunRequest,
 } from "../../run/testTransport";
-import type { RunTransport } from "../../run/transport";
+import type { CelEvalRequest, RunTransport } from "../../run/transport";
 import { blankDocument, emptyFlow } from "../../model/document";
 import TestingView from "./TestingView";
 
@@ -40,13 +40,19 @@ function stubTransport(
   { testAvailable = true }: { testAvailable?: boolean } = {},
 ) {
   const requests: TestRunRequest[] = [];
+  // What the form asked to evaluate, which is how the last run's message for a case
+  // becomes observable from outside it.
+  const evals: CelEvalRequest[] = [];
   const transport: RunTransport = {
     status: async () => snapshot(testAvailable),
     start: async () => snapshot(testAvailable),
     stop: async () => {},
     sync: async () => {},
     invoke: async () => ({ ok: true, dropped: false, timedOut: false, output: "", logs: [] }),
-    evalCel: async () => ({ ok: true }),
+    evalCel: async (req) => {
+      evals.push(req);
+      return { ok: true, result: true };
+    },
     subscribeLogs: () => () => {},
     test: async (req) => {
       requests.push(req);
@@ -54,7 +60,7 @@ function stubTransport(
       return result;
     },
   };
-  return { transport, requests };
+  return { transport, requests, evals };
 }
 
 function outcome(over: Partial<TestRunOutcome> = {}): TestRunOutcome {
@@ -133,6 +139,12 @@ async function openSuite(user: ReturnType<typeof userEvent.setup>, flow = "order
   return screen.getByRole("button", { name: /Run tests/ });
 }
 
+/**
+ * The open suite's toolbar. A tally is scoped to it because the console reports one per
+ * suite too, so "1 passed" on its own no longer says whose.
+ */
+const toolbar = () => screen.getByRole("button", { name: /Run tests/ }).parentElement!;
+
 describe("running a suite", () => {
   it("sends the open suite and the current document", async () => {
     const user = userEvent.setup();
@@ -178,8 +190,10 @@ describe("running a suite", () => {
 
     await user.click(await openSuite(user));
 
-    expect(await screen.findByText("1 failed")).toBeInTheDocument();
-    expect(screen.getByText("1 passed")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(within(toolbar()).getByText("1 failed")).toBeInTheDocument(),
+    );
+    expect(within(toolbar()).getByText("1 passed")).toBeInTheDocument();
     expect(screen.getByText("it charges")).toBeInTheDocument();
     // A failure opens itself: it is the reason the button was pressed. The detail is a
     // diff, so it must survive with its newlines.
@@ -209,7 +223,9 @@ describe("running a suite", () => {
 
     await user.click(await openSuite(user));
 
-    expect(await screen.findByText("1 failed")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(within(toolbar()).getByText("1 failed")).toBeInTheDocument(),
+    );
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
@@ -299,8 +315,11 @@ describe("when running is not possible", () => {
 });
 
 describe("the report and the suite it belongs to", () => {
-  // Carrying a report across would show one suite's verdict under another's name.
-  it("clears the last report when another flow is opened", async () => {
+  // The report is the last RUN's, not the open suite's — it used to be dropped on
+  // navigation, back when a run was always one suite and the console could only have meant
+  // the open one. Now every result is filed under the suite that produced it, so moving
+  // between two suites to compare them no longer destroys what was just run.
+  it("keeps the report when another flow is opened, filed under the suite that ran", async () => {
     const user = userEvent.setup();
     const { transport } = stubTransport(outcome());
     renderTab(
@@ -313,12 +332,68 @@ describe("the report and the suite it belongs to", () => {
     );
 
     await user.click(await openSuite(user));
-    expect(await screen.findByText("1 passed")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(within(toolbar()).getByText("1 passed")).toBeInTheDocument(),
+    );
 
     await user.click(screen.getByRole("button", { name: "refunds" }));
 
-    expect(screen.queryByText("1 passed")).toBeNull();
-    expect(screen.queryByText("it runs")).toBeNull();
+    // The report is still on screen and still filed under orders. The toolbar now speaks
+    // for refunds, which was not in that run — so it shows what refunds HAS rather than a
+    // tally it did not earn.
+    expect(screen.getByText("it runs")).toBeInTheDocument();
+    expect(within(toolbar()).getByText("1 case")).toBeInTheDocument();
+    expect(within(toolbar()).queryByText("1 passed")).toBeNull();
+  });
+
+  // A case name is unique only within a FILE, and every scaffolded suite starts with one
+  // called "it runs". Looking a case up by name alone would offer one suite's message
+  // inside another suite's form, under an assertion that never produced it.
+  it("attributes a case's outcome to the suite that ran it", async () => {
+    const user = userEvent.setup();
+    const shared =
+      "flow: FLOW\ncases:\n  - name: it runs\n    expect:\n      that:\n        - body.ok\n";
+    const ran = (flow: string) => ({
+      name: flow,
+      flow,
+      cases: [
+        {
+          name: "it runs",
+          status: "passed" as const,
+          elapsedMs: 10,
+          outcome: { result: { body: { from: flow } } },
+        },
+      ],
+    });
+    const { transport, evals } = stubTransport(
+      outcome({
+        totals: { ...emptyTotals(), cases: 2, passed: 2, elapsedMs: 20 },
+        suites: [ran("orders"), ran("refunds")],
+      }),
+    );
+    renderTab(
+      transport,
+      fakeStore([
+        { flow: "orders", content: shared.replace("FLOW", "orders") },
+        { flow: "refunds", content: shared.replace("FLOW", "refunds") },
+      ]),
+      ["orders", "refunds"],
+    );
+
+    await user.click(await openSuite(user));
+    // Orders' own slice of the run, not the whole run's two.
+    await waitFor(() =>
+      expect(within(toolbar()).getByText("1 passed")).toBeInTheDocument(),
+    );
+
+    // Open refunds' case and try its assertion. The message it is evaluated against is the
+    // one refunds produced, not the identically-named case from orders.
+    await user.click(screen.getByRole("button", { name: "refunds" }));
+    await user.click(await screen.findByRole("button", { name: "it runs" }));
+    await user.click(screen.getByRole("button", { name: "Try" }));
+
+    await waitFor(() => expect(evals).toHaveLength(1));
+    expect(evals[0].data).toBe(JSON.stringify({ from: "refunds" }));
   });
 
   // The server is stateless, so two runs would not corrupt each other — they would just
@@ -340,7 +415,9 @@ describe("the report and the suite it belongs to", () => {
     expect(requests).toHaveLength(1);
 
     release(outcome());
-    expect(await screen.findByText("1 passed")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(within(toolbar()).getByText("1 passed")).toBeInTheDocument(),
+    );
   });
 });
 

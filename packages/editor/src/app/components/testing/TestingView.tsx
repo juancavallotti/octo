@@ -9,7 +9,6 @@ import { suiteFileName } from "../../suite/naming";
 import SuiteRail, { type RailFlow } from "./SuiteRail";
 import SuiteEditor from "./SuiteEditor";
 import EmptyState from "./EmptyState";
-import { useSuiteRun } from "../../run/SuiteRunContext";
 import { scaffoldSuite } from "./scaffold";
 
 /**
@@ -36,15 +35,15 @@ import { scaffoldSuite } from "./scaffold";
 export default function TestingView() {
   const { state } = useEditorState();
   const suites = useTestSuites();
-  const suiteRun = useSuiteRun();
   const [selected, setSelected] = useState<string | null>(null);
 
-  // A report belongs to the suite that produced it, so opening another flow drops it —
-  // otherwise the console would show one suite's verdict under another's name.
-  const select = (flow: string) => {
-    setSelected(flow);
-    suiteRun?.clear();
-  };
+  // Opening another flow deliberately does NOT drop the last report. It used to, back when
+  // a run was always one suite and the console could only have meant the open one. Now
+  // every result is filed under the suite that produced it — in the console's groups and
+  // in this tab's per-suite tally — so the report is the last RUN's, like the logs and a
+  // flow's output, and navigating is not a reason to destroy it. The console's own clear
+  // button is.
+  const select = (flow: string) => setSelected(flow);
 
   // Top-level flows only: those are what `octo invoke` — and so a suite — addresses.
   const flowNames = useMemo(

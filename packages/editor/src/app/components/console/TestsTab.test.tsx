@@ -1,11 +1,12 @@
 import { type ReactNode } from "react";
 import { describe, it, expect } from "vitest";
-import { render, screen, act } from "@testing-library/react";
+import { render, screen, act, within } from "@testing-library/react";
 import { EditorStateProvider } from "../../state/editorState";
 import { ConsoleProvider, useConsole } from "../../run/console";
 import { RunProvider } from "../../run/RunContext";
 import { SuiteRunProvider, useSuiteRun } from "../../run/SuiteRunContext";
 import { emptyTotals, type TestRunOutcome } from "../../run/testTransport";
+import type { SkippedSuite } from "../../suite/runAll";
 import type { RunTransport } from "../../run/transport";
 import TestsTab from "./TestsTab";
 import ConsoleTabs from "./ConsoleTabs";
@@ -36,12 +37,20 @@ function transportWith(result: TestRunOutcome | Error): RunTransport {
 }
 
 /** A run trigger plus the tab that shows it, and the strip that badges it. */
-function Harness() {
+function Harness({ targets = ["orders"], skipped = [] }: HarnessProps) {
   const run = useSuiteRun();
   const { tab } = useConsole();
   return (
     <>
-      <button type="button" onClick={() => void run?.run("orders", "flow: orders\n")}>
+      <button
+        type="button"
+        onClick={() =>
+          void run?.run(
+            targets.map((name) => ({ name, content: `flow: ${name}\n` })),
+            skipped,
+          )
+        }
+      >
         go
       </button>
       <p data-testid="tab">{tab}</p>
@@ -59,7 +68,13 @@ function Harness() {
   );
 }
 
-function renderTab(transport: RunTransport) {
+interface HarnessProps {
+  /** The suites the run asks for; the report is whatever the transport was given. */
+  targets?: string[];
+  skipped?: SkippedSuite[];
+}
+
+function renderTab(transport: RunTransport, props: HarnessProps = {}) {
   const wrap = (children: ReactNode) => (
     <EditorStateProvider>
       <ConsoleProvider>
@@ -69,7 +84,7 @@ function renderTab(transport: RunTransport) {
       </ConsoleProvider>
     </EditorStateProvider>
   );
-  return render(wrap(<Harness />));
+  return render(wrap(<Harness {...props} />));
 }
 
 const passing: TestRunOutcome = {
@@ -100,6 +115,26 @@ const failing: TestRunOutcome = {
         },
         { name: "it settles", status: "errored", elapsedMs: 1, error: "no such input" },
       ],
+    },
+  ],
+  logs: [],
+};
+
+/** Two suites whose cases share a name — what a run of scaffolded suites looks like. */
+const twoSuites: TestRunOutcome = {
+  ok: true,
+  timedOut: false,
+  totals: { ...emptyTotals(), cases: 2, passed: 1, failed: 1 },
+  suites: [
+    {
+      name: "orders",
+      flow: "orders",
+      cases: [{ name: "it runs", status: "passed", elapsedMs: 3 }],
+    },
+    {
+      name: "refunds",
+      flow: "refunds",
+      cases: [{ name: "it runs", status: "failed", elapsedMs: 5 }],
     },
   ],
   logs: [],
@@ -183,5 +218,56 @@ describe("TestsTab", () => {
     renderTab(transportWith({ ...passing, ok: false, timedOut: true, suites: [] }));
     await clickGo();
     expect(screen.getByRole("alert")).toHaveTextContent(/took too long/);
+  });
+});
+
+describe("a run of several suites", () => {
+  // Every scaffolded suite starts with a case called "it runs". Flattened, a run of three
+  // would show three identical rows and no way to tell which flow each belonged to — so
+  // the report is grouped by the suite that produced it.
+  it("groups the report, so cases sharing a name stay told apart", async () => {
+    renderTab(transportWith(twoSuites), { targets: ["orders", "refunds"] });
+
+    await clickGo();
+
+    const orders = screen.getByText("orders").closest("section")!;
+    const refunds = screen.getByText("refunds").closest("section")!;
+    expect(within(orders).getByText("it runs")).toBeInTheDocument();
+    expect(within(refunds).getByText("it runs")).toBeInTheDocument();
+    // Each group carries its own tally, not the whole run's.
+    expect(within(orders).getByText("1 passed")).toBeInTheDocument();
+    expect(within(refunds).getByText("1 failed")).toBeInTheDocument();
+  });
+
+  it("names each suite it is showing", async () => {
+    renderTab(transportWith(twoSuites), { targets: ["orders", "refunds"] });
+    await clickGo();
+
+    expect(screen.getByText("orders").tagName).toBe("CODE");
+    expect(screen.getByText("refunds").tagName).toBe("CODE");
+  });
+
+  // A green tally that quietly covered suites which never ran is worse than a red one.
+  it("says which suites were left out of the run", async () => {
+    renderTab(transportWith(passing), {
+      targets: ["orders"],
+      skipped: [
+        { flow: "refunds", reason: "has no cases yet" },
+        { flow: "legacy", reason: "there is no flow by that name in this document" },
+      ],
+    });
+
+    await clickGo();
+
+    const note = screen.getByText(/2 suites were not run/);
+    expect(note).toHaveTextContent("refunds (has no cases yet)");
+    expect(note).toHaveTextContent("legacy (there is no flow by that name in this document)");
+  });
+
+  it("says nothing about skipped suites when none were", async () => {
+    renderTab(transportWith(passing));
+    await clickGo();
+
+    expect(screen.queryByText(/not run:/)).toBeNull();
   });
 });

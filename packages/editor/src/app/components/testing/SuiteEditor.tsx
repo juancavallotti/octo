@@ -8,6 +8,7 @@ import { parseSuite } from "../../suite/parse";
 import { serializeSuite } from "../../suite/serialize";
 import { hasComments } from "../../suite/comments";
 import { suiteFileName } from "../../suite/naming";
+import { totalsOf } from "../../run/testTransport";
 import type { Suite } from "../../suite/types";
 import TestingToolbar, { type SuiteViewMode } from "./TestingToolbar";
 import SuiteIssues from "./SuiteIssues";
@@ -58,13 +59,20 @@ export default function SuiteEditor({
   const apply = (next: Suite) =>
     onChange(serializeSuite({ ...next, flow: next.flow || flow }));
 
+  // This toolbar speaks for THIS suite, so it reports this suite's slice of the last run —
+  // a run started from the header carries several, and the whole-run tally would credit
+  // this file with cases that are not in it. Nothing here means the last run did not
+  // include it, which is why a "no cases ran" tally is not the same as no tally at all.
+  const mine = suiteRun?.outcome?.suites.find((s) => s.name === flow) ?? null;
+
   return (
     <>
       <TestingToolbar
         fileName={suiteFileName(flow)}
         cases={suite.cases.length}
-        totals={suiteRun?.outcome?.totals ?? null}
-        running={suiteRun?.running ?? false}
+        totals={mine ? totalsOf(mine.cases) : null}
+        running={!!suiteRun?.running && suiteRun.flows.includes(flow)}
+        busy={suiteRun?.running ?? false}
         testAvailable={run?.testAvailable ?? false}
         mode={mode}
         onMode={setWanted}
@@ -80,7 +88,7 @@ export default function SuiteEditor({
             ? "Fix the problems above: dolphin will not load this suite."
             : undefined
         }
-        onRun={() => void suiteRun?.run(flow, content)}
+        onRun={() => void suiteRun?.run([{ name: flow, content }])}
       >
         <button
           type="button"
@@ -110,7 +118,7 @@ export default function SuiteEditor({
       <SuiteIssues issues={issues} />
 
       {mode === "form" ? (
-        <SuiteFormView suite={suite} issues={issues} onChange={apply} />
+        <SuiteFormView flow={flow} suite={suite} issues={issues} onChange={apply} />
       ) : (
         <SuiteYamlEditor value={content} onChange={onChange} />
       )}

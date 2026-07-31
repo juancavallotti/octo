@@ -26,8 +26,23 @@ import {
  * atomically.
  */
 
-/** Default wall-clock budget for a whole run. Generous: N cases, one process each. */
-const TEST_DEFAULT_TIMEOUT_MS = 120_000;
+/** Default wall-clock budget per suite. Generous: N cases, one process each. */
+const TEST_TIMEOUT_PER_SUITE_MS = 120_000;
+
+/**
+ * The ceiling for a whole run, however many suites it names.
+ *
+ * The budget scales because the suites run one after another (see {@link DEFAULT_PARALLEL}),
+ * so a fixed one would mean the editor's "run every suite" reliably timed out on any
+ * project big enough to want it. The cap is what keeps that from becoming a request no
+ * proxy in front of the host will hold open.
+ */
+const TEST_MAX_TIMEOUT_MS = 300_000;
+
+/** The wall clock a run of `suites` files gets when the caller names no budget of its own. */
+function defaultTimeout(suites: number): number {
+  return Math.min(TEST_MAX_TIMEOUT_MS, TEST_TIMEOUT_PER_SUITE_MS * Math.max(1, suites));
+}
 
 /** Grace period before a stop escalates from SIGTERM to SIGKILL (matches session.ts). */
 const STOP_GRACE_MS = 3000;
@@ -278,7 +293,7 @@ export async function test(ns: string, args: TestRunArgs): Promise<TestRunOutcom
       reportPath,
       suitePaths: staged.map((s) => s.path),
       env: args.env,
-      timeoutMs: args.timeoutMs ?? TEST_DEFAULT_TIMEOUT_MS,
+      timeoutMs: args.timeoutMs ?? defaultTimeout(args.suites.length),
       parallel: args.parallel ?? DEFAULT_PARALLEL,
     });
 
