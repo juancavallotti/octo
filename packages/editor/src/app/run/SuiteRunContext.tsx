@@ -62,8 +62,13 @@ export function SuiteRunProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   // Guards a second run arriving before the state update that disables the button.
   const inFlight = useRef(false);
+  // Monotonic token for invalidating stale async completions.
+  const generation = useRef(0);
 
   const clear = useCallback(() => {
+    generation.current++;
+    inFlight.current = false;
+    setRunning(false);
     setOutcome(null);
     setError(null);
     setFlow(null);
@@ -72,6 +77,7 @@ export function SuiteRunProvider({ children }: { children: ReactNode }) {
   const start = useCallback(
     async (target: string, content: string) => {
       if (!run || inFlight.current) return;
+      const runGeneration = generation.current;
       inFlight.current = true;
       setRunning(true);
       setError(null);
@@ -80,19 +86,21 @@ export function SuiteRunProvider({ children }: { children: ReactNode }) {
       // looking — the same thing a flow run does with its output.
       consoleTabs.openTo("tests");
       try {
-        setOutcome(
-          await run.runTests({
-            yaml: toRunnableYaml(state.document),
-            integrationId: state.integration.id ?? undefined,
-            suites: [{ name: target, content }],
-          }),
-        );
+        const resolved = await run.runTests({
+          yaml: toRunnableYaml(state.document),
+          integrationId: state.integration.id ?? undefined,
+          suites: [{ name: target, content }],
+        });
+        if (generation.current !== runGeneration) return;
+        setOutcome(resolved);
       } catch (e) {
+        if (generation.current !== runGeneration) return;
         // The call could not be made at all: no runner, no session, a transport error.
         // A run whose TESTS failed comes back as a resolved outcome, not as this.
         setOutcome(null);
         setError((e as Error).message);
       } finally {
+        if (generation.current !== runGeneration) return;
         inFlight.current = false;
         setRunning(false);
       }

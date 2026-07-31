@@ -33,6 +33,14 @@ function outcome(): TestRunOutcome {
   };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
 function harness(test: RunTransport["test"]) {
   const transport: RunTransport = {
     status: async () => snapshot,
@@ -140,5 +148,33 @@ describe("useSuiteRun", () => {
 
     expect(result.current.outcome).toBeNull();
     expect(result.current.error).toBeNull();
+  });
+
+  it("ignores a stale completion after clear while running", async () => {
+    const gate = deferred<void>();
+    const { result } = harness(async () => {
+      await gate.promise;
+      return outcome();
+    });
+
+    await act(async () => {
+      void result.current.run("orders", "flow: orders\n");
+    });
+    expect(result.current.running).toBe(true);
+
+    act(() => result.current.clear());
+    expect(result.current.running).toBe(false);
+    expect(result.current.outcome).toBeNull();
+    expect(result.current.error).toBeNull();
+    expect(result.current.flow).toBeNull();
+
+    await act(async () => {
+      gate.resolve();
+    });
+    await waitFor(() => expect(result.current.running).toBe(false));
+
+    expect(result.current.outcome).toBeNull();
+    expect(result.current.error).toBeNull();
+    expect(result.current.flow).toBeNull();
   });
 });
