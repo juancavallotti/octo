@@ -30,7 +30,7 @@ export default function RunBar() {
 
   if (state.viewMode === "testing") {
     return (
-      <div className="flex items-center gap-2">
+      <div className="ml-auto flex items-center gap-2">
         <TestRunButton />
       </div>
     );
