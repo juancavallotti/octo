@@ -117,6 +117,15 @@ function stubRunHost(opts: { available?: boolean } = {}) {
         spies,
       };
     },
+    // The run tools never call it; the suite tools have their own harness.
+    test: async () => ({
+      ok: true,
+      exitCode: 0,
+      timedOut: false,
+      totals: { cases: 0, passed: 0, failed: 0, errored: 0, skipped: 0, notRun: 0, elapsedMs: 0 },
+      suites: [],
+      logs: [],
+    }),
     evalCel: async (expression, opts) => {
       calls.evaluated = { expression, opts };
       return { ok: true, result: true, logs: ["evaluated"] };

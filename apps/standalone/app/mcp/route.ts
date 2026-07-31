@@ -9,7 +9,12 @@ import {
   type Capabilities,
 } from "@octo/editor/runtime";
 import { fsResourceProvider } from "../run/resources";
-import { fsIntegrationStore, fsMetaStore, fsResourceStore } from "./store-adapter";
+import {
+  fsIntegrationStore,
+  fsMetaStore,
+  fsResourceStore,
+  fsSuiteStore,
+} from "./store-adapter";
 
 /**
  * GET/POST/DELETE /mcp — the standalone app's Model Context Protocol endpoint
@@ -73,6 +78,9 @@ const handler = createOctoMcpHandler(
     // The editor's own bookkeeping, so an agent that has just debugged a flow can leave
     // the mocks, spies and test inputs behind for whoever opens the canvas next.
     metaStore: fsMetaStore,
+    // The dolphin suites beside the flows, so an agent can write a test and then run it —
+    // the same files the Testing tab shows and `dolphin test` runs from a terminal.
+    suiteStore: fsSuiteStore,
     // Point the authoring prompt at the human docs (CEL, block reference) when
     // configured. Set OCTO_DOCS_URL to your documentation site.
     docsUrl: process.env.OCTO_DOCS_URL,

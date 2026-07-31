@@ -4,11 +4,17 @@ import type {
   MetaStore,
   ResourceRecord,
   ResourceStore,
+  SuiteStore,
 } from "@octo/mcp";
 import type { ActionResult } from "@octo/http";
 import type { Integration, Resource } from "@/app/model/orchestrator";
 import { publishIntegrationEvent } from "@/app/lib/integrationEvents";
 import * as client from "@/app/actions/_client";
+import {
+  deleteSuiteFile,
+  listSuiteFiles,
+  saveSuiteFile,
+} from "@/app/lib/suiteResources";
 
 /**
  * The platform host's {@link IntegrationStore}: a thin shim over the orchestrator
@@ -136,5 +142,20 @@ export const orchestratorMetaStore: MetaStore = {
         content,
       ),
     );
+  },
+};
+
+/**
+ * The platform host's {@link SuiteStore}: the integration's dolphin suites, over the
+ * same `.octo/tests/` storage the Testing tab writes — so a suite an agent authors is
+ * the one the tab shows, and the one CI runs.
+ */
+export const orchestratorSuiteStore: SuiteStore = {
+  list: async (integrationId) => unwrap(await listSuiteFiles(integrationId)),
+  save: async (integrationId, flow, content) => {
+    unwrap(await saveSuiteFile(integrationId, flow, content));
+  },
+  remove: async (integrationId, flow) => {
+    unwrap(await deleteSuiteFile(integrationId, flow));
   },
 };

@@ -14,6 +14,7 @@ export type {
   OctoMcpConfig,
   ResourceRecord,
   ResourceStore,
+  SuiteStore,
   ValidationOutcome,
 } from "./backend";
 export type { RunHostPort, RunStatusLike, RunLogLine } from "./run-host";

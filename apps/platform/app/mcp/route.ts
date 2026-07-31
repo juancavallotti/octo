@@ -14,6 +14,7 @@ import {
   orchestratorIntegrationStore,
   orchestratorMetaStore,
   orchestratorResourceStore,
+  orchestratorSuiteStore,
 } from "./store-adapter";
 import { verifyMcpToken } from "./verify-token";
 import { MCP_ORIGIN, RESOURCE_METADATA_PATH } from "./oauth-config";
@@ -94,6 +95,9 @@ const handler = createOctoMcpHandler(
     // The editor's own bookkeeping, so an agent that has just debugged a flow can leave
     // the mocks, spies and test inputs behind for whoever opens the canvas next.
     metaStore: orchestratorMetaStore,
+    // The integration's dolphin suites, so an agent can write a test and then run it —
+    // the same files the Testing tab shows and CI runs.
+    suiteStore: orchestratorSuiteStore,
     // Absolutize a run's test URL when the public origin is known (Auth.js's
     // canonical var); otherwise the bare /editor/runs/<ns>/ path is returned.
     baseUrl: process.env.AUTH_URL,

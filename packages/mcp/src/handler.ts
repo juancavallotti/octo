@@ -7,6 +7,7 @@ import { createNamespaceResolver } from "./namespace";
 import { registerIntegrationTools } from "./tools/integration";
 import { registerResourceTools } from "./tools/resource";
 import { registerMetaTools } from "./tools/meta";
+import { registerSuiteTools } from "./tools/suite";
 import { registerRunTools } from "./tools/run";
 import { registerDocsTools } from "./tools/docs";
 import {
@@ -100,6 +101,7 @@ export function createOctoMcpHandler(
       registerResourceTools(server, config);
       registerMetaTools(server, config);
       registerRunTools(server, config, runHost, resolveNamespace);
+      registerSuiteTools(server, config, runHost, resolveNamespace);
       registerDocsTools(server, config);
       registerRuntimeSchemaResource(server, config);
       registerExampleResources(server);

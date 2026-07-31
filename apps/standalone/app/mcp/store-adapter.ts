@@ -4,10 +4,12 @@ import type {
   MetaStore,
   ResourceRecord,
   ResourceStore,
+  SuiteStore,
 } from "@octo/mcp";
 import { publish } from "@octo/events";
 import * as store from "../api/fs/store";
 import * as resources from "../api/fs/resourceStore";
+import * as suites from "../api/fs/testSuiteStore";
 
 /**
  * The standalone host's {@link IntegrationStore}: a thin shim over the local disk
@@ -118,4 +120,18 @@ export const fsMetaStore: MetaStore = {
   save: async (_integrationId, content) => {
     await resources.writeResource(EDITOR_META_RESOURCE, content);
   },
+};
+
+/**
+ * The standalone host's {@link SuiteStore}: the `*_test.yaml` files sitting beside the
+ * flows, which is what makes them worth writing — `dolphin test` in a terminal and CI
+ * both run the very file an agent authored here.
+ *
+ * Flat and shared across documents like the rest of the local store, so the integration
+ * id names no directory: a flow name identifies its suite within the root.
+ */
+export const fsSuiteStore: SuiteStore = {
+  list: () => suites.listSuites(),
+  save: (_integrationId, flow, content) => suites.writeSuite(flow, content),
+  remove: (_integrationId, flow) => suites.deleteSuite(flow),
 };
