@@ -142,6 +142,10 @@ export const orchestratorMetaStore: MetaStore = {
         content,
       ),
     );
+    // An editor with this integration open is showing the mocks and spies this file
+    // holds. Without the announcement they stay as they were until a reload, and an
+    // agent that placed one would look to the user like it did nothing.
+    void publishIntegrationEvent({ type: "integration.meta-updated", id: integrationId });
   },
 };
 
@@ -154,8 +158,10 @@ export const orchestratorSuiteStore: SuiteStore = {
   list: async (integrationId) => unwrap(await listSuiteFiles(integrationId)),
   save: async (integrationId, flow, content) => {
     unwrap(await saveSuiteFile(integrationId, flow, content));
+    void publishIntegrationEvent({ type: "integration.tests-updated", id: integrationId });
   },
   remove: async (integrationId, flow) => {
     unwrap(await deleteSuiteFile(integrationId, flow));
+    void publishIntegrationEvent({ type: "integration.tests-updated", id: integrationId });
   },
 };

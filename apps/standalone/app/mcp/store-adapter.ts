@@ -117,8 +117,12 @@ const EDITOR_META_RESOURCE = ".octo/editor-meta.json";
  */
 export const fsMetaStore: MetaStore = {
   load: async () => (await resources.readResource(EDITOR_META_RESOURCE)) ?? "",
-  save: async (_integrationId, content) => {
+  save: async (integrationId, content) => {
     await resources.writeResource(EDITOR_META_RESOURCE, content);
+    // An editor with this document open is showing the mocks and spies this file
+    // holds. Without the announcement they stay as they were until a reload, and an
+    // agent that placed one would look to the user like it did nothing.
+    publish({ type: "integration.meta-updated", id: integrationId });
   },
 };
 
@@ -132,6 +136,12 @@ export const fsMetaStore: MetaStore = {
  */
 export const fsSuiteStore: SuiteStore = {
   list: () => suites.listSuites(),
-  save: (_integrationId, flow, content) => suites.writeSuite(flow, content),
-  remove: (_integrationId, flow) => suites.deleteSuite(flow),
+  save: async (integrationId, flow, content) => {
+    await suites.writeSuite(flow, content);
+    publish({ type: "integration.tests-updated", id: integrationId });
+  },
+  remove: async (integrationId, flow) => {
+    await suites.deleteSuite(flow);
+    publish({ type: "integration.tests-updated", id: integrationId });
+  },
 };

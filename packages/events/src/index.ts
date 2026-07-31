@@ -7,7 +7,12 @@
  * helper in the browser.
  */
 
-export type { OctoEvent, IntegrationUpdatedEvent } from "./types";
+export type {
+  OctoEvent,
+  IntegrationUpdatedEvent,
+  TestSuitesUpdatedEvent,
+  FlowMetaUpdatedEvent,
+} from "./types";
 export { publish, subscribe } from "./bus";
 export { integrationEventStream } from "./stream";
 export {

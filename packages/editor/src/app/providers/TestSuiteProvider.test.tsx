@@ -1,6 +1,6 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, act } from "@testing-library/react";
+import { render, screen, act, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
   EditorStateProvider,
@@ -51,7 +51,10 @@ function fakeStore(docs: Record<string, TestSuiteFile[]> = {}) {
     },
     canEdit: (id) => !!id,
   };
-  return { store, saves, removes };
+  /** A write by somebody other than this editor — an MCP agent, in practice. */
+  const external = (id: string, flow: string, content: string) =>
+    filesFor(id).set(flow, content);
+  return { store, saves, removes, external };
 }
 
 /** Renders the capability's current view and exposes buttons to drive it. */
@@ -88,24 +91,32 @@ function Probe() {
  * which is the editor's initial state and needs no dispatch.
  */
 function renderProvider(store: TestSuiteStore | null, integrationId: string | null = "one") {
+  // Stands in for the host's event subscription: bumped when something else wrote a
+  // suite for the open document.
+  let bump = () => {};
   function Seed({ children }: { children: ReactNode }) {
     const { dispatch } = useEditorState();
+    const [token, setToken] = useState(0);
+    bump = () => act(() => setToken((n) => n + 1));
     useEffect(() => {
       if (integrationId) {
         dispatch({ type: EditorActionType.SET_INTEGRATION_ID, data: { id: integrationId } });
       }
     }, [dispatch]);
-    return <>{children}</>;
+    return (
+      <TestSuiteProvider store={store} reloadToken={token}>
+        {children}
+      </TestSuiteProvider>
+    );
   }
-  return render(
+  render(
     <EditorStateProvider>
       <Seed>
-        <TestSuiteProvider store={store}>
-          <Probe />
-        </TestSuiteProvider>
+        <Probe />
       </Seed>
     </EditorStateProvider>,
   );
+  return { announce: () => bump() };
 }
 
 describe("TestSuiteProvider", () => {
@@ -272,6 +283,83 @@ describe("TestSuiteProvider", () => {
 
     expect(await screen.findByText("invoices")).toBeInTheDocument();
     expect(screen.getByTestId("orders")).toHaveTextContent("none");
+  });
+
+  /**
+   * The editor is not the only writer: an MCP agent authors suites through the same
+   * store. Without this the tab shows whatever it read on mount until the user
+   * navigates away and back — which from their side is indistinguishable from the agent
+   * having done nothing.
+   */
+  it("picks up a suite written elsewhere when the host says so", async () => {
+    const { store, external } = fakeStore({ one: [] });
+    const { announce } = renderProvider(store);
+    await screen.findByTestId("all");
+
+    external("one", "orders", "flow: orders\nfrom the agent\n");
+    announce();
+
+    expect(await screen.findByText("orders")).toBeInTheDocument();
+    expect(screen.getByTestId("orders")).toHaveTextContent("from the agent");
+  });
+
+  // The provider does not poll. Nothing appears until the host relays an event, which
+  // is what keeps a list call off the critical path of every render.
+  it("shows nothing new until the host says so", async () => {
+    const { store, external } = fakeStore({ one: [] });
+    renderProvider(store);
+    await screen.findByTestId("all");
+
+    external("one", "orders", "flow: orders\n");
+    await act(async () => {
+      vi.advanceTimersByTime(PAST_DEBOUNCE_MS);
+    });
+
+    expect(screen.getByTestId("orders")).toHaveTextContent("none");
+  });
+
+  /**
+   * A refresh is news from elsewhere, not permission to discard what someone is
+   * typing. The pending edit is about to be written anyway, so adopting the stored copy
+   * would undo it on screen and then save the undo.
+   */
+  it("keeps a suite whose edit has not been written yet", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const { store, external } = fakeStore({ one: [{ flow: "orders", content: "v1" }] });
+    const { announce } = renderProvider(store);
+    await screen.findByText("orders");
+
+    await user.click(screen.getByRole("button", { name: "edit" }));
+    external("one", "orders", "written elsewhere");
+    announce();
+    // Let the re-list land: asserting before it does would pass however the merge
+    // behaves, which is the whole thing under test.
+    await act(async () => {});
+
+    expect(screen.getByTestId("orders")).toHaveTextContent("v2");
+  });
+
+  // Only the suite being edited is held back. Anything else the writer touched is news
+  // worth having, and holding all of it would make one open editor freeze the lot.
+  it("refreshes the untouched suites even while another is being edited", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const { store, external } = fakeStore({
+      one: [
+        { flow: "orders", content: "v1" },
+        { flow: "refunds", content: "flow: refunds\n" },
+      ],
+    });
+    const { announce } = renderProvider(store);
+    await screen.findByText("orders,refunds");
+
+    await user.click(screen.getByRole("button", { name: "edit" }));
+    external("one", "refunds", "flow: refunds\nfrom the agent\n");
+    announce();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("all")).toHaveTextContent("orders,refunds"),
+    );
+    expect(screen.getByTestId("orders")).toHaveTextContent("v2");
   });
 
   // An unreadable store is not worth blocking the editor over; the tab shows an empty

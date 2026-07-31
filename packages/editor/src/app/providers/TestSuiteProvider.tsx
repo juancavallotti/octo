@@ -83,9 +83,16 @@ const TestSuiteContext = createContext<TestSuiteValue | null>(null);
 
 export function TestSuiteProvider({
   store,
+  reloadToken,
   children,
 }: {
   store: TestSuiteStore | null;
+  /**
+   * Bumped by the host when something else wrote a suite for this document — an MCP
+   * agent, today. Without it the tab shows what it read on mount until the user
+   * navigates away and back, so an agent that wrote a test looks like it did nothing.
+   */
+  reloadToken?: string | number;
   children: ReactNode;
 }) {
   const { state } = useEditorState();
@@ -96,40 +103,78 @@ export function TestSuiteProvider({
   /**
    * The flows edited since the last write. Only these are saved, so the debounce never
    * rewrites a suite the user did not touch — which would churn mtimes on files that a
-   * terminal may be watching.
+   * terminal may be watching. A refresh reads it too, to know what not to overwrite.
    */
   const dirtyRef = useRef<Set<string>>(new Set());
+  // Orders in-flight lists, so a slow one cannot land after a newer one (or after the
+  // document changed) and put back what it read.
+  const listSeq = useRef(0);
 
   const canPersist = !!store && !!documentKey && store.canEdit(documentKey);
 
-  // Load whenever the open document changes.
+  /**
+   * Re-read every suite, keeping any the user is midway through editing.
+   *
+   * Keeping them is the whole difference between a refresh and a clobber. The token is
+   * news from elsewhere, not permission to discard what someone is typing — and a
+   * pending edit is about to be written anyway, so taking the stored copy would undo it
+   * and then save the undo.
+   */
+  const refresh = useCallback(async () => {
+    const seq = ++listSeq.current;
+    if (!store || !documentKey) {
+      setSuites({});
+      return;
+    }
+    let files: TestSuiteFile[] = [];
+    try {
+      files = await store.list(documentKey);
+    } catch {
+      // Suites we cannot read are suites this document does not have, as far as the
+      // tab is concerned. An unreadable store is not worth blocking the editor over.
+    }
+    if (seq !== listSeq.current) return;
+    setSuites((current) => {
+      const next: Record<string, string> = Object.fromEntries(
+        files.map((f) => [f.flow, f.content]),
+      );
+      for (const flow of dirtyRef.current) {
+        if (current[flow] !== undefined) next[flow] = current[flow];
+      }
+      return next;
+    });
+  }, [store, documentKey]);
+
+  // Load whenever the open document changes. Nothing carries over: a different document
+  // has different suites, and its pending edits belong to the document that left.
   useEffect(() => {
     let cancelled = false;
-    setLoaded(false);
     dirtyRef.current = new Set();
+    // Nothing to wait for without a store, and a moment of `loaded: false` would flash
+    // an empty state on the way to the same empty state.
     if (!store || !documentKey) {
       setSuites({});
       setLoaded(true);
       return;
     }
-    store
-      .list(documentKey)
-      .then((files) => {
-        if (cancelled) return;
-        setSuites(Object.fromEntries(files.map((f) => [f.flow, f.content])));
-        setLoaded(true);
-      })
-      .catch(() => {
-        // Suites we cannot read are suites this document does not have, as far as the
-        // tab is concerned. An unreadable store is not worth blocking the editor over.
-        if (cancelled) return;
-        setSuites({});
-        setLoaded(true);
-      });
+    setLoaded(false);
+    void refresh().then(() => {
+      if (!cancelled) setLoaded(true);
+    });
     return () => {
       cancelled = true;
     };
-  }, [store, documentKey]);
+  }, [refresh, store, documentKey]);
+
+  // Re-list when the host says something else wrote a suite. `loaded` is deliberately
+  // left alone: the tab has content on screen, and blanking it to an empty state on the
+  // way to the same content plus one would be a worse answer than the stale one.
+  const seenToken = useRef(reloadToken);
+  useEffect(() => {
+    if (reloadToken === seenToken.current) return;
+    seenToken.current = reloadToken;
+    void refresh();
+  }, [reloadToken, refresh]);
 
   // Persist, debounced, and only what changed here.
   useEffect(() => {

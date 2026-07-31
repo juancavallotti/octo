@@ -39,9 +39,14 @@ export default function PlatformEditor({
   // (the first save mints it). TagButton reads it through getIntegrationId so it
   // never tags against a stale id captured before the save resolved.
   const idRef = useRef<string | null>(integrationId ?? null);
-  // Bumped when the MCP server writes the file we currently have open, so the
-  // editor live-reloads it (a clean editor silently, a dirty one via a banner).
+  /**
+   * One counter per kind of file, because the editor does a different thing with
+   * each: the definition may need the user's say-so before it replaces unsaved work,
+   * while a suite or a mock written elsewhere should simply appear.
+   */
   const [reloadToken, setReloadToken] = useState(0);
+  const [testsToken, setTestsToken] = useState(0);
+  const [metaToken, setMetaToken] = useState(0);
   // Created once and kept across renders; onSaved pushes the minted id in so the
   // store keeps working after the first save without remounting the editor.
   const [resourceStore] = useState(() =>
@@ -50,7 +55,10 @@ export default function PlatformEditor({
   useEffect(
     () =>
       subscribeIntegrationEvents((event) => {
-        if (event.id === idRef.current) setReloadToken((n) => n + 1);
+        if (event.id !== idRef.current) return;
+        if (event.type === "integration.tests-updated") setTestsToken((n) => n + 1);
+        else if (event.type === "integration.meta-updated") setMetaToken((n) => n + 1);
+        else setReloadToken((n) => n + 1);
       }),
     [],
   );
@@ -69,7 +77,9 @@ export default function PlatformEditor({
       devEnv={available ? bffDevEnvStore : null}
       resources={available ? resourceStore : null}
       meta={available ? bffEditorMetaStore : null}
+      metaToken={metaToken}
       tests={available ? bffTestSuiteStore : null}
+      testsToken={testsToken}
       onSaved={(stored) => {
         idRef.current = stored.id;
         resourceStore.setIntegrationId(stored.id);

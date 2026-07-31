@@ -53,7 +53,9 @@ export default function EditorRoot({
   devEnv,
   resources,
   meta,
+  metaToken,
   tests,
+  testsToken,
   onSaved,
 }: {
   integrationId?: string;
@@ -80,10 +82,18 @@ export default function EditorRoot({
    */
   meta?: EditorMetaStore | null;
   /**
+   * Bumped when something else wrote the meta file — its own token rather than
+   * `reloadToken`, because a mock an agent placed should appear without asking, while
+   * the document behind it has unsaved edits to protect.
+   */
+  metaToken?: string | number;
+  /**
    * Test-suite capability (`<flow>_test.yaml`), backing the Testing tab. Omit and the
    * tab is hidden entirely — unlike meta, a test you cannot store is not worth writing.
    */
   tests?: TestSuiteStore | null;
+  /** Bumped when something else wrote a suite for this document. */
+  testsToken?: string | number;
   /** Called after a save with the stored record (e.g. to update the URL). */
   onSaved?: (stored: StoredDocument) => void;
 }) {
@@ -142,14 +152,20 @@ export default function EditorRoot({
   // the Testing tab — the one capability where absence means "not offered" rather than
   // "works, but forgets". It wraps the whole tree rather than the tab, because the
   // canvas reads it too: the flow ▶ menu offers a suite's cases as scenarios.
-  if (tests) tree = <TestSuiteProvider store={tests}>{tree}</TestSuiteProvider>;
+  if (tests) {
+    tree = (
+      <TestSuiteProvider store={tests} reloadToken={testsToken}>
+        {tree}
+      </TestSuiteProvider>
+    );
+  }
 
   // Meta is mounted even without a store: test inputs still work for an unsaved draft,
   // they simply are not written down (the provider reports canPersist: false). It reads
   // the document, so it sits inside the state provider.
   return (
     <EditorStateProvider>
-      <EditorMetaProvider store={meta ?? null}>
+      <EditorMetaProvider store={meta ?? null} reloadToken={metaToken}>
         <ConsoleProvider>{tree}</ConsoleProvider>
       </EditorMetaProvider>
     </EditorStateProvider>
