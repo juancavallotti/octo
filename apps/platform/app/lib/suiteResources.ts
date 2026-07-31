@@ -35,7 +35,9 @@ export interface SuiteFile {
 /** The suite resources among an integration's resources, in name order. */
 function suitesIn(resources: Resource[]): Resource[] {
   return resources
-    .filter((r) => r.name.startsWith(SUITE_PREFIX) && isSuiteFileName(r.name))
+    .filter(
+      (r) => r.kind === SUITE_KIND && r.name.startsWith(SUITE_PREFIX) && isSuiteFileName(r.name),
+    )
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 

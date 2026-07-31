@@ -66,8 +66,9 @@ describe("listTestSuites", () => {
       res(".env.dev", "A=1"),
       res("templates/welcome.tmpl", "hi"),
       res(".octo/editor-meta.json", "{}"),
-      res(".octo/tests/notes.txt", "x"),
       res(".octo/tests/orders_test.yaml", suite("orders")),
+      { ...res(".octo/tests/orders-copy_test.yaml", suite("orders")), kind: "env" },
+      res(".octo/tests/notes.txt", "x"),
     );
 
     expect(await listTestSuites("int-1")).toEqual({
