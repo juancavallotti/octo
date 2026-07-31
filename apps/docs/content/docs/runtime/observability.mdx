@@ -37,6 +37,19 @@ Probes are on by default. A probe endpoint you have to enable is one most deploy
 
 Each flag's default is its environment variable, so passing the flag always wins. These variables are read from the **process environment only**, not from a `.env` file — they are resolved when `octo run` parses its flags, before any config is loaded. `--observability=false` binds nothing at all.
 
+### When the port is already taken
+
+In production a runtime owns its pod and `:39999` is free. On a development machine it is not: the second `octo run` on one host finds the first one's admin port. That is **not** a startup failure — the runtime logs the bind error and carries on serving your flows with nothing on the admin port, because a port none of your flows asked for must not be what stops them running.
+
+Give each run an address of its own to have both serve probes:
+
+```bash
+octo run --config app.yaml &
+octo run --config other.yaml --observability-addr :39998
+```
+
+The editor's RUN does this for you: each run it spawns gets its own admin port, so several integrations can be running and monitored side by side.
+
 ## Liveness and readiness are different questions
 
 **Liveness** asks whether the process is wedged. `/healthz` answers `200` unconditionally: the handler running at all is the answer. There is no gate behind it, because a gate could only ever say "yes" — and a process too stuck to answer is precisely what a liveness probe already detects by timing out.

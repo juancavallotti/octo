@@ -53,7 +53,7 @@ octo run --config samples/hello-world.yaml
 | `--config` | path | (required) | Path to the runtime config — a YAML file or a directory. |
 | `--watch` | bool | `false` | Reload the runtime when the config changes. |
 | `--observability` | bool | `true` | Serve liveness and readiness probes on the admin port. `--observability=false` binds nothing. |
-| `--observability-addr` | address | `:39999` | Admin listen address for the probes and metrics. |
+| `--observability-addr` | address | `:39999` | Admin listen address for the probes and metrics. An address already in use is logged and the run continues without them. |
 | `--metrics` | bool | `false` | Also serve Prometheus metrics at `/metrics` on the admin port. |
 | `--metrics-blocks` | addresses | (none) | Comma-separated [block addresses](#addressing-a-block) to add per-block timings for, or `*` for every block. |
 
