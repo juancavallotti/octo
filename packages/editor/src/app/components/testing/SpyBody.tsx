@@ -48,9 +48,14 @@ export default function SpyBody({
           min={0}
           value={value.count ?? ""}
           placeholder="not asserted"
-          onChange={(e) =>
-            write(rows, e.target.value === "" ? undefined : Number(e.target.value))
-          }
+          onChange={(e) => {
+            const raw = e.target.value;
+            if (raw === "") {
+              write(rows, undefined);
+              return;
+            }
+            write(rows, Math.max(0, Number(raw)));
+          }}
           className={`${FIELD} w-32`}
         />
         <span className="text-[11px] text-zinc-400 dark:text-zinc-500">

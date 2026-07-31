@@ -113,6 +113,16 @@ describe("SpiesField", () => {
     expect(await fileNow()).toContain("count: 0");
   });
 
+  it("normalizes a directly typed negative count to zero", async () => {
+    const { user, fileNow } = await openCase(WATCHING);
+
+    await user.type(screen.getByPlaceholderText("not asserted"), "-1");
+
+    const file = await fileNow();
+    expect(file).toContain("count: 0");
+    expect(file).not.toContain("count: -1");
+  });
+
   it("leaves the count out when the box is empty", async () => {
     const { user, fileNow } = await openCase(
       "flow: orders\ncases:\n  - name: it runs\n    spies:\n      orders.charge:\n        count: 2\n",
