@@ -61,6 +61,11 @@ export const mockSpecSchema = z.object({
 /** One mock case as an agent gives it: bodies and variables as values. */
 export type MockCaseInput = z.infer<typeof mockCaseSchema>;
 
+/** A stored case read back as values, keeping raw vars text when it is not an object. */
+export type StoredMockCaseInput = Omit<MockCaseInput, "vars"> & {
+  vars?: MockCaseInput["vars"] | string;
+};
+
 /** A case as the editor's meta file holds it — `body` and `vars` as JSON text. */
 export function toStoredCase(c: MockCaseInput): MockCase {
   return {
@@ -77,18 +82,23 @@ export function toStoredCase(c: MockCaseInput): MockCase {
 /**
  * A stored case back as values. Text that will not parse comes back as the text it is:
  * the file can be hand-edited, and reporting a half-written body as it stands is more
- * use than refusing to show the mock at all.
+ * use than refusing to show the mock at all. `vars` is held to a stricter rule than
+ * `body` — the schema says it is an object, so text that parses to anything else (a
+ * number, an array) is reported as text rather than handed back as a lie about its type.
  */
-export function fromStoredCase(c: MockCase): MockCaseInput {
+export function fromStoredCase(c: MockCase): StoredMockCaseInput {
+  const vars = c.vars === undefined ? undefined : parseOr(c.vars);
   return {
     ...(c.when === undefined ? {} : { when: c.when }),
     ...(c.body === undefined ? {} : { body: parseOr(c.body) }),
-    ...(c.vars === undefined
-      ? {}
-      : { vars: parseOr(c.vars) as Record<string, unknown> }),
+    ...(c.vars === undefined ? {} : { vars: isPlainObject(vars) ? vars : c.vars }),
     ...(c.error === undefined ? {} : { error: c.error }),
     ...(c.drop === undefined ? {} : { drop: c.drop }),
   };
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function parseOr(text: string): unknown {
