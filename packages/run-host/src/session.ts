@@ -378,22 +378,35 @@ export async function start(
   await writeConfig(configPath, injectDevEnvResource(yaml));
   s.configPath = configPath;
 
-  // A networked integration (one that declares HTTP_PORT) gets a real port from
-  // the pool, injected as HTTP_PORT so the BFF can proxy to it. HTTP_HOST is the
-  // loopback because only the same-pod proxy needs to reach it. Internal-only runs
-  // (no HTTP_PORT) get no port and stay unexposed.
+  // The run's ports, taken together so a failure to get one does not strand the
+  // other. Each is recorded on the session as it is taken, which is what lets the
+  // rollback below hand it back.
   const exposable = isExposable(yaml);
-  const port = exposable ? allocatePort() : null;
-  s.exposable = exposable;
-  s.port = port;
+  let adminPort: number;
+  try {
+    // A networked integration (one that declares HTTP_PORT) gets a real port from
+    // the pool, injected as HTTP_PORT so the BFF can proxy to it. HTTP_HOST is the
+    // loopback because only the same-pod proxy needs to reach it. Internal-only runs
+    // (no HTTP_PORT) get no port and stay unexposed.
+    s.exposable = exposable;
+    s.port = exposable ? allocatePort() : null;
 
-  // Every run — networked or not — also gets an admin port for the runtime's
-  // observability service, which is on by default and otherwise binds the same
-  // fixed :39999 in every run on this host: the first run would take it and every
-  // later one would come up without probes or metrics. Loopback, because only this
-  // host reaches it.
-  const adminPort = allocateAdminPort();
-  s.adminPort = adminPort;
+    // Every run — networked or not — also gets an admin port for the runtime's
+    // observability service, which is on by default and otherwise binds the same
+    // fixed :39999 in every run on this host: the first run would take it and every
+    // later one would come up without probes or metrics. Loopback, because only this
+    // host reaches it.
+    adminPort = allocateAdminPort();
+    s.adminPort = adminPort;
+  } catch (err) {
+    // An exhausted pool ends this start, so roll the whole thing back: stop()
+    // returns whichever port was taken and removes the config and staged resources
+    // (env files hold secrets) instead of leaving them for whoever calls stop next.
+    // Repeated failed starts would otherwise eat the pool a port at a time.
+    await stop(ns);
+    throw err;
+  }
+  const port = s.port;
 
   // Base process env, then the dev env values; the port wiring is applied last so
   // a stray dev value can't clobber it.
