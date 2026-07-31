@@ -128,3 +128,37 @@ export function emptyTotals(): TestTotals {
     elapsedMs: 0,
   };
 }
+
+/** The status each case counts towards, keyed as {@link TestTotals} names them. */
+const TALLY: Record<TestCaseStatus, keyof TestTotals> = {
+  passed: "passed",
+  failed: "failed",
+  errored: "errored",
+  skipped: "skipped",
+  "not-run": "notRun",
+};
+
+/**
+ * Tally a subset of a report.
+ *
+ * A run may carry several suites while the Testing tab's toolbar speaks for exactly one,
+ * so the whole-run {@link TestRunOutcome.totals} is the wrong scope there. `elapsedMs`
+ * sums the cases rather than measuring wall clock — exact while dolphin runs one case at
+ * a time, and the run's own figure stays authoritative in the console.
+ */
+export function totalsOf(cases: readonly TestCaseResult[]): TestTotals {
+  const totals = emptyTotals();
+  for (const c of cases) {
+    totals.cases++;
+    totals[TALLY[c.status]]++;
+    totals.elapsedMs += c.elapsedMs;
+  }
+  return totals;
+}
+
+/**
+ * Why a test run cannot be started at all, shared by every control that offers one, so the
+ * open suite's Run button and the header's cannot drift on how they explain it.
+ */
+export const NO_TEST_RUNNER =
+  "No test runner: DOLPHIN_BIN_PATH is not set on the server.";

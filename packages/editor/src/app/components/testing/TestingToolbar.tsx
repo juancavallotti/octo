@@ -1,17 +1,23 @@
 "use client";
 
 import { Loader2, Play } from "lucide-react";
-import type { TestTotals } from "../../run/testTransport";
+import { NO_TEST_RUNNER, type TestTotals } from "../../run/testTransport";
+import TestTally from "../TestTally";
 import Segmented from "./Segmented";
 
 /**
  * The Testing tab's toolbar: run the open suite, switch between the two views of it, and
- * the tally of what happened.
+ * the tally of what happened to it.
  *
  * The Run button stays VISIBLE when there is no dolphin binary and explains itself in a
  * tooltip, rather than disappearing. Someone who has just written a suite needs to learn
  * why they cannot run it; a button that is not there teaches nothing. Form is gated the
  * same way, for the same reason.
+ *
+ * `running` and `busy` are not the same thing, and the difference shows up the moment the
+ * header runs every suite at once: `running` means THIS suite is in that run, and drives
+ * the spinner; `busy` means some run is in flight, and only disables the button. A suite
+ * left out of the run should not claim to be running.
  */
 
 /** Which view of the open suite is showing. Per suite, not per editor. */
@@ -22,20 +28,12 @@ const VIEWS: { key: SuiteViewMode; label: string }[] = [
   { key: "yaml", label: "YAML" },
 ];
 
-/** The tally chips, in the order a reader cares about them. */
-const CHIPS: { key: keyof TestTotals; label: string; className: string }[] = [
-  { key: "failed", label: "failed", className: "text-red-600 dark:text-red-400" },
-  { key: "errored", label: "errored", className: "text-amber-600 dark:text-amber-400" },
-  { key: "passed", label: "passed", className: "text-emerald-600 dark:text-emerald-400" },
-  { key: "skipped", label: "skipped", className: "text-zinc-500 dark:text-zinc-400" },
-  { key: "notRun", label: "not run", className: "text-zinc-500 dark:text-zinc-400" },
-];
-
 export default function TestingToolbar({
   fileName,
   cases,
   totals,
   running,
+  busy,
   testAvailable,
   blockedReason,
   mode,
@@ -46,9 +44,12 @@ export default function TestingToolbar({
 }: {
   fileName: string;
   cases: number;
-  /** The last run's tally, or null before the first run. */
+  /** This suite's share of the last run, or null when the last run did not include it. */
   totals: TestTotals | null;
+  /** This suite is in the run that is in flight. */
   running: boolean;
+  /** Some run is in flight — this suite's, or one started from the header. */
+  busy?: boolean;
   testAvailable: boolean;
   /** Why Run is unavailable beyond a missing binary (a suite dolphin would refuse). */
   blockedReason?: string;
@@ -60,18 +61,23 @@ export default function TestingToolbar({
   /** Trailing controls (the delete button). */
   children?: React.ReactNode;
 }) {
-  const reason = !testAvailable
-    ? "No test runner: DOLPHIN_BIN_PATH is not set on the server."
-    : (blockedReason ?? "");
+  const reason = !testAvailable ? NO_TEST_RUNNER : (blockedReason ?? "");
   const blocked = reason !== "";
+  const waiting = !!busy && !running;
 
   return (
     <div className="flex items-center gap-2 border-b border-black/10 px-3 py-1.5 dark:border-white/10">
       <button
         type="button"
         onClick={onRun}
-        disabled={blocked || running || cases === 0}
-        title={blocked ? reason : `Run ${fileName}`}
+        disabled={blocked || running || waiting || cases === 0}
+        title={
+          blocked
+            ? reason
+            : waiting
+              ? "Another test run is in flight."
+              : `Run ${fileName}`
+        }
         className="flex shrink-0 items-center gap-1.5 rounded-md border border-black/10 px-2 py-1 text-xs font-medium text-zinc-700 transition-colors hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/15 dark:text-zinc-200 dark:hover:bg-white/10"
       >
         {running ? (
@@ -96,16 +102,7 @@ export default function TestingToolbar({
       </code>
 
       {totals ? (
-        <span className="flex shrink-0 items-center gap-2 text-[11px] tabular-nums">
-          {CHIPS.filter((c) => (totals[c.key] as number) > 0).map((c) => (
-            <span key={c.key} className={c.className}>
-              {totals[c.key] as number} {c.label}
-            </span>
-          ))}
-          {totals.cases === 0 && (
-            <span className="text-zinc-400 dark:text-zinc-500">no cases ran</span>
-          )}
-        </span>
+        <TestTally totals={totals} />
       ) : (
         <span className="shrink-0 text-[11px] text-zinc-400 dark:text-zinc-500">
           {cases} {cases === 1 ? "case" : "cases"}

@@ -29,10 +29,13 @@ const FIELD =
  * there is no half-expressed state for the model to lose.
  */
 export default function CaseForm({
+  flow,
   suite,
   index,
   onChange,
 }: {
+  /** The flow this suite is stored against — how the last run files its results. */
+  flow: string;
   suite: Suite;
   index: number;
   onChange: (next: SuiteCase) => void;
@@ -40,8 +43,10 @@ export default function CaseForm({
   const value = suite.cases[index];
   const [name, setName] = useState(value.name);
   // What the last run made of THIS case, so an assertion can be tried against the real
-  // message rather than against nothing.
-  const lastRun = useSuiteRun()?.outcomeFor(value.name);
+  // message rather than against nothing. Looked up by flow as well as by name: a run may
+  // carry several suites, and a case name is only unique within one — every scaffolded
+  // suite starts with a case called "it runs".
+  const lastRun = useSuiteRun()?.outcomeFor(flow, value.name);
 
   const clash = name.trim() !== "" && nameTaken(suite, name, index);
   const blank = name.trim() === "";

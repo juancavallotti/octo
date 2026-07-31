@@ -81,8 +81,8 @@ describe("useSuiteRun", () => {
     });
 
     await act(async () => {
-      void result.current.run("orders", "flow: orders\n");
-      void result.current.run("orders", "flow: orders\n");
+      void result.current.run([{ name: "orders", content: "flow: orders\n" }]);
+      void result.current.run([{ name: "orders", content: "flow: orders\n" }]);
     });
 
     expect(calls).toBe(1);
@@ -104,13 +104,13 @@ describe("useSuiteRun", () => {
     });
 
     await act(async () => {
-      await result.current.run("orders", "flow: orders\n");
+      await result.current.run([{ name: "orders", content: "flow: orders\n" }]);
     });
     expect(result.current.outcome).not.toBeNull();
 
     fail = true;
     await act(async () => {
-      await result.current.run("orders", "flow: orders\n");
+      await result.current.run([{ name: "orders", content: "flow: orders\n" }]);
     });
 
     expect(result.current.outcome).toBeNull();
@@ -125,29 +125,86 @@ describe("useSuiteRun", () => {
     });
 
     await act(async () => {
-      await result.current.run("orders", "flow: orders\n");
+      await result.current.run([{ name: "orders", content: "flow: orders\n" }]);
     });
     expect(result.current.error).toBe("no runner");
 
     fail = false;
     await act(async () => {
-      await result.current.run("orders", "flow: orders\n");
+      await result.current.run([{ name: "orders", content: "flow: orders\n" }]);
     });
 
     expect(result.current.error).toBeNull();
     expect(result.current.outcome).not.toBeNull();
   });
 
+  // Every suite in one request, not one request per suite: dolphin runs them against a
+  // single staged config, and N round trips would each stage and tear down their own.
+  it("sends every suite it was given in one request", async () => {
+    const sent: string[][] = [];
+    const { result } = harness(async (req) => {
+      sent.push(req.suites.map((s) => s.name));
+      return outcome();
+    });
+
+    await act(async () => {
+      await result.current.run([
+        { name: "orders", content: "flow: orders\n" },
+        { name: "refunds", content: "flow: refunds\n" },
+      ]);
+    });
+
+    expect(sent).toEqual([["orders", "refunds"]]);
+    expect(result.current.flows).toEqual(["orders", "refunds"]);
+  });
+
+  // The suites a caller held back are part of the verdict: a tally of two passing suites
+  // means something different when three others never ran.
+  it("carries what the caller left out, so the console can say so", async () => {
+    const { result } = harness(async () => outcome());
+
+    await act(async () => {
+      await result.current.run(
+        [{ name: "orders", content: "flow: orders\n" }],
+        [{ flow: "refunds", reason: "has no cases yet" }],
+      );
+    });
+
+    expect(result.current.skipped).toEqual([
+      { flow: "refunds", reason: "has no cases yet" },
+    ]);
+  });
+
+  // The host rejects an empty request, and every caller disables its button in that state
+  // — so reaching the transport at all could only produce an error about nothing.
+  it("does not call the runner with no suites to run", async () => {
+    let calls = 0;
+    const { result } = harness(async () => {
+      calls++;
+      return outcome();
+    });
+
+    await act(async () => {
+      await result.current.run([]);
+    });
+
+    expect(calls).toBe(0);
+    expect(result.current.running).toBe(false);
+    expect(result.current.error).toBeNull();
+  });
+
   it("forgets everything on clear", async () => {
     const { result } = harness(async () => outcome());
 
     await act(async () => {
-      await result.current.run("orders", "flow: orders\n");
+      await result.current.run([{ name: "orders", content: "flow: orders\n" }]);
     });
     act(() => result.current.clear());
 
     expect(result.current.outcome).toBeNull();
     expect(result.current.error).toBeNull();
+    expect(result.current.flows).toEqual([]);
+    expect(result.current.skipped).toEqual([]);
   });
 
   it("ignores a stale completion after clear while running", async () => {
@@ -158,7 +215,7 @@ describe("useSuiteRun", () => {
     });
 
     await act(async () => {
-      void result.current.run("orders", "flow: orders\n");
+      void result.current.run([{ name: "orders", content: "flow: orders\n" }]);
     });
     expect(result.current.running).toBe(true);
 
@@ -166,7 +223,7 @@ describe("useSuiteRun", () => {
     expect(result.current.running).toBe(false);
     expect(result.current.outcome).toBeNull();
     expect(result.current.error).toBeNull();
-    expect(result.current.flow).toBeNull();
+    expect(result.current.flows).toEqual([]);
 
     await act(async () => {
       gate.resolve();
@@ -175,6 +232,6 @@ describe("useSuiteRun", () => {
 
     expect(result.current.outcome).toBeNull();
     expect(result.current.error).toBeNull();
-    expect(result.current.flow).toBeNull();
+    expect(result.current.flows).toEqual([]);
   });
 });

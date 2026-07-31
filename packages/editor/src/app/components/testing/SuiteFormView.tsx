@@ -30,10 +30,17 @@ type Selection = number | "settings" | null;
  * its place, so a half-typed field is never silently reattached to a different test.
  */
 export default function SuiteFormView({
+  flow,
   suite,
   issues,
   onChange,
 }: {
+  /**
+   * The flow this suite is STORED against, which is not always `suite.flow` — the file can
+   * be edited to declare another. The store's key is what a run reports under, so it is
+   * what a case has to look itself up by.
+   */
+  flow: string;
   suite: Suite;
   issues: SuiteIssue[];
   onChange: (next: Suite) => void;
@@ -98,6 +105,7 @@ export default function SuiteFormView({
       ) : (
         <CaseForm
           key={active}
+          flow={flow}
           suite={suite}
           index={active}
           onChange={(next) => onChange(updateCase(suite, active, next))}
