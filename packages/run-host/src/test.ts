@@ -203,9 +203,18 @@ function publicCase(c: TestCaseResult): TestCaseResult {
  * name at REST (a resource id, a path) is the host's business and may look nothing like
  * this; the two are deliberately not the same string.
  */
-function suiteFileName(name: string, index: number): string {
+function suiteBaseName(name: string, index: number): string {
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-  return `${slug || `suite-${index}`}_test.yaml`;
+  return slug || `suite-${index}`;
+}
+
+/**
+ * A staged suite filename. `collision` is deterministic by input order among suites
+ * sharing the same base name (0 for the first, 1 for the next, ...).
+ */
+function suiteFileName(base: string, collision: number): string {
+  const suffix = collision === 0 ? "" : `-${collision}`;
+  return `${base}${suffix}_test.yaml`;
 }
 
 /**
@@ -251,10 +260,16 @@ export async function test(ns: string, args: TestRunArgs): Promise<TestRunOutcom
     await writeConfig(configPath, args.yaml);
 
     const reportPath = join(dir, "report.json");
-    const staged = args.suites.map((s, i) => ({
-      suite: s,
-      path: stagedPathFor(dir, suiteFileName(s.name, i)),
-    }));
+    const collisions = new Map<string, number>();
+    const staged = args.suites.map((s, i) => {
+      const base = suiteBaseName(s.name, i);
+      const collision = collisions.get(base) ?? 0;
+      collisions.set(base, collision + 1);
+      return {
+        suite: s,
+        path: stagedPathFor(dir, suiteFileName(base, collision)),
+      };
+    });
     await Promise.all(staged.map(({ suite, path }) => writeConfig(path, suite.content)));
 
     const result = await runDolphin(bin, octo, {

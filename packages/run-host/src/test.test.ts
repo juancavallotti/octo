@@ -186,6 +186,31 @@ exit 0
     expect(byFlow).toEqual({ orders: "orders", refunds: "refunds" });
   });
 
+  it("stages colliding slugs to unique paths and maps them back by path", async () => {
+    const twoSuites = {
+      dolphin: "dolphin 0.0.0",
+      wallMs: 5,
+      totals: { cases: 2, passed: 2, failed: 0, errored: 0, skipped: 0, notRun: 0, elapsedMs: 5 },
+      suites: [
+        // Reported second first to prove path-based mapping even with slug collisions.
+        { path: "@@SUITE2@@", flow: "b", elapsedMs: 1, cases: [] },
+        { path: "@@SUITE1@@", flow: "a", elapsedMs: 1, cases: [] },
+      ],
+    };
+    process.env.DOLPHIN_BIN_PATH = await fakeDolphin(dir, twoSuites);
+
+    const out = await runTests(NS, {
+      yaml: YAML,
+      suites: [
+        { name: "A/B", content: "flow: a\n" },
+        { name: "A B", content: "flow: b\n" },
+      ],
+    });
+
+    const byFlow = Object.fromEntries(out.suites.map((s) => [s.flow, s.name]));
+    expect(byFlow).toEqual({ a: "A/B", b: "A B" });
+  });
+
   it("carries what the flow actually did back to the caller", async () => {
     const detailed = report("failed", {
       summary: "expect.body: want: {} got: {a:1}",
