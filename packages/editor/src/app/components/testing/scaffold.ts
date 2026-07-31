@@ -1,4 +1,5 @@
 import { suiteFileName } from "../../suite/naming";
+import YAML from "yaml";
 
 /**
  * The suite a flow starts with.
@@ -13,13 +14,18 @@ import { suiteFileName } from "../../suite/naming";
  * sees a green run before they have written a single expectation.
  */
 export function scaffoldSuite(flow: string): string {
+  const flowScalar = YAML.stringify(flow, {
+    defaultStringType: "QUOTE_DOUBLE",
+    lineWidth: 0,
+  }).trim();
+
   return `# Tests for the "${flow}" flow, run by dolphin.
 #
 #   dolphin test ${suiteFileName(flow)}
 #
 # Each case invokes the flow once with the input you give it, stands in for the blocks
 # you mock, and checks what came back.
-flow: ${flow}
+flow: ${flowScalar}
 
 # Environment every case runs with. A config's env resolves when it LOADS, before any
 # block runs, so a flow whose connector reads \${SOME_KEY} needs one here even if you

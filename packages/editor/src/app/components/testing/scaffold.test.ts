@@ -14,6 +14,10 @@ describe("scaffoldSuite", () => {
     expect(suite.cases).toHaveLength(1);
   });
 
+  it("quotes the flow scalar in YAML", () => {
+    expect(scaffoldSuite("orders")).toContain('flow: "orders"');
+  });
+
   // An empty `expect` is not an empty assertion: it says the flow completed and did not
   // fail. So a brand new suite passes, and the user sees green before writing anything.
   it("ships one case that asserts the flow completed", () => {
@@ -42,5 +46,13 @@ describe("scaffoldSuite", () => {
 
     expect(issues).toEqual([]);
     expect(suite.flow).toBe("Order Intake / v2");
+  });
+
+  it("preserves special characters in flow names", () => {
+    const flow = 'Order "Intake": v2 #prod';
+    const { suite, issues } = parseSuite(scaffoldSuite(flow));
+
+    expect(issues).toEqual([]);
+    expect(suite.flow).toBe(flow);
   });
 });

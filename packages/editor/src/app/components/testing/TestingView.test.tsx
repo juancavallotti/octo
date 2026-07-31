@@ -149,7 +149,7 @@ describe("TestingView", () => {
     await showYaml(user);
 
     const written = yamlBox().value;
-    expect(written).toContain("flow: orders");
+    expect(written).toContain('flow: "orders"');
     expect(written).toContain("- name: it runs");
     // No problems: the starter is a file dolphin loads as-is. (The comment banner is not
     // one — it belongs to the form view, which this test has left.)
