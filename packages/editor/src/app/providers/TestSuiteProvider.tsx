@@ -106,6 +106,9 @@ export function TestSuiteProvider({
    * terminal may be watching. A refresh reads it too, to know what not to overwrite.
    */
   const dirtyRef = useRef<Set<string>>(new Set());
+  // Flows removed locally and not yet re-added here; kept out of refresh results and
+  // used to neutralize a stale in-flight save that lands after a delete.
+  const removedRef = useRef<Set<string>>(new Set());
   // Orders in-flight lists, so a slow one cannot land after a newer one (or after the
   // document changed) and put back what it read.
   const listSeq = useRef(0);
@@ -138,6 +141,9 @@ export function TestSuiteProvider({
       const next: Record<string, string> = Object.fromEntries(
         files.map((f) => [f.flow, f.content]),
       );
+      for (const flow of removedRef.current) {
+        delete next[flow];
+      }
       for (const flow of dirtyRef.current) {
         if (current[flow] !== undefined) next[flow] = current[flow];
       }
@@ -150,6 +156,7 @@ export function TestSuiteProvider({
   useEffect(() => {
     let cancelled = false;
     dirtyRef.current = new Set();
+    removedRef.current = new Set();
     // Nothing to wait for without a store, and a moment of `loaded: false` would flash
     // an empty state on the way to the same empty state.
     if (!store || !documentKey) {
@@ -185,9 +192,15 @@ export function TestSuiteProvider({
       for (const flow of pending) {
         const content = suites[flow];
         if (content === undefined) continue; // removed before the write landed
-        store.save(documentKey, flow, content).catch(() => {
-          // A failed write is not worth interrupting an edit over; the next one retries.
-        });
+        store
+          .save(documentKey, flow, content)
+          .then(async () => {
+            if (!removedRef.current.has(flow)) return;
+            await store.remove(documentKey, flow);
+          })
+          .catch(() => {
+            // A failed write is not worth interrupting an edit over; the next one retries.
+          });
       }
     }, SAVE_DEBOUNCE_MS);
     return () => clearTimeout(timer);
@@ -203,10 +216,12 @@ export function TestSuiteProvider({
       loaded,
       canPersist,
       setSuite(flow, content) {
+        removedRef.current.delete(flow);
         dirtyRef.current.add(flow);
         setSuites((current) => ({ ...current, [flow]: content }));
       },
       async removeSuite(flow) {
+        removedRef.current.add(flow);
         dirtyRef.current.delete(flow);
         setSuites((current) => {
           const next = { ...current };

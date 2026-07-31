@@ -57,6 +57,14 @@ function fakeStore(docs: Record<string, TestSuiteFile[]> = {}) {
   return { store, saves, removes, external };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
 /** Renders the capability's current view and exposes buttons to drive it. */
 function Probe() {
   const suites = useTestSuites();
@@ -231,6 +239,62 @@ describe("TestSuiteProvider", () => {
 
     expect(removes).toEqual([{ id: "one", flow: "orders" }]);
     expect(saves).toEqual([]);
+    expect(screen.getByTestId("orders")).toHaveTextContent("none");
+  });
+
+  it("keeps a delete final when an in-flight save resolves afterward", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const gate = deferred<void>();
+    const persisted = new Map<string, string>([["orders", "x"]]);
+    const saves: { id: string | null; flow: string; content: string }[] = [];
+    const removes: { id: string | null; flow: string }[] = [];
+    const store: TestSuiteStore = {
+      list: async () => [...persisted].map(([flow, content]) => ({ flow, content })),
+      save: async (id, flow, content) => {
+        saves.push({ id, flow, content });
+        await gate.promise;
+        persisted.set(flow, content);
+      },
+      remove: async (id, flow) => {
+        removes.push({ id, flow });
+        persisted.delete(flow);
+        gate.resolve();
+      },
+      canEdit: () => true,
+    };
+    renderProvider(store);
+    await screen.findByText("orders");
+
+    await user.click(screen.getByRole("button", { name: "edit" }));
+    await settleDebounce();
+    expect(saves).toEqual([{ id: "one", flow: "orders", content: "flow: orders\nv2\n" }]);
+
+    await user.click(screen.getByRole("button", { name: "delete" }));
+    await waitFor(() => expect(persisted.has("orders")).toBe(false));
+
+    expect(removes.length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByTestId("orders")).toHaveTextContent("none");
+  });
+
+  it("does not let a slow initial list overwrite local edit/delete", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const listGate = deferred<void>();
+    const store: TestSuiteStore = {
+      list: async () => {
+        await listGate.promise;
+        return [{ flow: "orders", content: "flow: orders\nfrom list\n" }];
+      },
+      save: async () => {},
+      remove: async () => {},
+      canEdit: () => true,
+    };
+    renderProvider(store);
+
+    await user.click(screen.getByRole("button", { name: "edit" }));
+    await user.click(screen.getByRole("button", { name: "delete" }));
+    listGate.resolve();
+    await waitFor(() => expect(screen.getByTestId("loaded")).toHaveTextContent("true"));
+
     expect(screen.getByTestId("orders")).toHaveTextContent("none");
   });
 
