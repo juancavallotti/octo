@@ -294,6 +294,55 @@ This repository tests all of [its own samples](https://github.com/juancavallotti
 this way, so a sample that stops doing what its comments claim fails the build
 instead of misleading the next person who copies it.
 
+## A machine-readable report
+
+`--junit` is for a CI system's test UI. `--report-json <path>` is for a program:
+
+```bash
+./bin/dolphin test ./flows --report-json report.json
+```
+
+It carries everything the console printed and more — the tally, each case's
+failures with their detail, and, for every case that *ran*, the outcome itself:
+
+```jsonc
+{
+  "schemaVersion": 1,
+  "dolphin": "dolphin 0.6.2",
+  "wallMs": 412,
+  "totals": { "cases": 5, "passed": 4, "failed": 1, "errored": 0,
+              "skipped": 0, "notRun": 0, "elapsedMs": 380 },
+  "suites": [{
+    "path": "flows/orders_test.yaml", "flow": "orders", "elapsedMs": 380,
+    "cases": [{
+      "name": "a large order is declined",
+      "status": "passed | failed | errored | skipped | not-run",
+      "elapsedMs": 80,
+      "summary": "one line",
+      "failures": [{ "summary": "…", "detail": "…multi-line…" }],
+      // What the flow actually did — the other half of a failure.
+      "outcome": { "result": { }, "dropped": false, "error": "…", "spies": { } }
+    }]
+  }]
+}
+```
+
+Three things to rely on:
+
+- **A report is written for exit 0, 1 *and* 2.** A failing run is exactly when you
+  want to read one, so the file is not conditional on success. Only a run that never
+  got as far as running — no usable `octo`, a config that will not parse — has
+  nothing to write.
+- **`status` is a string.** Never an index: an absent field and "not run" would
+  otherwise be the same `0`.
+- **Two clocks, two names.** `totals.elapsedMs` sums the cases; `wallMs` is the wall
+  clock, which is shorter under `--parallel`.
+
+`schemaVersion` is there so a reader can refuse a shape it does not know rather than
+half-understand it. The editor's [Testing tab](/editor/testing-flows) reads this
+report — it runs the real binary rather than reimplementing the assertions, which is
+what makes its verdict and a terminal's the same verdict.
+
 ## Things worth knowing
 
 - **One case is one `octo` process.** The debug seam is a config *rewrite* — mocks
@@ -334,4 +383,6 @@ drift-tested against the Go structs, so it cannot quietly fall out of date.
 
 - [Debugging a flow](/guides/debugging-flows) — the mocks, spies, and breakpoints a
   test is built out of, driven by hand.
+- [Testing flows in the editor](/editor/testing-flows) — the same suites, written in
+  a form and run from the Testing tab.
 - [CLI reference](/reference/cli#mocks) — the full mock spec and address grammar.

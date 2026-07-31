@@ -261,8 +261,11 @@ stack, and a feature that stops there is only a quarter built:
                                     │      (spawns it)      (flags)
   a human at a terminal ────────────┘
 
-  a _test.yaml ─────► dolphin ──────────► octo invoke ─► the seam
-                    (spawns it)         (--run-debug-config)
+  editor Testing tab ─┐
+                      ├─► @octo/run-host ─► dolphin ─► octo invoke ─► the seam
+  MCP run_tests ──────┤      (spawns it)  (spawns it) (--run-debug-config)
+                      │
+  a _test.yaml ───────┘  …or dolphin straight from a terminal
 ```
 
 **`packages/run-host`** (`session.ts`) is the one place that spawns the runner, so
@@ -313,6 +316,29 @@ block writes to stdout too, and an envelope interleaved with a log line is not
 JSON. **stdout is not the CLI's private channel** — anything that has to be parsed
 needs a channel of its own.
 
+**The editor's Testing tab and MCP's `run_tests`** reach dolphin the same way the
+canvas reaches `octo`: through run-host (`test.ts`, deliberately not `session.ts` —
+a test run has no long-lived process, no log stream and no port to share). Two things
+about that path are load-bearing:
+
+- It writes `--report-json`, for the same reason dolphin uses `--envelope-out`. And
+  it pins `OCTO_PATH` to `OCTO_BIN_PATH`, so the octo dolphin drives is always the
+  octo the editor runs — "tested against a different runtime" is made structurally
+  impossible rather than checked for.
+- **`ok` means a report came back, not that the tests passed.** dolphin exits 1 for a
+  failed case and 2 for an errored one; folding either into a failure would tell the
+  user "the run failed" and hide the failing case they are trying to read. The verdict
+  is the tally. Every layer above — run-host, the transport, the tab, the MCP tool —
+  repeats this rule, and each of them is one `if` away from breaking it.
+
+The tab is also where the seam's saved-vs-run distinction shows up most sharply. A
+suite's mocks are neither: they are *committed*, so they must mean the same thing to
+the editor, to `dolphin test` in a terminal, and to CI. That is why the ▶ menu's
+Scenarios resolve a case through `suite/merge.ts`, which mirrors dolphin's
+`File.MocksFor` exactly — case mocks **replace** file mocks per address rather than
+merging — and why a scenario run replaces the canvas's mocks rather than adding to
+them. A merged run would give one case two verdicts depending on where it was started.
+
 ## Adding a feature: the checklist
 
 The runtime:
@@ -345,9 +371,20 @@ Then, for each consumer:
 10. **dolphin**: the section on the test file (`runtime/dolphin/internal/suite/`),
     its [schema](../runtime/dolphin/testconfig.schema.json) — drift-tested, so it
     fails until you do — and the assertion for it in `internal/assert/`. A feature
-    that observes needs somewhere to say what it should have observed.
-11. Docs: the [CLI guide](../apps/docs/content/docs/guides/debugging-flows.mdx), the
+    that observes needs somewhere to say what it should have observed. If it appears
+    in a result, it also belongs in the JSON report (`internal/report/json.go`) —
+    that report is the Testing tab's only view of what happened.
+11. **The Testing tab**: the suite model in `packages/editor/src/app/suite/` (types,
+    parse, serialize, and the rules in `validate.ts`, which must say what dolphin
+    says), a field in the case form, and — if a case resolves it against the file —
+    `merge.ts`, which is what the ▶ menu's Scenarios and `dolphin test` both read.
+    The suite model is on the `@octo/editor/runtime` subpath, so keep it React-free;
+    `runtime.test.ts` fails if you don't.
+12. **MCP's suite tools** (`packages/mcp/src/tools/suite.ts`): the field on the case
+    schema, structurally, with whatever zod cannot express in its description.
+13. Docs: the [CLI guide](../apps/docs/content/docs/guides/debugging-flows.mdx), the
     [testing guide](../apps/docs/content/docs/guides/testing-flows.mdx), the
     [CLI reference](../apps/docs/content/docs/reference/cli.mdx), the
-    [editor guide](../apps/docs/content/docs/editor/debugging-flows.mdx), and the
-    [MCP reference](../apps/docs/content/docs/ai/platform-mcp.mdx).
+    [editor debugging guide](../apps/docs/content/docs/editor/debugging-flows.mdx),
+    the [editor testing guide](../apps/docs/content/docs/editor/testing-flows.mdx),
+    and the [MCP reference](../apps/docs/content/docs/ai/platform-mcp.mdx).

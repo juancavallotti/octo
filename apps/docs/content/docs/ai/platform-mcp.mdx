@@ -155,6 +155,66 @@ instead of wading through the whole schema.
 | `update_resource` | Update a resource's content, kind, or name. |
 | `delete_resource` | Delete a resource. |
 
+### Editor tools
+
+The editor's own bookkeeping — the test inputs, mocks and spies the canvas shows.
+Writing them here is how an agent that has just debugged a flow leaves the setup
+behind instead of describing it in prose: the user opens the canvas and finds the
+mocks already placed and the ▶ menu ready to run.
+
+| Tool | What it does |
+| --- | --- |
+| `list_block_addresses` | Every block address in an integration, grouped by flow. Call this before anything that takes an address. |
+| `get_flow_meta` | One flow's saved `{ inputs, mocks, spies }`. |
+| `set_test_input` / `delete_test_input` | A named message the flow can be run with from the ▶ menu. |
+| `set_mock` / `delete_mock` | Stand in for a block on every run the editor makes. |
+| `set_spy` / `delete_spy` | Record what crosses a block. |
+
+**Compose no address by hand.** A block only has one when its name is unique among
+its siblings and free of `.`, `[` and `]`; `list_block_addresses` lists exactly the
+ones that exist. An address naming nothing is refused rather than written, because a
+mock keyed by one looks placed in the file and on the canvas and silently never
+fires. The fix is to give the block a distinct name with `update_flow` — which these
+tools will not do for you, since a metadata write that edited the definition would be
+a surprise.
+
+Renaming a flow with `update_flow` moves its bookkeeping with it, addresses included.
+
+### Tests
+
+A [dolphin test suite](/guides/testing-flows) is a different kind of file from the
+bookkeeping above: it is committed, CI runs it, and `dolphin test` in a terminal
+gives the same verdict. This is what turns a debugging session into something that
+outlives it.
+
+| Tool | What it does |
+| --- | --- |
+| `list_test_suites` | The suites stored for an integration, with their case names. |
+| `get_test_suite` | One flow's suite as YAML, exactly as stored — comments and all. |
+| `set_test_suite` | Write a whole suite byte for byte. The flow under test is the file's own `flow:` key. |
+| `set_test_case` | Add or replace one case, structurally. Rewrites the file, so **comments are lost** — use `set_test_suite` when they matter. |
+| `delete_test_case` | Remove one case by name. |
+| `run_tests` | Run the suites and report what happened. |
+
+**`run_tests`'s `ok` means a report came back, not that the tests passed.** dolphin
+exits non-zero for a failing case, which is an ordinary outcome of running tests; the
+verdict is in `totals`. A **failed** case is a flow that did not do what the case
+says; an **errored** case is one dolphin could not run, so the *test* is wrong. A case
+that did not pass also reports the message the flow actually produced, which is the
+other half of the comparison.
+
+Anything that would stop dolphin loading the file is refused before it is written.
+dolphin decodes with unknown keys **rejected**, so a misspelled `spys:` takes the
+whole file down rather than going quietly — which is deliberate, since a typo that was
+ignored would look exactly like a test that passes.
+
+<Callout type="warn">
+**Values in a suite, JSON text in the meta file.** A test suite holds bodies and
+variables as values, and so do the suite tools. The editor's bookkeeping stores them
+as JSON *text*, because the editor edits them in a box — but its tools still take and
+return values and convert for you. Neither side ever wants a string of JSON.
+</Callout>
+
 ### MCP resources and prompts
 
 For clients that consume them, the same catalogues are also published as
@@ -232,3 +292,7 @@ ends at `get_run_logs`, not at the validator.
 - [Capstone: A Production Slack Agent](/ai/slack-agent) — the kind of
   integration a connected coding agent can build and debug through these
   tools.
+- [Testing a flow](/guides/testing-flows) — the suite format `set_test_case` and
+  `run_tests` write and run.
+- [Testing flows in the editor](/editor/testing-flows) — the same suites, in the
+  Testing tab a user opens afterwards.

@@ -4,6 +4,7 @@
     "docker",
     "running-flows",
     "debugging-flows",
+    "testing-flows",
     "how-it-works"
   ],
   "title": "Standalone Editor"
