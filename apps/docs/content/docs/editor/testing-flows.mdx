@@ -137,18 +137,22 @@ your flows directory, next to the flows; on the platform it is stored with the
 integration and never pulled by a deployed runtime.
 
 <Callout type="warn">
-dolphin's own convention names a suite after the **config file** it accompanies, and
-a suite declares exactly one flow — so a config holding three flows cannot have three
+dolphin's own convention names a suite after the **config file** it accompanies, and a
+suite declares exactly one flow — so a config holding three flows cannot have three
 companions. We name suites after the *flow*, which is what makes one suite per flow
-possible. The two coincide in the common case, but a config `orders.yaml` whose flow
-is called `checkout` produces `checkout_test.yaml`, and `dolphin test orders.yaml`
-will then report no test file. Point dolphin at the **test file** or at the
-**directory**, not at the config:
+possible. The two coincide in the common case, but a config `orders.yaml` whose flow is
+called `checkout` produces `checkout_test.yaml`, and dolphin will not pair them up.
+
+Naming the suite alone does not settle it either: with no companion config, dolphin
+falls back to the **containing directory**, which merges every config in it. In a
+workspace holding several, that means the suite runs against all of them at once — and
+fails on the first environment variable an unrelated flow declares. Name the config:
 
 ```bash
-dolphin test .octo-flows/checkout_test.yaml
-dolphin test .octo-flows/
+dolphin test .octo-flows/checkout_test.yaml --config .octo-flows/orders.yaml
 ```
+
+The Testing tab has no such ambiguity: it stages the one config the suite is for.
 </Callout>
 
 ## See also

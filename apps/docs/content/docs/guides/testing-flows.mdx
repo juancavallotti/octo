@@ -307,27 +307,31 @@ failures with their detail, and, for every case that *ran*, the outcome itself:
 
 ```jsonc
 {
-  "schemaVersion": 1,
   "dolphin": "dolphin 0.6.2",
   "wallMs": 412,
+  "workDir": "/tmp/dolphin-123",  // only when something failed and was kept
   "totals": { "cases": 5, "passed": 4, "failed": 1, "errored": 0,
               "skipped": 0, "notRun": 0, "elapsedMs": 380 },
   "suites": [{
-    "path": "flows/orders_test.yaml", "flow": "orders", "elapsedMs": 380,
+    "path": "flows/orders_test.yaml", "config": "flows/orders.yaml",
+    "flow": "orders", "elapsedMs": 380,
     "cases": [{
       "name": "a large order is declined",
       "status": "passed | failed | errored | skipped | not-run",
       "elapsedMs": 80,
       "summary": "one line",
       "failures": [{ "summary": "…", "detail": "…multi-line…" }],
-      // What the flow actually did — the other half of a failure.
+      "reproduce": "octo invoke …",
+      // What the flow actually did — the other half of a failure. Present on
+      // every case that RAN, not only the ones that failed.
       "outcome": { "result": { }, "dropped": false, "error": "…", "spies": { } }
     }]
   }]
 }
 ```
 
-Three things to rely on:
+Empty fields are omitted, so a passing case carries no `failures` and a case that was
+skipped carries no `outcome`. Three things to rely on:
 
 - **A report is written for exit 0, 1 *and* 2.** A failing run is exactly when you
   want to read one, so the file is not conditional on success. Only a run that never
@@ -338,8 +342,10 @@ Three things to rely on:
 - **Two clocks, two names.** `totals.elapsedMs` sums the cases; `wallMs` is the wall
   clock, which is shorter under `--parallel`.
 
-`schemaVersion` is there so a reader can refuse a shape it does not know rather than
-half-understand it. The editor's [Testing tab](/editor/testing-flows) reads this
+There is deliberately **no schema version**. octo is pre-release and the shape is
+still moving, so a version number would be ceremony that documents nothing; the
+document grows additively instead, and one will be added when the format has to stay
+still for someone. The editor's [Testing tab](/editor/testing-flows) reads this
 report — it runs the real binary rather than reimplementing the assertions, which is
 what makes its verdict and a terminal's the same verdict.
 
