@@ -33,6 +33,15 @@ describe("validateSuite", () => {
     ).toContain('two cases are named "a"');
   });
 
+  it("flags duplicate case names that differ only by surrounding whitespace", () => {
+    const issues = validateSuite({
+      flow: "orders",
+      cases: [{ name: "same" }, { name: "  same  " }],
+    });
+
+    expect(issues.map((i) => i.message)).toContain('two cases are named "  same  "');
+  });
+
   it("points an issue at the case it belongs to", () => {
     const issues = validateSuite(suite({ cases: [{ name: "ok" }, { name: "" }] }));
     expect(issues).toEqual([

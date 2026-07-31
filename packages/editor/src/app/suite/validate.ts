@@ -86,14 +86,15 @@ export function validateSuite(suite: Suite): SuiteIssue[] {
 
   const seen = new Set<string>();
   suite.cases.forEach((c, i) => {
+    const name = c.name.trim();
     // A case is named before it is numbered: the name is what a report, a JUnit XML and
     // a person all identify it by, so an unnamed one has nothing to be called.
-    if (!c.name.trim()) {
+    if (!name) {
       error(`case ${i} needs a name`, i);
-    } else if (seen.has(c.name)) {
+    } else if (seen.has(name)) {
       error(`two cases are named ${JSON.stringify(c.name)}`, i);
     }
-    seen.add(c.name);
+    seen.add(name);
     validateCase(suite, c, i, error);
   });
   return issues;
