@@ -1,5 +1,76 @@
 # Changelog
 
+## [0.6.3](https://github.com/juancavallotti/octo/compare/v0.6.2...v0.6.3) (2026-07-31)
+
+
+### Features
+
+* author and run dolphin tests from the editor ([b05703d](https://github.com/juancavallotti/octo/commit/b05703d2fd3676f746df30b4cf3910913facd5cd))
+* **dolphin:** write a machine-readable run report with --report-json ([fe6ecdd](https://github.com/juancavallotti/octo/commit/fe6ecddadcc6cfdb98da96422f5211232cff942d))
+* **editor:** add the test-suite store capability ([974ca75](https://github.com/juancavallotti/octo/commit/974ca75a049a04b287300e1739f04329713a561d))
+* **editor:** add the Testing tab with a suite rail and YAML view ([f693322](https://github.com/juancavallotti/octo/commit/f693322b2d7c717f4554d6e34e322a70e0540c4f))
+* **editor:** assert what a watched block saw ([4d322de](https://github.com/juancavallotti/octo/commit/4d322ded70f392466e46ce027b94c5d334c9aa42))
+* **editor:** author a test case from a form ([11a02f1](https://github.com/juancavallotti/octo/commit/11a02f1603283c95942c3c17e5598aa135da351e))
+* **editor:** edit a suite's file-level settings ([b30acd6](https://github.com/juancavallotti/octo/commit/b30acd6154a8ee566ccfe3aacfe3be17cd3392eb))
+* **editor:** give each browser tab its own runner ([5b90e28](https://github.com/juancavallotti/octo/commit/5b90e286ed62e4ad2fdd0cd510e461c936aea8a2))
+* **editor:** mock a block from the suite form ([461974f](https://github.com/juancavallotti/octo/commit/461974fd4f37a4e0c172d056280040a3557b5767))
+* **editor:** model and serialize a dolphin test suite ([72ce0c3](https://github.com/juancavallotti/octo/commit/72ce0c385322351a54286e5019d916f574f4caed))
+* **editor:** promote a run result into a test case ([68ddbf4](https://github.com/juancavallotti/octo/commit/68ddbf46e71aebb2ecd392c676c2a2c464798ced))
+* **editor:** run a suite scenario from the flow ▶ menu ([6af0f83](https://github.com/juancavallotti/octo/commit/6af0f83ce205b9397469e612642797c596ee584d))
+* **editor:** run tests from the Testing tab ([9f94b85](https://github.com/juancavallotti/octo/commit/9f94b85a36b3ff8eea38609a38e6765b1179afe8))
+* **editor:** try a `that:` expression before running the suite ([d72b8e6](https://github.com/juancavallotti/octo/commit/d72b8e602239b01231149e26000eed23b4ac3c76))
+* **mcp:** author and run dolphin test suites ([b60649b](https://github.com/juancavallotti/octo/commit/b60649b44d082e55e0536a9d6843934bb351a471))
+* **mcp:** read and write the editor's flow meta ([e0fa200](https://github.com/juancavallotti/octo/commit/e0fa2007e531cfd78a87f82095d7c0f4bb0e1605))
+* **mcp:** validate test input flow ([0bd9987](https://github.com/juancavallotti/octo/commit/0bd9987c2c56d48ec903b33bc52a971908718e00))
+* **platform:** store dolphin suites as .octo/tests resources ([513193c](https://github.com/juancavallotti/octo/commit/513193c07f3158158543c04548c3f24f16b84557))
+* run dolphin suites through the run transport ([56fffc5](https://github.com/juancavallotti/octo/commit/56fffc53a39c72fd73efaf8017c70a069ed18e2a))
+* **run-host:** derive a per-tab namespace from the cookie ([b4dd81d](https://github.com/juancavallotti/octo/commit/b4dd81d7501c17473e29e534ca699f7341a0ac4d))
+* **run-host:** report dolphin availability to the editor ([e285377](https://github.com/juancavallotti/octo/commit/e285377cc8349ca4af3ed817597f2172a73574c7))
+* **run-host:** run dolphin suites with test() ([5f95456](https://github.com/juancavallotti/octo/commit/5f95456ce2ff4c69a5e1d39ce446eebf91ee52ed))
+* **standalone:** store dolphin suites beside the flows ([edc39ec](https://github.com/juancavallotti/octo/commit/edc39ecd93cc7003569c45017de1f7b53d69d5cd))
+
+
+### Bug Fixes
+
+* **dolphin:** attempt all configured report writes ([42e415b](https://github.com/juancavallotti/octo/commit/42e415b16116606547969986352a8709ba772f9f))
+* **editor:** clamp a negative crossing count to zero ([3afeb88](https://github.com/juancavallotti/octo/commit/3afeb883710a05ef2566a49f83f56a28a71a7d7a))
+* **editor:** don't let a duplicated tab inherit another tab's runner ([5ccc6b5](https://github.com/juancavallotti/octo/commit/5ccc6b5cf5a9f92f9e2f9924727574a9b105dba7))
+* **editor:** ignore stale suite run completions ([0bc721e](https://github.com/juancavallotti/octo/commit/0bc721e1dbc16a17f59184e1b55a2f8360c60921))
+* **editor:** keep RUN working when a tab id can't be minted ([f57f463](https://github.com/juancavallotti/octo/commit/f57f46313b2fdf1421031f5114d3c2bd08ba5e69))
+* **editor:** let the console's Tests tab scroll ([5e74fb2](https://github.com/juancavallotti/octo/commit/5e74fb26dff377cb3462575f7ae87cbe1bff4f05))
+* **editor:** prevent suite resurrection on async races ([1be7e52](https://github.com/juancavallotti/octo/commit/1be7e52268966d41e1869e18eb6ac1b638c1f0bb))
+* **editor:** quote scaffold flow yaml scalar ([85f00bc](https://github.com/juancavallotti/octo/commit/85f00bc5a09b7e9680cc3b939c9e5b9ef863d8de))
+* **editor:** reload suites and flow meta when something else writes them ([9904099](https://github.com/juancavallotti/octo/commit/99040998c0a8bad909a9b0370710b22c60c43453))
+* **editor:** render the filtered view-mode options ([785cd7d](https://github.com/juancavallotti/octo/commit/785cd7db48d4b9d58d12a421ed4eea64a25b58f8))
+* **editor:** trim case names in duplicate validation ([d33d9cc](https://github.com/juancavallotti/octo/commit/d33d9cc930feaeb3898ab03e963601ea1731fd90))
+* **mcp:** re-key flow meta when update_flow renames a flow ([25f6b47](https://github.com/juancavallotti/octo/commit/25f6b47f44f040f2c07436f8310969f7d71883f3))
+* **mcp:** report non-object stored vars as text ([ebee4eb](https://github.com/juancavallotti/octo/commit/ebee4eb23238effc8b28b580897f03f50f7fc460))
+* **platform:** only claim template resources as suites ([7c18987](https://github.com/juancavallotti/octo/commit/7c18987b5f4ae2666acae4b752a750b9cfdadb9e))
+* **run-host:** avoid suite filename collisions ([94defe3](https://github.com/juancavallotti/octo/commit/94defe31b498e79ddcd3e8dbded18b3fb939cf43))
+* **run-host:** give each editor run its own admin port ([fab7506](https://github.com/juancavallotti/octo/commit/fab7506563e50da6be75ebbaffb543065fd0d83a))
+* **run-host:** roll a start back when a port pool is exhausted ([0f124ae](https://github.com/juancavallotti/octo/commit/0f124ae5c8a338391a2d617ae573d2f4a47e00df))
+* **runtime:** survive an admin port that is already taken ([4ff8131](https://github.com/juancavallotti/octo/commit/4ff8131a887d484e1b9b51022385aaf9d4986d17))
+* **standalone:** keep *_test.yaml out of the flow list ([3256b44](https://github.com/juancavallotti/octo/commit/3256b44b2b7033d10858f3ca46df26ada00fd9c7))
+* stop the monitoring port from blocking a second run ([7957267](https://github.com/juancavallotti/octo/commit/7957267299fc2b1f566e53834a8536c0044a4696))
+
+
+### Refactoring
+
+* **connectors:** one init per connector module ([41fe232](https://github.com/juancavallotti/octo/commit/41fe232d9ec489f9e52b2583f0d38997ea51b7f3)), closes [#215](https://github.com/juancavallotti/octo/issues/215)
+* **core:** move ai-mapping and ai-embed into the engine ([631915a](https://github.com/juancavallotti/octo/commit/631915a30b99792dc8ad5e0a68f57693a6a4f857))
+* **core:** one init per module in expr and engine ([1c82ce4](https://github.com/juancavallotti/octo/commit/1c82ce44ca5507fa4fe46ea2aefec3e669b65804)), closes [#215](https://github.com/juancavallotti/octo/issues/215)
+* **editor:** expose the meta and suite models on the runtime subpath ([bb7870a](https://github.com/juancavallotti/octo/commit/bb7870a4ef5ec0992c24c468138dbf7b4ba2ff84))
+* **editor:** share the dolphin suite naming rule between hosts ([41c0788](https://github.com/juancavallotti/octo/commit/41c07880165644fb8a73296724ea1251b748ae16))
+* one init() per loadable module, enforced ([72bbb03](https://github.com/juancavallotti/octo/commit/72bbb03641b700dbf00647cb6116bffbeb06fa75))
+
+
+### Documentation
+
+* correct the JSON report's shape and the suite-naming advice ([8fd20cd](https://github.com/juancavallotti/octo/commit/8fd20cd0f9f7232305ff010109b1cc5aa6ab3ec3))
+* note the one non-manifest init() the allowlist permits ([4f08c0d](https://github.com/juancavallotti/octo/commit/4f08c0df95b007292794b8b1383e649637cba3ac))
+* the Testing tab, dolphin's JSON report, and the new MCP tools ([77cc09e](https://github.com/juancavallotti/octo/commit/77cc09e5cc96848ca113aca09dd1e0a4f0957b39))
+* write down the one-init-per-module rule ([3b62b1f](https://github.com/juancavallotti/octo/commit/3b62b1fa99ce046e5823ae0aa0703cc95b77703b)), closes [#215](https://github.com/juancavallotti/octo/issues/215)
+
 ## [0.6.2](https://github.com/juancavallotti/octo/compare/v0.6.1...v0.6.2) (2026-07-29)
 
 
