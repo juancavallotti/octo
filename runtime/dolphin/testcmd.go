@@ -109,10 +109,11 @@ func finish(
 	totals := report.Tally(results)
 	kept := keptWorkDir(totals, workDir)
 	console.Summary(results, kept)
+	var errs []error
 
 	if flags.junit != "" {
 		if err := report.JUnit(flags.junit, results); err != nil {
-			return err
+			errs = append(errs, err)
 		}
 	}
 	// Written for every verdict, not just a green one: a reader's whole reason for
@@ -120,8 +121,11 @@ func finish(
 	// the one that matters most.
 	if flags.reportJSON != "" {
 		if err := report.JSON(flags.reportJSON, results, wall, kept, versionLine()); err != nil {
-			return err
+			errs = append(errs, err)
 		}
+	}
+	if len(errs) > 0 {
+		return errors.Join(errs...)
 	}
 	return verdict(totals)
 }
