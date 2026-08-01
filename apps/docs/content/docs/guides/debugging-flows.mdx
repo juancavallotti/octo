@@ -431,7 +431,7 @@ To have your editor complete the file and a validator check it, print its schema
 
 <Callout type="info">
 A file like this one, plus **what should have happened**, is a test. That is all
-[`dolphin`](/guides/testing-flows) is: it writes a debug config per case, runs it
+[`dolphin`](/testing/writing-cases) is: it writes a debug config per case, runs it
 through this same `invoke`, and checks the answer. A reproduction you checked in is
 one assertion away from a regression test that runs in CI.
 </Callout>
@@ -489,7 +489,7 @@ block without editing the flow. See [the MCP server](/ai/platform-mcp).
 
 A debugging session already contains a test: the input, the mocks that made the flow
 runnable, and what came back. Writing it down as a
-[dolphin suite](/guides/testing-flows) is what stops the next person — or the next
+[dolphin suite](/testing/writing-cases) is what stops the next person — or the next
 you — from working it out again. The editor will do the writing: a run on the console
 carries **Save as test case**, and the case then appears in that flow's ▶ menu as a
-scenario to replay. See [Testing flows in the editor](/editor/testing-flows).
+scenario to replay. See [Testing flows in the editor](/testing/in-the-editor).

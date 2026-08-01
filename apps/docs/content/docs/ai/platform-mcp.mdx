@@ -162,6 +162,11 @@ Writing them here is how an agent that has just debugged a flow leaves the setup
 behind instead of describing it in prose: the user opens the canvas and finds the
 mocks already placed and the ▶ menu ready to run.
 
+These are **not** tests. Nothing here is an assertion, and nothing here is read by
+`dolphin test`, by CI, or by a deployed runtime — that is what the [test
+suite](#tests) tools below are for. An agent asked to "add tests" that reaches for
+`set_mock` has configured the editor rather than written a test.
+
 | Tool | What it does |
 | --- | --- |
 | `list_block_addresses` | Every block address in an integration, grouped by flow. Call this before anything that takes an address. |
@@ -182,7 +187,7 @@ Renaming a flow with `update_flow` moves its bookkeeping with it, addresses incl
 
 ### Tests
 
-A [dolphin test suite](/guides/testing-flows) is a different kind of file from the
+A [dolphin test suite](/testing/writing-cases) is a different kind of file from the
 bookkeeping above: it is committed, CI runs it, and `dolphin test` in a terminal
 gives the same verdict. This is what turns a debugging session into something that
 outlives it.
@@ -195,6 +200,9 @@ outlives it.
 | `set_test_case` | Add or replace one case, structurally. Rewrites the file, so **comments are lost** — use `set_test_suite` when they matter. |
 | `delete_test_case` | Remove one case by name. |
 | `run_tests` | Run the suites and report what happened. |
+
+[Testing with an agent](/testing/with-an-agent) walks a whole session through these —
+finding the addresses, writing the suite, running it, and reading the report.
 
 **`run_tests`'s `ok` means a report came back, not that the tests passed.** dolphin
 exits non-zero for a failing case, which is an ordinary outcome of running tests; the
@@ -292,7 +300,7 @@ ends at `get_run_logs`, not at the validator.
 - [Capstone: A Production Slack Agent](/ai/slack-agent) — the kind of
   integration a connected coding agent can build and debug through these
   tools.
-- [Testing a flow](/guides/testing-flows) — the suite format `set_test_case` and
+- [Testing a flow](/testing/writing-cases) — the suite format `set_test_case` and
   `run_tests` write and run.
-- [Testing flows in the editor](/editor/testing-flows) — the same suites, in the
+- [Testing flows in the editor](/testing/in-the-editor) — the same suites, in the
   Testing tab a user opens afterwards.

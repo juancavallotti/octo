@@ -121,6 +121,21 @@ looks in three places and stops at the first hit:
   testing at all.
 </Callout>
 
+Check both binaries answer, then run a real suite from a clone of the repository:
+
+```bash
+dolphin version
+dolphin test samples/error-handling.yaml
+```
+
+```
+ok   samples/error-handling_test.yaml  (charge-flowlevel)  73ms
+
+2 passed, 0 failed, 0 errored, 0 skipped  (73ms)
+```
+
+From there, [your first test](/testing/first-test) writes one from scratch.
+
 ## Run from Docker
 
 Two public images on [Docker Hub](https://hub.docker.com/u/juancavallotti),

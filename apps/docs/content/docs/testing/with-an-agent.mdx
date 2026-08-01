@@ -1,0 +1,178 @@
+---
+title: "Testing with an Agent"
+description: "Have an agent write and run a flow's dolphin suite over MCP — and know which tools touch the committed file."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Steps, Step } from 'fumadocs-ui/components/steps';
+
+Writing test cases is the kind of work an agent is good at: it is repetitive, it needs
+the block addresses to be exactly right, and the feedback loop is a runner that says
+pass or fail. octo's [MCP server](/ai/platform-mcp) exposes both halves — writing a
+suite, and running it — so an agent that has just built a flow can leave tests behind
+rather than a description of how it tested.
+
+Everything here writes the same `<flow>_test.yaml` a human writes. There is no
+agent-specific test format.
+
+## First, the distinction that costs the most
+
+There are two families of tools with confusingly similar names, and they write to two
+different places:
+
+| Tool family | Writes | Read by |
+| --- | --- | --- |
+| `set_test_suite`, `set_test_case`, `delete_test_case`, `list_test_suites`, `get_test_suite`, `run_tests` | the committed **`<flow>_test.yaml`** | `dolphin test`, CI, the Testing tab, a human reviewer |
+| `set_test_input`, `set_mock`, `set_spy` (and their deletes) | the editor's **scratch bookkeeping** | the canvas and its ▶ menu — **not** a deployed runtime, and **not** `dolphin test` |
+
+Both are useful, and they are not substitutes.
+
+The bookkeeping tools are how an agent that has just debugged a flow leaves the setup
+behind: the user opens the canvas and finds the mocks already placed and the ▶ menu
+ready to run. Nothing in that file is an assertion, and nothing in it survives into CI.
+
+The suite tools are how the same session leaves behind something that outlives it.
+
+<Callout type="warn">
+An agent asked to "add tests" that reaches for `set_mock` has done something
+plausible and wrong: it has configured the editor, not written a test. The mock will
+be there on the canvas and absent from every pipeline.
+</Callout>
+
+## A session, end to end
+
+<Steps>
+
+<Step>
+
+### Find the flow and its addresses
+
+```
+open_integration  { id: "…" }
+list_block_addresses  { id: "…", flow: "checkout" }
+```
+
+**Never compose an address by hand.** A block only has one when its name is unique
+among its siblings and free of `.`, `[` and `]`. `list_block_addresses` returns exactly
+the addresses that exist, and a mock keyed by one that does not is refused rather than
+written — because such a mock looks placed, in the file and on the canvas, and silently
+never fires.
+
+</Step>
+
+<Step>
+
+### Write the suite
+
+```
+set_test_suite  { id: "…", content: "<the whole YAML>" }
+```
+
+The flow under test is the file's own `flow:` key, so there is no separate argument to
+get wrong. The content is stored **byte for byte** — this is the one write that
+preserves comments, which matters because a suite is a file people read.
+
+Anything that would stop dolphin loading the file is refused *before* anything is
+written, and nothing partial is saved. That includes unknown keys: dolphin decodes with
+unknown fields rejected, so a misspelled `spys:` would take the whole file down rather
+than going quietly.
+
+To amend an existing suite one case at a time:
+
+```
+get_test_suite  { id: "…", flow: "checkout" }     → the YAML, as stored
+set_test_case   { id: "…", flow: "checkout", case: { … } }
+delete_test_case { id: "…", flow: "checkout", name: "…" }
+```
+
+<Callout type="warn">
+**`set_test_case` rewrites the file structurally, so its comments are lost.** It says so
+when it does. When the file carries explanation worth keeping, read it with
+`get_test_suite`, edit the text, and write it back with `set_test_suite`.
+</Callout>
+
+**Bodies and variables are values, not JSON strings.** `data: { amount: 10 }`, never
+`data: "{\"amount\": 10}"`. (The editor's bookkeeping stores them as JSON *text*
+because the editor edits them in a box, but even those tools take and return values and
+convert for you. Neither side ever wants a string of JSON.)
+
+</Step>
+
+<Step>
+
+### Run them
+
+```
+run_tests  { id: "…" }                  → every suite
+run_tests  { id: "…", flow: "checkout" } → one
+```
+
+<Callout type="warn">
+**`ok` means a report came back — not that the tests passed.** dolphin exits non-zero
+for a failing case, which is an ordinary outcome of running tests. The verdict is in
+`totals`.
+</Callout>
+
+Read `totals`, then act on which counter moved:
+
+| Counter | What it means | What to fix |
+| --- | --- | --- |
+| `failed` | The flow ran and did not do what the case says | **The flow**, or the expectation |
+| `errored` | The case never ran — a bad address, an undeclared input | **The test** |
+| `skipped` | A `skip:` reason on the case | Nothing; it was deliberate |
+
+A case that did not pass also carries `outcome` — **what the flow actually produced** —
+which is the other half of the comparison and usually enough to fix the case without
+another round trip.
+
+</Step>
+
+</Steps>
+
+## Things an agent gets wrong
+
+- **Asserting an exact `body` on a result carrying a generated id or a timestamp.** It
+  passes once and fails forever after. Use `that:` with a CEL expression over the
+  stable part instead.
+- **Mocking a composite and then asserting on what ran inside it.** The mock replaces
+  the block and its whole subtree, so there is nothing left inside to observe. Mock a
+  leaf within it.
+- **Writing a mock with no `default`.** A message matching no case *fails* the block —
+  it does not fall through to the real one, which is gone.
+- **Forgetting `env:`.** A config's environment resolves when it *loads*, before any
+  block runs, so a flow whose connector reads `${SOME_KEY}` cannot be built without one
+  — and mocking the block that uses it does not help.
+
+## What the run environment is
+
+`run_tests` stages the integration's config, its suites and its declared resources into
+a scratch directory and runs the real `dolphin` binary against them, one case at a
+time.
+
+Two deliberate differences from an interactive run:
+
+- **The dev `.env` is not injected.** Injecting a resource the config never declared
+  would make the tool and `dolphin test` disagree, and would let a "test" quietly
+  authenticate with real credentials. A suite states what it needs in its own `env:`.
+- **Cases run serially.** A test run starts a full service per case, and non-source
+  connectors come up in every one, so running them in parallel would contend for the
+  same ports.
+
+The reproduce command dolphin prints for a failing case is stripped from the response:
+it names a directory that has been deleted, and would leak the server's filesystem
+layout.
+
+## Afterwards
+
+The suite is a normal file in the integration. Whoever opens the editor next sees it in
+the Testing tab, can run it there, and gets the same verdict:
+
+![The Tests tab showing two suites' results, each group with its own tally](/screenshots/editor-testing-run-all-results.png)
+
+## See also
+
+- [MCP server](/ai/platform-mcp#tests) — the full tool catalogue, including the ones
+  that build the flow in the first place.
+- [Test file reference](/testing/test-file) — the schema a `set_test_suite` payload has
+  to satisfy.
+- [Writing test cases](/testing/writing-cases) — the same format, explained for people.

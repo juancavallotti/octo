@@ -4,7 +4,7 @@ description: "The three ways to run Octo and where to begin."
 ---
 
 import { Cards, Card } from 'fumadocs-ui/components/card';
-import { Download, Globe, Ship, SquarePen, Workflow } from 'lucide-react';
+import { Download, FlaskConical, Globe, Ship, SquarePen, Workflow } from 'lucide-react';
 
 There are three ways to use Octo, and they all execute the same flow YAML. Pick
 the one that matches how you want to work today — nothing you build is locked to
@@ -47,6 +47,10 @@ start with the editor quickstart instead.
   </Card>
   <Card icon={<Workflow />} href="/getting-started/first-flow" title="Your First Flow">
     Run a hello-world flow and invoke a flow directly from the CLI.
+  </Card>
+  <Card icon={<FlaskConical />} href="/testing/first-test" title="Your First Test">
+    Take a flow that calls an API you cannot reach, and get a green test suite for
+    it in about ten minutes.
   </Card>
   <Card icon={<SquarePen />} href="/getting-started/editor-quickstart" title="Editor Quickstart">
     Design and run flows in the browser with zero setup.

@@ -1,0 +1,273 @@
+---
+title: "Test File"
+description: "The complete YAML schema for a dolphin test suite: every key of a _test.yaml, field by field."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+A test suite is a YAML file describing one flow and the cases that exercise it. It
+lives beside the flows it tests and is named for them — `orders.yaml` is tested by
+`orders_test.yaml`, the way `orders.go` is tested by `orders_test.go`. octo skips
+`_test.yaml` when it loads a directory, so a suite sits next to its flows without
+ever being mistaken for one.
+
+This page is the canonical reference for every key. For the narrative version, with
+worked examples, read [writing test cases](/testing/writing-cases).
+
+A case is a [debug config](/guides/debugging-flows#drive-it-all-from-a-file) with
+assertions: the `input`, the `mocks` and the spied blocks are the same ones
+`octo invoke --run-debug-config` takes.
+
+<Callout type="info">
+This schema is generated, not transcribed. `dolphin schema --format yaml` prints it,
+and it is drift-tested against the Go structs that implement it — so it cannot quietly
+fall out of date with the runner.
+</Callout>
+
+## Top-level keys
+
+```yaml
+flow:     # the flow under test
+inputs:   # named messages the cases share
+mocks:    # blocks to stand in for, in every case
+env:      # environment variables every case runs with
+timeout:  # how long any one case may take
+cases:    # the scenarios
+```
+
+| Key | Type | Required | Description |
+| --- | --- | --- | --- |
+| `flow` | string | yes | The flow under test. Every case in the file calls it. |
+| `inputs` | object | no | Named messages the cases share, keyed by name. |
+| `mocks` | object | no | Blocks to stand in for in **every** case, unless a case overrides the address. Keyed by [block address](/reference/cli#addressing-a-block). |
+| `env` | object | no | Environment variables every case runs with. |
+| `timeout` | string | no (`30s`) | A Go duration bounding any one case. A case may shorten or lengthen it. |
+| `cases` | list | yes | The scenarios. At least one. |
+
+A file-level `mocks:` block is where "no test in this file ever reaches the payment
+API" is said once.
+
+## inputs
+
+Named messages, so the body that means *a vip order* is written once and referred to
+by name. A case may also write its input inline.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `data` | any | no | The request body, as a structured value rather than a JSON string. |
+| `vars` | object | no | Message variables. |
+
+```yaml
+inputs:
+  small:
+    data: { amount: 10 }
+  a vip order:
+    data: { orderId: 42, amount: 250 }
+    vars: { x-api-key: dev-key }
+```
+
+<Callout type="warn">
+**Sources are not started under `invoke`.** No cron ticks, no HTTP request arrives, no
+queue delivers — so nothing populates the message for you. `vars` is how a case seeds
+what a source normally would: the http source copies request headers into the message
+variables, so a flow that reads `vars["x-api-key"]` needs them supplied here.
+</Callout>
+
+## cases
+
+Each case is one `octo invoke`, in its own process, run with the mocks and spies it
+asks for.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `name` | string | yes | What the case proves, in words. The report, the JUnit XML and a person all identify it by this, so it must be **unique in the file**. |
+| `input` | string \| object | no | The name of an entry in `inputs`, or an inline input written out where it is used. |
+| `mocks` | object | no | Blocks to stand in for in this case. An address here **replaces** the file's mock for that block, whole. |
+| `env` | object | no | Environment variables for this case, overriding the file's **per variable**. |
+| `expect` | object | no | What the flow should have done. See [expect](#expect). |
+| `spies` | object | no | Blocks to watch, and what each should have seen. See [spies](#spies). |
+| `timeout` | string | no | A Go duration overriding the file's. |
+| `skip` | string | no | A reason. The case is reported as skipped and never run — the flow is not called at all. |
+
+```yaml
+cases:
+  - name: a declined card takes the flow error path and answers 502
+    input: large
+    expect:
+      vars: { httpStatus: 502 }
+      that: ['body.error.contains("card declined")']
+```
+
+**Two merge rules, and they differ on purpose.** A case's `mocks` replace the file's
+per address, whole — so a case's mock says exactly what that block will do, without
+the reader having to hold the file's version in their head too. A case's `env`
+overrides the file's per *variable*, because a variable is a scalar: a case that needs
+one value different should not have to restate the others to get it.
+
+`skip` requires a reason. A skip with no reason is a test nobody will ever come back to.
+
+## expect
+
+What the flow should have done. **Omitting `expect` entirely still asserts
+something**: that the flow completed and did not fail.
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `body` | any | The body the flow returned, compared **exactly**. A field that appears in the result and not here is a failure. |
+| `vars` | object | Variables the flow set, as a **subset**: each key listed must be there and equal, and anything else is ignored. |
+| `that` | list of string | CEL expressions over the result message, every one of which must be true. |
+| `dropped` | bool | The flow filtered the message out and returned nothing. |
+| `error` | string | The flow failed, with a message **containing** this text. |
+
+A flow either produces a message, drops it, or fails — so `dropped` and `error` are
+exclusive with each other **and** with the message fields. A flow that dropped or
+failed returned no message to check, and dolphin rejects a case that asks for two.
+
+**Why `body` is exact but `vars` is a subset.** The body is the flow's answer, and a
+test earns its keep by failing when a field appears in it that nobody expected.
+Variables are scratch space the engine and the blocks add to, so pinning the whole map
+would break on every unrelated change. Reach for `that: ['vars.size() == 2']` when you
+do want it exact.
+
+The `error` match is a substring: a case expecting `card declined` that passed on any
+failure would prove the wrong thing.
+
+### The CEL in `that`
+
+[The same CEL](/reference/cel) a mock's `when` and every block in the flow uses, over
+the same variables: `body`, `vars`, `eventID`, `correlationID`, `now`.
+
+An expression that evaluates to something other than `true` or `false` is **rejected**
+rather than read as truthy — a non-boolean is a mistake, and reporting it as a `false`
+would hide it.
+
+<Callout type="info">
+**`env` is not bound in an assertion.** dolphin never loads your config — octo does, in
+the child process — so there is no resolved environment to evaluate against. Assert on
+what the flow *put in* the body or the variables instead.
+</Callout>
+
+## mocks
+
+How one block is stood in for. Keyed by
+[block address](/reference/cli#addressing-a-block), which works unquoted as a YAML key.
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `cases` | list | Tried in order; the first whose `when` holds is applied. |
+| `default` | object | What the block does when no case matched. |
+
+At least one of the two is required.
+
+```yaml
+mocks:
+  charge-flowlevel.call-charge:
+    cases:
+      - when: 'body.amount > 100'
+        error: card declined
+    default:
+      body: { id: ch_1, status: captured }
+```
+
+### A mock case
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `when` | string | yes | A CEL expression over the message the block **received** — `body`, `vars`, `env`, `eventID`, `correlationID`. Omitted on `default`, which is what runs when nothing else did. |
+| `body` | any | no | The body the block returned. A **literal value**, not an expression. |
+| `vars` | object | no | Variables the block set alongside its body — for blocks that report through a variable, such as an http call setting `vars.status`. Only valid with a `body`. |
+| `error` | string | no | Fail the block with this message. |
+| `drop` | bool | no | Filter the message out, as a filter block would. |
+
+Exactly one of `body`, `error` and `drop` per case. `when` is the only expression a
+mock carries: the outcome is a literal, because a mock is a canned response and the
+dispatch already happened in `when`.
+
+<Callout type="warn">
+**Without a `default`, a message matching no case fails the block.** It does not fall
+through to the real one, which is gone from the flow — the block is *replaced*, not
+wrapped, so its real work never happens. A "mocked" call that quietly still reached the
+network would be the exact bug mocking exists to prevent.
+</Callout>
+
+<Callout type="warn">
+**Mocking a composite removes everything inside it.** The mock replaces the block, and
+its whole subtree goes with it — so you cannot mock an `ai-router` and then assert on
+which route ran, because the routes are gone. Mock a block *inside* the composite
+instead (`charge.resilient-charge[process].build-charge`): the composite runs for real,
+and only the leaf is stood in for.
+</Callout>
+
+## spies
+
+What one watched block should have seen. Keyed by block address.
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `count` | integer ≥ 0 | The exact number of times the block was crossed. |
+| `records` | list | The crossings, in order. |
+
+A block inside a fork branch or a `foreach` body is crossed once per branch or item,
+and every crossing is recorded — so the count **is** the iteration count.
+
+`count: 0` is an assertion, not an absence: it says the block never ran, which is how a
+case proves a branch was not taken or an error path not reached. It is kept distinct
+from asserting nothing at all.
+
+Records are positional: the first entry is the first crossing. Asserting on **fewer**
+crossings than happened is fine; naming **more** than happened is a failure.
+
+```yaml
+spies:
+  demo.each-order[body].classify-order:
+    count: 2
+    records:
+      - input: { that: ['vars.order.id == 1'] }
+      - input: { that: ['vars.order.id == 2'] }
+```
+
+### A crossing
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `input` | object | The message the block received. |
+| `output` | object | The message the block returned. |
+| `dropped` | bool | The block filtered the message out. |
+| `error` | string | The block failed, with a message containing this text. |
+
+`output`, `dropped` and `error` are exclusive — a block either returns a message, drops
+it, or fails. **`input` is always available, even for a block that failed**: it is
+captured before the block runs, so a failure still shows what the block was carrying.
+
+`input` and `output` each take `body` (exact), `vars` (subset) and `that` (CEL), the
+same three fields [`expect`](#expect) uses for a message.
+
+## Unknown keys are rejected
+
+dolphin decodes a suite with unknown fields disallowed, and refuses the whole file over
+one. This is deliberate, and it is the single most valuable piece of strictness in the
+format: a misspelled `spys:` would otherwise watch nothing, assert nothing, and go
+green — a test that passes by doing nothing at all.
+
+The editor's [Testing tab](/testing/in-the-editor#form-or-yaml) reports the same thing
+before you run, and disables the form rather than re-serializing a file it cannot fully
+read.
+
+## Generating the schema
+
+To have your editor complete a suite and a validator check it:
+
+```bash
+dolphin schema --format yaml    # or --format json, the default
+dolphin schema --out test.schema.json
+```
+
+## See also
+
+- [Writing test cases](/testing/writing-cases) — the same format, explained through
+  worked examples.
+- [Running tests](/testing/running-and-ci) — `dolphin test`, its flags, and the exit
+  codes.
+- [CLI reference](/reference/cli#addressing-a-block) — the block-address grammar
+  `mocks` and `spies` are keyed by.
+- [CEL reference](/reference/cel) — the expression language `that` and `when` use.

@@ -1,0 +1,113 @@
+---
+title: "Testing"
+description: "Unit-test octo flows with dolphin: mock what calls the world, assert what happened, and run the same file from a terminal, the editor, an agent and CI."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Cards, Card } from 'fumadocs-ui/components/card';
+import { Bot, FileCode, FlaskConical, SquarePen, Terminal, Wand } from 'lucide-react';
+
+A flow that calls a payment API can only be run where that API is. So it gets run
+once, by hand, on the day it is written — and after that nobody dares touch it.
+
+**dolphin** is octo's test runner, and it removes the reason not to touch it. A test
+is a [debug config](/guides/debugging-flows#drive-it-all-from-a-file) with assertions:
+the same input, the same mocks, the same spies you would pass to `octo invoke` by
+hand, plus what should have happened. The mocks are what make the flow runnable
+anywhere — the HTTP call, the LLM, the database write never happen — and the
+assertions are what make running it mean something.
+
+![The editor's Testing tab: a rail of flows, one with a suite of two cases and one with none yet](/screenshots/editor-testing-tab.png)
+
+## One file, four surfaces
+
+A suite is a YAML file that lives beside the flows it tests: `orders.yaml` is tested
+by `orders_test.yaml`. Nothing about it is private to a tool.
+
+| You write it | You run it |
+| --- | --- |
+| By hand, in an editor | `dolphin test` in a terminal |
+| In the [Testing tab](/testing/in-the-editor), as a form | **Run tests**, per suite or for the whole document |
+| With an [agent over MCP](/testing/with-an-agent) | `run_tests` |
+| — | CI, on every push |
+
+All four give the **same verdict**, because all four shell out to the same binary. The
+editor does not reimplement the assertions; it runs `dolphin` and reads its report.
+That is what makes a green tab mean a green pipeline.
+
+## The shape of a suite
+
+```yaml title="orders_test.yaml"
+flow: orders                       # the flow every case calls
+
+mocks:                             # stand in for the blocks that call the world
+  orders.charge-card:
+    cases:
+      - when: 'body.amount > 100'
+        error: card declined
+    default:
+      body: { id: ch_1, status: captured }
+
+inputs:                            # named messages the cases share
+  small: { data: { amount: 10 } }
+  large: { data: { amount: 500 } }
+
+cases:
+  - name: a small charge is captured
+    input: small
+    expect:
+      body: { id: ch_1, status: captured }
+
+  - name: a large charge is declined and answers 502
+    input: large
+    expect:
+      vars: { httpStatus: 502 }
+      that: ['body.error.contains("card declined")']
+    spies:                         # and prove the block was actually reached
+      orders.charge-card:
+        count: 1
+```
+
+## Start here
+
+<Cards>
+  <Card icon={<FlaskConical />} href="/testing/first-test" title="Your first test">
+    Zero to a green suite in about ten minutes, on a flow that ships with octo —
+    including making it fail on purpose and reading the failure.
+  </Card>
+  <Card icon={<Wand />} href="/testing/writing-cases" title="Writing test cases">
+    The format in full: mocks, shared inputs, spies over a `foreach`, and everything
+    `expect` can assert.
+  </Card>
+  <Card icon={<SquarePen />} href="/testing/in-the-editor" title="Testing in the editor">
+    The Testing tab: a form over the same file, running one suite or all of them.
+  </Card>
+  <Card icon={<Bot />} href="/testing/with-an-agent" title="Testing with an agent">
+    Writing and running suites over MCP — and which tools touch the committed file.
+  </Card>
+  <Card icon={<Terminal />} href="/testing/running-and-ci" title="Running tests">
+    `dolphin test`, its flags, the exit-code contract, and a CI job to copy.
+  </Card>
+  <Card icon={<FileCode />} href="/testing/test-file" title="Test file reference">
+    Every key of a `_test.yaml`, field by field.
+  </Card>
+</Cards>
+
+## What dolphin is not
+
+- **Not an assertion DSL.** `expect.that` and a mock's `when` are
+  [CEL](/reference/cel) — the same expression language every block in the flow already
+  uses, over the same variables. There is nothing extra to learn to write an assertion.
+- **Not an in-process harness.** One case is one `octo` process. The debug seam is a
+  config *rewrite*, so a service can only serve the case it was built for. That buys
+  full isolation between cases, and it is why a failing case can hand you a runnable
+  command that reproduces it.
+- **Not a mock of octo.** The engine under test is the real one. A mocked block failure
+  is indistinguishable from the real block failing, so an error path behaves in a test
+  exactly as it will in production.
+
+<Callout type="info">
+dolphin ships alongside `octo` as a second binary. If you have not installed it, see
+[installation](/getting-started/installation#install-dolphin) — or use the standalone
+editor's Docker image, which bundles both.
+</Callout>

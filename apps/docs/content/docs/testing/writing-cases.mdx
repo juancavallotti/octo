@@ -1,12 +1,17 @@
 ---
-title: "Testing a Flow"
-description: "Write a flow's tests beside it, stand in for the blocks that call the world, and run them in CI with dolphin."
+title: "Writing Test Cases"
+description: "Write a flow's tests beside it, stand in for the blocks that call the world, and assert on what happened inside it."
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
 A flow that calls a payment API can only be run where that API is. So it gets run
 once, by hand, on the day it is written — and after that nobody dares touch it.
+
+<Callout type="info">
+Never written one? [Your first test](/testing/first-test) walks the first suite end to
+end in about ten minutes. This page is the format in full.
+</Callout>
 
 `dolphin` is octo's test runner, and it removes the reason not to touch it. A test
 is a [debug config](/guides/debugging-flows#drive-it-all-from-a-file) with
@@ -89,6 +94,11 @@ cases:
           - error: card declined
 ```
 
+The same mock, written in the editor's Testing tab rather than by hand — it is the
+same file either way:
+
+![The same mock in the editor's form: a When case failing with card declined, above an Otherwise default returning the captured charge](/screenshots/editor-testing-mocks.png)
+
 Point `dolphin` at the flow and it finds the suite beside it:
 
 ```bash
@@ -126,6 +136,11 @@ FAIL samples/error-handling_test.yaml  (charge-flowlevel)  44ms
 
 the runs are in /tmp/dolphin-2432200989
 ```
+
+The editor reports the same failure, because it runs the same binary — the verdict
+does not depend on where you pressed the button:
+
+![A failing case in the editor's Tests tab, showing what was expected against what the flow returned](/screenshots/editor-testing-failure.png)
 
 The failure names the case, says what it wanted and what it got — and hands you a
 **real, runnable octo command** that reproduces it. The debug config for a failing
@@ -192,10 +207,14 @@ cases:
       body: { firedAt: "2026-07-10T12:00:00Z", orders: [] }
 ```
 
+![The same spy in the editor's form: the bracketed address, a crossing count of two, and the first crossing's CEL assertions](/screenshots/editor-testing-spies.png)
+
 `count: 0` is an assertion, and a valuable one — it is how a case proves a branch
 was **not** taken or an error path **not** reached. Records are positional: the
 first entry is the first crossing. Asserting on fewer crossings than happened is
 fine; naming more than happened is a failure.
+
+![A spy with its crossing count set to zero, labelled in the form as asserting that the block never ran](/screenshots/editor-testing-spy-count-zero.png)
 
 Addresses are the same [block-address grammar](/reference/cli#addressing-a-block)
 the debugging flags use, and they work unquoted as YAML keys.
@@ -247,16 +266,9 @@ env:
 ```
 
 A test key belongs there in plain sight: it is fake by construction, so it can be
-read, reviewed, and committed. For a value several suites share, put it in a file:
-
-```bash
-./bin/dolphin test ./flows --env-file .env.test
-```
-
-**A suite's `env:` wins over `--env-file`, which wins over what you have exported.**
-That order is deliberate. A test that quietly used your real API key because it
-happened to be in your shell is a test that passes on your machine, bills you for
-it, and fails in CI.
+read, reviewed, and committed. For a value several suites share, put it in a file and
+pass [`--env-file`](/testing/running-and-ci#the-environment) — a suite's own `env:`
+still wins over it, and both win over whatever you happen to have exported.
 
 <Callout type="warn">
 **Mocking a block does not stop its connector from starting.** The mock replaces the
@@ -264,90 +276,6 @@ it, and fails in CI.
 with a `database` connector still opens the database — so its DSN has to be a valid
 one, even when every SQL block is mocked. `file::memory:` is usually the answer.
 </Callout>
-
-## In CI
-
-```yaml title=".github/workflows/validate.yml"
-- run: task runtime:build
-- run: task runtime:test:samples
-```
-
-`--junit <path>` writes a JUnit XML report — one `<testsuite>` per file, one
-`<testcase>` per case — which every CI system knows how to render:
-
-```bash
-./bin/dolphin test ./flows --junit report.xml
-```
-
-Exit codes are the contract:
-
-| Code | Meaning |
-| --- | --- |
-| **0** | Every case passed. |
-| **1** | A case ran and did not do what it said. **The flows are wrong.** |
-| **2** | A case never ran: a block address does not resolve, the config does not parse, there is no usable octo. **The suite is wrong.** |
-
-The split between 1 and 2 is what keeps a CI job from sending someone to debug a
-flow that was never called.
-
-This repository tests all of [its own samples](https://github.com/juancavallotti/octo/tree/main/samples)
-this way, so a sample that stops doing what its comments claim fails the build
-instead of misleading the next person who copies it.
-
-## A machine-readable report
-
-`--junit` is for a CI system's test UI. `--report-json <path>` is for a program:
-
-```bash
-./bin/dolphin test ./flows --report-json report.json
-```
-
-It carries everything the console printed and more — the tally, each case's
-failures with their detail, and, for every case that *ran*, the outcome itself:
-
-```jsonc
-{
-  "dolphin": "dolphin 0.6.2",
-  "wallMs": 412,
-  "workDir": "/tmp/dolphin-123",  // only when something failed and was kept
-  "totals": { "cases": 5, "passed": 4, "failed": 1, "errored": 0,
-              "skipped": 0, "notRun": 0, "elapsedMs": 380 },
-  "suites": [{
-    "path": "flows/orders_test.yaml", "config": "flows/orders.yaml",
-    "flow": "orders", "elapsedMs": 380,
-    "cases": [{
-      "name": "a large order is declined",
-      "status": "passed | failed | errored | skipped | not-run",
-      "elapsedMs": 80,
-      "summary": "one line",
-      "failures": [{ "summary": "…", "detail": "…multi-line…" }],
-      "reproduce": "octo invoke …",
-      // What the flow actually did — the other half of a failure. Present on
-      // every case that RAN, not only the ones that failed.
-      "outcome": { "result": { }, "dropped": false, "error": "…", "spies": { } }
-    }]
-  }]
-}
-```
-
-Empty fields are omitted, so a passing case carries no `failures` and a case that was
-skipped carries no `outcome`. Three things to rely on:
-
-- **A report is written for exit 0, 1 *and* 2.** A failing run is exactly when you
-  want to read one, so the file is not conditional on success. Only a run that never
-  got as far as running — no usable `octo`, a config that will not parse — has
-  nothing to write.
-- **`status` is a string.** Never an index: an absent field and "not run" would
-  otherwise be the same `0`.
-- **Two clocks, two names.** `totals.elapsedMs` sums the cases; `wallMs` is the wall
-  clock, which is shorter under `--parallel`.
-
-There is deliberately **no schema version**. octo is pre-release and the shape is
-still moving, so a version number would be ceremony that documents nothing; the
-document grows additively instead, and one will be added when the format has to stay
-still for someone. The editor's [Testing tab](/editor/testing-flows) reads this
-report — it runs the real binary rather than reimplementing the assertions, which is
-what makes its verdict and a terminal's the same verdict.
 
 ## Things worth knowing
 
@@ -383,12 +311,16 @@ To have your editor complete a suite and a validator check it:
 ```
 
 It is the same shape this guide walks through, described field by field — and it is
-drift-tested against the Go structs, so it cannot quietly fall out of date.
+drift-tested against the Go structs, so it cannot quietly fall out of date. The
+[test file reference](/testing/test-file) is that schema, rendered.
 
 ## See also
 
+- [Test file reference](/testing/test-file) — every key of a suite, field by field.
+- [Running tests](/testing/running-and-ci) — `dolphin test`'s flags, the exit codes,
+  and CI.
 - [Debugging a flow](/guides/debugging-flows) — the mocks, spies, and breakpoints a
   test is built out of, driven by hand.
-- [Testing flows in the editor](/editor/testing-flows) — the same suites, written in
+- [Testing in the editor](/testing/in-the-editor) — the same suites, written in
   a form and run from the Testing tab.
 - [CLI reference](/reference/cli#mocks) — the full mock spec and address grammar.
