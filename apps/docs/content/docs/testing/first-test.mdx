@@ -1,0 +1,323 @@
+---
+title: "Your First Test"
+description: "Take a flow that calls an API you cannot reach, and get a green test suite for it in about ten minutes."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Cards, Card } from 'fumadocs-ui/components/card';
+import { Steps, Step } from 'fumadocs-ui/components/steps';
+import { FlaskConical, SquarePen, Terminal, FileCode } from 'lucide-react';
+
+Testing a flow sounds like it should be hard. The flow calls a payment API, and you
+do not have a payment API — so how do you run it?
+
+You stand in for the block that calls out, and let the rest of the flow run for real.
+That is the whole trick, and this page walks it end to end on a flow that ships with
+octo. By the end you will have a suite with two cases, you will have made it fail on
+purpose, and you will have read the failure.
+
+Every command and every line of output on this page was run to produce it.
+
+<Steps>
+
+<Step>
+
+## Set up
+
+You need both binaries. From a clone of the repository:
+
+```bash
+task build                          # writes bin/octo and bin/dolphin
+export OCTO_PATH=$PWD/bin/octo      # the octo dolphin will drive
+export PATH=$PWD/bin:$PATH          # so `dolphin` is on your path
+```
+
+`dolphin` runs your tests by running the real `octo` — it is not a reimplementation of
+the engine, it is the engine, driven per case. That is why it needs to find a binary.
+See [installation](/getting-started/installation#install-dolphin) for the release
+tarballs if you would rather not build.
+
+Now make a scratch directory with one flow in it:
+
+```bash
+mkdir ~/octo-first-test && cd ~/octo-first-test
+cp /path/to/octo/samples/error-handling.yaml .
+```
+
+The flow you are about to test is `charge-inline`. It POSTs a charge to an upstream,
+and wraps that call in a `handle-errors` block so a failure becomes a friendly
+"degraded" body rather than a 500.
+
+Its upstream is `http://127.0.0.1:9` — the **discard port**. Every call it makes fails
+to connect, on purpose, so the sample needs no server. That is fine for a demo and
+useless for a test: "it failed" is the only outcome the real flow can produce.
+
+</Step>
+
+<Step>
+
+## Get to green before you assert anything
+
+Write this as `error-handling_test.yaml`, beside the flow:
+
+```yaml title="error-handling_test.yaml"
+flow: charge-inline
+
+cases:
+  - name: it runs to the end
+    expect: {}
+```
+
+Run it:
+
+```bash
+dolphin test error-handling.yaml
+```
+
+```
+ok   error-handling_test.yaml  (charge-inline)  68ms
+
+1 passed, 0 failed, 0 errored, 0 skipped  (68ms)
+```
+
+Green, in four lines of YAML. Two things just happened that are worth naming.
+
+**dolphin found the suite by itself.** You pointed at the *flow* file and it ran the
+`_test.yaml` beside it — the same convention Go uses, where `orders.go` is tested by
+`orders_test.go`. octo skips `_test.yaml` when it loads a directory, so the suite can
+live next to the flows without ever being mistaken for one.
+
+**An empty `expect` is not an empty test.** It asserts that the flow ran to the end
+and did not fail. Here that passes because the flow's `handle-errors` chain catches
+the failing charge and recovers — which is exactly what the flow was written to do.
+
+</Step>
+
+<Step>
+
+## Stand in for the block that calls the world
+
+Now make the flow do something you can check. Replace the file with:
+
+```yaml title="error-handling_test.yaml"
+flow: charge-inline
+
+mocks:
+  charge-inline.charge[process].call-charge:
+    default:
+      body: { id: ch_1, status: captured }
+
+cases:
+  - name: a charge the bank accepts comes back captured
+    input:
+      data: { amount: 10 }
+    expect:
+      body: { id: ch_1, status: captured }
+```
+
+```bash
+dolphin test error-handling.yaml
+```
+
+```
+ok   error-handling_test.yaml  (charge-inline)  94ms
+
+1 passed, 0 failed, 0 errored, 0 skipped  (94ms)
+```
+
+The mock **replaces** the `call-charge` block, so the HTTP request never happens and
+the flow gets `{ id: ch_1, status: captured }` as if the bank had said so. Everything
+around it — the `handle-errors` wrapper, the flow's own plumbing — ran for real.
+
+**About that address.** `charge-inline.charge[process].call-charge` reads left to
+right: the flow, the `handle-errors` block named `charge`, its `process` slot, and the
+block inside it. Nested blocks get bracketed slot names; see the [address
+grammar](/reference/cli#addressing-a-block). In the editor you never type one — a
+picker lists the addressable blocks in the flow.
+
+<Callout type="info">
+`input.data` is the body the flow is called with. It matters here even though the mock
+ignores it, because **sources do not run under a test**: no HTTP request arrives, so
+nothing populates the message unless the case does. A flow reading request headers
+needs `input.vars` too.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Break it on purpose
+
+A test you have never seen fail is a test you have no reason to trust. Change the
+expected id from `ch_1` to `ch_2` — leave the mock alone — and run it again:
+
+```
+FAIL error-handling_test.yaml  (charge-inline)  77ms
+  --- FAIL: a charge the bank accepts comes back captured (77ms)
+        expect.body:
+              want: {"id":"ch_2","status":"captured"}
+              got:  {"id":"ch_1","status":"captured"}
+        reproduce: /path/to/bin/octo invoke --config error-handling.yaml \
+          --flow charge-inline \
+          --run-debug-config /tmp/dolphin-143073336/error-handling_test.0.yaml \
+          --timeout 30s \
+          --envelope-out /tmp/dolphin-143073336/error-handling_test.0.outcome.json
+
+0 passed, 1 failed, 0 errored, 0 skipped  (77ms)
+
+the runs are in /tmp/dolphin-143073336
+```
+
+Read the three parts:
+
+1. **The case name**, in the words you wrote. This is why names are sentences.
+2. **`want` against `got`** — not just "assertion failed", but both sides.
+3. **`reproduce`** — a real, runnable `octo` command that re-runs exactly this case.
+
+That third one is the point. The debug config for a *failing* case is deliberately
+kept on disk (a command pointing at a file we deleted is not a command), so a failure
+in CI is one paste away from a debugging session on your laptop, where you can edit
+the input or break on a block inside it.
+
+Put `ch_1` back and confirm it is green again before moving on.
+
+<Callout type="warn">
+A block's `value:` setting is a **CEL expression**, so `value: "502"` in a flow
+evaluates to the *number* 502 — the quotes are YAML's, not CEL's. When a mismatch is
+only a type, dolphin says so rather than making you guess: `want "502", got 502 (a
+string, not a number)`.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Test the path you wrote the flow for
+
+`charge-inline` exists to survive a failing charge. So far you have only proved it
+works when the charge succeeds — the easy half.
+
+Add a second case. It overrides the mock for itself, so the block fails:
+
+```yaml title="error-handling_test.yaml"
+flow: charge-inline
+
+mocks:
+  charge-inline.charge[process].call-charge:
+    default:
+      body: { id: ch_1, status: captured }
+
+cases:
+  - name: a charge the bank accepts comes back captured
+    input:
+      data: { amount: 10 }
+    expect:
+      body: { id: ch_1, status: captured }
+
+  - name: a declined card is recovered into a degraded body
+    input:
+      data: { amount: 500 }
+    mocks:                              # replaces the file's mock, for this case only
+      charge-inline.charge[process].call-charge:
+        default:
+          error: card declined
+    expect:
+      that:
+        - 'body.status == "degraded"'
+        - 'body.reason.contains("card declined")'
+    spies:                              # and prove the block was actually reached
+      charge-inline.charge[process].call-charge:
+        count: 1
+        records:
+          - error: card declined
+```
+
+```
+ok   error-handling_test.yaml  (charge-inline)  119ms
+
+2 passed, 0 failed, 0 errored, 0 skipped  (119ms)
+```
+
+Three new ideas in one case:
+
+- **`error:` on a mock** fails the block. A mocked failure is indistinguishable from
+  the real block failing, so the flow's recovery path behaves exactly as it would in
+  production.
+- **`that:`** holds [CEL](/reference/cel) expressions over the result, each of which
+  must be true. Use it instead of an exact `body` when part of the answer is a message
+  you do not want to pin word for word.
+- **`spies:`** assert on what happened *inside* the flow. Without the spy, a flow that
+  skipped the charge entirely and returned a degraded body for some unrelated reason
+  would still pass. `count: 1` says the block was reached exactly once, and the record
+  says it failed.
+
+</Step>
+
+<Step>
+
+## Run it the way CI will
+
+Point dolphin at the directory and it runs every suite in it:
+
+```bash
+dolphin test .
+```
+
+```
+ok   error-handling_test.yaml  (charge-inline)  149ms
+
+2 passed, 0 failed, 0 errored, 0 skipped  (149ms)
+```
+
+The exit code is the contract a pipeline acts on:
+
+| Code | Meaning |
+| --- | --- |
+| **0** | Every case passed. |
+| **1** | A case ran and did not do what it said. **The flows are wrong.** |
+| **2** | A case never ran — a bad address, a config that will not parse. **The suite is wrong.** |
+
+The split between 1 and 2 is what stops a CI job from sending someone to debug a flow
+that was never called. Add `--junit report.xml` and your CI system will render the
+cases by name; see [running tests](/testing/running-and-ci#in-ci).
+
+</Step>
+
+<Step>
+
+## The same file, in the editor
+
+Nothing about this file is a terminal thing. Start the editor over the directory you
+just worked in:
+
+```bash
+docker run -p 3000:3000 -v "$PWD:/work" juancavallotti/octo
+```
+
+The image ships `dolphin` and points the editor at it, so the **Testing** tab opens the
+suite you just wrote — the same two cases, in a form — and its **Run tests** gives the
+same verdict, because it shells out to the same binary.
+
+![A suite's cases passing in the editor's Tests tab, with the suite name, its tally and each case's elapsed time](/screenshots/editor-testing-run-results.png)
+
+</Step>
+
+</Steps>
+
+## What to read next
+
+<Cards>
+  <Card icon={<FlaskConical />} href="/testing/writing-cases" title="Writing test cases">
+    The format in full: shared inputs, spies over a `foreach`, what `expect` can assert,
+    and the environment a suite needs.
+  </Card>
+  <Card icon={<SquarePen />} href="/testing/in-the-editor" title="Testing in the editor">
+    The Testing tab, and the two bridges between it and the canvas.
+  </Card>
+  <Card icon={<Terminal />} href="/testing/running-and-ci" title="Running tests">
+    Flags, exit codes, JUnit and JSON reports, and a GitHub Actions job.
+  </Card>
+  <Card icon={<FileCode />} href="/testing/test-file" title="Test file reference">
+    Every key of a `_test.yaml`, field by field.
+  </Card>
+</Cards>

@@ -41,7 +41,7 @@ connectors:
 
 ### Skipping the startup lookup
 
-The index's host is printed in the Pinecone console next to the index name. Configure it as `host` and the connector addresses the index directly: startup then makes no network call at all, which is what an air-gapped build — or a [flow test](/guides/testing-flows), where the credentials are fake and every block that would call out is mocked — needs.
+The index's host is printed in the Pinecone console next to the index name. Configure it as `host` and the connector addresses the index directly: startup then makes no network call at all, which is what an air-gapped build — or a [flow test](/testing/writing-cases), where the credentials are fake and every block that would call out is mocked — needs.
 
 The trade is explicit: without the lookup there is nothing to compare `dimension` against, so it goes unchecked. Leave `host` unset in production unless you want that.
 

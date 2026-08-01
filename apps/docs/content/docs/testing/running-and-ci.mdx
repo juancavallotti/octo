@@ -1,0 +1,236 @@
+---
+title: "Running Tests"
+description: "Run a suite from a terminal, the whole battery from the editor, and the same files in CI — with exit codes a pipeline can act on."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+A suite is a file, so everything runs it: `dolphin test` in a terminal, the editor's
+Testing tab, an agent over MCP, and CI. They all shell out to the same binary and
+give the same verdict — which is the point of the file being a file.
+
+## From a terminal
+
+```bash
+dolphin test ./flows              # every *_test.yaml in the directory, against it
+dolphin test flows/orders.yaml    # its companion orders_test.yaml, against that file
+dolphin test flows/orders_test.yaml   # the suite, against the flow file beside it
+```
+
+`test` is the default subcommand, so `dolphin ./flows` works too. Paths may come
+before or after the flags, the way `go test` accepts them.
+
+**A suite is paired with the config the way Go pairs a test file with its package.**
+Point at a directory and every `*_test.yaml` directly inside it runs against that
+directory (subdirectories are not walked). Point at a flow file and its companion
+runs against that one file. Use `--config` when the suite does not live beside the
+flows it exercises:
+
+```bash
+dolphin test --config flows/orders.yaml tests/smoke_test.yaml
+```
+
+Every named suite is loaded and validated **before any case runs**, so a file dolphin
+refuses fails the run immediately rather than half way through.
+
+### Flags
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--config <path>` | the flows beside the suite | The flows to test against. |
+| `--env-file <path>` | — | A `.env` file every case runs with. A missing file is a hard error. |
+| `--junit <path>` | — | Write a JUnit XML report. |
+| `--report-json <path>` | — | Write a machine-readable JSON report. |
+| `--parallel <n>` | one per CPU | How many cases to run at once. |
+| `--fail-fast` | off | Stop after the first failing case. |
+| `-v` | off | Name every case, and let octo's logs through. |
+
+Flags accept one or two dashes.
+
+### Finding octo
+
+dolphin runs your tests by running the real `octo`, so it has to find one. It stops at
+the first of:
+
+1. `$OCTO_PATH` — the binary itself, or a directory holding it
+2. `./octo` — in the current directory
+3. `octo` — on your `PATH`
+
+`$OCTO_PATH` is an **override, not a hint**: when it is set and does not name a
+runnable octo, dolphin fails rather than quietly testing against a different build
+than the one you asked for.
+
+## The environment
+
+A suite's `env:` wins over `--env-file`, which wins over what you have exported.
+
+That order is deliberate. A test that quietly used your real API key because it
+happened to be in your shell is a test that passes on your machine, bills you for it,
+and fails in CI. For a value several suites share, put it in a file:
+
+```bash
+dolphin test ./flows --env-file .env.test
+```
+
+A test key belongs in plain sight — it is fake by construction, so it can be read,
+reviewed and committed. This repository keeps one at
+[`samples/.env.test`](https://github.com/juancavallotti/octo/blob/main/samples/.env.test).
+
+## From the editor
+
+The Testing tab's toolbar runs the open suite; the header's **Run tests** runs every
+suite in the document at once, grouping the results one block per suite. It stages the
+config the suite is for and runs the same `dolphin` binary, so its verdict and a
+terminal's are the same verdict.
+
+It does hold back suites it knows dolphin would refuse, and names them rather than
+dropping them — see [running every
+suite](/testing/in-the-editor#running-every-suite). A suite held back there still runs
+in a terminal and in CI, so the skip list is worth reading.
+
+<Callout type="info">
+The dev `.env` is deliberately **not** injected into a test run, unlike a debug run.
+Injecting a resource the config never declared would make the tab and `dolphin test`
+disagree — and would let a "test" quietly authenticate with your real credentials.
+</Callout>
+
+## In CI
+
+```yaml title=".github/workflows/validate.yml"
+- run: task runtime:build
+- run: task runtime:test:samples
+```
+
+Or directly, for a project that keeps its flows in one directory:
+
+```yaml title=".github/workflows/test.yml"
+name: test
+on: [push, pull_request]
+
+jobs:
+  flows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: stable }
+
+      - name: Install octo and dolphin
+        run: |
+          go install github.com/juancavallotti/octo/runtime/octo@latest
+          go install github.com/juancavallotti/octo/runtime/dolphin@latest
+
+      - name: Test the flows
+        run: dolphin test ./flows --env-file .env.test --junit report.xml
+
+      - name: Publish the report
+        if: always()          # a failing run is exactly when you want the report
+        uses: actions/upload-artifact@v4
+        with:
+          name: flow-tests
+          path: report.xml
+```
+
+`--junit` writes one `<testsuite>` per file and one `<testcase>` per case, which every
+CI system knows how to render. A failed case and an errored one are tagged
+differently in it (`assertion` versus `run`), so the exit-code distinction below
+survives into the dashboard.
+
+This repository tests all of [its own
+samples](https://github.com/juancavallotti/octo/tree/main/samples) this way, so a
+sample that stops doing what its comments claim fails the build instead of misleading
+the next person who copies it.
+
+## Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| **0** | Every case passed. |
+| **1** | A case ran and did not do what it said. **The flows are wrong.** |
+| **2** | A case never ran: a block address does not resolve, the config does not parse, there is no usable octo. **The suite is wrong.** |
+
+The split between 1 and 2 is load-bearing: a CI job that cannot tell "your flow is
+broken" from "your test file is broken" sends someone to debug the wrong thing.
+
+An **errored** case — one that never ran — produces exit 2, not 1, even though other
+cases in the same file may have failed normally.
+
+## A machine-readable report
+
+`--junit` is for a CI system's test UI. `--report-json <path>` is for a program:
+
+```bash
+dolphin test ./flows --report-json report.json
+```
+
+It carries everything the console printed and more — the tally, each case's failures
+with their detail, and, for every case that *ran*, the outcome itself:
+
+```jsonc
+{
+  "dolphin": "dolphin 0.6.2",
+  "wallMs": 412,
+  "workDir": "/tmp/dolphin-123",  // only when something failed and was kept
+  "totals": { "cases": 5, "passed": 4, "failed": 1, "errored": 0,
+              "skipped": 0, "notRun": 0, "elapsedMs": 380 },
+  "suites": [{
+    "path": "flows/orders_test.yaml", "config": "flows/orders.yaml",
+    "flow": "orders", "elapsedMs": 380,
+    "cases": [{
+      "name": "a large order is declined",
+      "status": "passed | failed | errored | skipped | not-run",
+      "elapsedMs": 80,
+      "summary": "one line",
+      "failures": [{ "summary": "…", "detail": "…multi-line…" }],
+      "reproduce": "octo invoke …",
+      // What the flow actually did — the other half of a failure. Present on
+      // every case that RAN, not only the ones that failed.
+      "outcome": { "result": { }, "dropped": false, "error": "…", "spies": { } }
+    }]
+  }]
+}
+```
+
+Empty fields are omitted, so a passing case carries no `failures` and a skipped case
+carries no `outcome`. Three things to rely on:
+
+- **A report is written for exit 0, 1 *and* 2.** A failing run is exactly when you
+  want to read one, so the file is not conditional on success. Only a run that never
+  got as far as running — no usable `octo`, a config that will not parse — has nothing
+  to write.
+- **`status` is a string.** Never an index: an absent field and "not run" would
+  otherwise be the same `0`.
+- **Two clocks, two names.** `totals.elapsedMs` sums the cases; `wallMs` is the wall
+  clock, which is shorter under `--parallel`.
+
+There is deliberately **no schema version**. octo is pre-release and the shape is still
+moving, so a version number would be ceremony that documents nothing; the document
+grows additively instead, and one will be added when the format has to stay still for
+someone.
+
+The editor's [Testing tab](/testing/in-the-editor) reads this report — it runs the real
+binary rather than reimplementing the assertions, which is what makes its verdict and a
+terminal's the same verdict.
+
+## Parallelism and isolation
+
+**One case is one `octo` process.** The debug seam is a config *rewrite* — mocks and
+spies are baked into the flow tree when it is built — so a service can only ever serve
+the case it was built for. That is not a cost we chose; it is what the seam is.
+
+It also means cases are fully isolated, and dolphin runs them in parallel, one per CPU.
+`--parallel 1` serializes them, which is what you want when the config holds a
+connector that binds a port.
+
+<Callout type="warn">
+**Mocking a block does not stop its connector from starting.** The mock replaces the
+*block*; the connector is started by the service regardless. A suite over a config with
+a `database` connector still opens the database — so its DSN has to be a valid one,
+even when every SQL block is mocked. `file::memory:` is usually the answer.
+</Callout>
+
+## See also
+
+- [Writing test cases](/testing/writing-cases) — the suite format, through worked examples.
+- [Test file reference](/testing/test-file) — every key, field by field.
+- [Testing in the editor](/testing/in-the-editor) — the same suites, in a form.

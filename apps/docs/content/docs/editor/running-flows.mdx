@@ -46,7 +46,7 @@ Save first, and saving is still what persists the flow to disk.
 
 The console is the docked panel at the bottom. It shows the runner's version,
 opens automatically when a run starts, and can be collapsed to its header or
-resized by dragging its top edge. It has four tabs:
+resized by dragging its top edge. It has five tabs:
 
 - **Logs** — the running integration's output, streamed live. Auto-scrolls while
   you are at the bottom of the stream; the trash button clears the display.
@@ -54,6 +54,9 @@ resized by dragging its top edge. It has four tabs:
   select the block it belongs to.
 - **Output** — the result of a single flow you invoked, or the message captured
   at a breakpoint.
+- **Tests** — the verdict of the last test run, grouped one block per suite. Badged
+  with the number of cases that failed or errored. See
+  [Testing in the editor](/testing/in-the-editor).
 - **Dev .env** — local values for the variables your flows declare (below).
 
 Problems and Output belong to the other way of running a flow — invoking one on

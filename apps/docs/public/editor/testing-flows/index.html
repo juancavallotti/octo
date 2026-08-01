@@ -1,0 +1,24 @@
+<!doctype html>
+<!--
+  This page moved into the Testing section. The docs site is a static export
+  (`output: 'export'` in next.config.mjs), which cannot emit HTTP redirects, so
+  the redirect ships as a file in public/ instead — Next copies public/ into out/
+  verbatim, and this path no longer collides with a route.
+
+  The URL is relative on purpose: it resolves correctly under any DOCS_BASE_PATH.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Redirecting to Testing in the Editor</title>
+    <meta http-equiv="refresh" content="0; url=../../testing/in-the-editor/" />
+    <link rel="canonical" href="../../testing/in-the-editor/" />
+    <meta name="robots" content="noindex" />
+  </head>
+  <body>
+    <p>
+      This page is now
+      <a href="../../testing/in-the-editor/">Testing in the Editor</a>.
+    </p>
+  </body>
+</html>

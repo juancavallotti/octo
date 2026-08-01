@@ -4,7 +4,7 @@ description: "An AI-native, cloud-native integration platform you can run anywhe
 ---
 
 import { Cards, Card } from 'fumadocs-ui/components/card';
-import { BookOpen, Cpu, LayoutDashboard, Library, Rocket, Ship, Sparkles, SquarePen, Workflow } from 'lucide-react';
+import { BookOpen, Cpu, FlaskConical, LayoutDashboard, Library, Rocket, Ship, Sparkles, SquarePen, Workflow } from 'lucide-react';
 
 Octo is an integration platform built around a small, concurrent Go runtime that
 executes flows defined in YAML. Connectors turn the outside world into messages,
@@ -90,6 +90,10 @@ each message's body. The `process` chain has a single `log` block whose
   <Card icon={<BookOpen />} href="/guides" title="Guides">
     Task-oriented recipes: REST APIs, databases, scheduled jobs, Slack bots, and
     more.
+  </Card>
+  <Card icon={<FlaskConical />} href="/testing" title="Testing">
+    Unit-test flows with dolphin: mock what calls the world, assert what happened,
+    and run the same file in CI.
   </Card>
   <Card icon={<Sparkles />} href="/ai" title="AI">
     LLM providers, agents, AI mapping and routing, and authoring flows over MCP.

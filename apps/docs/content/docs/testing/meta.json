@@ -1,0 +1,12 @@
+{
+  "pages": [
+    "index",
+    "first-test",
+    "writing-cases",
+    "in-the-editor",
+    "with-an-agent",
+    "running-and-ci",
+    "test-file"
+  ],
+  "title": "Testing"
+}

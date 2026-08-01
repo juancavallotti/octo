@@ -473,7 +473,8 @@ octo invoke --config ./flows --flow caller --break-at 'sub.step'
 
 `--spies` records every message that crosses a block, and — unlike a breakpoint —
 leaves the run alone. It takes a comma-separated list of the same
-[block addresses](#addressing-a-block):
+[block addresses](#addressing-a-block). A [test suite](/testing/test-file#spies)
+takes the same addresses and adds assertions over what was recorded:
 
 ```bash
 octo invoke --config samples/builtins-demo.yaml --flow demo \
@@ -507,7 +508,8 @@ the flow's result; the spy's records leave out of band.
 
 `--mocks` **replaces** a block with a canned answer, so its real work — an HTTP
 call, an LLM, a database write — never happens. It takes one JSON object keyed by
-block address:
+block address. A [test suite](/testing/test-file#mocks) takes the same spec in YAML,
+which is the usual way to keep one:
 
 ```bash
 octo invoke --config samples/error-handling.yaml --flow charge-flowlevel \
