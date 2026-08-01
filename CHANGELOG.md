@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.6.4](https://github.com/juancavallotti/octo/compare/v0.6.3...v0.6.4) (2026-08-01)
+
+
+### Features
+
+* **editor:** run every test suite from the header ([d5f8728](https://github.com/juancavallotti/octo/commit/d5f872889b0112f455ffecbb03cb5e2accb13994))
+
+
+### Bug Fixes
+
+* **editor:** keep the header RUN control in place on the Testing tab ([531a1d1](https://github.com/juancavallotti/octo/commit/531a1d1464b5e2d5a3f82bbdbcd555e93a84c11c))
+* **run-host:** scale a test run's wall clock with the suites it names ([7a33b0d](https://github.com/juancavallotti/octo/commit/7a33b0d8dfb31e62a181e8723c9f06c0ededc91c))
+
+
+### Refactoring
+
+* **editor:** drop the Try button from test expectations ([cd45fd2](https://github.com/juancavallotti/octo/commit/cd45fd2c754d13027afd8a0a2d844d84e09d755d))
+* **editor:** let one test run carry many suites ([ae71614](https://github.com/juancavallotti/octo/commit/ae716146e3522ed46e608c3e1c473664712d986c))
+
+
+### Documentation
+
+* make dolphin a first-class citizen ([8811824](https://github.com/juancavallotti/octo/commit/8811824787193da836107db87417c0d8bb39696c))
+* make dolphin a first-class citizen ([98a1664](https://github.com/juancavallotti/octo/commit/98a1664e284921d8371bc27d0d26a2523832445c))
+
 ## [0.6.3](https://github.com/juancavallotti/octo/compare/v0.6.2...v0.6.3) (2026-07-31)
 
 
