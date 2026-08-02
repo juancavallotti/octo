@@ -1,0 +1,33 @@
+# kind equivalent of deploy/k3d/cluster.yaml, for anyone who already runs kind.
+#
+#   kind create cluster --config deploy/kind/cluster.yaml
+#
+# Two differences from k3d drive everything here:
+#
+#  1. kind has no built-in load balancer, so the NodePorts the chart exposes
+#     (helm/values-kind.yaml) are mapped to the host with extraPortMappings
+#     rather than through a servicelb.
+#  2. kind's local-path provisioner stores volumes under
+#     /var/local-path-provisioner, not k3s's path, so that is what the repo's
+#     ./data directory is mounted onto — which is what makes the database
+#     survive `kind delete cluster` and what `task cluster:db:reset` wipes.
+#
+# The hostPath below is relative to the directory kind is invoked from, so run
+# this from the repo root.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: octo
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      # localhost:3000 -> platform NodePort
+      - containerPort: 30030
+        hostPort: 3000
+        protocol: TCP
+      # localhost:8090 -> orchestrator NodePort
+      - containerPort: 30090
+        hostPort: 8090
+        protocol: TCP
+    extraMounts:
+      - hostPath: ./data
+        containerPath: /var/local-path-provisioner

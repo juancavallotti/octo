@@ -1,0 +1,73 @@
+# Local k3d cluster — `task cluster:deploy`.
+#
+#   helm upgrade --install octo ./helm -n octo-dev --create-namespace -f helm/values-k3d.yaml
+#
+# Images are built locally and side-loaded with `k3d image import`, so there is
+# no registry and nothing is ever pulled. The editor and orchestrator are
+# reached through fixed NodePorts that deploy/k3d/cluster.yaml maps to
+# localhost:3000 and localhost:8090.
+
+image:
+  # No registry: side-loaded images are addressed by bare name.
+  registry: ""
+  tag: dev
+  # Fixed :dev tags never change, so IfNotPresent must not be Always or the
+  # kubelet would try to reach a registry that has no such image.
+  pullPolicy: IfNotPresent
+
+# Local builds use the short names (Taskfile `cluster:images`), not the
+# published -paas repositories.
+platform:
+  repository: octo-platform
+  service:
+    type: NodePort
+    nodePorts:
+      http: 30030
+  extraEnv:
+    # Auth.js callback/cookie origin. SSO is off locally, but the editor still
+    # reads this to build absolute URLs.
+    - name: AUTH_URL
+      value: http://localhost:3000
+
+orchestrator:
+  repository: octo-orchestrator
+  service:
+    type: NodePort
+    nodePorts:
+      http: 30090
+  # No ingress controller is wired up locally, so per-integration external
+  # endpoints are off; integrations are reachable at their in-cluster Service.
+  baseDomain: ""
+  ingressClass: ""
+
+logs:
+  repository: octo-logs
+
+schema:
+  repository: octo-schema
+
+runtime:
+  repository: octo-runtime
+
+# The editor is on a NodePort, not behind an Ingress. k3s ships Traefik, but
+# there is no DNS name or certificate to attach locally.
+ingress:
+  enabled: false
+
+auth:
+  oidc:
+    enabled: false
+
+kv:
+  # Fixed, deliberately non-secret development key so KV secret namespaces work
+  # locally without generating one per developer. It is committed on purpose and
+  # must never be used anywhere real.
+  encryptionKey: "RwbauJ1U7IvkOl8IZsNCQNShHGA/sqP+TQymYAkOFQ8="
+
+postgres:
+  # k3s's local-path provisioner is the default StorageClass. The k3d cluster
+  # mounts the repo's ./data into it, so the database survives cluster restarts
+  # and `task cluster:db:reset` wipes it.
+  storage:
+    storageClassName: ""
+    size: 5Gi

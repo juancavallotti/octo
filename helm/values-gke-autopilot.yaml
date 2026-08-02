@@ -1,0 +1,179 @@
+# GKE Autopilot.
+#
+#   helm upgrade --install octo oci://ghcr.io/juancavallotti/charts/octo \
+#     -n octo --create-namespace -f values-gke-autopilot.yaml \
+#     --set ingress.host=octo.example.com
+#
+# Autopilot manages nodes for you, which imposes constraints the stock values do
+# not satisfy:
+#   * every pod is billed on its resource requests, and Autopilot injects
+#     defaults when they are absent — set them explicitly or you pay for
+#     whatever it chooses
+#   * hostPath and hostPort are rejected outright (nothing here uses them)
+#   * pods can take noticeably longer to start than on Standard, because
+#     Autopilot may provision a node first — hence the startup-probe allowance
+#
+# Prerequisites on the cluster, none installed by this chart:
+#   * an ingress controller — ingress-nginx is assumed below
+#   * cert-manager, plus the ClusterIssuer named in ingress.tls.clusterIssuer
+#
+# Ingress controller choice: nginx rather than GKE's own GCE ingress. The
+# orchestrator creates an Ingress per externally-exposed integration, and GCE
+# ingress needs a cloud.google.com/neg annotation on each backend Service, which
+# the orchestrator does not set. nginx works with the ClusterIP Services it does
+# create. To use GCE ingress for the editor anyway, set ingress.className=gce
+# with ingress.tls.mode=gke-managed-cert and leave orchestrator.ingressClass on
+# nginx.
+
+defaults:
+  # Autopilot bills requests; limits equal to requests gives the Guaranteed QoS
+  # class and makes the bill predictable.
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 250m
+      memory: 512Mi
+  podSecurityContext:
+    seccompProfile:
+      type: RuntimeDefault
+  # Restricted baseline for every container. Each image runs as a different
+  # uid, so runAsUser is set per component below — all five have been verified
+  # to run unprivileged.
+  securityContext:
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+  # Autopilot may need to provision a node before a pod can start; without this
+  # a slow first boot can be killed before it is ever ready.
+  startupProbe:
+    failureThreshold: 30
+    periodSeconds: 10
+
+platform:
+  # node:22-alpine's `node` user.
+  securityContext:
+    runAsUser: 1000
+    runAsGroup: 1000
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+  startupProbe:
+    httpGet:
+      path: /
+      port: 3000
+    failureThreshold: 30
+    periodSeconds: 10
+
+# The Go services are built FROM gcr.io/distroless/static-debian12:nonroot and
+# already declare USER nonroot:nonroot, so 65532 is what they run as anyway.
+# They write nothing to the filesystem, so the root filesystem can be read-only.
+orchestrator:
+  securityContext:
+    runAsUser: 65532
+    runAsGroup: 65532
+    readOnlyRootFilesystem: true
+  ingressClass: nginx
+  # Per-integration endpoints at {slug}.{baseDomain}. Needs a wildcard DNS
+  # record pointing at the ingress controller's address.
+  baseDomain: ""
+  clusterIssuer: ""
+
+logs:
+  securityContext:
+    runAsUser: 65532
+    runAsGroup: 65532
+    readOnlyRootFilesystem: true
+
+runtime:
+  servicesModule: k8s
+
+postgres:
+  # In-cluster Postgres works on Autopilot with a pd-balanced volume. For
+  # anything you care about, prefer Cloud SQL — see the block below.
+  enabled: true
+  # The official postgres image runs as uid 70. fsGroup makes the PVC writable
+  # by it, so the entrypoint never needs root to chown the data directory.
+  podSecurityContext:
+    fsGroup: 70
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    runAsUser: 70
+    runAsGroup: 70
+  resources:
+    requests:
+      cpu: 500m
+      memory: 2Gi
+    limits:
+      cpu: 500m
+      memory: 2Gi
+  storage:
+    # pd-balanced. premium-rwo (pd-ssd) for write-heavy installs.
+    storageClassName: standard-rwo
+    size: 20Gi
+
+# Cloud SQL instead of the StatefulSet above. Point host at the private IP or a
+# Cloud SQL Auth proxy, and keep the password in a Secret owned by Terraform or
+# external-secrets rather than in this file.
+# postgres:
+#   enabled: false
+# externalDatabase:
+#   host: 10.20.30.40
+#   database: octo
+#   user: octo
+#   sslmode: require
+#   existingSecret: cloudsql-octo
+#   existingSecretPasswordKey: password
+
+schema:
+  # Same postgres:16-alpine uid; the Job only runs psql.
+  securityContext:
+    runAsUser: 70
+    runAsGroup: 70
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 100m
+      memory: 256Mi
+
+nats:
+  enabled: true
+  # The nats image has no dedicated user and defaults to root, but the server
+  # needs no privileges: it binds 4222/8222 and, with JetStream off, writes
+  # nothing. Any uid works.
+  securityContext:
+    runAsUser: 1000
+    runAsGroup: 1000
+    readOnlyRootFilesystem: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 100m
+      memory: 256Mi
+
+ingress:
+  enabled: true
+  className: nginx
+  host: octo.example.com
+  tls:
+    enabled: true
+    mode: cert-manager
+    secretName: octo-tls
+    clusterIssuer: letsencrypt-prod
+
+# Workload Identity: bind the chart's ServiceAccounts to Google service accounts.
+# orchestrator:
+#   serviceAccount:
+#     annotations:
+#       iam.gke.io/gcp-service-account: octo-orchestrator@PROJECT.iam.gserviceaccount.com

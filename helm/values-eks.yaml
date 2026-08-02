@@ -1,0 +1,137 @@
+# AWS EKS.
+#
+#   helm upgrade --install octo oci://ghcr.io/juancavallotti/charts/octo \
+#     -n octo --create-namespace -f values-eks.yaml \
+#     --set ingress.host=octo.example.com \
+#     --set ingress.tls.certificateArn=arn:aws:acm:REGION:ACCOUNT:certificate/ID
+#
+# Prerequisites on the cluster, none installed by this chart:
+#   * AWS Load Balancer Controller, for the `alb` IngressClass
+#   * EBS CSI driver, for the gp3 StorageClass
+#   * an ACM certificate covering ingress.host, and *.{baseDomain} too if you
+#     enable per-integration external endpoints
+#
+# TLS terminates at the ALB against an ACM certificate, so there is no
+# cert-manager and no ClusterIssuer here: the Ingress carries a certificate-arn
+# annotation instead of a tls block, which is what ingress.tls.mode=acm selects.
+#
+# target-type: ip sends traffic straight to pod IPs, which is what makes the
+# ClusterIP Services this chart creates work behind an ALB. group.name lets the
+# editor Ingress and every per-integration Ingress the orchestrator creates
+# share one ALB rather than provisioning — and billing — one each.
+
+defaults:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+  podSecurityContext:
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+
+platform:
+  securityContext:
+    runAsUser: 1000
+    runAsGroup: 1000
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+
+orchestrator:
+  securityContext:
+    runAsUser: 65532
+    runAsGroup: 65532
+    readOnlyRootFilesystem: true
+  ingressClass: alb
+  # Per-integration endpoints at {slug}.{baseDomain}. Needs a wildcard DNS
+  # record pointing at the ALB and an ACM cert covering *.{baseDomain}.
+  baseDomain: ""
+  # No cert-manager on this path; the ALB terminates with the ACM cert.
+  clusterIssuer: ""
+  ingressAnnotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    # Same group as the editor Ingress, so everything shares one ALB.
+    alb.ingress.kubernetes.io/group.name: octo
+    # alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:REGION:ACCOUNT:certificate/ID
+
+logs:
+  securityContext:
+    runAsUser: 65532
+    runAsGroup: 65532
+    readOnlyRootFilesystem: true
+
+runtime:
+  servicesModule: k8s
+
+postgres:
+  # In-cluster Postgres on an EBS volume. For anything you care about, prefer
+  # RDS — see the block below.
+  enabled: true
+  podSecurityContext:
+    fsGroup: 70
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    runAsUser: 70
+    runAsGroup: 70
+  resources:
+    requests:
+      cpu: 500m
+      memory: 2Gi
+  storage:
+    # gp3 needs the EBS CSI driver. EBS volumes are zonal, so the pod is pinned
+    # to its volume's AZ — another reason to prefer RDS for real workloads.
+    storageClassName: gp3
+    size: 50Gi
+
+# RDS instead of the StatefulSet above.
+# postgres:
+#   enabled: false
+# externalDatabase:
+#   host: octo.abcdef.us-east-1.rds.amazonaws.com
+#   database: octo
+#   user: octo
+#   sslmode: require
+#   existingSecret: rds-octo
+#   existingSecretPasswordKey: password
+
+schema:
+  securityContext:
+    runAsUser: 70
+    runAsGroup: 70
+
+nats:
+  enabled: true
+  securityContext:
+    runAsUser: 1000
+    runAsGroup: 1000
+    readOnlyRootFilesystem: true
+
+ingress:
+  enabled: true
+  className: alb
+  host: octo.example.com
+  tls:
+    enabled: true
+    # ACM certificate on the ALB: no tls block on the Ingress, no cert-manager.
+    mode: acm
+    certificateArn: ""
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/group.name: octo
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+
+# IRSA: bind the chart's ServiceAccounts to IAM roles.
+# orchestrator:
+#   serviceAccount:
+#     annotations:
+#       eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT:role/octo-orchestrator
