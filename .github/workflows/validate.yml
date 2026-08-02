@@ -78,6 +78,28 @@ jobs:
           echo "$HOME/bin" >> "$GITHUB_PATH"
       - run: task helm:test
 
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Pinned to a version that satisfies the strictest root: the eks root needs
+      # >= 1.10 for the S3 backend's native locking.
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+          terraform_wrapper: false
+      - name: Install Task
+        run: |
+          mkdir -p "$HOME/bin"
+          sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b "$HOME/bin"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+      # fmt + validate across every root and module. `validate` needs providers, so
+      # it needs an init — but the task passes -backend=false, so this runs with no
+      # cloud credentials, no state bucket and nothing to clean up. The committed
+      # .terraform.lock.hcl files carry linux_amd64 hashes precisely so this step
+      # resolves the same providers a laptop does.
+      - run: task tf:check
+
   docs:
     runs-on: ubuntu-latest
     steps:

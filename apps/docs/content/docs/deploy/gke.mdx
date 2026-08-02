@@ -50,6 +50,58 @@ Pull the profile at the same version as the chart: it pins per-component
   run on a live GKE cluster. Treat the first install as a shakedown.
 </Callout>
 
+## Provision a cluster with Terraform
+
+If you do not already have a cluster, the repo has a Terraform root per flavour
+that creates one, installs every prerequisite below, wires DNS, and deploys the
+chart — in a single apply.
+
+```bash
+cd deploy/terraform
+cp gke-standard/terraform.tfvars.example gke-standard/terraform.tfvars
+task gke:standard:apply          # or gke:autopilot:apply
+```
+
+Both roots are thin wrappers over one shared composition
+(`deploy/terraform/modules/octo-gke`), so the two flavours cannot drift — which
+matters, because the point of having both is that the *same* deployment is
+exercised on each. What they create:
+
+| | |
+|---|---|
+| **Cluster** | A dedicated VPC (not `default`), VPC-native, Autopilot or Standard |
+| **Ingress** | ingress-nginx on a **reserved** static IP, so DNS resolves before the controller is even up |
+| **TLS** | cert-manager, plus both ClusterIssuers — HTTP-01 for the editor host, DNS-01 (via Workload Identity) for the wildcard |
+| **DNS** | A records for the editor, the apps domain and `*.{apps_domain}` |
+| **Database** | The chart's bundled Postgres, or a Cloud SQL instance on a private IP — one variable |
+
+These are **test** environments and their defaults say so: spot nodes, a zonal
+control plane, no Cloud NAT, no deletion protection, no database backups. Every one
+has a variable that turns it into the production choice.
+
+<Callout type="info">
+  The DNS **zone** is not managed by Terraform, only the records in it. Cloud DNS
+  assigns fresh nameservers on every zone creation, so a zone owned by a root you
+  destroy and recreate would invalidate its delegation every cycle. Create it once
+  by hand and delegate it — see
+  [`deploy/terraform/README.md`](https://github.com/juancavallotti/octo/blob/main/deploy/terraform/README.md).
+</Callout>
+
+Tear down with `task gke:standard:destroy`. It is phased on purpose: the ingress
+controller owns the load balancer, and destroying it alongside the release strands a
+forwarding rule that then blocks the VPC delete.
+
+### Testing a chart you have edited
+
+The published images track releases, so they will not match a chart changed since
+the last one. Build the working tree instead and push it to `ttl.sh`, an anonymous
+registry that expires what you give it:
+
+```bash
+task images:ttl TTL=12h
+task gke:standard:apply IMAGE_VALUES=dist/values.ttl.yaml
+```
+
 ## Prerequisites
 
 None of these are installed by the chart:
@@ -59,6 +111,9 @@ None of these are installed by the chart:
 | An ingress controller — **ingress-nginx** is what the profiles assume | The chart creates an Ingress; nothing serves it otherwise |
 | **cert-manager** plus the ClusterIssuer named in `ingress.tls.clusterIssuer` | TLS for the editor host |
 | A DNS A record for `ingress.host` pointing at the controller's address | – |
+
+The Terraform roots above install all three. This section is for a cluster you
+already own.
 
 Add a wildcard record for `*.{orchestrator.baseDomain}` if you want
 per-integration external endpoints.

@@ -53,6 +53,16 @@ profile it uses and who runs the install.
 | **Prerequisites** | `docker`, `k3d`, `devspace`, `task` | `helm` and a cluster | `gcloud`, `terraform`, `helm`, `docker`, `task`, a Cloud DNS zone |
 | **Bring it up** | `task cluster:deploy` | `helm install oci://…` | `task infra:apply`, then `task deploy TAG=…` |
 
+<Callout type="info">
+  **No cluster, but you want a managed one?** The middle column assumes you already
+  have a Kubernetes cluster. If you do not, the repo also ships Terraform roots that
+  create one — GKE Standard, GKE Autopilot or EKS — install its prerequisites, wire
+  DNS and TLS, and deploy the chart in a single apply. See
+  [GKE](/deploy/gke#provision-a-cluster-with-terraform) and
+  [EKS](/deploy/eks#provision-a-cluster-with-terraform). They exist to exercise the
+  chart's cloud profiles, so their defaults are cheap and disposable.
+</Callout>
+
 The chart is published on every release, so the middle column needs no checkout:
 
 <DynamicCodeBlock lang="bash" code={`helm install octo oci://ghcr.io/juancavallotti/charts/octo \\
