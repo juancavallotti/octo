@@ -165,6 +165,37 @@ resource "kubernetes_secret_v1" "db" {
   }
 }
 
+# --- Application secrets ---
+#
+# Minted here rather than asked for. Neither has anything to stay consistent with
+# across a destroy/recreate cycle — the database holding the sessions and the
+# ciphertext goes with the cluster — and both are stable across applies because
+# they live in this root's state.
+
+# Auth.js session secret. Created unconditionally so that turning SSO on later is
+# an in-place update rather than a new secret; only passed to the chart when SSO
+# is actually enabled, which is the only case where the editor reads it.
+resource "random_password" "auth_secret" {
+  length  = 32
+  special = false
+}
+
+# KV secret-namespace encryption key: 32 random bytes (AES-256), base64 for the
+# chart. Not optional in practice — with kv.encryptionKey empty the chart rejects
+# every write to a secret KV namespace (plain KV keeps working), so an integration
+# that stores a credential fails on this cluster and nowhere else. That is a
+# property of the deployment, not of the chart under test, so it is not something
+# to leave to a tfvars line someone forgets.
+#
+# ignore_changes on length: regenerating it would orphan existing ciphertext.
+resource "random_bytes" "kv_encryption_key" {
+  length = 32
+
+  lifecycle {
+    ignore_changes = [length]
+  }
+}
+
 # --- The release ---
 
 module "octo" {
@@ -203,6 +234,17 @@ module "octo" {
     sslmode         = "require"
     existing_secret = kubernetes_secret_v1.db[0].metadata[0].name
   } : null
+
+  # --- Editor authentication ---
+  oidc_enabled       = var.oidc_enabled
+  oidc_issuer        = var.oidc_issuer
+  oidc_client_id     = var.oidc_client_id
+  oidc_client_secret = var.oidc_client_secret
+  oidc_write_roles   = var.oidc_write_roles
+  oidc_roles_claim   = var.oidc_roles_claim
+  auth_secret        = var.oidc_enabled ? random_password.auth_secret.result : ""
+
+  kv_encryption_key = random_bytes.kv_encryption_key.base64
 
   # Roll back a failed install rather than leaving half a release to inspect and
   # clean up by hand — this environment is rebuilt often enough that a clean

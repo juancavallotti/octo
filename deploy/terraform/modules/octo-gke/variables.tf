@@ -109,6 +109,51 @@ variable "cloudsql_tier" {
   default     = "db-g1-small"
 }
 
+# --- Editor authentication ---
+#
+# The two secrets the chart also needs — the Auth.js session secret and the KV
+# encryption key — are deliberately NOT inputs. They are minted per cluster and
+# held in state, because neither has anything to stay consistent with across a
+# destroy/recreate cycle: the database that their ciphertext and sessions belong
+# to goes with the cluster. See random_password.auth_secret in main.tf.
+
+variable "oidc_enabled" {
+  type        = bool
+  description = "Require OIDC single sign-on to reach the editor. Off by default, which suits a cluster that exists for an afternoon — but it means anyone who can resolve the hostname gets in, so turn it on for anything left standing on a public domain. Needs oidc_client_id and oidc_client_secret; with those empty the editor comes up asking for a login it cannot complete."
+  default     = false
+}
+
+variable "oidc_issuer" {
+  type        = string
+  description = "OIDC issuer URL (AUTH_EETR_ISSUER)."
+  default     = "https://auth.eetr.app"
+}
+
+variable "oidc_client_id" {
+  type        = string
+  description = "OIDC client id. Not a secret — it travels in the authorization redirect."
+  default     = ""
+}
+
+variable "oidc_client_secret" {
+  type        = string
+  description = "OIDC client secret."
+  default     = ""
+  sensitive   = true
+}
+
+variable "oidc_write_roles" {
+  type        = string
+  description = "Comma-separated roles allowed to perform writes (e.g. \"admin,operator\"). Empty lets any signed-in user write."
+  default     = ""
+}
+
+variable "oidc_roles_claim" {
+  type        = string
+  description = "id-token claim carrying roles. Empty uses the Auth.js default, \"roles\"."
+  default     = ""
+}
+
 # --- Cost / production toggles ---
 # Every default below is the cheap, disposable choice. Each has a production
 # counterpart, and none of them changes what the chart sees.

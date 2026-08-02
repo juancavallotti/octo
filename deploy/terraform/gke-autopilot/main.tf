@@ -47,6 +47,12 @@ module "octo_gke" {
   external_database = var.external_database
   cloudsql_tier     = var.cloudsql_tier
 
+  oidc_enabled       = var.oidc_enabled
+  oidc_issuer        = var.oidc_issuer
+  oidc_client_id     = var.oidc_client_id
+  oidc_client_secret = var.oidc_client_secret
+  oidc_write_roles   = var.oidc_write_roles
+  oidc_roles_claim   = var.oidc_roles_claim
 
   private_nodes              = var.private_nodes
   master_authorized_networks = var.master_authorized_networks
