@@ -200,7 +200,16 @@ schema:
   repository: octo-schema-paas
   image: {}
 
+# In-cluster Postgres. Set enabled=false to point the platform at a managed
+# instance instead (Cloud SQL on GKE, RDS on EKS) — see externalDatabase below.
+# When disabled the StatefulSet, its Service and its Secret are all skipped; the
+# schema hook Job still runs, against the external host.
 postgres:
+  enabled: true
+  # sslmode for the in-cluster connection. Traffic never leaves the cluster
+  # network, so disable is the default; a service mesh or a stricter policy may
+  # want require.
+  sslmode: disable
   image:
     # Third-party image: it deliberately does NOT inherit the shared
     # image.registry, which holds the octo-* images only. Empty means Docker
@@ -220,6 +229,26 @@ postgres:
   service:
     port: 5432
   resources: {}
+
+# Managed database used when postgres.enabled is false — Cloud SQL on GKE, RDS
+# on EKS, or any reachable Postgres.
+#
+# Prefer existingSecret over password: a managed instance's credential is issued
+# by the cloud provider, so it belongs in a Secret owned by Terraform or an
+# external-secrets operator rather than in Helm values, which persist in release
+# history. Supplying `password` makes the chart create the Secret itself, which
+# is convenient for a trial and wrong for production.
+externalDatabase:
+  host: ""
+  port: 5432
+  user: octo
+  database: octo
+  sslmode: require
+  # Name of an existing Secret holding the password, and the key within it.
+  existingSecret: ""
+  existingSecretPasswordKey: password
+  # Only used when existingSecret is empty.
+  password: ""
 
 # NATS message broker for cross-process pub-sub. Core NATS only (no JetStream):
 # ephemeral fan-out, so no volume — but still a StatefulSet (+ headless service)

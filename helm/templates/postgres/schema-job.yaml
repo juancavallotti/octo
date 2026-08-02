@@ -1,11 +1,15 @@
 {{- /* Applies sql/schema.sql via the octo-schema image. Run as a Helm hook on every
        install/upgrade — the schema is idempotent (IF NOT EXISTS / ON CONFLICT), and
        Jobs are immutable, so the before-hook-creation delete policy replaces the
-       previous run instead of failing. */}}
+       previous run instead of failing.
+
+       Targets whichever database is in play: the in-cluster StatefulSet, or the
+       managed instance when postgres.enabled is false. psql reads the password
+       from PGPASSWORD rather than a DSN, so the credential never appears in a
+       command line (visible in `kubectl describe`) or in the pod spec. */}}
 {{- $ctx := dict "root" $ "component" "schema" }}
-{{- $pg := include "octo.postgres.serviceName" . }}
-{{- $psqlArgs := printf "-h %s -p %v -U %s -d %s" $pg .Values.postgres.service.port .Values.postgres.auth.username .Values.postgres.auth.database }}
-{{- $pgPassword := list (dict "name" "PGPASSWORD" "valueFrom" (dict "secretKeyRef" (dict "name" $pg "key" "postgres-password"))) }}
+{{- $psqlArgs := printf "-h %s -p %v -U %s -d %s" (include "octo.database.host" .) (include "octo.database.port" .) (include "octo.database.user" .) (include "octo.database.name" .) }}
+{{- $pgPassword := list (dict "name" "PGPASSWORD" "valueFrom" (dict "secretKeyRef" (dict "name" (include "octo.database.secretName" .) "key" (include "octo.database.passwordKey" .)))) }}
 apiVersion: batch/v1
 kind: Job
 metadata:

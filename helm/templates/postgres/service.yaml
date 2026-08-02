@@ -1,6 +1,8 @@
+{{- if .Values.postgres.enabled }}
 {{- /* Headless: stable DNS for the StatefulSet's single replica. */}}
 {{- include "octo-common.service" (dict
       "root" $
       "component" "postgres"
       "headless" true
       "ports" (list (dict "name" "postgres" "port" .Values.postgres.service.port "targetPort" 5432))) }}
+{{- end }}

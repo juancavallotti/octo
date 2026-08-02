@@ -1,8 +1,7 @@
 {{- define "octo.orchestrator.env" -}}
 - name: PORT
   value: {{ .Values.orchestrator.service.port | quote }}
-- name: DATABASE_URL
-  value: {{ include "octo.databaseURL" . | quote }}
+{{ include "octo.database.env" . }}
 - name: KUBE_NAMESPACE
   value: {{ .Release.Namespace | quote }}
 - name: RUNTIME_IMAGE

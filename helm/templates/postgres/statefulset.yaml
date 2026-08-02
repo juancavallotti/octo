@@ -1,3 +1,4 @@
+{{- if .Values.postgres.enabled }}
 {{- include "octo-common.statefulset" (dict
       "root" $
       "component" "postgres"
@@ -17,3 +18,4 @@
           "periodSeconds" 5)
         "volumeMounts" (list (dict "name" "data" "mountPath" "/var/lib/postgresql/data"))))
       "volumeClaimTemplates" (include "octo.postgres.volumeClaimTemplates" .)) }}
+{{- end }}
