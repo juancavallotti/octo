@@ -60,8 +60,13 @@ jobs:
   # only be caught by deploying to the cluster it broke.
   helm:
     runs-on: ubuntu-latest
+    # Renders and validates locally; writes nothing anywhere.
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       # Pinned, not floating. Chart packaging and template resolution are exactly
       # the behaviour that must not change under us between runs — the chart
       # vendors a library chart under charts/, and how Helm treats that is the

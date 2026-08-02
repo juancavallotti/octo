@@ -23,18 +23,36 @@
 */}}
 {{- define "octo-common.ingress.tlsMode" -}}
 {{- $tls := .tls | default dict -}}
+{{- $mode := "" -}}
 {{- if not $tls.enabled -}}
-none
+{{- $mode = "none" -}}
 {{- else -}}
-{{- $tls.mode | default (ternary "cert-manager" "secret" (not (empty $tls.clusterIssuer))) -}}
+{{- $mode = ($tls.mode | default (ternary "cert-manager" "secret" (not (empty $tls.clusterIssuer)))) -}}
 {{- end -}}
+{{- /*
+  A closed enumeration, checked rather than assumed. The caller below dispatches
+  on this with no final else, so an unrecognised value — a typo, a mode from a
+  newer chart — silently matches nothing: the Ingress renders with no certificate
+  annotation and no tls block, `helm install` reports success, and the endpoint
+  serves plain HTTP. Failing the render is the difference between a mistake you
+  fix in ten seconds and one you discover from a browser warning.
+*/ -}}
+{{- $valid := list "cert-manager" "secret" "gke-managed-cert" "acm" "none" -}}
+{{- if not (has $mode $valid) -}}
+{{- fail (printf "ingress.tls.mode %q is not one of %s" $mode (join ", " $valid)) -}}
+{{- end -}}
+{{- $mode -}}
 {{- end }}
 
 {{/*
   Every host the Ingress serves: the primary host plus any extraHosts.
 */}}
 {{- define "octo-common.ingress.hosts" -}}
-{{- toYaml (prepend (.extraHosts | default list) .host) -}}
+{{- /* required here rather than in values, because this is the one place that
+       knows an Ingress is actually being rendered: ingress.host has no default
+       (a published chart must not claim a domain), and an Ingress with an empty
+       host silently matches every request the controller cannot place. */ -}}
+{{- toYaml (prepend (.extraHosts | default list) (required "ingress.host is required when ingress.enabled is true" .host)) -}}
 {{- end }}
 
 {{- define "octo-common.ingress" -}}

@@ -122,8 +122,9 @@ postgres:
 # Cloud SQL instead of the StatefulSet above. Point host at the private IP or a
 # Cloud SQL Auth proxy, and keep the password in a Secret owned by Terraform or
 # external-secrets rather than in this file.
-# postgres:
-#   enabled: false
+# NOTE the `postgres:` key already exists earlier in this file — set
+# `enabled: false` INSIDE that block rather than pasting a second one, or YAML
+# keeps only the last mapping and silently drops the settings above.
 # externalDatabase:
 #   host: 10.20.30.40
 #   database: octo
@@ -173,7 +174,8 @@ ingress:
     clusterIssuer: letsencrypt-prod
 
 # Workload Identity: bind the chart's ServiceAccounts to Google service accounts.
-# orchestrator:
+# Nest this INSIDE the existing `orchestrator:` block above — a second top-level
+# `orchestrator:` would silently discard its ingressClass and securityContext.
 #   serviceAccount:
 #     annotations:
 #       iam.gke.io/gcp-service-account: octo-orchestrator@PROJECT.iam.gserviceaccount.com

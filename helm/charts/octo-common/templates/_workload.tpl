@@ -27,6 +27,9 @@
 {{- $cfg = fromYaml (include "octo-common.componentConfig" (dict "root" .root "component" .component)) -}}
 {{- end -}}
 {{- $volumeMounts := concat (.volumeMounts | default list) ($cfg.extraVolumeMounts | default list) -}}
+{{- /* Captured before any `with` rebinds `.` — the startup probe below borrows
+       this probe's handler when the caller supplied only timings. */ -}}
+{{- $readiness := .readinessProbe | default dict -}}
 - name: {{ .name }}
   image: {{ .image | quote }}
   {{- with .pullPolicy }}
@@ -65,9 +68,44 @@
   livenessProbe:
     {{- toYaml . | nindent 4 }}
   {{- end }}
-  {{- with $cfg.startupProbe }}
+  {{- /*
+    A probe with no handler is rejected by the API server ("must specify a
+    handler type"), and nothing catches it earlier: the handler is a union, so
+    every one of its fields is optional in the OpenAPI schema and `helm template`
+    plus kubeconform both render it happily. The first sign is a failed install.
+
+    That matters because "let this component start slowly" is a TIMING statement,
+    and the natural way to express it — as values-gke-autopilot.yaml does — is a
+    defaults.startupProbe carrying only failureThreshold and periodSeconds. Every
+    component would otherwise have to restate a handler it already declares for
+    readiness, and any component that forgot would break the whole release.
+
+    So: borrow the readiness handler when the caller supplied only timings. A
+    container that is ready by some check is, by definition, started by it.
+
+    And where there is no readiness probe to borrow from, emit nothing. That is
+    not a fallback, it is the answer: a container with no readiness notion is a
+    one-shot — the schema Job and its wait-for-postgres init container — and
+    Kubernetes rejects a startupProbe on a non-sidecar init container however
+    well formed it is. A blanket default in values must not reach them.
+  */}}
+  {{- if $cfg.startupProbe }}
+  {{- $probe := $cfg.startupProbe }}
+  {{- $handlerKeys := list "httpGet" "tcpSocket" "exec" "grpc" }}
+  {{- $handler := dict }}
+  {{- range $k := $handlerKeys }}
+    {{- if hasKey $probe $k }}{{- $handler = dict $k (index $probe $k) }}{{- end }}
+  {{- end }}
+  {{- if not $handler }}
+    {{- range $k := $handlerKeys }}
+      {{- if hasKey $readiness $k }}{{- $handler = dict $k (index $readiness $k) }}{{- end }}
+    {{- end }}
+    {{- $probe = ternary (merge (deepCopy $probe) $handler) dict (not (empty $handler)) }}
+  {{- end }}
+  {{- with $probe }}
   startupProbe:
     {{- toYaml . | nindent 4 }}
+  {{- end }}
   {{- end }}
   {{- with $volumeMounts }}
   volumeMounts:

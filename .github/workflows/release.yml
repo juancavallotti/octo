@@ -235,9 +235,16 @@ jobs:
         env:
           TAG: ${{ inputs.tag || github.ref_name }}
           OWNER: ${{ github.repository_owner }}
+          # Through env, not ${{ }} in the script body. An expression is
+          # substituted as literal shell text before the shell runs, so a value
+          # carrying shell metacharacters would execute as code; an environment
+          # variable is just data. The two above already did this — these were
+          # the stragglers.
+          GH_TOKEN: ${{ github.token }}
+          GH_ACTOR: ${{ github.actor }}
         run: |
           set -e
-          echo "${{ github.token }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          echo "$GH_TOKEN" | helm registry login ghcr.io -u "$GH_ACTOR" --password-stdin
           version="${TAG#v}"
           mkdir -p dist
           # The library chart is vendored inside the app chart tarball by

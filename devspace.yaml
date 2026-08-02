@@ -24,6 +24,10 @@ deployments:
       # octo-platform / octo-orchestrator rather than octo-octo-platform. The
       # dev selectors and the Taskfile's rollout restart both rely on that.
       releaseName: octo
+      # Explicit, and it must match: `task cluster:deploy` passes
+      # --namespace octo-dev and every dev selector below is scoped to it, so a
+      # release landing in `default` would leave those selectors matching nothing.
+      namespace: octo-dev
       chart:
         name: ./helm
       valuesFiles:
