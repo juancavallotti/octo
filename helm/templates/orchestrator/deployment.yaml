@@ -2,8 +2,10 @@
       "root" $
       "component" "orchestrator"
       "replicas" .Values.orchestrator.replicas
-      "serviceAccountName" (include "octo.orchestrator.serviceName" .)
+      "serviceAccountName" (include "octo-common.serviceAccountName" (dict "root" $ "component" "orchestrator"))
       "containers" (include "octo-common.container" (dict
+        "root" $
+        "component" "orchestrator"
         "name" "orchestrator"
         "image" (include "octo-common.image" (dict "root" $ "repo" .Values.orchestrator.repository))
         "pullPolicy" .Values.image.pullPolicy

@@ -3,6 +3,8 @@
       "component" "platform"
       "replicas" .Values.platform.replicas
       "containers" (include "octo-common.container" (dict
+        "root" $
+        "component" "platform"
         "name" "platform"
         "image" (include "octo-common.image" (dict "root" $ "repo" .Values.platform.repository))
         "pullPolicy" .Values.image.pullPolicy

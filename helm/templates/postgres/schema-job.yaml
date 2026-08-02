@@ -24,8 +24,12 @@ spec:
         {{- include "octo-common.componentSelectorLabels" $ctx | nindent 8 }}
     spec:
       {{- include "octo-common.podSpec" (dict
+            "root" $
+            "component" "schema"
             "restartPolicy" "OnFailure"
             "initContainers" (include "octo-common.container" (dict
+              "root" $
+              "component" "schema"
               "name" "wait-for-postgres"
               "image" (printf "%s:%s" .Values.postgres.image.repository .Values.postgres.image.tag)
               "env" (toYaml $pgPassword)

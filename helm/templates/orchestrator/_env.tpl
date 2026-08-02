@@ -22,7 +22,7 @@
   value: {{ include "octo.nats.url" . | quote }}
 {{- end }}
 - name: RUNTIME_SERVICE_ACCOUNT
-  value: {{ include "octo.runtime.serviceAccountName" . | quote }}
+  value: {{ include "octo-common.serviceAccountName" (dict "root" . "component" "runtime") | quote }}
 {{- if .Values.kv.encryptionKey }}
 # AES-256 key for encrypting KV secret namespaces at rest. Absent =>
 # secret writes rejected, plain KV still works.

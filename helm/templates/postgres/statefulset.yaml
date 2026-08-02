@@ -4,6 +4,8 @@
       "replicas" 1
       "serviceName" (include "octo.postgres.serviceName" .)
       "containers" (include "octo-common.container" (dict
+        "root" $
+        "component" "postgres"
         "name" "postgres"
         "image" (printf "%s:%s" .Values.postgres.image.repository .Values.postgres.image.tag)
         "pullPolicy" .Values.postgres.image.pullPolicy

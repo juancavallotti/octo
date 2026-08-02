@@ -5,6 +5,49 @@
 nameOverride: ""
 fullnameOverride: ""
 
+# Pod- and container-level settings applied to EVERY octo workload (platform,
+# orchestrator, logs, postgres, nats, schema). Anything set here can be
+# overridden per component by setting the same key under that component — e.g.
+# `defaults.resources` for the common case, `postgres.resources` where Postgres
+# needs more.
+#
+# This block exists because every deployment target wants the same settings on
+# all five workloads at once: GKE Autopilot requires resources and a restricted
+# securityContext everywhere, EKS wants the same scheduling constraints
+# everywhere. Without it each profile would repeat itself five times, which is
+# how values files drift. Empty here so the stock install is unopinionated; the
+# values-*.yaml profiles fill it in per target.
+defaults:
+  # CPU/memory requests and limits. REQUIRED on GKE Autopilot — it injects
+  # defaults when they are missing, so set them explicitly to control cost.
+  resources: {}
+  # Pod-level securityContext (fsGroup, runAsUser, seccompProfile, ...).
+  podSecurityContext: {}
+  # Container-level securityContext. The cloud profiles set the restricted
+  # baseline: runAsNonRoot, drop ALL capabilities, no privilege escalation.
+  securityContext: {}
+  # Pulling from a private registry (ECR, a mirrored Artifact Registry).
+  imagePullSecrets: []
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+  priorityClassName: ""
+  # Extra pod metadata. podAnnotations is also where a checksum annotation goes
+  # if you want a config change to force a rollout.
+  podAnnotations: {}
+  podLabels: {}
+  # Extra env / mounts appended to the container the chart builds.
+  extraEnv: []
+  envFrom: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  # Probes beyond the readiness probe each component already defines.
+  livenessProbe: {}
+  startupProbe: {}
+  revisionHistoryLimit: null
+  strategy: {}
+
 # Shared image coordinates. Defaults to the public images on Docker Hub (see
 # #199) so `helm install` works with no --set for anyone standing up their own
 # cluster; the Terraform release root overrides both to Artifact Registry +
@@ -43,6 +86,19 @@ orchestrator:
   # cluster-issuer annotation (when clusterIssuer is set) always wins on
   # key collision.
   ingressAnnotations: {}
+  # The orchestrator talks to the Kubernetes API, so it runs as its own account
+  # with a namespaced Role. Set create=false and supply a name when the account
+  # must carry a cloud identity the chart shouldn't own — a GKE Workload Identity
+  # or EKS IRSA account created by Terraform. annotations is the lighter-weight
+  # alternative: keep the chart's account and just bind an identity to it, e.g.
+  #   iam.gke.io/gcp-service-account: octo@PROJECT.iam.gserviceaccount.com
+  #   eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT:role/octo
+  serviceAccount:
+    create: true
+    name: ""
+    annotations: {}
+  rbac:
+    create: true
 
 # Log-aggregator service: consumes the NATS internal.logs subject (competing
 # consumer) and persists events to Postgres; serves the read query API the
@@ -63,6 +119,16 @@ runtime:
   # connector fires on one replica) + the orchestrator-backed KV store; "standalone"
   # = in-process noop. Cluster deploys want "k8s".
   servicesModule: k8s
+  # Account the orchestrator sets on every runtime pod it deploys. It only grants
+  # coordination.k8s.io Leases (leader election). Same create/name/annotations
+  # contract as the orchestrator's own account above — annotate it when deployed
+  # integrations need a cloud identity of their own.
+  serviceAccount:
+    create: true
+    name: ""
+    annotations: {}
+  rbac:
+    create: true
 
 # Deployment-scoped KV store the orchestrator serves for the runtime. encryptionKey
 # is a base64-encoded 32-byte (AES-256) key used to encrypt values in secret

@@ -10,6 +10,8 @@
       "replicas" 1
       "serviceName" (include "octo.nats.headlessServiceName" .)
       "containers" (include "octo-common.container" (dict
+        "root" $
+        "component" "nats"
         "name" "nats"
         "image" (printf "%s:%s" .Values.nats.image.repository .Values.nats.image.tag)
         "pullPolicy" .Values.nats.image.pullPolicy
