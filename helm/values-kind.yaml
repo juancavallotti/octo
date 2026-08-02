@@ -56,7 +56,8 @@ kv:
 
 postgres:
   storage:
-    # kind's default StorageClass is "standard", backed by its local-path
-    # provisioner; deploy/kind/cluster.yaml mounts ./data into it.
-    storageClassName: ""
+    # Fixed node path rather than kind's "standard" (local-path) StorageClass, so
+    # the database survives `kind delete cluster`. deploy/kind/cluster.yaml mounts
+    # the repo's ./data onto /var/lib/octo-data in the node.
+    hostPath: /var/lib/octo-data
     size: 5Gi

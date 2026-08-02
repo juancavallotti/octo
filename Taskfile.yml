@@ -198,6 +198,16 @@ tasks:
       # Load the images straight into the cluster's containerd (no registry needed).
       - k3d image import octo-platform:dev octo-orchestrator:dev octo-logs:dev octo-schema:dev octo-runtime:dev -c octo
 
+  cluster:images:kind:
+    desc: Build the five images and load them into a kind 'octo' cluster
+    cmds:
+      - docker build -t octo-platform:dev -f apps/platform/Dockerfile .
+      - docker build -t octo-orchestrator:dev -f orchestrator/Dockerfile ./orchestrator
+      - docker build -t octo-logs:dev -f logs/Dockerfile ./logs
+      - docker build -t octo-schema:dev -f sql/Dockerfile ./sql
+      - docker build -t octo-runtime:dev -f runtime/Dockerfile .
+      - kind load docker-image --name octo octo-platform:dev octo-orchestrator:dev octo-logs:dev octo-schema:dev octo-runtime:dev
+
   cluster:images:dev:
     desc: Build + load the dev (hot-reload) images into the k3d 'octo' cluster
     cmds:
@@ -227,15 +237,22 @@ tasks:
         else
           echo "▶ creating k3d cluster 'octo' (Postgres data -> ./data)..."
           mkdir -p data
+          # ./data is mounted into the node at the path the chart's static
+          # PersistentVolume binds (postgres.storage.hostPath in values-k3d.yaml),
+          # so Postgres lives at ./data/pgdata. Deliberately not the local-path
+          # provisioner's directory: that names volumes after the claim's UID, so
+          # this task — which recreates the cluster — would get a fresh, empty
+          # database every time and leave the old one orphaned on disk.
           k3d cluster create --config deploy/k3d/cluster.yaml \
             --volume "$(pwd)/data:/var/lib/octo-data@server:0"
         fi
-      # Build + load images, then apply deploy/k8s/ via DevSpace.
+      # Build + load images, then install the Helm chart via DevSpace
+      # (deployments.octo in devspace.yaml -> ./helm with values-k3d.yaml).
       - task: cluster:images
       - devspace deploy --kube-context {{.KCTX}} --namespace octo-dev
       # Fixed :dev tags don't change between runs, so nudge the apps to pull the
       # freshly imported images. Harmless on first run; ignored if not yet present.
-      - kubectl --context {{.KCTX}} rollout restart deployment platform orchestrator -n octo-dev 2>/dev/null || true
+      - kubectl --context {{.KCTX}} rollout restart deployment octo-platform octo-orchestrator -n octo-dev 2>/dev/null || true
       - |
         echo ""
         echo "✓ cluster up:"

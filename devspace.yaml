@@ -3,37 +3,44 @@ name: octo
 
 # Local dev for the Octo stack on the k3d (k3s) cluster created by `task cluster:dev`.
 #
-# Image building is intentionally NOT done by DevSpace here: with k3d, DevSpace's
+# Deployment goes through the same Helm chart every other target uses, with
+# helm/values-k3d.yaml supplying the local shape (no registry, :dev images,
+# NodePorts instead of an Ingress). Local dev previously applied a parallel set
+# of raw manifests under deploy/k8s/, which duplicated the chart and drifted
+# from it; the chart is now the single definition.
+#
+# Image building is intentionally NOT done by DevSpace: with k3d, DevSpace's
 # local-registry push (localhost:5000) is unreliable. Instead `task cluster:dev`
 # builds the images with Docker and loads them into the cluster with `k3d image
-# import` (see the cluster:images task). The manifests reference those fixed :dev
-# tags with imagePullPolicy: IfNotPresent, so DevSpace's only job is to apply them.
+# import` (see the cluster:images task). values-k3d.yaml references those fixed
+# :dev tags with imagePullPolicy: IfNotPresent, so DevSpace only has to install
+# the chart.
 
 deployments:
   octo:
-    kubectl:
-      # Applied in order: namespace first, then Postgres, then the schema Job, then
-      # the apps. DevSpace rewrites the octo-* image names to the built+tagged refs.
-      manifests:
-        - deploy/k8s/namespace.yaml
-        - deploy/k8s/postgres.yaml
-        - deploy/k8s/postgres-schema-job.yaml
-        - deploy/k8s/nats.yaml
-        - deploy/k8s/platform.yaml
-        - deploy/k8s/orchestrator-rbac.yaml
-        - deploy/k8s/runtime-rbac.yaml
-        - deploy/k8s/orchestrator.yaml
-        - deploy/k8s/logs.yaml
+    helm:
+      # Release name "octo" matters: octo-common.fullname collapses the release
+      # and chart name when one contains the other, so resources are named
+      # octo-platform / octo-orchestrator rather than octo-octo-platform. The
+      # dev selectors and the Taskfile's rollout restart both rely on that.
+      releaseName: octo
+      chart:
+        name: ./helm
+      valuesFiles:
+        - ./helm/values-k3d.yaml
 
-# `devspace dev` mode (task cluster:watch): swaps the editor/orchestrator pods for
-# their dev images, live-syncs source for hot reload, and tails all three pods'
-# logs to the terminal. No port forwards here — the k3d loadbalancer already
-# exposes the apps on localhost:3000 / :8090 (deploy/k3d/cluster.yaml), and the
-# replacement pods keep their app labels so the NodePort services still route.
+# `devspace dev` mode (task cluster:dev): swaps the editor/orchestrator/logs pods
+# for their dev images, live-syncs source for hot reload, and tails all three
+# pods' logs to the terminal. No port forwards here — the k3d loadbalancer
+# already exposes the apps on localhost:3000 / :8090 (deploy/k3d/cluster.yaml),
+# and the replacement pods keep their chart labels so the NodePort services
+# still route to them.
 dev:
   platform:
     labelSelector:
-      app: platform
+      app.kubernetes.io/name: octo
+      app.kubernetes.io/instance: octo
+      app.kubernetes.io/component: platform
     namespace: octo-dev
     # Hot-reload image (next dev). Build+import with `task cluster:images:dev`.
     devImage: octo-platform-dev:dev
@@ -54,7 +61,9 @@ dev:
     logs: {}
   orchestrator:
     labelSelector:
-      app: orchestrator
+      app.kubernetes.io/name: octo
+      app.kubernetes.io/instance: octo
+      app.kubernetes.io/component: orchestrator
     namespace: octo-dev
     devImage: octo-orchestrator-dev:dev
     command: ["go", "run", "."]
@@ -70,7 +79,9 @@ dev:
     logs: {}
   logs:
     labelSelector:
-      app: logs
+      app.kubernetes.io/name: octo
+      app.kubernetes.io/instance: octo
+      app.kubernetes.io/component: logs
     namespace: octo-dev
     devImage: octo-logs-dev:dev
     command: ["go", "run", "."]
@@ -87,12 +98,16 @@ dev:
   # Postgres is not hot-reloaded; this entry only forwards its logs to the terminal.
   postgres:
     labelSelector:
-      app: postgres
+      app.kubernetes.io/name: octo
+      app.kubernetes.io/instance: octo
+      app.kubernetes.io/component: postgres
     namespace: octo-dev
     logs: {}
   # NATS is not hot-reloaded; this entry only forwards its logs to the terminal.
   nats:
     labelSelector:
-      app: nats
+      app.kubernetes.io/name: octo
+      app.kubernetes.io/instance: octo
+      app.kubernetes.io/component: nats
     namespace: octo-dev
     logs: {}

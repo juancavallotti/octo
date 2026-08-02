@@ -7,10 +7,13 @@
 #  1. kind has no built-in load balancer, so the NodePorts the chart exposes
 #     (helm/values-kind.yaml) are mapped to the host with extraPortMappings
 #     rather than through a servicelb.
-#  2. kind's local-path provisioner stores volumes under
-#     /var/local-path-provisioner, not k3s's path, so that is what the repo's
-#     ./data directory is mounted onto — which is what makes the database
-#     survive `kind delete cluster` and what `task cluster:db:reset` wipes.
+#  2. the repo's ./data is mounted at /var/lib/octo-data, the fixed node path the
+#     chart's static PersistentVolume binds (postgres.storage.hostPath in
+#     helm/values-kind.yaml). That is what makes the database survive
+#     `kind delete cluster`, and what `task cluster:db:reset` wipes. Going
+#     through kind's local-path provisioner instead would not survive: it names
+#     each volume's directory after the claim's UID, which changes with the
+#     cluster.
 #
 # The hostPath below is relative to the directory kind is invoked from, so run
 # this from the repo root.
@@ -30,4 +33,4 @@ nodes:
         protocol: TCP
     extraMounts:
       - hostPath: ./data
-        containerPath: /var/local-path-provisioner
+        containerPath: /var/lib/octo-data

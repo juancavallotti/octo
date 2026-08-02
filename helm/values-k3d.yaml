@@ -65,9 +65,11 @@ kv:
   encryptionKey: "RwbauJ1U7IvkOl8IZsNCQNShHGA/sqP+TQymYAkOFQ8="
 
 postgres:
-  # k3s's local-path provisioner is the default StorageClass. The k3d cluster
-  # mounts the repo's ./data into it, so the database survives cluster restarts
-  # and `task cluster:db:reset` wipes it.
   storage:
-    storageClassName: ""
+    # Fixed node path rather than the local-path provisioner. `task cluster:deploy`
+    # mounts the repo's ./data onto /var/lib/octo-data in the k3d node, so the
+    # database lives at ./data/pgdata and survives `task cluster:stop` — which
+    # deletes the whole cluster, and with it any dynamically provisioned claim.
+    # `task cluster:db:reset` is what wipes it.
+    hostPath: /var/lib/octo-data
     size: 5Gi

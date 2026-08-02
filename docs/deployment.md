@@ -350,6 +350,7 @@ sudo k3s kubectl logs -n octo-dev deploy/octo-orchestrator
 For day-to-day development the same images run on a local k3d cluster via DevSpace
 — no GCP, no Terraform. See the `cluster:*` tasks
 ([Taskfile.yml](../Taskfile.yml)): `task cluster:deploy` brings up k3d + Postgres +
-the apps from [deploy/k8s/](../deploy/k8s/), and `task cluster:dev` adds hot reload.
+the apps from the Helm chart with [helm/values-k3d.yaml](../helm/values-k3d.yaml), and
+`task cluster:dev` adds hot reload.
 That path uses raw manifests and `k3d image import`; the Helm chart and Terraform
 here are for the GCP deployment.

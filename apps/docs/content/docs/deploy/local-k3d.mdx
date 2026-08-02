@@ -34,16 +34,18 @@ This single target:
 
 1. Runs the preflight check.
 2. Creates a k3d cluster named `octo` from `deploy/k3d/cluster.yaml` (one
-   server, no agents), mounting `./data` from the repo root into the node so
-   Postgres data persists on your disk.
+   server, no agents), mounting `./data` from the repo root onto
+   `/var/lib/octo-data` in the node — the fixed path the chart's static
+   PersistentVolume binds, so the database lives at `./data/pgdata` and outlives
+   the cluster. See [Database persistence](#database-persistence).
 3. Builds the five images locally (`task cluster:images`): `octo-platform`,
    `octo-orchestrator`, `octo-logs`, `octo-schema`, and `octo-runtime`, all
    tagged `:dev`, and loads them straight into the cluster's containerd with
    `k3d image import` — no registry needed.
-4. Applies the raw manifests in `deploy/k8s/` via `devspace deploy`, in
-   order: the `octo-dev` namespace, Postgres, the schema Job (applies
-   `sql/schema.sql`), NATS, the platform, orchestrator RBAC, runtime RBAC,
-   the orchestrator, and the log aggregator.
+4. Installs the Helm chart via `devspace deploy`, using
+   `helm/values-k3d.yaml` for the local shape: no registry, `:dev` images,
+   NodePorts instead of an Ingress, and SSO off. The schema Job runs as a
+   Helm hook on every install and upgrade.
 5. Restarts the platform and orchestrator Deployments so they pick up freshly
    imported images (the `:dev` tag never changes between runs).
 
@@ -51,7 +53,8 @@ The target is idempotent — re-run it after code changes to rebuild the images
 and roll the pods.
 
 <Callout type="info">
-  This path uses the raw manifests in `deploy/k8s/`, not the Helm chart. Every
+  Local development runs the same Helm chart as every other target, so a change
+  to the chart is exercised locally before it reaches a cluster. Every
   `cluster:*` task pins the kube context to `k3d-octo`, so a stray
   current-context pointing at a remote cluster can never be the target of a
   deploy or purge.
@@ -121,4 +124,35 @@ directory open), prompts for confirmation, then deletes `./data`. The next
 <Callout type="warn">
   `task cluster:db:reset` permanently deletes all local Postgres data —
   integrations, deployments, logs, and KV contents.
+</Callout>
+
+## Database persistence
+
+`task cluster:stop` deletes the whole k3d cluster, and with it every Kubernetes
+object — including the claim Postgres writes to. For the data to survive that,
+the claim has to resolve to a path that does not change when the cluster is
+recreated, which is what `postgres.storage.hostPath` in `helm/values-k3d.yaml`
+gives it:
+
+| | |
+|---|---|
+| Repo | `./data/pgdata` |
+| Node | `/var/lib/octo-data/pgdata` (mounted by `task cluster:deploy`) |
+| Chart | static `PersistentVolume`, `Retain`, pre-bound to `data-octo-postgres-0` |
+
+Only `task cluster:db:reset` removes it. Nothing in the chart can: the
+StatefulSet sets `persistentVolumeClaimRetentionPolicy: Retain` so neither
+`helm uninstall` nor scaling to zero deletes the claim, and the volume carries
+`helm.sh/resource-policy: keep` so uninstalling leaves it in place for the next
+install to adopt. Destroying storage is the infrastructure layer's job.
+
+<Callout type="info">
+  This is why local dev does **not** use k3s's `local-path` provisioner, which
+  is otherwise the obvious choice. That provisioner names each volume's
+  directory after the claim's UID (`pvc-3b9766b4-…_octo-dev_data-octo-postgres-0`),
+  and a recreated cluster mints a new UID — so every `task cluster:stop` would
+  quietly start you on an empty database while the old directory accumulated on
+  disk. The same reasoning applies to any single-node cluster, including a k3s
+  VM; on a real multi-node cluster use a StorageClass instead and leave
+  `hostPath` empty.
 </Callout>
