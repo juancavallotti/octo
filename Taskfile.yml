@@ -377,22 +377,31 @@ tasks:
         echo "✓ chart lints and renders valid manifests for every profile"
 
   helm:package:
-    desc: Lint and package the chart into dist/ (octo-<version>.tgz)
+    desc: Lint and package both charts into dist/ (octo-<version>.tgz and octo-common-<version>.tgz)
     cmds:
       - mkdir -p dist
       - helm lint helm
+      # octo-common is vendored under helm/charts/, so `helm package helm` already
+      # bundles it into the octo tarball and an install needs nothing else. It is
+      # packaged separately as well so it can be published and depended on
+      # directly, the same as cloudbuild.yaml and the release workflow do.
+      - helm package helm/charts/octo-common -d dist
       - helm package helm -d dist
 
   helm:push:
-    desc: 'Package and push the chart to Artifact Registry OCI (set IMAGE_BASE; run `helm registry login <region>-docker.pkg.dev` first)'
+    desc: 'Package and push both charts to Artifact Registry OCI (set IMAGE_BASE; run `helm registry login <region>-docker.pkg.dev` first)'
     requires:
       vars: [IMAGE_BASE]
     cmds:
       - task: helm:package
       - |
         set -e
-        VERSION="$(helm show chart helm | awk '/^version:/ {print $2}')"
-        helm push "dist/octo-${VERSION}.tgz" "oci://{{.IMAGE_BASE}}"
+        # Read each version from its own Chart.yaml rather than assuming they
+        # match, even though release-please keeps them in lockstep.
+        LIB_VERSION="$(awk '/^version:/ {print $2}' helm/charts/octo-common/Chart.yaml)"
+        APP_VERSION="$(awk '/^version:/ {print $2}' helm/Chart.yaml)"
+        helm push "dist/octo-common-${LIB_VERSION}.tgz" "oci://{{.IMAGE_BASE}}"
+        helm push "dist/octo-${APP_VERSION}.tgz" "oci://{{.IMAGE_BASE}}"
 
   helm:values:images:
     desc: 'Render dist/values.images.yaml pinning every octo image by digest (set IMAGE_BASE and TAG)'
