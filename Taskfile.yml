@@ -273,6 +273,11 @@ tasks:
         fi
       - echo "ℹ Postgres data preserved in ./data — run 'task cluster:db:reset' to wipe it"
 
+  # --- Publishing to Artifact Registry (for the GCP/k3s deployment) ---
+  # IMAGE_BASE is the repository path output by deploy/terraform/infra (image_base),
+  # e.g. us-central1-docker.pkg.dev/PROJECT/octo. The five images live under it
+  # (IMAGE_BASE/octo-platform-paas:TAG ...) and the OCI chart under IMAGE_BASE/octo.
+
   cluster:db:reset:
     desc: Delete the local Postgres data dir (./data) so the DB is recreated fresh on next deploy
     prompt: This permanently deletes ./data and all local Postgres data. Continue?
@@ -287,11 +292,6 @@ tasks:
         fi
       - rm -rf data
       - echo "✓ ./data removed; 'task cluster:deploy' will recreate Postgres and re-apply the schema fresh"
-
-  # --- Publishing to Artifact Registry (for the GCP/k3s deployment) ---
-  # IMAGE_BASE is the repository path output by deploy/terraform/infra (image_base),
-  # e.g. us-central1-docker.pkg.dev/PROJECT/octo. The five images live under it
-  # (IMAGE_BASE/octo-platform-paas:TAG ...) and the OCI chart under IMAGE_BASE/octo.
 
   images:push:
     desc: 'Build the five octo images and push them to Artifact Registry (set IMAGE_BASE and TAG; run `gcloud auth configure-docker <region>-docker.pkg.dev` first)'
@@ -475,28 +475,68 @@ tasks:
       - |
         set -e
         CHART_VERSION="$(helm show chart helm | awk '/^version:/ {print $2}')"
-        terraform -chdir=deploy/terraform/release init -input=false
-        terraform -chdir=deploy/terraform/release apply -auto-approve -compact-warnings \
-          -var-file=../octo.tfvars \
+        terraform -chdir=deploy/terraform/release init -input=false -backend-config=../backend.hcl
+        # No -var-file: the root's own terraform.tfvars is loaded automatically. No
+        # -compact-warnings either — every root declares exactly what it uses, so a
+        # warning here means a real mistake rather than noise to be suppressed.
+        terraform -chdir=deploy/terraform/release apply -auto-approve \
           -var image_tag={{.TAG}} \
           -var chart_version="${CHART_VERSION}"
 
   state:bucket:
-    desc: 'Create the GCS bucket backing the release Terraform state (run once; set PROJECT, optional REGION). Must match release/backend.tf (octo-tfstate-PROJECT).'
+    desc: 'Create the GCS bucket backing every Terraform root''s state (run once; set PROJECT, optional REGION)'
     requires:
       vars: [PROJECT]
     vars:
       REGION: '{{.REGION | default "us-west1"}}'
     cmds:
+      # One versioned bucket, one prefix per root (infra/, release/, gke-standard/,
+      # ...). Versioning is the point: a bad apply or a corrupted state is
+      # recoverable from an earlier generation.
       - |
         set -e
         BUCKET="gs://octo-tfstate-{{.PROJECT}}"
         gcloud storage buckets create "$BUCKET" --location={{.REGION}} --uniform-bucket-level-access
         gcloud storage buckets update "$BUCKET" --versioning
-        echo "✓ created $BUCKET (versioned). Set it as the bucket in release/backend.tf if PROJECT != juancavallotti."
+        echo "✓ created $BUCKET (versioned)"
+        echo "  now: cp deploy/terraform/backend.hcl.example deploy/terraform/backend.hcl"
+        echo "       and set bucket = \"octo-tfstate-{{.PROJECT}}\""
+
+  tf:check:
+    desc: 'Format-check and validate every Terraform root and module (no cloud access needed)'
+    silent: true
+    cmds:
+      # The whole automated gate for Terraform. `validate` needs providers, so it
+      # needs an init — but -backend=false skips the backend entirely, so this runs
+      # without credentials, without a state bucket, and in CI.
+      - |
+        set -e
+        cd deploy/terraform
+        echo "→ terraform fmt"
+        terraform fmt -recursive -check -diff
+        for root in infra release gke-standard gke-autopilot eks; do
+          [ -d "$root" ] || continue
+          echo "→ $root"
+          terraform -chdir="$root" init -backend=false -input=false >/dev/null
+          terraform -chdir="$root" validate
+        done
+        echo "✓ terraform fmt + validate clean"
+
+  # --- Managed-cluster test roots (GKE Standard, GKE Autopilot, EKS) ---
+  #
+  # Each stands up a cluster, its prerequisite controllers, DNS and the octo chart
+  # in one apply, to exercise the matching helm/values-*.yaml profile on a real
+  # cluster. They are meant to be brought up, tested and destroyed — run ONE at a
+  # time: the two GKE roots write the same DNS records by default.
+  #
+  # Test the working tree rather than the last release's published images:
+  #   task images:ttl TTL=12h
+  #   task gke:standard:apply IMAGE_VALUES=dist/values.ttl.yaml
 
   infra:apply:
-    desc: 'Apply the one-time infra root (registry + VM/k3s + optional Cloud Build) from octo.tfvars'
+    desc: 'Apply the one-time infra root: Artifact Registry + the k3s VM (with its Postgres data disk) + optional Cloud Build'
     cmds:
-      - terraform -chdir=deploy/terraform/infra init -input=false
-      - terraform -chdir=deploy/terraform/infra apply -compact-warnings -var-file=../octo.tfvars
+      # -backend-config supplies the state bucket, which a backend block cannot take
+      # from a variable. Variables come from infra/terraform.tfvars automatically.
+      - terraform -chdir=deploy/terraform/infra init -input=false -backend-config=../backend.hcl
+      - terraform -chdir=deploy/terraform/infra apply

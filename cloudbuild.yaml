@@ -147,7 +147,8 @@ steps:
           echo "deploy disabled (_DEPLOY=${_DEPLOY}); build + push only"
           exit 0
         fi
-        TF_VERSION=1.9.8
+        # Matches the version CI validates with (.github/workflows/validate.yml).
+        TF_VERSION=1.10.5
         curl -fsSL "https://releases.hashicorp.com/terraform/$${TF_VERSION}/terraform_$${TF_VERSION}_linux_amd64.zip" -o /tmp/tf.zip
         # The gcloud image has no `unzip`, but it ships python3; extract with stdlib.
         python3 -c "import zipfile; zipfile.ZipFile('/tmp/tf.zip').extractall('/usr/local/bin')"
@@ -179,16 +180,21 @@ steps:
         done
         # Hard-fail the build if every attempt produced no valid kubeconfig.
         head -1 /workspace/kubeconfig.yaml | grep -q '^apiVersion:'
-        # octo.tfvars is gitignored, so it is absent in the build checkout. Pass the
-        # config via -var from substitutions ($PROJECT_ID is a Cloud Build built-in);
-        # repository_id/namespace/wildcard_tls/cluster_issuer use their (correct)
-        # defaults and OIDC is read back from oidc.json in the state bucket.
+        # release/terraform.tfvars is gitignored, so it is absent in the build
+        # checkout. Pass the config via -var from substitutions ($PROJECT_ID is a
+        # Cloud Build built-in); repository_id/namespace/wildcard_tls/cluster_issuer
+        # /postgres_host_path use their (correct) defaults, and OIDC is read back
+        # from oidc.json in the state bucket.
         CHART_VERSION="$(awk '/^version:/ {print $$2}' helm/Chart.yaml)"
         # Keep the exact coordinates this release deployed, so a rollback can
         # reproduce them without re-deriving digests from a tag that has since moved.
         gsutil cp /workspace/dist/values.images.yaml \
           "gs://octo-tfstate-$PROJECT_ID/release/values.images-${_TAG}.yaml"
-        terraform -chdir=deploy/terraform/release init -input=false
+        # backend.hcl is gitignored too, so the bucket is passed inline rather than
+        # by file. The prefix stays in release/backend.tf, where it identifies the
+        # root; only the bucket varies by environment.
+        terraform -chdir=deploy/terraform/release init -input=false \
+          -backend-config="bucket=octo-tfstate-$PROJECT_ID"
         terraform -chdir=deploy/terraform/release apply -auto-approve -input=false \
           -var project_id="$PROJECT_ID" \
           -var region="${_REGION}" \

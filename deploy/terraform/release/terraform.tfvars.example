@@ -1,0 +1,51 @@
+# Variables for the `release` root. Copy to terraform.tfvars (gitignored) and fill in.
+# Terraform loads that filename automatically — no -var-file flag anywhere.
+#
+# Per-deploy values (image_tag, chart_version) are NOT here: they come from the
+# command line, because they change on every deploy rather than per environment.
+#
+#   task deploy TAG=v0.1.1
+#
+# project_id / domain / apps_domain are repeated from the infra root's tfvars on
+# purpose — each root is self-contained. They must agree: apps_domain in particular
+# is what the infra root creates DNS records for and what the wildcard cert covers.
+
+# --- Required ---
+project_id = "your-gcp-project-id"
+
+domain      = "octo.example.com"
+apps_domain = "apps.example.com"
+
+# --- SSO / OIDC (optional) ---
+# Gate the editor behind single sign-on. The client secret is kept in this root's
+# Terraform state (the state bucket), and the Auth.js session secret is generated
+# automatically — no Secret Manager. Register the redirect URI
+# https://{domain}/api/auth/callback/eetr on the IdP.
+#
+# A local `task deploy` also seeds these into release/oidc.json in the state bucket
+# so the Cloud Build deploy step (which never sees this gitignored file) reads them
+# back; re-run `task deploy` once after changing any oidc_* value.
+# oidc_enabled       = true
+# oidc_client_id     = "eetr_xxxxxxxxxxxxxxxxxxxxxxxx"
+# oidc_client_secret = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+# oidc_issuer        = "https://auth.eetr.app" # default
+# oidc_write_roles   = ""                       # e.g. "admin,operator"; empty = any signed-in user
+# oidc_roles_claim   = ""                       # override if the IdP uses a non-"roles" claim
+
+# --- Optional overrides (defaults shown) ---
+# region        = "us-west1"
+# zone          = "us-west1-a"
+# instance_name = "octo"
+# repository_id = "octo"
+# namespace     = "octo"
+#
+# cluster_issuer = "letsencrypt-prod"
+# wildcard_tls   = true # one *.{apps_domain} cert via DNS-01, shared by all
+#                       # subdomains (false falls back to per-host HTTP-01 certs)
+#
+# Where Postgres stores its data on the node. The default is the data disk the
+# infra root attaches and mounts, so the database survives a VM rebuild; that root
+# outputs the exact value as `postgres_host_path`. "" falls back to k3s's local-path
+# provisioner, which does NOT survive a re-bootstrap. Changing this on a release
+# that already holds data is a data move — see docs/deployment.md.
+# postgres_host_path = "/mnt/octo-data/postgres"

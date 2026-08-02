@@ -1,13 +1,27 @@
-# Terraform state may contain secrets (e.g. the .env payload) — never commit it.
+# Terraform state may contain secrets (the Postgres password, the OIDC client
+# secret, the Auth.js session secret) — never commit it. Every root keeps its state
+# in the shared bucket; anything matching these is a local leftover.
 *.tfstate
 *.tfstate.*
 .terraform/
-.terraform.lock.hcl
-# Real variable files hold project-specific values; only the *.example is tracked.
-terraform.tfvars
-octo.tfvars
-*.auto.tfvars
 crash.log
-# Fetched k3s kubeconfig (cluster admin credentials) — never commit.
+
+# Real variable files hold project-specific values; only the *.example is tracked.
+# Each root owns its own terraform.tfvars — Terraform loads that name
+# automatically, so no -var-file is needed anywhere.
+terraform.tfvars
+*.auto.tfvars
+
+# Backend bucket + region — the values a backend block cannot take from a variable.
+# backend.hcl for the GCS roots, backend-aws.hcl for the S3 one; see the *.example.
+backend*.hcl
+
+# Fetched kubeconfigs (cluster admin credentials) — never commit.
 kubeconfig.yaml
 *.kubeconfig
+
+# NOTE: .terraform.lock.hcl is deliberately NOT ignored. It pins the exact provider
+# versions and checksums a root resolved, so a laptop, Cloud Build and CI all run
+# identical providers instead of each re-resolving "~> 5.0" to whatever is newest
+# on the day. Regenerate for every platform that applies a root:
+#   terraform -chdir=<root> providers lock -platform=darwin_arm64 -platform=linux_amd64

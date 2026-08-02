@@ -3,7 +3,7 @@
 # chart_version from helm/Chart.yaml), or apply directly:
 #
 #   terraform -chdir=deploy/terraform/release apply \
-#     -var-file=../octo.tfvars -var image_tag=v0.1.1 -var chart_version=0.1.2
+#     -var image_tag=v0.1.1 -var chart_version=0.1.2
 #
 # It pulls the target tag onto the node (fresh token, via octo-pull over SSH),
 # then installs/upgrades the chart through the Helm provider. A changed image_tag
@@ -43,7 +43,7 @@ resource "random_password" "postgres" {
 
 # Auth.js session secret for the editor. Generated here too (state, not Secret
 # Manager); rotating it would log everyone out, so it is kept in state. Always
-# created (not gated on SSO): a Cloud Build deploy has no octo.tfvars, so gating on
+# created (not gated on SSO): a Cloud Build deploy has no terraform.tfvars, so gating on
 # oidc_enabled_eff would let count drop to 0 and destroy the secret — the chart then
 # comes up without AUTH_SECRET and Auth.js throws MissingSecret. Keeping it
 # unconditional pins the value in the shared release state across every deploy; it is
@@ -94,7 +94,7 @@ resource "null_resource" "pull_images" {
 }
 
 # OIDC creds, persisted in the release state bucket (no Secret Manager). A local
-# `task deploy` supplies them via octo.tfvars and seeds oidc.json here; the Cloud
+# `task deploy` supplies them via terraform.tfvars and seeds oidc.json here; the Cloud
 # Build deploy step runs without the (gitignored) tfvars, passes no OIDC vars, and
 # reads them back from the bucket. The mutually-exclusive counts (write when supplied,
 # read otherwise) keep the resource and data source from referencing each other.
@@ -126,7 +126,7 @@ locals {
   oidc_roles_claim_eff   = local.oidc_provided ? var.oidc_roles_claim : try(local.oidc_stored.roles_claim, "")
 }
 
-# Persisted OIDC config so a Cloud Build deploy (which has no octo.tfvars) can read
+# Persisted OIDC config so a Cloud Build deploy (which has no terraform.tfvars) can read
 # the creds back. Gated on oidc_enabled_eff — NOT oidc_provided — and written from
 # the effective locals, so a CI apply that resolved these from this very file keeps
 # count=1 and rewrites identical content (idempotent) instead of destroying the seed.

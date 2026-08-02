@@ -56,10 +56,12 @@ Under `deploy/terraform/`:
 | `infra/` | Artifact Registry repo, VM + static IP + firewall + DNS records + k3s bootstrap, and (optional) the Cloud Build trigger + IAM | Once per cluster |
 | `release/` | The Octo Helm release (image tag + chart version) | Every deploy or upgrade |
 
-Both roots read a single tfvars file — `deploy/terraform/octo.tfvars`
-(gitignored) — while per-deploy values (`image_tag`, `chart_version`) come
-from the command line. `release/` keeps its state in a GCS bucket so Cloud
-Build and your laptop share it; `infra/` keeps local state.
+Each root owns its own `terraform.tfvars` (gitignored; copy the committed
+`.example`). Terraform loads that filename automatically, so no `-var-file`
+is passed anywhere, and each root declares exactly the variables it uses.
+Per-deploy values (`image_tag`, `chart_version`) come from the command line.
+Both roots keep state in the same versioned GCS bucket, one prefix each, so
+Cloud Build and your laptop share it.
 
 <Callout type="warn">
   The release state holds generated secrets (the Postgres password and, with
@@ -88,10 +90,13 @@ Build and your laptop share it; `infra/` keeps local state.
 ```bash
 gcloud auth application-default login
 cd deploy/terraform
-cp octo.tfvars.example octo.tfvars
+cp backend.hcl.example backend.hcl        # the shared state bucket
+cp infra/terraform.tfvars.example infra/terraform.tfvars
+cp release/terraform.tfvars.example release/terraform.tfvars
 ```
 
-Set at least `project_id`, `domain`, and `dns_managed_zone`.
+Set at least `project_id`, `domain`, and `dns_managed_zone`. `project_id`
+and `domain` appear in both files and must agree.
 
 </Step>
 <Step>
@@ -124,7 +129,7 @@ terraform -chdir=deploy/terraform/infra output   # image_base, static_ip, url, k
 
 Connect the GitHub repo once in the console (Cloud Build → Triggers →
 Connect repository — installs the GitHub App; Terraform cannot do this), then
-set `enable_cloudbuild = true` in `octo.tfvars` and re-run `task infra:apply`.
+set `enable_cloudbuild = true` in `infra/terraform.tfvars` and re-run `task infra:apply`.
 
 </Step>
 </Steps>
@@ -139,7 +144,7 @@ set `enable_cloudbuild = true` in `octo.tfvars` and re-run `task infra:apply`.
 
 ## Required and notable variables
 
-Set in `octo.tfvars`, read by both roots:
+Set in each root's `terraform.tfvars` (values needed by both must agree):
 
 | Variable | Default | Notes |
 |---|---|---|

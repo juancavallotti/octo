@@ -39,8 +39,9 @@ variable "domain" {
   default     = "octo.juancavallotti.com"
 }
 
-# Mirrors the infra root's apps_domain — see its comment there. Must resolve to
-# the same effective value on both roots (both read the same shared octo.tfvars).
+# Mirrors the infra root's apps_domain — see its comment there. Must resolve to the
+# same effective value on both roots: the infra root creates the DNS records for it
+# and this root's chart values point the wildcard cert at it.
 variable "apps_domain" {
   type        = string
   description = "Base hostname per-integration subdomains live under (orchestrator.baseDomain) and the domain the wildcard cert covers. Empty = same as `domain`."
@@ -76,21 +77,7 @@ variable "kubeconfig" {
   default     = ""
 }
 
-# Declared (unused here) so the single shared octo.tfvars — which carries these for
-# the infra root — does not emit "undeclared variable" warnings on a release apply.
-variable "dns_managed_zone" {
-  type        = string
-  description = "Infra-only (Cloud DNS zone name); ignored by the release root."
-  default     = ""
-}
-
-variable "enable_cloudbuild" {
-  type        = bool
-  description = "Infra-only (creates the Cloud Build trigger); ignored by the release root."
-  default     = false
-}
-
-# --- OIDC SSO (shared octo.tfvars) ---
+# --- OIDC SSO ---
 
 variable "oidc_enabled" {
   type        = bool

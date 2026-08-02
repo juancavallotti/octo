@@ -1,0 +1,52 @@
+# Variables for the `infra` root. Copy to terraform.tfvars (gitignored) and fill in.
+# Terraform loads that filename automatically — no -var-file flag anywhere.
+#
+# Each root owns its own tfvars. Values like project_id and domain therefore repeat
+# across roots, which is the point: one file tells you everything a root needs,
+# rather than a shared file whose variables only some roots declare.
+
+# --- Required ---
+project_id       = "your-gcp-project-id"
+dns_managed_zone = "your-clouddns-zone-name" # zone NAME (not DNS name) backing apps_domain, or domain when apps_domain is unset
+
+# --- Hostnames ---
+# domain is the editor's own host. apps_domain is where per-integration subdomains
+# ({slug}.{apps_domain}) and the wildcard cert live; it can be a different,
+# Cloud-DNS-delegated domain when domain's registrar won't delegate the whole zone
+# (Cloudflare Registrar, for one). Leave apps_domain unset to keep everything under
+# domain, which must then itself be a Cloud DNS zone Terraform can manage.
+domain      = "octo.example.com"
+apps_domain = "apps.example.com"
+
+acme_email = "you@example.com" # Let's Encrypt account (expiry notices)
+
+# --- Cloud Build (optional) ---
+# Connect the GitHub repo to Cloud Build once (console: Cloud Build -> Triggers ->
+# Connect repository), then set this true and re-apply. On a version tag the build
+# then publishes AND rolls the cluster.
+# enable_cloudbuild      = true
+# github_owner           = "juancavallotti"
+# github_repo            = "octo"
+# cloudbuild_auto_deploy = true
+
+# --- Optional overrides (defaults shown) ---
+# region        = "us-west1"
+# zone          = "us-west1-a"
+# instance_name = "octo"
+# repository_id = "octo"
+# machine_type  = "e2-standard-2"
+#
+# ssh_source_ranges      = ["203.0.113.4/32"] # keep 35.235.240.0/20 for IAP/Cloud Build
+# kube_api_source_ranges = ["203.0.113.4/32"] # null = reuse ssh_source_ranges
+#
+# --- Disks ---
+# The boot disk holds the OS, k3s and its image cache. The DATABASE lives on a
+# separate persistent disk, attached to the VM and mounted by the startup script,
+# so it survives the instance being replaced or rebuilt. The release root pins
+# Postgres to {data_disk_mount_path}/postgres. Grow the data disk by raising the
+# size and rebooting — resize2fs runs on every boot.
+# boot_disk_size_gb                 = 30
+# data_disk_size_gb                 = 20
+# data_disk_type                    = "pd-balanced" # pd-ssd for write-heavy installs
+# data_disk_mount_path              = "/mnt/octo-data"
+# data_disk_snapshot_retention_days = 7             # 0 disables daily snapshots

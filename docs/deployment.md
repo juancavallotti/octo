@@ -87,14 +87,18 @@ Under [deploy/terraform/](../deploy/terraform/):
 | `infra/` | Artifact Registry repo (`octo`); VM, static IP, firewall, DNS records, k3s bootstrap; and (optional) the Cloud Build trigger + IAM | once per cluster |
 | `release/` | The Octo Helm release (image tag + chart version) | every deploy/upgrade |
 
-The three one-time pieces are composed in a single `infra/` root. **There is one
-tfvars file** — `octo.tfvars` — read by both roots (per-deploy `image_tag`/
-`chart_version` come from the command line). `release/` stays separate because it runs
-on every deploy — on a version tag Cloud Build applies it for you, or run `task deploy`
-by hand.
+The three one-time pieces are composed in a single `infra/` root. **Each root owns
+its own `terraform.tfvars`** (gitignored; copy the committed `.example`). Terraform
+loads that filename automatically, so no `-var-file` is passed anywhere, and each
+root declares exactly the variables it uses — a stale or misspelled name is a hard
+error rather than a warning nobody reads. Per-deploy values (`image_tag`,
+`chart_version`) still come from the command line. `release/` stays separate because
+it runs on every deploy — on a version tag Cloud Build applies it for you, or run
+`task deploy` by hand.
 
-`release/` state lives in a GCS bucket (created once with `task state:bucket`, so Cloud
-Build and your laptop share it); `infra/` keeps local state. The `release/` state holds
+Both roots keep state in the same versioned GCS bucket, one prefix each, so Cloud
+Build and your laptop share it. The bucket name comes from `backend.hcl` at init
+time, because a backend block cannot reference variables. The `release/` state holds
 the generated secrets (the Postgres password, and — with SSO — the OIDC client secret
 and Auth.js session secret), and the fetched kubeconfig holds cluster-admin
 credentials — both are gitignored. Keep your state bucket locked down.
@@ -106,12 +110,14 @@ credentials — both are gitignored. Keep your state bucket locked down.
 ```sh
 gcloud auth application-default login
 
-# 1. Fill in the one tfvars file (project_id, domain, dns_managed_zone)
-cd deploy/terraform
-cp octo.tfvars.example octo.tfvars
-
-# 2. Remote state bucket for the release root (run once)
+# 1. Remote state bucket, shared by every root (run once)
 task state:bucket PROJECT=<your-project>
+cd deploy/terraform
+cp backend.hcl.example backend.hcl        # set bucket = octo-tfstate-<your-project>
+
+# 2. Fill in each root's own tfvars (project_id, domain, dns_managed_zone)
+cp infra/terraform.tfvars.example infra/terraform.tfvars
+cp release/terraform.tfvars.example release/terraform.tfvars
 
 # 3. Everything one-time: registry + VM + k3s bootstrap (+ optional Cloud Build).
 #    Leave enable_cloudbuild unset for the first apply.
@@ -120,12 +126,12 @@ terraform -chdir=infra output                      # image_base, static_ip, url,
 
 # 4. (Optional) Cloud Build automation. Connect the GitHub repo once in the console
 #    (Cloud Build → Triggers → Connect repository — installs the GitHub App), then
-#    set enable_cloudbuild=true in octo.tfvars and re-run:
+#    set enable_cloudbuild=true in infra/terraform.tfvars and re-run:
 task infra:apply
 ```
 
 > **Restrict access in production.** SSH (22) and the k3s API (6443) default to
-> open. Set `ssh_source_ranges` and `kube_api_source_ranges` in `octo.tfvars`
+> open. Set `ssh_source_ranges` and `kube_api_source_ranges` in `infra/terraform.tfvars`
 > to your IP — but include the IAP range `35.235.240.0/20` so the Cloud Build deploy
 > step (dynamic egress IP) can still SSH and reach 6443. The release apply needs 6443
 > reachable from where Terraform runs.
@@ -172,8 +178,8 @@ state):
 ```sh
 task deploy:kubeconfig DOMAIN=octo.juancavallotti.com
 cd deploy/terraform/release
-terraform init
-terraform apply -var-file=../octo.tfvars -var image_tag=v0.1.1 -var chart_version=0.1.2
+terraform init -backend-config=../backend.hcl
+terraform apply -var image_tag=v0.1.1 -var chart_version=0.1.2
 ```
 
 Each apply:
@@ -238,10 +244,11 @@ the same host route ambiguously.
 
 ## Configuration reference
 
-All settings live in the single `octo.tfvars`, read by both roots. Per-deploy values
-(`image_tag`, `chart_version`) come from the command line instead.
+Each root has its own `terraform.tfvars`, loaded automatically. Values needed by
+both — `project_id`, `domain`, `apps_domain` — are set in each, and must agree.
+Per-deploy values (`image_tag`, `chart_version`) come from the command line instead.
 
-### `infra` variables (set in `octo.tfvars`)
+### `infra` variables (set in `infra/terraform.tfvars`)
 
 | Variable | Default | Notes |
 |---|---|---|
@@ -272,7 +279,7 @@ All settings live in the single `octo.tfvars`, read by both roots. Per-deploy va
 
 ### Editor SSO (OIDC, optional)
 
-Set `oidc_enabled = true` plus `oidc_client_id` / `oidc_client_secret` in `octo.tfvars`.
+Set `oidc_enabled = true` plus `oidc_client_id` / `oidc_client_secret` in `release/terraform.tfvars`.
 The `release` root consumes these directly (this setup uses no Secret Manager — all
 generated credentials live in the bucket-backed release state) and generates the
 Auth.js session secret. The
