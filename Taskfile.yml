@@ -367,6 +367,108 @@ tasks:
         echo "✓ wrote dist/values.ttl.yaml  (registry $REGISTRY, expires in $TAG)"
         echo "  task gke:standard:apply IMAGE_VALUES=dist/values.ttl.yaml"
 
+  registry:test:
+    desc: 'Create the public Artifact Registry repo that images:ar pushes to (run once; optional PROJECT, REGION, REPO)'
+    vars:
+      PROJECT: '{{.PROJECT | default "juancavallotti"}}'
+      REGION: '{{.REGION | default "us-west1"}}'
+      REPO: '{{.REPO | default "octo-test"}}'
+    cmds:
+      # A registry for test images, separate from the release one the infra root
+      # creates: this holds working-tree builds, is world-readable, and is meant
+      # to be deleted after a test round.
+      #
+      # PUBLIC on purpose, and it is not laziness. The EKS test cluster's nodes
+      # run in AWS and have no way to hold a Google credential, so an authenticated
+      # GCP registry would mean minting a service-account key and threading it
+      # through an imagePullSecret — a long-lived credential created to test a
+      # cluster that exists for an afternoon. Anonymous read means one registry
+      # serves both GKE and EKS with no secret anywhere. Nothing here is private:
+      # the images are built from a public repository.
+      - |
+        set -e
+        HOST="{{.REGION}}-docker.pkg.dev"
+        gcloud artifacts repositories create {{.REPO}} \
+          --repository-format=docker --location={{.REGION}} --project={{.PROJECT}} \
+          --description="octo working-tree test images (public read); delete with task registry:test:delete" \
+          2>/dev/null || echo "  repository {{.REPO}} already exists"
+        # Anonymous pull. Skipped silently if it is already bound.
+        gcloud artifacts repositories add-iam-policy-binding {{.REPO}} \
+          --location={{.REGION}} --project={{.PROJECT}} \
+          --member=allUsers --role=roles/artifactregistry.reader >/dev/null
+        gcloud auth configure-docker "$HOST" --quiet
+        echo
+        echo "✓ $HOST/{{.PROJECT}}/{{.REPO}} ready, world-readable"
+        echo "  task images:ar"
+        echo "  task registry:test:delete   # when you are done"
+
+  registry:test:delete:
+    desc: 'Delete the public test Artifact Registry repo and everything in it (optional PROJECT, REGION, REPO)'
+    vars:
+      PROJECT: '{{.PROJECT | default "juancavallotti"}}'
+      REGION: '{{.REGION | default "us-west1"}}'
+      REPO: '{{.REPO | default "octo-test"}}'
+    cmds:
+      # Deletes images and repository together. Storage is ~$0.10/GB/month and a
+      # full set of octo images is ~1.5GB, so leaving it costs cents — but a public
+      # registry is worth taking down when it has nothing left to serve.
+      - gcloud artifacts repositories delete {{.REPO}} --location={{.REGION}} --project={{.PROJECT}} --quiet
+      - 'echo "✓ deleted {{.REGION}}-docker.pkg.dev/{{.PROJECT}}/{{.REPO}}"'
+
+  images:ar:
+    desc: 'Build the five octo images from the working tree and push them to the public Artifact Registry repo (optional TAG, PROJECT, REGION, REPO)'
+    vars:
+      TAG: '{{.TAG | default "test"}}'
+      PROJECT: '{{.PROJECT | default "juancavallotti"}}'
+      REGION: '{{.REGION | default "us-west1"}}'
+      REPO: '{{.REPO | default "octo-test"}}'
+    cmds:
+      # The same job as images:ttl, against a registry that can actually keep up.
+      # ttl.sh needs no setup at all, which is why it is still here — but it mints
+      # a fresh repository name per run, so every layer uploads in full every time
+      # (~315MB for the platform image alone) at a fraction of the throughput. This
+      # target reuses one repository, so a second push sends only what changed, and
+      # it sits in the same region as the GKE cluster, so the nodes pull locally
+      # rather than dragging the images across the internet on every pod start.
+      #
+      # Run `task registry:test` once first.
+      - |
+        set -e
+        REGISTRY="{{.REGION}}-docker.pkg.dev/{{.PROJECT}}/{{.REPO}}"
+        TAG="{{.TAG}}"
+
+        # --platform linux/amd64 is not optional: a plain `docker build` on Apple
+        # Silicon produces arm64 images, and every pod on a GKE/EKS node then
+        # CrashLoops with "exec format error". buildx pushes straight to the
+        # registry, so nothing is loaded into the local daemon.
+        build() {
+          echo "→ $REGISTRY/$1:$TAG"
+          docker buildx build --platform linux/amd64 --push \
+            -t "$REGISTRY/$1:$TAG" -f "$2" $4 "$3"
+        }
+        build octo-platform-paas     apps/platform/Dockerfile .           ""
+        build octo-orchestrator-paas orchestrator/Dockerfile  ./orchestrator ""
+        build octo-logs-paas         logs/Dockerfile          ./logs      ""
+        build octo-schema-paas       sql/Dockerfile           ./sql       ""
+        # The k8s build tag is what makes the runtime talk to the orchestrator.
+        build octo-runtime-paas      runtime/Dockerfile       .           "--build-arg GOTAGS=k8s"
+
+        mkdir -p dist
+        {
+          echo "# Rendered by 'task images:ar TAG=$TAG' — do not edit."
+          echo "# Public Artifact Registry: no pull secret needed on GKE or EKS."
+          echo "image:"
+          echo "  registry: $REGISTRY"
+          echo "  tag: \"$TAG\""
+          # The default tag is reused across runs, so a node that cached it once
+          # would otherwise keep running the old image. Pass a unique TAG and this
+          # can drop to IfNotPresent.
+          echo "  pullPolicy: Always"
+        } > dist/values.ar.yaml
+        echo
+        echo "✓ wrote dist/values.ar.yaml  (registry $REGISTRY, tag $TAG)"
+        echo "  task gke:autopilot:apply IMAGE_VALUES=dist/values.ar.yaml"
+
   helm:lint:
     desc: Lint the octo Helm chart
     cmds:
