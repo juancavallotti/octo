@@ -28,6 +28,16 @@ output "service_account_email" {
   value       = module.base.service_account_email
 }
 
+output "data_disk_name" {
+  description = "Name of the Postgres data disk. Attached to the VM but not owned by it — it survives the instance being replaced."
+  value       = module.base.data_disk_name
+}
+
+output "postgres_host_path" {
+  description = "Path on the data disk that Postgres is pinned to (the release root's postgres_host_path default). Changing it on a release that already holds data is a data move, not a config change — see docs/deployment.md."
+  value       = "${var.data_disk_mount_path}/postgres"
+}
+
 output "cloudbuild_trigger_id" {
   description = "ID of the Cloud Build trigger (null when enable_cloudbuild = false)."
   value       = var.enable_cloudbuild ? module.cloudbuild[0].trigger_id : null

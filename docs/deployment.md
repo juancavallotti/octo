@@ -318,38 +318,47 @@ sudo k3s kubectl logs -n octo-dev deploy/octo-orchestrator
 
 - **Re-bootstrap the VM:** the startup script is guarded by `/opt/octo/.provisioned`.
   To re-run it: `sudo rm /opt/octo/.provisioned && sudo reboot`.
-- **Postgres data** lives on the boot disk. It survives reboots, and nothing in the
-  chart deletes it — the StatefulSet sets `persistentVolumeClaimRetentionPolicy:
-  Retain`, so neither `helm uninstall` nor scaling to zero removes the claim. It is
-  destroyed if the VM is destroyed. The password is generated and held in the
-  `release` Terraform state (the GCS bucket) — `terraform output` it if you need it.
+- **Postgres data** lives on a dedicated persistent disk, separate from the boot
+  disk. The infra root creates it (`modules/base`, 20GB pd-balanced by default), the
+  startup script formats and mounts it at `/mnt/octo-data`, and the release root
+  pins Postgres to `/mnt/octo-data/postgres` via `postgres_host_path`.
 
-  By default the volume is provisioned by k3s's `local-path` provisioner, which
+  That separation is the point. The boot disk is recreated whenever the instance is
+  — a machine-type change, an image bump, a rebuild — and it is also where k3s's
+  `local-path` provisioner would otherwise put the database. An `attached_disk` is
+  never auto-deleted with the instance, so the data outlives all of it. The chart
+  reinforces this from its side: the StatefulSet sets
+  `persistentVolumeClaimRetentionPolicy: Retain`, so neither `helm uninstall` nor
+  scaling to zero removes the claim.
+
+  Daily snapshots are taken and kept for `data_disk_snapshot_retention_days` (7),
+  with `on_source_disk_delete = KEEP_AUTO_SNAPSHOTS` — so they survive the disk
+  itself and are the recovery path if it is ever deleted.
+
+  The password is generated and held in the `release` Terraform state (the GCS
+  bucket) — `terraform output` it if you need it.
+
+  Growing the disk is a size bump plus a reboot: raise `data_disk_size_gb`, apply,
+  then reboot the VM. The startup script runs `resize2fs` on every boot, so the
+  filesystem catches up to the device with no partition-table step.
+
+  Setting `postgres_host_path = ""` reverts to k3s's `local-path` provisioner, which
   names each volume's directory after the claim's UID
-  (`/var/lib/rancher/k3s/storage/pvc-<uid>_octo_data-octo-postgres-0`). **A
-  re-bootstrap reinstalls k3s and therefore mints a new UID**, so the database comes
-  back empty with the old directory still sitting on disk. Set
-  `postgres_host_path` to pin it to a fixed path instead:
+  (`/var/lib/rancher/k3s/storage/pvc-<uid>_octo_data-octo-postgres-0`). Avoid it:
+  **a re-bootstrap reinstalls k3s and therefore mints a new UID**, so the database
+  comes back empty with the old directory still sitting on disk.
 
-  ```hcl
-  # octo.tfvars
-  postgres_host_path = "/var/lib/octo-data"
-  ```
-
-  On an existing release this is a **data move, not a config change** — the next
-  apply points Postgres at the new path, and if it is empty so is the database.
-  Migrate with the workload stopped:
+  Changing `postgres_host_path` on a release that already holds data is a **data
+  move, not a config change** — the next apply points Postgres at the new path, and
+  if it is empty so is the database. Migrate with the workload stopped:
 
   ```bash
   gcloud compute ssh octo --zone us-west1-a
   sudo k3s kubectl scale statefulset/octo-postgres -n octo --replicas=0
-  sudo mkdir -p /var/lib/octo-data
-  sudo cp -a /var/lib/rancher/k3s/storage/pvc-*_octo_data-octo-postgres-0/pgdata /var/lib/octo-data/
+  sudo mkdir -p /mnt/octo-data/postgres
+  sudo cp -a /var/lib/rancher/k3s/storage/pvc-*_octo_data-octo-postgres-0/pgdata /mnt/octo-data/postgres/
   # then set postgres_host_path and re-apply; scale back up happens automatically
   ```
-
-  Both paths are on the boot disk, so neither survives the VM being destroyed. To
-  outlive the VM, attach a data disk and mount it at the chosen path.
 - **Re-pull a tag manually on the node:** `sudo octo-pull v0.1.2`.
 
 ---

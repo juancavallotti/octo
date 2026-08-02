@@ -144,15 +144,22 @@ variable "values_files" {
 variable "postgres_host_path" {
   type        = string
   description = <<-EOT
-    Node path to pin the bundled Postgres to on the k3s VM, e.g. /var/lib/octo-data.
-    Empty (the default) leaves the volume dynamically provisioned by k3s's local-path
-    provisioner, whose per-claim directory name changes whenever the claim does — so a
-    re-bootstrap of the VM (`rm /opt/octo/.provisioned && reboot`, which reinstalls k3s)
-    brings the database back empty with the old data stranded on disk.
+    Node path to pin the bundled Postgres to on the k3s VM. Setting "" instead leaves
+    the volume dynamically provisioned by k3s's local-path provisioner, whose per-claim
+    directory name changes whenever the claim does — so a re-bootstrap of the VM
+    (`rm /opt/octo/.provisioned && reboot`, which reinstalls k3s) brings the database
+    back empty with the old data stranded on disk.
 
-    Setting this on a release that already holds data requires moving that data first;
-    see docs/deployment.md. Both paths live on the boot disk, so neither survives the
-    VM being destroyed — that needs an attached data disk mounted at the chosen path.
+    The default is the data disk the infra root attaches and its startup script mounts
+    (modules/base, /mnt/octo-data). That disk is a resource of its own and is not
+    deleted with the instance, so the database outlives a VM rebuild as well as a k3s
+    reinstall — which a path on the boot disk would not. It must sit under the infra
+    root's data_disk_mount_path; that root outputs the exact value to use as
+    `postgres_host_path`.
+
+    CHANGING this on a release that already holds data is a data move, not a config
+    change: the next apply points Postgres at the new path and the database comes up
+    empty. Move the data first, with the workload stopped — see docs/deployment.md.
   EOT
-  default     = ""
+  default     = "/mnt/octo-data/postgres"
 }

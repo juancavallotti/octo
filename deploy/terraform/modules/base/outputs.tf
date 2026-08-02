@@ -17,3 +17,13 @@ output "service_account_email" {
   description = "Email of the VM's service account."
   value       = google_service_account.vm.email
 }
+
+output "data_disk_name" {
+  description = "Name of the Postgres data disk. It is not deleted with the instance; deleting it is an explicit act."
+  value       = google_compute_disk.data.name
+}
+
+output "data_disk_device_name" {
+  description = "Device name the data disk is attached under (the guest sees /dev/disk/by-id/google-{this})."
+  value       = var.data_disk_device_name
+}

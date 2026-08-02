@@ -18,10 +18,45 @@ if command -v curl >/dev/null 2>&1; then
     > /usr/local/bin/octo-pull 2>/dev/null && chmod +x /usr/local/bin/octo-pull || true
 fi
 
+# --- Data disk ---
+# The attached persistent disk that holds the database (modules/base). Prepared on
+# EVERY boot, before the first-boot guard below, so an already-provisioned VM picks
+# up a newly attached — or newly resized — disk on reboot instead of needing a
+# re-bootstrap. util-linux and e2fsprogs ship on the Debian 12 image, so this runs
+# safely ahead of apt.
+#
+# No partition table: the filesystem owns the whole device. That is what makes a
+# Terraform-side resize a single resize2fs, with no growpart/sfdisk step that can
+# leave a half-grown partition behind.
+DATA_DEV="/dev/disk/by-id/google-${data_disk_device_name}"
+DATA_MNT="${data_disk_mount_path}"
+if [ -b "$DATA_DEV" ]; then
+  if ! blkid "$DATA_DEV" >/dev/null 2>&1; then
+    mkfs.ext4 -m 0 -E lazy_itable_init=0,lazy_journal_init=0,discard "$DATA_DEV"
+  fi
+  mkdir -p "$DATA_MNT"
+  DATA_UUID="$(blkid -s UUID -o value "$DATA_DEV")"
+  # By UUID rather than device path, and nofail so a detached disk degrades to a
+  # missing mount instead of dropping the box into emergency mode on boot.
+  if ! grep -q "^UUID=$DATA_UUID " /etc/fstab; then
+    echo "UUID=$DATA_UUID $DATA_MNT ext4 discard,defaults,nofail 0 2" >> /etc/fstab
+    systemctl daemon-reload || true
+  fi
+  mountpoint -q "$DATA_MNT" || mount "$DATA_MNT" || echo "WARNING: could not mount $DATA_MNT" >&2
+  # Picks up a Terraform-side size increase; a no-op when already at size.
+  if mountpoint -q "$DATA_MNT"; then
+    resize2fs "$DATA_DEV" || true
+    # postgres_host_path points at this subdirectory, not the mount root.
+    mkdir -p "$DATA_MNT/postgres"
+  fi
+else
+  echo "WARNING: $DATA_DEV is not attached; Postgres would land on the boot disk" >&2
+fi
+
 # GCE re-runs startup scripts on every boot; k3s's systemd service keeps the
 # cluster alive across reboots, so skip re-bootstrapping once it has succeeded.
 if [ -f /opt/octo/.provisioned ]; then
-  echo "already provisioned; octo-pull refreshed; nothing else to do"
+  echo "already provisioned; octo-pull refreshed, data disk checked; nothing else to do"
   exit 0
 fi
 

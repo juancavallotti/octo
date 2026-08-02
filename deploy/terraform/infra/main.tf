@@ -5,7 +5,7 @@
 # by Cloud Build or manually via `task deploy`.
 #
 #   cd deploy/terraform/infra
-#   terraform init && terraform apply -var-file=../octo.tfvars
+#   terraform init -backend-config=../backend.hcl && terraform apply
 #
 # Connect the GitHub repo to Cloud Build (console, one-time) before setting
 # enable_cloudbuild=true.
@@ -53,14 +53,23 @@ module "base" {
   kube_api_source_ranges = local.kube_api_source_ranges
   boot_disk_size_gb      = var.boot_disk_size_gb
 
+  # Postgres lives on this disk, mounted by the startup script below, so the
+  # database survives the VM being replaced.
+  data_disk_size_gb                 = var.data_disk_size_gb
+  data_disk_type                    = var.data_disk_type
+  data_disk_device_name             = var.data_disk_device_name
+  data_disk_snapshot_retention_days = var.data_disk_snapshot_retention_days
+
   # Traefik (k3s built-in) serves 80/443; 6443 is opened separately by the module.
   web_tcp_ports = ["80", "443"]
 
   startup_script = templatefile("${path.module}/startup.sh.tftpl", {
-    registry_host = local.registry_host
-    domain        = var.domain
-    acme_email    = var.acme_email
-    project_id    = var.project_id
+    registry_host         = local.registry_host
+    domain                = var.domain
+    acme_email            = var.acme_email
+    project_id            = var.project_id
+    data_disk_device_name = var.data_disk_device_name
+    data_disk_mount_path  = var.data_disk_mount_path
   })
 
   # octo-pull (image pulls with a fresh token) is delivered via metadata and installed
