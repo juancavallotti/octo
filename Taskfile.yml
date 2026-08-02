@@ -394,6 +394,44 @@ tasks:
         VERSION="$(helm show chart helm | awk '/^version:/ {print $2}')"
         helm push "dist/octo-${VERSION}.tgz" "oci://{{.IMAGE_BASE}}"
 
+  helm:values:images:
+    desc: 'Render dist/values.images.yaml pinning every octo image by digest (set IMAGE_BASE and TAG)'
+    requires:
+      vars: [IMAGE_BASE, TAG]
+    cmds:
+      # The local equivalent of cloudbuild.yaml's render-image-values step, for a
+      # manual apply or for checking what a tag actually resolves to. The digests
+      # are read from the registry (imagetools inspects remotely, no pull), where
+      # Cloud Build reads them from the image it just pushed — same output, but
+      # this works for any published tag rather than only a fresh build.
+      #
+      # Feed it to Helm with -f dist/values.images.yaml, or to the release root
+      # with -var image_values_file=dist/values.images.yaml.
+      - |
+        set -e
+        mkdir -p dist
+        {
+          echo "# Rendered by 'task helm:values:images IMAGE_BASE={{.IMAGE_BASE}} TAG={{.TAG}}' — do not edit."
+          echo "# Each octo image is pinned by digest; the chart prefers image.digest over any tag."
+          echo "image:"
+          echo "  registry: {{.IMAGE_BASE}}"
+          echo "  pullPolicy: IfNotPresent"
+          for c in platform orchestrator logs schema runtime; do
+            repo="octo-${c}-paas"
+            ref="{{.IMAGE_BASE}}/${repo}:{{.TAG}}"
+            digest="$(docker buildx imagetools inspect "$ref" | awk '/^Digest:/ {print $2; exit}')"
+            if [ -z "$digest" ]; then
+              echo "✖ no digest for $ref — is it published?" >&2
+              exit 1
+            fi
+            echo "${c}:"
+            echo "  image:"
+            echo "    repository: ${repo}"
+            echo "    digest: \"${digest}\""
+          done
+        } > dist/values.images.yaml
+        echo "✓ wrote dist/values.images.yaml"
+
   deploy:kubeconfig:
     desc: 'Fetch the k3s kubeconfig from the VM for the Terraform release root (set DOMAIN; optional INSTANCE, ZONE)'
     requires:

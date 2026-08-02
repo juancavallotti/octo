@@ -129,3 +129,15 @@ variable "kv_encryption_key" {
   default     = ""
   sensitive   = true
 }
+
+variable "image_values_file" {
+  type        = string
+  description = "Path to a values file pinning each octo image by digest, as rendered by cloudbuild.yaml's render-image-values step. When set it supplies the image coordinates and image_tag is not passed to the chart at all, so the release runs exactly the images that build pushed. Empty falls back to tagging by image_tag."
+  default     = ""
+}
+
+variable "values_files" {
+  type        = list(string)
+  description = "Extra chart values files to layer in, lowest precedence first (e.g. an environment profile shipped with the chart). Applied beneath the module's own settings, which are passed as Helm --set and therefore win."
+  default     = []
+}

@@ -158,6 +158,8 @@ module "octo" {
   image_base        = local.image_base
   chart_version     = var.chart_version
   image_tag         = var.image_tag
+  image_values_file = var.image_values_file
+  values_files      = var.values_files
   registry_password = data.google_client_config.current.access_token
   domain            = var.domain
   apps_domain       = local.apps_domain_eff

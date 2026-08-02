@@ -128,3 +128,15 @@ variable "oidc_client_secret" {
   default     = ""
   sensitive   = true
 }
+
+variable "image_values_file" {
+  type        = string
+  description = "Path to the digest-pinned image values file rendered by cloudbuild.yaml (render-image-values). Cloud Build passes /workspace/dist/values.images.yaml so the release installs exactly the images that build pushed; a local `task deploy` leaves it empty and identifies images by image_tag instead."
+  default     = ""
+}
+
+variable "values_files" {
+  type        = list(string)
+  description = "Extra chart values files to layer in, lowest precedence first. Empty by default: the single-node k3s VM this root targets is what the chart's own defaults describe, so no profile is needed."
+  default     = []
+}
