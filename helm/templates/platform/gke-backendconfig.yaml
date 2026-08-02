@@ -1,0 +1,46 @@
+{{- /* GKE BackendConfig / FrontendConfig for the editor Service, for clusters
+       using the GCE ingress controller.
+
+       BackendConfig matters because the GCE load balancer's default health
+       check probes "/" on the node port and will mark the backend unhealthy if
+       the app answers differently; pointing it at the platform's own path keeps
+       the backend serving. FrontendConfig is how GCE does HTTP->HTTPS redirect,
+       which other controllers express as an annotation.
+
+       Both need cloud.google.com CRDs that exist only on GKE, so both are off
+       unless a profile turns them on. The Service picks them up via
+       platform.service.annotations:
+         cloud.google.com/backend-config: '{"default":"octo-platform"}' */}}
+{{- $gke := .Values.gke | default dict }}
+{{- if $gke.backendConfig }}
+{{- if $gke.backendConfig.enabled }}
+apiVersion: cloud.google.com/v1
+kind: BackendConfig
+metadata:
+  name: {{ include "octo-common.componentName" (dict "root" $ "component" "platform") }}
+  labels:
+    {{- include "octo-common.componentLabels" (dict "root" $ "component" "platform") | nindent 4 }}
+spec:
+  {{- with $gke.backendConfig.timeoutSec }}
+  timeoutSec: {{ . }}
+  {{- end }}
+  healthCheck:
+    type: HTTP
+    requestPath: {{ $gke.backendConfig.healthCheckPath | default "/" | quote }}
+    port: {{ .Values.platform.service.port }}
+{{- end }}
+{{- end }}
+{{- if $gke.frontendConfig }}
+{{- if $gke.frontendConfig.enabled }}
+---
+apiVersion: networking.gke.io/v1beta1
+kind: FrontendConfig
+metadata:
+  name: {{ include "octo-common.componentName" (dict "root" $ "component" "platform") }}
+  labels:
+    {{- include "octo-common.componentLabels" (dict "root" $ "component" "platform") | nindent 4 }}
+spec:
+  redirectToHttps:
+    enabled: {{ $gke.frontendConfig.redirectToHttps | default false }}
+{{- end }}
+{{- end }}

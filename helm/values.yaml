@@ -258,18 +258,71 @@ auth:
   # Optional: id-token claim carrying roles (Auth.js default is "roles").
   rolesClaim: ""
 
+# How external traffic reaches the editor. "ingress" is the only mode today;
+# Gateway API ("gateway") is the planned follow-up, and this switch is the seam
+# it drops into — routing config is resolved in one place rather than inlined
+# per component, so adding HTTPRoute + Gateway templates does not touch the
+# workloads.
+networking:
+  mode: ingress
+
 ingress:
   enabled: true
+  # IngressClass of the controller that should claim this Ingress: traefik (k3s),
+  # nginx, gce (GKE), alb (EKS with the AWS Load Balancer Controller). Empty
+  # omits the field and lets the cluster's default IngressClass claim it.
   className: traefik
-  # Editor host. Always gets its own per-host HTTP-01 cert (see ingress.tls
-  # below), independent of wildcardTLS — it does not need to be the same domain
-  # as orchestrator.baseDomain.
+  # Editor host. Always gets its own certificate (see ingress.tls below),
+  # independent of wildcardTLS — it does not need to be the same domain as
+  # orchestrator.baseDomain.
   host: octo.juancavallotti.com
+  # Additional hosts served by the same backend (aliases, apex + www).
+  extraHosts: []
+  path: /
+  pathType: Prefix
+  # Controller-specific behaviour: nginx proxy-body-size, ALB scheme/target-type,
+  # GCE static IP, ... The mode-specific certificate annotation below always wins
+  # on key collision.
   annotations: {}
   tls:
     enabled: true
+    # Where the certificate comes from. This is the biggest single difference
+    # between deployment targets:
+    #   cert-manager      annotate with a ClusterIssuer; cert-manager issues
+    #                     per-host via HTTP-01. What the k3s bootstrap provides.
+    #   secret            reference a TLS Secret that already exists — a
+    #                     pre-issued wildcard, or one Terraform put there.
+    #   gke-managed-cert  Google-managed cert via the ManagedCertificate CRD
+    #                     (GCE ingress); the chart creates it for you.
+    #   acm               AWS ACM certificate by ARN, terminated at the ALB.
+    #   none              terminated upstream; no TLS on the Ingress.
+    # Empty auto-selects cert-manager when clusterIssuer is set, else secret,
+    # which is the behaviour this chart has always had.
+    mode: ""
     secretName: octo-tls
     clusterIssuer: letsencrypt-prod
+    # acm mode: arn:aws:acm:REGION:ACCOUNT:certificate/ID
+    certificateArn: ""
+    # gke-managed-cert mode: name of the ManagedCertificate to create. Empty
+    # derives it from the release name.
+    managedCertificateName: ""
+
+# GKE-only extras for clusters fronted by the GCE ingress controller. Both need
+# cloud.google.com / networking.gke.io CRDs that exist only on GKE, so both stay
+# off unless a profile enables them. Attach the BackendConfig to the editor
+# Service with:
+#   platform.service.annotations:
+#     cloud.google.com/backend-config: '{"default":"RELEASE-platform"}'
+gke:
+  backendConfig:
+    enabled: false
+    # The GCE load balancer health-checks "/" on the node port by default and
+    # marks the backend unhealthy if the app answers otherwise.
+    healthCheckPath: /
+    timeoutSec: null
+  frontendConfig:
+    enabled: false
+    redirectToHttps: false
 
 # Shared wildcard TLS cert for orchestrator.baseDomain (below) and every
 # {slug}.{baseDomain} per-integration subdomain, issued once by cert-manager via

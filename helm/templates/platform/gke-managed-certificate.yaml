@@ -1,0 +1,23 @@
+{{- /* Google-managed certificate for the editor host, used instead of
+       cert-manager when the GCE ingress controller terminates TLS
+       (ingress.tls.mode=gke-managed-cert). The Ingress references it by
+       annotation and carries no tls block — GKE provisions and renews the cert
+       itself, so there is no ClusterIssuer and no HTTP-01 challenge.
+
+       Requires the networking.gke.io/v1 CRD, which only exists on GKE. It
+       renders solely when the mode explicitly asks for it, so no other target
+       ever sees it. Provisioning takes ~15 minutes and the DNS A record must
+       already point at the ingress IP, or the cert stays in Provisioning. */}}
+{{- if and .Values.ingress.enabled (eq (include "octo-common.ingress.tlsMode" (dict "tls" .Values.ingress.tls)) "gke-managed-cert") }}
+apiVersion: networking.gke.io/v1
+kind: ManagedCertificate
+metadata:
+  name: {{ .Values.ingress.tls.managedCertificateName | default (include "octo-common.componentName" (dict "root" $ "component" "platform")) }}
+  labels:
+    {{- include "octo-common.componentLabels" (dict "root" $ "component" "platform") | nindent 4 }}
+spec:
+  domains:
+    {{- range (fromYamlArray (include "octo-common.ingress.hosts" .Values.ingress)) }}
+    - {{ . | quote }}
+    {{- end }}
+{{- end }}
