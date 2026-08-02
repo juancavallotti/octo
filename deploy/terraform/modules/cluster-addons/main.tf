@@ -29,11 +29,20 @@ resource "google_service_account" "cert_manager" {
   display_name = "cert-manager DNS-01 solver (${var.name})"
 }
 
-resource "google_project_iam_member" "cert_manager_dns" {
-  count   = var.enable_dns01 ? 1 : 0
-  project = var.project_id
-  role    = "roles/dns.admin"
-  member  = "serviceAccount:${google_service_account.cert_manager[0].email}"
+# Scoped to the one delegated zone, not the project. The solver writes and deletes
+# TXT records under _acme-challenge.{apps_domain} and does nothing else, so a
+# project-wide roles/dns.admin would hand a compromised cert-manager pod every DNS
+# record in the project — including whatever the k3s deployment's zone holds.
+#
+# This only works because the ClusterIssuer names the zone (dns01.hostedZoneName in
+# charts/cluster-issuers). Left to discover it, cert-manager lists the project's
+# zones, which no zone-level binding can authorize.
+resource "google_dns_managed_zone_iam_member" "cert_manager_dns" {
+  count        = var.enable_dns01 ? 1 : 0
+  project      = var.project_id
+  managed_zone = var.dns_managed_zone
+  role         = "roles/dns.admin"
+  member       = "serviceAccount:${google_service_account.cert_manager[0].email}"
 }
 
 resource "google_service_account_iam_member" "cert_manager_wi" {
@@ -169,9 +178,10 @@ resource "helm_release" "cluster_issuers" {
       ingressClass = "nginx"
     }
     dns01 = {
-      enabled = var.enable_dns01
-      name    = var.dns01_cluster_issuer_name
-      project = var.project_id
+      enabled        = var.enable_dns01
+      name           = var.dns01_cluster_issuer_name
+      project        = var.project_id
+      hostedZoneName = var.dns_managed_zone
     }
   })]
 

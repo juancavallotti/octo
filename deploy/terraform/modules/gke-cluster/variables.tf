@@ -78,8 +78,23 @@ variable "master_ipv4_cidr" {
 
 variable "master_authorized_networks" {
   type        = list(string)
-  description = "CIDRs allowed to reach the control plane. Whatever runs `terraform apply` must be in here — the helm and kubernetes providers talk to the public endpoint. Defaults open, matching the k3s root's ssh_source_ranges default; narrow it to your IP for anything long-lived."
-  default     = ["0.0.0.0/0"]
+  description = <<-EOT
+    CIDRs allowed to reach the control-plane endpoint. Empty (the default) omits
+    the allowlist entirely, leaving GKE's own behaviour for a public cluster: the
+    endpoint accepts connections from anywhere and every one of them still has to
+    authenticate with IAM. Set it — to your own address — for anything that
+    outlives a test.
+
+    Empty is NOT expressed as ["0.0.0.0/0"], and the difference is load-bearing.
+    An empty master_authorized_networks_config block turns the allowlist ON with
+    nothing on it, which locks out the helm and kubernetes providers later in the
+    very same apply. That failure lands after the cluster has been created, which
+    is the expensive place to discover it, so the block is omitted rather than
+    emitted empty (see main.tf).
+
+    Whatever runs `terraform apply` must be covered by any list you do set.
+  EOT
+  default     = []
 }
 
 variable "enable_private_services_access" {

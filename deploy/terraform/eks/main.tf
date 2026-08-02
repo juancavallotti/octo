@@ -11,7 +11,9 @@
 #
 # COST: the EKS control plane is ~$0.10/hour (~$73/month) and has no free tier. It
 # starts billing the moment the cluster exists, whether or not anything runs on it.
-# Destroy the root when you are done testing rather than leaving it idle.
+# Destroy the root when you are done testing rather than leaving it idle. That rate
+# holds only while kubernetes_version is in standard support; an extended-support
+# version is $0.60/hour for the same cluster.
 #
 # The Route53 zone is NOT managed here. It is created once by hand and delegated
 # from whoever holds the parent domain (see ../README.md), because Route53 assigns
@@ -63,7 +65,7 @@ data "aws_route53_zone" "this" {
 # that hangs on a dangling ENI.
 module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
-  version = "~> 5.13"
+  version = "5.21.0"
 
   name = var.name
   cidr = var.vpc_cidr
@@ -94,7 +96,7 @@ module "vpc" {
 
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
-  version = "~> 20.31"
+  version = "20.37.2"
 
   cluster_name    = var.name
   cluster_version = var.kubernetes_version
@@ -144,7 +146,7 @@ module "eks" {
 
 module "ebs_csi_irsa" {
   source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
-  version = "~> 5.44"
+  version = "5.60.0"
 
   role_name             = "${var.name}-ebs-csi"
   attach_ebs_csi_policy = true

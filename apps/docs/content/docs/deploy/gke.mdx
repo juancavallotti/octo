@@ -56,11 +56,27 @@ If you do not already have a cluster, the repo has a Terraform root per flavour
 that creates one, installs every prerequisite below, wires DNS, and deploys the
 chart — in a single apply.
 
+Each root reads its **own** `terraform.tfvars` — nothing is shared between them, so
+copy the example for the flavour you are applying and fill in `project_id`,
+`acme_email`, `dns_managed_zone`, `domain` and `apps_domain`:
+
 ```bash
 cd deploy/terraform
+
+# GKE Standard
 cp gke-standard/terraform.tfvars.example gke-standard/terraform.tfvars
-task gke:standard:apply          # or gke:autopilot:apply
+$EDITOR gke-standard/terraform.tfvars
+task gke:standard:apply
+
+# ...or GKE Autopilot
+cp gke-autopilot/terraform.tfvars.example gke-autopilot/terraform.tfvars
+$EDITOR gke-autopilot/terraform.tfvars
+task gke:autopilot:apply
 ```
+
+Both roots default to the **same** hostnames, so only one can hold them at a time:
+destroy one before applying the other, or the second apply fails on an existing
+record set.
 
 Both roots are thin wrappers over one shared composition
 (`deploy/terraform/modules/octo-gke`), so the two flavours cannot drift — which

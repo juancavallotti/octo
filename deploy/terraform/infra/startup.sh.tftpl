@@ -42,15 +42,19 @@ if [ -b "$DATA_DEV" ]; then
     echo "UUID=$DATA_UUID $DATA_MNT ext4 discard,defaults,nofail 0 2" >> /etc/fstab
     systemctl daemon-reload || true
   fi
-  mountpoint -q "$DATA_MNT" || mount "$DATA_MNT" || echo "WARNING: could not mount $DATA_MNT" >&2
+  mountpoint -q "$DATA_MNT" || mount "$DATA_MNT" || true
   # Picks up a Terraform-side size increase; a no-op when already at size.
   if mountpoint -q "$DATA_MNT"; then
     resize2fs "$DATA_DEV" || true
-    # postgres_host_path points at this subdirectory, not the mount root.
+    # postgres_host_path points at this subdirectory, not the mount root. Created
+    # ONLY on a successful mount: the release root asks for hostPathType=Directory,
+    # so its absence is what stops Postgres from initialising on the boot disk.
     mkdir -p "$DATA_MNT/postgres"
+  else
+    echo "ERROR: $DATA_DEV did not mount at $DATA_MNT; the database has nowhere durable to live. Postgres will stay Pending until this is fixed." >&2
   fi
 else
-  echo "WARNING: $DATA_DEV is not attached; Postgres would land on the boot disk" >&2
+  echo "ERROR: $DATA_DEV is not attached; the database has nowhere durable to live. Postgres will stay Pending until this is fixed." >&2
 fi
 
 # GCE re-runs startup scripts on every boot; k3s's systemd service keeps the

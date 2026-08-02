@@ -1,12 +1,15 @@
-# Backend configuration shared by every root. Copy to backend.hcl (gitignored) and
-# set your bucket, then pass it at init time:
+# GCS backend configuration, shared by every GCP root (infra, release, gke-standard,
+# gke-autopilot). The eks root stores its state in S3 — copy backend-aws.hcl.example
+# for that one instead; the two are not interchangeable.
+#
+# Copy to backend.hcl (gitignored) and set your bucket, then pass it at init time:
 #
 #   terraform -chdir=infra init -backend-config=../backend.hcl
 #
 # (The `task` targets do this for you.)
 #
 # Why partial config: a backend block cannot reference variables, so the bucket
-# would otherwise be a literal baked into five files that every fork has to edit.
+# would otherwise be a literal baked into every root that every fork has to edit.
 # The prefix stays in each root's backend.tf — it identifies the root, not the
 # environment, and must never be accidentally shared between two roots.
 #

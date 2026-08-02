@@ -201,6 +201,31 @@ variable "postgres_host_path" {
   default     = ""
 }
 
+variable "postgres_host_path_type" {
+  type        = string
+  description = <<-EOT
+    PersistentVolume hostPath type for postgres_host_path (chart value
+    postgres.storage.hostPathType). Ignored when postgres_host_path is empty.
+
+    Directory is the right answer whenever the path is a mount point on a separate
+    disk, which is what modules/base creates. Under the chart's DirectoryOrCreate
+    default, a data disk that failed to mount is invisible: kubelet creates the
+    directory on the root filesystem, Postgres initialises an empty database there,
+    and the install looks healthy right up until the disk is needed. Directory
+    refuses the mount instead, so the pod stays Pending with the missing path named
+    in its events.
+
+    Empty leaves the chart's default, which is what a k3d or kind cluster wants —
+    there the path is a bind mount that may legitimately not exist yet.
+  EOT
+  default     = ""
+
+  validation {
+    condition     = contains(["", "Directory", "DirectoryOrCreate"], var.postgres_host_path_type)
+    error_message = "postgres_host_path_type must be Directory or DirectoryOrCreate (or empty for the chart default)."
+  }
+}
+
 variable "external_database" {
   type = object({
     host                         = string

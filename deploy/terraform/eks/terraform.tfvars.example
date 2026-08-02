@@ -9,7 +9,8 @@
 #      ../backend-aws.hcl.example to ../backend-aws.hcl and set it there.
 #
 # COST: the EKS control plane is ~$0.10/hour (~$73/month) with no free tier, billed
-# from the moment the cluster exists. Destroy the root when you are done.
+# from the moment the cluster exists — and $0.60/hour if kubernetes_version has
+# fallen out of standard support. Destroy the root when you are done.
 
 # --- Hostnames ---
 # domain must be a SUBDOMAIN, not the zone apex: the record pointing at the ALB is
@@ -62,7 +63,8 @@ apps_domain       = "aws.octopaas.dev" # {slug}.{apps_domain}; covered by the sa
 # node_max_size       = 3
 # spot_nodes          = true   # reclaimable at two minutes' notice
 # private_nodes       = false  # true adds a NAT gateway (~$32/mo + data processing)
-# kubernetes_version  = "1.31"
+# kubernetes_version  = "1.35"  # MUST be a standard-support version: extended
+#                               # support is $0.60/hour, not $0.10
 # vpc_cidr            = "10.70.0.0/16"
 #
 # How long to wait after the release before reading the Ingress for the ALB's

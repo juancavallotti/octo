@@ -108,6 +108,13 @@ resource "google_compute_resource_policy" "data_snapshot" {
   name   = "${var.instance_name}-data-snapshot"
   region = var.region
 
+  # Same dependency the disk and the VM carry. Nothing else here references the
+  # policy's inputs, so on a fresh project Terraform is free to schedule it while
+  # compute.googleapis.com is still enabling; the attachment below then has no
+  # policy to attach and the apply fails on the second resource rather than the
+  # first.
+  depends_on = [google_project_service.apis]
+
   snapshot_schedule_policy {
     schedule {
       daily_schedule {

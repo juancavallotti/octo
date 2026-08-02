@@ -195,8 +195,8 @@ variable "private_nodes" {
 
 variable "master_authorized_networks" {
   type        = list(string)
-  description = "CIDRs allowed to reach the control plane. Whatever runs `terraform apply` must be in here — the helm and kubernetes providers talk to the public endpoint. Narrow it to your IP for anything long-lived."
-  default     = ["0.0.0.0/0"]
+  description = "CIDRs allowed to reach the control-plane endpoint. Empty (the default) omits the allowlist, leaving GKE's behaviour for a public cluster: reachable from anywhere, and every connection still authenticates with IAM. Set it to your own address for anything that outlives a test — and remember that whatever runs `terraform apply` must be in the list, because the helm and kubernetes providers talk to that endpoint."
+  default     = []
 }
 
 variable "deletion_protection" {

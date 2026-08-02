@@ -172,13 +172,21 @@ resource "google_container_cluster" "this" {
   }
 
   # The Terraform helm/kubernetes providers talk to the control plane over the
-  # public endpoint, so whatever runs `apply` has to be in here.
-  master_authorized_networks_config {
-    dynamic "cidr_blocks" {
-      for_each = var.master_authorized_networks
-      content {
-        cidr_block   = cidr_blocks.value
-        display_name = "authorized-${cidr_blocks.key}"
+  # public endpoint, so whatever runs `apply` has to be covered by this list.
+  #
+  # Omitted entirely when the list is empty, rather than emitted with no CIDRs in
+  # it: an empty master_authorized_networks_config block does not mean "allow
+  # everything", it turns the allowlist on and authorizes nobody. The apply then
+  # fails at the first helm resource, after the cluster has already been created.
+  dynamic "master_authorized_networks_config" {
+    for_each = length(var.master_authorized_networks) > 0 ? [1] : []
+    content {
+      dynamic "cidr_blocks" {
+        for_each = var.master_authorized_networks
+        content {
+          cidr_block   = cidr_blocks.value
+          display_name = "authorized-${cidr_blocks.key}"
+        }
       }
     }
   }

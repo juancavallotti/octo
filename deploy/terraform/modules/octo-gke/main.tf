@@ -78,8 +78,10 @@ module "addons" {
   acme_server      = var.acme_server
 
   # DNS-01 is the only ACME challenge that can issue the *.{apps_domain} wildcard
-  # the per-integration ingresses share.
-  enable_dns01 = true
+  # the per-integration ingresses share. The zone is named rather than discovered
+  # so cert-manager's IAM can be scoped to it alone.
+  enable_dns01     = true
+  dns_managed_zone = data.google_dns_managed_zone.this.name
 }
 
 # --- DNS ---

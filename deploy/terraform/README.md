@@ -171,6 +171,19 @@ gcloud compute ssh octo --zone us-west1-a -- sudo k3s kubectl get pods -n octo
 
 ## Test a managed cluster
 
+Each root reads its **own** `terraform.tfvars` — nothing is shared between them, so
+this step is per root and not optional:
+
+```sh
+cp gke-standard/terraform.tfvars.example gke-standard/terraform.tfvars
+# gke-standard, gke-autopilot: project_id, acme_email, dns_managed_zone, domain,
+#   apps_domain. The two roots default to the SAME hostnames — run one at a time.
+# eks:          route53_zone_name, domain, apps_domain (no project_id; the AWS
+#   account comes from your credentials).
+```
+
+Then:
+
 ```sh
 # Build the working tree's images — the published ones track releases, so they do
 # not match a chart you have edited since.
@@ -186,9 +199,16 @@ kubectl -n octo get pods,pvc,ingress,certificate
 task gke:standard:destroy
 ```
 
+Swap `gke:standard` for `gke:autopilot` to test the other flavour — same commands,
+same tfvars keys, a separate state prefix. Set `IMAGE_VALUES` once per root, or put
+`image_values_file` in the tfvars; note that `file()` resolves relative to the root
+directory, so a repo-relative path there needs to be written `../../../dist/…`.
+
 `eks:apply` additionally needs `task eks:state:bucket BUCKET=<name>` and
 `backend-aws.hcl` once. **The EKS control plane is ~$0.10/hour with no free tier**,
-billed from the moment the cluster exists — destroy the root when you are done.
+billed from the moment the cluster exists — destroy the root when you are done. Keep
+`kubernetes_version` on a version in *standard* support: extended support is
+$0.60/hour for the identical cluster.
 
 ### Why destroy is phased
 

@@ -78,8 +78,15 @@ resource "helm_release" "octo" {
   # --- Database ---
   # Bundled Postgres (chart creates the Secret + StatefulSet). Skipped entirely on
   # an external-database install, where there is no chart-owned password to set.
+  #
+  # Both halves of that condition are load-bearing. A caller that sets both — by
+  # switching an existing release to a managed instance without clearing the old
+  # password — would otherwise write a now-meaningless credential into Helm's
+  # release history, where it outlives the StatefulSet it belonged to. The
+  # external_database check is what makes "never a password in release history"
+  # a property of this module rather than of every caller.
   dynamic "set_sensitive" {
-    for_each = var.postgres_password != "" ? toset(["postgres.auth.password"]) : toset([])
+    for_each = var.external_database == null && var.postgres_password != "" ? toset(["postgres.auth.password"]) : toset([])
     content {
       name  = set_sensitive.value
       value = var.postgres_password
@@ -93,6 +100,15 @@ resource "helm_release" "octo" {
     content {
       name  = set.value
       value = var.postgres_host_path
+    }
+  }
+
+  # Whether kubelet may create that path. Only meaningful alongside it.
+  dynamic "set" {
+    for_each = var.postgres_host_path != "" && var.postgres_host_path_type != "" ? toset(["postgres.storage.hostPathType"]) : toset([])
+    content {
+      name  = set.value
+      value = var.postgres_host_path_type
     }
   }
 

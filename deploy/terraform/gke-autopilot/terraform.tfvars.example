@@ -64,6 +64,11 @@ apps_domain      = "gke.octopaas.dev"       # {slug}.{apps_domain}; wildcard cer
 # --- Cost / production toggles ---
 # private_nodes       = false  # true adds a Cloud NAT (standing hourly charge)
 # deletion_protection = false  # true makes `terraform destroy` fail
+#
+# The control-plane endpoint is reachable from anywhere by default (every
+# connection still authenticates with IAM). Listing CIDRs here restricts it at the
+# network layer too — and whatever runs `terraform apply` must be among them, or
+# the apply fails at the first helm resource with the cluster already built.
 # master_authorized_networks = ["203.0.113.4/32"]
 #
 # acme_server = "https://acme-staging-v02.api.letsencrypt.org/directory"

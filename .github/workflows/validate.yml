@@ -80,8 +80,15 @@ jobs:
 
   terraform:
     runs-on: ubuntu-latest
+    # Read-only, and the checkout token is not left in .git/config afterwards:
+    # this job runs `terraform init`, which downloads and executes provider
+    # binaries, so it should hold nothing worth stealing.
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       # Pinned to a version that satisfies the strictest root: the eks root needs
       # >= 1.10 for the S3 backend's native locking.
       - uses: hashicorp/setup-terraform@v3

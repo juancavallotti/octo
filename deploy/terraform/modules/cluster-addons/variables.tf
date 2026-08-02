@@ -42,6 +42,12 @@ variable "dns01_cluster_issuer_name" {
   default     = "letsencrypt-dns"
 }
 
+variable "dns_managed_zone" {
+  type        = string
+  description = "Cloud DNS managed zone NAME (not its DNS name) that the DNS-01 solver writes challenge records into. Used twice, and both matter: cert-manager's service account is granted roles/dns.admin on this zone alone rather than project-wide, and the ClusterIssuer names the zone so the solver never has to list the project's zones to find it. Required when enable_dns01 is on."
+  default     = ""
+}
+
 variable "ingress_nginx_version" {
   type        = string
   description = "ingress-nginx chart version. Pinned so a cluster rebuild installs the controller that was tested, not whatever is newest."

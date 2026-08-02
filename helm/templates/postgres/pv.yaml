@@ -50,5 +50,5 @@ spec:
     name: {{ printf "data-%s-0" $name }}
   hostPath:
     path: {{ .Values.postgres.storage.hostPath | quote }}
-    type: DirectoryOrCreate
+    type: {{ .Values.postgres.storage.hostPathType | default "DirectoryOrCreate" }}
 {{- end }}

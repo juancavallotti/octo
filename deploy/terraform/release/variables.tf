@@ -147,6 +147,17 @@ variable "postgres_host_path" {
     CHANGING this on a release that already holds data is a data move, not a config
     change: the next apply points Postgres at the new path and the database comes up
     empty. Move the data first, with the workload stopped — see docs/deployment.md.
+
+    UPGRADING an install that predates the data disk: this default is new, and it
+    applies itself. A Cloud Build deploy runs without release/terraform.tfvars, so
+    the next automated deploy of an existing cluster silently becomes exactly the
+    data move described above. Before taking this version:
+
+      1. `task infra:apply` — creates and mounts the disk (nothing else moves).
+      2. Copy the data across per docs/deployment.md, workload stopped.
+
+    Not ready to do that yet? Pin `postgres_host_path = ""` in release/terraform.tfvars
+    AND in the Cloud Build substitutions, and keep the old behaviour until you are.
   EOT
   default     = "/mnt/octo-data/postgres"
 }

@@ -362,8 +362,15 @@ sudo k3s kubectl logs -n octo-dev deploy/octo-orchestrator
   ```bash
   gcloud compute ssh octo --zone us-west1-a
   sudo k3s kubectl scale statefulset/octo-postgres -n octo --replicas=0
+
+  # List first, and copy a NAMED directory. Every k3s re-bootstrap left one behind,
+  # so this glob routinely matches more than one — and `cp -a` over a glob would
+  # interleave several pgdata trees into one destination without erroring.
+  ls -dlt /var/lib/rancher/k3s/storage/pvc-*_octo_data-octo-postgres-0
+  SRC=/var/lib/rancher/k3s/storage/pvc-<uid>_octo_data-octo-postgres-0   # newest, unless you know otherwise
+
   sudo mkdir -p /mnt/octo-data/postgres
-  sudo cp -a /var/lib/rancher/k3s/storage/pvc-*_octo_data-octo-postgres-0/pgdata /mnt/octo-data/postgres/
+  sudo cp -a "$SRC/pgdata" /mnt/octo-data/postgres/
   # then set postgres_host_path and re-apply; scale back up happens automatically
   ```
 - **Re-pull a tag manually on the node:** `sudo octo-pull v0.1.2`.

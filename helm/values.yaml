@@ -238,6 +238,18 @@ postgres:
     # Leave empty on any managed cluster: hostPath is node-local (wrong the
     # moment there is more than one node) and GKE Autopilot rejects it outright.
     hostPath: ""
+    # PersistentVolume hostPath type, when hostPath is set.
+    #
+    # DirectoryOrCreate suits a laptop cluster, where the path is a bind mount
+    # that may not exist yet. It is the wrong choice wherever the path is meant
+    # to be a mount point on a separate disk: if that disk failed to mount,
+    # kubelet cheerfully creates the directory on the root filesystem instead
+    # and Postgres initialises an empty database there, with nothing to
+    # distinguish it from a healthy install until the disk is needed.
+    #
+    # Directory refuses to mount a path that does not exist, so the same failure
+    # surfaces as a Pending pod naming the missing path.
+    hostPathType: DirectoryOrCreate
   service:
     port: 5432
   resources: {}

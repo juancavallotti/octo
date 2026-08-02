@@ -19,8 +19,12 @@ data "aws_region" "current" {}
 # policy. Hand-writing it is the single most error-prone part of an EKS bootstrap:
 # a missing action shows up as an Ingress that is simply never reconciled.
 module "lb_controller_irsa" {
-  source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
-  version = "~> 5.44"
+  source = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
+  # Exact, not a range. .terraform.lock.hcl pins providers but says nothing about
+  # remote modules, so `~>` would let a later 5.x hand a different IAM policy
+  # document to a different machine — the one dependency here whose contents ARE
+  # the security boundary.
+  version = "5.60.0"
 
   role_name                              = "${var.cluster_name}-alb-controller"
   attach_load_balancer_controller_policy = true

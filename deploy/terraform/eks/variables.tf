@@ -43,8 +43,18 @@ variable "alb_wait" {
 
 variable "kubernetes_version" {
   type        = string
-  description = "EKS control-plane version."
-  default     = "1.31"
+  description = <<-EOT
+    EKS control-plane version. Keep this on a version in STANDARD support: once a
+    version reaches extended support the control plane costs $0.60/hour instead of
+    $0.10/hour — six times the figure this root's header quotes, for a cluster that
+    is otherwise identical.
+
+    Check before bumping, because the window moves:
+
+      aws eks describe-cluster-versions --query \
+        'clusterVersions[?versionStatus==`STANDARD_SUPPORT`].[clusterVersion,endOfStandardSupportDate]'
+  EOT
+  default     = "1.35"
 }
 
 variable "vpc_cidr" {

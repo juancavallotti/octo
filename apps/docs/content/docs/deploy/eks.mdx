@@ -57,6 +57,7 @@ cd deploy/terraform
 task eks:state:bucket BUCKET=<name>          # once
 cp backend-aws.hcl.example backend-aws.hcl   # once
 cp eks/terraform.tfvars.example eks/terraform.tfvars
+$EDITOR eks/terraform.tfvars                 # route53_zone_name, domain, apps_domain
 task eks:apply
 ```
 

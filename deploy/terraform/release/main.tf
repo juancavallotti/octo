@@ -173,8 +173,14 @@ module "octo" {
   apps_domain        = local.apps_domain_eff
   postgres_password  = random_password.postgres.result
   postgres_host_path = var.postgres_host_path
-  cluster_issuer     = var.cluster_issuer
-  wildcard_tls       = var.wildcard_tls
+  # The path is a mount point on the attached data disk, so kubelet must not
+  # invent it. If the disk failed to mount, the chart's DirectoryOrCreate default
+  # would put the database on the boot disk and nothing would say so until the
+  # next VM rebuild took it. Directory turns that into a Pending pod naming the
+  # missing path — see modules/base and infra/startup.sh.tftpl.
+  postgres_host_path_type = "Directory"
+  cluster_issuer          = var.cluster_issuer
+  wildcard_tls            = var.wildcard_tls
 
   # OIDC SSO. A local deploy supplies client id/secret via terraform.tfvars (which also
   # seeds oidc.json in the bucket); Cloud Build reads them back from there. The

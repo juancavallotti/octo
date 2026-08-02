@@ -18,9 +18,15 @@ http01:
 # DNS-01, solved by writing TXT records into Cloud DNS. The only ACME challenge
 # that can issue the *.{baseDomain} wildcard the per-integration ingresses share.
 # Credentials come from Workload Identity — modules/cluster-addons binds
-# cert-manager's ServiceAccount to a Google service account with roles/dns.admin.
+# cert-manager's ServiceAccount to a Google service account granted roles/dns.admin
+# on one managed zone.
 dns01:
   enabled: true
   name: letsencrypt-dns
   # GCP project holding the managed zone. Required when enabled.
   project: ""
+  # Cloud DNS managed zone NAME (not its DNS name). Naming it here is what makes
+  # the zone-scoped IAM binding sufficient: without it, cert-manager discovers the
+  # zone by listing every zone in the project, which is a project-level permission
+  # and would force the binding back up to the whole project.
+  hostedZoneName: ""
