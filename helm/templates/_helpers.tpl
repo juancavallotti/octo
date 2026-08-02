@@ -48,8 +48,15 @@
   ServiceAccount the deployed runtime pods run as. It grants the coordination.k8s.io
   leases RBAC the runtime's k8s services module needs for leader election.
 */}}
+{{- /* Through octo-common.serviceAccountName, not componentName, so an explicit
+       runtime.serviceAccount.name is honoured. The derived {fullname}-runtime is
+       only the fallback. Setting that name is exactly how an operator points
+       runtime pods at an account already bound to a GKE Workload Identity or an
+       EKS IRSA role; deriving it here regardless meant the ServiceAccount object
+       took the explicit name while the pods referenced the derived one, so the
+       identity silently did not apply. */ -}}
 {{- define "octo.runtime.serviceAccountName" -}}
-{{- include "octo-common.componentName" (dict "root" . "component" "runtime") }}
+{{- include "octo-common.serviceAccountName" (dict "root" . "component" "runtime") }}
 {{- end }}
 
 {{/*
@@ -172,11 +179,29 @@ password
   another Secret's contents, but the pod can.
 */}}
 {{- define "octo.database.env" -}}
-- name: OCTO_DB_PASSWORD
+{{- /*
+  The password is deliberately NOT in DATABASE_URL.
+
+  It used to be interpolated as $(OCTO_DB_PASSWORD), which kubelet expands with
+  the raw Secret value — unescaped, because kubelet does not know it is building
+  a URI. A password containing @ / : ? or # then changes how the DSN parses, and
+  an `@` in particular is read as the host separator, so the pod fails to connect
+  with an error naming a host nobody configured. The chart cannot escape its way
+  out of this either: with externalDatabase.existingSecret the value is not
+  knowable at template time, which is the whole point of an existing Secret.
+
+  So the password travels as PGPASSWORD instead. All three Go services connect
+  with pgx/v5, which honours the libpq environment variables as defaults for
+  anything the connection string omits — and no escaping rules apply to an
+  environment variable. PGPASSWORD is kept as the ONLY source, rather than a
+  fallback alongside the URI form, so there is one answer to where the password
+  comes from.
+*/ -}}
+- name: PGPASSWORD
   valueFrom:
     secretKeyRef:
       name: {{ include "octo.database.secretName" . }}
       key: {{ include "octo.database.passwordKey" . }}
 - name: DATABASE_URL
-  value: "postgres://{{ include "octo.database.user" . }}:$(OCTO_DB_PASSWORD)@{{ include "octo.database.host" . }}:{{ include "octo.database.port" . }}/{{ include "octo.database.name" . }}?sslmode={{ include "octo.database.sslmode" . }}"
+  value: "postgres://{{ include "octo.database.user" . | urlquery }}@{{ include "octo.database.host" . }}:{{ include "octo.database.port" . }}/{{ include "octo.database.name" . }}?sslmode={{ include "octo.database.sslmode" . }}"
 {{- end }}

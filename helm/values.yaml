@@ -316,7 +316,13 @@ ingress:
   # Editor host. Always gets its own certificate (see ingress.tls below),
   # independent of wildcardTLS — it does not need to be the same domain as
   # orchestrator.baseDomain.
-  host: octo.juancavallotti.com
+  #
+  # REQUIRED when ingress.enabled is true, and deliberately empty rather than
+  # defaulted: this chart is published to a public registry, and a default host
+  # is a domain somebody else owns. Installing without overriding it would mint
+  # an Ingress claiming that name — which on a shared ingress controller also
+  # takes routing for it.
+  host: ""
   # Additional hosts served by the same backend (aliases, apex + www).
   extraHosts: []
   path: /

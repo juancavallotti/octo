@@ -165,8 +165,10 @@ must be published before a deploy.
 
 - **Automated (recommended):** push a version tag — release-please publishes
   `vX.Y.Z`, and the Cloud Build trigger runs `cloudbuild.yaml`, building all
-  five images and both charts and pushing them tagged with the git tag and
-  `latest`. See [Releases and upgrades](/deploy/releases-and-upgrades).
+  five images and both charts. The images are pushed twice, under the git tag
+  and `latest`; the charts are pushed only under their own version, because an
+  OCI chart's tag *is* its version. See
+  [Releases and upgrades](/deploy/releases-and-upgrades).
 - **Manual:** with `IMAGE_BASE` from `terraform output image_base`:
 
 ```bash

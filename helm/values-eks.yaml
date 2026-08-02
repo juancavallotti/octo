@@ -91,9 +91,10 @@ postgres:
     storageClassName: gp3
     size: 50Gi
 
-# RDS instead of the StatefulSet above.
-# postgres:
-#   enabled: false
+# RDS instead of the StatefulSet above. NOTE the `postgres:` key already exists
+# earlier in this file — set `enabled: false` INSIDE that block rather than
+# pasting a second one, or YAML keeps only the last mapping and silently drops
+# the securityContext, resources and storage settings above.
 # externalDatabase:
 #   host: octo.abcdef.us-east-1.rds.amazonaws.com
 #   database: octo
@@ -130,8 +131,9 @@ ingress:
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
     alb.ingress.kubernetes.io/ssl-redirect: "443"
 
-# IRSA: bind the chart's ServiceAccounts to IAM roles.
-# orchestrator:
+# IRSA: bind the chart's ServiceAccounts to IAM roles. Nest this INSIDE the
+# existing `orchestrator:` block above — a second top-level `orchestrator:` would
+# silently discard its ingressClass and securityContext.
 #   serviceAccount:
 #     annotations:
 #       eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT:role/octo-orchestrator

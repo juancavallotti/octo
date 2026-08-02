@@ -53,8 +53,11 @@
       name: {{ include "octo.auth.secretName" . }}
       key: auth-secret
 # Callback/cookie URL behind the ingress (auth-code redirect target).
+# required, because the failure is otherwise invisible until someone tries to log
+# in: with no host this renders "https://", Auth.js builds callback URLs against
+# it, and the redirect dies at the identity provider rather than here.
 - name: AUTH_URL
-  value: "https://{{ .Values.ingress.host }}"
+  value: "https://{{ required "ingress.host is required when auth.oidc.enabled is true — it is the OIDC callback origin" .Values.ingress.host }}"
 - name: AUTH_TRUST_HOST
   value: "true"
 {{- with .Values.auth.writeRoles }}

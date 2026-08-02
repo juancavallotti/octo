@@ -83,7 +83,12 @@ RUN mkdir -p /app/.octo-run && chown -R node:node /app/.octo-run /tmp
 #
 # Nothing here needs privileges: the server binds 3000 (>1024), and the two Go
 # binaries it spawns are read+execute for everyone.
-USER node
+# Numeric, not `node`. With runAsNonRoot set, the kubelet must decide before
+# start whether the user is root, and it cannot resolve a username from the
+# image to do it — a named USER means the pod is rejected unless the chart also
+# sets runAsUser. 1000 is what node:22-alpine's `node` user already is, so this
+# is the same identity stated in a form Kubernetes can check on its own.
+USER 1000:1000
 
 EXPOSE 3000
 # server.js is the entrypoint emitted by Next.js standalone output.

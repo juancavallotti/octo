@@ -344,8 +344,12 @@ tasks:
         check() {
           name="$1"; shift
           printf '  %-18s ' "$name"
-          if ! helm lint helm "$@" >"$out" 2>&1; then echo "FAILED (lint)"; cat "$out"; return 1; fi
-          if ! helm template octo helm --namespace octo "$@" >"$out" 2>&1; then echo "FAILED (template)"; cat "$out"; return 1; fi
+          # ingress.host has no default and is required whenever an Ingress
+          # renders, so supply one here the way a real install must. Profiles
+          # that set their own land on the same value.
+          host="--set ingress.host=octo.example.com"
+          if ! helm lint helm $host "$@" >"$out" 2>&1; then echo "FAILED (lint)"; cat "$out"; return 1; fi
+          if ! helm template octo helm --namespace octo $host "$@" >"$out" 2>&1; then echo "FAILED (template)"; cat "$out"; return 1; fi
           if [ "$schema" = yes ]; then
             kubeconform -strict -ignore-missing-schemas -summary <"$out"
           else
