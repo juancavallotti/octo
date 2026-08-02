@@ -273,11 +273,6 @@ tasks:
         fi
       - echo "ℹ Postgres data preserved in ./data — run 'task cluster:db:reset' to wipe it"
 
-  # --- Publishing to Artifact Registry (for the GCP/k3s deployment) ---
-  # IMAGE_BASE is the repository path output by deploy/terraform/infra (image_base),
-  # e.g. us-central1-docker.pkg.dev/PROJECT/octo. The five images live under it
-  # (IMAGE_BASE/octo-platform-paas:TAG ...) and the OCI chart under IMAGE_BASE/octo.
-
   cluster:db:reset:
     desc: Delete the local Postgres data dir (./data) so the DB is recreated fresh on next deploy
     prompt: This permanently deletes ./data and all local Postgres data. Continue?
@@ -292,6 +287,11 @@ tasks:
         fi
       - rm -rf data
       - echo "✓ ./data removed; 'task cluster:deploy' will recreate Postgres and re-apply the schema fresh"
+
+  # --- Publishing to Artifact Registry (for the GCP/k3s deployment) ---
+  # IMAGE_BASE is the repository path output by deploy/terraform/infra (image_base),
+  # e.g. us-central1-docker.pkg.dev/PROJECT/octo. The five images live under it
+  # (IMAGE_BASE/octo-platform-paas:TAG ...) and the OCI chart under IMAGE_BASE/octo.
 
   images:push:
     desc: 'Build the five octo images and push them to Artifact Registry (set IMAGE_BASE and TAG; run `gcloud auth configure-docker <region>-docker.pkg.dev` first)'
@@ -578,6 +578,14 @@ tasks:
         done
         echo "✓ terraform fmt + validate clean"
 
+  infra:apply:
+    desc: 'Apply the one-time infra root: Artifact Registry + the k3s VM (with its Postgres data disk) + optional Cloud Build'
+    cmds:
+      # -backend-config supplies the state bucket, which a backend block cannot take
+      # from a variable. Variables come from infra/terraform.tfvars automatically.
+      - terraform -chdir=deploy/terraform/infra init -input=false -backend-config=../backend.hcl
+      - terraform -chdir=deploy/terraform/infra apply
+
   # --- Managed-cluster test roots (GKE Standard, GKE Autopilot, EKS) ---
   #
   # Each stands up a cluster, its prerequisite controllers, DNS and the octo chart
@@ -588,14 +596,6 @@ tasks:
   # Test the working tree rather than the last release's published images:
   #   task images:ttl TTL=12h
   #   task gke:standard:apply IMAGE_VALUES=dist/values.ttl.yaml
-
-  infra:apply:
-    desc: 'Apply the one-time infra root: Artifact Registry + the k3s VM (with its Postgres data disk) + optional Cloud Build'
-    cmds:
-      # -backend-config supplies the state bucket, which a backend block cannot take
-      # from a variable. Variables come from infra/terraform.tfvars automatically.
-      - terraform -chdir=deploy/terraform/infra init -input=false -backend-config=../backend.hcl
-      - terraform -chdir=deploy/terraform/infra apply
 
   gke:standard:apply:
     desc: 'Stand up a GKE Standard cluster and deploy octo onto it (optional IMAGE_VALUES)'
@@ -668,6 +668,47 @@ tasks:
         done
         echo "→ destroying the rest"
         terraform -chdir={{.ROOT}} destroy
+
+  eks:state:bucket:
+    desc: 'Create the S3 bucket backing the EKS Terraform state (run once; set BUCKET, optional REGION)'
+    requires:
+      vars: [BUCKET]
+    vars:
+      REGION: '{{.REGION | default "us-east-1"}}'
+    cmds:
+      # No DynamoDB table: the backend uses native S3 conditional-write locking
+      # (use_lockfile), so the bucket is the whole bootstrap. Versioning is the
+      # point — a corrupted state is recoverable from an earlier version.
+      - |
+        set -e
+        aws s3api create-bucket --bucket {{.BUCKET}} --region {{.REGION}} \
+          $([ "{{.REGION}}" = "us-east-1" ] || echo "--create-bucket-configuration LocationConstraint={{.REGION}}")
+        aws s3api put-bucket-versioning --bucket {{.BUCKET}} --versioning-configuration Status=Enabled
+        aws s3api put-public-access-block --bucket {{.BUCKET}} \
+          --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+        echo "✓ created s3://{{.BUCKET}} (versioned, private)"
+        echo "  now: cp deploy/terraform/backend-aws.hcl.example deploy/terraform/backend-aws.hcl"
+        echo "       and set bucket = \"{{.BUCKET}}\" / region = \"{{.REGION}}\""
+
+  eks:apply:
+    desc: 'Stand up an EKS cluster and deploy octo onto it (optional IMAGE_VALUES). Control plane is ~$73/mo — destroy when done.'
+    cmds:
+      - task: tf:apply
+        vars: { ROOT: eks, BACKEND: backend-aws.hcl, IMAGE_VALUES: '{{.IMAGE_VALUES}}' }
+
+  eks:destroy:
+    desc: 'Tear down the EKS cluster (phased, so the ALB is not orphaned into blocking the VPC delete)'
+    cmds:
+      - task: tf:destroy
+        vars: { ROOT: eks, BACKEND: backend-aws.hcl, PHASES: 'module.octo module.addons' }
+
+  eks:kubeconfig:
+    desc: 'Fetch kubectl credentials for the EKS test cluster'
+    cmds:
+      - |
+        set -e
+        cd deploy/terraform
+        eval "$(terraform -chdir=eks output -raw kubeconfig_command)"
 
   gke:kubeconfig:
     desc: 'Fetch kubectl credentials for a GKE test cluster (set ROOT=gke-standard|gke-autopilot)'
