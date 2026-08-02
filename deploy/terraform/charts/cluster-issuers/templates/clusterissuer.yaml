@@ -1,0 +1,35 @@
+{{- $email := required "acmeEmail is required" .Values.acmeEmail -}}
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: {{ .Values.http01.name | quote }}
+spec:
+  acme:
+    server: {{ .Values.server | quote }}
+    email: {{ $email | quote }}
+    privateKeySecretRef:
+      name: {{ printf "%s-account-key" .Values.http01.name | quote }}
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: {{ .Values.http01.ingressClass | quote }}
+{{- if .Values.dns01.enabled }}
+---
+# Wildcard certificates cannot be issued over HTTP-01 at all, which is the only
+# reason this second issuer exists. cert-manager reaches Cloud DNS through the
+# Workload Identity binding on its ServiceAccount, so there is no key Secret here.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: {{ .Values.dns01.name | quote }}
+spec:
+  acme:
+    server: {{ .Values.server | quote }}
+    email: {{ $email | quote }}
+    privateKeySecretRef:
+      name: {{ printf "%s-account-key" .Values.dns01.name | quote }}
+    solvers:
+      - dns01:
+          cloudDNS:
+            project: {{ required "dns01.project is required when dns01.enabled" .Values.dns01.project | quote }}
+{{- end }}
