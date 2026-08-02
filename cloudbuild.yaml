@@ -61,7 +61,11 @@ steps:
           done
         done
 
-  # Package + push the Helm chart (version comes from helm/Chart.yaml, not the git tag).
+  # Package + push both Helm charts (versions come from the Chart.yaml files, not
+  # the git tag). octo-common is the library chart every component's templates are
+  # built from; `helm package helm` vendors it inside the octo tarball, so an
+  # install needs nothing else, but it is published standalone too so it can be
+  # depended on directly.
   - id: push-helm-chart
     name: gcr.io/cloud-builders/gcloud
     entrypoint: bash
@@ -70,12 +74,22 @@ steps:
       - -c
       - |
         set -e
-        curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+        # Pinned. This used to pipe helm's get-helm-3 script straight from main,
+        # so the version it installed could change with no commit here — and how
+        # Helm treats a library chart vendored under charts/ is exactly what this
+        # step relies on. Keep in step with .github/workflows/validate.yml.
+        HELM_VERSION=v3.21.3
+        curl -fsSL "https://get.helm.sh/helm-$${HELM_VERSION}-linux-amd64.tar.gz" | tar -xz -C /tmp linux-amd64/helm
+        install -m 0755 /tmp/linux-amd64/helm /usr/local/bin/helm
+        helm version --short
         helm registry login -u oauth2accesstoken -p "$(gcloud auth print-access-token)" "${_REGION}-docker.pkg.dev"
         mkdir -p dist
+        LIB_VERSION="$(awk '/^version:/ {print $$2}' helm/charts/octo-common/Chart.yaml)"
+        APP_VERSION="$(awk '/^version:/ {print $$2}' helm/Chart.yaml)"
+        helm package helm/charts/octo-common -d dist
         helm package helm -d dist
-        VERSION="$(helm show chart helm | awk '/^version:/ {print $$2}')"
-        helm push "dist/octo-$${VERSION}.tgz" "oci://${_IMAGE_BASE}"
+        helm push "dist/octo-common-$${LIB_VERSION}.tgz" "oci://${_IMAGE_BASE}"
+        helm push "dist/octo-$${APP_VERSION}.tgz" "oci://${_IMAGE_BASE}"
 
   # Roll the cluster: apply the Terraform release root (Helm provider). Gated on
   # _DEPLOY so a build can publish without deploying. Runs after the images AND the
