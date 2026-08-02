@@ -53,6 +53,31 @@ jobs:
       - run: pnpm --filter platform test
       - run: pnpm --filter platform build
 
+  # The Helm chart targets clusters CI cannot spin up on demand — GKE Autopilot,
+  # EKS — so rendering every environment profile and validating the output
+  # against the real Kubernetes schemas is the automated gate. Without it, a
+  # change to the octo-common library that renders fine under the defaults could
+  # only be caught by deploying to the cluster it broke.
+  helm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Pinned, not floating. Chart packaging and template resolution are exactly
+      # the behaviour that must not change under us between runs — the chart
+      # vendors a library chart under charts/, and how Helm treats that is the
+      # thing being tested.
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.21.3
+      - name: Install kubeconform and Task
+        run: |
+          mkdir -p "$HOME/bin"
+          curl -fsSL https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz \
+            | tar -xz -C "$HOME/bin" kubeconform
+          sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b "$HOME/bin"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+      - run: task helm:test
+
   docs:
     runs-on: ubuntu-latest
     steps:

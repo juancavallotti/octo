@@ -316,6 +316,66 @@ tasks:
     cmds:
       - helm lint helm
 
+  helm:test:
+    desc: Lint and schema-validate the chart's rendered manifests across every environment profile
+    silent: true
+    cmds:
+      # The chart targets clusters this repo cannot spin up on a whim (GKE
+      # Autopilot, EKS), so rendering every profile and running the output
+      # through the real Kubernetes schemas is the automated gate. It catches
+      # the failure mode that matters for a library chart — a helper change that
+      # renders fine under the defaults and produces invalid YAML under a
+      # profile — without the churn of checked-in golden files.
+      - |
+        set -e
+        command -v helm >/dev/null 2>&1 || { echo "✖ helm is required (https://helm.sh/docs/intro/install/)" >&2; exit 1; }
+        if command -v kubeconform >/dev/null 2>&1; then
+          schema=yes
+        else
+          schema=no
+          echo "ℹ kubeconform not found — rendering only, without schema validation (brew install kubeconform)"
+        fi
+        out="$(mktemp)"
+        trap 'rm -f "$out"' EXIT
+        # -ignore-missing-schemas skips CRDs that are not in the upstream schema
+        # set (GKE's ManagedCertificate/BackendConfig/FrontendConfig); everything
+        # with a published schema is still checked, and -strict rejects unknown
+        # fields rather than waving them through.
+        check() {
+          name="$1"; shift
+          printf '  %-18s ' "$name"
+          if ! helm lint helm "$@" >"$out" 2>&1; then echo "FAILED (lint)"; cat "$out"; return 1; fi
+          if ! helm template octo helm --namespace octo "$@" >"$out" 2>&1; then echo "FAILED (template)"; cat "$out"; return 1; fi
+          if [ "$schema" = yes ]; then
+            kubeconform -strict -ignore-missing-schemas -summary <"$out"
+          else
+            echo "rendered ok"
+          fi
+        }
+        # The profiles as shipped. "defaults" is values.yaml alone — what an
+        # install straight from OCI gets with no -f at all.
+        check defaults
+        check k3d           -f helm/values-k3d.yaml
+        check kind          -f helm/values-kind.yaml
+        check gke-autopilot -f helm/values-gke-autopilot.yaml
+        check gke-standard  -f helm/values-gke-standard.yaml
+        check eks           -f helm/values-eks.yaml
+        # Paths no profile enables by default, which would otherwise only ever be
+        # rendered by hand — and so would break silently.
+        check gke-gce-ingress -f helm/values-gke-autopilot.yaml \
+          --set ingress.className=gce --set ingress.tls.mode=gke-managed-cert \
+          --set gke.backendConfig.enabled=true --set gke.frontendConfig.enabled=true
+        check external-db \
+          --set postgres.enabled=false --set externalDatabase.host=db.example.com \
+          --set externalDatabase.existingSecret=db-creds --set externalDatabase.existingSecretPasswordKey=password
+        check oidc \
+          --set auth.oidc.enabled=true --set auth.oidc.issuer=https://id.example.com \
+          --set auth.oidc.clientId=octo --set auth.oidc.clientSecret=shh --set auth.secret=shh
+        check wildcard-tls \
+          --set wildcardTLS.enabled=true --set wildcardTLS.clusterIssuer=letsencrypt-dns \
+          --set orchestrator.baseDomain=apps.example.com
+        echo "✓ chart lints and renders valid manifests for every profile"
+
   helm:package:
     desc: Lint and package the chart into dist/ (octo-<version>.tgz)
     cmds:
