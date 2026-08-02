@@ -158,14 +158,14 @@ The `release` root additionally takes `image_tag` (default `latest`) and
 `chart_version` (required, must match the published `helm/Chart.yaml`) — both
 supplied on the command line by `task deploy` or Cloud Build.
 
-## Publish images and the chart
+## Publish images and the charts
 
-The node and the Helm provider pull from Artifact Registry, so images and the
-chart must be published before a deploy.
+The node and the Helm provider pull from Artifact Registry, so images and charts
+must be published before a deploy.
 
 - **Automated (recommended):** push a version tag — release-please publishes
   `vX.Y.Z`, and the Cloud Build trigger runs `cloudbuild.yaml`, building all
-  five images and the chart and pushing them tagged with both the git tag and
+  five images and both charts and pushing them tagged with the git tag and
   `latest`. See [Releases and upgrades](/deploy/releases-and-upgrades).
 - **Manual:** with `IMAGE_BASE` from `terraform output image_base`:
 
@@ -175,6 +175,9 @@ helm registry login us-west1-docker.pkg.dev -u oauth2accesstoken -p "$(gcloud au
 task images:push IMAGE_BASE=$IMAGE_BASE TAG=v0.1.1
 task helm:push   IMAGE_BASE=$IMAGE_BASE
 ```
+
+`helm:push` publishes both the `octo` application chart and the `octo-common`
+library chart it is built from.
 
 ## Deploy and roll upgrades
 
@@ -201,6 +204,40 @@ root. Each apply:
 A changed `image_tag` rewrites the pod templates, so the Deployments roll
 automatically; Postgres is untouched when only the tag moves. The first TLS
 issuance takes a minute after the DNS A record resolves.
+
+### Images are pinned by digest on the Cloud Build path
+
+Cloud Build reads back the digest of every image it pushed and renders
+`dist/values.images.yaml` pinning them, then passes it to the `release` root as
+`image_values_file`. The release then runs exactly what that build produced,
+rather than whatever the tag resolves to at apply time — and `image_tag` is not
+passed to the chart at all when digests are supplied, so there is only ever one
+source of truth for what is running. The file is archived to
+`gs://octo-tfstate-PROJECT/release/values.images-TAG.yaml` beside the release.
+
+A manual `task deploy TAG=…` leaves `image_values_file` empty and identifies
+images by tag, which is fine because it also pre-pulls that tag onto the node.
+To pin a manual deploy too, render the file yourself:
+
+```bash
+task helm:values:images IMAGE_BASE=$IMAGE_BASE TAG=v0.1.1
+terraform -chdir=deploy/terraform/release apply \
+  -var image_values_file=$PWD/dist/values.images.yaml ...
+```
+
+### Database durability
+
+The VM's Postgres volume is provisioned by k3s's `local-path` provisioner,
+whose per-claim directory is named after the claim's UID. Re-bootstrapping the
+VM reinstalls k3s and therefore mints a new UID, bringing the database back
+empty with the old data stranded on disk. Set `postgres_host_path` (e.g.
+`/var/lib/octo-data`) to pin it to a fixed path instead.
+
+On a release that already holds data this is a **data move, not a config
+change** — copy the directory across with the StatefulSet scaled to zero first,
+or the database comes up empty. See `docs/deployment.md` for the procedure.
+Either way the data sits on the boot disk and does not survive the VM being
+destroyed; an attached data disk mounted at the pinned path does.
 
 ## Integration endpoints
 

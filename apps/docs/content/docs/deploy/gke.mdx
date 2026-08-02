@@ -1,0 +1,170 @@
+---
+title: "GKE"
+description: "Deploy the Octo chart on GKE Autopilot or Standard, with Cloud SQL and Workload Identity."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { DynamicCodeBlock } from 'fumadocs-ui/components/dynamic-codeblock';
+import { OCTO_VERSION } from '@/lib/version';
+
+The chart ships two GKE profiles: `values-gke-autopilot.yaml` and
+`values-gke-standard.yaml`. They describe the same deployment; they differ only
+where Autopilot's managed nodes impose constraints that Standard does not.
+
+## Get the profile
+
+Both are shipped inside the published chart, so no checkout is needed:
+
+<DynamicCodeBlock lang="bash" code={`helm pull oci://ghcr.io/juancavallotti/charts/octo --version ${OCTO_VERSION} --untar
+ls octo/values-gke-*.yaml
+# octo/values-gke-autopilot.yaml  octo/values-gke-standard.yaml`} />
+
+Or fetch one directly:
+
+```bash
+curl -O https://raw.githubusercontent.com/juancavallotti/octo/main/helm/values-gke-autopilot.yaml
+curl -O https://raw.githubusercontent.com/juancavallotti/octo/main/helm/values-gke-standard.yaml
+```
+
+Browsable on GitHub:
+[`helm/values-gke-autopilot.yaml`](https://github.com/juancavallotti/octo/blob/main/helm/values-gke-autopilot.yaml)
+·
+[`helm/values-gke-standard.yaml`](https://github.com/juancavallotti/octo/blob/main/helm/values-gke-standard.yaml).
+Every value is commented with why it is set that way — worth reading before you
+change one.
+
+## Install
+
+<DynamicCodeBlock lang="bash" code={`helm upgrade --install octo oci://ghcr.io/juancavallotti/charts/octo \\
+  --version ${OCTO_VERSION} -n octo --create-namespace \\
+  -f values-gke-autopilot.yaml \\
+  --set ingress.host=octo.example.com \\
+  --set postgres.auth.password=<strong-password>`} />
+
+Pull the profile at the same version as the chart: it pins per-component
+`runAsUser` values matching the UIDs that release's images run as.
+
+<Callout type="warn">
+  These profiles are validated by rendering and schema-checking them in CI, and
+  by review against each platform's documented requirements. They have not been
+  run on a live GKE cluster. Treat the first install as a shakedown.
+</Callout>
+
+## Prerequisites
+
+None of these are installed by the chart:
+
+| Requirement | Why |
+|---|---|
+| An ingress controller — **ingress-nginx** is what the profiles assume | The chart creates an Ingress; nothing serves it otherwise |
+| **cert-manager** plus the ClusterIssuer named in `ingress.tls.clusterIssuer` | TLS for the editor host |
+| A DNS A record for `ingress.host` pointing at the controller's address | – |
+
+Add a wildcard record for `*.{orchestrator.baseDomain}` if you want
+per-integration external endpoints.
+
+### Why ingress-nginx rather than GCE ingress
+
+The orchestrator creates an Ingress per externally-exposed integration, at
+runtime, in Go. GCE ingress requires a `cloud.google.com/neg` annotation on each
+backend **Service** — which the orchestrator does not set — and a
+Google-managed certificate is a separate CRD it cannot emit. ingress-nginx works
+with the ClusterIP Services it does create, unchanged.
+
+You can still put the *editor* behind GCE ingress while integrations use nginx:
+
+```yaml
+ingress:
+  className: gce
+  tls:
+    mode: gke-managed-cert     # the chart creates the ManagedCertificate
+orchestrator:
+  ingressClass: nginx          # leave per-integration endpoints on nginx
+```
+
+In that configuration you will likely also want `gke.backendConfig.enabled` (the
+GCE load balancer health-checks `/` by default and marks a backend unhealthy if
+the app answers otherwise) and `gke.frontendConfig.enabled` for an HTTP→HTTPS
+redirect. Both need GKE-only CRDs, so both stay off unless you enable them.
+
+## Autopilot's constraints
+
+Autopilot manages nodes for you, and three consequences shape the profile:
+
+- **Every pod is billed on its resource requests**, and Autopilot injects
+  defaults when they are absent. The profile sets them explicitly, with limits
+  equal to requests — the Guaranteed QoS class, and a predictable bill.
+- **`hostPath` and `hostPort` are rejected outright.** Nothing in the chart uses
+  them by default; in particular leave `postgres.storage.hostPath` empty, as it
+  is a single-node-cluster knob.
+- **Pods can take noticeably longer to start**, because Autopilot may provision
+  a node first. The profile allows a generous startup probe (30 × 10s) so a slow
+  first boot is not killed before it is ever ready.
+
+`values-gke-standard.yaml` relaxes all three: requests without limits so pods can
+burst into spare node capacity, no startup-probe allowance, and `nodeSelector` /
+`tolerations` available if you run a dedicated pool. It also spreads the editor
+across zones so a zonal outage does not take it down.
+
+## Security context
+
+Every container runs unprivileged: `runAsNonRoot`, `allowPrivilegeEscalation:
+false`, all capabilities dropped, and `seccompProfile: RuntimeDefault`. Because
+each image runs as a different UID, `runAsUser` is set per component — see
+[image and chart compatibility](/deploy/helm#image-and-chart-compatibility) for
+the table.
+
+The Go services (orchestrator, logs) additionally get
+`readOnlyRootFilesystem: true`; they write nothing to disk. The editor does not,
+because Next.js needs writable scratch space.
+
+## Storage
+
+| | Autopilot | Standard |
+|---|---|---|
+| `storageClassName` | `standard-rwo` (pd-balanced) | `premium-rwo` (pd-ssd) |
+| Size | `20Gi` | `50Gi` |
+
+Persistent disks are zonal, so the Postgres pod is pinned to its volume's zone.
+That is one of the reasons to prefer Cloud SQL for anything you care about.
+
+### Cloud SQL
+
+```yaml
+postgres:
+  enabled: false
+externalDatabase:
+  host: 10.20.30.40          # private IP, or a Cloud SQL Auth proxy
+  database: octo
+  user: octo
+  sslmode: require
+  existingSecret: cloudsql-octo
+  existingSecretPasswordKey: password
+```
+
+`postgres.enabled: false` skips the StatefulSet, its Service and its Secret; the
+schema Job points at the external host instead. Keep the password in a Secret
+owned by Terraform or external-secrets rather than in a values file — values
+persist in Helm release history.
+
+## Workload Identity
+
+Bind the chart's ServiceAccounts to Google service accounts through annotations:
+
+```yaml
+orchestrator:
+  serviceAccount:
+    annotations:
+      iam.gke.io/gcp-service-account: octo-orchestrator@PROJECT.iam.gserviceaccount.com
+```
+
+The orchestrator and runtime ServiceAccounts are the two the chart creates and
+the two that can need cloud credentials.
+
+## A note on the GCP reference deployment
+
+This page is about installing the chart on a GKE cluster you own. It is not the
+same thing as the [GCP reference deployment](/deploy/gcp-terraform), which
+provisions a single-VM k3s cluster with Terraform and drives releases through
+Cloud Build. That path is more opinionated and more automated; this one assumes
+you already have a cluster and want the platform on it.

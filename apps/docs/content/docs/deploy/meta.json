@@ -4,6 +4,8 @@
     "self-hosted",
     "helm",
     "local-k3d",
+    "gke",
+    "eks",
     "gcp-terraform",
     "docker-images",
     "releases-and-upgrades"

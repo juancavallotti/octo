@@ -53,12 +53,12 @@ terraform -chdir=infra output      # static_ip, url, kube_api_endpoint
 task infra:apply
 ```
 
-## Publish images + chart
+## Publish images + charts
 
 - **Automated:** push a version tag (release-please publishes `vX.Y.Z`) — the Cloud
-  Build trigger builds all five images and the chart, pushes them to Artifact Registry,
-  and (with `_DEPLOY=true`, the default when `cloudbuild_auto_deploy` is on) rolls the
-  cluster.
+  Build trigger builds all five images and both charts, pushes them to Artifact Registry,
+  renders a digest-pinned `dist/values.images.yaml`, and (with `_DEPLOY=true`, the
+  default when `cloudbuild_auto_deploy` is on) rolls the cluster.
 - **Manual:** from the repo root, with `IMAGE_BASE` = `<region>-docker.pkg.dev/<project>/octo`:
   ```sh
   gcloud auth configure-docker us-west1-docker.pkg.dev
@@ -81,6 +81,18 @@ Each apply pulls the target tag onto the node (fresh token, via `octo-pull` over
 then installs/upgrades the chart. Bumping the tag rewrites the pod templates, so the
 Deployments roll automatically; Postgres is untouched when only the tag moves. First TLS
 issuance takes a minute after DNS resolves.
+
+**Digest pinning.** Cloud Build passes `-var image_values_file=…` naming the exact digest
+of every image it pushed, so the release runs what that build produced rather than
+whatever the tag resolves to later; `image_tag` is then not passed to the chart at all.
+A manual `task deploy` leaves it empty and goes by tag. Render one locally with
+`task helm:values:images IMAGE_BASE=… TAG=…`.
+
+**Database durability.** The volume is provisioned by k3s's `local-path` provisioner,
+whose directory is named after the claim's UID — so re-bootstrapping the VM (which
+reinstalls k3s) brings the database back empty with the old data stranded on disk. Set
+`postgres_host_path` to pin it to a fixed path. On a release that already holds data
+that is a data move, not a config change: see `docs/deployment.md`.
 
 **OIDC + Cloud Build:** `octo.tfvars` is gitignored, so the Cloud Build deploy step never
 sees it — it passes the non-secret config via `-var` from substitutions and reads the OIDC

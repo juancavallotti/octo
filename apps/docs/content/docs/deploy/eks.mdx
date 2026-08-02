@@ -1,0 +1,160 @@
+---
+title: "AWS EKS"
+description: "Deploy the Octo chart on EKS, with the AWS Load Balancer Controller, ACM, IRSA and RDS."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { DynamicCodeBlock } from 'fumadocs-ui/components/dynamic-codeblock';
+import { OCTO_VERSION } from '@/lib/version';
+
+`values-eks.yaml` targets EKS fronted by the AWS Load Balancer Controller, with
+TLS terminated at an ALB against an ACM certificate.
+
+## Get the profile
+
+It ships inside the published chart, so no checkout is needed:
+
+<DynamicCodeBlock lang="bash" code={`helm pull oci://ghcr.io/juancavallotti/charts/octo --version ${OCTO_VERSION} --untar
+ls octo/values-eks.yaml`} />
+
+Or fetch it directly:
+
+```bash
+curl -O https://raw.githubusercontent.com/juancavallotti/octo/main/helm/values-eks.yaml
+```
+
+Browsable on GitHub:
+[`helm/values-eks.yaml`](https://github.com/juancavallotti/octo/blob/main/helm/values-eks.yaml).
+Every value is commented with why it is set that way — worth reading before you
+change one.
+
+## Install
+
+<DynamicCodeBlock lang="bash" code={`helm upgrade --install octo oci://ghcr.io/juancavallotti/charts/octo \\
+  --version ${OCTO_VERSION} -n octo --create-namespace \\
+  -f values-eks.yaml \\
+  --set ingress.host=octo.example.com \\
+  --set ingress.tls.certificateArn=arn:aws:acm:REGION:ACCOUNT:certificate/ID \\
+  --set postgres.auth.password=<strong-password>`} />
+
+Pull the profile at the same version as the chart: it pins per-component
+`runAsUser` values matching the UIDs that release's images run as.
+
+<Callout type="warn">
+  This profile is validated by rendering and schema-checking it in CI, and by
+  review against the AWS Load Balancer Controller's documented annotations. It
+  has not been run on a live EKS cluster. Treat the first install as a shakedown.
+</Callout>
+
+## Prerequisites
+
+None of these are installed by the chart:
+
+| Requirement | Why |
+|---|---|
+| **AWS Load Balancer Controller** | Provides the `alb` IngressClass |
+| **EBS CSI driver** | Backs the `gp3` StorageClass for the Postgres volume |
+| An **ACM certificate** covering `ingress.host` | TLS at the ALB |
+| A DNS record for `ingress.host` pointing at the ALB | – |
+
+If you enable per-integration external endpoints, the certificate must also
+cover `*.{orchestrator.baseDomain}`, with a matching wildcard DNS record.
+
+## TLS: ACM, not cert-manager
+
+TLS terminates at the ALB, so there is no cert-manager and no ClusterIssuer on
+this path. `ingress.tls.mode: acm` is what selects that: the Ingress carries a
+`certificate-arn` annotation instead of a `tls` block.
+
+```yaml
+ingress:
+  tls:
+    enabled: true
+    mode: acm
+    certificateArn: arn:aws:acm:REGION:ACCOUNT:certificate/ID
+```
+
+## ALB annotations
+
+Two settings in the profile carry most of the weight:
+
+```yaml
+ingress:
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/group.name: octo
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+```
+
+- **`target-type: ip`** sends traffic straight to pod IPs. That is what makes the
+  ClusterIP Services this chart creates work behind an ALB — the default
+  `instance` mode would require NodePorts.
+- **`group.name`** lets the editor Ingress and every per-integration Ingress the
+  orchestrator generates share **one** ALB, rather than provisioning — and
+  billing — one each. This matters more than it looks: without it, every
+  integration you expose externally creates its own load balancer.
+
+The same annotations are repeated under `orchestrator.ingressAnnotations`, since
+those are stamped onto the Ingresses the orchestrator creates at runtime rather
+than rendered by the chart. Add the certificate ARN there too if you expose
+integrations externally.
+
+## Storage
+
+```yaml
+postgres:
+  storage:
+    storageClassName: gp3
+    size: 50Gi
+```
+
+`gp3` requires the EBS CSI driver. EBS volumes are zonal, so the Postgres pod is
+pinned to its volume's availability zone — another reason to prefer RDS for real
+workloads.
+
+### RDS
+
+```yaml
+postgres:
+  enabled: false
+externalDatabase:
+  host: octo.abcdef.us-east-1.rds.amazonaws.com
+  database: octo
+  user: octo
+  sslmode: require
+  existingSecret: rds-octo
+  existingSecretPasswordKey: password
+```
+
+`postgres.enabled: false` skips the StatefulSet, its Service and its Secret; the
+schema Job points at RDS instead. Keep the credential in a Secret owned by
+Terraform or external-secrets rather than in a values file — values persist in
+Helm release history.
+
+## IRSA
+
+Bind the chart's ServiceAccounts to IAM roles through annotations:
+
+```yaml
+orchestrator:
+  serviceAccount:
+    annotations:
+      eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT:role/octo-orchestrator
+```
+
+The orchestrator and runtime ServiceAccounts are the two the chart creates and
+the two that can need AWS credentials.
+
+## Security context
+
+Every container runs unprivileged: `runAsNonRoot`, `allowPrivilegeEscalation:
+false`, all capabilities dropped, `seccompProfile: RuntimeDefault`, and
+`readOnlyRootFilesystem` on the Go services. `runAsUser` is set per component
+because each image runs as a different UID — see
+[image and chart compatibility](/deploy/helm#image-and-chart-compatibility).
+
+Unlike the Autopilot profile, resource **limits** are not set: EKS bills nodes,
+not pods, so requests alone are enough and leaving limits off lets pods burst
+into spare capacity.
