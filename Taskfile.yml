@@ -311,6 +311,62 @@ tasks:
       - docker push {{.IMAGE_BASE}}/octo-schema-paas:{{.TAG}}
       - docker push {{.IMAGE_BASE}}/octo-runtime-paas:{{.TAG}}
 
+  images:ttl:
+    desc: 'Build the five octo images from the working tree and push them to ttl.sh for cluster testing (optional PREFIX, TTL)'
+    vars:
+      # ttl.sh's tag IS the image's lifetime, and 24h is its maximum.
+      TTL: '{{.TTL | default "12h"}}'
+      PREFIX: '{{.PREFIX | default ""}}'
+    cmds:
+      # For testing a cluster against the CURRENT working tree. The published
+      # images track releases, so any chart change made since the last one has no
+      # matching image to run against; ttl.sh is an anonymous, unauthenticated
+      # registry that expires what you push, which is exactly the shape of a test
+      # deploy. Nothing here needs a login, a repository to be created, or cleanup.
+      #
+      # Feed the result to the release roots with -var image_values_file=...
+      # (task gke:standard:apply IMAGE_VALUES=dist/values.ttl.yaml).
+      - |
+        set -e
+        PREFIX="{{.PREFIX}}"
+        # ttl.sh is one shared public namespace: whoever pushes a name last owns it.
+        # A random path segment is what keeps a test run from colliding with (or
+        # being clobbered by) a stranger's.
+        [ -n "$PREFIX" ] || PREFIX="octo-$(openssl rand -hex 6)"
+        REGISTRY="ttl.sh/$PREFIX"
+        TAG="{{.TTL}}"
+
+        # --platform linux/amd64 is not optional: a plain `docker build` on Apple
+        # Silicon produces arm64 images, and every pod on a GKE/EKS node then
+        # CrashLoops with "exec format error". buildx pushes straight to the
+        # registry, so nothing is loaded into the local daemon.
+        build() {
+          echo "→ $REGISTRY/$1:$TAG"
+          docker buildx build --platform linux/amd64 --push \
+            -t "$REGISTRY/$1:$TAG" -f "$2" $4 "$3"
+        }
+        build octo-platform-paas     apps/platform/Dockerfile .           ""
+        build octo-orchestrator-paas orchestrator/Dockerfile  ./orchestrator ""
+        build octo-logs-paas         logs/Dockerfile          ./logs      ""
+        build octo-schema-paas       sql/Dockerfile           ./sql       ""
+        # The k8s build tag is what makes the runtime talk to the orchestrator.
+        build octo-runtime-paas      runtime/Dockerfile       .           "--build-arg GOTAGS=k8s"
+
+        mkdir -p dist
+        {
+          echo "# Rendered by 'task images:ttl TTL=$TAG' — do not edit."
+          echo "# Ephemeral images: ttl.sh deletes them $TAG after the push above."
+          echo "image:"
+          echo "  registry: $REGISTRY"
+          echo "  tag: \"$TAG\""
+          # The tag is a lifetime, not a version, so it gets reused across runs.
+          # IfNotPresent would silently keep running whatever a node cached first.
+          echo "  pullPolicy: Always"
+        } > dist/values.ttl.yaml
+        echo
+        echo "✓ wrote dist/values.ttl.yaml  (registry $REGISTRY, expires in $TAG)"
+        echo "  task gke:standard:apply IMAGE_VALUES=dist/values.ttl.yaml"
+
   helm:lint:
     desc: Lint the octo Helm chart
     cmds:
