@@ -6,7 +6,7 @@ description: >-
   TLS for the editor.
 type: application
 version: 0.6.4
-appVersion: 0.2.0
+appVersion: 0.6.4
 dependencies:
   - name: octo-common
     version: 0.6.4

@@ -6,8 +6,8 @@
         "root" $
         "component" "logs"
         "name" "logs"
-        "image" (include "octo-common.image" (dict "root" $ "repo" .Values.logs.repository))
-        "pullPolicy" .Values.image.pullPolicy
+        "image" (include "octo-common.image" (dict "root" $ "component" "logs"))
+        "pullPolicy" (include "octo-common.imagePullPolicy" (dict "root" $ "component" "logs"))
         "ports" (list (dict "containerPort" .Values.logs.service.port))
         "env" (include "octo.logs.env" .)
         "readinessProbe" (dict

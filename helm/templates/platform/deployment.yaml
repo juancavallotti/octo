@@ -6,8 +6,8 @@
         "root" $
         "component" "platform"
         "name" "platform"
-        "image" (include "octo-common.image" (dict "root" $ "repo" .Values.platform.repository))
-        "pullPolicy" .Values.image.pullPolicy
+        "image" (include "octo-common.image" (dict "root" $ "component" "platform"))
+        "pullPolicy" (include "octo-common.imagePullPolicy" (dict "root" $ "component" "platform"))
         "ports" (list (dict "containerPort" .Values.platform.service.port))
         "env" (include "octo.platform.env" .)
         "readinessProbe" (dict

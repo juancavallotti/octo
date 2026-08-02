@@ -13,8 +13,8 @@
         "root" $
         "component" "nats"
         "name" "nats"
-        "image" (printf "%s:%s" .Values.nats.image.repository .Values.nats.image.tag)
-        "pullPolicy" .Values.nats.image.pullPolicy
+        "image" (include "octo-common.image" (dict "root" $ "component" "nats" "thirdParty" true))
+        "pullPolicy" (include "octo-common.imagePullPolicy" (dict "root" $ "component" "nats"))
         "args" (list "-m" "8222")
         "ports" (list
           (dict "name" "client" "containerPort" 4222)
@@ -22,6 +22,5 @@
         "readinessProbe" (dict
           "httpGet" (dict "path" "/healthz" "port" 8222)
           "initialDelaySeconds" 3
-          "periodSeconds" 10)
-        "resources" .Values.nats.resources))) }}
+          "periodSeconds" 10)))) }}
 {{- end }}

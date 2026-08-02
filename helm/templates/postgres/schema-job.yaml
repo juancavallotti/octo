@@ -31,13 +31,15 @@ spec:
               "root" $
               "component" "schema"
               "name" "wait-for-postgres"
-              "image" (printf "%s:%s" .Values.postgres.image.repository .Values.postgres.image.tag)
+              "image" (include "octo-common.image" (dict "root" $ "component" "postgres" "thirdParty" true))
               "env" (toYaml $pgPassword)
               "command" (list "sh" "-c" (printf "until pg_isready %s; do\n  echo \"waiting for postgres...\"\n  sleep 2\ndone\n" $psqlArgs))))
             "containers" (include "octo-common.container" (dict
+              "root" $
+              "component" "schema"
               "name" "apply-schema"
-              "image" (include "octo-common.image" (dict "root" $ "repo" .Values.schema.repository))
-              "pullPolicy" .Values.image.pullPolicy
+              "image" (include "octo-common.image" (dict "root" $ "component" "schema"))
+              "pullPolicy" (include "octo-common.imagePullPolicy" (dict "root" $ "component" "schema"))
               "env" (toYaml $pgPassword)
               "command" (list "sh" "-c" (printf "psql %s -v ON_ERROR_STOP=1 -f /schema/schema.sql" $psqlArgs)))))
           | nindent 6 }}

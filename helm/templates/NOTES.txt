@@ -17,9 +17,9 @@ Ingress is disabled. Reach the editor by port-forwarding:
 {{- end }}
 
 Components:
-  platform      {{ include "octo-common.image" (dict "root" $ "repo" .Values.platform.repository) }}
-  orchestrator  {{ include "octo-common.image" (dict "root" $ "repo" .Values.orchestrator.repository) }}
-  runtime       {{ include "octo-common.image" (dict "root" $ "repo" .Values.runtime.repository) }}  (deployed per integration)
+  platform      {{ include "octo-common.image" (dict "root" $ "component" "platform") }}
+  orchestrator  {{ include "octo-common.image" (dict "root" $ "component" "orchestrator") }}
+  runtime       {{ include "octo-common.image" (dict "root" $ "component" "runtime") }}  (deployed per integration)
 
 Check status:
   kubectl -n {{ .Release.Namespace }} get pods

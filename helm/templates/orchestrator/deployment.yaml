@@ -7,8 +7,8 @@
         "root" $
         "component" "orchestrator"
         "name" "orchestrator"
-        "image" (include "octo-common.image" (dict "root" $ "repo" .Values.orchestrator.repository))
-        "pullPolicy" .Values.image.pullPolicy
+        "image" (include "octo-common.image" (dict "root" $ "component" "orchestrator"))
+        "pullPolicy" (include "octo-common.imagePullPolicy" (dict "root" $ "component" "orchestrator"))
         "ports" (list (dict "containerPort" .Values.orchestrator.service.port))
         "env" (include "octo.orchestrator.env" .)
         "readinessProbe" (dict

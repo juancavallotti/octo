@@ -6,7 +6,7 @@
 - name: KUBE_NAMESPACE
   value: {{ .Release.Namespace | quote }}
 - name: RUNTIME_IMAGE
-  value: {{ include "octo-common.image" (dict "root" . "repo" .Values.runtime.repository) | quote }}
+  value: {{ include "octo-common.image" (dict "root" . "component" "runtime") | quote }}
 # Runtime-services env the orchestrator injects into every deployed runtime
 # pod: the backend module, the in-cluster KV URL (this orchestrator), and the
 # ServiceAccount granting leases RBAC. ORCHESTRATOR_URL being set is what

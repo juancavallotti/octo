@@ -7,14 +7,13 @@
         "root" $
         "component" "postgres"
         "name" "postgres"
-        "image" (printf "%s:%s" .Values.postgres.image.repository .Values.postgres.image.tag)
-        "pullPolicy" .Values.postgres.image.pullPolicy
+        "image" (include "octo-common.image" (dict "root" $ "component" "postgres" "thirdParty" true))
+        "pullPolicy" (include "octo-common.imagePullPolicy" (dict "root" $ "component" "postgres"))
         "ports" (list (dict "name" "postgres" "containerPort" 5432))
         "env" (include "octo.postgres.env" .)
         "readinessProbe" (dict
           "exec" (dict "command" (list "pg_isready" "-U" .Values.postgres.auth.username "-d" .Values.postgres.auth.database))
           "initialDelaySeconds" 5
           "periodSeconds" 5)
-        "volumeMounts" (list (dict "name" "data" "mountPath" "/var/lib/postgresql/data"))
-        "resources" .Values.postgres.resources))
+        "volumeMounts" (list (dict "name" "data" "mountPath" "/var/lib/postgresql/data"))))
       "volumeClaimTemplates" (include "octo.postgres.volumeClaimTemplates" .)) }}
