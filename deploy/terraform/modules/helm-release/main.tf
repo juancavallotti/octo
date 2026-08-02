@@ -61,6 +61,17 @@ resource "helm_release" "octo" {
     value = var.postgres_password
   }
 
+  # Pin the database to a fixed node path instead of a dynamically provisioned
+  # volume. Off by default because switching an existing release is a data move,
+  # not a config change — see the variable's description.
+  dynamic "set" {
+    for_each = var.postgres_host_path != "" ? toset(["postgres.storage.hostPath"]) : toset([])
+    content {
+      name  = set.value
+      value = var.postgres_host_path
+    }
+  }
+
   # Editor ingress + TLS.
   set {
     name  = "ingress.enabled"

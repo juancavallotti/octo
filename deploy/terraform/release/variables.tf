@@ -140,3 +140,19 @@ variable "values_files" {
   description = "Extra chart values files to layer in, lowest precedence first. Empty by default: the single-node k3s VM this root targets is what the chart's own defaults describe, so no profile is needed."
   default     = []
 }
+
+variable "postgres_host_path" {
+  type        = string
+  description = <<-EOT
+    Node path to pin the bundled Postgres to on the k3s VM, e.g. /var/lib/octo-data.
+    Empty (the default) leaves the volume dynamically provisioned by k3s's local-path
+    provisioner, whose per-claim directory name changes whenever the claim does — so a
+    re-bootstrap of the VM (`rm /opt/octo/.provisioned && reboot`, which reinstalls k3s)
+    brings the database back empty with the old data stranded on disk.
+
+    Setting this on a release that already holds data requires moving that data first;
+    see docs/deployment.md. Both paths live on the boot disk, so neither survives the
+    VM being destroyed — that needs an attached data disk mounted at the chosen path.
+  EOT
+  default     = ""
+}

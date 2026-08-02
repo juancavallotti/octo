@@ -318,9 +318,38 @@ sudo k3s kubectl logs -n octo-dev deploy/octo-orchestrator
 
 - **Re-bootstrap the VM:** the startup script is guarded by `/opt/octo/.provisioned`.
   To re-run it: `sudo rm /opt/octo/.provisioned && sudo reboot`.
-- **Postgres data** lives on the boot disk (k3s `local-path`); it survives reboots
-  but is destroyed if the VM is destroyed. The password is generated and held in the
+- **Postgres data** lives on the boot disk. It survives reboots, and nothing in the
+  chart deletes it — the StatefulSet sets `persistentVolumeClaimRetentionPolicy:
+  Retain`, so neither `helm uninstall` nor scaling to zero removes the claim. It is
+  destroyed if the VM is destroyed. The password is generated and held in the
   `release` Terraform state (the GCS bucket) — `terraform output` it if you need it.
+
+  By default the volume is provisioned by k3s's `local-path` provisioner, which
+  names each volume's directory after the claim's UID
+  (`/var/lib/rancher/k3s/storage/pvc-<uid>_octo_data-octo-postgres-0`). **A
+  re-bootstrap reinstalls k3s and therefore mints a new UID**, so the database comes
+  back empty with the old directory still sitting on disk. Set
+  `postgres_host_path` to pin it to a fixed path instead:
+
+  ```hcl
+  # octo.tfvars
+  postgres_host_path = "/var/lib/octo-data"
+  ```
+
+  On an existing release this is a **data move, not a config change** — the next
+  apply points Postgres at the new path, and if it is empty so is the database.
+  Migrate with the workload stopped:
+
+  ```bash
+  gcloud compute ssh octo --zone us-west1-a
+  sudo k3s kubectl scale statefulset/octo-postgres -n octo --replicas=0
+  sudo mkdir -p /var/lib/octo-data
+  sudo cp -a /var/lib/rancher/k3s/storage/pvc-*_octo_data-octo-postgres-0/pgdata /var/lib/octo-data/
+  # then set postgres_host_path and re-apply; scale back up happens automatically
+  ```
+
+  Both paths are on the boot disk, so neither survives the VM being destroyed. To
+  outlive the VM, attach a data disk and mount it at the chosen path.
 - **Re-pull a tag manually on the node:** `sudo octo-pull v0.1.2`.
 
 ---

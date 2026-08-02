@@ -141,3 +141,23 @@ variable "values_files" {
   description = "Extra chart values files to layer in, lowest precedence first (e.g. an environment profile shipped with the chart). Applied beneath the module's own settings, which are passed as Helm --set and therefore win."
   default     = []
 }
+
+variable "postgres_host_path" {
+  type        = string
+  description = <<-EOT
+    Node path to pin the bundled Postgres to (chart value postgres.storage.hostPath).
+    Empty provisions the volume dynamically, which on a single-node k3s cluster means
+    the local-path provisioner: it names each volume's directory after the claim's UID,
+    so reinstalling k3s or recreating the claim silently hands Postgres an empty
+    directory while the old one stays on disk. A fixed path removes the UID from the
+    equation and the data survives.
+
+    Empty by DEFAULT because setting it on a release that already has data is a data
+    move, not a config change: the next apply would point Postgres at the new path and
+    the database would come up empty. Copy the existing directory across first (with
+    the workload stopped), then set this. Note the path is only as durable as what
+    backs it — on the boot disk it survives a k3s reinstall but not the VM; use a
+    mount point on an attached data disk to survive VM replacement.
+  EOT
+  default     = ""
+}

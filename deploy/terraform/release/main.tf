@@ -154,18 +154,19 @@ data "google_storage_bucket_object_content" "oidc" {
 module "octo" {
   source = "../modules/helm-release"
 
-  namespace         = var.namespace
-  image_base        = local.image_base
-  chart_version     = var.chart_version
-  image_tag         = var.image_tag
-  image_values_file = var.image_values_file
-  values_files      = var.values_files
-  registry_password = data.google_client_config.current.access_token
-  domain            = var.domain
-  apps_domain       = local.apps_domain_eff
-  postgres_password = random_password.postgres.result
-  cluster_issuer    = var.cluster_issuer
-  wildcard_tls      = var.wildcard_tls
+  namespace          = var.namespace
+  image_base         = local.image_base
+  chart_version      = var.chart_version
+  image_tag          = var.image_tag
+  image_values_file  = var.image_values_file
+  values_files       = var.values_files
+  registry_password  = data.google_client_config.current.access_token
+  domain             = var.domain
+  apps_domain        = local.apps_domain_eff
+  postgres_password  = random_password.postgres.result
+  postgres_host_path = var.postgres_host_path
+  cluster_issuer     = var.cluster_issuer
+  wildcard_tls       = var.wildcard_tls
 
   # OIDC SSO. A local deploy supplies client id/secret via octo.tfvars (which also
   # seeds oidc.json in the bucket); Cloud Build reads them back from there. The
