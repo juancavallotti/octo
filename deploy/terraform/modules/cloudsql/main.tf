@@ -26,8 +26,24 @@ resource "random_password" "octo" {
   special = false
 }
 
+# Cloud SQL will not let you reuse the name of a deleted instance for about a week.
+# That is fatal to the loop these roots exist for — create, test, destroy, fix
+# something, create again — because the second apply of the day fails on a name
+# whose instance no longer exists, with no way to force it.
+#
+# A per-instance suffix sidesteps it. Held in state, so it is stable across applies
+# and does NOT churn the instance; a fresh one is generated only when the instance
+# is genuinely recreated, which is exactly when a new name is needed.
+#
+# Note this is not the same thing as distinguishing the roots from each other —
+# var.name already does that (octo-gke-ap-pg, octo-gke-std-pg, octo-eks-pg). The
+# collision this solves is a root colliding with its own previous run.
+resource "random_id" "instance" {
+  byte_length = 4
+}
+
 resource "google_sql_database_instance" "this" {
-  name                = var.name
+  name                = "${var.name}-${random_id.instance.hex}"
   project             = var.project_id
   region              = var.region
   database_version    = var.database_version
@@ -83,13 +99,28 @@ resource "google_sql_database" "octo" {
   instance = google_sql_database_instance.this.name
 }
 
-# This user owns `database_name`, and that is load-bearing. On PostgreSQL 16 the
-# CREATE privilege on schema `public` is revoked from PUBLIC, so a non-owner cannot
-# create tables — and the chart's schema Job does exactly that. A "least privilege"
-# application user added here would make the Job fail on first install.
+# The role the chart connects as. It is a member of cloudsqlsuperuser (Cloud SQL
+# grants that to every user it creates), which is what lets the schema Job create
+# tables: on PostgreSQL 16 the CREATE privilege on schema `public` is revoked from
+# PUBLIC, so a plain "least privilege" application user added here would make the
+# Job fail on first install.
+#
+# ABANDON, because Terraform cannot drop this role and never will be able to. The
+# schema Job creates ~13 tables AT RUNTIME, owned by this role and entirely outside
+# Terraform's model, and Postgres refuses DROP ROLE while any object depends on it:
+#
+#   Error 400: failed to delete user octo: role "octo" cannot be dropped because
+#   some objects depend on it Details: 13 objects in database octo
+#
+# Ordering the database's destruction ahead of the user's would paper over the case
+# we happen to know about, and still break the first time the Job creates something
+# elsewhere. The role's dependents are the application's business, not this module's.
+# Nothing leaks: the only caller destroys the whole instance, and the role goes with
+# it seconds later.
 resource "google_sql_user" "octo" {
-  name     = var.database_user
-  project  = var.project_id
-  instance = google_sql_database_instance.this.name
-  password = random_password.octo.result
+  name            = var.database_user
+  project         = var.project_id
+  instance        = google_sql_database_instance.this.name
+  password        = random_password.octo.result
+  deletion_policy = "ABANDON"
 }

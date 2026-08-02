@@ -768,8 +768,14 @@ tasks:
           echo "→ destroying $target"
           terraform -chdir={{.ROOT}} destroy -auto-approve -target="$target"
         done
+        # -auto-approve like the phases above. Prompting only here is worse than
+        # not prompting at all: by this point the release and the controllers are
+        # already gone, so the confirmation guards the least destructive step of
+        # the three — and an unanswered prompt leaves the cluster, the database and
+        # the VPC standing while the run reports failure, which is exactly the way
+        # to get billed for something you believed you had destroyed.
         echo "→ destroying the rest"
-        terraform -chdir={{.ROOT}} destroy
+        terraform -chdir={{.ROOT}} destroy -auto-approve
 
   eks:state:bucket:
     desc: 'Create the S3 bucket backing the EKS Terraform state (run once; set BUCKET, optional REGION)'
