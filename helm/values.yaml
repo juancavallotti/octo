@@ -80,6 +80,18 @@ platform:
   replicas: 1
   service:
     port: 3000
+    # Service type. ClusterIP by default — the editor is reached through the
+    # Ingress. NodePort for local clusters (k3d/kind) that map a host port;
+    # LoadBalancer where a cloud LB fronts it directly.
+    type: ClusterIP
+    # Annotations on the Service — e.g. cloud.google.com/neg on GKE for
+    # container-native load balancing, or service.beta.kubernetes.io/aws-* on
+    # EKS to shape the NLB.
+    annotations: {}
+    # Fixed NodePorts keyed by port name, for local clusters that map host
+    # ports. Empty lets Kubernetes allocate one.
+    nodePorts: {}
+    externalTrafficPolicy: ""
 
 orchestrator:
   repository: octo-orchestrator-paas
@@ -87,6 +99,18 @@ orchestrator:
   replicas: 1
   service:
     port: 8090
+    # Service type. ClusterIP by default — the orchestrator stays internal
+    # behind the platform's BFF proxy. NodePort for local clusters (k3d/kind) that map a host port;
+    # LoadBalancer where a cloud LB fronts it directly.
+    type: ClusterIP
+    # Annotations on the Service — e.g. cloud.google.com/neg on GKE for
+    # container-native load balancing, or service.beta.kubernetes.io/aws-* on
+    # EKS to shape the NLB.
+    annotations: {}
+    # Fixed NodePorts keyed by port name, for local clusters that map host
+    # ports. Empty lets Kubernetes allocate one.
+    nodePorts: {}
+    externalTrafficPolicy: ""
   # Stage 2 (per-integration external endpoints). When baseDomain is set the
   # orchestrator creates an Ingress per externally-exposed deployment at
   # {subdomain}.{baseDomain}. clusterIssuer empty = no TLS annotation and no
@@ -127,6 +151,18 @@ logs:
   replicas: 1
   service:
     port: 8091
+    # Service type. ClusterIP by default — the log query API stays internal
+    # behind the platform's BFF proxy. NodePort for local clusters (k3d/kind) that map a host port;
+    # LoadBalancer where a cloud LB fronts it directly.
+    type: ClusterIP
+    # Annotations on the Service — e.g. cloud.google.com/neg on GKE for
+    # container-native load balancing, or service.beta.kubernetes.io/aws-* on
+    # EKS to shape the NLB.
+    annotations: {}
+    # Fixed NodePorts keyed by port name, for local clusters that map host
+    # ports. Empty lets Kubernetes allocate one.
+    nodePorts: {}
+    externalTrafficPolicy: ""
 
 # Generic runtime image the orchestrator deploys per integration. Passed to the
 # orchestrator as RUNTIME_IMAGE; pre-pulled into containerd at provision so
