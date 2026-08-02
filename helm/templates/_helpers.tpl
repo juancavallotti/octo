@@ -1,68 +1,47 @@
-{{- define "octo.name" -}}
-{{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
-{{- end }}
+{{/*
+  octo-specific helpers. Generic naming, labelling and image resolution live in
+  the octo-common library chart (helm/charts/octo-common); what stays here is the
+  wiring that is particular to this platform — which component answers on which
+  in-cluster URL, and how the database DSN is assembled.
 
-{{- define "octo.fullname" -}}
-{{- if .Values.fullnameOverride }}
-{{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
-{{- else }}
-{{- $name := default .Chart.Name .Values.nameOverride }}
-{{- if contains $name .Release.Name }}
-{{- .Release.Name | trunc 63 | trimSuffix "-" }}
-{{- else }}
-{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
-{{- end }}
-{{- end }}
-{{- end }}
+  Every resource name is {fullname}-{component}, so these are all thin wrappers
+  over octo-common.componentName rather than independent string building.
+*/}}
 
-{{- define "octo.chart" -}}
-{{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
-{{- end }}
-
-{{- define "octo.labels" -}}
-helm.sh/chart: {{ include "octo.chart" . }}
-{{ include "octo.selectorLabels" . }}
-{{- if .Chart.AppVersion }}
-app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
-{{- end }}
-app.kubernetes.io/managed-by: {{ .Release.Service }}
-{{- end }}
-
-{{- define "octo.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "octo.name" . }}
-app.kubernetes.io/instance: {{ .Release.Name }}
+{{- define "octo.componentName" -}}
+{{- include "octo-common.componentName" (dict "root" .root "component" .component) }}
 {{- end }}
 
 {{- define "octo.postgres.serviceName" -}}
-{{ include "octo.fullname" . }}-postgres
+{{- include "octo-common.componentName" (dict "root" . "component" "postgres") }}
 {{- end }}
 
 {{- define "octo.orchestrator.serviceName" -}}
-{{ include "octo.fullname" . }}-orchestrator
+{{- include "octo-common.componentName" (dict "root" . "component" "orchestrator") }}
 {{- end }}
 
 {{- define "octo.nats.serviceName" -}}
-{{ include "octo.fullname" . }}-nats
+{{- include "octo-common.componentName" (dict "root" . "component" "nats") }}
 {{- end }}
 
 {{- define "octo.nats.headlessServiceName" -}}
-{{ include "octo.fullname" . }}-nats-headless
+{{- include "octo-common.componentName" (dict "root" . "component" "nats-headless") }}
 {{- end }}
 
 {{- define "octo.platform.serviceName" -}}
-{{ include "octo.fullname" . }}-platform
+{{- include "octo-common.componentName" (dict "root" . "component" "platform") }}
 {{- end }}
 
 {{- define "octo.logs.serviceName" -}}
-{{ include "octo.fullname" . }}-logs
+{{- include "octo-common.componentName" (dict "root" . "component" "logs") }}
 {{- end }}
 
 {{- define "octo.auth.secretName" -}}
-{{ include "octo.fullname" . }}-auth
+{{- include "octo-common.componentName" (dict "root" . "component" "auth") }}
 {{- end }}
 
 {{- define "octo.kv.secretName" -}}
-{{ include "octo.fullname" . }}-kv
+{{- include "octo-common.componentName" (dict "root" . "component" "kv") }}
 {{- end }}
 
 {{/*
@@ -70,7 +49,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
   leases RBAC the runtime's k8s services module needs for leader election.
 */}}
 {{- define "octo.runtime.serviceAccountName" -}}
-{{ include "octo.fullname" . }}-runtime
+{{- include "octo-common.componentName" (dict "root" . "component" "runtime") }}
 {{- end }}
 
 {{/*
@@ -105,23 +84,6 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 */}}
 {{- define "octo.nats.monitorUrl" -}}
 {{- printf "http://%s.%s:%d" (include "octo.nats.serviceName" .) .Release.Namespace (int .Values.nats.service.monitorPort) -}}
-{{- end }}
-
-{{/*
-  Build a fully-qualified image reference. Call with a dict carrying the chart
-  root and the component repository, e.g.:
-    include "octo.image" (dict "root" $ "repo" .Values.platform.repository)
-  When .Values.image.registry is set it is prefixed; otherwise the repo is used
-  bare (local :dev images). Tag falls back to the shared .Values.image.tag.
-*/}}
-{{- define "octo.image" -}}
-{{- $reg := .root.Values.image.registry | default "" | trimSuffix "/" -}}
-{{- $tag := .tag | default .root.Values.image.tag -}}
-{{- if $reg -}}
-{{- printf "%s/%s:%s" $reg .repo $tag -}}
-{{- else -}}
-{{- printf "%s:%s" .repo $tag -}}
-{{- end -}}
 {{- end }}
 
 {{/*

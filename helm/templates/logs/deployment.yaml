@@ -1,42 +1,14 @@
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: {{ include "octo.fullname" . }}-logs
-  labels:
-    {{- include "octo.labels" . | nindent 4 }}
-    app.kubernetes.io/component: logs
-spec:
-  replicas: {{ .Values.logs.replicas }}
-  selector:
-    matchLabels:
-      {{- include "octo.selectorLabels" . | nindent 6 }}
-      app.kubernetes.io/component: logs
-  template:
-    metadata:
-      labels:
-        {{- include "octo.selectorLabels" . | nindent 8 }}
-        app.kubernetes.io/component: logs
-    spec:
-      containers:
-        - name: logs
-          image: {{ include "octo.image" (dict "root" $ "repo" .Values.logs.repository) | quote }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          ports:
-            - containerPort: {{ .Values.logs.service.port }}
-          env:
-            - name: PORT
-              value: {{ .Values.logs.service.port | quote }}
-            - name: DATABASE_URL
-              value: {{ include "octo.databaseURL" . | quote }}
-            {{- if .Values.nats.enabled }}
-            # In-cluster NATS broker carrying the internal.logs subject this service
-            # consumes as a competing consumer.
-            - name: NATS_URL
-              value: {{ include "octo.nats.url" . | quote }}
-            {{- end }}
-          readinessProbe:
-            httpGet:
-              path: /healthz
-              port: {{ .Values.logs.service.port }}
-            initialDelaySeconds: 3
-            periodSeconds: 10
+{{- include "octo-common.deployment" (dict
+      "root" $
+      "component" "logs"
+      "replicas" .Values.logs.replicas
+      "containers" (include "octo-common.container" (dict
+        "name" "logs"
+        "image" (include "octo-common.image" (dict "root" $ "repo" .Values.logs.repository))
+        "pullPolicy" .Values.image.pullPolicy
+        "ports" (list (dict "containerPort" .Values.logs.service.port))
+        "env" (include "octo.logs.env" .)
+        "readinessProbe" (dict
+          "httpGet" (dict "path" "/healthz" "port" .Values.logs.service.port)
+          "initialDelaySeconds" 3
+          "periodSeconds" 10)))) }}

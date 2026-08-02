@@ -1,22 +1,13 @@
 {{- if .Values.nats.enabled }}
-apiVersion: v1
-kind: Service
-metadata:
-  name: {{ include "octo.nats.headlessServiceName" . }}
-  labels:
-    {{- include "octo.labels" . | nindent 4 }}
-    app.kubernetes.io/component: nats
-spec:
-  # Headless: governs the StatefulSet so each replica gets stable per-pod DNS for
-  # cluster-route discovery. Clients use the regular ClusterIP service instead.
-  clusterIP: None
-  # Surface pods before Ready so routes can form during rollout.
-  publishNotReadyAddresses: true
-  selector:
-    {{- include "octo.selectorLabels" . | nindent 4 }}
-    app.kubernetes.io/component: nats
-  ports:
-    - name: client
-      port: {{ .Values.nats.service.port }}
-      targetPort: 4222
+{{- /* Headless: governs the StatefulSet so each replica gets stable per-pod DNS
+       for cluster-route discovery. Clients use the regular ClusterIP service
+       instead. publishNotReadyAddresses surfaces pods before Ready so routes can
+       form during rollout. */}}
+{{- include "octo-common.service" (dict
+      "root" $
+      "component" "nats"
+      "name" (include "octo.nats.headlessServiceName" .)
+      "headless" true
+      "publishNotReadyAddresses" true
+      "ports" (list (dict "name" "client" "port" .Values.nats.service.port "targetPort" 4222))) }}
 {{- end }}

@@ -7,3 +7,7 @@ description: >-
 type: application
 version: 0.6.4
 appVersion: 0.2.0
+dependencies:
+  - name: octo-common
+    version: 0.6.4
+    repository: ""
