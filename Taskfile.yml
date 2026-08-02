@@ -596,3 +596,87 @@ tasks:
       # from a variable. Variables come from infra/terraform.tfvars automatically.
       - terraform -chdir=deploy/terraform/infra init -input=false -backend-config=../backend.hcl
       - terraform -chdir=deploy/terraform/infra apply
+
+  gke:standard:apply:
+    desc: 'Stand up a GKE Standard cluster and deploy octo onto it (optional IMAGE_VALUES)'
+    cmds:
+      - task: tf:apply
+        vars: { ROOT: gke-standard, IMAGE_VALUES: '{{.IMAGE_VALUES}}' }
+
+  gke:standard:destroy:
+    desc: 'Tear down the GKE Standard cluster (phased, so no load balancer is orphaned)'
+    cmds:
+      - task: tf:destroy
+        vars: { ROOT: gke-standard, PHASES: 'module.octo_gke.module.octo module.octo_gke.module.addons' }
+
+  gke:autopilot:apply:
+    desc: 'Stand up a GKE Autopilot cluster and deploy octo onto it (optional IMAGE_VALUES)'
+    cmds:
+      - task: tf:apply
+        vars: { ROOT: gke-autopilot, IMAGE_VALUES: '{{.IMAGE_VALUES}}' }
+
+  gke:autopilot:destroy:
+    desc: 'Tear down the GKE Autopilot cluster (phased, so no load balancer is orphaned)'
+    cmds:
+      - task: tf:destroy
+        vars: { ROOT: gke-autopilot, PHASES: 'module.octo_gke.module.octo module.octo_gke.module.addons' }
+
+  tf:apply:
+    internal: true
+    requires:
+      vars: [ROOT]
+    vars:
+      BACKEND: '{{.BACKEND | default "backend.hcl"}}'
+    cmds:
+      - |
+        set -e
+        cd deploy/terraform
+        terraform -chdir={{.ROOT}} init -input=false -backend-config=../{{.BACKEND}}
+        # image_values_file is a path resolved relative to the ROOT, not the repo,
+        # so a repo-relative IMAGE_VALUES has to be made absolute here.
+        ARGS=""
+        if [ -n "{{.IMAGE_VALUES}}" ]; then
+          ARGS="-var image_values_file={{.ROOT_DIR}}/{{.IMAGE_VALUES}}"
+        fi
+        terraform -chdir={{.ROOT}} apply $ARGS
+        echo
+        terraform -chdir={{.ROOT}} output
+
+  tf:destroy:
+    internal: true
+    requires:
+      vars: [ROOT]
+    vars:
+      BACKEND: '{{.BACKEND | default "backend.hcl"}}'
+    cmds:
+      # Phased on purpose. The ingress controller (GKE) and the AWS Load Balancer
+      # Controller (EKS) create cloud load balancers that Terraform does not know
+      # about; they are only cleaned up when the controller observes its Ingress or
+      # Service being deleted. Destroying everything at once races that, and the
+      # orphaned forwarding rule or ALB then blocks the VPC delete twenty minutes
+      # later with an error that names an ENI rather than the cause.
+      #
+      # Terraform's dependency graph gets this order right within a single destroy;
+      # the phases are what save you when one errors partway through.
+      - |
+        set -e
+        cd deploy/terraform
+        terraform -chdir={{.ROOT}} init -input=false -backend-config=../{{.BACKEND}}
+        for target in {{.PHASES}}; do
+          echo "→ destroying $target"
+          terraform -chdir={{.ROOT}} destroy -auto-approve -target="$target"
+        done
+        echo "→ destroying the rest"
+        terraform -chdir={{.ROOT}} destroy
+
+  gke:kubeconfig:
+    desc: 'Fetch kubectl credentials for a GKE test cluster (set ROOT=gke-standard|gke-autopilot)'
+    vars:
+      ROOT: '{{.ROOT | default "gke-standard"}}'
+    cmds:
+      # Terraform itself needs no kubeconfig — it authenticates with an access
+      # token — but you will want one to look around.
+      - |
+        set -e
+        cd deploy/terraform
+        eval "$(terraform -chdir={{.ROOT}} output -raw kubeconfig_command)"

@@ -1,0 +1,60 @@
+# Variables for the `gke-standard` root. Copy to terraform.tfvars (gitignored) and
+# fill in. Terraform loads that filename automatically — no -var-file flag.
+#
+# Prerequisite, one time: the Cloud DNS zone below must exist and be delegated from
+# whoever holds the parent domain. This root creates RECORDS in it, never the zone
+# itself — see ../README.md.
+
+# --- Required ---
+project_id = "your-gcp-project-id"
+acme_email = "you@example.com"
+
+# --- Hostnames ---
+# The gke-autopilot root defaults to these SAME names. Only one GKE cluster can own
+# them at a time: destroy one before applying the other, or the second apply fails
+# on an existing rrset.
+dns_managed_zone = "gke-octopaas-dev"       # zone NAME, not DNS name
+domain           = "octo.gke.octopaas.dev"  # editor; per-host cert via HTTP-01
+apps_domain      = "gke.octopaas.dev"       # {slug}.{apps_domain}; wildcard cert via DNS-01
+
+# --- Chart + images ---
+# "local" installs ../../../helm straight from this checkout — a chart edit is one
+# apply away. "oci" installs the published chart from ghcr.io, which is what
+# verifies a real release artifact (set chart_version too).
+# chart_source  = "local"
+# chart_version = "0.6.4"
+#
+# Which images to run. Leave empty and the chart uses its own public Docker Hub
+# defaults at its appVersion — correct ONLY when the chart and the published images
+# come from the same release. To test the current working tree instead:
+#
+#   task images:ttl TTL=12h
+#   task gke:standard:apply IMAGE_VALUES=dist/values.ttl.yaml
+#
+# image_values_file = ""
+
+# --- Database ---
+# false runs the chart's bundled Postgres StatefulSet on a pd-ssd volume.
+# true provisions Cloud SQL on a private IP and points the chart at it through a
+# Secret. This single flip is what makes both database paths testable.
+# external_database = false
+# cloudsql_tier     = "db-g1-small"
+
+# --- Cost / production toggles (defaults are the cheap, disposable choices) ---
+# machine_type        = "e2-standard-2"
+# node_count          = 2      # PER ZONE — regional = true triples this
+# node_min_count      = 1
+# node_max_count      = 3
+# node_disk_size_gb   = 50
+# spot_nodes          = true   # far cheaper, preemptible at any moment
+# regional            = false  # zonal control plane: cheaper, faster to create
+# private_nodes       = false  # true adds a Cloud NAT (standing hourly charge)
+# deletion_protection = false  # true makes `terraform destroy` fail
+#
+# Whatever runs `terraform apply` must be able to reach the control plane.
+# master_authorized_networks = ["203.0.113.4/32"]
+#
+# Let's Encrypt production allows only 5 duplicate certificates per week, which
+# repeated create/destroy cycles burn through. Staging certs are untrusted by
+# browsers but effectively unlimited:
+# acme_server = "https://acme-staging-v02.api.letsencrypt.org/directory"

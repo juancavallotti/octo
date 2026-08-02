@@ -1,0 +1,53 @@
+# Variables for the `gke-autopilot` root. Copy to terraform.tfvars (gitignored) and
+# fill in. Terraform loads that filename automatically — no -var-file flag.
+#
+# Prerequisite, one time: the Cloud DNS zone below must exist and be delegated from
+# whoever holds the parent domain. This root creates RECORDS in it, never the zone
+# itself — see ../README.md.
+#
+# There are no node settings here. Autopilot owns the nodes: it bills every pod on
+# its resource requests (which is why values-gke-autopilot.yaml sets them
+# explicitly, with limits equal to requests), rejects hostPath and hostPort
+# outright, and may provision a node before a pod can start at all.
+
+# --- Required ---
+project_id = "your-gcp-project-id"
+acme_email = "you@example.com"
+
+# --- Hostnames ---
+# The gke-standard root defaults to these SAME names. Only one GKE cluster can own
+# them at a time: destroy one before applying the other, or the second apply fails
+# on an existing rrset.
+dns_managed_zone = "gke-octopaas-dev"       # zone NAME, not DNS name
+domain           = "octo.gke.octopaas.dev"  # editor; per-host cert via HTTP-01
+apps_domain      = "gke.octopaas.dev"       # {slug}.{apps_domain}; wildcard cert via DNS-01
+
+# --- Chart + images ---
+# chart_source  = "local"
+# chart_version = "0.6.4"
+#
+# To test the current working tree rather than the published images:
+#
+#   task images:ttl TTL=12h
+#   task gke:autopilot:apply IMAGE_VALUES=dist/values.ttl.yaml
+#
+# image_values_file = ""
+
+# --- Database ---
+# false runs the chart's bundled Postgres StatefulSet on a standard-rwo volume.
+# true provisions Cloud SQL on a private IP and points the chart at it via a Secret.
+# external_database = false
+# cloudsql_tier     = "db-g1-small"
+
+# --- Timeouts ---
+# Higher than the Standard root on purpose: Autopilot may have to provision a node
+# before the first pod starts, and the HELM timeout — not the chart's startupProbe
+# — is what gives out first.
+# helm_timeout = 1800
+
+# --- Cost / production toggles ---
+# private_nodes       = false  # true adds a Cloud NAT (standing hourly charge)
+# deletion_protection = false  # true makes `terraform destroy` fail
+# master_authorized_networks = ["203.0.113.4/32"]
+#
+# acme_server = "https://acme-staging-v02.api.letsencrypt.org/directory"
