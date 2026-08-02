@@ -33,7 +33,12 @@
   spec:
     accessModes:
       - ReadWriteOnce
-    {{- if .Values.postgres.storage.storageClassName }}
+    {{- if .Values.postgres.storage.hostPath }}
+    # Static binding to the PersistentVolume in pv.yaml. Explicitly empty, not
+    # omitted: an omitted class means "use the default StorageClass", which would
+    # hand the claim straight back to the dynamic provisioner.
+    storageClassName: ""
+    {{- else if .Values.postgres.storage.storageClassName }}
     storageClassName: {{ .Values.postgres.storage.storageClassName | quote }}
     {{- end }}
     resources:

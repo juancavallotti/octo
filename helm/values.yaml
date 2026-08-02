@@ -226,6 +226,18 @@ postgres:
     size: 5Gi
     # Empty -> cluster default StorageClass (k3s ships local-path).
     storageClassName: ""
+    # Single-node clusters only (k3d, kind, a single-node k3s VM). Set this to a
+    # node path and the chart creates a static PersistentVolume bound to it
+    # instead of provisioning one dynamically, so the database lives at a fixed,
+    # predictable location that survives the cluster being deleted and recreated.
+    #
+    # Without it, a local-path-style provisioner names each volume's directory
+    # after the claim's UID, so recreating the cluster silently starts from an
+    # empty database while the old directory lingers on disk.
+    #
+    # Leave empty on any managed cluster: hostPath is node-local (wrong the
+    # moment there is more than one node) and GKE Autopilot rejects it outright.
+    hostPath: ""
   service:
     port: 5432
   resources: {}

@@ -221,5 +221,13 @@ spec:
   {{- with .volumeClaimTemplates }}
   volumeClaimTemplates:
     {{- . | nindent 4 }}
+  {{- /* Stored data outlives the release. Retain is already the Kubernetes
+         default, but it is spelled out because it is a data-safety guarantee
+         rather than a preference: nothing in this chart — not `helm uninstall`,
+         not scaling to zero — may take a database with it. Destroying storage is
+         the infrastructure layer's job (terraform destroy), never the chart's. */}}
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
   {{- end }}
 {{- end }}
