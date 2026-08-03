@@ -117,6 +117,25 @@ Controller owns the ALB and cleans it up only when it observes the Ingress being
 deleted. Destroying everything at once races that, and the orphaned ALB and its
 security groups then block the VPC delete some twenty minutes later.
 
+<Callout type="info">
+  **Two things survive a clean destroy.** The Route53 hosted zone is not Terraform's
+  (see above) and bills $0.50/month. And the cluster's Secret-encryption KMS key
+  goes to `PendingDeletion` rather than disappearing, billing ~$1/month until the
+  window elapses — the root sets that window to 7 days rather than the module's
+  30-day default, but it is not zero. Confirm both after a teardown:
+
+  ```bash
+  aws kms list-keys --query 'Keys[].KeyId' --output text | tr '\t' '\n' | while read k; do
+    aws kms describe-key --key-id "$k" \
+      --query 'KeyMetadata.[KeyId,KeyManager,KeyState,DeletionDate]' --output text
+  done | grep CUSTOMER
+  ```
+
+  A key already scheduled with a long window can be shortened — `aws kms
+  cancel-key-deletion --key-id <id>` then `aws kms schedule-key-deletion --key-id
+  <id> --pending-window-in-days 7`.
+</Callout>
+
 ### Testing a chart you have edited
 
 ```bash

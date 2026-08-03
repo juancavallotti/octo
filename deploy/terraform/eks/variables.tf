@@ -53,6 +53,17 @@ variable "apps_domain" {
   }
 }
 
+variable "kms_key_deletion_window_in_days" {
+  type        = number
+  description = "How long the cluster's Secret-encryption KMS key sits in PendingDeletion after a destroy. It bills ~$1/month for the whole window, so the module's 30-day default leaves a month-long tail behind a teardown that otherwise costs nothing. 7 is the AWS minimum; raise it for a cluster whose key you might need to recover."
+  default     = 7
+
+  validation {
+    condition     = var.kms_key_deletion_window_in_days >= 7 && var.kms_key_deletion_window_in_days <= 30
+    error_message = "AWS accepts a deletion window between 7 and 30 days."
+  }
+}
+
 variable "alb_wait" {
   type        = string
   description = "How long to wait after the release before reading the Ingress for the ALB's hostname. The controller populates status.loadBalancer only once the ALB is provisioned; reading too early yields an empty list. Raise it if the apply fails on an empty hostname — do not remove the wait."

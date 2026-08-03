@@ -123,6 +123,19 @@ module "eks" {
   # like a credentials problem rather than an authorization one.
   enable_cluster_creator_admin_permissions = true
 
+  # The module creates a KMS key for envelope-encrypting Secrets, which is the
+  # right default and worth keeping. What is not the right default for a cluster
+  # you destroy the same day is the 30-day deletion window: a scheduled-for-
+  # deletion key still bills $1/month for the whole window, so every teardown
+  # leaves a month-long tail behind an otherwise clean destroy. 7 days is the
+  # minimum AWS allows.
+  #
+  # Already scheduled one and want it gone sooner? The window can be shortened
+  # after the fact — cancel and re-schedule:
+  #   aws kms cancel-key-deletion --key-id <id>
+  #   aws kms schedule-key-deletion --key-id <id> --pending-window-in-days 7
+  kms_key_deletion_window_in_days = var.kms_key_deletion_window_in_days
+
   cluster_addons = {
     coredns    = {}
     kube-proxy = {}
