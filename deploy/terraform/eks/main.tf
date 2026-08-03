@@ -80,6 +80,16 @@ module "vpc" {
   enable_nat_gateway = var.private_nodes
   single_nat_gateway = var.private_nodes
 
+  # What actually makes a public node group work, and the module defaults it to
+  # false. A node in a public subnet with no public IP and no NAT has no route
+  # off the VPC at all: it cannot reach the EKS API to register or ECR to pull
+  # the CNI image, so the kubelet never joins and EKS eventually fails the whole
+  # node group. It refuses up front rather than timing out —
+  # `Ec2SubnetInvalidConfiguration: ... does not automatically assign public IP
+  # addresses`. Harmless when private_nodes is on, since nothing launches here
+  # then, but tied to the same variable so the two can never disagree.
+  map_public_ip_on_launch = !var.private_nodes
+
   enable_dns_hostnames = true
   enable_dns_support   = true
 
