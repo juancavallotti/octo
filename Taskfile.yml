@@ -772,6 +772,35 @@ tasks:
           echo "→ destroying $target"
           terraform -chdir={{.ROOT}} destroy -auto-approve -target="$target"
         done
+        # GKE only, and best-effort. A LoadBalancer Service makes the GKE service
+        # controller create five objects Terraform does not know about: a
+        # forwarding rule, a target pool, a health check and two firewall rules.
+        # Deleting the Service — the addons phase above — normally reclaims all
+        # five, but that cleanup races the cluster delete and the health-check
+        # firewall rule is the one that loses often enough to matter.
+        #
+        # On its own the leftover rule is free and harmless. It matters because a
+        # network cannot be deleted while any firewall rule references it, so the
+        # final destroy below fails on the VPC with an error naming the rule and
+        # not the cause, leaving the run half-finished.
+        #
+        # Gated on the output rather than on the root name: only the GKE roots
+        # expose network_name, so this is a silent no-op for EKS. Nothing here may
+        # abort the run — if gcloud is missing or broken, falling through to the
+        # destroy is strictly better than failing before it.
+        NETWORK=$(terraform -chdir={{.ROOT}} output -raw network_name 2>/dev/null || true)
+        PROJECT=$(terraform -chdir={{.ROOT}} output -raw project_id 2>/dev/null || true)
+        if [ -n "$NETWORK" ] && [ -n "$PROJECT" ] && command -v gcloud >/dev/null 2>&1; then
+          # `k8s-` is the service controller's own prefix and never Terraform's,
+          # so this cannot delete a resource still in state. Anchoring the network
+          # match keeps it off a similarly-named VPC.
+          for fw in $(gcloud compute firewall-rules list --project "$PROJECT" \
+                        --filter="network~${NETWORK}\$ AND name~^k8s-" \
+                        --format='value(name)' 2>/dev/null || true); do
+            echo "→ sweeping orphaned firewall rule $fw"
+            gcloud compute firewall-rules delete "$fw" --project "$PROJECT" --quiet || true
+          done
+        fi
         # -auto-approve like the phases above. Prompting only here is worse than
         # not prompting at all: by this point the release and the controllers are
         # already gone, so the confirmation guards the least destructive step of

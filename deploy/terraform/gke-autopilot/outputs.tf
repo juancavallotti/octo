@@ -18,6 +18,21 @@ output "ingress_ip" {
   value       = module.octo_gke.ingress_ip
 }
 
+# --- Teardown ---
+# Both consumed by `task gke:*:destroy`, which sweeps orphaned k8s-* firewall
+# rules off the network before the final destroy tries to delete it. The EKS root
+# deliberately has no equivalent, which is what gates the sweep to GKE.
+
+output "network_name" {
+  description = "VPC the cluster lives in."
+  value       = module.octo_gke.network_name
+}
+
+output "project_id" {
+  description = "Project everything here was created in."
+  value       = var.project_id
+}
+
 output "url" {
   description = "Editor URL, once DNS resolves and cert-manager has issued the certificate."
   value       = "https://${var.domain}"

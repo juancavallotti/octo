@@ -136,6 +136,30 @@ Tear down with `task gke:standard:destroy`. It is phased on purpose: the ingress
 controller owns the load balancer, and destroying it alongside the release strands a
 forwarding rule that then blocks the VPC delete.
 
+The same target also sweeps orphaned `k8s-*` firewall rules off the VPC before
+deleting it. A LoadBalancer Service makes the GKE service controller create five
+objects Terraform never sees — a forwarding rule, a target pool, a health check and
+two firewall rules — and deleting the Service reclaims them, but that cleanup races
+the cluster delete. The health-check rule is the one that loses often enough to
+matter. It costs nothing on its own; it matters because a network cannot be deleted
+while a firewall rule references it, so without the sweep the destroy fails on the
+VPC with an error naming the rule rather than the cause:
+
+```
+Error waiting for Deleting Network: The network resource '…/networks/octo-gke-std'
+is already being used by '…/firewalls/k8s-8d299831b5154b81-node-http-hc'
+```
+
+Should you ever hit that — from a destroy interrupted before the sweep, or a cluster
+torn down by hand — it clears with:
+
+```bash
+gcloud compute firewall-rules list --project <project> --filter='name~^k8s-'
+gcloud compute firewall-rules delete <name> --project <project> --quiet
+```
+
+Then re-run the destroy; it is safe to repeat.
+
 ### Testing a chart you have edited
 
 The published images track releases, so they will not match a chart changed since

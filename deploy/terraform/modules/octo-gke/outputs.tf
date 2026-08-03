@@ -13,6 +13,11 @@ output "ingress_ip" {
   value       = module.cluster.ingress_ip
 }
 
+output "network_name" {
+  description = "VPC the cluster lives in. Exposed for teardown: `task gke:*:destroy` sweeps orphaned k8s-* firewall rules off this network before deleting it, since a network with a firewall rule still attached cannot be deleted."
+  value       = module.cluster.network_name
+}
+
 output "database" {
   description = "Which database the release is running against — the managed instance, or the chart's bundled StatefulSet."
   value       = var.external_database ? "cloudsql:${module.cloudsql[0].instance_name} (${module.cloudsql[0].private_ip})" : "bundled postgres StatefulSet"
