@@ -59,8 +59,14 @@ profile it uses and who runs the install.
   create one — GKE Standard, GKE Autopilot or EKS — install its prerequisites, wire
   DNS and TLS, and deploy the chart in a single apply. See
   [GKE](/deploy/gke#provision-a-cluster-with-terraform) and
-  [EKS](/deploy/eks#provision-a-cluster-with-terraform). They exist to exercise the
-  chart's cloud profiles, so their defaults are cheap and disposable.
+  [EKS](/deploy/eks#provision-a-cluster-with-terraform).
+
+  They are a good way to see the whole thing working end to end, and a good thing to
+  read. They are not production infrastructure: their defaults are cheap and
+  disposable on purpose, and each root deploys the application as well as the
+  cluster. For a deployment you intend to keep, run the chart from your own values
+  file against infrastructure you control — that is the interface these roots are
+  demonstrating, and it does not require them.
 </Callout>
 
 The chart is published on every release, so the middle column needs no checkout:

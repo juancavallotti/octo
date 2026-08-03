@@ -24,6 +24,25 @@ The three cluster roots exist to run the chart's cloud profiles on real clusters
 They are meant to be brought up, tested and destroyed. **Run one at a time** — the
 two GKE roots write the same DNS records by default.
 
+They are a worked example, not production infrastructure, and the difference is
+worth being explicit about because the code does not look like a toy:
+
+- **Each root deploys the application as well as the cluster.** `module.octo` is a
+  `helm_release` inside the root, so `terraform apply` is also a redeploy. Fine when
+  the point is to test a chart change end to end; wrong when infrastructure and
+  application releases should move on separate schedules.
+- **There is one environment.** No staging/production split, no per-environment
+  state or hostnames — the roots deliberately share names so only one can exist at
+  a time.
+- **The defaults are cheap and disposable**, not safe: spot nodes, public nodes on
+  EKS, no deletion protection, no database backups. Each has a variable that turns
+  it into the production choice, but nothing checks that you set them.
+
+The stable interface is the **chart**, not this Terraform. Everything these roots
+configure — hostnames, TLS mode, external database, secrets — is chart values, and
+`modules/helm-release` is a thin wrapper around `helm_release` that any of your own
+modules could replace. Read these for the wiring, then bring your own infrastructure.
+
 ### Modules (things roots call)
 
 Each has its own `README.md`.

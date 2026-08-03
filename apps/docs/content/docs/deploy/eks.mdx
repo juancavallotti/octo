@@ -40,10 +40,11 @@ change one.
 Pull the profile at the same version as the chart: it pins per-component
 `runAsUser` values matching the UIDs that release's images run as.
 
-<Callout type="warn">
-  This profile is validated by rendering and schema-checking it in CI, and by
-  review against the AWS Load Balancer Controller's documented annotations. It
-  has not been run on a live EKS cluster. Treat the first install as a shakedown.
+<Callout type="info">
+  This profile has been installed on a live EKS cluster, including the ACM
+  certificate and ALB ingress path, RDS wired through
+  `externalDatabase.existingSecret`, and OIDC sign-in. It is also rendered and
+  schema-checked in CI on every change.
 </Callout>
 
 ## Provision a cluster with Terraform
@@ -76,6 +77,24 @@ It uses the upstream `terraform-aws-modules` VPC, EKS and IRSA modules. Not for 
 line count: the subnet tagging, node IAM and addon IRSA are exactly the parts whose
 subtle mistakes surface as an Ingress that never gets an address, or a destroy that
 hangs on a dangling network interface.
+
+<Callout type="warn">
+  **Treat this root as a worked example, not as your production infrastructure.**
+  It exists to prove the chart's EKS profile runs on a real cluster, cheaply and
+  disposably, and the shape follows from that: one root owns the cluster *and* the
+  application release, so every `terraform apply` is also a redeploy; there is a
+  single environment with no staging/production split; nodes sit in public subnets
+  and the database has no backups, because the whole thing is meant to be destroyed
+  the same day.
+
+  For anything you intend to keep, fork it — or better, keep only the parts you
+  need. The chart is the stable interface here, not the Terraform: it is designed to
+  be driven from your own values file, and none of what this root does to it
+  (hostnames, ACM ARN, RDS via `existingSecret`, ALB annotations) requires its
+  Terraform. Most teams already have opinions about VPCs, node groups, secret
+  management and CI that belong in their own modules, and the chart slots into those
+  unchanged.
+</Callout>
 
 <Callout type="warn">
   **The EKS control plane is ~$0.10/hour (~$73/month) with no free tier**, billed

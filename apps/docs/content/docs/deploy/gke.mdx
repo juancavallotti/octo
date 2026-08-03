@@ -45,9 +45,13 @@ Pull the profile at the same version as the chart: it pins per-component
 `runAsUser` values matching the UIDs that release's images run as.
 
 <Callout type="warn">
-  These profiles are validated by rendering and schema-checking them in CI, and
-  by review against each platform's documented requirements. They have not been
-  run on a live GKE cluster. Treat the first install as a shakedown.
+  `values-gke-autopilot.yaml` has been installed on a live Autopilot cluster —
+  including the wildcard certificate via cert-manager DNS-01, Cloud SQL on a
+  private IP, and an integration deployed from the editor and reached over the
+  wildcard host. `values-gke-standard.yaml` has not yet been run on a live
+  cluster; it is validated by rendering and schema-checking in CI and shares
+  almost all of its content with the Autopilot profile. Treat a Standard install
+  as a shakedown.
 </Callout>
 
 ## Provision a cluster with Terraform
@@ -94,6 +98,22 @@ exercised on each. What they create:
 These are **test** environments and their defaults say so: spot nodes, a zonal
 control plane, no Cloud NAT, no deletion protection, no database backups. Every one
 has a variable that turns it into the production choice.
+
+<Callout type="warn">
+  **Treat these roots as a worked example, not as your production infrastructure.**
+  They exist to prove the chart's cloud profiles run on a real cluster, cheaply and
+  disposably, and the shape follows from that: one root owns the cluster *and* the
+  application release, so every `terraform apply` is also a redeploy; there is a
+  single environment with no staging/production split; the VPC, IAM and state layout
+  are sized for something you will destroy this afternoon.
+
+  For anything you intend to keep, fork them — or better, keep only the parts you
+  need. The chart is the stable interface here, not the Terraform: it is designed to
+  be driven from your own values file, and none of what these roots do to it
+  (hostnames, TLS mode, external database, secrets) requires their Terraform. Most
+  teams already have opinions about VPCs, node pools, secret management and CI that
+  belong in their own modules, and the chart slots into those unchanged.
+</Callout>
 
 <Callout type="info">
   The DNS **zone** is not managed by Terraform, only the records in it. Cloud DNS
