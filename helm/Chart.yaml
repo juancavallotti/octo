@@ -1,14 +1,35 @@
 apiVersion: v2
 name: octo
 description: >-
-  octo enterprise-integration platform — the editor UI, the orchestrator API,
-  the log aggregator, a NATS broker and Postgres. Ships environment profiles for
-  k3d, kind, GKE (Autopilot and Standard) and EKS, and can run against a managed
+  octo enterprise-integration platform — the editor UI, the orchestrator API, the
+  log aggregator, a NATS broker and Postgres. Ships environment profiles for k3d,
+  kind, GKE (Autopilot and Standard) and EKS, and can run against a managed
   database instead of the bundled Postgres.
 type: application
-version: 0.7.0
-appVersion: 0.6.4
+# Three versions in this file, all the same string, each stamped by release-please
+# from the annotation on its own line. The annotations are load-bearing: this file
+# is registered in release-please-config.json as a `generic` extra-file, and the
+# generic updater only touches lines carrying one. Registered as a plain path
+# instead, a .yaml file goes through release-please's YAML updater, which sets the
+# top-level `version` alone, leaves the other two stale, and re-serialises the
+# document — dropping every comment on this page. That is exactly what happened
+# at 0.7.0.
+#
+# appVersion is not decoration: image.tag defaults to empty and falls back to it,
+# so a chart pulled from OCI installs the images of its own release.
+version: 0.7.0 # x-release-please-version
+appVersion: 0.7.0 # x-release-please-version
 dependencies:
+  # The octo-common library chart, vendored in-tree at charts/octo-common. An
+  # empty repository is how Helm spells "already present under charts/" — there
+  # is nothing to fetch, and `helm dependency update` would clobber it. The entry
+  # itself is not optional: helm lint fails without it ("chart metadata is
+  # missing these dependencies"). Editor YAML schemas flag the empty string as
+  # "not a URI"; Helm does not, and a real URI here would be wrong.
+  #
+  # Helm does not check this pin against the vendored chart at package time — a
+  # stale one packages clean and ships a chart lying about what it vendors — so
+  # the release workflow checks it instead.
   - name: octo-common
-    version: 0.6.4
-    repository: ''
+    version: 0.7.0 # x-release-please-version
+    repository: ""

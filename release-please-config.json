@@ -22,8 +22,8 @@
         "runtime/dolphin/version.go",
         "packages/mcp/src/handler.ts",
         "apps/docs/lib/version.ts",
-        "helm/Chart.yaml",
-        "helm/charts/octo-common/Chart.yaml",
+        { "type": "generic", "path": "helm/Chart.yaml" },
+        { "type": "generic", "path": "helm/charts/octo-common/Chart.yaml" },
         "README.md"
       ]
     }
