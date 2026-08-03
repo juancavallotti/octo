@@ -2,8 +2,10 @@ apiVersion: v2
 name: octo-common
 description: >-
   Library chart holding every reusable template the octo chart renders its
-  workloads from — naming, labels, image references, and the generic Deployment
-  / StatefulSet / Service / RBAC / Secret renderers. Structure lives here so a
-  knob added once applies to every component and every deployment target.
+  workloads from — naming, labels, image references, and the generic Deployment /
+  StatefulSet / Service / RBAC / Secret renderers. Structure lives here so a knob
+  added once applies to every component and every deployment target.
 type: library
-version: 0.7.0
+# Released in lockstep with the octo chart that vendors it, and stamped from the
+# annotation — see the note in helm/Chart.yaml for why the annotation matters.
+version: 0.7.0 # x-release-please-version
