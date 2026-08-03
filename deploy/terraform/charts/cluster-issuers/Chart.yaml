@@ -1,0 +1,11 @@
+apiVersion: v2
+name: cluster-issuers
+description: >-
+  cert-manager ClusterIssuers for the octo cloud Terraform roots — an HTTP-01 issuer
+  solved through the ingress controller, and a DNS-01 issuer (the only ACME method
+  that can issue a wildcard cert) solved through the cloud DNS provider.
+type: application
+# Infrastructure glue, not a published artifact. It is installed by
+# modules/cluster-addons and is deliberately NOT one of the two charts this repo
+# publishes (octo and octo-common) — see deploy/terraform/charts/README.md.
+version: 0.1.0

@@ -39,8 +39,9 @@ variable "domain" {
   default     = "octo.juancavallotti.com"
 }
 
-# Mirrors the infra root's apps_domain — see its comment there. Must resolve to
-# the same effective value on both roots (both read the same shared octo.tfvars).
+# Mirrors the infra root's apps_domain — see its comment there. Must resolve to the
+# same effective value on both roots: the infra root creates the DNS records for it
+# and this root's chart values point the wildcard cert at it.
 variable "apps_domain" {
   type        = string
   description = "Base hostname per-integration subdomains live under (orchestrator.baseDomain) and the domain the wildcard cert covers. Empty = same as `domain`."
@@ -76,21 +77,7 @@ variable "kubeconfig" {
   default     = ""
 }
 
-# Declared (unused here) so the single shared octo.tfvars — which carries these for
-# the infra root — does not emit "undeclared variable" warnings on a release apply.
-variable "dns_managed_zone" {
-  type        = string
-  description = "Infra-only (Cloud DNS zone name); ignored by the release root."
-  default     = ""
-}
-
-variable "enable_cloudbuild" {
-  type        = bool
-  description = "Infra-only (creates the Cloud Build trigger); ignored by the release root."
-  default     = false
-}
-
-# --- OIDC SSO (shared octo.tfvars) ---
+# --- OIDC SSO ---
 
 variable "oidc_enabled" {
   type        = bool
@@ -127,4 +114,50 @@ variable "oidc_client_secret" {
   description = "OIDC client secret from the IdP; passed to the chart (lands in release state, not Secret Manager)."
   default     = ""
   sensitive   = true
+}
+
+variable "image_values_file" {
+  type        = string
+  description = "Path to the digest-pinned image values file rendered by cloudbuild.yaml (render-image-values). Cloud Build passes /workspace/dist/values.images.yaml so the release installs exactly the images that build pushed; a local `task deploy` leaves it empty and identifies images by image_tag instead."
+  default     = ""
+}
+
+variable "values_files" {
+  type        = list(string)
+  description = "Extra chart values files to layer in, lowest precedence first. Empty by default: the single-node k3s VM this root targets is what the chart's own defaults describe, so no profile is needed."
+  default     = []
+}
+
+variable "postgres_host_path" {
+  type        = string
+  description = <<-EOT
+    Node path to pin the bundled Postgres to on the k3s VM. Setting "" instead leaves
+    the volume dynamically provisioned by k3s's local-path provisioner, whose per-claim
+    directory name changes whenever the claim does — so a re-bootstrap of the VM
+    (`rm /opt/octo/.provisioned && reboot`, which reinstalls k3s) brings the database
+    back empty with the old data stranded on disk.
+
+    The default is the data disk the infra root attaches and its startup script mounts
+    (modules/base, /mnt/octo-data). That disk is a resource of its own and is not
+    deleted with the instance, so the database outlives a VM rebuild as well as a k3s
+    reinstall — which a path on the boot disk would not. It must sit under the infra
+    root's data_disk_mount_path; that root outputs the exact value to use as
+    `postgres_host_path`.
+
+    CHANGING this on a release that already holds data is a data move, not a config
+    change: the next apply points Postgres at the new path and the database comes up
+    empty. Move the data first, with the workload stopped — see docs/deployment.md.
+
+    UPGRADING an install that predates the data disk: this default is new, and it
+    applies itself. A Cloud Build deploy runs without release/terraform.tfvars, so
+    the next automated deploy of an existing cluster silently becomes exactly the
+    data move described above. Before taking this version:
+
+      1. `task infra:apply` — creates and mounts the disk (nothing else moves).
+      2. Copy the data across per docs/deployment.md, workload stopped.
+
+    Not ready to do that yet? Pin `postgres_host_path = ""` in release/terraform.tfvars
+    AND in the Cloud Build substitutions, and keep the old behaviour until you are.
+  EOT
+  default     = "/mnt/octo-data/postgres"
 }

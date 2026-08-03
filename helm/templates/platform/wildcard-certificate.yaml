@@ -8,9 +8,9 @@
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: {{ include "octo.fullname" . }}-wildcard
+  name: {{ include "octo-common.componentName" (dict "root" $ "component" "wildcard") }}
   labels:
-    {{- include "octo.labels" . | nindent 4 }}
+    {{- include "octo-common.componentLabels" (dict "root" $ "component" "wildcard") | nindent 4 }}
 spec:
   secretName: {{ .Values.wildcardTLS.secretName | quote }}
   dnsNames:

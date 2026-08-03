@@ -1,9 +1,25 @@
 apiVersion: v2
 name: octo
 description: >-
-  octo enterprise-integration platform — Postgres (StatefulSet), a NATS broker,
-  the orchestrator API, and the editor UI, with a Traefik Ingress + cert-manager
-  TLS for the editor.
+  octo enterprise-integration platform — the editor UI, the orchestrator API, the
+  log aggregator, a NATS broker and Postgres. Ships environment profiles for k3d,
+  kind, GKE (Autopilot and Standard) and EKS, and can run against a managed
+  database instead of the bundled Postgres.
 type: application
+# version, appVersion and the dependency version below are deliberately the same
+# string: release-please rewrites every occurrence of the previous version in
+# this file, so they can only stay in lockstep if they start that way. appVersion
+# is load-bearing, not decoration — image.tag defaults to empty and falls back to
+# it, so a chart pulled from OCI installs the images of its own release.
 version: 0.6.4
-appVersion: 0.2.0
+appVersion: 0.6.4
+dependencies:
+  # The octo-common library chart, vendored in-tree at charts/octo-common. An
+  # empty repository is how Helm spells "already present under charts/" — there
+  # is nothing to fetch, and `helm dependency update` would clobber it. The entry
+  # itself is not optional: helm lint fails without it ("chart metadata is
+  # missing these dependencies"). Editor YAML schemas flag the empty string as
+  # "not a URI"; Helm does not, and a real URI here would be wrong.
+  - name: octo-common
+    version: 0.6.4
+    repository: ""

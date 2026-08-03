@@ -1,0 +1,32 @@
+# Email on the ACME account (expiry notices). Required.
+acmeEmail: ""
+
+# Let's Encrypt production. Point at
+# https://acme-staging-v02.api.letsencrypt.org/directory while iterating: staging
+# certs are untrusted by browsers but its rate limits are far more forgiving, and
+# the production limit for a repeatedly created and destroyed test cluster is easy
+# to hit (5 duplicate certificates per week).
+server: https://acme-v02.api.letsencrypt.org/directory
+
+# HTTP-01, solved through the ingress controller. Issues the editor's per-host
+# certificate. Named to match the k3s VM's issuer so the chart values are identical
+# across deployment targets.
+http01:
+  name: letsencrypt-prod
+  ingressClass: nginx
+
+# DNS-01, solved by writing TXT records into Cloud DNS. The only ACME challenge
+# that can issue the *.{baseDomain} wildcard the per-integration ingresses share.
+# Credentials come from Workload Identity — modules/cluster-addons binds
+# cert-manager's ServiceAccount to a Google service account granted roles/dns.admin
+# on one managed zone.
+dns01:
+  enabled: true
+  name: letsencrypt-dns
+  # GCP project holding the managed zone. Required when enabled.
+  project: ""
+  # Cloud DNS managed zone NAME (not its DNS name). Naming it here is what makes
+  # the zone-scoped IAM binding sufficient: without it, cert-manager discovers the
+  # zone by listing every zone in the project, which is a project-level permission
+  # and would force the binding back up to the whole project.
+  hostedZoneName: ""

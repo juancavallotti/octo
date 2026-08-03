@@ -1,14 +1,21 @@
-# Applies sql/schema.sql via the octo-schema image. Run as a Helm hook on every
-# install/upgrade — the schema is idempotent (IF NOT EXISTS / ON CONFLICT), and
-# Jobs are immutable, so the before-hook-creation delete policy replaces the
-# previous run instead of failing.
+{{- /* Applies sql/schema.sql via the octo-schema image. Run as a Helm hook on every
+       install/upgrade — the schema is idempotent (IF NOT EXISTS / ON CONFLICT), and
+       Jobs are immutable, so the before-hook-creation delete policy replaces the
+       previous run instead of failing.
+
+       Targets whichever database is in play: the in-cluster StatefulSet, or the
+       managed instance when postgres.enabled is false. psql reads the password
+       from PGPASSWORD rather than a DSN, so the credential never appears in a
+       command line (visible in `kubectl describe`) or in the pod spec. */}}
+{{- $ctx := dict "root" $ "component" "schema" }}
+{{- $psqlArgs := printf "-h %s -p %v -U %s -d %s" (include "octo.database.host" .) (include "octo.database.port" .) (include "octo.database.user" .) (include "octo.database.name" .) }}
+{{- $pgPassword := list (dict "name" "PGPASSWORD" "valueFrom" (dict "secretKeyRef" (dict "name" (include "octo.database.secretName" .) "key" (include "octo.database.passwordKey" .)))) }}
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ include "octo.fullname" . }}-schema
+  name: {{ include "octo-common.componentName" $ctx }}
   labels:
-    {{- include "octo.labels" . | nindent 4 }}
-    app.kubernetes.io/component: schema
+    {{- include "octo-common.componentLabels" $ctx | nindent 4 }}
   annotations:
     "helm.sh/hook": post-install,post-upgrade
     "helm.sh/hook-weight": "0"
@@ -18,38 +25,25 @@ spec:
   template:
     metadata:
       labels:
-        {{- include "octo.selectorLabels" . | nindent 8 }}
-        app.kubernetes.io/component: schema
+        {{- include "octo-common.componentSelectorLabels" $ctx | nindent 8 }}
     spec:
-      restartPolicy: OnFailure
-      initContainers:
-        - name: wait-for-postgres
-          image: "{{ .Values.postgres.image.repository }}:{{ .Values.postgres.image.tag }}"
-          env:
-            - name: PGPASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "octo.postgres.serviceName" . }}
-                  key: postgres-password
-          command:
-            - sh
-            - -c
-            - |
-              until pg_isready -h {{ include "octo.postgres.serviceName" . }} -p {{ .Values.postgres.service.port }} -U {{ .Values.postgres.auth.username }} -d {{ .Values.postgres.auth.database }}; do
-                echo "waiting for postgres..."
-                sleep 2
-              done
-      containers:
-        - name: apply-schema
-          image: {{ include "octo.image" (dict "root" $ "repo" .Values.schema.repository) | quote }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          env:
-            - name: PGPASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "octo.postgres.serviceName" . }}
-                  key: postgres-password
-          command:
-            - sh
-            - -c
-            - psql -h {{ include "octo.postgres.serviceName" . }} -p {{ .Values.postgres.service.port }} -U {{ .Values.postgres.auth.username }} -d {{ .Values.postgres.auth.database }} -v ON_ERROR_STOP=1 -f /schema/schema.sql
+      {{- include "octo-common.podSpec" (dict
+            "root" $
+            "component" "schema"
+            "restartPolicy" "OnFailure"
+            "initContainers" (include "octo-common.container" (dict
+              "root" $
+              "component" "schema"
+              "name" "wait-for-postgres"
+              "image" (include "octo-common.image" (dict "root" $ "component" "postgres" "thirdParty" true))
+              "env" (toYaml $pgPassword)
+              "command" (list "sh" "-c" (printf "until pg_isready %s; do\n  echo \"waiting for postgres...\"\n  sleep 2\ndone\n" $psqlArgs))))
+            "containers" (include "octo-common.container" (dict
+              "root" $
+              "component" "schema"
+              "name" "apply-schema"
+              "image" (include "octo-common.image" (dict "root" $ "component" "schema"))
+              "pullPolicy" (include "octo-common.imagePullPolicy" (dict "root" $ "component" "schema"))
+              "env" (toYaml $pgPassword)
+              "command" (list "sh" "-c" (printf "psql %s -v ON_ERROR_STOP=1 -f /schema/schema.sql" $psqlArgs)))))
+          | nindent 6 }}

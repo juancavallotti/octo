@@ -1,48 +1,26 @@
 {{- if .Values.nats.enabled }}
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: {{ include "octo.nats.serviceName" . }}
-  labels:
-    {{- include "octo.labels" . | nindent 4 }}
-    app.kubernetes.io/component: nats
-spec:
-  replicas: 1
-  # Governing headless service: gives each replica a stable identity
-  # (nats-0.<headless>) that cluster routes rely on when scaling to multi-node.
-  # This is why NATS is a StatefulSet even as a single core server, per the
-  # official chart's guidance.
-  serviceName: {{ include "octo.nats.headlessServiceName" . }}
-  selector:
-    matchLabels:
-      {{- include "octo.selectorLabels" . | nindent 6 }}
-      app.kubernetes.io/component: nats
-  template:
-    metadata:
-      labels:
-        {{- include "octo.selectorLabels" . | nindent 8 }}
-        app.kubernetes.io/component: nats
-    spec:
-      containers:
-        - name: nats
-          image: "{{ .Values.nats.image.repository }}:{{ .Values.nats.image.tag }}"
-          imagePullPolicy: {{ .Values.nats.image.pullPolicy }}
-          # Core NATS only (no JetStream): ephemeral pub/sub, so no volume. -m
-          # exposes the HTTP monitoring endpoint used by the readiness probe.
-          args: ["-m", "8222"]
-          ports:
-            - name: client
-              containerPort: 4222
-            - name: monitor
-              containerPort: 8222
-          readinessProbe:
-            httpGet:
-              path: /healthz
-              port: 8222
-            initialDelaySeconds: 3
-            periodSeconds: 10
-          {{- with .Values.nats.resources }}
-          resources:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
+{{- /* Core NATS only (no JetStream): ephemeral pub/sub, so no volume. It is still
+       a StatefulSet so each replica gets a stable identity (nats-0.<headless>)
+       that cluster routes rely on when scaling to multi-node, per the official
+       chart's guidance. -m exposes the HTTP monitoring endpoint the readiness
+       probe uses. */}}
+{{- include "octo-common.statefulset" (dict
+      "root" $
+      "component" "nats"
+      "replicas" 1
+      "serviceName" (include "octo.nats.headlessServiceName" .)
+      "containers" (include "octo-common.container" (dict
+        "root" $
+        "component" "nats"
+        "name" "nats"
+        "image" (include "octo-common.image" (dict "root" $ "component" "nats" "thirdParty" true))
+        "pullPolicy" (include "octo-common.imagePullPolicy" (dict "root" $ "component" "nats"))
+        "args" (list "-m" "8222")
+        "ports" (list
+          (dict "name" "client" "containerPort" 4222)
+          (dict "name" "monitor" "containerPort" 8222))
+        "readinessProbe" (dict
+          "httpGet" (dict "path" "/healthz" "port" 8222)
+          "initialDelaySeconds" 3
+          "periodSeconds" 10)))) }}
 {{- end }}

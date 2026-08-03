@@ -1,88 +1,17 @@
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: {{ include "octo.fullname" . }}-orchestrator
-  labels:
-    {{- include "octo.labels" . | nindent 4 }}
-    app.kubernetes.io/component: orchestrator
-spec:
-  replicas: {{ .Values.orchestrator.replicas }}
-  selector:
-    matchLabels:
-      {{- include "octo.selectorLabels" . | nindent 6 }}
-      app.kubernetes.io/component: orchestrator
-  template:
-    metadata:
-      labels:
-        {{- include "octo.selectorLabels" . | nindent 8 }}
-        app.kubernetes.io/component: orchestrator
-    spec:
-      serviceAccountName: {{ include "octo.fullname" . }}-orchestrator
-      containers:
-        - name: orchestrator
-          image: {{ include "octo.image" (dict "root" $ "repo" .Values.orchestrator.repository) | quote }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          ports:
-            - containerPort: {{ .Values.orchestrator.service.port }}
-          env:
-            - name: PORT
-              value: {{ .Values.orchestrator.service.port | quote }}
-            - name: DATABASE_URL
-              value: {{ include "octo.databaseURL" . | quote }}
-            - name: KUBE_NAMESPACE
-              value: {{ .Release.Namespace | quote }}
-            - name: RUNTIME_IMAGE
-              value: {{ include "octo.image" (dict "root" $ "repo" .Values.runtime.repository) | quote }}
-            # Runtime-services env the orchestrator injects into every deployed runtime
-            # pod: the backend module, the in-cluster KV URL (this orchestrator), and the
-            # ServiceAccount granting leases RBAC. ORCHESTRATOR_URL being set is what
-            # enables the injection.
-            - name: RUNTIME_SERVICES_MODULE
-              value: {{ .Values.runtime.servicesModule | quote }}
-            - name: ORCHESTRATOR_URL
-              value: {{ include "octo.orchestrator.url" . | quote }}
-            {{- if .Values.nats.enabled }}
-            # In-cluster NATS broker for cross-node pub-sub. Set so the URL is
-            # discoverable; consumers land with the pub-sub migration.
-            - name: NATS_URL
-              value: {{ include "octo.nats.url" . | quote }}
-            {{- end }}
-            - name: RUNTIME_SERVICE_ACCOUNT
-              value: {{ include "octo.runtime.serviceAccountName" . | quote }}
-            {{- if .Values.kv.encryptionKey }}
-            # AES-256 key for encrypting KV secret namespaces at rest. Absent =>
-            # secret writes rejected, plain KV still works.
-            - name: KV_ENCRYPTION_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "octo.kv.secretName" . }}
-                  key: kv-encryption-key
-            {{- end }}
-            {{- if .Values.orchestrator.baseDomain }}
-            - name: BASE_DOMAIN
-              value: {{ .Values.orchestrator.baseDomain | quote }}
-            {{- end }}
-            {{- if .Values.orchestrator.clusterIssuer }}
-            - name: CLUSTER_ISSUER
-              value: {{ .Values.orchestrator.clusterIssuer | quote }}
-            {{- end }}
-            {{- if .Values.wildcardTLS.enabled }}
-            # Per-integration ingresses reference the shared wildcard Secret
-            # instead of issuing a per-host cert via CLUSTER_ISSUER.
-            - name: WILDCARD_TLS_SECRET
-              value: {{ .Values.wildcardTLS.secretName | quote }}
-            {{- end }}
-            {{- if .Values.orchestrator.ingressClass }}
-            - name: INGRESS_CLASS
-              value: {{ .Values.orchestrator.ingressClass | quote }}
-            {{- end }}
-            {{- if .Values.orchestrator.ingressAnnotations }}
-            - name: INGRESS_ANNOTATIONS
-              value: {{ .Values.orchestrator.ingressAnnotations | toJson | quote }}
-            {{- end }}
-          readinessProbe:
-            httpGet:
-              path: /healthz
-              port: {{ .Values.orchestrator.service.port }}
-            initialDelaySeconds: 3
-            periodSeconds: 10
+{{- include "octo-common.deployment" (dict
+      "root" $
+      "component" "orchestrator"
+      "replicas" .Values.orchestrator.replicas
+      "serviceAccountName" (include "octo-common.serviceAccountName" (dict "root" $ "component" "orchestrator"))
+      "containers" (include "octo-common.container" (dict
+        "root" $
+        "component" "orchestrator"
+        "name" "orchestrator"
+        "image" (include "octo-common.image" (dict "root" $ "component" "orchestrator"))
+        "pullPolicy" (include "octo-common.imagePullPolicy" (dict "root" $ "component" "orchestrator"))
+        "ports" (list (dict "containerPort" .Values.orchestrator.service.port))
+        "env" (include "octo.orchestrator.env" .)
+        "readinessProbe" (dict
+          "httpGet" (dict "path" "/healthz" "port" .Values.orchestrator.service.port)
+          "initialDelaySeconds" 3
+          "periodSeconds" 10)))) }}

@@ -4,11 +4,17 @@ description: "The published images and how they are built."
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
+import { DynamicCodeBlock } from 'fumadocs-ui/components/dynamic-codeblock';
+import { OCTO_VERSION } from '@/lib/version';
 
 Octo builds its images from six Dockerfiles. Five produce the **platform
-images**, built together and pushed to your own registry (Artifact Registry in
-the reference deployment). Two are **public images** on Docker Hub, for use
-without a cluster: the standalone editor and the runtime on its own.
+images**, published to public Docker Hub under a `-paas` suffix
+(`juancavallotti/octo-platform-paas`, …) and, in the reference deployment, also
+to Artifact Registry. Two more are **public images** for use without a cluster:
+the standalone editor and the runtime on its own.
+
+The Helm chart's defaults point at the public `-paas` images, so installing the
+chart needs no registry of your own — see [Helm chart](#helm-charts) below.
 
 | Image | Dockerfile | Build context | Role |
 |---|---|---|---|
@@ -36,13 +42,65 @@ Dockerfiles and contexts:
   and pushes all five to `IMAGE_BASE/<name>:<TAG>`.
 - **Cloud Build on version tags** — `cloudbuild.yaml` builds all five, tags
   each with both the git tag and `latest`, pushes them to Artifact Registry,
-  and also packages and pushes the Helm chart as an OCI artifact. See
+  and packages and pushes both Helm charts as OCI artifacts. See
   [Releases and upgrades](/deploy/releases-and-upgrades).
 
-Both public images are built by the GitHub Actions release workflow
+The public images — both the `-paas` platform set and the two cluster-less ones
+— are built by the GitHub Actions release workflow
 (`.github/workflows/release.yml`) on every version tag, as multi-arch builds
 (`linux/amd64` and `linux/arm64`) tagged with the release version and `latest`,
 and pushed to public Docker Hub.
+
+### Images are pinned by digest on the GCP path
+
+Tags move: the same tag can be rebuilt, and `latest` always points somewhere
+new. So after pushing, Cloud Build reads back the digest of each image and
+renders a values file naming them exactly:
+
+```yaml
+platform:
+  image:
+    repository: octo-platform-paas
+    digest: "sha256:…"
+```
+
+The deploy step hands that to the chart, so a release runs precisely what that
+build produced rather than whatever the tag resolves to later, and the file is
+archived beside the release in the state bucket so a rollback can reproduce the
+coordinates. `task helm:values:images IMAGE_BASE=… TAG=…` renders the same file
+locally for any published tag.
+
+## Helm charts
+
+Two charts are published as OCI artifacts alongside the images, on every
+release and at the same version:
+
+| Chart | Purpose |
+|---|---|
+| `oci://ghcr.io/juancavallotti/charts/octo` | The application chart — installs the whole platform |
+| `oci://ghcr.io/juancavallotti/charts/octo-common` | The library chart it is built from; only needed if you depend on it directly |
+
+<DynamicCodeBlock lang="bash" code={`helm install octo oci://ghcr.io/juancavallotti/charts/octo --version ${OCTO_VERSION} \\
+  -n octo --create-namespace --set ingress.host=octo.example.com`} />
+
+`octo-common` is vendored inside the `octo` tarball, so the application chart
+installs on its own. The reference deployment pushes both to Artifact Registry
+as well. See [Helm chart](/deploy/helm).
+
+## The images run as non-root
+
+Every image runs unprivileged, which is what lets the chart's cloud profiles
+apply a restricted security context:
+
+| Image | UID |
+|---|---|
+| `octo-platform-paas` | `1000` (`node`) |
+| `octo-orchestrator-paas`, `octo-logs-paas`, `octo-runtime-paas` | `65532` (distroless `nonroot`) |
+| `octo-schema-paas` | `70` (`postgres`) |
+
+The Go services write nothing to disk, so they also tolerate
+`readOnlyRootFilesystem`. The editor needs writable scratch space
+(`/app/.octo-run`), which the chart provides as an `emptyDir`.
 
 ## The images
 

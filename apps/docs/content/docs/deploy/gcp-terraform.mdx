@@ -56,10 +56,12 @@ Under `deploy/terraform/`:
 | `infra/` | Artifact Registry repo, VM + static IP + firewall + DNS records + k3s bootstrap, and (optional) the Cloud Build trigger + IAM | Once per cluster |
 | `release/` | The Octo Helm release (image tag + chart version) | Every deploy or upgrade |
 
-Both roots read a single tfvars file — `deploy/terraform/octo.tfvars`
-(gitignored) — while per-deploy values (`image_tag`, `chart_version`) come
-from the command line. `release/` keeps its state in a GCS bucket so Cloud
-Build and your laptop share it; `infra/` keeps local state.
+Each root owns its own `terraform.tfvars` (gitignored; copy the committed
+`.example`). Terraform loads that filename automatically, so no `-var-file`
+is passed anywhere, and each root declares exactly the variables it uses.
+Per-deploy values (`image_tag`, `chart_version`) come from the command line.
+Both roots keep state in the same versioned GCS bucket, one prefix each, so
+Cloud Build and your laptop share it.
 
 <Callout type="warn">
   The release state holds generated secrets (the Postgres password and, with
@@ -88,10 +90,13 @@ Build and your laptop share it; `infra/` keeps local state.
 ```bash
 gcloud auth application-default login
 cd deploy/terraform
-cp octo.tfvars.example octo.tfvars
+cp backend.hcl.example backend.hcl        # the shared state bucket
+cp infra/terraform.tfvars.example infra/terraform.tfvars
+cp release/terraform.tfvars.example release/terraform.tfvars
 ```
 
-Set at least `project_id`, `domain`, and `dns_managed_zone`.
+Set at least `project_id`, `domain`, and `dns_managed_zone`. `project_id`
+and `domain` appear in both files and must agree.
 
 </Step>
 <Step>
@@ -124,7 +129,7 @@ terraform -chdir=deploy/terraform/infra output   # image_base, static_ip, url, k
 
 Connect the GitHub repo once in the console (Cloud Build → Triggers →
 Connect repository — installs the GitHub App; Terraform cannot do this), then
-set `enable_cloudbuild = true` in `octo.tfvars` and re-run `task infra:apply`.
+set `enable_cloudbuild = true` in `infra/terraform.tfvars` and re-run `task infra:apply`.
 
 </Step>
 </Steps>
@@ -139,7 +144,7 @@ set `enable_cloudbuild = true` in `octo.tfvars` and re-run `task infra:apply`.
 
 ## Required and notable variables
 
-Set in `octo.tfvars`, read by both roots:
+Set in each root's `terraform.tfvars` (values needed by both must agree):
 
 | Variable | Default | Notes |
 |---|---|---|
@@ -158,15 +163,17 @@ The `release` root additionally takes `image_tag` (default `latest`) and
 `chart_version` (required, must match the published `helm/Chart.yaml`) — both
 supplied on the command line by `task deploy` or Cloud Build.
 
-## Publish images and the chart
+## Publish images and the charts
 
-The node and the Helm provider pull from Artifact Registry, so images and the
-chart must be published before a deploy.
+The node and the Helm provider pull from Artifact Registry, so images and charts
+must be published before a deploy.
 
 - **Automated (recommended):** push a version tag — release-please publishes
   `vX.Y.Z`, and the Cloud Build trigger runs `cloudbuild.yaml`, building all
-  five images and the chart and pushing them tagged with both the git tag and
-  `latest`. See [Releases and upgrades](/deploy/releases-and-upgrades).
+  five images and both charts. The images are pushed twice, under the git tag
+  and `latest`; the charts are pushed only under their own version, because an
+  OCI chart's tag *is* its version. See
+  [Releases and upgrades](/deploy/releases-and-upgrades).
 - **Manual:** with `IMAGE_BASE` from `terraform output image_base`:
 
 ```bash
@@ -175,6 +182,9 @@ helm registry login us-west1-docker.pkg.dev -u oauth2accesstoken -p "$(gcloud au
 task images:push IMAGE_BASE=$IMAGE_BASE TAG=v0.1.1
 task helm:push   IMAGE_BASE=$IMAGE_BASE
 ```
+
+`helm:push` publishes both the `octo` application chart and the `octo-common`
+library chart it is built from.
 
 ## Deploy and roll upgrades
 
@@ -201,6 +211,40 @@ root. Each apply:
 A changed `image_tag` rewrites the pod templates, so the Deployments roll
 automatically; Postgres is untouched when only the tag moves. The first TLS
 issuance takes a minute after the DNS A record resolves.
+
+### Images are pinned by digest on the Cloud Build path
+
+Cloud Build reads back the digest of every image it pushed and renders
+`dist/values.images.yaml` pinning them, then passes it to the `release` root as
+`image_values_file`. The release then runs exactly what that build produced,
+rather than whatever the tag resolves to at apply time — and `image_tag` is not
+passed to the chart at all when digests are supplied, so there is only ever one
+source of truth for what is running. The file is archived to
+`gs://octo-tfstate-PROJECT/release/values.images-TAG.yaml` beside the release.
+
+A manual `task deploy TAG=…` leaves `image_values_file` empty and identifies
+images by tag, which is fine because it also pre-pulls that tag onto the node.
+To pin a manual deploy too, render the file yourself:
+
+```bash
+task helm:values:images IMAGE_BASE=$IMAGE_BASE TAG=v0.1.1
+terraform -chdir=deploy/terraform/release apply \
+  -var image_values_file=$PWD/dist/values.images.yaml ...
+```
+
+### Database durability
+
+The VM's Postgres volume is provisioned by k3s's `local-path` provisioner,
+whose per-claim directory is named after the claim's UID. Re-bootstrapping the
+VM reinstalls k3s and therefore mints a new UID, bringing the database back
+empty with the old data stranded on disk. Set `postgres_host_path` (e.g.
+`/var/lib/octo-data`) to pin it to a fixed path instead.
+
+On a release that already holds data this is a **data move, not a config
+change** — copy the directory across with the StatefulSet scaled to zero first,
+or the database comes up empty. See `docs/deployment.md` for the procedure.
+Either way the data sits on the boot disk and does not survive the VM being
+destroyed; an attached data disk mounted at the pinned path does.
 
 ## Integration endpoints
 

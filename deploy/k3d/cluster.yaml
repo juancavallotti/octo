@@ -1,11 +1,16 @@
 # k3d cluster config for local dev (real k3s inside Docker).
 #
-# The host ./data volume mount is passed on the CLI by `task cluster:dev`
+# The host ./data volume mount is passed on the CLI by `task cluster:deploy`
 # (--volume "$(pwd)/data:/var/lib/octo-data@server:0") because the host path is
-# dynamic; the Postgres hostPath PV (deploy/k8s/postgres.yaml) binds that node path.
+# dynamic. /var/lib/octo-data is the fixed node path the chart's static
+# PersistentVolume binds (postgres.storage.hostPath in helm/values-k3d.yaml), so
+# the database lives at ./data/pgdata and outlives the cluster — this file's
+# cluster is deleted and recreated by `task cluster:stop` / `cluster:deploy`,
+# which would strand a dynamically provisioned volume.
 #
-# Port mappings route localhost -> the k3d loadbalancer -> NodePort services, so
-# the editor and orchestrator are reachable without a long-running port-forward.
+# Port mappings route localhost -> the k3d loadbalancer -> NodePort services
+# (helm/values-k3d.yaml pins them to 30030/30090), so the editor and
+# orchestrator are reachable without a long-running port-forward.
 apiVersion: k3d.io/v1alpha5
 kind: Simple
 metadata:

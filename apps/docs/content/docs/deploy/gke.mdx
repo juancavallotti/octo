@@ -1,0 +1,294 @@
+---
+title: "GKE"
+description: "Deploy the Octo chart on GKE Autopilot or Standard, with Cloud SQL and Workload Identity."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { DynamicCodeBlock } from 'fumadocs-ui/components/dynamic-codeblock';
+import { OCTO_VERSION } from '@/lib/version';
+
+The chart ships two GKE profiles: `values-gke-autopilot.yaml` and
+`values-gke-standard.yaml`. They describe the same deployment; they differ only
+where Autopilot's managed nodes impose constraints that Standard does not.
+
+## Get the profile
+
+Both are shipped inside the published chart, so no checkout is needed:
+
+<DynamicCodeBlock lang="bash" code={`helm pull oci://ghcr.io/juancavallotti/charts/octo --version ${OCTO_VERSION} --untar
+ls octo/values-gke-*.yaml
+# octo/values-gke-autopilot.yaml  octo/values-gke-standard.yaml`} />
+
+Or fetch one directly:
+
+```bash
+curl -O https://raw.githubusercontent.com/juancavallotti/octo/main/helm/values-gke-autopilot.yaml
+curl -O https://raw.githubusercontent.com/juancavallotti/octo/main/helm/values-gke-standard.yaml
+```
+
+Browsable on GitHub:
+[`helm/values-gke-autopilot.yaml`](https://github.com/juancavallotti/octo/blob/main/helm/values-gke-autopilot.yaml)
+·
+[`helm/values-gke-standard.yaml`](https://github.com/juancavallotti/octo/blob/main/helm/values-gke-standard.yaml).
+Every value is commented with why it is set that way — worth reading before you
+change one.
+
+## Install
+
+<DynamicCodeBlock lang="bash" code={`helm upgrade --install octo oci://ghcr.io/juancavallotti/charts/octo \\
+  --version ${OCTO_VERSION} -n octo --create-namespace \\
+  -f values-gke-autopilot.yaml \\
+  --set ingress.host=octo.example.com \\
+  --set postgres.auth.password=<strong-password>`} />
+
+Pull the profile at the same version as the chart: it pins per-component
+`runAsUser` values matching the UIDs that release's images run as.
+
+<Callout type="info">
+  Both profiles have been installed on live clusters, and both are rendered and
+  schema-checked in CI on every change.
+
+  On **Autopilot**: the wildcard certificate via cert-manager DNS-01, Cloud SQL on
+  a private IP, and an integration deployed from the editor and reached over the
+  wildcard host.
+
+  On **Standard**: the per-host certificate via HTTP-01 and the wildcard via
+  DNS-01, ingress-nginx on the reserved static IP serving the editor over HTTPS,
+  and the bundled Postgres StatefulSet on a `premium-rwo` volume with the schema
+  Job completing against it.
+
+  Between them that covers both database paths. The two Terraform roots are thin
+  wrappers over one shared module, and nothing in the Cloud SQL path branches on
+  Autopilot versus Standard — neither values profile carries an
+  `externalDatabase` block at all, since that wiring comes from the module.
+</Callout>
+
+## Provision a cluster with Terraform
+
+If you do not already have a cluster, the repo has a Terraform root per flavour
+that creates one, installs every prerequisite below, wires DNS, and deploys the
+chart — in a single apply.
+
+Each root reads its **own** `terraform.tfvars` — nothing is shared between them, so
+copy the example for the flavour you are applying and fill in `project_id`,
+`acme_email`, `dns_managed_zone`, `domain` and `apps_domain`:
+
+```bash
+cd deploy/terraform
+
+# GKE Standard
+cp gke-standard/terraform.tfvars.example gke-standard/terraform.tfvars
+$EDITOR gke-standard/terraform.tfvars
+task gke:standard:apply
+
+# ...or GKE Autopilot
+cp gke-autopilot/terraform.tfvars.example gke-autopilot/terraform.tfvars
+$EDITOR gke-autopilot/terraform.tfvars
+task gke:autopilot:apply
+```
+
+Both roots default to the **same** hostnames, so only one can hold them at a time:
+destroy one before applying the other, or the second apply fails on an existing
+record set.
+
+Both roots are thin wrappers over one shared composition
+(`deploy/terraform/modules/octo-gke`), so the two flavours cannot drift — which
+matters, because the point of having both is that the *same* deployment is
+exercised on each. What they create:
+
+| | |
+|---|---|
+| **Cluster** | A dedicated VPC (not `default`), VPC-native, Autopilot or Standard |
+| **Ingress** | ingress-nginx on a **reserved** static IP, so DNS resolves before the controller is even up |
+| **TLS** | cert-manager, plus both ClusterIssuers — HTTP-01 for the editor host, DNS-01 (via Workload Identity) for the wildcard |
+| **DNS** | A records for the editor, the apps domain and `*.{apps_domain}` |
+| **Database** | The chart's bundled Postgres, or a Cloud SQL instance on a private IP — one variable |
+
+These are **test** environments and their defaults say so: spot nodes, a zonal
+control plane, no Cloud NAT, no deletion protection, no database backups. Every one
+has a variable that turns it into the production choice.
+
+<Callout type="warn">
+  **Treat these roots as a worked example, not as your production infrastructure.**
+  They exist to prove the chart's cloud profiles run on a real cluster, cheaply and
+  disposably, and the shape follows from that: one root owns the cluster *and* the
+  application release, so every `terraform apply` is also a redeploy; there is a
+  single environment with no staging/production split; the VPC, IAM and state layout
+  are sized for something you will destroy this afternoon.
+
+  For anything you intend to keep, fork them — or better, keep only the parts you
+  need. The chart is the stable interface here, not the Terraform: it is designed to
+  be driven from your own values file, and none of what these roots do to it
+  (hostnames, TLS mode, external database, secrets) requires their Terraform. Most
+  teams already have opinions about VPCs, node pools, secret management and CI that
+  belong in their own modules, and the chart slots into those unchanged.
+</Callout>
+
+<Callout type="info">
+  The DNS **zone** is not managed by Terraform, only the records in it. Cloud DNS
+  assigns fresh nameservers on every zone creation, so a zone owned by a root you
+  destroy and recreate would invalidate its delegation every cycle. Create it once
+  by hand and delegate it — see
+  [`deploy/terraform/README.md`](https://github.com/juancavallotti/octo/blob/main/deploy/terraform/README.md).
+</Callout>
+
+Tear down with `task gke:standard:destroy`. It is phased on purpose: the ingress
+controller owns the load balancer, and destroying it alongside the release strands a
+forwarding rule that then blocks the VPC delete.
+
+The same target also sweeps orphaned `k8s-*` firewall rules off the VPC before
+deleting it. A LoadBalancer Service makes the GKE service controller create five
+objects Terraform never sees — a forwarding rule, a target pool, a health check and
+two firewall rules — and deleting the Service reclaims them, but that cleanup races
+the cluster delete. The health-check rule is the one that loses often enough to
+matter. It costs nothing on its own; it matters because a network cannot be deleted
+while a firewall rule references it, so without the sweep the destroy fails on the
+VPC with an error naming the rule rather than the cause:
+
+```
+Error waiting for Deleting Network: The network resource '…/networks/octo-gke-std'
+is already being used by '…/firewalls/k8s-8d299831b5154b81-node-http-hc'
+```
+
+Should you ever hit that — from a destroy interrupted before the sweep, or a cluster
+torn down by hand — it clears with:
+
+```bash
+gcloud compute firewall-rules list --project <project> --filter='name~^k8s-'
+gcloud compute firewall-rules delete <name> --project <project> --quiet
+```
+
+Then re-run the destroy; it is safe to repeat.
+
+### Testing a chart you have edited
+
+The published images track releases, so they will not match a chart changed since
+the last one. Build the working tree instead and push it to `ttl.sh`, an anonymous
+registry that expires what you give it:
+
+```bash
+task images:ttl TTL=12h
+task gke:standard:apply IMAGE_VALUES=dist/values.ttl.yaml
+```
+
+## Prerequisites
+
+None of these are installed by the chart:
+
+| Requirement | Why |
+|---|---|
+| An ingress controller — **ingress-nginx** is what the profiles assume | The chart creates an Ingress; nothing serves it otherwise |
+| **cert-manager** plus the ClusterIssuer named in `ingress.tls.clusterIssuer` | TLS for the editor host |
+| A DNS A record for `ingress.host` pointing at the controller's address | – |
+
+The Terraform roots above install all three. This section is for a cluster you
+already own.
+
+Add a wildcard record for `*.{orchestrator.baseDomain}` if you want
+per-integration external endpoints.
+
+### Why ingress-nginx rather than GCE ingress
+
+The orchestrator creates an Ingress per externally-exposed integration, at
+runtime, in Go. GCE ingress requires a `cloud.google.com/neg` annotation on each
+backend **Service** — which the orchestrator does not set — and a
+Google-managed certificate is a separate CRD it cannot emit. ingress-nginx works
+with the ClusterIP Services it does create, unchanged.
+
+You can still put the *editor* behind GCE ingress while integrations use nginx:
+
+```yaml
+ingress:
+  className: gce
+  tls:
+    mode: gke-managed-cert     # the chart creates the ManagedCertificate
+orchestrator:
+  ingressClass: nginx          # leave per-integration endpoints on nginx
+```
+
+In that configuration you will likely also want `gke.backendConfig.enabled` (the
+GCE load balancer health-checks `/` by default and marks a backend unhealthy if
+the app answers otherwise) and `gke.frontendConfig.enabled` for an HTTP→HTTPS
+redirect. Both need GKE-only CRDs, so both stay off unless you enable them.
+
+## Autopilot's constraints
+
+Autopilot manages nodes for you, and three consequences shape the profile:
+
+- **Every pod is billed on its resource requests**, and Autopilot injects
+  defaults when they are absent. The profile sets them explicitly, with limits
+  equal to requests — the Guaranteed QoS class, and a predictable bill.
+- **`hostPath` and `hostPort` are rejected outright.** Nothing in the chart uses
+  them by default; in particular leave `postgres.storage.hostPath` empty, as it
+  is a single-node-cluster knob.
+- **Pods can take noticeably longer to start**, because Autopilot may provision
+  a node first. The profile allows a generous startup probe (30 × 10s) so a slow
+  first boot is not killed before it is ever ready.
+
+`values-gke-standard.yaml` relaxes all three: requests without limits so pods can
+burst into spare node capacity, no startup-probe allowance, and `nodeSelector` /
+`tolerations` available if you run a dedicated pool. It also spreads the editor
+across zones so a zonal outage does not take it down.
+
+## Security context
+
+Every container runs unprivileged: `runAsNonRoot`, `allowPrivilegeEscalation:
+false`, all capabilities dropped, and `seccompProfile: RuntimeDefault`. Because
+each image runs as a different UID, `runAsUser` is set per component — see
+[image and chart compatibility](/deploy/helm#image-and-chart-compatibility) for
+the table.
+
+The Go services (orchestrator, logs) additionally get
+`readOnlyRootFilesystem: true`; they write nothing to disk. The editor does not,
+because Next.js needs writable scratch space.
+
+## Storage
+
+| | Autopilot | Standard |
+|---|---|---|
+| `storageClassName` | `standard-rwo` (pd-balanced) | `premium-rwo` (pd-ssd) |
+| Size | `20Gi` | `50Gi` |
+
+Persistent disks are zonal, so the Postgres pod is pinned to its volume's zone.
+That is one of the reasons to prefer Cloud SQL for anything you care about.
+
+### Cloud SQL
+
+```yaml
+postgres:
+  enabled: false
+externalDatabase:
+  host: 10.20.30.40          # private IP, or a Cloud SQL Auth proxy
+  database: octo
+  user: octo
+  sslmode: require
+  existingSecret: cloudsql-octo
+  existingSecretPasswordKey: password
+```
+
+`postgres.enabled: false` skips the StatefulSet, its Service and its Secret; the
+schema Job points at the external host instead. Keep the password in a Secret
+owned by Terraform or external-secrets rather than in a values file — values
+persist in Helm release history.
+
+## Workload Identity
+
+Bind the chart's ServiceAccounts to Google service accounts through annotations:
+
+```yaml
+orchestrator:
+  serviceAccount:
+    annotations:
+      iam.gke.io/gcp-service-account: octo-orchestrator@PROJECT.iam.gserviceaccount.com
+```
+
+The orchestrator and runtime ServiceAccounts are the two the chart creates and
+the two that can need cloud credentials.
+
+## A note on the GCP reference deployment
+
+This page is about installing the chart on a GKE cluster you own. It is not the
+same thing as the [GCP reference deployment](/deploy/gcp-terraform), which
+provisions a single-VM k3s cluster with Terraform and drives releases through
+Cloud Build. That path is more opinionated and more automated; this one assumes
+you already have a cluster and want the platform on it.

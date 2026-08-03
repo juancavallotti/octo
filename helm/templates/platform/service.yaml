@@ -1,17 +1,6 @@
-apiVersion: v1
-kind: Service
-metadata:
-  name: {{ include "octo.platform.serviceName" . }}
-  labels:
-    {{- include "octo.labels" . | nindent 4 }}
-    app.kubernetes.io/component: platform
-spec:
-  # ClusterIP: the editor is reached through the Ingress, not a NodePort.
-  type: ClusterIP
-  selector:
-    {{- include "octo.selectorLabels" . | nindent 4 }}
-    app.kubernetes.io/component: platform
-  ports:
-    - name: http
-      port: {{ .Values.platform.service.port }}
-      targetPort: {{ .Values.platform.service.port }}
+{{- /* ClusterIP: the editor is reached through the Ingress, not a NodePort. */}}
+{{- include "octo-common.service" (dict
+      "root" $
+      "component" "platform"
+      "type" "ClusterIP"
+      "ports" (list (dict "name" "http" "port" .Values.platform.service.port "targetPort" .Values.platform.service.port))) }}

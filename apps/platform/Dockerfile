@@ -70,7 +70,25 @@ COPY --from=runtime-build /out/octo /usr/local/bin/octo
 COPY --from=runtime-build /out/dolphin /usr/local/bin/dolphin
 
 # OCTO_RUN_DIR must be writable at runtime; back it with an emptyDir in k8s.
-RUN mkdir -p /app/.octo-run
+# Owned by the unprivileged user below, which is what lets the container write
+# there without running as root. Same for /tmp, which Next.js uses for its
+# response cache.
+RUN mkdir -p /app/.octo-run && chown -R node:node /app/.octo-run /tmp
+
+# Run unprivileged. node:22-alpine ships a `node` user (uid/gid 1000) but does
+# not select it, so without this the editor runs as root — which clusters with
+# a restricted PodSecurity policy reject, and which the Helm chart would
+# otherwise have to special-case for this one component while every Go service
+# already runs nonroot from distroless.
+#
+# Nothing here needs privileges: the server binds 3000 (>1024), and the two Go
+# binaries it spawns are read+execute for everyone.
+# Numeric, not `node`. With runAsNonRoot set, the kubelet must decide before
+# start whether the user is root, and it cannot resolve a username from the
+# image to do it — a named USER means the pod is rejected unless the chart also
+# sets runAsUser. 1000 is what node:22-alpine's `node` user already is, so this
+# is the same identity stated in a form Kubernetes can check on its own.
+USER 1000:1000
 
 EXPOSE 3000
 # server.js is the entrypoint emitted by Next.js standalone output.

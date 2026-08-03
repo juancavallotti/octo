@@ -5,27 +5,112 @@
 nameOverride: ""
 fullnameOverride: ""
 
-# Shared image coordinates. Defaults to the public images on Docker Hub (see
-# #199) so `helm install` works with no --set for anyone standing up their own
-# cluster; the Terraform release root overrides both to Artifact Registry +
-# the deployed version tag for this project's own production deployment.
+# Pod- and container-level settings applied to EVERY octo workload (platform,
+# orchestrator, logs, postgres, nats, schema). Anything set here can be
+# overridden per component by setting the same key under that component — e.g.
+# `defaults.resources` for the common case, `postgres.resources` where Postgres
+# needs more.
+#
+# This block exists because every deployment target wants the same settings on
+# all five workloads at once: GKE Autopilot requires resources and a restricted
+# securityContext everywhere, EKS wants the same scheduling constraints
+# everywhere. Without it each profile would repeat itself five times, which is
+# how values files drift. Empty here so the stock install is unopinionated; the
+# values-*.yaml profiles fill it in per target.
+defaults:
+  # CPU/memory requests and limits. REQUIRED on GKE Autopilot — it injects
+  # defaults when they are missing, so set them explicitly to control cost.
+  resources: {}
+  # Pod-level securityContext (fsGroup, runAsUser, seccompProfile, ...).
+  podSecurityContext: {}
+  # Container-level securityContext. The cloud profiles set the restricted
+  # baseline: runAsNonRoot, drop ALL capabilities, no privilege escalation.
+  securityContext: {}
+  # Pulling from a private registry (ECR, a mirrored Artifact Registry).
+  imagePullSecrets: []
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+  priorityClassName: ""
+  # Extra pod metadata. podAnnotations is also where a checksum annotation goes
+  # if you want a config change to force a rollout.
+  podAnnotations: {}
+  podLabels: {}
+  # Extra env / mounts appended to the container the chart builds.
+  extraEnv: []
+  envFrom: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  # Probes beyond the readiness probe each component already defines.
+  livenessProbe: {}
+  startupProbe: {}
+  revisionHistoryLimit: null
+  strategy: {}
+
+# Shared image coordinates for the octo-* images. Defaults to the public images
+# on Docker Hub (see #199) so `helm install` works with no --set for anyone
+# standing up their own cluster; the Terraform release root overrides these to
+# Artifact Registry for this project's own production deployment.
 # Per-component repository names are appended to registry.
+#
+# Every component also accepts an `image` block overriding any of these
+# individually, plus a digest:
+#   platform:
+#     image:
+#       registry: ""       # override the shared registry for this image only
+#       repository: ""     # override the component's repository name
+#       tag: ""            # override the shared tag
+#       digest: ""         # sha256:... -- wins over any tag
+#       pullPolicy: ""     # override the shared pull policy
+# CI renders exactly that shape (a digest per component) after pushing, so a
+# release deploys the precise images that build produced rather than whatever a
+# mutable tag points at later.
 image:
   registry: "docker.io/juancavallotti"
-  tag: latest
+  # Empty falls back to the chart's appVersion, which release-please keeps equal
+  # to the release version. That is what makes `helm install oci://.../octo
+  # --version X` pull the images of release X instead of drifting onto :latest.
+  tag: ""
   pullPolicy: IfNotPresent
 
 platform:
   repository: octo-platform-paas
+  image: {}
   replicas: 1
   service:
     port: 3000
+    # Service type. ClusterIP by default — the editor is reached through the
+    # Ingress. NodePort for local clusters (k3d/kind) that map a host port;
+    # LoadBalancer where a cloud LB fronts it directly.
+    type: ClusterIP
+    # Annotations on the Service — e.g. cloud.google.com/neg on GKE for
+    # container-native load balancing, or service.beta.kubernetes.io/aws-* on
+    # EKS to shape the NLB.
+    annotations: {}
+    # Fixed NodePorts keyed by port name, for local clusters that map host
+    # ports. Empty lets Kubernetes allocate one.
+    nodePorts: {}
+    externalTrafficPolicy: ""
 
 orchestrator:
   repository: octo-orchestrator-paas
+  image: {}
   replicas: 1
   service:
     port: 8090
+    # Service type. ClusterIP by default — the orchestrator stays internal
+    # behind the platform's BFF proxy. NodePort for local clusters (k3d/kind) that map a host port;
+    # LoadBalancer where a cloud LB fronts it directly.
+    type: ClusterIP
+    # Annotations on the Service — e.g. cloud.google.com/neg on GKE for
+    # container-native load balancing, or service.beta.kubernetes.io/aws-* on
+    # EKS to shape the NLB.
+    annotations: {}
+    # Fixed NodePorts keyed by port name, for local clusters that map host
+    # ports. Empty lets Kubernetes allocate one.
+    nodePorts: {}
+    externalTrafficPolicy: ""
   # Stage 2 (per-integration external endpoints). When baseDomain is set the
   # orchestrator creates an Ingress per externally-exposed deployment at
   # {subdomain}.{baseDomain}. clusterIssuer empty = no TLS annotation and no
@@ -43,26 +128,63 @@ orchestrator:
   # cluster-issuer annotation (when clusterIssuer is set) always wins on
   # key collision.
   ingressAnnotations: {}
+  # The orchestrator talks to the Kubernetes API, so it runs as its own account
+  # with a namespaced Role. Set create=false and supply a name when the account
+  # must carry a cloud identity the chart shouldn't own — a GKE Workload Identity
+  # or EKS IRSA account created by Terraform. annotations is the lighter-weight
+  # alternative: keep the chart's account and just bind an identity to it, e.g.
+  #   iam.gke.io/gcp-service-account: octo@PROJECT.iam.gserviceaccount.com
+  #   eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT:role/octo
+  serviceAccount:
+    create: true
+    name: ""
+    annotations: {}
+  rbac:
+    create: true
 
 # Log-aggregator service: consumes the NATS internal.logs subject (competing
 # consumer) and persists events to Postgres; serves the read query API the
 # platform's /logs view calls. Replicas scale safely (NATS queue group).
 logs:
   repository: octo-logs-paas
+  image: {}
   replicas: 1
   service:
     port: 8091
+    # Service type. ClusterIP by default — the log query API stays internal
+    # behind the platform's BFF proxy. NodePort for local clusters (k3d/kind) that map a host port;
+    # LoadBalancer where a cloud LB fronts it directly.
+    type: ClusterIP
+    # Annotations on the Service — e.g. cloud.google.com/neg on GKE for
+    # container-native load balancing, or service.beta.kubernetes.io/aws-* on
+    # EKS to shape the NLB.
+    annotations: {}
+    # Fixed NodePorts keyed by port name, for local clusters that map host
+    # ports. Empty lets Kubernetes allocate one.
+    nodePorts: {}
+    externalTrafficPolicy: ""
 
 # Generic runtime image the orchestrator deploys per integration. Passed to the
 # orchestrator as RUNTIME_IMAGE; pre-pulled into containerd at provision so
 # integration pods (imagePullPolicy IfNotPresent) never hit the registry later.
 runtime:
   repository: octo-runtime-paas
+  image: {}
   # Runtime-services backend the orchestrator injects into each deployed runtime
   # pod (RUNTIME_SERVICES_MODULE). "k8s" = Lease-based leader election (so a cron
   # connector fires on one replica) + the orchestrator-backed KV store; "standalone"
   # = in-process noop. Cluster deploys want "k8s".
   servicesModule: k8s
+  # Account the orchestrator sets on every runtime pod it deploys. It only grants
+  # coordination.k8s.io Leases (leader election). Same create/name/annotations
+  # contract as the orchestrator's own account above — annotate it when deployed
+  # integrations need a cloud identity of their own.
+  serviceAccount:
+    create: true
+    name: ""
+    annotations: {}
+  rbac:
+    create: true
 
 # Deployment-scoped KV store the orchestrator serves for the runtime. encryptionKey
 # is a base64-encoded 32-byte (AES-256) key used to encrypt values in secret
@@ -76,9 +198,23 @@ kv:
 # hook job to apply sql/schema.sql idempotently.
 schema:
   repository: octo-schema-paas
+  image: {}
 
+# In-cluster Postgres. Set enabled=false to point the platform at a managed
+# instance instead (Cloud SQL on GKE, RDS on EKS) — see externalDatabase below.
+# When disabled the StatefulSet, its Service and its Secret are all skipped; the
+# schema hook Job still runs, against the external host.
 postgres:
+  enabled: true
+  # sslmode for the in-cluster connection. Traffic never leaves the cluster
+  # network, so disable is the default; a service mesh or a stricter policy may
+  # want require.
+  sslmode: disable
   image:
+    # Third-party image: it deliberately does NOT inherit the shared
+    # image.registry, which holds the octo-* images only. Empty means Docker
+    # Hub; point it at a mirror for clusters that can't reach Docker Hub.
+    registry: ""
     repository: postgres
     tag: "16-alpine"
     pullPolicy: IfNotPresent
@@ -90,9 +226,53 @@ postgres:
     size: 5Gi
     # Empty -> cluster default StorageClass (k3s ships local-path).
     storageClassName: ""
+    # Single-node clusters only (k3d, kind, a single-node k3s VM). Set this to a
+    # node path and the chart creates a static PersistentVolume bound to it
+    # instead of provisioning one dynamically, so the database lives at a fixed,
+    # predictable location that survives the cluster being deleted and recreated.
+    #
+    # Without it, a local-path-style provisioner names each volume's directory
+    # after the claim's UID, so recreating the cluster silently starts from an
+    # empty database while the old directory lingers on disk.
+    #
+    # Leave empty on any managed cluster: hostPath is node-local (wrong the
+    # moment there is more than one node) and GKE Autopilot rejects it outright.
+    hostPath: ""
+    # PersistentVolume hostPath type, when hostPath is set.
+    #
+    # DirectoryOrCreate suits a laptop cluster, where the path is a bind mount
+    # that may not exist yet. It is the wrong choice wherever the path is meant
+    # to be a mount point on a separate disk: if that disk failed to mount,
+    # kubelet cheerfully creates the directory on the root filesystem instead
+    # and Postgres initialises an empty database there, with nothing to
+    # distinguish it from a healthy install until the disk is needed.
+    #
+    # Directory refuses to mount a path that does not exist, so the same failure
+    # surfaces as a Pending pod naming the missing path.
+    hostPathType: DirectoryOrCreate
   service:
     port: 5432
   resources: {}
+
+# Managed database used when postgres.enabled is false — Cloud SQL on GKE, RDS
+# on EKS, or any reachable Postgres.
+#
+# Prefer existingSecret over password: a managed instance's credential is issued
+# by the cloud provider, so it belongs in a Secret owned by Terraform or an
+# external-secrets operator rather than in Helm values, which persist in release
+# history. Supplying `password` makes the chart create the Secret itself, which
+# is convenient for a trial and wrong for production.
+externalDatabase:
+  host: ""
+  port: 5432
+  user: octo
+  database: octo
+  sslmode: require
+  # Name of an existing Secret holding the password, and the key within it.
+  existingSecret: ""
+  existingSecretPasswordKey: password
+  # Only used when existingSecret is empty.
+  password: ""
 
 # NATS message broker for cross-process pub-sub. Core NATS only (no JetStream):
 # ephemeral fan-out, so no volume — but still a StatefulSet (+ headless service)
@@ -103,6 +283,8 @@ postgres:
 nats:
   enabled: true
   image:
+    # Third-party image; same registry rules as postgres above.
+    registry: ""
     repository: nats
     tag: "2.10-alpine"
     pullPolicy: IfNotPresent
@@ -129,18 +311,77 @@ auth:
   # Optional: id-token claim carrying roles (Auth.js default is "roles").
   rolesClaim: ""
 
+# How external traffic reaches the editor. "ingress" is the only mode today;
+# Gateway API ("gateway") is the planned follow-up, and this switch is the seam
+# it drops into — routing config is resolved in one place rather than inlined
+# per component, so adding HTTPRoute + Gateway templates does not touch the
+# workloads.
+networking:
+  mode: ingress
+
 ingress:
   enabled: true
+  # IngressClass of the controller that should claim this Ingress: traefik (k3s),
+  # nginx, gce (GKE), alb (EKS with the AWS Load Balancer Controller). Empty
+  # omits the field and lets the cluster's default IngressClass claim it.
   className: traefik
-  # Editor host. Always gets its own per-host HTTP-01 cert (see ingress.tls
-  # below), independent of wildcardTLS — it does not need to be the same domain
-  # as orchestrator.baseDomain.
-  host: octo.juancavallotti.com
+  # Editor host. Always gets its own certificate (see ingress.tls below),
+  # independent of wildcardTLS — it does not need to be the same domain as
+  # orchestrator.baseDomain.
+  #
+  # REQUIRED when ingress.enabled is true, and deliberately empty rather than
+  # defaulted: this chart is published to a public registry, and a default host
+  # is a domain somebody else owns. Installing without overriding it would mint
+  # an Ingress claiming that name — which on a shared ingress controller also
+  # takes routing for it.
+  host: ""
+  # Additional hosts served by the same backend (aliases, apex + www).
+  extraHosts: []
+  path: /
+  pathType: Prefix
+  # Controller-specific behaviour: nginx proxy-body-size, ALB scheme/target-type,
+  # GCE static IP, ... The mode-specific certificate annotation below always wins
+  # on key collision.
   annotations: {}
   tls:
     enabled: true
+    # Where the certificate comes from. This is the biggest single difference
+    # between deployment targets:
+    #   cert-manager      annotate with a ClusterIssuer; cert-manager issues
+    #                     per-host via HTTP-01. What the k3s bootstrap provides.
+    #   secret            reference a TLS Secret that already exists — a
+    #                     pre-issued wildcard, or one Terraform put there.
+    #   gke-managed-cert  Google-managed cert via the ManagedCertificate CRD
+    #                     (GCE ingress); the chart creates it for you.
+    #   acm               AWS ACM certificate by ARN, terminated at the ALB.
+    #   none              terminated upstream; no TLS on the Ingress.
+    # Empty auto-selects cert-manager when clusterIssuer is set, else secret,
+    # which is the behaviour this chart has always had.
+    mode: ""
     secretName: octo-tls
     clusterIssuer: letsencrypt-prod
+    # acm mode: arn:aws:acm:REGION:ACCOUNT:certificate/ID
+    certificateArn: ""
+    # gke-managed-cert mode: name of the ManagedCertificate to create. Empty
+    # derives it from the release name.
+    managedCertificateName: ""
+
+# GKE-only extras for clusters fronted by the GCE ingress controller. Both need
+# cloud.google.com / networking.gke.io CRDs that exist only on GKE, so both stay
+# off unless a profile enables them. Attach the BackendConfig to the editor
+# Service with:
+#   platform.service.annotations:
+#     cloud.google.com/backend-config: '{"default":"RELEASE-platform"}'
+gke:
+  backendConfig:
+    enabled: false
+    # The GCE load balancer health-checks "/" on the node port by default and
+    # marks the backend unhealthy if the app answers otherwise.
+    healthCheckPath: /
+    timeoutSec: null
+  frontendConfig:
+    enabled: false
+    redirectToHttps: false
 
 # Shared wildcard TLS cert for orchestrator.baseDomain (below) and every
 # {slug}.{baseDomain} per-integration subdomain, issued once by cert-manager via

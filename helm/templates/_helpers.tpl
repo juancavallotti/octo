@@ -1,76 +1,62 @@
-{{- define "octo.name" -}}
-{{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
-{{- end }}
+{{/*
+  octo-specific helpers. Generic naming, labelling and image resolution live in
+  the octo-common library chart (helm/charts/octo-common); what stays here is the
+  wiring that is particular to this platform — which component answers on which
+  in-cluster URL, and how the database DSN is assembled.
 
-{{- define "octo.fullname" -}}
-{{- if .Values.fullnameOverride }}
-{{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
-{{- else }}
-{{- $name := default .Chart.Name .Values.nameOverride }}
-{{- if contains $name .Release.Name }}
-{{- .Release.Name | trunc 63 | trimSuffix "-" }}
-{{- else }}
-{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
-{{- end }}
-{{- end }}
-{{- end }}
+  Every resource name is {fullname}-{component}, so these are all thin wrappers
+  over octo-common.componentName rather than independent string building.
+*/}}
 
-{{- define "octo.chart" -}}
-{{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
-{{- end }}
-
-{{- define "octo.labels" -}}
-helm.sh/chart: {{ include "octo.chart" . }}
-{{ include "octo.selectorLabels" . }}
-{{- if .Chart.AppVersion }}
-app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
-{{- end }}
-app.kubernetes.io/managed-by: {{ .Release.Service }}
-{{- end }}
-
-{{- define "octo.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "octo.name" . }}
-app.kubernetes.io/instance: {{ .Release.Name }}
+{{- define "octo.componentName" -}}
+{{- include "octo-common.componentName" (dict "root" .root "component" .component) }}
 {{- end }}
 
 {{- define "octo.postgres.serviceName" -}}
-{{ include "octo.fullname" . }}-postgres
+{{- include "octo-common.componentName" (dict "root" . "component" "postgres") }}
 {{- end }}
 
 {{- define "octo.orchestrator.serviceName" -}}
-{{ include "octo.fullname" . }}-orchestrator
+{{- include "octo-common.componentName" (dict "root" . "component" "orchestrator") }}
 {{- end }}
 
 {{- define "octo.nats.serviceName" -}}
-{{ include "octo.fullname" . }}-nats
+{{- include "octo-common.componentName" (dict "root" . "component" "nats") }}
 {{- end }}
 
 {{- define "octo.nats.headlessServiceName" -}}
-{{ include "octo.fullname" . }}-nats-headless
+{{- include "octo-common.componentName" (dict "root" . "component" "nats-headless") }}
 {{- end }}
 
 {{- define "octo.platform.serviceName" -}}
-{{ include "octo.fullname" . }}-platform
+{{- include "octo-common.componentName" (dict "root" . "component" "platform") }}
 {{- end }}
 
 {{- define "octo.logs.serviceName" -}}
-{{ include "octo.fullname" . }}-logs
+{{- include "octo-common.componentName" (dict "root" . "component" "logs") }}
 {{- end }}
 
 {{- define "octo.auth.secretName" -}}
-{{ include "octo.fullname" . }}-auth
+{{- include "octo-common.componentName" (dict "root" . "component" "auth") }}
 {{- end }}
 
 {{- define "octo.kv.secretName" -}}
-{{ include "octo.fullname" . }}-kv
+{{- include "octo-common.componentName" (dict "root" . "component" "kv") }}
 {{- end }}
 
 {{/*
   ServiceAccount the deployed runtime pods run as. It grants the coordination.k8s.io
   leases RBAC the runtime's k8s services module needs for leader election.
 */}}
+{{- /* Through octo-common.serviceAccountName, not componentName, so an explicit
+       runtime.serviceAccount.name is honoured. The derived {fullname}-runtime is
+       only the fallback. Setting that name is exactly how an operator points
+       runtime pods at an account already bound to a GKE Workload Identity or an
+       EKS IRSA role; deriving it here regardless meant the ServiceAccount object
+       took the explicit name while the pods referenced the derived one, so the
+       identity silently did not apply. */ -}}
 {{- define "octo.runtime.serviceAccountName" -}}
-{{ include "octo.fullname" . }}-runtime
+{{- include "octo-common.serviceAccountName" (dict "root" . "component" "runtime") }}
 {{- end }}
 
 {{/*
@@ -108,25 +94,114 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
-  Build a fully-qualified image reference. Call with a dict carrying the chart
-  root and the component repository, e.g.:
-    include "octo.image" (dict "root" $ "repo" .Values.platform.repository)
-  When .Values.image.registry is set it is prefixed; otherwise the repo is used
-  bare (local :dev images). Tag falls back to the shared .Values.image.tag.
+  Database coordinates. The chart either runs Postgres itself (postgres.enabled)
+  or points at a managed instance — Cloud SQL on GKE, RDS on EKS — so every
+  consumer resolves the host/port/user/database/sslmode through these rather
+  than assuming the in-cluster StatefulSet.
 */}}
-{{- define "octo.image" -}}
-{{- $reg := .root.Values.image.registry | default "" | trimSuffix "/" -}}
-{{- $tag := .tag | default .root.Values.image.tag -}}
-{{- if $reg -}}
-{{- printf "%s/%s:%s" $reg .repo $tag -}}
+{{- define "octo.database.host" -}}
+{{- if .Values.postgres.enabled -}}
+{{- include "octo.postgres.serviceName" . -}}
 {{- else -}}
-{{- printf "%s:%s" .repo $tag -}}
+{{- required "externalDatabase.host is required when postgres.enabled is false" .Values.externalDatabase.host -}}
+{{- end -}}
+{{- end }}
+
+{{- define "octo.database.port" -}}
+{{- if .Values.postgres.enabled -}}
+{{- .Values.postgres.service.port -}}
+{{- else -}}
+{{- .Values.externalDatabase.port | default 5432 -}}
+{{- end -}}
+{{- end }}
+
+{{- define "octo.database.user" -}}
+{{- if .Values.postgres.enabled -}}
+{{- .Values.postgres.auth.username -}}
+{{- else -}}
+{{- .Values.externalDatabase.user -}}
+{{- end -}}
+{{- end }}
+
+{{- define "octo.database.name" -}}
+{{- if .Values.postgres.enabled -}}
+{{- .Values.postgres.auth.database -}}
+{{- else -}}
+{{- .Values.externalDatabase.database -}}
+{{- end -}}
+{{- end }}
+
+{{- define "octo.database.sslmode" -}}
+{{- if .Values.postgres.enabled -}}
+{{- .Values.postgres.sslmode | default "disable" -}}
+{{- else -}}
+{{- .Values.externalDatabase.sslmode | default "require" -}}
 {{- end -}}
 {{- end }}
 
 {{/*
-  Postgres connection string for the orchestrator (in-cluster, sslmode disabled).
+  Secret and key holding the database password. In-cluster it is the Secret this
+  chart generates; external it is either a Secret you already have (the managed
+  route — the password is issued by the cloud provider, not by Helm) or one the
+  chart creates from externalDatabase.password.
 */}}
-{{- define "octo.databaseURL" -}}
-{{- printf "postgres://%s:%s@%s:%d/%s?sslmode=disable" .Values.postgres.auth.username .Values.postgres.auth.password (include "octo.postgres.serviceName" .) (int .Values.postgres.service.port) .Values.postgres.auth.database -}}
+{{- define "octo.database.secretName" -}}
+{{- if .Values.postgres.enabled -}}
+{{- include "octo.postgres.serviceName" . -}}
+{{- else if .Values.externalDatabase.existingSecret -}}
+{{- .Values.externalDatabase.existingSecret -}}
+{{- else -}}
+{{- include "octo-common.componentName" (dict "root" . "component" "externaldb") -}}
+{{- end -}}
+{{- end }}
+
+{{- define "octo.database.passwordKey" -}}
+{{- if .Values.postgres.enabled -}}
+postgres-password
+{{- else if .Values.externalDatabase.existingSecret -}}
+{{- .Values.externalDatabase.existingSecretPasswordKey | default "password" -}}
+{{- else -}}
+password
+{{- end -}}
+{{- end }}
+
+{{/*
+  Env pair every database consumer mounts.
+
+  The password is NEVER interpolated into the DSN at template time — that would
+  put it in plaintext in the Deployment spec, readable by anyone with `get
+  deployment`. Instead it lands as its own env var from a secretKeyRef, and the
+  DSN references it with $(...): kubelet expands $(VAR) in an env value from
+  variables declared EARLIER in the same container, including ones sourced from
+  a Secret. Order matters here, which is why both vars come from one template.
+
+  This is also what makes existingSecret work at all: a chart cannot read
+  another Secret's contents, but the pod can.
+*/}}
+{{- define "octo.database.env" -}}
+{{- /*
+  The password is deliberately NOT in DATABASE_URL.
+
+  It used to be interpolated as $(OCTO_DB_PASSWORD), which kubelet expands with
+  the raw Secret value — unescaped, because kubelet does not know it is building
+  a URI. A password containing @ / : ? or # then changes how the DSN parses, and
+  an `@` in particular is read as the host separator, so the pod fails to connect
+  with an error naming a host nobody configured. The chart cannot escape its way
+  out of this either: with externalDatabase.existingSecret the value is not
+  knowable at template time, which is the whole point of an existing Secret.
+
+  So the password travels as PGPASSWORD instead. All three Go services connect
+  with pgx/v5, which honours the libpq environment variables as defaults for
+  anything the connection string omits — and no escaping rules apply to an
+  environment variable. PGPASSWORD is kept as the ONLY source, rather than a
+  fallback alongside the URI form, so there is one answer to where the password
+  comes from.
+*/ -}}
+- name: PGPASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "octo.database.secretName" . }}
+      key: {{ include "octo.database.passwordKey" . }}
+- name: DATABASE_URL
+  value: "postgres://{{ include "octo.database.user" . | urlquery }}@{{ include "octo.database.host" . }}:{{ include "octo.database.port" . }}/{{ include "octo.database.name" . }}?sslmode={{ include "octo.database.sslmode" . }}"
 {{- end }}

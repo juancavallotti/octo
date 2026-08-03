@@ -198,6 +198,16 @@ tasks:
       # Load the images straight into the cluster's containerd (no registry needed).
       - k3d image import octo-platform:dev octo-orchestrator:dev octo-logs:dev octo-schema:dev octo-runtime:dev -c octo
 
+  cluster:images:kind:
+    desc: Build the five images and load them into a kind 'octo' cluster
+    cmds:
+      - docker build -t octo-platform:dev -f apps/platform/Dockerfile .
+      - docker build -t octo-orchestrator:dev -f orchestrator/Dockerfile ./orchestrator
+      - docker build -t octo-logs:dev -f logs/Dockerfile ./logs
+      - docker build -t octo-schema:dev -f sql/Dockerfile ./sql
+      - docker build -t octo-runtime:dev -f runtime/Dockerfile .
+      - kind load docker-image --name octo octo-platform:dev octo-orchestrator:dev octo-logs:dev octo-schema:dev octo-runtime:dev
+
   cluster:images:dev:
     desc: Build + load the dev (hot-reload) images into the k3d 'octo' cluster
     cmds:
@@ -227,15 +237,22 @@ tasks:
         else
           echo "▶ creating k3d cluster 'octo' (Postgres data -> ./data)..."
           mkdir -p data
+          # ./data is mounted into the node at the path the chart's static
+          # PersistentVolume binds (postgres.storage.hostPath in values-k3d.yaml),
+          # so Postgres lives at ./data/pgdata. Deliberately not the local-path
+          # provisioner's directory: that names volumes after the claim's UID, so
+          # this task — which recreates the cluster — would get a fresh, empty
+          # database every time and leave the old one orphaned on disk.
           k3d cluster create --config deploy/k3d/cluster.yaml \
             --volume "$(pwd)/data:/var/lib/octo-data@server:0"
         fi
-      # Build + load images, then apply deploy/k8s/ via DevSpace.
+      # Build + load images, then install the Helm chart via DevSpace
+      # (deployments.octo in devspace.yaml -> ./helm with values-k3d.yaml).
       - task: cluster:images
       - devspace deploy --kube-context {{.KCTX}} --namespace octo-dev
       # Fixed :dev tags don't change between runs, so nudge the apps to pull the
       # freshly imported images. Harmless on first run; ignored if not yet present.
-      - kubectl --context {{.KCTX}} rollout restart deployment platform orchestrator -n octo-dev 2>/dev/null || true
+      - kubectl --context {{.KCTX}} rollout restart deployment octo-platform octo-orchestrator -n octo-dev 2>/dev/null || true
       - |
         echo ""
         echo "✓ cluster up:"
@@ -294,28 +311,297 @@ tasks:
       - docker push {{.IMAGE_BASE}}/octo-schema-paas:{{.TAG}}
       - docker push {{.IMAGE_BASE}}/octo-runtime-paas:{{.TAG}}
 
+  images:ttl:
+    desc: 'Build the five octo images from the working tree and push them to ttl.sh for cluster testing (optional PREFIX, TTL)'
+    vars:
+      # ttl.sh's tag IS the image's lifetime, and 24h is its maximum.
+      TTL: '{{.TTL | default "12h"}}'
+      PREFIX: '{{.PREFIX | default ""}}'
+    cmds:
+      # For testing a cluster against the CURRENT working tree. The published
+      # images track releases, so any chart change made since the last one has no
+      # matching image to run against; ttl.sh is an anonymous, unauthenticated
+      # registry that expires what you push, which is exactly the shape of a test
+      # deploy. Nothing here needs a login, a repository to be created, or cleanup.
+      #
+      # Feed the result to the release roots with -var image_values_file=...
+      # (task gke:standard:apply IMAGE_VALUES=dist/values.ttl.yaml).
+      - |
+        set -e
+        PREFIX="{{.PREFIX}}"
+        # ttl.sh is one shared public namespace: whoever pushes a name last owns it.
+        # A random path segment is what keeps a test run from colliding with (or
+        # being clobbered by) a stranger's.
+        [ -n "$PREFIX" ] || PREFIX="octo-$(openssl rand -hex 6)"
+        REGISTRY="ttl.sh/$PREFIX"
+        TAG="{{.TTL}}"
+
+        # --platform linux/amd64 is not optional: a plain `docker build` on Apple
+        # Silicon produces arm64 images, and every pod on a GKE/EKS node then
+        # CrashLoops with "exec format error". buildx pushes straight to the
+        # registry, so nothing is loaded into the local daemon.
+        build() {
+          echo "→ $REGISTRY/$1:$TAG"
+          docker buildx build --platform linux/amd64 --push \
+            -t "$REGISTRY/$1:$TAG" -f "$2" $4 "$3"
+        }
+        build octo-platform-paas     apps/platform/Dockerfile .           ""
+        build octo-orchestrator-paas orchestrator/Dockerfile  ./orchestrator ""
+        build octo-logs-paas         logs/Dockerfile          ./logs      ""
+        build octo-schema-paas       sql/Dockerfile           ./sql       ""
+        # The k8s build tag is what makes the runtime talk to the orchestrator.
+        build octo-runtime-paas      runtime/Dockerfile       .           "--build-arg GOTAGS=k8s"
+
+        mkdir -p dist
+        {
+          echo "# Rendered by 'task images:ttl TTL=$TAG' — do not edit."
+          echo "# Ephemeral images: ttl.sh deletes them $TAG after the push above."
+          echo "image:"
+          echo "  registry: $REGISTRY"
+          echo "  tag: \"$TAG\""
+          # The tag is a lifetime, not a version, so it gets reused across runs.
+          # IfNotPresent would silently keep running whatever a node cached first.
+          echo "  pullPolicy: Always"
+        } > dist/values.ttl.yaml
+        echo
+        echo "✓ wrote dist/values.ttl.yaml  (registry $REGISTRY, expires in $TAG)"
+        echo "  task gke:standard:apply IMAGE_VALUES=dist/values.ttl.yaml"
+
+  registry:test:
+    desc: 'Create the public Artifact Registry repo that images:ar pushes to (run once; optional PROJECT, REGION, REPO)'
+    vars:
+      PROJECT: '{{.PROJECT | default "juancavallotti"}}'
+      REGION: '{{.REGION | default "us-west1"}}'
+      REPO: '{{.REPO | default "octo-test"}}'
+    cmds:
+      # A registry for test images, separate from the release one the infra root
+      # creates: this holds working-tree builds, is world-readable, and is meant
+      # to be deleted after a test round.
+      #
+      # PUBLIC on purpose, and it is not laziness. The EKS test cluster's nodes
+      # run in AWS and have no way to hold a Google credential, so an authenticated
+      # GCP registry would mean minting a service-account key and threading it
+      # through an imagePullSecret — a long-lived credential created to test a
+      # cluster that exists for an afternoon. Anonymous read means one registry
+      # serves both GKE and EKS with no secret anywhere. Nothing here is private:
+      # the images are built from a public repository.
+      - |
+        set -e
+        HOST="{{.REGION}}-docker.pkg.dev"
+        gcloud artifacts repositories create {{.REPO}} \
+          --repository-format=docker --location={{.REGION}} --project={{.PROJECT}} \
+          --description="octo working-tree test images (public read); delete with task registry:test:delete" \
+          2>/dev/null || echo "  repository {{.REPO}} already exists"
+        # Anonymous pull. Skipped silently if it is already bound.
+        gcloud artifacts repositories add-iam-policy-binding {{.REPO}} \
+          --location={{.REGION}} --project={{.PROJECT}} \
+          --member=allUsers --role=roles/artifactregistry.reader >/dev/null
+        gcloud auth configure-docker "$HOST" --quiet
+        echo
+        echo "✓ $HOST/{{.PROJECT}}/{{.REPO}} ready, world-readable"
+        echo "  task images:ar"
+        echo "  task registry:test:delete   # when you are done"
+
+  registry:test:delete:
+    desc: 'Delete the public test Artifact Registry repo and everything in it (optional PROJECT, REGION, REPO)'
+    vars:
+      PROJECT: '{{.PROJECT | default "juancavallotti"}}'
+      REGION: '{{.REGION | default "us-west1"}}'
+      REPO: '{{.REPO | default "octo-test"}}'
+    cmds:
+      # Deletes images and repository together. Storage is ~$0.10/GB/month and a
+      # full set of octo images is ~1.5GB, so leaving it costs cents — but a public
+      # registry is worth taking down when it has nothing left to serve.
+      - gcloud artifacts repositories delete {{.REPO}} --location={{.REGION}} --project={{.PROJECT}} --quiet
+      - 'echo "✓ deleted {{.REGION}}-docker.pkg.dev/{{.PROJECT}}/{{.REPO}}"'
+
+  images:ar:
+    desc: 'Build the five octo images from the working tree and push them to the public Artifact Registry repo (optional TAG, PROJECT, REGION, REPO)'
+    vars:
+      TAG: '{{.TAG | default "test"}}'
+      PROJECT: '{{.PROJECT | default "juancavallotti"}}'
+      REGION: '{{.REGION | default "us-west1"}}'
+      REPO: '{{.REPO | default "octo-test"}}'
+    cmds:
+      # The same job as images:ttl, against a registry that can actually keep up.
+      # ttl.sh needs no setup at all, which is why it is still here — but it mints
+      # a fresh repository name per run, so every layer uploads in full every time
+      # (~315MB for the platform image alone) at a fraction of the throughput. This
+      # target reuses one repository, so a second push sends only what changed, and
+      # it sits in the same region as the GKE cluster, so the nodes pull locally
+      # rather than dragging the images across the internet on every pod start.
+      #
+      # Run `task registry:test` once first.
+      - |
+        set -e
+        REGISTRY="{{.REGION}}-docker.pkg.dev/{{.PROJECT}}/{{.REPO}}"
+        TAG="{{.TAG}}"
+
+        # --platform linux/amd64 is not optional: a plain `docker build` on Apple
+        # Silicon produces arm64 images, and every pod on a GKE/EKS node then
+        # CrashLoops with "exec format error". buildx pushes straight to the
+        # registry, so nothing is loaded into the local daemon.
+        build() {
+          echo "→ $REGISTRY/$1:$TAG"
+          docker buildx build --platform linux/amd64 --push \
+            -t "$REGISTRY/$1:$TAG" -f "$2" $4 "$3"
+        }
+        build octo-platform-paas     apps/platform/Dockerfile .           ""
+        build octo-orchestrator-paas orchestrator/Dockerfile  ./orchestrator ""
+        build octo-logs-paas         logs/Dockerfile          ./logs      ""
+        build octo-schema-paas       sql/Dockerfile           ./sql       ""
+        # The k8s build tag is what makes the runtime talk to the orchestrator.
+        build octo-runtime-paas      runtime/Dockerfile       .           "--build-arg GOTAGS=k8s"
+
+        mkdir -p dist
+        {
+          echo "# Rendered by 'task images:ar TAG=$TAG' — do not edit."
+          echo "# Public Artifact Registry: no pull secret needed on GKE or EKS."
+          echo "image:"
+          echo "  registry: $REGISTRY"
+          echo "  tag: \"$TAG\""
+          # The default tag is reused across runs, so a node that cached it once
+          # would otherwise keep running the old image. Pass a unique TAG and this
+          # can drop to IfNotPresent.
+          echo "  pullPolicy: Always"
+        } > dist/values.ar.yaml
+        echo
+        echo "✓ wrote dist/values.ar.yaml  (registry $REGISTRY, tag $TAG)"
+        echo "  task gke:autopilot:apply IMAGE_VALUES=dist/values.ar.yaml"
+
   helm:lint:
     desc: Lint the octo Helm chart
     cmds:
       - helm lint helm
 
+  helm:test:
+    desc: Lint and schema-validate the chart's rendered manifests across every environment profile
+    silent: true
+    cmds:
+      # The chart targets clusters this repo cannot spin up on a whim (GKE
+      # Autopilot, EKS), so rendering every profile and running the output
+      # through the real Kubernetes schemas is the automated gate. It catches
+      # the failure mode that matters for a library chart — a helper change that
+      # renders fine under the defaults and produces invalid YAML under a
+      # profile — without the churn of checked-in golden files.
+      - |
+        set -e
+        command -v helm >/dev/null 2>&1 || { echo "✖ helm is required (https://helm.sh/docs/intro/install/)" >&2; exit 1; }
+        if command -v kubeconform >/dev/null 2>&1; then
+          schema=yes
+        else
+          schema=no
+          echo "ℹ kubeconform not found — rendering only, without schema validation (brew install kubeconform)"
+        fi
+        out="$(mktemp)"
+        trap 'rm -f "$out"' EXIT
+        # -ignore-missing-schemas skips CRDs that are not in the upstream schema
+        # set (GKE's ManagedCertificate/BackendConfig/FrontendConfig); everything
+        # with a published schema is still checked, and -strict rejects unknown
+        # fields rather than waving them through.
+        check() {
+          name="$1"; shift
+          printf '  %-18s ' "$name"
+          # ingress.host has no default and is required whenever an Ingress
+          # renders, so supply one here the way a real install must. Profiles
+          # that set their own land on the same value.
+          host="--set ingress.host=octo.example.com"
+          if ! helm lint helm $host "$@" >"$out" 2>&1; then echo "FAILED (lint)"; cat "$out"; return 1; fi
+          if ! helm template octo helm --namespace octo $host "$@" >"$out" 2>&1; then echo "FAILED (template)"; cat "$out"; return 1; fi
+          if [ "$schema" = yes ]; then
+            kubeconform -strict -ignore-missing-schemas -summary <"$out"
+          else
+            echo "rendered ok"
+          fi
+        }
+        # The profiles as shipped. "defaults" is values.yaml alone — what an
+        # install straight from OCI gets with no -f at all.
+        check defaults
+        check k3d           -f helm/values-k3d.yaml
+        check kind          -f helm/values-kind.yaml
+        check gke-autopilot -f helm/values-gke-autopilot.yaml
+        check gke-standard  -f helm/values-gke-standard.yaml
+        check eks           -f helm/values-eks.yaml
+        # Paths no profile enables by default, which would otherwise only ever be
+        # rendered by hand — and so would break silently.
+        check gke-gce-ingress -f helm/values-gke-autopilot.yaml \
+          --set ingress.className=gce --set ingress.tls.mode=gke-managed-cert \
+          --set gke.backendConfig.enabled=true --set gke.frontendConfig.enabled=true
+        check external-db \
+          --set postgres.enabled=false --set externalDatabase.host=db.example.com \
+          --set externalDatabase.existingSecret=db-creds --set externalDatabase.existingSecretPasswordKey=password
+        check oidc \
+          --set auth.oidc.enabled=true --set auth.oidc.issuer=https://id.example.com \
+          --set auth.oidc.clientId=octo --set auth.oidc.clientSecret=shh --set auth.secret=shh
+        check wildcard-tls \
+          --set wildcardTLS.enabled=true --set wildcardTLS.clusterIssuer=letsencrypt-dns \
+          --set orchestrator.baseDomain=apps.example.com
+        echo "✓ chart lints and renders valid manifests for every profile"
+
   helm:package:
-    desc: Lint and package the chart into dist/ (octo-<version>.tgz)
+    desc: Lint and package both charts into dist/ (octo-<version>.tgz and octo-common-<version>.tgz)
     cmds:
       - mkdir -p dist
       - helm lint helm
+      # octo-common is vendored under helm/charts/, so `helm package helm` already
+      # bundles it into the octo tarball and an install needs nothing else. It is
+      # packaged separately as well so it can be published and depended on
+      # directly, the same as cloudbuild.yaml and the release workflow do.
+      - helm package helm/charts/octo-common -d dist
       - helm package helm -d dist
 
   helm:push:
-    desc: 'Package and push the chart to Artifact Registry OCI (set IMAGE_BASE; run `helm registry login <region>-docker.pkg.dev` first)'
+    desc: 'Package and push both charts to Artifact Registry OCI (set IMAGE_BASE; run `helm registry login <region>-docker.pkg.dev` first)'
     requires:
       vars: [IMAGE_BASE]
     cmds:
       - task: helm:package
       - |
         set -e
-        VERSION="$(helm show chart helm | awk '/^version:/ {print $2}')"
-        helm push "dist/octo-${VERSION}.tgz" "oci://{{.IMAGE_BASE}}"
+        # Read each version from its own Chart.yaml rather than assuming they
+        # match, even though release-please keeps them in lockstep.
+        LIB_VERSION="$(awk '/^version:/ {print $2}' helm/charts/octo-common/Chart.yaml)"
+        APP_VERSION="$(awk '/^version:/ {print $2}' helm/Chart.yaml)"
+        helm push "dist/octo-common-${LIB_VERSION}.tgz" "oci://{{.IMAGE_BASE}}"
+        helm push "dist/octo-${APP_VERSION}.tgz" "oci://{{.IMAGE_BASE}}"
+
+  helm:values:images:
+    desc: 'Render dist/values.images.yaml pinning every octo image by digest (set IMAGE_BASE and TAG)'
+    requires:
+      vars: [IMAGE_BASE, TAG]
+    cmds:
+      # The local equivalent of cloudbuild.yaml's render-image-values step, for a
+      # manual apply or for checking what a tag actually resolves to. The digests
+      # are read from the registry (imagetools inspects remotely, no pull), where
+      # Cloud Build reads them from the image it just pushed — same output, but
+      # this works for any published tag rather than only a fresh build.
+      #
+      # Feed it to Helm with -f dist/values.images.yaml, or to the release root
+      # with -var image_values_file=dist/values.images.yaml.
+      - |
+        set -e
+        mkdir -p dist
+        {
+          echo "# Rendered by 'task helm:values:images IMAGE_BASE={{.IMAGE_BASE}} TAG={{.TAG}}' — do not edit."
+          echo "# Each octo image is pinned by digest; the chart prefers image.digest over any tag."
+          echo "image:"
+          echo "  registry: {{.IMAGE_BASE}}"
+          echo "  pullPolicy: IfNotPresent"
+          for c in platform orchestrator logs schema runtime; do
+            repo="octo-${c}-paas"
+            ref="{{.IMAGE_BASE}}/${repo}:{{.TAG}}"
+            digest="$(docker buildx imagetools inspect "$ref" | awk '/^Digest:/ {print $2; exit}')"
+            if [ -z "$digest" ]; then
+              echo "✖ no digest for $ref — is it published?" >&2
+              exit 1
+            fi
+            echo "${c}:"
+            echo "  image:"
+            echo "    repository: ${repo}"
+            echo "    digest: \"${digest}\""
+          done
+        } > dist/values.images.yaml
+        echo "✓ wrote dist/values.images.yaml"
 
   deploy:kubeconfig:
     desc: 'Fetch the k3s kubeconfig from the VM for the Terraform release root (set DOMAIN; optional INSTANCE, ZONE)'
@@ -351,28 +637,228 @@ tasks:
       - |
         set -e
         CHART_VERSION="$(helm show chart helm | awk '/^version:/ {print $2}')"
-        terraform -chdir=deploy/terraform/release init -input=false
-        terraform -chdir=deploy/terraform/release apply -auto-approve -compact-warnings \
-          -var-file=../octo.tfvars \
+        terraform -chdir=deploy/terraform/release init -input=false -backend-config=../backend.hcl
+        # No -var-file: the root's own terraform.tfvars is loaded automatically. No
+        # -compact-warnings either — every root declares exactly what it uses, so a
+        # warning here means a real mistake rather than noise to be suppressed.
+        terraform -chdir=deploy/terraform/release apply -auto-approve \
           -var image_tag={{.TAG}} \
           -var chart_version="${CHART_VERSION}"
 
   state:bucket:
-    desc: 'Create the GCS bucket backing the release Terraform state (run once; set PROJECT, optional REGION). Must match release/backend.tf (octo-tfstate-PROJECT).'
+    desc: 'Create the GCS bucket backing every Terraform root''s state (run once; set PROJECT, optional REGION)'
     requires:
       vars: [PROJECT]
     vars:
       REGION: '{{.REGION | default "us-west1"}}'
     cmds:
+      # One versioned bucket, one prefix per root (infra/, release/, gke-standard/,
+      # ...). Versioning is the point: a bad apply or a corrupted state is
+      # recoverable from an earlier generation.
       - |
         set -e
         BUCKET="gs://octo-tfstate-{{.PROJECT}}"
         gcloud storage buckets create "$BUCKET" --location={{.REGION}} --uniform-bucket-level-access
         gcloud storage buckets update "$BUCKET" --versioning
-        echo "✓ created $BUCKET (versioned). Set it as the bucket in release/backend.tf if PROJECT != juancavallotti."
+        echo "✓ created $BUCKET (versioned)"
+        echo "  now: cp deploy/terraform/backend.hcl.example deploy/terraform/backend.hcl"
+        echo "       and set bucket = \"octo-tfstate-{{.PROJECT}}\""
+
+  tf:check:
+    desc: 'Format-check and validate every Terraform root and module (no cloud access needed)'
+    silent: true
+    cmds:
+      # The whole automated gate for Terraform. `validate` needs providers, so it
+      # needs an init — but -backend=false skips the backend entirely, so this runs
+      # without credentials, without a state bucket, and in CI.
+      - |
+        set -e
+        cd deploy/terraform
+        echo "→ terraform fmt"
+        terraform fmt -recursive -check -diff
+        for root in infra release gke-standard gke-autopilot eks; do
+          [ -d "$root" ] || continue
+          echo "→ $root"
+          terraform -chdir="$root" init -backend=false -input=false >/dev/null
+          terraform -chdir="$root" validate
+        done
+        echo "✓ terraform fmt + validate clean"
 
   infra:apply:
-    desc: 'Apply the one-time infra root (registry + VM/k3s + optional Cloud Build) from octo.tfvars'
+    desc: 'Apply the one-time infra root: Artifact Registry + the k3s VM (with its Postgres data disk) + optional Cloud Build'
     cmds:
-      - terraform -chdir=deploy/terraform/infra init -input=false
-      - terraform -chdir=deploy/terraform/infra apply -compact-warnings -var-file=../octo.tfvars
+      # -backend-config supplies the state bucket, which a backend block cannot take
+      # from a variable. Variables come from infra/terraform.tfvars automatically.
+      - terraform -chdir=deploy/terraform/infra init -input=false -backend-config=../backend.hcl
+      - terraform -chdir=deploy/terraform/infra apply
+
+  # --- Managed-cluster test roots (GKE Standard, GKE Autopilot, EKS) ---
+  #
+  # Each stands up a cluster, its prerequisite controllers, DNS and the octo chart
+  # in one apply, to exercise the matching helm/values-*.yaml profile on a real
+  # cluster. They are meant to be brought up, tested and destroyed — run ONE at a
+  # time: the two GKE roots write the same DNS records by default.
+  #
+  # Test the working tree rather than the last release's published images:
+  #   task images:ttl TTL=12h
+  #   task gke:standard:apply IMAGE_VALUES=dist/values.ttl.yaml
+
+  gke:standard:apply:
+    desc: 'Stand up a GKE Standard cluster and deploy octo onto it (optional IMAGE_VALUES)'
+    cmds:
+      - task: tf:apply
+        vars: { ROOT: gke-standard, IMAGE_VALUES: '{{.IMAGE_VALUES}}' }
+
+  gke:standard:destroy:
+    desc: 'Tear down the GKE Standard cluster (phased, so no load balancer is orphaned)'
+    cmds:
+      - task: tf:destroy
+        vars: { ROOT: gke-standard, PHASES: 'module.octo_gke.module.octo module.octo_gke.module.addons' }
+
+  gke:autopilot:apply:
+    desc: 'Stand up a GKE Autopilot cluster and deploy octo onto it (optional IMAGE_VALUES)'
+    cmds:
+      - task: tf:apply
+        vars: { ROOT: gke-autopilot, IMAGE_VALUES: '{{.IMAGE_VALUES}}' }
+
+  gke:autopilot:destroy:
+    desc: 'Tear down the GKE Autopilot cluster (phased, so no load balancer is orphaned)'
+    cmds:
+      - task: tf:destroy
+        vars: { ROOT: gke-autopilot, PHASES: 'module.octo_gke.module.octo module.octo_gke.module.addons' }
+
+  tf:apply:
+    internal: true
+    requires:
+      vars: [ROOT]
+    vars:
+      BACKEND: '{{.BACKEND | default "backend.hcl"}}'
+    cmds:
+      - |
+        set -e
+        cd deploy/terraform
+        terraform -chdir={{.ROOT}} init -input=false -backend-config=../{{.BACKEND}}
+        # image_values_file is a path resolved relative to the ROOT, not the repo,
+        # so a repo-relative IMAGE_VALUES has to be made absolute here.
+        ARGS=""
+        if [ -n "{{.IMAGE_VALUES}}" ]; then
+          ARGS="-var image_values_file={{.ROOT_DIR}}/{{.IMAGE_VALUES}}"
+        fi
+        terraform -chdir={{.ROOT}} apply $ARGS
+        echo
+        terraform -chdir={{.ROOT}} output
+
+  tf:destroy:
+    internal: true
+    requires:
+      vars: [ROOT]
+    vars:
+      BACKEND: '{{.BACKEND | default "backend.hcl"}}'
+    cmds:
+      # Phased on purpose. The ingress controller (GKE) and the AWS Load Balancer
+      # Controller (EKS) create cloud load balancers that Terraform does not know
+      # about; they are only cleaned up when the controller observes its Ingress or
+      # Service being deleted. Destroying everything at once races that, and the
+      # orphaned forwarding rule or ALB then blocks the VPC delete twenty minutes
+      # later with an error that names an ENI rather than the cause.
+      #
+      # Terraform's dependency graph gets this order right within a single destroy;
+      # the phases are what save you when one errors partway through.
+      - |
+        set -e
+        cd deploy/terraform
+        terraform -chdir={{.ROOT}} init -input=false -backend-config=../{{.BACKEND}}
+        for target in {{.PHASES}}; do
+          echo "→ destroying $target"
+          terraform -chdir={{.ROOT}} destroy -auto-approve -target="$target"
+        done
+        # GKE only, and best-effort. A LoadBalancer Service makes the GKE service
+        # controller create five objects Terraform does not know about: a
+        # forwarding rule, a target pool, a health check and two firewall rules.
+        # Deleting the Service — the addons phase above — normally reclaims all
+        # five, but that cleanup races the cluster delete and the health-check
+        # firewall rule is the one that loses often enough to matter.
+        #
+        # On its own the leftover rule is free and harmless. It matters because a
+        # network cannot be deleted while any firewall rule references it, so the
+        # final destroy below fails on the VPC with an error naming the rule and
+        # not the cause, leaving the run half-finished.
+        #
+        # Gated on the output rather than on the root name: only the GKE roots
+        # expose network_name, so this is a silent no-op for EKS. Nothing here may
+        # abort the run — if gcloud is missing or broken, falling through to the
+        # destroy is strictly better than failing before it.
+        NETWORK=$(terraform -chdir={{.ROOT}} output -raw network_name 2>/dev/null || true)
+        PROJECT=$(terraform -chdir={{.ROOT}} output -raw project_id 2>/dev/null || true)
+        if [ -n "$NETWORK" ] && [ -n "$PROJECT" ] && command -v gcloud >/dev/null 2>&1; then
+          # `k8s-` is the service controller's own prefix and never Terraform's,
+          # so this cannot delete a resource still in state. Anchoring the network
+          # match keeps it off a similarly-named VPC.
+          for fw in $(gcloud compute firewall-rules list --project "$PROJECT" \
+                        --filter="network~${NETWORK}\$ AND name~^k8s-" \
+                        --format='value(name)' 2>/dev/null || true); do
+            echo "→ sweeping orphaned firewall rule $fw"
+            gcloud compute firewall-rules delete "$fw" --project "$PROJECT" --quiet || true
+          done
+        fi
+        # -auto-approve like the phases above. Prompting only here is worse than
+        # not prompting at all: by this point the release and the controllers are
+        # already gone, so the confirmation guards the least destructive step of
+        # the three — and an unanswered prompt leaves the cluster, the database and
+        # the VPC standing while the run reports failure, which is exactly the way
+        # to get billed for something you believed you had destroyed.
+        echo "→ destroying the rest"
+        terraform -chdir={{.ROOT}} destroy -auto-approve
+
+  eks:state:bucket:
+    desc: 'Create the S3 bucket backing the EKS Terraform state (run once; set BUCKET, optional REGION)'
+    requires:
+      vars: [BUCKET]
+    vars:
+      REGION: '{{.REGION | default "us-east-1"}}'
+    cmds:
+      # No DynamoDB table: the backend uses native S3 conditional-write locking
+      # (use_lockfile), so the bucket is the whole bootstrap. Versioning is the
+      # point — a corrupted state is recoverable from an earlier version.
+      - |
+        set -e
+        aws s3api create-bucket --bucket {{.BUCKET}} --region {{.REGION}} \
+          $([ "{{.REGION}}" = "us-east-1" ] || echo "--create-bucket-configuration LocationConstraint={{.REGION}}")
+        aws s3api put-bucket-versioning --bucket {{.BUCKET}} --versioning-configuration Status=Enabled
+        aws s3api put-public-access-block --bucket {{.BUCKET}} \
+          --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+        echo "✓ created s3://{{.BUCKET}} (versioned, private)"
+        echo "  now: cp deploy/terraform/backend-aws.hcl.example deploy/terraform/backend-aws.hcl"
+        echo "       and set bucket = \"{{.BUCKET}}\" / region = \"{{.REGION}}\""
+
+  eks:apply:
+    desc: 'Stand up an EKS cluster and deploy octo onto it (optional IMAGE_VALUES). Control plane is ~$73/mo — destroy when done.'
+    cmds:
+      - task: tf:apply
+        vars: { ROOT: eks, BACKEND: backend-aws.hcl, IMAGE_VALUES: '{{.IMAGE_VALUES}}' }
+
+  eks:destroy:
+    desc: 'Tear down the EKS cluster (phased, so the ALB is not orphaned into blocking the VPC delete)'
+    cmds:
+      - task: tf:destroy
+        vars: { ROOT: eks, BACKEND: backend-aws.hcl, PHASES: 'module.octo module.addons' }
+
+  eks:kubeconfig:
+    desc: 'Fetch kubectl credentials for the EKS test cluster'
+    cmds:
+      - |
+        set -e
+        cd deploy/terraform
+        eval "$(terraform -chdir=eks output -raw kubeconfig_command)"
+
+  gke:kubeconfig:
+    desc: 'Fetch kubectl credentials for a GKE test cluster (set ROOT=gke-standard|gke-autopilot)'
+    vars:
+      ROOT: '{{.ROOT | default "gke-standard"}}'
+    cmds:
+      # Terraform itself needs no kubeconfig — it authenticates with an access
+      # token — but you will want one to look around.
+      - |
+        set -e
+        cd deploy/terraform
+        eval "$(terraform -chdir={{.ROOT}} output -raw kubeconfig_command)"

@@ -66,8 +66,43 @@ variable "kube_api_source_ranges" {
 
 variable "boot_disk_size_gb" {
   type        = number
-  description = "Boot disk size in GB."
+  description = "Boot disk size in GB. Holds the OS, k3s and its image cache — not the database, which lives on the data disk below."
   default     = 30
+}
+
+# --- Data disk ---
+# Attached separately from the boot disk so the database survives VM replacement.
+# The caller's startup script is responsible for formatting and mounting it; this
+# module only creates and attaches the device.
+
+variable "data_disk_size_gb" {
+  type        = number
+  description = "Size of the Postgres data disk in GB. Growing it is an in-place update; the startup script runs resize2fs on the next boot to grow the filesystem to match."
+  default     = 20
+}
+
+variable "data_disk_type" {
+  type        = string
+  description = "Persistent disk type for the data disk. pd-ssd for write-heavy installs."
+  default     = "pd-balanced"
+}
+
+variable "data_disk_device_name" {
+  type        = string
+  description = "Device name the data disk is attached under; the guest sees it at /dev/disk/by-id/google-{this}. Must match what the startup script looks for."
+  default     = "octo-data"
+}
+
+variable "data_disk_snapshot_retention_days" {
+  type        = number
+  description = "Days to keep daily snapshots of the data disk. 0 disables the schedule. Snapshots are kept when the disk is deleted, so they are the recovery path for an accidental destroy."
+  default     = 7
+}
+
+variable "data_disk_snapshot_start_time" {
+  type        = string
+  description = "UTC start time (HH:MM) for the daily data-disk snapshot."
+  default     = "08:00"
 }
 
 variable "startup_script" {

@@ -1,0 +1,113 @@
+# GKE Standard.
+#
+#   helm upgrade --install octo oci://ghcr.io/juancavallotti/charts/octo \
+#     -n octo --create-namespace -f values-gke-standard.yaml \
+#     --set ingress.host=octo.example.com
+#
+# Same shape as values-gke-autopilot.yaml with Autopilot's constraints relaxed,
+# because on Standard you own the nodes:
+#   * requests without matching limits, so pods can burst into spare node
+#     capacity instead of being capped at their request
+#   * no startup-probe allowance for node provisioning — the nodes already exist
+#   * nodeSelector / tolerations are available if you run a dedicated pool
+#
+# Prerequisites, none installed by this chart: an ingress controller
+# (ingress-nginx assumed) and cert-manager with the ClusterIssuer named below.
+# The ingress-controller note in values-gke-autopilot.yaml applies here too, and
+# is why this does not use GCE ingress.
+
+defaults:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+  podSecurityContext:
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+
+platform:
+  replicas: 2
+  securityContext:
+    runAsUser: 1000
+    runAsGroup: 1000
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+  # Spread replicas across zones so a zonal outage does not take the editor down.
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/name: octo
+          app.kubernetes.io/component: platform
+
+orchestrator:
+  securityContext:
+    runAsUser: 65532
+    runAsGroup: 65532
+    readOnlyRootFilesystem: true
+  ingressClass: nginx
+  baseDomain: ""
+  clusterIssuer: ""
+
+logs:
+  # Safe to scale: the log consumer joins a NATS queue group, so replicas
+  # compete for messages rather than each storing every one.
+  replicas: 2
+  securityContext:
+    runAsUser: 65532
+    runAsGroup: 65532
+    readOnlyRootFilesystem: true
+
+runtime:
+  servicesModule: k8s
+
+postgres:
+  enabled: true
+  podSecurityContext:
+    fsGroup: 70
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    runAsUser: 70
+    runAsGroup: 70
+  resources:
+    requests:
+      cpu: 500m
+      memory: 2Gi
+  storage:
+    # premium-rwo is pd-ssd; standard-rwo (pd-balanced) is the cheaper option.
+    storageClassName: premium-rwo
+    size: 50Gi
+
+# Cloud SQL alternative — see values-gke-autopilot.yaml for the full block.
+
+schema:
+  securityContext:
+    runAsUser: 70
+    runAsGroup: 70
+
+nats:
+  enabled: true
+  securityContext:
+    runAsUser: 1000
+    runAsGroup: 1000
+    readOnlyRootFilesystem: true
+
+ingress:
+  enabled: true
+  className: nginx
+  host: octo.example.com
+  tls:
+    enabled: true
+    mode: cert-manager
+    secretName: octo-tls
+    clusterIssuer: letsencrypt-prod

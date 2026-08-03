@@ -1,0 +1,63 @@
+# Local kind cluster — the alternative to k3d for anyone who already runs kind.
+#
+#   kind create cluster --config deploy/kind/cluster.yaml
+#   task cluster:images:kind     # build + `kind load docker-image`
+#   helm upgrade --install octo ./helm -n octo-dev --create-namespace -f helm/values-kind.yaml
+#
+# Identical to values-k3d.yaml except for two things kind does differently:
+# it has no bundled Traefik or servicelb, and its local-path provisioner stores
+# volumes under /var/local-path-provisioner rather than k3s's path.
+
+image:
+  registry: ""
+  tag: dev
+  pullPolicy: IfNotPresent
+
+platform:
+  repository: octo-platform
+  service:
+    type: NodePort
+    nodePorts:
+      http: 30030
+  extraEnv:
+    - name: AUTH_URL
+      value: http://localhost:3000
+
+orchestrator:
+  repository: octo-orchestrator
+  service:
+    type: NodePort
+    nodePorts:
+      http: 30090
+  baseDomain: ""
+  ingressClass: ""
+
+logs:
+  repository: octo-logs
+
+schema:
+  repository: octo-schema
+
+runtime:
+  repository: octo-runtime
+
+# kind ships no ingress controller at all. The NodePorts above are mapped to the
+# host by deploy/kind/cluster.yaml's extraPortMappings.
+ingress:
+  enabled: false
+
+auth:
+  oidc:
+    enabled: false
+
+kv:
+  # Same fixed development key as values-k3d.yaml — non-secret, never for real use.
+  encryptionKey: "RwbauJ1U7IvkOl8IZsNCQNShHGA/sqP+TQymYAkOFQ8="
+
+postgres:
+  storage:
+    # Fixed node path rather than kind's "standard" (local-path) StorageClass, so
+    # the database survives `kind delete cluster`. deploy/kind/cluster.yaml mounts
+    # the repo's ./data onto /var/lib/octo-data in the node.
+    hostPath: /var/lib/octo-data
+    size: 5Gi

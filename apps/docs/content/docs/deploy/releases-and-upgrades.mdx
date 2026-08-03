@@ -5,6 +5,8 @@ description: "Versioning, release automation, and upgrading a deployment."
 
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Steps, Step } from 'fumadocs-ui/components/steps';
+import { DynamicCodeBlock } from 'fumadocs-ui/components/dynamic-codeblock';
+import { OCTO_VERSION } from '@/lib/version';
 
 Octo releases are fully automated: Conventional Commits drive
 [release-please](https://github.com/googleapis/release-please), a version tag
@@ -62,6 +64,14 @@ jobs in parallel:
   default, standalone-services build) and pushes the same two tags for
   `juancavallotti/octo-runtime`, so integrations can be run from Docker
   without a cluster. See [Docker images](/deploy/docker-images#octo-runtime).
+- **publish-paas-images** — builds the five platform images
+  (`octo-platform-paas`, `octo-orchestrator-paas`, `octo-logs-paas`,
+  `octo-schema-paas`, `octo-runtime-paas`) multi-arch and pushes them to public
+  Docker Hub. These are what the Helm chart installs by default.
+- **publish-charts** — packages both Helm charts and pushes them to
+  `oci://ghcr.io/juancavallotti/charts`. The job first fails the build if either
+  chart's `version`, or the application chart's `appVersion`, disagrees with the
+  tag — see below.
 - **publish-cli** — runs [GoReleaser](https://goreleaser.com) (`.goreleaser.yaml`),
   which cross-compiles both CLIs — `octo` and `dolphin` — for macOS, Linux, and
   Windows (amd64 and arm64 each) and attaches the twelve archives, plus one
@@ -81,11 +91,17 @@ In the [GCP reference deployment](/deploy/gcp-terraform), a Cloud Build
 trigger (created by the `infra` root with `enable_cloudbuild = true`) fires on
 the same version tag and runs `cloudbuild.yaml`:
 
-- Builds the five platform images (`octo-platform`, `octo-orchestrator`,
-  `octo-logs`, `octo-schema`, `octo-runtime`) and pushes each to Artifact
-  Registry tagged with both the git tag and `latest`.
-- Packages the Helm chart (version from `helm/Chart.yaml`, kept in step with
-  the repo release by release-please) and pushes it as an OCI artifact.
+- Builds the five platform images (`octo-platform-paas`,
+  `octo-orchestrator-paas`, `octo-logs-paas`, `octo-schema-paas`,
+  `octo-runtime-paas`) and pushes each to Artifact Registry tagged with both the
+  git tag and `latest`.
+- Reads back the **digest** of each pushed image and renders
+  `dist/values.images.yaml` pinning them, so the deploy installs exactly what
+  this build produced rather than whatever the tag points at later. The file is
+  archived to the state bucket beside the release.
+- Packages **both** Helm charts (versions from their `Chart.yaml` files, kept in
+  step with the repo release by release-please) and pushes them as OCI
+  artifacts.
 - With `_DEPLOY=true` (the default when `cloudbuild_auto_deploy` is on),
   applies the Terraform `release` root — rolling the cluster to the new tag
   automatically.
@@ -113,18 +129,20 @@ onto the node and upgrading the Helm release. See
 
 Point the release at the new chart version and image tag:
 
-```bash
-helm upgrade octo oci://<registry>/octo/octo \
-  --version <new-chart-version> \
-  --namespace octo-dev \
-  --reuse-values \
-  --set image.tag=v0.2.0
-```
+<DynamicCodeBlock lang="bash" code={`helm upgrade octo oci://ghcr.io/juancavallotti/charts/octo \\
+  --version ${OCTO_VERSION} \\
+  --namespace octo \\
+  --reuse-values`} />
+
+There is no second tag to remember: `image.tag` defaults to empty and falls back
+to the chart's `appVersion`, which release-please keeps equal to the release
+version. Bumping the chart moves the images with it.
 
 The application Deployments roll automatically, the schema hook Job re-applies
-`sql/schema.sql` idempotently, and Postgres data is untouched. Integrations
-keep running on the runtime image they were deployed with — redeploy them from
-the editor to move them to the new `octo-runtime`. See
+`sql/schema.sql` idempotently, and Postgres data is untouched — nothing in the
+chart can remove it, since the StatefulSet retains its claim on uninstall.
+Integrations keep running on the runtime image they were deployed with —
+redeploy them from the editor to move them to the new `octo-runtime`. See
 [Helm chart](/deploy/helm#upgrade).
 
 ### CLI
@@ -162,6 +180,21 @@ Flows live in your mounted directory, so nothing is lost across upgrades. See
 The database schema is the exception in practice: `sql/schema.sql` is written
 idempotently (`IF NOT EXISTS` / `ON CONFLICT`) so the schema Job can re-run on
 every upgrade against existing data.
+
+### Charts and images are versioned together
+
+Both Helm charts and the application chart's `appVersion` are stamped by
+release-please and carry the **same** version as the release. The release
+workflow fails if any of them disagrees with the tag, because `appVersion` is
+load-bearing rather than decorative: it is what `image.tag` falls back to, so a
+stale one would silently ship a chart that installs the wrong images.
+
+The practical consequence is that a chart at version X is tested against the
+images of release X, and installs them by default. Pinning `image.tag` to an
+older release while running a newer chart is not a tested combination — the
+security contexts in the cloud profiles are the most likely thing to break,
+since they pin the UIDs the current images run as. See
+[image and chart compatibility](/deploy/helm#image-and-chart-compatibility).
 
 ## Where to watch releases
 

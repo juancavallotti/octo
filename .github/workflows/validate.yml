@@ -53,6 +53,65 @@ jobs:
       - run: pnpm --filter platform test
       - run: pnpm --filter platform build
 
+  # The Helm chart targets clusters CI cannot spin up on demand — GKE Autopilot,
+  # EKS — so rendering every environment profile and validating the output
+  # against the real Kubernetes schemas is the automated gate. Without it, a
+  # change to the octo-common library that renders fine under the defaults could
+  # only be caught by deploying to the cluster it broke.
+  helm:
+    runs-on: ubuntu-latest
+    # Renders and validates locally; writes nothing anywhere.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      # Pinned, not floating. Chart packaging and template resolution are exactly
+      # the behaviour that must not change under us between runs — the chart
+      # vendors a library chart under charts/, and how Helm treats that is the
+      # thing being tested.
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.21.3
+      - name: Install kubeconform and Task
+        run: |
+          mkdir -p "$HOME/bin"
+          curl -fsSL https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz \
+            | tar -xz -C "$HOME/bin" kubeconform
+          sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b "$HOME/bin"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+      - run: task helm:test
+
+  terraform:
+    runs-on: ubuntu-latest
+    # Read-only, and the checkout token is not left in .git/config afterwards:
+    # this job runs `terraform init`, which downloads and executes provider
+    # binaries, so it should hold nothing worth stealing.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      # Pinned to a version that satisfies the strictest root: the eks root needs
+      # >= 1.10 for the S3 backend's native locking.
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+          terraform_wrapper: false
+      - name: Install Task
+        run: |
+          mkdir -p "$HOME/bin"
+          sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b "$HOME/bin"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+      # fmt + validate across every root and module. `validate` needs providers, so
+      # it needs an init — but the task passes -backend=false, so this runs with no
+      # cloud credentials, no state bucket and nothing to clean up. The committed
+      # .terraform.lock.hcl files carry linux_amd64 hashes precisely so this step
+      # resolves the same providers a laptop does.
+      - run: task tf:check
+
   docs:
     runs-on: ubuntu-latest
     steps:

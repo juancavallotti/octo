@@ -3,7 +3,7 @@
 # chart_version from helm/Chart.yaml), or apply directly:
 #
 #   terraform -chdir=deploy/terraform/release apply \
-#     -var-file=../octo.tfvars -var image_tag=v0.1.1 -var chart_version=0.1.2
+#     -var image_tag=v0.1.1 -var chart_version=0.1.2
 #
 # It pulls the target tag onto the node (fresh token, via octo-pull over SSH),
 # then installs/upgrades the chart through the Helm provider. A changed image_tag
@@ -43,7 +43,7 @@ resource "random_password" "postgres" {
 
 # Auth.js session secret for the editor. Generated here too (state, not Secret
 # Manager); rotating it would log everyone out, so it is kept in state. Always
-# created (not gated on SSO): a Cloud Build deploy has no octo.tfvars, so gating on
+# created (not gated on SSO): a Cloud Build deploy has no terraform.tfvars, so gating on
 # oidc_enabled_eff would let count drop to 0 and destroy the secret — the chart then
 # comes up without AUTH_SECRET and Auth.js throws MissingSecret. Keeping it
 # unconditional pins the value in the shared release state across every deploy; it is
@@ -94,7 +94,7 @@ resource "null_resource" "pull_images" {
 }
 
 # OIDC creds, persisted in the release state bucket (no Secret Manager). A local
-# `task deploy` supplies them via octo.tfvars and seeds oidc.json here; the Cloud
+# `task deploy` supplies them via terraform.tfvars and seeds oidc.json here; the Cloud
 # Build deploy step runs without the (gitignored) tfvars, passes no OIDC vars, and
 # reads them back from the bucket. The mutually-exclusive counts (write when supplied,
 # read otherwise) keep the resource and data source from referencing each other.
@@ -126,7 +126,7 @@ locals {
   oidc_roles_claim_eff   = local.oidc_provided ? var.oidc_roles_claim : try(local.oidc_stored.roles_claim, "")
 }
 
-# Persisted OIDC config so a Cloud Build deploy (which has no octo.tfvars) can read
+# Persisted OIDC config so a Cloud Build deploy (which has no terraform.tfvars) can read
 # the creds back. Gated on oidc_enabled_eff — NOT oidc_provided — and written from
 # the effective locals, so a CI apply that resolved these from this very file keeps
 # count=1 and rewrites identical content (idempotent) instead of destroying the seed.
@@ -154,18 +154,35 @@ data "google_storage_bucket_object_content" "oidc" {
 module "octo" {
   source = "../modules/helm-release"
 
-  namespace         = var.namespace
-  image_base        = local.image_base
-  chart_version     = var.chart_version
-  image_tag         = var.image_tag
-  registry_password = data.google_client_config.current.access_token
-  domain            = var.domain
-  apps_domain       = local.apps_domain_eff
-  postgres_password = random_password.postgres.result
-  cluster_issuer    = var.cluster_issuer
-  wildcard_tls      = var.wildcard_tls
+  namespace = var.namespace
 
-  # OIDC SSO. A local deploy supplies client id/secret via octo.tfvars (which also
+  # Chart and images both come out of the same Artifact Registry repo, but they are
+  # two distinct settings in the module: the OCI chart repo (with a GCP access token)
+  # and the registry the chart writes into every image reference.
+  repository        = "oci://${local.image_base}"
+  chart             = "octo"
+  chart_version     = var.chart_version
+  registry_username = "oauth2accesstoken"
+  registry_password = data.google_client_config.current.access_token
+
+  image_registry     = local.image_base
+  image_tag          = var.image_tag
+  image_values_file  = var.image_values_file
+  values_files       = var.values_files
+  domain             = var.domain
+  apps_domain        = local.apps_domain_eff
+  postgres_password  = random_password.postgres.result
+  postgres_host_path = var.postgres_host_path
+  # The path is a mount point on the attached data disk, so kubelet must not
+  # invent it. If the disk failed to mount, the chart's DirectoryOrCreate default
+  # would put the database on the boot disk and nothing would say so until the
+  # next VM rebuild took it. Directory turns that into a Pending pod naming the
+  # missing path — see modules/base and infra/startup.sh.tftpl.
+  postgres_host_path_type = "Directory"
+  cluster_issuer          = var.cluster_issuer
+  wildcard_tls            = var.wildcard_tls
+
+  # OIDC SSO. A local deploy supplies client id/secret via terraform.tfvars (which also
   # seeds oidc.json in the bucket); Cloud Build reads them back from there. The
   # session secret is generated above. All land in the release state, not Secret Manager.
   oidc_enabled       = local.oidc_enabled_eff

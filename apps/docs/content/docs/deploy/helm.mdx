@@ -1,23 +1,43 @@
 ---
 title: "Helm Chart"
-description: "Install and configure the Octo Helm chart."
+description: "Install and configure the Octo Helm chart on any Kubernetes cluster."
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
+import { Cards, Card } from 'fumadocs-ui/components/card';
+import { Cloud, Server } from 'lucide-react';
+import { DynamicCodeBlock } from 'fumadocs-ui/components/dynamic-codeblock';
+import { OCTO_VERSION } from '@/lib/version';
 
-The `octo` Helm chart in the repo's `helm/` directory deploys the full
-platform — Postgres, NATS, the orchestrator, the log aggregator, and the
-editor UI — onto any Kubernetes cluster. The chart version is tracked in
-`helm/Chart.yaml` and kept in step with repo releases by release-please.
+The `octo` chart deploys the full platform — the editor UI, the orchestrator,
+the log aggregator, Postgres and NATS — onto any Kubernetes cluster. It is
+published as an OCI artifact on every release, so installing it needs no
+checkout:
+
+<DynamicCodeBlock lang="bash" code={`helm install octo oci://ghcr.io/juancavallotti/charts/octo \\
+  --version ${OCTO_VERSION} \\
+  --namespace octo --create-namespace \\
+  --set ingress.host=octo.example.com \\
+  --set postgres.auth.password=<strong-password>`} />
+
+That command is complete on its own. The chart's defaults point at the public
+Docker Hub images, and `image.tag` falls back to the chart's `appVersion`, so a
+chart installs the images of its own release rather than drifting onto `latest`.
+
+<Callout type="info">
+  Prefer a cluster-specific starting point over the bare defaults — the profiles
+  below carry the resource requests, security context and storage class each
+  platform expects. See [GKE](/deploy/gke) and [EKS](/deploy/eks).
+</Callout>
 
 ## What the chart deploys
 
 | Component | Workload | Port | Notes |
 |---|---|---|---|
-| Platform (editor UI) | Deployment | 3000 | Exposed by the Traefik Ingress at `ingress.host`; proxies the orchestrator and logs APIs through its BFF |
-| Orchestrator | Deployment + RBAC | 8090 | ClusterIP only; deploys integrations through the Kubernetes API |
+| Platform (editor UI) | Deployment | 3000 | Exposed at `ingress.host`; proxies the orchestrator and logs APIs through its BFF |
+| Orchestrator | Deployment + ServiceAccount + RBAC | 8090 | Deploys integrations through the Kubernetes API |
 | Log aggregator | Deployment | 8091 | Consumes NATS `internal.logs` into Postgres; serves the logs query API |
-| Postgres | StatefulSet + PVC | 5432 | Headless ClusterIP; credentials in a generated Secret |
+| Postgres | StatefulSet + PVC | 5432 | Headless Service; credentials in a generated Secret. Skipped when `postgres.enabled=false` |
 | NATS | StatefulSet (no volume) | 4222 / 8222 | Core NATS pub-sub; disable with `nats.enabled=false` |
 | Schema applier | Job (Helm hook) | – | Runs `psql -f schema.sql` on every install and upgrade |
 | Runtime RBAC | ServiceAccount + Role | – | Lease permissions for integration pods (leader election) |
@@ -25,133 +45,305 @@ editor UI — onto any Kubernetes cluster. The chart version is tracked in
 The `octo-runtime` image is not a chart workload: the chart passes it to the
 orchestrator as `RUNTIME_IMAGE`, and the orchestrator deploys one pod set per
 integration from it at runtime. The schema Job is annotated
-`helm.sh/hook: post-install,post-upgrade` with the `before-hook-creation`
-delete policy, so it re-runs (idempotently) on every upgrade.
+`helm.sh/hook: post-install,post-upgrade` with the `before-hook-creation` delete
+policy, so it re-runs (idempotently) on every upgrade.
 
-## Key values
+## How the chart is put together
 
-Defaults live in `helm/values.yaml`; every knob is documented there. The most
-important ones:
+`octo` is an application chart built on `octo-common`, a **library chart** that
+holds every reusable template — naming, labels, image references, and the
+generic Deployment / StatefulSet / Service / RBAC / Secret renderers. The
+application templates are thin stubs that name a component and let the library
+render it:
+
+```yaml
+# helm/templates/logs/deployment.yaml — the whole file
+{{- include "octo-common.deployment" (dict "root" $ "component" "logs" ...) }}
+```
+
+The point is that a knob added once applies to every component and every target,
+rather than being copied into five templates and drifting. Environment
+variables are the deliberate exception: they are genuinely component-specific,
+so each component keeps its own `_env.tpl`.
+
+`octo-common` is vendored at `helm/charts/octo-common` and packaged inside the
+`octo` tarball, so installing `octo` pulls nothing extra. It is also published
+standalone (`oci://ghcr.io/juancavallotti/charts/octo-common`) if you want to
+depend on it directly. Both charts carry the same version.
+
+## Environment profiles
+
+The chart ships a values file per target. Each is a starting point, not a
+complete configuration — you still supply the hostname and a password.
+
+| Profile | Target | Notable choices |
+|---|---|---|
+| `values-k3d.yaml` | Local k3d | NodePorts instead of an Ingress, `:dev` images, no TLS, database pinned to `./data` |
+| `values-kind.yaml` | Local kind | As above, with kind's port mappings |
+| `values-gke-autopilot.yaml` | GKE Autopilot | Requests **and** limits (Autopilot requires them), restricted security context, generous startup probes |
+| `values-gke-standard.yaml` | GKE Standard | Requests without limits so pods can burst, zone spread for the editor |
+| `values-eks.yaml` | AWS EKS | `alb` IngressClass, ACM certificate, `gp3` storage |
+
+### Where to get a profile
+
+The profiles are shipped **inside the published chart**, so you never need a
+checkout to get one:
+
+<DynamicCodeBlock lang="bash" code={`helm pull oci://ghcr.io/juancavallotti/charts/octo --version ${OCTO_VERSION} --untar
+ls octo/values-*.yaml
+# octo/values-eks.yaml  octo/values-gke-autopilot.yaml  octo/values-gke-standard.yaml
+# octo/values-k3d.yaml  octo/values-kind.yaml`} />
+
+Or download just the one you want:
+
+```bash
+curl -O https://raw.githubusercontent.com/juancavallotti/octo/main/helm/values-eks.yaml
+```
+
+They are also browsable on GitHub under
+[`helm/`](https://github.com/juancavallotti/octo/tree/main/helm) — every value is
+commented with why it is set the way it is, which is the fastest way to see what
+a target actually needs.
+
+Then install with it:
+
+<DynamicCodeBlock lang="bash" code={`helm install octo oci://ghcr.io/juancavallotti/charts/octo \\
+  --version ${OCTO_VERSION} -n octo --create-namespace \\
+  -f values-eks.yaml --set ingress.host=octo.example.com`} />
+
+<Callout type="info">
+  Pull the profile at the **same version** as the chart you install. The
+  profiles pin per-component `runAsUser` values that match the UIDs that
+  release's images run as.
+</Callout>
+
+## Values
+
+Defaults live in `helm/values.yaml`, where every knob is documented inline. The
+ones that matter most:
 
 ### Images
 
 | Key | Default | Purpose |
 |---|---|---|
-| `image.registry` | `""` | Registry base the per-component repositories are appended to (e.g. `us-west1-docker.pkg.dev/PROJECT/octo`). Empty uses bare local image names. |
-| `image.tag` | `dev` | Tag shared by all five Octo images. Bump it to roll an upgrade. |
+| `image.registry` | `docker.io/juancavallotti` | Registry base the per-component repositories are appended to. |
+| `image.tag` | `""` | Shared tag. **Empty falls back to the chart's `appVersion`**, so a chart installs the images of its own release. |
 | `image.pullPolicy` | `IfNotPresent` | Applied to all Octo images. |
-| `platform.repository` | `octo-platform` | Editor UI image name. |
-| `orchestrator.repository` | `octo-orchestrator` | Orchestrator image name. |
-| `logs.repository` | `octo-logs` | Log-aggregator image name. |
-| `schema.repository` | `octo-schema` | Schema-applier image name. |
-| `runtime.repository` | `octo-runtime` | Per-integration runtime image, passed to the orchestrator as `RUNTIME_IMAGE`. |
+| `<component>.image.repository` | `octo-<component>-paas` | Per-component override; `<component>.repository` still works. |
+| `<component>.image.registry` | – | Per-component registry, overriding the shared one. |
+| `<component>.image.digest` | – | Pin by digest. **Wins over any tag.** |
 
-### Domain, ingress, and TLS
+Components are `platform`, `orchestrator`, `logs`, `schema` and `runtime`.
+`postgres` and `nats` also take `image.*`, but deliberately do **not** inherit
+`image.registry` — that host holds the `octo-*` images only. Point their own
+`image.registry` at a mirror for clusters that cannot reach Docker Hub.
+
+Digest pinning is what the GCP release path uses: Cloud Build renders a values
+file naming the exact digest of every image it pushed, so a release deploys what
+that build produced rather than whatever a tag points at later. Render one
+yourself with `task helm:values:images IMAGE_BASE=… TAG=…`.
+
+### Per-workload knobs
+
+Every workload accepts the same set, and `defaults:` applies them to all of
+them at once. A per-component value overrides the default; the two are merged,
+not replaced wholesale.
+
+```yaml
+defaults:
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+  securityContext:
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+    capabilities: { drop: ["ALL"] }
+
+platform:
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }   # only this component
+```
+
+Available on `defaults` and on each component: `resources`,
+`podSecurityContext`, `securityContext`, `imagePullSecrets`, `nodeSelector`,
+`tolerations`, `affinity`, `topologySpreadConstraints`, `priorityClassName`,
+`podAnnotations`, `podLabels`, `extraEnv`, `envFrom`, `extraVolumes`,
+`extraVolumeMounts`, `livenessProbe`, `startupProbe`, `revisionHistoryLimit`
+and `strategy`.
+
+The orchestrator and runtime additionally take
+`serviceAccount.{create,name,annotations}` — that is where GKE Workload Identity
+and EKS IRSA annotations go.
+
+### Ingress and TLS
+
+`ingress.tls.mode` is the biggest single difference between targets:
+
+| Mode | Certificate comes from |
+|---|---|
+| `cert-manager` | A ClusterIssuer, issued per host over HTTP-01. What the k3s bootstrap provides. |
+| `secret` | A TLS Secret that already exists — a pre-issued wildcard, or one Terraform placed. |
+| `gke-managed-cert` | A Google-managed certificate; the chart creates the `ManagedCertificate`. |
+| `acm` | An AWS ACM certificate by ARN, terminated at the ALB. |
+| `none` | Terminated upstream; no TLS on the Ingress. |
+
+Empty auto-selects `cert-manager` when a `clusterIssuer` is set, else `secret`.
+
+`ingress.className` selects the controller (`traefik`, `nginx`, `gce`, `alb`);
+`ingress.annotations` carries controller-specific behaviour. Per-integration
+external endpoints are a separate axis — `orchestrator.baseDomain` plus
+`orchestrator.ingressClass` and `orchestrator.ingressAnnotations`, which the
+orchestrator stamps onto the Ingresses it generates at runtime.
+
+<Callout type="info">
+  `networking.mode` exists and accepts only `ingress` today. It is the seam a
+  Gateway API implementation drops into: routing is resolved in one template
+  rather than inlined per component, so adding HTTPRoute and Gateway later does
+  not touch the workloads.
+</Callout>
+
+### Database
+
+The chart runs Postgres itself by default, or points at a managed one.
 
 | Key | Default | Purpose |
 |---|---|---|
-| `ingress.enabled` | `true` | Create the editor Ingress. Disabled, reach the editor by port-forwarding the platform Service. |
-| `ingress.className` | `traefik` | Ingress class. |
-| `ingress.host` | `octo.juancavallotti.com` | Hostname the editor is served at. |
-| `ingress.tls.enabled` | `true` | Request a cert for the editor host. |
-| `ingress.tls.secretName` | `octo-tls` | Secret the cert is stored in. |
-| `ingress.tls.clusterIssuer` | `letsencrypt-prod` | cert-manager ClusterIssuer for the editor cert. |
-| `orchestrator.baseDomain` | `""` | Parent domain for per-integration external endpoints (`{subdomain}.{baseDomain}`). Empty disables external exposure. |
-| `orchestrator.clusterIssuer` | `""` | ClusterIssuer for per-integration TLS certs (HTTP-01, one per host). |
-| `wildcardTLS.enabled` | `false` | Issue one wildcard cert for the apex and `*.{ingress.host}` via DNS-01 and share it across the editor and every integration Ingress. Requires a DNS-01 ClusterIssuer. |
-| `wildcardTLS.secretName` | `octo-wildcard-tls` | Secret holding the shared wildcard cert. |
-| `wildcardTLS.clusterIssuer` | `letsencrypt-dns` | DNS-01 ClusterIssuer for the wildcard cert. |
+| `postgres.enabled` | `true` | Deploy the bundled StatefulSet. `false` skips it, its Service and its Secret. |
+| `postgres.storage.size` | `5Gi` | PVC size. |
+| `postgres.storage.storageClassName` | `""` | Empty uses the cluster default. |
+| `postgres.storage.hostPath` | `""` | Pin the data to a fixed node path — single-node clusters only. See below. |
+| `externalDatabase.host` / `.port` / `.database` / `.user` / `.sslmode` | – | Managed database coordinates, used when `postgres.enabled=false`. |
+| `externalDatabase.existingSecret` / `.existingSecretPasswordKey` | – | Read the password from a Secret you already have. |
+
+```yaml
+# Cloud SQL / RDS instead of the bundled StatefulSet
+postgres:
+  enabled: false
+externalDatabase:
+  host: octo.abcdef.us-east-1.rds.amazonaws.com
+  database: octo
+  user: octo
+  sslmode: require
+  existingSecret: rds-octo
+  existingSecretPasswordKey: password
+```
+
+Prefer `existingSecret` over an inline password: values persist in Helm release
+history. Either way the password never appears in a pod's environment as
+plaintext — the chart passes it via `secretKeyRef` and lets Kubernetes expand it
+into `DATABASE_URL`.
+
+<Callout type="warn">
+  **Storage on single-node clusters.** `local-path`-style provisioners name each
+  volume's directory after the claim's UID, so recreating the cluster — or the
+  claim — hands Postgres an empty directory while the old one stays on disk.
+  `postgres.storage.hostPath` pins the data to a fixed path instead, and the
+  chart creates a static `PersistentVolume` bound to it. Leave it empty on any
+  managed cluster: hostPath is node-local, and GKE Autopilot rejects it.
+
+  Setting it on a release that already holds data is a **data move** — copy the
+  directory across with the workload stopped, or the database will come up
+  empty.
+</Callout>
+
+Nothing in the chart deletes a database. The StatefulSet sets
+`persistentVolumeClaimRetentionPolicy: Retain`, so neither `helm uninstall` nor
+scaling to zero removes the claim, and the static volume carries
+`helm.sh/resource-policy: keep` so an uninstall leaves it for the next install to
+adopt. Destroying storage is the infrastructure layer's job.
 
 ### Secrets and auth
 
 | Key | Default | Purpose |
 |---|---|---|
-| `postgres.auth.username` / `.password` / `.database` | `octo` / `octo` / `octo` | Database credentials, stored in a chart-managed Secret. Always override the password. |
-| `kv.encryptionKey` | `""` | Base64-encoded 32-byte AES-256 key encrypting KV secret namespaces at rest. Empty rejects secret-namespace writes; plain KV still works. See [KV and storage](/platform/kv-and-storage). |
+| `postgres.auth.username` / `.password` / `.database` | `octo` | Database credentials, stored in a chart-managed Secret. Always override the password. |
+| `kv.encryptionKey` | `""` | Base64 32-byte AES-256 key encrypting KV secret namespaces at rest. Empty rejects secret-namespace writes; plain KV still works. See [KV and storage](/platform/kv-and-storage). |
 | `auth.oidc.enabled` | `false` | Gate the editor behind OIDC SSO (Auth.js). Disabled, the editor is open. |
-| `auth.oidc.issuer` | `https://auth.eetr.app` | OIDC issuer URL. |
-| `auth.oidc.clientId` / `.clientSecret` | `""` | IdP client credentials; the secret lands in the chart's auth Secret. |
+| `auth.oidc.issuer` / `.clientId` / `.clientSecret` | – | IdP details; the secret lands in the chart's auth Secret. |
 | `auth.secret` | `""` | Auth.js session secret (`AUTH_SECRET`). |
-| `auth.writeRoles` | `""` | Comma-separated roles allowed to mutate; empty allows any signed-in user. |
-| `auth.rolesClaim` | `""` | ID-token claim carrying roles (Auth.js default `roles`). |
+| `auth.writeRoles` / `.rolesClaim` | `""` | Roles allowed to mutate, and the ID-token claim carrying them. |
 
-### Persistence and scaling
+### Scaling
 
 | Key | Default | Purpose |
 |---|---|---|
-| `postgres.storage.size` | `5Gi` | Postgres PVC size. |
-| `postgres.storage.storageClassName` | `""` | Empty uses the cluster default StorageClass (`local-path` on k3s). |
-| `platform.replicas` / `orchestrator.replicas` / `logs.replicas` | `1` | Replica counts. The log aggregator scales safely (NATS queue group). |
+| `platform.replicas` / `orchestrator.replicas` / `logs.replicas` | `1` | Replica counts. The log aggregator scales safely — its consumer joins a NATS queue group, so replicas compete for messages rather than each storing every one. |
 | `nats.enabled` | `true` | Deploy the NATS broker; when off, live event streams fall back to polling. See [Event bus](/platform/event-bus). |
-| `runtime.servicesModule` | `k8s` | Runtime-services backend injected into integration pods: `k8s` (Lease leader election + orchestrator KV) or `standalone` (in-process noop). Cluster deploys want `k8s`. |
+| `runtime.servicesModule` | `k8s` | Runtime-services backend injected into integration pods: `k8s` (Lease leader election + orchestrator KV) or `standalone`. Cluster deploys want `k8s`. |
 
-## Install
+## Image and chart compatibility
 
-The chart is published as an OCI artifact. In the reference GCP deployment,
-Cloud Build pushes it to your Artifact Registry on every version tag (see
-[Releases and upgrades](/deploy/releases-and-upgrades)); you can also publish
-it yourself from a checkout:
+The chart and the images are released together and are tested together. A chart
+at version X expects the images of release X, which is what it installs by
+default via the `appVersion` fallback.
 
-```bash
-# Lint and package into dist/octo-<version>.tgz
-task helm:package
+This matters because **the images run as non-root**, and the chart's cloud
+profiles pin the matching UIDs:
 
-# Push to an OCI registry (Artifact Registry shown)
-helm registry login us-west1-docker.pkg.dev -u oauth2accesstoken -p "$(gcloud auth print-access-token)"
-task helm:push IMAGE_BASE=us-west1-docker.pkg.dev/PROJECT/octo
-```
+| Image | Runs as |
+|---|---|
+| `octo-platform-paas` | `1000` (`node`) |
+| `octo-orchestrator-paas`, `octo-logs-paas`, `octo-runtime-paas` | `65532` (distroless nonroot) |
+| `octo-schema-paas`, `postgres` | `70` (`postgres`) |
+| `nats` | any UID |
 
-Then install from the registry, pointing the image values at where you pushed
-the images (`task images:push IMAGE_BASE=… TAG=…`):
+Pinning `image.tag` to an older release while using a newer chart is not a
+combination that gets tested, and the security contexts in the profiles are the
+most likely thing to break. If you must mix versions, relax
+`defaults.securityContext` accordingly.
 
-```bash
-helm install octo oci://us-west1-docker.pkg.dev/PROJECT/octo/octo \
-  --version <chart-version> \
-  --namespace octo-dev --create-namespace \
-  --set image.registry=us-west1-docker.pkg.dev/PROJECT/octo \
-  --set image.tag=v0.2.0 \
-  --set ingress.host=octo.example.com \
-  --set postgres.auth.password=<strong-password>
-```
+## Cluster prerequisites
 
-The chart version comes from `helm/Chart.yaml` — list available versions with
-`helm show chart oci://…/octo`. You can also install straight from a checkout
-with `helm install octo ./helm -f my-values.yaml`.
+The chart deploys workloads, not cluster infrastructure. Depending on the values
+you choose, the cluster must already provide:
 
-<Callout type="info">
-  The chart assumes Traefik as the ingress class and cert-manager with a
-  ClusterIssuer for TLS — both ship with the k3s bootstrap in the
-  [GCP reference deployment](/deploy/gcp-terraform). On other clusters,
-  install cert-manager and adjust `ingress.className`, or disable TLS.
-</Callout>
-
-<Callout type="warn">
-  In the GCP reference deployment, Terraform owns the Helm release — do not
-  run `helm upgrade` against it by hand. Apply the `release` root (or
-  `task deploy TAG=…`) instead.
-</Callout>
+- an **ingress controller** matching `ingress.className` — none is installed here
+- **cert-manager** and a ClusterIssuer, for `tls.mode: cert-manager` (and for
+  `wildcardTLS`, which needs a DNS-01 issuer)
+- a **StorageClass** for the Postgres PVC, unless `postgres.storage.hostPath` is
+  set or `postgres.enabled` is `false`
 
 ## Upgrade
 
-Upgrades are a normal `helm upgrade` with a new chart version and image tag:
+<DynamicCodeBlock lang="bash" code={`helm upgrade octo oci://ghcr.io/juancavallotti/charts/octo \\
+  --version ${OCTO_VERSION} --namespace octo --reuse-values`} />
 
-```bash
-helm upgrade octo oci://us-west1-docker.pkg.dev/PROJECT/octo/octo \
-  --version <new-chart-version> \
-  --namespace octo-dev \
-  --reuse-values \
-  --set image.tag=v0.3.0
-```
+Because `image.tag` follows `appVersion`, a chart-version bump moves the images
+with it — there is no second tag to remember. What happens:
 
-What happens on an upgrade:
+- changed image references rewrite the pod templates, so the platform,
+  orchestrator and logs Deployments roll automatically
+- the schema hook Job re-runs and applies `sql/schema.sql`; the schema is
+  idempotent (`IF NOT EXISTS` / `ON CONFLICT`), so this is safe every time
+- Postgres and its PVC are untouched — your data survives the upgrade
+- integrations already deployed keep running on the runtime image they were
+  deployed with; redeploy them from the editor to pick up a new `octo-runtime`
 
-- A changed `image.tag` rewrites the pod templates, so the platform,
-  orchestrator, and logs Deployments roll automatically.
-- The schema hook Job re-runs and applies `sql/schema.sql`; the schema is
-  idempotent (`IF NOT EXISTS` / `ON CONFLICT`), so this is safe on every
-  upgrade.
-- Postgres and its PVC are untouched when only the tag moves — your data
-  survives the upgrade.
-- Integrations already deployed keep running on the runtime image they were
-  deployed with; redeploy them from the editor to pick up a new
-  `octo-runtime`.
+<Callout type="warn">
+  In the GCP reference deployment, Terraform owns the Helm release — do not run
+  `helm upgrade` against it by hand. Apply the `release` root (or
+  `task deploy TAG=…`) instead.
+</Callout>
+
+## Validating changes
+
+`task helm:test` lints and renders every profile and pipes the output through
+`kubeconform` against the real Kubernetes schemas. CI runs it on every push, so
+a template change that breaks a target you cannot reach locally still fails on
+the pull request.
+
+## Per-target guides
+
+<Cards>
+  <Card
+    icon={<Cloud />}
+    href="/deploy/gke"
+    title="GKE"
+    description="Autopilot and Standard: prerequisites, Workload Identity, Cloud SQL, and Autopilot's constraints."
+  />
+  <Card
+    icon={<Server />}
+    href="/deploy/eks"
+    title="AWS EKS"
+    description="The AWS Load Balancer Controller, ACM certificates, IRSA, gp3 storage, and RDS."
+  />
+</Cards>

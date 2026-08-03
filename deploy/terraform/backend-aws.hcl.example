@@ -1,0 +1,12 @@
+# Backend configuration for the `eks` root (S3, not GCS). Copy to backend-aws.hcl
+# (gitignored) and set your bucket, then pass it at init time:
+#
+#   terraform -chdir=eks init -backend-config=../backend-aws.hcl
+#
+# (`task eks:apply` does this for you.)
+#
+# Create the bucket once with `task eks:state:bucket BUCKET=<name>`. No DynamoDB
+# table is needed: the backend uses native S3 conditional-write locking
+# (use_lockfile in eks/backend.tf), which requires Terraform >= 1.10.
+bucket = "octo-tfstate-your-name"
+region = "us-east-1"

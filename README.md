@@ -75,7 +75,7 @@ Building from source is one command (`task runtime:build`); see the
 - `apps/docs/`: the documentation site (Fumadocs). Content in `apps/docs/content/docs/`.
 - `packages/`: shared pnpm workspace libraries (`@octo/editor`, `@octo/mcp`, `@octo/run-host`, ...).
 - `orchestrator/`: Go API that deploys integrations as Kubernetes workloads.
-- `helm/`: Helm chart for the GCP deployment; `deploy/`: k8s manifests (local k3d) and Terraform (GCP).
+- `helm/`: the Helm chart (plus the `octo-common` library chart and a values profile per target); `deploy/`: cluster configs (k3d, kind) and Terraform (GCP).
 - `docs/`: contributor policies (coding standards, lint, review, release) and internal deep-dives (deployment, processing pipeline).
 - `samples/`: runnable flow examples used throughout the docs.
 

@@ -1,0 +1,257 @@
+---
+title: "AWS EKS"
+description: "Deploy the Octo chart on EKS, with the AWS Load Balancer Controller, ACM, IRSA and RDS."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { DynamicCodeBlock } from 'fumadocs-ui/components/dynamic-codeblock';
+import { OCTO_VERSION } from '@/lib/version';
+
+`values-eks.yaml` targets EKS fronted by the AWS Load Balancer Controller, with
+TLS terminated at an ALB against an ACM certificate.
+
+## Get the profile
+
+It ships inside the published chart, so no checkout is needed:
+
+<DynamicCodeBlock lang="bash" code={`helm pull oci://ghcr.io/juancavallotti/charts/octo --version ${OCTO_VERSION} --untar
+ls octo/values-eks.yaml`} />
+
+Or fetch it directly:
+
+```bash
+curl -O https://raw.githubusercontent.com/juancavallotti/octo/main/helm/values-eks.yaml
+```
+
+Browsable on GitHub:
+[`helm/values-eks.yaml`](https://github.com/juancavallotti/octo/blob/main/helm/values-eks.yaml).
+Every value is commented with why it is set that way — worth reading before you
+change one.
+
+## Install
+
+<DynamicCodeBlock lang="bash" code={`helm upgrade --install octo oci://ghcr.io/juancavallotti/charts/octo \\
+  --version ${OCTO_VERSION} -n octo --create-namespace \\
+  -f values-eks.yaml \\
+  --set ingress.host=octo.example.com \\
+  --set ingress.tls.certificateArn=arn:aws:acm:REGION:ACCOUNT:certificate/ID \\
+  --set postgres.auth.password=<strong-password>`} />
+
+Pull the profile at the same version as the chart: it pins per-component
+`runAsUser` values matching the UIDs that release's images run as.
+
+<Callout type="info">
+  This profile has been installed on a live EKS cluster, including the ACM
+  certificate and ALB ingress path, RDS wired through
+  `externalDatabase.existingSecret`, and OIDC sign-in. It is also rendered and
+  schema-checked in CI on every change.
+</Callout>
+
+## Provision a cluster with Terraform
+
+If you do not already have a cluster, `deploy/terraform/eks` creates one, installs
+every prerequisite below, requests the ACM certificate, wires DNS, and deploys the
+chart — in a single apply.
+
+```bash
+cd deploy/terraform
+task eks:state:bucket BUCKET=<name>          # once
+cp backend-aws.hcl.example backend-aws.hcl   # once
+cp eks/terraform.tfvars.example eks/terraform.tfvars
+$EDITOR eks/terraform.tfvars                 # route53_zone_name, domain, apps_domain
+task eks:apply
+```
+
+What it creates:
+
+| | |
+|---|---|
+| **VPC** | Two AZs, public + private subnets, tagged for ALB subnet discovery |
+| **Cluster** | EKS with managed node groups, the EBS CSI driver, and access entries |
+| **Ingress** | AWS Load Balancer Controller with its IRSA role, plus the `gp3` StorageClass this profile asks for (EKS ships only `gp2`) |
+| **TLS** | An ACM certificate covering the editor host and `*.{apps_domain}`, DNS-validated in Route53 |
+| **DNS** | CNAMEs for the editor and the wildcard, pointed at the ALB once the controller has provisioned it |
+| **Database** | The chart's bundled Postgres, or an RDS instance in the private subnets — one variable |
+
+It uses the upstream `terraform-aws-modules` VPC, EKS and IRSA modules. Not for the
+line count: the subnet tagging, node IAM and addon IRSA are exactly the parts whose
+subtle mistakes surface as an Ingress that never gets an address, or a destroy that
+hangs on a dangling network interface.
+
+<Callout type="warn">
+  **Treat this root as a worked example, not as your production infrastructure.**
+  It exists to prove the chart's EKS profile runs on a real cluster, cheaply and
+  disposably, and the shape follows from that: one root owns the cluster *and* the
+  application release, so every `terraform apply` is also a redeploy; there is a
+  single environment with no staging/production split; nodes sit in public subnets
+  and the database has no backups, because the whole thing is meant to be destroyed
+  the same day.
+
+  For anything you intend to keep, fork it — or better, keep only the parts you
+  need. The chart is the stable interface here, not the Terraform: it is designed to
+  be driven from your own values file, and none of what this root does to it
+  (hostnames, ACM ARN, RDS via `existingSecret`, ALB annotations) requires its
+  Terraform. Most teams already have opinions about VPCs, node groups, secret
+  management and CI that belong in their own modules, and the chart slots into those
+  unchanged.
+</Callout>
+
+<Callout type="warn">
+  **The EKS control plane is ~$0.10/hour (~$73/month) with no free tier**, billed
+  from the moment the cluster exists whether or not anything runs on it. Defaults
+  here are otherwise cheap — spot nodes in public subnets, no NAT gateway, a
+  `db.t4g.micro` RDS instance with no backups — and each has a variable that turns
+  it into the production choice. Destroy the root when you are done.
+</Callout>
+
+The Route53 **zone** is not managed by Terraform, only the records in it: Route53
+assigns fresh nameservers on every zone creation, so a zone owned by a root you
+destroy and recreate would invalidate its delegation every cycle. Create it once and
+delegate it — see
+[`deploy/terraform/README.md`](https://github.com/juancavallotti/octo/blob/main/deploy/terraform/README.md).
+`ingress.host` must be a **subdomain**, not the zone apex, because the record
+pointing at the ALB is a CNAME.
+
+Tear down with `task eks:destroy`. It is phased on purpose: the Load Balancer
+Controller owns the ALB and cleans it up only when it observes the Ingress being
+deleted. Destroying everything at once races that, and the orphaned ALB and its
+security groups then block the VPC delete some twenty minutes later.
+
+<Callout type="info">
+  **Two things survive a clean destroy.** The Route53 hosted zone is not Terraform's
+  (see above) and bills $0.50/month. And the cluster's Secret-encryption KMS key
+  goes to `PendingDeletion` rather than disappearing, billing ~$1/month until the
+  window elapses — the root sets that window to 7 days rather than the module's
+  30-day default, but it is not zero. Confirm both after a teardown:
+
+  ```bash
+  aws kms list-keys --query 'Keys[].KeyId' --output text | tr '\t' '\n' | while read k; do
+    aws kms describe-key --key-id "$k" \
+      --query 'KeyMetadata.[KeyId,KeyManager,KeyState,DeletionDate]' --output text
+  done | grep CUSTOMER
+  ```
+
+  A key already scheduled with a long window can be shortened — `aws kms
+  cancel-key-deletion --key-id <id>` then `aws kms schedule-key-deletion --key-id
+  <id> --pending-window-in-days 7`.
+</Callout>
+
+### Testing a chart you have edited
+
+```bash
+task images:ttl TTL=12h
+task eks:apply IMAGE_VALUES=dist/values.ttl.yaml
+```
+
+## Prerequisites
+
+None of these are installed by the chart:
+
+| Requirement | Why |
+|---|---|
+| **AWS Load Balancer Controller** | Provides the `alb` IngressClass |
+| **EBS CSI driver** | Backs the `gp3` StorageClass for the Postgres volume |
+| An **ACM certificate** covering `ingress.host` | TLS at the ALB |
+| A DNS record for `ingress.host` pointing at the ALB | – |
+
+If you enable per-integration external endpoints, the certificate must also
+cover `*.{orchestrator.baseDomain}`, with a matching wildcard DNS record.
+
+## TLS: ACM, not cert-manager
+
+TLS terminates at the ALB, so there is no cert-manager and no ClusterIssuer on
+this path. `ingress.tls.mode: acm` is what selects that: the Ingress carries a
+`certificate-arn` annotation instead of a `tls` block.
+
+```yaml
+ingress:
+  tls:
+    enabled: true
+    mode: acm
+    certificateArn: arn:aws:acm:REGION:ACCOUNT:certificate/ID
+```
+
+## ALB annotations
+
+Two settings in the profile carry most of the weight:
+
+```yaml
+ingress:
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/group.name: octo
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+```
+
+- **`target-type: ip`** sends traffic straight to pod IPs. That is what makes the
+  ClusterIP Services this chart creates work behind an ALB — the default
+  `instance` mode would require NodePorts.
+- **`group.name`** lets the editor Ingress and every per-integration Ingress the
+  orchestrator generates share **one** ALB, rather than provisioning — and
+  billing — one each. This matters more than it looks: without it, every
+  integration you expose externally creates its own load balancer.
+
+The same annotations are repeated under `orchestrator.ingressAnnotations`, since
+those are stamped onto the Ingresses the orchestrator creates at runtime rather
+than rendered by the chart. Add the certificate ARN there too if you expose
+integrations externally.
+
+## Storage
+
+```yaml
+postgres:
+  storage:
+    storageClassName: gp3
+    size: 50Gi
+```
+
+`gp3` requires the EBS CSI driver. EBS volumes are zonal, so the Postgres pod is
+pinned to its volume's availability zone — another reason to prefer RDS for real
+workloads.
+
+### RDS
+
+```yaml
+postgres:
+  enabled: false
+externalDatabase:
+  host: octo.abcdef.us-east-1.rds.amazonaws.com
+  database: octo
+  user: octo
+  sslmode: require
+  existingSecret: rds-octo
+  existingSecretPasswordKey: password
+```
+
+`postgres.enabled: false` skips the StatefulSet, its Service and its Secret; the
+schema Job points at RDS instead. Keep the credential in a Secret owned by
+Terraform or external-secrets rather than in a values file — values persist in
+Helm release history.
+
+## IRSA
+
+Bind the chart's ServiceAccounts to IAM roles through annotations:
+
+```yaml
+orchestrator:
+  serviceAccount:
+    annotations:
+      eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT:role/octo-orchestrator
+```
+
+The orchestrator and runtime ServiceAccounts are the two the chart creates and
+the two that can need AWS credentials.
+
+## Security context
+
+Every container runs unprivileged: `runAsNonRoot`, `allowPrivilegeEscalation:
+false`, all capabilities dropped, `seccompProfile: RuntimeDefault`, and
+`readOnlyRootFilesystem` on the Go services. `runAsUser` is set per component
+because each image runs as a different UID — see
+[image and chart compatibility](/deploy/helm#image-and-chart-compatibility).
+
+Unlike the Autopilot profile, resource **limits** are not set: EKS bills nodes,
+not pods, so requests alone are enough and leaving limits off lets pods burst
+into spare capacity.

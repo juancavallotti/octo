@@ -1,57 +1,31 @@
-# RBAC for the orchestrator: it creates one ConfigMap + Deployment + Service per
-# integration deployment and reads pod/deployment status. Scoped to the release
-# namespace (namespaced Role, not Cluster).
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: {{ include "octo.fullname" . }}-orchestrator
-  labels:
-    {{- include "octo.labels" . | nindent 4 }}
-    app.kubernetes.io/component: orchestrator
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: {{ include "octo.fullname" . }}-orchestrator
-  labels:
-    {{- include "octo.labels" . | nindent 4 }}
-    app.kubernetes.io/component: orchestrator
-rules:
-  - apiGroups: [""]
-    resources: ["configmaps", "services", "pods"]
-    verbs: ["get", "list", "watch", "create", "update", "delete"]
-  # Per-pod log streaming (the deployment detail's live tail). pods/log is a
-  # subresource, so it needs its own rule; only get is required to open a stream.
-  - apiGroups: [""]
-    resources: ["pods/log"]
-    verbs: ["get"]
-  # Shared cluster secrets: the orchestrator manages the single octo-secrets
-  # Secret (get to read, create on first write, update to add/remove keys).
-  - apiGroups: [""]
-    resources: ["secrets"]
-    verbs: ["get", "create", "update"]
-  - apiGroups: ["apps"]
-    resources: ["deployments"]
-    # patch is required to scale an existing deployment (merge-patch on spec.replicas).
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  # Per-integration external endpoints (Stage 2): the orchestrator creates an
-  # Ingress per externally-exposed deployment.
-  - apiGroups: ["networking.k8s.io"]
-    resources: ["ingresses"]
-    verbs: ["get", "list", "watch", "create", "update", "delete"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: {{ include "octo.fullname" . }}-orchestrator
-  labels:
-    {{- include "octo.labels" . | nindent 4 }}
-    app.kubernetes.io/component: orchestrator
-subjects:
-  - kind: ServiceAccount
-    name: {{ include "octo.fullname" . }}-orchestrator
-    namespace: {{ .Release.Namespace }}
-roleRef:
-  kind: Role
-  name: {{ include "octo.fullname" . }}-orchestrator
-  apiGroup: rbac.authorization.k8s.io
+{{- /* RBAC for the orchestrator: it creates one ConfigMap + Deployment + Service
+       per integration deployment and reads pod/deployment status. Scoped to the
+       release namespace (namespaced Role, not Cluster). */}}
+{{- define "octo.orchestrator.rules" -}}
+- apiGroups: [""]
+  resources: ["configmaps", "services", "pods"]
+  verbs: ["get", "list", "watch", "create", "update", "delete"]
+# Per-pod log streaming (the deployment detail's live tail). pods/log is a
+# subresource, so it needs its own rule; only get is required to open a stream.
+- apiGroups: [""]
+  resources: ["pods/log"]
+  verbs: ["get"]
+# Shared cluster secrets: the orchestrator manages the single octo-secrets
+# Secret (get to read, create on first write, update to add/remove keys).
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "create", "update"]
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  # patch is required to scale an existing deployment (merge-patch on spec.replicas).
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+# Per-integration external endpoints (Stage 2): the orchestrator creates an
+# Ingress per externally-exposed deployment.
+- apiGroups: ["networking.k8s.io"]
+  resources: ["ingresses"]
+  verbs: ["get", "list", "watch", "create", "update", "delete"]
+{{- end }}
+{{- include "octo-common.rbac" (dict
+      "root" $
+      "component" "orchestrator"
+      "rules" (include "octo.orchestrator.rules" .)) }}

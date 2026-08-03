@@ -75,6 +75,70 @@ resource "google_compute_firewall" "kube_api" {
   target_tags   = [var.instance_name]
 }
 
+# --- Data disk ---
+# The database lives here, not on the boot disk. The boot disk is recreated with the
+# instance — a machine-type change, an image bump, a rebuild — and the boot disk is
+# also where k3s's local-path provisioner would otherwise put Postgres, so the two
+# failure modes compound. This is a resource of its own, and a non-boot attached_disk
+# is never auto-deleted by the provider, so the data outlives the VM.
+#
+# Deliberately no `prevent_destroy`: this environment still gets torn down and
+# rebuilt on purpose, and a lifecycle block that cannot be toggled by a variable
+# turns that into an edit-the-module dance. The snapshot schedule below is what
+# makes an accidental destroy recoverable. Uncomment when it goes long-lived:
+#
+#   lifecycle { prevent_destroy = true }
+resource "google_compute_disk" "data" {
+  name = "${var.instance_name}-data"
+  type = var.data_disk_type
+  zone = var.zone
+  size = var.data_disk_size_gb
+
+  labels = {
+    component = "octo-data"
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+# A data disk with no backups is not hardened. KEEP_AUTO_SNAPSHOTS means the
+# snapshots survive the disk itself, which is the case that matters.
+resource "google_compute_resource_policy" "data_snapshot" {
+  count  = var.data_disk_snapshot_retention_days > 0 ? 1 : 0
+  name   = "${var.instance_name}-data-snapshot"
+  region = var.region
+
+  # Same dependency the disk and the VM carry. Nothing else here references the
+  # policy's inputs, so on a fresh project Terraform is free to schedule it while
+  # compute.googleapis.com is still enabling; the attachment below then has no
+  # policy to attach and the apply fails on the second resource rather than the
+  # first.
+  depends_on = [google_project_service.apis]
+
+  snapshot_schedule_policy {
+    schedule {
+      daily_schedule {
+        days_in_cycle = 1
+        start_time    = var.data_disk_snapshot_start_time
+      }
+    }
+    retention_policy {
+      max_retention_days    = var.data_disk_snapshot_retention_days
+      on_source_disk_delete = "KEEP_AUTO_SNAPSHOTS"
+    }
+    snapshot_properties {
+      storage_locations = [var.region]
+    }
+  }
+}
+
+resource "google_compute_disk_resource_policy_attachment" "data_snapshot" {
+  count = var.data_disk_snapshot_retention_days > 0 ? 1 : 0
+  name  = google_compute_resource_policy.data_snapshot[0].name
+  disk  = google_compute_disk.data.name
+  zone  = var.zone
+}
+
 # --- The VM ---
 resource "google_compute_instance" "vm" {
   name         = var.instance_name
@@ -87,6 +151,15 @@ resource "google_compute_instance" "vm" {
       image = "debian-cloud/debian-12"
       size  = var.boot_disk_size_gb
     }
+  }
+
+  # Surfaces to the guest as /dev/disk/by-id/google-{device_name}, which is what
+  # the startup script formats and mounts. Attaching to a running instance is an
+  # in-place update — no VM replacement.
+  attached_disk {
+    source      = google_compute_disk.data.id
+    device_name = var.data_disk_device_name
+    mode        = "READ_WRITE"
   }
 
   network_interface {

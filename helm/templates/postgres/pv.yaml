@@ -1,0 +1,54 @@
+{{/*
+  Optional static PersistentVolume pinning the database to a fixed node path.
+
+  Rendered only when postgres.storage.hostPath is set, which no cloud profile
+  does — GKE Autopilot rejects hostPath outright, and on a multi-node cluster a
+  node-local path is wrong anyway. It exists for single-node clusters (k3d, kind,
+  and a single-node k3s VM), where the dynamic local-path provisioner has a sharp
+  edge: it names each volume's directory after the PVC's UID, so deleting and
+  recreating the cluster — or the claim — yields a *new* directory and an empty
+  database, while the old one lingers on disk. Binding a fixed path removes the
+  UID from the equation, so the data outlives the cluster.
+
+  Reclaim policy is Retain so nothing ever deletes the host directory: on these
+  clusters that path is usually a bind mount of a real workspace or data disk.
+  Note the corollary — if the claim is deleted by hand the volume goes to
+  Released and has to be freed (clear spec.claimRef) before it will bind again.
+*/}}
+{{- if and .Values.postgres.enabled .Values.postgres.storage.hostPath }}
+{{- $name := include "octo-common.componentName" (dict "root" $ "component" "postgres") }}
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  # PersistentVolumes are cluster-scoped, so the namespace is part of the name:
+  # two releases in different namespaces must not collide on one volume.
+  name: {{ printf "%s-%s" $name .Release.Namespace }}
+  labels:
+    {{- include "octo-common.componentLabels" (dict "root" $ "component" "postgres") | nindent 4 }}
+  annotations:
+    # Survive `helm uninstall`. The StatefulSet's PVC is retained by Kubernetes,
+    # and a bound PVC blocks deletion of its PV — so an unannotated volume would
+    # hang in Terminating and the next install would fail to create it. Left in
+    # place it keeps Helm's ownership annotations, so the next install adopts it.
+    helm.sh/resource-policy: keep
+spec:
+  capacity:
+    storage: {{ .Values.postgres.storage.size | quote }}
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  # Explicitly empty, not omitted: omitting the field would request the default
+  # StorageClass and hand the claim back to the dynamic provisioner.
+  storageClassName: ""
+  # Pre-bind to the StatefulSet's generated claim ({volumeClaimTemplate}-{sts}-0)
+  # so this volume is reserved for the database and cannot be claimed by anything
+  # else. No UID here on purpose: that is what lets a recreated claim rebind.
+  claimRef:
+    apiVersion: v1
+    kind: PersistentVolumeClaim
+    namespace: {{ .Release.Namespace }}
+    name: {{ printf "data-%s-0" $name }}
+  hostPath:
+    path: {{ .Values.postgres.storage.hostPath | quote }}
+    type: {{ .Values.postgres.storage.hostPathType | default "DirectoryOrCreate" }}
+{{- end }}

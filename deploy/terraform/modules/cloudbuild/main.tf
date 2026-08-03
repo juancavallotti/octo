@@ -50,7 +50,7 @@ resource "google_cloudbuild_trigger" "publish" {
     # Built-in: the pushed git tag (e.g. v0.1.1) becomes the image tag.
     _TAG = "$TAG_NAME"
     # Deploy step: roll the cluster after publishing (off unless enable_deploy).
-    _DEPLOY   = var.enable_deploy ? "true" : "false"
+    _DEPLOY      = var.enable_deploy ? "true" : "false"
     _INSTANCE    = var.instance_name
     _ZONE        = var.zone
     _DOMAIN      = var.domain

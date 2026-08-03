@@ -1,22 +1,11 @@
 {{- if .Values.nats.enabled }}
-apiVersion: v1
-kind: Service
-metadata:
-  name: {{ include "octo.nats.serviceName" . }}
-  labels:
-    {{- include "octo.labels" . | nindent 4 }}
-    app.kubernetes.io/component: nats
-spec:
-  # Plain ClusterIP: NATS is a multi-consumer broker, so unlike the headless
-  # Postgres Service it needs a single stable virtual IP that fans out to clients.
-  selector:
-    {{- include "octo.selectorLabels" . | nindent 4 }}
-    app.kubernetes.io/component: nats
-  ports:
-    - name: client
-      port: {{ .Values.nats.service.port }}
-      targetPort: 4222
-    - name: monitor
-      port: {{ .Values.nats.service.monitorPort }}
-      targetPort: 8222
+{{- /* Plain ClusterIP: NATS is a multi-consumer broker, so unlike the headless
+       Postgres Service it needs a single stable virtual IP that fans out to
+       clients. No explicit type, so the cluster default (ClusterIP) applies. */}}
+{{- include "octo-common.service" (dict
+      "root" $
+      "component" "nats"
+      "ports" (list
+        (dict "name" "client" "port" .Values.nats.service.port "targetPort" 4222)
+        (dict "name" "monitor" "port" .Values.nats.service.monitorPort "targetPort" 8222))) }}
 {{- end }}

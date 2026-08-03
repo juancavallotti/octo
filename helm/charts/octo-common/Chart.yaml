@@ -1,0 +1,9 @@
+apiVersion: v2
+name: octo-common
+description: >-
+  Library chart holding every reusable template the octo chart renders its
+  workloads from — naming, labels, image references, and the generic Deployment /
+  StatefulSet / Service / RBAC / Secret renderers. Structure lives here so a knob
+  added once applies to every component and every deployment target.
+type: library
+version: 0.6.4
