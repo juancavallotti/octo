@@ -15,9 +15,16 @@
 # --- Hostnames ---
 # domain must be a SUBDOMAIN, not the zone apex: the record pointing at the ALB is
 # a CNAME, and a CNAME at an apex is not legal.
-route53_zone_name = "aws.octopaas.dev"
-domain            = "octo.aws.octopaas.dev"
-apps_domain       = "aws.octopaas.dev" # {slug}.{apps_domain}; covered by the same ACM cert
+#
+# Both hostnames must also sit INSIDE route53_zone_name, and the zone's name must
+# be the name delegated to it. AWS's nameservers are shared across every customer
+# and match by zone name, so delegating eks.octopaas.dev at nameservers that host
+# a zone named something else answers REFUSED — the NS values looking right is not
+# evidence the delegation works. Check with `dig NS <zone> @<one of its NS>` and
+# expect NOERROR.
+route53_zone_name = "eks.octopaas.dev"
+domain            = "octo.eks.octopaas.dev"
+apps_domain       = "eks.octopaas.dev" # {slug}.{apps_domain}; covered by the same ACM cert
 
 # --- Region ---
 # region = "us-east-1"

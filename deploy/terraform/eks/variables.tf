@@ -18,19 +18,39 @@ variable "name" {
 variable "route53_zone_name" {
   type        = string
   description = "Name of the Route53 hosted zone the records go in. Created by hand once and delegated from whoever holds the parent domain — this root creates records in it but never the zone itself, so a destroy cannot take the delegation with it."
-  default     = "aws.octopaas.dev"
+  default     = "eks.octopaas.dev"
 }
 
 variable "domain" {
   type        = string
   description = "Editor hostname. Must be a subdomain, not the zone apex: the record pointing at the ALB is a CNAME."
-  default     = "octo.aws.octopaas.dev"
+  default     = "octo.eks.octopaas.dev"
+
+  # Caught here because AWS will not catch it. Given a record name outside the
+  # zone, the provider does not fail — expandRecordName appends the zone name. So
+  # a `domain` of octo.example.com against zone eks.octopaas.dev silently creates
+  # the ACM validation record `_abc123.octo.example.com.eks.octopaas.dev`. Nothing
+  # errors; the certificate simply sits in PENDING_VALIDATION until
+  # aws_acm_certificate_validation gives up 75 minutes later, with a control plane
+  # billing the whole time.
+  validation {
+    condition     = endswith(var.domain, ".${var.route53_zone_name}")
+    error_message = "domain must be inside route53_zone_name — it has to end in .${var.route53_zone_name}, since that is the only zone this root can create records in."
+  }
 }
 
 variable "apps_domain" {
   type        = string
   description = "Base hostname per-integration endpoints live under ({slug}.{apps_domain}). Gets a wildcard CNAME to the ALB and is covered by the ACM certificate. Empty means everything lives under `domain`."
-  default     = "aws.octopaas.dev"
+  default     = "eks.octopaas.dev"
+
+  # Same trap as `domain`, plus one of its own: this one may legitimately equal
+  # the zone apex, since the wildcard record is *.{apps_domain} rather than a
+  # record on the name itself.
+  validation {
+    condition     = var.apps_domain == "" || var.apps_domain == var.route53_zone_name || endswith(var.apps_domain, ".${var.route53_zone_name}")
+    error_message = "apps_domain must be inside route53_zone_name — either ${var.route53_zone_name} itself or a subdomain of it."
+  }
 }
 
 variable "alb_wait" {

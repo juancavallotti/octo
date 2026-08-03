@@ -101,12 +101,27 @@ gcloud dns managed-zones create gke-octopaas-dev \
 gcloud dns managed-zones describe gke-octopaas-dev --format='value(nameServers)'
 
 # AWS — for the EKS root
-aws route53 create-hosted-zone --name aws.octopaas.dev --caller-reference "octo-$(date +%s)"
+aws route53 create-hosted-zone --name eks.octopaas.dev --caller-reference "octo-$(date +%s)" \
+  --query 'DelegationSet.NameServers'
 ```
 
 Then add an `NS` record for each subdomain at the parent domain's DNS provider,
-pointing at those nameservers. Verify with `dig NS gke.octopaas.dev +short` before
-applying any cluster root.
+pointing at those nameservers.
+
+The zone's **name** has to be the name you delegate. Route53's nameservers are
+shared across every customer and answer only for zones actually hosted on them,
+matched by name — so pointing an `eks.octopaas.dev` delegation at the nameservers
+of a zone called `aws.octopaas.dev` gets `REFUSED`, even though those really are
+Route53 nameservers and the record looks correct. Verify by asking a delegated
+nameserver directly rather than trusting the values:
+
+```sh
+dig NS gke.octopaas.dev @ns-cloud-e1.googledomains.com   # expect NOERROR
+dig NS eks.octopaas.dev @ns-336.awsdns-42.com            # expect NOERROR, not REFUSED
+```
+
+`dig NS <zone> +short` on its own is not a check: it returns empty both when the
+delegation is missing and when it points somewhere that refuses.
 
 ## Publish images + charts
 
