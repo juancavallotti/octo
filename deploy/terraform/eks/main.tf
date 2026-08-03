@@ -192,22 +192,33 @@ resource "aws_acm_certificate" "octo" {
   tags = local.tags
 }
 
-# for_each keys must be known at plan time, and domain_validation_options is not —
-# so key off the record name, which for a wildcard collapses onto its parent
-# domain's record (both validate with the same CNAME).
-resource "aws_route53_record" "acm_validation" {
-  for_each = {
-    for o in aws_acm_certificate.octo.domain_validation_options : o.resource_record_name => {
-      type   = o.resource_record_type
-      record = o.resource_record_value
-    }
-  }
+locals {
+  # The names that need a validation record, derived from configuration rather
+  # than from the certificate.
+  #
+  # The wildcard is deliberately absent. ACM validates *.apps.example.com with the
+  # SAME CNAME as apps.example.com — one _<hash>.apps.example.com record covers
+  # both — so including it would have two resource instances writing one record
+  # and fighting over it.
+  acm_validation_domains = distinct(compact([var.domain, local.apps_domain_eff]))
+}
 
-  zone_id         = data.aws_route53_zone.this.zone_id
-  name            = each.key
-  type            = each.value.type
-  records         = [each.value.record]
-  ttl             = 60
+# Keys from configuration, values from the certificate. That split is not a style
+# choice: for_each keys must be known at plan time, and every field of
+# domain_validation_options — including the name and the domain it belongs to — is
+# unknown until ACM has issued. Keying off any of them fails the plan outright with
+# "keys derived from resource attributes that cannot be determined until apply".
+resource "aws_route53_record" "acm_validation" {
+  for_each = toset(local.acm_validation_domains)
+
+  zone_id = data.aws_route53_zone.this.zone_id
+  name    = one([for o in aws_acm_certificate.octo.domain_validation_options : o.resource_record_name if o.domain_name == each.key])
+  type    = one([for o in aws_acm_certificate.octo.domain_validation_options : o.resource_record_type if o.domain_name == each.key])
+  records = [one([for o in aws_acm_certificate.octo.domain_validation_options : o.resource_record_value if o.domain_name == each.key])]
+  ttl     = 60
+
+  # The zone is shared with whatever else lives under it, and a re-apply after a
+  # certificate is replaced writes the same name again.
   allow_overwrite = true
 }
 
@@ -401,18 +412,32 @@ locals {
 # CNAME rather than an ALIAS: an ALIAS needs the ALB's hosted zone id, which would
 # mean a second lookup for no benefit here. Neither name is a zone apex, so a CNAME
 # is legal — which is also why var.domain must be a subdomain.
+#
+# Note what does NOT gate these: the ALB hostname. Guarding with
+# `count = local.alb_hostname != "" ? 1 : 0` reads like prudence and is actually a
+# plan-time error — count must be known before apply, and that value comes from an
+# Ingress that does not exist yet. The emptiness case is handled where it belongs,
+# as a precondition on the value, which also gets to say something useful about it.
 resource "aws_route53_record" "editor" {
-  count           = local.alb_hostname != "" ? 1 : 0
   zone_id         = data.aws_route53_zone.this.zone_id
   name            = var.domain
   type            = "CNAME"
   ttl             = 60
   records         = [local.alb_hostname]
   allow_overwrite = true
+
+  lifecycle {
+    precondition {
+      condition     = local.alb_hostname != ""
+      error_message = "The editor Ingress has no load-balancer hostname yet. The AWS Load Balancer Controller had not finished provisioning the ALB when it was read — raise alb_wait and apply again. Do not remove the wait."
+    }
+  }
 }
 
 resource "aws_route53_record" "wildcard" {
-  count           = local.alb_hostname != "" && var.apps_domain != "" ? 1 : 0
+  # Config-derived, so this one is legitimate: it asks whether per-integration
+  # endpoints were requested at all, which is knowable from the tfvars.
+  count           = var.apps_domain != "" ? 1 : 0
   zone_id         = data.aws_route53_zone.this.zone_id
   name            = "*.${local.apps_domain_eff}"
   type            = "CNAME"
