@@ -44,14 +44,23 @@ change one.
 Pull the profile at the same version as the chart: it pins per-component
 `runAsUser` values matching the UIDs that release's images run as.
 
-<Callout type="warn">
-  `values-gke-autopilot.yaml` has been installed on a live Autopilot cluster —
-  including the wildcard certificate via cert-manager DNS-01, Cloud SQL on a
-  private IP, and an integration deployed from the editor and reached over the
-  wildcard host. `values-gke-standard.yaml` has not yet been run on a live
-  cluster; it is validated by rendering and schema-checking in CI and shares
-  almost all of its content with the Autopilot profile. Treat a Standard install
-  as a shakedown.
+<Callout type="info">
+  Both profiles have been installed on live clusters, and both are rendered and
+  schema-checked in CI on every change.
+
+  On **Autopilot**: the wildcard certificate via cert-manager DNS-01, Cloud SQL on
+  a private IP, and an integration deployed from the editor and reached over the
+  wildcard host.
+
+  On **Standard**: the per-host certificate via HTTP-01 and the wildcard via
+  DNS-01, ingress-nginx on the reserved static IP serving the editor over HTTPS,
+  and the bundled Postgres StatefulSet on a `premium-rwo` volume with the schema
+  Job completing against it.
+
+  Between them that covers both database paths. The two Terraform roots are thin
+  wrappers over one shared module, and nothing in the Cloud SQL path branches on
+  Autopilot versus Standard — neither values profile carries an
+  `externalDatabase` block at all, since that wiring comes from the module.
 </Callout>
 
 ## Provision a cluster with Terraform
