@@ -1,5 +1,59 @@
 # Changelog
 
+## [0.7.0](https://github.com/juancavallotti/octo/compare/v0.6.4...v0.7.0) (2026-08-03)
+
+
+### ⚠ BREAKING CHANGES
+
+* **deploy:** deploy/terraform/octo.tfvars is replaced by a terraform.tfvars in each root, and `terraform init` now needs -backend-config=../backend.hcl. Copy the new *.example files and re-run `terraform init` before applying.
+
+### Features
+
+* **deploy:** configure editor SSO and mint app secrets in the cluster roots ([053d3cc](https://github.com/juancavallotti/octo/commit/053d3cc551ea38543338887001e1aff83737c8bc))
+* **deploy:** deploy the images a build produced, by digest ([cd23f63](https://github.com/juancavallotti/octo/commit/cd23f634eb6e810f979cf0db8512b2923cf00ff4))
+* **deploy:** EKS root with VPC, ALB controller, ACM and RDS ([faa8723](https://github.com/juancavallotti/octo/commit/faa8723e2e306b389708aded2a4b6d24e4340f07))
+* **deploy:** give the k3s VM a dedicated data disk for Postgres ([408c8c2](https://github.com/juancavallotti/octo/commit/408c8c29944b589b4aa22b8d45d88520252fd2b8))
+* **deploy:** GKE cluster, addon and Cloud SQL modules ([4b9fe55](https://github.com/juancavallotti/octo/commit/4b9fe559a78a3841d9d267db9ef92f5ff1c198a4))
+* **deploy:** let the k3s VM pin Postgres to a fixed node path ([697f74f](https://github.com/juancavallotti/octo/commit/697f74f8949dd458ff04de20406681e42d562439))
+* **deploy:** terraform roots for GKE and EKS, and a real data disk for the k3s database ([88d208f](https://github.com/juancavallotti/octo/commit/88d208f2829732915e1f9dd2a45d66f6ffc4d168))
+* **deploy:** terraform roots for GKE Standard and Autopilot ([33284a1](https://github.com/juancavallotti/octo/commit/33284a1473f231436f014d589848148484a19316))
+* **helm:** external database support, and stop leaking the password into pod specs ([ed4870f](https://github.com/juancavallotti/octo/commit/ed4870f28a7386ccf8c15d212b74d92564370b84))
+* **helm:** ingress TLS modes, extra hosts, GKE CRDs and the networking seam ([219c835](https://github.com/juancavallotti/octo/commit/219c835988f44836c57cee050d77dafe99240a1d))
+* **helm:** per-component image registry, digest pinning and third-party mirroring ([f1843f7](https://github.com/juancavallotti/octo/commit/f1843f7080746e62b0bbe4a7c724df729b8191b3))
+* **helm:** per-target values profiles for k3d, kind, GKE and EKS ([b238423](https://github.com/juancavallotti/octo/commit/b23842302c6df0af551b9d4abef9b046ab85b297))
+* **helm:** per-workload resources, security, scheduling and ServiceAccount knobs ([1dd5505](https://github.com/juancavallotti/octo/commit/1dd55054a80d2381f241a424c07a42b6c88e0ca5))
+* **helm:** pin single-node database storage to a fixed host path ([d539d34](https://github.com/juancavallotti/octo/commit/d539d3492bb55e6b4a3963fd9d4ea6b83c65042f))
+* **helm:** Service type, NodePorts, annotations and LB settings ([9d84c2c](https://github.com/juancavallotti/octo/commit/9d84c2c50c3a197a0b61e5788929aad70b6ae0e2))
+
+
+### Bug Fixes
+
+* **deploy:** address review findings on the terraform roots ([87233ec](https://github.com/juancavallotti/octo/commit/87233ecce411e9f0773be622530dfd65f250f35c))
+* **deploy:** give EKS public nodes a public IP ([2e39ee4](https://github.com/juancavallotti/octo/commit/2e39ee45d353348f59bcc4b46ab2e6a92031af0b))
+* **deploy:** make the EKS DNS records plannable ([b069484](https://github.com/juancavallotti/octo/commit/b06948482f834078ce67f9177ac1acbcafa2d342))
+* **deploy:** make the GKE teardown survive its own database ([5b7d2de](https://github.com/juancavallotti/octo/commit/5b7d2de4abe55cd5fdb8bf28b40e1b31b3a3c4d8))
+* **deploy:** reject an EKS hostname outside its Route53 zone ([9cf4814](https://github.com/juancavallotti/octo/commit/9cf4814639863d82e511d2b3bda67f44929b7710))
+* **deploy:** shorten the EKS cluster key's deletion window ([10c3ca7](https://github.com/juancavallotti/octo/commit/10c3ca730a9ff35d2665ccce553d8a2d83659673))
+* **deploy:** sweep orphaned GKE firewall rules before the VPC delete ([be9eb3d](https://github.com/juancavallotti/octo/commit/be9eb3d7741c1d7fb0d4cbeef6372a4586ec3c92))
+* **helm:** guard the chart's silent failure modes ([f0fc786](https://github.com/juancavallotti/octo/commit/f0fc786d77c350619c4f50d2bde731235b0351db))
+* **platform:** run the editor image as an unprivileged user ([155b724](https://github.com/juancavallotti/octo/commit/155b724d60bbb49eb0979789dfed021f1af9f714))
+
+
+### Refactoring
+
+* **deploy:** drive local k3d from the chart ([1ce9333](https://github.com/juancavallotti/octo/commit/1ce9333e69300126414cebee85b524716cafae66))
+* **deploy:** make the helm-release module cloud-agnostic ([3354e48](https://github.com/juancavallotti/octo/commit/3354e48447489eedcdc205fc471939d8aaee8ed4))
+* **deploy:** one tfvars per root, remote state everywhere, pinned providers ([ee8d8a6](https://github.com/juancavallotti/octo/commit/ee8d8a6b67e7b985f4f612362bd7568dbb112cd5))
+* **helm:** extract the octo-common library chart ([6c83ffb](https://github.com/juancavallotti/octo/commit/6c83ffb2635c991b14b32504b895785b3718bab7))
+
+
+### Documentation
+
+* **deploy:** frame the cluster roots as a worked example ([28ac8ac](https://github.com/juancavallotti/octo/commit/28ac8acb6d53160c675268e7c8aef83f84bdd9d2))
+* **deploy:** record GKE Standard as validated on a live cluster ([97ba3aa](https://github.com/juancavallotti/octo/commit/97ba3aa2a81fc63149df49f3d0e081ff9162e673))
+* **deploy:** terraform provisioning for GKE and EKS ([db2da8d](https://github.com/juancavallotti/octo/commit/db2da8d68697744f3b8dd1296aacf5be3b194007))
+* multi-target deployment ([7cabc90](https://github.com/juancavallotti/octo/commit/7cabc90d7a22d17186971f7c562dc588a32e8290))
+
 ## [0.6.4](https://github.com/juancavallotti/octo/compare/v0.6.3...v0.6.4) (2026-08-01)
 
 
