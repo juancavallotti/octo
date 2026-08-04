@@ -547,6 +547,11 @@ tasks:
         # The bundled database with its password in a Secret the caller owns. The
         # empty --set clears the one $required supplies, so this also proves an
         # existing Secret is sufficient on its own.
+        # A private-registry install: pull secrets must reach both the chart's own
+        # workloads and, through the orchestrator's env, the integration pods it
+        # creates. Nothing else renders that env var.
+        check pull-secrets \
+          --set defaults.imagePullSecrets[0].name=regcred
         check pg-existing-secret \
           --set postgres.auth.password= --set postgres.auth.existingSecret=db-creds \
           --set postgres.auth.existingSecretPasswordKey=password

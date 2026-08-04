@@ -60,6 +60,11 @@ type Client struct {
 	// the cert-manager cluster-issuer annotation (which always wins on key
 	// collision) — e.g. controller-specific body-size or timeout annotations.
 	extraAnnotations map[string]string
+	// imagePullSecrets names Secrets in this namespace that authenticate the pull
+	// of runtimeImage. Nil is the normal case — the image is public, or the nodes
+	// carry credentials — and anything else mirrors what the chart puts on its own
+	// workloads, since a mirrored registry holds every octo image, not four of five.
+	imagePullSecrets []string
 	// runtimeServices is the env the orchestrator injects so deployed runtime pods
 	// can reach leader election + the KV API. Zero value disables injection.
 	runtimeServices RuntimeServices
@@ -92,6 +97,7 @@ type Config struct {
 	WildcardTLSSecret string
 	IngressClass      string
 	ExtraAnnotations  map[string]string
+	ImagePullSecrets  []string
 	RuntimeServices   RuntimeServices
 }
 
@@ -116,6 +122,7 @@ func New(cfg Config) (*Client, error) {
 		wildcardTLSSecret: cfg.WildcardTLSSecret,
 		ingressClass:      cfg.IngressClass,
 		extraAnnotations:  cfg.ExtraAnnotations,
+		imagePullSecrets:  cfg.ImagePullSecrets,
 		runtimeServices:   cfg.RuntimeServices,
 	}, nil
 }

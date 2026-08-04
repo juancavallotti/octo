@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -98,6 +99,7 @@ func run() error {
 		// (if any) claim the per-integration Ingress.
 		IngressClass:     os.Getenv("INGRESS_CLASS"),
 		ExtraAnnotations: extraAnnotations,
+		ImagePullSecrets: imagePullSecretsConfig(),
 		RuntimeServices:  runtimeServicesConfig(),
 	})
 	if err != nil {
@@ -139,6 +141,30 @@ func ingressAnnotationsConfig() (map[string]string, error) {
 		return nil, fmt.Errorf("parse INGRESS_ANNOTATIONS: %w", err)
 	}
 	return ann, nil
+}
+
+// imagePullSecretsConfig parses RUNTIME_IMAGE_PULL_SECRETS, a comma-separated
+// list of Secret names authenticating the pull of the runtime image on the pods
+// this orchestrator deploys. Unset means none, which is the public-image case.
+//
+// Comma-separated rather than JSON, unlike INGRESS_ANNOTATIONS above, because
+// these are names and not a map — the chart joins the same list it renders into
+// its own workloads' imagePullSecrets, and a name containing a comma is not a
+// legal Kubernetes object name. Blanks are dropped so a trailing comma, or the
+// empty string the chart emits for an empty list, does not become a Secret named
+// "" that the kubelet reports as missing on every pod.
+func imagePullSecretsConfig() []string {
+	raw := os.Getenv("RUNTIME_IMAGE_PULL_SECRETS")
+	if raw == "" {
+		return nil
+	}
+	var names []string
+	for _, name := range strings.Split(raw, ",") {
+		if name = strings.TrimSpace(name); name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 // runtimeServicesConfig reads the runtime-services env injected into deployed

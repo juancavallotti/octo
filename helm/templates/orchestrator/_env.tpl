@@ -22,6 +22,22 @@
 {{- end }}
 - name: RUNTIME_SERVICE_ACCOUNT
   value: {{ include "octo-common.serviceAccountName" (dict "root" . "component" "runtime") | quote }}
+{{- /* Pull secrets for the integration pods the orchestrator creates. Resolved
+       through componentConfig, so defaults.imagePullSecrets covers them along
+       with every chart workload and runtime.imagePullSecrets overrides just
+       these — the same layering every other pod-level setting follows.
+       Otherwise a mirrored-registry install brings up a healthy platform whose
+       every deployed integration sits in ErrImagePull.
+       Names only, comma-joined: the orchestrator builds the references. */}}
+{{- $runtime := fromYaml (include "octo-common.componentConfig" (dict "root" . "component" "runtime")) }}
+{{- with $runtime.imagePullSecrets }}
+{{- $names := list }}
+{{- range . }}
+{{- $names = append $names (required "every entry in imagePullSecrets needs a name" .name) }}
+{{- end }}
+- name: RUNTIME_IMAGE_PULL_SECRETS
+  value: {{ join "," $names | quote }}
+{{- end }}
 {{- if .Values.kv.encryptionKey }}
 # AES-256 key for encrypting KV secret namespaces at rest. Absent =>
 # secret writes rejected, plain KV still works.

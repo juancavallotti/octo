@@ -26,7 +26,11 @@ defaults:
   # Container-level securityContext. The cloud profiles set the restricted
   # baseline: runAsNonRoot, drop ALL capabilities, no privilege escalation.
   securityContext: {}
-  # Pulling from a private registry (ECR, a mirrored Artifact Registry).
+  # Pulling from a private registry (ECR, a mirrored Artifact Registry). A list
+  # of {name: secret-name}, as in a pod spec. Set here it covers all five chart
+  # workloads AND the integration pods the orchestrator creates at runtime, which
+  # pull the same runtime image from the same place — see runtime.imagePullSecrets
+  # for why those need saying separately.
   imagePullSecrets: []
   nodeSelector: {}
   tolerations: []
@@ -173,6 +177,15 @@ logs:
 runtime:
   repository: octo-runtime-paas
   image: {}
+  # Pull secrets for the integration pods, which are created by the orchestrator
+  # and not by this chart — so they are passed to it as RUNTIME_IMAGE_PULL_SECRETS
+  # rather than rendered into a pod spec here.
+  #
+  # Empty inherits defaults.imagePullSecrets, which is what you want: a mirrored
+  # registry holds every octo image, so one setting covers the chart's own
+  # workloads and the integrations alike. Set it here only when the runtime image
+  # lives somewhere the rest do not.
+  imagePullSecrets: []
   # Runtime-services backend the orchestrator injects into each deployed runtime
   # pod (RUNTIME_SERVICES_MODULE). "k8s" = Lease-based leader election (so a cron
   # connector fires on one replica) + the orchestrator-backed KV store; "standalone"

@@ -181,6 +181,25 @@ The orchestrator and runtime additionally take
 `serviceAccount.{create,name,annotations}` — that is where GKE Workload Identity
 and EKS IRSA annotations go.
 
+### Private registries
+
+If you mirror the images somewhere that needs credentials, create the pull
+Secret in the release namespace and name it once:
+
+```yaml
+defaults:
+  imagePullSecrets:
+    - name: regcred
+```
+
+That reaches all five chart workloads **and** the integration pods, which is the
+part worth stating: those pods are created by the orchestrator at runtime, not by
+this chart, so the value is passed to it as an environment variable rather than
+rendered into a pod spec. Without it a mirrored install comes up entirely
+healthy and every integration you deploy from that healthy editor sits in
+`ErrImagePull`. Override it for the runtime image alone with
+`runtime.imagePullSecrets`; empty there inherits `defaults`.
+
 ### Ingress and TLS
 
 `ingress.tls.mode` is the biggest single difference between targets:

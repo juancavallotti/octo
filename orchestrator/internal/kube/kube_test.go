@@ -415,6 +415,43 @@ func TestApplyIngressExtraAnnotationsMerged(t *testing.T) {
 	}
 }
 
+func TestApplyPodImagePullSecrets(t *testing.T) {
+	c := newClient("octo.example.com")
+	c.imagePullSecrets = []string{"regcred", "mirror-creds"}
+	ctx := context.Background()
+
+	if err := c.Apply(ctx, Spec{ID: "d1", IntegrationID: "int-1", Definition: "x: 1", Replicas: 1, Slug: "orders"}); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	dep, err := c.clientset.AppsV1().Deployments(testNamespace).Get(ctx, resourceName("d1"), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get deployment: %v", err)
+	}
+	got := dep.Spec.Template.Spec.ImagePullSecrets
+	if len(got) != 2 || got[0].Name != "regcred" || got[1].Name != "mirror-creds" {
+		t.Errorf("imagePullSecrets = %v, want [regcred mirror-creds] in order", got)
+	}
+}
+
+// The default is nil, not an empty slice: the field is compared on every
+// reconcile, and an empty list would read as a change against a spec that omits
+// it entirely.
+func TestApplyPodImagePullSecretsAbsentByDefault(t *testing.T) {
+	c := newClient("octo.example.com")
+	ctx := context.Background()
+
+	if err := c.Apply(ctx, Spec{ID: "d1", IntegrationID: "int-1", Definition: "x: 1", Replicas: 1, Slug: "orders"}); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	dep, err := c.clientset.AppsV1().Deployments(testNamespace).Get(ctx, resourceName("d1"), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get deployment: %v", err)
+	}
+	if got := dep.Spec.Template.Spec.ImagePullSecrets; got != nil {
+		t.Errorf("imagePullSecrets = %v, want nil", got)
+	}
+}
+
 func TestApplyIngressNoTLSWithoutIssuerOrWildcard(t *testing.T) {
 	c := newClient("octo.example.com")
 	c.clusterIssuer = ""

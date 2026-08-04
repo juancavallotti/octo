@@ -362,6 +362,13 @@ func (c *Client) deployment(name string, labels map[string]string, spec Spec) *a
 					// Empty when runtime services are not wired; an empty name leaves the
 					// pod on the namespace's default ServiceAccount.
 					ServiceAccountName: c.runtimeServices.ServiceAccount,
+					// Nil unless the runtime image needs credentials. Without this an
+					// install that mirrors the images into a private registry comes up
+					// perfectly — the chart puts pull secrets on its own workloads — and
+					// then every integration deployed from that healthy editor sits in
+					// ErrImagePull, which reads as a broken deploy rather than a missing
+					// credential.
+					ImagePullSecrets: c.pullSecretRefs(),
 					Containers: []corev1.Container{{
 						Name:            "runtime",
 						Image:           c.runtimeImage,
@@ -388,6 +395,21 @@ func (c *Client) deployment(name string, labels map[string]string, spec Spec) *a
 			},
 		},
 	}
+}
+
+// pullSecretRefs converts the configured Secret names into the reference list a
+// PodSpec takes. Nil for none, rather than an empty slice: an empty
+// imagePullSecrets field is a no-op to the API server but a diff to anything
+// comparing specs, and this one is compared on every reconcile.
+func (c *Client) pullSecretRefs() []corev1.LocalObjectReference {
+	if len(c.imagePullSecrets) == 0 {
+		return nil
+	}
+	refs := make([]corev1.LocalObjectReference, 0, len(c.imagePullSecrets))
+	for _, name := range c.imagePullSecrets {
+		refs = append(refs, corev1.LocalObjectReference{Name: name})
+	}
+	return refs
 }
 
 // readinessProbe gates traffic on the runtime actually serving: /readyz answers
