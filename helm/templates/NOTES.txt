@@ -1,14 +1,53 @@
 octo {{ .Chart.AppVersion }} installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
 
-{{- if .Values.ingress.enabled }}
+{{- if and .Values.ingress.enabled (eq .Values.networking.mode "ingress") }}
+{{- /* Resolved through the same helper the Ingress itself dispatches on, so this
+       text cannot describe a certificate the release did not ask for. It used to
+       say cert-manager unconditionally, which was true of exactly one of the five
+       modes — and misleading in a way that costs an afternoon on the other four,
+       since "waiting for the ACME challenge" is a plausible explanation for any
+       certificate that has not appeared yet. */}}
+{{- $mode := include "octo-common.ingress.tlsMode" (dict "tls" .Values.ingress.tls) }}
 
 Editor URL:
-  https://{{ .Values.ingress.host }}
+  {{ if eq $mode "none" }}http{{ else }}https{{ end }}://{{ .Values.ingress.host }}
+{{- if .Values.ingress.className }}
 
-{{- if .Values.ingress.tls.enabled }}
-TLS is issued by cert-manager via ClusterIssuer "{{ .Values.ingress.tls.clusterIssuer }}".
-The first request may 404/return a default cert for a minute while the HTTP-01
-challenge completes — confirm the DNS A record resolves to this node's IP first.
+Served by the "{{ .Values.ingress.className }}" IngressClass.
+{{- else }}
+
+No ingressClassName was set, so whichever IngressClass the cluster marks default
+claims this Ingress. If none is marked default, no controller serves it and the
+host resolves to nothing — check with:
+  kubectl get ingressclass
+{{- end }}
+{{- if eq $mode "cert-manager" }}
+
+TLS: cert-manager issues a certificate for this host through ClusterIssuer
+"{{ .Values.ingress.tls.clusterIssuer }}" over HTTP-01, into Secret "{{ .Values.ingress.tls.secretName }}".
+The first request may 404 or return the controller's default certificate for a
+minute while the challenge completes; DNS must already resolve to the ingress
+address for it to complete at all. Watch it with:
+  kubectl -n {{ .Release.Namespace }} get certificate
+{{- else if eq $mode "secret" }}
+
+TLS: the Ingress references Secret "{{ .Values.ingress.tls.secretName }}", which this chart does
+not create. It must already exist in namespace {{ .Release.Namespace }} and cover the host
+above, or the controller serves its own default certificate instead.
+{{- else if eq $mode "gke-managed-cert" }}
+
+TLS: a Google-managed certificate, created by this chart as ManagedCertificate
+"{{ .Values.ingress.tls.managedCertificateName | default (include "octo-common.componentName" (dict "root" $ "component" "platform")) }}". Provisioning takes 15-60 minutes and needs DNS pointing at
+the load balancer first. Watch it with:
+  kubectl -n {{ .Release.Namespace }} get managedcertificate
+{{- else if eq $mode "acm" }}
+
+TLS: terminated at the ALB against the ACM certificate
+{{ .Values.ingress.tls.certificateArn }}.
+{{- else }}
+
+TLS: none on the Ingress. Something upstream — a cloud load balancer, a mesh —
+must terminate it, or the editor is served over plain HTTP.
 {{- end }}
 {{- else }}
 
@@ -26,4 +65,13 @@ Check status:
 {{- if .Values.orchestrator.baseDomain }}
 
 Per-integration external endpoints are enabled under *.{{ .Values.orchestrator.baseDomain }}.
+{{- if .Values.wildcardTLS.enabled }}
+They share the wildcard certificate in Secret "{{ .Values.wildcardTLS.secretName }}", issued by
+ClusterIssuer "{{ .Values.wildcardTLS.clusterIssuer }}" over DNS-01.
+{{- else if .Values.orchestrator.clusterIssuer }}
+Each gets its own certificate from ClusterIssuer "{{ .Values.orchestrator.clusterIssuer }}".
+{{- else }}
+They get no TLS of their own: set wildcardTLS.enabled, or orchestrator.clusterIssuer
+to issue one certificate per subdomain.
+{{- end }}
 {{- end }}
