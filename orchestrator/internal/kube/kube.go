@@ -74,31 +74,49 @@ type Client struct {
 // corelisterDeployments aliases the namespaced Deployment lister for brevity.
 type corelisterDeployments = appslisters.DeploymentNamespaceLister
 
+// Config is everything the Client needs to know about the cluster it deploys
+// into. Every field is optional in the sense that its zero value is a coherent
+// choice — no external endpoints, no TLS annotation, the cluster's default
+// IngressClass — so a caller supplies only what its cluster actually has. The
+// per-field meanings are the Client's, documented above.
+//
+// It is a struct rather than parameters because these are eight settings of the
+// same kind (cluster facts read from the environment), five of them strings, and
+// a call site passing five strings positionally is one transposition away from
+// deploying with the ClusterIssuer as its ingress class.
+type Config struct {
+	Namespace         string
+	RuntimeImage      string
+	BaseDomain        string
+	ClusterIssuer     string
+	WildcardTLSSecret string
+	IngressClass      string
+	ExtraAnnotations  map[string]string
+	RuntimeServices   RuntimeServices
+}
+
 // New builds a Client from the in-cluster config. It returns an error when the
 // orchestrator is not running inside a cluster (e.g. local `go run`), letting the
-// caller disable deployment features rather than crash. baseDomain may be empty,
-// which disables external endpoints (Apply then ignores Spec.Expose). ingressClass
-// empty omits IngressClassName from every per-integration Ingress. rs carries the
-// runtime-services env injected into deployed pods; its zero value disables it.
-func New(namespace, runtimeImage, baseDomain, clusterIssuer, wildcardTLSSecret, ingressClass string, extraAnnotations map[string]string, rs RuntimeServices) (*Client, error) {
-	cfg, err := rest.InClusterConfig()
+// caller disable deployment features rather than crash.
+func New(cfg Config) (*Client, error) {
+	rc, err := rest.InClusterConfig()
 	if err != nil {
 		return nil, fmt.Errorf("kube: in-cluster config: %w", err)
 	}
-	cs, err := kubernetes.NewForConfig(cfg)
+	cs, err := kubernetes.NewForConfig(rc)
 	if err != nil {
 		return nil, fmt.Errorf("kube: clientset: %w", err)
 	}
 	return &Client{
 		clientset:         cs,
-		namespace:         namespace,
-		runtimeImage:      runtimeImage,
-		baseDomain:        baseDomain,
-		clusterIssuer:     clusterIssuer,
-		wildcardTLSSecret: wildcardTLSSecret,
-		ingressClass:      ingressClass,
-		extraAnnotations:  extraAnnotations,
-		runtimeServices:   rs,
+		namespace:         cfg.Namespace,
+		runtimeImage:      cfg.RuntimeImage,
+		baseDomain:        cfg.BaseDomain,
+		clusterIssuer:     cfg.ClusterIssuer,
+		wildcardTLSSecret: cfg.WildcardTLSSecret,
+		ingressClass:      cfg.IngressClass,
+		extraAnnotations:  cfg.ExtraAnnotations,
+		runtimeServices:   cfg.RuntimeServices,
 	}, nil
 }
 

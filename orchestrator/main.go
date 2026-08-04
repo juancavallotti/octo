@@ -85,20 +85,20 @@ func run() error {
 		return err
 	}
 
-	srv, err := newServer(ctx, database, kubeConfig{
-		namespace:    envOr("KUBE_NAMESPACE", defaultNamespace),
-		runtimeImage: envOr("RUNTIME_IMAGE", defaultRuntimeImage),
-		baseDomain:   os.Getenv("BASE_DOMAIN"),
+	srv, err := newServer(ctx, database, kube.Config{
+		Namespace:    envOr("KUBE_NAMESPACE", defaultNamespace),
+		RuntimeImage: envOr("RUNTIME_IMAGE", defaultRuntimeImage),
+		BaseDomain:   os.Getenv("BASE_DOMAIN"),
 		// Empty ("") means no TLS annotation and no per-host cert: letsencrypt-prod
 		// only exists because this project's own k3s bootstrap creates it, so it must
 		// not be assumed as a default on an arbitrary cluster.
-		clusterIssuer:     os.Getenv("CLUSTER_ISSUER"),
-		wildcardTLSSecret: os.Getenv("WILDCARD_TLS_SECRET"),
+		ClusterIssuer:     os.Getenv("CLUSTER_ISSUER"),
+		WildcardTLSSecret: os.Getenv("WILDCARD_TLS_SECRET"),
 		// Empty omits IngressClassName, letting the cluster's default IngressClass
 		// (if any) claim the per-integration Ingress.
-		ingressClass:     os.Getenv("INGRESS_CLASS"),
-		extraAnnotations: extraAnnotations,
-		runtimeServices:  runtimeServicesConfig(),
+		IngressClass:     os.Getenv("INGRESS_CLASS"),
+		ExtraAnnotations: extraAnnotations,
+		RuntimeServices:  runtimeServicesConfig(),
 	})
 	if err != nil {
 		return err
@@ -123,23 +123,6 @@ func run() error {
 		defer cancel()
 		return httpServer.Shutdown(shutdownCtx)
 	}
-}
-
-// kubeConfig groups the deployment-management settings sourced from the
-// environment: where and from what image integration pods run, and the parent
-// domain + ClusterIssuer for optional per-integration external endpoints.
-type kubeConfig struct {
-	namespace         string
-	runtimeImage      string
-	baseDomain        string
-	clusterIssuer     string
-	wildcardTLSSecret string
-	ingressClass      string
-	extraAnnotations  map[string]string
-	// runtimeServices is injected into each deployed runtime pod so it can reach
-	// leader election + the KV API. Disabled (zero value) when ORCHESTRATOR_URL is
-	// unset, so the feature stays inert until the deploy is wired for it.
-	runtimeServices kube.RuntimeServices
 }
 
 // ingressAnnotationsConfig parses INGRESS_ANNOTATIONS, a JSON object of extra
@@ -177,10 +160,10 @@ func runtimeServicesConfig() kube.RuntimeServices {
 }
 
 // newServer wires the routes. database may be nil when DATABASE_URL is unset.
-// kube configures deployment management, which is enabled only when both a
+// kc configures deployment management, which is enabled only when both a
 // database and in-cluster Kubernetes access are present. ctx bounds the lifetime
 // of background work started here (the deployment status informers).
-func newServer(ctx context.Context, database *db.DB, kc kubeConfig) (http.Handler, error) {
+func newServer(ctx context.Context, database *db.DB, kc kube.Config) (http.Handler, error) {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -278,7 +261,7 @@ func newServer(ctx context.Context, database *db.DB, kc kubeConfig) (http.Handle
 		// Deployment management needs both the database and in-cluster Kubernetes
 		// access. Outside a cluster (e.g. local `go run`) kube.New fails and the
 		// routes stay disabled, mirroring how the DB-less case disables the rest.
-		if kubeClient, err := kube.New(kc.namespace, kc.runtimeImage, kc.baseDomain, kc.clusterIssuer, kc.wildcardTLSSecret, kc.ingressClass, kc.extraAnnotations, kc.runtimeServices); err != nil {
+		if kubeClient, err := kube.New(kc); err != nil {
 			slog.Warn("kubernetes access unavailable; deployment routes disabled", "error", err)
 		} else {
 			deploymentRepo := deployment.NewRepo(database.Pool())
@@ -317,8 +300,8 @@ func newServer(ctx context.Context, database *db.DB, kc kubeConfig) (http.Handle
 			})
 			deployment.NewHandler(deploymentSvc).Register(mux)
 			slog.Info("deployment routes registered",
-				"namespace", kubeClient.Namespace(), "runtimeImage", kc.runtimeImage,
-				"baseDomain", kc.baseDomain, "externalEndpoints", kubeClient.ExternalEnabled(),
+				"namespace", kubeClient.Namespace(), "runtimeImage", kc.RuntimeImage,
+				"baseDomain", kc.BaseDomain, "externalEndpoints", kubeClient.ExternalEnabled(),
 				"nats", os.Getenv("NATS_URL") != "",
 				"endpoints", "POST/GET /integrations/{id}/deployments, GET/DELETE /deployments/{id}")
 
