@@ -119,10 +119,13 @@ orchestrator:
   # it is not assumed, unlike the k3s bootstrap's own letsencrypt-prod.
   baseDomain: ""
   clusterIssuer: ""
-  # IngressClassName on every per-integration Ingress. Empty omits the field,
-  # letting the cluster's default IngressClass (if any) claim it — the safe
-  # choice on a cluster that isn't this project's own k3s bootstrap.
-  ingressClass: traefik
+  # IngressClassName on every per-integration Ingress. Empty — the default —
+  # omits the field, letting the cluster's default IngressClass (if any) claim
+  # it. Set it to match ingress.className below wherever the cluster has no
+  # default IngressClass, or has one that is not the controller you want these
+  # endpoints on: an Ingress no controller claims never gets an address, and
+  # nothing reports that as an error.
+  ingressClass: ""
   # Extra annotations merged onto every per-integration Ingress — e.g.
   # controller-specific body-size or timeout annotations. The cert-manager
   # cluster-issuer annotation (when clusterIssuer is set) always wins on
@@ -322,9 +325,15 @@ networking:
 ingress:
   enabled: true
   # IngressClass of the controller that should claim this Ingress: traefik (k3s),
-  # nginx, gce (GKE), alb (EKS with the AWS Load Balancer Controller). Empty
-  # omits the field and lets the cluster's default IngressClass claim it.
-  className: traefik
+  # nginx, gce (GKE), alb (EKS with the AWS Load Balancer Controller).
+  #
+  # Empty — the default — omits the field, letting the cluster's default
+  # IngressClass claim it. That is the only portable default a published chart
+  # can have: naming a controller here would mint an Ingress that a cluster
+  # running something else never serves. Every environment profile sets it
+  # explicitly (nginx on GKE, alb on EKS), and so does the k3s Terraform, which
+  # is where `traefik` moved to.
+  className: ""
   # Editor host. Always gets its own certificate (see ingress.tls below),
   # independent of wildcardTLS — it does not need to be the same domain as
   # orchestrator.baseDomain.

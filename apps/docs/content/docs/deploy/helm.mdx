@@ -194,6 +194,25 @@ external endpoints are a separate axis — `orchestrator.baseDomain` plus
 `orchestrator.ingressClass` and `orchestrator.ingressAnnotations`, which the
 orchestrator stamps onto the Ingresses it generates at runtime.
 
+Both class values default to **empty**, which omits `ingressClassName` and lets
+whichever IngressClass the cluster marks default claim the Ingress. That is the
+only portable default a published chart can have — naming a controller would
+mint Ingresses that a cluster running something else never serves. Every
+environment profile sets it explicitly, and so should you if your cluster has no
+default IngressClass, or has one that is not the controller you want:
+
+```bash
+--set ingress.className=nginx --set orchestrator.ingressClass=nginx
+```
+
+<Callout type="warn">
+  An Ingress that no controller claims is not an error anywhere. It is created,
+  `helm install` succeeds, and the host simply never resolves to anything. If the
+  editor is unreachable after an otherwise clean install, check
+  `kubectl get ingress` for an empty `ADDRESS` and `kubectl get ingressclass` for
+  which one — if any — is marked default.
+</Callout>
+
 <Callout type="info">
   `networking.mode` exists and accepts only `ingress` today. It is the seam a
   Gateway API implementation drops into: routing is resolved in one template

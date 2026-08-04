@@ -524,6 +524,13 @@ tasks:
         check eks           -f helm/values-eks.yaml
         # Paths no profile enables by default, which would otherwise only ever be
         # rendered by hand — and so would break silently.
+        #
+        # The ingress class is one axis worth covering deliberately: `defaults`
+        # above is the no-class render (the cluster's default IngressClass claims
+        # it), the GKE profiles render nginx and EKS renders alb, and this covers
+        # traefik, which no profile does since the k3s path sets it from Terraform.
+        check traefik-ingress \
+          --set ingress.className=traefik --set orchestrator.ingressClass=traefik
         check gke-gce-ingress -f helm/values-gke-autopilot.yaml \
           --set ingress.className=gce --set ingress.tls.mode=gke-managed-cert \
           --set gke.backendConfig.enabled=true --set gke.frontendConfig.enabled=true

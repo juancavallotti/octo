@@ -143,6 +143,27 @@ resource "helm_release" "octo" {
     value = var.domain
   }
 
+  # The controller that claims the editor's Ingress, and the one the orchestrator
+  # names on every per-integration Ingress. Both from one variable: a cluster
+  # running two controllers is a real arrangement (see the GCE-editor/nginx-apps
+  # split in the GKE docs), but it is the exception, and extra_values expresses it
+  # without making every caller carry two knobs.
+  #
+  # Empty sets neither, which is what a values_files profile needs in order to
+  # decide — a `set` block would win over it. The chart's own default is likewise
+  # empty (the cluster's default IngressClass claims it), so nothing here is
+  # load-bearing except on a cluster that has no default and no profile.
+  dynamic "set" {
+    for_each = var.ingress_class != "" ? {
+      "ingress.className"         = var.ingress_class
+      "orchestrator.ingressClass" = var.ingress_class
+    } : {}
+    content {
+      name  = set.key
+      value = set.value
+    }
+  }
+
   # Skipped where there is no cert-manager: on EKS the ALB terminates TLS against
   # an ACM certificate, and an empty clusterIssuer would make the chart's auto
   # mode select cert-manager anyway.

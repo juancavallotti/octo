@@ -59,6 +59,12 @@ variable "chart_version" {
   description = "Version of the octo chart in Artifact Registry OCI. Must match helm/Chart.yaml at the published release; derived from it by Cloud Build and `task deploy`, so it is required (no default) to avoid drift."
 }
 
+variable "ingress_class" {
+  type        = string
+  description = "IngressClass for the editor and every per-integration Ingress. traefik is the controller k3s bundles, and this root is the k3s path — so it is named here rather than defaulted in the chart, which is published for clusters running anything. Empty falls back to whichever IngressClass the cluster marks default."
+  default     = "traefik"
+}
+
 variable "cluster_issuer" {
   type        = string
   description = "Per-host (HTTP-01) cert-manager ClusterIssuer created by the k3s bootstrap; used when wildcard_tls is false."
