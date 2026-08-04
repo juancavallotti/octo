@@ -36,7 +36,7 @@ http://octo-int-{slug}.{namespace}:{port}
 
 ### External exposure
 
-Toggling external exposure additionally creates a Traefik Ingress at `https://{subdomain}.{baseDomain}` — the subdomain defaults to the slug and must be unique across integrations. TLS comes from cert-manager: a per-host certificate issued via the configured ClusterIssuer (HTTP-01), or a shared pre-issued wildcard certificate when the chart's `wildcardTLS` is enabled. The public address is reported as `externalUrl`.
+Toggling external exposure additionally creates an Ingress at `https://{subdomain}.{baseDomain}` — the subdomain defaults to the slug and must be unique across integrations. Which controller serves it is the chart's `orchestrator.ingressClass`; empty (the default) leaves it to whichever IngressClass the cluster marks default. TLS is whatever that domain is set up for: a per-host certificate issued by the configured ClusterIssuer over HTTP-01, a shared pre-issued wildcard when the chart's `wildcardTLS` is enabled, or none of the chart's doing when something upstream terminates. The public address is reported as `externalUrl`.
 
 External endpoints require `BASE_DOMAIN` on the orchestrator (the Helm chart's `orchestrator.baseDomain`); without it an external deploy is rejected. See [Deploying with Helm](/deploy/helm).
 

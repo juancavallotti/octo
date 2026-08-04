@@ -11,7 +11,7 @@ The platform is a control plane — the Next.js platform app, the Go orchestrato
 
 ```
                 you (browser)
-                     │ HTTPS (Traefik ingress)
+                     │ HTTPS (the cluster's ingress controller)
                      ▼
    ┌───────────────────────────────────────┐
    │ Platform app (apps/platform)  :3000   │  Next.js editor + BFF
@@ -102,5 +102,5 @@ Three examples show how the pieces interact.
 ### Invoking a deployed integration
 
 - **From another integration in the cluster:** call the deployment's stable internal Service, `http://octo-int-{slug}.{namespace}:{port}` — load-balanced across the deployment's replicas.
-- **From the public internet** (externally exposed deployments): the request hits Traefik at `https://{subdomain}.{baseDomain}`, matches the deployment's Ingress (TLS from cert-manager or a shared wildcard certificate), and is routed to the per-deployment Service and on to a runtime pod.
+- **From the public internet** (externally exposed deployments): the request hits the cluster's ingress controller at `https://{subdomain}.{baseDomain}`, matches the deployment's Ingress (TLS from cert-manager or a shared wildcard certificate), and is routed to the per-deployment Service and on to a runtime pod.
 - Inside the pod, the runtime's HTTP source handles the request exactly as it would standalone — the flow YAML is identical in both worlds.
