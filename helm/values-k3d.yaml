@@ -65,6 +65,13 @@ kv:
   encryptionKey: "RwbauJ1U7IvkOl8IZsNCQNShHGA/sqP+TQymYAkOFQ8="
 
 postgres:
+  auth:
+    # The chart has no default password — it is published, and a default
+    # credential in a published chart is a credential everyone has. A laptop
+    # cluster reachable only through k3d's port mappings is the one place a
+    # throwaway is fine, so it is written down here instead: explicit, local, and
+    # not something a cloud profile can inherit by accident.
+    password: octo
   storage:
     # Fixed node path rather than the local-path provisioner. `task cluster:deploy`
     # mounts the repo's ./data onto /var/lib/octo-data in the k3d node, so the

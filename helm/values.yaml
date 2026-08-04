@@ -223,8 +223,31 @@ postgres:
     pullPolicy: IfNotPresent
   auth:
     username: octo
-    password: octo
     database: octo
+    # REQUIRED, and deliberately empty rather than defaulted.
+    #
+    # This used to ship as `octo`, which was defensible while the only installs
+    # were Terraform's — it always passed one — and stopped being defensible the
+    # moment the chart went to a public registry. A default password is not a
+    # default: it is a credential published in this file, and the install that
+    # takes it says nothing about having done so.
+    #
+    # Rendering fails without this or existingSecret below. Generating one
+    # instead was the alternative, and it is worse here: a generated password
+    # has to be recovered from the cluster to be used, and `helm upgrade`
+    # regenerates it unless the chart reads back its own Secret, which turns
+    # every dry run and every `helm template` into a different password.
+    password: ""
+    # Alternative to password: the name of a Secret you already own that holds
+    # it. This is the better answer wherever something else — Terraform,
+    # external-secrets, a sealed secret — is the source of truth, because every
+    # value handed to Helm is kept in the release history, and a password there
+    # outlives the database it belonged to.
+    #
+    # The chart still creates its own Secret for the username and database name;
+    # only the password comes from yours.
+    existingSecret: ""
+    existingSecretPasswordKey: postgres-password
   storage:
     size: 5Gi
     # Empty -> cluster default StorageClass (k3s ships local-path).

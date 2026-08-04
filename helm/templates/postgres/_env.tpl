@@ -4,11 +4,14 @@
     secretKeyRef:
       name: {{ include "octo.postgres.serviceName" . }}
       key: postgres-username
+{{- /* Not this component's own Secret unconditionally: with
+       postgres.auth.existingSecret the password lives in a Secret the caller
+       owns, and initdb must read the same one every consumer connects with. */}}
 - name: POSTGRES_PASSWORD
   valueFrom:
     secretKeyRef:
-      name: {{ include "octo.postgres.serviceName" . }}
-      key: postgres-password
+      name: {{ include "octo.database.secretName" . }}
+      key: {{ include "octo.database.passwordKey" . }}
 - name: POSTGRES_DB
   valueFrom:
     secretKeyRef:

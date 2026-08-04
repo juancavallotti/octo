@@ -24,6 +24,13 @@ That command is complete on its own. The chart's defaults point at the public
 Docker Hub images, and `image.tag` falls back to the chart's `appVersion`, so a
 chart installs the images of its own release rather than drifting onto `latest`.
 
+Both `--set`s are required rather than conventional: the chart has no default
+host and no default password, because a published chart that defaults either one
+is claiming a domain somebody else owns or shipping a credential everybody has.
+Rendering fails, by name, if you leave them out. If your cluster has no default
+IngressClass, add `--set ingress.className=<yours>` as well — see
+[Ingress and TLS](#ingress-and-tls).
+
 <Callout type="info">
   Prefer a cluster-specific starting point over the bare defaults — the profiles
   below carry the resource requests, security context and storage class each
@@ -274,7 +281,9 @@ adopt. Destroying storage is the infrastructure layer's job.
 
 | Key | Default | Purpose |
 |---|---|---|
-| `postgres.auth.username` / `.password` / `.database` | `octo` | Database credentials, stored in a chart-managed Secret. Always override the password. |
+| `postgres.auth.username` / `.database` | `octo` | Stored in a chart-managed Secret alongside the password. |
+| `postgres.auth.password` | – | **Required.** No default: a published chart cannot ship a credential. Rendering fails without it, or without `existingSecret` below. |
+| `postgres.auth.existingSecret` / `.existingSecretPasswordKey` | `""` / `postgres-password` | Take the password from a Secret you already own instead. Preferred for anything long-lived — every value passed to Helm stays in the release history. |
 | `kv.encryptionKey` | `""` | Base64 32-byte AES-256 key encrypting KV secret namespaces at rest. Empty rejects secret-namespace writes; plain KV still works. See [KV and storage](/platform/kv-and-storage). |
 | `auth.oidc.enabled` | `false` | Gate the editor behind OIDC SSO (Auth.js). Disabled, the editor is open. |
 | `auth.oidc.issuer` / `.clientId` / `.clientSecret` | – | IdP details; the secret lands in the chart's auth Secret. |

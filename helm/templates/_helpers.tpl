@@ -140,14 +140,19 @@
 {{- end }}
 
 {{/*
-  Secret and key holding the database password. In-cluster it is the Secret this
-  chart generates; external it is either a Secret you already have (the managed
-  route — the password is issued by the cloud provider, not by Helm) or one the
-  chart creates from externalDatabase.password.
+  Secret and key holding the database password. Four cases, and both halves —
+  in-cluster and external — offer the same choice: a Secret you already own, or
+  one the chart creates from a value you supply. An existing Secret is the better
+  answer for anything long-lived, because Helm keeps every value it is given in
+  the release history, where a password outlives the database it belonged to.
 */}}
 {{- define "octo.database.secretName" -}}
 {{- if .Values.postgres.enabled -}}
+{{- if .Values.postgres.auth.existingSecret -}}
+{{- .Values.postgres.auth.existingSecret -}}
+{{- else -}}
 {{- include "octo.postgres.serviceName" . -}}
+{{- end -}}
 {{- else if .Values.externalDatabase.existingSecret -}}
 {{- .Values.externalDatabase.existingSecret -}}
 {{- else -}}
@@ -157,7 +162,11 @@
 
 {{- define "octo.database.passwordKey" -}}
 {{- if .Values.postgres.enabled -}}
+{{- if .Values.postgres.auth.existingSecret -}}
+{{- .Values.postgres.auth.existingSecretPasswordKey | default "postgres-password" -}}
+{{- else -}}
 postgres-password
+{{- end -}}
 {{- else if .Values.externalDatabase.existingSecret -}}
 {{- .Values.externalDatabase.existingSecretPasswordKey | default "password" -}}
 {{- else -}}
