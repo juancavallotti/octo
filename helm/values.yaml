@@ -52,6 +52,16 @@ defaults:
   revisionHistoryLimit: null
   strategy: {}
 
+# Not in this file, deliberately: PodDisruptionBudget, HorizontalPodAutoscaler
+# and NetworkPolicy. A PDB over a single replica either permits the eviction it
+# exists to prevent or blocks node drains; an HPA on these workloads scales the
+# wrong thing, since throughput lives in the integration pods the orchestrator
+# creates rather than in the chart's own; and a NetworkPolicy depends on what
+# else shares the namespace and on a CNI that enforces it — one silently
+# unenforced is worse than none, because it reads as protection. Write your own
+# against the app.kubernetes.io/component labels every workload carries.
+# Documented at /deploy/helm#what-the-chart-does-not-create.
+
 # Shared image coordinates for the octo-* images. Defaults to the public images
 # on Docker Hub (see #199) so `helm install` works with no --set for anyone
 # standing up their own cluster; the Terraform release root overrides these to

@@ -317,6 +317,19 @@ adopt. Destroying storage is the infrastructure layer's job.
 | `nats.enabled` | `true` | Deploy the NATS broker; when off, live event streams fall back to polling. See [Event bus](/platform/event-bus). |
 | `runtime.servicesModule` | `k8s` | Runtime-services backend injected into integration pods: `k8s` (Lease leader election + orchestrator KV) or `standalone`. Cluster deploys want `k8s`. |
 
+### What the chart does not create
+
+Four things a production chart often ships are deliberately absent. They are
+listed here so their absence reads as a decision rather than an oversight, and
+because each has a workable answer in the meantime:
+
+| Not shipped | Why | If you need it |
+|---|---|---|
+| **PodDisruptionBudget** | A PDB on a single-replica Deployment either permits the eviction it was meant to prevent or blocks node drains outright. It becomes meaningful once you raise `replicas`, and meaningful differently per component. | Apply your own alongside the release; the components carry standard `app.kubernetes.io/component` labels to select on. |
+| **HorizontalPodAutoscaler** | The editor and orchestrator are not the throughput-bound part of this system — integration pods are, and those are created by the orchestrator, not by this chart. An HPA on the chart's own workloads would scale the wrong thing. | Apply your own; `platform` and `logs` scale horizontally without coordination, the orchestrator is safe to scale but gains little. |
+| **NetworkPolicy** | Correct policies depend on what else runs in the namespace and which CNI enforces them, and a policy that is silently unenforced is worse than none — it reads as protection that is not there. | Write them against the component labels. The orchestrator needs the API server; every service needs Postgres and NATS. |
+| **Topology spread / anti-affinity by default** | The knobs exist (`defaults.topologySpreadConstraints`, `defaults.affinity`) and the GKE Standard profile uses them; defaulting them would make single-node clusters unschedulable. | Set them per environment — see `values-gke-standard.yaml`. |
+
 ## Image and chart compatibility
 
 The chart and the images are released together and are tested together. A chart
