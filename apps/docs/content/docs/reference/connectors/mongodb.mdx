@@ -4,11 +4,12 @@ description: "The MongoDB document store connector and its find/insert/update/de
 octo_types:
   - mongodb
   - mongodb-find
+  - mongodb-insert
 ---
 
 The `mongodb` connector owns a MongoDB client — the connection string, credentials, and pool — and the `mongodb-*` blocks bind to it by name. It is the document-store counterpart to [`database`](/reference/connectors/database): where a row needs an explicit column mapping in and out, a message body is already a document, so storing a webhook payload is one block rather than a schema exercise.
 
-**Provides a source:** no — it is a service connector. **Blocks that bind to it:** `mongodb-find`.
+**Provides a source:** no — it is a service connector. **Blocks that bind to it:** `mongodb-find`, `mongodb-insert`.
 
 ## `mongodb` connector
 
@@ -137,3 +138,48 @@ sort: '[{"created": -1}, {"sku": 1}]'     # created descending, then sku ascendi
 sort: '{"created": -1}'                   # fine: one key has no order to lose
 sort: '{"created": -1, "sku": 1}'         # error: which key sorts first is unknowable
 ```
+
+## `mongodb-insert` block
+
+Write documents into a collection. `document` decides how many by what it evaluates to: an object writes one, a list of objects writes them all. The value already says which, so there is no mode setting to keep in sync with it.
+
+Because a message body is already a document, storing an inbound payload is `document: body`.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `connector` | string | Yes | — | Name of the `mongodb` connector to use. |
+| `collection` | CEL | Yes | — | Collection to write to. |
+| `database` | CEL | No | the connector's | Database to write to. |
+| `document` | CEL | Yes | — | An object, or a list of objects. |
+| `unordered` | bool | No | `false` | Keep going after a document fails, rather than stopping at the first. Lists only. |
+| `resultVar` | string | No | — | Store the result here instead of in the body. |
+
+```yaml
+process:
+  - type: mongodb-insert
+    settings:
+      connector: orders-db
+      collection: '"orders"'
+      document: body
+```
+
+The result is `{insertedCount, insertedIds}`. `insertedIds` is always a list, even for one document, so a flow reading it does not have to branch on how many were written — and the ids are rendered as extended JSON, so an `_id` the server generated comes back in the shape a filter takes:
+
+```yaml
+  - type: mongodb-insert
+    settings:
+      connector: orders-db
+      collection: '"orders"'
+      document: body
+      resultVar: written
+  - type: mongodb-find
+    settings:
+      connector: orders-db
+      collection: '"orders"'
+      filter: '{"_id": vars.written.insertedIds[0]}'    # no conversion needed
+      single: true
+```
+
+An empty list inserts nothing and returns `{insertedCount: 0, insertedIds: []}` rather than failing, so a flow inserting whatever it filtered out of a payload keeps working on the day the payload filters down to nothing.
+
+A batch that fails may still have written part of itself — always with `unordered: true`, and up to the failing document without it. The flow fails either way, but the error says how many landed, because "insert failed" and "insert half-failed" call for different recoveries.

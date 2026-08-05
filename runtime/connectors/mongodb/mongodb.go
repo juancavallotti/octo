@@ -37,6 +37,7 @@ import (
 func init() {
 	registerConnector()
 	registerFind()
+	registerInsert()
 }
 
 func registerConnector() {
