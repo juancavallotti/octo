@@ -507,13 +507,9 @@ tasks:
           # Supplied here the way a real install must; profiles that set their own
           # land on the same values.
           required="--set ingress.host=octo.example.com --set postgres.auth.password=rendertest"
+          # lint, not template, is what covers NOTES.txt: `helm template` skips the
+          # file entirely, and lint renders it along with everything else.
           if ! helm lint helm $required "$@" >"$out" 2>&1; then echo "FAILED (lint)"; cat "$out"; return 1; fi
-          # `helm template` does not render NOTES.txt, so a broken or failing
-          # expression in it survives every check here and surfaces at the end of a
-          # real install instead. A client-side dry run renders it, needs no
-          # cluster, and costs nothing — only its exit status matters, since the
-          # manifests it prints are the ones rendered on the next line anyway.
-          if ! helm install octo helm --dry-run=client --namespace octo $required "$@" >"$out" 2>&1; then echo "FAILED (notes)"; cat "$out"; return 1; fi
           if ! helm template octo helm --namespace octo $required "$@" >"$out" 2>&1; then echo "FAILED (template)"; cat "$out"; return 1; fi
           if [ "$schema" = yes ]; then
             kubeconform -strict -ignore-missing-schemas -summary <"$out"
