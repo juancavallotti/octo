@@ -239,11 +239,105 @@ default IngressClass, or has one that is not the controller you want:
   which one — if any — is marked default.
 </Callout>
 
-<Callout type="info">
-  `networking.mode` exists and accepts only `ingress` today. It is the seam a
-  Gateway API implementation drops into: routing is resolved in one template
-  rather than inlined per component, so adding HTTPRoute and Gateway later does
-  not touch the workloads.
+### Gateway API
+
+`networking.mode` selects which Kubernetes API publishes external endpoints —
+both the editor's and the ones the orchestrator creates per deployed
+integration. They are served by the same proxy, so it is one switch.
+
+| Mode | Objects | Needs |
+|---|---|---|
+| `ingress` | `Ingress` per endpoint | Nothing — built into every cluster. The default. |
+| `gateway` | `HTTPRoute` per endpoint, attached to a `Gateway` | The Gateway API CRDs. |
+
+`gateway` covers kgateway, Envoy Gateway, Istio, Cilium, and the Gateway API
+modes of ingress-nginx and Traefik.
+
+```bash
+kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.1/standard-install.yaml
+
+helm install octo oci://docker.io/juancavallotti/octo \
+  --set networking.mode=gateway \
+  --set networking.gateway.name=shared-gw \
+  --set networking.gateway.namespace=ingress \
+  --set ingress.host=octo.example.com
+```
+
+**Attaching to an existing Gateway is the default, and is the point.** A Gateway
+is cluster infrastructure: it predates the release, belongs to whoever runs the
+proxy, and serves things unrelated to octo. Attaching means the cluster owner
+owns the Gateway and octo owns only the routes in its own namespace — a much
+easier permission conversation than "the orchestrator creates Ingresses", and
+the orchestrator's Role reflects it, granting `httproutes` and nothing at all on
+`gateways`.
+
+It also removes configuration rather than moving it. An Ingress has no way to
+say *attach me to that proxy*, so it must carry the ingress class, the
+certificate arrangement and any controller-specific annotations itself — three
+pieces of cluster configuration that have to be handed to the orchestrator and
+stamped onto every object it creates. A route names its parent and its backend;
+the listener owns the rest. So `orchestrator.clusterIssuer`,
+`orchestrator.ingressClass`, `orchestrator.ingressAnnotations` and
+`wildcardTLS`'s plumbing have no counterpart under `gateway`, and the chart
+stops passing them.
+
+| Key | Default | Purpose |
+|---|---|---|
+| `networking.gateway.name` | `""` | Gateway to attach to. **Required** unless `create` is true. |
+| `networking.gateway.namespace` | `""` | Empty is the release namespace. A Gateway elsewhere must allow attachment from here via its listener's `allowedRoutes`. |
+| `networking.gateway.sectionName` | `""` | One listener by name. Usually unnecessary — a route attaches by hostname. Set it where one hostname is served by both an HTTP and an HTTPS listener, or the endpoint is also served in plaintext. |
+| `networking.gateway.create` | `false` | Have the chart create the Gateway. |
+| `networking.gateway.className` | `""` | `GatewayClass` for a created Gateway (`kgateway`, `envoy-gateway`, `istio`, `cilium`, `nginx`). **Required** when `create` is true. |
+| `networking.gateway.annotations` | `{}` | Extra annotations on a created Gateway. |
+
+`create: true` is for the install with no Gateway to attach to. Its listeners are
+derived from what the release already publishes — `ingress.host`, and the
+`*.{baseDomain}` wildcard integrations land on — with one listener per hostname,
+so a route never has to name one. There is deliberately no listener override:
+anything more elaborate is a Gateway you should own, with `create` left false.
+
+**Certificates.** For a Gateway it created, the chart writes the editor's
+`Certificate` itself rather than annotating the Gateway for cert-manager's
+gateway-shim. The shim needs cert-manager installed with
+`config.gatewayAPI.enabled=true` — not the default, so an annotation would render
+everywhere and issue nothing on most clusters — and it creates one Certificate
+per Secret a listener references with no per-listener opt-out, which would fight
+the DNS-01 wildcard Certificate over the same Secret. On a Gateway you own, its
+listeners and their certificates are yours; a Secret in the release namespace
+could not be referenced from another without a `ReferenceGrant`.
+
+Note that on a cluster with no ingress controller at all, an HTTP-01 issuer needs
+cert-manager's `gatewayHTTPRoute` solver to complete a challenge. That is the
+ClusterIssuer's configuration, not the chart's.
+
+<Callout type="warn">
+  A route that attaches to nothing — a misspelled Gateway, a listener that does
+  not allow your namespace — is not an error anywhere. It is created,
+  `helm install` succeeds, and the host resolves to nothing. This is the Gateway
+  API version of the unclaimed-Ingress trap above, and it reports itself in one
+  place:
+
+  ```bash
+  kubectl -n octo get httproute -o jsonpath='{.items[*].status.parents[*].conditions[*]}'
+  kubectl -n ingress get gateway shared-gw -o jsonpath='{.status.listeners[*].attachedRoutes}'
+  ```
+
+  `Accepted=True` on the route and a non-zero `attachedRoutes` on the listener
+  are what "it worked" looks like.
+</Callout>
+
+The orchestrator fails at startup, rather than at the first deploy, when it is
+configured for Gateway API on a cluster without the CRDs. `gke-managed-cert` and
+`acm` are refused at render time under `gateway`: both are Ingress annotations
+naming a cloud load balancer's certificate, and neither has a Gateway API
+equivalent.
+
+<Callout type="warn">
+  **The editor needs a secure context.** Parts of it call browser APIs —
+  `crypto.randomUUID` among them — that exist only over HTTPS or on `localhost`.
+  Served over plain HTTP on any other hostname the pages still render, but
+  client-side actions throw. `tls.mode: none` is for endpoints where something
+  upstream terminates TLS, not for serving the editor unencrypted.
 </Callout>
 
 ### Database
