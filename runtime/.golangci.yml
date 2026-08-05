@@ -121,6 +121,12 @@ linters:
           # ship in nothing and are not part of any module's surface.
           - gochecknoinits
 
+      # gosec's G101 reads "mongodb://user:pass@host" as a leaked credential.
+      # Producing exactly that string is what withPassword does, so its fixtures
+      # cannot avoid the pattern. Every credential in that file is fake.
+      - path: ^connectors/mongodb/uri_test\.go$
+        linters: [gosec]
+
       # gochecknoinits allowlist — the enumeration of loadable modules.
       #
       # init() earns its place here for exactly one reason (docs/extension-points.md):
@@ -150,6 +156,8 @@ linters:
       - path: ^connectors/llm/openai/openai\.go$
         linters: [gochecknoinits]
       - path: ^connectors/logger/logger\.go$
+        linters: [gochecknoinits]
+      - path: ^connectors/mongodb/mongodb\.go$
         linters: [gochecknoinits]
       - path: ^connectors/notion/notion\.go$
         linters: [gochecknoinits]

@@ -5,6 +5,7 @@
     "events",
     "queue",
     "database",
+    "mongodb",
     "logger",
     "slack",
     "notion",
