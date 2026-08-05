@@ -5,6 +5,7 @@ description: "Install and configure the Octo Helm chart on any Kubernetes cluste
 
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Cards, Card } from 'fumadocs-ui/components/card';
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
 import { Cloud, Server } from 'lucide-react';
 import { DynamicCodeBlock } from 'fumadocs-ui/components/dynamic-codeblock';
 import { OCTO_VERSION } from '@/lib/version';
@@ -214,6 +215,254 @@ healthy and every integration you deploy from that healthy editor sits in
 
 Empty auto-selects `cert-manager` when a `clusterIssuer` is set, else `secret`.
 
+#### Worked examples
+
+Complete `values.yaml` files, one per mode — each renders and schema-validates
+as shown. Install with `-f values.yaml`.
+
+<Tabs items={['cert-manager', 'Existing Secret', 'GKE', 'AWS ALB', 'TLS upstream']}>
+<Tab value="cert-manager">
+
+A ClusterIssuer issues per host over HTTP-01: one certificate for the editor,
+and one more for each integration you expose. What the k3s bootstrap provides.
+
+```yaml
+ingress:
+  enabled: true
+  className: nginx
+  host: octo.example.com
+  tls:
+    mode: cert-manager
+    clusterIssuer: letsencrypt-prod
+    secretName: octo-tls
+
+# Per-integration endpoints at {slug}.apps.example.com, each getting its own
+# certificate from the same issuer as it is deployed.
+orchestrator:
+  baseDomain: apps.example.com
+  ingressClass: nginx
+  clusterIssuer: letsencrypt-prod
+
+postgres:
+  auth:
+    password: CHANGEME
+```
+
+DNS for every host must already resolve to the ingress address, or the HTTP-01
+challenge cannot complete. That includes each new subdomain, which is the reason
+to prefer a wildcard once there is more than a handful.
+
+</Tab>
+<Tab value="Existing Secret">
+
+Certificates issued by something else — bought, placed by Terraform, or synced
+by external-secrets. The chart references and creates nothing.
+
+```yaml
+ingress:
+  enabled: true
+  className: nginx
+  host: octo.example.com
+  tls:
+    mode: secret
+    secretName: octo-tls        # must already exist in the release namespace
+
+orchestrator:
+  baseDomain: apps.example.com
+  ingressClass: nginx
+
+# One wildcard covering every {slug}.apps.example.com. An empty clusterIssuer
+# says the Secret already exists, so no Certificate is created for it either.
+wildcardTLS:
+  enabled: true
+  secretName: octo-wildcard-tls
+  clusterIssuer: ""
+
+postgres:
+  auth:
+    existingSecret: octo-db
+```
+
+The wildcard is what makes per-integration endpoints scale: one certificate
+covers every subdomain, so deploying an integration issues nothing and waits for
+nothing.
+
+</Tab>
+<Tab value="GKE">
+
+The GCE ingress controller with a Google-managed certificate. The chart creates
+the `ManagedCertificate`; the Ingress carries no `tls` block, since the
+certificate lives on the load balancer.
+
+```yaml
+ingress:
+  enabled: true
+  className: gce
+  host: octo.example.com
+  tls:
+    mode: gke-managed-cert
+    # managedCertificateName defaults to {release}-platform
+
+gke:
+  backendConfig:
+    enabled: true
+    healthCheckPath: /
+
+platform:
+  service:
+    annotations:
+      # Attaches the BackendConfig above; the value is {release}-platform.
+      cloud.google.com/backend-config: '{"default":"octo-platform"}'
+
+postgres:
+  auth:
+    password: CHANGEME
+```
+
+Provisioning takes 15–60 minutes and needs DNS pointing at the load balancer
+first. Start from `values-gke-autopilot.yaml` or `values-gke-standard.yaml`,
+which also set the resources and security contexts Autopilot requires.
+
+</Tab>
+<Tab value="AWS ALB">
+
+An ACM certificate terminated at the ALB. Again no `tls` block — the ARN is an
+annotation, and the load balancer holds the certificate.
+
+```yaml
+ingress:
+  enabled: true
+  className: alb
+  host: octo.example.com
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+  tls:
+    mode: acm
+    certificateArn: arn:aws:acm:us-east-1:123456789012:certificate/abc-123
+
+postgres:
+  auth:
+    password: CHANGEME
+```
+
+Needs the AWS Load Balancer Controller installed. Start from `values-eks.yaml`.
+
+</Tab>
+<Tab value="TLS upstream">
+
+Nothing on the Ingress: a cloud load balancer, a service mesh, or a CDN
+terminates TLS in front of it.
+
+```yaml
+ingress:
+  enabled: true
+  className: nginx
+  host: octo.example.com
+  tls:
+    mode: none
+
+postgres:
+  auth:
+    password: CHANGEME
+```
+
+<Callout type="warn">
+  `none` means *something else terminates TLS*, not *serve the editor over plain
+  HTTP*. The editor needs a secure context — see the callout at the end of this
+  section — so if nothing upstream is actually serving HTTPS, the pages render
+  and client-side actions throw.
+</Callout>
+
+</Tab>
+</Tabs>
+
+#### Where certificates come from
+
+Three questions get conflated under "TLS", and they have different answers.
+
+**1. Who issues — and who owns the issuer.** This chart never creates an
+`Issuer` or `ClusterIssuer`. It names one, and the object belongs to whoever
+runs cert-manager on the cluster. `clusterIssuer: letsencrypt-prod` is a
+reference to something that must already exist; the k3s bootstrap in this repo
+happens to create one by that name, which is why it appears in the defaults, and
+it is not a name any other cluster is obliged to have.
+
+**2. How the challenge is solved.** For ACME issuers (Let's Encrypt, ZeroSSL)
+this is the choice that decides what you can issue:
+
+| | HTTP-01 | DNS-01 |
+|---|---|---|
+| Proves control by | serving a token at `http://{host}/.well-known/acme-challenge/…` | writing a TXT record at `_acme-challenge.{host}` |
+| Needs | public DNS pointing at the ingress, reachable on port 80 | API credentials for the DNS zone |
+| Issues wildcards | **no** | **yes** |
+| Works on a private cluster | no | yes |
+| Per new subdomain | a fresh challenge, and a wait | nothing — the wildcard already covers it |
+
+This is why `wildcardTLS.clusterIssuer` defaults to a *different* issuer from
+`ingress.tls.clusterIssuer`: `*.{baseDomain}` can only be issued over DNS-01, so
+it needs an issuer configured with a DNS solver, while the editor's own host is
+happy with HTTP-01. Two issuers is not redundancy — it is the two things being
+genuinely different.
+
+<Callout type="info">
+  On a Gateway API cluster with no ingress controller at all, an HTTP-01 issuer
+  has nothing to create its challenge route with unless cert-manager is
+  configured for Gateway API (`config.gatewayAPI.enabled=true`) so it can use the
+  `gatewayHTTPRoute` solver. DNS-01 sidesteps that entirely and is the easier
+  answer there.
+</Callout>
+
+**3. "Cloud certificates" are two unrelated mechanisms.** Both get called
+"using the cloud's certificates", and they differ in where the private key
+lives:
+
+| Approach | Key lives | Setting | cert-manager |
+|---|---|---|---|
+| Google-managed certificate | the GCE load balancer | `tls.mode: gke-managed-cert` | not involved |
+| AWS ACM | the ALB | `tls.mode: acm` | not involved |
+| Let's Encrypt | a Secret in your namespace | `tls.mode: cert-manager` | yes |
+| Google CAS / AWS Private CA | a Secret in your namespace | `tls.mode: cert-manager` + the annotations below | yes, plus that issuer's own controller |
+
+The first two never produce a Kubernetes Secret at all — the certificate is
+attached to the load balancer by annotation, which is why those Ingresses carry
+no `tls` block and why neither mode has a Gateway API equivalent.
+
+The last row is cert-manager issuing from a **private CA** rather than from a
+public ACME CA — a corporate PKI, `GoogleCASClusterIssuer`, `AWSPCAClusterIssuer`.
+These live outside the `cert-manager.io` API group, so the reference needs a kind
+and a group as well as a name. Supply those two as annotations; the chart's own
+issuer annotation does not collide with them:
+
+```yaml
+ingress:
+  enabled: true
+  className: nginx
+  host: octo.example.com
+  annotations:
+    # Out-of-tree issuer. AWS Private CA is:
+    #   cert-manager.io/issuer-kind: AWSPCAClusterIssuer
+    #   cert-manager.io/issuer-group: awspca.cert-manager.io
+    cert-manager.io/issuer-kind: GoogleCASClusterIssuer
+    cert-manager.io/issuer-group: cas-issuer.jetstack.io
+  tls:
+    mode: cert-manager
+    clusterIssuer: cas-prod      # the external issuer's name
+    secretName: octo-tls
+```
+
+<Callout type="warn">
+  That covers the editor's Ingress, where cert-manager's ingress-shim reads the
+  annotations. The `Certificate` resources the chart writes itself — the
+  `*.{baseDomain}` wildcard, and the editor's certificate for a chart-created
+  Gateway — hardcode `kind: ClusterIssuer, group: cert-manager.io`, so an
+  out-of-tree issuer cannot be named there.
+
+  Set `wildcardTLS.clusterIssuer: ""` and write the `Certificate` yourself with
+  whatever `issuerRef` you need. The chart then references
+  `wildcardTLS.secretName` and issues nothing, which is exactly the seam for it.
+</Callout>
+
 `ingress.className` selects the controller (`traefik`, `nginx`, `gce`, `alb`);
 `ingress.annotations` carries controller-specific behaviour. Per-integration
 external endpoints are a separate axis — `orchestrator.baseDomain` plus
@@ -289,6 +538,84 @@ stops passing them.
 | `networking.gateway.create` | `false` | Have the chart create the Gateway. |
 | `networking.gateway.className` | `""` | `GatewayClass` for a created Gateway (`kgateway`, `envoy-gateway`, `istio`, `cilium`, `nginx`). **Required** when `create` is true. |
 | `networking.gateway.annotations` | `{}` | Extra annotations on a created Gateway. |
+
+<Tabs items={['Attach to an existing Gateway', 'Let the chart create one']}>
+<Tab value="Attach to an existing Gateway">
+
+The normal arrangement. The Gateway belongs to whoever runs the cluster's
+ingress; octo adds routes to it and owns nothing else.
+
+```yaml
+networking:
+  mode: gateway
+  gateway:
+    name: shared-gw
+    namespace: ingress
+
+ingress:
+  enabled: true
+  host: octo.example.com
+  # className, annotations and tls are Ingress-only and ignored here — the
+  # listener on shared-gw decides the controller and holds the certificate.
+
+orchestrator:
+  baseDomain: apps.example.com
+  # clusterIssuer / ingressClass / ingressAnnotations have no counterpart in
+  # this mode; the listener answers all three.
+
+postgres:
+  auth:
+    password: CHANGEME
+```
+
+`shared-gw` needs a listener matching each hostname — `octo.example.com` and
+`*.apps.example.com` — and its `allowedRoutes.namespaces` must permit this
+release's namespace. Neither is something the chart can set from this side; both
+are worth confirming with the Gateway's owner before installing.
+
+</Tab>
+<Tab value="Let the chart create one">
+
+For the install with no Gateway to attach to. Listeners are derived: one per
+editor host, plus the `*.{baseDomain}` wildcard.
+
+```yaml
+networking:
+  mode: gateway
+  gateway:
+    create: true
+    className: kgateway      # or envoy-gateway, istio, cilium, nginx
+
+ingress:
+  enabled: true
+  host: octo.example.com
+  tls:
+    mode: cert-manager
+    clusterIssuer: letsencrypt-prod
+    secretName: octo-tls
+
+orchestrator:
+  baseDomain: apps.example.com
+
+# Terminates the *.apps.example.com listener. DNS-01, because that is the only
+# way to issue a wildcard — set clusterIssuer: "" instead if the Secret already
+# exists.
+wildcardTLS:
+  enabled: true
+  secretName: octo-wildcard-tls
+  clusterIssuer: letsencrypt-dns
+
+postgres:
+  auth:
+    password: CHANGEME
+```
+
+That renders a Gateway with two HTTPS listeners — `editor` for
+`octo.example.com` against `octo-tls`, `integrations` for `*.apps.example.com`
+against `octo-wildcard-tls` — plus a `Certificate` for each.
+
+</Tab>
+</Tabs>
 
 `create: true` is for the install with no Gateway to attach to. Its listeners are
 derived from what the release already publishes — `ingress.host`, and the
