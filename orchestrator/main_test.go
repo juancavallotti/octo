@@ -27,7 +27,11 @@ func TestImagePullSecretsConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("RUNTIME_IMAGE_PULL_SECRETS", tt.env)
-			if got := imagePullSecretsConfig(); !slices.Equal(got, tt.want) {
+			got := imagePullSecretsConfig()
+			// Nilness is asserted on its own because slices.Equal(nil, []string{})
+			// is true, so the nil cases above would pass against an empty slice —
+			// which is the one distinction this function's contract makes.
+			if !slices.Equal(got, tt.want) || (got == nil) != (tt.want == nil) {
 				t.Errorf("imagePullSecretsConfig() = %#v, want %#v", got, tt.want)
 			}
 		})

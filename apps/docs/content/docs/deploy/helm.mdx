@@ -300,7 +300,7 @@ adopt. Destroying storage is the infrastructure layer's job.
 
 | Key | Default | Purpose |
 |---|---|---|
-| `postgres.auth.username` / `.database` | `octo` | Stored in a chart-managed Secret alongside the password. |
+| `postgres.auth.username` / `.database` | `octo` | Stored in a chart-managed Secret. The password joins them there only when you supply it inline — with `existingSecret` it stays in yours, and the chart's carries just these two. |
 | `postgres.auth.password` | – | **Required.** No default: a published chart cannot ship a credential. Rendering fails without it, or without `existingSecret` below. |
 | `postgres.auth.existingSecret` / `.existingSecretPasswordKey` | `""` / `postgres-password` | Take the password from a Secret you already own instead. Preferred for anything long-lived — every value passed to Helm stays in the release history. |
 | `kv.encryptionKey` | `""` | Base64 32-byte AES-256 key encrypting KV secret namespaces at rest. Empty rejects secret-namespace writes; plain KV still works. See [KV and storage](/platform/kv-and-storage). |

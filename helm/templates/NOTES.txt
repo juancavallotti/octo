@@ -9,8 +9,18 @@ octo {{ .Chart.AppVersion }} installed as release "{{ .Release.Name }}" in names
        certificate that has not appeared yet. */}}
 {{- $mode := include "octo-common.ingress.tlsMode" (dict "tls" .Values.ingress.tls) }}
 
+{{- if eq $mode "none" }}
+{{- /* No scheme: "none" means this Ingress terminates nothing, which is as often
+       an upstream load balancer doing TLS as it is plain HTTP. Printing http://
+       would name the wrong endpoint for the commoner of the two. */}}
+
+Editor host — the scheme is whatever terminates TLS upstream, or http if nothing does:
+  {{ .Values.ingress.host }}
+{{- else }}
+
 Editor URL:
-  {{ if eq $mode "none" }}http{{ else }}https{{ end }}://{{ .Values.ingress.host }}
+  https://{{ .Values.ingress.host }}
+{{- end }}
 {{- if .Values.ingress.className }}
 
 Served by the "{{ .Values.ingress.className }}" IngressClass.
