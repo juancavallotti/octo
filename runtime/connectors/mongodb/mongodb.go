@@ -49,9 +49,11 @@ func registerConnector() {
 	})
 
 	// Package-level editor defaults: the mongodb connector and every mongodb-*
-	// block share the MongoDB palette group and brand icon unless they set their
-	// own — mirrors the pinecone package.
-	core.RegisterExtension(core.ExtensionMeta{Group: displayName, Icon: displayName})
+	// block share the MongoDB palette group unless they set their own — mirrors
+	// the pinecone package. The icon is lucide's Leaf rather than a brand mark:
+	// lucide ships none for MongoDB, and an approximated one would be trademark
+	// artwork nobody verified.
+	core.RegisterExtension(core.ExtensionMeta{Group: displayName, Icon: paletteIcon})
 
 	core.RegisterConnectorMeta(core.ConnectorMeta{
 		Type:     connectorType,
@@ -64,9 +66,12 @@ const (
 	// connectorType is the type a flow names in its connectors block, and the
 	// prefix every block of this package registers under.
 	connectorType = "mongodb"
-	// displayName is the editor-facing label, palette group, and icon for the
-	// mongodb connector and its blocks.
+	// displayName is the editor-facing label and palette group for the mongodb
+	// connector and its blocks.
 	displayName = "MongoDB"
+	// paletteIcon is the editor icon they share. It is a lucide name, not a
+	// brand mark: see registerConnector.
+	paletteIcon = "Leaf"
 	// appName is reported to the server, so a deployment's currentOp and logs
 	// attribute connections to Octo rather than to an anonymous driver.
 	appName = "octo"
