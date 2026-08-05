@@ -29,6 +29,12 @@ The [`mongodb`](/reference/connectors/mongodb) connector owns the client. Only
 name one of their own.
 
 ```yaml
+env:
+  - name: MONGODB_URI
+    default: mongodb://localhost:27017
+  - name: MONGODB_DATABASE
+    default: octo-samples
+
 connectors:
   - name: orders-db
     type: mongodb
@@ -37,6 +43,8 @@ connectors:
       database: ${MONGODB_DATABASE}
       maxPoolSize: 4
 ```
+
+A `${VAR}` the config never declares is a load error, not an empty string, so the `env:` block is part of the connector rather than paperwork around it. Defaults here mean the sample runs against the container above with nothing exported.
 
 `maxPoolSize` is 4 here rather than the default 32 because the sample's flows run
 four workers each, and a pool larger than the concurrency reaching it is just

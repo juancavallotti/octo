@@ -311,9 +311,14 @@ A `filter` that evaluates to `{}` matches every document, so `many: true` with a
 The guard exists because the filter is an expression, and an empty one is rarely written on purpose — it is what `{"customer": body.customerId}` collapses to when the message doesn't carry `customerId`, and CEL will happily build an object out of nothing. No error afterwards can undo the result.
 
 ```yaml
-filter: '{}'                    # with many: true — error, unless deleteAll
+# refused: nothing here says emptying the collection was the intent
 filter: '{}'
-deleteAll: true                 # allowed: the flow said so
+many: true
+
+# allowed: the flow said so
+filter: '{}'
+many: true
+deleteAll: true
 ```
 
 Deleting a single document is not guarded: the blast radius is one document, and "delete the oldest" is a real thing to ask for. And `filter` is required even with `deleteAll` — "match everything" should be something a flow says, not something it omits.
