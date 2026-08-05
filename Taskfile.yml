@@ -534,6 +534,29 @@ tasks:
         # traefik, which no profile does since the k3s path sets it from Terraform.
         check traefik-ingress \
           --set ingress.className=traefik --set orchestrator.ingressClass=traefik
+        # Gateway API. Both halves of the design get rendered: attaching to a
+        # Gateway somebody else owns (the default, and the reason the mode is
+        # worth having) and creating one, which is what an all-in-one install
+        # needs and the only path that renders listeners at all. The wildcard
+        # variant is the full arrangement — an editor host and a *.baseDomain
+        # listener on one Gateway, with the certificates the orchestrator no
+        # longer has to know about.
+        #
+        # kubeconform skips the Gateway API kinds (-ignore-missing-schemas):
+        # they are CRDs, so what these profiles gate is that the templates render
+        # valid YAML and that no Ingress-shaped value leaks into a route.
+        check gateway-attach \
+          --set networking.mode=gateway --set networking.gateway.name=shared-gw \
+          --set networking.gateway.namespace=ingress \
+          --set orchestrator.baseDomain=apps.example.com
+        check gateway-create \
+          --set networking.mode=gateway --set networking.gateway.create=true \
+          --set networking.gateway.className=kgateway
+        check gateway-wildcard \
+          --set networking.mode=gateway --set networking.gateway.create=true \
+          --set networking.gateway.className=kgateway \
+          --set orchestrator.baseDomain=apps.example.com \
+          --set wildcardTLS.enabled=true --set wildcardTLS.clusterIssuer=letsencrypt-dns
         check gke-gce-ingress -f helm/values-gke-autopilot.yaml \
           --set ingress.className=gce --set ingress.tls.mode=gke-managed-cert \
           --set gke.backendConfig.enabled=true --set gke.frontendConfig.enabled=true

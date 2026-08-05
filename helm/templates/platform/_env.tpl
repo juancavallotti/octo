@@ -52,12 +52,26 @@
     secretKeyRef:
       name: {{ include "octo.auth.secretName" . }}
       key: auth-secret
-# Callback/cookie URL behind the ingress (auth-code redirect target).
-# required, because the failure is otherwise invisible until someone tries to log
-# in: with no host this renders "https://", Auth.js builds callback URLs against
-# it, and the redirect dies at the identity provider rather than here.
+# Callback/cookie origin (the auth-code redirect target). Auth.js builds every
+# callback URL against it, and it must match a redirect URI registered with the
+# identity provider exactly — scheme included.
+{{- if .Values.auth.url }}
 - name: AUTH_URL
-  value: "https://{{ required "ingress.host is required when auth.oidc.enabled is true — it is the OIDC callback origin" .Values.ingress.host }}"
+  value: {{ .Values.auth.url | quote }}
+{{- else }}
+{{- /* Derived as https://{ingress.host}, which is right wherever the endpoint
+       terminates TLS — every real deployment. It is a default rather than the
+       only answer because the chart cannot always know the scheme: with
+       networking.mode=gateway the endpoint's certificate belongs to a Gateway
+       listener this chart may not own, and a local install may serve plain HTTP.
+       Both are auth.url's job to state.
+
+       required on the host, because the failure is otherwise invisible until
+       someone tries to log in: with no host this renders "https://" and the
+       redirect dies at the identity provider rather than here. */}}
+- name: AUTH_URL
+  value: "https://{{ required "ingress.host is required when auth.oidc.enabled is true — it is the OIDC callback origin. Set auth.url instead to name the origin explicitly." .Values.ingress.host }}"
+{{- end }}
 - name: AUTH_TRUST_HOST
   value: "true"
 {{- with .Values.auth.writeRoles }}

@@ -1,0 +1,49 @@
+{{- /*
+  The editor's certificate, when this chart creates the Gateway that terminates
+  it. It is the Gateway-mode counterpart of the cert-manager annotation on the
+  Ingress, and it is a Certificate resource rather than an annotation for two
+  reasons.
+
+  cert-manager can watch Gateways directly — the "gateway-shim" — but only if
+  cert-manager itself was installed with config.gatewayAPI.enabled=true, which is
+  not the default. A chart that relied on that annotation would render happily on
+  every cert-manager, and silently issue nothing on most of them.
+
+  And the shim creates one Certificate per Secret name referenced by a listener,
+  with no way to exempt one. The wildcard listener below already has a
+  Certificate of its own (wildcard-certificate.yaml, DNS-01, because a wildcard
+  needs it), so the shim would create a second Certificate for the same Secret
+  with the editor's HTTP-01 issuer, and the two would take turns overwriting it.
+
+  Naming the certificates explicitly avoids both: one Certificate per Secret,
+  each with the issuer that can actually solve for its names, and no dependency
+  on how cert-manager was installed. How the issuer solves the challenge is still
+  the cluster owner's business — note that on a cluster with no ingress
+  controller, an HTTP-01 issuer needs cert-manager's gatewayHTTPRoute solver.
+
+  Only for a Gateway this chart created. Attaching to someone else's Gateway
+  means its listeners, and their certificates, belong to whoever owns it — a
+  Secret in this namespace could not be referenced from theirs anyway without a
+  ReferenceGrant they would have to write.
+*/}}
+{{- if and (eq (include "octo.networking.mode" .) "gateway") .Values.networking.gateway.create .Values.ingress.enabled }}
+{{- $tls := .Values.ingress.tls | default dict }}
+{{- if eq (include "octo-common.ingress.tlsMode" (dict "tls" $tls)) "cert-manager" }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "octo-common.componentName" (dict "root" $ "component" "gateway-tls") }}
+  labels:
+    {{- include "octo-common.componentLabels" (dict "root" $ "component" "gateway-tls") | nindent 4 }}
+spec:
+  secretName: {{ $tls.secretName | quote }}
+  dnsNames:
+    {{- range fromYamlArray (include "octo-common.ingress.hosts" .Values.ingress) }}
+    - {{ . | quote }}
+    {{- end }}
+  issuerRef:
+    name: {{ required "ingress.tls.clusterIssuer is required when ingress.tls.mode is cert-manager" $tls.clusterIssuer | quote }}
+    kind: ClusterIssuer
+    group: cert-manager.io
+{{- end }}
+{{- end }}

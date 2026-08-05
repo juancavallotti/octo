@@ -19,11 +19,22 @@
   resources: ["deployments"]
   # patch is required to scale an existing deployment (merge-patch on spec.replicas).
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+{{- if eq (include "octo.networking.mode" .) "gateway" }}
+# Per-integration external endpoints, Gateway API mode: one HTTPRoute per
+# externally-exposed deployment, attached to a Gateway this Role deliberately
+# grants nothing on. That is the permission split the mode exists for — the
+# Gateway belongs to whoever runs the cluster's ingress, and octo only creates
+# routes in its own namespace.
+- apiGroups: ["gateway.networking.k8s.io"]
+  resources: ["httproutes"]
+  verbs: ["get", "list", "watch", "create", "update", "delete"]
+{{- else }}
 # Per-integration external endpoints (Stage 2): the orchestrator creates an
 # Ingress per externally-exposed deployment.
 - apiGroups: ["networking.k8s.io"]
   resources: ["ingresses"]
   verbs: ["get", "list", "watch", "create", "update", "delete"]
+{{- end }}
 {{- end }}
 {{- include "octo-common.rbac" (dict
       "root" $

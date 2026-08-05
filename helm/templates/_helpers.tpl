@@ -12,6 +12,25 @@
 {{- include "octo-common.componentName" (dict "root" .root "component" .component) }}
 {{- end }}
 
+{{/*
+  The routing API this release publishes external endpoints with, validated.
+
+  A closed enumeration, checked rather than assumed, for the same reason
+  ingress.tls.mode is: every template that renders routing dispatches on this
+  value with no final else, so an unrecognised one — a typo, a mode from a newer
+  chart — matches nothing. No Ingress renders, no HTTPRoute renders, `helm
+  install` reports success, and the editor is simply unreachable with nothing
+  anywhere calling that an error.
+*/}}
+{{- define "octo.networking.mode" -}}
+{{- $mode := (.Values.networking | default dict).mode | default "ingress" -}}
+{{- $valid := list "ingress" "gateway" -}}
+{{- if not (has $mode $valid) -}}
+{{- fail (printf "networking.mode %q is not one of %s" $mode (join ", " $valid)) -}}
+{{- end -}}
+{{- $mode -}}
+{{- end }}
+
 {{- define "octo.postgres.serviceName" -}}
 {{- include "octo-common.componentName" (dict "root" . "component" "postgres") }}
 {{- end }}

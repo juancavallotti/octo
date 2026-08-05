@@ -1,0 +1,101 @@
+{{- /*
+  The Gateway per-integration HTTPRoutes and the editor's route attach to.
+
+  Off by default, and that is the important part: a Gateway is the cluster's
+  ingress infrastructure. It usually exists before octo does, is owned by whoever
+  runs the proxy, and carries listeners for things that have nothing to do with
+  this release. Attaching to it — networking.gateway.name, create left false — is
+  the normal arrangement, and it is what makes this mode worth having: the
+  permission split is that the cluster owner owns the Gateway and octo owns the
+  routes in its own namespace.
+
+  create=true is for the install that has no such thing: a laptop cluster, or a
+  first deployment where octo is the only thing behind the proxy. The listeners
+  are then derived from the hosts this release already knows about — the editor's
+  own host, and the *.{baseDomain} wildcard the orchestrator publishes
+  integrations under. Anything more elaborate is a Gateway you should own
+  yourself; this template deliberately has no listener override.
+*/}}
+{{- if and (eq (include "octo.networking.mode" .) "gateway") .Values.networking.gateway.create }}
+{{- $ctx := dict "root" $ "component" "gateway" }}
+{{- $tls := .Values.ingress.tls | default dict }}
+{{- $mode := include "octo-common.ingress.tlsMode" (dict "tls" $tls) }}
+{{- /*
+  Two of the five certificate modes are Ingress mechanisms with no Gateway API
+  counterpart: both name a certificate held by a cloud load balancer through a
+  controller-specific annotation on the Ingress. Rendering a Gateway that quietly
+  ignored them would produce an HTTPS listener referencing a Secret nobody
+  creates, so the render fails instead and says which mode to use.
+*/}}
+{{- if or (eq $mode "gke-managed-cert") (eq $mode "acm") }}
+{{- fail (printf "ingress.tls.mode %q has no Gateway API equivalent — it is an Ingress annotation naming a cloud load balancer's certificate. Use tls.mode secret or cert-manager with networking.mode=gateway, or keep networking.mode=ingress." $mode) }}
+{{- end }}
+{{- /* Every listener below comes from a host this release publishes. With no
+       editor Ingress and no base domain there are none, and a Gateway with an
+       empty listener list is rejected by the API server — an obscure way to
+       learn that the release had nothing to put behind it. */}}
+{{- if and (not .Values.ingress.enabled) (not .Values.orchestrator.baseDomain) }}
+{{- fail "networking.gateway.create is true but this release publishes nothing: set ingress.host (with ingress.enabled) for the editor, or orchestrator.baseDomain for per-integration endpoints. A Gateway needs at least one listener." }}
+{{- end }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: {{ include "octo-common.gateway.name" (dict "root" $ "gateway" .Values.networking.gateway) }}
+  labels:
+    {{- include "octo-common.componentLabels" $ctx | nindent 4 }}
+  {{- with .Values.networking.gateway.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  gatewayClassName: {{ required "networking.gateway.className is required when networking.gateway.create is true — it names the controller that serves this Gateway (e.g. kgateway, envoy-gateway, istio, cilium, nginx)" .Values.networking.gateway.className | quote }}
+  listeners:
+    {{- /* One listener per hostname. Listeners are selected by hostname when a
+           route attaches, so each host having exactly one means a route never has
+           to name a listener to land on the right one. */}}
+    {{- if .Values.ingress.enabled }}
+    {{- $hosts := fromYamlArray (include "octo-common.ingress.hosts" .Values.ingress) }}
+    {{- range $i, $host := $hosts }}
+    - name: {{ if eq $i 0 }}editor{{ else }}editor-{{ $i }}{{ end }}
+      hostname: {{ $host | quote }}
+      {{- if eq $mode "none" }}
+      protocol: HTTP
+      port: 80
+      {{- else }}
+      protocol: HTTPS
+      port: 443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: {{ $tls.secretName | quote }}
+      {{- end }}
+      allowedRoutes:
+        namespaces:
+          from: Same
+    {{- end }}
+    {{- end }}
+    {{- /* The wildcard every per-integration endpoint lands on. It exists only
+           when the orchestrator is configured to publish them at all, and it is
+           HTTPS only when there is a wildcard certificate to terminate with: a
+           wildcard needs DNS-01, which is why wildcardTLS has its own issuer
+           rather than reusing the editor's. Without one these endpoints are plain
+           HTTP, which is the same answer the Ingress path gives. */}}
+    {{- with .Values.orchestrator.baseDomain }}
+    - name: integrations
+      hostname: {{ printf "*.%s" . | quote }}
+      {{- if $.Values.wildcardTLS.enabled }}
+      protocol: HTTPS
+      port: 443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: {{ $.Values.wildcardTLS.secretName | quote }}
+      {{- else }}
+      protocol: HTTP
+      port: 80
+      {{- end }}
+      allowedRoutes:
+        namespaces:
+          from: Same
+    {{- end }}
+{{- end }}

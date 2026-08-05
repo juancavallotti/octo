@@ -4,7 +4,7 @@
        which may be a different domain entirely (e.g. a delegated subdomain used
        only for per-integration wildcards while the editor stays on the
        registrar-locked apex). */}}
-{{- if and .Values.ingress.enabled (eq .Values.networking.mode "ingress") }}
+{{- if and .Values.ingress.enabled (eq (include "octo.networking.mode" .) "ingress") }}
 {{- include "octo-common.ingress" (dict
       "root" $
       "component" "platform"

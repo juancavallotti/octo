@@ -1,13 +1,16 @@
 octo {{ .Chart.AppVersion }} installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
-
-{{- if and .Values.ingress.enabled (eq .Values.networking.mode "ingress") }}
-{{- /* Resolved through the same helper the Ingress itself dispatches on, so this
-       text cannot describe a certificate the release did not ask for. It used to
-       say cert-manager unconditionally, which was true of exactly one of the five
-       modes — and misleading in a way that costs an afternoon on the other four,
-       since "waiting for the ACME challenge" is a plausible explanation for any
-       certificate that has not appeared yet. */}}
+{{- /* Both resolved through the same helpers the templates themselves dispatch
+       on, so this text cannot describe a certificate — or a routing object — the
+       release did not ask for. It used to say cert-manager unconditionally,
+       which was true of exactly one of the five modes, and misleading in a way
+       that costs an afternoon on the other four: "waiting for the ACME
+       challenge" is a plausible explanation for any certificate that has not
+       appeared yet. Declared at the top because both routing branches below need
+       them, and a variable declared inside one is not in scope in the other. */}}
+{{- $routing := include "octo.networking.mode" . }}
 {{- $mode := include "octo-common.ingress.tlsMode" (dict "tls" .Values.ingress.tls) }}
+
+{{- if and .Values.ingress.enabled (eq $routing "ingress") }}
 
 {{- if eq $mode "none" }}
 {{- /* No scheme: "none" means this Ingress terminates nothing, which is as often
@@ -59,6 +62,47 @@ TLS: terminated at the ALB against the ACM certificate
 TLS: none on the Ingress. Something upstream — a cloud load balancer, a mesh —
 must terminate it, or the editor is served over plain HTTP.
 {{- end }}
+{{- else if and .Values.ingress.enabled (eq $routing "gateway") }}
+{{- $gwName := include "octo-common.gateway.name" (dict "root" $ "gateway" .Values.networking.gateway) }}
+{{- $gwNs := .Values.networking.gateway.namespace | default .Release.Namespace }}
+
+Editor host — the scheme is whatever the Gateway's listener terminates:
+  {{ .Values.ingress.host }}
+
+Routed by an HTTPRoute attached to Gateway "{{ $gwName }}" in namespace {{ $gwNs }}.
+{{- if .Values.networking.gateway.create }}
+This chart creates that Gateway, on GatewayClass "{{ .Values.networking.gateway.className }}".
+{{- else }}
+This chart does NOT create that Gateway. It must already exist, serve the
+hostname above, and accept routes from namespace {{ .Release.Namespace }} through its
+listener's allowedRoutes.
+{{- end }}
+
+A route that attaches to nothing is not an error anywhere — it is created, this
+install succeeds, and the host resolves to nothing. Check the attachment with:
+  kubectl -n {{ .Release.Namespace }} get httproute {{ include "octo.platform.serviceName" . }} -o jsonpath='{.status.parents[*].conditions[*]}'
+{{- if .Values.networking.gateway.create }}
+{{- if eq $mode "cert-manager" }}
+
+TLS: this chart creates a cert-manager Certificate for the editor host through
+ClusterIssuer "{{ .Values.ingress.tls.clusterIssuer }}", into Secret "{{ .Values.ingress.tls.secretName }}", which the
+listener terminates with. On a cluster with no ingress controller, an HTTP-01
+issuer needs cert-manager's gatewayHTTPRoute solver to complete the challenge.
+Watch it with:
+  kubectl -n {{ .Release.Namespace }} get certificate
+{{- else if eq $mode "secret" }}
+
+TLS: the Gateway listener references Secret "{{ .Values.ingress.tls.secretName }}", which this chart does
+not create. It must already exist in namespace {{ .Release.Namespace }} and cover the host above.
+{{- else }}
+
+TLS: none. The Gateway listener serves plain HTTP on port 80.
+{{- end }}
+{{- else }}
+
+TLS is whatever the Gateway's listener terminates — that Gateway is not this
+chart's, so neither is its certificate.
+{{- end }}
 {{- else }}
 
 Ingress is disabled. Reach the editor by port-forwarding:
@@ -75,7 +119,23 @@ Check status:
 {{- if .Values.orchestrator.baseDomain }}
 
 Per-integration external endpoints are enabled under *.{{ .Values.orchestrator.baseDomain }}.
+{{- if eq $routing "gateway" }}
+The orchestrator publishes one HTTPRoute per exposed deployment, attached to
+Gateway "{{ include "octo-common.gateway.name" (dict "root" $ "gateway" .Values.networking.gateway) }}" in namespace {{ .Values.networking.gateway.namespace | default .Release.Namespace }}.
 {{- if .Values.wildcardTLS.enabled }}
+Its wildcard listener terminates with Secret "{{ .Values.wildcardTLS.secretName }}"{{ if .Values.networking.gateway.create }}, issued by
+ClusterIssuer "{{ .Values.wildcardTLS.clusterIssuer }}" over DNS-01{{ end }}.
+{{- else }}
+{{- /* Not "they get no TLS": in this mode the certificate is a property of the
+       listener, so on a Gateway this chart did not create it may well be there
+       already — and telling an operator otherwise sends them to fix something
+       that is not broken. */}}
+Certificates are a property of that Gateway's listeners rather than of the
+routes, so what these endpoints serve depends on the listener matching
+*.{{ .Values.orchestrator.baseDomain }}. {{ if .Values.networking.gateway.create }}The listener this chart created serves plain HTTP;
+set wildcardTLS.enabled to give it a certificate.{{ else }}Check it on the Gateway.{{ end }}
+{{- end }}
+{{- else if .Values.wildcardTLS.enabled }}
 They share the wildcard certificate in Secret "{{ .Values.wildcardTLS.secretName }}", issued by
 ClusterIssuer "{{ .Values.wildcardTLS.clusterIssuer }}" over DNS-01.
 {{- else if .Values.orchestrator.clusterIssuer }}
