@@ -39,6 +39,7 @@ func init() {
 	registerFind()
 	registerInsert()
 	registerUpdate()
+	registerDelete()
 }
 
 func registerConnector() {

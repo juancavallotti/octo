@@ -6,11 +6,12 @@ octo_types:
   - mongodb-find
   - mongodb-insert
   - mongodb-update
+  - mongodb-delete
 ---
 
 The `mongodb` connector owns a MongoDB client — the connection string, credentials, and pool — and the `mongodb-*` blocks bind to it by name. It is the document-store counterpart to [`database`](/reference/connectors/database): where a row needs an explicit column mapping in and out, a message body is already a document, so storing a webhook payload is one block rather than a schema exercise.
 
-**Provides a source:** no — it is a service connector. **Blocks that bind to it:** `mongodb-find`, `mongodb-insert`, `mongodb-update`.
+**Provides a source:** no — it is a service connector. **Blocks that bind to it:** `mongodb-find`, `mongodb-insert`, `mongodb-update`, `mongodb-delete`.
 
 ## `mongodb` connector
 
@@ -230,3 +231,40 @@ update: '[{"$set": {"total": {"$multiply": ["$qty", "$price"]}}}]'
 `many: true` is not available with `replacement`, matching the driver: writing the same document over every match, `_id` apart, is not something anyone means.
 
 The result is `{matchedCount, modifiedCount, upsertedCount, upsertedId}`. `matchedCount` and `modifiedCount` differ when an update sets a field to the value it already held — "nothing matched" and "nothing changed" are different bugs, so both are reported. `upsertedId` is present and null when no upsert happened, rather than absent, and carries the same `{"$oid": ...}` shape a filter takes.
+
+## `mongodb-delete` block
+
+Remove documents from a collection. The result is `{deletedCount}`.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `connector` | string | Yes | — | Name of the `mongodb` connector to use. |
+| `collection` | CEL | Yes | — | Collection to delete from. |
+| `database` | CEL | No | the connector's | Database to delete from. |
+| `filter` | CEL | Yes | — | Selects the documents to remove. |
+| `many` | bool | No | `false` | Remove every match rather than the first. |
+| `deleteAll` | bool | No | `false` | Allow a filter that matches everything — see below. |
+| `resultVar` | string | No | — | Store the result here instead of in the body. |
+
+```yaml
+process:
+  - type: mongodb-delete
+    settings:
+      connector: orders-db
+      collection: '"orders"'
+      filter: '{"_id": {"$oid": body.orderId}}'
+```
+
+### Deleting everything is opt-in
+
+A `filter` that evaluates to `{}` matches every document, so `many: true` with an empty filter would empty the collection. That is refused unless `deleteAll: true` says it was meant.
+
+The guard exists because the filter is an expression, and an empty one is rarely written on purpose — it is what `{"customer": body.customerId}` collapses to when the message doesn't carry `customerId`, and CEL will happily build an object out of nothing. No error afterwards can undo the result.
+
+```yaml
+filter: '{}'                    # with many: true — error, unless deleteAll
+filter: '{}'
+deleteAll: true                 # allowed: the flow said so
+```
+
+Deleting a single document is not guarded: the blast radius is one document, and "delete the oldest" is a real thing to ask for. And `filter` is required even with `deleteAll` — "match everything" should be something a flow says, not something it omits.
