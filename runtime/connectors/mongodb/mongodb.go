@@ -40,6 +40,7 @@ func init() {
 	registerInsert()
 	registerUpdate()
 	registerDelete()
+	registerAggregate()
 }
 
 func registerConnector() {

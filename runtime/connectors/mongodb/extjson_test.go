@@ -240,6 +240,172 @@ func TestEncodeValue(t *testing.T) {
 	}
 }
 
+// Sorting by the wrong key first is a wrong answer that looks like a right one,
+// so a multi-key object — which cannot carry order through CEL or JSON — is
+// refused rather than silently reordered.
+func TestDecodeSort(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   any
+		want    bson.D
+		wantErr bool
+	}{
+		{
+			name:  "single key object",
+			value: map[string]any{"created": float64(-1)},
+			want:  bson.D{{Key: "created", Value: int32(-1)}},
+		},
+		{
+			name: "list keeps the order written",
+			value: []any{
+				map[string]any{"created": float64(-1)},
+				map[string]any{"sku": float64(1)},
+			},
+			want: bson.D{
+				{Key: "created", Value: int32(-1)},
+				{Key: "sku", Value: int32(1)},
+			},
+		},
+		{
+			name:  "empty object is no sort",
+			value: map[string]any{},
+			want:  nil,
+		},
+		{
+			name:    "multi-key object is refused",
+			value:   map[string]any{"created": float64(-1), "sku": float64(1)},
+			wantErr: true,
+		},
+		{
+			name:    "list element must name exactly one key",
+			value:   []any{map[string]any{"created": float64(-1), "sku": float64(1)}},
+			wantErr: true,
+		},
+		{
+			name:    "list element must be an object",
+			value:   []any{"created"},
+			wantErr: true,
+		},
+		{
+			name:    "scalar is refused",
+			value:   "created",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := decodeSort(tt.value)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected an error for %#v", tt.value)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("decodeSort: %v", err)
+			}
+			assertSortEqual(t, got, tt.want)
+		})
+	}
+}
+
+func assertSortEqual(t *testing.T, got, want bson.D) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("sort = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i].Key != want[i].Key {
+			t.Errorf("sort[%d].Key = %q, want %q", i, got[i].Key, want[i].Key)
+		}
+		value, ok := got[i].Value.(bson.RawValue)
+		if !ok {
+			t.Fatalf("sort[%d].Value is %T, want bson.RawValue", i, got[i].Value)
+		}
+		if got, want := value.Int32(), want[i].Value.(int32); got != want {
+			t.Errorf("sort[%d].Value = %d, want %d", i, got, want)
+		}
+	}
+}
+
+// A $sort stage inside a pipeline has the same key-order problem the find
+// block's sort setting has, and no guard of its own until now: the keys arrive
+// in an unordered CEL map and the JSON on the way to BSON sorts them
+// alphabetically. So the pipeline decoder rebuilds $sort, and refuses the form
+// that cannot carry order.
+func TestDecodeStageRebuildsSort(t *testing.T) {
+	stages, err := decodePipeline("pipeline", []any{
+		map[string]any{"$match": map[string]any{"sku": "A1"}},
+		map[string]any{"$sort": []any{
+			map[string]any{"total": float64(-1)},
+			map[string]any{"sku": float64(1)},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("decodePipeline: %v", err)
+	}
+
+	sort, err := stages[1].LookupErr("$sort")
+	if err != nil {
+		t.Fatalf("lookup $sort: %v", err)
+	}
+	doc, ok := sort.DocumentOK()
+	if !ok {
+		t.Fatalf("$sort is %s, want a document", sort.Type)
+	}
+	elements, err := doc.Elements()
+	if err != nil {
+		t.Fatalf("Elements: %v", err)
+	}
+	if len(elements) != 2 {
+		t.Fatalf("$sort has %d keys, want 2", len(elements))
+	}
+	// The order written, not the alphabetical order sku/total would land in.
+	if got := elements[0].Key(); got != "total" {
+		t.Errorf("$sort primary key = %q, want %q", got, "total")
+	}
+	if got := elements[1].Key(); got != "sku" {
+		t.Errorf("$sort secondary key = %q, want %q", got, "sku")
+	}
+}
+
+func TestDecodeStageRefusesUnorderableSort(t *testing.T) {
+	_, err := decodePipeline("pipeline", []any{
+		map[string]any{"$sort": map[string]any{"total": float64(-1), "sku": float64(1)}},
+	})
+	if err == nil {
+		t.Error("expected a multi-key $sort object to be refused")
+	}
+}
+
+// A single-key $sort has no order to lose, so it passes through as written.
+func TestDecodeStageSingleKeySortIsFine(t *testing.T) {
+	stages, err := decodePipeline("pipeline", []any{
+		map[string]any{"$sort": map[string]any{"total": float64(-1)}},
+	})
+	if err != nil {
+		t.Fatalf("decodePipeline: %v", err)
+	}
+	if got := stages[0].Lookup("$sort", "total").Int32(); got != -1 {
+		t.Errorf("$sort.total = %d, want -1", got)
+	}
+}
+
+// A stage that merely mentions $sort alongside other keys is not the $sort
+// stage, so it takes the ordinary decode.
+func TestDecodeStageOnlyRewritesTheSortStage(t *testing.T) {
+	stages, err := decodePipeline("pipeline", []any{
+		map[string]any{"$match": map[string]any{"$sort": "a field literally called $sort"}},
+	})
+	if err != nil {
+		t.Fatalf("decodePipeline: %v", err)
+	}
+	if got := stages[0].Lookup("$match", "$sort").StringValue(); got != "a field literally called $sort" {
+		t.Errorf("$match.$sort = %q, want it left alone", got)
+	}
+}
+
 func assertSameType(t *testing.T, doc bson.Raw, key string, want bson.Type) {
 	t.Helper()
 	value, err := doc.LookupErr(key)

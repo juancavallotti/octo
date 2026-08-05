@@ -7,11 +7,12 @@ octo_types:
   - mongodb-insert
   - mongodb-update
   - mongodb-delete
+  - mongodb-aggregate
 ---
 
 The `mongodb` connector owns a MongoDB client — the connection string, credentials, and pool — and the `mongodb-*` blocks bind to it by name. It is the document-store counterpart to [`database`](/reference/connectors/database): where a row needs an explicit column mapping in and out, a message body is already a document, so storing a webhook payload is one block rather than a schema exercise.
 
-**Provides a source:** no — it is a service connector. **Blocks that bind to it:** `mongodb-find`, `mongodb-insert`, `mongodb-update`, `mongodb-delete`.
+**Provides a source:** no — it is a service connector. **Blocks that bind to it:** `mongodb-find`, `mongodb-insert`, `mongodb-update`, `mongodb-delete`, `mongodb-aggregate`.
 
 ## `mongodb` connector
 
@@ -268,3 +269,45 @@ deleteAll: true                 # allowed: the flow said so
 ```
 
 Deleting a single document is not guarded: the blast radius is one document, and "delete the oldest" is a real thing to ask for. And `filter` is required even with `deleteAll` — "match everything" should be something a flow says, not something it omits.
+
+## `mongodb-aggregate` block
+
+Run an aggregation pipeline over a collection. The resulting documents become the body, the same way a find's do.
+
+A pipeline is JSON, which is what makes it worth expressing in a definition rather than hiding behind settings: the stages you would type into `mongosh` are the stages you write here, with `body` and `vars` reachable inside them.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `connector` | string | Yes | — | Name of the `mongodb` connector to use. |
+| `collection` | CEL | Yes | — | Collection to aggregate over. |
+| `database` | CEL | No | the connector's | Database to read from. |
+| `pipeline` | CEL | Yes | — | A list of stages. |
+| `resultVar` | string | No | — | Store the documents here instead of in the body. |
+
+```yaml
+process:
+  - type: mongodb-aggregate
+    settings:
+      connector: orders-db
+      collection: '"orders"'
+      pipeline: |
+        [
+          {"$match": {"customer": body.customerId}},
+          {"$group": {"_id": "$sku", "total": {"$sum": "$qty"}}},
+          {"$sort": {"total": -1}}
+        ]
+```
+
+`pipeline` must evaluate to a **list**, even for one stage. A bare stage object is refused against the field, rather than becoming a driver error further down.
+
+### `$sort` inside a pipeline
+
+A `$sort` stage has the same key-order problem as the `mongodb-find` `sort` setting, and the same answer: sorting by more than one key needs the list form, and a multi-key object is refused.
+
+```yaml
+pipeline: '[{"$sort": [{"total": -1}, {"sku": 1}]}]'    # order preserved
+pipeline: '[{"$sort": {"total": -1}}]'                  # fine: one key
+pipeline: '[{"$sort": {"total": -1, "sku": 1}}]'        # error: order unknowable
+```
+
+The list form is an Octo spelling — MongoDB's own `$sort` takes only an object — and it is rewritten into an ordered document before the pipeline is sent. It applies to top-level `$sort` stages; a `$sort` nested inside `$facet` or a `$lookup` sub-pipeline is passed through untouched and carries the caveat.

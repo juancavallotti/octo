@@ -240,6 +240,8 @@ func deliverMiss(msg *types.Message, resultVar string) {
 }
 
 // evalSort evaluates a sort expression to the ordered bson.D the driver takes.
+// decodeSort is shared with the pipeline decoder, since a $sort stage has the
+// same key-order problem this setting does.
 func evalSort(program *expr.Program, activation map[string]any) (bson.D, error) {
 	if program == nil {
 		return nil, nil
@@ -249,58 +251,4 @@ func evalSort(program *expr.Program, activation map[string]any) (bson.D, error) 
 		return nil, fmt.Errorf("sort: %w", err)
 	}
 	return decodeSort(value)
-}
-
-// decodeSort turns a sort value into a bson.D, which is ordered.
-//
-// Order is the entire point of a multi-key sort, and a CEL object cannot carry
-// it: CEL maps are unordered, and the JSON encoding on the way to BSON sorts
-// keys alphabetically. So a single-key object is taken as written, and a
-// multi-key one is refused in favour of the list form — sorting by the wrong
-// key first is a wrong answer that looks like a right one, and silently
-// producing it is worse than asking for two more characters of YAML.
-func decodeSort(value any) (bson.D, error) {
-	switch typed := value.(type) {
-	case []any:
-		out := make(bson.D, 0, len(typed))
-		for i, item := range typed {
-			element, err := sortElement(fmt.Sprintf("sort[%d]", i), item)
-			if err != nil {
-				return nil, err
-			}
-			out = append(out, element)
-		}
-		return out, nil
-	case map[string]any:
-		if len(typed) == 0 {
-			return nil, nil
-		}
-		if len(typed) > 1 {
-			return nil, fmt.Errorf(`sort by more than one key must be a list of single-key ` +
-				`objects, e.g. [{"created": -1}, {"sku": 1}]: an object cannot carry key order`)
-		}
-		element, err := sortElement("sort", typed)
-		if err != nil {
-			return nil, err
-		}
-		return bson.D{element}, nil
-	default:
-		return nil, fmt.Errorf("sort must evaluate to an object or a list of objects, got %T", value)
-	}
-}
-
-// sortElement reads one {key: direction} object into an ordered bson element.
-func sortElement(label string, value any) (bson.E, error) {
-	doc, err := decodeDocument(label, value)
-	if err != nil {
-		return bson.E{}, err
-	}
-	elements, err := doc.Elements()
-	if err != nil {
-		return bson.E{}, fmt.Errorf("%s: %w", label, err)
-	}
-	if len(elements) != 1 {
-		return bson.E{}, fmt.Errorf("%s must name exactly one key, got %d", label, len(elements))
-	}
-	return bson.E{Key: elements[0].Key(), Value: elements[0].Value()}, nil
 }

@@ -71,13 +71,103 @@ func decodePipeline(label string, value any) ([]bson.Raw, error) {
 	}
 	out := make([]bson.Raw, 0, len(stages))
 	for i, stage := range stages {
-		doc, err := decodeDocument(fmt.Sprintf("%s[%d]", label, i), stage)
+		doc, err := decodeStage(fmt.Sprintf("%s[%d]", label, i), stage)
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, doc)
 	}
 	return out, nil
+}
+
+// sortStage is the one pipeline stage whose argument is an ordered document
+// rather than an unordered one.
+const sortStage = "$sort"
+
+// decodeStage decodes one pipeline stage, rebuilding $sort so its keys keep the
+// order they were written in.
+//
+// Every other stage takes an object where order does not matter, so the ordinary
+// decode is right for them. $sort is the exception, and it is the same problem
+// the find block's sort setting has: the keys arrive in a CEL map, which is
+// unordered, and the JSON encoding on the way to BSON sorts them alphabetically.
+// A pipeline that sorts by two keys would silently sort by the alphabetically
+// first one, which is a wrong answer that looks like a right one — so the list
+// form the find block already accepts is accepted here too, and a multi-key
+// object is refused with that form named.
+func decodeStage(label string, value any) (bson.Raw, error) {
+	stage, ok := value.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("%s must be an object, got %T", label, value)
+	}
+	spec, isSort := stage[sortStage]
+	if !isSort || len(stage) != 1 {
+		return decodeDocument(label, value)
+	}
+
+	sort, err := decodeSort(spec)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", label, err)
+	}
+	doc, err := bson.Marshal(bson.D{{Key: sortStage, Value: sort}})
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", label, err)
+	}
+	return doc, nil
+}
+
+// decodeSort turns a sort value into a bson.D, which is ordered.
+//
+// Order is the entire point of a multi-key sort, and a CEL object cannot carry
+// it: CEL maps are unordered, and the JSON encoding on the way to BSON sorts
+// keys alphabetically. So a single-key object is taken as written, and a
+// multi-key one is refused in favour of the list form — sorting by the wrong
+// key first is a wrong answer that looks like a right one, and silently
+// producing it is worse than asking for two more characters of YAML.
+func decodeSort(value any) (bson.D, error) {
+	switch typed := value.(type) {
+	case []any:
+		out := make(bson.D, 0, len(typed))
+		for i, item := range typed {
+			element, err := sortElement(fmt.Sprintf("sort[%d]", i), item)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, element)
+		}
+		return out, nil
+	case map[string]any:
+		if len(typed) == 0 {
+			return nil, nil
+		}
+		if len(typed) > 1 {
+			return nil, fmt.Errorf(`sort by more than one key must be a list of single-key ` +
+				`objects, e.g. [{"created": -1}, {"sku": 1}]: an object cannot carry key order`)
+		}
+		element, err := sortElement("sort", typed)
+		if err != nil {
+			return nil, err
+		}
+		return bson.D{element}, nil
+	default:
+		return nil, fmt.Errorf("sort must evaluate to an object or a list of objects, got %T", value)
+	}
+}
+
+// sortElement reads one {key: direction} object into an ordered bson element.
+func sortElement(label string, value any) (bson.E, error) {
+	doc, err := decodeDocument(label, value)
+	if err != nil {
+		return bson.E{}, err
+	}
+	elements, err := doc.Elements()
+	if err != nil {
+		return bson.E{}, fmt.Errorf("%s: %w", label, err)
+	}
+	if len(elements) != 1 {
+		return bson.E{}, fmt.Errorf("%s must name exactly one key, got %d", label, len(elements))
+	}
+	return bson.E{Key: elements[0].Key(), Value: elements[0].Value()}, nil
 }
 
 // encodeDocument renders one document as extended JSON, ready for
