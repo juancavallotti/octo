@@ -67,6 +67,10 @@ func TestWithPasswordErrors(t *testing.T) {
 		// in a way that would otherwise start and look healthy.
 		{name: "no username", uri: "mongodb://db.internal:27017/orders"},
 		{name: "wrong scheme", uri: "postgres://app@db.internal:5432/orders"},
+		// Neither is one of the two schemes, and both would slip past a prefix
+		// test — the error should name the config, not come back from the driver.
+		{name: "scheme with a suffix", uri: "mongodbx://app@db.internal:27017/orders"},
+		{name: "unknown scheme option", uri: "mongodb+foo://app@db.internal:27017/orders"},
 		{name: "unparseable", uri: "mongodb://app@ db.internal"},
 	}
 

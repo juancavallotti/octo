@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
-	"strings"
 )
 
 // withPassword merges a separately-configured password into the connection
@@ -31,7 +30,10 @@ func withPassword(uri, password, connector string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("parse uri: %w", err)
 	}
-	if !strings.HasPrefix(parsed.Scheme, "mongodb") {
+	// Exactly these two, not everything starting "mongodb": a prefix test would
+	// pass "mongodbx://" through to the driver, which rejects it with an error
+	// about the scheme rather than about the config line that wrote it.
+	if parsed.Scheme != "mongodb" && parsed.Scheme != "mongodb+srv" {
 		return "", fmt.Errorf("uri scheme %q is not mongodb or mongodb+srv", parsed.Scheme)
 	}
 	// A password with no user to attach it to would produce mongodb://:secret@host,

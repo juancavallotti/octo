@@ -124,8 +124,12 @@ linters:
       # gosec's G101 reads "mongodb://user:pass@host" as a leaked credential.
       # Producing exactly that string is what withPassword does, so its fixtures
       # cannot avoid the pattern. Every credential in that file is fake.
+      #
+      # Scoped to G101 by text, not to gosec wholesale: whatever else that file
+      # grows later should still be checked.
       - path: ^connectors/mongodb/uri_test\.go$
         linters: [gosec]
+        text: G101
 
       # gochecknoinits allowlist — the enumeration of loadable modules.
       #
