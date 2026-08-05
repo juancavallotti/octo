@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -80,26 +81,12 @@ func run() error {
 		slog.Info("connected to database pool")
 	}
 
-	extraAnnotations, err := ingressAnnotationsConfig()
+	kubeCfg, err := kubeConfig()
 	if err != nil {
 		return err
 	}
 
-	srv, err := newServer(ctx, database, kubeConfig{
-		namespace:    envOr("KUBE_NAMESPACE", defaultNamespace),
-		runtimeImage: envOr("RUNTIME_IMAGE", defaultRuntimeImage),
-		baseDomain:   os.Getenv("BASE_DOMAIN"),
-		// Empty ("") means no TLS annotation and no per-host cert: letsencrypt-prod
-		// only exists because this project's own k3s bootstrap creates it, so it must
-		// not be assumed as a default on an arbitrary cluster.
-		clusterIssuer:     os.Getenv("CLUSTER_ISSUER"),
-		wildcardTLSSecret: os.Getenv("WILDCARD_TLS_SECRET"),
-		// Empty omits IngressClassName, letting the cluster's default IngressClass
-		// (if any) claim the per-integration Ingress.
-		ingressClass:     os.Getenv("INGRESS_CLASS"),
-		extraAnnotations: extraAnnotations,
-		runtimeServices:  runtimeServicesConfig(),
-	})
+	srv, err := newServer(ctx, database, kubeCfg)
 	if err != nil {
 		return err
 	}
@@ -125,27 +112,64 @@ func run() error {
 	}
 }
 
-// kubeConfig groups the deployment-management settings sourced from the
-// environment: where and from what image integration pods run, and the parent
-// domain + ClusterIssuer for optional per-integration external endpoints.
-type kubeConfig struct {
-	namespace         string
-	runtimeImage      string
-	baseDomain        string
-	clusterIssuer     string
-	wildcardTLSSecret string
-	ingressClass      string
-	extraAnnotations  map[string]string
-	// runtimeServices is injected into each deployed runtime pod so it can reach
-	// leader election + the KV API. Disabled (zero value) when ORCHESTRATOR_URL is
-	// unset, so the feature stays inert until the deploy is wired for it.
-	runtimeServices kube.RuntimeServices
+// kubeConfig reads the cluster facts the deployment path needs from the
+// environment. Everything it rejects is rejected here, before a client exists,
+// so a misconfigured install stops at startup naming the setting rather than
+// producing deployments whose endpoints route nowhere.
+func kubeConfig() (kube.Config, error) {
+	// Which API publishes per-integration endpoints. Unset is Ingress; an
+	// unrecognised value is an error rather than a silent fall back to it.
+	//
+	// Read first because it decides which of the settings below even apply.
+	// Parsing INGRESS_ANNOTATIONS ahead of it meant a malformed Ingress-only
+	// value stopped a gateway-mode start, over a setting that mode ignores.
+	endpointAPI, err := kube.ParseEndpointAPI(os.Getenv("ENDPOINT_API"))
+	if err != nil {
+		return kube.Config{}, err
+	}
+	var extraAnnotations map[string]string
+	if endpointAPI == kube.EndpointAPIIngress {
+		if extraAnnotations, err = ingressAnnotationsConfig(); err != nil {
+			return kube.Config{}, err
+		}
+	}
+	namespace := envOr("KUBE_NAMESPACE", defaultNamespace)
+	cfg := kube.Config{
+		Namespace:    namespace,
+		RuntimeImage: envOr("RUNTIME_IMAGE", defaultRuntimeImage),
+		BaseDomain:   os.Getenv("BASE_DOMAIN"),
+		EndpointAPI:  endpointAPI,
+		// Empty ("") means no TLS annotation and no per-host cert: letsencrypt-prod
+		// only exists because this project's own k3s bootstrap creates it, so it must
+		// not be assumed as a default on an arbitrary cluster.
+		ClusterIssuer:     os.Getenv("CLUSTER_ISSUER"),
+		WildcardTLSSecret: os.Getenv("WILDCARD_TLS_SECRET"),
+		// Empty omits IngressClassName, letting the cluster's default IngressClass
+		// (if any) claim the per-integration Ingress.
+		IngressClass:     os.Getenv("INGRESS_CLASS"),
+		ExtraAnnotations: extraAnnotations,
+		// The Gateway per-integration HTTPRoutes attach to, in gateway mode. The
+		// namespace defaults to our own, which is the single-namespace install; a
+		// Gateway run by whoever owns ingress lives elsewhere and says so.
+		Gateway: kube.GatewayRef{
+			Name:        os.Getenv("GATEWAY_NAME"),
+			Namespace:   envOr("GATEWAY_NAMESPACE", namespace),
+			SectionName: os.Getenv("GATEWAY_SECTION_NAME"),
+		},
+		ImagePullSecrets: imagePullSecretsConfig(),
+		RuntimeServices:  runtimeServicesConfig(),
+	}
+	if err := cfg.Validate(); err != nil {
+		return kube.Config{}, err
+	}
+	return cfg, nil
 }
 
 // ingressAnnotationsConfig parses INGRESS_ANNOTATIONS, a JSON object of extra
 // annotations merged onto every per-integration Ingress (e.g. controller-specific
 // body-size or timeout annotations). Unset means none; malformed JSON is a
-// startup error rather than a silently-ignored one.
+// startup error rather than a silently-ignored one. Ignored in gateway mode,
+// where the route carries no controller configuration at all.
 func ingressAnnotationsConfig() (map[string]string, error) {
 	raw := os.Getenv("INGRESS_ANNOTATIONS")
 	if raw == "" {
@@ -156,6 +180,30 @@ func ingressAnnotationsConfig() (map[string]string, error) {
 		return nil, fmt.Errorf("parse INGRESS_ANNOTATIONS: %w", err)
 	}
 	return ann, nil
+}
+
+// imagePullSecretsConfig parses RUNTIME_IMAGE_PULL_SECRETS, a comma-separated
+// list of Secret names authenticating the pull of the runtime image on the pods
+// this orchestrator deploys. Unset means none, which is the public-image case.
+//
+// Comma-separated rather than JSON, unlike INGRESS_ANNOTATIONS above, because
+// these are names and not a map — the chart joins the same list it renders into
+// its own workloads' imagePullSecrets, and a name containing a comma is not a
+// legal Kubernetes object name. Blanks are dropped so a trailing comma, or the
+// empty string the chart emits for an empty list, does not become a Secret named
+// "" that the kubelet reports as missing on every pod.
+func imagePullSecretsConfig() []string {
+	raw := os.Getenv("RUNTIME_IMAGE_PULL_SECRETS")
+	if raw == "" {
+		return nil
+	}
+	var names []string
+	for _, name := range strings.Split(raw, ",") {
+		if name = strings.TrimSpace(name); name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 // runtimeServicesConfig reads the runtime-services env injected into deployed
@@ -177,10 +225,10 @@ func runtimeServicesConfig() kube.RuntimeServices {
 }
 
 // newServer wires the routes. database may be nil when DATABASE_URL is unset.
-// kube configures deployment management, which is enabled only when both a
+// kc configures deployment management, which is enabled only when both a
 // database and in-cluster Kubernetes access are present. ctx bounds the lifetime
 // of background work started here (the deployment status informers).
-func newServer(ctx context.Context, database *db.DB, kc kubeConfig) (http.Handler, error) {
+func newServer(ctx context.Context, database *db.DB, kc kube.Config) (http.Handler, error) {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -278,9 +326,19 @@ func newServer(ctx context.Context, database *db.DB, kc kubeConfig) (http.Handle
 		// Deployment management needs both the database and in-cluster Kubernetes
 		// access. Outside a cluster (e.g. local `go run`) kube.New fails and the
 		// routes stay disabled, mirroring how the DB-less case disables the rest.
-		if kubeClient, err := kube.New(kc.namespace, kc.runtimeImage, kc.baseDomain, kc.clusterIssuer, kc.wildcardTLSSecret, kc.ingressClass, kc.extraAnnotations, kc.runtimeServices); err != nil {
+		if kubeClient, err := kube.New(kc); err != nil {
 			slog.Warn("kubernetes access unavailable; deployment routes disabled", "error", err)
 		} else {
+			// Being in a cluster is not the same as that cluster being able to serve
+			// the endpoints this install is configured for: Gateway API is CRDs, and
+			// their absence is a startup failure rather than a disabled feature. It is
+			// deliberately not the warn-and-continue above — that one covers running
+			// outside a cluster at all, which is a legitimate way to run the
+			// orchestrator; this one covers a cluster that will never serve what it
+			// was asked for, and only says so at the first exposed deploy.
+			if err := kubeClient.Preflight(ctx); err != nil {
+				return nil, err
+			}
 			deploymentRepo := deployment.NewRepo(database.Pool())
 			deploymentSvc := deployment.NewService(deploymentRepo, integrationSvc, kubeClient,
 				deployment.WithStoreCleaner(kvSvc),
@@ -317,8 +375,11 @@ func newServer(ctx context.Context, database *db.DB, kc kubeConfig) (http.Handle
 			})
 			deployment.NewHandler(deploymentSvc).Register(mux)
 			slog.Info("deployment routes registered",
-				"namespace", kubeClient.Namespace(), "runtimeImage", kc.runtimeImage,
-				"baseDomain", kc.baseDomain, "externalEndpoints", kubeClient.ExternalEnabled(),
+				"namespace", kubeClient.Namespace(), "runtimeImage", kc.RuntimeImage,
+				"baseDomain", kc.BaseDomain, "externalEndpoints", kubeClient.ExternalEnabled(),
+				// Which API publishes those endpoints, and — in gateway mode — what they
+				// attach to. Both are answers you otherwise get by reading the chart.
+				"endpointApi", kc.EndpointAPI, "gateway", kc.Gateway.Name,
 				"nats", os.Getenv("NATS_URL") != "",
 				"endpoints", "POST/GET /integrations/{id}/deployments, GET/DELETE /deployments/{id}")
 

@@ -1,0 +1,17 @@
+{{- /* The editor's external endpoint in Gateway API mode — the counterpart of
+       ingress.yaml, selected by networking.mode. The two are alternatives: only
+       one of them ever renders, so a cluster never ends up serving the editor
+       through two objects that disagree.
+
+       No certificate appears here. In the Ingress path the editor's own cert is
+       named on the Ingress; here it belongs to the Gateway listener that serves
+       this hostname, which is either the chart's (gateway.yaml) or the cluster
+       owner's. */}}
+{{- if and .Values.ingress.enabled (eq (include "octo.networking.mode" .) "gateway") }}
+{{- include "octo-common.httproute" (dict
+      "root" $
+      "component" "platform"
+      "ingress" .Values.ingress
+      "gateway" .Values.networking.gateway
+      "backendPort" .Values.platform.service.port) }}
+{{- end }}

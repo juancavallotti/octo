@@ -22,6 +22,22 @@
 {{- end }}
 - name: RUNTIME_SERVICE_ACCOUNT
   value: {{ include "octo-common.serviceAccountName" (dict "root" . "component" "runtime") | quote }}
+{{- /* Pull secrets for the integration pods the orchestrator creates. Resolved
+       through componentConfig, so defaults.imagePullSecrets covers them along
+       with every chart workload and runtime.imagePullSecrets overrides just
+       these — the same layering every other pod-level setting follows.
+       Otherwise a mirrored-registry install brings up a healthy platform whose
+       every deployed integration sits in ErrImagePull.
+       Names only, comma-joined: the orchestrator builds the references. */}}
+{{- $runtime := fromYaml (include "octo-common.componentConfig" (dict "root" . "component" "runtime")) }}
+{{- with $runtime.imagePullSecrets }}
+{{- $names := list }}
+{{- range . }}
+{{- $names = append $names (required "every entry in imagePullSecrets needs a name" .name) }}
+{{- end }}
+- name: RUNTIME_IMAGE_PULL_SECRETS
+  value: {{ join "," $names | quote }}
+{{- end }}
 {{- if .Values.kv.encryptionKey }}
 # AES-256 key for encrypting KV secret namespaces at rest. Absent =>
 # secret writes rejected, plain KV still works.
@@ -35,6 +51,27 @@
 - name: BASE_DOMAIN
   value: {{ .Values.orchestrator.baseDomain | quote }}
 {{- end }}
+{{- /* Which API the orchestrator publishes per-integration endpoints with, and
+       the settings that API needs. Only one set is emitted: the other is inert
+       in the orchestrator anyway, and a pod environment listing an IngressClass
+       on a release that creates no Ingresses is a claim about the deployment
+       that isn't true. A values file mid-migration can hold both. */}}
+{{- $mode := include "octo.networking.mode" . }}
+- name: ENDPOINT_API
+  value: {{ $mode | quote }}
+{{- if eq $mode "gateway" }}
+# The Gateway per-integration HTTPRoutes attach to. Certificates and controller
+# configuration live on its listeners, which is why none of the Ingress settings
+# below have a counterpart here.
+- name: GATEWAY_NAME
+  value: {{ include "octo-common.gateway.name" (dict "root" $ "gateway" .Values.networking.gateway) | quote }}
+- name: GATEWAY_NAMESPACE
+  value: {{ .Values.networking.gateway.namespace | default .Release.Namespace | quote }}
+{{- with .Values.networking.gateway.sectionName }}
+- name: GATEWAY_SECTION_NAME
+  value: {{ . | quote }}
+{{- end }}
+{{- else }}
 {{- if .Values.orchestrator.clusterIssuer }}
 - name: CLUSTER_ISSUER
   value: {{ .Values.orchestrator.clusterIssuer | quote }}
@@ -52,5 +89,6 @@
 {{- if .Values.orchestrator.ingressAnnotations }}
 - name: INGRESS_ANNOTATIONS
   value: {{ .Values.orchestrator.ingressAnnotations | toJson | quote }}
+{{- end }}
 {{- end }}
 {{- end }}

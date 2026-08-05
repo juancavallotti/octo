@@ -1,4 +1,14 @@
-{{- if and .Values.wildcardTLS.enabled .Values.orchestrator.baseDomain -}}
+{{- /* An empty clusterIssuer means the Secret already exists and this chart
+       should reference it without issuing anything — the same distinction
+       ingress.tls draws between its cert-manager and secret modes, and the same
+       one postgres.auth draws with existingSecret. It matters most under
+       networking.mode=gateway, where a pre-issued wildcard on a listener is the
+       ordinary arrangement rather than the exception: the Gateway is usually
+       somebody else's, and so is the certificate it terminates with.
+
+       The default is a non-empty issuer, so nothing changes for an install that
+       has not asked for this. */}}
+{{- if and .Values.wildcardTLS.enabled .Values.orchestrator.baseDomain .Values.wildcardTLS.clusterIssuer -}}
 # One cert-manager Certificate covering orchestrator.baseDomain and every
 # subdomain under it, issued via the DNS-01 ClusterIssuer. The resulting Secret is
 # referenced by the per-integration ingresses the orchestrator creates, so every

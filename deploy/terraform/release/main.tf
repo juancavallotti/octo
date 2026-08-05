@@ -179,6 +179,7 @@ module "octo" {
   # next VM rebuild took it. Directory turns that into a Pending pod naming the
   # missing path — see modules/base and infra/startup.sh.tftpl.
   postgres_host_path_type = "Directory"
+  ingress_class           = var.ingress_class
   cluster_issuer          = var.cluster_issuer
   wildcard_tls            = var.wildcard_tls
 

@@ -502,17 +502,51 @@ tasks:
         check() {
           name="$1"; shift
           printf '  %-18s ' "$name"
-          # ingress.host has no default and is required whenever an Ingress
-          # renders, so supply one here the way a real install must. Profiles
-          # that set their own land on the same value.
-          host="--set ingress.host=octo.example.com"
-          if ! helm lint helm $host "$@" >"$out" 2>&1; then echo "FAILED (lint)"; cat "$out"; return 1; fi
-          if ! helm template octo helm --namespace octo $host "$@" >"$out" 2>&1; then echo "FAILED (template)"; cat "$out"; return 1; fi
+          # The two values that have no default and are required wherever they
+          # apply — an Ingress host, and a password for the bundled Postgres.
+          # Supplied here the way a real install must; profiles that set their own
+          # land on the same values.
+          required="--set ingress.host=octo.example.com --set postgres.auth.password=rendertest"
+          # lint, not template, is what covers NOTES.txt: `helm template` skips the
+          # file entirely, and lint renders it along with everything else.
+          if ! helm lint helm $required "$@" >"$out" 2>&1; then echo "FAILED (lint)"; cat "$out"; return 1; fi
+          if ! helm template octo helm --namespace octo $required "$@" >"$out" 2>&1; then echo "FAILED (template)"; cat "$out"; return 1; fi
           if [ "$schema" = yes ]; then
             kubeconform -strict -ignore-missing-schemas -summary <"$out"
           else
             echo "rendered ok"
           fi
+        }
+        # The other half of the gate: renders that MUST fail. Every guard in the
+        # chart exists because the combination it catches would otherwise install
+        # cleanly and serve nothing, so a guard that silently stops firing is the
+        # same bug returning. `check` can never notice that — it asserts success.
+        # This asserts the failure, and that the message names the value to fix.
+        check_fails() {
+          name="$1"; want="$2"; shift 2
+          printf '  %-22s ' "$name"
+          required="--set ingress.host=octo.example.com --set postgres.auth.password=rendertest"
+          if render="$(helm template octo helm --namespace octo $required "$@" 2>&1)"; then
+            echo "FAILED (rendered, but should not have)"; return 1
+          fi
+          case "$render" in
+            *"$want"*) echo "refused" ;;
+            *) echo "FAILED (refused for the wrong reason)"; echo "$render" | tail -3; return 1 ;;
+          esac
+        }
+        # A grep-able absence check, for guards whose whole point is a resource
+        # that must NOT appear. Rendering successfully proves nothing here.
+        check_absent() {
+          name="$1"; absent="$2"; shift 2
+          printf '  %-22s ' "$name"
+          required="--set ingress.host=octo.example.com --set postgres.auth.password=rendertest"
+          if ! render="$(helm template octo helm --namespace octo $required "$@" 2>&1)"; then
+            echo "FAILED (did not render)"; echo "$render" | tail -3; return 1
+          fi
+          if printf '%s' "$render" | grep -q "$absent"; then
+            echo "FAILED ($absent was rendered, and must not be)"; return 1
+          fi
+          echo "absent as expected"
         }
         # The profiles as shipped. "defaults" is values.yaml alone — what an
         # install straight from OCI gets with no -f at all.
@@ -524,19 +558,93 @@ tasks:
         check eks           -f helm/values-eks.yaml
         # Paths no profile enables by default, which would otherwise only ever be
         # rendered by hand — and so would break silently.
+        #
+        # The ingress class is one axis worth covering deliberately: `defaults`
+        # above is the no-class render (the cluster's default IngressClass claims
+        # it), the GKE profiles render nginx and EKS renders alb, and this covers
+        # traefik, which no profile does since the k3s path sets it from Terraform.
+        check traefik-ingress \
+          --set ingress.className=traefik --set orchestrator.ingressClass=traefik
+        # Gateway API. Both halves of the design get rendered: attaching to a
+        # Gateway somebody else owns (the default, and the reason the mode is
+        # worth having) and creating one, which is what an all-in-one install
+        # needs and the only path that renders listeners at all. The wildcard
+        # variant is the full arrangement — an editor host and a *.baseDomain
+        # listener on one Gateway, with the certificates the orchestrator no
+        # longer has to know about.
+        #
+        # kubeconform skips the Gateway API kinds (-ignore-missing-schemas):
+        # they are CRDs, so what these profiles gate is that the templates render
+        # valid YAML and that no Ingress-shaped value leaks into a route.
+        check gateway-attach \
+          --set networking.mode=gateway --set networking.gateway.name=shared-gw \
+          --set networking.gateway.namespace=ingress \
+          --set orchestrator.baseDomain=apps.example.com
+        check gateway-create \
+          --set networking.mode=gateway --set networking.gateway.create=true \
+          --set networking.gateway.className=kgateway
+        check gateway-wildcard \
+          --set networking.mode=gateway --set networking.gateway.create=true \
+          --set networking.gateway.className=kgateway \
+          --set orchestrator.baseDomain=apps.example.com \
+          --set wildcardTLS.enabled=true --set wildcardTLS.clusterIssuer=letsencrypt-dns
         check gke-gce-ingress -f helm/values-gke-autopilot.yaml \
           --set ingress.className=gce --set ingress.tls.mode=gke-managed-cert \
           --set gke.backendConfig.enabled=true --set gke.frontendConfig.enabled=true
         check external-db \
           --set postgres.enabled=false --set externalDatabase.host=db.example.com \
           --set externalDatabase.existingSecret=db-creds --set externalDatabase.existingSecretPasswordKey=password
+        # The bundled database with its password in a Secret the caller owns. The
+        # empty --set clears the one $required supplies, so this also proves an
+        # existing Secret is sufficient on its own.
+        # A private-registry install: pull secrets must reach both the chart's own
+        # workloads and, through the orchestrator's env, the integration pods it
+        # creates. Nothing else renders that env var.
+        check pull-secrets \
+          --set defaults.imagePullSecrets[0].name=regcred
+        check pg-existing-secret \
+          --set postgres.auth.password= --set postgres.auth.existingSecret=db-creds \
+          --set postgres.auth.existingSecretPasswordKey=password
         check oidc \
           --set auth.oidc.enabled=true --set auth.oidc.issuer=https://id.example.com \
           --set auth.oidc.clientId=octo --set auth.oidc.clientSecret=shh --set auth.secret=shh
         check wildcard-tls \
           --set wildcardTLS.enabled=true --set wildcardTLS.clusterIssuer=letsencrypt-dns \
           --set orchestrator.baseDomain=apps.example.com
-        echo "✓ chart lints and renders valid manifests for every profile"
+        # The same wildcard with no issuer: the Secret exists already, so the
+        # chart references it and creates no Certificate. Worth its own profile
+        # because the difference is a resource that must NOT be rendered, which
+        # nothing else here would catch.
+        check wildcard-existing \
+          --set wildcardTLS.enabled=true --set wildcardTLS.clusterIssuer= \
+          --set orchestrator.baseDomain=apps.example.com
+        # Every guard, asserted. Each of these combinations would otherwise
+        # install cleanly and publish endpoints nothing serves.
+        check_fails bad-mode          "is not one of ingress, gateway" \
+          --set networking.mode=httproute
+        check_fails gw-no-name        "networking.gateway.name is required" \
+          --set networking.mode=gateway
+        check_fails gw-no-class       "networking.gateway.className is required" \
+          --set networking.mode=gateway --set networking.gateway.create=true
+        check_fails gw-foreign-ns     "cannot live elsewhere" \
+          --set networking.mode=gateway --set networking.gateway.create=true \
+          --set networking.gateway.className=kgateway --set networking.gateway.namespace=ingress
+        check_fails gw-nothing-to-do  "publishes nothing" \
+          --set networking.mode=gateway --set networking.gateway.create=true \
+          --set networking.gateway.className=kgateway --set ingress.enabled=false
+        check_fails gw-managed-cert   "no Gateway API equivalent" \
+          --set networking.mode=gateway --set networking.gateway.create=true \
+          --set networking.gateway.className=kgateway --set ingress.tls.mode=gke-managed-cert
+        check_fails gw-acm            "no Gateway API equivalent" \
+          --set networking.mode=gateway --set networking.gateway.create=true \
+          --set networking.gateway.className=kgateway --set ingress.tls.mode=acm \
+          --set ingress.tls.certificateArn=arn:aws:acm:us-east-1:1:certificate/x
+        # An empty issuer means the Secret exists already. What that produces is
+        # the absence of a Certificate, which every success-only check misses.
+        check_absent wildcard-no-cert "kind: Certificate" \
+          --set wildcardTLS.enabled=true --set wildcardTLS.clusterIssuer= \
+          --set orchestrator.baseDomain=apps.example.com --set ingress.tls.mode=secret
+        echo "✓ chart lints and renders valid manifests for every profile, and refuses every combination it should"
 
   helm:package:
     desc: Lint and package both charts into dist/ (octo-<version>.tgz and octo-common-<version>.tgz)

@@ -55,6 +55,10 @@ kv:
   encryptionKey: "RwbauJ1U7IvkOl8IZsNCQNShHGA/sqP+TQymYAkOFQ8="
 
 postgres:
+  auth:
+    # A throwaway for a laptop cluster; see the same note in values-k3d.yaml.
+    # The chart itself has no default password.
+    password: octo
   storage:
     # Fixed node path rather than kind's "standard" (local-path) StorageClass, so
     # the database survives `kind delete cluster`. deploy/kind/cluster.yaml mounts

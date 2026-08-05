@@ -12,6 +12,25 @@
 {{- include "octo-common.componentName" (dict "root" .root "component" .component) }}
 {{- end }}
 
+{{/*
+  The routing API this release publishes external endpoints with, validated.
+
+  A closed enumeration, checked rather than assumed, for the same reason
+  ingress.tls.mode is: every template that renders routing dispatches on this
+  value with no final else, so an unrecognised one — a typo, a mode from a newer
+  chart — matches nothing. No Ingress renders, no HTTPRoute renders, `helm
+  install` reports success, and the editor is simply unreachable with nothing
+  anywhere calling that an error.
+*/}}
+{{- define "octo.networking.mode" -}}
+{{- $mode := (.Values.networking | default dict).mode | default "ingress" -}}
+{{- $valid := list "ingress" "gateway" -}}
+{{- if not (has $mode $valid) -}}
+{{- fail (printf "networking.mode %q is not one of %s" $mode (join ", " $valid)) -}}
+{{- end -}}
+{{- $mode -}}
+{{- end }}
+
 {{- define "octo.postgres.serviceName" -}}
 {{- include "octo-common.componentName" (dict "root" . "component" "postgres") }}
 {{- end }}
@@ -140,14 +159,19 @@
 {{- end }}
 
 {{/*
-  Secret and key holding the database password. In-cluster it is the Secret this
-  chart generates; external it is either a Secret you already have (the managed
-  route — the password is issued by the cloud provider, not by Helm) or one the
-  chart creates from externalDatabase.password.
+  Secret and key holding the database password. Four cases, and both halves —
+  in-cluster and external — offer the same choice: a Secret you already own, or
+  one the chart creates from a value you supply. An existing Secret is the better
+  answer for anything long-lived, because Helm keeps every value it is given in
+  the release history, where a password outlives the database it belonged to.
 */}}
 {{- define "octo.database.secretName" -}}
 {{- if .Values.postgres.enabled -}}
+{{- if .Values.postgres.auth.existingSecret -}}
+{{- .Values.postgres.auth.existingSecret -}}
+{{- else -}}
 {{- include "octo.postgres.serviceName" . -}}
+{{- end -}}
 {{- else if .Values.externalDatabase.existingSecret -}}
 {{- .Values.externalDatabase.existingSecret -}}
 {{- else -}}
@@ -157,7 +181,11 @@
 
 {{- define "octo.database.passwordKey" -}}
 {{- if .Values.postgres.enabled -}}
+{{- if .Values.postgres.auth.existingSecret -}}
+{{- .Values.postgres.auth.existingSecretPasswordKey | default "postgres-password" -}}
+{{- else -}}
 postgres-password
+{{- end -}}
 {{- else if .Values.externalDatabase.existingSecret -}}
 {{- .Values.externalDatabase.existingSecretPasswordKey | default "password" -}}
 {{- else -}}

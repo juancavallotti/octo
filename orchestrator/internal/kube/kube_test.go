@@ -9,26 +9,37 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
+	gatewayfake "sigs.k8s.io/gateway-api/pkg/client/clientset/versioned/fake"
 )
 
 const testNamespace = "octo-dev"
 
 // testClient builds a Client backed by a fake clientset, pre-seeded with objects.
-// baseDomain is set so external endpoints are enabled; pass "" via newClient for
-// the disabled case.
+// baseDomain is set so external endpoints are enabled; pass "" via testClientFor
+// for the disabled case.
 func testClient(objects ...runtime.Object) *Client {
-	return newClient("octo.example.com", objects...)
+	return testClientFor(testConfig("octo.example.com"), objects...)
 }
 
-func newClient(baseDomain string, objects ...runtime.Object) *Client {
-	return &Client{
-		clientset:     fake.NewSimpleClientset(objects...),
-		namespace:     testNamespace,
-		runtimeImage:  "octo-runtime:dev",
-		baseDomain:    baseDomain,
-		clusterIssuer: "letsencrypt-prod",
-		ingressClass:  "traefik",
+// testConfig is the configuration every test starts from: the k3s-shaped Ingress
+// setup (a ClusterIssuer and a named class), which exercises the most fields.
+// Tests that care about a different arrangement copy it and change what they are
+// testing, so each one states its own premise.
+func testConfig(baseDomain string) Config {
+	return Config{
+		Namespace:     testNamespace,
+		RuntimeImage:  "octo-runtime:dev",
+		BaseDomain:    baseDomain,
+		EndpointAPI:   EndpointAPIIngress,
+		ClusterIssuer: "letsencrypt-prod",
+		IngressClass:  "traefik",
 	}
+}
+
+// testClientFor builds a Client from cfg through the same assembly New uses, so
+// a test cannot construct a combination the real constructor never produces.
+func testClientFor(cfg Config, objects ...runtime.Object) *Client {
+	return newClient(cfg, fake.NewSimpleClientset(objects...), gatewayfake.NewSimpleClientset())
 }
 
 func TestSpecPortDefaultsToRuntimePort(t *testing.T) {
@@ -186,13 +197,14 @@ func TestContainerEnvMergesLiteralsAndSecrets(t *testing.T) {
 // and orchestrator URL as literals, POD_NAME/POD_NAMESPACE from the downward API,
 // and the runtime ServiceAccount — all ahead of the user's own env.
 func TestRuntimeServicesEnvInjected(t *testing.T) {
-	c := newClient("")
-	c.runtimeServices = RuntimeServices{
+	cfg := testConfig("")
+	cfg.RuntimeServices = RuntimeServices{
 		Module:          "k8s",
 		OrchestratorURL: "http://octo-orchestrator.octo-dev:8090",
 		ServiceAccount:  "octo-runtime",
 		NATSURL:         "nats://octo-nats.octo-dev:4222",
 	}
+	c := testClientFor(cfg)
 	ctx := context.Background()
 	spec := Spec{ID: "d1", IntegrationID: "int-1", Name: "checkout", Version: "v3", SnapshotID: "snap-1", Definition: "x: 1", Replicas: 1, Env: map[string]string{"LOG_LEVEL": "debug"}}
 	if err := c.Apply(ctx, spec); err != nil {
@@ -252,11 +264,12 @@ func TestRuntimeServicesEnvInjected(t *testing.T) {
 // module configured but no broker URL, the runtime-services env is still injected
 // while NATS_URL is omitted (so a deploy without NATS injects nothing for it).
 func TestRuntimeServicesEnvOmitsNATSWhenUnset(t *testing.T) {
-	c := newClient("")
-	c.runtimeServices = RuntimeServices{
+	cfg := testConfig("")
+	cfg.RuntimeServices = RuntimeServices{
 		Module:          "k8s",
 		OrchestratorURL: "http://octo-orchestrator.octo-dev:8090",
 	}
+	c := testClientFor(cfg)
 	ctx := context.Background()
 	if err := c.Apply(ctx, Spec{ID: "d1", IntegrationID: "int-1", Definition: "x: 1", Replicas: 1}); err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -273,7 +286,7 @@ func TestRuntimeServicesEnvOmitsNATSWhenUnset(t *testing.T) {
 // TestRuntimeServicesEnvDisabledByDefault verifies the zero-value config injects
 // nothing: no runtime-services env and the default ServiceAccount.
 func TestRuntimeServicesEnvDisabledByDefault(t *testing.T) {
-	c := newClient("")
+	c := testClientFor(testConfig(""))
 	ctx := context.Background()
 	if err := c.Apply(ctx, Spec{ID: "d1", IntegrationID: "int-1", Definition: "x: 1", Replicas: 1}); err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -373,8 +386,9 @@ func TestApplyCreatesIngressWhenExposed(t *testing.T) {
 }
 
 func TestApplyIngressClassEmptyOmitsField(t *testing.T) {
-	c := newClient("octo.example.com")
-	c.ingressClass = ""
+	cfg := testConfig("octo.example.com")
+	cfg.IngressClass = ""
+	c := testClientFor(cfg)
 	ctx := context.Background()
 	spec := Spec{ID: "d1", IntegrationID: "int-1", Definition: "x: 1", Replicas: 1, Slug: "orders", Port: 9090, Expose: true, Subdomain: "shop"}
 
@@ -391,12 +405,13 @@ func TestApplyIngressClassEmptyOmitsField(t *testing.T) {
 }
 
 func TestApplyIngressExtraAnnotationsMerged(t *testing.T) {
-	c := newClient("octo.example.com")
-	c.extraAnnotations = map[string]string{
+	cfg := testConfig("octo.example.com")
+	cfg.ExtraAnnotations = map[string]string{
 		"nginx.ingress.kubernetes.io/proxy-body-size": "50m",
 		// A colliding key must not override the cert-manager annotation.
 		"cert-manager.io/cluster-issuer": "should-not-win",
 	}
+	c := testClientFor(cfg)
 	ctx := context.Background()
 	spec := Spec{ID: "d1", IntegrationID: "int-1", Definition: "x: 1", Replicas: 1, Slug: "orders", Port: 9090, Expose: true, Subdomain: "shop"}
 
@@ -415,9 +430,48 @@ func TestApplyIngressExtraAnnotationsMerged(t *testing.T) {
 	}
 }
 
+func TestApplyPodImagePullSecrets(t *testing.T) {
+	cfg := testConfig("octo.example.com")
+	cfg.ImagePullSecrets = []string{"regcred", "mirror-creds"}
+	c := testClientFor(cfg)
+	ctx := context.Background()
+
+	if err := c.Apply(ctx, Spec{ID: "d1", IntegrationID: "int-1", Definition: "x: 1", Replicas: 1, Slug: "orders"}); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	dep, err := c.clientset.AppsV1().Deployments(testNamespace).Get(ctx, resourceName("d1"), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get deployment: %v", err)
+	}
+	got := dep.Spec.Template.Spec.ImagePullSecrets
+	if len(got) != 2 || got[0].Name != "regcred" || got[1].Name != "mirror-creds" {
+		t.Errorf("imagePullSecrets = %v, want [regcred mirror-creds] in order", got)
+	}
+}
+
+// The default is nil, not an empty slice: the field is compared on every
+// reconcile, and an empty list would read as a change against a spec that omits
+// it entirely.
+func TestApplyPodImagePullSecretsAbsentByDefault(t *testing.T) {
+	c := testClientFor(testConfig("octo.example.com"))
+	ctx := context.Background()
+
+	if err := c.Apply(ctx, Spec{ID: "d1", IntegrationID: "int-1", Definition: "x: 1", Replicas: 1, Slug: "orders"}); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	dep, err := c.clientset.AppsV1().Deployments(testNamespace).Get(ctx, resourceName("d1"), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get deployment: %v", err)
+	}
+	if got := dep.Spec.Template.Spec.ImagePullSecrets; got != nil {
+		t.Errorf("imagePullSecrets = %v, want nil", got)
+	}
+}
+
 func TestApplyIngressNoTLSWithoutIssuerOrWildcard(t *testing.T) {
-	c := newClient("octo.example.com")
-	c.clusterIssuer = ""
+	cfg := testConfig("octo.example.com")
+	cfg.ClusterIssuer = ""
+	c := testClientFor(cfg)
 	ctx := context.Background()
 	spec := Spec{ID: "d1", IntegrationID: "int-1", Definition: "x: 1", Replicas: 1, Slug: "orders", Port: 9090, Expose: true, Subdomain: "shop"}
 
@@ -440,8 +494,9 @@ func TestApplyIngressNoTLSWithoutIssuerOrWildcard(t *testing.T) {
 }
 
 func TestApplyIngressUsesWildcardSecret(t *testing.T) {
-	c := newClient("octo.example.com")
-	c.wildcardTLSSecret = "octo-wildcard-tls"
+	cfg := testConfig("octo.example.com")
+	cfg.WildcardTLSSecret = "octo-wildcard-tls"
+	c := testClientFor(cfg)
 	ctx := context.Background()
 	spec := Spec{ID: "d1", IntegrationID: "int-1", Definition: "x: 1", Replicas: 1, Slug: "orders", Port: 9090, Expose: true, Subdomain: "shop"}
 
@@ -467,7 +522,7 @@ func TestApplyIngressUsesWildcardSecret(t *testing.T) {
 }
 
 func TestApplyNoIngressWithoutBaseDomain(t *testing.T) {
-	c := newClient("") // external disabled
+	c := testClientFor(testConfig("")) // external disabled
 	ctx := context.Background()
 	spec := Spec{ID: "d1", IntegrationID: "int-1", Definition: "x: 1", Replicas: 1, Slug: "orders", Port: 9090, Expose: true, Subdomain: "shop"}
 
@@ -480,7 +535,7 @@ func TestApplyNoIngressWithoutBaseDomain(t *testing.T) {
 }
 
 func TestInternalURL(t *testing.T) {
-	c := newClient("")
+	c := testClientFor(testConfig(""))
 	if got := c.InternalURL("", 0); got != "" {
 		t.Errorf("empty slug should yield empty URL, got %q", got)
 	}
@@ -504,7 +559,7 @@ func TestExternalHostAndURL(t *testing.T) {
 		t.Errorf("url = %q", got)
 	}
 
-	off := newClient("")
+	off := testClientFor(testConfig(""))
 	if off.ExternalEnabled() || off.ExternalHost("shop") != "" || off.ExternalURL("shop") != "" {
 		t.Error("external host/url should be empty when disabled")
 	}

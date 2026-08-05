@@ -26,7 +26,11 @@ defaults:
   # Container-level securityContext. The cloud profiles set the restricted
   # baseline: runAsNonRoot, drop ALL capabilities, no privilege escalation.
   securityContext: {}
-  # Pulling from a private registry (ECR, a mirrored Artifact Registry).
+  # Pulling from a private registry (ECR, a mirrored Artifact Registry). A list
+  # of {name: secret-name}, as in a pod spec. Set here it covers all five chart
+  # workloads AND the integration pods the orchestrator creates at runtime, which
+  # pull the same runtime image from the same place — see runtime.imagePullSecrets
+  # for why those need saying separately.
   imagePullSecrets: []
   nodeSelector: {}
   tolerations: []
@@ -47,6 +51,16 @@ defaults:
   startupProbe: {}
   revisionHistoryLimit: null
   strategy: {}
+
+# Not in this file, deliberately: PodDisruptionBudget, HorizontalPodAutoscaler
+# and NetworkPolicy. A PDB over a single replica either permits the eviction it
+# exists to prevent or blocks node drains; an HPA on these workloads scales the
+# wrong thing, since throughput lives in the integration pods the orchestrator
+# creates rather than in the chart's own; and a NetworkPolicy depends on what
+# else shares the namespace and on a CNI that enforces it — one silently
+# unenforced is worse than none, because it reads as protection. Write your own
+# against the app.kubernetes.io/component labels every workload carries.
+# Documented at /deploy/helm#what-the-chart-does-not-create.
 
 # Shared image coordinates for the octo-* images. Defaults to the public images
 # on Docker Hub (see #199) so `helm install` works with no --set for anyone
@@ -119,10 +133,13 @@ orchestrator:
   # it is not assumed, unlike the k3s bootstrap's own letsencrypt-prod.
   baseDomain: ""
   clusterIssuer: ""
-  # IngressClassName on every per-integration Ingress. Empty omits the field,
-  # letting the cluster's default IngressClass (if any) claim it — the safe
-  # choice on a cluster that isn't this project's own k3s bootstrap.
-  ingressClass: traefik
+  # IngressClassName on every per-integration Ingress. Empty — the default —
+  # omits the field, letting the cluster's default IngressClass (if any) claim
+  # it. Set it to match ingress.className below wherever the cluster has no
+  # default IngressClass, or has one that is not the controller you want these
+  # endpoints on: an Ingress no controller claims never gets an address, and
+  # nothing reports that as an error.
+  ingressClass: ""
   # Extra annotations merged onto every per-integration Ingress — e.g.
   # controller-specific body-size or timeout annotations. The cert-manager
   # cluster-issuer annotation (when clusterIssuer is set) always wins on
@@ -170,6 +187,15 @@ logs:
 runtime:
   repository: octo-runtime-paas
   image: {}
+  # Pull secrets for the integration pods, which are created by the orchestrator
+  # and not by this chart — so they are passed to it as RUNTIME_IMAGE_PULL_SECRETS
+  # rather than rendered into a pod spec here.
+  #
+  # Empty inherits defaults.imagePullSecrets, which is what you want: a mirrored
+  # registry holds every octo image, so one setting covers the chart's own
+  # workloads and the integrations alike. Set it here only when the runtime image
+  # lives somewhere the rest do not.
+  imagePullSecrets: []
   # Runtime-services backend the orchestrator injects into each deployed runtime
   # pod (RUNTIME_SERVICES_MODULE). "k8s" = Lease-based leader election (so a cron
   # connector fires on one replica) + the orchestrator-backed KV store; "standalone"
@@ -220,8 +246,31 @@ postgres:
     pullPolicy: IfNotPresent
   auth:
     username: octo
-    password: octo
     database: octo
+    # REQUIRED, and deliberately empty rather than defaulted.
+    #
+    # This used to ship as `octo`, which was defensible while the only installs
+    # were Terraform's — it always passed one — and stopped being defensible the
+    # moment the chart went to a public registry. A default password is not a
+    # default: it is a credential published in this file, and the install that
+    # takes it says nothing about having done so.
+    #
+    # Rendering fails without this or existingSecret below. Generating one
+    # instead was the alternative, and it is worse here: a generated password
+    # has to be recovered from the cluster to be used, and `helm upgrade`
+    # regenerates it unless the chart reads back its own Secret, which turns
+    # every dry run and every `helm template` into a different password.
+    password: ""
+    # Alternative to password: the name of a Secret you already own that holds
+    # it. This is the better answer wherever something else — Terraform,
+    # external-secrets, a sealed secret — is the source of truth, because every
+    # value handed to Helm is kept in the release history, and a password there
+    # outlives the database it belonged to.
+    #
+    # The chart still creates its own Secret for the username and database name;
+    # only the password comes from yours.
+    existingSecret: ""
+    existingSecretPasswordKey: postgres-password
   storage:
     size: 5Gi
     # Empty -> cluster default StorageClass (k3s ships local-path).
@@ -305,26 +354,98 @@ auth:
     clientSecret: ""
   # Auth.js session secret (AUTH_SECRET); generated by Terraform.
   secret: ""
+  # Absolute origin the browser reaches the editor at (AUTH_URL) — the OIDC
+  # callback origin, which must match a redirect URI registered with the
+  # identity provider exactly, scheme and all.
+  #
+  # Empty derives https://{ingress.host}, which is right wherever the endpoint
+  # terminates TLS. Set it explicitly where the chart cannot know the scheme:
+  # with networking.mode=gateway the certificate belongs to a Gateway listener
+  # this chart may not own, and a local install may be plain HTTP. Getting it
+  # wrong is invisible until the first sign-in, which then fails at the identity
+  # provider rather than here.
+  url: ""
   # Optional: restrict write/mutating operations to these comma-separated roles.
   # Empty = any signed-in user.
   writeRoles: ""
   # Optional: id-token claim carrying roles (Auth.js default is "roles").
   rolesClaim: ""
 
-# How external traffic reaches the editor. "ingress" is the only mode today;
-# Gateway API ("gateway") is the planned follow-up, and this switch is the seam
-# it drops into — routing config is resolved in one place rather than inlined
-# per component, so adding HTTPRoute + Gateway templates does not touch the
-# workloads.
+# How external traffic reaches the editor and the per-integration endpoints.
+#
+#   ingress   networking.k8s.io Ingress objects. Built into every cluster, and
+#             the default.
+#   gateway   gateway.networking.k8s.io HTTPRoutes attached to a Gateway —
+#             kgateway, Envoy Gateway, Istio, Cilium, and the Gateway API modes
+#             of ingress-nginx and Traefik. Needs the Gateway API CRDs, which
+#             are not built in.
+#
+# The mode applies to both the editor's endpoint and the ones the orchestrator
+# creates per deployed integration; they are served by the same proxy, and
+# splitting them would mean maintaining two answers to the same question.
+#
+# The `ingress` block below still supplies the editor's host, path and pathType
+# in either mode — where the editor is published is not a question the routing
+# API changes. Its className, annotations and tls keys are Ingress-only: under
+# gateway they belong to the Gateway's listener instead.
 networking:
   mode: ingress
+
+  # Gateway API mode only. The Gateway that HTTPRoutes attach to.
+  #
+  # Attaching to an existing one is the default and the point of the mode: a
+  # Gateway is cluster infrastructure with its own owner and its own lifecycle,
+  # and the split — they own the Gateway, octo owns the routes in its namespace
+  # — is a far easier permission conversation than "the orchestrator creates
+  # Ingresses".
+  gateway:
+    # Have the chart create the Gateway instead of attaching to one. For an
+    # install where octo is the only thing behind the proxy; the listeners are
+    # derived from ingress.host and orchestrator.baseDomain. Anything more
+    # elaborate wants a Gateway you own, with create left false.
+    create: false
+    # Name of the Gateway. REQUIRED unless create is true, which derives it from
+    # the release name. There is no default worth guessing: a route naming a
+    # Gateway that does not exist attaches to nothing, and reports it only on
+    # its own status.
+    name: ""
+    # Namespace holding it. Empty means this release's namespace. A Gateway
+    # elsewhere — the usual case — must permit attachment from here through its
+    # listener's allowedRoutes; nothing set on this side can grant that.
+    namespace: ""
+    # One listener on that Gateway, by name. Usually unnecessary: a route
+    # attaches to whichever listener matches its hostname. Set it where the
+    # Gateway serves the same hostname on both an HTTP and an HTTPS listener,
+    # since otherwise the route attaches to both and the endpoint is also served
+    # in plaintext.
+    sectionName: ""
+    # create=true only: the GatewayClass naming the controller that serves it —
+    # kgateway, envoy-gateway, istio, cilium, nginx. REQUIRED when create is
+    # true, for the same reason ingress.className has no default.
+    className: ""
+    # create=true only. Extra annotations on the Gateway.
+    #
+    # cert-manager's Gateway support (`cert-manager.io/cluster-issuer` here)
+    # would go in this block, and the chart deliberately does not put it there
+    # itself: it works only on a cert-manager installed with
+    # config.gatewayAPI.enabled=true, and it creates one Certificate per Secret
+    # a listener references — including the wildcard Secret that already has a
+    # Certificate of its own, which the two would then fight over. The chart
+    # writes the Certificates explicitly instead.
+    annotations: {}
 
 ingress:
   enabled: true
   # IngressClass of the controller that should claim this Ingress: traefik (k3s),
-  # nginx, gce (GKE), alb (EKS with the AWS Load Balancer Controller). Empty
-  # omits the field and lets the cluster's default IngressClass claim it.
-  className: traefik
+  # nginx, gce (GKE), alb (EKS with the AWS Load Balancer Controller).
+  #
+  # Empty — the default — omits the field, letting the cluster's default
+  # IngressClass claim it. That is the only portable default a published chart
+  # can have: naming a controller here would mint an Ingress that a cluster
+  # running something else never serves. Every environment profile sets it
+  # explicitly (nginx on GKE, alb on EKS), and so does the k3s Terraform, which
+  # is where `traefik` moved to.
+  className: ""
   # Editor host. Always gets its own certificate (see ingress.tls below),
   # independent of wildcardTLS — it does not need to be the same domain as
   # orchestrator.baseDomain.
@@ -394,4 +515,13 @@ gke:
 wildcardTLS:
   enabled: false
   secretName: octo-wildcard-tls
+  # Issuer for the wildcard, or empty to say the Secret already exists.
+  #
+  # Empty means this chart references secretName and creates no Certificate —
+  # the same distinction ingress.tls.mode draws between cert-manager and secret,
+  # for wherever the wildcard is issued by something else: another cluster's
+  # cert-manager, external-secrets, or a certificate bought outright. Under
+  # networking.mode=gateway that is the ordinary case rather than the exception,
+  # since the listener terminating it usually belongs to a Gateway this release
+  # does not own.
   clusterIssuer: letsencrypt-dns

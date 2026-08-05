@@ -5,6 +5,7 @@ description: "Install and configure the Octo Helm chart on any Kubernetes cluste
 
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Cards, Card } from 'fumadocs-ui/components/card';
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
 import { Cloud, Server } from 'lucide-react';
 import { DynamicCodeBlock } from 'fumadocs-ui/components/dynamic-codeblock';
 import { OCTO_VERSION } from '@/lib/version';
@@ -23,6 +24,13 @@ checkout:
 That command is complete on its own. The chart's defaults point at the public
 Docker Hub images, and `image.tag` falls back to the chart's `appVersion`, so a
 chart installs the images of its own release rather than drifting onto `latest`.
+
+Both `--set`s are required rather than conventional: the chart has no default
+host and no default password, because a published chart that defaults either one
+is claiming a domain somebody else owns or shipping a credential everybody has.
+Rendering fails, by name, if you leave them out. If your cluster has no default
+IngressClass, add `--set ingress.className=<yours>` as well — see
+[Ingress and TLS](#ingress-and-tls).
 
 <Callout type="info">
   Prefer a cluster-specific starting point over the bare defaults — the profiles
@@ -174,6 +182,25 @@ The orchestrator and runtime additionally take
 `serviceAccount.{create,name,annotations}` — that is where GKE Workload Identity
 and EKS IRSA annotations go.
 
+### Private registries
+
+If you mirror the images somewhere that needs credentials, create the pull
+Secret in the release namespace and name it once:
+
+```yaml
+defaults:
+  imagePullSecrets:
+    - name: regcred
+```
+
+That reaches all five chart workloads **and** the integration pods, which is the
+part worth stating: those pods are created by the orchestrator at runtime, not by
+this chart, so the value is passed to it as an environment variable rather than
+rendered into a pod spec. Without it a mirrored install comes up entirely
+healthy and every integration you deploy from that healthy editor sits in
+`ErrImagePull`. Override it for the runtime image alone with
+`runtime.imagePullSecrets`; empty there inherits `defaults`.
+
 ### Ingress and TLS
 
 `ingress.tls.mode` is the biggest single difference between targets:
@@ -188,17 +215,497 @@ and EKS IRSA annotations go.
 
 Empty auto-selects `cert-manager` when a `clusterIssuer` is set, else `secret`.
 
+#### Worked examples
+
+Complete `values.yaml` files, one per mode — each renders and schema-validates
+as shown. Install with `-f values.yaml`.
+
+<Tabs items={['cert-manager', 'Existing Secret', 'GKE', 'AWS ALB', 'TLS upstream']}>
+<Tab value="cert-manager">
+
+A ClusterIssuer issues per host over HTTP-01: one certificate for the editor,
+and one more for each integration you expose. What the k3s bootstrap provides.
+
+```yaml
+ingress:
+  enabled: true
+  className: nginx
+  host: octo.example.com
+  tls:
+    mode: cert-manager
+    clusterIssuer: letsencrypt-prod
+    secretName: octo-tls
+
+# Per-integration endpoints at {slug}.apps.example.com, each getting its own
+# certificate from the same issuer as it is deployed.
+orchestrator:
+  baseDomain: apps.example.com
+  ingressClass: nginx
+  clusterIssuer: letsencrypt-prod
+
+postgres:
+  auth:
+    password: CHANGEME
+```
+
+DNS for every host must already resolve to the ingress address, or the HTTP-01
+challenge cannot complete. That includes each new subdomain, which is the reason
+to prefer a wildcard once there is more than a handful.
+
+</Tab>
+<Tab value="Existing Secret">
+
+Certificates issued by something else — bought, placed by Terraform, or synced
+by external-secrets. The chart references and creates nothing.
+
+```yaml
+ingress:
+  enabled: true
+  className: nginx
+  host: octo.example.com
+  tls:
+    mode: secret
+    secretName: octo-tls        # must already exist in the release namespace
+
+orchestrator:
+  baseDomain: apps.example.com
+  ingressClass: nginx
+
+# One wildcard covering every {slug}.apps.example.com. An empty clusterIssuer
+# says the Secret already exists, so no Certificate is created for it either.
+wildcardTLS:
+  enabled: true
+  secretName: octo-wildcard-tls
+  clusterIssuer: ""
+
+postgres:
+  auth:
+    existingSecret: octo-db
+```
+
+The wildcard is what makes per-integration endpoints scale: one certificate
+covers every subdomain, so deploying an integration issues nothing and waits for
+nothing.
+
+</Tab>
+<Tab value="GKE">
+
+The GCE ingress controller with a Google-managed certificate. The chart creates
+the `ManagedCertificate`; the Ingress carries no `tls` block, since the
+certificate lives on the load balancer.
+
+```yaml
+ingress:
+  enabled: true
+  className: gce
+  host: octo.example.com
+  tls:
+    mode: gke-managed-cert
+    # managedCertificateName defaults to {release}-platform
+
+gke:
+  backendConfig:
+    enabled: true
+    healthCheckPath: /
+
+platform:
+  service:
+    annotations:
+      # Attaches the BackendConfig above; the value is {release}-platform.
+      cloud.google.com/backend-config: '{"default":"octo-platform"}'
+
+postgres:
+  auth:
+    password: CHANGEME
+```
+
+Provisioning takes 15–60 minutes and needs DNS pointing at the load balancer
+first. Start from `values-gke-autopilot.yaml` or `values-gke-standard.yaml`,
+which also set the resources and security contexts Autopilot requires.
+
+</Tab>
+<Tab value="AWS ALB">
+
+An ACM certificate terminated at the ALB. Again no `tls` block — the ARN is an
+annotation, and the load balancer holds the certificate.
+
+```yaml
+ingress:
+  enabled: true
+  className: alb
+  host: octo.example.com
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+  tls:
+    mode: acm
+    certificateArn: arn:aws:acm:us-east-1:123456789012:certificate/abc-123
+
+postgres:
+  auth:
+    password: CHANGEME
+```
+
+Needs the AWS Load Balancer Controller installed. Start from `values-eks.yaml`.
+
+</Tab>
+<Tab value="TLS upstream">
+
+Nothing on the Ingress: a cloud load balancer, a service mesh, or a CDN
+terminates TLS in front of it.
+
+```yaml
+ingress:
+  enabled: true
+  className: nginx
+  host: octo.example.com
+  tls:
+    mode: none
+
+postgres:
+  auth:
+    password: CHANGEME
+```
+
+<Callout type="warn">
+  `none` means *something else terminates TLS*, not *serve the editor over plain
+  HTTP*. The editor needs a secure context — see the callout at the end of this
+  section — so if nothing upstream is actually serving HTTPS, the pages render
+  and client-side actions throw.
+</Callout>
+
+</Tab>
+</Tabs>
+
+#### Where certificates come from
+
+Three questions get conflated under "TLS", and they have different answers.
+
+**1. Who issues — and who owns the issuer.** This chart never creates an
+`Issuer` or `ClusterIssuer`. It names one, and the object belongs to whoever
+runs cert-manager on the cluster. `clusterIssuer: letsencrypt-prod` is a
+reference to something that must already exist; the k3s bootstrap in this repo
+happens to create one by that name, which is why it appears in the defaults, and
+it is not a name any other cluster is obliged to have.
+
+**2. How the challenge is solved.** For ACME issuers (Let's Encrypt, ZeroSSL)
+this is the choice that decides what you can issue:
+
+| | HTTP-01 | DNS-01 |
+|---|---|---|
+| Proves control by | serving a token at `http://{host}/.well-known/acme-challenge/…` | writing a TXT record at `_acme-challenge.{host}` |
+| Needs | public DNS pointing at the ingress, reachable on port 80 | API credentials for the DNS zone |
+| Issues wildcards | **no** | **yes** |
+| Works on a private cluster | no | yes |
+| Per new subdomain | a fresh challenge, and a wait | nothing — the wildcard already covers it |
+
+This is why `wildcardTLS.clusterIssuer` defaults to a *different* issuer from
+`ingress.tls.clusterIssuer`: `*.{baseDomain}` can only be issued over DNS-01, so
+it needs an issuer configured with a DNS solver, while the editor's own host is
+happy with HTTP-01. Two issuers is not redundancy — it is the two things being
+genuinely different.
+
+<Callout type="info">
+  On a Gateway API cluster with no ingress controller at all, an HTTP-01 issuer
+  has nothing to create its challenge route with unless cert-manager is
+  configured for Gateway API (`config.gatewayAPI.enabled=true`) so it can use the
+  `gatewayHTTPRoute` solver. DNS-01 sidesteps that entirely and is the easier
+  answer there.
+</Callout>
+
+**3. "Cloud certificates" are two unrelated mechanisms.** Both get called
+"using the cloud's certificates", and they differ in where the private key
+lives:
+
+| Approach | Key lives | Setting | cert-manager |
+|---|---|---|---|
+| Google-managed certificate | the GCE load balancer | `tls.mode: gke-managed-cert` | not involved |
+| AWS ACM | the ALB | `tls.mode: acm` | not involved |
+| Let's Encrypt | a Secret in your namespace | `tls.mode: cert-manager` | yes |
+| Google CAS / AWS Private CA | a Secret in your namespace | `tls.mode: cert-manager` + the annotations below | yes, plus that issuer's own controller |
+
+The first two never produce a Kubernetes Secret at all — the certificate is
+attached to the load balancer by annotation, which is why those Ingresses carry
+no `tls` block and why neither mode has a Gateway API equivalent.
+
+The last row is cert-manager issuing from a **private CA** rather than from a
+public ACME CA — a corporate PKI, `GoogleCASClusterIssuer`, `AWSPCAClusterIssuer`.
+These live outside the `cert-manager.io` API group, so the reference needs a kind
+and a group as well as a name. Supply those two as annotations; the chart's own
+issuer annotation does not collide with them:
+
+```yaml
+ingress:
+  enabled: true
+  className: nginx
+  host: octo.example.com
+  annotations:
+    # Out-of-tree issuer. AWS Private CA is:
+    #   cert-manager.io/issuer-kind: AWSPCAClusterIssuer
+    #   cert-manager.io/issuer-group: awspca.cert-manager.io
+    cert-manager.io/issuer-kind: GoogleCASClusterIssuer
+    cert-manager.io/issuer-group: cas-issuer.jetstack.io
+  tls:
+    mode: cert-manager
+    clusterIssuer: cas-prod      # the external issuer's name
+    secretName: octo-tls
+```
+
+<Callout type="warn">
+  That covers the editor's Ingress, where cert-manager's ingress-shim reads the
+  annotations. The `Certificate` resources the chart writes itself — the
+  `*.{baseDomain}` wildcard, and the editor's certificate for a chart-created
+  Gateway — hardcode `kind: ClusterIssuer, group: cert-manager.io`, so an
+  out-of-tree issuer cannot be named there.
+
+  Set `wildcardTLS.clusterIssuer: ""` and write the `Certificate` yourself with
+  whatever `issuerRef` you need. The chart then references
+  `wildcardTLS.secretName` and issues nothing, which is exactly the seam for it.
+</Callout>
+
 `ingress.className` selects the controller (`traefik`, `nginx`, `gce`, `alb`);
 `ingress.annotations` carries controller-specific behaviour. Per-integration
 external endpoints are a separate axis — `orchestrator.baseDomain` plus
 `orchestrator.ingressClass` and `orchestrator.ingressAnnotations`, which the
 orchestrator stamps onto the Ingresses it generates at runtime.
 
+Both class values default to **empty**, which omits `ingressClassName` and lets
+whichever IngressClass the cluster marks default claim the Ingress. That is the
+only portable default a published chart can have — naming a controller would
+mint Ingresses that a cluster running something else never serves. Every
+environment profile sets it explicitly, and so should you if your cluster has no
+default IngressClass, or has one that is not the controller you want:
+
+```bash
+--set ingress.className=nginx --set orchestrator.ingressClass=nginx
+```
+
+<Callout type="warn">
+  An Ingress that no controller claims is not an error anywhere. It is created,
+  `helm install` succeeds, and the host simply never resolves to anything. If the
+  editor is unreachable after an otherwise clean install, check
+  `kubectl get ingress` for an empty `ADDRESS` and `kubectl get ingressclass` for
+  which one — if any — is marked default.
+</Callout>
+
+### Gateway API
+
+`networking.mode` selects which Kubernetes API publishes external endpoints —
+both the editor's and the ones the orchestrator creates per deployed
+integration. They are served by the same proxy, so it is one switch.
+
+| Mode | Objects | Needs |
+|---|---|---|
+| `ingress` | `Ingress` per endpoint | Nothing — built into every cluster. The default. |
+| `gateway` | `HTTPRoute` per endpoint, attached to a `Gateway` | The Gateway API CRDs. |
+
+`gateway` covers kgateway, Envoy Gateway, Istio, Cilium, and the Gateway API
+modes of ingress-nginx and Traefik.
+
+<DynamicCodeBlock lang="bash" code={`kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.1/standard-install.yaml
+
+helm install octo oci://ghcr.io/juancavallotti/charts/octo \\
+  --version ${OCTO_VERSION} \\
+  --namespace octo --create-namespace \\
+  --set networking.mode=gateway \\
+  --set networking.gateway.name=shared-gw \\
+  --set networking.gateway.namespace=ingress \\
+  --set ingress.host=octo.example.com`} />
+
+Any Gateway API release from **v1.0 onwards** works, in the Standard channel —
+`v1.6.1` above is simply the current one. The orchestrator builds against the
+`gateway.networking.k8s.io/v1` types, GA since v1.0, and uses only Core-support
+fields (`parentRefs`, `hostnames`, `rules.matches`, `rules.backendRefs`), so what
+it sends is accepted unchanged across that range.
+
 <Callout type="info">
-  `networking.mode` exists and accepts only `ingress` today. It is the seam a
-  Gateway API implementation drops into: routing is resolved in one template
-  rather than inlined per component, so adding HTTPRoute and Gateway later does
-  not touch the workloads.
+  The Go module `sigs.k8s.io/gateway-api` is pinned lower than the CRDs you
+  install, and deliberately: only the serialised shape of an `HTTPRoute` matters
+  here, and it has not changed. Pinning the module forward would drag a
+  `k8s.io/client-go` upgrade through the orchestrator for no change in the
+  objects it produces.
+</Callout>
+
+**Attaching to an existing Gateway is the default, and is the point.** A Gateway
+is cluster infrastructure: it predates the release, belongs to whoever runs the
+proxy, and serves things unrelated to octo. Attaching means the cluster owner
+owns the Gateway and octo owns only the routes in its own namespace — a much
+easier permission conversation than "the orchestrator creates Ingresses", and
+the orchestrator's Role reflects it, granting `httproutes` and nothing at all on
+`gateways`.
+
+It also removes configuration rather than moving it. An Ingress has no way to
+say *attach me to that proxy*, so it must carry the ingress class, the
+certificate arrangement and any controller-specific annotations itself — three
+pieces of cluster configuration that have to be handed to the orchestrator and
+stamped onto every object it creates. A route names its parent and its backend;
+the listener owns the rest. So `orchestrator.clusterIssuer`,
+`orchestrator.ingressClass`, `orchestrator.ingressAnnotations` and
+`wildcardTLS`'s plumbing have no counterpart under `gateway`, and the chart
+stops passing them.
+
+| Key | Default | Purpose |
+|---|---|---|
+| `networking.gateway.name` | `""` | Gateway to attach to. **Required** unless `create` is true. |
+| `networking.gateway.namespace` | `""` | Empty is the release namespace. A Gateway elsewhere must allow attachment from here via its listener's `allowedRoutes`. Cannot be combined with `create` — a Gateway this chart creates belongs to the release, so it has nowhere else to go, and the render refuses the pair rather than honouring half of it. |
+| `networking.gateway.sectionName` | `""` | One listener by name. Usually unnecessary — a route attaches by hostname. Set it where one hostname is served by both an HTTP and an HTTPS listener, or the endpoint is also served in plaintext. |
+| `networking.gateway.create` | `false` | Have the chart create the Gateway. |
+| `networking.gateway.className` | `""` | `GatewayClass` for a created Gateway (`kgateway`, `envoy-gateway`, `istio`, `cilium`, `nginx`). **Required** when `create` is true. |
+| `networking.gateway.annotations` | `{}` | Extra annotations on a created Gateway. |
+
+<Tabs items={['Attach to an existing Gateway', 'Let the chart create one']}>
+<Tab value="Attach to an existing Gateway">
+
+The normal arrangement. The Gateway belongs to whoever runs the cluster's
+ingress; octo adds routes to it and owns nothing else.
+
+```yaml
+networking:
+  mode: gateway
+  gateway:
+    name: shared-gw
+    namespace: ingress
+
+ingress:
+  enabled: true
+  host: octo.example.com
+  # className, annotations and tls are Ingress-only and ignored here — the
+  # listener on shared-gw decides the controller and holds the certificate.
+
+orchestrator:
+  baseDomain: apps.example.com
+  # clusterIssuer / ingressClass / ingressAnnotations have no counterpart in
+  # this mode; the listener answers all three.
+
+postgres:
+  auth:
+    password: CHANGEME
+```
+
+`shared-gw` needs a listener matching each hostname — `octo.example.com` and
+`*.apps.example.com` — and its `allowedRoutes.namespaces` must permit this
+release's namespace. Neither is something the chart can set from this side; both
+are worth confirming with the Gateway's owner before installing.
+
+</Tab>
+<Tab value="Let the chart create one">
+
+For the install with no Gateway to attach to. Listeners are derived: one per
+editor host, plus the `*.{baseDomain}` wildcard.
+
+```yaml
+networking:
+  mode: gateway
+  gateway:
+    create: true
+    className: kgateway      # or envoy-gateway, istio, cilium, nginx
+
+ingress:
+  enabled: true
+  host: octo.example.com
+  tls:
+    mode: cert-manager
+    clusterIssuer: letsencrypt-prod
+    secretName: octo-tls
+
+orchestrator:
+  baseDomain: apps.example.com
+
+# Terminates the *.apps.example.com listener. DNS-01, because that is the only
+# way to issue a wildcard — set clusterIssuer: "" instead if the Secret already
+# exists.
+wildcardTLS:
+  enabled: true
+  secretName: octo-wildcard-tls
+  clusterIssuer: letsencrypt-dns
+
+postgres:
+  auth:
+    password: CHANGEME
+```
+
+That renders a Gateway with two HTTPS listeners — `editor` for
+`octo.example.com` against `octo-tls`, `integrations` for `*.apps.example.com`
+against `octo-wildcard-tls` — plus a `Certificate` for each.
+
+</Tab>
+</Tabs>
+
+`create: true` is for the install with no Gateway to attach to. Its listeners are
+derived from what the release already publishes — `ingress.host`, and the
+`*.{baseDomain}` wildcard integrations land on — with one listener per hostname,
+so a route never has to name one. There is deliberately no listener override:
+anything more elaborate is a Gateway you should own, with `create` left false.
+
+**Certificates.** For a Gateway it created, the chart writes the editor's
+`Certificate` itself rather than annotating the Gateway for cert-manager's
+gateway-shim. The shim needs cert-manager installed with
+`config.gatewayAPI.enabled=true` — not the default, so an annotation would render
+everywhere and issue nothing on most clusters — and it creates one Certificate
+per Secret a listener references with no per-listener opt-out, which would fight
+the DNS-01 wildcard Certificate over the same Secret. On a Gateway you own, its
+listeners and their certificates are yours; a Secret in the release namespace
+could not be referenced from another without a `ReferenceGrant`.
+
+Note that on a cluster with no ingress controller at all, an HTTP-01 issuer needs
+cert-manager's `gatewayHTTPRoute` solver to complete a challenge. That is the
+ClusterIssuer's configuration, not the chart's.
+
+<Callout type="warn">
+  A route that attaches to nothing — a misspelled Gateway, a listener that does
+  not allow your namespace — is not an error anywhere. It is created,
+  `helm install` succeeds, and the host resolves to nothing. This is the Gateway
+  API version of the unclaimed-Ingress trap above, and it reports itself in one
+  place:
+
+  ```bash
+  kubectl -n octo get httproute -o jsonpath='{.items[*].status.parents[*].conditions[*]}'
+  kubectl -n ingress get gateway shared-gw -o jsonpath='{.status.listeners[*].attachedRoutes}'
+  ```
+
+  `Accepted=True` on the route and a non-zero `attachedRoutes` on the listener
+  are what "it worked" looks like.
+</Callout>
+
+The orchestrator fails at startup, rather than at the first deploy, when it is
+configured for Gateway API on a cluster without the CRDs. `gke-managed-cert` and
+`acm` are refused at render time under `gateway`: both are Ingress annotations
+naming a cloud load balancer's certificate, and neither has a Gateway API
+equivalent.
+
+#### Switching an existing release between modes
+
+The chart's own objects swap over on `helm upgrade` — the editor's Ingress is
+replaced by an HTTPRoute, and vice versa. **Deployments already running do not.**
+
+The orchestrator publishes an endpoint when a deployment is *applied*, and
+withdraws it through whichever publisher is configured *now*. So a deployment
+created under `ingress` keeps its Ingress after the switch, and undeploying it
+under `gateway` removes an HTTPRoute it never had — leaving the Ingress behind,
+pointing at a Service that no longer exists and still claiming its hostname.
+
+Redeploy each exposed integration after switching, then sweep up what the old
+mode left:
+
+```bash
+# after switching to gateway
+kubectl -n octo delete ingress -l app.kubernetes.io/managed-by=orchestrator
+# after switching back to ingress
+kubectl -n octo delete httproute -l app.kubernetes.io/managed-by=orchestrator
+```
+
+Withdrawing both kinds automatically would mean granting the orchestrator RBAC
+on Ingresses *and* HTTPRoutes in both modes — losing the narrow permission set
+that makes the Gateway API path worth having — and on a cluster with no Gateway
+API installed, deleting an HTTPRoute is not a well-formed request at all. A mode
+switch is a one-time migration, so it is one here too.
+
+<Callout type="warn">
+  **The editor needs a secure context.** Parts of it call browser APIs —
+  `crypto.randomUUID` among them — that exist only over HTTPS or on `localhost`.
+  Served over plain HTTP on any other hostname the pages still render, but
+  client-side actions throw. `tls.mode: none` is for endpoints where something
+  upstream terminates TLS, not for serving the editor unencrypted.
 </Callout>
 
 ### Database
@@ -255,7 +762,9 @@ adopt. Destroying storage is the infrastructure layer's job.
 
 | Key | Default | Purpose |
 |---|---|---|
-| `postgres.auth.username` / `.password` / `.database` | `octo` | Database credentials, stored in a chart-managed Secret. Always override the password. |
+| `postgres.auth.username` / `.database` | `octo` | Stored in a chart-managed Secret. The password joins them there only when you supply it inline — with `existingSecret` it stays in yours, and the chart's carries just these two. |
+| `postgres.auth.password` | – | **Required.** No default: a published chart cannot ship a credential. Rendering fails without it, or without `existingSecret` below. |
+| `postgres.auth.existingSecret` / `.existingSecretPasswordKey` | `""` / `postgres-password` | Take the password from a Secret you already own instead. Preferred for anything long-lived — every value passed to Helm stays in the release history. |
 | `kv.encryptionKey` | `""` | Base64 32-byte AES-256 key encrypting KV secret namespaces at rest. Empty rejects secret-namespace writes; plain KV still works. See [KV and storage](/platform/kv-and-storage). |
 | `auth.oidc.enabled` | `false` | Gate the editor behind OIDC SSO (Auth.js). Disabled, the editor is open. |
 | `auth.oidc.issuer` / `.clientId` / `.clientSecret` | – | IdP details; the secret lands in the chart's auth Secret. |
@@ -269,6 +778,19 @@ adopt. Destroying storage is the infrastructure layer's job.
 | `platform.replicas` / `orchestrator.replicas` / `logs.replicas` | `1` | Replica counts. The log aggregator scales safely — its consumer joins a NATS queue group, so replicas compete for messages rather than each storing every one. |
 | `nats.enabled` | `true` | Deploy the NATS broker; when off, live event streams fall back to polling. See [Event bus](/platform/event-bus). |
 | `runtime.servicesModule` | `k8s` | Runtime-services backend injected into integration pods: `k8s` (Lease leader election + orchestrator KV) or `standalone`. Cluster deploys want `k8s`. |
+
+### What the chart does not create
+
+Four things a production chart often ships are deliberately absent. They are
+listed here so their absence reads as a decision rather than an oversight, and
+because each has a workable answer in the meantime:
+
+| Not shipped | Why | If you need it |
+|---|---|---|
+| **PodDisruptionBudget** | A PDB on a single-replica Deployment either permits the eviction it was meant to prevent or blocks node drains outright. It becomes meaningful once you raise `replicas`, and meaningful differently per component. | Apply your own alongside the release; the components carry standard `app.kubernetes.io/component` labels to select on. |
+| **HorizontalPodAutoscaler** | The editor and orchestrator are not the throughput-bound part of this system — integration pods are, and those are created by the orchestrator, not by this chart. An HPA on the chart's own workloads would scale the wrong thing. | Apply your own; `platform` and `logs` scale horizontally without coordination, the orchestrator is safe to scale but gains little. |
+| **NetworkPolicy** | Correct policies depend on what else runs in the namespace and which CNI enforces them, and a policy that is silently unenforced is worse than none — it reads as protection that is not there. | Write them against the component labels. The orchestrator needs the API server; every service needs Postgres and NATS. |
+| **Topology spread / anti-affinity by default** | The knobs exist (`defaults.topologySpreadConstraints`, `defaults.affinity`) and the GKE Standard profile uses them; defaulting them would make single-node clusters unschedulable. | Set them per environment — see `values-gke-standard.yaml`. |
 
 ## Image and chart compatibility
 

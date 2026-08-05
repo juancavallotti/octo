@@ -131,6 +131,12 @@ variable "ingress_enabled" {
   default     = true
 }
 
+variable "ingress_class" {
+  type        = string
+  description = "IngressClass for the editor Ingress and every per-integration Ingress the orchestrator creates (chart values ingress.className and orchestrator.ingressClass). Empty emits neither, so the cluster's default IngressClass claims them — or an environment profile in values_files decides, which is how the GKE (nginx) and EKS (alb) paths set it. Set it where there is no profile and no cluster default: the k3s VM, whose bundled controller is traefik."
+  default     = ""
+}
+
 # --- TLS ---
 
 variable "cluster_issuer" {
