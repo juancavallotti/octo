@@ -36,6 +36,7 @@ import (
 // registration lives beside the block as a registerX function called from here.
 func init() {
 	registerConnector()
+	registerFind()
 }
 
 func registerConnector() {

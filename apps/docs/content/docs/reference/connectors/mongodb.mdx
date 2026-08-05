@@ -3,11 +3,12 @@ title: "MongoDB"
 description: "The MongoDB document store connector and its find/insert/update/delete/aggregate blocks."
 octo_types:
   - mongodb
+  - mongodb-find
 ---
 
 The `mongodb` connector owns a MongoDB client — the connection string, credentials, and pool — and the `mongodb-*` blocks bind to it by name. It is the document-store counterpart to [`database`](/reference/connectors/database): where a row needs an explicit column mapping in and out, a message body is already a document, so storing a webhook payload is one block rather than a schema exercise.
 
-**Provides a source:** no — it is a service connector.
+**Provides a source:** no — it is a service connector. **Blocks that bind to it:** `mongodb-find`.
 
 ## `mongodb` connector
 
@@ -81,3 +82,58 @@ Two things to know when writing filters and documents as [expressions](/concepts
 
 - CEL numbers are doubles, so an integer literal above 2⁵³ cannot be written directly. Write it as `{"$numberLong": "9007199254740993"}` — a string the driver parses exactly.
 - A date written unquoted in YAML is parsed as a timestamp and reaches the block as an RFC 3339 string. Quote it, or write it as `{"$date": "2026-08-04T10:00:00Z"}`.
+
+### Addressing, and results
+
+Every block names its `collection` as a CEL [expression](/concepts/expressions), and may name a `database` the same way — a flow serving several tenants routes `body.tenantId` (or similar) to a different collection per message, which a connector-wide constant could not do. An unset `database` uses the connector's.
+
+And every block follows one rule for its result: **it becomes the message body**, unless you name a `resultVar`, in which case it goes there and the body is left alone. The body is the default because the result is usually the payload — an HTTP flow that ends in a find should answer with the documents. Naming a variable is how you say "keep the body I came in with".
+
+## `mongodb-find` block
+
+Read documents from a collection. Without `single`, the result is a list — `[]` when nothing matched, never `null`, so a [foreach](/reference/blocks/control-flow) over the body gets zero iterations rather than a type error.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `connector` | string | Yes | — | Name of the `mongodb` connector to use. |
+| `collection` | CEL | Yes | — | Collection to read from. |
+| `database` | CEL | No | the connector's | Database to read from. |
+| `filter` | CEL | No | match everything | Query filter. |
+| `projection` | CEL | No | whole documents | Fields to return, e.g. `{"sku": 1, "_id": 0}`. |
+| `sort` | CEL | No | unsorted | Sort order — see below. |
+| `limit` | int | No | all | Most documents to return. |
+| `skip` | int | No | `0` | Documents to skip before returning any. |
+| `single` | bool | No | `false` | Return the first match rather than a list. |
+| `resultVar` | string | No | — | Store the result here instead of in the body. |
+
+```yaml
+process:
+  - type: mongodb-find
+    settings:
+      connector: orders-db
+      collection: '"orders"'
+      filter: '{"status": "open", "customer": body.customerId}'
+      sort: '[{"created": -1}]'
+      limit: 20
+```
+
+With `single: true` the block returns the first matching document rather than a list, and **null when nothing matched** — an ordinary answer a flow branches on, not an error. This mirrors the [`sql`](/reference/connectors/database) block's `single`.
+
+```yaml
+  - type: mongodb-find
+    settings:
+      connector: orders-db
+      collection: '"orders"'
+      filter: '{"_id": {"$oid": body.orderId}}'
+      single: true
+```
+
+### Sorting by more than one key
+
+MongoDB applies sort keys in the order they are written, and a CEL object cannot carry that order — CEL maps are unordered, and the JSON on the way to BSON sorts keys alphabetically. So a multi-key object is **refused at runtime** rather than silently reordered; write a list of single-key objects instead:
+
+```yaml
+sort: '[{"created": -1}, {"sku": 1}]'     # created descending, then sku ascending
+sort: '{"created": -1}'                   # fine: one key has no order to lose
+sort: '{"created": -1, "sku": 1}'         # error: which key sorts first is unknowable
+```
