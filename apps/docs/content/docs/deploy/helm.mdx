@@ -332,6 +332,33 @@ configured for Gateway API on a cluster without the CRDs. `gke-managed-cert` and
 naming a cloud load balancer's certificate, and neither has a Gateway API
 equivalent.
 
+#### Switching an existing release between modes
+
+The chart's own objects swap over on `helm upgrade` — the editor's Ingress is
+replaced by an HTTPRoute, and vice versa. **Deployments already running do not.**
+
+The orchestrator publishes an endpoint when a deployment is *applied*, and
+withdraws it through whichever publisher is configured *now*. So a deployment
+created under `ingress` keeps its Ingress after the switch, and undeploying it
+under `gateway` removes an HTTPRoute it never had — leaving the Ingress behind,
+pointing at a Service that no longer exists and still claiming its hostname.
+
+Redeploy each exposed integration after switching, then sweep up what the old
+mode left:
+
+```bash
+# after switching to gateway
+kubectl -n octo delete ingress -l app.kubernetes.io/managed-by=orchestrator
+# after switching back to ingress
+kubectl -n octo delete httproute -l app.kubernetes.io/managed-by=orchestrator
+```
+
+Withdrawing both kinds automatically would mean granting the orchestrator RBAC
+on Ingresses *and* HTTPRoutes in both modes — losing the narrow permission set
+that makes the Gateway API path worth having — and on a cluster with no Gateway
+API installed, deleting an HTTPRoute is not a well-formed request at all. A mode
+switch is a one-time migration, so it is one here too.
+
 <Callout type="warn">
   **The editor needs a secure context.** Parts of it call browser APIs —
   `crypto.randomUUID` among them — that exist only over HTTPS or on `localhost`.
