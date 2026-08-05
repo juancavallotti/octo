@@ -123,8 +123,14 @@ Per-integration external endpoints are enabled under *.{{ .Values.orchestrator.b
 The orchestrator publishes one HTTPRoute per exposed deployment, attached to
 Gateway "{{ include "octo-common.gateway.name" (dict "root" $ "gateway" .Values.networking.gateway) }}" in namespace {{ .Values.networking.gateway.namespace | default .Release.Namespace }}.
 {{- if .Values.wildcardTLS.enabled }}
-Its wildcard listener terminates with Secret "{{ .Values.wildcardTLS.secretName }}"{{ if .Values.networking.gateway.create }}, issued by
-ClusterIssuer "{{ .Values.wildcardTLS.clusterIssuer }}" over DNS-01{{ end }}.
+{{- if .Values.wildcardTLS.clusterIssuer }}
+Its wildcard listener terminates with Secret "{{ .Values.wildcardTLS.secretName }}", issued by
+ClusterIssuer "{{ .Values.wildcardTLS.clusterIssuer }}" over DNS-01.
+{{- else }}
+Its wildcard listener terminates with Secret "{{ .Values.wildcardTLS.secretName }}", which this
+chart does not create — wildcardTLS.clusterIssuer is empty, so the Secret must
+already exist in namespace {{ .Release.Namespace }} and cover *.{{ .Values.orchestrator.baseDomain }}.
+{{- end }}
 {{- else }}
 {{- /* Not "they get no TLS": in this mode the certificate is a property of the
        listener, so on a Gateway this chart did not create it may well be there
@@ -136,8 +142,14 @@ routes, so what these endpoints serve depends on the listener matching
 set wildcardTLS.enabled to give it a certificate.{{ else }}Check it on the Gateway.{{ end }}
 {{- end }}
 {{- else if .Values.wildcardTLS.enabled }}
+{{- if .Values.wildcardTLS.clusterIssuer }}
 They share the wildcard certificate in Secret "{{ .Values.wildcardTLS.secretName }}", issued by
 ClusterIssuer "{{ .Values.wildcardTLS.clusterIssuer }}" over DNS-01.
+{{- else }}
+They share the wildcard certificate in Secret "{{ .Values.wildcardTLS.secretName }}", which this chart
+does not create — wildcardTLS.clusterIssuer is empty, so it must already exist
+in namespace {{ .Release.Namespace }} and cover *.{{ .Values.orchestrator.baseDomain }}.
+{{- end }}
 {{- else if .Values.orchestrator.clusterIssuer }}
 Each gets its own certificate from ClusterIssuer "{{ .Values.orchestrator.clusterIssuer }}".
 {{- else }}

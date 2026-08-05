@@ -515,4 +515,13 @@ gke:
 wildcardTLS:
   enabled: false
   secretName: octo-wildcard-tls
+  # Issuer for the wildcard, or empty to say the Secret already exists.
+  #
+  # Empty means this chart references secretName and creates no Certificate —
+  # the same distinction ingress.tls.mode draws between cert-manager and secret,
+  # for wherever the wildcard is issued by something else: another cluster's
+  # cert-manager, external-secrets, or a certificate bought outright. Under
+  # networking.mode=gateway that is the ordinary case rather than the exception,
+  # since the listener terminating it usually belongs to a Gateway this release
+  # does not own.
   clusterIssuer: letsencrypt-dns

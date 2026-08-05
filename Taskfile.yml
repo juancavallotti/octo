@@ -580,6 +580,13 @@ tasks:
         check wildcard-tls \
           --set wildcardTLS.enabled=true --set wildcardTLS.clusterIssuer=letsencrypt-dns \
           --set orchestrator.baseDomain=apps.example.com
+        # The same wildcard with no issuer: the Secret exists already, so the
+        # chart references it and creates no Certificate. Worth its own profile
+        # because the difference is a resource that must NOT be rendered, which
+        # nothing else here would catch.
+        check wildcard-existing \
+          --set wildcardTLS.enabled=true --set wildcardTLS.clusterIssuer= \
+          --set orchestrator.baseDomain=apps.example.com
         echo "✓ chart lints and renders valid manifests for every profile"
 
   helm:package:
