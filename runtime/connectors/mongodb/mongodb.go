@@ -115,6 +115,10 @@ type connectorSettings struct {
 	Password string `json:"password" octo:"label=Password"`
 	// Database blocks address when they do not name one of their own.
 	Database string `json:"database" octo:"label=Default database"`
+	// Ping the deployment at startup, so an unreachable server fails there rather
+	// than on the first message. Turn it off where a brief outage at startup
+	// should be survivable, or to build a config with no server to reach.
+	VerifyOnStart *bool `json:"verifyOnStart" octo:"label=Verify on start,default=true"`
 	// How BSON types JSON cannot express — ObjectId, dates, Decimal128, 64-bit
 	// integers — are rendered into and read back from a message. Relaxed leaves
 	// ordinary values as plain JSON; canonical types every value, losing nothing
@@ -154,6 +158,15 @@ var _ core.Connector = (*Connector)(nil)
 // opens the client, and pings the deployment — so a malformed URI, a wrong
 // credential, or an unreachable server all fail at startup rather than on the
 // first message.
+//
+// The ping is what verifyOnStart turns off, and the driver's own documentation
+// is why that switch exists: pinging at startup "reduces application resilience
+// because applications starting up will error if the server is temporarily
+// unavailable or is failing over". Failing fast is the better default — a typo
+// in a URI should not wait for traffic to surface — but it is a trade, not a
+// law, and a deployment that would rather ride out a failover can say so.
+// Turning it off is also what lets a config with no server behind it be built
+// at all, which is what a flow test needs.
 func (c *Connector) Start(ctx context.Context, config types.ConnectorConfig) error {
 	var set connectorSettings
 	if err := config.Settings.Decode(&set); err != nil {
@@ -180,16 +193,20 @@ func (c *Connector) Start(ctx context.Context, config types.ConnectorConfig) err
 	if err != nil {
 		return fmt.Errorf("mongodb connector %q: connect: %w", config.Name, err)
 	}
-	if err := client.Ping(ctx, readpref.Primary()); err != nil {
-		_ = client.Disconnect(ctx)
-		return fmt.Errorf("mongodb connector %q: ping: %w", config.Name, err)
+	verify := set.VerifyOnStart == nil || *set.VerifyOnStart
+	if verify {
+		if err := client.Ping(ctx, readpref.Primary()); err != nil {
+			_ = client.Disconnect(ctx)
+			return fmt.Errorf("mongodb connector %q: ping: %w", config.Name, err)
+		}
 	}
 
 	c.database = set.Database
 	c.canonical = canonical
 	c.client.Store(client)
 	slog.Info("mongodb connector started",
-		"connector", config.Name, "database", set.Database, "canonicalExtendedJSON", canonical)
+		"connector", config.Name, "database", set.Database,
+		"canonicalExtendedJSON", canonical, "verified", verify)
 	return nil
 }
 

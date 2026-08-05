@@ -197,3 +197,50 @@ func TestResolveClientOptionsRejectsBadValues(t *testing.T) {
 		})
 	}
 }
+
+// verifyOnStart off is what lets a config with no server behind it be built --
+// a flow test, or a deployment that would rather ride out a failover than
+// refuse to start during one. The client is opened either way; only the ping is
+// skipped, so nothing about the connector's later behaviour changes.
+func TestStartWithoutVerification(t *testing.T) {
+	off := false
+	c := &Connector{}
+	cfg := types.ConnectorConfig{
+		Name: "orders-db",
+		Type: connectorType,
+		Settings: types.Settings{
+			// A port nothing listens on: reaching it would be the failure this
+			// test asserts does not happen.
+			"uri":           "mongodb://127.0.0.1:9/?serverSelectionTimeoutMS=200",
+			"database":      "orders",
+			"verifyOnStart": off,
+		},
+	}
+	if err := c.Start(context.Background(), cfg); err != nil {
+		t.Fatalf("Start with verifyOnStart off: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Stop(context.Background()) })
+
+	// The connector is live enough to hand out handles; the block that uses one
+	// is what will discover the server is not there.
+	if _, err := c.Collection("", "orders"); err != nil {
+		t.Errorf("Collection: %v", err)
+	}
+}
+
+// The default is still to fail fast: a typo in a URI should not wait for
+// traffic to surface.
+func TestStartVerifiesByDefault(t *testing.T) {
+	c := &Connector{}
+	cfg := types.ConnectorConfig{
+		Name: "orders-db",
+		Type: connectorType,
+		Settings: types.Settings{
+			"uri": "mongodb://127.0.0.1:9/?serverSelectionTimeoutMS=200",
+		},
+	}
+	if err := c.Start(context.Background(), cfg); err == nil {
+		_ = c.Stop(context.Background())
+		t.Error("expected an unreachable server to fail at startup")
+	}
+}

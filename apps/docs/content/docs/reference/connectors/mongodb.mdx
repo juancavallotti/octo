@@ -23,6 +23,7 @@ The connector opens the client on start and pings the deployment, so a malformed
 | `uri` | string | Yes | — | Connection string, with no password in it: `mongodb://user@host:27017` or `mongodb+srv://user@cluster.example.net`. |
 | `password` | string | No | — | Merged into the URI at startup, so only it has to be a secret — see below. |
 | `database` | string | No | — | Database blocks address when they do not name one of their own. |
+| `verifyOnStart` | bool | No | `true` | Ping the deployment at startup — see below. |
 | `extendedJson` | enum `relaxed`\|`canonical` | No | `relaxed` | How BSON types cross the message boundary — see [BSON and JSON](#bson-and-json). |
 | `maxPoolSize` | int | No | `32` | Connections the pool may open — see [Pool size and workers](#pool-size-and-workers). |
 | `minPoolSize` | int | No | driver default (none) | Connections kept open while idle. |
@@ -48,6 +49,14 @@ connectors:
 The `password` setting is merged into the URI at startup, so the connection string — host, user, replica set, TLS options — can live in plain config and only the credential has to be a secret. Rotating it then touches one value instead of the whole URI. This is the same arrangement the [`database`](/reference/connectors/database) connector uses for its DSN.
 
 A password already embedded in the URI is overridden by the setting, with a warning naming which value the connector used. A password with no username to attach it to is a startup error rather than a connector that starts and authenticates as nobody.
+
+### Verifying at startup
+
+By default the connector pings the deployment when it starts, so a malformed URI, a wrong credential, or an unreachable server fails there rather than on the first message. A typo should not wait for traffic to surface it.
+
+That is a trade rather than a law, and the driver's own documentation names the other side: pinging at startup "reduces application resilience because applications starting up will error if the server is temporarily unavailable or is failing over (e.g. during autoscaling due to a load spike)". A deployment that would rather ride out a failover than refuse to start during one can set `verifyOnStart: false`.
+
+The client is opened either way — only the ping is skipped, so nothing about the connector's later behaviour changes. Turning it off is also what lets a config be built with no server to reach, which is what a [flow test](/testing/writing-cases) needs: the blocks are mocked, but the connector behind them still starts.
 
 ### Pool size and workers
 
