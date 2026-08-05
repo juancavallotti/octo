@@ -81,27 +81,12 @@ func run() error {
 		slog.Info("connected to database pool")
 	}
 
-	extraAnnotations, err := ingressAnnotationsConfig()
+	kubeCfg, err := kubeConfig()
 	if err != nil {
 		return err
 	}
 
-	srv, err := newServer(ctx, database, kube.Config{
-		Namespace:    envOr("KUBE_NAMESPACE", defaultNamespace),
-		RuntimeImage: envOr("RUNTIME_IMAGE", defaultRuntimeImage),
-		BaseDomain:   os.Getenv("BASE_DOMAIN"),
-		// Empty ("") means no TLS annotation and no per-host cert: letsencrypt-prod
-		// only exists because this project's own k3s bootstrap creates it, so it must
-		// not be assumed as a default on an arbitrary cluster.
-		ClusterIssuer:     os.Getenv("CLUSTER_ISSUER"),
-		WildcardTLSSecret: os.Getenv("WILDCARD_TLS_SECRET"),
-		// Empty omits IngressClassName, letting the cluster's default IngressClass
-		// (if any) claim the per-integration Ingress.
-		IngressClass:     os.Getenv("INGRESS_CLASS"),
-		ExtraAnnotations: extraAnnotations,
-		ImagePullSecrets: imagePullSecretsConfig(),
-		RuntimeServices:  runtimeServicesConfig(),
-	})
+	srv, err := newServer(ctx, database, kubeCfg)
 	if err != nil {
 		return err
 	}
@@ -127,10 +112,58 @@ func run() error {
 	}
 }
 
+// kubeConfig reads the cluster facts the deployment path needs from the
+// environment. Everything it rejects is rejected here, before a client exists,
+// so a misconfigured install stops at startup naming the setting rather than
+// producing deployments whose endpoints route nowhere.
+func kubeConfig() (kube.Config, error) {
+	extraAnnotations, err := ingressAnnotationsConfig()
+	if err != nil {
+		return kube.Config{}, err
+	}
+	// Which API publishes per-integration endpoints. Unset is Ingress; an
+	// unrecognised value is an error rather than a silent fall back to it.
+	endpointAPI, err := kube.ParseEndpointAPI(os.Getenv("ENDPOINT_API"))
+	if err != nil {
+		return kube.Config{}, err
+	}
+	namespace := envOr("KUBE_NAMESPACE", defaultNamespace)
+	cfg := kube.Config{
+		Namespace:    namespace,
+		RuntimeImage: envOr("RUNTIME_IMAGE", defaultRuntimeImage),
+		BaseDomain:   os.Getenv("BASE_DOMAIN"),
+		EndpointAPI:  endpointAPI,
+		// Empty ("") means no TLS annotation and no per-host cert: letsencrypt-prod
+		// only exists because this project's own k3s bootstrap creates it, so it must
+		// not be assumed as a default on an arbitrary cluster.
+		ClusterIssuer:     os.Getenv("CLUSTER_ISSUER"),
+		WildcardTLSSecret: os.Getenv("WILDCARD_TLS_SECRET"),
+		// Empty omits IngressClassName, letting the cluster's default IngressClass
+		// (if any) claim the per-integration Ingress.
+		IngressClass:     os.Getenv("INGRESS_CLASS"),
+		ExtraAnnotations: extraAnnotations,
+		// The Gateway per-integration HTTPRoutes attach to, in gateway mode. The
+		// namespace defaults to our own, which is the single-namespace install; a
+		// Gateway run by whoever owns ingress lives elsewhere and says so.
+		Gateway: kube.GatewayRef{
+			Name:        os.Getenv("GATEWAY_NAME"),
+			Namespace:   envOr("GATEWAY_NAMESPACE", namespace),
+			SectionName: os.Getenv("GATEWAY_SECTION_NAME"),
+		},
+		ImagePullSecrets: imagePullSecretsConfig(),
+		RuntimeServices:  runtimeServicesConfig(),
+	}
+	if err := cfg.Validate(); err != nil {
+		return kube.Config{}, err
+	}
+	return cfg, nil
+}
+
 // ingressAnnotationsConfig parses INGRESS_ANNOTATIONS, a JSON object of extra
 // annotations merged onto every per-integration Ingress (e.g. controller-specific
 // body-size or timeout annotations). Unset means none; malformed JSON is a
-// startup error rather than a silently-ignored one.
+// startup error rather than a silently-ignored one. Ignored in gateway mode,
+// where the route carries no controller configuration at all.
 func ingressAnnotationsConfig() (map[string]string, error) {
 	raw := os.Getenv("INGRESS_ANNOTATIONS")
 	if raw == "" {
@@ -290,6 +323,16 @@ func newServer(ctx context.Context, database *db.DB, kc kube.Config) (http.Handl
 		if kubeClient, err := kube.New(kc); err != nil {
 			slog.Warn("kubernetes access unavailable; deployment routes disabled", "error", err)
 		} else {
+			// Being in a cluster is not the same as that cluster being able to serve
+			// the endpoints this install is configured for: Gateway API is CRDs, and
+			// their absence is a startup failure rather than a disabled feature. It is
+			// deliberately not the warn-and-continue above — that one covers running
+			// outside a cluster at all, which is a legitimate way to run the
+			// orchestrator; this one covers a cluster that will never serve what it
+			// was asked for, and only says so at the first exposed deploy.
+			if err := kubeClient.Preflight(ctx); err != nil {
+				return nil, err
+			}
 			deploymentRepo := deployment.NewRepo(database.Pool())
 			deploymentSvc := deployment.NewService(deploymentRepo, integrationSvc, kubeClient,
 				deployment.WithStoreCleaner(kvSvc),
@@ -328,6 +371,9 @@ func newServer(ctx context.Context, database *db.DB, kc kube.Config) (http.Handl
 			slog.Info("deployment routes registered",
 				"namespace", kubeClient.Namespace(), "runtimeImage", kc.RuntimeImage,
 				"baseDomain", kc.BaseDomain, "externalEndpoints", kubeClient.ExternalEnabled(),
+				// Which API publishes those endpoints, and — in gateway mode — what they
+				// attach to. Both are answers you otherwise get by reading the chart.
+				"endpointApi", kc.EndpointAPI, "gateway", kc.Gateway.Name,
 				"nats", os.Getenv("NATS_URL") != "",
 				"endpoints", "POST/GET /integrations/{id}/deployments, GET/DELETE /deployments/{id}")
 

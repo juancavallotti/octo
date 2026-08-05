@@ -10,7 +10,6 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -148,81 +147,19 @@ func (c *Client) Apply(ctx context.Context, spec Spec) error {
 		return fmt.Errorf("kube: ensure internal service: %w", err)
 	}
 
-	// Optional external endpoint: a per-deployment Traefik Ingress with
-	// cert-manager TLS at {subdomain}.{baseDomain}.
+	// Optional external endpoint at {subdomain}.{baseDomain}, published as
+	// whichever object this cluster routes with — see endpoint.go.
 	if spec.Expose && c.baseDomain != "" {
-		if _, err := c.clientset.NetworkingV1().Ingresses(c.namespace).Create(
-			ctx, c.ingress(name, labels, spec), metav1.CreateOptions{}); err != nil {
-			return fmt.Errorf("kube: create ingress: %w", err)
+		if err := c.endpoints.publish(ctx, endpoint{
+			name:   name,
+			host:   c.ExternalHost(spec.Subdomain),
+			port:   spec.port(),
+			labels: labels,
+		}); err != nil {
+			return fmt.Errorf("kube: publish endpoint: %w", err)
 		}
 	}
 	return nil
-}
-
-// ingress builds the per-deployment Ingress: host {subdomain}.{baseDomain} routed
-// to the deployment's Service. TLS comes from the shared wildcard Secret when one
-// is configured; otherwise, if a ClusterIssuer is set, cert-manager issues a
-// per-host cert via its annotation; otherwise the Ingress carries no TLS at all
-// (the cluster terminates TLS elsewhere, or this endpoint is plain HTTP).
-func (c *Client) ingress(name string, labels map[string]string, spec Spec) *networkingv1.Ingress {
-	host := c.ExternalHost(spec.Subdomain)
-	pathType := networkingv1.PathTypePrefix
-
-	// Copy extraAnnotations rather than mutate the shared map, and let the
-	// cert-manager annotation win on key collision.
-	annotations := make(map[string]string, len(c.extraAnnotations)+1)
-	for k, v := range c.extraAnnotations {
-		annotations[k] = v
-	}
-
-	var tls []networkingv1.IngressTLS
-	switch {
-	case c.wildcardTLSSecret != "":
-		// The wildcard cert already covers {subdomain}.{baseDomain}; reference its
-		// Secret and add no cert-manager annotation so no per-host cert is issued.
-		tls = []networkingv1.IngressTLS{{Hosts: []string{host}, SecretName: c.wildcardTLSSecret}}
-	case c.clusterIssuer != "":
-		annotations["cert-manager.io/cluster-issuer"] = c.clusterIssuer
-		tls = []networkingv1.IngressTLS{{Hosts: []string{host}, SecretName: name + "-tls"}}
-	}
-	if len(annotations) == 0 {
-		annotations = nil
-	}
-
-	var ingressClassName *string
-	if c.ingressClass != "" {
-		ic := c.ingressClass
-		ingressClassName = &ic
-	}
-
-	return &networkingv1.Ingress{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        name,
-			Labels:      labels,
-			Annotations: annotations,
-		},
-		Spec: networkingv1.IngressSpec{
-			IngressClassName: ingressClassName,
-			TLS:              tls,
-			Rules: []networkingv1.IngressRule{{
-				Host: host,
-				IngressRuleValue: networkingv1.IngressRuleValue{
-					HTTP: &networkingv1.HTTPIngressRuleValue{
-						Paths: []networkingv1.HTTPIngressPath{{
-							Path:     "/",
-							PathType: &pathType,
-							Backend: networkingv1.IngressBackend{
-								Service: &networkingv1.IngressServiceBackend{
-									Name: name,
-									Port: networkingv1.ServiceBackendPort{Number: spec.port()},
-								},
-							},
-						}},
-					},
-				},
-			}},
-		},
-	}
 }
 
 // ensureInternalService creates the stable "octo-int-{slug}" ClusterIP Service
@@ -557,10 +494,10 @@ func (c *Client) Delete(ctx context.Context, deploymentID string) error {
 	name := resourceName(deploymentID)
 	del := metav1.DeleteOptions{}
 	var errs []error
-	// Ingress is only present for externally-exposed deployments; NotFound is
-	// ignored, so deleting it unconditionally is safe.
-	if err := c.clientset.NetworkingV1().Ingresses(c.namespace).Delete(ctx, name, del); ignoreNotFound(err) != nil {
-		errs = append(errs, fmt.Errorf("delete ingress: %w", err))
+	// The endpoint object exists only for externally-exposed deployments; the
+	// publisher ignores NotFound, so withdrawing unconditionally is safe.
+	if err := c.endpoints.withdraw(ctx, name); err != nil {
+		errs = append(errs, err)
 	}
 	if err := c.clientset.AppsV1().Deployments(c.namespace).Delete(ctx, name, del); ignoreNotFound(err) != nil {
 		errs = append(errs, fmt.Errorf("delete deployment: %w", err))
