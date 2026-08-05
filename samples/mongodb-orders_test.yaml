@@ -1,0 +1,81 @@
+flow: orders
+
+# There is no in-memory MongoDB, and a mock replaces the BLOCK, not the connector
+# behind it — so the connector still starts, and by default that means it pings a
+# server these cases have no reason to require. verifyOnStart: false is what lets
+# the config be built without one; the blocks are mocked, so nothing is sent
+# anywhere either way.
+#
+# The last case is the exception, and the reason this suite is worth having: it
+# unmocks the block and points the connector at a refused port, so reaching a
+# dial failure is proof the block really resolved its connector and issued the
+# call. A mocked block could not produce that error.
+env:
+  MONGODB_VERIFY_ON_START: "false"
+
+# The source is http, and sources do not run under invoke, so vars.method — which
+# the switch routes on — has to be seeded here the way the http source would.
+inputs:
+  post:
+    data: { sku: A1, qty: 2, price: 10 }
+    vars: { method: POST }
+  get:
+    vars: { method: GET }
+
+cases:
+  - name: a POST stores the request body as a document
+    input: post
+    mocks:
+      # A switch's cases are addressed by name, or by index when they have none.
+      orders.route-by-method[0].insert-order:
+        default:
+          body:
+            insertedCount: 1
+            insertedIds:
+              - { $oid: 66b0f1a2c3d4e5f60718293a }
+    expect:
+      body:
+        insertedCount: 1
+        insertedIds:
+          - { $oid: 66b0f1a2c3d4e5f60718293a }
+    spies:
+      orders.route-by-method[0].insert-order:
+        count: 1
+        records:
+          # What the flow was about to write is the thing worth pinning. The
+          # document is the request body unchanged — that is the claim this
+          # sample exists to make, and a regression that mapped or dropped a
+          # field would still return the mocked ids and pass without this.
+          - input:
+              body: { sku: A1, qty: 2, price: 10 }
+
+  - name: a GET lists the documents as an array
+    input: get
+    mocks:
+      orders.route-by-method[1].list-orders:
+        default:
+          body:
+            - { _id: { $oid: 66b0f1a2c3d4e5f60718293a }, sku: A1, qty: 2, price: 10 }
+    expect:
+      body:
+        - { _id: { $oid: 66b0f1a2c3d4e5f60718293a }, sku: A1, qty: 2, price: 10 }
+
+  - name: an unsupported method is refused without touching the collection
+    input:
+      vars: { method: DELETE }
+    spies:
+      orders.route-by-method[0].insert-order:
+        count: 0
+      orders.route-by-method[1].list-orders:
+        count: 0
+    expect:
+      body: { error: method DELETE not supported }
+
+  - name: the insert really reaches MongoDB, and an unreachable server fails the flow
+    input: post
+    env:
+      # Nothing listens on the discard port, and the short server-selection
+      # timeout keeps the case quick. The block is deliberately NOT mocked here.
+      MONGODB_URI: mongodb://127.0.0.1:9/?serverSelectionTimeoutMS=300
+    expect:
+      error: "mongodb-insert"

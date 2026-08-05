@@ -1,0 +1,369 @@
+---
+title: "MongoDB"
+description: "The MongoDB document store connector and its find/insert/update/delete/aggregate blocks."
+octo_types:
+  - mongodb
+  - mongodb-find
+  - mongodb-insert
+  - mongodb-update
+  - mongodb-delete
+  - mongodb-aggregate
+---
+
+The `mongodb` connector owns a MongoDB client — the connection string, credentials, and pool — and the `mongodb-*` blocks bind to it by name. It is the document-store counterpart to [`database`](/reference/connectors/database): where a row needs an explicit column mapping in and out, a message body is already a document, so storing a webhook payload is one block rather than a schema exercise.
+
+**Provides a source:** no — it is a service connector. **Blocks that bind to it:** `mongodb-find`, `mongodb-insert`, `mongodb-update`, `mongodb-delete`, `mongodb-aggregate`.
+
+## `mongodb` connector
+
+The connector opens the client on start and pings the deployment, so a malformed URI, a wrong credential, or an unreachable server fails at startup rather than on the first message. It disconnects on stop.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `uri` | string | Yes | — | Connection string, with no password in it: `mongodb://user@host:27017` or `mongodb+srv://user@cluster.example.net`. |
+| `password` | string | No | — | Merged into the URI at startup, so only it has to be a secret — see below. |
+| `database` | string | No | — | Database blocks address when they do not name one of their own. |
+| `verifyOnStart` | bool | No | `true` | Ping the deployment at startup — see below. |
+| `extendedJson` | enum `relaxed`\|`canonical` | No | `relaxed` | How BSON types cross the message boundary — see [BSON and JSON](#bson-and-json). |
+| `maxPoolSize` | int | No | `32` | Connections the pool may open — see [Pool size and workers](#pool-size-and-workers). |
+| `minPoolSize` | int | No | driver default (none) | Connections kept open while idle. |
+| `maxConnIdleTime` | string | No | driver default (forever) | How long an idle connection is kept before it is closed, e.g. `5m`. |
+| `timeout` | string | No | `30s` | Ceiling on a single operation, server selection included. |
+
+```yaml
+env:
+  - name: MONGODB_PASSWORD
+    required: true
+
+connectors:
+  - name: orders-db
+    type: mongodb
+    settings:
+      uri: mongodb://app@db.internal:27017     # no secret here
+      password: ${MONGODB_PASSWORD}            # the only secret
+      database: orders
+```
+
+### Keeping only the password secret
+
+The `password` setting is merged into the URI at startup, so the connection string — host, user, replica set, TLS options — can live in plain config and only the credential has to be a secret. Rotating it then touches one value instead of the whole URI. This is the same arrangement the [`database`](/reference/connectors/database) connector uses for its DSN.
+
+A password already embedded in the URI is overridden by the setting, with a warning naming which value the connector used. A password with no username to attach it to is a startup error rather than a connector that starts and authenticates as nobody.
+
+### Verifying at startup
+
+By default the connector pings the deployment when it starts, so a malformed URI, a wrong credential, or an unreachable server fails there rather than on the first message. A typo should not wait for traffic to surface it.
+
+That is a trade rather than a law, and the driver's own documentation names the other side: pinging at startup "reduces application resilience because applications starting up will error if the server is temporarily unavailable or is failing over (e.g. during autoscaling due to a load spike)". A deployment that would rather ride out a failover than refuse to start during one can set `verifyOnStart: false`.
+
+The client is opened either way — only the ping is skipped, so nothing about the connector's later behaviour changes. Turning it off is also what lets a config be built with no server to reach, which is what a [flow test](/testing/writing-cases) needs: the blocks are mocked, but the connector behind them still starts.
+
+### Pool size and workers
+
+`maxPoolSize` defaults to **32** because that is the worker count a flow gets by default — `max(8, GOMAXPROCS × 4)`, i.e. 32 on an eight-core host — so every worker of one flow can hold a checked-out connection instead of queueing on the pool. The driver's own default is 100, a number chosen with no knowledge of how much concurrency will actually arrive.
+
+The connector cannot see which flows bind to it, so this is a starting point, not a derivation. Raise it when several flows share one connector; lower it when many runtime replicas point at a small server. A flow that sets its own `workers:` should be read alongside it.
+
+A setting always wins over the same option spelled in the connection string, so there is one place to override whatever the URI says. A default only fills a gap neither of them filled: a URI carrying `?maxPoolSize=50` keeps its 50.
+
+### BSON and JSON
+
+BSON has types JSON does not: `ObjectId`, dates, `Decimal128`, and true 64-bit integers. Rather than flatten them — which would mean a document you read could not be handed back as a filter — this connector renders documents as [MongoDB Extended JSON v2](https://www.mongodb.com/docs/manual/reference/mongodb-extended-json/) in both directions.
+
+In **relaxed** mode (the default), ordinary values stay plain JSON and only the types that need it are wrapped:
+
+```json
+{
+  "_id":     { "$oid": "66b0f1a2c3d4e5f60718293a" },
+  "created": { "$date": "2026-08-04T10:00:00Z" },
+  "sku":     "A1",
+  "qty":     2
+}
+```
+
+The point is symmetry. That `_id` goes straight back into a filter as the shape it came out as:
+
+```yaml
+filter: '{"_id": {"$oid": body._id["$oid"]}}'
+```
+
+In **canonical** mode every value is typed — `{"$numberLong": "1500"}`, `{"$numberInt": "2"}` — which loses nothing at all, at the cost of turning every number into an object you have to reach into from CEL. Set `extendedJson: canonical` when documents carry `Decimal128` money or integer IDs above 2⁵³; leave it relaxed otherwise.
+
+Input is parsed leniently in both modes, so a filter written in either form is accepted regardless of how results are rendered.
+
+Two things to know when writing filters and documents as [expressions](/concepts/expressions):
+
+- CEL numbers are doubles, so an integer literal above 2⁵³ cannot be written directly. Write it as `{"$numberLong": "9007199254740993"}` — a string the driver parses exactly.
+- A date written unquoted in YAML is parsed as a timestamp and reaches the block as an RFC 3339 string. Quote it, or write it as `{"$date": "2026-08-04T10:00:00Z"}`.
+
+### Addressing, and results
+
+Every block names its `collection` as a CEL [expression](/concepts/expressions), and may name a `database` the same way — a flow serving several tenants routes `body.tenantId` (or similar) to a different collection per message, which a connector-wide constant could not do. An unset `database` uses the connector's.
+
+And every block follows one rule for its result: **it becomes the message body**, unless you name a `resultVar`, in which case it goes there and the body is left alone. The body is the default because the result is usually the payload — an HTTP flow that ends in a find should answer with the documents. Naming a variable is how you say "keep the body I came in with".
+
+### Result size, and paging
+
+A read materialises its whole result. The documents come off the cursor into a list, that list is rendered as extended JSON, and the JSON becomes the body — nothing streams. So a read costs memory in proportion to what the query *matched*, not to what the flow goes on to use, and both read blocks return everything matched when no `limit` is set. Set one on any collection that can grow.
+
+That is a ceiling, though, not paging — and **there is no paging built into these blocks**, which is a gap rather than a position. Two pieces are missing, for different reasons:
+
+- **Cursor paging** — a continuation token a flow hands back to ask for the next page — has nowhere to live. A MongoDB cursor is server-side state with a lifetime and an owning connection, and a flow is neither a session nor pinned to a connection.
+- **Offset paging** is merely awkward: `limit` and `skip` are plain integers, so they configure the *block* and cannot be computed from the message. A flow answering `GET /orders?page=2` cannot express that skip through `mongodb-find` today. Making those fields expressions is a small change, and the obvious way to close this.
+
+Two shapes work now, and neither needs anything added. `mongodb-aggregate`'s `pipeline` is one expression, so `$skip` and `$limit` are computed per message inside it — which is also why that block's `limit` setting is a safety ceiling rather than the paging mechanism:
+
+```yaml
+  - type: mongodb-aggregate
+    settings:
+      connector: orders-db
+      collection: '"orders"'
+      pipeline: |
+        [
+          {"$match": {"customer": vars.customerId}},
+          {"$sort": [{"_id": 1}]},
+          {"$skip": ("page" in vars.query ? int(vars.query.page) : 0) * 50},
+          {"$limit": 50}
+        ]
+```
+
+And range paging works with `mongodb-find` as it stands, because `filter` already is an expression — carry the last `_id` of a page into the next request and the skip becomes a match:
+
+```yaml
+  - type: mongodb-find
+    settings:
+      connector: orders-db
+      collection: '"orders"'
+      filter: '"after" in vars.query ? {"_id": {"$gt": {"$oid": vars.query.after}}} : {}'
+      sort: '[{"_id": 1}]'
+      limit: 50
+```
+
+Prefer the second on a large collection either way: `$skip` walks the documents it skips, so page 500 costs what pages 1 to 500 cost together, while a range match seeks straight to the key. Both need a stable sort, or consecutive pages overlap and drop documents.
+
+## `mongodb-find` block
+
+Read documents from a collection. Without `single`, the result is a list — `[]` when nothing matched, never `null`, so a [foreach](/reference/blocks/control-flow) over the body gets zero iterations rather than a type error.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `connector` | string | Yes | — | Name of the `mongodb` connector to use. |
+| `collection` | CEL | Yes | — | Collection to read from. |
+| `database` | CEL | No | the connector's | Database to read from. |
+| `filter` | CEL | No | match everything | Query filter. |
+| `projection` | CEL | No | whole documents | Fields to return, e.g. `{"sku": 1, "_id": 0}`. |
+| `sort` | CEL | No | unsorted | Sort order — see below. |
+| `limit` | int | No | all | Most documents to return — see [Result size, and paging](#result-size-and-paging). |
+| `skip` | int | No | `0` | Documents to skip before returning any. |
+| `single` | bool | No | `false` | Return the first match rather than a list. |
+| `resultVar` | string | No | — | Store the result here instead of in the body. |
+
+```yaml
+process:
+  - type: mongodb-find
+    settings:
+      connector: orders-db
+      collection: '"orders"'
+      filter: '{"status": "open", "customer": body.customerId}'
+      sort: '[{"created": -1}]'
+      limit: 20
+```
+
+With `single: true` the block returns the first matching document rather than a list, and **null when nothing matched** — an ordinary answer a flow branches on, not an error. This mirrors the [`sql`](/reference/connectors/database) block's `single`.
+
+```yaml
+  - type: mongodb-find
+    settings:
+      connector: orders-db
+      collection: '"orders"'
+      filter: '{"_id": {"$oid": body.orderId}}'
+      single: true
+```
+
+### Sorting by more than one key
+
+MongoDB applies sort keys in the order they are written, and a CEL object cannot carry that order — CEL maps are unordered, and the JSON on the way to BSON sorts keys alphabetically. So a multi-key object is **refused at runtime** rather than silently reordered; write a list of single-key objects instead:
+
+```yaml
+sort: '[{"created": -1}, {"sku": 1}]'     # created descending, then sku ascending
+sort: '{"created": -1}'                   # fine: one key has no order to lose
+sort: '{"created": -1, "sku": 1}'         # error: which key sorts first is unknowable
+```
+
+## `mongodb-insert` block
+
+Write documents into a collection. `document` decides how many by what it evaluates to: an object writes one, a list of objects writes them all. The value already says which, so there is no mode setting to keep in sync with it.
+
+Because a message body is already a document, storing an inbound payload is `document: body`.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `connector` | string | Yes | — | Name of the `mongodb` connector to use. |
+| `collection` | CEL | Yes | — | Collection to write to. |
+| `database` | CEL | No | the connector's | Database to write to. |
+| `document` | CEL | Yes | — | An object, or a list of objects. |
+| `unordered` | bool | No | `false` | Keep going after a document fails, rather than stopping at the first. Lists only. |
+| `resultVar` | string | No | — | Store the result here instead of in the body. |
+
+```yaml
+process:
+  - type: mongodb-insert
+    settings:
+      connector: orders-db
+      collection: '"orders"'
+      document: body
+```
+
+The result is `{insertedCount, insertedIds}`. `insertedIds` is always a list, even for one document, so a flow reading it does not have to branch on how many were written — and the ids are rendered as extended JSON, so an `_id` the server generated comes back in the shape a filter takes:
+
+```yaml
+  - type: mongodb-insert
+    settings:
+      connector: orders-db
+      collection: '"orders"'
+      document: body
+      resultVar: written
+  - type: mongodb-find
+    settings:
+      connector: orders-db
+      collection: '"orders"'
+      filter: '{"_id": vars.written.insertedIds[0]}'    # no conversion needed
+      single: true
+```
+
+An empty list inserts nothing and returns `{insertedCount: 0, insertedIds: []}` rather than failing, so a flow inserting whatever it filtered out of a payload keeps working on the day the payload filters down to nothing.
+
+A batch that fails may still have written part of itself — always with `unordered: true`, and up to the failing document without it. The flow fails either way, but the error says how many landed, because "insert failed" and "insert half-failed" call for different recoveries.
+
+## `mongodb-update` block
+
+Modify documents in a collection, and optionally insert one when the filter matches nothing — the upsert shape most integrations actually want.
+
+Set **either** `update` **or** `replacement`, never both. They are different operations wearing similar clothes: an `update` applies operators to the document that is there, a `replacement` discards it and puts a new one in its place, keeping only the `_id`. Configuring both, or neither, is a startup error rather than a per-message guess.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `connector` | string | Yes | — | Name of the `mongodb` connector to use. |
+| `collection` | CEL | Yes | — | Collection to write to. |
+| `database` | CEL | No | the connector's | Database to write to. |
+| `filter` | CEL | Yes | — | Selects the documents to modify. |
+| `update` | CEL | One of | — | Operators to apply, or an aggregation pipeline. |
+| `replacement` | CEL | One of | — | A whole document to put in place of the matched one. |
+| `upsert` | bool | No | `false` | Insert a document when the filter matches nothing. |
+| `many` | bool | No | `false` | Modify every match rather than the first. Not available with `replacement`. |
+| `resultVar` | string | No | — | Store the result here instead of in the body. |
+
+```yaml
+process:
+  - type: mongodb-update
+    settings:
+      connector: orders-db
+      collection: '"orders"'
+      filter: '{"sku": body.sku}'
+      update: '{"$set": {"status": "shipped", "shippedAt": now}}'
+      upsert: true
+```
+
+An `update` must use operators. A plain object is refused, naming the fix — MongoDB's own error for this mentions the first field name and says nothing about the mistake actually made:
+
+```yaml
+update: '{"$set": {"qty": body.qty}}'   # correct
+update: '{"qty": body.qty}'             # error: wrap it in $set, or use replacement
+```
+
+An `update` may also be an aggregation pipeline, which is a list of stages — that is how one field is computed from others in the same document:
+
+```yaml
+update: '[{"$set": {"total": {"$multiply": ["$qty", "$price"]}}}]'
+```
+
+`many: true` is not available with `replacement`, matching the driver: writing the same document over every match, `_id` apart, is not something anyone means.
+
+The result is `{matchedCount, modifiedCount, upsertedCount, upsertedId}`. `matchedCount` and `modifiedCount` differ when an update sets a field to the value it already held — "nothing matched" and "nothing changed" are different bugs, so both are reported. `upsertedId` is present and null when no upsert happened, rather than absent, and carries the same `{"$oid": ...}` shape a filter takes.
+
+## `mongodb-delete` block
+
+Remove documents from a collection. The result is `{deletedCount}`.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `connector` | string | Yes | — | Name of the `mongodb` connector to use. |
+| `collection` | CEL | Yes | — | Collection to delete from. |
+| `database` | CEL | No | the connector's | Database to delete from. |
+| `filter` | CEL | Yes | — | Selects the documents to remove. |
+| `many` | bool | No | `false` | Remove every match rather than the first. |
+| `deleteAll` | bool | No | `false` | Allow a filter that matches everything — see below. |
+| `resultVar` | string | No | — | Store the result here instead of in the body. |
+
+```yaml
+process:
+  - type: mongodb-delete
+    settings:
+      connector: orders-db
+      collection: '"orders"'
+      filter: '{"_id": {"$oid": body.orderId}}'
+```
+
+### Deleting everything is opt-in
+
+A `filter` that evaluates to `{}` matches every document, so `many: true` with an empty filter would empty the collection. That is refused unless `deleteAll: true` says it was meant.
+
+The guard exists because the filter is an expression, and an empty one is rarely written on purpose — it is what `{"customer": body.customerId}` collapses to when the message doesn't carry `customerId`, and CEL will happily build an object out of nothing. No error afterwards can undo the result.
+
+```yaml
+# refused: nothing here says emptying the collection was the intent
+filter: '{}'
+many: true
+
+# allowed: the flow said so
+filter: '{}'
+many: true
+deleteAll: true
+```
+
+Deleting a single document is not guarded: the blast radius is one document, and "delete the oldest" is a real thing to ask for. And `filter` is required even with `deleteAll` — "match everything" should be something a flow says, not something it omits.
+
+## `mongodb-aggregate` block
+
+Run an aggregation pipeline over a collection. The resulting documents become the body, the same way a find's do.
+
+A pipeline is JSON, which is what makes it worth expressing in a definition rather than hiding behind settings: the stages you would type into `mongosh` are the stages you write here, with `body` and `vars` reachable inside them.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `connector` | string | Yes | — | Name of the `mongodb` connector to use. |
+| `collection` | CEL | Yes | — | Collection to aggregate over. |
+| `database` | CEL | No | the connector's | Database to read from. |
+| `pipeline` | CEL | Yes | — | A list of stages. |
+| `limit` | int | No | all | Most documents to return, as a final `$limit` stage — see [Result size, and paging](#result-size-and-paging). |
+| `resultVar` | string | No | — | Store the documents here instead of in the body. |
+
+```yaml
+process:
+  - type: mongodb-aggregate
+    settings:
+      connector: orders-db
+      collection: '"orders"'
+      pipeline: |
+        [
+          {"$match": {"customer": body.customerId}},
+          {"$group": {"_id": "$sku", "total": {"$sum": "$qty"}}},
+          {"$sort": {"total": -1}}
+        ]
+```
+
+`pipeline` must evaluate to a **list**, even for one stage. A bare stage object is refused against the field, rather than becoming a driver error further down.
+
+`limit` is appended to the pipeline as a final `$limit`, so the server stops producing documents rather than the block reading and discarding them. A pipeline that already ends in its own `$limit` is unaffected — the smaller of the two wins, as either alone would have. A pipeline ending in `$out` or `$merge` cannot take one: those stages must themselves be last, and return no documents to bound, so the combination is refused rather than left to the server to complain about.
+
+### `$sort` inside a pipeline
+
+A `$sort` stage has the same key-order problem as the `mongodb-find` `sort` setting, and the same answer: sorting by more than one key needs the list form, and a multi-key object is refused.
+
+```yaml
+pipeline: '[{"$sort": [{"total": -1}, {"sku": 1}]}]'    # order preserved
+pipeline: '[{"$sort": {"total": -1}}]'                  # fine: one key
+pipeline: '[{"$sort": {"total": -1, "sku": 1}}]'        # error: order unknowable
+```
+
+The list form is an Octo spelling — MongoDB's own `$sort` takes only an object — and it is rewritten into an ordered document before the pipeline is sent. It applies to top-level `$sort` stages; a `$sort` nested inside `$facet` or a `$lookup` sub-pipeline is passed through untouched and carries the caveat.

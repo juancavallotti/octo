@@ -28,6 +28,7 @@ import {
   FileText,
   Box,
   ScatterChart,
+  Leaf,
   type LucideIcon,
 } from "lucide-react";
 import { SlackIcon } from "./slack-icon";
@@ -112,6 +113,10 @@ const ICONS: Record<string, LucideIcon> = {
   Notion: NotionIcon,
   Mcp: McpIcon,
   Pinecone: PineconeIcon,
+  // MongoDB has no lucide brand icon, and an approximated one would be
+  // trademark artwork nobody verified. Leaf is the nearest honest stand-in —
+  // it echoes the shape of MongoDB's own mark without claiming to be it.
+  Leaf,
 };
 
 /** Resolve a block's icon name to a component, falling back to a generic box. */

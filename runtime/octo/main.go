@@ -16,6 +16,7 @@ import (
 	_ "github.com/juancavallotti/octo/runtime/connectors/llm/gemini"    // registers the "llm-gemini" connector
 	_ "github.com/juancavallotti/octo/runtime/connectors/llm/openai"    // registers the "llm-openai" connector
 	_ "github.com/juancavallotti/octo/runtime/connectors/logger"        // registers the "logger" connector and "log" block
+	_ "github.com/juancavallotti/octo/runtime/connectors/mongodb"       // registers the "mongodb" connector and its blocks
 	_ "github.com/juancavallotti/octo/runtime/connectors/notion"        // registers the "notion" connector and its blocks
 	_ "github.com/juancavallotti/octo/runtime/connectors/pinecone"      // registers the "pinecone" connector and its blocks
 	_ "github.com/juancavallotti/octo/runtime/connectors/queue"         // registers the "queue" connector + source and the "queue-dispatch" block

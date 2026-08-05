@@ -1,0 +1,167 @@
+service:
+  name: mongodb-orders
+
+# This sample wires an HTTP API to a MongoDB collection. It is the document-store
+# counterpart to db-orders.yaml: compare the two and the difference is the point.
+# Where the SQL sample spells out columns and placeholders in both directions,
+# storing a request body here is `document: body` — a message body already is a
+# document.
+#
+# Unlike db-orders it needs a server, since there is no in-memory MongoDB. One
+# container is enough:
+#
+#   docker run -d --rm -p 27017:27017 --name octo-mongo mongo:7
+#   task run:sample -- mongodb-orders.yaml
+#
+#   # create an order — the response carries the _id MongoDB generated:
+#   curl -s -X POST localhost:8080/api/v1/orders \
+#     -H 'X-Request-Id: req-1' -d '{"sku":"A1","qty":2,"price":10}'
+#   # list them:
+#   curl -s localhost:8080/api/v1/orders
+#   # read one back by pasting the id from the POST, unchanged:
+#   curl -s 'localhost:8080/api/v1/orders/66b0f1a2c3d4e5f60718293a'
+#   # what each sku is worth, computed by the server:
+#   curl -s localhost:8080/api/v1/orders/totals
+#
+# The round trip is the thing to notice. The POST answers with
+# {"$oid": "66b0..."}, and that value goes straight back into a filter as the
+# shape it came out as. Nothing converts it, because documents cross the message
+# boundary as MongoDB Extended JSON in both directions.
+#
+# Tear down with: docker rm -f octo-mongo
+
+env:
+  - name: HTTP_HOST
+    default: 0.0.0.0
+  - name: HTTP_PORT
+    default: "8080"
+  - name: HTTP_BASE_PATH
+    default: /api/v1
+  - name: MONGODB_URI
+    default: mongodb://localhost:27017
+  - name: MONGODB_DATABASE
+    default: octo-samples
+  # True in production: an unreachable server should fail at startup rather than
+  # on the first request. The suite overrides it, because a mock replaces the
+  # BLOCK and the connector behind it still starts.
+  - name: MONGODB_VERIFY_ON_START
+    default: "true"
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      host: ${HTTP_HOST}
+      port: ${HTTP_PORT}
+      basePath: ${HTTP_BASE_PATH}
+      requestTimeout: 5s
+  - name: orders-db
+    type: mongodb
+    settings:
+      uri: ${MONGODB_URI}
+      database: ${MONGODB_DATABASE}
+      verifyOnStart: ${MONGODB_VERIFY_ON_START}
+      # Four, not the default 32: this sample runs four workers per flow, and a
+      # pool larger than the concurrency reaching it is just idle sockets.
+      maxPoolSize: 4
+  - name: debug
+    type: logger
+    settings:
+      format: json
+      level: debug
+
+flows:
+  # --- Collection: /orders. One path serves POST (create) and GET (list), so we
+  #     route on the method here rather than declaring two flows that would
+  #     collide on the shared mux — same reasoning as db-orders.yaml. ---
+  - name: orders
+    workers: 4
+    buffer: 64
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /orders
+        correlationIdHeader: X-Request-Id
+    process:
+      - type: switch
+        name: route-by-method
+        cases:
+          # POST: store the request body as-is. This is the whole pitch — no
+          # column list, no placeholder ordering, no mapping back out.
+          - when: 'vars.method == "POST"'
+            process:
+              - type: log
+                settings:
+                  logger: debug
+                  level: debug
+                  message: '"storing order: " + body.sku'
+              - type: mongodb-insert
+                name: insert-order
+                settings:
+                  connector: orders-db
+                  collection: '"orders"'
+                  document: body
+          # GET: every order, newest first.
+          - when: 'vars.method == "GET"'
+            process:
+              - type: mongodb-find
+                name: list-orders
+                settings:
+                  connector: orders-db
+                  collection: '"orders"'
+                  sort: '[{"_id": -1}]'
+                  limit: 50
+        default:
+          process:
+            - type: set-payload
+              name: method-not-supported
+              settings:
+                value: '{"error": "method " + vars.method + " not supported"}'
+
+  # --- Read: GET /orders/{id} returns the matching document, or null.
+  #     vars.id is the hex string from the URL, so it becomes an ObjectId the
+  #     way any id read out of a body would: wrapped in $oid. ---
+  - name: orders-get
+    workers: 4
+    buffer: 64
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /orders/{id}
+        correlationIdHeader: X-Request-Id
+    process:
+      - type: mongodb-find
+        name: select-order
+        settings:
+          connector: orders-db
+          collection: '"orders"'
+          filter: '{"_id": {"$oid": vars.id}}'
+          single: true
+
+  # --- Aggregate: GET /orders/totals sums each sku's value on the server.
+  #     A pipeline is JSON, so it is written here the way it would be typed
+  #     into mongosh. ---
+  - name: orders-totals
+    workers: 4
+    buffer: 64
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /orders/totals
+        correlationIdHeader: X-Request-Id
+    process:
+      - type: mongodb-aggregate
+        name: total-by-sku
+        settings:
+          connector: orders-db
+          collection: '"orders"'
+          pipeline: |
+            [
+              {"$group": {"_id": "$sku",
+                          "orders": {"$sum": 1},
+                          "value": {"$sum": {"$multiply": ["$qty", "$price"]}}}},
+              {"$sort": [{"value": -1}, {"_id": 1}]}
+            ]
