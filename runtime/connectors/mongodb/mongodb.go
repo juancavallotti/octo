@@ -38,6 +38,7 @@ func init() {
 	registerConnector()
 	registerFind()
 	registerInsert()
+	registerUpdate()
 }
 
 func registerConnector() {

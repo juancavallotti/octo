@@ -5,11 +5,12 @@ octo_types:
   - mongodb
   - mongodb-find
   - mongodb-insert
+  - mongodb-update
 ---
 
 The `mongodb` connector owns a MongoDB client — the connection string, credentials, and pool — and the `mongodb-*` blocks bind to it by name. It is the document-store counterpart to [`database`](/reference/connectors/database): where a row needs an explicit column mapping in and out, a message body is already a document, so storing a webhook payload is one block rather than a schema exercise.
 
-**Provides a source:** no — it is a service connector. **Blocks that bind to it:** `mongodb-find`, `mongodb-insert`.
+**Provides a source:** no — it is a service connector. **Blocks that bind to it:** `mongodb-find`, `mongodb-insert`, `mongodb-update`.
 
 ## `mongodb` connector
 
@@ -183,3 +184,49 @@ The result is `{insertedCount, insertedIds}`. `insertedIds` is always a list, ev
 An empty list inserts nothing and returns `{insertedCount: 0, insertedIds: []}` rather than failing, so a flow inserting whatever it filtered out of a payload keeps working on the day the payload filters down to nothing.
 
 A batch that fails may still have written part of itself — always with `unordered: true`, and up to the failing document without it. The flow fails either way, but the error says how many landed, because "insert failed" and "insert half-failed" call for different recoveries.
+
+## `mongodb-update` block
+
+Modify documents in a collection, and optionally insert one when the filter matches nothing — the upsert shape most integrations actually want.
+
+Set **either** `update` **or** `replacement`, never both. They are different operations wearing similar clothes: an `update` applies operators to the document that is there, a `replacement` discards it and puts a new one in its place, keeping only the `_id`. Configuring both, or neither, is a startup error rather than a per-message guess.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `connector` | string | Yes | — | Name of the `mongodb` connector to use. |
+| `collection` | CEL | Yes | — | Collection to write to. |
+| `database` | CEL | No | the connector's | Database to write to. |
+| `filter` | CEL | Yes | — | Selects the documents to modify. |
+| `update` | CEL | One of | — | Operators to apply, or an aggregation pipeline. |
+| `replacement` | CEL | One of | — | A whole document to put in place of the matched one. |
+| `upsert` | bool | No | `false` | Insert a document when the filter matches nothing. |
+| `many` | bool | No | `false` | Modify every match rather than the first. Not available with `replacement`. |
+| `resultVar` | string | No | — | Store the result here instead of in the body. |
+
+```yaml
+process:
+  - type: mongodb-update
+    settings:
+      connector: orders-db
+      collection: '"orders"'
+      filter: '{"sku": body.sku}'
+      update: '{"$set": {"status": "shipped", "shippedAt": now}}'
+      upsert: true
+```
+
+An `update` must use operators. A plain object is refused, naming the fix — MongoDB's own error for this mentions the first field name and says nothing about the mistake actually made:
+
+```yaml
+update: '{"$set": {"qty": body.qty}}'   # correct
+update: '{"qty": body.qty}'             # error: wrap it in $set, or use replacement
+```
+
+An `update` may also be an aggregation pipeline, which is a list of stages — that is how one field is computed from others in the same document:
+
+```yaml
+update: '[{"$set": {"total": {"$multiply": ["$qty", "$price"]}}}]'
+```
+
+`many: true` is not available with `replacement`, matching the driver: writing the same document over every match, `_id` apart, is not something anyone means.
+
+The result is `{matchedCount, modifiedCount, upsertedCount, upsertedId}`. `matchedCount` and `modifiedCount` differ when an update sets a field to the value it already held — "nothing matched" and "nothing changed" are different bugs, so both are reported. `upsertedId` is present and null when no upsert happened, rather than absent, and carries the same `{"$oid": ...}` shape a filter takes.
