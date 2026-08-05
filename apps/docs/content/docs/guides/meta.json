@@ -4,6 +4,7 @@
     "rest-api",
     "call-external-apis",
     "database-crud",
+    "mongodb-documents",
     "scheduled-jobs",
     "transforming-data",
     "splitting-and-aggregating",

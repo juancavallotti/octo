@@ -1,0 +1,172 @@
+---
+title: "MongoDB Documents"
+description: "Store and query JSON documents with the mongodb connector."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+In this guide you wire an HTTP API to a MongoDB collection: store request bodies
+as documents, read them back by id, list them, and total them with an
+aggregation. It follows
+[`samples/mongodb-orders.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/mongodb-orders.yaml).
+
+It is worth reading beside [Database CRUD](/guides/database-crud), which builds
+the same API over SQL. The difference is the point: a row needs an explicit
+column mapping in each direction, while a message body already *is* a document.
+
+Unlike most samples this one needs a server, since there is no in-memory
+MongoDB. One container is enough:
+
+```bash
+docker run -d --rm -p 27017:27017 --name octo-mongo mongo:7
+task run:sample -- mongodb-orders.yaml
+```
+
+## Declare the connector
+
+The [`mongodb`](/reference/connectors/mongodb) connector owns the client. Only
+`uri` is required; `database` is the default the blocks address when they do not
+name one of their own.
+
+```yaml
+connectors:
+  - name: orders-db
+    type: mongodb
+    settings:
+      uri: ${MONGODB_URI}
+      database: ${MONGODB_DATABASE}
+      maxPoolSize: 4
+```
+
+`maxPoolSize` is 4 here rather than the default 32 because the sample's flows run
+four workers each, and a pool larger than the concurrency reaching it is just
+idle sockets. The default is sized to the worker count a flow gets when it does
+not choose one.
+
+<Callout>
+Keep the password out of the URI. The connector takes it as its own `password`
+setting and merges it in at startup, so the connection string stays plain
+config and only the credential is a secret.
+</Callout>
+
+## Store the request body
+
+This is the whole pitch, and it is one block:
+
+```yaml
+      - type: mongodb-insert
+        name: insert-order
+        settings:
+          connector: orders-db
+          collection: '"orders"'
+          document: body
+```
+
+`collection` is a CEL [expression](/concepts/expressions), not a constant, so a
+flow serving several tenants can route to a different collection per message.
+That is why it is quoted twice — `'"orders"'` is the expression *string
+literal* `orders`.
+
+`document` decides one-versus-many by what it evaluates to: an object writes one
+document, a list writes them all. Posting an order answers with the ids MongoDB
+generated:
+
+```console
+$ curl -s -X POST localhost:8080/api/v1/orders -d '{"sku":"A1","qty":2,"price":10}'
+{"insertedCount":1,"insertedIds":[{"$oid":"6a72e1e21393cc3cf3cb59a2"}]}
+```
+
+## Read it back without converting anything
+
+That `{"$oid": ...}` is not decoration. Documents cross the message boundary as
+[MongoDB Extended JSON](/reference/connectors/mongodb#bson-and-json), in both
+directions, so the id you just read out of a response goes straight back into a
+filter as the shape it came out as:
+
+```yaml
+      - type: mongodb-find
+        name: select-order
+        settings:
+          connector: orders-db
+          collection: '"orders"'
+          filter: '{"_id": {"$oid": vars.id}}'
+          single: true
+```
+
+```console
+$ curl -s localhost:8080/api/v1/orders/6a72e1e21393cc3cf3cb59a2
+{"_id":{"$oid":"6a72e1e21393cc3cf3cb59a2"},"price":10,"qty":2,"sku":"A1"}
+```
+
+`single: true` returns the document rather than a list, and **null** when
+nothing matched — an ordinary answer a flow branches on, not an error. Without
+it the result is a list, and an empty one is `[]` rather than `null`, so a
+[foreach](/reference/blocks/control-flow) over the body gets zero iterations
+instead of a type error.
+
+## List, newest first
+
+```yaml
+      - type: mongodb-find
+        name: list-orders
+        settings:
+          connector: orders-db
+          collection: '"orders"'
+          sort: '[{"_id": -1}]'
+          limit: 50
+```
+
+<Callout type="warn">
+`sort` is a **list** of single-key objects, not one object with several keys.
+MongoDB applies sort keys in the order written, and a CEL object cannot carry
+that order — so a multi-key object is refused rather than silently sorted by
+the wrong key first. One key on its own may be written either way.
+</Callout>
+
+## Total it on the server
+
+A pipeline is JSON, so it goes into the definition the way it would be typed
+into `mongosh`, with `body` and `vars` reachable inside it:
+
+```yaml
+      - type: mongodb-aggregate
+        name: total-by-sku
+        settings:
+          connector: orders-db
+          collection: '"orders"'
+          pipeline: |
+            [
+              {"$group": {"_id": "$sku",
+                          "orders": {"$sum": 1},
+                          "value": {"$sum": {"$multiply": ["$qty", "$price"]}}}},
+              {"$sort": [{"value": -1}, {"_id": 1}]}
+            ]
+```
+
+```console
+$ curl -s localhost:8080/api/v1/orders/totals
+[{"_id":"A1","orders":2,"value":50},{"_id":"B2","orders":1,"value":50}]
+```
+
+Note the tie: both skus total 50, and the second sort key breaks it by `_id`
+ascending. That is the same list-form ordering rule as the find block's `sort` —
+a `$sort` stage gets it too.
+
+## Test it without a server
+
+The sample's suite
+([`mongodb-orders_test.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/mongodb-orders_test.yaml))
+mocks the blocks, but a mock replaces the *block*, not the connector behind it —
+so the connector still starts, and by default that means pinging a server the
+tests have no reason to require. `verifyOnStart: false` is what lets the config
+be built without one.
+
+One case deliberately leaves the block unmocked and points the connector at a
+refused port. Reaching a dial failure is proof the block really resolved its
+connector and issued the call, which a mocked block could not demonstrate.
+
+```bash
+task runtime:test:samples
+```
+
+Tear the container down with `docker rm -f octo-mongo`.

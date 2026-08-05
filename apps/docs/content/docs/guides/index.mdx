@@ -4,7 +4,7 @@ description: "Task-oriented guides built from runnable samples."
 ---
 
 import { Cards, Card } from 'fumadocs-ui/components/card';
-import { Bug, Clock, Database, FileCode, FileText, FlaskConical, Globe, HardDrive, MessageSquare, Puzzle, Radio, Send, ShieldCheck, Shuffle, Sparkles, Wand, Waypoints } from 'lucide-react';
+import { Bug, Clock, Database, FileCode, FileText, FlaskConical, Globe, HardDrive, Leaf, MessageSquare, Puzzle, Radio, Send, ShieldCheck, Shuffle, Sparkles, Wand, Waypoints } from 'lucide-react';
 
 Every guide in this section is built from a runnable sample in the repository's
 [`samples/`](https://github.com/juancavallotti/octo/tree/main/samples) directory.
@@ -23,6 +23,9 @@ zero setup beyond the `octo` binary.
   </Card>
   <Card icon={<Database />} href="/guides/database-crud" title="Database CRUD">
     Query SQLite or Postgres with parameterized SQL.
+  </Card>
+  <Card icon={<Leaf />} href="/guides/mongodb-documents" title="MongoDB Documents">
+    Store and query JSON documents, and total them with an aggregation.
   </Card>
 </Cards>
 
