@@ -2,6 +2,7 @@ package mongodb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 
@@ -38,6 +39,9 @@ type aggregateSettings struct {
 	// CEL expression evaluating to a list of pipeline stages, e.g.
 	// [{"$match": {...}}, {"$group": {...}}].
 	Pipeline string `json:"pipeline" octo:"label=Pipeline,type=cel,required"`
+	// Most documents to return; 0 returns them all. Appended to the pipeline as a
+	// final $limit stage.
+	Limit int `json:"limit" octo:"label=Limit"`
 	// When set, store the documents here and leave the body; when empty, they
 	// become the body.
 	ResultVar string `json:"resultVar" octo:"label=Result variable"`
@@ -47,6 +51,7 @@ type aggregateProcessor struct {
 	conn      *Connector
 	target    target
 	pipeline  *expr.Program
+	limit     int
 	resultVar string
 	env       map[string]any
 }
@@ -69,11 +74,15 @@ func newAggregate(raw types.Settings, deps core.BlockDeps) (core.MessageProcesso
 	if err != nil {
 		return nil, err
 	}
+	if cfg.Limit < 0 {
+		return nil, fmt.Errorf("%s: limit must not be negative", aggregateBlock)
+	}
 
 	return &aggregateProcessor{
 		conn:      conn,
 		target:    tgt,
 		pipeline:  pipeline,
+		limit:     cfg.Limit,
 		resultVar: cfg.ResultVar,
 		env:       expr.EnvActivation(deps.Env),
 	}, nil
@@ -98,6 +107,10 @@ func (p *aggregateProcessor) Process(ctx context.Context, msg *types.Message) (*
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", aggregateBlock, err)
 	}
+	stages, err = p.bound(stages)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", aggregateBlock, err)
+	}
 
 	cursor, err := collection.Aggregate(ctx, stages)
 	if err != nil {
@@ -116,4 +129,48 @@ func (p *aggregateProcessor) Process(ctx context.Context, msg *types.Message) (*
 		return nil, fmt.Errorf("%s: %w", aggregateBlock, err)
 	}
 	return msg, nil
+}
+
+// limitStage bounds a pipeline's output, the way the find block's limit bounds a
+// query's.
+const limitStage = "$limit"
+
+// bound appends a $limit stage when the block sets a limit, so the server stops
+// producing documents rather than the cursor reading everything the pipeline
+// made — the whole result is materialised as a list and then again as extended
+// JSON, so an unbounded pipeline costs memory in proportion to what it matched.
+//
+// The stage goes last, which is both where it has to be to bound the pipeline as
+// a whole and where a reader of one expects to find it. A pipeline that already
+// ends in $limit keeps working: the smaller of the two wins, which is what
+// either of them alone would have done.
+func (p *aggregateProcessor) bound(stages []bson.Raw) ([]bson.Raw, error) {
+	if p.limit <= 0 {
+		return stages, nil
+	}
+	if len(stages) > 0 && writesToCollection(stages[len(stages)-1]) {
+		return nil, errors.New("limit cannot be applied to a pipeline ending in $out or $merge: " +
+			"those stages must be last, and return no documents to limit")
+	}
+	limit, err := bson.Marshal(bson.D{{Key: limitStage, Value: p.limit}})
+	if err != nil {
+		return nil, fmt.Errorf("limit: %w", err)
+	}
+	return append(stages, bson.Raw(limit)), nil
+}
+
+// writesToCollection reports whether a stage sends the pipeline's output to a
+// collection instead of returning it. Both such stages must themselves be last,
+// so nothing can be appended after one.
+func writesToCollection(stage bson.Raw) bool {
+	element, err := stage.IndexErr(0)
+	if err != nil {
+		return false
+	}
+	switch element.Key() {
+	case "$out", "$merge":
+		return true
+	default:
+		return false
+	}
 }

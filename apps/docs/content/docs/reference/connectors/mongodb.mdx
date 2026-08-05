@@ -102,6 +102,45 @@ Every block names its `collection` as a CEL [expression](/concepts/expressions),
 
 And every block follows one rule for its result: **it becomes the message body**, unless you name a `resultVar`, in which case it goes there and the body is left alone. The body is the default because the result is usually the payload — an HTTP flow that ends in a find should answer with the documents. Naming a variable is how you say "keep the body I came in with".
 
+### Result size, and paging
+
+A read materialises its whole result. The documents come off the cursor into a list, that list is rendered as extended JSON, and the JSON becomes the body — nothing streams. So a read costs memory in proportion to what the query *matched*, not to what the flow goes on to use, and both read blocks return everything matched when no `limit` is set. Set one on any collection that can grow.
+
+That is a ceiling, though, not paging — and **there is no paging built into these blocks**, which is a gap rather than a position. Two pieces are missing, for different reasons:
+
+- **Cursor paging** — a continuation token a flow hands back to ask for the next page — has nowhere to live. A MongoDB cursor is server-side state with a lifetime and an owning connection, and a flow is neither a session nor pinned to a connection.
+- **Offset paging** is merely awkward: `limit` and `skip` are plain integers, so they configure the *block* and cannot be computed from the message. A flow answering `GET /orders?page=2` cannot express that skip through `mongodb-find` today. Making those fields expressions is a small change, and the obvious way to close this.
+
+Two shapes work now, and neither needs anything added. `mongodb-aggregate`'s `pipeline` is one expression, so `$skip` and `$limit` are computed per message inside it — which is also why that block's `limit` setting is a safety ceiling rather than the paging mechanism:
+
+```yaml
+  - type: mongodb-aggregate
+    settings:
+      connector: orders-db
+      collection: '"orders"'
+      pipeline: |
+        [
+          {"$match": {"customer": vars.customerId}},
+          {"$sort": [{"_id": 1}]},
+          {"$skip": ("page" in vars.query ? int(vars.query.page) : 0) * 50},
+          {"$limit": 50}
+        ]
+```
+
+And range paging works with `mongodb-find` as it stands, because `filter` already is an expression — carry the last `_id` of a page into the next request and the skip becomes a match:
+
+```yaml
+  - type: mongodb-find
+    settings:
+      connector: orders-db
+      collection: '"orders"'
+      filter: '"after" in vars.query ? {"_id": {"$gt": {"$oid": vars.query.after}}} : {}'
+      sort: '[{"_id": 1}]'
+      limit: 50
+```
+
+Prefer the second on a large collection either way: `$skip` walks the documents it skips, so page 500 costs what pages 1 to 500 cost together, while a range match seeks straight to the key. Both need a stable sort, or consecutive pages overlap and drop documents.
+
 ## `mongodb-find` block
 
 Read documents from a collection. Without `single`, the result is a list — `[]` when nothing matched, never `null`, so a [foreach](/reference/blocks/control-flow) over the body gets zero iterations rather than a type error.
@@ -114,7 +153,7 @@ Read documents from a collection. Without `single`, the result is a list — `[]
 | `filter` | CEL | No | match everything | Query filter. |
 | `projection` | CEL | No | whole documents | Fields to return, e.g. `{"sku": 1, "_id": 0}`. |
 | `sort` | CEL | No | unsorted | Sort order — see below. |
-| `limit` | int | No | all | Most documents to return. |
+| `limit` | int | No | all | Most documents to return — see [Result size, and paging](#result-size-and-paging). |
 | `skip` | int | No | `0` | Documents to skip before returning any. |
 | `single` | bool | No | `false` | Return the first match rather than a list. |
 | `resultVar` | string | No | — | Store the result here instead of in the body. |
@@ -291,6 +330,7 @@ A pipeline is JSON, which is what makes it worth expressing in a definition rath
 | `collection` | CEL | Yes | — | Collection to aggregate over. |
 | `database` | CEL | No | the connector's | Database to read from. |
 | `pipeline` | CEL | Yes | — | A list of stages. |
+| `limit` | int | No | all | Most documents to return, as a final `$limit` stage — see [Result size, and paging](#result-size-and-paging). |
 | `resultVar` | string | No | — | Store the documents here instead of in the body. |
 
 ```yaml
@@ -308,6 +348,8 @@ process:
 ```
 
 `pipeline` must evaluate to a **list**, even for one stage. A bare stage object is refused against the field, rather than becoming a driver error further down.
+
+`limit` is appended to the pipeline as a final `$limit`, so the server stops producing documents rather than the block reading and discarding them. A pipeline that already ends in its own `$limit` is unaffected — the smaller of the two wins, as either alone would have. A pipeline ending in `$out` or `$merge` cannot take one: those stages must themselves be last, and return no documents to bound, so the combination is refused rather than left to the server to complain about.
 
 ### `$sort` inside a pipeline
 
