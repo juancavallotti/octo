@@ -156,6 +156,17 @@ type Config struct {
 // process at startup with the setting named, not surface as a deploy that
 // creates a route pointing at nothing.
 func (c Config) Validate() error {
+	// newClient treats anything that is not gateway as ingress, which is the right
+	// default for the zero value and the wrong one for a typo — a Config built in
+	// code rather than through ParseEndpointAPI would otherwise select Ingress on
+	// a cluster that has none. Rejecting here makes the field mean what its
+	// documentation says regardless of who filled it in.
+	switch c.EndpointAPI {
+	case "", EndpointAPIIngress, EndpointAPIGateway:
+	default:
+		return fmt.Errorf("kube: unknown endpoint API %q (want %q or %q)",
+			c.EndpointAPI, EndpointAPIIngress, EndpointAPIGateway)
+	}
 	if c.EndpointAPI == EndpointAPIGateway && c.BaseDomain != "" && c.Gateway.Name == "" {
 		return fmt.Errorf("kube: gateway endpoints need a Gateway to attach to: set the gateway name")
 	}

@@ -117,15 +117,21 @@ func run() error {
 // so a misconfigured install stops at startup naming the setting rather than
 // producing deployments whose endpoints route nowhere.
 func kubeConfig() (kube.Config, error) {
-	extraAnnotations, err := ingressAnnotationsConfig()
-	if err != nil {
-		return kube.Config{}, err
-	}
 	// Which API publishes per-integration endpoints. Unset is Ingress; an
 	// unrecognised value is an error rather than a silent fall back to it.
+	//
+	// Read first because it decides which of the settings below even apply.
+	// Parsing INGRESS_ANNOTATIONS ahead of it meant a malformed Ingress-only
+	// value stopped a gateway-mode start, over a setting that mode ignores.
 	endpointAPI, err := kube.ParseEndpointAPI(os.Getenv("ENDPOINT_API"))
 	if err != nil {
 		return kube.Config{}, err
+	}
+	var extraAnnotations map[string]string
+	if endpointAPI == kube.EndpointAPIIngress {
+		if extraAnnotations, err = ingressAnnotationsConfig(); err != nil {
+			return kube.Config{}, err
+		}
 	}
 	namespace := envOr("KUBE_NAMESPACE", defaultNamespace)
 	cfg := kube.Config{

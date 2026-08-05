@@ -122,7 +122,12 @@ Per-integration external endpoints are enabled under *.{{ .Values.orchestrator.b
 {{- if eq $routing "gateway" }}
 The orchestrator publishes one HTTPRoute per exposed deployment, attached to
 Gateway "{{ include "octo-common.gateway.name" (dict "root" $ "gateway" .Values.networking.gateway) }}" in namespace {{ .Values.networking.gateway.namespace | default .Release.Namespace }}.
-{{- if .Values.wildcardTLS.enabled }}
+{{- /* Only a Gateway this chart created has a listener whose certificate is ours
+       to describe. On somebody else's Gateway, wildcardTLS still issues a Secret
+       — but whether that listener references it is their configuration, and
+       saying "its wildcard listener terminates with" would be a claim about an
+       object this release does not own. */}}
+{{- if and .Values.wildcardTLS.enabled .Values.networking.gateway.create }}
 {{- if .Values.wildcardTLS.clusterIssuer }}
 Its wildcard listener terminates with Secret "{{ .Values.wildcardTLS.secretName }}", issued by
 ClusterIssuer "{{ .Values.wildcardTLS.clusterIssuer }}" over DNS-01.
@@ -131,6 +136,11 @@ Its wildcard listener terminates with Secret "{{ .Values.wildcardTLS.secretName 
 chart does not create — wildcardTLS.clusterIssuer is empty, so the Secret must
 already exist in namespace {{ .Release.Namespace }} and cover *.{{ .Values.orchestrator.baseDomain }}.
 {{- end }}
+{{- else if .Values.wildcardTLS.enabled }}
+Certificates belong to that Gateway's listeners, which this chart does not own.
+wildcardTLS{{ if .Values.wildcardTLS.clusterIssuer }} issues Secret "{{ .Values.wildcardTLS.secretName }}" into namespace {{ .Release.Namespace }}{{ else }} names Secret "{{ .Values.wildcardTLS.secretName }}" in namespace {{ .Release.Namespace }} without creating it{{ end }},
+but referencing it from the listener matching *.{{ .Values.orchestrator.baseDomain }} is yours to do —
+and needs a ReferenceGrant if that Gateway is in another namespace.
 {{- else }}
 {{- /* Not "they get no TLS": in this mode the certificate is a property of the
        listener, so on a Gateway this chart did not create it may well be there

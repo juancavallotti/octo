@@ -37,6 +37,16 @@
 {{- if and (not .Values.ingress.enabled) (not .Values.orchestrator.baseDomain) }}
 {{- fail "networking.gateway.create is true but this release publishes nothing: set ingress.host (with ingress.enabled) for the editor, or orchestrator.baseDomain for per-integration endpoints. A Gateway needs at least one listener." }}
 {{- end }}
+{{- /* A created Gateway is a resource of this release, so Helm puts it in the
+       release namespace and there is nowhere else it could go. Naming a
+       different one asks for two incompatible things at once: the routes would
+       carry parentRefs into that namespace (see _httproute.tpl) while the
+       Gateway they name sits here, so every route attaches to nothing and the
+       install still succeeds. Refuse the combination rather than silently honour
+       half of it. */}}
+{{- if and .Values.networking.gateway.namespace (ne .Values.networking.gateway.namespace .Release.Namespace) }}
+{{- fail (printf "networking.gateway.namespace is %q but networking.gateway.create puts the Gateway in the release namespace (%s). A Gateway this chart creates cannot live elsewhere: either clear the namespace, or set create=false and attach to the Gateway that already exists in %q." .Values.networking.gateway.namespace .Release.Namespace .Values.networking.gateway.namespace) }}
+{{- end }}
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:

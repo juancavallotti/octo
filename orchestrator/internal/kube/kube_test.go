@@ -30,6 +30,7 @@ func testConfig(baseDomain string) Config {
 		Namespace:     testNamespace,
 		RuntimeImage:  "octo-runtime:dev",
 		BaseDomain:    baseDomain,
+		EndpointAPI:   EndpointAPIIngress,
 		ClusterIssuer: "letsencrypt-prod",
 		IngressClass:  "traefik",
 	}

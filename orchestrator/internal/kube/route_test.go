@@ -259,3 +259,20 @@ func TestConfigValidateGatewayNeedsAName(t *testing.T) {
 		t.Errorf("ingress mode should validate, got %v", err)
 	}
 }
+
+// newClient selects Ingress for anything that is not gateway, so an unrecognised
+// value would otherwise mean "publish Ingresses" on a cluster configured for
+// neither. main.go reaches ParseEndpointAPI first; this closes the same hole for
+// a Config assembled in code.
+func TestConfigValidateRejectsUnknownEndpointAPI(t *testing.T) {
+	cfg := testConfig("octo.example.com")
+	cfg.EndpointAPI = "httproute"
+	if err := cfg.Validate(); err == nil {
+		t.Error("an unrecognised EndpointAPI should not validate")
+	}
+	// The zero value is the documented default, not a mistake.
+	cfg.EndpointAPI = ""
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("the zero value should validate as ingress, got %v", err)
+	}
+}

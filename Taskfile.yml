@@ -517,6 +517,37 @@ tasks:
             echo "rendered ok"
           fi
         }
+        # The other half of the gate: renders that MUST fail. Every guard in the
+        # chart exists because the combination it catches would otherwise install
+        # cleanly and serve nothing, so a guard that silently stops firing is the
+        # same bug returning. `check` can never notice that — it asserts success.
+        # This asserts the failure, and that the message names the value to fix.
+        check_fails() {
+          name="$1"; want="$2"; shift 2
+          printf '  %-22s ' "$name"
+          required="--set ingress.host=octo.example.com --set postgres.auth.password=rendertest"
+          if render="$(helm template octo helm --namespace octo $required "$@" 2>&1)"; then
+            echo "FAILED (rendered, but should not have)"; return 1
+          fi
+          case "$render" in
+            *"$want"*) echo "refused" ;;
+            *) echo "FAILED (refused for the wrong reason)"; echo "$render" | tail -3; return 1 ;;
+          esac
+        }
+        # A grep-able absence check, for guards whose whole point is a resource
+        # that must NOT appear. Rendering successfully proves nothing here.
+        check_absent() {
+          name="$1"; absent="$2"; shift 2
+          printf '  %-22s ' "$name"
+          required="--set ingress.host=octo.example.com --set postgres.auth.password=rendertest"
+          if ! render="$(helm template octo helm --namespace octo $required "$@" 2>&1)"; then
+            echo "FAILED (did not render)"; echo "$render" | tail -3; return 1
+          fi
+          if printf '%s' "$render" | grep -q "$absent"; then
+            echo "FAILED ($absent was rendered, and must not be)"; return 1
+          fi
+          echo "absent as expected"
+        }
         # The profiles as shipped. "defaults" is values.yaml alone — what an
         # install straight from OCI gets with no -f at all.
         check defaults
@@ -587,7 +618,33 @@ tasks:
         check wildcard-existing \
           --set wildcardTLS.enabled=true --set wildcardTLS.clusterIssuer= \
           --set orchestrator.baseDomain=apps.example.com
-        echo "✓ chart lints and renders valid manifests for every profile"
+        # Every guard, asserted. Each of these combinations would otherwise
+        # install cleanly and publish endpoints nothing serves.
+        check_fails bad-mode          "is not one of ingress, gateway" \
+          --set networking.mode=httproute
+        check_fails gw-no-name        "networking.gateway.name is required" \
+          --set networking.mode=gateway
+        check_fails gw-no-class       "networking.gateway.className is required" \
+          --set networking.mode=gateway --set networking.gateway.create=true
+        check_fails gw-foreign-ns     "cannot live elsewhere" \
+          --set networking.mode=gateway --set networking.gateway.create=true \
+          --set networking.gateway.className=kgateway --set networking.gateway.namespace=ingress
+        check_fails gw-nothing-to-do  "publishes nothing" \
+          --set networking.mode=gateway --set networking.gateway.create=true \
+          --set networking.gateway.className=kgateway --set ingress.enabled=false
+        check_fails gw-managed-cert   "no Gateway API equivalent" \
+          --set networking.mode=gateway --set networking.gateway.create=true \
+          --set networking.gateway.className=kgateway --set ingress.tls.mode=gke-managed-cert
+        check_fails gw-acm            "no Gateway API equivalent" \
+          --set networking.mode=gateway --set networking.gateway.create=true \
+          --set networking.gateway.className=kgateway --set ingress.tls.mode=acm \
+          --set ingress.tls.certificateArn=arn:aws:acm:us-east-1:1:certificate/x
+        # An empty issuer means the Secret exists already. What that produces is
+        # the absence of a Certificate, which every success-only check misses.
+        check_absent wildcard-no-cert "kind: Certificate" \
+          --set wildcardTLS.enabled=true --set wildcardTLS.clusterIssuer= \
+          --set orchestrator.baseDomain=apps.example.com --set ingress.tls.mode=secret
+        echo "✓ chart lints and renders valid manifests for every profile, and refuses every combination it should"
 
   helm:package:
     desc: Lint and package both charts into dist/ (octo-<version>.tgz and octo-common-<version>.tgz)

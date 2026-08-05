@@ -502,15 +502,29 @@ integration. They are served by the same proxy, so it is one switch.
 `gateway` covers kgateway, Envoy Gateway, Istio, Cilium, and the Gateway API
 modes of ingress-nginx and Traefik.
 
-```bash
-kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.1/standard-install.yaml
+<DynamicCodeBlock lang="bash" code={`kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.1/standard-install.yaml
 
-helm install octo oci://docker.io/juancavallotti/octo \
-  --set networking.mode=gateway \
-  --set networking.gateway.name=shared-gw \
-  --set networking.gateway.namespace=ingress \
-  --set ingress.host=octo.example.com
-```
+helm install octo oci://ghcr.io/juancavallotti/charts/octo \\
+  --version ${OCTO_VERSION} \\
+  --namespace octo --create-namespace \\
+  --set networking.mode=gateway \\
+  --set networking.gateway.name=shared-gw \\
+  --set networking.gateway.namespace=ingress \\
+  --set ingress.host=octo.example.com`} />
+
+Any Gateway API release from **v1.0 onwards** works, in the Standard channel —
+`v1.6.1` above is simply the current one. The orchestrator builds against the
+`gateway.networking.k8s.io/v1` types, GA since v1.0, and uses only Core-support
+fields (`parentRefs`, `hostnames`, `rules.matches`, `rules.backendRefs`), so what
+it sends is accepted unchanged across that range.
+
+<Callout type="info">
+  The Go module `sigs.k8s.io/gateway-api` is pinned lower than the CRDs you
+  install, and deliberately: only the serialised shape of an `HTTPRoute` matters
+  here, and it has not changed. Pinning the module forward would drag a
+  `k8s.io/client-go` upgrade through the orchestrator for no change in the
+  objects it produces.
+</Callout>
 
 **Attaching to an existing Gateway is the default, and is the point.** A Gateway
 is cluster infrastructure: it predates the release, belongs to whoever runs the
@@ -533,7 +547,7 @@ stops passing them.
 | Key | Default | Purpose |
 |---|---|---|
 | `networking.gateway.name` | `""` | Gateway to attach to. **Required** unless `create` is true. |
-| `networking.gateway.namespace` | `""` | Empty is the release namespace. A Gateway elsewhere must allow attachment from here via its listener's `allowedRoutes`. |
+| `networking.gateway.namespace` | `""` | Empty is the release namespace. A Gateway elsewhere must allow attachment from here via its listener's `allowedRoutes`. Cannot be combined with `create` — a Gateway this chart creates belongs to the release, so it has nowhere else to go, and the render refuses the pair rather than honouring half of it. |
 | `networking.gateway.sectionName` | `""` | One listener by name. Usually unnecessary — a route attaches by hostname. Set it where one hostname is served by both an HTTP and an HTTPS listener, or the endpoint is also served in plaintext. |
 | `networking.gateway.create` | `false` | Have the chart create the Gateway. |
 | `networking.gateway.className` | `""` | `GatewayClass` for a created Gateway (`kgateway`, `envoy-gateway`, `istio`, `cilium`, `nginx`). **Required** when `create` is true. |

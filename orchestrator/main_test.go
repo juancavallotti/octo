@@ -43,12 +43,44 @@ func TestImagePullSecretsConfig(t *testing.T) {
 // The default has to stay Ingress, since that is what every existing install
 // runs and none of them set the variable.
 func TestKubeConfigDefaultsToIngress(t *testing.T) {
+	// kubeConfig reads the process environment, which under `go test` is
+	// whatever the developer's shell holds. Cleared explicitly so an inherited
+	// ENDPOINT_API cannot change the answer and an inherited malformed
+	// INGRESS_ANNOTATIONS cannot fail the test before it asserts anything.
+	t.Setenv("ENDPOINT_API", "")
+	t.Setenv("INGRESS_ANNOTATIONS", "")
+
 	cfg, err := kubeConfig()
 	if err != nil {
 		t.Fatalf("kubeConfig: %v", err)
 	}
 	if cfg.EndpointAPI != kube.EndpointAPIIngress {
 		t.Errorf("endpoint API = %q, want %q", cfg.EndpointAPI, kube.EndpointAPIIngress)
+	}
+}
+
+// Gateway mode publishes routes that carry no annotations at all, so an
+// Ingress-only setting left behind in a values file — the ordinary state of a
+// release mid-migration — must not be able to stop the process.
+func TestKubeConfigIgnoresIngressAnnotationsInGatewayMode(t *testing.T) {
+	t.Setenv("INGRESS_ANNOTATIONS", "{not json")
+	t.Setenv("ENDPOINT_API", "gateway")
+	t.Setenv("BASE_DOMAIN", "apps.example.com")
+	t.Setenv("GATEWAY_NAME", "octo-gateway")
+
+	cfg, err := kubeConfig()
+	if err != nil {
+		t.Fatalf("gateway mode should not parse INGRESS_ANNOTATIONS: %v", err)
+	}
+	if cfg.ExtraAnnotations != nil {
+		t.Errorf("ExtraAnnotations = %v, want nil in gateway mode", cfg.ExtraAnnotations)
+	}
+
+	// In ingress mode the same value is still a startup error: there it is a
+	// setting that applies, and one that is silently dropped is worse.
+	t.Setenv("ENDPOINT_API", "ingress")
+	if _, err := kubeConfig(); err == nil {
+		t.Error("malformed INGRESS_ANNOTATIONS should be a startup error in ingress mode")
 	}
 }
 
