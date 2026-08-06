@@ -17,9 +17,9 @@
 // carries no cluster credential and can reach nothing beyond its own
 // integration's data.
 //
-// This commit establishes the service lifecycle — configuration from the
-// environment, a health endpoint, and graceful shutdown on SIGINT/SIGTERM. The
-// workspace, the orchestrator client and the command API arrive in later changes.
+// This commit adds the workspace: the directory the runtime watches, and the only
+// thing that writes to it. The orchestrator client and the command API — the two
+// things that give it something to write — arrive in later changes.
 package main
 
 import (
@@ -31,10 +31,16 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/juancavallotti/octo/sidecars/dev/internal/workspace"
 )
 
 const (
 	defaultPort = "8099"
+	// defaultWorkspaceDir is the directory the runtime container watches. It names
+	// the watched directory directly rather than a root to join onto, so the two
+	// containers share one value with no implicit path arithmetic between them.
+	defaultWorkspaceDir = "/workspace/integrations"
 	// shutdownTimeout bounds how long in-flight requests have to drain on SIGTERM.
 	shutdownTimeout = 10 * time.Second
 	// readHeaderTimeout bounds time spent reading request headers, mitigating
@@ -57,10 +63,22 @@ func main() {
 
 func run() error {
 	port := envOr("PORT", defaultPort)
+	workspaceDir := envOr("WORKSPACE_DIR", defaultWorkspaceDir)
 
 	// Root context cancelled on SIGINT/SIGTERM so pod termination drains cleanly.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	// Before anything else, and before the runtime container is allowed to start.
+	// `octo run --watch` survives a missing config but not a missing DIRECTORY: its
+	// watcher's fsnotify Add fails and the process exits (runtime/octo/watch.go:29).
+	// So an empty workspace is a working starting point and an absent one is a
+	// crash-loop — which is why this is a hard startup failure rather than something
+	// the first pull gets around to.
+	ws := workspace.New(workspaceDir)
+	if err := ws.Ensure(); err != nil {
+		return err
+	}
 
 	httpServer := &http.Server{
 		Addr:              ":" + port,
@@ -70,7 +88,7 @@ func run() error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		slog.Info("dev sidecar listening", "addr", httpServer.Addr)
+		slog.Info("dev sidecar listening", "addr", httpServer.Addr, "workspace", ws.Dir())
 		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
