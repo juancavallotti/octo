@@ -54,7 +54,6 @@ function stubRunHost(opts: { available?: boolean } = {}) {
   });
   const host: RunHostPort = {
     binaries: () => ({ available, version: null }),
-    status: () => snap(),
     start: async (ns, yaml, env, startOpts) => {
       calls.ns = ns;
       calls.startedYaml = yaml;
@@ -129,7 +128,7 @@ function stubRunHost(opts: { available?: boolean } = {}) {
       calls.evaluated = { expression, opts };
       return { ok: true, result: true, logs: ["evaluated"] };
     },
-    snapshot: () => logs,
+    snapshot: async () => logs,
     newNamespace: () => `ns-${++nsSeq}`,
   };
   return { host, calls };

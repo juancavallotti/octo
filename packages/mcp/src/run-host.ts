@@ -1,8 +1,16 @@
 /**
- * The slice of `@octo/run-host` the run-control tools depend on, expressed as a
- * structural port. The real package satisfies it directly (`import * as runHost`),
- * while tests pass a stub so they never spawn a real `octo` process. Runs are keyed
- * by a namespace slug; the handler resolves one per MCP session.
+ * What the run-control tools need from their host, expressed as a port the host supplies.
+ *
+ * There is no default. Two hosts mount this server and they run an app in genuinely
+ * different ways — one as a child process of itself, one as a pod elsewhere — so a port
+ * that quietly fell back to one of them would give the other the wrong runner and no
+ * error. Each host declares its own (`app/mcp/run-host.ts` in both apps); tests pass a
+ * stub, and never spawn a real `octo` process.
+ *
+ * Runs are keyed by a namespace slug, which the handler resolves once per MCP session so
+ * a run stays bound to the client that started it across requests. The asynchronous
+ * signatures are the seam that lets a host answer over the network rather than from its
+ * own heap.
  */
 
 import type {
@@ -88,7 +96,6 @@ export interface EvalResultLike {
 export interface RunHostPort {
   /** Which binaries this host has for its one-shot runs, and their versions. */
   binaries(): BinariesLike;
-  status(ns: string): RunStateLike;
   start(
     ns: string,
     yaml: string,
@@ -134,7 +141,13 @@ export interface RunHostPort {
    * dolphin actually writes — which is the contract this whole seam exists to preserve.
    */
   test(ns: string, args: TestRunArgs): Promise<TestRunOutcome>;
-  snapshot(ns: string): RunLogLine[];
+  /**
+   * The run's log history, oldest line first — what `get_run_logs` reads.
+   *
+   * A bounded snapshot rather than a follow: an agent reads logs as a document, and a
+   * stream it had to decide when to stop draining would be worse than one it cannot get.
+   */
+  snapshot(ns: string): Promise<RunLogLine[]>;
   /** Mint a fresh, valid namespace slug. */
   newNamespace(): string;
 }

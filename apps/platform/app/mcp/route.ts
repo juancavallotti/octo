@@ -16,6 +16,7 @@ import {
   orchestratorResourceStore,
   orchestratorSuiteStore,
 } from "./store-adapter";
+import { localMcpRunHost } from "./run-host";
 import { verifyMcpToken } from "./verify-token";
 import { MCP_ORIGIN, RESOURCE_METADATA_PATH } from "./oauth-config";
 
@@ -33,8 +34,9 @@ import { MCP_ORIGIN, RESOURCE_METADATA_PATH } from "./oauth-config";
  * own authentication.
  *
  * Integrations come from the orchestrator; definitions are validated with the
- * editor's pre-flight; run-control tools use the in-process `@octo/run-host` (the
- * handler's default — the same runner the editor's RUN feature uses).
+ * editor's pre-flight; run-control tools use the in-process `@octo/run-host`,
+ * declared in `./run-host` — which the editor's Run no longer does, and the comment
+ * there says why this one has not followed it yet.
  *
  * The verified token is an authentication boundary only: runs stay keyed by MCP
  * session id and integrations are not yet partitioned per user (the resolved
@@ -105,6 +107,8 @@ const handler = createOctoMcpHandler(
     docsUrl: process.env.OCTO_DOCS_URL,
   },
   {
+    // Still this pod's own runner, unlike the editor's Run — see app/mcp/run-host.ts.
+    runHost: localMcpRunHost,
     basePath: "", // route lives at /mcp, so the streamable endpoint is /mcp
     serverInfo: {
       name: "octo-platform",

@@ -87,17 +87,14 @@ function totals(over: Partial<TestRunOutcome["totals"]> = {}) {
 /** A run host whose `test` returns whatever the test wants, recording what it was asked. */
 function fakeRunHost(outcome?: Partial<TestRunOutcome>) {
   const seen: TestRunArgs[] = [];
+  // The suite tools only ever call `test`, so the long-running half of the port answers
+  // "nothing is running" and nothing reads it.
+  const idle = { running: false, exposable: false, port: null, testUrl: null };
   const host = {
     seen,
     binaries: () => ({ available: true, version: null }),
-    status: () => ({
-      running: false,
-      exposable: false,
-      port: null,
-      testUrl: null,
-    }),
-    start: async () => host.status(),
-    stop: async () => host.status(),
+    start: async () => idle,
+    stop: async () => idle,
     invoke: async () => ({
       ok: true,
       exitCode: 0,
@@ -119,7 +116,7 @@ function fakeRunHost(outcome?: Partial<TestRunOutcome>) {
         ...outcome,
       } as TestRunOutcome;
     },
-    snapshot: () => [],
+    snapshot: async () => [],
     newNamespace: () => "ns-1",
   };
   return host as RunHostPort & { seen: TestRunArgs[] };

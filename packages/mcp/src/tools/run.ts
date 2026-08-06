@@ -280,7 +280,7 @@ export function registerRunTools(
     (_args, extra) =>
       guard(async () => {
         const ns = resolveNamespace(extra.sessionId);
-        const lines = runHost.snapshot(ns);
+        const lines = await runHost.snapshot(ns);
         if (lines.length === 0) {
           return textResult("(no logs yet — start a run with run_integration)");
         }
