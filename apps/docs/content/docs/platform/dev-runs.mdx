@@ -1,0 +1,170 @@
+---
+title: "Dev Runs"
+description: "The editor's Run on the platform: a pod of its own, a stable hostname, and reload on save."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Pressing **Run** in the platform's editor starts a **dev run**: a Kubernetes pod that
+runs your integration while you work on it, with its own hostname and its own log
+stream. It is not a [deployment](/platform/deployments) — nothing is tagged, nothing
+is versioned, and it disappears when you stop using it. It is the editor's Run button,
+executed somewhere it can survive.
+
+## Why it is a pod
+
+The obvious implementation is the one the standalone editor uses: spawn `octo run
+--watch` as a child of the web app and stream its output. That is exactly what the
+platform used to do, and it breaks the moment the platform runs more than one replica.
+
+There is no session affinity between them, so requests fan out. Start a run and the
+child process, its port and its log buffer all live in **one** replica's memory. The
+next request — a status poll, the log stream, the Stop button — lands on a different
+replica, which has none of it and truthfully reports that nothing is running. The run
+is still there; nothing can reach it.
+
+Moving the run into a pod of its own fixes that by removing the state rather than
+replicating it. The platform app now holds nothing about your run: every operation
+asks the orchestrator, which reads the cluster. Any replica can answer anything.
+
+<Callout type="info">
+  The one-shot debug operations — invoking a single flow, evaluating a CEL expression,
+  running test suites — still execute inside the platform pod, from the YAML in the
+  request. They finish before the response does, so fan-out never affected them, and
+  they still run **exactly what is on your canvas**.
+</Callout>
+
+## What a run is made of
+
+```
+Pod octo-dev-{id}
+  ├─ dev sidecar   owns the workspace: pulls your definition and resources
+  │                from the orchestrator, writes them where the runtime watches
+  └─ runtime       octo run --config /workspace/integrations --watch
+                   the standalone build — no cluster credential of any kind
+```
+
+The two containers share an `emptyDir`. The sidecar's only peer is the orchestrator,
+in both directions: it receives reload commands from it and fetches the definition
+from it. It never talks to the Kubernetes API.
+
+The runtime container is the **standalone** build of `octo` — the same one you get
+from `octo run` on your laptop — not the cluster build the orchestrator uses for
+deployments. A dev run therefore has no leader election, no cluster queues, no log
+shipping and no KV store, which also means **stopping one leaves nothing behind to
+clean up.**
+
+## It runs what you saved
+
+This is the one place the platform editor deliberately behaves differently from the
+standalone one, and it is worth knowing before it surprises you:
+
+| | Standalone | Platform |
+|---|---|---|
+| What runs | the editor's buffer | the **saved** definition |
+| Reload trigger | typing (debounced ~2s) | **saving** |
+| Who moves the config | the app writes the file | the pod fetches it |
+
+Because the sidecar fetches your integration from the orchestrator, the running app
+reflects what is stored — so an unsaved edit is not running yet. Save, and the reload
+follows automatically: the orchestrator notices the write, tells the sidecar, and the
+sidecar re-fetches and rewrites the config the runtime is watching. Editing an env
+file or another resource reloads it too.
+
+The RUN panel tells you which behaviour you have, so this is visible rather than
+something to remember. Two consequences follow from firing the reload where the write
+lands rather than in the editor:
+
+- **Every writer is covered**, not just the canvas: a save from the integrations
+  list, an [MCP](/ai/platform-mcp) agent calling `update_flow`, or an API-key client
+  all reload a running dev run.
+- **A failed reload never fails your save.** The notification is best-effort and
+  happens after the write is committed. A save that succeeded while a pod was
+  unreachable leaves a stale running app — which the status surface shows — rather
+  than losing your work.
+
+Run also **requires a saved integration.** There is nothing for the pod to fetch for
+a draft, so the editor says so instead of starting something that would run nothing.
+
+## Its address is stable
+
+A networked integration — one whose definition declares `HTTP_PORT` — gets a
+hostname of the form `https://<hash>.<your apps domain>`, shown in the console header
+once the pod is ready.
+
+That hostname is derived from you and the integration, and nothing else. Three things
+follow, and the first is the reason for the design:
+
+- **Stop and Run again, and you get the same URL.** So it is usable as an app
+  identity: a webhook you register with Stripe or GitHub against it keeps working
+  across restarts, where a fresh address per run would break it every time.
+- **Renaming the integration does not move it.** The hostname depends on no field you
+  can edit.
+- **Two integrations are always two addresses**, even if one is a copy of the other.
+
+<Callout type="warn">
+  **The URL is unguessable, not private.** It is a hash keyed by an installation
+  secret, so nobody can derive it — but anyone who *has* it can reach your dev run for
+  as long as the integration exists, and no rename will rotate it. Treat it as a
+  shared secret, not as access control: do not put anything behind it that you would
+  not put behind a bearer token.
+</Callout>
+
+## Sharing, and how a run ends
+
+A dev run belongs to **you and one integration**, which has two effects worth
+expecting:
+
+- **Two tabs on the same integration share one run.** The second one attaches rather
+  than starting a second pod, and the editor says "attached" instead of pretending it
+  started something. A reload triggered in one tab is visible in the other.
+- **An agent and you share a run too.** An MCP client's `run_integration` for an
+  integration you have open reaches the same pod, so an agent can debug what you are
+  looking at. See [Platform MCP](/ai/platform-mcp).
+
+Three ways a run ends, and only the first is something you do:
+
+| | |
+|---|---|
+| **Stop** | Immediate. The pod and its endpoint go away. |
+| **Idle** | A run nobody has touched for the configured timeout (an hour by default) is reaped. This is the only bound on how many pods an editing session leaves behind. |
+| **Its integration is gone** | The sidecar's next fetch finds nothing, so it asks to be torn down and exits. Until something triggers that, a deleted integration's pod can keep serving until the idle timeout collects it. |
+
+## Where the state lives
+
+There is no `dev_runs` table, and nothing about a run is written to Postgres. That is
+deliberate, and it is most of why the feature is small:
+
+| What you might expect stored | Where it actually is |
+|---|---|
+| The run's id | Derived from (user, integration). Stable, so it needs no storage. |
+| Its owner and integration | Labels on the workload — which is also how they are queried. |
+| Its hostname | Derived from the same pair. A pure function needs no row to be stable. |
+| Its listen port | Not a variable: the platform injects a fixed one. A pod owns its own network namespace. |
+| Whether it is running | **Its existence.** Gone means stopped, which is the one answer that cannot be stale. |
+| When it was last used | One annotation, which the reaper reads. |
+
+A table mirroring what the cluster is doing would be a second source of truth, and
+the two drift the moment anything unexpected happens — a node evicts a pod and the row
+still says running. Since the API server was going to be asked anyway, it is the only
+record.
+
+Two costs of that, stated plainly. **There is no history of a stopped run** — the
+platform can show you what is running, not what once ran. And **nothing is queryable
+outside the cluster**: no `SELECT` will tell an operator what dev runs exist; the
+answer comes from the orchestrator or from `kubectl get deploy -l octo.dev/dev-run-id`.
+
+## Turning it on
+
+Dev runs are off unless the Helm chart enables them, because a single-replica
+self-hosted install has nothing to gain. See
+[Dev runs in the Helm chart](/deploy/helm#dev-runs) for the values, and in particular
+why the HMAC key must be generated once and kept — rotating it changes every dev-run
+hostname, which silently breaks any webhook registered against one.
+
+## Related pages
+
+- [Architecture](/platform/architecture) — where the platform app, the orchestrator and this fit together
+- [Deployments](/platform/deployments) — the other way an integration runs, versioned and long-lived
+- [Running flows](/editor/running-flows) — the Run button itself, and the console
+- [Platform MCP](/ai/platform-mcp) — the same runs, driven by an agent

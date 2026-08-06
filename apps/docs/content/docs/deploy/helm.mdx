@@ -782,7 +782,8 @@ as a child process of whichever platform replica answered the request. That is t
 whole point: the platform app runs several replicas with no session affinity, so a
 run living in one replica's memory is invisible to every other one — status reads
 report "not running", log streams attach to nothing, and a Stop lands on the wrong
-pod. Off by default; a single-replica self-hosted install has no such problem.
+pod. Off by default; a single-replica self-hosted install has no such problem. See
+[Dev runs](/platform/dev-runs) for what the feature does.
 
 | Key | Default | Purpose |
 |---|---|---|

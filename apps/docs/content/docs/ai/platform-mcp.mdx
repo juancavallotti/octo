@@ -30,8 +30,11 @@ described in [Secure an MCP Server with OAuth](/ai/mcp-auth) — the platform
 follows its own advice. An `octo_…` API key sent as the bearer is also
 accepted.
 
-Each MCP session gets its own namespace for runs, so concurrent clients drive
-independent dev runners without stepping on each other.
+One-shot calls — `invoke_flow`, `evaluate_cel`, `run_tests` — are isolated per MCP
+session, so concurrent clients never step on each other's debugging. A long-running
+[dev run](/platform/dev-runs) is deliberately *not*: it belongs to you and one
+integration, so a second session running the same integration attaches to the run
+that is already up rather than starting a rival one.
 
 <Callout type="info">
   The **standalone app** exposes the same MCP handler at its local `/mcp`
@@ -92,7 +95,8 @@ In each, `definition` is the YAML of **that flow alone** — a mapping starting 
   integration — so an agent can debug what a human is looking at — and it runs what is
   **saved**, so an agent that edits a flow must save it (`update_flow` does) before the
   running app reflects the change. The one-shot tools (`invoke_flow`, `evaluate_cel`,
-  `run_tests`) are unaffected: they run the definition in the request.
+  `run_tests`) are unaffected: they run the definition in the request. See
+  [Dev runs](/platform/dev-runs).
 </Callout>
 
 #### Debugging a flow with `invoke_flow`
