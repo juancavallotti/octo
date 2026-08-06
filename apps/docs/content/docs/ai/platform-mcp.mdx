@@ -79,11 +79,21 @@ In each, `definition` is the YAML of **that flow alone** — a mapping starting 
 | Tool | What it does |
 | --- | --- |
 | `can_start_integration` | Pre-flight: is a runner available, does the definition validate? |
-| `run_integration` | Start (or restart) the integration in the dev runner, optionally injecting env vars; returns a test URL for networked integrations. |
+| `run_integration` | Start (or restart) the integration as a dev run — a pod of its own; returns its stable public test URL for networked integrations. Runs the **saved** definition, and refuses ad-hoc `env` (put values in the integration's `.env.dev` resource). |
 | `invoke_flow` | Run **one named flow once** — from a saved id or an inline definition — with optional JSON `data`, `vars` and `env`, without starting sources. Returns `{ ok, timedOut, dropped, output, logs }`, where `output` is the flow's result message (`{event_id, variables, body}`) as JSON text. Takes `breakAt`, `spies` and `mocks` — see below. |
 | `evaluate_cel` | Evaluate a single CEL expression against sample `body`/`vars`/`env` without running a flow. |
-| `get_run_logs` | The session's runner log buffer, as plain text. |
-| `stop_integration` | Stop the session's running integration. |
+| `get_run_logs` | The run's output for an integration `id`, as plain text. |
+| `stop_integration` | Stop the run for an integration `id`. |
+
+<Callout type="info">
+  The three run-control tools take the integration `id` because a run belongs to
+  `(you, that integration)` rather than to your MCP session. Two consequences worth
+  knowing: a run you start is the **same run** the editor attaches to when you open that
+  integration — so an agent can debug what a human is looking at — and it runs what is
+  **saved**, so an agent that edits a flow must save it (`update_flow` does) before the
+  running app reflects the change. The one-shot tools (`invoke_flow`, `evaluate_cel`,
+  `run_tests`) are unaffected: they run the definition in the request.
+</Callout>
 
 #### Debugging a flow with `invoke_flow`
 
@@ -264,8 +274,9 @@ guessing YAML syntax from training data.
 
 **Save.** `create_integration` (or `update_integration` on iteration)
 persists the definition. `list_env_keys` reveals which env vars still need
-values; the agent asks you for secrets and passes them per-run or stores
-them with `create_resource` as an `env` file.
+values; the agent asks you for secrets and stores them with
+`create_resource` as an `env` file — a dev run reads its environment from
+there, not from the request.
 
 </Step>
 <Step>
@@ -278,10 +289,12 @@ gnarly expression in isolation.
 </Step>
 <Step>
 
-**Run for real.** `run_integration` boots the integration in the dev runner
-and returns a test URL when it serves HTTP. The agent exercises the
+**Run for real.** `run_integration` boots the integration as a dev run and
+returns its test URL when it serves HTTP. The agent exercises the
 endpoints, reads `get_run_logs` for the runtime's own load errors and log
-output, fixes, and re-runs. `stop_integration` tears it down.
+output, fixes, **saves**, and re-runs. `stop_integration` tears it down.
+Saving matters here in a way it does not in the inner loop: the run reads
+the stored definition, so an unsaved fix is not what is running.
 
 </Step>
 </Steps>

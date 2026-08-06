@@ -34,6 +34,13 @@ import type { DevRun } from "@/app/model/devruns";
 /** How much log history the orchestrator replays before it starts tailing. */
 const LOG_TAIL = 500;
 
+/**
+ * How long a non-following log read may take. A follow needs no bound — it ends when the
+ * caller aborts — but a read that is supposed to end on its own and does not would
+ * otherwise hang whoever asked for it.
+ */
+const LOG_READ_TIMEOUT_MS = 10_000;
+
 /** What a caller is told when the editor asks to run something it has never saved. */
 export const UNSAVED =
   "Save this integration before running it — the running app reads the saved definition.";
@@ -178,6 +185,7 @@ async function* followLogs(
 
   const res = await client.openDevRunLogs(run.userId, run.id, {
     tail: LOG_TAIL,
+    follow: true,
     signal: opts.signal,
   });
   if (!res.ok) {
@@ -253,3 +261,34 @@ export const remoteRunner: AppRunner = {
 
   logs: (key, opts) => followLogs(key, opts),
 };
+
+/**
+ * The run's recent output as a finished document, oldest line first.
+ *
+ * The counterpart to {@link AppRunner.logs} for a caller that reads logs rather than
+ * watches them — an agent asking `get_run_logs`, which wants an answer it can reason about
+ * and not a stream it has to decide when to stop draining. Not on the {@link AppRunner}
+ * port because the local backend has no equivalent: it hands out its whole buffer for
+ * free, having never let go of it.
+ *
+ * An empty result covers both "no run" and "a run that has not said anything yet", which
+ * is the same thing to the caller: there is nothing to read.
+ */
+export async function logTail(key: RunKey, opts?: { tail?: number }): Promise<LogLine[]> {
+  const run = await current(key);
+  if (!run) return [];
+
+  const signal = AbortSignal.timeout(LOG_READ_TIMEOUT_MS);
+  const res = await client.openDevRunLogs(run.userId, run.id, {
+    tail: opts?.tail ?? LOG_TAIL,
+    follow: false,
+    signal,
+  });
+  if (!res.ok) throw new Error(res.error);
+
+  const out: LogLine[] = [];
+  for await (const text of lines(res.data, signal)) {
+    out.push({ seq: out.length, text });
+  }
+  return out;
+}

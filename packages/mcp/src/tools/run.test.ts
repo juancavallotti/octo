@@ -6,7 +6,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { registerRunTools } from "./run";
 import { createNamespaceResolver } from "../namespace";
 import type { OctoMcpConfig } from "../backend";
-import type { RunHostPort, RunStateLike } from "../run-host";
+import type { RunHostPort, RunKey, RunStateLike } from "../run-host";
 import type { MockSpec, ResourceProvider, SpyTrace } from "@octo/run-host";
 
 /** A stub run host that records the last start() and fakes exposable runs. */
@@ -17,6 +17,8 @@ function stubRunHost(opts: { available?: boolean } = {}) {
     startedEnv?: Record<string, string>;
     startedResources?: ResourceProvider;
     ns?: string;
+    /** The whole key the long-running half was addressed with. */
+    key?: RunKey;
     invoked?: {
       yaml: string;
       flow: string;
@@ -54,8 +56,9 @@ function stubRunHost(opts: { available?: boolean } = {}) {
   });
   const host: RunHostPort = {
     binaries: () => ({ available, version: null }),
-    start: async (ns, yaml, env, startOpts) => {
-      calls.ns = ns;
+    start: async (key, yaml, env, startOpts) => {
+      calls.key = key;
+      calls.ns = key.namespace;
       calls.startedYaml = yaml;
       calls.startedEnv = env;
       calls.startedResources = startOpts?.resources;
@@ -140,13 +143,27 @@ const REC = {
   definition: "service:\n  name: Alpha\nconnectors:\n  - type: http\n    HTTP_PORT: 8080\n",
 };
 
+/**
+ * Connect a client to the run tools.
+ *
+ * `userId` stands in for a verified bearer token: the real transport hands the tools an
+ * `AuthInfo` the auth layer built, and the in-memory one carries whatever `send` is given —
+ * so it is attached there rather than passed as a tool argument, which is the whole point
+ * of the property being tested. Omitted, it models an unauthenticated host.
+ */
 async function connect(
   config: OctoMcpConfig,
   runHost: RunHostPort,
+  userId?: string,
 ): Promise<Client> {
   const server = new McpServer({ name: "octo-test", version: "0.0.0" });
   registerRunTools(server, config, runHost, createNamespaceResolver(runHost));
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+  if (userId !== undefined) {
+    const send = clientT.send.bind(clientT);
+    const authInfo = { token: "t", clientId: "c", scopes: [], extra: { userId } };
+    clientT.send = (message, options) => send(message, { ...options, authInfo });
+  }
   const client = new Client({ name: "test-client", version: "0.0.0" });
   await Promise.all([server.connect(serverT), client.connect(clientT)]);
   return client;
@@ -273,13 +290,40 @@ describe("run tools", () => {
     expect(calls.startedResources).toBe(provider);
   });
 
+  // The three halves of a run's address, and where each comes from. The user matters most:
+  // a host that scopes runs per user must take it from the verified token and never from
+  // the arguments, or one client could name another's run.
+  it("addresses the run by the session, the integration, and the caller", async () => {
+    const { host, calls } = stubRunHost();
+    const client = await connect(config(), host, "user-7");
+
+    await client.callTool({ name: "run_integration", arguments: { id: "a" } });
+
+    expect(calls.key).toEqual({
+      namespace: expect.stringMatching(/^ns-/),
+      integrationId: "a",
+      userId: "user-7",
+    });
+  });
+
+  // An unauthenticated host (the standalone app) has no caller to name, and keys on the
+  // session alone — so the absence has to travel rather than being invented.
+  it("leaves the caller out when the host has no auth", async () => {
+    const { host, calls } = stubRunHost();
+    const client = await connect(config(), host);
+
+    await client.callTool({ name: "run_integration", arguments: { id: "a" } });
+
+    expect(calls.key?.userId).toBeUndefined();
+  });
+
   it("stop returns running:false", async () => {
     const { host } = stubRunHost();
     const client = await connect(config(), host);
     await client.callTool({ name: "run_integration", arguments: { id: "a" } });
     const res = (await client.callTool({
       name: "stop_integration",
-      arguments: {},
+      arguments: { id: "a" },
     })) as CallToolResult;
     expect(parse(res)).toEqual({ running: false });
   });
@@ -289,13 +333,13 @@ describe("run tools", () => {
     const client = await connect(config(), host);
     const empty = (await client.callTool({
       name: "get_run_logs",
-      arguments: {},
+      arguments: { id: "a" },
     })) as CallToolResult;
     expect(text(empty)).toContain("no logs yet");
     await client.callTool({ name: "run_integration", arguments: { id: "a" } });
     const after = (await client.callTool({
       name: "get_run_logs",
-      arguments: {},
+      arguments: { id: "a" },
     })) as CallToolResult;
     expect(text(after)).toContain("starting octo");
   });

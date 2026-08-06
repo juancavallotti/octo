@@ -2,10 +2,9 @@ import {
   binaries,
   evalCel,
   invoke,
+  localRunner,
   newNamespace,
   snapshot,
-  start,
-  stop,
   test,
 } from "@octo/run-host";
 import type { RunHostPort } from "@octo/mcp";
@@ -13,22 +12,30 @@ import type { RunHostPort } from "@octo/mcp";
 /**
  * The standalone app's MCP run host: the in-process runner, which here is simply the
  * runner. This app IS the host — one process, one machine, the `octo` binary beside it —
- * so every operation is a local one and the port is a thin naming of what
- * `@octo/run-host` already exports.
+ * so every operation is a local one.
  *
  * It is declared rather than defaulted to, and that is the point of the seam: the platform
- * runs an integration somewhere else entirely, and a port that fell back to this module
- * would hand it a runner in the wrong pod with nothing to say so.
+ * runs an integration in a pod of its own, and a port that fell back to this module would
+ * hand it a runner in the wrong place with nothing to say so.
+ *
+ * Of the run key, only the namespace is read. A local run is a child of this process keyed
+ * by the MCP session, so the integration and the caller name nothing here — there is no
+ * second user to be separated from, and nothing outlives the machine.
  */
 export const localMcpRunHost: RunHostPort = {
   binaries,
-  start,
-  stop,
+
+  start: (key, yaml, devEnv, opts) =>
+    localRunner.start(key, { yaml, devEnv, resources: opts?.resources }),
+
+  stop: (key) => localRunner.stop(key),
+
+  // Wrapped rather than passed straight through: the local buffer answers synchronously,
+  // while the port is asynchronous so a host reading logs over the network can satisfy it.
+  snapshot: async (key) => snapshot(key.namespace),
+
   invoke,
   evalCel,
   test,
-  // Wrapped rather than passed: the local buffer answers synchronously, while the port is
-  // asynchronous so that a host reading logs over the network can satisfy it too.
-  snapshot: async (ns) => snapshot(ns),
   newNamespace,
 };

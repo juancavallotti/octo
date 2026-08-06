@@ -195,9 +195,13 @@ export interface OctoMcpConfig {
    */
   suiteStore?: SuiteStore;
   /**
-   * Public origin used to absolutize a run's test path (e.g.
-   * `http://localhost:3000`). When unset, the bare `/editor/runs/<ns>/` path is
-   * returned and the consumer joins it with the app origin itself.
+   * Public origin used to absolutize a run's test path (e.g. `http://localhost:3000`).
+   * When unset, the bare path is returned and the consumer joins it with the app origin
+   * itself.
+   *
+   * Only for a host that proxies to a run inside itself, which is the only kind that
+   * reports a path. A host whose runs have hostnames of their own reports an absolute URL
+   * and needs no origin — see `buildTestUrl`, which is why this is optional.
    */
   baseUrl?: string;
   /**

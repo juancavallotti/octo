@@ -21,13 +21,6 @@ const nextConfig: NextConfig = {
   // The NATS client is a Node-only package (net/tls transport); keep it external
   // so it's required at runtime rather than bundled into the server build.
   serverExternalPackages: ["@nats-io/transport-node"],
-  // Don't 308-redirect trailing slashes away. The run reverse proxy
-  // (app/editor/runs/[ns]/[[...path]]) advertises its test URL *with* a trailing
-  // slash (`/editor/runs/<ns>/`) so relative links in a served integration
-  // resolve under the run prefix. With the default redirect, Next strips that
-  // slash at the routing layer before the proxy handler runs, so the advertised
-  // URL never reaches the integration. Let the proxy own trailing slashes.
-  skipTrailingSlashRedirect: true,
 };
 
 export default nextConfig;

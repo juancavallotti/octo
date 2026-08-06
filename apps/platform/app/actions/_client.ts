@@ -498,24 +498,21 @@ export function deleteDevRun(
 }
 
 /**
- * Open the dev run's runtime log stream: plain text, one line per line, following until
- * the caller aborts.
+ * Open the dev run's runtime logs: plain text, one line per line.
  *
- * The one orchestrator call that is not JSON, and it has to be: a follow has no end, so
- * a JSON client would buffer it forever. `tail` bounds the history replayed on connect,
- * because a run that has been up for an hour should not dump the hour before it starts
- * tailing.
+ * The one orchestrator call that is not JSON, and with `follow` it has to be — a follow
+ * has no end, so a JSON client would buffer it forever. Without `follow` it is a bounded
+ * document that ends on its own, which is what a caller reading logs rather than watching
+ * them wants. `tail` bounds the history either way, because a run that has been up for an
+ * hour should not send the hour first.
  */
 export function openDevRunLogs(
   userId: string,
   id: string,
-  opts: { tail: number; signal: AbortSignal },
+  opts: { tail: number; follow: boolean; signal?: AbortSignal },
 ): Promise<ActionResult<ReadableStream<Uint8Array>>> {
-  const qs = new URLSearchParams({
-    userId,
-    follow: "1",
-    tail: String(opts.tail),
-  });
+  const qs = new URLSearchParams({ userId, tail: String(opts.tail) });
+  if (opts.follow) qs.set("follow", "1");
   return callStream("GET", `/devruns/${enc(id)}/logs?${qs.toString()}`, opts.signal);
 }
 

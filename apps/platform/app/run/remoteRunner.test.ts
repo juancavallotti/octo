@@ -21,7 +21,7 @@ const client = {
 };
 vi.mock("@/app/actions/_client", () => client);
 
-const { remoteRunner } = await import("./remoteRunner");
+const { logTail, remoteRunner } = await import("./remoteRunner");
 
 const KEY = { namespace: "ns-abc123", userId: "user-7", integrationId: "int-1" };
 
@@ -254,7 +254,7 @@ describe("logs", () => {
     expect(client.openDevRunLogs).toHaveBeenCalledWith(
       "user-7",
       devRun().id,
-      expect.objectContaining({ tail: 500 }),
+      expect.objectContaining({ tail: 500, follow: true }),
     );
   });
 
@@ -307,5 +307,42 @@ describe("logs", () => {
     });
 
     await expect(drain()).rejects.toThrow("the dev run has no pod to read yet");
+  });
+});
+
+describe("logTail", () => {
+  // The counterpart for a caller that reads logs rather than watching them — an agent's
+  // get_run_logs. It must NOT follow: a stream with no end is not a document, and whoever
+  // asked would wait on it forever.
+  it("reads a bounded document rather than following", async () => {
+    client.openDevRunLogs.mockResolvedValue({
+      ok: true,
+      data: textStream(["starting\nready\n"]),
+    });
+
+    expect(await logTail(KEY)).toEqual([
+      { seq: 0, text: "starting" },
+      { seq: 1, text: "ready" },
+    ]);
+    expect(client.openDevRunLogs).toHaveBeenCalledWith(
+      "user-7",
+      devRun().id,
+      expect.objectContaining({ follow: false }),
+    );
+  });
+
+  // "No run" and "a run that has not spoken yet" are the same answer to a reader: there is
+  // nothing to read. Distinguishing them would make the caller handle a case it cannot act on.
+  it("reads nothing when there is no run", async () => {
+    client.listDevRuns.mockResolvedValue({ ok: true, data: [] });
+
+    expect(await logTail(KEY)).toEqual([]);
+    expect(client.openDevRunLogs).not.toHaveBeenCalled();
+  });
+
+  it("raises what the orchestrator refused the read for", async () => {
+    client.openDevRunLogs.mockResolvedValue({ ok: false, error: "dev run not found" });
+
+    await expect(logTail(KEY)).rejects.toThrow("dev run not found");
   });
 });

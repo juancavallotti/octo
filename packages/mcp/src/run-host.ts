@@ -7,19 +7,27 @@
  * error. Each host declares its own (`app/mcp/run-host.ts` in both apps); tests pass a
  * stub, and never spawn a real `octo` process.
  *
- * Runs are keyed by a namespace slug, which the handler resolves once per MCP session so
- * a run stays bound to the client that started it across requests. The asynchronous
- * signatures are the seam that lets a host answer over the network rather than from its
- * own heap.
+ * The long-running half is addressed by a {@link RunKey} — run-host's own, not a copy of
+ * it, because it is the same key both hosts' runners already consume. It carries a
+ * namespace (resolved once per MCP session, so a session's run stays its own), the
+ * integration, and the calling user; each host reads the halves it keys on. The one-shots
+ * still take a bare namespace, because they are local on both hosts and it only names
+ * where their files are staged.
+ *
+ * The asynchronous signatures are the other half of that seam: they are what lets a host
+ * answer over the network rather than out of its own heap.
  */
 
 import type {
   MockSpec,
   ResourceProvider,
+  RunKey,
   SpyTrace,
   TestRunArgs,
   TestRunOutcome,
 } from "@octo/run-host";
+
+export type { RunKey } from "@octo/run-host";
 
 /**
  * What the host can spawn — the fields run-host's `Binaries` exposes.
@@ -96,13 +104,21 @@ export interface EvalResultLike {
 export interface RunHostPort {
   /** Which binaries this host has for its one-shot runs, and their versions. */
   binaries(): BinariesLike;
+  /**
+   * Start (or restart) the integration as a long-running app.
+   *
+   * `yaml` and `env` are meaningful only to a host that PUSHES config to its runner. One
+   * whose runner pulls the stored definition runs what was saved, and has nowhere to put
+   * an ad-hoc `env` — so it refuses one rather than dropping it silently, which would
+   * leave an agent debugging a run that never saw the value it set.
+   */
   start(
-    ns: string,
+    key: RunKey,
     yaml: string,
     env?: Record<string, string>,
     opts?: { resources?: ResourceProvider },
   ): Promise<RunStateLike>;
-  stop(ns: string): Promise<RunStateLike>;
+  stop(key: RunKey): Promise<RunStateLike>;
   /** Run a single named flow once (sources not started) and return its result + logs. */
   invoke(
     ns: string,
@@ -147,7 +163,7 @@ export interface RunHostPort {
    * A bounded snapshot rather than a follow: an agent reads logs as a document, and a
    * stream it had to decide when to stop draining would be worse than one it cannot get.
    */
-  snapshot(ns: string): Promise<RunLogLine[]>;
+  snapshot(key: RunKey): Promise<RunLogLine[]>;
   /** Mint a fresh, valid namespace slug. */
   newNamespace(): string;
 }
