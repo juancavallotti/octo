@@ -171,12 +171,23 @@ func (c *Client) StartInformers(ctx context.Context, onChange func(integrationID
 
 // notifyIntegration extracts the integration-id label from a changed object (or
 // the wrapped object of a delete tombstone) and reports it.
+//
+// Dev-run workloads are skipped, and that guard is load-bearing rather than tidy.
+// A dev run carries the same managed-by label the informers filter on AND an
+// integration id, so without it every dev-run pod transition would publish a
+// *deployment* snapshot for that integration — telling anyone watching
+// internal.deployments.{id} that a deployment changed when none did, or that one
+// exists when none does. The dev-run id is what distinguishes the two kinds of
+// workload; dev-run status has its own read path (ListDevRuns).
 func notifyIntegration(obj any, onChange func(string)) {
 	if tombstone, ok := obj.(cache.DeletedFinalStateUnknown); ok {
 		obj = tombstone.Obj
 	}
 	m, err := meta.Accessor(obj)
 	if err != nil {
+		return
+	}
+	if m.GetLabels()[labelDevRunID] != "" {
 		return
 	}
 	if id := m.GetLabels()[labelIntegrationID]; id != "" {

@@ -63,7 +63,7 @@ type kubeClient interface {
 	Apply(ctx context.Context, spec kube.Spec) error
 	Rollout(ctx context.Context, spec kube.Spec) error
 	Status(ctx context.Context, deploymentID string) (kube.Status, error)
-	PodLogs(ctx context.Context, podName string, follow bool, tail int64) (io.ReadCloser, error)
+	PodLogs(ctx context.Context, podName, container string, follow bool, tail int64) (io.ReadCloser, error)
 	Scale(ctx context.Context, deploymentID string, replicas int32) error
 	Delete(ctx context.Context, deploymentID string) error
 	InternalURL(slug string, port int) string
@@ -788,7 +788,10 @@ func (s *Service) PodLogs(ctx context.Context, deploymentID, podName string, fol
 	if !found {
 		return nil, ErrPodNotFound
 	}
-	return s.kube.PodLogs(ctx, podName, follow, tail)
+	// Named explicitly even though a deployment pod has exactly one container: the
+	// name is now part of the call, and passing "" here would only work by accident
+	// of that fact.
+	return s.kube.PodLogs(ctx, podName, kube.RuntimeContainer, follow, tail)
 }
 
 // ListByIntegration returns an integration's deployments, each with its status
