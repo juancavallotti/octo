@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -39,6 +40,9 @@ type fakeCluster struct {
 	// lastSpec is the spec of the most recent Apply, so the derived identity a caller
 	// computed can be inspected.
 	lastSpec kube.DevRunSpec
+	// logs is what a pod-log stream yields; logsErr fails the open instead.
+	logs    string
+	logsErr error
 }
 
 func newFakeCluster() *fakeCluster {
@@ -130,6 +134,32 @@ func (f *fakeCluster) ListDevRuns(_ context.Context, sel kube.DevRunSelector) ([
 		out = append(out, run)
 	}
 	return out, nil
+}
+
+// PodLogs stands in for the pod-log stream, recording exactly what was asked for. The
+// container name is part of that record on purpose: a dev-run pod has two containers
+// and Kubernetes rejects a log request that does not say which.
+func (f *fakeCluster) PodLogs(
+	_ context.Context, podName, container string, follow bool, tail int64,
+) (io.ReadCloser, error) {
+	f.record("pod-logs %s/%s follow=%t tail=%d", podName, container, follow, tail)
+	if f.logsErr != nil {
+		return nil, f.logsErr
+	}
+	return io.NopCloser(strings.NewReader(f.logs)), nil
+}
+
+// withPods gives a dev run live pods, which is what the cluster reports once the
+// workload has actually been scheduled.
+func (f *fakeCluster) withPods(devRunID string, pods ...kube.PodStatus) {
+	run := f.runs[devRunID]
+	run.Status = kube.Status{Phase: kube.StatusRunning, DesiredReplicas: 1, Pods: pods}
+	for _, p := range pods {
+		if p.Ready {
+			run.Status.ReadyReplicas = 1
+		}
+	}
+	f.runs[devRunID] = run
 }
 
 func (f *fakeCluster) SidecarURL(devRunID string) string {
@@ -345,13 +375,118 @@ func TestEnsureRequiresASavedIntegration(t *testing.T) {
 
 	for name, args := range map[string][2]string{
 		"no integration id": {"u1", ""},
-		"no user id":        {"", "int-1"},
 		"unknown id":        {"u1", "nope"},
 	} {
 		if _, err := svc.Ensure(context.Background(), args[0], args[1]); !errors.Is(err, ErrIntegrationNotFound) {
 			t.Errorf("%s: error = %v, want ErrIntegrationNotFound", name, err)
 		}
 	}
+}
+
+// TestEveryUserOperationNeedsAUser is the guard on the one mistake the label selector
+// makes easy: an empty user id means "do not filter by user", so an operation that let
+// one through would address every user's dev runs — and two of these operations delete
+// or rewrite what a pod is running.
+func TestEveryUserOperationNeedsAUser(t *testing.T) {
+	cluster := newFakeCluster()
+	svc, _ := testService(t, cluster, map[string]string{"int-1": networkedDefinition})
+	run, err := svc.Ensure(context.Background(), "u1", "int-1")
+	if err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+	ctx := context.Background()
+
+	for name, call := range map[string]func() error{
+		"Ensure": func() error { _, err := svc.Ensure(ctx, "", "int-1"); return err },
+		"Status": func() error { _, err := svc.Status(ctx, "", run.ID); return err },
+		"Stop":   func() error { return svc.Stop(ctx, "", run.ID) },
+		"Reload": func() error { return svc.Reload(ctx, "", run.ID) },
+		"List":   func() error { _, err := svc.ListByUser(ctx, "", ""); return err },
+		"PodLogs": func() error {
+			_, err := svc.PodLogs(ctx, "", run.ID, false, 0)
+			return err
+		},
+	} {
+		if err := call(); !errors.Is(err, ErrUserRequired) {
+			t.Errorf("%s with no user id: error = %v, want ErrUserRequired", name, err)
+		}
+	}
+	if _, still := cluster.runs[run.ID]; !still {
+		t.Error("an unscoped call reached the cluster: the dev run was deleted")
+	}
+}
+
+// TestPodLogsReadsTheRuntimeContainer: the container has to be named, because a dev-run
+// pod has two and Kubernetes rejects an ambiguous request. The ready pod is preferred
+// so a restart in progress does not serve the logs of the pod that is going away.
+func TestPodLogsReadsTheRuntimeContainer(t *testing.T) {
+	cluster := newFakeCluster()
+	cluster.logs = "listening on :8080\n"
+	svc, _ := testService(t, cluster, map[string]string{"int-1": networkedDefinition})
+	run, err := svc.Ensure(context.Background(), "u1", "int-1")
+	if err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+	cluster.withPods(run.ID,
+		kube.PodStatus{Name: "octo-dev-old", Phase: "Running"},
+		kube.PodStatus{Name: "octo-dev-new", Phase: "Running", Ready: true})
+
+	stream, err := svc.PodLogs(context.Background(), "u1", run.ID, true, 100)
+	if err != nil {
+		t.Fatalf("PodLogs: %v", err)
+	}
+	defer func() { _ = stream.Close() }()
+	body, err := io.ReadAll(stream)
+	if err != nil {
+		t.Fatalf("read stream: %v", err)
+	}
+	if string(body) != cluster.logs {
+		t.Errorf("stream = %q, want %q", body, cluster.logs)
+	}
+	want := "pod-logs octo-dev-new/" + kube.RuntimeContainer + " follow=true tail=100"
+	if !containsCall(cluster.calls, want) {
+		t.Errorf("calls = %v, want one matching %q", cluster.calls, want)
+	}
+}
+
+// TestPodLogsBeforeThereIsAPod: the workload exists but nothing has been scheduled yet,
+// which is a wait rather than a "no such run" — the caller should retry, not start it
+// again.
+func TestPodLogsBeforeThereIsAPod(t *testing.T) {
+	cluster := newFakeCluster()
+	svc, _ := testService(t, cluster, map[string]string{"int-1": networkedDefinition})
+	run, err := svc.Ensure(context.Background(), "u1", "int-1")
+	if err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+	if _, err := svc.PodLogs(context.Background(), "u1", run.ID, false, 0); !errors.Is(err, ErrNotStarted) {
+		t.Errorf("error = %v, want ErrNotStarted", err)
+	}
+}
+
+// TestPodLogsIsScopedToTheOwner: another user's logs are as unreachable as their run.
+func TestPodLogsIsScopedToTheOwner(t *testing.T) {
+	cluster := newFakeCluster()
+	svc, _ := testService(t, cluster, map[string]string{"int-1": networkedDefinition})
+	run, err := svc.Ensure(context.Background(), "u1", "int-1")
+	if err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+	cluster.withPods(run.ID, kube.PodStatus{Name: "octo-dev-pod", Ready: true})
+
+	if _, err := svc.PodLogs(context.Background(), "u2", run.ID, false, 0); !errors.Is(err, ErrNotFound) {
+		t.Errorf("error = %v, want ErrNotFound", err)
+	}
+}
+
+// containsCall reports whether calls holds one exactly equal to want.
+func containsCall(calls []string, want string) bool {
+	for _, call := range calls {
+		if call == want {
+			return true
+		}
+	}
+	return false
 }
 
 // TestStopIsScopedToTheOwner: another user's run reads as not found, so probing an id

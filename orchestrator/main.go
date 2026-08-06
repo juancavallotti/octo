@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -23,6 +24,7 @@ import (
 	"github.com/juancavallotti/octo/orchestrator/internal/bus"
 	"github.com/juancavallotti/octo/orchestrator/internal/db"
 	"github.com/juancavallotti/octo/orchestrator/internal/deployment"
+	"github.com/juancavallotti/octo/orchestrator/internal/devrun"
 	"github.com/juancavallotti/octo/orchestrator/internal/folder"
 	httpx "github.com/juancavallotti/octo/orchestrator/internal/http"
 	"github.com/juancavallotti/octo/orchestrator/internal/integration"
@@ -45,6 +47,14 @@ const (
 	// deploymentSnapshotTimeout bounds the DB + cluster work to compute one
 	// deployment snapshot published from the informer callback.
 	deploymentSnapshotTimeout = 15 * time.Second
+	// devRunReapInterval is how often idle dev runs are swept. A minute against an
+	// idle timeout measured in tens of minutes: the sweep is a cache read plus a
+	// comparison, so its cost is not what sets this, and a coarser tick would only
+	// make the timeout less accurate.
+	devRunReapInterval = time.Minute
+	// devRunReapTimeout bounds one sweep, so a wedged API server cannot leave the
+	// reaper's goroutine blocked until the process ends.
+	devRunReapTimeout = 30 * time.Second
 )
 
 func main() {
@@ -133,12 +143,25 @@ func kubeConfig() (kube.Config, error) {
 			return kube.Config{}, err
 		}
 	}
+	sidecarPort, err := devRunSidecarPort()
+	if err != nil {
+		return kube.Config{}, err
+	}
 	namespace := envOr("KUBE_NAMESPACE", defaultNamespace)
 	cfg := kube.Config{
 		Namespace:    namespace,
 		RuntimeImage: envOr("RUNTIME_IMAGE", defaultRuntimeImage),
-		BaseDomain:   os.Getenv("BASE_DOMAIN"),
-		EndpointAPI:  endpointAPI,
+		// The dev-run images and this orchestrator's own in-cluster address. All three
+		// are unset on an install with dev runs off, which is a coherent state rather
+		// than a broken one: kube.DevRunsEnabled reads them together, because each one's
+		// absence alone would produce a pod that fails rather than a feature that
+		// degrades.
+		DevRuntimeImage: os.Getenv("DEV_RUNTIME_IMAGE"),
+		SidecarImage:    os.Getenv("DEV_SIDECAR_IMAGE"),
+		SidecarPort:     sidecarPort,
+		OrchestratorURL: os.Getenv("ORCHESTRATOR_URL"),
+		BaseDomain:      os.Getenv("BASE_DOMAIN"),
+		EndpointAPI:     endpointAPI,
 		// Empty ("") means no TLS annotation and no per-host cert: letsencrypt-prod
 		// only exists because this project's own k3s bootstrap creates it, so it must
 		// not be assumed as a default on an arbitrary cluster.
@@ -206,6 +229,49 @@ func imagePullSecretsConfig() []string {
 	return names
 }
 
+// devRunSidecarPort reads DEV_RUN_SIDECAR_PORT, the port a dev run's sidecar serves
+// its command API on. Unset returns 0, which the kube client reads as its own default
+// — the same number the sidecar binary defaults to, so the two halves agree with
+// nothing configured.
+//
+// A value that is not a usable port stops startup naming the setting, rather than
+// being coerced: the failure it would otherwise produce is a dev run that starts,
+// reports ready, and then cannot be reloaded, because the Service's sidecar port routes
+// to a port nothing listens on.
+func devRunSidecarPort() (int32, error) {
+	raw := os.Getenv("DEV_RUN_SIDECAR_PORT")
+	if raw == "" {
+		return 0, nil
+	}
+	port, err := strconv.Atoi(raw)
+	if err != nil || port < 1 || port > 65535 {
+		return 0, fmt.Errorf("parse DEV_RUN_SIDECAR_PORT: %q is not a port number", raw)
+	}
+	return int32(port), nil
+}
+
+// devRunIdleTimeout reads DEV_RUN_IDLE_TIMEOUT, how long a dev run survives without
+// being reloaded. Unset takes the service's own default.
+//
+// A malformed duration is a startup error rather than a silent fall back, because the
+// likely typos ("60", "60min") differ from the intent by a factor nobody would notice
+// from behaviour: too short reaps a run somebody is using, too long leaves pods
+// running for days, and both look like "the reaper is a bit off".
+func devRunIdleTimeout() (time.Duration, error) {
+	raw := os.Getenv("DEV_RUN_IDLE_TIMEOUT")
+	if raw == "" {
+		return devrun.DefaultIdleTimeout, nil
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("parse DEV_RUN_IDLE_TIMEOUT: %w", err)
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("DEV_RUN_IDLE_TIMEOUT must be positive, got %q", raw)
+	}
+	return d, nil
+}
+
 // runtimeServicesConfig reads the runtime-services env injected into deployed
 // runtime pods. The orchestrator URL is the linchpin: without it the runtime has
 // no KV endpoint, so an empty URL disables injection entirely (Module left empty)
@@ -261,9 +327,41 @@ func newServer(ctx context.Context, database *db.DB, kc kube.Config) (http.Handl
 	})
 
 	if database != nil {
-		integrationSvc := integration.NewService(integration.NewRepo(database.Pool()))
+		// Kubernetes access is built first because of the one dependency cycle in this
+		// wiring: the dev-run service reads integrations and their resources, while a
+		// write to either has to notify it so a running dev run picks the change up.
+		//
+		// It is broken by direction rather than with a setter. The dev-run service takes
+		// the two *repositories* — it only reads stored state, and both service methods
+		// it would otherwise call are pass-throughs — while the services that own the
+		// write path take the dev-run service as their notifier. So the graph is acyclic,
+		// nothing is configured after construction, and no service holds a reference back
+		// to one holding a reference to it.
+		kubeClient, err := newKubeClient(ctx, kc)
+		if err != nil {
+			return nil, err
+		}
+		integrationRepo := integration.NewRepo(database.Pool())
+		resourceRepo := resource.NewRepo(database.Pool())
+		devrunSvc, err := newDevRunService(kubeClient, integrationRepo, resourceRepo)
+		if err != nil {
+			return nil, err
+		}
+
+		// The notifier is wired only when dev runs are actually available. Passing a nil
+		// *devrun.Service would be a non-nil interface holding a nil pointer, which the
+		// "nothing is listening" check could not see.
+		var integrationOpts []integration.Option
+		var resourceOpts []resource.Option
+		if devrunSvc.Enabled() {
+			integrationOpts = append(integrationOpts, integration.WithReloadNotifier(devrunSvc))
+			resourceOpts = append(resourceOpts, resource.WithReloadNotifier(devrunSvc))
+		}
+
+		integrationSvc := integration.NewService(integrationRepo, integrationOpts...)
 		integration.NewHandler(integrationSvc).Register(mux)
 		slog.Info("integration routes registered",
+			"reloadsDevRuns", devrunSvc.Enabled(),
 			"endpoints", "POST/GET /integrations, GET/PUT/DELETE /integrations/{id}")
 
 		folderSvc := folder.NewService(folder.NewRepo(database.Pool()))
@@ -285,9 +383,10 @@ func newServer(ctx context.Context, database *db.DB, kc kube.Config) (http.Handl
 		// database, so it is registered outside the deployment/kube gate below. The
 		// service is also shared into the deployment service (below) so a Current
 		// deploy knows which env vars the working-copy .env files supply.
-		resourceSvc := resource.NewService(resource.NewRepo(database.Pool()))
+		resourceSvc := resource.NewService(resourceRepo, resourceOpts...)
 		resource.NewHandler(resourceSvc).Register(mux)
 		slog.Info("resource routes registered",
+			"reloadsDevRuns", devrunSvc.Enabled(),
 			"endpoints", "POST/GET /integrations/{id}/resources, "+
 				"GET/PUT/DELETE /integrations/{id}/resources/{resourceId}")
 
@@ -323,22 +422,11 @@ func newServer(ctx context.Context, database *db.DB, kc kube.Config) (http.Handl
 		slog.Info("object routes registered",
 			"endpoints", "GET /deployments/{id}/objects, GET/PUT/DELETE /deployments/{id}/objects/{key}")
 
-		// Deployment management needs both the database and in-cluster Kubernetes
-		// access. Outside a cluster (e.g. local `go run`) kube.New fails and the
-		// routes stay disabled, mirroring how the DB-less case disables the rest.
-		if kubeClient, err := kube.New(kc); err != nil {
-			slog.Warn("kubernetes access unavailable; deployment routes disabled", "error", err)
-		} else {
-			// Being in a cluster is not the same as that cluster being able to serve
-			// the endpoints this install is configured for: Gateway API is CRDs, and
-			// their absence is a startup failure rather than a disabled feature. It is
-			// deliberately not the warn-and-continue above — that one covers running
-			// outside a cluster at all, which is a legitimate way to run the
-			// orchestrator; this one covers a cluster that will never serve what it
-			// was asked for, and only says so at the first exposed deploy.
-			if err := kubeClient.Preflight(ctx); err != nil {
-				return nil, err
-			}
+		// Deployment and dev-run management need both the database and in-cluster
+		// Kubernetes access. Outside a cluster (e.g. local `go run`) the client is nil
+		// and these routes stay disabled, mirroring how the DB-less case disables the
+		// rest.
+		if kubeClient != nil {
 			deploymentRepo := deployment.NewRepo(database.Pool())
 			deploymentSvc := deployment.NewService(deploymentRepo, integrationSvc, kubeClient,
 				deployment.WithStoreCleaner(kvSvc),
@@ -390,12 +478,120 @@ func newServer(ctx context.Context, database *db.DB, kc kube.Config) (http.Handl
 			secret.NewHandler(secretSvc).Register(mux)
 			slog.Info("secret routes registered",
 				"endpoints", "GET /secrets, PUT/DELETE /secrets/{name}")
+
+			// Dev runs: the editor's Run button, as a pod of its own rather than a child
+			// process of whichever platform replica answered the request.
+			if devrunSvc.Enabled() {
+				devrun.NewHandler(devrunSvc).Register(mux)
+				startDevRunReaper(ctx, devrunSvc)
+				slog.Info("devrun routes registered",
+					"devRuntimeImage", kc.DevRuntimeImage, "devSidecarImage", kc.SidecarImage,
+					"idleTimeout", devrunSvc.IdleTimeout(),
+					"endpoints", "POST/GET /devruns, GET/DELETE /devruns/{id}, "+
+						"POST /devruns/{id}/reload, GET /devruns/{id}/logs, "+
+						"GET /devruns/{id}/bundle, POST /devruns/{id}/expire")
+			} else {
+				// Named individually, because the feature needs all three and any one
+				// missing disables it. A single "dev runs disabled" would leave the operator
+				// to guess which of the three values in their chart did not arrive.
+				slog.Info("dev runs disabled",
+					"devRuntimeImage", kc.DevRuntimeImage != "",
+					"devSidecarImage", kc.SidecarImage != "",
+					"orchestratorUrl", kc.OrchestratorURL != "" || kc.RuntimeServices.OrchestratorURL != "")
+			}
 		}
 	} else {
 		slog.Warn("DATABASE_URL not set; integration, folder and deployment routes disabled")
 	}
 
 	return mux, nil
+}
+
+// newKubeClient builds the Kubernetes client, or reports a nil one when this
+// orchestrator is not running inside a cluster.
+//
+// The two failures here are deliberately different in kind. Not being in a cluster (a
+// local `go run`) is a legitimate way to run the orchestrator, so it warns and the
+// cluster features stay off. A cluster that cannot serve the endpoints this install is
+// configured for — gateway mode without the Gateway API CRDs — is a startup failure,
+// because the alternative is discovering it at somebody's first exposed deploy.
+func newKubeClient(ctx context.Context, kc kube.Config) (*kube.Client, error) {
+	client, err := kube.New(kc)
+	if err != nil {
+		slog.Warn("kubernetes access unavailable; deployment and dev-run routes disabled", "error", err)
+		return nil, nil //nolint:nilnil // a nil client means the feature is off, not an error
+	}
+	if err := client.Preflight(ctx); err != nil {
+		return nil, err
+	}
+	return client, nil
+}
+
+// newDevRunService builds the dev-run service, or a nil one when dev runs are not
+// configured (no cluster, or the images and orchestrator URL a dev pod needs are
+// unset). A nil service reports Enabled() == false, so the caller registers nothing.
+//
+// DEV_RUN_HASH_SECRET is required as soon as dev runs are otherwise configured, and its
+// absence stops startup naming it — the same posture newKVCipher takes for
+// KV_ENCRYPTION_KEY, for the same class of reason. Every dev run's identity and, more
+// to the point, its public hostname are HMACs keyed on this secret. Unkeyed they would
+// be pure functions of a user id and an integration id, which is to say that the
+// hostname is the only thing guarding a publicly reachable dev run and it would be
+// derivable by anyone who could guess two ids. Falling back silently is not an option
+// worth having.
+//
+// It takes the repositories rather than the integration and resource services, which is
+// what keeps this wiring acyclic; see the comment at the call site.
+func newDevRunService(
+	cluster *kube.Client, integrations *integration.Repo, resources *resource.Repo,
+) (*devrun.Service, error) {
+	if cluster == nil || !cluster.DevRunsEnabled() {
+		return nil, nil //nolint:nilnil // a nil service means dev runs are off, not an error
+	}
+	hashSecret := os.Getenv("DEV_RUN_HASH_SECRET")
+	if hashSecret == "" {
+		return nil, errors.New("DEV_RUN_HASH_SECRET must be set when dev runs are configured: " +
+			"it keys the derivation of every dev run's identity and public hostname, and an " +
+			"unkeyed hash would make every dev-run hostname predictable")
+	}
+	idleTimeout, err := devRunIdleTimeout()
+	if err != nil {
+		return nil, err
+	}
+	// The secret's bytes are used as an HMAC key, which has no length or encoding
+	// requirement — so it is taken as written rather than base64-decoded like
+	// KV_ENCRYPTION_KEY, whose cipher needs exactly 32 bytes.
+	return devrun.NewService(cluster, integrations, resources, []byte(hashSecret),
+		devrun.WithIdleTimeout(idleTimeout)), nil
+}
+
+// startDevRunReaper sweeps idle dev runs until ctx ends.
+//
+// On the root context, so the sweep stops when the process drains rather than outliving
+// it. Every replica runs its own, and that needs no coordination: a reap deletes an
+// object whose name is derived, so two replicas collecting the same idle run produce one
+// delete and one NotFound, which DeleteDevRun already ignores.
+func startDevRunReaper(ctx context.Context, svc *devrun.Service) {
+	go func() {
+		ticker := time.NewTicker(devRunReapInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				sweep, cancel := context.WithTimeout(ctx, devRunReapTimeout)
+				reaped, err := svc.ReapIdle(sweep)
+				cancel()
+				if err != nil {
+					slog.Error("dev run reap", "error", err)
+				}
+				if reaped > 0 {
+					slog.Info("idle dev runs reaped", "count", reaped)
+				}
+			}
+		}
+	}()
 }
 
 // newKVCipher builds the secret-namespace encryption cipher from a base64-encoded

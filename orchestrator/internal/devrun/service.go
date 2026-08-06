@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"time"
 
@@ -49,6 +50,7 @@ type devRunCluster interface {
 	TouchDevRun(ctx context.Context, devRunID string, at time.Time) error
 	SetDevRunHost(ctx context.Context, devRunID, host string) error
 	ListDevRuns(ctx context.Context, sel kube.DevRunSelector) ([]kube.DevRun, error)
+	PodLogs(ctx context.Context, podName, container string, follow bool, tail int64) (io.ReadCloser, error)
 	SidecarURL(devRunID string) string
 	ExternalHost(subdomain string) string
 	ExternalURL(subdomain string) string
@@ -150,6 +152,11 @@ func (s *Service) Enabled() bool {
 	return s != nil && s.cluster != nil && len(s.hashSecret) > 0 && s.cluster.DevRunsEnabled()
 }
 
+// IdleTimeout is how long a dev run survives without being reloaded. Exported for the
+// startup log, which is where an operator reads back what their configuration resolved
+// to — the setting is otherwise invisible until a run they were using disappears.
+func (s *Service) IdleTimeout() time.Duration { return s.idleTimeout }
+
 // Ensure starts a dev run for (userID, integrationID), or attaches to the one
 // already running it.
 //
@@ -161,8 +168,11 @@ func (s *Service) Ensure(ctx context.Context, userID, integrationID string) (Ens
 	if !s.Enabled() {
 		return EnsureResult{}, ErrUnavailable
 	}
-	if userID == "" || integrationID == "" {
-		return EnsureResult{}, fmt.Errorf("%w: a dev run needs both a user and a saved integration", ErrIntegrationNotFound)
+	if userID == "" {
+		return EnsureResult{}, ErrUserRequired
+	}
+	if integrationID == "" {
+		return EnsureResult{}, fmt.Errorf("%w: a dev run needs a saved integration to run", ErrIntegrationNotFound)
 	}
 	integ, err := s.integrations.Get(ctx, integrationID)
 	if err != nil {
@@ -294,7 +304,11 @@ func (s *Service) Stop(ctx context.Context, userID, devRunID string) error {
 	if !s.Enabled() {
 		return ErrUnavailable
 	}
-	if _, err := s.get(ctx, kube.DevRunSelector{UserID: userID}, devRunID); err != nil {
+	scope, err := ownerScope(userID)
+	if err != nil {
+		return err
+	}
+	if _, err := s.get(ctx, scope, devRunID); err != nil {
 		return err
 	}
 	return s.stop(ctx, devRunID, "stopped by user")
@@ -321,7 +335,11 @@ func (s *Service) Reload(ctx context.Context, userID, devRunID string) error {
 	if !s.Enabled() {
 		return ErrUnavailable
 	}
-	run, err := s.get(ctx, kube.DevRunSelector{UserID: userID}, devRunID)
+	scope, err := ownerScope(userID)
+	if err != nil {
+		return err
+	}
+	run, err := s.get(ctx, scope, devRunID)
 	if err != nil {
 		return err
 	}
@@ -470,7 +488,11 @@ func (s *Service) Status(ctx context.Context, userID, devRunID string) (DevRun, 
 	if !s.Enabled() {
 		return DevRun{}, ErrUnavailable
 	}
-	run, err := s.get(ctx, kube.DevRunSelector{UserID: userID}, devRunID)
+	scope, err := ownerScope(userID)
+	if err != nil {
+		return DevRun{}, err
+	}
+	run, err := s.get(ctx, scope, devRunID)
 	if err != nil {
 		return DevRun{}, err
 	}
@@ -487,6 +509,56 @@ func (s *Service) Status(ctx context.Context, userID, devRunID string) (DevRun, 
 	return run, nil
 }
 
+// PodLogs opens a stream of the dev run's runtime logs, replaying the last tail lines
+// and — with follow — tailing until the caller closes the stream or the request goes
+// away.
+//
+// This is the whole log path: the runtime container writes to stdout and the
+// orchestrator streams the pod, so a dev run needs no log shipping, no ring buffer in
+// a BFF replica, and no per-run state anywhere. Replay-then-follow comes free from
+// Kubernetes, which is the other half of why the buffer this replaces is gone.
+func (s *Service) PodLogs(
+	ctx context.Context, userID, devRunID string, follow bool, tail int64,
+) (io.ReadCloser, error) {
+	if !s.Enabled() {
+		return nil, ErrUnavailable
+	}
+	scope, err := ownerScope(userID)
+	if err != nil {
+		return nil, err
+	}
+	run, err := s.get(ctx, scope, devRunID)
+	if err != nil {
+		return nil, err
+	}
+	pod := runtimePod(run.Detail)
+	if pod == "" {
+		return nil, ErrNotStarted
+	}
+	// The container has to be named: a dev-run pod has two, and Kubernetes rejects an
+	// ambiguous log request. The runtime's is the one anyone asking for "the logs"
+	// means; the sidecar's own diagnostics are on its /diagnostics route.
+	return s.cluster.PodLogs(ctx, pod, kube.RuntimeContainer, follow, tail)
+}
+
+// runtimePod picks which of a dev run's pods to read.
+//
+// There is normally exactly one — a dev run has a single replica — but a restart
+// briefly leaves two, and the logs a developer wants are from the one that is actually
+// serving. So prefer a ready pod, and fall back to the first: a crash-looping run has
+// no ready pod at all, and that is precisely when its logs are worth reading.
+func runtimePod(st kube.Status) string {
+	for _, p := range st.Pods {
+		if p.Ready {
+			return p.Name
+		}
+	}
+	if len(st.Pods) > 0 {
+		return st.Pods[0].Name
+	}
+	return ""
+}
+
 // ListByUser answers "what am I running?" — and, with integrationID set, the
 // editor's Run-vs-Attach question.
 //
@@ -497,10 +569,12 @@ func (s *Service) ListByUser(ctx context.Context, userID, integrationID string) 
 	if !s.Enabled() {
 		return nil, ErrUnavailable
 	}
-	runs, err := s.cluster.ListDevRuns(ctx, kube.DevRunSelector{
-		UserID:        userID,
-		IntegrationID: integrationID,
-	})
+	scope, err := ownerScope(userID)
+	if err != nil {
+		return nil, err
+	}
+	scope.IntegrationID = integrationID
+	runs, err := s.cluster.ListDevRuns(ctx, scope)
 	if err != nil {
 		return nil, fmt.Errorf("devrun: list: %w", err)
 	}
@@ -577,6 +651,20 @@ func (s *Service) ReapIdle(ctx context.Context) (int, error) {
 		reaped++
 	}
 	return reaped, errors.Join(errs...)
+}
+
+// ownerScope is the selector that confines a user-facing operation to the caller's own
+// dev runs.
+//
+// It exists so that the one thing every such operation must not get wrong is decided
+// once. An empty user id in kube.DevRunSelector means "do not filter by user", which
+// for a listing is merely wrong and for Stop or Reload is one user acting on another's
+// pod — so the empty case is refused here rather than remembered at five call sites.
+func ownerScope(userID string) (kube.DevRunSelector, error) {
+	if userID == "" {
+		return kube.DevRunSelector{}, ErrUserRequired
+	}
+	return kube.DevRunSelector{UserID: userID}, nil
 }
 
 // get returns one dev run within the given selector's scope.

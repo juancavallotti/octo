@@ -14,6 +14,15 @@ var (
 	ErrNotFound = errors.New("dev run not found")
 	// ErrIntegrationNotFound is returned when the integration to run does not exist.
 	ErrIntegrationNotFound = errors.New("integration not found")
+	// ErrUserRequired is returned when a user-facing operation was asked for without
+	// saying whose it is. Refused rather than defaulted, because the default an empty
+	// user id would take is "every user's dev runs" — and the operations that would
+	// then widen are Stop and Reload.
+	ErrUserRequired = errors.New("a dev run is always addressed on behalf of a user")
+	// ErrNotStarted is returned when a dev run exists but has no pod to read from yet:
+	// it was created moments ago, or the scheduler has not placed it. Distinct from
+	// ErrNotFound because the caller should wait rather than start it again.
+	ErrNotStarted = errors.New("dev run has no pod yet")
 	// ErrUnauthorized is returned when a sidecar presents a token that does not
 	// match its dev run's recorded hash.
 	ErrUnauthorized = errors.New("dev run token rejected")

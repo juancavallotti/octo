@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -238,35 +237,11 @@ func (h *Handler) podLogs(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-cache, no-transform")
-	w.Header().Set("X-Accel-Buffering", "no") // don't let a proxy buffer the tail
-	w.WriteHeader(http.StatusOK)
-
-	// Copy through, flushing each chunk so lines reach the client as they arrive
-	// rather than being held in a buffer. A dead client cancels the context, which
-	// ends stream.Read; io.Copy with a flushing writer keeps it simple.
-	flusher, _ := w.(http.Flusher)
-	buf := make([]byte, 4096)
-	for {
-		n, rerr := stream.Read(buf)
-		if n > 0 {
-			if _, werr := w.Write(buf[:n]); werr != nil {
-				return
-			}
-			if flusher != nil {
-				flusher.Flush()
-			}
-		}
-		if rerr != nil {
-			if rerr != io.EOF && r.Context().Err() == nil {
-				slog.Error("pod log stream", "error", rerr)
-			}
-			return
-		}
-	}
+	// Copying through with a flush per chunk is shared with the dev-run log stream,
+	// which needs the same three details right; see httpx.StreamText.
+	httpx.StreamText(w, r, stream, "pod log stream")
 }
 
 // scaleRequest is the body of a scale request: the new desired replica count.

@@ -3,7 +3,9 @@ package main
 import (
 	"slices"
 	"testing"
+	"time"
 
+	"github.com/juancavallotti/octo/orchestrator/internal/devrun"
 	"github.com/juancavallotti/octo/orchestrator/internal/kube"
 )
 
@@ -112,6 +114,85 @@ func TestKubeConfigGateway(t *testing.T) {
 	}
 	if cfg.Gateway.Namespace != "ingress" {
 		t.Errorf("gateway namespace = %q, want ingress", cfg.Gateway.Namespace)
+	}
+}
+
+// The sidecar port is where the orchestrator reaches a dev run to reload it, so a
+// value that is not a usable port produces a run that starts, reports ready, and then
+// cannot be reloaded — a failure with no obvious connection to the setting that caused
+// it. Unset is 0, which the kube client reads as its own default.
+func TestDevRunSidecarPort(t *testing.T) {
+	tests := []struct {
+		name    string
+		env     string
+		want    int32
+		wantErr bool
+	}{
+		{name: "unset", env: "", want: 0},
+		{name: "a port", env: "9000", want: 9000},
+		{name: "not a number", env: "eight-thousand", wantErr: true},
+		{name: "zero", env: "0", wantErr: true},
+		{name: "out of range", env: "70000", wantErr: true},
+		{name: "negative", env: "-1", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("DEV_RUN_SIDECAR_PORT", tt.env)
+			got, err := devRunSidecarPort()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("devRunSidecarPort() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err == nil && got != tt.want {
+				t.Errorf("devRunSidecarPort() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+// The two likely typos are "60" (which ParseDuration rejects outright) and a
+// non-positive value, and both are refused rather than coerced: too short reaps a run
+// somebody is using and too long leaves pods up for days, and neither looks like a
+// configuration mistake from the outside.
+func TestDevRunIdleTimeout(t *testing.T) {
+	tests := []struct {
+		name    string
+		env     string
+		want    time.Duration
+		wantErr bool
+	}{
+		{name: "unset takes the default", env: "", want: devrun.DefaultIdleTimeout},
+		{name: "a duration", env: "15m", want: 15 * time.Minute},
+		{name: "no unit", env: "60", wantErr: true},
+		{name: "nonsense", env: "soon", wantErr: true},
+		{name: "zero", env: "0s", wantErr: true},
+		{name: "negative", env: "-5m", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("DEV_RUN_IDLE_TIMEOUT", tt.env)
+			got, err := devRunIdleTimeout()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("devRunIdleTimeout() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err == nil && got != tt.want {
+				t.Errorf("devRunIdleTimeout() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// newDevRunService must refuse to build without a hash secret, because the alternative
+// is an unkeyed hash: every dev run's public hostname would then be a pure function of
+// a user id and an integration id, and that hostname is the only thing guarding a
+// publicly reachable dev run.
+func TestNewDevRunServiceWithoutACluster(t *testing.T) {
+	t.Setenv("DEV_RUN_HASH_SECRET", "")
+	svc, err := newDevRunService(nil, nil, nil)
+	if err != nil {
+		t.Fatalf("no cluster should disable dev runs, not fail: %v", err)
+	}
+	if svc.Enabled() {
+		t.Error("dev runs are enabled with no cluster")
 	}
 }
 
