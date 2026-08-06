@@ -4,8 +4,48 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
+
+// A pod configured wrong must fail loudly and name every missing value, so one
+// restart tells the operator everything rather than one thing at a time.
+func TestLoadConfigRequiresEnv(t *testing.T) {
+	for _, name := range []string{"ORCHESTRATOR_URL", "DEV_RUN_ID", "DEV_RUN_TOKEN"} {
+		t.Setenv(name, "")
+	}
+
+	_, err := loadConfig()
+	if err == nil {
+		t.Fatal("loadConfig: want an error when nothing is configured")
+	}
+	for _, name := range []string{"ORCHESTRATOR_URL", "DEV_RUN_ID", "DEV_RUN_TOKEN"} {
+		if !strings.Contains(err.Error(), name) {
+			t.Errorf("error %q does not name %s", err, name)
+		}
+	}
+}
+
+func TestLoadConfigDefaults(t *testing.T) {
+	t.Setenv("ORCHESTRATOR_URL", "http://orchestrator:8090")
+	t.Setenv("DEV_RUN_ID", "run-1")
+	t.Setenv("DEV_RUN_TOKEN", "tok")
+	t.Setenv("PORT", "")
+	t.Setenv("WORKSPACE_DIR", "")
+
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if cfg.port != defaultPort {
+		t.Errorf("port = %q, want %q", cfg.port, defaultPort)
+	}
+	// The default names the watched directory itself, so nothing has to join a root
+	// onto a subpath and get it subtly different from the runtime container's.
+	if cfg.workspaceDir != defaultWorkspaceDir {
+		t.Errorf("workspaceDir = %q, want %q", cfg.workspaceDir, defaultWorkspaceDir)
+	}
+}
 
 func TestParseLevel(t *testing.T) {
 	tests := []struct {

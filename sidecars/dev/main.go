@@ -12,19 +12,20 @@
 // Moving the running app into its own pod is what makes every replica able to
 // serve every request, because none of them holds anything.
 //
-// It will speak to exactly one peer, the orchestrator: inbound for commands,
-// outbound for the bundle. It never touches the Kubernetes API, so a dev pod
-// carries no cluster credential and can reach nothing beyond its own
-// integration's data.
+// It speaks to exactly one peer, the orchestrator: outbound for the bundle, and
+// inbound for commands once the command API lands. It never touches the Kubernetes
+// API, so a dev pod carries no cluster credential and can reach nothing beyond its
+// own integration's data.
 //
-// This commit adds the workspace: the directory the runtime watches, and the only
-// thing that writes to it. The orchestrator client and the command API — the two
-// things that give it something to write — arrive in later changes.
+// This commit adds the pull: the orchestrator client, the coordinator that
+// serialises reloads, and the startup pull that populates the workspace. The HTTP
+// command surface that lets the orchestrator ask for a reload arrives next.
 package main
 
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -32,6 +33,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/juancavallotti/octo/sidecars/dev/internal/bundle"
+	"github.com/juancavallotti/octo/sidecars/dev/internal/reload"
 	"github.com/juancavallotti/octo/sidecars/dev/internal/workspace"
 )
 
@@ -46,6 +49,11 @@ const (
 	// readHeaderTimeout bounds time spent reading request headers, mitigating
 	// slow-header denial-of-service attempts.
 	readHeaderTimeout = 10 * time.Second
+	// expireGrace bounds the shutdown that follows the dev run being expired. Short:
+	// the run is gone, so there is nothing left worth draining for.
+	expireGrace = 5 * time.Second
+	// firstPullRetryDelay paces the startup pull's retries.
+	firstPullRetryDelay = 2 * time.Second
 )
 
 func main() {
@@ -61,9 +69,57 @@ func main() {
 	}
 }
 
+// config is everything the sidecar reads from its environment.
+type config struct {
+	port         string
+	workspaceDir string
+	orchestrator string
+	devRunID     string
+	devRunToken  string
+}
+
+// loadConfig reads and validates the environment.
+//
+// Every missing required value is a hard startup failure, and they are listed
+// together so one restart reveals all of them. Deliberately unlike the log
+// aggregator, which degrades to serving /healthz without a database: that service
+// is still useful half-configured and this one is not. A sidecar that cannot reach
+// the orchestrator, or cannot prove which dev run it is, has no job to do — and
+// CrashLoopBackOff with a named cause is a far better signal than a pod that looks
+// healthy and silently never populates its workspace.
+func loadConfig() (config, error) {
+	cfg := config{
+		port:         envOr("PORT", defaultPort),
+		workspaceDir: envOr("WORKSPACE_DIR", defaultWorkspaceDir),
+		orchestrator: os.Getenv("ORCHESTRATOR_URL"),
+		devRunID:     os.Getenv("DEV_RUN_ID"),
+		devRunToken:  os.Getenv("DEV_RUN_TOKEN"),
+	}
+
+	var missing []string
+	for _, req := range []struct {
+		name  string
+		value string
+	}{
+		{"ORCHESTRATOR_URL", cfg.orchestrator},
+		{"DEV_RUN_ID", cfg.devRunID},
+		{"DEV_RUN_TOKEN", cfg.devRunToken},
+	} {
+		if req.value == "" {
+			missing = append(missing, req.name)
+		}
+	}
+	if len(missing) > 0 {
+		return config{}, fmt.Errorf("missing required environment: %v", missing)
+	}
+	return cfg, nil
+}
+
 func run() error {
-	port := envOr("PORT", defaultPort)
-	workspaceDir := envOr("WORKSPACE_DIR", defaultWorkspaceDir)
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
 
 	// Root context cancelled on SIGINT/SIGTERM so pod termination drains cleanly.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -75,28 +131,45 @@ func run() error {
 	// So an empty workspace is a working starting point and an absent one is a
 	// crash-loop — which is why this is a hard startup failure rather than something
 	// the first pull gets around to.
-	ws := workspace.New(workspaceDir)
+	ws := workspace.New(cfg.workspaceDir)
 	if err := ws.Ensure(); err != nil {
 		return err
 	}
 
+	client := bundle.NewClient(cfg.orchestrator, cfg.devRunID, cfg.devRunToken)
+	coordinator := reload.New(client, ws)
+
 	httpServer := &http.Server{
-		Addr:              ":" + port,
+		Addr:              ":" + cfg.port,
 		Handler:           newServer(),
 		ReadHeaderTimeout: readHeaderTimeout,
 	}
 
 	errCh := make(chan error, 1)
 	go func() {
-		slog.Info("dev sidecar listening", "addr", httpServer.Addr, "workspace", ws.Dir())
+		slog.Info("dev sidecar listening",
+			"addr", httpServer.Addr,
+			"devRun", cfg.devRunID,
+			"workspace", ws.Dir(),
+		)
 		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
 	}()
 
+	// The first pull, in the background so a slow or unreachable orchestrator cannot
+	// stop the sidecar from serving its probes.
+	go firstPull(ctx, coordinator)
+
 	select {
 	case err := <-errCh:
 		return err
+	case <-coordinator.Expired():
+		// The dev run is gone and the orchestrator has been told to tear it down. Exit
+		// rather than sit here serving an integration nobody can account for; the
+		// workload is being deleted underneath us either way.
+		slog.Warn("dev run expired, shutting down", "devRun", cfg.devRunID)
+		return shutdown(httpServer, expireGrace)
 	case <-ctx.Done():
 		slog.Info("shutdown signal received, draining")
 		return shutdown(httpServer, shutdownTimeout)
@@ -120,6 +193,42 @@ func newServer() http.Handler {
 		_, _ = w.Write([]byte("ok\n"))
 	})
 	return mux
+}
+
+// firstPull populates the workspace at startup, retrying until it succeeds, the run
+// is expired, or the process is shutting down.
+//
+// Retrying rather than failing is the right shape here: at pod start the
+// orchestrator may still be rolling, and a sidecar that gave up would leave the
+// runtime watching an empty directory with nothing to fix it. The one non-retryable
+// outcome — the dev run being gone — closes Expired() from inside the coordinator,
+// which run() is selecting on.
+func firstPull(ctx context.Context, coordinator *reload.Coordinator) {
+	for attempt := 1; ; attempt++ {
+		_, err := coordinator.Reload(ctx)
+		switch {
+		case err == nil:
+			slog.Info("workspace populated", "attempt", attempt)
+			return
+		case errors.Is(err, bundle.ErrGone):
+			// Terminal. The coordinator has already asked the orchestrator to expire the
+			// run and closed Expired(), so logging "retrying" here would describe
+			// something that is not going to happen.
+			slog.Warn("dev run is gone; not retrying", "attempt", attempt, "error", err)
+			return
+		default:
+			slog.Warn("first pull failed, retrying",
+				"attempt", attempt, "error", err, "in", firstPullRetryDelay)
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-coordinator.Expired():
+			return
+		case <-time.After(firstPullRetryDelay):
+		}
+	}
 }
 
 // shutdown drains the server within the given grace period.
