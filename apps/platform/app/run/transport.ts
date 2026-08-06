@@ -33,16 +33,16 @@ import {
 import { unwrap } from "@/app/model/bff";
 
 export const bffRunTransport: RunTransport = {
-  async status(): Promise<RunStatusSnapshot> {
-    return unwrap(await runStatus(await runTabId()));
+  async status({ integrationId }): Promise<RunStatusSnapshot> {
+    return unwrap(await runStatus(await runTabId(), integrationId));
   },
 
   async start({ yaml, integrationId }): Promise<RunStatusSnapshot> {
     return unwrap(await runStart(await runTabId(), yaml, integrationId));
   },
 
-  async stop() {
-    unwrap(await runStop(await runTabId()));
+  async stop({ integrationId }) {
+    unwrap(await runStop(await runTabId(), integrationId));
   },
 
   async sync({ yaml, integrationId }) {
@@ -64,13 +64,20 @@ export const bffRunTransport: RunTransport = {
   // The only method that can't await up front — its disposer is returned
   // synchronously — so the stream opens once the id resolves, and unsubscribing
   // before that just makes sure it never opens.
-  subscribeLogs(onLine) {
+  //
+  // The integration rides in the query string because the run being followed is the dev
+  // run for it, and an EventSource cannot set a header to say so. It is untrusted, like
+  // the tab id: the route pairs it with the caller's own user id from the session, so
+  // naming somebody else's integration reaches nothing.
+  subscribeLogs(onLine, { integrationId }) {
     let es: EventSource | null = null;
     let closed = false;
     void runTabId()
       .then((tab) => {
         if (closed) return;
-        es = new EventSource(`/api/run/logs?tab=${encodeURIComponent(tab)}`);
+        const qs = new URLSearchParams({ tab });
+        if (integrationId) qs.set("integrationId", integrationId);
+        es = new EventSource(`/api/run/logs?${qs.toString()}`);
         es.onmessage = (ev) => {
           const seq = Number(ev.lastEventId);
           onLine(seq, ev.data);

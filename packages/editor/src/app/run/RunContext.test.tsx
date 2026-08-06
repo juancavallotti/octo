@@ -8,17 +8,21 @@ import {
   EditorActionType,
 } from "../state/editorState";
 import { blankDocument, emptyFlow } from "../model/document";
-import type { RunTransport } from "./transport";
+import type { RunTarget, RunTransport } from "./transport";
 import { RunProvider, useRun } from "./RunContext";
 
 /**
- * What the provider does with the host's `reloadsOnSave` capability, which is the whole
- * of the difference between the two hosts on the client side.
+ * Two things the provider owes a host, both of which are the whole of what differs between
+ * the two hosts on the client side.
  *
- * A pushing host (a local child process) runs whatever YAML it was last handed, so the
- * provider debounce-pushes every edit. A pulling host (a dev-run pod) reads the STORED
- * definition, so pushing a buffer is not merely redundant — nothing reads it, and the
- * panel would then imply an unsaved edit had taken effect.
+ * `reloadsOnSave` is the capability. A pushing host (a local child process) runs whatever
+ * YAML it was last handed, so the provider debounce-pushes every edit. A pulling host (a
+ * dev-run pod) reads the STORED definition, so pushing a buffer is not merely redundant —
+ * nothing reads it, and the panel would then imply an unsaved edit had taken effect.
+ *
+ * The run target is the address. A host that runs the app elsewhere has nothing but the
+ * open integration to name the run by, so every call has to carry it — not only the ones
+ * that need its resources.
  */
 
 /** How long the provider waits before pushing an edit, plus head-room. */
@@ -36,19 +40,33 @@ function snapshot(reloadsOnSave: boolean) {
   };
 }
 
-/** A transport that records the configs pushed to it. */
+/** A transport that records the configs pushed to it, and who each call addressed. */
 function stubTransport(reloadsOnSave: boolean) {
   const syncs: string[] = [];
+  /** Every call's target, keyed by the method that made it. */
+  const targets: Record<string, RunTarget> = {};
   const transport: RunTransport = {
-    status: async () => snapshot(reloadsOnSave),
-    start: async () => ({ ...snapshot(reloadsOnSave), running: true }),
-    stop: async () => {},
-    sync: async ({ yaml }) => {
+    status: async (target) => {
+      targets.status = target;
+      return snapshot(reloadsOnSave);
+    },
+    start: async ({ yaml: _yaml, ...target }) => {
+      targets.start = target;
+      return { ...snapshot(reloadsOnSave), running: true };
+    },
+    stop: async (target) => {
+      targets.stop = target;
+    },
+    sync: async ({ yaml, ...target }) => {
+      targets.sync = target;
       syncs.push(yaml);
     },
     invoke: async () => ({ ok: true, dropped: false, timedOut: false, output: "", logs: [] }),
     evalCel: async () => ({ ok: true }),
-    subscribeLogs: () => () => {},
+    subscribeLogs: (_onLine, target) => {
+      targets.subscribeLogs = target;
+      return () => {};
+    },
     test: async () => ({
       ok: true,
       timedOut: false,
@@ -65,16 +83,21 @@ function stubTransport(reloadsOnSave: boolean) {
       logs: [],
     }),
   };
-  return { transport, syncs };
+  return { transport, syncs, targets };
 }
 
 /** Buttons for the three things a test needs to do: load, run, then edit. */
-function Harness() {
+function Harness({ integrationId }: { integrationId?: string }) {
   const run = useRun()!;
   const { dispatch } = useEditorState();
   // A flow with a step, because the provider only pushes a document that validates —
   // an empty flow would be held back for a reason that has nothing to do with this.
-  const load = (flow: string) =>
+  const load = (flow: string) => {
+    // Set alongside the document rather than once on mount, so a test observes the
+    // provider going from "a draft" to "a saved integration" the way the editor does.
+    if (integrationId) {
+      dispatch({ type: EditorActionType.SET_INTEGRATION_ID, data: { id: integrationId } });
+    }
     dispatch({
       type: EditorActionType.LOAD_DOCUMENT,
       data: {
@@ -90,25 +113,27 @@ function Harness() {
         },
       },
     });
+  };
   return (
     <>
       <button onClick={() => load("orders")}>load</button>
       <button onClick={() => void run.start()}>start</button>
+      <button onClick={() => void run.stop()}>stop</button>
       <button onClick={() => load("invoices")}>edit</button>
       <span data-testid="running">{String(run.running)}</span>
     </>
   );
 }
 
-function renderRun(reloadsOnSave: boolean) {
-  const { transport, syncs } = stubTransport(reloadsOnSave);
+function renderRun(reloadsOnSave: boolean, integrationId?: string) {
+  const { transport, syncs, targets } = stubTransport(reloadsOnSave);
   const tree = (children: ReactNode) => (
     <EditorStateProvider>
       <RunProvider transport={transport}>{children}</RunProvider>
     </EditorStateProvider>
   );
-  render(tree(<Harness />));
-  return { syncs };
+  render(tree(<Harness integrationId={integrationId} />));
+  return { syncs, targets };
 }
 
 /** Load a document, start the run, then change it. */
@@ -139,4 +164,37 @@ describe("RunProvider and the host's reload model", () => {
     await new Promise((resolve) => setTimeout(resolve, PAST_DEBOUNCE_MS));
     expect(syncs).toEqual([]);
   }, 10000);
+});
+
+describe("RunProvider and the run's address", () => {
+  // Every method, not just the ones that need the integration's resources: on a host that
+  // runs the app elsewhere, one that arrived without it could not find the run at all.
+  it("tells the host which run every call addresses", async () => {
+    const { targets } = renderRun(false, "int-42");
+    const user = userEvent.setup();
+    await user.click(screen.getByText("load"));
+    await waitFor(() => expect(targets.status).toBeDefined());
+    await user.click(screen.getByText("start"));
+    await waitFor(() => expect(screen.getByTestId("running")).toHaveTextContent("true"));
+    await user.click(screen.getByText("edit"));
+    await waitFor(() => expect(targets.sync).toBeDefined(), { timeout: PAST_DEBOUNCE_MS });
+    await user.click(screen.getByText("stop"));
+
+    await waitFor(() =>
+      expect(targets).toEqual({
+        status: { integrationId: "int-42" },
+        start: { integrationId: "int-42" },
+        subscribeLogs: { integrationId: "int-42" },
+        sync: { integrationId: "int-42" },
+        stop: { integrationId: "int-42" },
+      }),
+    );
+  }, 10000);
+
+  // A draft has no id, and the target says so rather than being absent: a host that can
+  // only run a saved integration has to be able to refuse, and it needs to be asked first.
+  it("addresses an unsaved draft with no integration at all", async () => {
+    const { targets } = renderRun(false);
+    await waitFor(() => expect(targets.status).toEqual({ integrationId: undefined }));
+  });
 });

@@ -4,12 +4,18 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * Reverse proxy for testing a running networked integration from the editor.
+ * Reverse proxy to a running networked integration in THIS pod.
  * `/editor/runs/<ns>/<path>` forwards to the namespace's octo process on
- * 127.0.0.1:<allocatedPort>, so a user can hit their integration's HTTP endpoints
+ * 127.0.0.1:<allocatedPort>, so a caller can hit their integration's HTTP endpoints
  * without exposing the port. The target port is resolved server-side from the
  * namespace (in the URL), so the path is the same regardless of which port the run
  * landed on. HTTP only — Next route handlers can't upgrade WebSockets.
+ *
+ * The editor no longer reaches a run this way: its Run starts a dev-run pod with a public
+ * host of its own (`app/run/remoteRunner.ts`), and this pod holds no long-running app. The
+ * one caller left is `/mcp`, whose run tools still drive the in-process runner — so this
+ * route lives exactly as long as that does, and goes when the MCP handler is given the
+ * same remote runner the editor uses.
  */
 
 type Params = { params: Promise<{ ns: string; path?: string[] }> };

@@ -14,6 +14,7 @@ import { toRunnableYaml } from "../model/runConfig";
 import { validateDocument, type ValidationResult } from "../model/validate";
 import { useEditorState } from "../state/editorState";
 import {
+  type RunTarget,
   type RunTransport,
   type CelEvalRequest,
   type CelEvalResult,
@@ -111,33 +112,47 @@ export function RunProvider({
 
   const validation = useMemo(() => validateDocument(doc), [doc]);
 
+  // Which run every call addresses. A draft has no id, and a host that runs the app
+  // elsewhere cannot address one at all — which is why start refuses it there.
+  const target = useMemo<RunTarget>(
+    () => ({ integrationId: integrationId ?? undefined }),
+    [integrationId],
+  );
+
   const closeStream = useCallback(() => {
     unsubscribeRef.current?.();
     unsubscribeRef.current = null;
   }, []);
 
-  const openStream = useCallback(() => {
-    if (unsubscribeRef.current) return;
-    unsubscribeRef.current = transport.subscribeLogs((seq, text) => {
-      // The server replays its whole buffer on connect (and on auto-reconnect),
-      // so drop anything we've already shown.
-      if (Number.isFinite(seq) && seq <= lastSeqRef.current) return;
-      if (Number.isFinite(seq)) lastSeqRef.current = seq;
-      setLogs((prev) => {
-        const next = [...prev, { seq, text }];
-        return next.length > MAX_CLIENT_LOGS
-          ? next.slice(next.length - MAX_CLIENT_LOGS)
-          : next;
-      });
-    });
-  }, [transport]);
+  // The target is an argument rather than a dependency, so opening a stream does not
+  // depend on the identity of the current one: a stream belongs to the run it was opened
+  // for, and re-creating this callback whenever the open integration changed would only
+  // make the guard below decide that a stream was already open.
+  const openStream = useCallback(
+    (run: RunTarget) => {
+      if (unsubscribeRef.current) return;
+      unsubscribeRef.current = transport.subscribeLogs((seq, text) => {
+        // The server replays its whole buffer on connect (and on auto-reconnect),
+        // so drop anything we've already shown.
+        if (Number.isFinite(seq) && seq <= lastSeqRef.current) return;
+        if (Number.isFinite(seq)) lastSeqRef.current = seq;
+        setLogs((prev) => {
+          const next = [...prev, { seq, text }];
+          return next.length > MAX_CLIENT_LOGS
+            ? next.slice(next.length - MAX_CLIENT_LOGS)
+            : next;
+        });
+      }, run);
+    },
+    [transport],
+  );
 
   // On mount, learn whether RUN is available and reattach if a runner is already
   // live (e.g. after a page reload).
   useEffect(() => {
     let cancelled = false;
     transport
-      .status()
+      .status(target)
       .then((s) => {
         if (cancelled) return;
         setAvailable(s.available);
@@ -148,14 +163,14 @@ export function RunProvider({
         setReloadsOnSave(s.reloadsOnSave);
         if (s.running) {
           setRunning(true);
-          openStream();
+          openStream(target);
         }
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [transport, openStream]);
+  }, [transport, openStream, target]);
 
   // Tear the stream down if the provider unmounts.
   useEffect(() => closeStream, [closeStream]);
@@ -168,28 +183,25 @@ export function RunProvider({
       // Dev-env values are no longer sent from the browser: run-host stages the
       // integration's `.env.dev` resource (edited in the Dev .env panel) and the
       // runtime loads it, so a run reads its credentials from the host's store.
-      const snapshot = await transport.start({
-        yaml,
-        integrationId: integrationId ?? undefined,
-      });
+      const snapshot = await transport.start({ ...target, yaml });
       lastYamlRef.current = yaml;
       setLogs([]); // the server starts a fresh buffer for this run
       setRunning(true);
       setTestAddress(snapshot.testUrl ?? null);
       setReloadsOnSave(snapshot.reloadsOnSave);
-      openStream();
+      openStream(target);
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
     }
-  }, [doc, integrationId, openStream, transport]);
+  }, [doc, openStream, target, transport]);
 
   const stop = useCallback(async () => {
     setBusy(true);
     setError(null);
     try {
-      await transport.stop();
+      await transport.stop(target);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -198,7 +210,7 @@ export function RunProvider({
       closeStream();
       setBusy(false);
     }
-  }, [closeStream, transport]);
+  }, [closeStream, target, transport]);
 
   // Resolve the host's address into an absolute URL for display/linking. It works for
   // both kinds: a relative path resolves against the current origin (so it is right under
@@ -237,10 +249,10 @@ export function RunProvider({
     if (yaml === lastYamlRef.current) return;
     const t = setTimeout(() => {
       lastYamlRef.current = yaml;
-      transport.sync({ yaml, integrationId: integrationId ?? undefined }).catch(() => {});
+      transport.sync({ ...target, yaml }).catch(() => {});
     }, SYNC_DEBOUNCE_MS);
     return () => clearTimeout(t);
-  }, [doc, running, validation.ok, transport, integrationId, reloadsOnSave]);
+  }, [doc, running, validation.ok, transport, target, reloadsOnSave]);
 
   const evalCel = useCallback(
     (req: CelEvalRequest): Promise<CelEvalResult> => transport.evalCel(req),

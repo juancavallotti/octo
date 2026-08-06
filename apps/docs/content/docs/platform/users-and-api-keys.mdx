@@ -15,7 +15,7 @@ Authentication lives entirely in the platform app, built on Auth.js (NextAuth):
 - **JWT sessions, no database adapter** — the session rides in a signed cookie (`AUTH_SECRET`), so the same config backs both route handlers and the edge request gate.
 - **Opt-in**: SSO is enforced only when `AUTH_EETR_ISSUER` and `AUTH_SECRET` are set. Local development without them runs open, with a synthetic local session.
 
-When SSO is on, the app-wide request gate redirects unauthenticated browser navigations to sign-in and answers unauthenticated `/api/*` calls with `401`. Only self-authenticating paths bypass it: `/mcp` (bearer tokens, below) and the run-testing proxy under `/editor/runs/` (unguessable per-run URLs, so webhook callbacks work).
+When SSO is on, the app-wide request gate redirects unauthenticated browser navigations to sign-in and answers unauthenticated `/api/*` calls with `401`. Only self-authenticating paths bypass it: `/mcp` (bearer tokens, below) and the run-testing proxy under `/editor/runs/`, which reaches a run started through `/mcp` at an unguessable per-run URL. A run started from the editor is not reached this way at all — it gets a hostname of its own, outside the platform app, so webhook callbacks go straight to it.
 
 ## User provisioning
 

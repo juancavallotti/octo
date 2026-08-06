@@ -52,6 +52,7 @@ export type { FlowRunEntry, FlowRunStatus } from "./app/run/outcome";
 export { useConsole, type ConsoleTab } from "./app/run/console";
 export type {
   RunTransport,
+  RunTarget,
   RunStatusSnapshot,
   CelEvalRequest,
   CelEvalResult,

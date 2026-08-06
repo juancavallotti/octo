@@ -1,14 +1,28 @@
 "use server";
 
 /**
- * Server actions for the editor's RUN feature. Unlike the orchestrator actions,
- * these don't make HTTP calls — they drive the in-process @octo/run-host directly,
- * keyed by the calling tab's run namespace. The live log stream stays an SSE route
- * (`/api/run/logs`), which resolves the same namespace from the same two halves.
- * status/sync require a session; start/stop require the write roles — matching the
- * route handlers they replace.
+ * Server actions for the editor's RUN feature — and the platform's RUN feature comes in
+ * two halves that are reached quite differently:
  *
- * Every action leads with `tabId`, the browser half of that namespace (see
+ *  - **The running app** (status/start/stop/sync) goes to a dev-run pod the orchestrator
+ *    owns, through {@link remoteRunner}. Nothing about it lives in this process, which is
+ *    the point: the platform runs several replicas with no session affinity, and the
+ *    in-process runner it used to drive was invisible to every replica but the one that
+ *    started it.
+ *  - **The one-shots** (invoke/evalCel/test) still spawn a child of this very process from
+ *    YAML carried in the request. They hold no state between calls, so fan-out never broke
+ *    them and there is nothing to move.
+ *
+ * The split shows up in what the two halves run: a one-shot runs the buffer in front of
+ * the user, while the running app runs what was SAVED, because its sidecar pulls the
+ * stored definition. `snapshotOf` reports that to the editor as `reloadsOnSave`.
+ *
+ * status/sync require a session; start/stop require the write roles — matching the route
+ * handlers they replace. The four app-runner actions additionally resolve the caller's
+ * user id, since a dev run is owned by (user, integration) and cannot be addressed
+ * without one.
+ *
+ * Every action leads with `tabId`, the browser half of the run namespace (see
  * `@/app/run/namespace`). It is a separate parameter rather than a field on the
  * request objects because those types belong to @octo/editor, which has no business
  * knowing how a host keys its runners.
@@ -20,11 +34,8 @@ import {
   invoke,
   probeTestVersion,
   probeVersion,
-  start,
-  status,
-  stop,
-  sync,
   test,
+  type RunKey,
   type RunState,
 } from "@octo/run-host";
 import type {
@@ -39,7 +50,8 @@ import type {
 import type { ActionResult } from "@octo/http";
 import { ensureRunNamespace } from "@/app/run/namespace";
 import { orchestratorResourceProvider } from "@/app/lib/runResources";
-import { withRead, withWrite } from "./_auth";
+import { UNSAVED, remoteRunner } from "@/app/run/remoteRunner";
+import { withRead, withUser, withWrite, withWriteUser } from "./_auth";
 
 /**
  * The editor snapshot, composed from the two things it asks about at once: what this
@@ -57,49 +69,81 @@ function resourcesFor(integrationId?: unknown) {
   return orchestratorResourceProvider(integrationId);
 }
 
-/** Whether RUN is available, whether this browser's runner is live, and its version. */
-export async function runStatus(tabId: string): Promise<ActionResult<RunStatusSnapshot>> {
-  return withRead(async () => {
-    // Warm both version caches so status() can read them synchronously. Two
-    // binaries, two probes: dolphin can be absent while octo is present.
-    await Promise.all([probeVersion(), probeTestVersion()]);
-    const ns = await ensureRunNamespace(tabId);
-    return { ok: true, data: snapshotOf(status(ns)) };
-  });
+/**
+ * The key the app runner addresses: the owning user and integration, which is what a dev
+ * run *is*, plus the run namespace, which it ignores.
+ *
+ * The namespace is resolved anyway rather than skipped, and not out of politeness to the
+ * type: `ensureRunNamespace` is what mints the run cookie, and the one-shots below key
+ * their staging directories on it. Dropping it here would leave the first `invoke` of a
+ * session to mint it instead — which works, and hides why it has to happen at all.
+ */
+async function runKey(
+  tabId: string,
+  userId: string,
+  integrationId?: string,
+): Promise<RunKey> {
+  return { namespace: await ensureRunNamespace(tabId), userId, integrationId };
 }
 
-/** Render the config and (re)start this browser's runner. */
-export async function runStart(
+/** Whether RUN is available, whether a dev run is live for this integration, and versions. */
+export async function runStatus(
   tabId: string,
-  yaml: string,
   integrationId?: string,
 ): Promise<ActionResult<RunStatusSnapshot>> {
-  return withWrite(async () => {
-    const ns = await ensureRunNamespace(tabId);
-    if (!binaries().available) {
-      return { ok: false, error: "Runner not available (OCTO_BIN_PATH unset)." };
-    }
-    if (typeof yaml !== "string" || yaml.trim() === "") {
-      return { ok: false, error: "missing `yaml`" };
-    }
+  return withUser(async (userId) => {
+    // Warm both version caches so binaries() can read them synchronously. Two
+    // binaries, two probes: dolphin can be absent while octo is present. Still local, and
+    // still worth reporting — the debug features they back work whatever the dev run does.
+    await Promise.all([probeVersion(), probeTestVersion()]);
     try {
-      return {
-        ok: true,
-        data: snapshotOf(
-          await start(ns, yaml, undefined, { resources: resourcesFor(integrationId) }),
-        ),
-      };
+      const key = await runKey(tabId, userId, integrationId);
+      return { ok: true, data: snapshotOf(await remoteRunner.status(key)) };
     } catch (err) {
       return { ok: false, error: (err as Error).message };
     }
   });
 }
 
-/** Stop this browser's runner and clean up its config file. */
-export async function runStop(tabId: string): Promise<ActionResult<RunStatusSnapshot>> {
-  return withWrite(async () => {
-    const ns = await ensureRunNamespace(tabId);
-    return { ok: true, data: snapshotOf(await stop(ns)) };
+/**
+ * Start a dev run for the open integration, or attach to the one already running it.
+ *
+ * `yaml` is accepted and ignored: the editor sends its buffer because the transport
+ * contract is shared with a host that pushes config, and this one's sidecar pulls the
+ * saved definition instead. So an unsaved draft is refused rather than started — there is
+ * nothing stored for it to run, and starting something that ran stale YAML would be worse
+ * than saying so.
+ */
+export async function runStart(
+  tabId: string,
+  yaml: string,
+  integrationId?: string,
+): Promise<ActionResult<RunStatusSnapshot>> {
+  return withWriteUser(async (userId) => {
+    if (typeof integrationId !== "string" || integrationId.trim() === "") {
+      return { ok: false, error: UNSAVED };
+    }
+    try {
+      const key = await runKey(tabId, userId, integrationId);
+      return { ok: true, data: snapshotOf(await remoteRunner.start(key, { yaml })) };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
+  });
+}
+
+/** Tear the integration's dev run down. */
+export async function runStop(
+  tabId: string,
+  integrationId?: string,
+): Promise<ActionResult<RunStatusSnapshot>> {
+  return withWriteUser(async (userId) => {
+    try {
+      const key = await runKey(tabId, userId, integrationId);
+      return { ok: true, data: snapshotOf(await remoteRunner.stop(key)) };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
   });
 }
 
@@ -114,7 +158,8 @@ export async function runEvalCel(
   req: CelEvalRequest,
 ): Promise<ActionResult<CelEvalResult>> {
   return withRead(async () => {
-    const ns = await ensureRunNamespace(tabId);
+    // No namespace: `octo eval` reads an expression and an object, spawns nothing that
+    // outlives the call, and stages no files — so there is nothing for one to scope.
     if (!binaries().available) {
       return { ok: false, error: "Runner not available (OCTO_BIN_PATH unset)." };
     }
@@ -237,19 +282,24 @@ export async function runTest(
   });
 }
 
-/** Rewrite this browser's watched config so the runner hot-reloads. */
+/**
+ * Make the dev run pick up the integration's saved state now.
+ *
+ * Not the per-edit trigger, and the editor knows not to use it as one: `reloadsOnSave`
+ * tells it to skip the debounced push entirely, because the reload that matters is fired
+ * by the orchestrator's own write path — which is what makes it cover MCP and API-key
+ * writers too, not just this editor. `yaml` is ignored here for the same reason it is in
+ * {@link runStart}.
+ */
 export async function runSync(
   tabId: string,
   yaml: string,
   integrationId?: string,
 ): Promise<ActionResult<void>> {
-  return withRead(async () => {
-    const ns = await ensureRunNamespace(tabId);
-    if (typeof yaml !== "string" || yaml.trim() === "") {
-      return { ok: false, error: "missing `yaml`" };
-    }
+  return withUser(async (userId) => {
     try {
-      await sync(ns, yaml, { resources: resourcesFor(integrationId) });
+      const key = await runKey(tabId, userId, integrationId);
+      await remoteRunner.sync(key, { yaml });
       return { ok: true, data: undefined };
     } catch (err) {
       return { ok: false, error: (err as Error).message };

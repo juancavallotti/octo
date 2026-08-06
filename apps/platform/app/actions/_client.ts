@@ -13,7 +13,12 @@
  * can't throw readable errors in production); the model layer unwraps it.
  */
 
-import { requestJson, requestOk, type ActionResult } from "@octo/http";
+import {
+  requestJson,
+  requestOk,
+  requestStream,
+  type ActionResult,
+} from "@octo/http";
 import type {
   Deployment,
   DeploymentInput,
@@ -33,6 +38,7 @@ import type {
   VerifiedApiKey,
 } from "@/app/model/apikeys";
 import type { ClusterSecret } from "@/app/model/secrets";
+import type { DevRun, EnsuredDevRun } from "@/app/model/devruns";
 import type { ObjectEntry, ObjectValue } from "@/app/model/objects";
 
 export type { ActionResult } from "@octo/http";
@@ -69,6 +75,26 @@ function call<T>(
     });
   }
   return requestJson<T>(method, `${base}${path}`, body);
+}
+
+/**
+ * Issue one orchestrator request whose response is a live stream rather than a document
+ * — today only the dev-run log follow. Internal, like {@link call}, and reporting the
+ * same error result when the orchestrator is unconfigured.
+ */
+function callStream(
+  method: string,
+  path: string,
+  signal?: AbortSignal,
+): Promise<ActionResult<ReadableStream<Uint8Array>>> {
+  const base = baseUrl();
+  if (!base) {
+    return Promise.resolve({
+      ok: false,
+      error: "orchestrator not configured (ORCHESTRATOR_URL unset)",
+    });
+  }
+  return requestStream(method, `${base}${path}`, { signal });
 }
 
 // --- Health ---------------------------------------------------------------
@@ -403,6 +429,94 @@ export function scaleDeployment(
 
 export function deleteDeployment(id: string): Promise<ActionResult<void>> {
   return call<void>("DELETE", `/deployments/${enc(id)}`);
+}
+
+// --- Dev runs -------------------------------------------------------------
+// The editor's Run, executed as a pod the orchestrator owns rather than as a child of
+// whichever platform replica answered. That is the whole point of these calls: the BFF
+// holds no run state, so any replica can serve any of them.
+//
+// Every call states whose behalf it acts on. The orchestrator has no session — this BFF
+// does, and has already authenticated the caller — so the user id travels as a scope,
+// the same arrangement as `/users/{userId}/apikeys`. It is a query parameter rather than
+// a path segment because a dev run is addressed by its own derived id; the user narrows
+// which runs are reachable, and an operation on somebody else's simply is not found.
+
+/**
+ * Start a dev run for (userId, integrationId), or attach to the one already running that
+ * integration. Idempotent: the orchestrator derives the workload's name from the same
+ * pair, so two tabs racing on Run both land on one pod and `created` says which of them
+ * made it.
+ */
+export function ensureDevRun(
+  userId: string,
+  integrationId: string,
+): Promise<ActionResult<EnsuredDevRun>> {
+  return call<EnsuredDevRun>("POST", "/devruns", { userId, integrationId });
+}
+
+/**
+ * The user's live dev runs, narrowed to one integration when given.
+ *
+ * This is also how "is anything running for me here?" is answered — there is no stored
+ * row to consult, so an empty list is the complete answer, and a non-empty one carries
+ * the run's live phase and address. One label lookup against the orchestrator's informer
+ * cache, so it is cheap enough to be the reattach path on every editor mount.
+ */
+export function listDevRuns(
+  userId: string,
+  integrationId?: string,
+): Promise<ActionResult<DevRun[]>> {
+  const qs = new URLSearchParams({ userId });
+  if (integrationId) qs.set("integrationId", integrationId);
+  return call<DevRun[]>("GET", `/devruns?${qs.toString()}`);
+}
+
+/**
+ * Tell a dev run to pick up the integration's stored state now.
+ *
+ * Not the per-edit trigger: a save reaches the run from the orchestrator's own write
+ * path, which is what makes every writer (the editor, MCP, an API-key client) cover it.
+ * This is the explicit "reload now" a user asks for directly.
+ */
+export function reloadDevRun(
+  userId: string,
+  id: string,
+): Promise<ActionResult<void>> {
+  return call<void>(
+    "POST",
+    `/devruns/${enc(id)}/reload?userId=${enc(userId)}`,
+  );
+}
+
+/** Tear a dev run down. There is nothing else to clean up: see app/model/devruns.ts. */
+export function deleteDevRun(
+  userId: string,
+  id: string,
+): Promise<ActionResult<void>> {
+  return call<void>("DELETE", `/devruns/${enc(id)}?userId=${enc(userId)}`);
+}
+
+/**
+ * Open the dev run's runtime log stream: plain text, one line per line, following until
+ * the caller aborts.
+ *
+ * The one orchestrator call that is not JSON, and it has to be: a follow has no end, so
+ * a JSON client would buffer it forever. `tail` bounds the history replayed on connect,
+ * because a run that has been up for an hour should not dump the hour before it starts
+ * tailing.
+ */
+export function openDevRunLogs(
+  userId: string,
+  id: string,
+  opts: { tail: number; signal: AbortSignal },
+): Promise<ActionResult<ReadableStream<Uint8Array>>> {
+  const qs = new URLSearchParams({
+    userId,
+    follow: "1",
+    tail: String(opts.tail),
+  });
+  return callStream("GET", `/devruns/${enc(id)}/logs?${qs.toString()}`, opts.signal);
 }
 
 // --- Secrets --------------------------------------------------------------
