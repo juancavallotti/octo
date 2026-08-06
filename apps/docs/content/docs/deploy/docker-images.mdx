@@ -95,7 +95,7 @@ apply a restricted security context:
 | Image | UID |
 |---|---|
 | `octo-platform-paas` | `1000` (`node`) |
-| `octo-orchestrator-paas`, `octo-logs-paas`, `octo-runtime-paas` | `65532` (distroless `nonroot`) |
+| `octo-orchestrator-paas`, `octo-logs-paas`, `octo-runtime-paas`, `octo-devruntime-paas`, `octo-devsidecar-paas` | `65532` (distroless `nonroot`) |
 | `octo-schema-paas` | `70` (`postgres`) |
 
 The Go services write nothing to disk, so they also tolerate
@@ -121,6 +121,14 @@ binary:
 |---|---|---|---|
 | **Cluster** `octo-runtime` | `k8s` (default) | Lease-based leader election, orchestrator-backed KV, NATS queues | Your registry, by `cloudbuild.yaml` |
 | **Public** `juancavallotti/octo-runtime` | *empty* | Standalone: in-process queues, in-memory KV, no external infrastructure | Docker Hub, by the release workflow |
+| **Dev runs** `octo-devruntime` | *empty* | The same standalone provider, published to your registry for the editor's Run | Your registry, by `cloudbuild.yaml` |
+
+The build tags are mutually exclusive, which is why the dev-run image is a
+separate image and not a second tag of the cluster one: run `octo-runtime` with
+no services module configured and the process exits with *no runtime services
+provider registered*. An editor's Run wants none of that machinery anyway — it is
+one process running one integration for one person, holding no cluster credential
+at all.
 
 The cluster image is what the orchestrator deploys: one Deployment per
 integration, with the integration's YAML mounted into the config directory via
@@ -137,6 +145,19 @@ docker run -p 8080:8080 -v "$PWD:/etc/octo/integrations" juancavallotti/octo-run
 
 See [Running flows locally](/runtime/running-locally#run-it-from-docker) for
 ports, environment, and one-shot `invoke`.
+
+### octo-devsidecar
+
+The other container of a dev run, and the only thing in the pod that talks to the
+orchestrator. It owns the run's workspace: on each reload it pulls the
+integration's saved definition and resources, stages them beside the config, and
+writes the config atomically so the runtime's directory watcher sees exactly one
+event. It also reads the runtime's admin port for the status it reports back.
+
+Built from `sidecars/dev/Dockerfile` with the `sidecars` module as its context.
+Distroless `nonroot`, matching the runtime image's UID so both containers can use
+the shared `emptyDir`. It holds **no** Kubernetes credential: everything it needs
+it asks the orchestrator for, authenticated by the run's own token.
 
 ### octo-platform
 

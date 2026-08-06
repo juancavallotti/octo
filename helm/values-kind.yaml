@@ -41,6 +41,12 @@ schema:
 runtime:
   repository: octo-runtime
 
+devsidecar:
+  repository: octo-devsidecar
+
+devruntime:
+  repository: octo-devruntime
+
 # kind ships no ingress controller at all. The NodePorts above are mapped to the
 # host by deploy/kind/cluster.yaml's extraPortMappings.
 ingress:

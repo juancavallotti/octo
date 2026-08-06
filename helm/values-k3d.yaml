@@ -39,6 +39,23 @@ orchestrator:
   # endpoints are off; integrations are reachable at their in-cluster Service.
   baseDomain: ""
   ingressClass: ""
+  # Dev runs on, because this is where the feature is developed and the only cluster
+  # this repo can bring up on demand. The images are side-loaded like the rest.
+  #
+  # With baseDomain empty above, a run still starts, reloads, streams logs and reaps —
+  # it just publishes no public hostname, so a networked integration has no external
+  # test URL and is reachable only at its in-cluster Service. Exercising the public
+  # host locally needs a baseDomain plus an ingress path into the cluster, which
+  # deploy/k3d/cluster.yaml does not map (only :3000 and :8090).
+  devRuns:
+    enabled: true
+    # A throwaway, written down for the same reason postgres.auth.password below is: a
+    # laptop cluster reachable only through k3d's port mappings is the one place that is
+    # fine. Nothing a cloud profile can inherit — values.yaml ships it empty and the
+    # chart refuses to render without one.
+    hashSecret: local-dev-not-a-secret
+    # Short enough to watch the reaper work without leaving a tab open for an hour.
+    idleTimeout: 10m
 
 logs:
   repository: octo-logs
@@ -48,6 +65,12 @@ schema:
 
 runtime:
   repository: octo-runtime
+
+devsidecar:
+  repository: octo-devsidecar
+
+devruntime:
+  repository: octo-devruntime
 
 # The editor is on a NodePort, not behind an Ingress. k3s ships Traefik, but
 # there is no DNS name or certificate to attach locally.
