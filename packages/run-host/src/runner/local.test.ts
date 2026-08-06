@@ -47,29 +47,6 @@ describe("local runner", () => {
     delete process.env.OCTO_RUN_DIR;
   });
 
-  it("reports availability from OCTO_BIN_PATH", () => {
-    delete process.env.OCTO_BIN_PATH;
-    expect(status(NS).available).toBe(false);
-    process.env.OCTO_BIN_PATH = "/somewhere/octo";
-    expect(status(NS).available).toBe(true);
-  });
-
-  // Two binaries, reported apart. A host with a runner but no dolphin still runs
-  // flows; only the Testing tab's run controls go dead. Collapsing the two flags
-  // would either hide a working feature or offer a broken one.
-  it("reports test-runner availability separately from the runner's", () => {
-    delete process.env.OCTO_BIN_PATH;
-    delete process.env.DOLPHIN_BIN_PATH;
-    expect(status(NS).testAvailable).toBe(false);
-
-    process.env.OCTO_BIN_PATH = "/somewhere/octo";
-    expect(status(NS).available).toBe(true);
-    expect(status(NS).testAvailable).toBe(false);
-
-    process.env.DOLPHIN_BIN_PATH = "/somewhere/dolphin";
-    expect(status(NS).testAvailable).toBe(true);
-  });
-
   it("captures runner output line-by-line and tracks exit", async () => {
     process.env.OCTO_BIN_PATH = await fakeBin(
       dir,

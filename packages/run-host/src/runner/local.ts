@@ -2,7 +2,6 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { cachedTestVersion, cachedVersion } from "../version";
 import {
   allocateAdminPort,
   allocatePort,
@@ -21,7 +20,7 @@ import {
 } from "../resources";
 import { namespaceDir, writeConfig, type RunResourceOptions } from "../staging";
 import { octoBin, terminate } from "../child";
-import type { AppRunner, LogStreamOptions, RunKey, RunStatus } from "../runner";
+import type { AppRunner, LogStreamOptions, RunKey, RunState } from "../runner";
 
 /**
  * The local {@link AppRunner}: it owns the `octo` processes running as children of this
@@ -105,16 +104,12 @@ function session(ns: string): Session {
   return s;
 }
 
-function statusOf(s: Session): RunStatus {
+function statusOf(s: Session): RunState {
   // The proxy resolves the actual port server-side, so the test path is
   // port-independent — just the namespace.
   const networked = s.proc !== null && s.exposable && s.port !== null;
   return {
-    available: !!process.env.OCTO_BIN_PATH,
     running: s.proc !== null,
-    version: cachedVersion(),
-    testAvailable: !!process.env.DOLPHIN_BIN_PATH,
-    testVersion: cachedTestVersion(),
     exposable: s.exposable,
     port: s.port,
     testUrl: networked ? `/editor/runs/${s.namespace}/` : null,
@@ -131,7 +126,7 @@ export function runningPort(ns: string): number | null {
   return s.proc !== null ? s.port : null;
 }
 
-export function status(ns: string): RunStatus {
+export function status(ns: string): RunState {
   return statusOf(session(ns));
 }
 
@@ -151,7 +146,7 @@ export async function start(
   yaml: string,
   devEnv?: Record<string, string>,
   opts?: RunResourceOptions,
-): Promise<RunStatus> {
+): Promise<RunState> {
   const bin = octoBin();
 
   await stop(ns); // tear down any previous generation first
@@ -269,7 +264,7 @@ export async function sync(
   ns: string,
   yaml: string,
   opts?: RunResourceOptions,
-): Promise<RunStatus> {
+): Promise<RunState> {
   const s = session(ns);
   if (!s.proc || !s.configPath) return statusOf(s);
 
@@ -292,7 +287,7 @@ export async function sync(
 }
 
 /** Stop the namespace's runner (SIGTERM, then SIGKILL after a grace period) and remove its config. */
-export async function stop(ns: string): Promise<RunStatus> {
+export async function stop(ns: string): Promise<RunState> {
   const s = session(ns);
   const proc = s.proc;
   if (proc) {

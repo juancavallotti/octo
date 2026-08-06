@@ -19,6 +19,9 @@ vi.mock("./_auth", () => ({
 }));
 
 const host = {
+  // The host binaries are reported apart from the run itself, so the stub answers
+  // both: a test that only mocked status() would fail the availability gate.
+  binaries: vi.fn(),
   status: vi.fn(),
   test: vi.fn(),
   invoke: vi.fn(),
@@ -74,7 +77,15 @@ const req = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  host.status.mockReturnValue({ available: true, testAvailable: true });
+  // Re-stubbed per test, not once at declaration: a test that narrows availability
+  // must not narrow it for everything that follows.
+  host.binaries.mockReturnValue({
+    available: true,
+    version: null,
+    testAvailable: true,
+    testVersion: null,
+  });
+  host.status.mockReturnValue({ running: false, exposable: false, port: null, testUrl: null });
   host.test.mockResolvedValue(hostOutcome());
 });
 
@@ -131,7 +142,12 @@ describe("runTest", () => {
   });
 
   it("refuses when no test runner is configured", async () => {
-    host.status.mockReturnValue({ available: true, testAvailable: false });
+    host.binaries.mockReturnValue({
+      available: true,
+      version: null,
+      testAvailable: false,
+      testVersion: null,
+    });
 
     expect(await runTest(TAB, req)).toEqual({
       ok: false,

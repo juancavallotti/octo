@@ -13,12 +13,23 @@ import type {
   TestRunOutcome,
 } from "@octo/run-host";
 
-/** A run's status snapshot — the fields run-host's `RunStatus` exposes. */
-export interface RunStatusLike {
+/**
+ * What the host can spawn — the fields run-host's `Binaries` exposes.
+ *
+ * Separate from {@link RunStateLike} because they answer to different owners: a binary is
+ * installed on the host, while a run belongs to whichever backend is running it. On a host
+ * whose app runs elsewhere the two come apart, and `invoke_flow` still works when
+ * `run_integration` cannot.
+ */
+export interface BinariesLike {
   /** Whether a runner binary is configured (OCTO_BIN_PATH set). */
   available: boolean;
-  running: boolean;
   version: string | null;
+}
+
+/** The state of the app a backend is running — the fields run-host's `RunState` exposes. */
+export interface RunStateLike {
+  running: boolean;
   /** Whether the current run declares HTTP_PORT, i.e. is networked/testable. */
   exposable: boolean;
   port: number | null;
@@ -75,14 +86,16 @@ export interface EvalResultLike {
 }
 
 export interface RunHostPort {
-  status(ns: string): RunStatusLike;
+  /** Which binaries this host has for its one-shot runs, and their versions. */
+  binaries(): BinariesLike;
+  status(ns: string): RunStateLike;
   start(
     ns: string,
     yaml: string,
     env?: Record<string, string>,
     opts?: { resources?: ResourceProvider },
-  ): Promise<RunStatusLike>;
-  stop(ns: string): Promise<RunStatusLike>;
+  ): Promise<RunStateLike>;
+  stop(ns: string): Promise<RunStateLike>;
   /** Run a single named flow once (sources not started) and return its result + logs. */
   invoke(
     ns: string,

@@ -15,6 +15,7 @@
  */
 
 import {
+  binaries,
   evalCel,
   invoke,
   probeTestVersion,
@@ -24,6 +25,7 @@ import {
   stop,
   sync,
   test,
+  type RunState,
 } from "@octo/run-host";
 import type {
   CelEvalRequest,
@@ -39,6 +41,16 @@ import { ensureRunNamespace } from "@/app/run/namespace";
 import { orchestratorResourceProvider } from "@/app/lib/runResources";
 import { withRead, withWrite } from "./_auth";
 
+/**
+ * The editor snapshot, composed from the two things it asks about at once: what this
+ * host can spawn (its binaries, which back the one-shot debug runs) and what the app
+ * runner is currently doing. They are separate because they answer to different owners
+ * — a binary is installed on the host, a run belongs to a backend.
+ */
+function snapshotOf(state: RunState): RunStatusSnapshot {
+  return { ...binaries(), ...state };
+}
+
 /** The resource provider for a run, or undefined for an unsaved draft (no id). */
 function resourcesFor(integrationId?: unknown) {
   if (typeof integrationId !== "string" || integrationId.trim() === "") return undefined;
@@ -52,7 +64,7 @@ export async function runStatus(tabId: string): Promise<ActionResult<RunStatusSn
     // binaries, two probes: dolphin can be absent while octo is present.
     await Promise.all([probeVersion(), probeTestVersion()]);
     const ns = await ensureRunNamespace(tabId);
-    return { ok: true, data: status(ns) };
+    return { ok: true, data: snapshotOf(status(ns)) };
   });
 }
 
@@ -64,7 +76,7 @@ export async function runStart(
 ): Promise<ActionResult<RunStatusSnapshot>> {
   return withWrite(async () => {
     const ns = await ensureRunNamespace(tabId);
-    if (!status(ns).available) {
+    if (!binaries().available) {
       return { ok: false, error: "Runner not available (OCTO_BIN_PATH unset)." };
     }
     if (typeof yaml !== "string" || yaml.trim() === "") {
@@ -73,9 +85,9 @@ export async function runStart(
     try {
       return {
         ok: true,
-        data: await start(ns, yaml, undefined, {
-          resources: resourcesFor(integrationId),
-        }),
+        data: snapshotOf(
+          await start(ns, yaml, undefined, { resources: resourcesFor(integrationId) }),
+        ),
       };
     } catch (err) {
       return { ok: false, error: (err as Error).message };
@@ -87,7 +99,7 @@ export async function runStart(
 export async function runStop(tabId: string): Promise<ActionResult<RunStatusSnapshot>> {
   return withWrite(async () => {
     const ns = await ensureRunNamespace(tabId);
-    return { ok: true, data: await stop(ns) };
+    return { ok: true, data: snapshotOf(await stop(ns)) };
   });
 }
 
@@ -103,7 +115,7 @@ export async function runEvalCel(
 ): Promise<ActionResult<CelEvalResult>> {
   return withRead(async () => {
     const ns = await ensureRunNamespace(tabId);
-    if (!status(ns).available) {
+    if (!binaries().available) {
       return { ok: false, error: "Runner not available (OCTO_BIN_PATH unset)." };
     }
     if (typeof req?.expression !== "string" || req.expression.trim() === "") {
@@ -138,7 +150,7 @@ export async function runInvoke(
 ): Promise<ActionResult<FlowRunOutcome>> {
   return withWrite(async () => {
     const ns = await ensureRunNamespace(tabId);
-    if (!status(ns).available) {
+    if (!binaries().available) {
       return { ok: false, error: "Runner not available (OCTO_BIN_PATH unset)." };
     }
     if (typeof req?.yaml !== "string" || req.yaml.trim() === "") {
@@ -192,7 +204,7 @@ export async function runTest(
 ): Promise<ActionResult<TestRunOutcome>> {
   return withWrite(async () => {
     const ns = await ensureRunNamespace(tabId);
-    if (!status(ns).testAvailable) {
+    if (!binaries().testAvailable) {
       return { ok: false, error: "Test runner not available (DOLPHIN_BIN_PATH unset)." };
     }
     if (typeof req?.yaml !== "string" || req.yaml.trim() === "") {

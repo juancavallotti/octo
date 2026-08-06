@@ -89,10 +89,9 @@ function fakeRunHost(outcome?: Partial<TestRunOutcome>) {
   const seen: TestRunArgs[] = [];
   const host = {
     seen,
+    binaries: () => ({ available: true, version: null }),
     status: () => ({
-      available: true,
       running: false,
-      version: null,
       exposable: false,
       port: null,
       testUrl: null,

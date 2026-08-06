@@ -36,6 +36,38 @@ async function probe(bin: string | undefined, arg: string): Promise<string | nul
   }
 }
 
+/** Which binaries the host has for its one-shot runs, and what they are. */
+export interface Binaries {
+  /** Whether `octo` is configured — what gates every one-shot run and the CEL tester. */
+  available: boolean;
+  version: string | null;
+  /** Whether `dolphin` is configured. Separate because either can be absent alone. */
+  testAvailable: boolean;
+  testVersion: string | null;
+}
+
+/**
+ * What this host can spawn, for the editor's status.
+ *
+ * Deliberately not part of what an app runner reports. Whether a binary is installed is
+ * a fact about the HOST, not about the backend running the app — and on a host whose app
+ * runs elsewhere the two answers come apart: it may be unable to start an app while
+ * still running `invoke`, `eval` and a test suite perfectly well, all of which are these
+ * binaries. Conflating them would hide working features whenever the app runner was
+ * unavailable.
+ *
+ * Probe first ({@link probeVersion}, {@link probeTestVersion}) so the versions are warm;
+ * this reads the caches synchronously.
+ */
+export function binaries(): Binaries {
+  return {
+    available: !!process.env.OCTO_BIN_PATH,
+    version: cachedVersion(),
+    testAvailable: !!process.env.DOLPHIN_BIN_PATH,
+    testVersion: cachedTestVersion(),
+  };
+}
+
 /** The cached octo version line (sync); null until probed or when unavailable. */
 export function cachedVersion(): string | null {
   return store.__octoRuntimeVersion ?? null;

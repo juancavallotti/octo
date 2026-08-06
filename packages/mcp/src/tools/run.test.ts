@@ -6,7 +6,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { registerRunTools } from "./run";
 import { createNamespaceResolver } from "../namespace";
 import type { OctoMcpConfig } from "../backend";
-import type { RunHostPort, RunStatusLike } from "../run-host";
+import type { RunHostPort, RunStateLike } from "../run-host";
 import type { MockSpec, ResourceProvider, SpyTrace } from "@octo/run-host";
 
 /** A stub run host that records the last start() and fakes exposable runs. */
@@ -46,15 +46,14 @@ function stubRunHost(opts: { available?: boolean } = {}) {
   let exposable = false;
   let logs: { seq: number; text: string }[] = [];
   let nsSeq = 0;
-  const snap = (): RunStatusLike => ({
-    available,
+  const snap = (): RunStateLike => ({
     running,
-    version: null,
     exposable,
     port: exposable && running ? 4000 : null,
     testUrl: exposable && running ? `/editor/runs/${calls.ns}/` : null,
   });
   const host: RunHostPort = {
+    binaries: () => ({ available, version: null }),
     status: () => snap(),
     start: async (ns, yaml, env, startOpts) => {
       calls.ns = ns;

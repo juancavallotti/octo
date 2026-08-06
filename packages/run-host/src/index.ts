@@ -18,7 +18,7 @@ export {
   type AppRunner,
   type LogStreamOptions,
   type RunKey,
-  type RunStatus,
+  type RunState,
   type StartArgs,
   type SyncArgs,
 } from "./runner";
@@ -51,10 +51,12 @@ export {
   type ResourceProvider,
 } from "./resources";
 export {
+  binaries,
   probeVersion,
   cachedVersion,
   probeTestVersion,
   cachedTestVersion,
+  type Binaries,
 } from "./version";
 export { probeSchema, cachedSchema } from "./schema";
 export {

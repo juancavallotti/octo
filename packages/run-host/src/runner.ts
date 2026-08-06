@@ -75,28 +75,16 @@ export interface LogStreamOptions {
 }
 
 /**
- * Point-in-time state of a run, as the editor needs it.
+ * Point-in-time state of the app a backend is running.
  *
- * Some of it is about the host rather than the run — whether a runner binary exists at
- * all, and its version — because the editor asks one question ("can I run, and am I?")
- * and a backend is the only thing that can answer either half.
+ * Only what a backend can actually answer. Whether the host has an `octo` binary, and
+ * which version, is deliberately NOT here (see {@link Binaries}): that is a fact about
+ * the host, and on a host whose app runs elsewhere the two come apart — it can be unable
+ * to start an app while still running every one-shot perfectly well. The app composes the
+ * editor's snapshot from both halves.
  */
-export interface RunStatus {
-  /** Whether a runner is configured at all (locally, OCTO_BIN_PATH set by `task dev`). */
-  available: boolean;
+export interface RunState {
   running: boolean;
-  /** The runner's `--version` line, probed once; null until known/if unavailable. */
-  version: string | null;
-  /**
-   * Whether a dolphin binary is configured (DOLPHIN_BIN_PATH). Deliberately separate
-   * from `available`: the two are different binaries and either can be missing on its
-   * own, so a host with a runner but no test runner reports RUN as usable and the
-   * Testing tab's run buttons as not. Collapsing them would either hide a working
-   * feature or offer a broken one.
-   */
-  testAvailable: boolean;
-  /** dolphin's `version` line, probed once; null until known/if unavailable. */
-  testVersion: string | null;
   /** Whether the current run declares HTTP_PORT, i.e. is networked/testable. */
   exposable: boolean;
   /**
@@ -125,18 +113,24 @@ export interface RunStatus {
    * app had changed.
    */
   reloadsOnSave: boolean;
+  /**
+   * Why the app is not running, or not usable, when the backend can say so — a pod's
+   * ImagePullBackOff, a workload nothing has scheduled. Absent for a healthy run, and
+   * always absent from the local backend, whose failures arrive as log lines instead.
+   */
+  reason?: string;
 }
 
 /** Drives one backend's long-running app. */
 export interface AppRunner {
   /** Current state, including whether a run is already live (used to reattach). */
-  status(key: RunKey): Promise<RunStatus>;
+  status(key: RunKey): Promise<RunState>;
   /** Start a run, replacing any previous generation. */
-  start(key: RunKey, args: StartArgs): Promise<RunStatus>;
+  start(key: RunKey, args: StartArgs): Promise<RunState>;
   /** Stop the run and release what it held. */
-  stop(key: RunKey): Promise<RunStatus>;
+  stop(key: RunKey): Promise<RunState>;
   /** Make the running app pick up the current definition. */
-  sync(key: RunKey, args: SyncArgs): Promise<RunStatus>;
+  sync(key: RunKey, args: SyncArgs): Promise<RunState>;
   /**
    * Replay then follow the run's logs; ends when the caller aborts.
    *

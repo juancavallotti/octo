@@ -23,9 +23,10 @@ const NO_TOTALS = {
 };
 
 const stubRunHost: RunHostPort = {
-  status: () => ({ available: false, running: false, version: null, exposable: false, port: null, testUrl: null }),
-  start: async () => ({ available: false, running: false, version: null, exposable: false, port: null, testUrl: null }),
-  stop: async () => ({ available: false, running: false, version: null, exposable: false, port: null, testUrl: null }),
+  binaries: () => ({ available: false, version: null }),
+  status: () => ({ running: false, exposable: false, port: null, testUrl: null }),
+  start: async () => ({ running: false, exposable: false, port: null, testUrl: null }),
+  stop: async () => ({ running: false, exposable: false, port: null, testUrl: null }),
   invoke: async () => ({ ok: false, exitCode: null, timedOut: false, dropped: false, output: "", logs: [] }),
   test: async () => ({ ok: false, exitCode: null, timedOut: false, totals: NO_TOTALS, suites: [], logs: [] }),
   evalCel: async () => ({ ok: false, error: "unavailable", logs: [] }),

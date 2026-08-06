@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { OctoMcpConfig } from "../backend";
-import type { RunHostPort, RunStatusLike } from "../run-host";
+import type { RunHostPort, RunStateLike } from "../run-host";
 import type { NamespaceResolver } from "../namespace";
 import { parseEnv } from "../env";
 import { mockSpecSchema } from "../mocks";
@@ -36,7 +36,7 @@ export function registerRunTools(
         const { valid, errors } = await config.validate(rec.definition);
         const ns = resolveNamespace(extra.sessionId);
         return jsonResult({
-          available: runHost.status(ns).available,
+          available: runHost.binaries().available,
           valid,
           errors,
         });
@@ -61,7 +61,7 @@ export function registerRunTools(
       guard(async () => {
         const rec = await store.get(id);
         const ns = resolveNamespace(extra.sessionId);
-        if (!runHost.status(ns).available) {
+        if (!runHost.binaries().available) {
           return errorResult("Runner not available (OCTO_BIN_PATH unset).");
         }
         // We don't gate the run on `can_start_integration`'s validation: that
@@ -164,7 +164,7 @@ export function registerRunTools(
         const yaml =
           definition !== undefined ? definition : (await store.get(id!)).definition;
         const ns = resolveNamespace(extra.sessionId);
-        if (!runHost.status(ns).available) {
+        if (!runHost.binaries().available) {
           return errorResult("Runner not available (OCTO_BIN_PATH unset).");
         }
         let parsedEnv: Record<string, string> | undefined;
@@ -234,7 +234,7 @@ export function registerRunTools(
         // Reuse the per-session availability gate for a consistent "runner configured?"
         // error, even though eval itself is stateless (no namespace isolation needed).
         const ns = resolveNamespace(extra.sessionId);
-        if (!runHost.status(ns).available) {
+        if (!runHost.binaries().available) {
           return errorResult("Runner not available (OCTO_BIN_PATH unset).");
         }
         let parsedEnv: Record<string, string> | undefined;
@@ -297,7 +297,7 @@ export function registerRunTools(
  * prefixing the second would produce `http://localhost:3000https://…` — so which kind it
  * is has to be checked rather than assumed.
  */
-function buildTestUrl(config: OctoMcpConfig, st: RunStatusLike): string | null {
+function buildTestUrl(config: OctoMcpConfig, st: RunStateLike): string | null {
   if (!st.testUrl) return null;
   if (/^https?:\/\//i.test(st.testUrl)) return st.testUrl;
   const base = config.baseUrl?.replace(/\/+$/, "");
