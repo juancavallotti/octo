@@ -1,4 +1,4 @@
-# Cloud Build pipeline: build the six octo images and the OCI Helm chart, push
+# Cloud Build pipeline: build the seven octo images and the OCI Helm chart, push
 # everything to Artifact Registry, then (optionally) roll the cluster by applying the
 # Terraform release root. Provisioned and triggered by deploy/terraform/infra
 # (enable_cloudbuild=true); the trigger supplies _IMAGE_BASE/_REGION, maps _TAG to the

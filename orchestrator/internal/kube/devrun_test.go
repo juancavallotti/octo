@@ -35,7 +35,6 @@ func testDevRunSpec() DevRunSpec {
 		ID:            "11111111-1111-4111-8111-111111111111",
 		UserID:        "u1",
 		IntegrationID: "int-1",
-		Name:          "orders",
 		DevRunToken:   "pull-token",
 		TokenHash:     "hash-of-pull-token",
 		SidecarToken:  "command-token",

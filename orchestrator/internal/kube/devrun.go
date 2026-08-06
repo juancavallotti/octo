@@ -119,7 +119,6 @@ type DevRunSpec struct {
 	ID            string    // derived dev-run uuid; drives resource names and labels
 	UserID        string    // owning user (label)
 	IntegrationID string    // integration being edited (label)
-	Name          string    // integration display name, stamped onto shipped logs
 	DevRunToken   string    // bearer the sidecar pulls its bundle with (pod env only)
 	TokenHash     string    // SHA-256 of DevRunToken, recorded as an annotation
 	SidecarToken  string    // bearer the orchestrator commands the sidecar with
@@ -295,13 +294,36 @@ func (c *Client) TouchDevRun(ctx context.Context, devRunID string, at time.Time)
 	return nil
 }
 
+// SetDevRunHost records (or clears) the external host a dev run publishes, for a
+// reload that flipped the integration between serving HTTP and not.
+//
+// A merge patch like TouchDevRun, for the same reason — two replicas must not be able
+// to conflict — and an empty host patches the key to null, which is how a JSON merge
+// patch removes it. Clearing rather than blanking matters: an empty-string annotation
+// and an absent one would then both mean "not published", and only one of them would
+// be what a reader expects.
+func (c *Client) SetDevRunHost(ctx context.Context, devRunID, host string) error {
+	value := "null"
+	if host != "" {
+		value = fmt.Sprintf("%q", host)
+	}
+	patch := fmt.Sprintf(`{"metadata":{"annotations":{%q:%s}}}`, annHost, value)
+	_, err := c.clientset.AppsV1().Deployments(c.namespace).Patch(
+		ctx, devRunName(devRunID), types.MergePatchType, []byte(patch), metav1.PatchOptions{})
+	if err != nil {
+		return fmt.Errorf("kube: set dev run host: %w", err)
+	}
+	return nil
+}
+
 // DevRun is one live dev-run workload, read back from the cluster. Everything here
 // comes off the object itself — there is no other copy to reconcile it with.
 type DevRun struct {
 	ID            string
 	UserID        string
 	IntegrationID string
-	Host          string    // external host, "" when not published
+	Host          string    // external host, "" when no endpoint is published
+	TokenHash     string    // SHA-256 of the dev-run token, for authorising its sidecar
 	LastActivity  time.Time // zero when the annotation is absent or unparseable
 	CreatedAt     time.Time
 	Status        Status
@@ -337,6 +359,7 @@ func (c *Client) ListDevRuns(ctx context.Context, sel DevRunSelector) ([]DevRun,
 			UserID:        dep.Labels[labelUserID],
 			IntegrationID: dep.Labels[labelIntegrationID],
 			Host:          dep.Annotations[annHost],
+			TokenHash:     dep.Annotations[annTokenHash],
 			LastActivity:  parseLastActivity(dep.Annotations[annLastActivity]),
 			CreatedAt:     dep.CreationTimestamp.Time,
 			Status:        computeStatus(dep, podsFor(pods, id)),
@@ -479,8 +502,14 @@ func (c *Client) devRunDeployment(name string, lbls map[string]string, spec DevR
 		annLastActivity: lastActivity.UTC().Format(time.RFC3339),
 		annTokenHash:    spec.TokenHash,
 	}
-	if host := c.ExternalHost(spec.Subdomain); host != "" {
-		annotations[annHost] = host
+	// Only a networked run records a host, because only a networked run gets an
+	// endpoint published. Recording one regardless would advertise a hostname that
+	// resolves and then 502s, and would make the annotation useless for the question a
+	// reload has to answer: is an endpoint currently live for this run?
+	if spec.Networked {
+		if host := c.ExternalHost(spec.Subdomain); host != "" {
+			annotations[annHost] = host
+		}
 	}
 
 	return &appsv1.Deployment{

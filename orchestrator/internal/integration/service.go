@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 )
 
@@ -22,14 +23,55 @@ type repository interface {
 	NameExists(ctx context.Context, name, excludeID string) (bool, error)
 }
 
+// reloadNotifier is told that an integration's stored state changed, so anything
+// running it can pick the change up. Declared here, in the consumer, and satisfied
+// structurally by *devrun.Service — this package never learns that dev runs exist.
+// A nil notifier means nothing is listening.
+type reloadNotifier interface {
+	NotifyIntegrationChanged(ctx context.Context, integrationID string) error
+}
+
 // Service holds integration business logic and validation.
 type Service struct {
-	repo repository
+	repo     repository
+	notifier reloadNotifier
+}
+
+// Option customizes a Service at construction.
+type Option func(*Service)
+
+// WithReloadNotifier wires a notifier that is told, after a successful write, which
+// integration changed. This is the reload trigger for dev runs, and it lives here —
+// at the write — rather than in the editor, so that every writer is covered at once:
+// the editor's save, the integrations list, MCP's update_flow, any API-key client.
+func WithReloadNotifier(n reloadNotifier) Option {
+	return func(s *Service) { s.notifier = n }
 }
 
 // NewService returns a Service backed by repo.
-func NewService(repo repository) *Service {
-	return &Service{repo: repo}
+func NewService(repo repository, opts ...Option) *Service {
+	s := &Service{repo: repo}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
+}
+
+// notifyChanged tells the notifier an integration changed, after the write has
+// landed.
+//
+// Best-effort, and deliberately incapable of failing the caller: a save that
+// succeeded with a reload that did not is a stale running app, which the run's own
+// status surface reports; a save reported as failed because a pod was unreachable is
+// data loss. It is also called only after the write commits, so a puller cannot race
+// ahead of the data it is pulling.
+func (s *Service) notifyChanged(ctx context.Context, id string) {
+	if s.notifier == nil {
+		return
+	}
+	if err := s.notifier.NotifyIntegrationChanged(ctx, id); err != nil {
+		slog.Warn("integration changed but reload notification failed", "integrationId", id, "error", err)
+	}
 }
 
 // Create validates the name and persists a new integration. actorID is the
@@ -67,7 +109,12 @@ func (s *Service) Update(ctx context.Context, id, name, definition, actorID stri
 	if err := s.ensureNameFree(ctx, trimmed, id); err != nil {
 		return Integration{}, err
 	}
-	return s.repo.Update(ctx, id, trimmed, definition, actorID)
+	updated, err := s.repo.Update(ctx, id, trimmed, definition, actorID)
+	if err != nil {
+		return Integration{}, err
+	}
+	s.notifyChanged(ctx, id)
+	return updated, nil
 }
 
 // ensureNameFree rejects a name already used by a different integration
