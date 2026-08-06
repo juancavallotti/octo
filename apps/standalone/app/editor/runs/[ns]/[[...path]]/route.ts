@@ -1,4 +1,5 @@
-import { runningPort, isValidNamespace } from "@octo/run-host";
+import { isValidNamespace } from "@octo/run-host";
+import { runningPort } from "@/app/run/localRunner";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

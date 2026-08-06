@@ -8,23 +8,30 @@ import {
   isExposable,
   releaseAdminPort,
   releasePort,
-} from "../ports";
-import { LogBuffer, type LogLine } from "../logbuffer";
-import { ensureReaper } from "../reaper";
+} from "./ports";
+import { LogBuffer } from "./logBuffer";
+import { ensureReaper } from "./reaper";
 import {
   effectiveResourceNames,
   injectDevEnvResource,
+  namespaceDir,
+  octoBin,
   resolveAndStage,
   sameNameSet,
   stageResources,
-} from "../resources";
-import { namespaceDir, writeConfig, type RunResourceOptions } from "../staging";
-import { octoBin, terminate } from "../child";
-import type { AppRunner, LogStreamOptions, RunKey, RunState } from "../runner";
+  terminate,
+  writeConfig,
+  type AppRunner,
+  type LogLine,
+  type LogStreamOptions,
+  type RunKey,
+  type RunResourceOptions,
+  type RunState,
+} from "@octo/run-host";
 
 /**
  * The local {@link AppRunner}: it owns the `octo` processes running as children of this
- * one. The editor POSTs YAML, this spawns `octo run -config <file> -watch`, captures
+ * one. The editor pushes YAML, this spawns `octo run -config <file> -watch`, captures
  * stdout/stderr as log lines, and lets clients replay the buffer and subscribe to new
  * lines. Editing the document re-writes the same config file so the runner hot-reloads.
  *
@@ -33,11 +40,14 @@ import type { AppRunner, LogStreamOptions, RunKey, RunState } from "../runner";
  * file, and log buffer. State lives on `globalThis` so it survives Next's dev HMR module
  * reloads (a new module instance would otherwise lose track of the child processes).
  *
- * Everything here is inherently pod-local — a process handle, a port from a local pool, a
- * log buffer in this heap — and that is exactly why it cannot be the only backend: with
- * more than one replica and no session affinity, a request landing on a different one
- * finds none of it. The remote runner exists for that case; this one stays the right
- * answer for standalone and for a single-replica install.
+ * **Why this lives in the app and not in @octo/run-host.** Everything here is inherently
+ * process-local — a child handle, a port from a pool this process owns, a log buffer in
+ * this heap — and only one host can use it: an app served by several replicas with no
+ * session affinity would start a run on one and find nothing on the next. So it is not
+ * shared code that happens to sit in a package; it is *this app's* answer to a question
+ * the platform answers differently (`apps/platform/app/run/remoteRunner.ts`, a pod the
+ * orchestrator owns). What the two share is the interface and the staging, binary and
+ * one-shot helpers they both genuinely use.
  */
 
 export interface Session {

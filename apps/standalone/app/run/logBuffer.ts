@@ -1,4 +1,5 @@
 import type { Readable } from "node:stream";
+import type { LogLine } from "@octo/run-host";
 
 /**
  * A per-namespace ring buffer of runner log lines with live subscribers. Each run
@@ -9,12 +10,6 @@ import type { Readable } from "node:stream";
 
 /** Largest config inputs are tiny; this cap just bounds the in-memory log buffer. */
 const MAX_LOG_LINES = 5000;
-
-export interface LogLine {
-  /** Monotonic id, used as the SSE event id so clients can order/resume. */
-  seq: number;
-  text: string;
-}
 
 type Listener = (line: LogLine) => void;
 

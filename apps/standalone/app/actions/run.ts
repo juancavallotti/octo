@@ -1,10 +1,15 @@
 "use server";
 
 /**
- * Server actions for the editor's RUN feature (standalone). They drive the
- * in-process @octo/run-host directly (no HTTP, no auth — local-only), keyed by the
- * calling tab's run namespace. The live log stream stays an SSE route
- * (`/api/run/logs`), which resolves the same namespace from the same two halves.
+ * Server actions for the editor's RUN feature (standalone). They drive this app's own
+ * runner directly (no HTTP, no auth — local-only), keyed by the calling tab's run
+ * namespace. The live log stream stays an SSE route (`/api/run/logs`), which resolves the
+ * same namespace from the same two halves.
+ *
+ * The long-running app comes from `../run/localRunner`, which this app owns: it spawns
+ * `octo run --watch` as a child of this very process, and nothing else runs that way. The
+ * one-shots and the binary probes come from @octo/run-host, which both hosts share because
+ * both run them identically.
  *
  * Every action leads with `tabId`, the browser half of that namespace (see
  * `../run/namespace`). It is a separate parameter rather than a field on the
@@ -18,13 +23,10 @@ import {
   invoke,
   probeTestVersion,
   probeVersion,
-  start,
-  status,
-  stop,
-  sync,
   test,
   type RunState,
 } from "@octo/run-host";
+import { start, status, stop, sync } from "../run/localRunner";
 import type {
   CelEvalRequest,
   CelEvalResult,
@@ -91,7 +93,8 @@ export async function runEvalCel(
   tabId: string,
   req: CelEvalRequest,
 ): Promise<ActionResult<CelEvalResult>> {
-  const ns = await ensureRunNamespace(tabId);
+  // No namespace: `octo eval` reads an expression and an object, spawns nothing that
+  // outlives the call, and stages no files — so there is nothing for one to scope.
   if (!binaries().available) {
     return { ok: false, error: "Runner not available (OCTO_BIN_PATH unset)." };
   }

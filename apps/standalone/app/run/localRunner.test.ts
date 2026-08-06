@@ -11,13 +11,17 @@ import {
   status,
   stop,
   sync,
-} from "./local";
+} from "./localRunner";
+// The one-shot is here for the single case that proves it leaves a long-running run alone —
+// the property that lets it live in @octo/run-host while the runner lives here. It can only
+// be checked where both halves exist, which is this app and not the package.
+import { invoke } from "@octo/run-host";
 import {
   allocateAdminPort,
   allocatePort,
   releaseAdminPort,
   releasePort,
-} from "../ports";
+} from "./ports";
 
 /** Fixed namespace for the single-user test surface. */
 const NS = "testns00";
@@ -352,5 +356,30 @@ describe("local runner", () => {
       expect(stopped.testUrl).toBeNull();
       expect(await localRunner.status(key)).toEqual(stopped);
     });
+  });
+
+  // Two things share one namespace: the long-running run and any one-shot invoked while it
+  // is up. They must not collide — the one-shot stages its own config, allocates no port,
+  // and writes to no buffer — because the editor's debug controls are used precisely while
+  // something is running.
+  it("is undisturbed by a one-shot invoke in its own namespace", async () => {
+    process.env.OCTO_BIN_PATH = await fakeBin(
+      dir,
+      "octo-both",
+      'if [ "$1" = "invoke" ]; then printf \'{"r":1}\\n\'; else echo ready; sleep 5; fi',
+    );
+
+    const yaml =
+      'service:\n  name: net\nenv:\n  - name: HTTP_PORT\n    default: "8080"\n';
+    const started = await start(NS, yaml);
+    await vi.waitFor(() => expect(texts()).toContain("ready"), { timeout: 4000 });
+    const port = started.port;
+
+    const r = await invoke(NS, "service:\n  name: t\n", "greet");
+    expect(r.output).toContain('{"r":1}');
+
+    expect(texts()).toContain("ready");
+    expect(status(NS).port).toBe(port);
+    expect(status(NS).running).toBe(true);
   });
 });

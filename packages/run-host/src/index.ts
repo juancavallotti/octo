@@ -1,14 +1,17 @@
 /**
- * @octo/run-host — the server-side core of the editor's RUN feature, shared by
- * every app that hosts it. It comes in two halves, and the split is the shape of
- * the package:
+ * @octo/run-host — what the two hosts of the editor's RUN feature genuinely share.
+ * The package is shaped by what that turns out to be, and by what it is not:
  *
- *  - **The app runner** (`runner.ts`) is the long-running thing: the app the editor
- *    started, its logs, its address. It has a backend — a local child process of
- *    this pod, or a dev-run pod the orchestrator manages — behind one interface.
- *  - **The one-shots** (`exec/`) are `invoke`, `evalCel` and `test`: spawn a child,
- *    wait, report. They hold no process, port or buffer, so they need no backend
- *    and stay plain functions.
+ *  - **The app-runner port** (`runner.ts`) — the long-running app's interface, with no
+ *    implementation. The two backends are a child process of the host and a dev-run pod
+ *    somewhere else, and each belongs to the app that runs that way. A shared interface
+ *    with app-owned implementations is the point; a shared implementation that one app
+ *    ignores would be a dependency pointing the wrong way.
+ *  - **The one-shots** (`exec/`) — `invoke`, `evalCel` and `test`: spawn a child, wait,
+ *    report. Both hosts run them identically and locally, which is what makes them
+ *    shared rather than merely co-located.
+ *  - **The pieces both of those need**: staging a config and its resources, finding the
+ *    binaries, the runtime's capability schema, and the run namespace.
  *
  * Apps wrap these in their own thin Next route handlers and server actions (adding
  * auth where needed). Node-only — never import from a browser bundle.
@@ -16,23 +19,25 @@
 
 export {
   type AppRunner,
+  type LogLine,
   type LogStreamOptions,
   type RunKey,
   type RunState,
   type StartArgs,
   type SyncArgs,
 } from "./runner";
+export { namespaceDir, writeConfig, type RunResourceOptions } from "./staging";
+export { octoBin, terminate } from "./child";
 export {
-  status,
-  start,
-  stop,
-  sync,
-  snapshot,
-  subscribe,
-  runningPort,
-  localRunner,
-} from "./runner/local";
-export { type RunResourceOptions } from "./staging";
+  DEV_ENV_RESOURCE,
+  effectiveResourceNames,
+  injectDevEnvResource,
+  resolveAndStage,
+  sameNameSet,
+  stageResources,
+  type ResourceFile,
+  type ResourceProvider,
+} from "./resources";
 export {
   invoke,
   type InvokeResult,
@@ -45,11 +50,6 @@ export {
   type LogLevel,
 } from "./exec/invoke";
 export { evalCel, type EvalResult } from "./exec/eval";
-export {
-  DEV_ENV_RESOURCE,
-  type ResourceFile,
-  type ResourceProvider,
-} from "./resources";
 export {
   binaries,
   probeVersion,
@@ -81,4 +81,3 @@ export {
   NAMESPACE_COOKIE,
   NAMESPACE_MAX_AGE_SECONDS,
 } from "./namespace";
-export { type LogLine } from "./logbuffer";

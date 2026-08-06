@@ -1,12 +1,9 @@
 // @vitest-environment node
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { chmod, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { invoke } from "./invoke";
-// The long-running runner is here only for the one test that proves invoke leaves it
-// alone — which is the property that lets a one-shot live outside the runner at all.
-import { snapshot, start, status, stop } from "../runner/local";
 
 /** Fixed namespace for the single-user test surface. */
 const NS = "testns00";
@@ -19,8 +16,6 @@ async function fakeBin(dir: string, name: string, body: string): Promise<string>
   return path;
 }
 
-const texts = () => snapshot(NS).map((l) => l.text);
-
 describe("invoke", () => {
   let dir: string;
 
@@ -30,7 +25,6 @@ describe("invoke", () => {
   });
 
   afterEach(async () => {
-    await stop(NS);
     delete process.env.OCTO_BIN_PATH;
     delete process.env.OCTO_RUN_DIR;
   });
@@ -381,28 +375,6 @@ describe("invoke", () => {
     // Nothing is left behind in the namespace dir once invoke returns.
     const left = await readdir(join(dir, NS)).catch(() => []);
     expect(left.some((f) => f.startsWith("invoke-"))).toBe(false);
-  });
-
-  it("does not disturb a concurrent long-running run in the same namespace", async () => {
-    process.env.OCTO_BIN_PATH = await fakeBin(
-      dir,
-      "octo-both",
-      'if [ "$1" = "invoke" ]; then printf \'{"r":1}\\n\'; else echo ready; sleep 5; fi',
-    );
-
-    const yaml =
-      "service:\n  name: net\nenv:\n  - name: HTTP_PORT\n    default: \"8080\"\n";
-    const started = await start(NS, yaml);
-    await vi.waitFor(() => expect(texts()).toContain("ready"), { timeout: 4000 });
-    const port = started.port;
-
-    const r = await invoke(NS, "service:\n  name: t\n", "greet");
-    expect(r.output).toContain('{"r":1}');
-
-    // The long-running run's log buffer and allocated port are untouched by invoke.
-    expect(texts()).toContain("ready");
-    expect(status(NS).port).toBe(port);
-    expect(status(NS).running).toBe(true);
   });
 
   it("throws when OCTO_BIN_PATH is unset", async () => {

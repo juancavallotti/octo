@@ -3,9 +3,10 @@ import { promisify } from "node:util";
 
 /**
  * Probes and caches the version lines of the two binaries the host spawns: `octo`, the
- * runner, and `dolphin`, the test runner behind the editor's Testing tab. Kept apart
- * from session.ts so the process-owning session stays focused; the caches live on
- * `globalThis` (like the session) so they survive Next's dev HMR module reloads.
+ * runner, and `dolphin`, the test runner behind the editor's Testing tab. A fact about the
+ * host rather than about any run, which is why it is here and not on the app-runner port —
+ * on a host whose app runs elsewhere the two answers come apart. The caches live on
+ * `globalThis` so they survive Next's dev HMR module reloads.
  *
  * One module rather than two near-identical ones, because the two probes differ only in
  * which variable names the binary and which word asks it for its version — and a reader

@@ -5,7 +5,7 @@ import YAML from "yaml";
  * unique port for:
  *
  * - **HTTP.** A networked integration (one that declares HTTP_PORT) needs a listen
- *   port the BFF can proxy to; with many concurrent users we hand each run one from
+ *   port this app can proxy to; with many concurrent users we hand each run one from
  *   a pool starting at 40000 and inject it as HTTP_PORT when spawning `octo` —
  *   mirroring how the orchestrator overrides the declared port in production.
  * - **The admin port.** The runtime's observability service (probes and metrics)
@@ -19,7 +19,12 @@ import YAML from "yaml";
  * which of the two it is).
  */
 
-/** First HTTP port handed out; the pool is editor-pod-local so this fixed range is safe. */
+/**
+ * First HTTP port handed out. The pool is local to this process, which is what confines it
+ * to this app: a second replica would hand out the same numbers for different runs and know
+ * nothing of the first's. That is the property that made a shared local runner untenable
+ * on the platform, and it is stated here because this is where it is decided.
+ */
 const BASE_PORT = 40000;
 /** Inclusive top of the HTTP pool — 1000 concurrent networked runs per editor pod. */
 const MAX_PORT = 40999;

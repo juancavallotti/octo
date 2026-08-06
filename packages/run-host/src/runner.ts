@@ -1,22 +1,37 @@
-import type { LogLine } from "./logbuffer";
 import type { ResourceProvider } from "./resources";
 
 /**
  * The port for "the app the editor is running": start it, stop it, ask after it, make it
  * pick up a change, read its logs.
  *
- * There are two backends. A **local** one spawns `octo run --watch` as a child of this
- * process and pushes each edit into the file it watches — what standalone runs, and what
- * a single-replica self-hosted install runs. A **remote** one asks the orchestrator for a
- * dev-run pod, whose sidecar pulls the saved definition itself. Everything that differs
- * between them is behind this interface; everything that does not — the editor's
- * debounce, its log dedupe, its validation gating — stays where it already is.
+ * There are two backends, and **neither of them is here**. A local one spawns
+ * `octo run --watch` as a child of the host process and pushes each edit into the file it
+ * watches; a remote one asks the orchestrator for a dev-run pod whose sidecar pulls the
+ * saved definition itself. Each lives in the app that runs that way
+ * (`apps/standalone/app/run/localRunner.ts`, `apps/platform/app/run/remoteRunner.ts`),
+ * because an implementation shared by one caller is not shared code — it is a dependency
+ * pointing the wrong way. What belongs to both is this interface, and everything the editor
+ * does regardless of which it got: the debounce, the log dedupe, the validation gating.
  *
- * The one-shot operations (`invoke`, `evalCel`, `test`) are deliberately NOT here. They
- * spawn a child, wait for it, and return; they hold no port, no buffer and no process, so
- * they need no backend to be selected and stay module-level functions under exec/. That
- * split is the one session.ts already argued for in prose without acting on.
+ * The one-shot operations (`invoke`, `evalCel`, `test`) are deliberately NOT here, and they
+ * DO stay in this package. They spawn a child, wait for it, and return — no port, no
+ * buffer, no process — so they need no backend selected, and both hosts run them the same
+ * way, locally, which is what makes them genuinely shared.
  */
+
+/**
+ * One line of a run's output.
+ *
+ * Declared beside the port that yields it rather than with any buffer that holds one: a
+ * local backend's lines come from a ring buffer in its own heap, a remote backend's from a
+ * pod's log stream, and the only thing they have in common is this shape. `seq` is
+ * monotonic within a stream and doubles as the SSE event id, so a client can order lines
+ * and drop what a reconnect replays.
+ */
+export interface LogLine {
+  seq: number;
+  text: string;
+}
 
 /**
  * What identifies a run to a backend: the namespace for a local child process, the

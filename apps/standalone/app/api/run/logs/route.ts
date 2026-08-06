@@ -1,10 +1,5 @@
-import {
-  snapshot,
-  subscribe,
-  deriveNamespace,
-  ensureNamespace,
-  type LogLine,
-} from "@octo/run-host";
+import { deriveNamespace, ensureNamespace, type LogLine } from "@octo/run-host";
+import { snapshot, subscribe } from "@/app/run/localRunner";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
