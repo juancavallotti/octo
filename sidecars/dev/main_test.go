@@ -2,16 +2,18 @@ package main
 
 import (
 	"log/slog"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 )
 
+// requiredEnv is what a dev pod must supply. Listed once so the two tests below
+// cannot drift apart, and so adding a required value forces a decision here.
+var requiredEnv = []string{"ORCHESTRATOR_URL", "DEV_RUN_ID", "DEV_RUN_TOKEN", "SIDECAR_TOKEN"}
+
 // A pod configured wrong must fail loudly and name every missing value, so one
 // restart tells the operator everything rather than one thing at a time.
 func TestLoadConfigRequiresEnv(t *testing.T) {
-	for _, name := range []string{"ORCHESTRATOR_URL", "DEV_RUN_ID", "DEV_RUN_TOKEN"} {
+	for _, name := range requiredEnv {
 		t.Setenv(name, "")
 	}
 
@@ -19,19 +21,42 @@ func TestLoadConfigRequiresEnv(t *testing.T) {
 	if err == nil {
 		t.Fatal("loadConfig: want an error when nothing is configured")
 	}
-	for _, name := range []string{"ORCHESTRATOR_URL", "DEV_RUN_ID", "DEV_RUN_TOKEN"} {
+	for _, name := range requiredEnv {
 		if !strings.Contains(err.Error(), name) {
 			t.Errorf("error %q does not name %s", err, name)
 		}
 	}
 }
 
+// Each required value is checked on its own, so a check that silently stopped
+// covering one of them fails here rather than shipping a pod that starts without
+// the credential it needs.
+func TestLoadConfigRequiresEachValue(t *testing.T) {
+	for _, missing := range requiredEnv {
+		t.Run(missing, func(t *testing.T) {
+			for _, name := range requiredEnv {
+				t.Setenv(name, "value")
+			}
+			t.Setenv(missing, "")
+
+			_, err := loadConfig()
+			if err == nil {
+				t.Fatalf("loadConfig: want an error when %s is unset", missing)
+			}
+			if !strings.Contains(err.Error(), missing) {
+				t.Errorf("error %q does not name the missing %s", err, missing)
+			}
+		})
+	}
+}
+
 func TestLoadConfigDefaults(t *testing.T) {
-	t.Setenv("ORCHESTRATOR_URL", "http://orchestrator:8090")
-	t.Setenv("DEV_RUN_ID", "run-1")
-	t.Setenv("DEV_RUN_TOKEN", "tok")
+	for _, name := range requiredEnv {
+		t.Setenv(name, "value")
+	}
 	t.Setenv("PORT", "")
 	t.Setenv("WORKSPACE_DIR", "")
+	t.Setenv("RUNTIME_ADMIN_ADDR", "")
 
 	cfg, err := loadConfig()
 	if err != nil {
@@ -44,6 +69,11 @@ func TestLoadConfigDefaults(t *testing.T) {
 	// onto a subpath and get it subtly different from the runtime container's.
 	if cfg.workspaceDir != defaultWorkspaceDir {
 		t.Errorf("workspaceDir = %q, want %q", cfg.workspaceDir, defaultWorkspaceDir)
+	}
+	// Loopback, because the two containers share a network namespace — so the admin
+	// port needs no Service, no credential and no exposure.
+	if cfg.runtimeAdmin != defaultRuntimeAdmin {
+		t.Errorf("runtimeAdmin = %q, want %q", cfg.runtimeAdmin, defaultRuntimeAdmin)
 	}
 }
 
@@ -87,23 +117,6 @@ func TestEnvOr(t *testing.T) {
 	}
 }
 
-// Driven through the real mux the service builds, so the route pattern and its
-// method matching are part of what is tested.
-func TestHealthz(t *testing.T) {
-	srv := httptest.NewServer(newServer())
-	defer srv.Close()
-
-	resp, err := srv.Client().Get(srv.URL + "/healthz")
-	if err != nil {
-		t.Fatalf("GET /healthz: %v", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("status = %d, want 200", resp.StatusCode)
-	}
-	// Probes are polled constantly and the answer changes with the process's state.
-	if got := resp.Header.Get("Cache-Control"); got != "no-store" {
-		t.Errorf("Cache-Control = %q, want no-store", got)
-	}
-}
+// The probes moved out of this file and into internal/api, which owns the whole
+// HTTP surface and tests it through a real ServeMux. What is left here is the
+// wiring main.go itself decides: what the environment must supply.
