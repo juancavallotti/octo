@@ -30,6 +30,19 @@ jobs:
       # runtime's end-to-end tests, and the only ones that exercise the debug seam the way
       # a user meets it — through the CLI, with real mocks and spies.
       - run: task runtime:test:samples
+      # The sidecars module. Its own steps rather than an entry in a list, because
+      # this job enumerates what it runs — and note what that enumeration currently
+      # MISSES: neither `orchestrator` nor `logs` has a job here, so their tests
+      # never run in CI. That gap predates this module and is not fixed by adding
+      # it; it is called out so the next person to look does not assume coverage
+      # they do not have.
+      - run: task sidecars:tidy
+      - run: task sidecars:fmt
+      - run: task sidecars:lint
+      # -race because the reload coordinator's whole job is serialising concurrent
+      # requests, and a data race there is exactly the bug that passes without it.
+      - run: task sidecars:test -- -race
+      - run: task sidecars:build
       # The release builds the CLI archives from .goreleaser.yaml. Validate it here so
       # a broken config surfaces on the PR that broke it, not on the release that
       # needed it.

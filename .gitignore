@@ -13,6 +13,7 @@ dist/
 /runtime/octo/octo
 /runtime/dolphin/dolphin
 /orchestrator/orchestrator
+/sidecars/dev/dev
 # DevSpace's local state/cache dir.
 /.devspace/
 *.log

@@ -159,6 +159,11 @@ jobs:
             context: .
             dockerfile: runtime/Dockerfile
             buildArgs: GOTAGS=k8s
+          # The dev-run sidecar. One module holds every sidecar, so the context is
+          # sidecars/ and the Dockerfile path selects which one is built.
+          - image: octo-devsidecar-paas
+            context: ./sidecars
+            dockerfile: sidecars/dev/Dockerfile
     steps:
       - uses: actions/checkout@v4
         with:

@@ -20,6 +20,9 @@ includes:
   logs:
     taskfile: ./logs/Taskfile.yml
     dir: ./logs
+  sidecars:
+    taskfile: ./sidecars/Taskfile.yml
+    dir: ./sidecars
 
 # Global env reaches every task, including those in included taskfiles (task-level
 # env does not propagate to called tasks). The platform app reads these server-side
@@ -57,9 +60,10 @@ tasks:
       - task: runtime:fmt
       - task: orchestrator:fmt
       - task: logs:fmt
+      - task: sidecars:fmt
 
   test:
-    desc: Run tests across all modules (runtime + platform + standalone + orchestrator + logs)
+    desc: Run tests across all modules (runtime + platform + standalone + orchestrator + logs + sidecars)
     cmds:
       - task: runtime:test
       # The sample flows, run through dolphin against a real octo. They are the runtime's
@@ -70,15 +74,17 @@ tasks:
       - task: standalone:test
       - task: orchestrator:test
       - task: logs:test
+      - task: sidecars:test
 
   build:
-    desc: Build all modules (CLI binaries + platform + standalone + orchestrator + logs)
+    desc: Build all modules (CLI binaries + platform + standalone + orchestrator + logs + sidecars)
     cmds:
       - task: runtime:build
       - task: platform:build
       - task: standalone:build
       - task: orchestrator:build
       - task: logs:build
+      - task: sidecars:build
 
   dev:
     desc: Build the runner, then run the standalone editor (local files + RUN enabled)
@@ -91,14 +97,16 @@ tasks:
     cmds:
       - task: runtime:tidy
       - task: orchestrator:tidy
+      - task: sidecars:tidy
 
   lint:
-    desc: Lint all modules (runtime + platform + standalone + orchestrator)
+    desc: Lint all modules (runtime + platform + standalone + orchestrator + sidecars)
     cmds:
       - task: runtime:lint
       - task: platform:lint
       - task: standalone:lint
       - task: orchestrator:lint
+      - task: sidecars:lint
 
   run:
     desc: Run the CLI with a config file
@@ -184,7 +192,7 @@ tasks:
         echo "✓ docker, k3d, devspace present"
 
   cluster:images:
-    desc: Build the platform/orchestrator/logs/schema/runtime images and load them into the k3d 'octo' cluster
+    desc: Build the platform/orchestrator/logs/schema/runtime/devsidecar images and load them into the k3d 'octo' cluster
     cmds:
       # Platform build context is the repo ROOT so its Dockerfile can reach both
       # runtime/ (to build octo) and the pnpm workspace (apps/platform).
@@ -195,18 +203,22 @@ tasks:
       # Generic runtime image the orchestrator deploys per integration (build
       # context is the repo root, where the Go module is rooted).
       - docker build -t octo-runtime:dev -f runtime/Dockerfile .
+      # The dev-run sidecar, deployed beside a runtime container in the pods the
+      # orchestrator creates for the editor's RUN feature.
+      - docker build -t octo-devsidecar:dev -f sidecars/dev/Dockerfile ./sidecars
       # Load the images straight into the cluster's containerd (no registry needed).
-      - k3d image import octo-platform:dev octo-orchestrator:dev octo-logs:dev octo-schema:dev octo-runtime:dev -c octo
+      - k3d image import octo-platform:dev octo-orchestrator:dev octo-logs:dev octo-schema:dev octo-runtime:dev octo-devsidecar:dev -c octo
 
   cluster:images:kind:
-    desc: Build the five images and load them into a kind 'octo' cluster
+    desc: Build the six images and load them into a kind 'octo' cluster
     cmds:
       - docker build -t octo-platform:dev -f apps/platform/Dockerfile .
       - docker build -t octo-orchestrator:dev -f orchestrator/Dockerfile ./orchestrator
       - docker build -t octo-logs:dev -f logs/Dockerfile ./logs
       - docker build -t octo-schema:dev -f sql/Dockerfile ./sql
       - docker build -t octo-runtime:dev -f runtime/Dockerfile .
-      - kind load docker-image --name octo octo-platform:dev octo-orchestrator:dev octo-logs:dev octo-schema:dev octo-runtime:dev
+      - docker build -t octo-devsidecar:dev -f sidecars/dev/Dockerfile ./sidecars
+      - kind load docker-image --name octo octo-platform:dev octo-orchestrator:dev octo-logs:dev octo-schema:dev octo-runtime:dev octo-devsidecar:dev
 
   cluster:images:dev:
     desc: Build + load the dev (hot-reload) images into the k3d 'octo' cluster
@@ -290,11 +302,11 @@ tasks:
 
   # --- Publishing to Artifact Registry (for the GCP/k3s deployment) ---
   # IMAGE_BASE is the repository path output by deploy/terraform/infra (image_base),
-  # e.g. us-central1-docker.pkg.dev/PROJECT/octo. The five images live under it
+  # e.g. us-central1-docker.pkg.dev/PROJECT/octo. The six images live under it
   # (IMAGE_BASE/octo-platform-paas:TAG ...) and the OCI chart under IMAGE_BASE/octo.
 
   images:push:
-    desc: 'Build the five octo images and push them to Artifact Registry (set IMAGE_BASE and TAG; run `gcloud auth configure-docker <region>-docker.pkg.dev` first)'
+    desc: 'Build the six octo images and push them to Artifact Registry (set IMAGE_BASE and TAG; run `gcloud auth configure-docker <region>-docker.pkg.dev` first)'
     requires:
       vars: [IMAGE_BASE, TAG]
     cmds:
@@ -305,14 +317,16 @@ tasks:
       - docker build -t {{.IMAGE_BASE}}/octo-logs-paas:{{.TAG}} -f logs/Dockerfile ./logs
       - docker build -t {{.IMAGE_BASE}}/octo-schema-paas:{{.TAG}} -f sql/Dockerfile ./sql
       - docker build -t {{.IMAGE_BASE}}/octo-runtime-paas:{{.TAG}} -f runtime/Dockerfile .
+      - docker build -t {{.IMAGE_BASE}}/octo-devsidecar-paas:{{.TAG}} -f sidecars/dev/Dockerfile ./sidecars
       - docker push {{.IMAGE_BASE}}/octo-platform-paas:{{.TAG}}
       - docker push {{.IMAGE_BASE}}/octo-orchestrator-paas:{{.TAG}}
       - docker push {{.IMAGE_BASE}}/octo-logs-paas:{{.TAG}}
       - docker push {{.IMAGE_BASE}}/octo-schema-paas:{{.TAG}}
       - docker push {{.IMAGE_BASE}}/octo-runtime-paas:{{.TAG}}
+      - docker push {{.IMAGE_BASE}}/octo-devsidecar-paas:{{.TAG}}
 
   images:ttl:
-    desc: 'Build the five octo images from the working tree and push them to ttl.sh for cluster testing (optional PREFIX, TTL)'
+    desc: 'Build the six octo images from the working tree and push them to ttl.sh for cluster testing (optional PREFIX, TTL)'
     vars:
       # ttl.sh's tag IS the image's lifetime, and 24h is its maximum.
       TTL: '{{.TTL | default "12h"}}'
@@ -349,6 +363,7 @@ tasks:
         build octo-orchestrator-paas orchestrator/Dockerfile  ./orchestrator ""
         build octo-logs-paas         logs/Dockerfile          ./logs      ""
         build octo-schema-paas       sql/Dockerfile           ./sql       ""
+        build octo-devsidecar-paas   sidecars/dev/Dockerfile  ./sidecars  ""
         # The k8s build tag is what makes the runtime talk to the orchestrator.
         build octo-runtime-paas      runtime/Dockerfile       .           "--build-arg GOTAGS=k8s"
 
@@ -416,7 +431,7 @@ tasks:
       - 'echo "✓ deleted {{.REGION}}-docker.pkg.dev/{{.PROJECT}}/{{.REPO}}"'
 
   images:ar:
-    desc: 'Build the five octo images from the working tree and push them to the public Artifact Registry repo (optional TAG, PROJECT, REGION, REPO)'
+    desc: 'Build the six octo images from the working tree and push them to the public Artifact Registry repo (optional TAG, PROJECT, REGION, REPO)'
     vars:
       TAG: '{{.TAG | default "test"}}'
       PROJECT: '{{.PROJECT | default "juancavallotti"}}'
@@ -450,6 +465,7 @@ tasks:
         build octo-orchestrator-paas orchestrator/Dockerfile  ./orchestrator ""
         build octo-logs-paas         logs/Dockerfile          ./logs      ""
         build octo-schema-paas       sql/Dockerfile           ./sql       ""
+        build octo-devsidecar-paas   sidecars/dev/Dockerfile  ./sidecars  ""
         # The k8s build tag is what makes the runtime talk to the orchestrator.
         build octo-runtime-paas      runtime/Dockerfile       .           "--build-arg GOTAGS=k8s"
 
@@ -695,7 +711,7 @@ tasks:
           echo "image:"
           echo "  registry: {{.IMAGE_BASE}}"
           echo "  pullPolicy: IfNotPresent"
-          for c in platform orchestrator logs schema runtime; do
+          for c in platform orchestrator logs schema runtime devsidecar; do
             repo="octo-${c}-paas"
             ref="{{.IMAGE_BASE}}/${repo}:{{.TAG}}"
             digest="$(docker buildx imagetools inspect "$ref" | awk '/^Digest:/ {print $2; exit}')"

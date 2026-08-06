@@ -1,0 +1,45 @@
+version: '3'
+
+# Tasks for the sidecars module. One Go module holds every sidecar octo runs
+# beside a runtime container, one directory (and one binary) per sidecar — dev/
+# today, prod-pod sidecars later. Included from the root Taskfile under the
+# `sidecars:` namespace with the working directory set to sidecars/, so all paths
+# here are relative to it. A second sidecar adds a line to `build` rather than a
+# taskfile of its own.
+
+vars:
+  GO: go
+
+tasks:
+  fmt:
+    desc: Format the sidecars module
+    cmds:
+      - '{{.GO}} fmt ./...'
+
+  build:
+    desc: Build every sidecar binary
+    cmds:
+      - mkdir -p ../bin
+      - '{{.GO}} build -trimpath -o ../bin/dev-sidecar ./dev'
+
+  test:
+    desc: 'Run the sidecars tests (pass go test flags after --, e.g. task sidecars:test -- -race)'
+    cmds:
+      # CLI_ARGS lands before the package list so `-race` and friends are flags
+      # rather than package names. CI passes -race; a local run defaults to plain.
+      - '{{.GO}} test {{.CLI_ARGS}} ./...'
+
+  lint:
+    desc: Run golangci-lint over the sidecars module
+    cmds:
+      - golangci-lint run ./...
+
+  tidy:
+    desc: Tidy the sidecars module
+    cmds:
+      - '{{.GO}} mod tidy'
+
+  run:dev:
+    desc: 'Run the dev sidecar locally (set ORCHESTRATOR_URL, DEV_RUN_ID, DEV_RUN_TOKEN, SIDECAR_TOKEN, WORKSPACE_DIR)'
+    cmds:
+      - '{{.GO}} run ./dev {{.CLI_ARGS}}'
