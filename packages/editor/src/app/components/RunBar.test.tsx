@@ -29,19 +29,27 @@ import RunBar from "./RunBar";
 const suiteYaml = (flow: string) =>
   `flow: ${flow}\ncases:\n  - name: it runs\n    expect: {}\n`;
 
-function snapshot(over: { running?: boolean; testAvailable?: boolean } = {}) {
+function snapshot(
+  over: { running?: boolean; testAvailable?: boolean; reloadsOnSave?: boolean } = {},
+) {
   return {
     available: true,
     running: over.running ?? false,
     version: "octo 0.1.0",
     testAvailable: over.testAvailable ?? true,
     testVersion: null,
-    testPath: null,
+    testUrl: null,
+    reloadsOnSave: over.reloadsOnSave ?? false,
   };
 }
 
 function stubTransport(
-  over: { running?: boolean; testAvailable?: boolean; hold?: Promise<void> } = {},
+  over: {
+    running?: boolean;
+    testAvailable?: boolean;
+    reloadsOnSave?: boolean;
+    hold?: Promise<void>;
+  } = {},
 ) {
   const requests: TestRunRequest[] = [];
   const transport: RunTransport = {
@@ -269,5 +277,32 @@ describe("RunBar on the Testing tab", () => {
     expect(requests).toHaveLength(1);
     release();
     await waitFor(() => expect(runTests()).toBeEnabled());
+  });
+});
+
+// The one thing about a save-reloading host a user cannot infer from the screen is that
+// their typing is not reaching the running app. Said out loud, and only where it is true.
+describe("RunBar and a host that reloads on save", () => {
+  it("says so while the app is running", async () => {
+    const { transport } = stubTransport({ running: true, reloadsOnSave: true });
+    renderBar({
+      transport,
+      store: fakeStore([{ flow: "orders", content: suiteYaml("orders") }]),
+      testing: false,
+    });
+
+    expect(await screen.findByText("reloads on save")).toBeInTheDocument();
+  });
+
+  it("says nothing of the kind on a host that follows the buffer", async () => {
+    const { transport } = stubTransport({ running: true });
+    renderBar({
+      transport,
+      store: fakeStore([{ flow: "orders", content: suiteYaml("orders") }]),
+      testing: false,
+    });
+
+    await screen.findByRole("button", { name: "Stop" });
+    expect(screen.queryByText("reloads on save")).toBeNull();
   });
 });

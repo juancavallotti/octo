@@ -22,8 +22,12 @@ export interface RunStatusLike {
   /** Whether the current run declares HTTP_PORT, i.e. is networked/testable. */
   exposable: boolean;
   port: number | null;
-  /** BFF path proxying to the running networked integration, or null. */
-  testPath: string | null;
+  /**
+   * Where to reach the running networked integration, or null when it serves no HTTP.
+   * App-relative when the host proxies to its own child process, absolute when the run
+   * has a hostname of its own — {@link buildTestUrl} handles both.
+   */
+  testUrl: string | null;
 }
 
 /** One buffered log line from a runner. */

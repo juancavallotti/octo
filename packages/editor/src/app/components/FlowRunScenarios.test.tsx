@@ -95,7 +95,8 @@ function stubTransport(onInvoke: (req: FlowRunRequest) => void): RunTransport {
     version: null,
     testAvailable: true,
     testVersion: null,
-    testPath: null,
+    testUrl: null,
+    reloadsOnSave: false,
   };
   return {
     status: async () => snap,

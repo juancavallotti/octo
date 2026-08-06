@@ -20,7 +20,8 @@ const snapshot = {
   version: null,
   testAvailable: true,
   testVersion: null,
-  testPath: null,
+  testUrl: null,
+  reloadsOnSave: false,
 };
 
 function outcome(): TestRunOutcome {

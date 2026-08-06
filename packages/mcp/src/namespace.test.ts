@@ -5,9 +5,9 @@ import type { RunHostPort } from "./run-host";
 function counterHost(): RunHostPort {
   let n = 0;
   return {
-    status: () => ({ available: true, running: false, version: null, exposable: false, port: null, testPath: null }),
-    start: async () => ({ available: true, running: true, version: null, exposable: false, port: null, testPath: null }),
-    stop: async () => ({ available: true, running: false, version: null, exposable: false, port: null, testPath: null }),
+    status: () => ({ available: true, running: false, version: null, exposable: false, port: null, testUrl: null }),
+    start: async () => ({ available: true, running: true, version: null, exposable: false, port: null, testUrl: null }),
+    stop: async () => ({ available: true, running: false, version: null, exposable: false, port: null, testUrl: null }),
     invoke: async () => ({ ok: true, exitCode: 0, timedOut: false, dropped: false, output: "", logs: [] }),
     test: async () => ({
       ok: true,

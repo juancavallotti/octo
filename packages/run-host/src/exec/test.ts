@@ -2,13 +2,14 @@ import { spawn } from "node:child_process";
 import { mkdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { namespaceDir, writeConfig } from "./session";
+import { namespaceDir, writeConfig } from "../staging";
 import {
   parseDeclaredResources,
   stageResources,
   stagedPathFor,
   type ResourceProvider,
-} from "./resources";
+} from "../resources";
+import { dolphinBin, octoBin, terminate } from "../child";
 
 /**
  * Running a flow's dolphin test suites, for the editor's Testing tab.
@@ -19,11 +20,11 @@ import {
  * the assertions in TypeScript would make two sources of truth for what "the flow did
  * what it said" means, and they would drift.
  *
- * Kept out of session.ts deliberately. That module owns long-lived processes — a
- * session map, a log buffer, an allocated port, a reaper — and a test run has none of
- * them: it is one short-lived child that writes a file and exits. The only things
- * borrowed from over there are where to put the staged files and how to write a config
- * atomically.
+ * Kept away from the long-running runner deliberately, and now structurally: that module
+ * owns long-lived processes — a session map, a log buffer, an allocated port, a reaper —
+ * and a test run has none of them, being one short-lived child that writes a file and
+ * exits. The only things borrowed from over there are where to put the staged files and
+ * how to write a config atomically, both of which are now shared through staging.ts.
  */
 
 /** Default wall-clock budget per suite. Generous: N cases, one process each. */
@@ -43,9 +44,6 @@ const TEST_MAX_TIMEOUT_MS = 300_000;
 function defaultTimeout(suites: number): number {
   return Math.min(TEST_MAX_TIMEOUT_MS, TEST_TIMEOUT_PER_SUITE_MS * Math.max(1, suites));
 }
-
-/** Grace period before a stop escalates from SIGTERM to SIGKILL (matches session.ts). */
-const STOP_GRACE_MS = 3000;
 
 /**
  * How many cases dolphin may run at once.
@@ -180,8 +178,15 @@ function noTotals(): TestTotals {
   return { cases: 0, passed: 0, failed: 0, errored: 0, skipped: 0, notRun: 0, elapsedMs: 0 };
 }
 
-/** Split a captured stream into non-empty lines. */
-function splitLines(text: string): string[] {
+/**
+ * Split a captured stream into non-empty lines.
+ *
+ * Deliberately not child.ts's `splitLines`, and named apart from it so the two cannot be
+ * confused: this one drops blank lines anywhere, because dolphin's console report is
+ * paragraphed and its blank lines are layout. A runner's slog stderr has no such
+ * formatting, so there dropping them would be dropping output.
+ */
+function nonEmptyLines(text: string): string[] {
   return text.split("\n").filter((l) => l.trim() !== "");
 }
 
@@ -247,14 +252,10 @@ function suiteFileName(base: string, collision: number): string {
  * that will not load without a variable fails here exactly as it would in CI, naming it.
  */
 export async function test(ns: string, args: TestRunArgs): Promise<TestRunOutcome> {
-  const bin = process.env.DOLPHIN_BIN_PATH;
-  if (!bin) {
-    throw new Error("DOLPHIN_BIN_PATH is not set; launch the editor with `task dev`.");
-  }
-  const octo = process.env.OCTO_BIN_PATH;
-  if (!octo) {
-    throw new Error("OCTO_BIN_PATH is not set; launch the editor with `task dev`.");
-  }
+  // dolphin first: it is the binary this operation is about, so a host with neither
+  // should be told about the one it was actually asked for.
+  const bin = dolphinBin();
+  const octo = octoBin();
   if (args.suites.length === 0) {
     return { ok: true, exitCode: 0, timedOut: false, totals: noTotals(), suites: [], logs: [] };
   }
@@ -384,25 +385,18 @@ async function runDolphin(
   });
 
   let timedOut = false;
-  let kill: NodeJS.Timeout | undefined;
-  let force: NodeJS.Timeout | undefined;
+  let backstop: NodeJS.Timeout | undefined;
+  let cancelKill: (() => void) | undefined;
 
   const exitCode = await new Promise<number | null>((resolve) => {
     const done = (code: number | null) => {
-      if (kill) clearTimeout(kill);
-      if (force) clearTimeout(force);
+      if (backstop) clearTimeout(backstop);
+      cancelKill?.();
       resolve(code);
     };
-    kill = setTimeout(() => {
+    backstop = setTimeout(() => {
       timedOut = true;
-      proc.kill("SIGTERM");
-      force = setTimeout(() => {
-        try {
-          proc.kill("SIGKILL");
-        } catch {
-          // already gone
-        }
-      }, STOP_GRACE_MS);
+      cancelKill = terminate(proc);
     }, opts.timeoutMs);
     proc.on("error", (err) => {
       stderr += `✖ failed to start dolphin: ${err.message}\n`;
@@ -411,7 +405,7 @@ async function runDolphin(
     proc.on("exit", (code) => done(code));
   });
 
-  const logs = splitLines(stderr);
+  const logs = nonEmptyLines(stderr);
   if (timedOut) {
     return {
       ok: false,
@@ -436,7 +430,7 @@ async function runDolphin(
       totals: noTotals(),
       suites: [],
       logs,
-      error: logs.at(-1) ?? splitLines(stdout).at(-1) ?? "dolphin wrote no report",
+      error: logs.at(-1) ?? nonEmptyLines(stdout).at(-1) ?? "dolphin wrote no report",
     };
   }
 

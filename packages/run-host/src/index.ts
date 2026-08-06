@@ -1,22 +1,40 @@
 /**
  * @octo/run-host — the server-side core of the editor's RUN feature, shared by
- * every app that hosts it (the platform's in-cluster runner and the standalone
- * app's local runner). It owns the `octo` child processes keyed by a per-user
- * namespace, buffers and streams their logs, allocates ports, and reaps idle
- * runners. Apps wrap these in their own thin Next route handlers (adding auth
- * where needed). Node-only — never import from a browser bundle.
+ * every app that hosts it. It comes in two halves, and the split is the shape of
+ * the package:
+ *
+ *  - **The app runner** (`runner.ts`) is the long-running thing: the app the editor
+ *    started, its logs, its address. It has a backend — a local child process of
+ *    this pod, or a dev-run pod the orchestrator manages — behind one interface.
+ *  - **The one-shots** (`exec/`) are `invoke`, `evalCel` and `test`: spawn a child,
+ *    wait, report. They hold no process, port or buffer, so they need no backend
+ *    and stay plain functions.
+ *
+ * Apps wrap these in their own thin Next route handlers and server actions (adding
+ * auth where needed). Node-only — never import from a browser bundle.
  */
 
+export {
+  type AppRunner,
+  type LogStreamOptions,
+  type RunKey,
+  type RunStatus,
+  type StartArgs,
+  type SyncArgs,
+} from "./runner";
 export {
   status,
   start,
   stop,
   sync,
-  invoke,
-  evalCel,
   snapshot,
   subscribe,
   runningPort,
+  localRunner,
+} from "./runner/local";
+export { type RunResourceOptions } from "./staging";
+export {
+  invoke,
   type InvokeResult,
   type BreakOutcome,
   type DebugOutcome,
@@ -25,9 +43,8 @@ export {
   type SpyRecord,
   type SpyTrace,
   type LogLevel,
-  type EvalResult,
-  type RunResourceOptions,
-} from "./session";
+} from "./exec/invoke";
+export { evalCel, type EvalResult } from "./exec/eval";
 export {
   DEV_ENV_RESOURCE,
   type ResourceFile,
@@ -51,7 +68,7 @@ export {
   type TestCaseStatus,
   type TestFailure,
   type TestTotals,
-} from "./test";
+} from "./exec/test";
 export {
   deriveNamespace,
   ensureNamespace,

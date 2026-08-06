@@ -55,8 +55,15 @@ interface RunContextValue {
   testAvailable: boolean;
   /** dolphin's `version` line, or null when unknown/unavailable. */
   testVersion: string | null;
-  /** Absolute URL that proxies to the running networked integration, or null. */
+  /** Absolute URL of the running networked integration, or null. */
   testUrl: string | null;
+  /**
+   * Whether the running app follows SAVES rather than the editor's buffer. Surfaced so
+   * the RUN panel can say which it is: on a host that reloads on save, an unsaved edit
+   * deliberately does not reach the running app, and a panel that implied otherwise
+   * would be the most confusing thing in the feature.
+   */
+  reloadsOnSave: boolean;
   start: () => Promise<void>;
   stop: () => Promise<void>;
   clearLogs: () => void;
@@ -92,7 +99,11 @@ export function RunProvider({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [logs, setLogs] = useState<RunLogLine[]>([]);
-  const [testPath, setTestPath] = useState<string | null>(null);
+  // What the host reported as the run's address: app-relative from a host that proxies to
+  // its own child process, absolute from one that gave the run its own hostname. Resolved
+  // to an absolute URL below, which is the only form a consumer sees.
+  const [testAddress, setTestAddress] = useState<string | null>(null);
+  const [reloadsOnSave, setReloadsOnSave] = useState(false);
 
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const lastSeqRef = useRef<number>(-1);
@@ -133,7 +144,8 @@ export function RunProvider({
         setVersion(s.version);
         setTestAvailable(s.testAvailable);
         setTestVersion(s.testVersion);
-        setTestPath(s.testPath);
+        setTestAddress(s.testUrl);
+        setReloadsOnSave(s.reloadsOnSave);
         if (s.running) {
           setRunning(true);
           openStream();
@@ -163,7 +175,8 @@ export function RunProvider({
       lastYamlRef.current = yaml;
       setLogs([]); // the server starts a fresh buffer for this run
       setRunning(true);
-      setTestPath(snapshot.testPath ?? null);
+      setTestAddress(snapshot.testUrl ?? null);
+      setReloadsOnSave(snapshot.reloadsOnSave);
       openStream();
     } catch (e) {
       setError((e as Error).message);
@@ -181,21 +194,22 @@ export function RunProvider({
       setError((e as Error).message);
     } finally {
       setRunning(false);
-      setTestPath(null);
+      setTestAddress(null);
       closeStream();
       setBusy(false);
     }
   }, [closeStream, transport]);
 
-  // Resolve the BFF-relative test path to an absolute URL for display/linking. It
-  // works under both local dev and the in-cluster /editor mount because it is
-  // computed from the current origin.
+  // Resolve the host's address into an absolute URL for display/linking. It works for
+  // both kinds: a relative path resolves against the current origin (so it is right under
+  // local dev and under the in-cluster /editor mount alike), and an absolute URL — a run
+  // with a hostname of its own — ignores the base and passes straight through.
   const testUrl = useMemo(
     () =>
-      testPath && typeof window !== "undefined"
-        ? new URL(testPath, window.location.origin).href
+      testAddress && typeof window !== "undefined"
+        ? new URL(testAddress, window.location.origin).href
         : null,
-    [testPath],
+    [testAddress],
   );
 
   // Clear only the client-side display. We deliberately leave the open stream and
@@ -211,8 +225,14 @@ export function RunProvider({
   // Only valid documents are synced: pushing an invalid intermediate edit (e.g.
   // mid-rename) would make the live runner fail its hot-reload. We hold the last
   // valid config until the document is valid again, then push the difference.
+  //
+  // Skipped entirely on a host that reloads on save. There the running app reads the
+  // STORED definition, so a pushed buffer is not merely redundant — nothing reads it, and
+  // pushing one would leave the panel implying an edit had taken effect when it had not.
+  // The save path is the trigger there, server-side, which is what makes it cover every
+  // writer rather than only this editor.
   useEffect(() => {
-    if (!running || !validation.ok) return;
+    if (reloadsOnSave || !running || !validation.ok) return;
     const yaml = toRunnableYaml(doc);
     if (yaml === lastYamlRef.current) return;
     const t = setTimeout(() => {
@@ -220,7 +240,7 @@ export function RunProvider({
       transport.sync({ yaml, integrationId: integrationId ?? undefined }).catch(() => {});
     }, SYNC_DEBOUNCE_MS);
     return () => clearTimeout(t);
-  }, [doc, running, validation.ok, transport, integrationId]);
+  }, [doc, running, validation.ok, transport, integrationId, reloadsOnSave]);
 
   const evalCel = useCallback(
     (req: CelEvalRequest): Promise<CelEvalResult> => transport.evalCel(req),
@@ -243,6 +263,7 @@ export function RunProvider({
     testAvailable,
     testVersion,
     testUrl,
+    reloadsOnSave,
     start,
     stop,
     clearLogs,

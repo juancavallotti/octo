@@ -31,7 +31,8 @@ const snapshot = (testAvailable: boolean) => ({
   version: "octo 0.1.0",
   testAvailable,
   testVersion: testAvailable ? "dolphin 0.1.0" : null,
-  testPath: null,
+  testUrl: null,
+  reloadsOnSave: false,
 });
 
 /** A transport whose test() returns what the test wants, and records the request. */

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdtemp, writeFile, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { allSessions, start, status, stop } from "./session";
+import { allSessions, start, status, stop } from "./runner/local";
 import { reapIdle } from "./reaper";
 
 async function fakeBin(dir: string, name: string, body: string): Promise<string> {

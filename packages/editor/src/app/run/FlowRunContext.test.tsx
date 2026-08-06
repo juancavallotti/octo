@@ -28,7 +28,8 @@ function stubTransport(
     // These fixtures exercise RUN, not the Testing tab: no dolphin configured.
     testAvailable: false,
     testVersion: null,
-    testPath: null,
+    testUrl: null,
+    reloadsOnSave: false,
   };
   return {
     status: async () => snap,

@@ -52,7 +52,7 @@ function stubRunHost(opts: { available?: boolean } = {}) {
     version: null,
     exposable,
     port: exposable && running ? 4000 : null,
-    testPath: exposable && running ? `/editor/runs/${calls.ns}/` : null,
+    testUrl: exposable && running ? `/editor/runs/${calls.ns}/` : null,
   });
   const host: RunHostPort = {
     status: () => snap(),

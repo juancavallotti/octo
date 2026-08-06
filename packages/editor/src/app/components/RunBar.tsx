@@ -36,12 +36,20 @@ export default function RunBar() {
     );
   }
 
-  const { running, busy, validation, error, start, stop } = run;
+  const { running, busy, validation, error, reloadsOnSave, start, stop } = run;
 
   if (running) {
     return (
       <div className="ml-auto flex items-center gap-2">
         {error && <span className="text-xs text-red-500">{error}</span>}
+        {/* Said plainly while the app is running, because it is the one thing about this
+            host a user cannot infer from the screen: their edits are not reaching the
+            running app until they save. */}
+        {reloadsOnSave && (
+          <span className="text-xs text-neutral-500" title="Edits reach the running app when you save it, not as you type.">
+            reloads on save
+          </span>
+        )}
         <button
           type="button"
           onClick={stop}
@@ -58,7 +66,9 @@ export default function RunBar() {
   const blocked = !validation.ok;
   const title = blocked
     ? `Fix before running:\n• ${issueMessages(validation).join("\n• ")}`
-    : "Run this integration with hot reload";
+    : reloadsOnSave
+      ? "Run this integration; it reloads when you save"
+      : "Run this integration with hot reload";
 
   return (
     <div className="ml-auto flex items-center gap-2">

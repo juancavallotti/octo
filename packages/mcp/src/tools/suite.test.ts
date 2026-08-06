@@ -95,7 +95,7 @@ function fakeRunHost(outcome?: Partial<TestRunOutcome>) {
       version: null,
       exposable: false,
       port: null,
-      testPath: null,
+      testUrl: null,
     }),
     start: async () => host.status(),
     stop: async () => host.status(),

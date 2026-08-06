@@ -158,8 +158,25 @@ export interface RunStatusSnapshot {
   testAvailable: boolean;
   /** dolphin's `version` line, or null when unknown/unavailable. */
   testVersion: string | null;
-  /** App-relative path that proxies to the running networked integration, or null. */
-  testPath: string | null;
+  /**
+   * Where to reach the running networked integration, or null when it serves no HTTP.
+   *
+   * App-relative for a host that runs the app itself and proxies to it; absolute for one
+   * that runs it elsewhere and gives it its own hostname. Either is a valid input to
+   * `new URL(value, origin)` — an absolute value ignores the base — so a consumer needs
+   * no branch on which kind it got.
+   */
+  testUrl: string | null;
+  /**
+   * Whether the host reloads the running app when the integration is SAVED, rather than
+   * from the buffer the editor pushes.
+   *
+   * True where the runner reads the stored definition itself; false where it runs
+   * whatever YAML it was last handed. The provider reads it to decide whether to
+   * debounce-push edits at all: pushing a buffer nothing will read is worse than not
+   * pushing, because the RUN panel would then imply the running app had changed.
+   */
+  reloadsOnSave: boolean;
 }
 
 /** Moves RUN requests/streams to a backend; carries no client policy itself. */
@@ -178,7 +195,14 @@ export interface RunTransport {
   }): Promise<RunStatusSnapshot>;
   /** Stop the current runner. */
   stop(): Promise<void>;
-  /** Push a new config to the running runner so it hot-reloads. */
+  /**
+   * Make the running runner pick up the current definition.
+   *
+   * `yaml` is meaningful only to a host that PUSHES config: it writes what it is handed.
+   * A host whose runner pulls the stored definition ignores it, and there this is an
+   * explicit "reload now" rather than the per-edit trigger — see
+   * {@link RunStatusSnapshot.reloadsOnSave}, which is how a caller knows which it has.
+   */
   sync(args: { yaml: string; integrationId?: string }): Promise<void>;
   /**
    * Run one flow once and return what it produced — the editor's debug path, distinct

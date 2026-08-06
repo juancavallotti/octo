@@ -289,9 +289,17 @@ export function registerRunTools(
   );
 }
 
-/** Absolutize a run's test path against `config.baseUrl`, or null when not networked. */
+/**
+ * The absolute URL of a run, or null when it serves no HTTP.
+ *
+ * The host reports an app-relative path when it proxies to its own child process, and an
+ * absolute URL when the run has a hostname of its own. Only the first needs a base, and
+ * prefixing the second would produce `http://localhost:3000https://…` — so which kind it
+ * is has to be checked rather than assumed.
+ */
 function buildTestUrl(config: OctoMcpConfig, st: RunStatusLike): string | null {
-  if (!st.testPath) return null;
+  if (!st.testUrl) return null;
+  if (/^https?:\/\//i.test(st.testUrl)) return st.testUrl;
   const base = config.baseUrl?.replace(/\/+$/, "");
-  return base ? `${base}${st.testPath}` : st.testPath;
+  return base ? `${base}${st.testUrl}` : st.testUrl;
 }
