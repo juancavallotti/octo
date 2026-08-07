@@ -114,6 +114,24 @@ interface envDecl {
 }
 
 /**
+ * Parse a declared port default exactly as the orchestrator does. The Go side reads the
+ * default as a string and runs `strconv.Atoi(strings.TrimSpace(...))`, which accepts an
+ * optional sign then base-10 digits and nothing else. `parseInt` is too lax for this: it
+ * would read "8080abc" as 8080 and this host would allocate a port and proxy to a run the
+ * orchestrator treats as internal-only — the two would disagree on the same document.
+ * Returns null when the value is not a clean integer.
+ */
+function parsePortDefault(raw: unknown): number | null {
+  // An unquoted YAML numeric default arrives as a JS number; on the Go side yaml decodes
+  // the same scalar to its text and Atoi reads it back, so accept an integer value here.
+  if (typeof raw === "number") return Number.isInteger(raw) ? raw : null;
+  const s = String(raw).trim();
+  if (!/^[+-]?[0-9]+$/.test(s)) return null;
+  const port = Number(s); // base-10, like Atoi; "08080" is 8080, not octal
+  return Number.isInteger(port) ? port : null;
+}
+
+/**
  * isExposable reports whether the rendered run YAML declares HTTP_PORT with a
  * usable numeric default (1-65535) — the same rule the orchestrator applies in
  * production (see orchestrator resolveRuntimeEnv). A malformed document is treated
@@ -128,9 +146,8 @@ export function isExposable(yaml: string): boolean {
   }
   for (const e of decl.env ?? []) {
     if (e?.name?.trim() !== envHTTPPort) continue;
-    const raw = e.default;
-    const port = typeof raw === "number" ? raw : parseInt(String(raw).trim(), 10);
-    return Number.isInteger(port) && port > 0 && port <= 65535;
+    const port = parsePortDefault(e.default);
+    return port !== null && port > 0 && port <= 65535;
   }
   return false;
 }

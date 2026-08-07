@@ -90,6 +90,24 @@ describe("isExposable", () => {
     expect(isExposable("env:\n  - name: HTTP_PORT\n    default: \"70000\"\n")).toBe(false);
   });
 
+  // The parse has to match the orchestrator's strict strconv.Atoi, not a lax parseInt:
+  // a value the orchestrator reads as internal-only must not make this host allocate a
+  // port and proxy to it. "8080abc", "80.5" and "0x1f90" all fail Atoi on the Go side.
+  it("rejects defaults the orchestrator's strict parse would reject", () => {
+    expect(isExposable('env:\n  - name: HTTP_PORT\n    default: "8080abc"\n')).toBe(false);
+    expect(isExposable('env:\n  - name: HTTP_PORT\n    default: "80.5"\n')).toBe(false);
+    expect(isExposable('env:\n  - name: HTTP_PORT\n    default: "0x1f90"\n')).toBe(false);
+    expect(isExposable('env:\n  - name: HTTP_PORT\n    default: ""\n')).toBe(false);
+  });
+
+  // And it must still accept the forms Atoi accepts after trimming: a leading sign,
+  // leading zeros, and surrounding whitespace.
+  it("accepts the forms the orchestrator's strict parse accepts", () => {
+    expect(isExposable('env:\n  - name: HTTP_PORT\n    default: "+8080"\n')).toBe(true);
+    expect(isExposable('env:\n  - name: HTTP_PORT\n    default: "08080"\n')).toBe(true);
+    expect(isExposable('env:\n  - name: HTTP_PORT\n    default: "  8080  "\n')).toBe(true);
+  });
+
   it("treats a malformed document as internal-only", () => {
     expect(isExposable(":\n  bad: [")).toBe(false);
   });
