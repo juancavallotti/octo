@@ -290,5 +290,15 @@ export async function logTail(key: RunKey, opts?: { tail?: number }): Promise<Lo
   for await (const text of lines(res.data, signal)) {
     out.push({ seq: out.length, text });
   }
+  // logTail promises a FINISHED document, but the read carries its own deadline. If that
+  // fired we stopped mid-stream, and handing the partial lines back as if complete would
+  // let an agent reason about a log that merely stops where the timeout cut it. Mark the
+  // truncation in the very output the caller reads, rather than silently dropping the tail.
+  if (signal.aborted) {
+    out.push({
+      seq: out.length,
+      text: `… log read timed out after ${Math.round(LOG_READ_TIMEOUT_MS / 1000)}s; output truncated`,
+    });
+  }
   return out;
 }

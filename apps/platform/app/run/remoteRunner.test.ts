@@ -345,4 +345,36 @@ describe("logTail", () => {
 
     await expect(logTail(KEY)).rejects.toThrow("dev run not found");
   });
+
+  // A read that hits its deadline stops mid-stream. Returning the lines gathered so far as
+  // if they were the whole document lets an agent reason about a log that merely stops
+  // where the timeout cut it — so the truncation has to be visible in the output itself.
+  // The internal deadline is stood in for by a controller we hold, via AbortSignal.timeout.
+  it("marks the tail as truncated when the read times out", async () => {
+    const deadline = new AbortController();
+    const timeoutSpy = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockReturnValue(deadline.signal);
+    // A stream that yields one line and then never closes — what a real read blocks on
+    // until its deadline fires.
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("starting\n"));
+        // deliberately never close()
+      },
+    });
+    client.openDevRunLogs.mockResolvedValue({ ok: true, data: stream });
+
+    try {
+      const p = logTail(KEY);
+      await new Promise((r) => setTimeout(r, 10)); // let the first line be read
+      deadline.abort(); // stand in for the read deadline firing
+      const out = await p;
+
+      expect(out[0]).toEqual({ seq: 0, text: "starting" }); // the partial line is kept
+      expect(out.at(-1)?.text).toMatch(/timed out.*truncated/i); // and truncation is visible
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
 });
