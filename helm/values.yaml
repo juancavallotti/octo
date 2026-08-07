@@ -168,10 +168,16 @@ orchestrator:
   # grants anything. It does need the two images and this orchestrator's own in-cluster
   # URL, all of which the chart already knows.
   devRuns:
-    # Off by default. On an install with baseDomain unset there is nowhere to publish a
-    # networked run's endpoint, and a self-hosted single-replica platform has no problem
-    # to solve — its in-process runner works fine.
-    enabled: false
+    # On by default: this is the PaaS chart, and running each editor Run as a pod of its
+    # own — rather than inside whichever replica answered the request — is what lets the
+    # platform scale past a single replica at all. Requires a hashSecret below; the chart
+    # refuses to render without one, deliberately (see that field and devrun-secret.yaml).
+    #
+    # Turn it off for an install that does not want the editor's Run — a single-replica
+    # deployment where nobody needs it. Note that with baseDomain unset a networked run
+    # still starts, reloads and streams logs; it simply publishes no public endpoint, so
+    # there is no external test URL to reach it by.
+    enabled: true
     # How long a run survives with nobody touching it before the orchestrator reaps it.
     # The only bound on how many pods an editing session can leave behind; there is no
     # per-user cap yet.
