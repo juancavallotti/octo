@@ -38,6 +38,11 @@ jobs:
       # they do not have.
       - run: task sidecars:tidy
       - run: task sidecars:fmt
+      # tidy and fmt can repair sidecars/go.* and Go sources and still exit 0, so a
+      # PR that needed either would otherwise merge with the drift unmade. Fail if
+      # they changed anything tracked under sidecars/.
+      - name: Verify sidecars is tidy and formatted
+        run: git diff --exit-code -- sidecars
       - run: task sidecars:lint
       # -race because the reload coordinator's whole job is serialising concurrent
       # requests, and a data race there is exactly the bug that passes without it.
