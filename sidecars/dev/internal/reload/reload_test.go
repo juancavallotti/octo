@@ -3,6 +3,7 @@ package reload
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -174,6 +175,87 @@ func TestReloadCoalescesConcurrentRequests(t *testing.T) {
 	}
 	if applies, last := a.snapshot(); applies != 2 || last != "v2\n" {
 		t.Errorf("applies = %d, last = %q, want 2 and the newest bundle", applies, last)
+	}
+}
+
+// ctxAwarePuller records the context each Fetch is given and, once released, fails
+// if that context has been cancelled — modelling a pull whose work is abandoned
+// when the request behind it goes away. `entered` carries each call's context so a
+// test can rendezvous on entry; `release` gates each call one at a time.
+type ctxAwarePuller struct {
+	mu      sync.Mutex
+	fetches int
+	entered chan context.Context
+	release chan struct{}
+}
+
+func (p *ctxAwarePuller) Fetch(ctx context.Context) (bundle.Bundle, error) {
+	p.mu.Lock()
+	p.fetches++
+	n := p.fetches
+	p.mu.Unlock()
+
+	p.entered <- ctx
+	<-p.release
+	if err := ctx.Err(); err != nil {
+		return bundle.Bundle{}, err
+	}
+	return bundle.Bundle{Definition: fmt.Sprintf("v%d\n", n)}, nil
+}
+
+func (p *ctxAwarePuller) Expire(context.Context) error { return nil }
+
+func (p *ctxAwarePuller) count() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.fetches
+}
+
+// A reload triggered by a caller who then disconnects must still run the round it
+// promised the callers that coalesced into it — they already received
+// OutcomeCoalesced. Binding the pending round to the triggering request's context
+// would drop their reload the instant that caller's connection closed, leaving the
+// workspace stale until the next save.
+func TestReloadPendingRoundSurvivesCallerCancel(t *testing.T) {
+	p := &ctxAwarePuller{
+		entered: make(chan context.Context, 2),
+		release: make(chan struct{}),
+	}
+	a := &fakeApplier{}
+	c := New(p, a)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := c.Reload(ctx)
+		done <- err
+	}()
+	<-p.entered // round 1 is inside Fetch
+
+	// A second request coalesces into the in-flight pull.
+	if outcome, err := c.Reload(context.Background()); err != nil || outcome != OutcomeCoalesced {
+		t.Fatalf("coalesced Reload: outcome=%v, err=%v", outcome, err)
+	}
+
+	// Round 1 completes while its caller is still connected.
+	p.release <- struct{}{}
+
+	// The pending round has now started; only now does the triggering caller
+	// disconnect. Its round must run to completion regardless.
+	<-p.entered
+	cancel()
+	p.release <- struct{}{}
+
+	if err := <-done; err != nil {
+		t.Fatalf("Reload dropped the pending round after the caller disconnected: %v", err)
+	}
+	if got := p.count(); got != 2 {
+		t.Errorf("fetches = %d, want 2 (the original plus the pending round)", got)
+	}
+	if applies, last := a.snapshot(); applies != 2 || last != "v2\n" {
+		t.Errorf("applies = %d, last = %q, want 2 and the pending bundle", applies, last)
 	}
 }
 

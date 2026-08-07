@@ -50,6 +50,12 @@ const (
 	OutcomeCoalesced
 )
 
+// roundTimeout bounds a reload round that runs on behalf of coalesced callers.
+// Those callers already received OutcomeCoalesced and hold no request context of
+// their own, so the extra round runs on a context detached from whichever caller
+// happened to be in flight when they arrived — see Reload.
+const roundTimeout = 60 * time.Second
+
 // State is a snapshot of what the coordinator has done, for GET /status.
 type State struct {
 	// Generation is the marker the orchestrator stamped on the last applied bundle.
@@ -132,10 +138,13 @@ func (c *Coordinator) Reload(ctx context.Context) (Outcome, error) {
 	c.running = true
 	c.mu.Unlock()
 
-	var err error
+	// The first round serves this caller, under its context. Any further round
+	// serves the callers that coalesced in and already got OutcomeCoalesced; they
+	// have no context of their own, so those rounds run detached from ctx (see
+	// onceDetached). Binding them to ctx would drop the reload the moment this
+	// caller disconnects, leaving the workspace stale until the next save.
+	err := c.once(ctx)
 	for {
-		err = c.once(ctx)
-
 		c.mu.Lock()
 		if !c.pending || err != nil {
 			// Stop on error too. Repeating a round that just failed would turn a
@@ -148,7 +157,19 @@ func (c *Coordinator) Reload(ctx context.Context) (Outcome, error) {
 		}
 		c.pending = false
 		c.mu.Unlock()
+
+		err = c.onceDetached(ctx)
 	}
+}
+
+// onceDetached runs a round on behalf of coalesced callers, on a context detached
+// from ctx's cancellation (its values are kept) and bounded by roundTimeout. This
+// is what stops a disconnect by whoever triggered the in-flight pull from dropping
+// a reload those callers were already promised.
+func (c *Coordinator) onceDetached(ctx context.Context) error {
+	roundCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), roundTimeout)
+	defer cancel()
+	return c.once(roundCtx)
 }
 
 // once performs a single pull and apply, recording the outcome.
