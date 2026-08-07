@@ -84,18 +84,19 @@ export function registerRunTools(
       guard(async () => {
         const rec = await store.get(id);
         const key = runKeyOf(extra, id);
-        // Kept on a host whose app runs elsewhere too, where it is not strictly the right
-        // question: the binary still backs invoke/evaluate_cel/run_tests, and every host
-        // that mounts this server ships it. Reporting a run as unavailable because the
-        // binary is missing is at worst pessimistic; the alternative — asking the host
-        // "can you start an app?" — is a second flag for a case neither host has.
-        if (!runHost.binaries().available) {
-          return errorResult("Runner not available (OCTO_BIN_PATH unset).");
-        }
-        // We don't gate the run on `can_start_integration`'s validation: that
-        // check is a best-effort pre-flight that can flag valid runtime YAML
-        // (e.g. the processors/ref pattern). The runtime is the real judge —
-        // its load errors stream to `get_run_logs`.
+        // No local-binary pre-gate here, unlike the one-shots below. Starting the
+        // long-running app is the runner's job, and the runner is not always the local
+        // octo: a host whose runner is remote (the platform's, backed by the orchestrator)
+        // starts a run with no local binary at all, so gating on binaries().available —
+        // which only answers whether the LOCAL one-shot binary is present — would reject a
+        // perfectly capable host. The runner is the authority: a local one reports a
+        // missing binary by throwing from start() (which guard() surfaces as the error
+        // result), and a remote one just starts.
+        //
+        // We don't gate the run on `can_start_integration`'s validation either: that check
+        // is a best-effort pre-flight that can flag valid runtime YAML (e.g. the
+        // processors/ref pattern). The runtime is the real judge — its load errors stream
+        // to `get_run_logs`.
         let parsedEnv: Record<string, string> | undefined;
         if (env !== undefined) {
           const sane = parseEnv(env);

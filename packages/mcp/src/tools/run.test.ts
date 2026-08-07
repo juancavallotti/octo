@@ -9,8 +9,15 @@ import type { OctoMcpConfig } from "../backend";
 import type { RunHostPort, RunKey, RunStateLike } from "../run-host";
 import type { MockSpec, ResourceProvider, SpyTrace } from "@octo/run-host";
 
-/** A stub run host that records the last start() and fakes exposable runs. */
-function stubRunHost(opts: { available?: boolean } = {}) {
+/**
+ * A stub run host that records the last start() and fakes exposable runs.
+ *
+ * `available` is what binaries() reports — the LOCAL one-shot binary, which the one-shots
+ * gate on. `startError`, when set, makes start() throw it: that models a LOCAL runner
+ * whose octo binary is missing (start throws), as distinct from a REMOTE runner (the
+ * platform's) whose start needs no local binary and succeeds even when available is false.
+ */
+function stubRunHost(opts: { available?: boolean; startError?: string } = {}) {
   const available = opts.available ?? true;
   const calls: {
     startedYaml?: string;
@@ -57,6 +64,7 @@ function stubRunHost(opts: { available?: boolean } = {}) {
   const host: RunHostPort = {
     binaries: () => ({ available, version: null }),
     start: async (key, yaml, env, startOpts) => {
+      if (opts.startError) throw new Error(opts.startError);
       calls.key = key;
       calls.ns = key.namespace;
       calls.startedYaml = yaml;
@@ -240,8 +248,13 @@ describe("run tools", () => {
     expect(parse(res).running).toBe(true);
   });
 
-  it("run errors when no runner is available", async () => {
-    const { host } = stubRunHost({ available: false });
+  // A LOCAL runner reports a missing binary by throwing from start(); the run tool must
+  // surface that as the error result rather than pre-gating on binaries().available.
+  it("run surfaces a local runner's missing-binary error from start()", async () => {
+    const { host } = stubRunHost({
+      available: false,
+      startError: "OCTO_BIN_PATH is not set; launch the editor with `task dev`.",
+    });
     const client = await connect(config(), host);
     const res = (await client.callTool({
       name: "run_integration",
@@ -249,6 +262,20 @@ describe("run tools", () => {
     })) as CallToolResult;
     expect(res.isError).toBe(true);
     expect(text(res)).toContain("OCTO_BIN_PATH");
+  });
+
+  // The finding this guards: a REMOTE runner (the platform's, backed by the orchestrator)
+  // starts a run with no local octo at all. Gating on binaries().available — the local
+  // one-shot binary — would wrongly reject it and break platform dev runs.
+  it("run starts on a remote host that has no local binary", async () => {
+    const { host } = stubRunHost({ available: false }); // no startError: start() succeeds
+    const client = await connect(config(), host);
+    const res = (await client.callTool({
+      name: "run_integration",
+      arguments: { id: "a" },
+    })) as CallToolResult;
+    expect(res.isError).toBeFalsy();
+    expect(parse(res).running).toBe(true);
   });
 
   it("run rejects an invalid env shape", async () => {
