@@ -60,6 +60,22 @@ describe("requestJson", () => {
     expect(res).toEqual({ ok: false, error: "request failed (500)" });
   });
 
+  // res.json() can resolve to null — or a scalar, or an array — on a failure body. Reading
+  // .error off that would throw a TypeError, and this module promises never to throw.
+  it("does not throw on a null or non-object failure body", async () => {
+    stubFetch({ ok: false, status: 502, body: null });
+    await expect(requestJson("GET", "http://x/thing")).resolves.toEqual({
+      ok: false,
+      error: "request failed (502)",
+    });
+
+    stubFetch({ ok: false, status: 500, body: "plain text error" });
+    await expect(requestJson("GET", "http://x/thing")).resolves.toEqual({
+      ok: false,
+      error: "request failed (500)",
+    });
+  });
+
   it("turns a network error into an error result", async () => {
     global.fetch = vi.fn(async () => {
       throw new Error("ECONNREFUSED");

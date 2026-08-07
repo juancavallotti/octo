@@ -1,6 +1,21 @@
 import type { ActionResult } from "./result";
 
 /**
+ * Pull an `{ error }` message out of a parsed failure body, falling back to the status.
+ *
+ * `res.json()` resolves to whatever the body decoded to — `null`, a number, an array —
+ * not necessarily an object, so reading `.error` off it directly would throw on a literal
+ * `null` body, and this module promises never to throw.
+ */
+function errorMessage(body: unknown, status: number): string {
+  if (body !== null && typeof body === "object" && "error" in body) {
+    const err = (body as { error?: unknown }).error;
+    if (typeof err === "string") return err;
+  }
+  return `request failed (${status})`;
+}
+
+/**
  * Perform `method url` (JSON-encoding `body` when present) and adapt the response
  * to an {@link ActionResult}, unwrapping a `{ error }` envelope on failure. Never
  * throws: a network error becomes an error result.
@@ -27,11 +42,8 @@ export async function requestJson<T>(
   }
 
   if (!res.ok) {
-    const errorBody = await res.json().catch(() => ({}));
-    return {
-      ok: false,
-      error: errorBody.error ?? `request failed (${res.status})`,
-    };
+    const errorBody: unknown = await res.json().catch(() => null);
+    return { ok: false, error: errorMessage(errorBody, res.status) };
   }
   // 204 No Content carries no body.
   if (res.status === 204) return { ok: true, data: undefined as T };
@@ -71,11 +83,8 @@ export async function requestStream(
   }
 
   if (!res.ok) {
-    const errorBody = await res.json().catch(() => ({}));
-    return {
-      ok: false,
-      error: errorBody.error ?? `request failed (${res.status})`,
-    };
+    const errorBody: unknown = await res.json().catch(() => null);
+    return { ok: false, error: errorMessage(errorBody, res.status) };
   }
   if (!res.body) {
     // A 2xx with no body at all (a 204, a HEAD). Reported as an error rather than
