@@ -57,6 +57,28 @@ func TestInjectDevEnvResourceIsIdempotent(t *testing.T) {
 	}
 }
 
+// TestInjectDevEnvResourceMovesAnEarlierDeclarationLast is the precedence bug this
+// guards: resources.env applies in order, so an .env.dev the author placed before
+// another env resource would be overridden by it. Injection has to move it to the end.
+func TestInjectDevEnvResourceMovesAnEarlierDeclarationLast(t *testing.T) {
+	got := injectDevEnvResource("resources:\n  env:\n    - .env.dev\n    - .env.shared\n")
+	want := []string{".env.shared", devEnvResource}
+	if env := envList(t, got); !equalStrings(env, want) {
+		t.Fatalf("resources.env = %v, want %v (dev env must be last so it overrides)", env, want)
+	}
+}
+
+// TestInjectDevEnvResourceDedupesToLast: a definition that names .env.dev more than
+// once collapses to a single trailing declaration. Duplicates in resources.env are
+// pointless, and only the last one decides precedence anyway.
+func TestInjectDevEnvResourceDedupesToLast(t *testing.T) {
+	got := injectDevEnvResource("resources:\n  env:\n    - .env.dev\n    - .env.shared\n    - .env.dev\n")
+	want := []string{".env.shared", devEnvResource}
+	if env := envList(t, got); !equalStrings(env, want) {
+		t.Fatalf("resources.env = %v, want %v", env, want)
+	}
+}
+
 // TestInjectDevEnvResourceKeepsComments is why this edits the node tree rather than
 // round-tripping through a map: a definition the developer cannot recognise in a log
 // or an error message is a definition they cannot debug.

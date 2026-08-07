@@ -66,8 +66,10 @@ func generationOf(b Bundle) string {
 }
 
 // injectDevEnvResource declares the dev-env resource in a definition's
-// resources.env list, appending it last (so it wins) and leaving an existing
-// declaration where the author put it.
+// resources.env list, as the LAST entry so it overrides every other env resource.
+// resources.env applies in order, so a declaration left earlier in the list would
+// be overridden by whatever follows it — which is why an existing .env.dev that is
+// not already last is moved to the end rather than left where the author put it.
 //
 // It edits the parsed *node tree* rather than round-tripping through a map, which
 // keeps comments, key order and scalar styles intact. That matters more here than it
@@ -99,10 +101,31 @@ func injectDevEnvResource(definition string) string {
 	if env == nil {
 		return definition
 	}
-	for _, item := range env.Content {
+	// resources.env applies in order and the last entry wins, so the dev-env
+	// resource has to be last. Find every existing declaration of it.
+	lastIdx, count := -1, 0
+	for i, item := range env.Content {
 		if item.Kind == yaml.ScalarNode && strings.TrimSpace(item.Value) == devEnvResource {
-			return definition
+			lastIdx, count = i, count+1
 		}
+	}
+	// Already present exactly once and already last: the precedence is right, so
+	// leave the definition — and the author's comments and scalar styles — untouched.
+	if count == 1 && lastIdx == len(env.Content)-1 {
+		return definition
+	}
+	// Otherwise re-place it: drop every existing declaration and append one at the
+	// end. An .env.dev sitting before another env resource would be overridden by
+	// that resource, which is the exact credential the developer pointed the run at.
+	if count > 0 {
+		kept := make([]*yaml.Node, 0, len(env.Content))
+		for _, item := range env.Content {
+			if item.Kind == yaml.ScalarNode && strings.TrimSpace(item.Value) == devEnvResource {
+				continue
+			}
+			kept = append(kept, item)
+		}
+		env.Content = kept
 	}
 	env.Content = append(env.Content, &yaml.Node{
 		Kind:  yaml.ScalarNode,
