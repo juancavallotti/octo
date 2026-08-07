@@ -36,6 +36,7 @@ function snapshot(reloadsOnSave: boolean) {
     testAvailable: false,
     testVersion: null,
     testUrl: null,
+    exposable: false,
     reloadsOnSave,
   };
 }
@@ -121,6 +122,7 @@ function Harness({ integrationId }: { integrationId?: string }) {
       <button onClick={() => void run.stop()}>stop</button>
       <button onClick={() => load("invoices")}>edit</button>
       <span data-testid="running">{String(run.running)}</span>
+      <span data-testid="url">{String(run.testUrl)}</span>
     </>
   );
 }
@@ -265,4 +267,62 @@ describe("RunProvider and switching the open integration", () => {
     expect(unsubscribed).toBeGreaterThanOrEqual(1);
     expect(statusTargets).toContain("int-b");
   }, 10000);
+});
+
+describe("RunProvider and a networked run still coming up", () => {
+  // A dev-run pod withholds its public URL until it is ready, so start returns none and the
+  // URL is learned only from a later status read. Status is otherwise read once, on mount —
+  // so without a poll the log panel's endpoint link would stay blank from the click of Run
+  // until a full page reload. The run reports itself exposable meanwhile, which is the signal
+  // that a null URL is coming rather than never.
+  it("reveals the URL from a later status read, without a reload", async () => {
+    const url = "https://orders.run.example/";
+    let started = false;
+    const transport: RunTransport = {
+      // Not running until start; once started the run is exposable, and from the first poll
+      // after it, its URL is available — the very URL start itself withheld.
+      status: async () =>
+        started
+          ? { ...snapshot(true), running: true, exposable: true, testUrl: url }
+          : snapshot(true),
+      start: async () => {
+        started = true;
+        return { ...snapshot(true), running: true, exposable: true, testUrl: null };
+      },
+      stop: async () => {},
+      sync: async () => {},
+      invoke: async () => ({ ok: true, dropped: false, timedOut: false, output: "", logs: [] }),
+      evalCel: async () => ({ ok: true }),
+      subscribeLogs: () => () => {},
+      test: async () => ({
+        ok: true,
+        timedOut: false,
+        totals: { cases: 0, passed: 0, failed: 0, errored: 0, skipped: 0, notRun: 0, elapsedMs: 0 },
+        suites: [],
+        logs: [],
+      }),
+    };
+
+    render(
+      <EditorStateProvider>
+        <RunProvider transport={transport}>
+          <Harness integrationId="int-1" />
+        </RunProvider>
+      </EditorStateProvider>,
+    );
+
+    const user = userEvent.setup();
+    await user.click(screen.getByText("load"));
+    await user.click(screen.getByText("start"));
+    await waitFor(() => expect(screen.getByTestId("running")).toHaveTextContent("true"));
+
+    // Withheld at start: the pod is not ready, so there is no link to offer yet.
+    expect(screen.getByTestId("url")).toHaveTextContent("null");
+
+    // Learned on its own from a later status read — the fix for the link that used to appear
+    // only after the window was reloaded.
+    await waitFor(() => expect(screen.getByTestId("url")).toHaveTextContent(url), {
+      timeout: 6000,
+    });
+  }, 12000);
 });

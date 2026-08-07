@@ -33,6 +33,10 @@ import {
 
 const SYNC_DEBOUNCE_MS = 2000;
 const MAX_CLIENT_LOGS = 5000;
+// How often to re-read status while a networked run's URL has not landed yet. The endpoint
+// is withheld until the run's pod is ready, and status is otherwise read only on mount, so
+// this is what makes the link appear on its own rather than on a page reload.
+const URL_POLL_MS = 2000;
 
 export interface RunLogLine {
   seq: number;
@@ -104,6 +108,10 @@ export function RunProvider({
   // its own child process, absolute from one that gave the run its own hostname. Resolved
   // to an absolute URL below, which is the only form a consumer sees.
   const [testAddress, setTestAddress] = useState<string | null>(null);
+  // Whether this run will ever publish a URL. Held separately from the address because the
+  // two come apart while a dev-run pod comes up — exposable is known at once, the URL only
+  // when it is ready — and it is that gap the URL poll below exists to close.
+  const [exposable, setExposable] = useState(false);
   const [reloadsOnSave, setReloadsOnSave] = useState(false);
 
   const unsubscribeRef = useRef<(() => void) | null>(null);
@@ -161,6 +169,7 @@ export function RunProvider({
         setTestAvailable(s.testAvailable);
         setTestVersion(s.testVersion);
         setTestAddress(s.testUrl);
+        setExposable(s.exposable);
         setReloadsOnSave(s.reloadsOnSave);
         if (s.running) {
           setRunning(true);
@@ -179,6 +188,7 @@ export function RunProvider({
       closeStream();
       setRunning(false);
       setTestAddress(null);
+      setExposable(false);
       lastSeqRef.current = -1;
       lastYamlRef.current = null;
     };
@@ -197,6 +207,7 @@ export function RunProvider({
       setLogs([]); // the server starts a fresh buffer for this run
       setRunning(true);
       setTestAddress(snapshot.testUrl ?? null);
+      setExposable(snapshot.exposable);
       setReloadsOnSave(snapshot.reloadsOnSave);
       openStream(target);
     } catch (e) {
@@ -216,6 +227,7 @@ export function RunProvider({
     } finally {
       setRunning(false);
       setTestAddress(null);
+      setExposable(false);
       closeStream();
       setBusy(false);
     }
@@ -232,6 +244,37 @@ export function RunProvider({
         : null,
     [testAddress],
   );
+
+  // Poll for a networked run's URL while it is still coming up. The address is learned only
+  // from a status read, and a dev-run pod withholds it until its pod is ready (offering it
+  // sooner would hand out a link that 502s while the image pulls). Status is otherwise read
+  // once, on mount — so without this the log panel's endpoint link stays blank from the
+  // moment Run is clicked until a full page reload.
+  //
+  // It runs only while a run that WILL have a URL (exposable) does not have it yet, and stops
+  // the instant one lands — the address setting re-runs this effect, and the guard then bows
+  // out. A run that serves no HTTP is not exposable and so never polls; the local runner
+  // reports its URL at start, so it has nothing to wait for either. A run that never becomes
+  // ready keeps polling until it is stopped or the editor moves on, which is the honest cost
+  // of the link appearing on its own: a cheap status read every couple of seconds.
+  useEffect(() => {
+    if (!running || !exposable || testAddress) return;
+    let cancelled = false;
+    const id = setInterval(() => {
+      transport
+        .status(target)
+        .then((s) => {
+          if (cancelled) return;
+          setExposable(s.exposable);
+          setTestAddress(s.testUrl);
+        })
+        .catch(() => {});
+    }, URL_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [running, exposable, testAddress, transport, target]);
 
   // Clear only the client-side display. We deliberately leave the open stream and
   // `lastSeqRef` untouched: reconnecting would make the server replay its whole

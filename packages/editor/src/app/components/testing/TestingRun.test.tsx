@@ -32,6 +32,7 @@ const snapshot = (testAvailable: boolean) => ({
   testAvailable,
   testVersion: testAvailable ? "dolphin 0.1.0" : null,
   testUrl: null,
+  exposable: false,
   reloadsOnSave: false,
 });
 

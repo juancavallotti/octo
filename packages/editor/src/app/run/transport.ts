@@ -159,12 +159,26 @@ export interface RunStatusSnapshot {
   /** dolphin's `version` line, or null when unknown/unavailable. */
   testVersion: string | null;
   /**
+   * Whether this run will ever have a {@link testUrl} — i.e. it declares an HTTP_PORT and
+   * so is networked. Distinct from `testUrl !== null`: a backend can know a run is exposable
+   * before it can hand out the URL, which is exactly what a dev-run pod does — its public
+   * endpoint is withheld until the pod is ready, so a networked run reports `exposable:true`
+   * with `testUrl:null` for the seconds its image is still pulling. The provider reads it to
+   * decide whether a null URL is "coming" (keep polling) or "never" (a run that serves no
+   * HTTP), so it neither leaves the endpoint link blank on a slow start nor spins forever on
+   * a run that will never publish one.
+   */
+  exposable: boolean;
+  /**
    * Where to reach the running networked integration, or null when it serves no HTTP.
    *
    * App-relative for a host that runs the app itself and proxies to it; absolute for one
    * that runs it elsewhere and gives it its own hostname. Either is a valid input to
    * `new URL(value, origin)` — an absolute value ignores the base — so a consumer needs
    * no branch on which kind it got.
+   *
+   * Null while an {@link exposable} run is still coming up: a dev-run pod's endpoint is held
+   * back until it is ready, so a link offered earlier would answer 502 while the image pulls.
    */
   testUrl: string | null;
   /**

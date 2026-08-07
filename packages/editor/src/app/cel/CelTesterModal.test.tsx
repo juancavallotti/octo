@@ -27,6 +27,7 @@ function stubTransport(overrides?: Partial<RunTransport>): RunTransport {
       testAvailable: false,
       testVersion: null,
       testUrl: null,
+      exposable: false,
       reloadsOnSave: false,
     }),
     start: async () => ({
@@ -36,6 +37,7 @@ function stubTransport(overrides?: Partial<RunTransport>): RunTransport {
       testAvailable: false,
       testVersion: null,
       testUrl: null,
+      exposable: false,
       reloadsOnSave: false,
     }),
     stop: async () => {},

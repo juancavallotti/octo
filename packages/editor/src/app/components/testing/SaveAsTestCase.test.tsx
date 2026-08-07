@@ -59,6 +59,7 @@ function transportOf(output = MESSAGE, failed = false): RunTransport {
     testAvailable: true,
     testVersion: null,
     testUrl: null,
+    exposable: false,
     reloadsOnSave: false,
   };
   return {

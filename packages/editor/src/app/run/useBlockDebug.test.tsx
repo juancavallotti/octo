@@ -22,6 +22,7 @@ const transport: RunTransport = {
     testAvailable: false,
     testVersion: null,
     testUrl: null,
+    exposable: false,
     reloadsOnSave: false,
   }),
   start: async () => ({
@@ -31,6 +32,7 @@ const transport: RunTransport = {
     testAvailable: false,
     testVersion: null,
     testUrl: null,
+    exposable: false,
     reloadsOnSave: false,
   }),
   stop: async () => {},

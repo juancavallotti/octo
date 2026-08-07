@@ -56,6 +56,7 @@ function stubTransport(
     testAvailable: false,
     testVersion: null,
     testUrl: null,
+    exposable: false,
     reloadsOnSave: false,
   };
   return {

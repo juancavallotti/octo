@@ -18,6 +18,7 @@ const snapshot = {
   testAvailable: true,
   testVersion: null,
   testUrl: null,
+  exposable: false,
   reloadsOnSave: false,
 };
 
