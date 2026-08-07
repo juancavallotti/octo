@@ -216,6 +216,12 @@ func (w *Workspace) List() ([]string, error) {
 // A name that resolves onto the config file is rejected too. Nothing legitimate
 // does that, and allowing it would let a resource silently replace the definition
 // between the prune and the config write.
+//
+// Any other *.yaml/*.yml name is rejected for the same reason one step removed: the
+// runtime merges every *.yaml/*.yml in the directory into the generation (see
+// ConfigFileName), so such a resource would not sit beside the config as data — it
+// would become part of the config. Keeping the definition the only YAML the runtime
+// loads is the invariant this preserves.
 func (w *Workspace) resolve(name string) (string, error) {
 	trimmed := strings.TrimSpace(name)
 	if trimmed == "" {
@@ -231,6 +237,10 @@ func (w *Workspace) resolve(name string) (string, error) {
 	}
 	if path == filepath.Join(w.dir, ConfigFileName) {
 		return "", fmt.Errorf("%w: %q collides with the config file", ErrEscapes, name)
+	}
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".yaml", ".yml":
+		return "", fmt.Errorf("%w: %q would be merged into the runtime config", ErrEscapes, name)
 	}
 	return path, nil
 }

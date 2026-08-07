@@ -195,6 +195,11 @@ func TestApplyRejectsInvalidNames(t *testing.T) {
 		{"names the workspace", "."},
 		{"resolves to the workspace", "/"},
 		{"collides with the config", ConfigFileName},
+		// A directory config merges every *.yaml/*.yml, so a resource with either
+		// extension would be loaded as config rather than staged beside it.
+		{"a yaml resource", "extra.yaml"},
+		{"a yml resource in a subdir", "conf.d/settings.yml"},
+		{"a yaml resource in mixed case", "Extra.YAML"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
