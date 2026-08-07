@@ -198,3 +198,71 @@ describe("RunProvider and the run's address", () => {
     await waitFor(() => expect(targets.status).toEqual({ integrationId: undefined }));
   });
 });
+
+describe("RunProvider and switching the open integration", () => {
+  // Switching which integration is open must not leave the previous run's stream open or
+  // its `running` state stuck. openStream refuses a second stream while one is live, so a
+  // stale stream would keep showing the old integration's logs; a stuck `running` would
+  // make Stop target the newly-opened integration while the old run kept going.
+  it("closes the old stream and resets running when the target changes", async () => {
+    let unsubscribed = 0;
+    const statusTargets: (string | undefined)[] = [];
+    const transport: RunTransport = {
+      status: async (target) => {
+        statusTargets.push(target.integrationId);
+        // int-a is already running (reattach on open); int-b is not.
+        return { ...snapshot(true), running: target.integrationId === "int-a" };
+      },
+      start: async () => ({ ...snapshot(true), running: true }),
+      stop: async () => {},
+      sync: async () => {},
+      invoke: async () => ({ ok: true, dropped: false, timedOut: false, output: "", logs: [] }),
+      evalCel: async () => ({ ok: true }),
+      subscribeLogs: () => () => {
+        unsubscribed += 1;
+      },
+      test: async () => ({
+        ok: true,
+        timedOut: false,
+        totals: { cases: 0, passed: 0, failed: 0, errored: 0, skipped: 0, notRun: 0, elapsedMs: 0 },
+        suites: [],
+        logs: [],
+      }),
+    };
+
+    function Switcher() {
+      const run = useRun()!;
+      const { dispatch } = useEditorState();
+      const open = (id: string) =>
+        dispatch({ type: EditorActionType.SET_INTEGRATION_ID, data: { id } });
+      return (
+        <>
+          <button onClick={() => open("int-a")}>open-a</button>
+          <button onClick={() => open("int-b")}>open-b</button>
+          <span data-testid="running">{String(run.running)}</span>
+        </>
+      );
+    }
+
+    render(
+      <EditorStateProvider>
+        <RunProvider transport={transport}>
+          <Switcher />
+        </RunProvider>
+      </EditorStateProvider>,
+    );
+
+    const user = userEvent.setup();
+    // Open int-a: status reports it running, so the provider reattaches and opens a stream.
+    await user.click(screen.getByText("open-a"));
+    await waitFor(() => expect(screen.getByTestId("running")).toHaveTextContent("true"));
+
+    // Switch to int-b, which is not running.
+    await user.click(screen.getByText("open-b"));
+
+    // The old stream was torn down, and running reflects int-b rather than sticking true.
+    await waitFor(() => expect(screen.getByTestId("running")).toHaveTextContent("false"));
+    expect(unsubscribed).toBeGreaterThanOrEqual(1);
+    expect(statusTargets).toContain("int-b");
+  }, 10000);
+});

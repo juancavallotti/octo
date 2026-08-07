@@ -147,8 +147,9 @@ export function RunProvider({
     [transport],
   );
 
-  // On mount, learn whether RUN is available and reattach if a runner is already
-  // live (e.g. after a page reload).
+  // On mount — and whenever the open integration changes — learn whether RUN is available
+  // for THIS target and reattach if its runner is already live (e.g. after a page reload,
+  // or when switching back to an integration left running elsewhere).
   useEffect(() => {
     let cancelled = false;
     transport
@@ -167,13 +168,21 @@ export function RunProvider({
         }
       })
       .catch(() => {});
+    // On a target change the previous integration's run is no longer what this provider
+    // tracks, so reset to a clean slate before the status check above re-decides for the
+    // new one. Without this the old stream stays open (openStream's guard would refuse a
+    // fresh one, so the panel keeps showing the previous integration's logs), `running`
+    // sticks true from the old integration, and Stop would target the newly-opened one
+    // while the old run kept going. Also runs on unmount, which is harmless.
     return () => {
       cancelled = true;
+      closeStream();
+      setRunning(false);
+      setTestAddress(null);
+      lastSeqRef.current = -1;
+      lastYamlRef.current = null;
     };
-  }, [transport, openStream, target]);
-
-  // Tear the stream down if the provider unmounts.
-  useEffect(() => closeStream, [closeStream]);
+  }, [transport, openStream, closeStream, target]);
 
   const start = useCallback(async () => {
     setBusy(true);
