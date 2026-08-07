@@ -46,6 +46,19 @@ function defaultTimeout(suites: number): number {
 }
 
 /**
+ * The whole-run wall clock, honouring a caller's `timeoutMs` but never above the cap that
+ * keeps a run from becoming a request no proxy in front of the host will hold open. A
+ * missing, non-finite or non-positive request falls back to the suite-count default, so a
+ * caller cannot disable the backstop with a zero or a NaN either.
+ */
+export function resolveTimeout(suites: number, requested?: number): number {
+  if (requested === undefined || !Number.isFinite(requested) || requested <= 0) {
+    return defaultTimeout(suites);
+  }
+  return Math.min(TEST_MAX_TIMEOUT_MS, Math.floor(requested));
+}
+
+/**
  * How many cases dolphin may run at once.
  *
  * One, deliberately. A connector that is not a flow *source* is started in every child
@@ -55,6 +68,25 @@ function defaultTimeout(suites: number): number {
  * cases in a stable order is worth more here than shaving a second off the clock.
  */
 const DEFAULT_PARALLEL = 1;
+
+/**
+ * The most cases we let a caller ask dolphin to run at once. A caller that knows its
+ * connectors are cheap may raise the default, but not without bound: every case restarts
+ * the config's non-source connectors (see {@link DEFAULT_PARALLEL}), so an unbounded
+ * value would open a burst of connections to a developer's real dev database.
+ */
+const MAX_PARALLEL = 16;
+
+/**
+ * How many cases to run at once, clamped to [1, {@link MAX_PARALLEL}]. A missing,
+ * non-finite or below-one request falls back to the default.
+ */
+export function resolveParallel(requested?: number): number {
+  if (requested === undefined || !Number.isFinite(requested) || requested < 1) {
+    return DEFAULT_PARALLEL;
+  }
+  return Math.min(MAX_PARALLEL, Math.floor(requested));
+}
 
 /** What became of one case. Mirrors dolphin's report; see report/json.go. */
 export type TestCaseStatus = "passed" | "failed" | "errored" | "skipped" | "not-run";
@@ -299,8 +331,8 @@ export async function test(ns: string, args: TestRunArgs): Promise<TestRunOutcom
       reportPath,
       suitePaths: staged.map((s) => s.path),
       env: args.env,
-      timeoutMs: args.timeoutMs ?? defaultTimeout(args.suites.length),
-      parallel: args.parallel ?? DEFAULT_PARALLEL,
+      timeoutMs: resolveTimeout(args.suites.length, args.timeoutMs),
+      parallel: resolveParallel(args.parallel),
     });
 
     // dolphin reports a suite by its staged path, and carries the staged config path

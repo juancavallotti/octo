@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { chmod, mkdtemp, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test as runTests } from "./test";
+import { resolveParallel, resolveTimeout, test as runTests } from "./test";
 
 const NS = "testns00";
 
@@ -473,5 +473,54 @@ printf '%s' '{"totals":{"cases":0,"passed":0,"failed":0,"errored":0,"skipped":0,
     expect(out.ok).toBe(false);
     expect(out.timedOut).toBe(true);
     expect(out.error).toContain("did not finish");
+  });
+
+  // A caller-supplied parallel is clamped before it reaches dolphin, so it cannot open a
+  // burst of connections to a real dev database.
+  it("clamps a caller's parallel before handing it to dolphin", async () => {
+    process.env.DOLPHIN_BIN_PATH = await fakeBin(
+      dir,
+      "dolphin-echo-parallel",
+      `
+out=""
+prev=""
+for a in "$@"; do
+  if [ "$prev" = "--report-json" ]; then out="$a"; fi
+  prev="$a"
+done
+echo "$@" >&2
+printf '%s' '{"totals":{"cases":0,"passed":0,"failed":0,"errored":0,"skipped":0,"notRun":0,"elapsedMs":0},"suites":[]}' > "$out"
+`.trim(),
+    );
+
+    const out = await runTests(NS, { yaml: YAML, suites: [SUITE], parallel: 999 });
+    expect(out.logs.join(" ")).toContain("--parallel 16"); // capped, not 999
+  });
+});
+
+// The clamps are pure and worth checking at every edge, since a bad value here either
+// disables the wall-clock backstop or lets a run hammer a dev database.
+describe("resolveTimeout / resolveParallel", () => {
+  it("honours a sensible timeout and caps an oversized one", () => {
+    expect(resolveTimeout(1, 5_000)).toBe(5_000);
+    expect(resolveTimeout(1, 10_000_000)).toBe(300_000); // TEST_MAX_TIMEOUT_MS
+    expect(resolveTimeout(1, 300)).toBe(300); // small, but honoured
+  });
+
+  it("falls back to the suite-count default for a missing or nonsensical timeout", () => {
+    expect(resolveTimeout(2)).toBe(240_000); // 2 suites * 120s, under the cap
+    expect(resolveTimeout(1, 0)).toBe(120_000); // zero would disable the backstop
+    expect(resolveTimeout(1, -5)).toBe(120_000);
+    expect(resolveTimeout(1, Number.NaN)).toBe(120_000);
+  });
+
+  it("clamps parallel to [1, 16] and defaults a nonsensical value", () => {
+    expect(resolveParallel()).toBe(1);
+    expect(resolveParallel(4)).toBe(4);
+    expect(resolveParallel(999)).toBe(16);
+    expect(resolveParallel(0)).toBe(1);
+    expect(resolveParallel(-3)).toBe(1);
+    expect(resolveParallel(2.9)).toBe(2); // floored to a whole count
+    expect(resolveParallel(Number.NaN)).toBe(1);
   });
 });
