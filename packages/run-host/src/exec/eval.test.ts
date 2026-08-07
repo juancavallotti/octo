@@ -82,6 +82,23 @@ describe("evalCel", () => {
     expect(r.error).toContain("unexpected eval output");
   });
 
+  // Valid JSON of the wrong shape (an object with no `ok`, or a bare scalar) must not
+  // slip through as ok:undefined, which would break the boolean the interface promises.
+  it("rejects valid JSON that is not a well-formed envelope", async () => {
+    process.env.OCTO_BIN_PATH = await fakeBin(
+      dir,
+      "octo-eval-bad-shape",
+      "printf '{\"result\":5}\\n'",
+    );
+    const r = await evalCel("body");
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("unexpected eval output");
+
+    process.env.OCTO_BIN_PATH = await fakeBin(dir, "octo-eval-scalar", "printf '42\\n'");
+    const r2 = await evalCel("body");
+    expect(r2.ok).toBe(false);
+  });
+
   it("throws when OCTO_BIN_PATH is unset", async () => {
     delete process.env.OCTO_BIN_PATH;
     await expect(evalCel("body")).rejects.toThrow(/OCTO_BIN_PATH/);

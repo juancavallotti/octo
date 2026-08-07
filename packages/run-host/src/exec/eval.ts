@@ -90,7 +90,19 @@ export async function evalCel(
         return;
       }
       try {
-        const env = JSON.parse(output) as { ok: boolean; result?: unknown; error?: string };
+        const parsed: unknown = JSON.parse(output);
+        // A well-formed envelope is an object with a boolean `ok`. Valid JSON of any
+        // other shape — a bare scalar, or an object without `ok` — would otherwise
+        // resolve as { ok: undefined }, breaking the boolean this interface promises.
+        if (
+          typeof parsed !== "object" ||
+          parsed === null ||
+          typeof (parsed as { ok?: unknown }).ok !== "boolean"
+        ) {
+          resolve({ ok: false, error: `unexpected eval output: ${output.trim()}`, logs });
+          return;
+        }
+        const env = parsed as { ok: boolean; result?: unknown; error?: string };
         resolve({ ok: env.ok, result: env.result, error: env.error, logs });
       } catch {
         resolve({ ok: false, error: `unexpected eval output: ${output.trim()}`, logs });
