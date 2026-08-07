@@ -206,16 +206,20 @@ func (f fakeResources) ListByIntegration(_ context.Context, id string) ([]resour
 	return f.byIntegration[id], nil
 }
 
-// fakeSidecar records the commands it was given.
+// fakeSidecar records the commands it was given, including whether the context it
+// received was already cancelled — the save→reload seam is supposed to have detached
+// from the caller's, so reloadCtxErrs must stay nil even when the caller's is dead.
 type fakeSidecar struct {
-	cluster *fakeCluster
-	err     error
-	status  json.RawMessage
-	reloads []string
+	cluster       *fakeCluster
+	err           error
+	status        json.RawMessage
+	reloads       []string
+	reloadCtxErrs []error
 }
 
-func (f *fakeSidecar) Reload(_ context.Context, baseURL, token string) error {
+func (f *fakeSidecar) Reload(ctx context.Context, baseURL, token string) error {
 	f.reloads = append(f.reloads, baseURL+" "+token)
+	f.reloadCtxErrs = append(f.reloadCtxErrs, ctx.Err())
 	if f.cluster != nil {
 		f.cluster.record("sidecar-reload %s", baseURL)
 	}
@@ -769,6 +773,32 @@ func TestNotifyIntegrationChangedReportsFailures(t *testing.T) {
 
 	if err := svc.NotifyIntegrationChanged(context.Background(), "int-1"); err == nil {
 		t.Fatal("NotifyIntegrationChanged reported success while the sidecar was unreachable")
+	}
+}
+
+// TestNotifyIntegrationChangedSurvivesCallerCancellation is the best-effort contract
+// made real: the notify runs after the write has committed, so a client that
+// disconnects the instant it saved must not abort the reload that save triggered. The
+// seam detaches from the caller's context (and bounds itself), so a cancelled caller
+// still produces a live reload.
+func TestNotifyIntegrationChangedSurvivesCallerCancellation(t *testing.T) {
+	cluster := newFakeCluster()
+	svc, sidecar := testService(t, cluster, map[string]string{"int-1": networkedDefinition})
+	if _, err := svc.Ensure(context.Background(), "u1", "int-1"); err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // the saver is already gone by the time the notify runs
+
+	if err := svc.NotifyIntegrationChanged(ctx, "int-1"); err != nil {
+		t.Fatalf("NotifyIntegrationChanged with a cancelled caller = %v, want the reload to run anyway", err)
+	}
+	if len(sidecar.reloads) != 1 {
+		t.Fatalf("reloads = %d, want 1 (a cancelled caller must not drop the reload)", len(sidecar.reloads))
+	}
+	if len(sidecar.reloadCtxErrs) != 1 || sidecar.reloadCtxErrs[0] != nil {
+		t.Errorf("sidecar saw ctx err %v, want a live, detached context", sidecar.reloadCtxErrs)
 	}
 }
 

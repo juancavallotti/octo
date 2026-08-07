@@ -34,6 +34,12 @@ const (
 	// follows an editing session, so the bound is "did anyone touch this in the last
 	// hour", not a resource budget.
 	DefaultIdleTimeout = time.Hour
+	// notifyTimeout bounds a whole save→reload fan-out. The save path calls it
+	// synchronously and must not be held open indefinitely by unreachable pods, and a
+	// request context with no deadline of its own would leave it exactly that. It is
+	// wider than one per-run sidecar command (sidecar.go commandTimeout) so a single
+	// unreachable run does not eat the whole budget before the rest are tried.
+	notifyTimeout = 30 * time.Second
 )
 
 // devRunCluster is everything the service needs from Kubernetes. It is declared
@@ -601,6 +607,15 @@ func (s *Service) NotifyIntegrationChanged(ctx context.Context, integrationID st
 	if !s.Enabled() || integrationID == "" {
 		return nil
 	}
+	// Detach from the writer's request and bound the whole fan-out. This runs after
+	// the write has committed, on behalf of a caller that must never be failed or
+	// blocked indefinitely by it (see the contract above): if the client that saved
+	// disconnects, the reload it triggered should still land, and however many runs
+	// are listed, the save path must not be held past notifyTimeout. The user-facing
+	// Reload keeps honouring its own context — only this save-triggered seam detaches.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), notifyTimeout)
+	defer cancel()
+
 	runs, err := s.cluster.ListDevRuns(ctx, kube.DevRunSelector{IntegrationID: integrationID})
 	if err != nil {
 		return fmt.Errorf("devrun: notify: list: %w", err)
