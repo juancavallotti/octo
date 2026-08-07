@@ -324,6 +324,40 @@ printf '%s' '{"totals":{"cases":0,"passed":0,"failed":0,"errored":0,"skipped":0,
     expect(line).toContain("/test-");
   });
 
+  // The pinned octo and the staged TMPDIR are invariants, not preferences: a caller's
+  // env must not be able to point dolphin at another octo or redirect its kept per-case
+  // dirs back out of the staged tree (re-opening the /tmp leak). A plain preference like
+  // LOG_LEVEL stays the caller's to set.
+  it("does not let the caller's env override the pinned octo or TMPDIR", async () => {
+    process.env.DOLPHIN_BIN_PATH = await fakeBin(
+      dir,
+      "dolphin-env-echo",
+      `
+out=""
+prev=""
+for a in "$@"; do
+  if [ "$prev" = "--report-json" ]; then out="$a"; fi
+  prev="$a"
+done
+echo "OCTO_PATH=$OCTO_PATH TMPDIR=$TMPDIR LOG_LEVEL=$LOG_LEVEL" >&2
+printf '%s' '{"totals":{"cases":0,"passed":0,"failed":0,"errored":0,"skipped":0,"notRun":0,"elapsedMs":0},"suites":[]}' > "$out"
+`.trim(),
+    );
+
+    const out = await runTests(NS, {
+      yaml: YAML,
+      suites: [SUITE],
+      env: { OCTO_PATH: "/evil/octo", TMPDIR: "/tmp/evil", LOG_LEVEL: "debug" },
+    });
+    const line = out.logs.join(" ");
+
+    expect(line).toContain(`OCTO_PATH=${process.env.OCTO_BIN_PATH}`); // pinned, not /evil/octo
+    expect(line).not.toContain("/evil/octo");
+    expect(line).not.toContain("/tmp/evil"); // TMPDIR stayed inside the staged dir...
+    expect(line).toContain("/test-"); // ...the per-run staged subdir
+    expect(line).toContain("LOG_LEVEL=debug"); // a real preference the caller still sets
+  });
+
   // dolphin's `reproduce` embeds the absolute path of the staged config and the
   // per-case debug config. Both are deleted on the way out, so it is a command that
   // cannot be run — and it would carry the server's filesystem layout to a browser.

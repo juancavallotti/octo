@@ -362,18 +362,25 @@ async function runDolphin(
 
   const env: NodeJS.ProcessEnv = {
     ...process.env,
+    // A default the caller's env below may override.
+    LOG_LEVEL: "error",
+    // The caller's extra environment for dolphin (and so for every case).
+    ...(opts.env ?? {}),
+    // Pinned AFTER the caller's env: these two are invariants, not preferences, so a
+    // caller-supplied value must not be able to defeat them.
+    //
     // Pin the octo dolphin drives to the one this host runs. $OCTO_PATH is a hard
     // override in dolphin (runtime/dolphin/octobin.go), so this makes "tested against
-    // some other octo on the PATH" structurally impossible rather than merely unlikely.
+    // some other octo on the PATH" structurally impossible rather than merely unlikely —
+    // and it must stay impossible even for a caller that passes its own OCTO_PATH.
     OCTO_PATH: octo,
     // dolphin mkdtemps a per-case working directory and KEEPS it whenever anything
     // failed, so the reproduce command it prints still resolves. In a CLI that is a
     // courtesy; in a long-lived server it is an unbounded /tmp leak, one directory per
     // failing run, forever. Pointing TMPDIR at the staged dir makes it get swept with
     // everything else — at the cost of the reproduce path, which we do not offer anyway.
+    // A caller must not be able to redirect it back out and re-open the leak.
     TMPDIR: opts.dir,
-    LOG_LEVEL: "error",
-    ...(opts.env ?? {}),
   };
 
   const proc = spawn(bin, argv, { stdio: ["ignore", "pipe", "pipe"], env, cwd: opts.dir });
