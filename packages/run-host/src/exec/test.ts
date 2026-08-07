@@ -229,8 +229,9 @@ function suiteBaseName(name: string, index: number): string {
 }
 
 /**
- * A staged suite filename. `collision` is deterministic by input order among suites
- * sharing the same base name (0 for the first, 1 for the next, ...).
+ * A staged suite filename: the base, an optional `-N` disambiguator, and the
+ * `*_test.yaml` suffix dolphin identifies a suite by. The caller picks the smallest N
+ * not already taken this run (see {@link test}), so every suite lands on its own path.
  */
 function suiteFileName(base: string, collision: number): string {
   const suffix = collision === 0 ? "" : `-${collision}`;
@@ -276,15 +277,19 @@ export async function test(ns: string, args: TestRunArgs): Promise<TestRunOutcom
     await writeConfig(configPath, args.yaml);
 
     const reportPath = join(dir, "report.json");
-    const collisions = new Map<string, number>();
+    // Stage each suite to a filename unique across the whole run. A per-base counter is
+    // not enough: its "-N" suffix can collide with another suite whose slug already ends
+    // in that suffix — suites "x", "x" and "x-1" would put the second "x" and the "x-1"
+    // on the same x-1_test.yaml. Two suites on one path means Promise.all's writes race,
+    // a suite's YAML is lost, and dolphin (which dedupes targets by path) silently runs
+    // one fewer than asked. Keep incrementing the suffix until the name is free.
+    const usedNames = new Set<string>();
     const staged = args.suites.map((s, i) => {
       const base = suiteBaseName(s.name, i);
-      const collision = collisions.get(base) ?? 0;
-      collisions.set(base, collision + 1);
-      return {
-        suite: s,
-        path: stagedPathFor(dir, suiteFileName(base, collision)),
-      };
+      let name = suiteFileName(base, 0);
+      for (let n = 1; usedNames.has(name); n++) name = suiteFileName(base, n);
+      usedNames.add(name);
+      return { suite: s, path: stagedPathFor(dir, name) };
     });
     await Promise.all(staged.map(({ suite, path }) => writeConfig(path, suite.content)));
 

@@ -211,6 +211,44 @@ exit 0
     expect(byFlow).toEqual({ a: "A/B", b: "A B" });
   });
 
+  // The dedup suffix must not collide with a base that already ends in that suffix.
+  // Suites "x", "x" and "x-1" would otherwise stage the second "x" and the "x-1" onto
+  // one x-1_test.yaml: Promise.all's writes race, a suite's YAML is lost, and dolphin
+  // (which dedupes by path) silently runs one fewer suite than asked.
+  it("stages every suite to its own path even when a dedup suffix meets a real base", async () => {
+    process.env.DOLPHIN_BIN_PATH = await fakeBin(
+      dir,
+      "dolphin-echo-paths",
+      `
+out=""
+prev=""
+for a in "$@"; do
+  if [ "$prev" = "--report-json" ]; then out="$a"; fi
+  prev="$a"
+done
+echo "$@" >&2
+printf '%s' '{"totals":{"cases":0,"passed":0,"failed":0,"errored":0,"skipped":0,"notRun":0,"elapsedMs":0},"suites":[]}' > "$out"
+`.trim(),
+    );
+
+    const out = await runTests(NS, {
+      yaml: YAML,
+      suites: [
+        { name: "x", content: "flow: x1\n" },
+        { name: "x", content: "flow: x2\n" },
+        { name: "x-1", content: "flow: x3\n" },
+      ],
+    });
+
+    const names = out.logs
+      .join(" ")
+      .split(/\s+/)
+      .filter((t) => t.endsWith("_test.yaml"))
+      .map((t) => t.split("/").pop());
+    expect(names).toHaveLength(3); // one path staged per suite
+    expect(new Set(names).size).toBe(3); // and all three distinct — none overwritten
+  });
+
   it("carries what the flow actually did back to the caller", async () => {
     const detailed = report("failed", {
       summary: "expect.body: want: {} got: {a:1}",
