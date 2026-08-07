@@ -15,10 +15,12 @@ const streamChunk = 4096
 // so lines arrive as they are produced.
 //
 // This is the shape of every log tail the orchestrator serves, and it is shared
-// because three of its details are easy to get subtly wrong and would drift between
-// copies: every chunk is flushed (net/http and any proxy in front of it would
-// otherwise hold a tail indefinitely), a failed write ends the copy silently (the
-// client hung up, which is how a follow stream normally ends), and io.EOF and a
+// because four of its details are easy to get subtly wrong and would drift between
+// copies: the header is flushed up front (a follow stream can sit idle before its
+// first line, and net/http or a proxy would otherwise withhold the 200 until then,
+// leaving the client unable to tell "connected, waiting" from "hung"), every chunk
+// is flushed (or a tail is held indefinitely), a failed write ends the copy silently
+// (the client hung up, which is how a follow stream normally ends), and io.EOF and a
 // cancelled request are both normal endings while anything else is logged under
 // label.
 //
@@ -31,6 +33,11 @@ func StreamText(w http.ResponseWriter, r *http.Request, stream io.Reader, label 
 	w.WriteHeader(http.StatusOK)
 
 	flusher, _ := w.(http.Flusher)
+	// Push the header out now, before the first byte of body, so an idle follow
+	// stream still reaches the client as a live 200 rather than nothing at all.
+	if flusher != nil {
+		flusher.Flush()
+	}
 	buf := make([]byte, streamChunk)
 	for {
 		n, rerr := stream.Read(buf)

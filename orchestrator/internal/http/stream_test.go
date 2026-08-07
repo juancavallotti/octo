@@ -54,6 +54,25 @@ func TestStreamTextForwardsEveryChunk(t *testing.T) {
 	}
 }
 
+// TestStreamTextFlushesHeaderBeforeAnyBody is the idle-follow case: a stream that has
+// produced nothing yet must still flush its 200 and headers, or net/http (and any
+// proxy) holds them back and the client sees no response at all until the first line.
+func TestStreamTextFlushesHeaderBeforeAnyBody(t *testing.T) {
+	stream := &chunkedReader{} // immediate EOF: nothing has been logged yet
+	w := httptest.NewRecorder()
+	StreamText(w, httptest.NewRequest(http.MethodGet, "/logs", nil), stream, "test stream")
+
+	if !w.Flushed {
+		t.Error("an idle stream never flushed its header; the client would see nothing")
+	}
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+	if w.Body.Len() != 0 {
+		t.Errorf("body = %q, want empty for an idle stream", w.Body.String())
+	}
+}
+
 // failingWriter fails every write, standing in for a client that hung up mid-tail —
 // which is how a follow stream normally ends.
 type failingWriter struct{ header http.Header }
