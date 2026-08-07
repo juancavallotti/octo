@@ -49,6 +49,16 @@ const (
 	// readHeaderTimeout bounds time spent reading request headers, mitigating
 	// slow-header denial-of-service attempts.
 	readHeaderTimeout = 10 * time.Second
+	// readTimeout bounds reading a whole request (headers plus body), writeTimeout a
+	// whole response, and idleTimeout a kept-alive connection between requests.
+	// readHeaderTimeout alone leaves a slow body, a slow response read, or an idle
+	// keep-alive free to pin a goroutine — and /healthz and /readyz are
+	// unauthenticated (api/handler.go), so any client with network reach could. Of
+	// the three, writeTimeout is the most generous because it also bounds the
+	// /metrics passthrough, which relays up to a few MiB from the runtime.
+	readTimeout  = 30 * time.Second
+	writeTimeout = 60 * time.Second
+	idleTimeout  = 60 * time.Second
 	// expireGrace bounds the shutdown that follows the dev run being expired. Short:
 	// the run is gone, so there is nothing left worth draining for.
 	expireGrace = 5 * time.Second
@@ -152,6 +162,9 @@ func run() error {
 		Addr:              ":" + cfg.port,
 		Handler:           mux,
 		ReadHeaderTimeout: readHeaderTimeout,
+		ReadTimeout:       readTimeout,
+		WriteTimeout:      writeTimeout,
+		IdleTimeout:       idleTimeout,
 	}
 
 	errCh := make(chan error, 1)
