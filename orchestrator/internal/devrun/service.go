@@ -656,6 +656,13 @@ func (s *Service) ReapIdle(ctx context.Context) (int, error) {
 		if last.IsZero() {
 			last = run.CreatedAt
 		}
+		// Both timestamps missing: a run we cannot date is one we cannot prove idle, so
+		// leave it. Were the creation time zeroed too by the same annotation bug the
+		// fallback above guards against, treating zero as "long ago" would reap a live
+		// run the instant it appeared. The next pass collects it once either stamp lands.
+		if last.IsZero() {
+			continue
+		}
 		if !last.Before(cutoff) {
 			continue
 		}

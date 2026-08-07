@@ -814,6 +814,9 @@ func TestReapIdle(t *testing.T) {
 	// reading it as now would leak pods forever.
 	cluster.runs["unstamped-old"] = kube.DevRun{ID: "unstamped-old", UserID: "u1", CreatedAt: testNow.Add(-3 * time.Hour)}
 	cluster.runs["unstamped-new"] = kube.DevRun{ID: "unstamped-new", UserID: "u1", CreatedAt: testNow.Add(-time.Minute)}
+	// Neither timestamp set at all: a run we cannot date is one we cannot prove idle.
+	// Reading its zero time as "long ago" would reap it the instant it appeared.
+	cluster.runs["undated"] = kube.DevRun{ID: "undated", UserID: "u1"}
 
 	reaped, err := svc.ReapIdle(context.Background())
 	if err != nil {
@@ -822,7 +825,7 @@ func TestReapIdle(t *testing.T) {
 	if reaped != 2 {
 		t.Errorf("reaped = %d, want 2", reaped)
 	}
-	for _, id := range []string{"fresh", "unstamped-new"} {
+	for _, id := range []string{"fresh", "unstamped-new", "undated"} {
 		if _, exists := cluster.runs[id]; !exists {
 			t.Errorf("%s was reaped but is not idle", id)
 		}
