@@ -498,7 +498,33 @@ interface DolphinReport {
   suites: DolphinSuite[];
 }
 
-/** Read and parse the report, or null when there is none to read. */
+/** Whether `t` has the numeric totals this module reads. */
+function isTotals(t: unknown): t is TestTotals {
+  if (typeof t !== "object" || t === null) return false;
+  const totals = t as Record<string, unknown>;
+  return (
+    ["cases", "passed", "failed", "errored", "skipped", "notRun", "elapsedMs"] as const
+  ).every((k) => typeof totals[k] === "number");
+}
+
+/**
+ * Whether `s` is a suite entry {@link test} can safely map: a string path (it keys the
+ * result back to the caller's suite by this), a string flow, and a cases array of
+ * objects. A malformed entry — a null, a missing path, a non-array cases — would make
+ * `s.path.split(...)` or `s.cases.map(...)` throw and escape the { ok, error } contract.
+ */
+function isDolphinSuite(s: unknown): s is DolphinSuite {
+  if (typeof s !== "object" || s === null) return false;
+  const suite = s as Record<string, unknown>;
+  return (
+    typeof suite.path === "string" &&
+    typeof suite.flow === "string" &&
+    Array.isArray(suite.cases) &&
+    suite.cases.every((c) => typeof c === "object" && c !== null)
+  );
+}
+
+/** Read and parse the report, or null when there is none to read or it is malformed. */
 async function readReport(path: string): Promise<DolphinReport | null> {
   let raw: string;
   try {
@@ -508,7 +534,16 @@ async function readReport(path: string): Promise<DolphinReport | null> {
   }
   try {
     const doc = JSON.parse(raw) as Partial<DolphinReport>;
-    if (!doc || typeof doc !== "object" || !doc.totals || !Array.isArray(doc.suites)) {
+    // Validate the shape, not just its presence: a report with malformed totals or a
+    // suite entry missing its path would otherwise throw when test() maps it, turning a
+    // corrupt report into an unhandled exception instead of a clean "no usable report".
+    if (
+      !doc ||
+      typeof doc !== "object" ||
+      !isTotals(doc.totals) ||
+      !Array.isArray(doc.suites) ||
+      !doc.suites.every(isDolphinSuite)
+    ) {
       return null;
     }
     return { totals: doc.totals, suites: doc.suites };

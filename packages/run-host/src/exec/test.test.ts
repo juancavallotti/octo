@@ -128,6 +128,25 @@ describe("test()", () => {
     expect(out.logs.join("\n")).toContain("no test file");
   });
 
+  // A report that parses as JSON but is the wrong SHAPE — a suite missing its path, or
+  // totals without its numbers — must fail the run cleanly, not throw out of test() when
+  // it maps results back by path and so escape the { ok, error } contract.
+  it("fails the run cleanly when the report is structurally wrong", async () => {
+    const noPath = {
+      totals: { cases: 0, passed: 0, failed: 0, errored: 0, skipped: 0, notRun: 0, elapsedMs: 0 },
+      suites: [{ flow: "orders", cases: [] }], // no `path` — would throw when mapped
+    };
+    process.env.DOLPHIN_BIN_PATH = await fakeDolphin(dir, noPath);
+    let out = await runTests(NS, { yaml: YAML, suites: [SUITE] });
+    expect(out.ok).toBe(false);
+    expect(out.suites).toEqual([]);
+
+    const badTotals = { totals: { cases: "lots" }, suites: [] }; // totals not numeric
+    process.env.DOLPHIN_BIN_PATH = await fakeDolphin(dir, badTotals);
+    out = await runTests(NS, { yaml: YAML, suites: [SUITE] });
+    expect(out.ok).toBe(false);
+  });
+
   it("fails the run when the report is not JSON", async () => {
     process.env.DOLPHIN_BIN_PATH = await fakeBin(
       dir,
