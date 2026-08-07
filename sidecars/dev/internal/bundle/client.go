@@ -90,16 +90,25 @@ func (c *Client) Expire(ctx context.Context) error {
 		return fmt.Errorf("expire dev run: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	// Drain so the connection can be reused; the body carries nothing we need.
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxBundleBytes))
 
 	// A 404 here means the run is already gone, which is the outcome being asked
 	// for. Reporting it as an error would make the caller retry a request that has
 	// already succeeded in every sense that matters.
 	if resp.StatusCode == http.StatusNotFound {
+		// Drain so the connection can be reused; the body carries nothing we need.
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxBundleBytes))
 		return nil
 	}
-	return statusError(resp, "expire dev run")
+	// Classify BEFORE draining: statusError reads a bounded snippet of the body to
+	// explain a failure, and draining first would leave it nothing to report — the
+	// orchestrator's reason for refusing would be lost, and the caller would see a
+	// bare status where Fetch shows the detail.
+	if err := statusError(resp, "expire dev run"); err != nil {
+		return err
+	}
+	// Drain so the connection can be reused; the body carries nothing we need.
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxBundleBytes))
+	return nil
 }
 
 // newRequest builds an authenticated request for one of this dev run's subpaths.

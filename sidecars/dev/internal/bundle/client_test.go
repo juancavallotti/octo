@@ -176,3 +176,21 @@ func TestExpireReportsServerError(t *testing.T) {
 		t.Error("Expire: want error on 500")
 	}
 }
+
+// A failed Expire must carry the orchestrator's explanation, not just the status:
+// the body has to survive the status check rather than being drained before it.
+func TestExpireErrorIncludesBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte("run is still draining"))
+	}))
+	defer srv.Close()
+
+	err := newTestClient(srv).Expire(context.Background())
+	if err == nil {
+		t.Fatal("Expire: want error on 409")
+	}
+	if !strings.Contains(err.Error(), "run is still draining") {
+		t.Errorf("error = %q, want it to include the response body", err)
+	}
+}
