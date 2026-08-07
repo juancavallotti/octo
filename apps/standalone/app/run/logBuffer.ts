@@ -11,6 +11,15 @@ import type { LogLine } from "@octo/run-host";
 /** Largest config inputs are tiny; this cap just bounds the in-memory log buffer. */
 const MAX_LOG_LINES = 5000;
 
+/**
+ * Cap on an unterminated line held while its newline is awaited. A runner that writes
+ * megabytes with no "\n" — a stray binary stream, a runaway stack trace — would
+ * otherwise grow this buffer without bound and take the host down. Past the cap we
+ * flush what we have as a line and carry on, so the held buffer never outgrows one
+ * line's worth. 1 MiB of UTF-16 code units is far above any real log line.
+ */
+const MAX_LINE_CHARS = 1 << 20;
+
 type Listener = (line: LogLine) => void;
 
 export class LogBuffer {
@@ -62,10 +71,28 @@ export class LogBuffer {
         this.push(buffer.slice(0, nl).replace(/\r$/, ""));
         buffer = buffer.slice(nl + 1);
       }
+      // A line with no newline in sight must not grow the buffer forever. Once the held
+      // remainder crosses the cap, flush it in cap-sized pieces so memory stays bounded
+      // whatever the runner emits.
+      while (buffer.length > MAX_LINE_CHARS) {
+        this.push(buffer.slice(0, MAX_LINE_CHARS));
+        buffer = buffer.slice(MAX_LINE_CHARS);
+      }
     });
     stream.on("end", () => {
       if (buffer !== "") this.push(buffer.replace(/\r$/, ""));
       buffer = "";
+    });
+    // Without an error listener a stream error — a broken pipe when the child dies
+    // mid-write — is emitted as an unhandled 'error' event, which crashes the whole
+    // editor process. Record it as a log line and stop; the child's own exit handler
+    // reports the run ending.
+    stream.on("error", (err: Error) => {
+      if (buffer !== "") {
+        this.push(buffer.replace(/\r$/, ""));
+        buffer = "";
+      }
+      this.push(`✖ log stream error: ${err.message}`);
     });
   }
 }
