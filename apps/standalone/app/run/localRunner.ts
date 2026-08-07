@@ -78,6 +78,7 @@ export interface Session {
 
 const store = globalThis as unknown as {
   __octoRunSessions?: Map<string, Session>;
+  __octoRunLocks?: Map<string, Promise<unknown>>;
   __octoRunKillHook?: boolean;
 };
 
@@ -85,6 +86,44 @@ const store = globalThis as unknown as {
 export function allSessions(): Map<string, Session> {
   if (!store.__octoRunSessions) store.__octoRunSessions = new Map();
   return store.__octoRunSessions;
+}
+
+/** Per-namespace operation locks, on `globalThis` alongside the session map so they
+ * survive Next's dev HMR reloads. */
+function locks(): Map<string, Promise<unknown>> {
+  if (!store.__octoRunLocks) store.__octoRunLocks = new Map();
+  return store.__octoRunLocks;
+}
+
+/**
+ * Run `fn` with exclusive access to a namespace: start, stop and sync all mutate the
+ * same child process, the same pooled ports and the same config file, so they must not
+ * interleave. A double-clicked Run fires two starts at once; without this the second
+ * start's teardown runs before the first has recorded its child — both `octo` processes
+ * spawn, and the one whose `s.proc` is overwritten is orphaned with its ports never
+ * released (its exit handler sees `s.proc !== proc` and frees nothing). Each call chains
+ * onto the namespace's previous one and runs no matter how that one settled.
+ *
+ * Read-only calls (status, snapshot, logs) intentionally stay off the lock: a slow start
+ * must not block a status poll or a log tail, and none of them mutate the run.
+ */
+function withNamespaceLock<T>(ns: string, fn: () => Promise<T>): Promise<T> {
+  const map = locks();
+  const prev = map.get(ns) ?? Promise.resolve();
+  const result = prev.then(() => fn());
+  // The next waiter chains on completion regardless of this one's outcome, so a thrown
+  // start does not wedge the namespace; its value and error stay with `result`.
+  const gate = result.then(
+    () => {},
+    () => {},
+  );
+  map.set(ns, gate);
+  // Drop the entry once it is the settled tail, so the map does not keep one dead
+  // promise per namespace for the life of the process.
+  void gate.then(() => {
+    if (map.get(ns) === gate) map.delete(ns);
+  });
+  return result;
 }
 
 /** Get-or-create the session for a namespace, renewing its activity timestamp so
@@ -151,7 +190,16 @@ export function currentConfigPath(ns: string): string | null {
  * environment below and never written to disk — the `env` object is local to this
  * call. The Go runtime resolves OS env before declared defaults, so this suffices.
  */
-export async function start(
+export function start(
+  ns: string,
+  yaml: string,
+  devEnv?: Record<string, string>,
+  opts?: RunResourceOptions,
+): Promise<RunState> {
+  return withNamespaceLock(ns, () => startImpl(ns, yaml, devEnv, opts));
+}
+
+async function startImpl(
   ns: string,
   yaml: string,
   devEnv?: Record<string, string>,
@@ -159,7 +207,7 @@ export async function start(
 ): Promise<RunState> {
   const bin = octoBin();
 
-  await stop(ns); // tear down any previous generation first
+  await stopImpl(ns); // tear down any previous generation first
 
   const s = session(ns);
   s.logs.reset(); // fresh buffer per run; seq stays monotonic so clients still dedupe
@@ -203,7 +251,7 @@ export async function start(
     // returns whichever port was taken and removes the config and staged resources
     // (env files hold secrets) instead of leaving them for whoever calls stop next.
     // Repeated failed starts would otherwise eat the pool a port at a time.
-    await stop(ns);
+    await stopImpl(ns);
     throw err;
   }
   const port = s.port;
@@ -270,7 +318,15 @@ export async function start(
  * re-staged (and files no longer declared are removed) before the config is
  * rewritten — an ordinary content-only edit skips the provider entirely.
  */
-export async function sync(
+export function sync(
+  ns: string,
+  yaml: string,
+  opts?: RunResourceOptions,
+): Promise<RunState> {
+  return withNamespaceLock(ns, () => syncImpl(ns, yaml, opts));
+}
+
+async function syncImpl(
   ns: string,
   yaml: string,
   opts?: RunResourceOptions,
@@ -297,7 +353,11 @@ export async function sync(
 }
 
 /** Stop the namespace's runner (SIGTERM, then SIGKILL after a grace period) and remove its config. */
-export async function stop(ns: string): Promise<RunState> {
+export function stop(ns: string): Promise<RunState> {
+  return withNamespaceLock(ns, () => stopImpl(ns));
+}
+
+async function stopImpl(ns: string): Promise<RunState> {
   const s = session(ns);
   const proc = s.proc;
   if (proc) {

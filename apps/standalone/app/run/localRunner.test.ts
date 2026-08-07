@@ -219,6 +219,42 @@ describe("local runner", () => {
     }
   });
 
+  // Two Run clicks land as two overlapping start() calls. They must be serialized per
+  // namespace: without the lock the second start tears down and re-stages before the
+  // first has recorded its child, both octo processes spawn, and the loser is orphaned
+  // with its HTTP and admin ports never released (its exit handler sees a different
+  // s.proc and frees nothing). Prove the pools are net-zero across two racing starts and
+  // one stop — a leak would strand a port for the life of the editor.
+  it("serializes overlapping starts so a race orphans no run and leaks no port", async () => {
+    process.env.OCTO_BIN_PATH = await fakeBin(dir, "octo-sleep", "echo ready\nsleep 5");
+    const yaml =
+      'service:\n  name: net\nenv:\n  - name: HTTP_PORT\n    default: "8080"\n';
+
+    // The lowest free port in each pool right now; a net-zero sequence leaves it be.
+    const httpBefore = allocatePort();
+    releasePort(httpBefore);
+    const adminBefore = allocateAdminPort();
+    releaseAdminPort(adminBefore);
+
+    const [a, b] = await Promise.all([start(NS, yaml), start(NS, yaml)]);
+
+    // Both calls returned a cleanly running, networked state and exactly one generation
+    // is live — the loser was fully torn down, not left half-constructed.
+    expect(a.running && b.running).toBe(true);
+    expect(status(NS).running).toBe(true);
+
+    await stop(NS);
+    expect(status(NS).running).toBe(false);
+
+    // Nothing leaked: the pools hand back the very ports they did before the race.
+    const httpAfter = allocatePort();
+    releasePort(httpAfter);
+    const adminAfter = allocateAdminPort();
+    releaseAdminPort(adminAfter);
+    expect(httpAfter).toBe(httpBefore);
+    expect(adminAfter).toBe(adminBefore);
+  });
+
   it("ignores sync when nothing is running", async () => {
     delete process.env.OCTO_BIN_PATH;
     const result = await sync(NS, "service:\n  name: x\n");
