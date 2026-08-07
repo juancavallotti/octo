@@ -85,6 +85,14 @@ jobs:
   # the standalone services provider, so the image has no NATS/Kubernetes
   # dependency. The cluster image the orchestrator deploys keeps -tags k8s and is
   # built separately by cloudbuild.yaml into Artifact Registry.
+  #
+  # This one build is also pushed as octo-devruntime-paas — the runtime a dev run
+  # executes, which a private-registry install pulls under the -paas name. It is
+  # byte-for-byte the standalone runtime (GOTAGS=""), so it is TAGGED from this
+  # single build rather than built again in publish-paas-images: two independent
+  # docker builds of the same source guarantee nothing about their digests, and a
+  # dev run whose runtime silently drifts from the advertised public one is the
+  # bug this arrangement exists to prevent.
   publish-runtime:
     needs: release-check
     if: ${{ inputs.tag != '' || startsWith(github.ref, 'refs/tags/v') }}
@@ -114,9 +122,13 @@ jobs:
             GOTAGS=
           platforms: linux/amd64,linux/arm64
           push: true
+          # Both repository names come off this one build, so octo-devruntime-paas
+          # and the public octo-runtime share a digest by construction.
           tags: |
             docker.io/juancavallotti/octo-runtime:${{ steps.ver.outputs.version }}
             docker.io/juancavallotti/octo-runtime:latest
+            docker.io/juancavallotti/octo-devruntime-paas:${{ steps.ver.outputs.version }}
+            docker.io/juancavallotti/octo-devruntime-paas:latest
 
   # Publish the PaaS-side images — the editor, orchestrator, log aggregator,
   # schema applier, and the k8s-flavoured runtime the orchestrator deploys per
@@ -164,17 +176,9 @@ jobs:
           - image: octo-devsidecar-paas
             context: ./sidecars
             dockerfile: sidecars/dev/Dockerfile
-          # The runtime a dev run executes: the SAME Dockerfile as octo-runtime-paas
-          # but with GOTAGS empty, so it carries the standalone services provider
-          # instead of the k8s one. An editor Run should not ship logs to the
-          # aggregator, take cluster queues or elect a leader — and the k8s build
-          # cannot do without those, since it has no standalone provider compiled in.
-          # Published under the -paas registry so a private-registry install has it;
-          # the public octo-runtime image is the same build.
-          - image: octo-devruntime-paas
-            context: .
-            dockerfile: runtime/Dockerfile
-            buildArgs: GOTAGS=
+          # NOTE: octo-devruntime-paas is NOT built here. It is byte-for-byte the
+          # standalone runtime (GOTAGS=""), so publish-runtime tags it from that one
+          # build to guarantee an identical digest — building it again here would not.
     steps:
       - uses: actions/checkout@v4
         with:
