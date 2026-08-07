@@ -39,7 +39,14 @@ export async function reapIdle(now: number = Date.now()): Promise<void> {
  * process alive on its own. */
 export function ensureReaper(): void {
   if (store.__octoRunReaper) return;
-  const timer = setInterval(() => void reapIdle(), REAPER_INTERVAL_MS);
+  const timer = setInterval(() => {
+    // A sweep that throws (a stubborn stop, say) must not surface as an unhandled
+    // rejection: Node turns those into a process-ending exception, so a single bad
+    // sweep would take the whole editor down. Log it and let the next tick try again.
+    reapIdle().catch((err) => {
+      console.error("[octo] idle-run reaper sweep failed:", err);
+    });
+  }, REAPER_INTERVAL_MS);
   timer.unref?.();
   store.__octoRunReaper = timer;
 }

@@ -1,10 +1,10 @@
 // @vitest-environment node
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, writeFile, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { allSessions, start, status, stop } from "./localRunner";
-import { reapIdle } from "./reaper";
+import { allSessions, start, status, stop, type Session } from "./localRunner";
+import { ensureReaper, reapIdle } from "./reaper";
 
 async function fakeBin(dir: string, name: string, body: string): Promise<string> {
   const path = join(dir, name);
@@ -55,5 +55,54 @@ describe("idle reaper", () => {
 
   it("does nothing when nothing is idle", async () => {
     await expect(reapIdle()).resolves.toBeUndefined();
+  });
+
+  // The interval must swallow a sweep that throws. Without the guard, void reapIdle()
+  // turns a failed sweep into an unhandled rejection, which Node escalates to a
+  // process-ending exception. Drive one tick with a session whose teardown throws and
+  // assert the interval caught it rather than letting it escape.
+  it("swallows a failing sweep instead of crashing the interval", async () => {
+    const reaperStore = globalThis as unknown as {
+      __octoRunReaper?: ReturnType<typeof setInterval>;
+    };
+    // Drop any interval an earlier test created so ensureReaper builds a fresh one under
+    // fake timers we can drive deterministically.
+    if (reaperStore.__octoRunReaper) {
+      clearInterval(reaperStore.__octoRunReaper);
+      reaperStore.__octoRunReaper = undefined;
+    }
+    vi.useFakeTimers();
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const boom = {
+      namespace: "boom0000",
+      lastActivity: 0, // long idle → swept this tick
+      proc: null,
+      exit: null,
+      configPath: null,
+      logs: {
+        push() {
+          throw new Error("teardown blew up");
+        },
+      },
+      port: null,
+      adminPort: null,
+      exposable: false,
+      stagedResources: [],
+      declaredResources: [],
+    } as unknown as Session;
+    allSessions().set("boom0000", boom);
+
+    try {
+      ensureReaper();
+      // One REAPER_INTERVAL_MS sweep; the async form also flushes the .catch microtask.
+      await vi.advanceTimersByTimeAsync(60 * 1000);
+      expect(errors).toHaveBeenCalled();
+    } finally {
+      if (reaperStore.__octoRunReaper) clearInterval(reaperStore.__octoRunReaper);
+      reaperStore.__octoRunReaper = undefined;
+      allSessions().delete("boom0000");
+      errors.mockRestore();
+      vi.useRealTimers();
+    }
   });
 });
