@@ -1,0 +1,131 @@
+service:
+  name: http-sse
+
+# Demonstrates server-sent events on an HTTP route: the connection stays open and
+# the flow pushes frames to the caller with the "sse-event" block, instead of
+# returning one buffered response.
+#
+# Two things are worth watching here:
+#
+#   1) The response is committed by the FIRST frame, not by the request. Until a
+#      block emits, the route behaves exactly like an ordinary one — which is why
+#      /progress can still reject a request with a real 400 and a JSON body (try
+#      it with ?fail=1) even though it is an SSE route.
+#
+#   2) The stream has an address of its own, in vars.sseStream, of the form
+#      "<connector>:<id>". It is NOT the message's EventID, which gets rekeyed
+#      whenever a message crosses into another invocation — so an sse-event inside
+#      a flow-ref, a split, or a queued job still finds the caller's connection,
+#      and because the address names its own connector it needs no configuration
+#      to get there. /countdown below is exactly that.
+#
+# Declares HTTP_PORT, so run_integration returns a test URL. Use curl -N so it
+# does not buffer:
+#   curl -N <testUrl>progress          # status/progress/done frames, then EOF
+#   curl -i <testUrl>progress?fail=1   # 400 + JSON: no frame was ever emitted
+#   curl -N <testUrl>countdown         # three frames from a sub-flow, then close
+
+env:
+  - name: HTTP_HOST
+    default: 0.0.0.0
+  - name: HTTP_PORT
+    default: "8080"
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      host: ${HTTP_HOST}
+      port: ${HTTP_PORT}
+
+flows:
+  - name: progress
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /progress
+        sse:
+          enabled: true
+          # Send the flow's response message as one last frame before closing.
+          finalEvent: true
+          finalEventName: done
+          heartbeat: 15s
+          maxDuration: 5m
+    process:
+      # A filter in front of the stream still works: nothing has been written yet,
+      # so this is an ordinary 400 with a JSON body, not a frame inside a 200.
+      - type: validate
+        name: reject-early
+        rejectStatus: 400
+        rules:
+          # vars.query only holds the params that were sent, and reading an absent
+          # key is an error in CEL — hence the membership test first.
+          - expr: '!("fail" in vars.query) || vars.query.fail != "1"'
+            message: asked to fail before streaming
+
+      - type: sse-event
+        name: accepted
+        settings:
+          event: status
+          data: '"started"'
+
+      - type: sse-event
+        name: halfway
+        settings:
+          event: progress
+          data: '{"percent": 50}'
+
+      # finalEvent sends this as `event: done`, then the stream closes.
+      - type: set-payload
+        name: finished
+        settings:
+          value: '{"percent": 100}'
+
+    error:
+      # The response may already be a committed 200, in which case a failure can
+      # only be told, not signalled by status. Saying so beats an EOF the client
+      # cannot tell from a clean end of stream.
+      - type: sse-event
+        name: report-failure
+        settings:
+          event: error
+          data: vars.error.message
+          close: true
+
+  # The stream id survives a flow-ref: the sub-flow's message is cloned and
+  # rekeyed, but vars.sseStream travels with it, so its frames reach the same
+  # caller. The block closes the stream itself and stops the flow.
+  - name: countdown
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /countdown
+        sse:
+          enabled: true
+    process:
+      - type: sse-event
+        name: opening
+        settings:
+          event: tick
+          data: '"3"'
+      - type: flow-ref
+        name: emit-rest
+        settings:
+          flow: countdown-tail
+
+  - name: countdown-tail
+    process:
+      - type: sse-event
+        name: two
+        settings:
+          event: tick
+          data: '"2"'
+      - type: sse-event
+        name: one
+        settings:
+          event: tick
+          data: '"1"'
+          close: true
+          stop: true

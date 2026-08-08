@@ -5,6 +5,7 @@ octo_types:
   - http
   - http-client
   - rest
+  - sse-event
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
@@ -58,8 +59,9 @@ Each `http` source binds one route pattern to a flow. The request becomes the fl
 | `correlationIdHeader` | string | No | — | Header to source the correlation ID from. |
 | `rawBodyVar` | string | No | — | Capture the exact request bytes into `vars.<name>` (e.g. to verify an HMAC signature over the raw body). |
 | `rawBody` | boolean | No | `false` | Source the request as raw content: skip the JSON check and store the body as `{contentType, rawData}` using the request's `Content-Type`, instead of parsing it. Lets non-JSON payloads (forms, XML, binary text) enter the flow. |
-| `timeout` | duration | No | connector's `requestTimeout` | Per-route wait for the flow. |
+| `timeout` | duration | No | connector's `requestTimeout` | Per-route wait for the flow. On an SSE route this bounds the wait for the *first frame* instead. |
 | `maxBodyBytes` | int | No | `1048576` | Request body size cap (via `http.MaxBytesReader`). Oversized requests get `413`. |
+| `sse` | object | No | — | Serve the route as a [server-sent event stream](#server-sent-events). Inert unless `sse.enabled`. |
 
 #### How the request maps into the message
 
@@ -80,8 +82,9 @@ Each `http` source binds one route pattern to a flow. The request becomes the fl
 - A flow that exceeds the timeout responds `504`.
 
 The runtime reads the whole request into memory and writes the whole response at
-once — there is no streaming. See [Raw Content and Streaming](/concepts/raw-content)
-for how to serve non-JSON payloads and why the payload is always materialized.
+once. See [Raw Content and Streaming](/concepts/raw-content) for how to serve
+non-JSON payloads and why the payload is always materialized. To push output
+incrementally instead, enable [server-sent events](#server-sent-events).
 
 ### Example
 
@@ -120,6 +123,130 @@ flows:
 
 ```bash
 curl -s localhost:8080/api/v1/orders/42 -H 'X-Tenant: acme'
+```
+
+### Server-sent events
+
+Setting `sse.enabled` on a route turns it into a [server-sent event](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events) stream: the connection stays open and blocks push frames to the caller with [`sse-event`](#sse-event-block), instead of the flow returning one buffered response.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `sse.enabled` | boolean | No | `false` | Serve this route as an event stream. |
+| `sse.streamVar` | string | No | `sseStream` | Variable the stream's address lands in. |
+| `sse.finalEvent` | boolean | No | `false` | Emit the flow's response message as one last frame before closing. |
+| `sse.finalEventName` | string | No | — | The `event:` name for that final frame. |
+| `sse.closeOnComplete` | boolean | No | `true` | Close the stream when the flow's own invocation terminates. |
+| `sse.heartbeat` | duration | No | `15s` | How often an idle stream writes a `: ping` comment. `0` means the default, not "off". |
+| `sse.maxDuration` | duration | No | unlimited | Hard cap on how long one stream may stay open. |
+| `sse.maxStreams` | int | No | unlimited | Concurrent streams this route holds open; over the cap, requests get `503`. |
+
+#### The stream address
+
+A stream is addressed by an id of its own, minted when the route accepts the request and published in `vars.sseStream` as `<connector>:<id>`. It is deliberately **not** the message's `EventID`, which is rekeyed whenever a message crosses into another invocation — `flow-ref`, `split` and `queue-dispatch` all do it, so a block reading `EventID` inside any of them would find the wrong one.
+
+The address is an ordinary string in an ordinary variable, so it survives every copy, rekey and serialization a message goes through. That is what makes an `sse-event` in a `flow-ref`'d sub-flow write to the caller's connection with no configuration at all. And because the address names its own connector, a flow can hand it somewhere else entirely:
+
+```yaml
+# Hand the stream to a queued job, which writes progress back to the same caller.
+- type: queue-dispatch
+  settings:
+    subject: '"jobs.render"'
+```
+
+The worker points the block's `stream` setting at wherever the address landed — say `body.stream` — and needs nothing else.
+
+<Callout type="warn">
+A stream is a live connection on **one** process. A queued job picked up by another replica resolves the address and finds nothing, landing on the block's `ifClosed` policy. Cross-replica streaming is not supported yet.
+</Callout>
+
+#### The response is committed by the first frame
+
+Nothing is written until a block emits, which is what lets everything before that behave like an ordinary route:
+
+- A filter that rejects — `jwt-validate`, `validate` — still returns a real `401`/`400` with its own body, because no stream was ever opened.
+- `vars.httpStatus` and `responseHeaders` still apply, and `responseHeaders` are read off the message that emits the *first* frame.
+- A flow that emits nothing still gets the buffered JSON response it would have got without `sse`.
+- A **dropped** message responds `204`, and a failure before any frame is an ordinary `500`.
+
+Once a frame goes out the response is a committed `200 text/event-stream`, so from that point a failure can only be *told*, not signalled by status: an unhandled failure sends `event: error` with a `{"error": ...}` payload and closes. Put an `sse-event` in the flow's `error:` chain to say something else instead.
+
+#### When the stream closes
+
+Whichever comes first: an `sse-event` with `close: true`; the flow's terminal event (unless `closeOnComplete: false`); the client disconnecting; `maxDuration`; or connector shutdown.
+
+`closeOnComplete: false` is for a flow that hands its work off and finishes early — a `split`, or a `queue-dispatch`. The invocation that opened the stream terminates immediately, but the detached invocations are the ones with something to say. Pair it with `maxDuration`, or a stream nothing closes leaks, and raise `timeout` to cover the wait for the first frame.
+
+<Callout>
+The client disconnecting does **not** cancel the flow — a flow keeps running once it has accepted a message. The block's default `ifClosed: stop` is how a flow notices and stops producing output nobody will read.
+</Callout>
+
+#### `sse-event` block
+
+Writes one frame to an open stream.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `event` | string | No | — | The `event:` name. Empty means an unnamed event, which browsers deliver to `EventSource.onmessage`. |
+| `data` | CEL | No | the message body as JSON | The frame's payload. Multi-line values are encoded as multiple `data:` lines. |
+| `stream` | CEL | No | `vars.sseStream` | Which stream to write to. Set it when the route renames the variable, or when the address reached this flow another way. |
+| `connector` | connector ref | No | `http` | Which `http` connector owns the stream. Rarely needed — an address published by a route already names its connector. It applies only to a bare id. |
+| `close` | boolean | No | `false` | End the stream after this frame. |
+| `stop` | boolean | No | `false` | Stop the flow after this frame. Usually paired with `close`. |
+| `ifClosed` | enum | No | `stop` | What to do when the stream has already ended: `stop`, `ignore`, or `error`. |
+
+A block with neither `event` nor data writes nothing — that is how you close a stream without sending a final frame.
+
+The block draws a deliberate line between two failures. Being **wired up wrong** — no address resolvable, or a connector that is not configured — always fails the block, whatever `ifClosed` says. **Nobody listening** — the client hung up, the stream expired, or it lives on another replica — is an ordinary runtime condition that `ifClosed` decides.
+
+<Callout type="warn">
+`EventSource` cannot send an `Authorization` header, so `jwt-validate` in front of an SSE route only works for non-browser clients. Browsers need a cookie or a query parameter.
+</Callout>
+
+#### Example
+
+Adapted from `samples/http-sse.yaml`:
+
+```yaml
+flows:
+  - name: progress
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /progress
+        sse:
+          enabled: true
+          finalEvent: true
+          finalEventName: done
+    process:
+      - type: sse-event
+        name: accepted
+        settings:
+          event: status
+          data: '"started"'
+
+      - type: sse-event
+        name: halfway
+        settings:
+          event: progress
+          data: '{"percent": 50}'
+
+      # The final message is sent as `event: done` by finalEvent, then the
+      # stream closes.
+      - type: set-payload
+        settings:
+          value: '{"percent": 100}'
+    error:
+      # The response is already a committed 200, so failures are told as frames.
+      - type: sse-event
+        settings:
+          event: error
+          data: 'vars.error.message'
+          close: true
+```
+
+```bash
+curl -N localhost:8080/progress
 ```
 
 ## `http-client` connector

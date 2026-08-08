@@ -1,0 +1,88 @@
+flow: progress
+
+# An SSE flow under `invoke` has no stream to write to: invoke mode replaces the
+# route with an implicit source and skips the connector behind it, so there is no
+# request, no connection and no stream. That is not a gap in the test tool — it is
+# what an invoke IS. So the sse-event blocks are mocked, the way a test mocks the
+# block that would have called a payment API.
+#
+# What these cases prove is the part dolphin can see:
+#   - the flow reaches each emit point, once, in order, carrying the right message
+#   - a filter in front of the stream rejects with a real status and never emits
+#   - without a live stream the block fails loudly instead of pretending it wrote
+#
+# What they CANNOT prove, and what covers it instead:
+#   - the frames themselves. A spy records the messages in and out of a block, and
+#     sse-event is a wire-tap whose output IS its input — the rendered frame is
+#     never a message, so nothing here can assert on it. Mocking makes that
+#     stricter still: the mock replaces the block, so its `data` expression is
+#     never evaluated and a typo in one would pass every case below.
+#   - anything the route owns: lazy headers, finalEvent, closeOnComplete,
+#     heartbeat, maxDuration, maxStreams, the first-frame timeout. Sources do not
+#     run under invoke.
+# Both are covered by Go tests in runtime/connectors/http (sse_test.go,
+# ssesource_test.go, sseevent_test.go), which drive a real listener.
+
+# The mocks live on the cases rather than the file: the last case needs the REAL
+# block, and a file-level mock cannot be lifted for one case — an address named in
+# a case replaces the file's entry for that block, but there is no way to say "no
+# mock here".
+
+cases:
+  - name: every emit point is reached in order with its payload, and the flow answers with the final body
+    input:
+      # vars.query is what the http source would have populated; invoke does not.
+      vars:
+        query: {}
+    mocks:
+      # Stand in for every write to the caller's connection, the way a test mocks
+      # the block that would have called a payment API.
+      progress.accepted: { default: { body: {} } }
+      progress.halfway: { default: { body: {} } }
+    expect:
+      # The response message is what finalEvent sends as the last frame.
+      body:
+        percent: 100
+    spies:
+      progress.accepted:
+        count: 1
+      progress.halfway:
+        count: 1
+      progress.finished:
+        count: 1
+        records:
+          - output:
+              body:
+                percent: 100
+
+  - name: a filter in front of the stream rejects without emitting anything
+    input:
+      vars:
+        query:
+          fail: "1"
+    mocks:
+      progress.accepted: { default: { body: {} } }
+      progress.halfway: { default: { body: {} } }
+    expect:
+      # No frame was written, so the route is still an ordinary one and the reject
+      # is a real status with a JSON body — the whole point of opening lazily.
+      body:
+        error: validation_failed
+        messages:
+          - asked to fail before streaming
+      vars:
+        httpStatus: 400
+    spies:
+      # The proof that nothing streamed: the first emit point was never reached.
+      progress.accepted:
+        count: 0
+
+  - name: without a live stream an sse-event fails rather than pretending it wrote
+    # No mocks here: the real block runs and finds no connector, because invoke
+    # skips the one the route was bound to. Failing loudly is deliberate — a
+    # silent success would let a broken flow pass its tests.
+    input:
+      vars:
+        query: {}
+    expect:
+      error: sse-event
