@@ -1,0 +1,133 @@
+# Local k3d + Traefik (classic Ingress) profile.
+#
+#   helm upgrade --install octo ./helm -n octo-dev --create-namespace -f helm/values-k3d-traefik.yaml
+#
+# Unlike values-k3d.yaml (which reaches the editor/orchestrator through fixed
+# NodePorts) this profile fronts everything with the Traefik ingress controller
+# that k3s ships, so the editor and every per-integration app are reached by
+# hostname over HTTPS:
+#
+#   editor  ->  https://local.octopaas.dev:8443
+#   apps    ->  https://<subdomain>.apps.local.octopaas.dev:8443  (dev runs + deploys)
+#
+# HTTPS (not plain HTTP) because .dev is on the browsers' HSTS preload list: a
+# browser force-upgrades http://*.dev to https:// and refuses a self-signed cert
+# with no click-through. So Traefik terminates TLS with a locally-trusted mkcert
+# certificate, referenced by the Secret `octo-local-tls` (created out of band from
+# `mkcert local.octopaas.dev "*.apps.local.octopaas.dev"`; this chart does not
+# issue it — clusterIssuer is empty everywhere below).
+#
+# Port 8443, not 443, because Docker Desktop persistently occupies host :443 on
+# this machine (dockerd binds 0.0.0.0:443 inside the VM), so k3d cannot publish
+# 443. serverlb maps host :8443 -> node :443 -> Traefik's websecure entrypoint.
+# NOTE: the orchestrator emits per-app URLs as https://<sub>...:443 (no port), so
+# those links need :8443 appended by hand until host 443 is freed.
+#
+# *.octopaas.dev already resolves to 127.0.0.1 (public wildcard DNS), so no
+# /etc/hosts entry is needed. Images are built locally and side-loaded with
+# `k3d image import`; nothing is ever pulled.
+
+image:
+  # No registry: side-loaded images are addressed by bare name.
+  registry: ""
+  tag: dev
+  # Fixed :dev tags never change, so IfNotPresent must not be Always or the
+  # kubelet would try to reach a registry that has no such image.
+  pullPolicy: IfNotPresent
+
+# Local builds use the short names (Taskfile `cluster:images`), not the
+# published -paas repositories. Services stay ClusterIP (the chart default) —
+# Traefik routes to them by name, so no NodePorts here.
+platform:
+  repository: octo-platform
+  extraEnv:
+    # Auth.js callback/cookie origin. SSO is off locally, but the editor still
+    # reads this to build absolute URLs, and it must match the ingress host.
+    - name: AUTH_URL
+      value: https://local.octopaas.dev:8443
+
+orchestrator:
+  repository: octo-orchestrator
+  # Stage 2: per-integration external endpoints. Every exposed deployment and
+  # every networked dev run gets an Ingress at {subdomain}.apps.local.octopaas.dev,
+  # claimed by the traefik IngressClass below.
+  baseDomain: apps.local.octopaas.dev
+  ingressClass: traefik
+  # No cert-manager locally, so no per-host Certificate is issued. TLS still
+  # terminates on the per-app Ingresses: wildcardTLS below hands the orchestrator
+  # the pre-issued mkcert wildcard Secret, which it stamps onto every
+  # {subdomain}.apps.local.octopaas.dev Ingress — so they are served over HTTPS.
+  clusterIssuer: ""
+  # Dev runs on: this is the branch where the feature is developed. baseDomain is
+  # set above, so a networked run also publishes a public host under
+  # *.apps.local.octopaas.dev (reachable over HTTPS at https://<sub>...:8443).
+  devRuns:
+    enabled: true
+    # A throwaway, fine for a laptop cluster reachable only through k3d's port
+    # mapping. values.yaml ships it empty and the chart refuses to render without
+    # one, so it is written down here.
+    hashSecret: local-dev-not-a-secret
+    # Short enough to watch the reaper work without leaving a tab open for an hour.
+    idleTimeout: 10m
+
+logs:
+  repository: octo-logs
+
+schema:
+  repository: octo-schema
+
+runtime:
+  repository: octo-runtime
+
+devsidecar:
+  repository: octo-devsidecar
+
+devruntime:
+  repository: octo-devruntime
+
+# Traefik ingress for the editor, terminating TLS with the pre-created mkcert
+# Secret (mode "secret" = reference an existing Secret; the chart issues nothing).
+# Required because .dev is HSTS-preloaded, so a browser refuses plain HTTP and
+# refuses a self-signed cert with no click-through.
+ingress:
+  enabled: true
+  className: traefik
+  host: local.octopaas.dev
+  tls:
+    enabled: true
+    mode: secret
+    secretName: octo-local-tls
+
+# Per-integration / dev-run endpoints reuse the SAME mkcert Secret as a pre-issued
+# wildcard for *.apps.local.octopaas.dev. clusterIssuer empty => the chart creates
+# no Certificate, it only references this Secret; the orchestrator then stamps a
+# tls stanza on every {subdomain}.apps.local.octopaas.dev Ingress so Traefik serves
+# them over HTTPS with the trusted cert.
+wildcardTLS:
+  enabled: true
+  secretName: octo-local-tls
+  clusterIssuer: ""
+
+auth:
+  oidc:
+    enabled: false
+
+kv:
+  # Fixed, deliberately non-secret development key so KV secret namespaces work
+  # locally without generating one per developer. Committed on purpose and must
+  # never be used anywhere real.
+  encryptionKey: "RwbauJ1U7IvkOl8IZsNCQNShHGA/sqP+TQymYAkOFQ8="
+
+postgres:
+  auth:
+    # No default password in the chart (it is published); a laptop cluster is the
+    # one place a throwaway is fine, so it is written down here.
+    password: octo
+  storage:
+    # This cluster was NOT created by `task cluster:deploy`, so it has no ./data
+    # host mount. Use the dynamic local-path provisioner k3s ships (empty
+    # hostPath) instead of the static hostPath PV — the data is throwaway and
+    # lives inside the node container.
+    hostPath: ""
+    storageClassName: ""
+    size: 5Gi
