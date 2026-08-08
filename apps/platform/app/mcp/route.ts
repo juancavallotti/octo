@@ -16,6 +16,7 @@ import {
   orchestratorResourceStore,
   orchestratorSuiteStore,
 } from "./store-adapter";
+import { devRunMcpHost } from "./run-host";
 import { verifyMcpToken } from "./verify-token";
 import { MCP_ORIGIN, RESOURCE_METADATA_PATH } from "./oauth-config";
 
@@ -33,12 +34,13 @@ import { MCP_ORIGIN, RESOURCE_METADATA_PATH } from "./oauth-config";
  * own authentication.
  *
  * Integrations come from the orchestrator; definitions are validated with the
- * editor's pre-flight; run-control tools use the in-process `@octo/run-host` (the
- * handler's default — the same runner the editor's RUN feature uses).
+ * editor's pre-flight; run control goes to dev-run pods with one-shots staying local
+ * (see ./run-host).
  *
- * The verified token is an authentication boundary only: runs stay keyed by MCP
- * session id and integrations are not yet partitioned per user (the resolved
- * user id rides along on `AuthInfo.extra` for when they are).
+ * The verified token is no longer only an authentication boundary: the user id it
+ * resolves onto `AuthInfo.extra` is half of a dev run's identity, so a long-running
+ * app started here belongs to the caller and is the same run the editor would attach
+ * to. Integrations themselves are still not partitioned per user.
  */
 
 export const runtime = "nodejs";
@@ -98,13 +100,14 @@ const handler = createOctoMcpHandler(
     // The integration's dolphin suites, so an agent can write a test and then run it —
     // the same files the Testing tab shows and CI runs.
     suiteStore: orchestratorSuiteStore,
-    // Absolutize a run's test URL when the public origin is known (Auth.js's
-    // canonical var); otherwise the bare /editor/runs/<ns>/ path is returned.
-    baseUrl: process.env.AUTH_URL,
+    // No baseUrl: a dev run's address is a hostname of its own, so there is no origin to
+    // resolve it against. Only a host that proxies to a child of itself needs one.
     // Point the authoring prompt at the human docs when configured.
     docsUrl: process.env.OCTO_DOCS_URL,
   },
   {
+    // Dev-run pods for the long-running app, local children for the one-shots.
+    runHost: devRunMcpHost,
     basePath: "", // route lives at /mcp, so the streamable endpoint is /mcp
     serverInfo: {
       name: "octo-platform",

@@ -4,6 +4,7 @@
     "architecture",
     "integrations",
     "deployments",
+    "dev-runs",
     "snapshots",
     "resources-and-secrets",
     "kv-and-storage",

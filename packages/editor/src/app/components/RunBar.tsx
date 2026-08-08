@@ -58,7 +58,7 @@ export default function RunBar() {
   const blocked = !validation.ok;
   const title = blocked
     ? `Fix before running:\n• ${issueMessages(validation).join("\n• ")}`
-    : "Run this integration with hot reload";
+    : "Run this integration";
 
   return (
     <div className="ml-auto flex items-center gap-2">

@@ -51,6 +51,29 @@
 - name: BASE_DOMAIN
   value: {{ .Values.orchestrator.baseDomain | quote }}
 {{- end }}
+{{- if .Values.orchestrator.devRuns.enabled }}
+{{- /* Dev runs: the editor's Run as a pod of its own. The orchestrator reads the two
+       images together with ORCHESTRATOR_URL (set above) to decide the feature is on —
+       each one's absence alone would produce a pod that fails rather than a feature
+       that degrades, so they are emitted as a set or not at all.
+
+       Note which runtime image this is: devruntime, the standalone build. The
+       RUNTIME_IMAGE above is the k8s build, which exits without a runtime-services
+       module and has no business in an editor's run. */}}
+- name: DEV_RUNTIME_IMAGE
+  value: {{ include "octo-common.image" (dict "root" . "component" "devruntime") | quote }}
+- name: DEV_SIDECAR_IMAGE
+  value: {{ include "octo-common.image" (dict "root" . "component" "devsidecar") | quote }}
+- name: DEV_RUN_SIDECAR_PORT
+  value: {{ .Values.orchestrator.devRuns.sidecarPort | quote }}
+- name: DEV_RUN_IDLE_TIMEOUT
+  value: {{ .Values.orchestrator.devRuns.idleTimeout | quote }}
+- name: DEV_RUN_HASH_SECRET
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "octo.devRuns.secretName" . }}
+      key: dev-run-hash-secret
+{{- end }}
 {{- /* Which API the orchestrator publishes per-integration endpoints with, and
        the settings that API needs. Only one set is emitted: the other is inert
        in the orchestrator anyway, and a pod environment listing an IngressClass

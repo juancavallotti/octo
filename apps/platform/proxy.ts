@@ -21,12 +21,10 @@ function isPublic(pathname: string): boolean {
     // token), so it must bypass the OIDC session gate — see app/mcp/route.ts.
     pathname === "/mcp" ||
     pathname.startsWith("/mcp/") ||
-    // The run proxy (app/editor/runs/[ns]/…) lets a user hit their running
-    // integration's HTTP endpoints for testing. The run namespace in the URL is
-    // an unguessable token and the target is a local process, so — like /mcp —
-    // it must bypass the OIDC session gate; otherwise every run URL (including
-    // webhook callbacks) is redirected to sign-in.
-    pathname.startsWith("/editor/runs/") ||
+    // There is deliberately no exemption for a running integration any more. Nothing
+    // runs in this pod for longer than a request: a run is a pod of its own, reached at
+    // its own hostname, so a webhook callback never passes through here to be redirected
+    // to sign-in in the first place.
     pathname === "/octo-logo.png" ||
     pathname === "/icon.png"
   );

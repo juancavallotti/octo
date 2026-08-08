@@ -6,9 +6,10 @@ description: "The editor architecture: the shared editor library and the local r
 import { Callout } from 'fumadocs-ui/components/callout';
 
 The standalone editor is a small Next.js app wrapped around two shared
-packages: the visual editor UI and a run host that spawns the real runtime.
-Understanding the seams explains both why it needs no infrastructure and why
-flows built here carry over to the platform unchanged.
+packages — the visual editor UI and a run host — plus the piece it owns itself:
+the runner that spawns the real runtime beside it. Understanding the seams
+explains both why it needs no infrastructure and why flows built here carry
+over to the platform unchanged.
 
 ```
 ┌────────────────────────── Browser ──────────────────────────┐
@@ -18,7 +19,7 @@ flows built here carry over to the platform unchanged.
                 │ load / save                 │ run / logs
 ┌───────────────▼─────────────────────────────▼────────────────┐
 │              Next.js app (apps/standalone)                    │
-│  local-disk flow store          @octo/run-host                │
+│  local-disk flow store          its own local runner          │
 │  *.yaml under OCTO_FS_DIR       spawns `octo run ... -watch`  │
 └───────────────┬─────────────────────────────┬────────────────┘
         ┌───────▼────────┐            ┌───────▼────────┐
@@ -44,13 +45,17 @@ all of them:
 - **Resource and dev-env stores** — a flow's env files and templates (like
   `.env.dev` or `templates/welcome.tmpl`) are plain files in the same
   directory.
-- **Run transport** — server actions that drive `@octo/run-host`, plus a
+- **Run transport** — server actions that drive this app's own runner, plus a
   server-sent-events route that streams logs to the console.
 
 ## The run host
 
-`@octo/run-host` is the server-side manager for the editor's Run feature. On
-Run it:
+This app's runner is the server-side manager for the Run feature, built on the
+staging, binary-probing and one-shot helpers `@octo/run-host` shares with the
+platform. The runner itself lives here, in `app/run/localRunner.ts`, because
+running the app as a child of the editor's own process is what *this* host does
+— the platform runs it in a pod of its own instead, and the two share the
+interface rather than an implementation. On Run it:
 
 1. Renders the editor's document to a config file in a per-session directory
    under `OCTO_RUN_DIR`, staging the flow's declared resources beside it.

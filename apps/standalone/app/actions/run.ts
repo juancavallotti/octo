@@ -1,10 +1,15 @@
 "use server";
 
 /**
- * Server actions for the editor's RUN feature (standalone). They drive the
- * in-process @octo/run-host directly (no HTTP, no auth — local-only), keyed by the
- * calling tab's run namespace. The live log stream stays an SSE route
- * (`/api/run/logs`), which resolves the same namespace from the same two halves.
+ * Server actions for the editor's RUN feature (standalone). They drive this app's own
+ * runner directly (no HTTP, no auth — local-only), keyed by the calling tab's run
+ * namespace. The live log stream stays an SSE route (`/api/run/logs`), which resolves the
+ * same namespace from the same two halves.
+ *
+ * The long-running app comes from `../run/localRunner`, which this app owns: it spawns
+ * `octo run --watch` as a child of this very process, and nothing else runs that way. The
+ * one-shots and the binary probes come from @octo/run-host, which both hosts share because
+ * both run them identically.
  *
  * Every action leads with `tabId`, the browser half of that namespace (see
  * `../run/namespace`). It is a separate parameter rather than a field on the
@@ -13,16 +18,15 @@
  */
 
 import {
+  binaries,
   evalCel,
   invoke,
   probeTestVersion,
   probeVersion,
-  start,
-  status,
-  stop,
-  sync,
   test,
+  type RunState,
 } from "@octo/run-host";
+import { start, status, stop, sync } from "../run/localRunner";
 import type {
   CelEvalRequest,
   CelEvalResult,
@@ -36,13 +40,24 @@ import type { ActionResult } from "@octo/http";
 import { ensureRunNamespace } from "../run/namespace";
 import { fsResourceProvider } from "../run/resources";
 
+/**
+ * The editor's snapshot, composed from the two things it asks about at once: what this
+ * host can spawn (its binaries) and what the app runner is currently doing.
+ *
+ * They are separate because they answer to different owners — a binary is installed on
+ * the host, a run belongs to a backend — and here they happen to be the same process.
+ */
+function snapshotOf(state: RunState): RunStatusSnapshot {
+  return { ...binaries(), ...state };
+}
+
 /** Whether RUN is available, whether this browser's runner is live, and its version. */
 export async function runStatus(tabId: string): Promise<ActionResult<RunStatusSnapshot>> {
-  // Warm both version caches so status() can read them synchronously. Two
+  // Warm both version caches so binaries() can read them synchronously. Two
   // binaries, two probes: dolphin can be absent while octo is present.
   await Promise.all([probeVersion(), probeTestVersion()]);
   const ns = await ensureRunNamespace(tabId);
-  return { ok: true, data: status(ns) };
+  return { ok: true, data: snapshotOf(status(ns)) };
 }
 
 /** Render the config and (re)start this browser's runner. */
@@ -51,7 +66,7 @@ export async function runStart(
   yaml: string,
 ): Promise<ActionResult<RunStatusSnapshot>> {
   const ns = await ensureRunNamespace(tabId);
-  if (!status(ns).available) {
+  if (!binaries().available) {
     return { ok: false, error: "Runner not available (OCTO_BIN_PATH unset)." };
   }
   if (typeof yaml !== "string" || yaml.trim() === "") {
@@ -60,7 +75,7 @@ export async function runStart(
   try {
     return {
       ok: true,
-      data: await start(ns, yaml, undefined, { resources: fsResourceProvider }),
+      data: snapshotOf(await start(ns, yaml, undefined, { resources: fsResourceProvider })),
     };
   } catch (err) {
     return { ok: false, error: (err as Error).message };
@@ -70,7 +85,7 @@ export async function runStart(
 /** Stop this browser's runner and clean up its config file. */
 export async function runStop(tabId: string): Promise<ActionResult<RunStatusSnapshot>> {
   const ns = await ensureRunNamespace(tabId);
-  return { ok: true, data: await stop(ns) };
+  return { ok: true, data: snapshotOf(await stop(ns)) };
 }
 
 /** Evaluate a single CEL expression against an ad-hoc object (no flow run). */
@@ -78,8 +93,9 @@ export async function runEvalCel(
   tabId: string,
   req: CelEvalRequest,
 ): Promise<ActionResult<CelEvalResult>> {
-  const ns = await ensureRunNamespace(tabId);
-  if (!status(ns).available) {
+  // No namespace: `octo eval` reads an expression and an object, spawns nothing that
+  // outlives the call, and stages no files — so there is nothing for one to scope.
+  if (!binaries().available) {
     return { ok: false, error: "Runner not available (OCTO_BIN_PATH unset)." };
   }
   if (typeof req?.expression !== "string" || req.expression.trim() === "") {
@@ -112,7 +128,7 @@ export async function runInvoke(
   req: FlowRunRequest,
 ): Promise<ActionResult<FlowRunOutcome>> {
   const ns = await ensureRunNamespace(tabId);
-  if (!status(ns).available) {
+  if (!binaries().available) {
     return { ok: false, error: "Runner not available (OCTO_BIN_PATH unset)." };
   }
   if (typeof req?.yaml !== "string" || req.yaml.trim() === "") {
@@ -163,7 +179,7 @@ export async function runTest(
   req: TestRunRequest,
 ): Promise<ActionResult<TestRunOutcome>> {
   const ns = await ensureRunNamespace(tabId);
-  if (!status(ns).testAvailable) {
+  if (!binaries().testAvailable) {
     return { ok: false, error: "Test runner not available (DOLPHIN_BIN_PATH unset)." };
   }
   if (typeof req?.yaml !== "string" || req.yaml.trim() === "") {

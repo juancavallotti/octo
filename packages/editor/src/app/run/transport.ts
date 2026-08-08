@@ -158,28 +158,79 @@ export interface RunStatusSnapshot {
   testAvailable: boolean;
   /** dolphin's `version` line, or null when unknown/unavailable. */
   testVersion: string | null;
-  /** App-relative path that proxies to the running networked integration, or null. */
-  testPath: string | null;
+  /**
+   * Whether this run will ever have a {@link testUrl} — i.e. it declares an HTTP_PORT and
+   * so is networked. Distinct from `testUrl !== null`: a backend can know a run is exposable
+   * before it can hand out the URL, which is exactly what a dev-run pod does — its public
+   * endpoint is withheld until the pod is ready, so a networked run reports `exposable:true`
+   * with `testUrl:null` for the seconds its image is still pulling. The provider reads it to
+   * decide whether a null URL is "coming" (keep polling) or "never" (a run that serves no
+   * HTTP), so it neither leaves the endpoint link blank on a slow start nor spins forever on
+   * a run that will never publish one.
+   */
+  exposable: boolean;
+  /**
+   * Where to reach the running networked integration, or null when it serves no HTTP.
+   *
+   * App-relative for a host that runs the app itself and proxies to it; absolute for one
+   * that runs it elsewhere and gives it its own hostname. Either is a valid input to
+   * `new URL(value, origin)` — an absolute value ignores the base — so a consumer needs
+   * no branch on which kind it got.
+   *
+   * Null while an {@link exposable} run is still coming up: a dev-run pod's endpoint is held
+   * back until it is ready, so a link offered earlier would answer 502 while the image pulls.
+   */
+  testUrl: string | null;
+  /**
+   * Whether the host reloads the running app when the integration is SAVED, rather than
+   * from the buffer the editor pushes.
+   *
+   * True where the runner reads the stored definition itself; false where it runs
+   * whatever YAML it was last handed. The provider reads it to decide whether to
+   * debounce-push edits at all: pushing a buffer nothing will read is worse than not
+   * pushing, because the RUN panel would then imply the running app had changed.
+   */
+  reloadsOnSave: boolean;
+}
+
+/**
+ * Which run an operation addresses.
+ *
+ * The open integration, when it is saved. Every method carries it — not only the ones
+ * that need its resources — because a host may key the run itself on it: one that runs
+ * the app beside the editor keys on the browser instead and ignores this, while one that
+ * runs it elsewhere has nothing else to name it by. A draft has no id and so cannot be
+ * addressed by the second kind at all.
+ */
+export interface RunTarget {
+  integrationId?: string;
 }
 
 /** Moves RUN requests/streams to a backend; carries no client policy itself. */
 export interface RunTransport {
   /** Current availability/running state (used on mount and to reattach). */
-  status(): Promise<RunStatusSnapshot>;
+  status(target: RunTarget): Promise<RunStatusSnapshot>;
   /**
-   * Start a runner for the given config; resolves to the new state. `integrationId`
-   * identifies the open integration so the host can resolve its resources (env
-   * files, templates, and the dev-env `.env.dev`) from its backend; absent for an
-   * unsaved draft.
+   * Start a runner for the given config; resolves to the new state. The target's
+   * `integrationId` also lets the host resolve the integration's resources (env files,
+   * templates, and the dev-env `.env.dev`) from its backend.
+   *
+   * `yaml` carries the same caveat as {@link sync}'s: a host whose runner pulls the
+   * stored definition runs what was SAVED and ignores it, and refuses a draft outright
+   * — there is nothing stored to run.
    */
-  start(args: {
-    yaml: string;
-    integrationId?: string;
-  }): Promise<RunStatusSnapshot>;
+  start(args: RunTarget & { yaml: string }): Promise<RunStatusSnapshot>;
   /** Stop the current runner. */
-  stop(): Promise<void>;
-  /** Push a new config to the running runner so it hot-reloads. */
-  sync(args: { yaml: string; integrationId?: string }): Promise<void>;
+  stop(target: RunTarget): Promise<void>;
+  /**
+   * Make the running runner pick up the current definition.
+   *
+   * `yaml` is meaningful only to a host that PUSHES config: it writes what it is handed.
+   * A host whose runner pulls the stored definition ignores it, and there this is an
+   * explicit "reload now" rather than the per-edit trigger — see
+   * {@link RunStatusSnapshot.reloadsOnSave}, which is how a caller knows which it has.
+   */
+  sync(args: RunTarget & { yaml: string }): Promise<void>;
   /**
    * Run one flow once and return what it produced — the editor's debug path, distinct
    * from {@link start}, which boots the whole integration and its sources. Independent
@@ -197,8 +248,14 @@ export interface RunTransport {
    * Subscribe to the runner's log stream. `onLine` receives each line's monotonic
    * sequence number and text; the returned function unsubscribes. Replays and
    * de-duplication are the provider's concern, not the transport's.
+   *
+   * The target is taken here too, for the same reason {@link status} takes it: on a host
+   * that runs the app elsewhere, there is no stream to open without knowing which run.
    */
-  subscribeLogs(onLine: (seq: number, text: string) => void): () => void;
+  subscribeLogs(
+    onLine: (seq: number, text: string) => void,
+    target: RunTarget,
+  ): () => void;
   /**
    * Run a flow's dolphin suites and return the report — the Testing tab's Run.
    *

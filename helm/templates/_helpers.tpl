@@ -63,6 +63,10 @@
 {{- include "octo-common.componentName" (dict "root" . "component" "kv") }}
 {{- end }}
 
+{{- define "octo.devRuns.secretName" -}}
+{{- include "octo-common.componentName" (dict "root" . "component" "devruns") }}
+{{- end }}
+
 {{/*
   ServiceAccount the deployed runtime pods run as. It grants the coordination.k8s.io
   leases RBAC the runtime's k8s services module needs for leader election.

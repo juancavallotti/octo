@@ -135,7 +135,7 @@ export function stagedPathFor(dir: string, name: string): string {
   return path;
 }
 
-/** Atomic write (sibling temp + rename), matching session.ts writeConfig, so the
+/** Atomic write (sibling temp + rename), matching staging.ts's writeConfig, so the
  * runtime's directory watcher observes a single event per staged file. */
 async function atomicWrite(path: string, content: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true });

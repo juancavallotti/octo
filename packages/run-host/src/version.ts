@@ -3,9 +3,10 @@ import { promisify } from "node:util";
 
 /**
  * Probes and caches the version lines of the two binaries the host spawns: `octo`, the
- * runner, and `dolphin`, the test runner behind the editor's Testing tab. Kept apart
- * from session.ts so the process-owning session stays focused; the caches live on
- * `globalThis` (like the session) so they survive Next's dev HMR module reloads.
+ * runner, and `dolphin`, the test runner behind the editor's Testing tab. A fact about the
+ * host rather than about any run, which is why it is here and not on the app-runner port —
+ * on a host whose app runs elsewhere the two answers come apart. The caches live on
+ * `globalThis` so they survive Next's dev HMR module reloads.
  *
  * One module rather than two near-identical ones, because the two probes differ only in
  * which variable names the binary and which word asks it for its version — and a reader
@@ -34,6 +35,38 @@ async function probe(bin: string | undefined, arg: string): Promise<string | nul
   } catch {
     return null;
   }
+}
+
+/** Which binaries the host has for its one-shot runs, and what they are. */
+export interface Binaries {
+  /** Whether `octo` is configured — what gates every one-shot run and the CEL tester. */
+  available: boolean;
+  version: string | null;
+  /** Whether `dolphin` is configured. Separate because either can be absent alone. */
+  testAvailable: boolean;
+  testVersion: string | null;
+}
+
+/**
+ * What this host can spawn, for the editor's status.
+ *
+ * Deliberately not part of what an app runner reports. Whether a binary is installed is
+ * a fact about the HOST, not about the backend running the app — and on a host whose app
+ * runs elsewhere the two answers come apart: it may be unable to start an app while
+ * still running `invoke`, `eval` and a test suite perfectly well, all of which are these
+ * binaries. Conflating them would hide working features whenever the app runner was
+ * unavailable.
+ *
+ * Probe first ({@link probeVersion}, {@link probeTestVersion}) so the versions are warm;
+ * this reads the caches synchronously.
+ */
+export function binaries(): Binaries {
+  return {
+    available: !!process.env.OCTO_BIN_PATH,
+    version: cachedVersion(),
+    testAvailable: !!process.env.DOLPHIN_BIN_PATH,
+    testVersion: cachedTestVersion(),
+  };
 }
 
 /** The cached octo version line (sync); null until probed or when unavailable. */

@@ -169,3 +169,72 @@ func TestServicePassesThroughRepoErrors(t *testing.T) {
 		t.Errorf("delete: got %v, want ErrNotFound", err)
 	}
 }
+
+// fakeNotifier records the integrations it was told about, and can be made to fail.
+type fakeNotifier struct {
+	got []string
+	err error
+}
+
+func (f *fakeNotifier) NotifyIntegrationChanged(_ context.Context, id string) error {
+	f.got = append(f.got, id)
+	return f.err
+}
+
+// TestUpdateNotifies: the reload trigger lives at the write, so every writer is
+// covered — the editor's save, the integrations list, MCP, an API-key client.
+func TestUpdateNotifies(t *testing.T) {
+	notifier := &fakeNotifier{}
+	svc := NewService(&fakeRepo{ret: Integration{ID: "int-1"}}, WithReloadNotifier(notifier))
+
+	if _, err := svc.Update(context.Background(), "int-1", "orders", "definition", "u1"); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if len(notifier.got) != 1 || notifier.got[0] != "int-1" {
+		t.Fatalf("notified %v, want [int-1]", notifier.got)
+	}
+}
+
+// TestUpdateNotifyFailureDoesNotFailTheWrite is the contract, and it is the whole
+// reason the notification is best-effort: a save reported as failed because a pod was
+// unreachable is data loss, where a save that succeeded with a reload that did not is
+// a stale running app the status surface already reports.
+func TestUpdateNotifyFailureDoesNotFailTheWrite(t *testing.T) {
+	notifier := &fakeNotifier{err: errors.New("sidecar unreachable")}
+	repo := &fakeRepo{ret: Integration{ID: "int-1"}}
+	svc := NewService(repo, WithReloadNotifier(notifier))
+
+	got, err := svc.Update(context.Background(), "int-1", "orders", "definition", "u1")
+	if err != nil {
+		t.Fatalf("Update failed because the notification did: %v", err)
+	}
+	if got.ID != "int-1" {
+		t.Errorf("returned %+v, want the persisted integration", got)
+	}
+	if !repo.called {
+		t.Error("the write did not happen")
+	}
+}
+
+// TestUpdateDoesNotNotifyOnAFailedWrite: nothing changed, so nothing should reload —
+// and a reload here would make a dev run re-pull the unchanged definition for nothing.
+func TestUpdateDoesNotNotifyOnAFailedWrite(t *testing.T) {
+	notifier := &fakeNotifier{}
+	svc := NewService(&fakeRepo{retErr: errors.New("constraint violation")}, WithReloadNotifier(notifier))
+
+	if _, err := svc.Update(context.Background(), "int-1", "orders", "definition", "u1"); err == nil {
+		t.Fatal("Update reported success")
+	}
+	if len(notifier.got) != 0 {
+		t.Fatalf("notified %v after a failed write, want nothing", notifier.got)
+	}
+}
+
+// TestWithoutANotifierNothingBreaks: the option is optional, and a self-hosted install
+// with no dev runs must not need it.
+func TestWithoutANotifierNothingBreaks(t *testing.T) {
+	svc := NewService(&fakeRepo{ret: Integration{ID: "int-1"}})
+	if _, err := svc.Update(context.Background(), "int-1", "orders", "definition", "u1"); err != nil {
+		t.Fatalf("Update with no notifier: %v", err)
+	}
+}

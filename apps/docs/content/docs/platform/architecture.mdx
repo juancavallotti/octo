@@ -44,7 +44,9 @@ All control-plane components run in one namespace (`octo-dev` by default) and ar
 
 A Next.js App Router application that serves the visual editor and every platform view. It is also the **backend-for-frontend**: the browser never calls the orchestrator directly. Server actions and route handlers under `app/api` proxy every call using the server-only `ORCHESTRATOR_URL`, so the orchestrator needs no CORS, no public exposure, and no authentication of its own.
 
-Authentication is Auth.js (NextAuth) with an OIDC provider and JWT sessions — no database adapter, so the same config backs both the route handlers and the request proxy (`proxy.ts`), which redirects unauthenticated browser navigations to sign-in and answers unauthenticated `/api/*` calls with a 401. Two paths bypass the session gate because they carry their own authentication: `/mcp` (bearer tokens) and the run proxy under `/editor/runs/`. See [Users and API Keys](/platform/users-and-api-keys).
+Authentication is Auth.js (NextAuth) with an OIDC provider and JWT sessions — no database adapter, so the same config backs both the route handlers and the request proxy (`proxy.ts`), which redirects unauthenticated browser navigations to sign-in and answers unauthenticated `/api/*` calls with a 401. One path bypasses the session gate because it carries its own authentication: `/mcp` (bearer tokens). See [Users and API Keys](/platform/users-and-api-keys).
+
+The platform app holds **no per-run state**, which is what lets it scale past one replica. Pressing **Run** in the editor asks the orchestrator for a [dev run](/platform/dev-runs) — a pod of its own, with its own hostname — rather than starting a process here, so a status call, a log stream, and a Stop all work whichever replica answers them. The MCP endpoint's run tools go to the same place, keyed the same way, so an agent and a human editing one integration share a run. The one-shot debug operations (invoking a single flow, evaluating a CEL expression, running test suites) do still spawn a short-lived child of this pod from the YAML in the request; they finish inside the request, so they never needed to be anywhere else.
 
 ### Orchestrator (`orchestrator/`)
 
@@ -60,6 +62,7 @@ A Go HTTP API, listening on port `8090` by default (`PORT`). It owns all persist
 | apikey | `POST/GET /users/{userId}/apikeys`, `DELETE .../apikeys/{id}`, `POST /apikeys/verify` | database |
 | kv | `GET/PUT/DELETE /deployments/{id}/kv/{namespace}/{key}` + object browser routes | database |
 | deployment | `POST/GET /integrations/{id}/deployments`, `GET/PATCH/DELETE /deployments/{id}`, rollout, pod logs | database + in-cluster Kubernetes |
+| devrun | `POST/GET /devruns`, `GET/DELETE /devruns/{id}`, reload, logs, bundle, expire | database + in-cluster Kubernetes |
 | secret | `GET /secrets`, `PUT/DELETE /secrets/{name}` | database + in-cluster Kubernetes |
 
 The wiring is graceful: without `DATABASE_URL` only `/healthz` (and a degraded `/db-version`) serve; outside a cluster the deployment and secret routes stay disabled while everything database-backed still works.

@@ -1,4 +1,4 @@
-# Cloud Build pipeline: build the five octo images and the OCI Helm chart, push
+# Cloud Build pipeline: build the seven octo images and the OCI Helm chart, push
 # everything to Artifact Registry, then (optionally) roll the cluster by applying the
 # Terraform release root. Provisioned and triggered by deploy/terraform/infra
 # (enable_cloudbuild=true); the trigger supplies _IMAGE_BASE/_REGION, maps _TAG to the
@@ -44,18 +44,30 @@ steps:
   - id: build-runtime
     name: gcr.io/cloud-builders/docker
     args: ["build", "-t", "${_IMAGE_BASE}/octo-runtime-paas:${_TAG}", "-t", "${_IMAGE_BASE}/octo-runtime-paas:latest", "-f", "runtime/Dockerfile", "."]
+  # The dev-run sidecar. Build context is the sidecars/ module dir, like the other
+  # self-contained Go modules above.
+  - id: build-devsidecar
+    name: gcr.io/cloud-builders/docker
+    args: ["build", "-t", "${_IMAGE_BASE}/octo-devsidecar-paas:${_TAG}", "-t", "${_IMAGE_BASE}/octo-devsidecar-paas:latest", "-f", "sidecars/dev/Dockerfile", "./sidecars"]
+  # The runtime a dev run executes: the same Dockerfile as build-runtime with GOTAGS
+  # empty, so it carries the STANDALONE services provider. An editor Run must not
+  # ship logs to the aggregator or take cluster queues, and the k8s build cannot do
+  # without them — the two providers are mutually exclusive build tags.
+  - id: build-devruntime
+    name: gcr.io/cloud-builders/docker
+    args: ["build", "--build-arg", "GOTAGS=", "-t", "${_IMAGE_BASE}/octo-devruntime-paas:${_TAG}", "-t", "${_IMAGE_BASE}/octo-devruntime-paas:latest", "-f", "runtime/Dockerfile", "."]
 
   # Push the images explicitly (not via the trailing `images:` block) so they are in
   # the registry *before* the deploy step's octo-pull reads them by tag.
   - id: push-images
     name: gcr.io/cloud-builders/docker
     entrypoint: bash
-    waitFor: ["build-platform", "build-orchestrator", "build-logs", "build-schema", "build-runtime"]
+    waitFor: ["build-platform", "build-orchestrator", "build-logs", "build-schema", "build-runtime", "build-devsidecar", "build-devruntime"]
     args:
       - -c
       - |
         set -e
-        for img in octo-platform-paas octo-orchestrator-paas octo-logs-paas octo-schema-paas octo-runtime-paas; do
+        for img in octo-platform-paas octo-orchestrator-paas octo-logs-paas octo-schema-paas octo-runtime-paas octo-devsidecar-paas octo-devruntime-paas; do
           for t in "${_TAG}" latest; do
             docker push "${_IMAGE_BASE}/$img:$t"
           done
@@ -82,7 +94,7 @@ steps:
           echo "image:"
           echo "  registry: ${_IMAGE_BASE}"
           echo "  pullPolicy: IfNotPresent"
-          for c in platform orchestrator logs schema runtime; do
+          for c in platform orchestrator logs schema runtime devsidecar devruntime; do
             repo="octo-$${c}-paas"
             # RepoDigests can carry entries for more than one repository, so match
             # this image's rather than trusting the first element.

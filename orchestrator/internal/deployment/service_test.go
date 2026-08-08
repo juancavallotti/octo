@@ -160,7 +160,7 @@ func (f *fakeKube) Status(_ context.Context, _ string) (kube.Status, error) {
 
 // podLogsCalled/podLogsPod record the last PodLogs request; podLogsErr forces a
 // failure. On success it returns a canned one-line stream.
-func (f *fakeKube) PodLogs(_ context.Context, podName string, _ bool, _ int64) (io.ReadCloser, error) {
+func (f *fakeKube) PodLogs(_ context.Context, podName, _ string, _ bool, _ int64) (io.ReadCloser, error) {
 	f.podLogsCalled = true
 	f.podLogsPod = podName
 	if f.podLogsErr != nil {

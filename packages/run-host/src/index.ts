@@ -1,22 +1,45 @@
 /**
- * @octo/run-host — the server-side core of the editor's RUN feature, shared by
- * every app that hosts it (the platform's in-cluster runner and the standalone
- * app's local runner). It owns the `octo` child processes keyed by a per-user
- * namespace, buffers and streams their logs, allocates ports, and reaps idle
- * runners. Apps wrap these in their own thin Next route handlers (adding auth
- * where needed). Node-only — never import from a browser bundle.
+ * @octo/run-host — what the two hosts of the editor's RUN feature genuinely share.
+ * The package is shaped by what that turns out to be, and by what it is not:
+ *
+ *  - **The app-runner port** (`runner.ts`) — the long-running app's interface, with no
+ *    implementation. The two backends are a child process of the host and a dev-run pod
+ *    somewhere else, and each belongs to the app that runs that way. A shared interface
+ *    with app-owned implementations is the point; a shared implementation that one app
+ *    ignores would be a dependency pointing the wrong way.
+ *  - **The one-shots** (`exec/`) — `invoke`, `evalCel` and `test`: spawn a child, wait,
+ *    report. Both hosts run them identically and locally, which is what makes them
+ *    shared rather than merely co-located.
+ *  - **The pieces both of those need**: staging a config and its resources, finding the
+ *    binaries, the runtime's capability schema, and the run namespace.
+ *
+ * Apps wrap these in their own thin Next route handlers and server actions (adding
+ * auth where needed). Node-only — never import from a browser bundle.
  */
 
 export {
-  status,
-  start,
-  stop,
-  sync,
+  type AppRunner,
+  type LogLine,
+  type LogStreamOptions,
+  type RunKey,
+  type RunState,
+  type StartArgs,
+  type SyncArgs,
+} from "./runner";
+export { namespaceDir, writeConfig, type RunResourceOptions } from "./staging";
+export { octoBin, terminate } from "./child";
+export {
+  DEV_ENV_RESOURCE,
+  effectiveResourceNames,
+  injectDevEnvResource,
+  resolveAndStage,
+  sameNameSet,
+  stageResources,
+  type ResourceFile,
+  type ResourceProvider,
+} from "./resources";
+export {
   invoke,
-  evalCel,
-  snapshot,
-  subscribe,
-  runningPort,
   type InvokeResult,
   type BreakOutcome,
   type DebugOutcome,
@@ -25,19 +48,15 @@ export {
   type SpyRecord,
   type SpyTrace,
   type LogLevel,
-  type EvalResult,
-  type RunResourceOptions,
-} from "./session";
+} from "./exec/invoke";
+export { evalCel, type EvalResult } from "./exec/eval";
 export {
-  DEV_ENV_RESOURCE,
-  type ResourceFile,
-  type ResourceProvider,
-} from "./resources";
-export {
+  binaries,
   probeVersion,
   cachedVersion,
   probeTestVersion,
   cachedTestVersion,
+  type Binaries,
 } from "./version";
 export { probeSchema, cachedSchema } from "./schema";
 export {
@@ -51,7 +70,7 @@ export {
   type TestCaseStatus,
   type TestFailure,
   type TestTotals,
-} from "./test";
+} from "./exec/test";
 export {
   deriveNamespace,
   ensureNamespace,
@@ -62,4 +81,3 @@ export {
   NAMESPACE_COOKIE,
   NAMESPACE_MAX_AGE_SECONDS,
 } from "./namespace";
-export { type LogLine } from "./logbuffer";

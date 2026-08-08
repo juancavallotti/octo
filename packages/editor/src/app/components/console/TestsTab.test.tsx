@@ -17,7 +17,9 @@ const snapshot = {
   version: null,
   testAvailable: true,
   testVersion: null,
-  testPath: null,
+  testUrl: null,
+  exposable: false,
+  reloadsOnSave: false,
 };
 
 function transportWith(result: TestRunOutcome | Error): RunTransport {

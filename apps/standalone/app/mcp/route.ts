@@ -9,6 +9,7 @@ import {
   type Capabilities,
 } from "@octo/editor/runtime";
 import { fsResourceProvider } from "../run/resources";
+import { localMcpRunHost } from "./run-host";
 import {
   fsIntegrationStore,
   fsMetaStore,
@@ -86,6 +87,8 @@ const handler = createOctoMcpHandler(
     docsUrl: process.env.OCTO_DOCS_URL,
   },
   {
+    // This app runs integrations itself, as children of this process.
+    runHost: localMcpRunHost,
     basePath: "", // route lives at /mcp, so the streamable endpoint is /mcp
     serverInfo: {
       name: "octo-standalone",

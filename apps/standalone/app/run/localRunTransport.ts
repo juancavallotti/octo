@@ -8,6 +8,11 @@
  * pick the tab's own runner. `runTabId()` is called inside each method rather than
  * once at module scope: this module is imported by a client component that is still
  * server-rendered, where there is no sessionStorage to read.
+ *
+ * The contract's run target is deliberately unused: a run here is a child process
+ * of this very process, keyed by the browser tab that asked for it, so the open
+ * integration names nothing. `start`/`sync` take the integration only where it decides
+ * which resources to stage, and standalone reads those from the workspace instead.
  */
 
 import { runTabId } from "@octo/editor";

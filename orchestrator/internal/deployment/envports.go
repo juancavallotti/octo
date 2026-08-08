@@ -117,6 +117,19 @@ func missingRequiredEnv(definition string, provided map[string]struct{}) []strin
 	return missing
 }
 
+// Exposable reports whether a definition declares a usable HTTP_PORT, and so can be
+// reached over HTTP at all.
+//
+// Exported for the dev-run service, which asks the same question of a live definition
+// to decide whether to publish a public host. It shares resolveRuntimeEnv rather than
+// re-parsing because the rules are subtler than they look — the declared default has
+// to be present, numeric and in range — and a second copy would answer differently
+// on exactly the definitions that matter.
+func Exposable(definition string) bool {
+	_, _, exposable := resolveRuntimeEnv(definition)
+	return exposable
+}
+
 // resolveRuntimeEnv inspects an integration definition for an HTTP_PORT (and
 // optional HTTP_HOST) env declaration. It returns the resolved listen port (0
 // when none is declared or it has no usable numeric default), the env vars the

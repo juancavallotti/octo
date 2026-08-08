@@ -20,6 +20,9 @@ includes:
   logs:
     taskfile: ./logs/Taskfile.yml
     dir: ./logs
+  sidecars:
+    taskfile: ./sidecars/Taskfile.yml
+    dir: ./sidecars
 
 # Global env reaches every task, including those in included taskfiles (task-level
 # env does not propagate to called tasks). The platform app reads these server-side
@@ -57,9 +60,10 @@ tasks:
       - task: runtime:fmt
       - task: orchestrator:fmt
       - task: logs:fmt
+      - task: sidecars:fmt
 
   test:
-    desc: Run tests across all modules (runtime + platform + standalone + orchestrator + logs)
+    desc: Run tests across all modules (runtime + platform + standalone + orchestrator + logs + sidecars)
     cmds:
       - task: runtime:test
       # The sample flows, run through dolphin against a real octo. They are the runtime's
@@ -70,15 +74,17 @@ tasks:
       - task: standalone:test
       - task: orchestrator:test
       - task: logs:test
+      - task: sidecars:test
 
   build:
-    desc: Build all modules (CLI binaries + platform + standalone + orchestrator + logs)
+    desc: Build all modules (CLI binaries + platform + standalone + orchestrator + logs + sidecars)
     cmds:
       - task: runtime:build
       - task: platform:build
       - task: standalone:build
       - task: orchestrator:build
       - task: logs:build
+      - task: sidecars:build
 
   dev:
     desc: Build the runner, then run the standalone editor (local files + RUN enabled)
@@ -91,14 +97,16 @@ tasks:
     cmds:
       - task: runtime:tidy
       - task: orchestrator:tidy
+      - task: sidecars:tidy
 
   lint:
-    desc: Lint all modules (runtime + platform + standalone + orchestrator)
+    desc: Lint all modules (runtime + platform + standalone + orchestrator + sidecars)
     cmds:
       - task: runtime:lint
       - task: platform:lint
       - task: standalone:lint
       - task: orchestrator:lint
+      - task: sidecars:lint
 
   run:
     desc: Run the CLI with a config file
@@ -184,7 +192,7 @@ tasks:
         echo "✓ docker, k3d, devspace present"
 
   cluster:images:
-    desc: Build the platform/orchestrator/logs/schema/runtime images and load them into the k3d 'octo' cluster
+    desc: Build the platform/orchestrator/logs/schema/runtime/devsidecar/devruntime images and load them into the k3d 'octo' cluster
     cmds:
       # Platform build context is the repo ROOT so its Dockerfile can reach both
       # runtime/ (to build octo) and the pnpm workspace (apps/platform).
@@ -195,18 +203,26 @@ tasks:
       # Generic runtime image the orchestrator deploys per integration (build
       # context is the repo root, where the Go module is rooted).
       - docker build -t octo-runtime:dev -f runtime/Dockerfile .
+      # The dev-run pair: the sidecar that owns a dev run's workspace, and the
+      # STANDALONE runtime it runs beside. Standalone and not the image above, because
+      # an editor Run must not ship logs to the aggregator or take cluster queues —
+      # and the k8s build has no standalone provider to fall back to.
+      - docker build -t octo-devsidecar:dev -f sidecars/dev/Dockerfile ./sidecars
+      - docker build --build-arg GOTAGS= -t octo-devruntime:dev -f runtime/Dockerfile .
       # Load the images straight into the cluster's containerd (no registry needed).
-      - k3d image import octo-platform:dev octo-orchestrator:dev octo-logs:dev octo-schema:dev octo-runtime:dev -c octo
+      - k3d image import octo-platform:dev octo-orchestrator:dev octo-logs:dev octo-schema:dev octo-runtime:dev octo-devsidecar:dev octo-devruntime:dev -c octo
 
   cluster:images:kind:
-    desc: Build the five images and load them into a kind 'octo' cluster
+    desc: Build the seven images and load them into a kind 'octo' cluster
     cmds:
       - docker build -t octo-platform:dev -f apps/platform/Dockerfile .
       - docker build -t octo-orchestrator:dev -f orchestrator/Dockerfile ./orchestrator
       - docker build -t octo-logs:dev -f logs/Dockerfile ./logs
       - docker build -t octo-schema:dev -f sql/Dockerfile ./sql
       - docker build -t octo-runtime:dev -f runtime/Dockerfile .
-      - kind load docker-image --name octo octo-platform:dev octo-orchestrator:dev octo-logs:dev octo-schema:dev octo-runtime:dev
+      - docker build -t octo-devsidecar:dev -f sidecars/dev/Dockerfile ./sidecars
+      - docker build --build-arg GOTAGS= -t octo-devruntime:dev -f runtime/Dockerfile .
+      - kind load docker-image --name octo octo-platform:dev octo-orchestrator:dev octo-logs:dev octo-schema:dev octo-runtime:dev octo-devsidecar:dev octo-devruntime:dev
 
   cluster:images:dev:
     desc: Build + load the dev (hot-reload) images into the k3d 'octo' cluster
@@ -290,11 +306,11 @@ tasks:
 
   # --- Publishing to Artifact Registry (for the GCP/k3s deployment) ---
   # IMAGE_BASE is the repository path output by deploy/terraform/infra (image_base),
-  # e.g. us-central1-docker.pkg.dev/PROJECT/octo. The five images live under it
+  # e.g. us-central1-docker.pkg.dev/PROJECT/octo. The seven images live under it
   # (IMAGE_BASE/octo-platform-paas:TAG ...) and the OCI chart under IMAGE_BASE/octo.
 
   images:push:
-    desc: 'Build the five octo images and push them to Artifact Registry (set IMAGE_BASE and TAG; run `gcloud auth configure-docker <region>-docker.pkg.dev` first)'
+    desc: 'Build the seven octo images and push them to Artifact Registry (set IMAGE_BASE and TAG; run `gcloud auth configure-docker <region>-docker.pkg.dev` first)'
     requires:
       vars: [IMAGE_BASE, TAG]
     cmds:
@@ -305,14 +321,19 @@ tasks:
       - docker build -t {{.IMAGE_BASE}}/octo-logs-paas:{{.TAG}} -f logs/Dockerfile ./logs
       - docker build -t {{.IMAGE_BASE}}/octo-schema-paas:{{.TAG}} -f sql/Dockerfile ./sql
       - docker build -t {{.IMAGE_BASE}}/octo-runtime-paas:{{.TAG}} -f runtime/Dockerfile .
+      - docker build -t {{.IMAGE_BASE}}/octo-devsidecar-paas:{{.TAG}} -f sidecars/dev/Dockerfile ./sidecars
+      # GOTAGS= (empty) is the standalone build; the k8s one is octo-runtime-paas above.
+      - docker build --build-arg GOTAGS= -t {{.IMAGE_BASE}}/octo-devruntime-paas:{{.TAG}} -f runtime/Dockerfile .
       - docker push {{.IMAGE_BASE}}/octo-platform-paas:{{.TAG}}
       - docker push {{.IMAGE_BASE}}/octo-orchestrator-paas:{{.TAG}}
       - docker push {{.IMAGE_BASE}}/octo-logs-paas:{{.TAG}}
       - docker push {{.IMAGE_BASE}}/octo-schema-paas:{{.TAG}}
       - docker push {{.IMAGE_BASE}}/octo-runtime-paas:{{.TAG}}
+      - docker push {{.IMAGE_BASE}}/octo-devsidecar-paas:{{.TAG}}
+      - docker push {{.IMAGE_BASE}}/octo-devruntime-paas:{{.TAG}}
 
   images:ttl:
-    desc: 'Build the five octo images from the working tree and push them to ttl.sh for cluster testing (optional PREFIX, TTL)'
+    desc: 'Build the seven octo images from the working tree and push them to ttl.sh for cluster testing (optional PREFIX, TTL)'
     vars:
       # ttl.sh's tag IS the image's lifetime, and 24h is its maximum.
       TTL: '{{.TTL | default "12h"}}'
@@ -349,8 +370,11 @@ tasks:
         build octo-orchestrator-paas orchestrator/Dockerfile  ./orchestrator ""
         build octo-logs-paas         logs/Dockerfile          ./logs      ""
         build octo-schema-paas       sql/Dockerfile           ./sql       ""
-        # The k8s build tag is what makes the runtime talk to the orchestrator.
+        build octo-devsidecar-paas   sidecars/dev/Dockerfile  ./sidecars  ""
+        # The k8s build tag is what makes the runtime talk to the orchestrator; the
+        # empty one is the standalone build a dev run executes.
         build octo-runtime-paas      runtime/Dockerfile       .           "--build-arg GOTAGS=k8s"
+        build octo-devruntime-paas   runtime/Dockerfile       .           "--build-arg GOTAGS="
 
         mkdir -p dist
         {
@@ -416,7 +440,7 @@ tasks:
       - 'echo "✓ deleted {{.REGION}}-docker.pkg.dev/{{.PROJECT}}/{{.REPO}}"'
 
   images:ar:
-    desc: 'Build the five octo images from the working tree and push them to the public Artifact Registry repo (optional TAG, PROJECT, REGION, REPO)'
+    desc: 'Build the seven octo images from the working tree and push them to the public Artifact Registry repo (optional TAG, PROJECT, REGION, REPO)'
     vars:
       TAG: '{{.TAG | default "test"}}'
       PROJECT: '{{.PROJECT | default "juancavallotti"}}'
@@ -450,8 +474,11 @@ tasks:
         build octo-orchestrator-paas orchestrator/Dockerfile  ./orchestrator ""
         build octo-logs-paas         logs/Dockerfile          ./logs      ""
         build octo-schema-paas       sql/Dockerfile           ./sql       ""
-        # The k8s build tag is what makes the runtime talk to the orchestrator.
+        build octo-devsidecar-paas   sidecars/dev/Dockerfile  ./sidecars  ""
+        # The k8s build tag is what makes the runtime talk to the orchestrator; the
+        # empty one is the standalone build a dev run executes.
         build octo-runtime-paas      runtime/Dockerfile       .           "--build-arg GOTAGS=k8s"
+        build octo-devruntime-paas   runtime/Dockerfile       .           "--build-arg GOTAGS="
 
         mkdir -p dist
         {
@@ -502,11 +529,12 @@ tasks:
         check() {
           name="$1"; shift
           printf '  %-18s ' "$name"
-          # The two values that have no default and are required wherever they
-          # apply — an Ingress host, and a password for the bundled Postgres.
-          # Supplied here the way a real install must; profiles that set their own
-          # land on the same values.
-          required="--set ingress.host=octo.example.com --set postgres.auth.password=rendertest"
+          # The three values that have no default and are required wherever they
+          # apply — an Ingress host, a password for the bundled Postgres, and the
+          # dev-run hash secret (dev runs are on by default, so it is required
+          # everywhere the feature is not turned off). Supplied here the way a real
+          # install must; profiles that set their own land on the same values.
+          required="--set ingress.host=octo.example.com --set postgres.auth.password=rendertest --set orchestrator.devRuns.hashSecret=rendertest"
           # lint, not template, is what covers NOTES.txt: `helm template` skips the
           # file entirely, and lint renders it along with everything else.
           if ! helm lint helm $required "$@" >"$out" 2>&1; then echo "FAILED (lint)"; cat "$out"; return 1; fi
@@ -525,7 +553,7 @@ tasks:
         check_fails() {
           name="$1"; want="$2"; shift 2
           printf '  %-22s ' "$name"
-          required="--set ingress.host=octo.example.com --set postgres.auth.password=rendertest"
+          required="--set ingress.host=octo.example.com --set postgres.auth.password=rendertest --set orchestrator.devRuns.hashSecret=rendertest"
           if render="$(helm template octo helm --namespace octo $required "$@" 2>&1)"; then
             echo "FAILED (rendered, but should not have)"; return 1
           fi
@@ -539,7 +567,7 @@ tasks:
         check_absent() {
           name="$1"; absent="$2"; shift 2
           printf '  %-22s ' "$name"
-          required="--set ingress.host=octo.example.com --set postgres.auth.password=rendertest"
+          required="--set ingress.host=octo.example.com --set postgres.auth.password=rendertest --set orchestrator.devRuns.hashSecret=rendertest"
           if ! render="$(helm template octo helm --namespace octo $required "$@" 2>&1)"; then
             echo "FAILED (did not render)"; echo "$render" | tail -3; return 1
           fi
@@ -618,6 +646,17 @@ tasks:
         check wildcard-existing \
           --set wildcardTLS.enabled=true --set wildcardTLS.clusterIssuer= \
           --set orchestrator.baseDomain=apps.example.com
+        # Dev runs (the editor's Run as a pod of its own) are on by default now, so
+        # `check defaults` already renders the two images, the sidecar port, the idle
+        # timeout and the hash Secret. What this adds is a baseDomain — the published
+        # per-integration endpoint the bare defaults leave unset.
+        check dev-runs \
+          --set orchestrator.baseDomain=apps.example.com
+        # The arrangement dev runs actually want: one *.baseDomain certificate rather
+        # than a per-host one, so a dev-run hostname stays out of public CT logs.
+        check dev-runs-wildcard \
+          --set orchestrator.baseDomain=apps.example.com \
+          --set wildcardTLS.enabled=true --set wildcardTLS.clusterIssuer=letsencrypt-dns
         # Every guard, asserted. Each of these combinations would otherwise
         # install cleanly and publish endpoints nothing serves.
         check_fails bad-mode          "is not one of ingress, gateway" \
@@ -639,6 +678,20 @@ tasks:
           --set networking.mode=gateway --set networking.gateway.create=true \
           --set networking.gateway.className=kgateway --set ingress.tls.mode=acm \
           --set ingress.tls.certificateArn=arn:aws:acm:us-east-1:1:certificate/x
+        # The orchestrator refuses to start without the hash secret, so rendering a
+        # release that would CrashLoopBackOff is the failure this catches. Deliberately
+        # not generated by the chart: see helm/templates/orchestrator/devrun-secret.yaml.
+        check_fails devruns-no-secret "devRuns.hashSecret is required" \
+          --set orchestrator.devRuns.enabled=true \
+          --set orchestrator.devRuns.hashSecret= \
+          --set orchestrator.baseDomain=apps.example.com
+        # Dev runs turned off: the env var and the hash Secret both vanish, and with
+        # them the requirement — clearing the secret here proves a disabled install
+        # needs none. The inverse of the on-by-default the chart now ships.
+        check_absent devruns-disabled "DEV_RUN_HASH_SECRET" \
+          --set orchestrator.devRuns.enabled=false \
+          --set orchestrator.devRuns.hashSecret= \
+          --set orchestrator.baseDomain=apps.example.com
         # An empty issuer means the Secret exists already. What that produces is
         # the absence of a Certificate, which every success-only check misses.
         check_absent wildcard-no-cert "kind: Certificate" \
@@ -695,7 +748,7 @@ tasks:
           echo "image:"
           echo "  registry: {{.IMAGE_BASE}}"
           echo "  pullPolicy: IfNotPresent"
-          for c in platform orchestrator logs schema runtime; do
+          for c in platform orchestrator logs schema runtime devsidecar devruntime; do
             repo="octo-${c}-paas"
             ref="{{.IMAGE_BASE}}/${repo}:{{.TAG}}"
             digest="$(docker buildx imagetools inspect "$ref" | awk '/^Digest:/ {print $2; exit}')"

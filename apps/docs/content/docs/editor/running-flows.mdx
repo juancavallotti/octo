@@ -40,6 +40,17 @@ While the flow is running:
 Note that Run executes the document as it is in the editor — you don't have to
 Save first, and saving is still what persists the flow to disk.
 
+<Callout type="info">
+  **On the platform this page's Run works differently**, and deliberately. There the
+  running flow is a pod of its own, so it runs the **saved** integration rather than
+  your buffer: Save is what reaches it, and an unsaved edit does not. It also gets a
+  stable public hostname instead of a URL under the editor's own port, and Run is
+  unavailable until the integration has been saved once. The console tells you which
+  kind of host you are on. Everything else on this page — the console, the test URL
+  link, Stop, the Dev .env panel — behaves the same. See
+  [Dev runs](/platform/dev-runs) for the whole picture.
+</Callout>
+
 ## The console
 
 ![The console streaming logs from a running flow, with the Logs and Dev .env tabs and the run's test URL in the header](/screenshots/editor-console.png)

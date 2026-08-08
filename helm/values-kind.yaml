@@ -31,6 +31,16 @@ orchestrator:
       http: 30090
   baseDomain: ""
   ingressClass: ""
+  # Dev runs on, mirroring values-k3d.yaml — kind is otherwise identical to it. With
+  # baseDomain empty above a run still starts, reloads and streams logs; it just
+  # publishes no public hostname, so a networked integration is reachable only at its
+  # in-cluster Service (the same limitation k3d has locally).
+  devRuns:
+    enabled: true
+    # A throwaway for a laptop cluster, the same value k3d uses and for the same reason
+    # postgres.auth.password below is written down. Never for real use; values.yaml ships
+    # this empty and the chart refuses to render without one.
+    hashSecret: local-dev-not-a-secret
 
 logs:
   repository: octo-logs
@@ -40,6 +50,12 @@ schema:
 
 runtime:
   repository: octo-runtime
+
+devsidecar:
+  repository: octo-devsidecar
+
+devruntime:
+  repository: octo-devruntime
 
 # kind ships no ingress controller at all. The NodePorts above are mapped to the
 # host by deploy/kind/cluster.yaml's extraPortMappings.

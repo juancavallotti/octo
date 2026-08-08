@@ -106,3 +106,66 @@ func TestCreate(t *testing.T) {
 		}
 	})
 }
+
+// fakeNotifier records the integrations it was told about, and can be made to fail.
+type fakeNotifier struct {
+	got []string
+	err error
+}
+
+func (f *fakeNotifier) NotifyIntegrationChanged(_ context.Context, id string) error {
+	f.got = append(f.got, id)
+	return f.err
+}
+
+// TestWritesNotify: a dev run loads resources too, so editing an env file is a change
+// to what the running app does. A delete counts — it is what tells the sidecar to prune
+// a file whose secrets should stop being on disk.
+func TestWritesNotify(t *testing.T) {
+	for name, write := range map[string]func(*Service) error{
+		"create": func(s *Service) error {
+			_, err := s.Create(context.Background(), "int-1", KindEnv, ".env.dev", "A=1")
+			return err
+		},
+		"update": func(s *Service) error {
+			_, err := s.Update(context.Background(), "int-1", "res-1", KindEnv, ".env.dev", "A=2")
+			return err
+		},
+		"delete": func(s *Service) error {
+			return s.Delete(context.Background(), "int-1", "res-1")
+		},
+	} {
+		notifier := &fakeNotifier{}
+		svc := NewService(&fakeRepo{}, WithReloadNotifier(notifier))
+		if err := write(svc); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if len(notifier.got) != 1 || notifier.got[0] != "int-1" {
+			t.Errorf("%s notified %v, want [int-1]", name, notifier.got)
+		}
+	}
+}
+
+// TestNotifyFailureDoesNotFailTheWrite: same contract as the integration service — a
+// resource save must not be reported as failed because a pod was unreachable.
+func TestNotifyFailureDoesNotFailTheWrite(t *testing.T) {
+	notifier := &fakeNotifier{err: errors.New("sidecar unreachable")}
+	svc := NewService(&fakeRepo{}, WithReloadNotifier(notifier))
+
+	if _, err := svc.Create(context.Background(), "int-1", KindEnv, ".env.dev", "A=1"); err != nil {
+		t.Fatalf("Create failed because the notification did: %v", err)
+	}
+}
+
+// TestInvalidWriteDoesNotNotify: validation rejected it, so nothing changed.
+func TestInvalidWriteDoesNotNotify(t *testing.T) {
+	notifier := &fakeNotifier{}
+	svc := NewService(&fakeRepo{}, WithReloadNotifier(notifier))
+
+	if _, err := svc.Create(context.Background(), "int-1", "not-a-kind", ".env.dev", "A=1"); err == nil {
+		t.Fatal("Create accepted an invalid kind")
+	}
+	if len(notifier.got) != 0 {
+		t.Fatalf("notified %v after a rejected write, want nothing", notifier.got)
+	}
+}

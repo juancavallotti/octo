@@ -30,7 +30,15 @@ const CLEAR_LABEL: Partial<Record<ConsoleTab, string>> = {
 /** Read the persisted console height, clamped to bounds; DEFAULT_HEIGHT if none. */
 function readStoredHeight(): number {
   if (typeof window === "undefined") return DEFAULT_HEIGHT;
-  const raw = window.localStorage.getItem(HEIGHT_KEY);
+  // localStorage can be absent (a non-browser test env) or throw on access (a sandboxed
+  // frame, storage disabled by the user): a remembered height is a nicety, never worth
+  // crashing the panel — and the whole editor with it — over.
+  let raw: string | null = null;
+  try {
+    raw = window.localStorage?.getItem(HEIGHT_KEY) ?? null;
+  } catch {
+    return DEFAULT_HEIGHT;
+  }
   const n = raw ? Number(raw) : NaN;
   if (!Number.isFinite(n)) return DEFAULT_HEIGHT;
   return Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, n));
@@ -101,7 +109,12 @@ export default function LogPanel() {
     const onUp = () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
-      window.localStorage.setItem(HEIGHT_KEY, String(latest));
+      // Best-effort persist; see readStoredHeight on why localStorage may be unavailable.
+      try {
+        window.localStorage?.setItem(HEIGHT_KEY, String(latest));
+      } catch {
+        // Losing a remembered height is harmless.
+      }
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
@@ -232,7 +245,7 @@ export default function LogPanel() {
       {!collapsed && tab === "problems" && (
         <ProblemsTab issues={issues} runErrors={runErrors} />
       )}
-      {!collapsed && tab === "logs" && <LogsTab logs={logs} />}
+      {!collapsed && tab === "logs" && <LogsTab logs={logs} running={running} />}
       {!collapsed && tab === "results" && <ResultsTab results={results} />}
       {!collapsed && tab === "tests" && <TestsTab />}
       {!collapsed && tab === "env" && <DevEnvPanel />}

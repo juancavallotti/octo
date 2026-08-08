@@ -29,19 +29,28 @@ import RunBar from "./RunBar";
 const suiteYaml = (flow: string) =>
   `flow: ${flow}\ncases:\n  - name: it runs\n    expect: {}\n`;
 
-function snapshot(over: { running?: boolean; testAvailable?: boolean } = {}) {
+function snapshot(
+  over: { running?: boolean; testAvailable?: boolean; reloadsOnSave?: boolean } = {},
+) {
   return {
     available: true,
     running: over.running ?? false,
     version: "octo 0.1.0",
     testAvailable: over.testAvailable ?? true,
     testVersion: null,
-    testPath: null,
+    testUrl: null,
+    exposable: false,
+    reloadsOnSave: over.reloadsOnSave ?? false,
   };
 }
 
 function stubTransport(
-  over: { running?: boolean; testAvailable?: boolean; hold?: Promise<void> } = {},
+  over: {
+    running?: boolean;
+    testAvailable?: boolean;
+    reloadsOnSave?: boolean;
+    hold?: Promise<void>;
+  } = {},
 ) {
   const requests: TestRunRequest[] = [];
   const transport: RunTransport = {

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { OctoMcpConfig } from "../backend";
-import type { RunHostPort, RunStatusLike } from "../run-host";
+import type { RunHostPort, RunKey, RunStateLike } from "../run-host";
 import type { NamespaceResolver } from "../namespace";
 import { parseEnv } from "../env";
 import { mockSpecSchema } from "../mocks";
@@ -9,10 +9,14 @@ import { errorResult, guard, jsonResult, textResult } from "../result";
 
 /**
  * The run-control tools: check whether an integration can start, run it (returning
- * a test URL), stop it, and read its logs. Each run is keyed by the caller's
- * per-session namespace (resolved from the MCP session id), so concurrent clients
- * drive independent runners. Run host I/O is injected as a {@link RunHostPort} so
- * these are testable without spawning a real `octo` process.
+ * a test URL), stop it, and read its logs. Run host I/O is injected as a
+ * {@link RunHostPort} so these are testable without spawning a real `octo` process.
+ *
+ * The three tools that address a long-running app all take the integration's `id`, and
+ * that is not redundant with the session: a host that runs the app beside itself keys on
+ * the session, while one that runs it elsewhere keys on (user, integration) and has
+ * nothing else to find it by. It costs a caller nothing — you cannot have a run without
+ * having called `run_integration` with that id.
  */
 export function registerRunTools(
   server: McpServer,
@@ -22,6 +26,26 @@ export function registerRunTools(
 ): void {
   const { store } = config;
 
+  /**
+   * The run an addressed call refers to, assembled from the three things this request
+   * knows: the MCP session, the integration named in the arguments, and the caller.
+   *
+   * The user comes off the verified bearer token (`AuthInfo.extra`), never from the
+   * arguments — a host that scopes runs per user must not let one client name another's.
+   * An unauthenticated host (the standalone app) has none, and keys on the session alone.
+   */
+  const runKeyOf = (
+    extra: { sessionId?: string; authInfo?: { extra?: Record<string, unknown> } },
+    integrationId?: string,
+  ): RunKey => {
+    const userId = extra.authInfo?.extra?.userId;
+    return {
+      namespace: resolveNamespace(extra.sessionId),
+      integrationId,
+      userId: typeof userId === "string" ? userId : undefined,
+    };
+  };
+
   server.registerTool(
     "can_start_integration",
     {
@@ -30,13 +54,12 @@ export function registerRunTools(
         "Check whether an integration is ready to run: whether a runner is available and whether its definition validates. Returns { available, valid, errors }.",
       inputSchema: { id: z.string().min(1).describe("The integration id.") },
     },
-    ({ id }, extra) =>
+    ({ id }) =>
       guard(async () => {
         const rec = await store.get(id);
         const { valid, errors } = await config.validate(rec.definition);
-        const ns = resolveNamespace(extra.sessionId);
         return jsonResult({
-          available: runHost.status(ns).available,
+          available: runHost.binaries().available,
           valid,
           errors,
         });
@@ -60,21 +83,27 @@ export function registerRunTools(
     ({ id, env }, extra) =>
       guard(async () => {
         const rec = await store.get(id);
-        const ns = resolveNamespace(extra.sessionId);
-        if (!runHost.status(ns).available) {
-          return errorResult("Runner not available (OCTO_BIN_PATH unset).");
-        }
-        // We don't gate the run on `can_start_integration`'s validation: that
-        // check is a best-effort pre-flight that can flag valid runtime YAML
-        // (e.g. the processors/ref pattern). The runtime is the real judge —
-        // its load errors stream to `get_run_logs`.
+        const key = runKeyOf(extra, id);
+        // No local-binary pre-gate here, unlike the one-shots below. Starting the
+        // long-running app is the runner's job, and the runner is not always the local
+        // octo: a host whose runner is remote (the platform's, backed by the orchestrator)
+        // starts a run with no local binary at all, so gating on binaries().available —
+        // which only answers whether the LOCAL one-shot binary is present — would reject a
+        // perfectly capable host. The runner is the authority: a local one reports a
+        // missing binary by throwing from start() (which guard() surfaces as the error
+        // result), and a remote one just starts.
+        //
+        // We don't gate the run on `can_start_integration`'s validation either: that check
+        // is a best-effort pre-flight that can flag valid runtime YAML (e.g. the
+        // processors/ref pattern). The runtime is the real judge — its load errors stream
+        // to `get_run_logs`.
         let parsedEnv: Record<string, string> | undefined;
         if (env !== undefined) {
           const sane = parseEnv(env);
           if (!sane) return errorResult("invalid env (names must match [A-Za-z_][A-Za-z0-9_]* with string values)");
           parsedEnv = sane;
         }
-        const st = await runHost.start(ns, rec.definition, parsedEnv, {
+        const st = await runHost.start(key, rec.definition, parsedEnv, {
           resources: config.resources?.(id),
         });
         const testUrl = buildTestUrl(config, st);
@@ -82,7 +111,7 @@ export function registerRunTools(
           running: st.running,
           exposable: st.exposable,
           testUrl,
-          namespace: ns,
+          namespace: key.namespace,
           note: st.exposable
             ? undefined
             : "Integration declares no HTTP_PORT, so it has no testable HTTP endpoint.",
@@ -164,7 +193,7 @@ export function registerRunTools(
         const yaml =
           definition !== undefined ? definition : (await store.get(id!)).definition;
         const ns = resolveNamespace(extra.sessionId);
-        if (!runHost.status(ns).available) {
+        if (!runHost.binaries().available) {
           return errorResult("Runner not available (OCTO_BIN_PATH unset).");
         }
         let parsedEnv: Record<string, string> | undefined;
@@ -234,7 +263,7 @@ export function registerRunTools(
         // Reuse the per-session availability gate for a consistent "runner configured?"
         // error, even though eval itself is stateless (no namespace isolation needed).
         const ns = resolveNamespace(extra.sessionId);
-        if (!runHost.status(ns).available) {
+        if (!runHost.binaries().available) {
           return errorResult("Runner not available (OCTO_BIN_PATH unset).");
         }
         let parsedEnv: Record<string, string> | undefined;
@@ -258,13 +287,14 @@ export function registerRunTools(
     {
       title: "Stop integration",
       description:
-        "Stop this session's running integration and free its resources. Returns { running: false }.",
-      inputSchema: {},
+        "Stop the running integration and free its resources. Pass the same `id` you started it with. Returns { running: false }.",
+      inputSchema: {
+        id: z.string().min(1).describe("The integration id whose run to stop."),
+      },
     },
-    (_args, extra) =>
+    ({ id }, extra) =>
       guard(async () => {
-        const ns = resolveNamespace(extra.sessionId);
-        const st = await runHost.stop(ns);
+        const st = await runHost.stop(runKeyOf(extra, id));
         return jsonResult({ running: st.running });
       }),
   );
@@ -274,13 +304,14 @@ export function registerRunTools(
     {
       title: "Get run logs",
       description:
-        "Read this session's runner log buffer (oldest line first), as plain text.",
-      inputSchema: {},
+        "Read the running integration's output (oldest line first), as plain text. Pass the same `id` you started it with.",
+      inputSchema: {
+        id: z.string().min(1).describe("The integration id whose run to read."),
+      },
     },
-    (_args, extra) =>
+    ({ id }, extra) =>
       guard(async () => {
-        const ns = resolveNamespace(extra.sessionId);
-        const lines = runHost.snapshot(ns);
+        const lines = await runHost.snapshot(runKeyOf(extra, id));
         if (lines.length === 0) {
           return textResult("(no logs yet — start a run with run_integration)");
         }
@@ -289,9 +320,17 @@ export function registerRunTools(
   );
 }
 
-/** Absolutize a run's test path against `config.baseUrl`, or null when not networked. */
-function buildTestUrl(config: OctoMcpConfig, st: RunStatusLike): string | null {
-  if (!st.testPath) return null;
+/**
+ * The absolute URL of a run, or null when it serves no HTTP.
+ *
+ * The host reports an app-relative path when it proxies to its own child process, and an
+ * absolute URL when the run has a hostname of its own. Only the first needs a base, and
+ * prefixing the second would produce `http://localhost:3000https://…` — so which kind it
+ * is has to be checked rather than assumed.
+ */
+function buildTestUrl(config: OctoMcpConfig, st: RunStateLike): string | null {
+  if (!st.testUrl) return null;
+  if (/^https?:\/\//i.test(st.testUrl)) return st.testUrl;
   const base = config.baseUrl?.replace(/\/+$/, "");
-  return base ? `${base}${st.testPath}` : st.testPath;
+  return base ? `${base}${st.testUrl}` : st.testUrl;
 }

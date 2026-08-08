@@ -48,7 +48,21 @@ type Client struct {
 	clientset    kubernetes.Interface
 	namespace    string
 	runtimeImage string
-	baseDomain   string // parent domain for external endpoints ("" = disabled)
+	// devRuntimeImage is the STANDALONE runtime build, used by dev-run pods. Distinct
+	// from runtimeImage on purpose: that one is built -tags k8s and contains only the
+	// k8s services provider, so it cannot run without the orchestrator, the cluster
+	// queues and the log aggregator — none of which a dev run should be wired to.
+	devRuntimeImage string
+	// sidecarImage runs beside that runtime in a dev-run pod and owns its workspace.
+	sidecarImage string
+	// sidecarPort is where that sidecar serves its command API.
+	sidecarPort int32
+	// orchestratorURL is this orchestrator's own in-cluster address, injected into a
+	// dev-run sidecar so it can pull its bundle. Distinct from
+	// runtimeServices.OrchestratorURL, which is documented as the KV API a deployed
+	// runtime reaches — the same host, but a different reason to know it.
+	orchestratorURL string
+	baseDomain      string // parent domain for external endpoints ("" = disabled)
 	// endpoints publishes the external endpoint of an exposed deployment. Which
 	// implementation it holds — Ingress or Gateway API HTTPRoute — is the only
 	// place the two differ; see endpoint.go.
@@ -140,6 +154,10 @@ type GatewayRef struct {
 type Config struct {
 	Namespace         string
 	RuntimeImage      string
+	DevRuntimeImage   string
+	SidecarImage      string
+	SidecarPort       int32
+	OrchestratorURL   string
 	BaseDomain        string
 	EndpointAPI       EndpointAPI
 	ClusterIssuer     string
@@ -203,9 +221,22 @@ func newClient(cfg Config, cs kubernetes.Interface, gwcs gatewayclient.Interface
 		clientset:        cs,
 		namespace:        cfg.Namespace,
 		runtimeImage:     cfg.RuntimeImage,
+		devRuntimeImage:  cfg.DevRuntimeImage,
+		sidecarImage:     cfg.SidecarImage,
+		sidecarPort:      cfg.SidecarPort,
+		orchestratorURL:  cfg.OrchestratorURL,
 		baseDomain:       cfg.BaseDomain,
 		imagePullSecrets: cfg.ImagePullSecrets,
 		runtimeServices:  cfg.RuntimeServices,
+	}
+	if c.sidecarPort == 0 {
+		c.sidecarPort = defaultSidecarPort
+	}
+	// The two are the same host in every real deployment, so falling back keeps a
+	// caller that only wired the runtime-services URL working rather than silently
+	// producing sidecars with nowhere to pull from.
+	if c.orchestratorURL == "" {
+		c.orchestratorURL = cfg.RuntimeServices.OrchestratorURL
 	}
 	if cfg.EndpointAPI == EndpointAPIGateway {
 		c.endpoints = &routePublisher{client: gwcs, namespace: cfg.Namespace, gateway: cfg.Gateway}
@@ -236,6 +267,21 @@ func (c *Client) Preflight(ctx context.Context) error {
 // ExternalEnabled reports whether external endpoints can be published (a base
 // domain is configured).
 func (c *Client) ExternalEnabled() bool { return c.baseDomain != "" }
+
+// DevRunsEnabled reports whether dev runs can be created. Checked by the caller at
+// startup so the feature is disabled with a log line, rather than surfacing later as
+// pods that fail in a way nobody connects back to configuration.
+//
+// All three parts are required, and each one's absence produces a pod that fails
+// rather than a feature that degrades: without the standalone runtime image there is
+// nothing to run the integration, without the sidecar image nothing populates the
+// workspace, and without the orchestrator URL the sidecar refuses to start at all
+// (it treats a missing ORCHESTRATOR_URL as a hard failure, correctly, since it would
+// otherwise sit there healthy and never pull). Reporting it here turns three
+// different CrashLoopBackOffs into one startup log line.
+func (c *Client) DevRunsEnabled() bool {
+	return c.devRuntimeImage != "" && c.sidecarImage != "" && c.orchestratorURL != ""
+}
 
 // ExternalHost is the fully-qualified host for an external subdomain, or "" when
 // external endpoints are disabled or the subdomain is empty.

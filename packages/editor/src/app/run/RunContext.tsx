@@ -14,6 +14,7 @@ import { toRunnableYaml } from "../model/runConfig";
 import { validateDocument, type ValidationResult } from "../model/validate";
 import { useEditorState } from "../state/editorState";
 import {
+  type RunTarget,
   type RunTransport,
   type CelEvalRequest,
   type CelEvalResult,
@@ -32,6 +33,10 @@ import {
 
 const SYNC_DEBOUNCE_MS = 2000;
 const MAX_CLIENT_LOGS = 5000;
+// How often to re-read status while a networked run's URL has not landed yet. The endpoint
+// is withheld until the run's pod is ready, and status is otherwise read only on mount, so
+// this is what makes the link appear on its own rather than on a page reload.
+const URL_POLL_MS = 2000;
 
 export interface RunLogLine {
   seq: number;
@@ -55,8 +60,15 @@ interface RunContextValue {
   testAvailable: boolean;
   /** dolphin's `version` line, or null when unknown/unavailable. */
   testVersion: string | null;
-  /** Absolute URL that proxies to the running networked integration, or null. */
+  /** Absolute URL of the running networked integration, or null. */
   testUrl: string | null;
+  /**
+   * Whether the running app follows SAVES rather than the editor's buffer. Surfaced so
+   * the RUN panel can say which it is: on a host that reloads on save, an unsaved edit
+   * deliberately does not reach the running app, and a panel that implied otherwise
+   * would be the most confusing thing in the feature.
+   */
+  reloadsOnSave: boolean;
   start: () => Promise<void>;
   stop: () => Promise<void>;
   clearLogs: () => void;
@@ -92,7 +104,15 @@ export function RunProvider({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [logs, setLogs] = useState<RunLogLine[]>([]);
-  const [testPath, setTestPath] = useState<string | null>(null);
+  // What the host reported as the run's address: app-relative from a host that proxies to
+  // its own child process, absolute from one that gave the run its own hostname. Resolved
+  // to an absolute URL below, which is the only form a consumer sees.
+  const [testAddress, setTestAddress] = useState<string | null>(null);
+  // Whether this run will ever publish a URL. Held separately from the address because the
+  // two come apart while a dev-run pod comes up — exposable is known at once, the URL only
+  // when it is ready — and it is that gap the URL poll below exists to close.
+  const [exposable, setExposable] = useState(false);
+  const [reloadsOnSave, setReloadsOnSave] = useState(false);
 
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const lastSeqRef = useRef<number>(-1);
@@ -100,53 +120,79 @@ export function RunProvider({
 
   const validation = useMemo(() => validateDocument(doc), [doc]);
 
+  // Which run every call addresses. A draft has no id, and a host that runs the app
+  // elsewhere cannot address one at all — which is why start refuses it there.
+  const target = useMemo<RunTarget>(
+    () => ({ integrationId: integrationId ?? undefined }),
+    [integrationId],
+  );
+
   const closeStream = useCallback(() => {
     unsubscribeRef.current?.();
     unsubscribeRef.current = null;
   }, []);
 
-  const openStream = useCallback(() => {
-    if (unsubscribeRef.current) return;
-    unsubscribeRef.current = transport.subscribeLogs((seq, text) => {
-      // The server replays its whole buffer on connect (and on auto-reconnect),
-      // so drop anything we've already shown.
-      if (Number.isFinite(seq) && seq <= lastSeqRef.current) return;
-      if (Number.isFinite(seq)) lastSeqRef.current = seq;
-      setLogs((prev) => {
-        const next = [...prev, { seq, text }];
-        return next.length > MAX_CLIENT_LOGS
-          ? next.slice(next.length - MAX_CLIENT_LOGS)
-          : next;
-      });
-    });
-  }, [transport]);
+  // The target is an argument rather than a dependency, so opening a stream does not
+  // depend on the identity of the current one: a stream belongs to the run it was opened
+  // for, and re-creating this callback whenever the open integration changed would only
+  // make the guard below decide that a stream was already open.
+  const openStream = useCallback(
+    (run: RunTarget) => {
+      if (unsubscribeRef.current) return;
+      unsubscribeRef.current = transport.subscribeLogs((seq, text) => {
+        // The server replays its whole buffer on connect (and on auto-reconnect),
+        // so drop anything we've already shown.
+        if (Number.isFinite(seq) && seq <= lastSeqRef.current) return;
+        if (Number.isFinite(seq)) lastSeqRef.current = seq;
+        setLogs((prev) => {
+          const next = [...prev, { seq, text }];
+          return next.length > MAX_CLIENT_LOGS
+            ? next.slice(next.length - MAX_CLIENT_LOGS)
+            : next;
+        });
+      }, run);
+    },
+    [transport],
+  );
 
-  // On mount, learn whether RUN is available and reattach if a runner is already
-  // live (e.g. after a page reload).
+  // On mount — and whenever the open integration changes — learn whether RUN is available
+  // for THIS target and reattach if its runner is already live (e.g. after a page reload,
+  // or when switching back to an integration left running elsewhere).
   useEffect(() => {
     let cancelled = false;
     transport
-      .status()
+      .status(target)
       .then((s) => {
         if (cancelled) return;
         setAvailable(s.available);
         setVersion(s.version);
         setTestAvailable(s.testAvailable);
         setTestVersion(s.testVersion);
-        setTestPath(s.testPath);
+        setTestAddress(s.testUrl);
+        setExposable(s.exposable);
+        setReloadsOnSave(s.reloadsOnSave);
         if (s.running) {
           setRunning(true);
-          openStream();
+          openStream(target);
         }
       })
       .catch(() => {});
+    // On a target change the previous integration's run is no longer what this provider
+    // tracks, so reset to a clean slate before the status check above re-decides for the
+    // new one. Without this the old stream stays open (openStream's guard would refuse a
+    // fresh one, so the panel keeps showing the previous integration's logs), `running`
+    // sticks true from the old integration, and Stop would target the newly-opened one
+    // while the old run kept going. Also runs on unmount, which is harmless.
     return () => {
       cancelled = true;
+      closeStream();
+      setRunning(false);
+      setTestAddress(null);
+      setExposable(false);
+      lastSeqRef.current = -1;
+      lastYamlRef.current = null;
     };
-  }, [transport, openStream]);
-
-  // Tear the stream down if the provider unmounts.
-  useEffect(() => closeStream, [closeStream]);
+  }, [transport, openStream, closeStream, target]);
 
   const start = useCallback(async () => {
     setBusy(true);
@@ -156,47 +202,79 @@ export function RunProvider({
       // Dev-env values are no longer sent from the browser: run-host stages the
       // integration's `.env.dev` resource (edited in the Dev .env panel) and the
       // runtime loads it, so a run reads its credentials from the host's store.
-      const snapshot = await transport.start({
-        yaml,
-        integrationId: integrationId ?? undefined,
-      });
+      const snapshot = await transport.start({ ...target, yaml });
       lastYamlRef.current = yaml;
       setLogs([]); // the server starts a fresh buffer for this run
       setRunning(true);
-      setTestPath(snapshot.testPath ?? null);
-      openStream();
+      setTestAddress(snapshot.testUrl ?? null);
+      setExposable(snapshot.exposable);
+      setReloadsOnSave(snapshot.reloadsOnSave);
+      openStream(target);
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
     }
-  }, [doc, integrationId, openStream, transport]);
+  }, [doc, openStream, target, transport]);
 
   const stop = useCallback(async () => {
     setBusy(true);
     setError(null);
     try {
-      await transport.stop();
+      await transport.stop(target);
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setRunning(false);
-      setTestPath(null);
+      setTestAddress(null);
+      setExposable(false);
       closeStream();
       setBusy(false);
     }
-  }, [closeStream, transport]);
+  }, [closeStream, target, transport]);
 
-  // Resolve the BFF-relative test path to an absolute URL for display/linking. It
-  // works under both local dev and the in-cluster /editor mount because it is
-  // computed from the current origin.
+  // Resolve the host's address into an absolute URL for display/linking. It works for
+  // both kinds: a relative path resolves against the current origin (so it is right under
+  // local dev and under the in-cluster /editor mount alike), and an absolute URL — a run
+  // with a hostname of its own — ignores the base and passes straight through.
   const testUrl = useMemo(
     () =>
-      testPath && typeof window !== "undefined"
-        ? new URL(testPath, window.location.origin).href
+      testAddress && typeof window !== "undefined"
+        ? new URL(testAddress, window.location.origin).href
         : null,
-    [testPath],
+    [testAddress],
   );
+
+  // Poll for a networked run's URL while it is still coming up. The address is learned only
+  // from a status read, and a dev-run pod withholds it until its pod is ready (offering it
+  // sooner would hand out a link that 502s while the image pulls). Status is otherwise read
+  // once, on mount — so without this the log panel's endpoint link stays blank from the
+  // moment Run is clicked until a full page reload.
+  //
+  // It runs only while a run that WILL have a URL (exposable) does not have it yet, and stops
+  // the instant one lands — the address setting re-runs this effect, and the guard then bows
+  // out. A run that serves no HTTP is not exposable and so never polls; the local runner
+  // reports its URL at start, so it has nothing to wait for either. A run that never becomes
+  // ready keeps polling until it is stopped or the editor moves on, which is the honest cost
+  // of the link appearing on its own: a cheap status read every couple of seconds.
+  useEffect(() => {
+    if (!running || !exposable || testAddress) return;
+    let cancelled = false;
+    const id = setInterval(() => {
+      transport
+        .status(target)
+        .then((s) => {
+          if (cancelled) return;
+          setExposable(s.exposable);
+          setTestAddress(s.testUrl);
+        })
+        .catch(() => {});
+    }, URL_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [running, exposable, testAddress, transport, target]);
 
   // Clear only the client-side display. We deliberately leave the open stream and
   // `lastSeqRef` untouched: reconnecting would make the server replay its whole
@@ -211,16 +289,22 @@ export function RunProvider({
   // Only valid documents are synced: pushing an invalid intermediate edit (e.g.
   // mid-rename) would make the live runner fail its hot-reload. We hold the last
   // valid config until the document is valid again, then push the difference.
+  //
+  // Skipped entirely on a host that reloads on save. There the running app reads the
+  // STORED definition, so a pushed buffer is not merely redundant — nothing reads it, and
+  // pushing one would leave the panel implying an edit had taken effect when it had not.
+  // The save path is the trigger there, server-side, which is what makes it cover every
+  // writer rather than only this editor.
   useEffect(() => {
-    if (!running || !validation.ok) return;
+    if (reloadsOnSave || !running || !validation.ok) return;
     const yaml = toRunnableYaml(doc);
     if (yaml === lastYamlRef.current) return;
     const t = setTimeout(() => {
       lastYamlRef.current = yaml;
-      transport.sync({ yaml, integrationId: integrationId ?? undefined }).catch(() => {});
+      transport.sync({ ...target, yaml }).catch(() => {});
     }, SYNC_DEBOUNCE_MS);
     return () => clearTimeout(t);
-  }, [doc, running, validation.ok, transport, integrationId]);
+  }, [doc, running, validation.ok, transport, target, reloadsOnSave]);
 
   const evalCel = useCallback(
     (req: CelEvalRequest): Promise<CelEvalResult> => transport.evalCel(req),
@@ -243,6 +327,7 @@ export function RunProvider({
     testAvailable,
     testVersion,
     testUrl,
+    reloadsOnSave,
     start,
     stop,
     clearLogs,

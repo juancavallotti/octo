@@ -58,7 +58,9 @@ function transportOf(output = MESSAGE, failed = false): RunTransport {
     version: null,
     testAvailable: true,
     testVersion: null,
-    testPath: null,
+    testUrl: null,
+    exposable: false,
+    reloadsOnSave: false,
   };
   return {
     status: async () => snap,

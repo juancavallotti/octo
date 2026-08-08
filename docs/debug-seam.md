@@ -240,7 +240,7 @@ blocks, not a variable the flow set, and reporting it as one would be a lie.
 `cli/debug.go` prints one JSON object for a run that *was* asked to observe itself.
 One field is load-bearing beyond its appearance:
 
-**`reached` is a `*bool`.** `packages/run-host/src/session.ts` identifies a break
+**`reached` is a `*bool`.** `packages/run-host/src/exec/invoke.ts` identifies a break
 envelope by sniffing for a *boolean* `reached`. So it must marshal as `false` for a
 breakpoint that was never hit, and be **absent** when there was no breakpoint at
 all — otherwise a spies-only envelope would be read as a breakpoint that never
@@ -268,7 +268,7 @@ stack, and a feature that stops there is only a quarter built:
   a _test.yaml ───────┘  …or dolphin straight from a terminal
 ```
 
-**`packages/run-host`** (`session.ts`) is the one place that spawns the runner, so
+**`packages/run-host`** (`exec/invoke.ts`) is the one place that spawns the runner, so
 every consumer above it reaches the seam through the same argv. It also decodes
 the envelope — and normalizes it, which is the part to be careful with: under
 `--spies` stdout carries the envelope *instead of* the result message, so
@@ -317,9 +317,9 @@ JSON. **stdout is not the CLI's private channel** — anything that has to be pa
 needs a channel of its own.
 
 **The editor's Testing tab and MCP's `run_tests`** reach dolphin the same way the
-canvas reaches `octo`: through run-host (`test.ts`, deliberately not `session.ts` —
-a test run has no long-lived process, no log stream and no port to share). Two things
-about that path are load-bearing:
+canvas reaches `octo`: through run-host (`exec/test.ts` — one of the one-shots, and
+deliberately not the app runner: a test run has no long-lived process, no log stream and
+no port to share). Two things about that path are load-bearing:
 
 - It writes `--report-json`, for the same reason dolphin uses `--envelope-out`. And
   it pins `OCTO_PATH` to `OCTO_BIN_PATH`, so the octo dolphin drives is always the
