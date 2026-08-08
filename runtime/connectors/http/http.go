@@ -34,6 +34,7 @@ import (
 func init() {
 	registerConnector()
 	registerJWTValidate()
+	registerSSEEvent()
 }
 
 // connectorType is this connector's registered type name. It doubles as the name
