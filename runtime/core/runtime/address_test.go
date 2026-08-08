@@ -57,7 +57,8 @@ func sampleConfig() *types.Config {
 				},
 				{
 					Type: "ai-agent", Name: "agent", Connector: "claude", Prompt: "p",
-					Tools: []types.ToolConfig{{Name: "lookup", Description: "d", Process: blocks("do-lookup")}},
+					Tools:  []types.ToolConfig{{Name: "lookup", Description: "d", Process: blocks("do-lookup")}},
+					Events: sub("report-it"),
 				},
 				{Type: "validate", Name: "check", Rules: []types.RuleConfig{{Expr: "true"}}, OnReject: sub("explain")},
 				// A block that takes its type from a named processor. It has neither a
@@ -123,6 +124,7 @@ func TestInjectBreakpointReachesEveryComposite(t *testing.T) {
 		{name: "ai-router route", addr: "orders.route[premium].charge-vip", wrapped: "charge-vip"},
 		{name: "ai-router default", addr: "orders.route[default].guardrail", wrapped: "guardrail"},
 		{name: "ai-agent tool", addr: "orders.agent[lookup].do-lookup", wrapped: "do-lookup"},
+		{name: "ai-agent events", addr: "orders.agent[events].report-it", wrapped: "report-it"},
 		{name: "filter onReject", addr: "orders.check[onReject].explain", wrapped: "explain"},
 		{name: "flow error chain", addr: "orders[error].notify", wrapped: "notify"},
 		{name: "another flow", addr: "other.step", wrapped: "step"},

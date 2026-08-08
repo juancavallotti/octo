@@ -153,6 +153,17 @@ type BlockConfig struct {
 	// MemoryCompaction is how an "ai-agent" shrinks memory over budget: "prune"
 	// (drop oldest, the default) or "summarize" (fold the oldest turns into a summary).
 	MemoryCompaction string `yaml:"memoryCompaction,omitempty"`
+	// Events is the observer sub-flow an "ai-agent" runs once per agent event, with
+	// the event as the message body. Its result is discarded: the sub-flow reports,
+	// it does not take part in the run.
+	Events *FlowConfig `yaml:"events,omitempty"`
+	// Emit lists which event types reach Events. Empty emits every type the block's
+	// configuration can produce. A type left out is never built, so this is the
+	// cheap lever; finer choices belong in the sub-flow itself.
+	Emit []string `yaml:"emit,omitempty"`
+	// Stream makes an "ai-agent" drive its provider's streaming API, so the model's
+	// output reaches Events as it is produced rather than only once a turn ends.
+	Stream bool `yaml:"stream,omitempty"`
 	// MaxAttempts caps how many times an "ai-retry" re-runs its Process chain
 	// after an LLM-driven revision before falling through to Error (default
 	// applied by the builder).

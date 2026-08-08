@@ -316,6 +316,15 @@ type aiAgentMeta struct {
 	// folds them into a running summary.
 	//nolint:lll // the enum tag (options + default) is inherently longer than 120 cols
 	MemoryCompaction string `json:"memoryCompaction" octo:"label=Memory compaction,type=enum,enum=prune|summarize,default=prune"`
+	// Drive the provider's streaming API so the model's output reaches the events
+	// path as it is produced. Requires an events path and a provider that streams.
+	Stream bool `json:"stream" octo:"label=Stream model output"`
+	// Which event types reach the events path. Empty emits every type this block can
+	// produce; a type left out is never built at all.
+	Emit []string `json:"emit" octo:"label=Emit events,type=string-list"`
+	// Observer path, run once per agent event with the event as the message body.
+	// Its result is discarded, so it reports on the run without taking part in it.
+	Events *struct{} `json:"events" octo:"label=Events,type=flow"`
 	// Named, described branches wired to the model as callable functions.
 	Tools *struct{} `json:"tools" octo:"label=Tools,type=tool-list,required"`
 	// Named instruction resources the agent can load on demand. Each skill's name

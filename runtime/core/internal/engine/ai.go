@@ -503,6 +503,11 @@ type aiAgent struct {
 	memoryMaxTokens  int
 	memoryCompaction string
 	env              map[string]any
+	// events is the observer path, nil when the block declares none. stream is the
+	// same connector as client, asserted to its streaming half, and is nil unless
+	// the block asked to stream.
+	events *emitter
+	stream core.LLMStreamClient
 }
 
 //nolint:ireturn // builders intentionally return the MessageProcessor interface
@@ -515,7 +520,8 @@ func (b *builder) aiAgent(cfg types.BlockConfig) (core.MessageProcessor, error) 
 	}
 	if err := allowSlots(cfg, blockKindAIAgent,
 		"tools", "skills", "default", "connector", "prompt", "guardrail", "maxIterations",
-		"memoryThreadId", "memoryMaxTokens", "memoryCompaction"); err != nil {
+		"memoryThreadId", "memoryMaxTokens", "memoryCompaction",
+		"events", "emit", "stream"); err != nil {
 		return nil, err
 	}
 
@@ -557,14 +563,28 @@ func (b *builder) aiAgent(cfg types.BlockConfig) (core.MessageProcessor, error) 
 	if err := b.configureAgentMemory(block, cfg); err != nil {
 		return nil, err
 	}
-	if cfg.Default != nil {
-		guardrail, defErr := b.branch(core.BranchDefault).subFlow(*cfg.Default)
-		if defErr != nil {
-			return nil, fmt.Errorf("ai-agent default: %w", defErr)
-		}
-		block.guardrail = guardrail
+	if err := b.configureAgentEvents(block, cfg, client); err != nil {
+		return nil, err
+	}
+	if err := b.configureAgentGuardrail(block, cfg); err != nil {
+		return nil, err
 	}
 	return block, nil
+}
+
+// configureAgentGuardrail wires the default path an agent falls back to when it
+// refuses or runs out of iterations. A block without one errors instead, so the
+// failure reaches a recovery path rather than being swallowed.
+func (b *builder) configureAgentGuardrail(block *aiAgent, cfg types.BlockConfig) error {
+	if cfg.Default == nil {
+		return nil
+	}
+	guardrail, err := b.branch(core.BranchDefault).subFlow(*cfg.Default)
+	if err != nil {
+		return fmt.Errorf("ai-agent default: %w", err)
+	}
+	block.guardrail = guardrail
+	return nil
 }
 
 // configureAgentMemory wires optional per-thread memory onto the agent, compiling
@@ -594,6 +614,44 @@ func (b *builder) configureAgentMemory(block *aiAgent, cfg types.BlockConfig) er
 			memoryCompactPrune, memoryCompactSummarize, compaction)
 	}
 	block.memoryCompaction = compaction
+	return nil
+}
+
+// configureAgentEvents wires the observer path and, when the block asks to
+// stream, the connector's streaming half.
+//
+// Every check here is build-time because every failure is a configuration mistake
+// with an obvious fix, and none of them should wait for the first request to
+// surface — least of all the streaming one, which would otherwise look like a
+// provider that has simply gone quiet.
+func (b *builder) configureAgentEvents(block *aiAgent, cfg types.BlockConfig, client core.LLMClient) error {
+	if cfg.Events == nil {
+		switch {
+		case cfg.Stream:
+			return errors.New("ai-agent stream requires an events path to report to")
+		case len(cfg.Emit) > 0:
+			return errors.New("ai-agent emit requires an events path to filter")
+		}
+		return nil
+	}
+
+	flow, err := b.branch(core.BranchEvents).subFlow(*cfg.Events)
+	if err != nil {
+		return fmt.Errorf("ai-agent events: %w", err)
+	}
+	kinds, err := emitKinds(cfg.Emit)
+	if err != nil {
+		return err
+	}
+	block.events = &emitter{flow: flow, kinds: kinds}
+
+	if cfg.Stream {
+		streamer, ok := client.(core.LLMStreamClient)
+		if !ok {
+			return fmt.Errorf("ai-agent stream: connector %q does not stream", cfg.Connector)
+		}
+		block.stream = streamer
+	}
 	return nil
 }
 
@@ -700,51 +758,139 @@ func (a *aiAgent) Process(ctx context.Context, msg *types.Message) (*types.Messa
 
 	current := msg
 	for iter := 0; iter < a.maxIterations; iter++ {
-		req := core.LLMRequest{
-			System:     a.system,
-			Messages:   messages,
-			Tools:      a.tools,
-			ToolChoice: core.LLMToolChoice{Mode: core.LLMToolChoiceAuto},
+		resp, callErr := a.callModel(ctx, iter, current, messages)
+		if callErr != nil {
+			if errors.Is(callErr, errEventStop) {
+				return a.halt(ctx, threadID, messages, current, iter, "the events path stopped the run")
+			}
+			return nil, fmt.Errorf("ai-agent: %w", callErr)
 		}
-		logModelCall(blockKindAIAgent, a.name, a.connector, req)
-		resp, completeErr := a.client.Complete(ctx, req)
-		if completeErr != nil {
-			return nil, fmt.Errorf("ai-agent: %w", completeErr)
-		}
-		logModelResp(blockKindAIAgent, a.name, resp)
 		messages = append(messages, resp.Raw)
 
 		if resp.StopReason == core.LLMStopRefusal {
 			a.persistMemory(ctx, threadID, messages)
-			return a.fallback(ctx, current, "model refused")
+			return a.fallback(ctx, current, iter, "model refused")
 		}
 		if len(resp.ToolCalls) == 0 {
 			slog.Info("ai-agent finished", "block", a.name, "iterations", iter+1)
+			out := foldResult(current, resp.Text)
+			a.report(ctx, out, iter, eventDone, map[string]any{fieldText: resp.Text})
 			a.persistMemory(ctx, threadID, messages)
-			return foldResult(current, resp.Text), nil
+			return out, nil
 		}
 
-		results := make([]core.LLMToolResult, 0, len(resp.ToolCalls))
-		for _, call := range resp.ToolCalls {
-			var res core.LLMToolResult
-			res, current = a.runTool(ctx, call, current)
-			results = append(results, res)
-		}
+		results, stopped := a.runTools(ctx, iter, resp.ToolCalls, &current)
 		messages = append(messages, core.LLMMessage{Role: core.LLMRoleTool, ToolResults: results})
 
-		// A tool branch requested stop. Tool branches run on the shared message, so
-		// the flag is already on it; halt the agent rather than starting another
-		// iteration, which would call the model again and overwrite the body with the
-		// next tool call's arguments.
-		if current.StopRequested() {
-			slog.Info("ai-agent stopped by a tool branch", "block", a.name, "iterations", iter+1)
-			a.persistMemory(ctx, threadID, messages)
-			return current, nil
+		// Halt rather than start another iteration, which would call the model again
+		// and overwrite the body with the next tool call's arguments. A tool branch
+		// runs on the shared message so its flag is already there; the events path
+		// runs on its own, so its stop has to be carried over.
+		if stopped || current.StopRequested() {
+			return a.halt(ctx, threadID, messages, current, iter, "a tool branch stopped the run")
 		}
 	}
 
 	a.persistMemory(ctx, threadID, messages)
-	return a.fallback(ctx, current, "exceeded max iterations")
+	return a.fallback(ctx, current, a.maxIterations-1, "exceeded max iterations")
+}
+
+// callModel runs one model turn, reporting its boundaries and — when the block
+// streams — its output as it arrives.
+func (a *aiAgent) callModel(
+	ctx context.Context, iter int, current *types.Message, messages []core.LLMMessage,
+) (*core.LLMResponse, error) {
+	req := core.LLMRequest{
+		System:     a.system,
+		Messages:   messages,
+		Tools:      a.tools,
+		ToolChoice: core.LLMToolChoice{Mode: core.LLMToolChoiceAuto},
+	}
+	logModelCall(blockKindAIAgent, a.name, a.connector, req)
+	if a.report(ctx, current, iter, eventTurnStart, nil) {
+		return nil, errEventStop
+	}
+
+	resp, err := a.completeTurn(ctx, req, current, iter)
+	if err != nil {
+		if !errors.Is(err, errEventStop) {
+			a.report(ctx, current, iter, eventError, map[string]any{"error": err.Error()})
+		}
+		return nil, err
+	}
+	logModelResp(blockKindAIAgent, a.name, resp)
+	if a.report(ctx, current, iter, eventTurnEnd, turnEndFields(resp)) {
+		return nil, errEventStop
+	}
+	return resp, nil
+}
+
+// completeTurn calls the model, streaming when the block asks for it. Both paths
+// return the same response, so streaming changes when the events path hears about
+// the turn and never what the agent does with it.
+func (a *aiAgent) completeTurn(
+	ctx context.Context, req core.LLMRequest, current *types.Message, iter int,
+) (*core.LLMResponse, error) {
+	if a.stream == nil {
+		return a.client.Complete(ctx, req)
+	}
+	return a.stream.Stream(ctx, req, func(ev core.LLMStreamEvent) error {
+		kind, known := deltaKinds[ev.Kind]
+		// Check before building anything: on a long answer this runs once per token,
+		// and an excluded kind should cost a map lookup and nothing else.
+		if !known || !a.events.wants(kind) {
+			return nil
+		}
+		if a.report(ctx, current, iter, kind, deltaFields(ev)) {
+			return errEventStop
+		}
+		return nil
+	})
+}
+
+// runTools dispatches one turn's tool calls, reporting each call and its result,
+// and says whether the events path asked to stop.
+func (a *aiAgent) runTools(
+	ctx context.Context, iter int, calls []core.LLMToolCall, current **types.Message,
+) ([]core.LLMToolResult, bool) {
+	results := make([]core.LLMToolResult, 0, len(calls))
+	stopped := false
+	for _, call := range calls {
+		stopped = a.report(ctx, *current, iter, eventToolCall, callFields(call)) || stopped
+		var res core.LLMToolResult
+		res, *current = a.runTool(ctx, call, *current)
+		results = append(results, res)
+		stopped = a.report(ctx, *current, iter, eventToolResult, resultFields(call, res)) || stopped
+	}
+	return results, stopped
+}
+
+// report sends one event, stamping the iteration every event carries, and says
+// whether the events path asked to stop.
+func (a *aiAgent) report(
+	ctx context.Context, msg *types.Message, iter int, kind string, fields map[string]any,
+) bool {
+	if !a.events.wants(kind) {
+		return false
+	}
+	stamped := make(map[string]any, len(fields)+1)
+	for name, v := range fields {
+		stamped[name] = v
+	}
+	stamped["iteration"] = iter + 1
+	return a.events.send(ctx, msg, kind, stamped)
+}
+
+// halt ends the run early with the message as it stands, making sure the stop
+// flag is on it — the events path sets it on its own message, not this one.
+func (a *aiAgent) halt(
+	ctx context.Context, threadID string, messages []core.LLMMessage,
+	current *types.Message, iter int, reason string,
+) (*types.Message, error) {
+	slog.Info("ai-agent stopped", "block", a.name, "iterations", iter+1, "reason", reason)
+	current.RequestStop()
+	a.persistMemory(ctx, threadID, messages)
+	return current, nil
 }
 
 // initConversation encodes the input body and seeds the LLM message list,
@@ -891,8 +1037,11 @@ func (a *aiAgent) findSkill(name string) (agentSkill, bool) {
 
 // fallback runs the guardrail flow, or errors when none is configured so the
 // failure propagates to a recovery path.
-func (a *aiAgent) fallback(ctx context.Context, msg *types.Message, reason string) (*types.Message, error) {
+func (a *aiAgent) fallback(
+	ctx context.Context, msg *types.Message, iter int, reason string,
+) (*types.Message, error) {
 	slog.Warn("ai-agent taking guardrail", "block", a.name, "connector", a.connector, "reason", reason)
+	a.report(ctx, msg, iter, eventGuardrail, map[string]any{"reason": reason})
 	if a.guardrail != nil {
 		return a.guardrail.Process(ctx, msg)
 	}
