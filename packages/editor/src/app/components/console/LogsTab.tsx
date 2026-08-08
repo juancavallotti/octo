@@ -1,13 +1,26 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { Loader2 } from "lucide-react";
 import type { RunLogLine } from "../../run/RunContext";
 
 /**
  * The runner's live log stream. Auto-scrolls while the user is already at the bottom —
  * scroll up to read something and the stream stops yanking you back down.
+ *
+ * `running` distinguishes the two reasons the stream can be empty. Before a run it is the
+ * resting state ("press Run"); right after, the run is up but a dev-run pod is still being
+ * scheduled and its image pulled, so no output has arrived yet — that gap can last many
+ * seconds, and a bare "no output" there reads as if the click did nothing. So while running
+ * with nothing yet, we show a spinner instead: the first log line replaces it on its own.
  */
-export default function LogsTab({ logs }: { logs: RunLogLine[] }) {
+export default function LogsTab({
+  logs,
+  running,
+}: {
+  logs: RunLogLine[];
+  running: boolean;
+}) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true);
 
@@ -29,9 +42,16 @@ export default function LogsTab({ logs }: { logs: RunLogLine[] }) {
       className="flex-1 overflow-auto px-3 py-2 font-mono text-xs leading-relaxed text-zinc-700 dark:text-zinc-300"
     >
       {logs.length === 0 ? (
-        <p className="text-zinc-400 dark:text-zinc-600">
-          No output yet. Press Run to start the integration.
-        </p>
+        running ? (
+          <p className="flex items-center gap-2 text-zinc-400 dark:text-zinc-500">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+            Starting the integration… waiting for it to come up.
+          </p>
+        ) : (
+          <p className="text-zinc-400 dark:text-zinc-600">
+            No output yet. Press Run to start the integration.
+          </p>
+        )
       ) : (
         logs.map((line) => (
           <div key={line.seq} className="whitespace-pre-wrap break-words">

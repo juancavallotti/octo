@@ -245,7 +245,7 @@ export default function LogPanel() {
       {!collapsed && tab === "problems" && (
         <ProblemsTab issues={issues} runErrors={runErrors} />
       )}
-      {!collapsed && tab === "logs" && <LogsTab logs={logs} />}
+      {!collapsed && tab === "logs" && <LogsTab logs={logs} running={running} />}
       {!collapsed && tab === "results" && <ResultsTab results={results} />}
       {!collapsed && tab === "tests" && <TestsTab />}
       {!collapsed && tab === "env" && <DevEnvPanel />}
