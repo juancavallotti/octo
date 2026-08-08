@@ -123,6 +123,12 @@ func TestTranslateUsage(t *testing.T) {
 	if got := translateUsage(sdk.Usage{}); got != nil {
 		t.Errorf("empty usage = %+v, want nil", got)
 	}
+	// InputTokens reports only the uncached remainder, so a fully cached prompt
+	// leaves it at zero while the response did carry usage. Reporting nil there
+	// would drop the one count that was actually there.
+	if got := translateUsage(sdk.Usage{CacheReadInputTokens: 30}); got == nil || got.CachedTokens != 30 {
+		t.Errorf("cache-only usage = %+v, want it reported", got)
+	}
 	got := translateUsage(sdk.Usage{
 		InputTokens:          100,
 		OutputTokens:         40,
@@ -416,4 +422,82 @@ func TestThinkingYieldsToForcedToolChoice(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestThinkingYieldsToASmallerRequestMaxTokens covers the half of the budget bound
+// that startup validation structurally cannot: toThinking checks the budget against
+// the connector's own maxTokens, but any AI block may override maxTokens per call,
+// so a connector that started cleanly can still put budget >= max_tokens on the wire
+// and take a 400. The budget has to be re-checked against the request that is
+// actually being sent.
+func TestThinkingYieldsToASmallerRequestMaxTokens(t *testing.T) {
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		gotBody = nil
+		_ = json.Unmarshal(body, &gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"m","type":"message","role":"assistant","model":"m",
+			"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn",
+			"usage":{"input_tokens":1,"output_tokens":1}}`)
+	}))
+	defer srv.Close()
+
+	// Valid at startup: the budget sits well below the connector's own maxTokens.
+	budgeted := &Connector{}
+	if err := budgeted.Start(context.Background(), types.ConnectorConfig{
+		Name: "claude",
+		Settings: types.Settings{
+			"apiKey": "sk-test", "baseURL": srv.URL,
+			"thinking": thinkingBudgeted, "thinkingBudget": 2048, "maxTokens": 8192,
+		},
+	}); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+
+	base := core.LLMRequest{Messages: []core.LLMMessage{{Role: core.LLMRoleUser, Text: "hi"}}}
+
+	for _, tc := range []struct {
+		name      string
+		maxTokens int
+		want      bool
+	}{
+		{"connector default leaves room", 0, true},
+		{"a larger override leaves room", 4096, true},
+		{"an override equal to the budget does not", 2048, false},
+		{"an override below the budget does not", 1024, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := base
+			req.MaxTokens = tc.maxTokens
+			if _, err := budgeted.Complete(context.Background(), req); err != nil {
+				t.Fatalf("complete: %v", err)
+			}
+			if _, sent := gotBody["thinking"]; sent != tc.want {
+				t.Errorf("thinking sent = %v, want %v (request body: %+v)", sent, tc.want, gotBody)
+			}
+		})
+	}
+
+	// Adaptive has no budget of its own — the model decides within whatever
+	// max_tokens the request carries — so no override can put it out of bounds.
+	adaptive := &Connector{}
+	if err := adaptive.Start(context.Background(), types.ConnectorConfig{
+		Name: "claude",
+		Settings: types.Settings{
+			"apiKey": "sk-test", "baseURL": srv.URL, "thinking": thinkingAdaptive,
+		},
+	}); err != nil {
+		t.Fatalf("start adaptive: %v", err)
+	}
+	t.Run("adaptive survives any override", func(t *testing.T) {
+		req := base
+		req.MaxTokens = 16
+		if _, err := adaptive.Complete(context.Background(), req); err != nil {
+			t.Fatalf("complete: %v", err)
+		}
+		if _, sent := gotBody["thinking"]; !sent {
+			t.Errorf("adaptive thinking dropped on a small maxTokens (request body: %+v)", gotBody)
+		}
+	})
 }

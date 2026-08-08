@@ -231,13 +231,21 @@ func emitChunk(
 		if tc.Function.Arguments == "" {
 			continue
 		}
+		// The index is the server's, and it indexes a slice. An upper bound alone
+		// would still panic on a negative one, which matters here because baseURL
+		// points this connector at OpenAI-compatible servers whose framing is not
+		// OpenAI's to guarantee.
+		idx := int(tc.Index)
+		if idx < 0 {
+			continue
+		}
 		ev := core.LLMStreamEvent{
 			Kind:  core.LLMStreamToolInput,
 			Text:  tc.Function.Arguments,
-			Index: int(tc.Index),
+			Index: idx,
 		}
-		if len(acc.Choices) > 0 && int(tc.Index) < len(acc.Choices[0].Message.ToolCalls) {
-			call := acc.Choices[0].Message.ToolCalls[tc.Index]
+		if len(acc.Choices) > 0 && idx < len(acc.Choices[0].Message.ToolCalls) {
+			call := acc.Choices[0].Message.ToolCalls[idx]
 			ev.Tool, ev.ToolCallID = call.Function.Name, call.ID
 		}
 		if err := on(ev); err != nil {

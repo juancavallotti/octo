@@ -374,13 +374,18 @@ func toTools(tools []core.LLMTool) ([]sdk.ToolUnionParam, error) {
 }
 
 // applyThinking sets the configured thinking on the request, unless the request
-// compels a tool call.
+// cannot carry it. Both exclusions are a 400 from the server that no SDK checks,
+// and in both thinking is the side that yields: it is an optimization, while the
+// thing it conflicts with is what the caller actually asked for.
 //
-// The two are mutually exclusive at the API and the SDK checks neither — the
-// result is a 400 from the server. Thinking is an optimization and a forced choice
-// is the caller's requirement, so thinking is the one that yields. That is what
-// lets a single thinking-enabled connector still serve an ai-router, which forces
-// a choice on every call.
+// A forced tool choice is the first. That is what lets a single thinking-enabled
+// connector still serve an ai-router, which forces a choice on every call.
+//
+// The second is a max_tokens too small to hold the budget. toThinking checks that
+// at startup, but only against the connector's own default: any AI block may
+// override maxTokens per call, so a budget validated at startup can still exceed
+// what a particular request allows. Startup cannot see that request, which is why
+// the check has to happen again here.
 func (c *Connector) applyThinking(params *sdk.MessageNewParams, tc core.LLMToolChoice) {
 	if !c.thinkingEnabled() {
 		return
@@ -390,7 +395,24 @@ func (c *Connector) applyThinking(params *sdk.MessageNewParams, tc core.LLMToolC
 			"model", c.model, "mode", tc.Mode)
 		return
 	}
+	if budget := c.budgetTokens(); budget > 0 && budget >= params.MaxTokens {
+		// Warn rather than debug: unlike a forced choice, which is structural and
+		// expected, this is a configuration mismatch the user can fix.
+		slog.Warn("llm-anthropic omitting thinking: the request's maxTokens cannot fit the thinking budget",
+			"model", c.model, "maxTokens", params.MaxTokens, "thinkingBudget", budget)
+		return
+	}
 	params.Thinking = c.thinking
+}
+
+// budgetTokens reports the configured thinking budget, or 0 when there is no
+// fixed one to check. Adaptive carries no budget: the model decides within
+// whatever max_tokens the request sets, so it fits by construction.
+func (c *Connector) budgetTokens() int64 {
+	if c.thinking.OfEnabled == nil {
+		return 0
+	}
+	return c.thinking.OfEnabled.BudgetTokens
 }
 
 // thinkingEnabled reports whether a thinking config was configured at all.
@@ -466,7 +488,10 @@ func translateResponse(message *sdk.Message) *core.LLMResponse {
 // "the inclusive, authoritative total used for billing" with thinking already
 // counted inside, which is the convention core.LLMUsage adopts.
 func translateUsage(u sdk.Usage) *core.LLMUsage {
-	if u.InputTokens == 0 && u.OutputTokens == 0 {
+	// Cached input counts separately from InputTokens, which reports only the
+	// uncached remainder, so a response can carry real usage with both of the
+	// other two at zero.
+	if u.InputTokens == 0 && u.OutputTokens == 0 && u.CacheReadInputTokens == 0 {
 		return nil
 	}
 	return &core.LLMUsage{

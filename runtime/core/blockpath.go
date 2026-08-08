@@ -38,7 +38,9 @@ const (
 	BranchBuildResponse = "buildResponse"
 	// BranchEvents is the observer chain an ai-agent runs once per agent event. It
 	// neither carries the message onward nor answers the caller: its result is
-	// discarded, so it is the one branch that cannot change the run it reports on.
+	// discarded, so nothing it produces can reach the run it reports on. The single
+	// exception is a stop request, which propagates and ends the agent — the chain
+	// cannot change what the run produces, but it can say nobody is listening.
 	BranchEvents = "events"
 )
 

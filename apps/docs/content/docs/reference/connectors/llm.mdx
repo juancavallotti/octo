@@ -37,7 +37,7 @@ Each connector concentrates provider policy — API key, model, and the default 
 | `model` | string | No | `claude-sonnet-4-6` | Model ID. |
 | `maxTokens` | int | No | `4096` | Default response token cap; a request may override it. |
 | `thinking` | enum `off` \| `adaptive` \| `budgeted` | No | `off` | Extended thinking. `adaptive` lets the model decide how much; `budgeted` caps it at `thinkingBudget`. |
-| `thinkingBudget` | int | No | — | Thinking token budget, used when `thinking: budgeted`. Must be at least 1024 and below `maxTokens`, which it counts towards. Validated at startup. |
+| `thinkingBudget` | int | No | — | Thinking token budget, used when `thinking: budgeted`. Must be at least 1024 and below `maxTokens`, which it counts towards. Validated at startup, and re-checked per request — a block whose own `maxTokens` is too small to hold the budget omits thinking for that call rather than failing it. |
 | `baseURL` | string | No | Anthropic API | Overrides the API endpoint (for proxies or testing). |
 
 ## `llm-gemini` connector
@@ -81,10 +81,12 @@ Two things to know before turning thinking on:
 - **Reasoning never reaches the message body.** It rides on the assistant turn, not
   in the answer, so a flow that folds the result into a body cannot publish the
   model's chain of thought by accident.
-- **Anthropic thinking and a forced tool choice cannot be combined**, and the API
-  answers 400 when they are. `ai-agent` always lets the model choose, so it is
-  unaffected; `ai-router` forces a choice, so a connector shared with one silently
-  omits thinking for those calls rather than failing them.
+- **Anthropic thinking yields when a request cannot carry it**, rather than
+  failing. Two things it cannot be combined with are a forced tool choice — the
+  API answers 400, so `ai-router`, which forces one on every call, gets its
+  requests without thinking while `ai-agent` is unaffected — and a per-block
+  `maxTokens` too small to hold `thinkingBudget`, which startup validation cannot
+  see because it only knows the connector's own default.
 
 ## Example
 
