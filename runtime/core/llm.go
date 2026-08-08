@@ -30,6 +30,86 @@ type LLMClient interface {
 	Complete(ctx context.Context, req LLMRequest) (*LLMResponse, error)
 }
 
+// LLMStreamClient is the optional streaming half of a provider. A connector that
+// implements it can report a turn's output as it is produced instead of only when
+// it is finished. Callers type-assert for it exactly as they do for EmbedClient,
+// and fall back to Complete when a provider does not have it.
+type LLMStreamClient interface {
+	// Stream runs one completion turn, calling on for each event as it arrives, and
+	// returns the same *LLMResponse Complete would have returned for that turn.
+	//
+	// The events are strictly additive: everything a caller needs is still on the
+	// returned response, so moving a call from Complete to Stream changes when the
+	// caller learns things, never what it learns. That is what makes streaming safe
+	// to switch on.
+	//
+	// on is called on the calling goroutine, in order, between reads of the
+	// provider's connection — so a slow handler backpressures the model rather than
+	// buffering without bound. Returning an error from on stops the stream and is
+	// returned as-is, which is how a caller abandons a turn nobody is listening to.
+	Stream(ctx context.Context, req LLMRequest, on func(LLMStreamEvent) error) (*LLMResponse, error)
+}
+
+// LLMStreamKind is the canonical vocabulary for a streamed event.
+//
+// It is a closed set on purpose. Every provider maps its own wire events onto
+// these, and anything with no canonical home goes to LLMStreamCustom rather than
+// growing the list. Two rules keep that honest: a provider never uses custom for
+// something a canonical kind already covers, and never synthesizes a kind it does
+// not actually have.
+//
+// Consumers must tolerate any kind being absent, because the gaps between
+// providers are real and permanent rather than bugs waiting to be fixed. Today
+// the only such gap is thinking on OpenAI, whose Chat Completions API exposes no
+// reasoning content at all — not on a delta, not on the finished message.
+//
+// Granularity is not guaranteed either, only meaning. Gemini delivers a tool
+// call's arguments whole where the other two fragment them, so it reports one
+// tool_input rather than several; a consumer that concatenates the fragments of a
+// call gets the same valid JSON on all three.
+//
+// There is deliberately no terminal kind. Stream returns the finished
+// LLMResponse, so stop reason, usage and the assembled text are all read from
+// there — a "done" event would be a second, weaker way to learn the same thing.
+type LLMStreamKind string
+
+const (
+	// LLMStreamText is a fragment of the assistant's answer.
+	LLMStreamText LLMStreamKind = "text"
+	// LLMStreamThinking is a fragment of the model's reasoning. A provider emits it
+	// only when reasoning was both requested and is returned as content.
+	LLMStreamThinking LLMStreamKind = "thinking"
+	// LLMStreamToolInput is a fragment of one tool call's argument JSON. The
+	// fragments are not individually parseable — only their concatenation is.
+	LLMStreamToolInput LLMStreamKind = "tool_input"
+	// LLMStreamCustom is a provider event with no canonical equivalent, carried
+	// through under the provider's own name for it. It is also what a connector
+	// falls back to for an event its SDK has grown since the connector was written,
+	// so a new provider event reaches consumers without the vocabulary changing.
+	LLMStreamCustom LLMStreamKind = "custom"
+)
+
+// LLMStreamEvent is one event from a streamed turn. Which fields are populated
+// depends on Kind; a consumer that does not recognize a Kind can always ignore
+// the event, since the finished response carries everything it needs.
+type LLMStreamEvent struct {
+	Kind LLMStreamKind
+	// Name is the provider's own name for a custom event. Empty for every canonical
+	// kind.
+	Name string
+	// Text is the fragment for text, thinking and tool_input. For custom it is the
+	// raw provider payload.
+	Text string
+	// Tool and ToolCallID identify the call a tool_input fragment belongs to. They
+	// are set from the point the provider names the call, which for a fragmented
+	// tool call is its first fragment.
+	Tool       string
+	ToolCallID string
+	// Index is the provider's content-block index. Blocks interleave, so this is
+	// what distinguishes two runs of fragments arriving at once.
+	Index int
+}
+
 // LLMRequest is one completion turn. The shape mirrors the Anthropic Messages
 // tool-use loop (system separate from the conversation, explicit tool-call IDs,
 // tool results as their own turn) because it is the most expressive of the three
@@ -65,12 +145,53 @@ const (
 
 // LLMMessage is one turn in the conversation. Which fields are populated depends
 // on Role: user/assistant turns carry Text, an assistant turn may also carry
-// ToolCalls, and a tool turn carries ToolResults.
+// Thinking and ToolCalls, and a tool turn carries ToolResults.
 type LLMMessage struct {
-	Role        LLMRole
-	Text        string
+	Role LLMRole
+	Text string
+	// Thinking is the assistant turn's reasoning blocks, in the order the provider
+	// produced them. See LLMThinkingBlock: this exists for correctness, not
+	// observability, and callers driving a tool loop must carry it back untouched.
+	Thinking    []LLMThinkingBlock
 	ToolCalls   []LLMToolCall
 	ToolResults []LLMToolResult
+}
+
+// LLMThinkingBlock is one reasoning block from an assistant turn.
+//
+// It is carried on the message rather than dropped because a provider may
+// require it back. With extended thinking enabled, Anthropic validates the
+// thinking runs of an echoed assistant turn and rejects a request whose blocks
+// were dropped, reordered, or edited — so a tool loop that discards them breaks
+// on the second turn. Callers treat these blocks as opaque: they never inspect,
+// merge, or construct one, they only carry it back via LLMResponse.Raw.
+//
+// Exactly one of Text or Redacted is set. A redacted block is reasoning the
+// provider encrypted rather than returned; it must still be echoed verbatim.
+type LLMThinkingBlock struct {
+	// Text is the reasoning content. Empty for a redacted block.
+	Text string
+	// Signature is the provider's attestation over Text. It is verified against the
+	// exact bytes of Text, so changing either invalidates the block.
+	Signature string
+	// Redacted is the opaque payload of a redacted block, echoed back as-is.
+	Redacted []byte
+}
+
+// LLMUsage is the token accounting for one completion turn. A provider that does
+// not report a given figure leaves it zero; LLMResponse.Usage is nil when the
+// provider reported nothing at all.
+//
+// OutputTokens is defined as the billing-authoritative total and therefore
+// *includes* ThinkingTokens. Providers disagree here — Anthropic and OpenAI
+// already count reasoning inside their output total, Gemini reports thoughts
+// separately — so the connectors normalize to the inclusive figure and callers
+// never have to know which provider answered.
+type LLMUsage struct {
+	InputTokens    int
+	OutputTokens   int
+	ThinkingTokens int
+	CachedTokens   int
 }
 
 // LLMTool is a function the model may call. InputSchema is a JSON Schema object
@@ -147,9 +268,15 @@ const (
 // output; ToolCalls is set when StopReason is LLMStopToolUse. Raw is the
 // assistant turn as an LLMMessage, ready to append back onto LLMRequest.Messages
 // when driving a tool loop.
+//
+// Text carries the model's answer only. Reasoning never appears in it — it lives
+// in Raw.Thinking, so a caller that folds Text into a message body cannot leak
+// chain-of-thought into user-visible output.
 type LLMResponse struct {
 	Text       string
 	ToolCalls  []LLMToolCall
 	StopReason LLMStopReason
 	Raw        LLMMessage
+	// Usage is the turn's token accounting, or nil when the provider reported none.
+	Usage *LLMUsage
 }

@@ -228,3 +228,90 @@ func TestEmbedRequiresInput(t *testing.T) {
 		t.Error("expected error for empty input")
 	}
 }
+
+// TestTranslateResponseKeepsThoughtsOutOfText pins the two things enabling
+// thinking on Gemini would otherwise get wrong: reasoning must not be folded into
+// the answer, and thought tokens must be added into OutputTokens, since Gemini is
+// the one provider that reports them outside its candidate count.
+func TestTranslateResponseKeepsThoughtsOutOfText(t *testing.T) {
+	out := translateResponse(&genai.GenerateContentResponse{
+		Candidates: []*genai.Candidate{{
+			Content: &genai.Content{Parts: []*genai.Part{
+				{Text: "the user is asking about a balance", Thought: true, ThoughtSignature: []byte("sig-1")},
+				{Text: "your balance is 42"},
+			}},
+			FinishReason: genai.FinishReasonStop,
+		}},
+		UsageMetadata: &genai.GenerateContentResponseUsageMetadata{
+			PromptTokenCount:        10,
+			CandidatesTokenCount:    5,
+			ThoughtsTokenCount:      7,
+			CachedContentTokenCount: 3,
+		},
+	})
+
+	if out.Text != "your balance is 42" {
+		t.Errorf("text = %q, want the answer only — reasoning must not reach Text", out.Text)
+	}
+	if len(out.Raw.Thinking) != 1 {
+		t.Fatalf("thinking blocks = %d, want 1: %+v", len(out.Raw.Thinking), out.Raw.Thinking)
+	}
+	if got := out.Raw.Thinking[0]; got.Text != "the user is asking about a balance" || got.Signature != "sig-1" {
+		t.Errorf("thinking[0] = %+v, want the thought text and its signature", got)
+	}
+	want := core.LLMUsage{InputTokens: 10, OutputTokens: 12, ThinkingTokens: 7, CachedTokens: 3}
+	if out.Usage == nil || *out.Usage != want {
+		t.Errorf("usage = %+v, want %+v (thoughts added into OutputTokens)", out.Usage, want)
+	}
+}
+
+// TestTranslateResponseCarriesThoughtSignatureToCall pins the pre-existing
+// behaviour that a signature sitting on a thought part before a function call is
+// the one replayed on that call — capturing thoughts must not consume it.
+func TestTranslateResponseCarriesThoughtSignatureToCall(t *testing.T) {
+	out := translateResponse(&genai.GenerateContentResponse{
+		Candidates: []*genai.Candidate{{
+			Content: &genai.Content{Parts: []*genai.Part{
+				{Text: "I should look this up", Thought: true, ThoughtSignature: []byte("sig-call")},
+				{FunctionCall: &genai.FunctionCall{Name: "lookup", Args: map[string]any{"q": "x"}}},
+			}},
+			FinishReason: genai.FinishReasonStop,
+		}},
+	})
+	if len(out.ToolCalls) != 1 {
+		t.Fatalf("tool calls = %d, want 1", len(out.ToolCalls))
+	}
+	if got := string(out.ToolCalls[0].Signature); got != "sig-call" {
+		t.Errorf("call signature = %q, want the preceding thought's signature", got)
+	}
+	if out.Usage != nil {
+		t.Errorf("usage = %+v, want nil when the response reported none", out.Usage)
+	}
+}
+
+func TestToThinkingConfig(t *testing.T) {
+	off, err := toThinkingConfig(connectorSettings{})
+	if err != nil || off != nil {
+		t.Errorf("unset thinking = %+v (err %v), want nil so the request carries none", off, err)
+	}
+
+	dyn, err := toThinkingConfig(connectorSettings{Thinking: thinkingDynamic})
+	if err != nil || dyn == nil || dyn.ThinkingBudget == nil || *dyn.ThinkingBudget != dynamicThinkingBudget {
+		t.Fatalf("dynamic = %+v (err %v), want the dynamic sentinel budget", dyn, err)
+	}
+	if !dyn.IncludeThoughts {
+		t.Error("IncludeThoughts must be set, or the model reasons but returns no thought parts to observe")
+	}
+
+	budgeted, err := toThinkingConfig(connectorSettings{Thinking: thinkingBudgeted, ThinkingBudget: 2048})
+	if err != nil || budgeted == nil || budgeted.ThinkingBudget == nil || *budgeted.ThinkingBudget != 2048 {
+		t.Errorf("budgeted = %+v (err %v), want a budget of 2048", budgeted, err)
+	}
+
+	if _, err := toThinkingConfig(connectorSettings{Thinking: thinkingBudgeted}); err == nil {
+		t.Error("expected an error for a budgeted config with no budget")
+	}
+	if _, err := toThinkingConfig(connectorSettings{Thinking: "sometimes"}); err == nil {
+		t.Error("expected an error for an unknown thinking mode")
+	}
+}

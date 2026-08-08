@@ -3,6 +3,12 @@
 // can drive it interchangeably with the other providers. It translates the
 // provider-agnostic core.LLM* DTOs to and from the OpenAI SDK types on each
 // Complete call.
+//
+// Chat Completions exposes no reasoning content — not on a delta, not on the
+// finished message — so core.LLMMessage.Thinking is always empty here and an
+// echoed turn carries none. Reasoning is visible only as a token count. That is
+// an API limitation, not an omission: reasoning summaries live on the Responses
+// API, which this connector does not use.
 package openai
 
 import (
@@ -46,9 +52,14 @@ type connectorSettings struct {
 	Model string `json:"model" octo:"label=Model,default=gpt-5.4"`
 	// Default response token cap (0 = the model default); a request may override it.
 	MaxTokens int `json:"maxTokens" octo:"label=Max tokens"`
+	// How much reasoning effort a reasoning-capable model spends; off leaves it to the model.
+	Reasoning string `json:"reasoning" octo:"label=Reasoning,type=enum,enum=off|minimal|low|medium|high,default=off"`
 	// Overrides the API endpoint (for proxies, Azure, or OpenAI-compatible servers).
 	BaseURL string `json:"baseURL" octo:"label=Base URL"`
 }
+
+// reasoningOff leaves reasoning_effort off the request entirely.
+const reasoningOff = "off"
 
 // Connector is a configured OpenAI client that AI elements call through. It is
 // safe for concurrent use: the SDK client is, and the connector holds only
@@ -57,12 +68,14 @@ type Connector struct {
 	client    sdk.Client
 	model     string
 	maxTokens int
+	reasoning shared.ReasoningEffort
 }
 
 var (
-	_ core.Connector   = (*Connector)(nil)
-	_ core.LLMClient   = (*Connector)(nil)
-	_ core.EmbedClient = (*Connector)(nil)
+	_ core.Connector       = (*Connector)(nil)
+	_ core.LLMClient       = (*Connector)(nil)
+	_ core.LLMStreamClient = (*Connector)(nil)
+	_ core.EmbedClient     = (*Connector)(nil)
 )
 
 // Start parses the settings, validates the API key, and builds the client so a
@@ -82,6 +95,12 @@ func (c *Connector) Start(_ context.Context, config types.ConnectorConfig) error
 	}
 	c.maxTokens = set.MaxTokens
 
+	reasoning, err := toReasoningEffort(set.Reasoning)
+	if err != nil {
+		return fmt.Errorf("llm-openai connector %q: %w", config.Name, err)
+	}
+	c.reasoning = reasoning
+
 	opts := []option.RequestOption{option.WithAPIKey(set.APIKey)}
 	if set.BaseURL != "" {
 		opts = append(opts, option.WithBaseURL(set.BaseURL))
@@ -92,8 +111,25 @@ func (c *Connector) Start(_ context.Context, config types.ConnectorConfig) error
 		"connector", config.Name,
 		"model", c.model,
 		"maxTokens", c.maxTokens,
+		"reasoning", set.Reasoning,
 	)
 	return nil
+}
+
+// toReasoningEffort validates the setting at startup, returning the empty effort
+// for off so the request carries no reasoning_effort and the model's own default
+// applies. This steers how many reasoning tokens the model spends; it does not
+// make reasoning observable, which Chat Completions never does.
+func toReasoningEffort(effort string) (shared.ReasoningEffort, error) {
+	switch effort {
+	case "", reasoningOff:
+		return "", nil
+	case string(shared.ReasoningEffortMinimal), string(shared.ReasoningEffortLow),
+		string(shared.ReasoningEffortMedium), string(shared.ReasoningEffortHigh):
+		return shared.ReasoningEffort(effort), nil
+	default:
+		return "", fmt.Errorf("reasoning must be one of off, minimal, low, medium, high, got %q", effort)
+	}
 }
 
 // Stop is a no-op: the connector holds no resources to release.
@@ -102,13 +138,125 @@ func (c *Connector) Stop(context.Context) error { return nil }
 // Complete runs one Chat Completions turn, translating the request to SDK params
 // and the response back to the provider-agnostic DTOs.
 func (c *Connector) Complete(ctx context.Context, req core.LLMRequest) (*core.LLMResponse, error) {
-	msgs, err := toMessages(req)
+	params, err := c.params(req)
 	if err != nil {
 		return nil, err
 	}
-	tools, err := toTools(req.Tools)
+	cc, err := c.client.Chat.Completions.New(ctx, params)
+	if err != nil {
+		return nil, fmt.Errorf("llm-openai complete: %w", err)
+	}
+	return translateResponse(cc)
+}
+
+// Stream runs one Chat Completions turn over the streaming endpoint, reporting
+// content as it arrives and returning the same response Complete would have.
+//
+// Usage and the finish reason are taken from the chunks directly rather than from
+// the SDK accumulator, which sums usage and overwrites the finish reason on every
+// chunk carrying choices. Against real OpenAI both are harmless — non-final chunks
+// report no usage, and the usage chunk carries no choices — but this connector
+// advertises baseURL for OpenAI-compatible servers, where a server that echoes
+// usage on every chunk would be multiplied and a late chunk would clear the finish
+// reason back to a plain end-of-turn.
+func (c *Connector) Stream(
+	ctx context.Context, req core.LLMRequest, on func(core.LLMStreamEvent) error,
+) (*core.LLMResponse, error) {
+	params, err := c.params(req)
 	if err != nil {
 		return nil, err
+	}
+	params.StreamOptions = sdk.ChatCompletionStreamOptionsParam{IncludeUsage: param.NewOpt(true)}
+
+	stream := c.client.Chat.Completions.NewStreaming(ctx, params)
+	defer func() { _ = stream.Close() }()
+
+	var (
+		acc    sdk.ChatCompletionAccumulator
+		usage  sdk.CompletionUsage
+		finish string
+	)
+	for stream.Next() {
+		chunk := stream.Current()
+		acc.AddChunk(chunk)
+		if chunk.Usage.PromptTokens != 0 || chunk.Usage.CompletionTokens != 0 {
+			usage = chunk.Usage
+		}
+		if len(chunk.Choices) > 0 && chunk.Choices[0].FinishReason != "" {
+			finish = chunk.Choices[0].FinishReason
+		}
+		// Accumulate first: a fragment after the first carries no name or id, so the
+		// call it belongs to has to be read off what the accumulator has opened.
+		if emitErr := emitChunk(&acc, chunk, on); emitErr != nil {
+			return nil, emitErr
+		}
+	}
+	if streamErr := stream.Err(); streamErr != nil {
+		return nil, fmt.Errorf("llm-openai stream: %w", streamErr)
+	}
+
+	cc := acc.ChatCompletion
+	cc.Usage = usage
+	if len(cc.Choices) > 0 {
+		cc.Choices[0].FinishReason = finish
+	}
+	return translateResponse(&cc)
+}
+
+// emitChunk maps one chunk onto the canonical vocabulary. The final usage chunk
+// carries no choices and so produces nothing.
+func emitChunk(
+	acc *sdk.ChatCompletionAccumulator, chunk sdk.ChatCompletionChunk, on func(core.LLMStreamEvent) error,
+) error {
+	if len(chunk.Choices) == 0 {
+		return nil
+	}
+	delta := chunk.Choices[0].Delta
+	if delta.Content != "" {
+		if err := on(core.LLMStreamEvent{Kind: core.LLMStreamText, Text: delta.Content}); err != nil {
+			return err
+		}
+	}
+	if delta.Refusal != "" {
+		// A refusal is content, but it is not the answer, so it is not text. There is
+		// no canonical kind for it and inventing one would grow the vocabulary for a
+		// single provider, which is what custom exists to avoid.
+		if err := on(core.LLMStreamEvent{
+			Kind: core.LLMStreamCustom, Name: "refusal", Text: delta.Refusal,
+		}); err != nil {
+			return err
+		}
+	}
+	for _, tc := range delta.ToolCalls {
+		if tc.Function.Arguments == "" {
+			continue
+		}
+		ev := core.LLMStreamEvent{
+			Kind:  core.LLMStreamToolInput,
+			Text:  tc.Function.Arguments,
+			Index: int(tc.Index),
+		}
+		if len(acc.Choices) > 0 && int(tc.Index) < len(acc.Choices[0].Message.ToolCalls) {
+			call := acc.Choices[0].Message.ToolCalls[tc.Index]
+			ev.Tool, ev.ToolCallID = call.Function.Name, call.ID
+		}
+		if err := on(ev); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// params builds the SDK request shared by Complete and Stream, so the two paths
+// cannot drift in what they ask the model for.
+func (c *Connector) params(req core.LLMRequest) (sdk.ChatCompletionNewParams, error) {
+	msgs, err := toMessages(req)
+	if err != nil {
+		return sdk.ChatCompletionNewParams{}, err
+	}
+	tools, err := toTools(req.Tools)
+	if err != nil {
+		return sdk.ChatCompletionNewParams{}, err
 	}
 
 	params := sdk.ChatCompletionNewParams{
@@ -122,18 +270,16 @@ func (c *Connector) Complete(ctx context.Context, req core.LLMRequest) (*core.LL
 	if maxTokens > 0 {
 		params.MaxCompletionTokens = param.NewOpt(int64(maxTokens))
 	}
+	if c.reasoning != "" {
+		params.ReasoningEffort = c.reasoning
+	}
 	if len(tools) > 0 {
 		params.Tools = tools
 		if choice, ok := toToolChoice(req.ToolChoice); ok {
 			params.ToolChoice = choice
 		}
 	}
-
-	cc, err := c.client.Chat.Completions.New(ctx, params)
-	if err != nil {
-		return nil, fmt.Errorf("llm-openai complete: %w", err)
-	}
-	return translateResponse(cc)
+	return params, nil
 }
 
 // Embed embeds a batch of texts in one request, translating the SDK's
@@ -293,9 +439,25 @@ func translateResponse(cc *sdk.ChatCompletion) (*core.LLMResponse, error) {
 		Text:       message.Content,
 		ToolCalls:  calls,
 		StopReason: mapFinishReason(choice.FinishReason, message.Refusal),
+		Usage:      translateUsage(cc.Usage),
 	}
 	resp.Raw = core.LLMMessage{Role: core.LLMRoleAssistant, Text: message.Content, ToolCalls: calls}
 	return resp, nil
+}
+
+// translateUsage converts the SDK's token counts, reporting nil when the response
+// carried none. CompletionTokens already counts reasoning tokens inside itself,
+// matching the inclusive convention core.LLMUsage adopts.
+func translateUsage(u sdk.CompletionUsage) *core.LLMUsage {
+	if u.PromptTokens == 0 && u.CompletionTokens == 0 {
+		return nil
+	}
+	return &core.LLMUsage{
+		InputTokens:    int(u.PromptTokens),
+		OutputTokens:   int(u.CompletionTokens),
+		ThinkingTokens: int(u.CompletionTokensDetails.ReasoningTokens),
+		CachedTokens:   int(u.PromptTokensDetails.CachedTokens),
+	}
 }
 
 // mapFinishReason maps the OpenAI finish reason (and a refusal) to the agnostic
