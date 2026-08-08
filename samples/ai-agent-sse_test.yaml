@@ -1,0 +1,64 @@
+flow: ask
+
+# HONEST LIMITS, and they are tighter here than for any other sample.
+#
+# The sample's claim is that the agent's events reach the CALLER as SSE frames while
+# the run is still going. Nothing in this file can see a frame, for two reasons that
+# compound:
+#
+#   1) An invoke drives the flow through the implicit source, so the http connector
+#      never starts and there is no open connection to write to. Every sse-event in
+#      the events path fails to find a stream.
+#   2) The events path only runs when the agent produces an event, and an agent only
+#      produces events by taking a model turn. Mocking the agent to avoid the model
+#      replaces the block AND its sub-flows — the events path goes with it.
+#
+# So there is no case here that runs the events path. Frames are verified by hand:
+#   curl -N -X POST <testUrl>ask -d '{"orderId":"A-1"}'
+#
+# What IS pinned: that the whole config builds — the events path, the emit list and
+# the tool schemas are all valid — and, in the first case, something no other sample
+# can show: that the agent really took the STREAMING path. "llm-anthropic stream" is
+# reachable only through the connector's streaming half, which the block resolves at
+# build time; a connector that could not stream would have failed to build, and a
+# block that ignored stream: true would report "llm-anthropic complete" instead.
+#
+# What is NOT pinned: the frames, the event vocabulary, emit filtering, the tool
+# loop, and stop-on-disconnect. All of them need a model, a live connection, or both.
+
+cases:
+  # Not mocked, so the agent is built and run for real — with the model UNREACHABLE:
+  # the Anthropic SDK honours ANTHROPIC_BASE_URL, and 127.0.0.1:9 (discard) refuses the
+  # connection offline, in milliseconds. No network, no cost, same outcome every run.
+  - name: the agent builds with its events path and drives the model over the streaming API
+    input:
+      data: { orderId: A-1 }
+    env:
+      ANTHROPIC_BASE_URL: http://127.0.0.1:9
+    expect:
+      error: 'llm-anthropic stream: Post "http://127.0.0.1:9/v1/messages"'
+      # The discard port, named in full ON PURPOSE. A looser assertion — "llm-anthropic
+      # stream" — would also be satisfied by a 401 from the REAL api.anthropic.com, so if
+      # the SDK ever stopped honouring ANTHROPIC_BASE_URL this case would stay green while
+      # quietly calling out from CI. Naming the URL the call actually went to makes that
+      # impossible: a live call cannot produce this error.
+
+  # The question is what the agent is given: the spy's input is the flow's own doing and
+  # is a real assertion. The result body is the mock's, and is asserted only to pin that
+  # the agent's answer is the flow's answer, unwrapped — which is also what the route's
+  # finalEvent sends as the last frame.
+  - name: the inbound question reaches the agent untouched, and the agent's answer is the flow result
+    input:
+      data: { orderId: A-1 }
+    mocks:
+      ask.research:
+        default:
+          body: { answer: shipped via UPS, orderId: A-1 }
+    expect:
+      body: { answer: shipped via UPS, orderId: A-1 }
+    spies:
+      ask.research:
+        count: 1
+        records:
+          - input:
+              body: { orderId: A-1 }

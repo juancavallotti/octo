@@ -1,0 +1,116 @@
+service:
+  name: ai-agent-sse
+
+# Streams an agent's work to the caller as it happens, instead of leaving them
+# waiting for one buffered answer at the end of the loop.
+#
+# Two features meet here, and neither knows about the other:
+#
+#   1) The ai-agent's "events" path is run once per agent event, with the event as
+#      the message body. Its result is discarded — it reports on the run without
+#      taking part in it — and it runs on its own message, so nothing it does can
+#      reach the agent's body or variables.
+#
+#   2) The route is an SSE route, so vars.sseStream is already on the message when
+#      the agent starts. The emitter copies the agent's variables onto each event,
+#      which is why the sse-event below needs NO configuration to find the caller's
+#      connection: the address travels with the variables.
+#
+# "stream: true" is what makes the model's own output show up as text fragments.
+# Without it the path still reports the agent's own events — turns, tool calls,
+# tool results — which is often all a progress UI needs.
+#
+# Every frame is named "agent" and carries the event as JSON: an SSE event name is
+# a literal, so the type is read from the payload (body.type), not from the frame.
+#
+# Declares HTTP_PORT, so run_integration returns a test URL. Use curl -N so it does
+# not buffer:
+#   curl -N -X POST <testUrl>ask -d '{"orderId":"A-1"}'
+
+env:
+  - name: ANTHROPIC_API_KEY
+    required: true
+  - name: HTTP_HOST
+    default: 0.0.0.0
+  - name: HTTP_PORT
+    default: "8080"
+
+connectors:
+  - name: claude
+    type: llm-anthropic
+    settings:
+      apiKey: ${ANTHROPIC_API_KEY}
+      # Reasoning is reported as "thinking" events, never folded into the answer.
+      thinking: adaptive
+      # Thinking counts towards maxTokens, so leave room for both.
+      maxTokens: 8192
+
+  - name: api
+    type: http
+    settings:
+      host: ${HTTP_HOST}
+      port: ${HTTP_PORT}
+
+flows:
+  - name: ask
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /ask
+        methods: [POST]
+        # Bounds the wait for the FIRST frame only, not the whole run. An agent
+        # takes a moment to produce its first token.
+        timeout: 60s
+        sse:
+          enabled: true
+          # Send the agent's final answer as one last frame before closing.
+          finalEvent: true
+          finalEventName: answer
+          heartbeat: 15s
+          maxDuration: 5m
+    process:
+      - type: ai-agent
+        name: research
+        connector: claude
+        stream: true
+        # The cheap lever: a type left out is never built at all — no message, no
+        # sub-flow run. On a long answer "text" alone is thousands of events, so
+        # leaving out the ones nobody reads is worth doing here rather than in a
+        # filter below.
+        emit: [text, tool_call, tool_result, done]
+        events:
+          process:
+            # The caller hanging up is ordinary, and ifClosed: stop turns it into a
+            # stop that ends the agent — so a client that closes the tab does not
+            # leave a model running at full price with nobody reading it.
+            - type: sse-event
+              settings:
+                event: agent
+                ifClosed: stop
+        prompt: >
+          Answer the customer's question about their order. Look the order up
+          before answering, and reply with a JSON object
+          {"answer": "...", "orderId": "..."}.
+        guardrail: >
+          If you cannot answer from the order data, take the default path.
+        tools:
+          - name: lookup_order
+            description: Look up an order by its id.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["orderId"],
+                "properties": { "orderId": { "type": "string" } }
+              }
+            process:
+              # A real tool would call an API; this echoes a fixed order so the
+              # sample runs with no external dependencies.
+              - type: set-payload
+                settings:
+                  value: '{"status": "shipped", "carrier": "UPS", "eta": "2026-08-11"}'
+        default:
+          process:
+            - type: set-payload
+              settings:
+                value: '{"answer": "could not answer from the order data"}'
