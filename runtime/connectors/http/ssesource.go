@@ -120,11 +120,15 @@ func (s *source) awaitStream(w http.ResponseWriter, r *http.Request, ch chan res
 }
 
 // haltUnopened answers a request that has not streamed anything yet with an
-// ordinary error response, and reports whether it did. An open stream is past the
-// point where a status means anything, so it is left alone — which is also why the
-// first-frame timeout stops applying once a frame has gone out.
+// ordinary error response, and reports whether it did. A committed stream is past
+// the point where a status means anything, so it is left alone — which is also why
+// the first-frame timeout stops applying once a frame has gone out.
+//
+// Claiming rather than testing is what keeps it safe: a detached invocation could
+// otherwise commit the stream between the test and the write, and this would put a
+// status line and a JSON body into the middle of a live stream.
 func (s *source) haltUnopened(w http.ResponseWriter, st *sseStream, status int, message string) bool {
-	if st.isOpen() {
+	if !st.claimUnopened() {
 		return false
 	}
 	writeError(w, status, message)
@@ -135,8 +139,20 @@ func (s *source) haltUnopened(w http.ResponseWriter, st *sseStream, status int, 
 // done. With closeOnComplete off it is not: the flow has handed its work on, and
 // the invocations it handed it to are the ones with something to say.
 func (s *source) finish(w http.ResponseWriter, st *sseStream, res result) bool {
-	if !st.isOpen() {
-		return s.finishUnopened(w, res)
+	// A flow that only kicked work off has nothing to say yet, and answering now
+	// would end the response before the work it started could write to it. A
+	// failure is still answered: a dispatch that failed is a stream nothing will
+	// ever write to. The isOpen here is only a hint — claimUnopened below is what
+	// actually decides, atomically.
+	if !st.isOpen() && !s.sse.closeOnComplete && res.kind != types.FlowEventFailed {
+		return false
+	}
+	// Nothing streamed, and now nothing can: the route is still an ordinary one, so
+	// the flow's status, headers and body all apply. That is the point of opening
+	// lazily.
+	if st.claimUnopened() {
+		s.writeResult(w, res)
+		return true
 	}
 	switch res.kind {
 	case types.FlowEventCompleted:
@@ -153,22 +169,6 @@ func (s *source) finish(w http.ResponseWriter, st *sseStream, res result) bool {
 		// A dropped message has nothing to send. Closing says so.
 	}
 	return s.sse.closeOnComplete
-}
-
-// finishUnopened handles a terminal event that arrived before any frame. Nothing
-// is committed yet, so the route is still an ordinary one and the flow's status,
-// headers and body all still apply — that is the whole point of opening lazily.
-//
-// The exception is a flow that only kicked work off and finished early: it has
-// nothing to say yet, and answering now would end the response before the work it
-// started could write to it. A failure is still answered, because a dispatch that
-// failed is a stream nothing will ever write to.
-func (s *source) finishUnopened(w http.ResponseWriter, res result) bool {
-	if s.sse.closeOnComplete || res.kind == types.FlowEventFailed {
-		s.writeResult(w, res)
-		return true
-	}
-	return false
 }
 
 // write emits a frame the source itself authored, logging rather than propagating

@@ -194,6 +194,50 @@ func TestCloseOnUnopenedStreamWritesNothing(t *testing.T) {
 	}
 }
 
+// TestClaimUnopened pins the atomicity the fallback response depends on. Testing
+// isOpen and then writing would be a race: a stream is addressable by id, so a
+// detached invocation can commit it in between, and the handler would then write a
+// second status line and a JSON body into the middle of a live stream. Claiming
+// closes the stream in the same critical section, so the racing emit loses.
+func TestClaimUnopened(t *testing.T) {
+	t.Run("an unopened stream is claimable, and the claim shuts emits out", func(t *testing.T) {
+		st, rec := newTestStream(t, nil)
+
+		if !st.claimUnopened() {
+			t.Fatal("an unopened stream should be claimable")
+		}
+		if err := st.emit(testMessage(t), frame{data: "racer"}); !errors.Is(err, errStreamClosed) {
+			t.Errorf("emit after a claim = %v, want errStreamClosed", err)
+		}
+		if rec.Body.Len() != 0 {
+			t.Errorf("a claimed stream let a write through: %q", rec.Body.String())
+		}
+		if _, ok := rec.Header()[http.CanonicalHeaderKey("Content-Type")]; ok {
+			t.Error("a claimed stream must leave the response uncommitted")
+		}
+	})
+
+	t.Run("a committed stream is not claimable", func(t *testing.T) {
+		st, _ := newTestStream(t, nil)
+		if err := st.emit(testMessage(t), frame{data: "x"}); err != nil {
+			t.Fatalf("emit: %v", err)
+		}
+		if st.claimUnopened() {
+			t.Error("a stream that has already streamed must not be claimable")
+		}
+	})
+
+	// A block that closes without emitting leaves the response unwritten and still
+	// owed to the caller, so closing must not forfeit the claim.
+	t.Run("a closed but unopened stream is still claimable", func(t *testing.T) {
+		st, _ := newTestStream(t, nil)
+		st.close()
+		if !st.claimUnopened() {
+			t.Error("a stream closed before it streamed still owes a response")
+		}
+	})
+}
+
 func TestCloseIsIdempotentAndSignalsDone(t *testing.T) {
 	st, _ := newTestStream(t, nil)
 

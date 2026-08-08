@@ -235,12 +235,36 @@ func (s *sseStream) close() {
 }
 
 // isOpen reports whether the response has been committed to a stream — that is,
-// whether anything has been written yet. It is what decides between finishing as
-// a stream and falling back to an ordinary buffered response.
+// whether anything has been written yet.
+//
+// It is only safe as a hint. Deciding to write an ordinary response on the
+// strength of it would be a race: a stream is addressable by id, so a detached
+// invocation can commit it between the check and the write, and the handler would
+// then put a second status line and a JSON body into a live stream. Use
+// claimUnopened to make that decision.
 func (s *sseStream) isOpen() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.opened
+}
+
+// claimUnopened takes the response over for an ordinary buffered reply, and
+// reports whether it got it. It succeeds only while nothing has been streamed,
+// and closes the stream as it does — so an emit racing this call loses cleanly,
+// returning errStreamClosed instead of committing headers into a response the
+// handler is already writing.
+//
+// It deliberately does not mind an already-closed stream: a block that closed one
+// without ever emitting (an sse-event that only closes) leaves the response
+// unwritten and still owed to the caller.
+func (s *sseStream) claimUnopened() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.opened {
+		return false
+	}
+	s.closeLocked()
+	return true
 }
 
 // open commits the response to being a stream. It runs on the first frame rather

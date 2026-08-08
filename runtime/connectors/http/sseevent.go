@@ -171,11 +171,21 @@ func (e *sseEvent) Process(_ context.Context, msg *types.Message) (*types.Messag
 		return nil, err
 	}
 
+	// Rendering happens before the stream is consulted, and its failure is never
+	// an ifClosed matter: an expression that does not evaluate is this block being
+	// wrong, and ifClosed: ignore would turn that into a silent success.
+	data, err := e.frameData(msg)
+	if err != nil {
+		return nil, err
+	}
+
 	st, ok := conn.stream(id)
 	if !ok {
 		return e.closed(msg, fmt.Errorf("sse-event: %w (stream %q)", errStreamClosed, id))
 	}
-	if err := e.write(st, msg); err != nil {
+	// Every failure from here is the connection's, not the block's — the stream was
+	// already closed, or the write to it failed — so the policy decides.
+	if err := e.emit(st, msg, data); err != nil {
 		return e.closed(msg, err)
 	}
 
@@ -188,14 +198,10 @@ func (e *sseEvent) Process(_ context.Context, msg *types.Message) (*types.Messag
 	return msg, nil
 }
 
-// write emits the frame, unless the block is configured purely to close: a block
+// emit writes the frame, unless the block is configured purely to close: a block
 // with neither a name nor data has nothing to say, and an empty frame would be
 // noise on the wire.
-func (e *sseEvent) write(st *sseStream, msg *types.Message) error {
-	data, err := e.frameData(msg)
-	if err != nil {
-		return err
-	}
+func (e *sseEvent) emit(st *sseStream, msg *types.Message, data string) error {
 	if e.event == "" && data == "" {
 		return nil
 	}

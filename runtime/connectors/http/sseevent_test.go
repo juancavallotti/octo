@@ -245,6 +245,35 @@ func TestSSEEventNoStreamIDAlwaysFails(t *testing.T) {
 	}
 }
 
+// TestSSEEventRenderFailureIgnoresIfClosed pins that ifClosed governs the
+// connection, not the block. An expression that compiles but does not evaluate is
+// this block being wrong, and routing it through the policy would let
+// ifClosed: ignore report a silent success for a frame that was never rendered —
+// or, on the default, stop the flow without reaching its error handling.
+func TestSSEEventRenderFailureIgnoresIfClosed(t *testing.T) {
+	for _, policy := range []string{ifClosedStop, ifClosedIgnore, ifClosedError} {
+		t.Run("ifClosed="+policy, func(t *testing.T) {
+			c := newConnectorWithStreams()
+			_, rec, msg := streamOn(t, c, connectorType)
+			msg.Body = map[string]any{"present": "yes"}
+
+			proc := newEventBlock(t, map[string]any{
+				// Compiles; fails at evaluation because the key is absent.
+				"data":     "body.missing",
+				"ifClosed": policy,
+			}, sseEventDeps(connectorType, c))
+
+			out, err := proc.Process(context.Background(), msg)
+			if err == nil {
+				t.Fatalf("expected the render failure to fail the block, got %v", out)
+			}
+			if rec.Body.Len() != 0 {
+				t.Errorf("a frame was written despite the render failing: %q", rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestSSEEventIfClosed(t *testing.T) {
 	tests := []struct {
 		name     string
