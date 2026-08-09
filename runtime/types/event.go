@@ -27,6 +27,15 @@ type FlowEvent struct {
 	Flow string
 	// EventID is the Message.EventID this event concerns.
 	EventID string
+	// TraceID is the end-to-end invocation the message belongs to, or "" when
+	// tracing is not running. Unlike EventID it is the same across the
+	// sub-invocations a flow-ref, split or aggregate creates, so it is what
+	// stitches their separate started/terminal pairs into one story.
+	//
+	// It is carried here rather than read off the message because Result is nil
+	// on FlowEventStarted: a subscriber has no message to read it from at the
+	// one event that opens the invocation.
+	TraceID string
 	// OccurredAt is when the event was published.
 	OccurredAt time.Time
 	// Duration is how long the flow took to process the message, including its

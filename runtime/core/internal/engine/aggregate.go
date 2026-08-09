@@ -157,6 +157,13 @@ type groupState struct {
 	// CorrelationID of the group's first message, inherited by the aggregated one:
 	// the caller's correlation chain is not the aggregator's to break.
 	CorrelationID string `json:"correlationId,omitempty"`
+	// TraceID of the group's first message, inherited for the same reason and
+	// carried here for a structural one: release drops the group's variables (see
+	// its comment), and the trace id lives in variables. Without this the join of
+	// a split/aggregate pipeline would start a brand-new trace, severing the one
+	// thing tracing exists to keep whole. A group is one arrival of many, so the
+	// first message's trace is the one the batch belongs to.
+	TraceID string `json:"traceId,omitempty"`
 
 	FirstAt  int64 `json:"firstAt"`
 	LastAt   int64 `json:"lastAt"`
@@ -573,6 +580,7 @@ func (a *aggregate) loadGroup(
 		return state, nil
 	}
 	state.CorrelationID = msg.CorrelationID
+	state.TraceID = msg.TraceID()
 	state.FirstAt = nowNanos()
 	return state, nil
 }
@@ -780,12 +788,18 @@ func (a *aggregate) deadline(state *groupState) int64 {
 // The group variables are deliberately not carried over: they described the group
 // that just closed, and forwarding them would make a second aggregation stage put
 // every message in a batch of one. The key survives as vars.aggregateKey.
+//
+// The trace id is the one exception, restored from the group rather than left
+// behind with the rest. It does not describe the group — it names the work the
+// group is part of — and dropping it would make the batch look like the start of
+// something new, which is precisely the seam a trace exists to cross.
 func (a *aggregate) release(ctx context.Context, state *groupState, reason string) error {
 	out, err := types.NewMessage(state.CorrelationID)
 	if err != nil {
 		return err
 	}
 	out.Body = state.Acc
+	out.SetTraceID(state.TraceID)
 	out.Variables.Set(varAggregateKey, state.Key)
 	out.Variables.Set(varAggregateCount, state.Count)
 	out.Variables.Set(varAggregateReason, reason)
