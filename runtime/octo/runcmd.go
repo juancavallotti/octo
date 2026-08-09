@@ -15,6 +15,7 @@ import (
 	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/core/runtime"
 	"github.com/juancavallotti/octo/runtime/services"
+	"github.com/juancavallotti/octo/runtime/services/tracing"
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
@@ -74,12 +75,23 @@ func runCommand(args []string) error {
 	// leases and connections are not churned on every config change. The CLI owns
 	// their lifecycle; each Service generation only borrows them. The resource root
 	// (the config directory) roots the standalone module's resource loader.
-	svc, err := services.New(ctx, services.Options{ResourceRoot: configDir(*configPath)})
+	svc, err := services.New(ctx, services.Options{
+		ResourceRoot: configDir(*configPath),
+		// Where traces go is the module's choice — a file for standalone, a
+		// broker subject for k8s — so it builds the publisher along with its
+		// queues and its store, from the flags the hosted service resolved above.
+		Tracing: tracing.Options(),
+	})
 	if err != nil {
 		return fmt.Errorf("init runtime services: %w", err)
 	}
 	defer func() { _ = svc.Close() }()
 	teeDefaultLoggerToSink(svc)
+	// Hand the module's publisher to the process. Everything that emits a trace
+	// looks it up here — the engine, the connectors, the sources — and none of
+	// them has the runtime services in hand. Nothing has emitted anything yet:
+	// core.Tracer() is the no-op until this line, and no flow runs until below.
+	core.SetTracer(svc.Traces())
 	slog.Info("runtime services ready", "module", services.Module())
 
 	if *watch {

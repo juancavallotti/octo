@@ -1,0 +1,195 @@
+---
+title: Tracing
+description: Record what happened to a single message — every flow, block, model turn and source — joined end to end by one id.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Tracing records the path of **one message**: every flow it entered, every block it
+passed through, every model turn an agent took on its behalf, and the source that
+admitted it — all joined by a single id that survives every boundary the message
+crosses.
+
+<Callout type="warn">
+**Tracing is a development feature.** It is off by default, and it is not
+recommended under load: it will significantly reduce throughput. Every traced
+block is recorded on the flow's own goroutine, and capturing payloads marshals the
+message once per block. Turn it on to understand a run, not to leave running. The
+runtime logs this warning at startup whenever tracing is enabled.
+</Callout>
+
+## Why it exists
+
+The runtime already has two ways to watch itself, and neither answers "what
+happened to *this* message":
+
+- [Metrics](/runtime/observability) are aggregates. Every label comes from the
+  config and never from message data, so they can tell you a flow is failing but
+  never which message failed, or where.
+- [Spies](/reference/cli#spies) record everything about one block, but only under
+  `octo invoke`. They say nothing about production traffic.
+
+A trace is the missing middle: per-message, on live traffic, and joined end to end.
+
+## Turning it on
+
+```bash
+octo run --config app.yaml --traces
+```
+
+That writes `octo-trace-<time>-<pid>.jsonl` into the working directory. Pick a
+path with `--traces-file`, and read it with anything that speaks JSON Lines:
+
+```bash
+octo run --config app.yaml --traces --traces-file /tmp/run.jsonl
+jq -c '{seq,kind,traceId,flow,path,durationNs}' /tmp/run.jsonl
+```
+
+A run that did not ask for traces creates no file and logs nothing.
+
+## What a trace looks like
+
+One HTTP request through a flow that delegates to two others — one fire-and-forget,
+one synchronous — is one trace:
+
+```
+seq  kind               flow           path
+1    flow.started       orders-api
+2    block.pre-invoke   orders-api     orders-api.dump-inbound
+3    block.post-invoke  orders-api     orders-api.dump-inbound
+6    block.pre-invoke   orders-api     orders-api.audit-async
+9    flow.started       audit                                     ← one-way flow-ref
+11   flow.started       enrich-order                              ← sync flow-ref
+12   block.pre-invoke   enrich-order   enrich-order.normalize-order
+15   block.pre-invoke   enrich-order   enrich-order.priority-check[then].set-variable
+21   flow.completed     enrich-order
+23   flow.completed     audit
+28   flow.completed     orders-api
+```
+
+Every one of those records carries the same `traceId`. The `audit` flow's records
+interleave with `enrich-order`'s because it really is running concurrently — which
+is the sort of thing a trace is for.
+
+`seq` totally orders the records one runtime produced. It is unique and gapless at
+the point of publication, but the stream is **not** necessarily written in `seq`
+order: a publisher stamps the number and then queues the record, so sort by it
+rather than assuming it is already sorted. A gap in `seq` means records were lost,
+and the stream says so in band — see [Dropped records](#dropped-records).
+
+### Record kinds
+
+| Kind | When |
+| --- | --- |
+| `flow.started` | A message was accepted onto a flow's pipeline. |
+| `flow.completed` / `flow.dropped` / `flow.failed` | How that invocation ended, with its duration. `failed` means **unhandled** — a message the error path recovered completes. |
+| `block.pre-invoke` | The message a block is about to receive. |
+| `block.post-invoke` | What it returned, with how long it took. |
+| `llm.turn` | One model turn of an `ai-agent`, with the model and the token usage the provider reported. |
+| `source.receive` / `source.respond` | A message admitted from an inbound request, and the response eventually written for it. |
+| `source.emit` | A message a scheduled source produced, with no caller to answer. |
+| `trace.dropped` | Records that could not be kept. |
+
+## The trace id
+
+The id is minted once, by whoever sees the work first — a source, or the flow
+boundary — and everything downstream joins it rather than starting its own.
+
+It survives every boundary the runtime has, which is the whole point. `EventID` is
+deliberately re-minted whenever work crosses into a sub-invocation, so it cannot be
+the thread; the trace id can:
+
+| Boundary | What happens |
+| --- | --- |
+| `flow-ref`, `events` publish | The message is cloned and re-keyed; the trace id rides along. |
+| `fork`, `foreach` | Branches clone or scope the message; same id. |
+| `split` | Each element is a new message that copies the parent's variables; same id. |
+| `aggregate` | The released batch is a brand-new message, so the group **remembers** the id and restores it. |
+| `queue`, `topics` | The id travels as a message variable, which the wire encoding ships as a header — so a trace survives crossing into another process. |
+
+It rides in the message's variables under a reserved, internal name, so it is
+stripped from anything user-facing (`octo invoke` output, spy dumps) and cannot
+collide with a variable of your own. It is not readable from CEL: it exists only
+while tracing is on, and a variable that is present on Tuesday and absent on
+Wednesday is not something to write an expression against.
+
+## Cost, and turning it down
+
+The defaults are tuned for "I am watching this run", not for production:
+
+| Setting | Cost per traced block |
+| --- | --- |
+| `--traces-bodies --traces-vars` (default) | ~700ns, 30 allocations — one `json.Marshal` of the message |
+| `--traces-bodies=false --traces-vars=false` | ~15ns, no allocations |
+| tracing off | one atomic load, nothing built |
+
+Two ways to make it cheaper:
+
+```bash
+# Record the sequence without payloads.
+octo run --config app.yaml --traces --traces-bodies=false --traces-vars=false
+
+# Trace only the blocks you care about, in the same grammar --spies accepts.
+octo run --config app.yaml --traces \
+  --traces-blocks 'orders.charge,orders.fanout[audit].log-it'
+```
+
+Payloads are on by default because "what did the message look like here" is the
+question tracing exists to answer. A body over `--traces-max-payload` (32 KiB) is
+**omitted whole** and flagged `truncated`, never cut short — a JSON document
+sliced at a byte boundary is not JSON, and one in the stream would break every
+reader after it.
+
+<Callout type="warn">
+Bodies and variables can carry personal data and credentials — the `http` source
+copies configured request headers into variables. The standalone trace file is
+created `0600`, and the k8s runtime publishes to a shared subject. Turn payload
+capture off for anything you would not want written down.
+</Callout>
+
+## Dropped records
+
+Records are queued and drained by a goroutine of the tracer's own. If that queue
+fills, records are **dropped rather than blocking the flow** — tracing must never
+put a flow worker behind a disk write.
+
+A dropped record is never silent. The stream carries a `trace.dropped` marker
+naming how many were lost, and the gap is also visible as a jump in `seq`. A trace
+with a hole that did not say so would be worse than no trace: every conclusion
+drawn from the records that survived would be quietly wrong.
+
+Raise `--traces-buffer` if you are losing records in bursts; narrow
+`--traces-blocks` if you are losing them steadily.
+
+## Where traces go
+
+The destination is the [runtime services module's](/extending/runtime-services)
+choice, not a flag — the same way queues are in-process for one module and NATS
+subjects for the other:
+
+| Module | Destination |
+| --- | --- |
+| standalone (default build) | A JSONL file, one object per line. Not a JSON array: a runtime is usually killed rather than stopped, and an array whose closing bracket was never written is unreadable, while JSONL cut anywhere is still valid up to its last complete line. |
+| k8s (`-tags k8s`) | The `internal.traces` NATS subject, for an aggregator to consume. |
+
+The file is flushed whenever the runtime goes idle, so you can `tail -f` it during
+a run, and synced on a graceful stop.
+
+## In a deployment
+
+A deployed pod passes no arguments — the image's `CMD` stands — so tracing is
+enabled through the environment instead. Every flag's default is the variable of
+the same meaning:
+
+```
+OCTO_TRACING=true
+OCTO_TRACING_BODIES=false
+OCTO_TRACING_BLOCKS=orders.charge
+```
+
+Set them as integration environment variables and redeploy. These are read from
+the **process environment only**, not from a `.env` file: they are resolved when
+`octo run` parses its flags, before any config is loaded.
+
+`octo invoke` never traces — it starts no hosted services — which is also why
+[test suites](/testing) are unaffected by any of this.
