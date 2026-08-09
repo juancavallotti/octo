@@ -6,6 +6,8 @@ package standalone
 
 import (
 	"context"
+	"log/slog"
+	"time"
 
 	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/services"
@@ -16,7 +18,7 @@ const Module = "standalone"
 
 func init() {
 	services.Register(Module, func(_ context.Context, opts services.Options) (core.RuntimeServices, error) {
-		return New(opts.ResourceRoot), nil
+		return New(opts.ResourceRoot, opts.Tracing), nil
 	})
 }
 
@@ -29,17 +31,33 @@ type Services struct {
 	q         *queues
 	t         *topics
 	resources core.ResourceLoader
+	traces    core.TracePublisher
 }
 
 // New returns a standalone services module with an empty in-memory store,
-// in-process queues and topics, and a filesystem resource loader rooted at
-// resourceRoot (the config directory).
-func New(resourceRoot string) *Services {
+// in-process queues and topics, a filesystem resource loader rooted at
+// resourceRoot (the config directory), and — when tracing asks for it — a trace
+// publisher writing to a file.
+//
+// A trace file that cannot be opened is logged and the run continues untraced,
+// rather than failing startup. Tracing is something a runtime carries, not
+// something it is: a bad --traces-file must not stop flows that were perfectly
+// startable, and in a deployment it must not take the service down. The error is
+// logged at error level because the alternative — a silent no-op — is how someone
+// spends an afternoon wondering where their trace file went.
+func New(resourceRoot string, tracing core.TraceOptions) *Services {
+	traces, err := newTracePublisher(tracing, time.Now())
+	if err != nil {
+		slog.Error("standalone: tracing is enabled but its file could not be opened, "+
+			"continuing without traces", "file", tracing.File, "error", err)
+		traces = core.NoopTracer()
+	}
 	return &Services{
 		kv:        newStore(),
 		q:         newQueues(),
 		t:         newTopics(),
 		resources: newResourceLoader(resourceRoot),
+		traces:    traces,
 	}
 }
 
@@ -74,11 +92,18 @@ func (s *Services) Topics() core.Topics { return s.t }
 //nolint:ireturn // satisfies core.RuntimeServices
 func (s *Services) Resources() core.ResourceLoader { return s.resources }
 
-// Traces returns the module's trace publisher, which publishes nowhere: the
-// module has no sink of its own.
+// Traces returns the module's trace publisher: a buffered writer over a JSONL
+// file when tracing is on, and the no-op otherwise.
 //
 //nolint:ireturn // satisfies core.RuntimeServices
-func (s *Services) Traces() core.TracePublisher { return core.NoopTracer() }
+func (s *Services) Traces() core.TracePublisher { return s.traces }
 
-// Close releases resources. The standalone module holds none.
-func (s *Services) Close() error { return nil }
+// Close releases resources. The only one the standalone module holds is the
+// trace file, which is drained and closed here — so a graceful stop leaves a
+// complete file rather than one missing whatever was still queued.
+func (s *Services) Close() error {
+	if closer, ok := s.traces.(interface{ Close() error }); ok {
+		return closer.Close()
+	}
+	return nil
+}
