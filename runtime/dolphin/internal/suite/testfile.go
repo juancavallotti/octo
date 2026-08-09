@@ -36,8 +36,9 @@ type File struct {
 	// Inputs are named messages the cases share, so the body that means "a vip order"
 	// is written once and referred to by name.
 	Inputs map[string]Input `yaml:"inputs" json:"inputs"`
-	// Mocks stand in for blocks in every case, unless the case overrides the address.
-	// This is where "no test in this file ever reaches the payment API" is said once.
+	// Mocks stand in for blocks in every case, unless the case overrides the address or
+	// lifts it with a null. This is where "no test in this file ever reaches the payment
+	// API" is said once.
 	Mocks map[string]core.MockSpec `yaml:"mocks" json:"mocks"`
 	// Env are environment variables every case runs with, overriding whatever dolphin
 	// inherited.
@@ -77,7 +78,15 @@ type Case struct {
 	// merging case by case is the same rule `octo invoke` uses for a flag over a debug
 	// config section: a mock a case declares says exactly what that block will do,
 	// without the reader having to hold the file's version in their head too.
-	Mocks map[string]core.MockSpec `yaml:"mocks" json:"mocks"`
+	//
+	// A null — `some.block: null` — is the other direction: it REMOVES the file's mock
+	// for that address, so this one case runs the real block. Every suite that mocks a
+	// block in all but one case needs it; without it, the file-level `mocks:` has to be
+	// dropped and repeated on each case, which is the duplication it exists to remove.
+	// Spelled as a null rather than a second `unmock:` key so that what an address does
+	// in a case is still said in one place. The pointer is what makes the null
+	// distinguishable from `{}`, which decodes to a zero spec and means nothing.
+	Mocks map[string]*core.MockSpec `yaml:"mocks" json:"mocks"`
 	// Env overrides the file's, per VARIABLE — not whole-map like Mocks, because a
 	// variable is a scalar: a case that needs one value different should not have to
 	// restate the other five to get it.
@@ -246,10 +255,10 @@ func (f File) validateCase(c Case) error {
 	if c.Input.Name != "" {
 		if _, ok := f.Inputs[c.Input.Name]; !ok {
 			return fmt.Errorf("input %q is not declared in `inputs` (have: %s)",
-				c.Input.Name, listOr(sortedInputNames(f.Inputs), "none"))
+				c.Input.Name, listOr(sortedKeys(f.Inputs), "none"))
 		}
 	}
-	if err := validateMocks(c.Mocks); err != nil {
+	if err := f.validateCaseMocks(c); err != nil {
 		return err
 	}
 	if err := c.Expect.validate(); err != nil {
@@ -339,6 +348,31 @@ func validateMocks(specs map[string]core.MockSpec) error {
 	return nil
 }
 
+// validateCaseMocks checks a case's mocks: the specs against the engine's rules, and each
+// null against the file it is lifting a mock from.
+//
+// A null only makes sense over a mock the file actually declares, and that is worth
+// enforcing rather than shrugging at. Un-mocking an address nothing mocks does nothing at
+// all, so a misspelled `progres.accepted: null` would read as "this case runs the real
+// block" for as long as anyone believed it, while the mock it meant to lift stayed on —
+// the case would pass, and prove the opposite of what it says.
+func (f File) validateCaseMocks(c Case) error {
+	specs := make(map[string]core.MockSpec, len(c.Mocks))
+	for _, address := range sortedKeys(c.Mocks) {
+		spec := c.Mocks[address]
+		if spec == nil {
+			if _, ok := f.Mocks[address]; !ok {
+				return fmt.Errorf(
+					"mock %q is null, which lifts the file's mock for that block — but the file does not mock it (it mocks: %s)",
+					address, listOr(sortedKeys(f.Mocks), "nothing"))
+			}
+			continue
+		}
+		specs[address] = *spec
+	}
+	return validateMocks(specs)
+}
+
 // InputFor resolves a case's input against the file's shared ones. A case with no
 // input at all calls the flow with an empty message, which is a legitimate thing to
 // test.
@@ -352,8 +386,8 @@ func (f File) InputFor(c Case) Input {
 	return Input{}
 }
 
-// MocksFor is the mocks one case runs under: the file's, with the case's replacing
-// them address by address.
+// MocksFor is the mocks one case runs under: the file's, with the case's replacing them
+// address by address — and a null in the case REMOVING one, so the real block runs.
 func (f File) MocksFor(c Case) map[string]core.MockSpec {
 	if len(f.Mocks) == 0 && len(c.Mocks) == 0 {
 		return nil
@@ -363,7 +397,16 @@ func (f File) MocksFor(c Case) map[string]core.MockSpec {
 		merged[address] = spec
 	}
 	for address, spec := range c.Mocks {
-		merged[address] = spec
+		if spec == nil {
+			delete(merged, address)
+			continue
+		}
+		merged[address] = *spec
+	}
+	// A case that un-mocked the file's only mock runs with none, and it should reach octo
+	// as the absence of a `mocks:` section rather than as an empty one.
+	if len(merged) == 0 {
+		return nil
 	}
 	return merged
 }
@@ -433,10 +476,11 @@ func contains(names []string, name string) bool {
 	return false
 }
 
-// sortedInputNames returns the declared input names, sorted, for an error message.
-func sortedInputNames(inputs map[string]Input) []string {
-	names := make([]string, 0, len(inputs))
-	for name := range inputs {
+// sortedKeys returns a map's keys, sorted, so an error message that lists what a file
+// does declare reads the same on every run.
+func sortedKeys[V any](m map[string]V) []string {
+	names := make([]string, 0, len(m))
+	for name := range m {
 		names = append(names, name)
 	}
 	sort.Strings(names)

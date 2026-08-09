@@ -49,7 +49,12 @@ function storeWith(content: string): TestSuiteStore {
   };
 }
 
-async function open(content: string, where: "settings" | string) {
+/**
+ * `where` is the case to open, or "settings". A RegExp is accepted because the rail badges
+ * a case that has an error with its count, so a suite written to be invalid does not match
+ * its own case name exactly.
+ */
+async function open(content: string, where: "settings" | string | RegExp) {
   const user = userEvent.setup();
 
   function Seed({ children }: { children: ReactNode }) {
@@ -92,6 +97,8 @@ async function open(content: string, where: "settings" | string) {
 }
 
 const ONE_CASE = "flow: orders\ncases:\n  - name: it runs\n";
+const FILE_MOCKS =
+  "flow: orders\nmocks:\n  orders.charge:\n    default:\n      body: {ok: true}\ncases:\n  - name: it runs\n";
 
 describe("AddressPicker", () => {
   // An address typed by hand is a spelling test whose failure mode is a suite that loads
@@ -199,10 +206,7 @@ describe("MocksField", () => {
   });
 
   it("removes a mock", async () => {
-    const { user, fileNow } = await open(
-      "flow: orders\nmocks:\n  orders.charge:\n    default:\n      body: {ok: true}\ncases:\n  - name: it runs\n",
-      "settings",
-    );
+    const { user, fileNow } = await open(FILE_MOCKS, "settings");
 
     await user.click(screen.getByRole("button", { name: "Remove mock for orders.charge" }));
 
@@ -226,10 +230,7 @@ describe("case-level mocks", () => {
   // dolphin's rule (File.MocksFor) is whole-spec replacement per address, not a merge. A
   // form that implied otherwise would give the canvas a different run than `dolphin test`.
   it("says a case's mock replaces the file's entirely", async () => {
-    const { user } = await open(
-      "flow: orders\nmocks:\n  orders.charge:\n    default:\n      body: {ok: true}\ncases:\n  - name: it runs\n",
-      "it runs",
-    );
+    const { user } = await open(FILE_MOCKS, "it runs");
 
     await user.selectOptions(
       screen.getByRole("combobox", { name: "Mock a block" }),
@@ -251,6 +252,92 @@ describe("case-level mocks", () => {
     const file = await fileNow();
     expect(file).toMatch(/cases:[\s\S]*orders\.audit:/);
     expect(file).not.toMatch(/^mocks:/m);
+  });
+
+  // The un-mock: one case runs the real block while the file keeps standing it in for
+  // every other case. Written as a null on the address, which is what dolphin reads.
+  it("lifts a file mock for one case, and writes it as a null", async () => {
+    const { user, fileNow } = await open(FILE_MOCKS, "it runs");
+
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Run the real block" }),
+      "orders.charge",
+    );
+
+    expect(screen.getByText(/The real block runs in this case/)).toBeInTheDocument();
+    expect(await fileNow()).toMatch(/cases:[\s\S]*orders\.charge: null/);
+  });
+
+  // Only the file's mocks can be lifted: un-mocking anything else does nothing, so
+  // dolphin refuses it rather than letting it read as "the real block runs here".
+  it("offers only the addresses the file mocks, and stops once one is taken", async () => {
+    const { user } = await open(FILE_MOCKS, "it runs");
+
+    const offered = () =>
+      [
+        ...screen
+          .getByRole("combobox", { name: "Run the real block" })
+          .querySelectorAll("option"),
+      ].map((o) => o.getAttribute("value"));
+
+    // orders.audit is on the canvas but not mocked by the file, so it is not liftable.
+    expect(offered()).toEqual(["", "orders.charge"]);
+
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Run the real block" }),
+      "orders.charge",
+    );
+    expect(
+      screen.queryByRole("combobox", { name: "Run the real block" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("has nothing to lift when the file mocks nothing", async () => {
+    await open(ONE_CASE, "it runs");
+
+    expect(
+      screen.queryByRole("combobox", { name: "Run the real block" }),
+    ).not.toBeInTheDocument();
+  });
+
+  // A file-level null is not a mock — dolphin refuses it — so there is nothing under it
+  // to lift. Offering it would hand the user an action whose only result is a second
+  // error, and calling it "the real block runs" would describe a file that will not load.
+  it("neither offers nor celebrates a null the file itself declares", async () => {
+    await open("flow: orders\nmocks:\n  orders.charge: null\ncases:\n  - name: it runs\n", "it runs");
+
+    expect(
+      screen.queryByRole("combobox", { name: "Run the real block" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/The real block runs in this case/)).not.toBeInTheDocument();
+  });
+
+  // Reachable through the YAML view, which is read back into this form.
+  it("says a case null over an address the file does not mock lifts nothing", async () => {
+    await open(
+      "flow: orders\nmocks:\n  orders.charge:\n    default:\n      body: {ok: true}\n" +
+        "cases:\n  - name: it runs\n    mocks:\n      orders.audit: null\n",
+      /it runs/,
+    );
+
+    expect(screen.getByText(/Nothing to lift/)).toBeInTheDocument();
+    expect(screen.queryByText(/The real block runs in this case/)).not.toBeInTheDocument();
+  });
+
+  it("goes back to inheriting the file's mock when the un-mock is removed", async () => {
+    const { user, fileNow } = await open(FILE_MOCKS, "it runs");
+
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Run the real block" }),
+      "orders.charge",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Restore the file's mock for orders.charge" }),
+    );
+
+    const file = await fileNow();
+    expect(file).not.toContain("null");
+    expect(file).toMatch(/^mocks:/m); // the file's own mock is untouched
   });
 });
 

@@ -39,7 +39,7 @@ cases:    # the scenarios
 | --- | --- | --- | --- |
 | `flow` | string | yes | The flow under test. Every case in the file calls it. |
 | `inputs` | object | no | Named messages the cases share, keyed by name. |
-| `mocks` | object | no | Blocks to stand in for in **every** case, unless a case overrides the address. Keyed by [block address](/reference/cli#addressing-a-block). |
+| `mocks` | object | no | Blocks to stand in for in **every** case, unless a case overrides the address or lifts it. Keyed by [block address](/reference/cli#addressing-a-block). |
 | `env` | object | no | Environment variables every case runs with. |
 | `timeout` | string | no (`30s`) | A Go duration bounding any one case. A case may shorten or lengthen it. |
 | `cases` | list | yes | The scenarios. At least one. |
@@ -82,7 +82,7 @@ asks for.
 | --- | --- | --- | --- |
 | `name` | string | yes | What the case proves, in words. The report, the JUnit XML and a person all identify it by this, so it must be **unique in the file**. |
 | `input` | string \| object | no | The name of an entry in `inputs`, or an inline input written out where it is used. |
-| `mocks` | object | no | Blocks to stand in for in this case. An address here **replaces** the file's mock for that block, whole. |
+| `mocks` | object | no | Blocks to stand in for in this case. An address here **replaces** the file's mock for that block, whole — or `null` to **lift** it and run the real block. See [un-mocking](#un-mocking-a-block-for-one-case). |
 | `env` | object | no | Environment variables for this case, overriding the file's **per variable**. |
 | `expect` | object | no | What the flow should have done. See [expect](#expect). |
 | `spies` | object | no | Blocks to watch, and what each should have seen. See [spies](#spies). |
@@ -103,6 +103,9 @@ per address, whole — so a case's mock says exactly what that block will do, wi
 the reader having to hold the file's version in their head too. A case's `env`
 overrides the file's per *variable*, because a variable is a scalar: a case that needs
 one value different should not have to restate the others to get it.
+
+A case's mock can also be `null`, which **removes** the file's mock for that address so
+the case runs the real block. See [un-mocking](#un-mocking-a-block-for-one-case).
 
 `skip` requires a reason. A skip with no reason is a test nobody will ever come back to.
 
@@ -196,6 +199,44 @@ its whole subtree goes with it — so you cannot mock an `ai-router` and then as
 which route ran, because the routes are gone. Mock a block *inside* the composite
 instead (`charge.resilient-charge[process].build-charge`): the composite runs for real,
 and only the leaf is stood in for.
+</Callout>
+
+### Un-mocking a block for one case
+
+A case can also go the other way and **lift** the file's mock, so that one case runs the
+real block. Write the address with a `null`:
+
+```yaml
+mocks:
+  progress.accepted: { default: { body: {} } }   # every case, except…
+
+cases:
+  - name: the flow still reaches the emit point
+    expect:
+      body: { percent: 100 }
+
+  - name: without a live stream the block fails rather than pretending it wrote
+    mocks:
+      progress.accepted: null                    # …this one, which runs the real block
+    expect:
+      error: sse-event
+```
+
+It is for the suite with one case whose whole point is what the real block does — the case
+asserting that it fails loudly, or that it rejects its input. Without it, the file-level
+`mocks:` has to be dropped and repeated on every other case, which is the duplication
+file-level mocks exist to remove.
+
+Only an address the file actually mocks may be nulled. Un-mocking anything else does
+nothing at all, so the misspelled `progres.accepted: null` — one letter short of the mock
+above — would read as *this case runs the real block* while the mock it meant to lift
+stayed on: a case passing for the opposite of the reason it says. dolphin refuses the file
+instead, naming the address.
+
+<Callout type="info">
+**`mocks: {}` is not an un-mock.** An empty map contributes nothing, so the file's mocks
+all still apply — which is why the null exists rather than leaving people to discover
+that the obvious spelling does nothing.
 </Callout>
 
 ## spies

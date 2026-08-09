@@ -86,9 +86,14 @@ export default function CaseForm({
       <MocksField
         flow={suite.flow}
         label="Mocks"
-        hint="Only for this case. An address here replaces the file's mock for that block whole, rather than amending it."
+        hint="Only for this case. An address here replaces the file's mock for that block whole, rather than amending it — or lifts it, so this case runs the real block."
         value={value.mocks}
-        replacing={Object.keys(suite.mocks ?? {})}
+        // Only the file's real mocks. A null at the file level is not a mock — it is an
+        // entry dolphin refuses — so offering it to be lifted would hand the user an
+        // action whose only result is a second error.
+        inherited={Object.entries(suite.mocks ?? {})
+          .filter(([, spec]) => spec)
+          .map(([address]) => address)}
         onChange={(mocks) => onChange(withOptional(value, "mocks", mocks))}
       />
 

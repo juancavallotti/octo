@@ -215,6 +215,67 @@ cases:
 	}
 }
 
+// TestACaseCanUnMockAnAddressTheFileMocks: a null lifts the file's mock for one case, so
+// the real block runs there. Without it, a suite with one case that needs the real block
+// has to drop its file-level `mocks:` and repeat them on every other case — the exact
+// duplication file-level mocks exist to remove.
+func TestACaseCanUnMockAnAddressTheFileMocks(t *testing.T) {
+	const unmocked = `
+flow: progress
+mocks:
+  progress.accepted:
+    default: { body: {} }
+  progress.halfway:
+    default: { body: {} }
+cases:
+  - name: the mocks apply
+  - name: the real block runs here
+    mocks:
+      progress.accepted: null
+  - name: an empty map still inherits
+    mocks: {}
+`
+	file := load(t, unmocked)
+
+	if got := file.MocksFor(file.Cases[0]); len(got) != 2 {
+		t.Errorf("the first case runs with %v, want both of the file's mocks", got)
+	}
+
+	unmocks := file.MocksFor(file.Cases[1])
+	if _, ok := unmocks["progress.accepted"]; ok {
+		t.Error("progress.accepted is still mocked: a null must remove the file's mock, not replace it")
+	}
+	if _, ok := unmocks["progress.halfway"]; !ok {
+		t.Error("progress.halfway was lost: un-mocking one address must leave the others alone")
+	}
+
+	// `mocks: {}` contributes nothing, as it always has. It is worth pinning, because the
+	// null exists precisely so that nobody reaches for the empty map meaning to un-mock
+	// and gets a case that passes for the wrong reason.
+	if got := file.MocksFor(file.Cases[2]); len(got) != 2 {
+		t.Errorf("`mocks: {}` changed what the case runs under (%v) — it must keep inheriting", got)
+	}
+}
+
+// TestUnMockingTheOnlyMockLeavesNone: the case reaches octo with no `mocks:` section at
+// all, rather than an empty one.
+func TestUnMockingTheOnlyMockLeavesNone(t *testing.T) {
+	file := load(t, `
+flow: progress
+mocks:
+  progress.accepted:
+    default: { body: {} }
+cases:
+  - name: the real block runs here
+    mocks:
+      progress.accepted: null
+`)
+
+	if got := file.MocksFor(file.Cases[0]); got != nil {
+		t.Errorf("mocks = %v, want nil: the case un-mocked the only one there was", got)
+	}
+}
+
 // TestTimeoutFallsBackFromCaseToFileToDefault.
 func TestTimeoutFallsBackFromCaseToFileToDefault(t *testing.T) {
 	file := load(t, suiteYAML)
@@ -353,6 +414,17 @@ func TestLoadTestFileRejects(t *testing.T) {
 		name:    "an input that is neither a name nor a mapping",
 		content: "flow: orders\ncases:\n  - name: a\n    input: [1, 2]\n",
 		want:    "the name of a shared input, or an inline",
+	}, {
+		// Un-mocking an address nothing mocks does nothing, so a typo here would read as
+		// "this case runs the real block" while the mock it meant to lift stayed on.
+		name: "un-mocking an address the file does not mock",
+		content: "flow: orders\nmocks:\n  orders.charge:\n    default: { body: {} }\n" +
+			"cases:\n  - name: a\n    mocks:\n      orders.charg: null\n",
+		want: `mock "orders.charg" is null`,
+	}, {
+		name:    "un-mocking in a file that mocks nothing",
+		content: "flow: orders\ncases:\n  - name: a\n    mocks:\n      orders.charge: null\n",
+		want:    "it mocks: nothing",
 	}}
 
 	for _, tc := range tests {

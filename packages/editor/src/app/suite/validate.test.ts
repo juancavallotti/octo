@@ -148,6 +148,31 @@ describe("validateSuite", () => {
     );
   });
 
+  // A null on a case lifts the file's mock, so that one case runs the real block. Over an
+  // address the file does not mock it does nothing at all — which is why it is refused
+  // rather than shrugged at: a typo'd address would read as "the real block runs here"
+  // while the mock it meant to lift stayed on, and the case would pass proving the
+  // opposite of what it says.
+  it("takes a null over an inherited mock, and refuses one over anything else", () => {
+    const mocked = { mocks: { "o.c": { default: { body: 1 } } } };
+
+    expect(withCase({ name: "a", mocks: { "o.c": null } }, mocked)).toEqual([]);
+    expect(withCase({ name: "a", mocks: { "o.charge": null } }, mocked)).toContain(
+      `mock "o.charge" is null, which lifts the file's mock for that block — but the file does not mock it (it mocks: o.c)`,
+    );
+    expect(withCase({ name: "a", mocks: { "o.c": null } })).toContain(
+      `mock "o.c" is null, which lifts the file's mock for that block — but the file does not mock it (it mocks: nothing)`,
+    );
+  });
+
+  // The file has nothing above it to lift, and dolphin decodes a null there as a spec that
+  // does nothing — so it is the ordinary empty-spec rejection, not an un-mock.
+  it("refuses a null in the file's own mocks", () => {
+    expect(validateSuite(suite({ mocks: { "o.c": null } })).map((i) => i.message)).toContain(
+      "mock \"o.c\": needs at least one case, or a default — only a case may be null, to lift the file's mock",
+    );
+  });
+
   it("pins the one-outcome rule on a mock case", () => {
     expect(withCase({ name: "a", mocks: { "o.c": { default: {} } } })).toContain(
       "mock \"o.c\": default: needs an outcome: one of `body`, `error` or `drop`",

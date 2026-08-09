@@ -330,10 +330,10 @@ const caseSchema = z.object({
     .optional()
     .describe("What the flow is called with: a shared input's name, or an inline message."),
   mocks: z
-    .record(z.string(), mockSpecSchema)
+    .record(z.string(), mockSpecSchema.nullable())
     .optional()
     .describe(
-      "Blocks to stand in for, by address. REPLACES the file-level mock on that address whole — never merged with it — so a case states its world completely.",
+      "Blocks to stand in for, by address. REPLACES the file-level mock on that address whole — never merged with it — so a case states its world completely. `null` instead of a spec goes the other way: it LIFTS the file's mock for that address, so this one case runs the REAL block — for the case whose whole point is what the real block does. Only over an address the file actually mocks; anything else is refused.",
     ),
   env: z
     .record(z.string(), z.string())

@@ -23,10 +23,12 @@ flow: progress
 # Both are covered by Go tests in runtime/connectors/http (sse_test.go,
 # ssesource_test.go, sseevent_test.go), which drive a real listener.
 
-# The mocks live on the cases rather than the file: the last case needs the REAL
-# block, and a file-level mock cannot be lifted for one case — an address named in
-# a case replaces the file's entry for that block, but there is no way to say "no
-# mock here".
+# Stand in for every write to the caller's connection, the way a test mocks the
+# block that would have called a payment API. Said once here; the one case that
+# needs a real sse-event lifts progress.accepted with a null, and keeps the rest.
+mocks:
+  progress.accepted: { default: { body: {} } }
+  progress.halfway: { default: { body: {} } }
 
 cases:
   - name: every emit point is reached in order with its payload, and the flow answers with the final body
@@ -34,11 +36,6 @@ cases:
       # vars.query is what the http source would have populated; invoke does not.
       vars:
         query: {}
-    mocks:
-      # Stand in for every write to the caller's connection, the way a test mocks
-      # the block that would have called a payment API.
-      progress.accepted: { default: { body: {} } }
-      progress.halfway: { default: { body: {} } }
     expect:
       # The response message is what finalEvent sends as the last frame.
       body:
@@ -60,9 +57,6 @@ cases:
       vars:
         query:
           fail: "1"
-    mocks:
-      progress.accepted: { default: { body: {} } }
-      progress.halfway: { default: { body: {} } }
     expect:
       # No frame was written, so the route is still an ordinary one and the reject
       # is a real status with a JSON body — the whole point of opening lazily.
@@ -78,9 +72,12 @@ cases:
         count: 0
 
   - name: without a live stream an sse-event fails rather than pretending it wrote
-    # No mocks here: the real block runs and finds no connector, because invoke
-    # skips the one the route was bound to. Failing loudly is deliberate — a
-    # silent success would let a broken flow pass its tests.
+    mocks:
+      # A null lifts the file's mock: the real block runs and finds no connector,
+      # because invoke skips the one the route was bound to. Failing loudly is
+      # deliberate — a silent success would let a broken flow pass its tests.
+      # progress.halfway keeps its mock; the flow never reaches it.
+      progress.accepted: null
     input:
       vars:
         query: {}

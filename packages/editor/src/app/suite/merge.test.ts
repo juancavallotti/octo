@@ -55,6 +55,16 @@ describe("mocksFor", () => {
     expect(mocksFor({ flow: "o", cases: [] }, { name: "a" })).toEqual({});
   });
 
+  // The un-mock. Without it, a suite with one case that needs the real block has to drop
+  // its file-level mocks and repeat them on every other case.
+  it("removes a mock the case set to null, and leaves the rest", () => {
+    const merged = mocksFor(suite, { name: "a", mocks: { "orders.charge": null } });
+
+    expect(merged["orders.charge"]).toBeUndefined();
+    expect("orders.charge" in merged).toBe(false); // not an undefined the runner would send
+    expect(merged["orders.notify"]).toEqual({ default: { drop: true } });
+  });
+
   it("does not mutate the file's mocks", () => {
     mocksFor(suite, { name: "a", mocks: { "orders.charge": { default: { drop: true } } } });
     expect(suite.mocks!["orders.charge"]).toEqual({ default: { body: { ok: true } } });
