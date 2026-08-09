@@ -36,9 +36,21 @@ export function inputFor(suite: Suite, c: SuiteCase): SuiteInput {
  * that block will do, without the reader having to hold the file's version in their head
  * too. A merged run would also diverge from `dolphin test` silently — the same suite,
  * two verdicts.
+ *
+ * A `null` on a case REMOVES the file's mock for that address, so the real block runs.
  */
 export function mocksFor(suite: Suite, c: SuiteCase): Record<string, MockSpec> {
-  return { ...suite.mocks, ...c.mocks };
+  const merged: Record<string, MockSpec> = {};
+  for (const [address, spec] of Object.entries(suite.mocks ?? {})) {
+    // A null at the FILE level is not an un-mock — there is nothing to lift. validate.ts
+    // reports it; here it is simply not a mock.
+    if (spec) merged[address] = spec;
+  }
+  for (const [address, spec] of Object.entries(c.mocks ?? {})) {
+    if (spec === null) delete merged[address];
+    else merged[address] = spec;
+  }
+  return merged;
 }
 
 /**

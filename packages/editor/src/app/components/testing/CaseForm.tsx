@@ -86,9 +86,9 @@ export default function CaseForm({
       <MocksField
         flow={suite.flow}
         label="Mocks"
-        hint="Only for this case. An address here replaces the file's mock for that block whole, rather than amending it."
+        hint="Only for this case. An address here replaces the file's mock for that block whole, rather than amending it — or lifts it, so this case runs the real block."
         value={value.mocks}
-        replacing={Object.keys(suite.mocks ?? {})}
+        inherited={Object.keys(suite.mocks ?? {})}
         onChange={(mocks) => onChange(withOptional(value, "mocks", mocks))}
       />
 

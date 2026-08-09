@@ -82,7 +82,7 @@ export function validateSuite(suite: Suite): SuiteIssue[] {
   if (suite.timeout && !isValidDuration(suite.timeout)) {
     error(`timeout ${JSON.stringify(suite.timeout)} is not a duration (e.g. 30s, 1m30s)`);
   }
-  validateMocks(suite.mocks, undefined, error);
+  validateMocks(suite.mocks, undefined, undefined, error);
 
   const seen = new Set<string>();
   suite.cases.forEach((c, i) => {
@@ -115,7 +115,9 @@ function validateCase(suite: Suite, c: SuiteCase, i: number, error: Raise): void
   if (c.timeout && !isValidDuration(c.timeout)) {
     error(`timeout ${JSON.stringify(c.timeout)} is not a duration (e.g. 30s, 1m30s)`, i);
   }
-  validateMocks(c.mocks, i, error);
+  // `?? {}` so an absent file-level `mocks:` still reads as "a case, checked against a
+  // file that mocks nothing" rather than as the file's own section.
+  validateMocks(c.mocks, suite.mocks ?? {}, i, error);
   if (c.expect) validateExpectation(c.expect, i, error);
   for (const address of Object.keys(c.spies ?? {}).sort()) {
     if (!address.trim()) {
@@ -196,7 +198,13 @@ function recordOutcomes(r: RecordExpect): string[] {
  * takes the whole file down, and it belongs here with the rest of them.
  */
 function validateMocks(
-  mocks: Record<string, MockSpec> | undefined,
+  mocks: Record<string, MockSpec | null> | undefined,
+  /**
+   * The file's mocks, when checking a CASE's — what a `null` here is allowed to lift.
+   * `undefined` means these ARE the file's, where a null is not an un-mock: there is
+   * nothing to remove, and dolphin decodes it as a spec that does nothing.
+   */
+  inherited: Record<string, MockSpec | null> | undefined,
   i: number | undefined,
   error: Raise,
 ): void {
@@ -207,6 +215,27 @@ function validateMocks(
     }
     const at = `mock ${JSON.stringify(address)}`;
     const spec = mocks![address];
+    // A null lifts the file's mock so the case runs the real block — and only over an
+    // address the file actually mocks. Un-mocking anything else does nothing at all, so a
+    // typo'd address would read as "the real block runs here" while the mock it meant to
+    // lift stayed on, and the case would pass proving the opposite of what it says.
+    if (spec === null) {
+      if (!inherited) {
+        error(
+          `${at}: needs at least one case, or a default — only a case may be null, to lift the file's mock`,
+          i,
+        );
+      } else if (!inherited[address]) {
+        const mocked = Object.keys(inherited).filter((a) => inherited[a]).sort();
+        error(
+          `${at} is null, which lifts the file's mock for that block — but the file does not mock it (it mocks: ${
+            mocked.length ? mocked.join(", ") : "nothing"
+          })`,
+          i,
+        );
+      }
+      continue;
+    }
     if (!spec.cases?.length && !spec.default) {
       error(`${at}: needs at least one case, or a default`, i);
     }

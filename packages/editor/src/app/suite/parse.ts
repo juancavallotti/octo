@@ -263,16 +263,20 @@ function readRecords(
  * would be a second model to keep in step for no gain. Their keys are still checked:
  * dolphin decodes them as strictly as everything else, and a typo'd `deflt:` would
  * otherwise reach the user as a load failure rather than as the typo it is.
+ *
+ * A `null` passes through as a null, and must: on a case it is the un-mock, and coercing
+ * it to `{}` or dropping the key would turn "run the real block here" back into the
+ * inherited mock — silently, which is the failure the null was added to end.
  */
 function readMocks(
   raw: unknown,
   at: string,
   caseIndex: number | undefined,
   issues: SuiteIssue[],
-): Record<string, MockSpec> | undefined {
+): Record<string, MockSpec | null> | undefined {
   if (!isRecord(raw) || !Object.keys(raw).length) return undefined;
   for (const [address, spec] of Object.entries(raw)) {
-    if (!isRecord(spec)) continue; // validate.ts reports the shape
+    if (!isRecord(spec)) continue; // a null un-mock, or a shape validate.ts reports
     const where = `${at} ${JSON.stringify(address)}`;
     unknownKeys(spec, MOCK_KEYS, where, caseIndex, issues);
     for (const c of Array.isArray(spec.cases) ? spec.cases : []) {
@@ -282,7 +286,7 @@ function readMocks(
       unknownKeys(spec.default, MOCK_CASE_KEYS, where, caseIndex, issues);
     }
   }
-  return raw as Record<string, MockSpec>;
+  return raw as Record<string, MockSpec | null>;
 }
 
 function readEnv(raw: unknown): Record<string, string> | undefined {

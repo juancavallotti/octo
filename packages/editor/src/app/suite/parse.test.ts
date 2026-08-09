@@ -68,6 +68,26 @@ cases:
     });
   });
 
+  // A null is the un-mock, and it has to survive as a null: coerced to `{}` or dropped, it
+  // would turn "run the real block here" back into the file's mock — silently, which is
+  // the failure the null was added to end.
+  it("keeps a case's null mock as a null", () => {
+    const { suite, issues } = parseSuite(`
+flow: orders
+mocks:
+  orders.charge:
+    default:
+      body: {ok: true}
+cases:
+  - name: the real block runs here
+    mocks:
+      orders.charge: null
+`);
+
+    expect(issues).toEqual([]);
+    expect(suite.cases[0].mocks).toEqual({ "orders.charge": null });
+  });
+
   it("takes an inline input as well as a named one", () => {
     const { suite, issues } = parseSuite(`
 flow: orders

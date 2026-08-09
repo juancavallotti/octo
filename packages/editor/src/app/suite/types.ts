@@ -131,8 +131,12 @@ export interface SuiteCase {
    * Overrides the file's, per address and WHOLE-SPEC — see {@link mocksFor}. Replacing
    * rather than merging is dolphin's rule, and a bridge that merged instead would give
    * the canvas a different run than `dolphin test`.
+   *
+   * `null` is the other direction: it LIFTS the file's mock for that address, so this one
+   * case runs the real block. Only a case has it — the file has nothing to un-do — and
+   * only over an address the file actually mocks.
    */
-  mocks?: Record<string, MockSpec>;
+  mocks?: Record<string, MockSpec | null>;
   /** Overrides the file's, per VARIABLE — not whole-map, because a variable is a scalar. */
   env?: Record<string, string>;
   /** An absent expectation still asserts something: that the flow completed. */
@@ -150,8 +154,16 @@ export interface Suite {
   flow: string;
   /** Named messages the cases share, so "a vip order" is written once. */
   inputs?: Record<string, SuiteInput>;
-  /** Stand-ins for blocks in every case, unless a case overrides the address. */
-  mocks?: Record<string, MockSpec>;
+  /**
+   * Stand-ins for blocks in every case, unless a case overrides the address or lifts it
+   * with a `null`.
+   *
+   * A null HERE is not an un-mock — the file has no inherited mock to remove, and dolphin
+   * refuses it as a spec that does nothing. It is still held in the model rather than
+   * dropped on read, so the Testing tab can say so instead of silently deleting a key the
+   * user typed.
+   */
+  mocks?: Record<string, MockSpec | null>;
   /**
    * Environment every case runs with.
    *
