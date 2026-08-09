@@ -6,9 +6,8 @@ description: Record what happened to a single message — every flow, block, mod
 import { Callout } from 'fumadocs-ui/components/callout';
 
 Tracing records the path of **one message**: every flow it entered, every block it
-passed through, every model turn an agent took on its behalf, and the source that
-admitted it — all joined by a single id that survives every boundary the message
-crosses.
+passed through, every model call made on its behalf, and the source that admitted
+it — all joined by a single id that survives every boundary the message crosses.
 
 <Callout type="warn">
 **Tracing is a development feature.** It is off by default, and it is not
@@ -85,10 +84,50 @@ and the stream says so in band — see [Dropped records](#dropped-records).
 | `flow.completed` / `flow.dropped` / `flow.failed` | How that invocation ended, with its duration. `failed` means **unhandled** — a message the error path recovered completes. |
 | `block.pre-invoke` | The message a block is about to receive. |
 | `block.post-invoke` | What it returned, with how long it took. |
-| `llm.turn` | One model turn of an `ai-agent`, with the model and the token usage the provider reported. |
+| `llm.turn` | One model turn of any AI block — an `ai-agent` iteration, an `ai-router` round, an `ai-retry` attempt, an `ai-mapping` call — with the model that served it and the token usage the provider reported. |
+| `llm.embed` | One embedding call of an `ai-embed` block, with the model, the batch size, and the tokens the provider charged. |
 | `source.receive` / `source.respond` | A message admitted from an inbound request, and the response eventually written for it. |
 | `source.emit` | A message a scheduled source produced, with no caller to answer. |
 | `trace.dropped` | Records that could not be kept. |
+
+## What a model call cost
+
+Every call the runtime makes to a provider — blocking or streamed, chat or
+embedding — produces one record with the tokens that call was billed for and the
+model that served it. Summing them by `traceId` is what tells you what a single
+execution spent.
+
+The runtime reports tokens, not money. Prices change and models are added faster
+than a runtime release cycle, so pricing is the reader's job; the record carries
+everything that lookup needs.
+
+| Attribute | On | Meaning |
+| --- | --- | --- |
+| `model` | both | The model that **actually served** the call, as the provider reported it, falling back to the configured id. A configured alias resolves to a dated snapshot, and it is the snapshot that has a price. |
+| `usage` | both | What the provider charged. `{inputTokens, outputTokens, thinkingTokens, cachedTokens}` for `llm.turn`, `{inputTokens}` for `llm.embed`. `outputTokens` is billing-authoritative and **already includes** `thinkingTokens` — adding them double-counts. |
+| `connector` | both | The connector the call went through. |
+| `block` | both | The block's authored name, when it has one. `path` addresses it either way. |
+| `iteration` | `llm.turn` | Which pass of the block's own loop this was, one-based — an agent's iteration, a router's round, a retry's attempt. Absent for a block that calls the model once per message. |
+| `stopReason` / `toolCalls` | `llm.turn` | Why the model stopped, and how many tools it asked for. |
+| `purpose` | `llm.turn` | Present only on a call that is not one of the block's own turns. Today the one case is `memory-compaction`: the summarizing call an `ai-agent` with `memoryCompaction: summarize` makes to shrink its own memory. It is billed to the agent's block but carries no `iteration`, so it cannot be read as a turn the agent took. |
+| `batch` | `llm.embed` | How many texts that one call embedded. |
+
+`usage` is the same shape an `ai-agent`'s
+[`turn_end` event](/reference/blocks/ai#agent-events) reports, deliberately: the
+two observers of one call cannot disagree about what it cost.
+
+A record with **no `usage`** means the provider reported none. For a chat turn that
+is a failure worth reading — the record carries `error` instead. For an embedding
+it is routine: Gemini's embeddings API returns no token count at all. Either way,
+the absence is reported as absence rather than as a zero that would read as "this
+call was free".
+
+```bash
+# What did this run spend, per block and model?
+jq -c 'select(.kind=="llm.turn") |
+  {path, model: .attrs.model, in: .attrs.usage.inputTokens, out: .attrs.usage.outputTokens}' \
+  /tmp/run.jsonl
+```
 
 ## The trace id
 
@@ -123,6 +162,11 @@ The defaults are tuned for "I am watching this run", not for production:
 | `--traces-bodies=false --traces-vars=false` | ~15ns, no allocations |
 | tracing off | one atomic load, nothing built |
 
+`llm.turn` and `llm.embed` are priced per **model call**, not per block, and a
+model call is a network round trip — so their cost is not measurable next to the
+call they describe. With tracing off they add one atomic load and do not even read
+the clock.
+
 Two ways to make it cheaper:
 
 ```bash
@@ -133,6 +177,13 @@ octo run --config app.yaml --traces --traces-bodies=false --traces-vars=false
 octo run --config app.yaml --traces \
   --traces-blocks 'orders.charge,orders.fanout[audit].log-it'
 ```
+
+<Callout>
+`--traces-blocks` filters `block.pre-invoke` and `block.post-invoke` only.
+`llm.turn` and `llm.embed` are always recorded, from every AI block in the config.
+A block filter that silently dropped cost records would make a trace under-report
+what a run spent, which is worse than a trace that is larger than you asked for.
+</Callout>
 
 Payloads are on by default because "what did the message look like here" is the
 question tracing exists to answer. A body over `--traces-max-payload` (32 KiB) is
