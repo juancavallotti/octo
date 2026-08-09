@@ -73,6 +73,31 @@ type Block struct {
 	Processor MessageProcessor
 }
 
+// BlockAddress is where the block being built sits: the root flow it belongs to,
+// its address within that flow, and the name it was authored with.
+//
+// A block cannot derive any of this for itself. A composite is built by the flow
+// builder and could read the builder's own position, but a leaf is built through
+// the registry from nothing but its settings — so a block that has to report on
+// itself, such as an AI block recording what a model turn cost, has no way to say
+// where the cost was incurred. This is that way.
+//
+// The same "observability label, not a resolvable handle" caveat Block.Path
+// carries applies here, for the same reasons: two unnamed blocks of the same type
+// in one chain share an address, and a name carrying '.', '[' or ']' mints
+// segments the address parser splits the wrong way.
+type BlockAddress struct {
+	// Flow is the root flow's name. Path already begins with it; it is carried
+	// separately so a record can be filtered by flow without parsing an address.
+	Flow string
+	// Path is the block's address in the grammar blockpath.go defines. It is the
+	// same string the block's own Block.Path carries, minted once by the builder.
+	Path string
+	// Name is the name the block was authored with, empty for an unnamed block.
+	// Path falls back to the type for those, so the two are not interchangeable.
+	Name string
+}
+
 // BlockDeps carries build-time services a block factory may need beyond its
 // settings. Most blocks ignore it. Connector resolves a configured connector
 // instance by name so a block can use a capability that connector provides — for
@@ -115,6 +140,12 @@ type BlockDeps struct {
 	// It is nil when no dispatcher is wired, which is the engine's fast exit: a nil
 	// check per block is the whole cost of the feature for a flow nobody observes.
 	Events *BlockEvents
+	// Address is where the block being built sits in the flow being built. Unlike
+	// the rest of BlockDeps it is not a service — it is the one piece of build-time
+	// context a block cannot derive for itself, and it changes per block rather
+	// than per runtime. The flow builder fills it in for every block, leaf and
+	// composite alike.
+	Address BlockAddress
 }
 
 // BlockFactory builds a leaf processor from its settings and build-time deps.
