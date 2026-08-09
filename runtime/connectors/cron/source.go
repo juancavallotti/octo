@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/core/expr"
@@ -53,6 +54,11 @@ type source struct {
 	leaderKey string
 	lease     core.Leadership
 
+	// schedule is the expression as authored, kept for the trace record: the
+	// schedule is the reason a cron message exists, and a tick without it is
+	// indistinguishable from any other message that arrived from nowhere.
+	schedule string
+
 	cron *robfig.Cron
 	ctx  context.Context //nolint:containedctx // captured from Start for tick sends
 	done chan struct{}
@@ -78,6 +84,7 @@ func (c *Connector) NewSource(
 		correlationID: set.CorrelationID,
 		settings:      cfg.Settings,
 		leaderKey:     leaderKey(cfg),
+		schedule:      set.Schedule,
 		done:          make(chan struct{}),
 	}
 
@@ -146,12 +153,41 @@ func (s *source) emit() {
 		slog.Error("cron source failed to build payload", "error", err)
 		return
 	}
+	s.trace(msg)
 
 	select {
 	case s.out <- msg:
 	case <-s.ctx.Done():
 	case <-s.done:
 	}
+}
+
+// trace records the tick that produced this message.
+//
+// A cron message has no caller and so no response to pair with: the flow's own
+// terminal event is the end of the story. What this adds over that is the
+// schedule — the reason the message exists at all — and a trace id minted here,
+// so a tick that fans out through queues and other flows stays one trace.
+//
+// A tick this replica skipped for want of leadership never reaches here, which is
+// correct: nothing happened, and a trace of nothing is noise.
+func (s *source) trace(msg *types.Message) {
+	tracer := core.Tracer()
+	if !tracer.Enabled() {
+		return
+	}
+	if _, err := msg.EnsureTraceID(); err != nil {
+		slog.Warn("cron source: could not generate a trace id", "error", err)
+		return
+	}
+	tracer.Publish(types.TraceEvent{
+		Kind:          types.TraceSourceEmit,
+		TraceID:       msg.TraceID(),
+		EventID:       msg.EventID,
+		CorrelationID: msg.CorrelationID,
+		OccurredAt:    time.Now(),
+		Attrs:         map[string]any{"schedule": s.schedule},
+	})
 }
 
 // setBody evaluates the payload expression and stores the result as the message

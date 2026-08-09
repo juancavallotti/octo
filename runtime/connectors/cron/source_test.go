@@ -2,6 +2,7 @@ package cron
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -200,5 +201,79 @@ func TestCronSourceRejectsBadConfig(t *testing.T) {
 				t.Errorf("expected an error for %s", tt.name)
 			}
 		})
+	}
+}
+
+// cronTraceCollector keeps what the source published.
+type cronTraceCollector struct {
+	mu      sync.Mutex
+	records []types.TraceEvent
+}
+
+func (c *cronTraceCollector) Enabled() bool { return true }
+
+func (c *cronTraceCollector) Publish(event types.TraceEvent) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.records = append(c.records, event)
+}
+
+func (c *cronTraceCollector) all() []types.TraceEvent {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]types.TraceEvent(nil), c.records...)
+}
+
+func tracingCron(t *testing.T) *cronTraceCollector {
+	t.Helper()
+	c := &cronTraceCollector{}
+	previous := core.Tracer()
+	core.SetTracer(c)
+	t.Cleanup(func() { core.SetTracer(previous) })
+	return c
+}
+
+// A cron tick has no caller to answer, so what its record adds over the flow's own
+// events is the schedule — the reason the message exists at all.
+func TestCronTraceNamesTheSchedule(t *testing.T) {
+	c := tracingCron(t)
+	msg, err := types.NewMessage("")
+	if err != nil {
+		t.Fatalf("new message: %v", err)
+	}
+
+	s := &source{schedule: "@every 2s"}
+	s.trace(msg)
+
+	records := c.all()
+	if len(records) != 1 {
+		t.Fatalf("records = %d, want 1", len(records))
+	}
+	if records[0].Kind != types.TraceSourceEmit {
+		t.Errorf("Kind = %s, want %s", records[0].Kind, types.TraceSourceEmit)
+	}
+	if got := records[0].Attrs["schedule"]; got != "@every 2s" {
+		t.Errorf("schedule = %v, want the expression as authored", got)
+	}
+	if msg.TraceID() == "" || records[0].TraceID != msg.TraceID() {
+		t.Errorf("the record and the message disagree on the trace id")
+	}
+}
+
+func TestCronTraceIsInertWhenTracingIsOff(t *testing.T) {
+	c := tracingCron(t)
+	core.SetTracer(nil)
+
+	msg, err := types.NewMessage("")
+	if err != nil {
+		t.Fatalf("new message: %v", err)
+	}
+	(&source{schedule: "@every 2s"}).trace(msg)
+
+	if got := len(c.all()); got != 0 {
+		t.Errorf("records = %d with tracing off, want 0", got)
+	}
+	if msg.TraceID() != "" {
+		t.Errorf("an untraced tick minted a trace id: %q", msg.TraceID())
 	}
 }

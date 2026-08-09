@@ -72,6 +72,7 @@ func (s *source) openStream(
 	}
 	msg.Variables.Set(s.sse.streamVar, streamAddress(s.connectorName, st.id))
 	s.conn.trackStream(st)
+	s.traceStream(r, msg)
 	slog.Debug("sse stream opened", "stream", st.id, "pattern", s.pattern)
 	return msg, st, nil
 }

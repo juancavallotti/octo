@@ -178,6 +178,12 @@ func (s *source) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The trace opens here, at the request that started the work, and closes on
+	// whatever response the caller ends up with — including the ones no flow
+	// result reached. Both are no-ops when tracing is off.
+	w, endTrace := s.traceRequest(w, r, msg)
+	defer endTrace()
+
 	ch := s.conn.track(msg.EventID)
 	defer s.conn.forget(msg.EventID)
 
