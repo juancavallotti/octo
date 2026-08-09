@@ -5,7 +5,8 @@
     "processing-pipeline",
     "clustering",
     "monitoring",
-    "observability"
+    "observability",
+    "tracing"
   ],
   "title": "Runtime"
 }

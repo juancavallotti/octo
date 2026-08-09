@@ -118,19 +118,23 @@ func estimateTokens(msgs []core.LLMMessage) int {
 	return chars / charsPerToken
 }
 
-// compactMemory shrinks msgs to fit maxTokens using the given strategy, returning
-// the (possibly shortened) transcript. A non-positive budget or an already-fitting
-// transcript is returned unchanged.
+// compactMemory shrinks transcript to fit maxTokens using the given strategy,
+// returning the (possibly shortened) transcript. A non-positive budget or an
+// already-fitting transcript is returned unchanged.
+//
+// msg is the message the agent is running for; only the summarize strategy calls
+// the model, and only so its record joins the trace that paid for it.
 func compactMemory(
-	ctx context.Context, client core.LLMClient, msgs []core.LLMMessage, maxTokens int, strategy string,
+	ctx context.Context, caller *llmCaller, msg *types.Message,
+	transcript []core.LLMMessage, maxTokens int, strategy string,
 ) []core.LLMMessage {
-	if maxTokens <= 0 || estimateTokens(msgs) <= maxTokens {
-		return msgs
+	if maxTokens <= 0 || estimateTokens(transcript) <= maxTokens {
+		return transcript
 	}
 	if strategy == memoryCompactSummarize {
-		return summarizeMemory(ctx, client, msgs, maxTokens)
+		return summarizeMemory(ctx, caller, msg, transcript, maxTokens)
 	}
-	return pruneMemory(msgs, maxTokens)
+	return pruneMemory(transcript, maxTokens)
 }
 
 // pruneMemory drops the oldest messages until the transcript fits the budget,
@@ -150,26 +154,27 @@ func pruneMemory(msgs []core.LLMMessage, maxTokens int) []core.LLMMessage {
 // the older turns into a single summary message the model reads as context. It
 // falls back to pruning if the model cannot produce a summary.
 func summarizeMemory(
-	ctx context.Context, client core.LLMClient, msgs []core.LLMMessage, maxTokens int,
+	ctx context.Context, caller *llmCaller, msg *types.Message,
+	transcript []core.LLMMessage, maxTokens int,
 ) []core.LLMMessage {
 	keepBudget := maxTokens / 2
 	cut := 0
-	for cut < len(msgs) && estimateTokens(msgs[cut:]) > keepBudget {
+	for cut < len(transcript) && estimateTokens(transcript[cut:]) > keepBudget {
 		cut++
 	}
 	// Do not let the kept tail start with an orphaned tool turn.
-	for cut < len(msgs) && msgs[cut].Role == core.LLMRoleTool {
+	for cut < len(transcript) && transcript[cut].Role == core.LLMRoleTool {
 		cut++
 	}
 	if cut == 0 {
-		return msgs // nothing old enough to summarize
+		return transcript // nothing old enough to summarize
 	}
 
-	summary, err := summarizeTurns(ctx, client, msgs[:cut])
+	summary, err := summarizeTurns(ctx, caller, msg, transcript[:cut])
 	if err != nil || summary == "" {
-		return pruneMemory(msgs, maxTokens)
+		return pruneMemory(transcript, maxTokens)
 	}
-	tail := msgs[cut:]
+	tail := transcript[cut:]
 	compacted := make([]core.LLMMessage, 0, len(tail)+1)
 	compacted = append(compacted, core.LLMMessage{
 		Role: core.LLMRoleUser,
@@ -179,10 +184,18 @@ func summarizeMemory(
 }
 
 // summarizeTurns asks the model to summarize a run of turns into concise prose.
-func summarizeTurns(ctx context.Context, client core.LLMClient, msgs []core.LLMMessage) (string, error) {
+//
+// This is a real, billed model call the agent's own turn loop never sees, so it is
+// traced like any other — at the agent's own address, because that is where the
+// money is spent and where `memoryCompaction: summarize` would be turned off. It
+// carries no iteration and is marked with its purpose instead, so it cannot be
+// read as one of the turns the agent took.
+func summarizeTurns(
+	ctx context.Context, caller *llmCaller, msg *types.Message, transcript []core.LLMMessage,
+) (string, error) {
 	var b strings.Builder
-	for i := range msgs {
-		m := msgs[i]
+	for i := range transcript {
+		m := transcript[i]
 		if m.Text != "" {
 			fmt.Fprintf(&b, "%s: %s\n", m.Role, m.Text)
 		}
@@ -193,11 +206,11 @@ func summarizeTurns(ctx context.Context, client core.LLMClient, msgs []core.LLMM
 			fmt.Fprintf(&b, "tool result: %s\n", r.Content)
 		}
 	}
-	resp, err := client.Complete(ctx, core.LLMRequest{
+	resp, err := caller.complete(ctx, msg, core.LLMRequest{
 		System: "Summarize the following conversation transcript concisely, preserving facts, " +
 			"decisions, and any context needed to continue. Respond with the summary only.",
 		Messages: []core.LLMMessage{{Role: core.LLMRoleUser, Text: b.String()}},
-	})
+	}, turnLabel{purpose: purposeMemory})
 	if err != nil {
 		return "", err
 	}

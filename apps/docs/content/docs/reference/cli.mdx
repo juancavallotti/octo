@@ -56,6 +56,13 @@ octo run --config samples/hello-world.yaml
 | `--observability-addr` | address | `:39999` | Admin listen address for the probes and metrics. An address already in use is logged and the run continues without them. |
 | `--metrics` | bool | `false` | Also serve Prometheus metrics at `/metrics` on the admin port. |
 | `--metrics-blocks` | addresses | (none) | Comma-separated [block addresses](#addressing-a-block) to add per-block timings for, or `*` for every block. |
+| `--traces` | bool | `false` | Record a [trace](/runtime/tracing) of every message. **Development feature — significant overhead.** |
+| `--traces-blocks` | addresses | `*` | Comma-separated [block addresses](#addressing-a-block) to trace, or `*` for every block. |
+| `--traces-file` | path | (auto) | Where the standalone runtime writes its JSONL trace. Defaults to `octo-trace-<time>-<pid>.jsonl` in the working directory. |
+| `--traces-bodies` | bool | `true` | Include message bodies in trace records. |
+| `--traces-vars` | bool | `true` | Include message variables in trace records. |
+| `--traces-max-payload` | bytes | `32768` | Drop a captured body or variable map larger than this. |
+| `--traces-buffer` | int | `4096` | How many records to queue before dropping. |
 
 These configure the [observability runtime service](/runtime/observability), which
 serves on a port of its own — separate from any `http` connector, so probes never
@@ -74,6 +81,23 @@ address grammar [`--spies`](#spies) accepts:
 octo run --config app.yaml --metrics \
   --metrics-blocks 'orders.charge,orders.fanout[audit].log-it'
 ```
+
+`--traces` is a different tool for a different question. Metrics tell you a flow
+is slow; a trace tells you what happened to **one message** — every flow it
+entered, every block it passed through, the model turns an agent took for it, all
+joined by a single id that survives flow-refs, splits, aggregates and the hop
+between processes:
+
+```bash
+octo run --config app.yaml --traces --traces-file /tmp/run.jsonl
+jq -c '{seq,kind,traceId,path,durationNs}' /tmp/run.jsonl
+```
+
+It is a **development feature**. With the defaults it records two events for every
+block of every message and marshals the payload for each, on the flow's own
+goroutine — around 700ns and 30 allocations per block, against 15ns and none when
+payload capture is off. The run says so, loudly, at startup. See
+[Tracing](/runtime/tracing).
 
 It is a separate flag because a watched block is timed **on the flow's own
 goroutine**, so the measurement lands on the message's critical path. The counters
@@ -786,8 +810,15 @@ the VCS commit time, and the suffix is omitted when neither exists.
 | `OCTO_OBSERVABILITY_ADDR` | Default for `--observability-addr`. |
 | `OCTO_METRICS` | Default for `--metrics`. Same accepted values as `OCTO_OBSERVABILITY`. |
 | `OCTO_METRICS_BLOCKS` | Default for `--metrics-blocks`: comma-separated [block addresses](#addressing-a-block), or `*` for every block. |
+| `OCTO_TRACING` | Default for `--traces`. Same accepted values as `OCTO_OBSERVABILITY`. This is how tracing is enabled in a deployed pod, which passes no arguments. |
+| `OCTO_TRACING_FILE` | Default for `--traces-file`. |
+| `OCTO_TRACING_BLOCKS` | Default for `--traces-blocks`. |
+| `OCTO_TRACING_BODIES` | Default for `--traces-bodies`. |
+| `OCTO_TRACING_VARS` | Default for `--traces-vars`. |
+| `OCTO_TRACING_MAX_PAYLOAD` | Default for `--traces-max-payload`. |
+| `OCTO_TRACING_BUFFER` | Default for `--traces-buffer`. |
 
-The `OCTO_OBSERVABILITY*`, `OCTO_METRICS`, and `OCTO_METRICS_BLOCKS` variables are read from the **process environment only**,
+The `OCTO_OBSERVABILITY*`, `OCTO_METRICS*`, and `OCTO_TRACING*` variables are read from the **process environment only**,
 not from a `.env` file: they are resolved when `octo run` parses its flags, which
 happens before any config — and therefore any `.env` — is loaded. Passing the flag
 always wins over the variable.

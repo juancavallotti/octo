@@ -21,9 +21,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"os"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/juancavallotti/octo/runtime/core"
@@ -63,8 +60,9 @@ const (
 )
 
 // Environment variables, each the default for the flag of the same name. They are
-// read from the process environment only: a runtime's .env file is loaded during
-// config load, which happens after the flags are parsed.
+// read from the process environment only (see services.EnvBool/EnvString): a
+// runtime's .env file is loaded during config load, which happens after the flags
+// are parsed.
 const (
 	envEnabled      = "OCTO_OBSERVABILITY"
 	envAddr         = "OCTO_OBSERVABILITY_ADDR"
@@ -100,13 +98,13 @@ func (s *Service) Name() string { return serviceName }
 // environment-resolved value, so passing the flag wins over the environment
 // without any precedence code, and --help prints what is actually in effect.
 func (s *Service) Flags(fs *flag.FlagSet) {
-	fs.BoolVar(&s.enabled, "observability", envBool(envEnabled, true),
+	fs.BoolVar(&s.enabled, "observability", services.EnvBool(envEnabled, true),
 		"serve liveness and readiness probes on the admin port")
-	fs.StringVar(&s.addr, "observability-addr", envString(envAddr, defaultAddr),
+	fs.StringVar(&s.addr, "observability-addr", services.EnvString(envAddr, defaultAddr),
 		"admin listen address for probes and metrics")
-	fs.BoolVar(&s.metrics, "metrics", envBool(envMetrics, false),
+	fs.BoolVar(&s.metrics, "metrics", services.EnvBool(envMetrics, false),
 		"serve Prometheus metrics on the admin port")
-	fs.StringVar(&s.metricBlocks, "metrics-blocks", envString(envMetricBlocks, ""),
+	fs.StringVar(&s.metricBlocks, "metrics-blocks", services.EnvString(envMetricBlocks, ""),
 		"comma-separated block addresses to report per-block timings for, or * for all")
 }
 
@@ -286,38 +284,4 @@ func (s *Service) Addr() string {
 		return ""
 	}
 	return s.ln.Addr().String()
-}
-
-// envString returns the environment variable's value, or fallback when it is
-// unset or empty.
-func envString(name, fallback string) string {
-	if v, ok := os.LookupEnv(name); ok && v != "" {
-		return v
-	}
-	return fallback
-}
-
-// envBool parses a boolean environment variable, accepting what strconv does
-// (1/t/T/true/TRUE, 0/f/F/false/FALSE) plus the conversational on/off/yes/no. An
-// unparseable value is logged and ignored rather than failing the run: a typo in
-// a deployment's environment should not stop the runtime from starting.
-func envBool(name string, fallback bool) bool {
-	raw, ok := os.LookupEnv(name)
-	if !ok || raw == "" {
-		return fallback
-	}
-	trimmed := strings.TrimSpace(raw)
-	switch strings.ToLower(trimmed) {
-	case "on", "yes":
-		return true
-	case "off", "no":
-		return false
-	}
-	v, err := strconv.ParseBool(trimmed)
-	if err != nil {
-		slog.Warn("observability: ignoring unparseable environment variable",
-			"var", name, "value", raw, "default", fallback)
-		return fallback
-	}
-	return v
 }

@@ -9,6 +9,8 @@ Octo gives you two ways to see what a flow is doing: **logs** — structured app
 
 For numbers rather than lines — health probes and Prometheus metrics on the runtime's admin port — see [Observability](/runtime/observability). It is built on the event streams described here, so you do not need to write Go to get per-flow and per-block metrics.
 
+For the path of one particular message rather than numbers across all of them — every flow, block and model turn it touched, joined by one id — see [Tracing](/runtime/tracing). It is built on the same two streams, and likewise needs no Go from you.
+
 ## Logging from flows: the log block
 
 The `log` block is a pass-through wire tap: it logs and forwards the message unchanged.

@@ -58,7 +58,7 @@ type mappingSettings struct {
 
 // mapping reshapes the body via the LLM, optionally validating the result.
 type mapping struct {
-	client        core.LLMClient
+	caller        *llmCaller
 	system        string
 	maxTokens     int
 	outputSchema  json.RawMessage
@@ -79,7 +79,7 @@ func newAIMapping(raw types.Settings, deps core.BlockDeps) (core.MessageProcesso
 		return nil, fmt.Errorf("ai-mapping block: prompt is required")
 	}
 
-	client, err := resolveLLM(blockTypeAIMapping, cfg.Connector, deps)
+	caller, err := resolveLLM(blockTypeAIMapping, cfg.Connector, deps)
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +106,7 @@ func newAIMapping(raw types.Settings, deps core.BlockDeps) (core.MessageProcesso
 	}
 
 	return &mapping{
-		client:        client,
+		caller:        caller,
 		system:        buildSystemPrompt(cfg.Prompt, inputExample, outputExample, outputSchema),
 		maxTokens:     cfg.MaxTokens,
 		outputSchema:  outputSchema,
@@ -124,11 +124,13 @@ func (m *mapping) Process(ctx context.Context, msg *types.Message) (*types.Messa
 		return nil, fmt.Errorf("ai-mapping: encode input body: %w", err)
 	}
 
-	resp, err := m.client.Complete(ctx, core.LLMRequest{
+	// No iteration: ai-mapping calls the model once per message, so there is no
+	// loop for a record to number.
+	resp, err := m.caller.complete(ctx, msg, core.LLMRequest{
 		System:    m.system,
 		Messages:  []core.LLMMessage{{Role: core.LLMRoleUser, Text: string(input)}},
 		MaxTokens: m.maxTokens,
-	})
+	}, turnLabel{})
 	if err != nil {
 		return nil, fmt.Errorf("ai-mapping: %w", err)
 	}

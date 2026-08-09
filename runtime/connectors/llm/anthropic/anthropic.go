@@ -180,7 +180,7 @@ func (c *Connector) Complete(ctx context.Context, req core.LLMRequest) (*core.LL
 	if err != nil {
 		return nil, fmt.Errorf("llm-anthropic complete: %w", err)
 	}
-	return translateResponse(message), nil
+	return translateResponse(message, c.model), nil
 }
 
 // Stream runs one Messages turn over the streaming endpoint, reporting content as
@@ -221,7 +221,7 @@ func (c *Connector) Stream(
 	if streamErr := stream.Err(); streamErr != nil {
 		return nil, fmt.Errorf("llm-anthropic stream: %w", streamErr)
 	}
-	return translateResponse(&acc), nil
+	return translateResponse(&acc, c.model), nil
 }
 
 // emitEvent maps one SDK stream event onto the canonical vocabulary.
@@ -445,7 +445,7 @@ func toToolChoice(tc core.LLMToolChoice) (sdk.ToolChoiceUnionParam, bool) {
 // text, thinking and tool_use blocks and mapping the stop reason. Thinking is kept
 // out of Text and carried on Raw, so reasoning cannot reach a caller that folds
 // the answer into a message body.
-func translateResponse(message *sdk.Message) *core.LLMResponse {
+func translateResponse(message *sdk.Message, configuredModel string) *core.LLMResponse {
 	var text strings.Builder
 	var calls []core.LLMToolCall
 	var thinking []core.LLMThinkingBlock
@@ -473,6 +473,7 @@ func translateResponse(message *sdk.Message) *core.LLMResponse {
 		ToolCalls:  calls,
 		StopReason: mapStopReason(string(message.StopReason)),
 		Usage:      translateUsage(message.Usage),
+		Model:      servedBy(message.Model, configuredModel),
 	}
 	resp.Raw = core.LLMMessage{
 		Role:      core.LLMRoleAssistant,
@@ -481,6 +482,16 @@ func translateResponse(message *sdk.Message) *core.LLMResponse {
 		ToolCalls: calls,
 	}
 	return resp
+}
+
+// servedBy is the model that answered, preferring what the provider echoed over
+// what the connector asked for. The two differ whenever a configured alias
+// resolves to a dated snapshot, and it is the snapshot that was billed.
+func servedBy(reported, configured string) string {
+	if reported != "" {
+		return reported
+	}
+	return configured
 }
 
 // translateUsage converts the SDK's token counts, reporting nil when the response

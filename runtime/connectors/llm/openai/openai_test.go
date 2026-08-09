@@ -232,6 +232,17 @@ func TestEmbedEndToEnd(t *testing.T) {
 		t.Errorf("vectors not reordered to request order: %+v", resp.Vectors)
 	}
 
+	// An embedding call is billed, so what it charged has to survive translation.
+	if resp.Usage == nil {
+		t.Fatal("embed reported no usage though the response carried it")
+	}
+	if resp.Usage.InputTokens != 4 {
+		t.Errorf("usage.InputTokens = %d, want 4", resp.Usage.InputTokens)
+	}
+	if resp.Model != "text-embedding-3-small" {
+		t.Errorf("model = %q, want the one the provider reported", resp.Model)
+	}
+
 	if gotBody["model"] != "text-embedding-3-small" {
 		t.Errorf("request model = %v", gotBody["model"])
 	}

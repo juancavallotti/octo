@@ -49,6 +49,7 @@ type Services struct {
 	t         *natsTopics
 	conn      *nats.Conn
 	logSink   slog.Handler
+	traces    core.TracePublisher
 	resources core.ResourceLoader
 }
 
@@ -58,7 +59,7 @@ type Services struct {
 // first use.
 //
 //nolint:ireturn // satisfies services.Factory (returns core.RuntimeServices)
-func New(_ context.Context, _ services.Options) (core.RuntimeServices, error) {
+func New(_ context.Context, opts services.Options) (core.RuntimeServices, error) {
 	identity := os.Getenv(envPodName)
 	namespace := os.Getenv(envPodNamespace)
 	deploymentID := os.Getenv(envDeploymentID)
@@ -102,12 +103,14 @@ func New(_ context.Context, _ services.Options) (core.RuntimeServices, error) {
 		"snapshot", os.Getenv(envSnapshotID) != "")
 
 	return &Services{
-		le:        newLeaderElection(cs.CoordinationV1(), namespace, identity, deploymentID),
-		kv:        newHTTPStore(orchestrator, deploymentID, os.Getenv(envOrchestrToken)),
-		q:         newNATSQueues(conn, deploymentID),
-		t:         newNATSTopics(conn, deploymentID),
-		conn:      conn,
-		logSink:   newLogSink(conn, deploymentID, os.Getenv(envDeploymentName), os.Getenv(envDeploymentVer)),
+		le:      newLeaderElection(cs.CoordinationV1(), namespace, identity, deploymentID),
+		kv:      newHTTPStore(orchestrator, deploymentID, os.Getenv(envOrchestrToken)),
+		q:       newNATSQueues(conn, deploymentID),
+		t:       newNATSTopics(conn, deploymentID),
+		conn:    conn,
+		logSink: newLogSink(conn, deploymentID, os.Getenv(envDeploymentName), os.Getenv(envDeploymentVer)),
+		traces: newTracePublisher(conn, opts.Tracing, deploymentID,
+			os.Getenv(envDeploymentName), os.Getenv(envDeploymentVer)),
 		resources: resources,
 	}, nil
 }
@@ -151,6 +154,13 @@ func (s *Services) Resources() core.ResourceLoader { return s.resources }
 //nolint:ireturn // satisfies core.LogShipper
 func (s *Services) LogSink() slog.Handler { return s.logSink }
 
+// Traces returns the module's trace publisher: records go to the shared
+// internal.traces subject for a traces engine to consume, tagged with the
+// deployment they came from.
+//
+//nolint:ireturn // satisfies core.RuntimeServices
+func (s *Services) Traces() core.TracePublisher { return s.traces }
+
 // Close releases the store client's idle connections and the NATS connection.
 // Leader-election campaigns are bound to the context passed to Acquire and stop
 // when the runtime stops.
@@ -159,8 +169,20 @@ func (s *Services) Close() error {
 	if c, ok := s.resources.(interface{ close() }); ok {
 		c.close()
 	}
+	// Drain the trace publisher before the connection it publishes on: its Close
+	// waits for what is queued to reach the server, which a closed connection
+	// would make impossible.
+	//
+	// Its error is reported rather than swallowed — it means records this pod
+	// saw never reached the broker, which nothing downstream can infer — but it
+	// does not stop the connection from closing: a shutdown that leaves a socket
+	// open because telemetry failed has made the problem worse.
+	var traceErr error
+	if closer, ok := s.traces.(interface{ Close() error }); ok {
+		traceErr = closer.Close()
+	}
 	s.conn.Close()
-	return nil
+	return traceErr
 }
 
 // requireEnv returns an error naming every variable that is empty.

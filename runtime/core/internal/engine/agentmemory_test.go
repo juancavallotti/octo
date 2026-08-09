@@ -167,7 +167,7 @@ func TestSummarizeMemoryFoldsOldTurns(t *testing.T) {
 		{Role: core.LLMRoleUser, Text: "tiny"},
 	}
 	fake := &scriptedLLM{responses: []*core.LLMResponse{endTurnResp("SUMMARY")}}
-	out := summarizeMemory(context.Background(), fake, msgs, 50)
+	out := summarizeMemory(context.Background(), bareCaller(fake), mustMessage(t), msgs, 50)
 	if len(out) >= len(msgs) {
 		t.Errorf("summarize did not shrink the transcript: %d messages", len(out))
 	}
@@ -176,12 +176,15 @@ func TestSummarizeMemoryFoldsOldTurns(t *testing.T) {
 	}
 }
 
+// TestCompactMemoryNoopUnderBudget also pins that the prune path reaches neither
+// the model nor the message: both are nil here, and compacting must not touch
+// either to decide there is nothing to do.
 func TestCompactMemoryNoopUnderBudget(t *testing.T) {
 	msgs := []core.LLMMessage{{Role: core.LLMRoleUser, Text: "small"}}
-	if out := compactMemory(context.Background(), nil, msgs, 100000, memoryCompactPrune); len(out) != len(msgs) {
+	if out := compactMemory(context.Background(), nil, nil, msgs, 100000, memoryCompactPrune); len(out) != len(msgs) {
 		t.Errorf("compact changed a transcript already under budget: %+v", out)
 	}
-	if out := compactMemory(context.Background(), nil, msgs, 0, memoryCompactPrune); len(out) != len(msgs) {
+	if out := compactMemory(context.Background(), nil, nil, msgs, 0, memoryCompactPrune); len(out) != len(msgs) {
 		t.Errorf("compact with a zero budget should be a no-op: %+v", out)
 	}
 }

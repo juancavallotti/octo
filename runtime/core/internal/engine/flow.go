@@ -443,6 +443,12 @@ func (b *builder) resolve(cfg types.BlockConfig) (string, types.Settings, error)
 func (b *builder) processor(
 	cfg types.BlockConfig, effType string, effSettings types.Settings,
 ) (core.MessageProcessor, error) {
+	// b is the copy at() returned in block(), positioned at this block, so b.path is
+	// this block's own address and writing to b.deps here cannot leak sideways into
+	// a sibling. Both dispatch arms below read it: a composite through the builder,
+	// a leaf through the registry, which is the only way a leaf can learn this.
+	b.deps.Address = core.BlockAddress{Flow: b.flowName, Path: b.path, Name: cfg.Name}
+
 	if build, ok := b.compositeBuilders()[effType]; ok {
 		return build(cfg)
 	}

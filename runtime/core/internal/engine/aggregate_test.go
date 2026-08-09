@@ -898,3 +898,53 @@ func TestAggregateNeedsACorrelationForNonSplitMessages(t *testing.T) {
 		t.Fatalf("error should point at the correlation setting, got %q", err)
 	}
 }
+
+// The aggregate is the one place in the engine where the trace chain could break
+// on its own: release builds a brand-new message and deliberately drops the
+// group's variables, which is where the trace id lives. Losing it would make the
+// batch look like the start of unrelated work, severing exactly the seam — a
+// split fanning out and re-joining — that a trace exists to show.
+func TestAggregateReleaseKeepsTheGroupTrace(t *testing.T) {
+	ctx := withElection(context.Background(), true)
+	block, cont := buildAggregate(t, types.BlockConfig{Settings: types.Settings{"strategy": "collect"}})
+
+	first := groupMessage(t, "g1", 0, 2, map[string]any{"n": float64(1)})
+	if _, err := first.EnsureTraceID(); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	second := groupMessage(t, "g1", 1, 2, map[string]any{"n": float64(2)})
+	second.SetTraceID(first.TraceID())
+
+	feed(ctx, t, block, first, second)
+
+	released := cont.resumed()
+	if len(released) != 1 {
+		t.Fatalf("released %d messages, want 1", len(released))
+	}
+	if got := released[0].TraceID(); got != first.TraceID() {
+		t.Fatalf("released trace id = %q, want the group's %q", got, first.TraceID())
+	}
+	// The rest of the group's variables are still deliberately left behind.
+	if _, ok := released[0].Variables[varGroupID]; ok {
+		t.Fatal("release forwarded the group variables")
+	}
+}
+
+// A group formed with tracing off must not invent an id, and must not fail.
+func TestAggregateReleaseWithoutATrace(t *testing.T) {
+	ctx := withElection(context.Background(), true)
+	block, cont := buildAggregate(t, types.BlockConfig{Settings: types.Settings{"strategy": "collect"}})
+
+	feed(ctx, t, block,
+		groupMessage(t, "g1", 0, 2, map[string]any{"n": float64(1)}),
+		groupMessage(t, "g1", 1, 2, map[string]any{"n": float64(2)}),
+	)
+
+	released := cont.resumed()
+	if len(released) != 1 {
+		t.Fatalf("released %d messages, want 1", len(released))
+	}
+	if got := released[0].TraceID(); got != "" {
+		t.Fatalf("released trace id = %q, want empty", got)
+	}
+}

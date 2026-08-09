@@ -245,7 +245,8 @@ func (bf *boundFlow) runCtx() context.Context {
 // left to a subscriber to derive by pairing: the clock covers the error path too,
 // because a message the error path recovered still cost what the error path spent.
 func (bf *boundFlow) run(ctx context.Context, msg *types.Message, proc core.MessageProcessor) {
-	bf.publish(types.FlowEventStarted, msg.EventID, 0, nil, nil)
+	traceID := bf.traceID(msg)
+	bf.publish(flowOutcome{kind: types.FlowEventStarted, eventID: msg.EventID, traceID: traceID})
 	started := time.Now()
 
 	out, err := proc.Process(ctx, msg)
@@ -266,6 +267,7 @@ func (bf *boundFlow) run(ctx context.Context, msg *types.Message, proc core.Mess
 	}
 	elapsed := time.Since(started)
 
+	outcome := flowOutcome{eventID: msg.EventID, traceID: traceID, elapsed: elapsed}
 	switch {
 	case err != nil:
 		// A recovered failure is not reported here: the error path replaced the
@@ -273,33 +275,73 @@ func (bf *boundFlow) run(ctx context.Context, msg *types.Message, proc core.Mess
 		// handled reaches this branch, which is what makes the failed event mean
 		// "unhandled".
 		slog.Error("flow processing failed", "flow", bf.name, "event_id", msg.EventID, "error", err)
-		bf.publish(types.FlowEventFailed, msg.EventID, elapsed, err, msg)
+		outcome.kind, outcome.err, outcome.result = types.FlowEventFailed, err, msg
 	case out == nil:
-		bf.publish(types.FlowEventDropped, msg.EventID, elapsed, nil, msg)
+		outcome.kind, outcome.result = types.FlowEventDropped, msg
 	default:
-		bf.publish(types.FlowEventCompleted, msg.EventID, elapsed, nil, out)
+		outcome.kind, outcome.result = types.FlowEventCompleted, out
 	}
+	bf.publish(outcome)
+}
+
+// traceID names the end-to-end invocation this message belongs to.
+//
+// It is minted here, at the one point every message passes through — off a
+// source, from `octo invoke`, or resumed as the tail of a flow a block took over
+// — so no source has to remember to do it and none of them can disagree about
+// how. A message that already carries an id keeps it: the id is set by whoever
+// saw the work first, which may be a source that wanted its own record to join
+// the trace, or another process entirely, since the id travels as an ordinary
+// message variable.
+//
+// When tracing is off nothing is minted, but an id already on the message is
+// still reported: a runtime with tracing off can still be a hop in a trace
+// something upstream started.
+func (bf *boundFlow) traceID(msg *types.Message) string {
+	if !core.Tracer().Enabled() {
+		return msg.TraceID()
+	}
+	id, err := msg.EnsureTraceID()
+	if err != nil {
+		// Losing the id costs the trace its grouping, not the message its run.
+		slog.Warn("could not generate a trace id",
+			"flow", bf.name, "event_id", msg.EventID, "error", err)
+		return ""
+	}
+	return id
+}
+
+// flowOutcome is everything publish needs to describe one event. It is a struct
+// rather than a parameter list because the list had reached six, half of them
+// optional and three of them adjacent strings — the shape where an argument ends
+// up in the wrong slot and nothing complains.
+type flowOutcome struct {
+	kind    types.FlowEventKind
+	eventID string
+	traceID string
+	elapsed time.Duration
+	err     error
+	result  *types.Message
 }
 
 // publish emits a flow event if a bus is configured. result is the message to
 // attach to the event (nil for the started event), and elapsed is zero for it.
-func (bf *boundFlow) publish(
-	kind types.FlowEventKind, eventID string, elapsed time.Duration, err error, result *types.Message,
-) {
+func (bf *boundFlow) publish(outcome flowOutcome) {
 	if bf.bus == nil {
 		return
 	}
 	bf.bus.Publish(types.FlowEvent{
-		Kind:       kind,
+		Kind:       outcome.kind,
 		Flow:       bf.name,
-		EventID:    eventID,
+		EventID:    outcome.eventID,
+		TraceID:    outcome.traceID,
 		OccurredAt: time.Now(),
-		Duration:   elapsed,
-		Err:        err,
+		Duration:   outcome.elapsed,
+		Err:        outcome.err,
 		// Naming the block a failure came from is what turns "this flow is erroring"
 		// into "this block is erroring". It is empty for anything that did not
 		// originate in a block, and for every non-failed event.
-		Block:  engine.FailingBlock(err),
-		Result: result,
+		Block:  engine.FailingBlock(outcome.err),
+		Result: outcome.result,
 	})
 }

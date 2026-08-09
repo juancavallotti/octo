@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // eventIDBytes is the number of random bytes used to generate an EventID.
@@ -22,11 +23,41 @@ const (
 	rawDataKey        = "rawData"
 )
 
+// internalVarPrefix marks a Variables key as the runtime's own bookkeeping
+// rather than something a flow set. Reported strips every key carrying it, so
+// none of them reaches a user-facing dump of a message, and the prefix doubles as
+// a reservation: a flow author's variable never collides with one of these, and
+// neither does a variable arriving over the wire, where variables travel as
+// headers named after their key.
+const internalVarPrefix = "__"
+
+// IsInternalVar reports whether a variable name is the runtime's own bookkeeping.
+// It is exported because the trace listeners capture a message's variables and
+// must leave these out for the same reason Reported does.
+func IsInternalVar(name string) bool {
+	return strings.HasPrefix(name, internalVarPrefix)
+}
+
 // stopVar is the reserved Variables key a filter block sets to request that the
 // flow stop after it returns, keeping the response it configured. The double
 // underscore marks it internal; sinks serialize Body, not Variables, so it never
 // leaks into a response. Read/write it only through RequestStop/StopRequested.
-const stopVar = "__octoStop"
+const stopVar = internalVarPrefix + "octoStop"
+
+// traceVar is the reserved Variables key carrying the id shared by every message
+// of one end-to-end invocation. It exists only while tracing is enabled, so no
+// flow may depend on it — which is the other reason it is internal rather than
+// user-visible: a variable that is present on Tuesday and absent on Wednesday is
+// not something to write a CEL expression against.
+//
+// It rides in Variables rather than in a field of its own so it propagates for
+// free everywhere a message already goes: Clone and Scoped copy it, Rekey leaves
+// it alone (a sub-invocation gets a new EventID but stays in the same trace), and
+// the queue and topic encoders ship it as an Octo-Var-* header, which is what
+// makes a trace survive crossing a process boundary.
+//
+// Read/write it only through TraceID/EnsureTraceID.
+const traceVar = internalVarPrefix + "octoTraceId"
 
 // Message is the first-class unit of work flowing through the processing
 // pipeline. The service is JSON-only by default, so Body normally holds decoded
@@ -131,17 +162,27 @@ func (m *Message) StopRequested() bool {
 // removed: the shape to show a user. It is what a caller that serializes a whole
 // message for human eyes — `octo invoke`, the CLI's debug envelope — should print.
 //
-// The only such variable today is the stop flag, which a filter block sets to end
-// the flow. It is bookkeeping between the engine and its blocks, so reporting a
-// filtered flow's message as though it carried a variable the flow set itself would
-// be a lie. Variables the flow really set are untouched.
+// Those variables are bookkeeping between the engine and its blocks: the stop
+// flag a filter block sets to end the flow, the trace id tracing rides on.
+// Reporting a message as though it carried a variable the flow set itself would
+// be a lie, and in the trace id's case it would also be an unstable one, since
+// the variable is there only when tracing is on. Variables the flow really set
+// are untouched.
+//
+// It strips by prefix rather than by name so a new internal variable is covered
+// the moment it is named, instead of leaking until someone remembers this
+// function exists.
 //
 // It scopes rather than clones: only Variables are edited, so deep-copying an
 // entire result body to delete one key would be pure waste on the way to a
 // caller that is about to serialize it.
 func (m *Message) Reported() *Message {
 	reported := m.Scoped()
-	delete(reported.Variables, stopVar)
+	for name := range reported.Variables {
+		if IsInternalVar(name) {
+			delete(reported.Variables, name)
+		}
+	}
 	return reported
 }
 
@@ -170,6 +211,41 @@ func (m *Message) Rekey() (string, error) {
 	}
 	m.EventID = id
 	return id, nil
+}
+
+// TraceID returns the id of the end-to-end invocation this message belongs to,
+// or "" when tracing is not running. Unlike EventID it survives Rekey, so a
+// flow-ref sub-invocation, a split element and an aggregate's release all report
+// the id of the message the work started from.
+func (m *Message) TraceID() string {
+	id, _ := m.Variables.String(traceVar)
+	return id
+}
+
+// EnsureTraceID returns the message's trace id, generating one if it has none.
+// An id already on the message — set by the source that admitted it, or carried
+// in from another process — is kept, so whoever saw the work first names the
+// trace and everything downstream joins it rather than starting its own.
+func (m *Message) EnsureTraceID() (string, error) {
+	if id := m.TraceID(); id != "" {
+		return id, nil
+	}
+	id, err := newEventID()
+	if err != nil {
+		return "", err
+	}
+	m.Variables.Set(traceVar, id)
+	return id, nil
+}
+
+// SetTraceID puts an existing trace id on the message, for a caller joining work
+// to a trace that started elsewhere. Prefer EnsureTraceID, which will not
+// overwrite an id the message already has.
+func (m *Message) SetTraceID(id string) {
+	if id == "" {
+		return
+	}
+	m.Variables.Set(traceVar, id)
 }
 
 // newEventID returns a random hex-encoded identifier using crypto/rand.

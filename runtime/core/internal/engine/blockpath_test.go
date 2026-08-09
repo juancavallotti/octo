@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"testing"
 
 	"github.com/juancavallotti/octo/runtime/core"
@@ -140,4 +141,117 @@ func TestBlockPathMockKeepsTargetAddress(t *testing.T) {
 func newFlowWithDeps(t *testing.T, deps core.BlockDeps, cfg types.FlowConfig) (*Flow, error) {
 	t.Helper()
 	return BuildRoot(cfg, testRegistry(), pool.New(0, 0), nil, deps)
+}
+
+// probeRegistry returns the shared test registry plus a "probe" leaf that records
+// the BlockDeps.Address it was built with. A leaf is built through the registry
+// from nothing but its settings, so deps is the only channel an address can reach
+// it on — which is what the tests below exercise.
+func probeRegistry(seen *[]core.BlockAddress) *core.BlockRegistry {
+	reg := testRegistry()
+	reg.MustRegister("probe", func(_ types.Settings, deps core.BlockDeps) (core.MessageProcessor, error) {
+		*seen = append(*seen, deps.Address)
+		return processorFunc(func(_ context.Context, msg *types.Message) (*types.Message, error) {
+			return msg, nil
+		}), nil
+	})
+	return reg
+}
+
+// TestBlockAddressReachesEveryLeaf checks the builder tells each leaf where it
+// sits: the flow it belongs to, the address it would be observed at, and the name
+// it was authored with.
+func TestBlockAddressReachesEveryLeaf(t *testing.T) {
+	tests := []struct {
+		name  string
+		block types.BlockConfig
+		want  core.BlockAddress
+	}{
+		{
+			name:  "named block in the root chain",
+			block: types.BlockConfig{Type: "probe", Name: "charge"},
+			want:  core.BlockAddress{Flow: "orders", Path: "orders.charge", Name: "charge"},
+		},
+		{
+			// Path falls back to the type, so Name being empty is not the same fact
+			// as Path's last segment — a reader that wants the authored name gets
+			// nothing rather than a type masquerading as one.
+			name:  "unnamed block addresses by type and reports no name",
+			block: types.BlockConfig{Type: "probe"},
+			want:  core.BlockAddress{Flow: "orders", Path: "orders.probe"},
+		},
+		{
+			name: "leaf inside a composite branch",
+			block: types.BlockConfig{
+				Type: "switch", Name: "route",
+				Cases: []types.CaseConfig{{
+					When: "true",
+					Flow: types.FlowConfig{Name: "billing", Process: []types.BlockConfig{
+						{Type: "probe", Name: "charge"},
+					}},
+				}},
+			},
+			want: core.BlockAddress{Flow: "orders", Path: "orders.route[billing].charge", Name: "charge"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var seen []core.BlockAddress
+			cfg := types.FlowConfig{Name: "orders", Process: []types.BlockConfig{tc.block}}
+			if _, err := BuildRoot(cfg, probeRegistry(&seen), pool.New(0, 0), nil, core.BlockDeps{}); err != nil {
+				t.Fatalf("BuildRoot: %v", err)
+			}
+			if len(seen) != 1 {
+				t.Fatalf("probe built %d times, want 1", len(seen))
+			}
+			if seen[0] != tc.want {
+				t.Errorf("address = %+v, want %+v", seen[0], tc.want)
+			}
+		})
+	}
+}
+
+// TestBlockAddressOnTheErrorChain checks a block on the flow's error chain still
+// names the flow it belongs to, and addresses under the chain's bracket.
+func TestBlockAddressOnTheErrorChain(t *testing.T) {
+	var seen []core.BlockAddress
+	cfg := types.FlowConfig{
+		Name:    "orders",
+		Process: []types.BlockConfig{{Type: "pass"}},
+		Error:   []types.BlockConfig{{Type: "probe", Name: "notify"}},
+	}
+
+	if _, err := BuildErrorPath(cfg, probeRegistry(&seen), pool.New(0, 0), nil, core.BlockDeps{}); err != nil {
+		t.Fatalf("BuildErrorPath: %v", err)
+	}
+
+	want := core.BlockAddress{Flow: "orders", Path: "orders[error].notify", Name: "notify"}
+	if len(seen) != 1 || seen[0] != want {
+		t.Fatalf("addresses = %+v, want [%+v]", seen, want)
+	}
+}
+
+// TestBlockAddressUnderASpyWrapperIsTheTargets checks the wrapper the --spies
+// injector adds is as transparent to a block's own address as it is to
+// Block.Path: the wrapped block is told the address the user asked for, not one
+// nested inside a wrapper it never declared.
+func TestBlockAddressUnderASpyWrapperIsTheTargets(t *testing.T) {
+	var seen []core.BlockAddress
+	deps := core.BlockDeps{Spies: mustSpies(t, "orders.charge")}
+	cfg := types.FlowConfig{
+		Name: "orders",
+		Process: []types.BlockConfig{
+			watch("orders.charge", types.BlockConfig{Type: "probe", Name: "charge"}),
+		},
+	}
+
+	if _, err := BuildRoot(cfg, probeRegistry(&seen), pool.New(0, 0), nil, deps); err != nil {
+		t.Fatalf("BuildRoot: %v", err)
+	}
+
+	want := core.BlockAddress{Flow: "orders", Path: "orders.charge", Name: "charge"}
+	if len(seen) != 1 || seen[0] != want {
+		t.Fatalf("addresses = %+v, want [%+v]", seen, want)
+	}
 }

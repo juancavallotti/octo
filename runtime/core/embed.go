@@ -38,4 +38,23 @@ type EmbedRequest struct {
 // order as the request's Input.
 type EmbedResponse struct {
 	Vectors [][]float32
+	// Usage is the call's token accounting, or nil when the provider reported none.
+	// Nil is an ordinary outcome here rather than a sign of trouble: Gemini's
+	// embeddings API returns no token count at all.
+	Usage *EmbedUsage
+	// Model is the model that actually served the call, as the provider reported
+	// it, falling back to the id the request asked for when it reported none — the
+	// same contract LLMResponse.Model carries, and for the same reason: it is the
+	// model that answered that has a price.
+	Model string
+}
+
+// EmbedUsage is the token accounting for one embedding call.
+//
+// There is one figure because there is one thing being billed. An embedding
+// produces no output tokens, and OpenAI's total_tokens equals its prompt_tokens
+// for every embeddings request, so carrying both would only invite a reader to add
+// them together.
+type EmbedUsage struct {
+	InputTokens int
 }

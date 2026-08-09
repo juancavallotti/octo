@@ -146,7 +146,7 @@ func (c *Connector) Complete(ctx context.Context, req core.LLMRequest) (*core.LL
 	if err != nil {
 		return nil, fmt.Errorf("llm-openai complete: %w", err)
 	}
-	return translateResponse(cc)
+	return translateResponse(cc, c.model)
 }
 
 // Stream runs one Chat Completions turn over the streaming endpoint, reporting
@@ -200,7 +200,7 @@ func (c *Connector) Stream(
 	if len(cc.Choices) > 0 {
 		cc.Choices[0].FinishReason = finish
 	}
-	return translateResponse(&cc)
+	return translateResponse(&cc, c.model)
 }
 
 // emitChunk maps one chunk onto the canonical vocabulary. The final usage chunk
@@ -315,12 +315,15 @@ func (c *Connector) Embed(ctx context.Context, req core.EmbedRequest) (*core.Emb
 	if err != nil {
 		return nil, fmt.Errorf("llm-openai embed: %w", err)
 	}
-	return translateEmbedResponse(resp, len(req.Input))
+	return translateEmbedResponse(resp, len(req.Input), req.Model)
 }
 
 // translateEmbedResponse reorders the SDK's index-tagged embeddings back into
-// request order and converts each to float32.
-func translateEmbedResponse(resp *sdk.CreateEmbeddingResponse, want int) (*core.EmbedResponse, error) {
+// request order and converts each to float32, carrying the model that served the
+// call and what it charged for it.
+func translateEmbedResponse(
+	resp *sdk.CreateEmbeddingResponse, want int, requestedModel string,
+) (*core.EmbedResponse, error) {
 	if len(resp.Data) != want {
 		return nil, fmt.Errorf("llm-openai embed: response had %d embeddings, want %d", len(resp.Data), want)
 	}
@@ -331,7 +334,21 @@ func translateEmbedResponse(resp *sdk.CreateEmbeddingResponse, want int) (*core.
 		}
 		vectors[d.Index] = toFloat32(d.Embedding)
 	}
-	return &core.EmbedResponse{Vectors: vectors}, nil
+	return &core.EmbedResponse{
+		Vectors: vectors,
+		Usage:   translateEmbedUsage(resp.Usage),
+		Model:   servedBy(resp.Model, requestedModel),
+	}, nil
+}
+
+// translateEmbedUsage converts the SDK's token count, reporting nil when the
+// response carried none. Only the prompt total is taken: an embedding produces no
+// output, so the SDK's TotalTokens is the same number under another name.
+func translateEmbedUsage(u sdk.CreateEmbeddingResponseUsage) *core.EmbedUsage {
+	if u.PromptTokens == 0 {
+		return nil
+	}
+	return &core.EmbedUsage{InputTokens: int(u.PromptTokens)}
 }
 
 // toFloat32 narrows the SDK's float64 embedding values to the runtime's float32
@@ -429,7 +446,7 @@ func toToolChoice(tc core.LLMToolChoice) (sdk.ChatCompletionToolChoiceOptionUnio
 
 // translateResponse folds the first choice into the agnostic response, collecting
 // text and function tool calls and mapping the finish reason.
-func translateResponse(cc *sdk.ChatCompletion) (*core.LLMResponse, error) {
+func translateResponse(cc *sdk.ChatCompletion, configuredModel string) (*core.LLMResponse, error) {
 	if len(cc.Choices) == 0 {
 		return nil, fmt.Errorf("llm-openai: response had no choices")
 	}
@@ -453,9 +470,20 @@ func translateResponse(cc *sdk.ChatCompletion) (*core.LLMResponse, error) {
 		ToolCalls:  calls,
 		StopReason: mapFinishReason(choice.FinishReason, message.Refusal),
 		Usage:      translateUsage(cc.Usage),
+		Model:      servedBy(cc.Model, configuredModel),
 	}
 	resp.Raw = core.LLMMessage{Role: core.LLMRoleAssistant, Text: message.Content, ToolCalls: calls}
 	return resp, nil
+}
+
+// servedBy is the model that answered, preferring what the provider echoed over
+// what the connector asked for. The two differ whenever a configured alias
+// resolves to a dated snapshot, and it is the snapshot that was billed.
+func servedBy(reported, configured string) string {
+	if reported != "" {
+		return reported
+	}
+	return configured
 }
 
 // translateUsage converts the SDK's token counts, reporting nil when the response
