@@ -192,14 +192,21 @@ func deltaFields(ev core.LLMStreamEvent) map[string]any {
 func turnEndFields(resp *core.LLMResponse) map[string]any {
 	fields := map[string]any{fieldText: resp.Text, "stopReason": string(resp.StopReason)}
 	if resp.Usage != nil {
-		fields["usage"] = map[string]any{
-			"inputTokens":    resp.Usage.InputTokens,
-			"outputTokens":   resp.Usage.OutputTokens,
-			"thinkingTokens": resp.Usage.ThinkingTokens,
-			"cachedTokens":   resp.Usage.CachedTokens,
-		}
+		fields["usage"] = usageFields(resp.Usage)
 	}
 	return fields
+}
+
+// usageFields projects a turn's token accounting. It is shared by the events path
+// and the trace record so the two observers of one turn cannot report it
+// differently — and so a change to the shape lands in both at once.
+func usageFields(usage *core.LLMUsage) map[string]any {
+	return map[string]any{
+		"inputTokens":    usage.InputTokens,
+		"outputTokens":   usage.OutputTokens,
+		"thinkingTokens": usage.ThinkingTokens,
+		"cachedTokens":   usage.CachedTokens,
+	}
 }
 
 // callFields describes a tool the model asked for.

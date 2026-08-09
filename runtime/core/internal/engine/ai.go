@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/core/expr"
@@ -508,6 +509,11 @@ type aiAgent struct {
 	// the block asked to stream.
 	events *emitter
 	stream core.LLMStreamClient
+	// path is this block's own address, kept so a trace record for a model turn
+	// lands at the block that took it rather than floating loose in the flow. The
+	// builder is already positioned at the block when it builds the processor, so
+	// this costs nothing to carry.
+	path string
 }
 
 //nolint:ireturn // builders intentionally return the MessageProcessor interface
@@ -559,6 +565,7 @@ func (b *builder) aiAgent(cfg types.BlockConfig) (core.MessageProcessor, error) 
 		name:          cfg.Name,
 		connector:     cfg.Connector,
 		env:           expr.EnvActivation(b.deps.Env),
+		path:          b.path,
 	}
 	if err := b.configureAgentMemory(block, cfg); err != nil {
 		return nil, err
@@ -812,14 +819,17 @@ func (a *aiAgent) callModel(
 		return nil, errEventStop
 	}
 
+	started := time.Now()
 	resp, err := a.completeTurn(ctx, req, current, iter)
 	if err != nil {
+		a.trace(current, iter, nil, started, err)
 		if !errors.Is(err, errEventStop) {
 			a.report(ctx, current, iter, eventError, map[string]any{"error": err.Error()})
 		}
 		return nil, err
 	}
 	logModelResp(blockKindAIAgent, a.name, resp)
+	a.trace(current, iter, resp, started, nil)
 	if a.report(ctx, current, iter, eventTurnEnd, turnEndFields(resp)) {
 		// The response goes back with the stop: the turn finished and was billed, so
 		// the caller decides whether it belongs in memory. The earlier stops have no
@@ -827,6 +837,58 @@ func (a *aiAgent) callModel(
 		return resp, errEventStop
 	}
 	return resp, nil
+}
+
+// trace records one model turn: what was billed for it, which model actually
+// served it, and how long it took.
+//
+// It sits here rather than in completeTurn because this is the boundary both
+// paths share — a streaming turn returns the same response as a blocking one, so
+// one record per turn either way, rather than a flood of them per delta.
+//
+// A failed turn is recorded too, with the error and no usage. Those are the turns
+// worth reading: a refusal, a timeout, a provider outage. Recording only the
+// successes would make a trace of a failing agent look empty.
+func (a *aiAgent) trace(msg *types.Message, iter int, resp *core.LLMResponse, started time.Time, callErr error) {
+	tracer := core.Tracer()
+	if !tracer.Enabled() {
+		return
+	}
+	record := types.TraceEvent{
+		Kind:          types.TraceLLMTurn,
+		TraceID:       msg.TraceID(),
+		EventID:       msg.EventID,
+		CorrelationID: msg.CorrelationID,
+		Path:          a.path,
+		BlockType:     blockKindAIAgent,
+		OccurredAt:    time.Now(),
+		DurationNs:    time.Since(started).Nanoseconds(),
+		Attrs: map[string]any{
+			"connector": a.connector,
+			// One-based, matching the iteration the events path reports, so the
+			// two observers of the same turn agree on what to call it.
+			"iteration": iter + 1,
+		},
+	}
+	if a.name != "" {
+		record.SetAttr("block", a.name)
+	}
+	if callErr != nil {
+		record.Err = callErr.Error()
+	}
+	if resp != nil {
+		record.SetAttr("stopReason", string(resp.StopReason))
+		record.SetAttr("toolCalls", len(resp.ToolCalls))
+		if resp.Model != "" {
+			record.SetAttr("model", resp.Model)
+		}
+		if resp.Usage != nil {
+			// The same projection turnEndFields uses, so the trace and the
+			// user-facing events path cannot disagree about what a turn cost.
+			record.SetAttr("usage", usageFields(resp.Usage))
+		}
+	}
+	tracer.Publish(record)
 }
 
 // stoppedTranscript is what to persist when the events path stopped the run. A
