@@ -123,9 +123,12 @@ the absence is reported as absence rather than as a zero that would read as "thi
 call was free".
 
 ```bash
-# What did this run spend, per block and model?
-jq -c 'select(.kind=="llm.turn") |
-  {path, model: .attrs.model, in: .attrs.usage.inputTokens, out: .attrs.usage.outputTokens}' \
+# What did this run spend, per block and model? Both kinds, since a flow that
+# embeds and then reasons pays for both — and `out` is simply null for an
+# embedding, which has no output to bill.
+jq -c 'select(.kind=="llm.turn" or .kind=="llm.embed") |
+  {kind, path, model: .attrs.model,
+   in: .attrs.usage.inputTokens, out: .attrs.usage.outputTokens}' \
   /tmp/run.jsonl
 ```
 
