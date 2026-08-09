@@ -315,12 +315,15 @@ func (c *Connector) Embed(ctx context.Context, req core.EmbedRequest) (*core.Emb
 	if err != nil {
 		return nil, fmt.Errorf("llm-openai embed: %w", err)
 	}
-	return translateEmbedResponse(resp, len(req.Input))
+	return translateEmbedResponse(resp, len(req.Input), req.Model)
 }
 
 // translateEmbedResponse reorders the SDK's index-tagged embeddings back into
-// request order and converts each to float32.
-func translateEmbedResponse(resp *sdk.CreateEmbeddingResponse, want int) (*core.EmbedResponse, error) {
+// request order and converts each to float32, carrying the model that served the
+// call and what it charged for it.
+func translateEmbedResponse(
+	resp *sdk.CreateEmbeddingResponse, want int, requestedModel string,
+) (*core.EmbedResponse, error) {
 	if len(resp.Data) != want {
 		return nil, fmt.Errorf("llm-openai embed: response had %d embeddings, want %d", len(resp.Data), want)
 	}
@@ -331,7 +334,21 @@ func translateEmbedResponse(resp *sdk.CreateEmbeddingResponse, want int) (*core.
 		}
 		vectors[d.Index] = toFloat32(d.Embedding)
 	}
-	return &core.EmbedResponse{Vectors: vectors}, nil
+	return &core.EmbedResponse{
+		Vectors: vectors,
+		Usage:   translateEmbedUsage(resp.Usage),
+		Model:   servedBy(resp.Model, requestedModel),
+	}, nil
+}
+
+// translateEmbedUsage converts the SDK's token count, reporting nil when the
+// response carried none. Only the prompt total is taken: an embedding produces no
+// output, so the SDK's TotalTokens is the same number under another name.
+func translateEmbedUsage(u sdk.CreateEmbeddingResponseUsage) *core.EmbedUsage {
+	if u.PromptTokens == 0 {
+		return nil
+	}
+	return &core.EmbedUsage{InputTokens: int(u.PromptTokens)}
 }
 
 // toFloat32 narrows the SDK's float64 embedding values to the runtime's float32

@@ -388,7 +388,11 @@ func (c *Connector) Embed(ctx context.Context, req core.EmbedRequest) (*core.Emb
 	for i, e := range resp.Embeddings {
 		vectors[i] = e.Values
 	}
-	return &core.EmbedResponse{Vectors: vectors}, nil
+	// No usage: Gemini's embeddings API reports no token count whatsoever. Its only
+	// accounting figure is a billable character count that exists on Vertex alone,
+	// which is not a token total and must not be reported as one. A nil Usage is the
+	// honest answer, and core.EmbedResponse documents it as an ordinary outcome.
+	return &core.EmbedResponse{Vectors: vectors, Model: req.Model}, nil
 }
 
 // toContents converts the conversation to SDK contents. Assistant turns map to

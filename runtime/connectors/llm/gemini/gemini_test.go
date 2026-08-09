@@ -205,6 +205,17 @@ func TestEmbedEndToEnd(t *testing.T) {
 		t.Errorf("vectors = %+v", resp.Vectors)
 	}
 
+	// Gemini's embeddings API reports no token count, so nil usage is the honest
+	// answer rather than a zero that would read as "the provider charged nothing".
+	if resp.Usage != nil {
+		t.Errorf("usage = %+v, want nil — Gemini reports no embedding tokens", resp.Usage)
+	}
+	// The model still has to be named: it is what a cost reader prices against, and
+	// with nothing echoed the requested id is what was billed.
+	if resp.Model != "gemini-embedding-001" {
+		t.Errorf("model = %q, want the requested id", resp.Model)
+	}
+
 	reqs, ok := gotBody["requests"].([]any)
 	if !ok || len(reqs) != 2 {
 		t.Fatalf("request requests = %v, want a 2-element batch", gotBody["requests"])
