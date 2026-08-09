@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -118,6 +119,69 @@ func TestTraceFileIsNotWorldReadable(t *testing.T) {
 	if perm := info.Mode().Perm(); perm != traceFilePerm {
 		t.Fatalf("trace file mode = %#o, want %#o", perm, traceFilePerm)
 	}
+}
+
+// The mode passed to OpenFile applies only when it creates the file, and the
+// sink deliberately appends to an existing one. So a path that was already
+// readable by others has to be narrowed on the way in, or the guarantee above
+// holds only for the first run against that path.
+func TestTraceFileTightensAnExistingPermissiveFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "trace.jsonl")
+	// A permissive file is the whole premise: the test exists to prove the sink
+	// narrows one.
+	//nolint:gosec // G306: deliberately world-readable, which is what is being fixed
+	if err := os.WriteFile(path, []byte("{}\n"), 0o644); err != nil {
+		t.Fatalf("seed the file: %v", err)
+	}
+
+	publisher, err := newTracePublisher(core.TraceOptions{Enabled: true, File: path}, time.Now())
+	if err != nil {
+		t.Fatalf("new publisher: %v", err)
+	}
+	closeTracer(t, publisher)
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != traceFilePerm {
+		t.Fatalf("existing trace file mode = %#o, want it narrowed to %#o", perm, traceFilePerm)
+	}
+}
+
+// A named pipe is a legitimate --traces-file: it is how someone watches a run
+// live without a file to clean up afterwards. Records must reach it, and its
+// permissions are not the runtime's to rewrite.
+func TestTraceSinkWritesToANonRegularFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "trace.fifo")
+	if err := syscall.Mkfifo(path, 0o600); err != nil {
+		t.Skipf("mkfifo unavailable: %v", err)
+	}
+
+	// A fifo blocks on open until a reader arrives, so hold one for the test.
+	opened := make(chan *os.File, 1)
+	go func() {
+		//nolint:gosec // G304: the path is this test's own t.TempDir fifo
+		reader, openErr := os.OpenFile(path, os.O_RDONLY, 0)
+		if openErr != nil {
+			opened <- nil
+			return
+		}
+		opened <- reader
+	}()
+
+	publisher, err := newTracePublisher(core.TraceOptions{Enabled: true, File: path}, time.Now())
+	if err != nil {
+		t.Fatalf("new publisher: %v", err)
+	}
+	publisher.Publish(types.TraceEvent{Kind: types.TraceFlowStarted})
+	closeTracer(t, publisher)
+
+	reader := <-opened
+	if reader == nil {
+		t.Fatal("could not open the fifo for reading")
+	}
+	defer func() { _ = reader.Close() }()
 }
 
 // An empty File is the module's cue to name the file itself: the format and the

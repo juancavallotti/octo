@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -78,8 +79,36 @@ func newTraceSink(path string) (*traceSink, error) {
 	if err != nil {
 		return nil, fmt.Errorf("standalone: open trace file %q: %w", path, err)
 	}
+	restrict(file, path)
 	buf := bufio.NewWriterSize(file, traceWriteBuffer)
 	return &traceSink{file: file, buf: buf, enc: json.NewEncoder(buf)}, nil
+}
+
+// restrict narrows a trace file that others can read.
+//
+// The mode passed to OpenFile applies only when it creates the file, and this
+// one deliberately appends to an existing one — so a path that was already
+// world-readable would keep taking request bodies and variables at whatever
+// permissions it happened to have. Records go in either way: a permission that
+// could not be tightened is worth a warning, not a run without traces.
+//
+// Only regular files are touched. --traces-file is allowed to name a fifo or
+// /dev/stdout to watch a run live, and chmod on those is either meaningless or
+// somebody else's business.
+func restrict(file *os.File, path string) {
+	info, err := file.Stat()
+	if err != nil {
+		slog.Warn("standalone: could not check the trace file's permissions",
+			"file", path, "error", err)
+		return
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm()&^traceFilePerm == 0 {
+		return
+	}
+	if err := file.Chmod(traceFilePerm); err != nil {
+		slog.Warn("standalone: the trace file is readable by others and could not be restricted",
+			"file", path, "mode", info.Mode().Perm().String(), "error", err)
+	}
 }
 
 // Write appends one record. json.Encoder terminates each value with a newline,
