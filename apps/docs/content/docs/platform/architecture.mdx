@@ -75,7 +75,7 @@ The system of record, applied idempotently from `sql/schema.sql` by a schema Job
 
 ### NATS
 
-Core NATS (no JetStream) is the message backbone between planes. It carries three kinds of traffic on disjoint subject spaces: deployment-scoped runtime queues and topics (`octo.{deploymentId}.q.*` / `.t.*`), log shipping (`internal.logs`), and control-plane events (`internal.deployments.*`, `internal.integrations.events`). See [Event Bus](/platform/event-bus).
+Core NATS (no JetStream) is the message backbone between planes. It carries four kinds of traffic on disjoint subject spaces: deployment-scoped runtime queues and topics (`octo.{deploymentId}.q.*` / `.t.*`), log shipping (`internal.logs`), [trace](/runtime/tracing) shipping (`internal.traces`, produced but not yet consumed), and control-plane events (`internal.deployments.*`, `internal.integrations.events`). See [Event Bus](/platform/event-bus).
 
 ### Log aggregator
 
