@@ -107,6 +107,11 @@ type LLMStreamEvent struct {
 	ToolCallID string
 	// Index is the provider's content-block index. Blocks interleave, so this is
 	// what distinguishes two runs of fragments arriving at once.
+	//
+	// It is unique only within a Kind. A provider with no content-block index of
+	// its own numbers its tool calls from zero while leaving text at zero too, so
+	// a consumer grouping fragments keys on Kind and Index together — Index alone
+	// would fold a text run into the first tool call.
 	Index int
 }
 

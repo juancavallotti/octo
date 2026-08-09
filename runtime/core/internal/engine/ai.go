@@ -761,7 +761,8 @@ func (a *aiAgent) Process(ctx context.Context, msg *types.Message) (*types.Messa
 		resp, callErr := a.callModel(ctx, iter, current, messages)
 		if callErr != nil {
 			if errors.Is(callErr, errEventStop) {
-				return a.halt(ctx, threadID, messages, current, iter, "the events path stopped the run")
+				return a.halt(ctx, threadID, stoppedTranscript(messages, resp), current, iter,
+					"the events path stopped the run")
 			}
 			return nil, fmt.Errorf("ai-agent: %w", callErr)
 		}
@@ -820,9 +821,28 @@ func (a *aiAgent) callModel(
 	}
 	logModelResp(blockKindAIAgent, a.name, resp)
 	if a.report(ctx, current, iter, eventTurnEnd, turnEndFields(resp)) {
-		return nil, errEventStop
+		// The response goes back with the stop: the turn finished and was billed, so
+		// the caller decides whether it belongs in memory. The earlier stops have no
+		// turn to hand over.
+		return resp, errEventStop
 	}
 	return resp, nil
+}
+
+// stoppedTranscript is what to persist when the events path stopped the run. A
+// stop at turn_end arrives with a finished turn — the model produced it and it was
+// paid for — so recording it keeps memory matching what actually happened.
+//
+// Unless that turn asked for tools. Its results were never produced and now never
+// will be, and a tool call without its result leaves the thread malformed: the
+// providers require the results to follow the turn that asked for them, so the
+// next run would replay a conversation they reject. A replayable transcript is
+// worth more than a record of work that was abandoned.
+func stoppedTranscript(messages []core.LLMMessage, resp *core.LLMResponse) []core.LLMMessage {
+	if resp == nil || len(resp.ToolCalls) > 0 {
+		return messages
+	}
+	return append(messages, resp.Raw)
 }
 
 // completeTurn calls the model, streaming when the block asks for it. Both paths

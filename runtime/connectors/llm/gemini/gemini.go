@@ -534,7 +534,12 @@ func translateResponse(resp *genai.GenerateContentResponse) *core.LLMResponse {
 // other two providers, so they are added in to keep OutputTokens meaning the same
 // thing whichever provider answered.
 func translateUsage(u *genai.GenerateContentResponseUsageMetadata) *core.LLMUsage {
-	if u == nil {
+	// An all-zero metadata block reports nil, the same as no metadata at all.
+	// Usage != nil means "the provider accounted for this turn" on every connector,
+	// and Gemini attaches the struct more eagerly than the others do, so without
+	// this the same emptiness would read as accounting here and as none elsewhere.
+	if u == nil || (u.PromptTokenCount == 0 && u.CandidatesTokenCount == 0 &&
+		u.ThoughtsTokenCount == 0 && u.CachedContentTokenCount == 0) {
 		return nil
 	}
 	return &core.LLMUsage{

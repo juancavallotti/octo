@@ -318,3 +318,34 @@ func TestAIAgentEventsBuildValidation(t *testing.T) {
 		t.Errorf("build with a streaming connector: %v", err)
 	}
 }
+
+// TestStoppedTranscriptKeepsMemoryReplayable pins what a run stopped at turn_end
+// leaves behind. The turn is finished and billed by then, so dropping it would
+// lose something the user paid for — but only a turn that asked for no tools can
+// be kept. Tool results are produced after this point and never will be now, and
+// every provider requires them to follow the turn that asked; persisting a
+// dangling tool call would poison the thread and fail the *next* run instead.
+func TestStoppedTranscriptKeepsMemoryReplayable(t *testing.T) {
+	prior := []core.LLMMessage{{Role: core.LLMRoleUser, Text: "hi"}}
+
+	t.Run("a finished answer is recorded", func(t *testing.T) {
+		resp := endTurnResp(`{"answer":"done"}`)
+		got := stoppedTranscript(prior, resp)
+		if len(got) != 2 || got[1].Role != core.LLMRoleAssistant {
+			t.Fatalf("transcript = %+v, want the assistant turn appended", got)
+		}
+	})
+
+	t.Run("an unanswered tool call is not", func(t *testing.T) {
+		resp := toolCallResp("look", `{"q":"refund"}`)
+		if got := stoppedTranscript(prior, resp); len(got) != 1 {
+			t.Errorf("transcript = %+v, want the dangling tool call left out", got)
+		}
+	})
+
+	t.Run("no response at all is nothing to record", func(t *testing.T) {
+		if got := stoppedTranscript(prior, nil); len(got) != 1 {
+			t.Errorf("transcript = %+v, want it unchanged", got)
+		}
+	})
+}

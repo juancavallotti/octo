@@ -305,7 +305,12 @@ func TestToThinkingConfig(t *testing.T) {
 
 	budgeted, err := toThinkingConfig(connectorSettings{Thinking: thinkingBudgeted, ThinkingBudget: 2048})
 	if err != nil || budgeted == nil || budgeted.ThinkingBudget == nil || *budgeted.ThinkingBudget != 2048 {
-		t.Errorf("budgeted = %+v (err %v), want a budget of 2048", budgeted, err)
+		t.Fatalf("budgeted = %+v (err %v), want a budget of 2048", budgeted, err)
+	}
+	// The same reason as above, and the worse case: a budget is spent either way,
+	// so without this the tokens are billed and no thought part ever comes back.
+	if !budgeted.IncludeThoughts {
+		t.Error("IncludeThoughts must be set, or the budget is spent with nothing to observe")
 	}
 
 	if _, err := toThinkingConfig(connectorSettings{Thinking: thinkingBudgeted}); err == nil {
@@ -313,5 +318,24 @@ func TestToThinkingConfig(t *testing.T) {
 	}
 	if _, err := toThinkingConfig(connectorSettings{Thinking: "sometimes"}); err == nil {
 		t.Error("expected an error for an unknown thinking mode")
+	}
+}
+
+// TestTranslateUsageEmptyIsNil pins the cross-provider meaning of a nil Usage:
+// "the provider did not account for this turn". Gemini attaches its metadata
+// struct more eagerly than the others, so an all-zero block has to report the
+// same nothing that a missing block does — otherwise the identical emptiness
+// reads as accounting on this connector and as none on the other two.
+func TestTranslateUsageEmptyIsNil(t *testing.T) {
+	if got := translateUsage(nil); got != nil {
+		t.Errorf("nil metadata = %+v, want nil", got)
+	}
+	if got := translateUsage(&genai.GenerateContentResponseUsageMetadata{}); got != nil {
+		t.Errorf("all-zero metadata = %+v, want nil", got)
+	}
+	// Thinking tokens alone are still accounting, and they are billed.
+	got := translateUsage(&genai.GenerateContentResponseUsageMetadata{ThoughtsTokenCount: 12})
+	if got == nil || got.ThinkingTokens != 12 || got.OutputTokens != 12 {
+		t.Errorf("thoughts-only metadata = %+v, want it reported with output inclusive", got)
 	}
 }

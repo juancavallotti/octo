@@ -89,6 +89,7 @@ decides on the event's contents. On a token stream the first matters:
 ```yaml
 - type: ai-agent
   connector: claude
+  prompt: Answer the customer's question about their order.
   stream: true
   emit: [text, tool_call, done]     # text fragments never built for other types
   events:

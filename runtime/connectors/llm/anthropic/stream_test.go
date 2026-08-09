@@ -202,3 +202,57 @@ func TestStreamStopsWhenHandlerErrors(t *testing.T) {
 		t.Errorf("handler called %d times, want 1 — the stream should stop on the first error", seen)
 	}
 }
+
+// TestStreamMapsUnknownDeltaToCustom covers the escape hatch that lets the
+// canonical vocabulary stay closed. A delta variant this connector has never seen
+// — the likely cause being one the provider added after it was written — still
+// reaches the consumer, under its own provider name and with its payload intact,
+// instead of being dropped or forcing a new canonical kind.
+//
+// It gets its own fixture rather than joining streamedTurn: an unknown delta in
+// the shared turn would also flow through the accumulator, and this test is about
+// the mapping, not about what an unrecognized block does to a response.
+func TestStreamMapsUnknownDeltaToCustom(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeSSE(t, w, []frame{
+			{"message_start", `{"type":"message_start","message":{"id":"msg_1","type":"message",
+				"role":"assistant","model":"claude-sonnet-4-6","content":[],"stop_reason":null,
+				"usage":{"input_tokens":5,"output_tokens":1}}}`},
+			{"content_block_start", `{"type":"content_block_start","index":0,
+				"content_block":{"type":"text","text":""}}`},
+			{"content_block_delta", `{"type":"content_block_delta","index":0,
+				"delta":{"type":"citations_delta","text":"cited"}}`},
+			{"content_block_stop", `{"type":"content_block_stop","index":0}`},
+			{"message_delta", `{"type":"message_delta","delta":{"stop_reason":"end_turn"},
+				"usage":{"output_tokens":2}}`},
+			{"message_stop", `{"type":"message_stop"}`},
+		})
+	}))
+	defer srv.Close()
+
+	var got []core.LLMStreamEvent
+	if _, err := streamConnector(t, srv.URL).Stream(context.Background(),
+		core.LLMRequest{Messages: []core.LLMMessage{{Role: core.LLMRoleUser, Text: "hi"}}},
+		func(ev core.LLMStreamEvent) error {
+			got = append(got, ev)
+			return nil
+		}); err != nil {
+		t.Fatalf("stream: %v", err)
+	}
+
+	if len(got) != 1 {
+		t.Fatalf("events = %+v, want exactly the one unknown delta", got)
+	}
+	ev := got[0]
+	if ev.Kind != core.LLMStreamCustom {
+		t.Errorf("kind = %q, want custom", ev.Kind)
+	}
+	// The provider's own name for it: without this the consumer gets an opaque
+	// blob and no way to tell one unknown delta from another.
+	if ev.Name != "citations_delta" {
+		t.Errorf("name = %q, want the provider's delta type", ev.Name)
+	}
+	if !strings.Contains(ev.Text, "cited") {
+		t.Errorf("text = %q, want the marshalled delta payload", ev.Text)
+	}
+}

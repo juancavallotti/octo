@@ -40,7 +40,10 @@ connectors:
     type: llm-anthropic
     settings:
       apiKey: ${ANTHROPIC_API_KEY}
-      # Reasoning is reported as "thinking" events, never folded into the answer.
+      # Reasoning rides on the assistant turn and is never folded into the answer,
+      # so turning it on cannot leak the model's chain of thought into the body.
+      # It reaches the caller only if "thinking" is in the agent's emit list below,
+      # which it deliberately is not — this stream is for progress, not reasoning.
       thinking: adaptive
       # Thinking counts towards maxTokens, so leave room for both.
       maxTokens: 8192

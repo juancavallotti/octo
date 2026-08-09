@@ -205,6 +205,11 @@ func (c *Connector) Stream(
 
 // emitChunk maps one chunk onto the canonical vocabulary. The final usage chunk
 // carries no choices and so produces nothing.
+//
+// Only the first choice is streamed, matching translateResponse. The connector
+// never asks for more than one — it does not set n — so the rest is a case that
+// cannot arise today; a change that starts requesting them has to come back here
+// rather than silently dropping their events.
 func emitChunk(
 	acc *sdk.ChatCompletionAccumulator, chunk sdk.ChatCompletionChunk, on func(core.LLMStreamEvent) error,
 ) error {
