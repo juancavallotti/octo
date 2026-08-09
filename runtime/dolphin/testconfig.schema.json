@@ -19,7 +19,7 @@
     },
     "mocks": {
       "type": "object",
-      "description": "Blocks to stand in for in EVERY case, unless the case overrides the address. This is where \"no test in this file ever reaches the payment API\" is said once. Keyed by block address.",
+      "description": "Blocks to stand in for in EVERY case, unless the case overrides the address or lifts it with a `null`. This is where \"no test in this file ever reaches the payment API\" is said once. Keyed by block address.",
       "additionalProperties": { "$ref": "#/$defs/mockSpec" }
     },
     "env": {
@@ -61,8 +61,16 @@
         },
         "mocks": {
           "type": "object",
-          "description": "Blocks to stand in for in this case. An address here REPLACES the file's mock for that block, whole — so a case's mock says exactly what that block will do, without the reader having to hold the file's version in their head too.",
-          "additionalProperties": { "$ref": "#/$defs/mockSpec" }
+          "description": "Blocks to stand in for in this case. An address here REPLACES the file's mock for that block, whole — so a case's mock says exactly what that block will do, without the reader having to hold the file's version in their head too. A `null` instead of a spec goes the other way: it LIFTS the file's mock for that address, so this one case runs the real block. `{}` is not that — an empty map contributes nothing and the file's mocks all still apply.",
+          "additionalProperties": {
+            "oneOf": [
+              { "$ref": "#/$defs/mockSpec" },
+              {
+                "type": "null",
+                "description": "No mock here: remove the one the file declared for this address and run the real block. The address must be one the file actually mocks — un-mocking anything else is refused, because a typo'd address would silently read as \"the real block runs\" while the mock it meant to lift stayed on."
+              }
+            ]
+          }
         },
         "env": {
           "type": "object",
