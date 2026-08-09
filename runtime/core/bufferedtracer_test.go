@@ -4,6 +4,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/types"
@@ -138,10 +139,84 @@ func TestBufferedTracerTailDropsAndAnnounces(t *testing.T) {
 	}
 	dropped := tracer.Dropped()
 
-	// Let the drain run: the next record it writes must be preceded by the
-	// marker naming the gap.
+	// Let the drain run, then publish the record the marker has to precede.
+	// Publishing the instant the gate opens would race the drain — the queue is
+	// still full, so the very record being looked for would itself be dropped —
+	// so retry until one lands, which is when Dropped stops moving.
 	close(gate)
-	tracer.Publish(types.TraceEvent{Kind: types.TraceFlowCompleted})
+	landed := false
+	for range 200 {
+		before := tracer.Dropped()
+		tracer.Publish(types.TraceEvent{Kind: types.TraceFlowCompleted})
+		if tracer.Dropped() == before {
+			landed = true
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if !landed {
+		t.Fatal("the drain never made room for another record")
+	}
+	if err := tracer.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	// The marker has to sit before the record that follows the gap, not merely
+	// somewhere in the file: its whole job is to tell a reader that what comes
+	// next is not what came next in the flow.
+	var marker *types.TraceEvent
+	markerAt, completedAt := -1, -1
+	written := sink.records()
+	for i := range written {
+		switch written[i].Kind {
+		case types.TraceDropped:
+			if marker == nil {
+				marker = &written[i]
+				markerAt = i
+			}
+		case types.TraceFlowCompleted:
+			if completedAt == -1 {
+				completedAt = i
+			}
+		}
+	}
+	if marker == nil {
+		t.Fatalf("no %s record after %d drops", types.TraceDropped, dropped)
+	}
+	if completedAt == -1 {
+		t.Fatal("the record published after the gap never reached the sink")
+	}
+	if markerAt > completedAt {
+		t.Errorf("marker at %d follows the record it should announce, at %d", markerAt, completedAt)
+	}
+	if got, ok := marker.Attrs["total"].(uint64); !ok || got == 0 {
+		t.Fatalf("marker total = %v, want a non-zero count", marker.Attrs["total"])
+	}
+	if tracer.Emitted() == 0 {
+		t.Fatal("nothing was emitted")
+	}
+}
+
+// TestBufferedTracerAnnouncesDropsAtShutdown covers the gap the marker would
+// otherwise miss. A marker is written as the prefix of the next record, so drops
+// with no next record — a queue still full when the runtime stops, which is the
+// most likely way to lose records at all — would end the stream silently. Close
+// has to announce them itself.
+func TestBufferedTracerAnnouncesDropsAtShutdown(t *testing.T) {
+	gate := make(chan struct{})
+	sink := &fakeSink{gate: gate}
+	tracer := core.NewBufferedTracer(sink, core.TraceOptions{Enabled: true, Buffer: 2})
+
+	for range 50 {
+		tracer.Publish(types.TraceEvent{Kind: types.TraceFlowStarted})
+	}
+	if tracer.Dropped() == 0 {
+		t.Fatal("a full queue dropped nothing")
+	}
+
+	// Nothing is published after the drops: the next thing that happens is the
+	// shutdown, so the marker can only come from Close.
+	close(gate)
 	if err := tracer.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
@@ -151,17 +226,13 @@ func TestBufferedTracerTailDropsAndAnnounces(t *testing.T) {
 	for i := range written {
 		if written[i].Kind == types.TraceDropped {
 			marker = &written[i]
-			break
 		}
 	}
 	if marker == nil {
-		t.Fatalf("no %s record after %d drops", types.TraceDropped, dropped)
+		t.Fatalf("shutdown left %d drops unannounced", tracer.Dropped())
 	}
-	if got, ok := marker.Attrs["total"].(uint64); !ok || got == 0 {
-		t.Fatalf("marker total = %v, want a non-zero count", marker.Attrs["total"])
-	}
-	if tracer.Emitted() == 0 {
-		t.Fatal("nothing was emitted")
+	if got, ok := marker.Attrs["total"].(uint64); !ok || got != tracer.Dropped() {
+		t.Errorf("marker total = %v, want every drop accounted for (%d)", marker.Attrs["total"], tracer.Dropped())
 	}
 }
 

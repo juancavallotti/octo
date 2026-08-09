@@ -282,12 +282,18 @@ func (t *BufferedTracer) drain() {
 // drainRemaining writes what is still queued at shutdown and flushes once. It
 // does not wait for more: Publish has already been closed, so what is here is
 // all there will be.
+//
+// Drops are announced one last time before the flush. A marker is otherwise only
+// ever written as the prefix of the next record, so records lost after the final
+// surviving one — which is exactly what a queue that was full at shutdown
+// produces — would end the stream on an unannounced gap.
 func (t *BufferedTracer) drainRemaining() {
 	for {
 		select {
 		case event := <-t.records:
 			t.write(event)
 		default:
+			t.announceDrops()
 			t.flush()
 			return
 		}
