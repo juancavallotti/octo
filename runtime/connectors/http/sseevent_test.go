@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -242,6 +243,38 @@ func TestSSEEventNoStreamIDAlwaysFails(t *testing.T) {
 				t.Errorf("error = %v, want it to name the missing stream id", err)
 			}
 		})
+	}
+}
+
+// TestSSEEventEmptyStreamIDAlwaysFails covers the misconfiguration that looks
+// like a valid address. parseStreamAddress splits on the last separator, so
+// "public-api:" names a connector and no stream, and an address that is merely
+// non-empty passes the check in streamAddress. Left alone, the empty id would
+// miss the registry lookup and be answered by ifClosed — which would report a
+// typo as "nobody was listening", silently on ignore.
+func TestSSEEventEmptyStreamIDAlwaysFails(t *testing.T) {
+	for _, address := range []string{"public-api:", ":"} {
+		for _, policy := range []string{"", ifClosedStop, ifClosedIgnore, ifClosedError} {
+			t.Run(fmt.Sprintf("address=%q/ifClosed=%s", address, policy), func(t *testing.T) {
+				c := newConnectorWithStreams()
+				msg := testMessage(t)
+				msg.Variables.Set(defaultSSEStreamVar, address)
+
+				settings := map[string]any{"data": `"x"`}
+				if policy != "" {
+					settings["ifClosed"] = policy
+				}
+				proc := newEventBlock(t, settings, sseEventDeps(connectorType, c))
+
+				_, err := proc.Process(context.Background(), msg)
+				if err == nil {
+					t.Fatal("expected an error naming the misconfiguration")
+				}
+				if !strings.Contains(err.Error(), "no stream id") {
+					t.Errorf("error = %v, want it to name the missing stream id", err)
+				}
+			})
+		}
 	}
 }
 

@@ -199,7 +199,11 @@ A block with neither `event` nor data writes nothing — that is how you close a
 The block draws a deliberate line between two failures. Being **wired up wrong** — no address resolvable, or a connector that is not configured — always fails the block, whatever `ifClosed` says. **Nobody listening** — the client hung up, the stream expired, or it lives on another replica — is an ordinary runtime condition that `ifClosed` decides.
 
 <Callout type="warn">
-`EventSource` cannot send an `Authorization` header, so `jwt-validate` in front of an SSE route only works for non-browser clients. Browsers need a cookie or a query parameter.
+**Authenticating a browser stream.** `EventSource` cannot set request headers, and `jwt-validate` reads the token from one — so putting it in front of an SSE route covers non-browser callers only: `curl`, server-to-server clients, and fetch-based SSE libraries, which can all send `Authorization`.
+
+For a browser, authenticate the stream with a **same-origin session cookie**, marked `HttpOnly`, `Secure`, and `SameSite`. `EventSource` sends cookies on same-origin requests by itself; cross-origin it needs `withCredentials: true` and the connector's `cors.allowCredentials`. Check the session at your edge — proxy or gateway — or copy the `Cookie` header into a variable with the source's `headers` setting and reject in a `filter` ahead of the stream.
+
+Do not put the token in the query string. URLs reach browser history, `Referer` headers, and proxy and access logs, and anyone who can read a log can replay what they find there. A stream makes it worse than a normal request: the connection is long-lived, so the credential sits in those logs for as long as the stream does.
 </Callout>
 
 #### Example

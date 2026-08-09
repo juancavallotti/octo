@@ -163,6 +163,17 @@ func (e *sseEvent) Process(_ context.Context, msg *types.Message) (*types.Messag
 		return nil, err
 	}
 	name, id := parseStreamAddress(address)
+	// An address can be non-empty and still name no stream: parseStreamAddress
+	// splits on the last separator, so "public-api:" yields a connector and an
+	// empty id. streamAddress cannot catch that — it only sees the whole string —
+	// and an empty id would miss the lookup and reach the ifClosed policy, where
+	// ignore turns a typo into a silent success. It is the block being wired up
+	// wrong, so it fails here whatever the policy says.
+	if strings.TrimSpace(id) == "" {
+		return nil, fmt.Errorf(
+			"sse-event stream address %q names no stream id: expected \"connector%sid\" or a bare id",
+			address, streamAddressSep)
+	}
 	if name == "" {
 		name = e.connector
 	}
