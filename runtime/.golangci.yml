@@ -177,6 +177,8 @@ linters:
         linters: [gochecknoinits]
       - path: ^services/standalone/standalone\.go$
         linters: [gochecknoinits]
+      - path: ^services/tracing/tracing\.go$
+        linters: [gochecknoinits]
       - path: ^core/expr/expr\.go$
         linters: [gochecknoinits]
       - path: ^core/internal/engine/flow\.go$
