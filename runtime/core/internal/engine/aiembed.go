@@ -59,7 +59,7 @@ type embedSettings struct {
 // embed evaluates the text expression, embeds it, and writes the result to a
 // variable.
 type embed struct {
-	client     core.EmbedClient
+	caller     *embedCaller
 	text       *expr.Program
 	model      string
 	dimensions int
@@ -81,7 +81,7 @@ func newAIEmbed(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor,
 		return nil, fmt.Errorf("ai-embed block: model is required")
 	}
 
-	client, err := resolveEmbed(cfg.Connector, deps)
+	caller, err := resolveEmbed(cfg.Connector, deps)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +100,7 @@ func newAIEmbed(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor,
 	}
 
 	return &embed{
-		client:     client,
+		caller:     caller,
 		text:       text,
 		model:      cfg.Model,
 		dimensions: cfg.Dimensions,
@@ -123,7 +123,7 @@ func (e *embed) Process(ctx context.Context, msg *types.Message) (*types.Message
 		return nil, fmt.Errorf("ai-embed: %w", err)
 	}
 
-	resp, err := e.client.Embed(ctx, core.EmbedRequest{
+	resp, err := e.caller.embed(ctx, msg, core.EmbedRequest{
 		Model:      e.model,
 		Input:      input,
 		Dimensions: e.dimensions,
@@ -175,8 +175,10 @@ func toEmbedInputs(value any) (input []string, batch bool, err error) {
 // which is how ai-embed rejects Anthropic at build time rather than special-casing
 // the provider name.
 //
-//nolint:ireturn // the shared interface is the binding mechanism, by design
-func resolveEmbed(name string, deps core.BlockDeps) (core.EmbedClient, error) {
+// It returns the caller rather than the client for the same reason resolveLLM
+// does: an embedding call is billed, and the record for it should not depend on a
+// block author remembering to write one.
+func resolveEmbed(name string, deps core.BlockDeps) (*embedCaller, error) {
 	if name == "" {
 		return nil, fmt.Errorf("ai-embed block: connector is required")
 	}
@@ -193,5 +195,5 @@ func resolveEmbed(name string, deps core.BlockDeps) (core.EmbedClient, error) {
 			"ai-embed block: connector %q does not support embeddings (Anthropic has no embeddings API); "+
 				"use an llm-openai or llm-gemini connector", name)
 	}
-	return client, nil
+	return &embedCaller{client: client, who: newIdentity(blockTypeAIEmbed, name, deps)}, nil
 }

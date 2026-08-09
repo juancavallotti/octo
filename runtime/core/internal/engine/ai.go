@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/core/expr"
@@ -79,7 +78,7 @@ const defaultRouterRounds = 5
 // a select_route tool that emits the decision. The guardrail (Default) flow is
 // taken when the model is not confident or never decides.
 type aiRouter struct {
-	client    core.LLMClient
+	caller    *llmCaller
 	system    string
 	tools     []core.LLMTool
 	routes    map[string]*Flow
@@ -101,7 +100,7 @@ func (b *builder) aiRouter(cfg types.BlockConfig) (core.MessageProcessor, error)
 		return nil, err
 	}
 
-	client, err := resolveLLM(blockKindAIRouter, cfg.Connector, b.deps)
+	caller, err := resolveLLM(blockKindAIRouter, cfg.Connector, b.deps)
 	if err != nil {
 		return nil, err
 	}
@@ -130,7 +129,7 @@ func (b *builder) aiRouter(cfg types.BlockConfig) (core.MessageProcessor, error)
 	}
 
 	block := &aiRouter{
-		client:    client,
+		caller:    caller,
 		system:    buildRouterSystem(cfg.Prompt, cfg.Routes, cfg.Guardrail),
 		tools:     routerTools(names),
 		routes:    routes,
@@ -165,7 +164,7 @@ func (r *aiRouter) Process(ctx context.Context, msg *types.Message) (*types.Mess
 			ToolChoice: core.LLMToolChoice{Mode: core.LLMToolChoiceAny},
 		}
 		logModelCall(blockKindAIRouter, r.name, r.connector, req)
-		resp, err := r.client.Complete(ctx, req)
+		resp, err := r.caller.complete(ctx, msg, req, turnLabel{iteration: round + 1})
 		if err != nil {
 			return nil, fmt.Errorf("ai-router: %w", err)
 		}
@@ -261,7 +260,7 @@ const reviseToolName = "revise_message"
 // the attempts are exhausted it falls through to the error chain (if any),
 // otherwise the last error propagates.
 type aiRetry struct {
-	client      core.LLMClient
+	caller      *llmCaller
 	system      string
 	main        *Flow
 	alternative *Flow
@@ -283,7 +282,7 @@ func (b *builder) aiRetry(cfg types.BlockConfig) (core.MessageProcessor, error) 
 		return nil, err
 	}
 
-	client, err := resolveLLM(blockKindAIRetry, cfg.Connector, b.deps)
+	caller, err := resolveLLM(blockKindAIRetry, cfg.Connector, b.deps)
 	if err != nil {
 		return nil, err
 	}
@@ -301,7 +300,7 @@ func (b *builder) aiRetry(cfg types.BlockConfig) (core.MessageProcessor, error) 
 	}
 
 	block := &aiRetry{
-		client:      client,
+		caller:      caller,
 		system:      buildRetrySystem(cfg.Prompt),
 		main:        main,
 		maxAttempts: maxAttempts,
@@ -336,7 +335,7 @@ func (r *aiRetry) Process(ctx context.Context, msg *types.Message) (*types.Messa
 		`"variables" field.`}}
 
 	for attempt := 0; attempt < r.maxAttempts; attempt++ {
-		call, reviseErr := r.revise(ctx, &convo)
+		call, reviseErr := r.revise(ctx, msg, &convo, attempt+1)
 		if reviseErr != nil {
 			slog.Warn("ai-retry could not revise", "block", r.name, "attempt", attempt+1, "error", reviseErr)
 			break
@@ -384,8 +383,11 @@ func (r *aiRetry) stateText(msg *types.Message) string {
 
 // revise runs one turn of the repair conversation: it sends the accumulated
 // dialog (forcing a revise_message call), appends the model's reply, and returns
-// the revise call so the caller can apply it and feed back the outcome.
-func (r *aiRetry) revise(ctx context.Context, convo *[]core.LLMMessage) (core.LLMToolCall, error) {
+// the revise call so the caller can apply it and feed back the outcome. attempt is
+// one-based and numbers the model call in the trace record.
+func (r *aiRetry) revise(
+	ctx context.Context, msg *types.Message, convo *[]core.LLMMessage, attempt int,
+) (core.LLMToolCall, error) {
 	req := core.LLMRequest{
 		System:   r.system,
 		Messages: *convo,
@@ -396,7 +398,7 @@ func (r *aiRetry) revise(ctx context.Context, convo *[]core.LLMMessage) (core.LL
 		ToolChoice: core.LLMToolChoice{Mode: core.LLMToolChoiceAuto},
 	}
 	logModelCall(blockKindAIRetry, r.name, r.connector, req)
-	resp, err := r.client.Complete(ctx, req)
+	resp, err := r.caller.complete(ctx, msg, req, turnLabel{iteration: attempt})
 	if err != nil {
 		return core.LLMToolCall{}, fmt.Errorf("ai-retry: %w", err)
 	}
@@ -483,7 +485,7 @@ type agentSkill struct {
 // branches share the message, so variables they set accumulate across the loop.
 // The guardrail (Default) flow is taken when the model refuses or never finishes.
 type aiAgent struct {
-	client        core.LLMClient
+	caller        *llmCaller
 	system        string
 	tools         []core.LLMTool
 	branches      map[string]*Flow
@@ -504,16 +506,11 @@ type aiAgent struct {
 	memoryMaxTokens  int
 	memoryCompaction string
 	env              map[string]any
-	// events is the observer path, nil when the block declares none. stream is the
-	// same connector as client, asserted to its streaming half, and is nil unless
-	// the block asked to stream.
-	events *emitter
-	stream core.LLMStreamClient
-	// path is this block's own address, kept so a trace record for a model turn
-	// lands at the block that took it rather than floating loose in the flow. The
-	// builder is already positioned at the block when it builds the processor, so
-	// this costs nothing to carry.
-	path string
+	// events is the observer path, nil when the block declares none. streaming says
+	// the block asked to report its output as it arrives, which the builder only
+	// accepts when the connector has a streaming half to do it with.
+	events    *emitter
+	streaming bool
 }
 
 //nolint:ireturn // builders intentionally return the MessageProcessor interface
@@ -531,7 +528,7 @@ func (b *builder) aiAgent(cfg types.BlockConfig) (core.MessageProcessor, error) 
 		return nil, err
 	}
 
-	client, err := resolveLLM(blockKindAIAgent, cfg.Connector, b.deps)
+	caller, err := resolveLLM(blockKindAIAgent, cfg.Connector, b.deps)
 	if err != nil {
 		return nil, err
 	}
@@ -555,7 +552,7 @@ func (b *builder) aiAgent(cfg types.BlockConfig) (core.MessageProcessor, error) 
 	}
 
 	block := &aiAgent{
-		client:        client,
+		caller:        caller,
 		system:        buildAgentSystem(cfg.Prompt, cfg.Guardrail, skills),
 		tools:         tools,
 		branches:      branches,
@@ -565,12 +562,11 @@ func (b *builder) aiAgent(cfg types.BlockConfig) (core.MessageProcessor, error) 
 		name:          cfg.Name,
 		connector:     cfg.Connector,
 		env:           expr.EnvActivation(b.deps.Env),
-		path:          b.path,
 	}
 	if err := b.configureAgentMemory(block, cfg); err != nil {
 		return nil, err
 	}
-	if err := b.configureAgentEvents(block, cfg, client); err != nil {
+	if err := b.configureAgentEvents(block, cfg); err != nil {
 		return nil, err
 	}
 	if err := b.configureAgentGuardrail(block, cfg); err != nil {
@@ -631,7 +627,7 @@ func (b *builder) configureAgentMemory(block *aiAgent, cfg types.BlockConfig) er
 // with an obvious fix, and none of them should wait for the first request to
 // surface — least of all the streaming one, which would otherwise look like a
 // provider that has simply gone quiet.
-func (b *builder) configureAgentEvents(block *aiAgent, cfg types.BlockConfig, client core.LLMClient) error {
+func (b *builder) configureAgentEvents(block *aiAgent, cfg types.BlockConfig) error {
 	if cfg.Events == nil {
 		switch {
 		case cfg.Stream:
@@ -653,11 +649,10 @@ func (b *builder) configureAgentEvents(block *aiAgent, cfg types.BlockConfig, cl
 	block.events = &emitter{flow: flow, kinds: kinds}
 
 	if cfg.Stream {
-		streamer, ok := client.(core.LLMStreamClient)
-		if !ok {
+		if !block.caller.streams() {
 			return fmt.Errorf("ai-agent stream: connector %q does not stream", cfg.Connector)
 		}
-		block.stream = streamer
+		block.streaming = true
 	}
 	return nil
 }
@@ -776,14 +771,14 @@ func (a *aiAgent) Process(ctx context.Context, msg *types.Message) (*types.Messa
 		messages = append(messages, resp.Raw)
 
 		if resp.StopReason == core.LLMStopRefusal {
-			a.persistMemory(ctx, threadID, messages)
+			a.persistMemory(ctx, current, threadID, messages)
 			return a.fallback(ctx, current, iter, "model refused")
 		}
 		if len(resp.ToolCalls) == 0 {
 			slog.Info("ai-agent finished", "block", a.name, "iterations", iter+1)
 			out := foldResult(current, resp.Text)
 			a.report(ctx, out, iter, eventDone, map[string]any{fieldText: resp.Text})
-			a.persistMemory(ctx, threadID, messages)
+			a.persistMemory(ctx, current, threadID, messages)
 			return out, nil
 		}
 
@@ -799,7 +794,7 @@ func (a *aiAgent) Process(ctx context.Context, msg *types.Message) (*types.Messa
 		}
 	}
 
-	a.persistMemory(ctx, threadID, messages)
+	a.persistMemory(ctx, current, threadID, messages)
 	return a.fallback(ctx, current, a.maxIterations-1, "exceeded max iterations")
 }
 
@@ -819,17 +814,14 @@ func (a *aiAgent) callModel(
 		return nil, errEventStop
 	}
 
-	started := time.Now()
 	resp, err := a.completeTurn(ctx, req, current, iter)
 	if err != nil {
-		a.trace(current, iter, nil, started, err)
 		if !errors.Is(err, errEventStop) {
 			a.report(ctx, current, iter, eventError, map[string]any{"error": err.Error()})
 		}
 		return nil, err
 	}
 	logModelResp(blockKindAIAgent, a.name, resp)
-	a.trace(current, iter, resp, started, nil)
 	if a.report(ctx, current, iter, eventTurnEnd, turnEndFields(resp)) {
 		// The response goes back with the stop: the turn finished and was billed, so
 		// the caller decides whether it belongs in memory. The earlier stops have no
@@ -837,58 +829,6 @@ func (a *aiAgent) callModel(
 		return resp, errEventStop
 	}
 	return resp, nil
-}
-
-// trace records one model turn: what was billed for it, which model actually
-// served it, and how long it took.
-//
-// It sits here rather than in completeTurn because this is the boundary both
-// paths share — a streaming turn returns the same response as a blocking one, so
-// one record per turn either way, rather than a flood of them per delta.
-//
-// A failed turn is recorded too, with the error and no usage. Those are the turns
-// worth reading: a refusal, a timeout, a provider outage. Recording only the
-// successes would make a trace of a failing agent look empty.
-func (a *aiAgent) trace(msg *types.Message, iter int, resp *core.LLMResponse, started time.Time, callErr error) {
-	tracer := core.Tracer()
-	if !tracer.Enabled() {
-		return
-	}
-	record := types.TraceEvent{
-		Kind:          types.TraceLLMTurn,
-		TraceID:       msg.TraceID(),
-		EventID:       msg.EventID,
-		CorrelationID: msg.CorrelationID,
-		Path:          a.path,
-		BlockType:     blockKindAIAgent,
-		OccurredAt:    time.Now(),
-		DurationNs:    time.Since(started).Nanoseconds(),
-		Attrs: map[string]any{
-			"connector": a.connector,
-			// One-based, matching the iteration the events path reports, so the
-			// two observers of the same turn agree on what to call it.
-			"iteration": iter + 1,
-		},
-	}
-	if a.name != "" {
-		record.SetAttr("block", a.name)
-	}
-	if callErr != nil {
-		record.Err = callErr.Error()
-	}
-	if resp != nil {
-		record.SetAttr("stopReason", string(resp.StopReason))
-		record.SetAttr("toolCalls", len(resp.ToolCalls))
-		if resp.Model != "" {
-			record.SetAttr("model", resp.Model)
-		}
-		if resp.Usage != nil {
-			// The same projection turnEndFields uses, so the trace and the
-			// user-facing events path cannot disagree about what a turn cost.
-			record.SetAttr("usage", usageFields(resp.Usage))
-		}
-	}
-	tracer.Publish(record)
 }
 
 // stoppedTranscript is what to persist when the events path stopped the run. A
@@ -913,10 +853,13 @@ func stoppedTranscript(messages []core.LLMMessage, resp *core.LLMResponse) []cor
 func (a *aiAgent) completeTurn(
 	ctx context.Context, req core.LLMRequest, current *types.Message, iter int,
 ) (*core.LLMResponse, error) {
-	if a.stream == nil {
-		return a.client.Complete(ctx, req)
+	// One-based, matching the iteration the events path reports, so the two
+	// observers of the same turn agree on what to call it.
+	label := turnLabel{iteration: iter + 1}
+	if !a.streaming {
+		return a.caller.complete(ctx, current, req, label)
 	}
-	return a.stream.Stream(ctx, req, func(ev core.LLMStreamEvent) error {
+	return a.caller.stream(ctx, current, req, func(ev core.LLMStreamEvent) error {
 		kind, known := deltaKinds[ev.Kind]
 		// Check before building anything: on a long answer this runs once per token,
 		// and an excluded kind should cost a map lookup and nothing else.
@@ -927,7 +870,7 @@ func (a *aiAgent) completeTurn(
 			return errEventStop
 		}
 		return nil
-	})
+	}, label)
 }
 
 // runTools dispatches one turn's tool calls, reporting each call and its result,
@@ -971,7 +914,7 @@ func (a *aiAgent) halt(
 ) (*types.Message, error) {
 	slog.Info("ai-agent stopped", "block", a.name, "iterations", iter+1, "reason", reason)
 	current.RequestStop()
-	a.persistMemory(ctx, threadID, messages)
+	a.persistMemory(ctx, current, threadID, messages)
 	return current, nil
 }
 
@@ -1017,11 +960,13 @@ func (a *aiAgent) loadHistory(ctx context.Context, msg *types.Message) (string, 
 // persistMemory saves the accumulated transcript for the thread (best-effort,
 // compacted to the budget). It is a no-op when memory is disabled; a save failure
 // is logged rather than failing the flow.
-func (a *aiAgent) persistMemory(ctx context.Context, threadID string, messages []core.LLMMessage) {
+func (a *aiAgent) persistMemory(
+	ctx context.Context, msg *types.Message, threadID string, transcript []core.LLMMessage,
+) {
 	if a.memoryThreadID == nil {
 		return
 	}
-	compacted := compactMemory(ctx, a.client, messages, a.memoryMaxTokens, a.memoryCompaction)
+	compacted := compactMemory(ctx, a.caller, msg, transcript, a.memoryMaxTokens, a.memoryCompaction)
 	if err := saveMemory(ctx, threadID, compacted); err != nil {
 		slog.Warn("ai-agent failed to save memory", "block", a.name, "thread", threadID, "error", err)
 	}
@@ -1283,12 +1228,13 @@ func jsonStringArray(values []string) string {
 	return string(raw)
 }
 
-// resolveLLM binds an AI composite to its LLM provider connector by name,
-// asserting the shared core.LLMClient interface so any provider satisfies it. The
-// kind labels the error.
+// resolveLLM binds an AI block to its LLM provider connector by name, asserting
+// the shared core.LLMClient interface so any provider satisfies it. The kind
+// labels the error.
 //
-//nolint:ireturn // the shared interface is the binding mechanism, by design
-func resolveLLM(kind, name string, deps core.BlockDeps) (core.LLMClient, error) {
+// It returns the caller rather than the client so a block cannot reach a provider
+// without the model-call record coming with it — see aicaller.go.
+func resolveLLM(kind, name string, deps core.BlockDeps) (*llmCaller, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%s block requires a connector", kind)
 	}
@@ -1303,5 +1249,13 @@ func resolveLLM(kind, name string, deps core.BlockDeps) (core.LLMClient, error) 
 	if !ok {
 		return nil, fmt.Errorf("%s block: connector %q is not an LLM provider", kind, name)
 	}
-	return client, nil
+	// The streaming half is optional, so it is asserted rather than required, and
+	// asserted here so "does this provider stream" is answered in the same place
+	// "is this a provider at all" is.
+	streamer, _ := connector.(core.LLMStreamClient)
+	return &llmCaller{
+		client:   client,
+		streamer: streamer,
+		who:      newIdentity(kind, name, deps),
+	}, nil
 }
