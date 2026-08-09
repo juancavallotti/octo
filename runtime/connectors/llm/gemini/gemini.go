@@ -7,12 +7,19 @@
 // finish reason, so this connector synthesizes the agnostic ToolCallID from the
 // function name (correlating tool results by name) and reports a tool-use stop
 // reason whenever the response carries function calls.
+//
+// Thought parts are captured onto the assistant turn's Thinking rather than its
+// Text. Of those, only the thought signature is echoed back, on the function call
+// where Gemini requires it; thought text is not replayed, since Gemini asks for
+// the signature rather than the reasoning to continue a tool conversation.
 package gemini
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"math"
 	"reflect"
@@ -48,9 +55,21 @@ type connectorSettings struct {
 	Model string `json:"model" octo:"label=Model,default=gemini-3.5-flash"`
 	// Default response token cap (0 = the model default); a request may override it.
 	MaxTokens int `json:"maxTokens" octo:"label=Max tokens"`
+	// Thinking: off, dynamic (the model decides how much), or budgeted.
+	Thinking string `json:"thinking" octo:"label=Thinking,type=enum,enum=off|dynamic|budgeted,default=off"`
+	// Thinking token budget, used when thinking is budgeted.
+	ThinkingBudget int `json:"thinkingBudget" octo:"label=Thinking budget"`
 	// Overrides the API endpoint (for proxies or testing).
 	BaseURL string `json:"baseURL" octo:"label=Base URL"`
 }
+
+const (
+	thinkingOff      = "off"
+	thinkingDynamic  = "dynamic"
+	thinkingBudgeted = "budgeted"
+	// dynamicThinkingBudget is the provider's sentinel for "you decide".
+	dynamicThinkingBudget = -1
+)
 
 // Connector is a configured Gemini client that AI elements call through. It is
 // safe for concurrent use: the SDK client is, and the connector holds only
@@ -59,12 +78,14 @@ type Connector struct {
 	client    *genai.Client
 	model     string
 	maxTokens int
+	thinking  *genai.ThinkingConfig
 }
 
 var (
-	_ core.Connector   = (*Connector)(nil)
-	_ core.LLMClient   = (*Connector)(nil)
-	_ core.EmbedClient = (*Connector)(nil)
+	_ core.Connector       = (*Connector)(nil)
+	_ core.LLMClient       = (*Connector)(nil)
+	_ core.LLMStreamClient = (*Connector)(nil)
+	_ core.EmbedClient     = (*Connector)(nil)
 )
 
 // Start parses the settings, validates the API key, and builds the client so a
@@ -84,6 +105,12 @@ func (c *Connector) Start(ctx context.Context, config types.ConnectorConfig) err
 	}
 	c.maxTokens = set.MaxTokens
 
+	thinking, err := toThinkingConfig(set)
+	if err != nil {
+		return fmt.Errorf("llm-gemini connector %q: %w", config.Name, err)
+	}
+	c.thinking = thinking
+
 	cc := &genai.ClientConfig{APIKey: set.APIKey, Backend: genai.BackendGeminiAPI}
 	if set.BaseURL != "" {
 		cc.HTTPOptions.BaseURL = set.BaseURL
@@ -98,8 +125,35 @@ func (c *Connector) Start(ctx context.Context, config types.ConnectorConfig) err
 		"connector", config.Name,
 		"model", c.model,
 		"maxTokens", c.maxTokens,
+		"thinking", set.Thinking,
 	)
 	return nil
+}
+
+// toThinkingConfig builds the thinking config from the settings, returning nil for
+// off so the request carries none and the model keeps whatever default it has.
+//
+// IncludeThoughts is set whenever thinking is on: without it a thinking model
+// still reasons but returns no thought parts, so there would be nothing to
+// observe or stream.
+func toThinkingConfig(set connectorSettings) (*genai.ThinkingConfig, error) {
+	switch set.Thinking {
+	case "", thinkingOff:
+		return nil, nil
+	case thinkingDynamic:
+		budget := int32(dynamicThinkingBudget)
+		return &genai.ThinkingConfig{IncludeThoughts: true, ThinkingBudget: &budget}, nil
+	case thinkingBudgeted:
+		if set.ThinkingBudget <= 0 || set.ThinkingBudget > math.MaxInt32 {
+			return nil, fmt.Errorf("thinkingBudget must be between 1 and %d when thinking is %q, got %d",
+				math.MaxInt32, thinkingBudgeted, set.ThinkingBudget)
+		}
+		budget := int32(set.ThinkingBudget) //nolint:gosec // bounds-checked above
+		return &genai.ThinkingConfig{IncludeThoughts: true, ThinkingBudget: &budget}, nil
+	default:
+		return nil, fmt.Errorf("thinking must be %q, %q or %q, got %q",
+			thinkingOff, thinkingDynamic, thinkingBudgeted, set.Thinking)
+	}
 }
 
 // Stop is a no-op: the connector holds no resources to release.
@@ -108,9 +162,169 @@ func (c *Connector) Stop(context.Context) error { return nil }
 // Complete runs one GenerateContent turn, translating the request to SDK types
 // and the response back to the provider-agnostic DTOs.
 func (c *Connector) Complete(ctx context.Context, req core.LLMRequest) (*core.LLMResponse, error) {
-	contents, err := toContents(req.Messages)
+	contents, cfg, err := c.request(req)
 	if err != nil {
 		return nil, err
+	}
+	resp, err := c.client.Models.GenerateContent(ctx, c.model, contents, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("llm-gemini complete: %w", err)
+	}
+	return translateResponse(resp), nil
+}
+
+// Stream runs one GenerateContent turn over the streaming endpoint, reporting
+// content as it arrives and returning the same response Complete would have.
+//
+// Unlike the other two SDKs, genai ships no accumulator and each chunk is a delta
+// rather than a snapshot, so the fold is written here. Folding back into the
+// provider's own response shape rather than straight into the agnostic DTOs is
+// what lets translateResponse stay the single translation both paths go through.
+func (c *Connector) Stream(
+	ctx context.Context, req core.LLMRequest, on func(core.LLMStreamEvent) error,
+) (*core.LLMResponse, error) {
+	contents, cfg, err := c.request(req)
+	if err != nil {
+		return nil, err
+	}
+
+	var fold streamFold
+	for chunk, chunkErr := range c.client.Models.GenerateContentStream(ctx, c.model, contents, cfg) {
+		if chunkErr != nil {
+			// The SDK yields io.EOF as its ordinary end of stream, not as a failure.
+			if errors.Is(chunkErr, io.EOF) {
+				break
+			}
+			return nil, fmt.Errorf("llm-gemini stream: %w", chunkErr)
+		}
+		if emitErr := fold.add(chunk, on); emitErr != nil {
+			return nil, emitErr
+		}
+	}
+	return translateResponse(fold.response()), nil
+}
+
+// streamFold reassembles a streamed turn into one response.
+type streamFold struct {
+	parts  []*genai.Part
+	finish genai.FinishReason
+	usage  *genai.GenerateContentResponseUsageMetadata
+	seen   bool
+}
+
+// add folds one chunk in and reports its content as canonical events.
+func (f *streamFold) add(chunk *genai.GenerateContentResponse, on func(core.LLMStreamEvent) error) error {
+	if chunk == nil {
+		return nil
+	}
+	// Usage is a running snapshot rather than a delta — the opposite of the content
+	// alongside it — so the last one reported wins and summing would be wrong.
+	if chunk.UsageMetadata != nil {
+		f.usage = chunk.UsageMetadata
+	}
+	if len(chunk.Candidates) == 0 {
+		return nil
+	}
+	f.seen = true
+	cand := chunk.Candidates[0]
+	if cand.FinishReason != "" {
+		f.finish = cand.FinishReason
+	}
+	if cand.Content == nil {
+		return nil
+	}
+	for _, part := range cand.Content.Parts {
+		if err := emitPart(part, f.appendPart(part), on); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// appendPart folds one part into the run and returns the index it occupies.
+//
+// Consecutive text of the same kind is merged rather than appended. Gemini splits
+// a logical text run across chunks, and sometimes across parts within one chunk,
+// so keeping each fragment as its own part would leave a streamed turn structurally
+// different from the same turn unstreamed — one thinking block per fragment instead
+// of one per run. Merging is also what makes the returned index a stable id for the
+// run rather than a per-fragment counter.
+func (f *streamFold) appendPart(p *genai.Part) int {
+	n := len(f.parts)
+	if n > 0 && p.FunctionCall == nil && p.Text != "" {
+		if prev := f.parts[n-1]; prev.FunctionCall == nil && prev.Text != "" && prev.Thought == p.Thought {
+			merged := *prev
+			merged.Text = prev.Text + p.Text
+			if len(p.ThoughtSignature) > 0 {
+				merged.ThoughtSignature = p.ThoughtSignature
+			}
+			f.parts[n-1] = &merged
+			return n - 1
+		}
+	}
+	f.parts = append(f.parts, p)
+	return n
+}
+
+// response rebuilds the turn as the provider would have returned it unstreamed. A
+// stream that produced no candidate at all rebuilds as none, so translateResponse
+// reads it as a refusal exactly as it would on the blocking path.
+func (f *streamFold) response() *genai.GenerateContentResponse {
+	out := &genai.GenerateContentResponse{UsageMetadata: f.usage}
+	if !f.seen {
+		return out
+	}
+	out.Candidates = []*genai.Candidate{{
+		Content:      &genai.Content{Parts: f.parts, Role: genai.RoleModel},
+		FinishReason: f.finish,
+	}}
+	return out
+}
+
+// emitPart maps one part onto the canonical vocabulary. index identifies the run
+// the part belongs to, so the fragments of one text run share it.
+//
+// A function call is reported as a single tool_input carrying its complete
+// arguments. Gemini never fragments them, unlike the other two providers, but a
+// consumer concatenating tool_input text per call still ends up with the same
+// valid JSON — which is the point of a canonical vocabulary, and better than
+// staying silent because the delivery differs.
+func emitPart(part *genai.Part, index int, on func(core.LLMStreamEvent) error) error {
+	switch {
+	case part.Thought && part.Text != "":
+		if err := on(core.LLMStreamEvent{
+			Kind: core.LLMStreamThinking, Text: part.Text, Index: index,
+		}); err != nil {
+			return err
+		}
+	case part.Text != "":
+		if err := on(core.LLMStreamEvent{
+			Kind: core.LLMStreamText, Text: part.Text, Index: index,
+		}); err != nil {
+			return err
+		}
+	}
+	if fc := part.FunctionCall; fc != nil {
+		args, err := json.Marshal(fc.Args)
+		if err != nil {
+			return fmt.Errorf("llm-gemini stream: encode call %q arguments: %w", fc.Name, err)
+		}
+		if err := on(core.LLMStreamEvent{
+			Kind: core.LLMStreamToolInput, Text: string(args),
+			Tool: fc.Name, ToolCallID: fc.Name, Index: index,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// request builds the contents and config shared by Complete and Stream, so the
+// two paths cannot drift in what they ask the model for.
+func (c *Connector) request(req core.LLMRequest) ([]*genai.Content, *genai.GenerateContentConfig, error) {
+	contents, err := toContents(req.Messages)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	cfg := &genai.GenerateContentConfig{}
@@ -127,20 +341,16 @@ func (c *Connector) Complete(ctx context.Context, req core.LLMRequest) (*core.LL
 		}
 		cfg.MaxOutputTokens = int32(maxTokens) //nolint:gosec // clamped to MaxInt32 above
 	}
+	cfg.ThinkingConfig = c.thinking
 	if tools, toolErr := toTools(req.Tools); toolErr != nil {
-		return nil, toolErr
+		return nil, nil, toolErr
 	} else if tools != nil {
 		cfg.Tools = tools
 		if tc, ok := toToolConfig(req.ToolChoice); ok {
 			cfg.ToolConfig = tc
 		}
 	}
-
-	resp, err := c.client.Models.GenerateContent(ctx, c.model, contents, cfg)
-	if err != nil {
-		return nil, fmt.Errorf("llm-gemini complete: %w", err)
-	}
-	return translateResponse(resp), nil
+	return contents, cfg, nil
 }
 
 // Embed embeds a batch of texts in one request. Gemini documents the response as
@@ -265,19 +475,36 @@ func toToolConfig(tc core.LLMToolChoice) (*genai.ToolConfig, bool) {
 // reports STOP even when returning function calls, so the presence of calls drives
 // the tool-use stop reason. The synthesized ToolCallID is the function name.
 func translateResponse(resp *genai.GenerateContentResponse) *core.LLMResponse {
+	usage := translateUsage(resp.UsageMetadata)
 	if len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil {
-		return &core.LLMResponse{StopReason: core.LLMStopRefusal, Raw: core.LLMMessage{Role: core.LLMRoleAssistant}}
+		return &core.LLMResponse{
+			StopReason: core.LLMStopRefusal,
+			Raw:        core.LLMMessage{Role: core.LLMRoleAssistant},
+			Usage:      usage,
+		}
 	}
 	cand := resp.Candidates[0]
 
 	var text strings.Builder
 	var calls []core.LLMToolCall
+	var thinking []core.LLMThinkingBlock
 	var sig []byte // most recent thought signature; may sit on a thought part before the call
 	for _, part := range cand.Content.Parts {
 		if len(part.ThoughtSignature) > 0 {
 			sig = part.ThoughtSignature
 		}
-		if part.Text != "" {
+		switch {
+		case part.Thought:
+			// Reasoning, not the answer. Keeping it out of Text is what stops a caller
+			// that folds the answer into a message body from publishing the model's
+			// chain of thought.
+			if part.Text != "" {
+				thinking = append(thinking, core.LLMThinkingBlock{
+					Text:      part.Text,
+					Signature: string(part.ThoughtSignature),
+				})
+			}
+		case part.Text != "":
 			text.WriteString(part.Text)
 		}
 		if fc := part.FunctionCall; fc != nil {
@@ -291,9 +518,36 @@ func translateResponse(resp *genai.GenerateContentResponse) *core.LLMResponse {
 		Text:       text.String(),
 		ToolCalls:  calls,
 		StopReason: mapFinishReason(cand.FinishReason, len(calls) > 0),
+		Usage:      usage,
 	}
-	out.Raw = core.LLMMessage{Role: core.LLMRoleAssistant, Text: out.Text, ToolCalls: calls}
+	out.Raw = core.LLMMessage{
+		Role:      core.LLMRoleAssistant,
+		Text:      out.Text,
+		Thinking:  thinking,
+		ToolCalls: calls,
+	}
 	return out
+}
+
+// translateUsage converts the SDK's token counts, reporting nil when the response
+// carried none. Gemini counts thoughts *outside* candidatesTokenCount, unlike the
+// other two providers, so they are added in to keep OutputTokens meaning the same
+// thing whichever provider answered.
+func translateUsage(u *genai.GenerateContentResponseUsageMetadata) *core.LLMUsage {
+	// An all-zero metadata block reports nil, the same as no metadata at all.
+	// Usage != nil means "the provider accounted for this turn" on every connector,
+	// and Gemini attaches the struct more eagerly than the others do, so without
+	// this the same emptiness would read as accounting here and as none elsewhere.
+	if u == nil || (u.PromptTokenCount == 0 && u.CandidatesTokenCount == 0 &&
+		u.ThoughtsTokenCount == 0 && u.CachedContentTokenCount == 0) {
+		return nil
+	}
+	return &core.LLMUsage{
+		InputTokens:    int(u.PromptTokenCount),
+		OutputTokens:   int(u.CandidatesTokenCount + u.ThoughtsTokenCount),
+		ThinkingTokens: int(u.ThoughtsTokenCount),
+		CachedTokens:   int(u.CachedContentTokenCount),
+	}
 }
 
 // mapFinishReason maps the Gemini finish reason to the agnostic stop reason. When

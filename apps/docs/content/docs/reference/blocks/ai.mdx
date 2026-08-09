@@ -32,6 +32,9 @@ Lets an LLM accomplish a task by calling flow branches as tools, one or more tim
 | `memoryCompaction` | enum `prune` \| `summarize` | No | `prune` | How memory over budget shrinks: `prune` drops the oldest turns; `summarize` folds them into a running summary (an extra model call). |
 | `tools` | list | Yes | — | Tool branches (below). At least one required. |
 | `skills` | list | No | — | Loadable instruction resources (below). |
+| `events` | flow | No | — | Observer path, run once per agent event with the event as the body (below). |
+| `emit` | string list | No | — | Which event types reach `events`. Empty emits every type the block can produce. |
+| `stream` | bool | No | `false` | Drive the provider's streaming API so model output reaches `events` as it is produced. Requires `events` and a provider that streams. |
 | `default` | flow | No | — | Guardrail path, run when the model refuses or hits `maxIterations`. |
 
 Each `tools` entry:
@@ -51,9 +54,63 @@ Each `skills` entry (see [Agent skills and tools](/ai/agent-skills-and-tools)):
 | `description` | string | Yes | Advertised to the model up front, with the name. |
 | `resource` | string | Yes | Template resource (its `resources.templates` alias) whose rendered content the implicit `load_skill` tool returns on demand. |
 
+### Agent events
+
+An agent normally says nothing until its whole loop finishes. The `events` path is
+run once per event, with the event as the message body, so a caller can watch the
+run as it happens. Its result is **discarded** — it reports on the run without
+taking part in it — and it runs on its own message, so the agent's own variables
+and body are untouched. The agent's variables are copied onto it, which is what
+lets an [sse-event](/reference/connectors/http#server-sent-events) in the path
+reach the caller with no configuration at all.
+
+| `type` | When | Fields beyond `type` and `iteration` |
+|---|---|---|
+| `turn_start` | Before each model call | — |
+| `text` | A fragment of the answer | `text`, `index` |
+| `thinking` | A fragment of the model's reasoning | `text`, `index` |
+| `tool_input` | A fragment of a tool call's arguments | `text`, `index`, `tool`, `toolCallId` |
+| `custom` | A provider event with no canonical equivalent | `name`, `text`, `index` |
+| `tool_call` | The model asked for a tool, arguments complete | `tool`, `toolCallId`, `input` |
+| `tool_result` | The branch that ran it returned | `tool`, `toolCallId`, `output`, `isError` |
+| `turn_end` | A model turn finished | `text`, `stopReason`, `usage` |
+| `guardrail` | The agent fell back to `default` | `reason` |
+| `done` | The agent finished with an answer | `text` |
+| `error` | A model call failed | `error` |
+
+`text`, `thinking`, `tool_input` and `custom` arrive **only with `stream: true`**;
+the rest are the agent's own and need no streaming. Not every provider produces
+every kind — see [LLM providers](/ai/llm-providers).
+
+Two ways to choose what you want, and they do different jobs. `emit` decides what
+is **built at all**, so a type left out costs nothing; a `filter` inside the path
+decides on the event's contents. On a token stream the first matters:
+
+```yaml
+- type: ai-agent
+  connector: claude
+  prompt: Answer the customer's question about their order.
+  stream: true
+  emit: [text, tool_call, done]     # text fragments never built for other types
+  events:
+    process:
+      - type: filter                # and only the tool the caller cares about
+        settings:
+          expr: 'body.type != "tool_call" || body.tool == "lookup"'
+      - type: sse-event             # vars.sseStream is already on the message
+        settings:
+          event: agent
+  tools: [...]
+```
+
+A `stop` from the events path (the usual cause is `sse-event` with
+`ifClosed: stop`, after the caller hung up) ends the run: the agent abandons the
+turn mid-stream rather than paying a provider for output nobody will read.
+
 Behavior notes:
 
 - The final assistant text becomes the message body — parsed as JSON when possible, stored as text otherwise; an empty answer leaves the last tool's body standing.
+- The events path cannot fail the run: an error inside it is logged and the agent carries on. Only a stop travels back.
 - A tool-branch error or dropped message becomes an error result fed back to the model rather than aborting the agent.
 - On refusal or `maxIterations`, the `default` flow runs; **with no `default` configured, the block errors** so the failure reaches a recovery path.
 - With skills configured, the agent gets an implicit `load_skill(name)` tool; skill bodies are rendered against the current message like any template.

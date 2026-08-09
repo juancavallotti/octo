@@ -5,8 +5,13 @@
 //
 // The connector concentrates provider policy: API key, model, and the default
 // response token cap. It translates the provider-agnostic core.LLM* DTOs to and
-// from the Anthropic SDK types on each Complete call. Thinking is left unset so
-// the model uses its adaptive default; a budget is never sent.
+// from the Anthropic SDK types on each Complete call.
+//
+// Extended thinking is off unless the thinking setting asks for it, so a
+// connector that does not mention it behaves exactly as it always has. Whether or
+// not it is on, reasoning blocks a response carries are captured and echoed back
+// on the next turn, which the provider requires of any assistant turn that has
+// them.
 package anthropic
 
 import (
@@ -52,9 +57,21 @@ type connectorSettings struct {
 	Model string `json:"model" octo:"label=Model,default=claude-sonnet-4-6"`
 	// Default response token cap; a request may override it.
 	MaxTokens int `json:"maxTokens" octo:"label=Max tokens,default=4096"`
+	// Extended thinking: off, adaptive (the model decides how much), or budgeted.
+	Thinking string `json:"thinking" octo:"label=Thinking,type=enum,enum=off|adaptive|budgeted,default=off"`
+	// Thinking token budget, used when thinking is budgeted. At least 1024, below maxTokens.
+	ThinkingBudget int `json:"thinkingBudget" octo:"label=Thinking budget"`
 	// Overrides the API endpoint (for proxies or testing).
 	BaseURL string `json:"baseURL" octo:"label=Base URL"`
 }
+
+const (
+	thinkingOff      = "off"
+	thinkingAdaptive = "adaptive"
+	thinkingBudgeted = "budgeted"
+	// minThinkingBudget is the provider's floor for an explicit budget.
+	minThinkingBudget = 1024
+)
 
 // Connector is a configured Anthropic client that AI elements call through. It
 // is safe for concurrent use: the SDK client is, and the connector holds only
@@ -63,13 +80,15 @@ type Connector struct {
 	client    sdk.Client
 	model     string
 	maxTokens int64
+	thinking  sdk.ThinkingConfigParamUnion
 }
 
 // compile-time checks that the connector is both a lifecycle connector and an
 // LLM client.
 var (
-	_ core.Connector = (*Connector)(nil)
-	_ core.LLMClient = (*Connector)(nil)
+	_ core.Connector       = (*Connector)(nil)
+	_ core.LLMClient       = (*Connector)(nil)
+	_ core.LLMStreamClient = (*Connector)(nil)
 )
 
 // Start parses the settings, validates the API key, and builds the client so a
@@ -92,6 +111,12 @@ func (c *Connector) Start(_ context.Context, config types.ConnectorConfig) error
 		c.maxTokens = defaultMaxTokens
 	}
 
+	thinking, err := toThinking(set, c.maxTokens)
+	if err != nil {
+		return fmt.Errorf("llm-anthropic connector %q: %w", config.Name, err)
+	}
+	c.thinking = thinking
+
 	opts := []option.RequestOption{option.WithAPIKey(set.APIKey)}
 	if set.BaseURL != "" {
 		opts = append(opts, option.WithBaseURL(set.BaseURL))
@@ -102,8 +127,43 @@ func (c *Connector) Start(_ context.Context, config types.ConnectorConfig) error
 		"connector", config.Name,
 		"model", c.model,
 		"maxTokens", c.maxTokens,
+		"thinking", set.Thinking,
 	)
 	return nil
+}
+
+// toThinking builds the thinking config from the settings. The budget is checked
+// here so a value the API would reject fails at startup rather than on the first
+// request; the SDK performs no client-side validation of either bound.
+func toThinking(set connectorSettings, maxTokens int64) (sdk.ThinkingConfigParamUnion, error) {
+	switch set.Thinking {
+	case "", thinkingOff:
+		// Send nothing, leaving the model on its own default. This is the zero-config
+		// behaviour, so enabling thinking is always a deliberate act.
+		return sdk.ThinkingConfigParamUnion{}, nil
+	case thinkingAdaptive:
+		// The adaptive variant rather than the enabled one: the SDK deprecates enabled
+		// for newer models and prints a warning to stderr on every request that uses
+		// it. There is no constructor for adaptive, so it is built literally.
+		return sdk.ThinkingConfigParamUnion{OfAdaptive: &sdk.ThinkingConfigAdaptiveParam{}}, nil
+	case thinkingBudgeted:
+		budget := int64(set.ThinkingBudget)
+		switch {
+		case budget < minThinkingBudget:
+			return sdk.ThinkingConfigParamUnion{}, fmt.Errorf(
+				"thinkingBudget must be at least %d when thinking is %q, got %d",
+				minThinkingBudget, thinkingBudgeted, budget)
+		case budget >= maxTokens:
+			// The budget counts towards max_tokens, so it has to leave room for an answer.
+			return sdk.ThinkingConfigParamUnion{}, fmt.Errorf(
+				"thinkingBudget %d must be below maxTokens %d", budget, maxTokens)
+		}
+		return sdk.ThinkingConfigParamOfEnabled(budget), nil
+	default:
+		return sdk.ThinkingConfigParamUnion{}, fmt.Errorf(
+			"thinking must be %q, %q or %q, got %q",
+			thinkingOff, thinkingAdaptive, thinkingBudgeted, set.Thinking)
+	}
 }
 
 // Stop is a no-op: the connector holds no resources to release.
@@ -112,13 +172,106 @@ func (c *Connector) Stop(context.Context) error { return nil }
 // Complete runs one Messages turn, translating the request to SDK params and the
 // response back to the provider-agnostic DTOs.
 func (c *Connector) Complete(ctx context.Context, req core.LLMRequest) (*core.LLMResponse, error) {
-	msgs, err := toMessages(req.Messages)
+	params, err := c.params(req)
 	if err != nil {
 		return nil, err
 	}
-	tools, err := toTools(req.Tools)
+	message, err := c.client.Messages.New(ctx, params)
+	if err != nil {
+		return nil, fmt.Errorf("llm-anthropic complete: %w", err)
+	}
+	return translateResponse(message), nil
+}
+
+// Stream runs one Messages turn over the streaming endpoint, reporting content as
+// it arrives and returning the same response Complete would have.
+//
+// The SDK's own accumulator folds every event back into the message type
+// translateResponse already consumes, so the streamed and blocking paths converge
+// on one translation rather than two that could drift.
+func (c *Connector) Stream(
+	ctx context.Context, req core.LLMRequest, on func(core.LLMStreamEvent) error,
+) (*core.LLMResponse, error) {
+	params, err := c.params(req)
 	if err != nil {
 		return nil, err
+	}
+
+	stream := c.client.Messages.NewStreaming(ctx, params)
+	defer func() { _ = stream.Close() }()
+
+	var acc sdk.Message
+	for stream.Next() {
+		event := stream.Current()
+		if accErr := acc.Accumulate(event); accErr != nil {
+			return nil, fmt.Errorf("llm-anthropic stream: %w", accErr)
+		}
+		// The accumulator carries the message_delta's output token total but not its
+		// breakdown, so thinking tokens would be reported on the blocking path and
+		// silently missing on this one. Copy them over to keep the two identical.
+		if event.Type == "message_delta" {
+			acc.Usage.OutputTokensDetails = event.Usage.OutputTokensDetails
+		}
+		// Accumulate first: an input_json_delta needs the tool name and id the
+		// content_block_start already opened at its index.
+		if emitErr := emitEvent(&acc, event, on); emitErr != nil {
+			return nil, emitErr
+		}
+	}
+	if streamErr := stream.Err(); streamErr != nil {
+		return nil, fmt.Errorf("llm-anthropic stream: %w", streamErr)
+	}
+	return translateResponse(&acc), nil
+}
+
+// emitEvent maps one SDK stream event onto the canonical vocabulary.
+//
+// Only content deltas map. The terminal events carry nothing a caller cannot read
+// off the returned response, and a signature_delta is bookkeeping the accumulator
+// consumes on the caller's behalf.
+func emitEvent(acc *sdk.Message, event sdk.MessageStreamEventUnion, on func(core.LLMStreamEvent) error) error {
+	if event.Type != "content_block_delta" {
+		return nil
+	}
+	index := int(event.Index)
+	switch event.Delta.Type {
+	case "text_delta":
+		return on(core.LLMStreamEvent{Kind: core.LLMStreamText, Text: event.Delta.Text, Index: index})
+	case "thinking_delta":
+		return on(core.LLMStreamEvent{Kind: core.LLMStreamThinking, Text: event.Delta.Thinking, Index: index})
+	case "signature_delta":
+		return nil
+	case "input_json_delta":
+		ev := core.LLMStreamEvent{Kind: core.LLMStreamToolInput, Text: event.Delta.PartialJSON, Index: index}
+		if index >= 0 && index < len(acc.Content) {
+			ev.Tool = acc.Content[index].Name
+			ev.ToolCallID = acc.Content[index].ID
+		}
+		return on(ev)
+	default:
+		// A delta variant this connector does not know — most likely one the provider
+		// grew after it was written. Passing it through as custom is what lets the
+		// canonical set stay closed: the event still reaches consumers, and the
+		// vocabulary does not have to grow to meet every provider addition.
+		ev := core.LLMStreamEvent{Kind: core.LLMStreamCustom, Name: event.Delta.Type, Index: index}
+		if raw, err := json.Marshal(event.Delta); err == nil {
+			ev.Text = string(raw)
+		}
+		// A payload that will not marshal still leaves the name worth reporting.
+		return on(ev)
+	}
+}
+
+// params builds the SDK request shared by Complete and Stream, so the two paths
+// cannot drift in what they ask the model for.
+func (c *Connector) params(req core.LLMRequest) (sdk.MessageNewParams, error) {
+	msgs, err := toMessages(req.Messages)
+	if err != nil {
+		return sdk.MessageNewParams{}, err
+	}
+	tools, err := toTools(req.Tools)
+	if err != nil {
+		return sdk.MessageNewParams{}, err
 	}
 
 	maxTokens := c.maxTokens
@@ -140,12 +293,8 @@ func (c *Connector) Complete(ctx context.Context, req core.LLMRequest) (*core.LL
 			params.ToolChoice = choice
 		}
 	}
-
-	message, err := c.client.Messages.New(ctx, params)
-	if err != nil {
-		return nil, fmt.Errorf("llm-anthropic complete: %w", err)
-	}
-	return translateResponse(message), nil
+	c.applyThinking(&params, req.ToolChoice)
+	return params, nil
 }
 
 // toMessages converts the conversation to SDK message params. Assistant turns
@@ -158,18 +307,7 @@ func toMessages(msgs []core.LLMMessage) ([]sdk.MessageParam, error) {
 		case core.LLMRoleUser:
 			out = append(out, sdk.NewUserMessage(sdk.NewTextBlock(m.Text)))
 		case core.LLMRoleAssistant:
-			blocks := make([]sdk.ContentBlockParamUnion, 0, 1+len(m.ToolCalls))
-			if m.Text != "" {
-				blocks = append(blocks, sdk.NewTextBlock(m.Text))
-			}
-			for _, tc := range m.ToolCalls {
-				input := tc.Input
-				if len(input) == 0 {
-					input = json.RawMessage("{}")
-				}
-				blocks = append(blocks, sdk.NewToolUseBlock(tc.ID, input, tc.Name))
-			}
-			out = append(out, sdk.NewAssistantMessage(blocks...))
+			out = append(out, sdk.NewAssistantMessage(assistantBlocks(m)...))
 		case core.LLMRoleTool:
 			blocks := make([]sdk.ContentBlockParamUnion, 0, len(m.ToolResults))
 			for _, tr := range m.ToolResults {
@@ -181,6 +319,35 @@ func toMessages(msgs []core.LLMMessage) ([]sdk.MessageParam, error) {
 		}
 	}
 	return out, nil
+}
+
+// assistantBlocks builds one assistant turn's content: thinking, then text, then
+// tool_use.
+//
+// Thinking leads, in the order the model produced it, because the server validates
+// the thinking runs of an echoed turn — a block that went missing merges two runs
+// into one it cannot verify, and a block that moved splits one. Either way the
+// request is rejected, so the order here is load-bearing rather than cosmetic.
+func assistantBlocks(m core.LLMMessage) []sdk.ContentBlockParamUnion {
+	blocks := make([]sdk.ContentBlockParamUnion, 0, len(m.Thinking)+1+len(m.ToolCalls))
+	for _, tb := range m.Thinking {
+		if len(tb.Redacted) > 0 {
+			blocks = append(blocks, sdk.NewRedactedThinkingBlock(string(tb.Redacted)))
+			continue
+		}
+		blocks = append(blocks, sdk.NewThinkingBlock(tb.Signature, tb.Text))
+	}
+	if m.Text != "" {
+		blocks = append(blocks, sdk.NewTextBlock(m.Text))
+	}
+	for _, tc := range m.ToolCalls {
+		input := tc.Input
+		if len(input) == 0 {
+			input = json.RawMessage("{}")
+		}
+		blocks = append(blocks, sdk.NewToolUseBlock(tc.ID, input, tc.Name))
+	}
+	return blocks
 }
 
 // toTools converts tool definitions to SDK tool params, decoding each JSON Schema
@@ -206,6 +373,59 @@ func toTools(tools []core.LLMTool) ([]sdk.ToolUnionParam, error) {
 	return out, nil
 }
 
+// applyThinking sets the configured thinking on the request, unless the request
+// cannot carry it. Both exclusions are a 400 from the server that no SDK checks,
+// and in both thinking is the side that yields: it is an optimization, while the
+// thing it conflicts with is what the caller actually asked for.
+//
+// A forced tool choice is the first. That is what lets a single thinking-enabled
+// connector still serve an ai-router, which forces a choice on every call.
+//
+// The second is a max_tokens too small to hold the budget. toThinking checks that
+// at startup, but only against the connector's own default: any AI block may
+// override maxTokens per call, so a budget validated at startup can still exceed
+// what a particular request allows. Startup cannot see that request, which is why
+// the check has to happen again here.
+func (c *Connector) applyThinking(params *sdk.MessageNewParams, tc core.LLMToolChoice) {
+	if !c.thinkingEnabled() {
+		return
+	}
+	if forcesTool(tc) {
+		slog.Debug("llm-anthropic omitting thinking: the request forces a tool choice",
+			"model", c.model, "mode", tc.Mode)
+		return
+	}
+	if budget := c.budgetTokens(); budget > 0 && budget >= params.MaxTokens {
+		// Warn rather than debug: unlike a forced choice, which is structural and
+		// expected, this is a configuration mismatch the user can fix.
+		slog.Warn("llm-anthropic omitting thinking: the request's maxTokens cannot fit the thinking budget",
+			"model", c.model, "maxTokens", params.MaxTokens, "thinkingBudget", budget)
+		return
+	}
+	params.Thinking = c.thinking
+}
+
+// budgetTokens reports the configured thinking budget, or 0 when there is no
+// fixed one to check. Adaptive carries no budget: the model decides within
+// whatever max_tokens the request sets, so it fits by construction.
+func (c *Connector) budgetTokens() int64 {
+	if c.thinking.OfEnabled == nil {
+		return 0
+	}
+	return c.thinking.OfEnabled.BudgetTokens
+}
+
+// thinkingEnabled reports whether a thinking config was configured at all.
+func (c *Connector) thinkingEnabled() bool {
+	return c.thinking.OfEnabled != nil || c.thinking.OfAdaptive != nil
+}
+
+// forcesTool reports whether the choice compels a tool call. Those are the modes
+// extended thinking cannot be combined with; none and auto are both fine.
+func forcesTool(tc core.LLMToolChoice) bool {
+	return tc.Mode == core.LLMToolChoiceAny || tc.Mode == core.LLMToolChoiceTool
+}
+
 // toToolChoice maps the agnostic tool choice to the SDK union. The second return
 // is false for the auto (zero) mode, signalling the caller to leave it unset.
 func toToolChoice(tc core.LLMToolChoice) (sdk.ToolChoiceUnionParam, bool) {
@@ -222,14 +442,24 @@ func toToolChoice(tc core.LLMToolChoice) (sdk.ToolChoiceUnionParam, bool) {
 }
 
 // translateResponse folds the SDK message into the agnostic response, collecting
-// text and tool_use blocks and mapping the stop reason.
+// text, thinking and tool_use blocks and mapping the stop reason. Thinking is kept
+// out of Text and carried on Raw, so reasoning cannot reach a caller that folds
+// the answer into a message body.
 func translateResponse(message *sdk.Message) *core.LLMResponse {
 	var text strings.Builder
 	var calls []core.LLMToolCall
+	var thinking []core.LLMThinkingBlock
 	for _, block := range message.Content {
 		switch block.Type {
 		case "text":
 			text.WriteString(block.Text)
+		case "thinking":
+			thinking = append(thinking, core.LLMThinkingBlock{
+				Text:      block.Thinking,
+				Signature: block.Signature,
+			})
+		case "redacted_thinking":
+			thinking = append(thinking, core.LLMThinkingBlock{Redacted: []byte(block.Data)})
 		case "tool_use":
 			calls = append(calls, core.LLMToolCall{
 				ID:    block.ID,
@@ -242,9 +472,34 @@ func translateResponse(message *sdk.Message) *core.LLMResponse {
 		Text:       text.String(),
 		ToolCalls:  calls,
 		StopReason: mapStopReason(string(message.StopReason)),
+		Usage:      translateUsage(message.Usage),
 	}
-	resp.Raw = core.LLMMessage{Role: core.LLMRoleAssistant, Text: resp.Text, ToolCalls: calls}
+	resp.Raw = core.LLMMessage{
+		Role:      core.LLMRoleAssistant,
+		Text:      resp.Text,
+		Thinking:  thinking,
+		ToolCalls: calls,
+	}
 	return resp
+}
+
+// translateUsage converts the SDK's token counts, reporting nil when the response
+// carried none. OutputTokens passes through unchanged: Anthropic documents it as
+// "the inclusive, authoritative total used for billing" with thinking already
+// counted inside, which is the convention core.LLMUsage adopts.
+func translateUsage(u sdk.Usage) *core.LLMUsage {
+	// Cached input counts separately from InputTokens, which reports only the
+	// uncached remainder, so a response can carry real usage with both of the
+	// other two at zero.
+	if u.InputTokens == 0 && u.OutputTokens == 0 && u.CacheReadInputTokens == 0 {
+		return nil
+	}
+	return &core.LLMUsage{
+		InputTokens:    int(u.InputTokens),
+		OutputTokens:   int(u.OutputTokens),
+		ThinkingTokens: int(u.OutputTokensDetails.ThinkingTokens),
+		CachedTokens:   int(u.CacheReadInputTokens),
+	}
 }
 
 // mapStopReason maps the Anthropic stop reason wire value to the agnostic one.

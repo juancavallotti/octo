@@ -343,7 +343,7 @@ func (j *jwtValidate) verifierFor(ctx context.Context) (*oidc.IDTokenVerifier, e
 // hadToken distinguishes an invalid token (error="invalid_token") from a missing
 // one (a bare challenge, per RFC 6750).
 func (j *jwtValidate) reject(msg *types.Message, hadToken bool) *types.Message {
-	msg.Body = map[string]any{"error": "unauthorized"}
+	msg.Body = map[string]any{errorKey: "unauthorized"}
 	msg.Variables.Set(httpStatusVar, j.rejectStatus)
 	if j.wwwAuthenticate {
 		msg.Variables.Set(wwwAuthenticateVar, j.challenge(hadToken))

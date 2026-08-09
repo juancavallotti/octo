@@ -34,20 +34,26 @@ import (
 func init() {
 	registerConnector()
 	registerJWTValidate()
+	registerSSEEvent()
 }
 
+// connectorType is this connector's registered type name. It doubles as the name
+// an unnamed instance is shared under, which is what lets the sse-event block
+// default to it.
+const connectorType = "http"
+
 func registerConnector() {
-	core.MustRegisterConnector("http", func() core.Connector {
+	core.MustRegisterConnector(connectorType, func() core.Connector {
 		return &Connector{}
 	})
 
 	core.RegisterConnectorMeta(core.ConnectorMeta{
-		Type:     "http",
+		Type:     connectorType,
 		Label:    "HTTP Server",
 		Icon:     "Webhook",
 		Settings: reflect.TypeFor[connectorSettings](),
 		Sources: []core.SourceMeta{{
-			Type:     "http",
+			Type:     connectorType,
 			Label:    "HTTP route",
 			Icon:     "Webhook",
 			Settings: reflect.TypeFor[sourceSettings](),
@@ -144,6 +150,11 @@ type Connector struct {
 	mu      sync.Mutex
 	pending map[string]chan result
 	routes  map[string]struct{}
+	// streams holds the open SSE connections, keyed by an id of the stream's own
+	// rather than by a message's. It is deliberately separate from pending: that
+	// one correlates a single invocation's terminal event, while a stream outlives
+	// the invocation that opened it (see sseStream).
+	streams map[string]*sseStream
 }
 
 // Start decodes the global settings, binds the listener eagerly (so a port
@@ -194,6 +205,7 @@ func (c *Connector) Start(ctx context.Context, config types.ConnectorConfig) err
 	c.serving = make(chan struct{})
 	c.pending = make(map[string]chan result)
 	c.routes = make(map[string]struct{})
+	c.streams = make(map[string]*sseStream)
 
 	c.unsubscribe = core.DefaultEventBus().Subscribe(c.onFlowEvent)
 	return nil

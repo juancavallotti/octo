@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	sdk "github.com/openai/openai-go/v2"
+
 	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/types"
 )
@@ -252,5 +254,38 @@ func TestEmbedRequiresInput(t *testing.T) {
 	}
 	if _, err := c.Embed(context.Background(), core.EmbedRequest{Model: "text-embedding-3-small"}); err == nil {
 		t.Error("expected error for empty input")
+	}
+}
+
+func TestTranslateUsage(t *testing.T) {
+	if got := translateUsage(sdk.CompletionUsage{}); got != nil {
+		t.Errorf("empty usage = %+v, want nil", got)
+	}
+	got := translateUsage(sdk.CompletionUsage{
+		PromptTokens:            100,
+		CompletionTokens:        40,
+		CompletionTokensDetails: sdk.CompletionUsageCompletionTokensDetails{ReasoningTokens: 25},
+		PromptTokensDetails:     sdk.CompletionUsagePromptTokensDetails{CachedTokens: 30},
+	})
+	// CompletionTokens already counts reasoning, so OutputTokens passes through.
+	want := core.LLMUsage{InputTokens: 100, OutputTokens: 40, ThinkingTokens: 25, CachedTokens: 30}
+	if got == nil || *got != want {
+		t.Errorf("usage = %+v, want %+v", got, want)
+	}
+}
+
+func TestToReasoningEffort(t *testing.T) {
+	for _, in := range []string{"", "off"} {
+		if got, err := toReasoningEffort(in); err != nil || got != "" {
+			t.Errorf("toReasoningEffort(%q) = %q (err %v), want unset", in, got, err)
+		}
+	}
+	for _, in := range []string{"minimal", "low", "medium", "high"} {
+		if got, err := toReasoningEffort(in); err != nil || string(got) != in {
+			t.Errorf("toReasoningEffort(%q) = %q (err %v), want it passed through", in, got, err)
+		}
+	}
+	if _, err := toReasoningEffort("extreme"); err == nil {
+		t.Error("expected an error for an unknown effort")
 	}
 }

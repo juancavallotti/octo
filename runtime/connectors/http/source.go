@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/juancavallotti/octo/runtime/core"
@@ -38,27 +39,39 @@ type sourceSettings struct {
 	// {contentType, rawData} (using the request's Content-Type) instead of parsing
 	// it. Lets non-JSON payloads (forms, XML, binary text) enter the flow.
 	RawBody bool `json:"rawBody" octo:"label=Raw body,default=false"`
-	// Per-route wait for the flow; defaults to the connector request timeout.
+	// Per-route wait for the flow; defaults to the connector request timeout. On an
+	// SSE route this bounds the wait for the first frame instead, since nothing is
+	// written before one (see sseSettings).
 	Timeout duration `json:"timeout" octo:"label=Timeout,type=string"`
 	// Request body size cap.
 	MaxBodyBytes int64 `json:"maxBodyBytes" octo:"label=Max body bytes,default=1048576"`
+	// Serve the route as a server-sent event stream. Inert unless enabled.
+	SSE sseSettings `json:"sse" octo:"label=Server-sent events,type=object"`
 }
 
 // source is a single request/response HTTP route. It builds a message per
 // request, sends it on the flow channel, and waits for the flow's terminal
 // event to write the response.
 type source struct {
-	conn         *Connector
-	out          chan<- *types.Message
-	pattern      string
-	params       []string
-	headers      []string
-	respHeaders  []string
-	corrIDHeader string
-	rawBodyVar   string
-	rawBody      bool
-	timeout      time.Duration
-	maxBody      int64
+	conn *Connector
+	// connectorName is the name a block resolves this source's connector by, so a
+	// stream address can name its own owner. It is the flow's binding when there is
+	// one, and otherwise the connector type — which is the name an unnamed instance
+	// is shared under.
+	connectorName string
+	out           chan<- *types.Message
+	pattern       string
+	params        []string
+	headers       []string
+	respHeaders   []string
+	corrIDHeader  string
+	rawBodyVar    string
+	rawBody       bool
+	timeout       time.Duration
+	maxBody       int64
+	sse           sseConfig
+	// sseLive counts the streams this route currently holds open, for maxStreams.
+	sseLive atomic.Int64
 
 	srcDone  chan struct{}
 	stopOnce sync.Once
@@ -79,6 +92,10 @@ func (c *Connector) NewSource(
 	if err := cfg.Settings.Decode(&set); err != nil {
 		return nil, err
 	}
+	connectorName := strings.TrimSpace(cfg.Connector)
+	if connectorName == "" {
+		connectorName = connectorType
+	}
 	if strings.TrimSpace(set.Path) == "" {
 		return nil, errors.New("http source requires a \"path\" setting")
 	}
@@ -94,18 +111,20 @@ func (c *Connector) NewSource(
 
 	pattern := c.basePath + ensureLeadingSlash(set.Path)
 	s := &source{
-		conn:         c,
-		out:          out,
-		pattern:      pattern,
-		params:       parsePathParams(set.Path),
-		headers:      set.Headers,
-		respHeaders:  set.ResponseHeaders,
-		corrIDHeader: set.CorrelationIDHeader,
-		rawBodyVar:   set.RawBodyVar,
-		rawBody:      set.RawBody,
-		timeout:      timeout,
-		maxBody:      maxBody,
-		srcDone:      make(chan struct{}),
+		conn:          c,
+		connectorName: connectorName,
+		out:           out,
+		pattern:       pattern,
+		params:        parsePathParams(set.Path),
+		headers:       set.Headers,
+		respHeaders:   set.ResponseHeaders,
+		corrIDHeader:  set.CorrelationIDHeader,
+		rawBodyVar:    set.RawBodyVar,
+		rawBody:       set.RawBody,
+		timeout:       timeout,
+		maxBody:       maxBody,
+		sse:           newSSEConfig(set.SSE),
+		srcDone:       make(chan struct{}),
 	}
 
 	if err := c.registerRoute(pattern, s.handle); err != nil {
@@ -136,6 +155,11 @@ func (s *source) Stop(context.Context) error {
 
 // handle turns one HTTP request into a flow execution and writes the result.
 func (s *source) handle(w http.ResponseWriter, r *http.Request) {
+	if s.sse.enabled {
+		s.handleSSE(w, r)
+		return
+	}
+
 	body, status, ok := s.readBody(w, r)
 	if !ok {
 		writeError(w, status, "invalid request body")
@@ -201,6 +225,11 @@ func (s *source) awaitResult(w http.ResponseWriter, r *http.Request, ch chan res
 // httpStatusVar is the message variable a flow may set to choose the HTTP
 // response status; when absent or out of range the default status is used.
 const httpStatusVar = "httpStatus"
+
+// errorKey is the field the connector reports failures under in a JSON error
+// body, and the event name of a stream's default error frame — the same word for
+// the same idea, so a client parses a failure one way on either path.
+const errorKey = "error"
 
 // propagateResponseHeaders copies the source's configured responseHeaders from
 // message variables of the same name onto the response, skipping empty values
@@ -388,7 +417,7 @@ func (s *source) releaseSend() { s.sendWG.Done() }
 func writeError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
+	_ = json.NewEncoder(w).Encode(map[string]string{errorKey: message})
 }
 
 // ensureLeadingSlash returns path with a guaranteed single leading slash.

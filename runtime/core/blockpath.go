@@ -36,6 +36,12 @@ const (
 	// the caller needs an answer before the real work has finished.
 	BranchOnReject      = "onReject"
 	BranchBuildResponse = "buildResponse"
+	// BranchEvents is the observer chain an ai-agent runs once per agent event. It
+	// neither carries the message onward nor answers the caller: its result is
+	// discarded, so nothing it produces can reach the run it reports on. The single
+	// exception is a stop request, which propagates and ends the agent — the chain
+	// cannot change what the run produces, but it can say nobody is listening.
+	BranchEvents = "events"
 )
 
 // BlockLabel is how a block is named in an address: its name, else its type,

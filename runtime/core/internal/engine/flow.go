@@ -539,6 +539,9 @@ func compositeSlots(cfg types.BlockConfig) []string {
 	add(cfg.MemoryThreadID != "", "memoryThreadId")
 	add(cfg.MemoryMaxTokens != 0, "memoryMaxTokens")
 	add(cfg.MemoryCompaction != "", "memoryCompaction")
+	add(cfg.Events != nil, "events")
+	add(len(cfg.Emit) > 0, "emit")
+	add(cfg.Stream, "stream")
 	return append(slots, takeoverSlots(cfg)...)
 }
 

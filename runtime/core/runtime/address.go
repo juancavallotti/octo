@@ -265,7 +265,7 @@ func (r resolver) branchChain(block *types.BlockConfig, branch string) (*[]types
 // the "branches: …" hint on a bad address is stable.
 var reservedOrder = []string{
 	core.BranchProcess, core.BranchError, core.BranchThen, core.BranchElse,
-	core.BranchBody, core.BranchDefault, core.BranchOnReject,
+	core.BranchBody, core.BranchDefault, core.BranchOnReject, core.BranchEvents,
 }
 
 // reservedBranches maps each branch name every composite spells the same way to the
@@ -280,6 +280,7 @@ var reservedBranches = map[string]func(*types.BlockConfig) *[]types.BlockConfig{
 	core.BranchBody:     func(b *types.BlockConfig) *[]types.BlockConfig { return subChain(b.Body) },
 	core.BranchDefault:  func(b *types.BlockConfig) *[]types.BlockConfig { return subChain(b.Default) },
 	core.BranchOnReject: func(b *types.BlockConfig) *[]types.BlockConfig { return subChain(b.OnReject) },
+	core.BranchEvents:   func(b *types.BlockConfig) *[]types.BlockConfig { return subChain(b.Events) },
 	core.BranchBuildResponse: func(b *types.BlockConfig) *[]types.BlockConfig {
 		return subChain(b.BuildResponse)
 	},

@@ -24,6 +24,7 @@ Each connector concentrates provider policy — API key, model, and the default 
 | `apiKey` | string | Yes | — | Authenticates with the OpenAI API; source from `${OPENAI_API_KEY}`. Never logged. |
 | `model` | string | No | `gpt-5.4` | Model ID. |
 | `maxTokens` | int | No | model default | Default response token cap (0 = the model default); a request may override it. |
+| `reasoning` | enum `off` \| `minimal` \| `low` \| `medium` \| `high` | No | `off` | How much reasoning effort a reasoning-capable model spends. `off` sends nothing and leaves it to the model. It steers cost, not visibility: Chat Completions never returns reasoning content. |
 | `baseURL` | string | No | OpenAI API | Overrides the API endpoint — for proxies, Azure, or **OpenAI-compatible servers** (any endpoint speaking the Chat Completions protocol, e.g. a local model server). |
 
 ## `llm-anthropic` connector
@@ -35,6 +36,8 @@ Each connector concentrates provider policy — API key, model, and the default 
 | `apiKey` | string | Yes | — | Authenticates with the Anthropic API; source from `${ANTHROPIC_API_KEY}`. Never logged. |
 | `model` | string | No | `claude-sonnet-4-6` | Model ID. |
 | `maxTokens` | int | No | `4096` | Default response token cap; a request may override it. |
+| `thinking` | enum `off` \| `adaptive` \| `budgeted` | No | `off` | Extended thinking. `adaptive` lets the model decide how much; `budgeted` caps it at `thinkingBudget`. |
+| `thinkingBudget` | int | No | — | Thinking token budget, used when `thinking: budgeted`. Must be at least 1024 and below `maxTokens`, which it counts towards. Validated at startup, and re-checked per request — a block whose own `maxTokens` is too small to hold the budget omits thinking for that call rather than failing it. |
 | `baseURL` | string | No | Anthropic API | Overrides the API endpoint (for proxies or testing). |
 
 ## `llm-gemini` connector
@@ -46,7 +49,44 @@ Each connector concentrates provider policy — API key, model, and the default 
 | `apiKey` | string | Yes | — | Authenticates with the Gemini API; source from `${GEMINI_API_KEY}`. Never logged. |
 | `model` | string | No | `gemini-3.5-flash` | Model ID. |
 | `maxTokens` | int | No | model default | Default response token cap (0 = the model default); a request may override it. |
+| `thinking` | enum `off` \| `dynamic` \| `budgeted` | No | `off` | Thinking. `dynamic` lets the model decide how much; `budgeted` caps it at `thinkingBudget`. Either also asks for thought content to be returned. |
+| `thinkingBudget` | int | No | — | Thinking token budget, used when `thinking: budgeted`. |
 | `baseURL` | string | No | Gemini API | Overrides the API endpoint (for proxies or testing). |
+
+## Streaming and thinking
+
+All three connectors stream, and an [ai-agent](/reference/blocks/ai#ai-agent) with
+`stream: true` reports the model's output to its `events` path as it is produced.
+A streamed turn returns exactly what the same turn would have returned unstreamed
+— same text, tool calls, stop reason and usage — so turning streaming on changes
+*when* a flow learns things, never *what* it learns.
+
+The providers do not agree on what they stream, and the gaps are permanent rather
+than pending:
+
+| | text | thinking | tool arguments |
+|---|---|---|---|
+| `llm-anthropic` | fragments | fragments | fragments |
+| `llm-openai` | fragments | **never** | fragments |
+| `llm-gemini` | fragments | fragments | whole, in one event |
+
+OpenAI's Chat Completions API returns no reasoning content at all — not while
+streaming, not on a finished message — so `reasoning` steers how much a model
+spends without ever showing it. Gemini delivers a tool call's arguments complete
+rather than in pieces; a path that concatenates `tool_input` fragments per call
+still ends up with the same JSON on all three.
+
+Two things to know before turning thinking on:
+
+- **Reasoning never reaches the message body.** It rides on the assistant turn, not
+  in the answer, so a flow that folds the result into a body cannot publish the
+  model's chain of thought by accident.
+- **Anthropic thinking yields when a request cannot carry it**, rather than
+  failing. Two things it cannot be combined with are a forced tool choice — the
+  API answers 400, so `ai-router`, which forces one on every call, gets its
+  requests without thinking while `ai-agent` is unaffected — and a per-block
+  `maxTokens` too small to hold `thinkingBudget`, which startup validation cannot
+  see because it only knows the connector's own default.
 
 ## Example
 
