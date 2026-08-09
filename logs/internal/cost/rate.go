@@ -116,6 +116,14 @@ func normalize(s string) string {
 	return strings.ToLower(strings.TrimSpace(s))
 }
 
+// normalizeProvider is how a vendor name is spelled: upper-cased and trimmed, as
+// the catalogues publish it. It is a separate spelling from normalize because
+// providers are compared against rankedProviders and stored as an identity, not
+// matched against anything.
+func normalizeProvider(s string) string {
+	return strings.ToUpper(strings.TrimSpace(s))
+}
+
 // moreSpecific orders two entries by how precisely they name a model, most
 // precise first, and is a *total* order on distinct entries — that is the point
 // of its length. A partial order would leave ties for the sort to break by input

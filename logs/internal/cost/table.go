@@ -1,7 +1,5 @@
 package cost
 
-import "strings"
-
 // Table resolves a served model id to the rate that prices it.
 //
 // It is immutable once built and safe for concurrent readers, which is what lets
@@ -28,7 +26,7 @@ type Table struct {
 func NewTable(rates []Rate) *Table {
 	t := &Table{exact: make(map[string][]Rate)}
 	for _, r := range rates {
-		r.Provider = strings.ToUpper(strings.TrimSpace(r.Provider))
+		r.Provider = normalizeProvider(r.Provider)
 		r.Pattern = normalize(r.Pattern)
 		if !r.usable() {
 			continue
