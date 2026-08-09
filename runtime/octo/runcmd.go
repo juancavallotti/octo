@@ -85,7 +85,14 @@ func runCommand(args []string) error {
 	if err != nil {
 		return fmt.Errorf("init runtime services: %w", err)
 	}
-	defer func() { _ = svc.Close() }()
+	// Closing the module is what drains and closes the trace sink, so a failure
+	// here means an incomplete trace — the one thing the person who asked for it
+	// cannot find out any other way.
+	defer func() {
+		if closeErr := svc.Close(); closeErr != nil {
+			slog.Error("closing runtime services", "error", closeErr)
+		}
+	}()
 	teeDefaultLoggerToSink(svc)
 	// Hand the module's publisher to the process. Everything that emits a trace
 	// looks it up here — the engine, the connectors, the sources — and none of

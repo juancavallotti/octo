@@ -172,11 +172,17 @@ func (s *Services) Close() error {
 	// Drain the trace publisher before the connection it publishes on: its Close
 	// waits for what is queued to reach the server, which a closed connection
 	// would make impossible.
+	//
+	// Its error is reported rather than swallowed — it means records this pod
+	// saw never reached the broker, which nothing downstream can infer — but it
+	// does not stop the connection from closing: a shutdown that leaves a socket
+	// open because telemetry failed has made the problem worse.
+	var traceErr error
 	if closer, ok := s.traces.(interface{ Close() error }); ok {
-		_ = closer.Close()
+		traceErr = closer.Close()
 	}
 	s.conn.Close()
-	return nil
+	return traceErr
 }
 
 // requireEnv returns an error naming every variable that is empty.
