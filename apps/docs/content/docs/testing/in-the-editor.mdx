@@ -59,6 +59,12 @@ level applies to every case; a case can override one — and the override **repl
 the file's mock for that address whole, rather than merging with it, so a case reads
 as a complete statement of the world it runs in.
 
+A case can also **lift** one of the file's mocks, so that one case runs the real
+block — the second picker under a case's mocks, *Run the real block*, which offers
+the addresses the file mocks. In the file it is a `null` on the address. It is for the
+case whose whole point is what the real block does; without it, the file-level mocks
+would have to be dropped and repeated on every other case.
+
 A spec is a list of **When…** cases over the message the block received, and an
 **Otherwise…** default. Without the default, a message matching no case *fails* the
 block — a mock replaces the block, so there is no real one left to fall through to,

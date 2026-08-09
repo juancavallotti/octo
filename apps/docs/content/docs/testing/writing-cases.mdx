@@ -297,6 +297,11 @@ one, even when every SQL block is mocked. `file::memory:` is usually the answer.
   the real one, which is no longer in the flow. Give the spec a `default` when you
   want a catch-all — a "mocked" call that quietly still reached the network would be
   the exact bug mocking exists to prevent.
+- **A case can un-mock, with `address: null`.** That lifts the file's mock for one
+  case, so the real block runs there — for the case whose whole point is what the
+  real block does. `mocks: {}` is not that: an empty map contributes nothing and the
+  file's mocks all still apply. See
+  [un-mocking](/testing/test-file#un-mocking-a-block-for-one-case).
 - **`skip: "a reason"`** reports the case as skipped and never runs it. The reason is
   required, because a skip with no reason is a test nobody will ever come back to.
 - **A `cache-scope` hit skips its body.** Each case is a fresh process with an empty
