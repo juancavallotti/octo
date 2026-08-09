@@ -28,10 +28,19 @@ const (
 	// a failure, with how long it took.
 	TraceBlockPostInvoke TraceKind = "block.post-invoke"
 
-	// TraceLLMTurn records one model turn of an ai-agent: the request boundary
-	// both the blocking and the streaming path share, with the usage the
-	// provider reported for it.
+	// TraceLLMTurn records one model turn of any AI block — an ai-agent iteration,
+	// an ai-router round, an ai-retry attempt, an ai-mapping call: the request
+	// boundary both the blocking and the streaming path share, with the model that
+	// served it and the usage the provider reported for it.
 	TraceLLMTurn TraceKind = "llm.turn"
+	// TraceLLMEmbed records one embedding call, with the size of the batch it sent,
+	// the model that served it, and the tokens the provider charged.
+	//
+	// It is separate from TraceLLMTurn because the two are billed from different
+	// rate cards and share almost no attributes — an embedding has no stop reason,
+	// no tool calls and no output tokens. A reader that summed one as the other
+	// would be wrong in a way the arithmetic would never reveal.
+	TraceLLMEmbed TraceKind = "llm.embed"
 
 	// TraceSourceReceive records a message admitted from an inbound request.
 	TraceSourceReceive TraceKind = "source.receive"
