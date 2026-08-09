@@ -107,11 +107,7 @@ export default function MocksField({
           </div>
 
           {spec === null ? (
-            <p className="text-[11px] text-sky-700 dark:text-sky-400">
-              The real block runs in this case: the file&apos;s mock for it is lifted, and
-              whatever the block actually does — the HTTP call, the write, the failure —
-              happens.
-            </p>
+            <NullNote address={address} inherited={inherited} />
           ) : (
             <>
               {inherited?.includes(address) && (
@@ -152,5 +148,36 @@ export default function MocksField({
         </label>
       )}
     </section>
+  );
+}
+
+/**
+ * What an address with no spec under it means — which depends entirely on whether there
+ * is a mock above it to lift.
+ *
+ * Over one of the file's mocks, in a case, it is the un-mock. Anywhere else it is a mock
+ * that does nothing, and dolphin refuses the whole file: at the file level there is
+ * nothing above to remove, and over an address the file does not mock there is nothing to
+ * remove either. The form cannot produce those two — the picker only offers what can be
+ * lifted — but the YAML view can, and a file typed there is read back into this form.
+ * Saying "the real block runs" over an entry that will not load is the one thing this
+ * note must never do.
+ */
+function NullNote({ address, inherited }: { address: string; inherited?: string[] }) {
+  if (inherited?.includes(address)) {
+    return (
+      <p className="text-[11px] text-sky-700 dark:text-sky-400">
+        The real block runs in this case: the file&apos;s mock for it is lifted, and
+        whatever the block actually does — the HTTP call, the write, the failure —
+        happens.
+      </p>
+    );
+  }
+  return (
+    <p className="text-[11px] text-rose-500">
+      {inherited
+        ? "Nothing to lift: the file does not mock this address, so this null removes nothing. dolphin refuses the file rather than let it read as “the real block runs here”."
+        : "A null lifts an inherited mock, and the file has nothing above it. Here it is a mock with no cases and no default, which dolphin refuses."}
+    </p>
   );
 }

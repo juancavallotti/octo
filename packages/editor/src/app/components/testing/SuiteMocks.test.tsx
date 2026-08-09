@@ -49,7 +49,12 @@ function storeWith(content: string): TestSuiteStore {
   };
 }
 
-async function open(content: string, where: "settings" | string) {
+/**
+ * `where` is the case to open, or "settings". A RegExp is accepted because the rail badges
+ * a case that has an error with its count, so a suite written to be invalid does not match
+ * its own case name exactly.
+ */
+async function open(content: string, where: "settings" | string | RegExp) {
   const user = userEvent.setup();
 
   function Seed({ children }: { children: ReactNode }) {
@@ -293,6 +298,30 @@ describe("case-level mocks", () => {
     expect(
       screen.queryByRole("combobox", { name: "Run the real block" }),
     ).not.toBeInTheDocument();
+  });
+
+  // A file-level null is not a mock — dolphin refuses it — so there is nothing under it
+  // to lift. Offering it would hand the user an action whose only result is a second
+  // error, and calling it "the real block runs" would describe a file that will not load.
+  it("neither offers nor celebrates a null the file itself declares", async () => {
+    await open("flow: orders\nmocks:\n  orders.charge: null\ncases:\n  - name: it runs\n", "it runs");
+
+    expect(
+      screen.queryByRole("combobox", { name: "Run the real block" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/The real block runs in this case/)).not.toBeInTheDocument();
+  });
+
+  // Reachable through the YAML view, which is read back into this form.
+  it("says a case null over an address the file does not mock lifts nothing", async () => {
+    await open(
+      "flow: orders\nmocks:\n  orders.charge:\n    default:\n      body: {ok: true}\n" +
+        "cases:\n  - name: it runs\n    mocks:\n      orders.audit: null\n",
+      /it runs/,
+    );
+
+    expect(screen.getByText(/Nothing to lift/)).toBeInTheDocument();
+    expect(screen.queryByText(/The real block runs in this case/)).not.toBeInTheDocument();
   });
 
   it("goes back to inheriting the file's mock when the un-mock is removed", async () => {
