@@ -284,4 +284,13 @@ type LLMResponse struct {
 	Raw        LLMMessage
 	// Usage is the turn's token accounting, or nil when the provider reported none.
 	Usage *LLMUsage
+	// Model is the model that actually served the turn, as the provider reported
+	// it, falling back to the id the connector was configured with when it
+	// reported none.
+	//
+	// The two differ more often than not, and the difference is the point: a
+	// configured alias resolves to a dated snapshot, and it is the snapshot that
+	// answered and the snapshot that is billed. Pairing Usage with the alias
+	// would attribute tokens to something that does not have a price.
+	Model string
 }

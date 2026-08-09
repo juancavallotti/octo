@@ -146,7 +146,7 @@ func (c *Connector) Complete(ctx context.Context, req core.LLMRequest) (*core.LL
 	if err != nil {
 		return nil, fmt.Errorf("llm-openai complete: %w", err)
 	}
-	return translateResponse(cc)
+	return translateResponse(cc, c.model)
 }
 
 // Stream runs one Chat Completions turn over the streaming endpoint, reporting
@@ -200,7 +200,7 @@ func (c *Connector) Stream(
 	if len(cc.Choices) > 0 {
 		cc.Choices[0].FinishReason = finish
 	}
-	return translateResponse(&cc)
+	return translateResponse(&cc, c.model)
 }
 
 // emitChunk maps one chunk onto the canonical vocabulary. The final usage chunk
@@ -429,7 +429,7 @@ func toToolChoice(tc core.LLMToolChoice) (sdk.ChatCompletionToolChoiceOptionUnio
 
 // translateResponse folds the first choice into the agnostic response, collecting
 // text and function tool calls and mapping the finish reason.
-func translateResponse(cc *sdk.ChatCompletion) (*core.LLMResponse, error) {
+func translateResponse(cc *sdk.ChatCompletion, configuredModel string) (*core.LLMResponse, error) {
 	if len(cc.Choices) == 0 {
 		return nil, fmt.Errorf("llm-openai: response had no choices")
 	}
@@ -453,9 +453,20 @@ func translateResponse(cc *sdk.ChatCompletion) (*core.LLMResponse, error) {
 		ToolCalls:  calls,
 		StopReason: mapFinishReason(choice.FinishReason, message.Refusal),
 		Usage:      translateUsage(cc.Usage),
+		Model:      servedBy(cc.Model, configuredModel),
 	}
 	resp.Raw = core.LLMMessage{Role: core.LLMRoleAssistant, Text: message.Content, ToolCalls: calls}
 	return resp, nil
+}
+
+// servedBy is the model that answered, preferring what the provider echoed over
+// what the connector asked for. The two differ whenever a configured alias
+// resolves to a dated snapshot, and it is the snapshot that was billed.
+func servedBy(reported, configured string) string {
+	if reported != "" {
+		return reported
+	}
+	return configured
 }
 
 // translateUsage converts the SDK's token counts, reporting nil when the response

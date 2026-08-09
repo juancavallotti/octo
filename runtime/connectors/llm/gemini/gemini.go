@@ -170,7 +170,7 @@ func (c *Connector) Complete(ctx context.Context, req core.LLMRequest) (*core.LL
 	if err != nil {
 		return nil, fmt.Errorf("llm-gemini complete: %w", err)
 	}
-	return translateResponse(resp), nil
+	return translateResponse(resp, c.model), nil
 }
 
 // Stream runs one GenerateContent turn over the streaming endpoint, reporting
@@ -201,7 +201,7 @@ func (c *Connector) Stream(
 			return nil, emitErr
 		}
 	}
-	return translateResponse(fold.response()), nil
+	return translateResponse(fold.response(), c.model), nil
 }
 
 // streamFold reassembles a streamed turn into one response.
@@ -474,13 +474,14 @@ func toToolConfig(tc core.LLMToolChoice) (*genai.ToolConfig, bool) {
 // translateResponse folds the first candidate into the agnostic response. Gemini
 // reports STOP even when returning function calls, so the presence of calls drives
 // the tool-use stop reason. The synthesized ToolCallID is the function name.
-func translateResponse(resp *genai.GenerateContentResponse) *core.LLMResponse {
+func translateResponse(resp *genai.GenerateContentResponse, configuredModel string) *core.LLMResponse {
 	usage := translateUsage(resp.UsageMetadata)
 	if len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil {
 		return &core.LLMResponse{
 			StopReason: core.LLMStopRefusal,
 			Raw:        core.LLMMessage{Role: core.LLMRoleAssistant},
 			Usage:      usage,
+			Model:      servedBy(resp.ModelVersion, configuredModel),
 		}
 	}
 	cand := resp.Candidates[0]
@@ -519,6 +520,7 @@ func translateResponse(resp *genai.GenerateContentResponse) *core.LLMResponse {
 		ToolCalls:  calls,
 		StopReason: mapFinishReason(cand.FinishReason, len(calls) > 0),
 		Usage:      usage,
+		Model:      servedBy(resp.ModelVersion, configuredModel),
 	}
 	out.Raw = core.LLMMessage{
 		Role:      core.LLMRoleAssistant,
@@ -527,6 +529,16 @@ func translateResponse(resp *genai.GenerateContentResponse) *core.LLMResponse {
 		ToolCalls: calls,
 	}
 	return out
+}
+
+// servedBy is the model that answered, preferring what the provider echoed over
+// what the connector asked for. The two differ whenever a configured alias
+// resolves to a dated snapshot, and it is the snapshot that was billed.
+func servedBy(reported, configured string) string {
+	if reported != "" {
+		return reported
+	}
+	return configured
 }
 
 // translateUsage converts the SDK's token counts, reporting nil when the response

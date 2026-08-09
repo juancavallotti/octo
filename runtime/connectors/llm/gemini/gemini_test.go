@@ -248,7 +248,7 @@ func TestTranslateResponseKeepsThoughtsOutOfText(t *testing.T) {
 			ThoughtsTokenCount:      7,
 			CachedContentTokenCount: 3,
 		},
-	})
+	}, "gemini-2.5-flash")
 
 	if out.Text != "your balance is 42" {
 		t.Errorf("text = %q, want the answer only — reasoning must not reach Text", out.Text)
@@ -277,7 +277,7 @@ func TestTranslateResponseCarriesThoughtSignatureToCall(t *testing.T) {
 			}},
 			FinishReason: genai.FinishReasonStop,
 		}},
-	})
+	}, "gemini-2.5-flash")
 	if len(out.ToolCalls) != 1 {
 		t.Fatalf("tool calls = %d, want 1", len(out.ToolCalls))
 	}
@@ -337,5 +337,30 @@ func TestTranslateUsageEmptyIsNil(t *testing.T) {
 	got := translateUsage(&genai.GenerateContentResponseUsageMetadata{ThoughtsTokenCount: 12})
 	if got == nil || got.ThinkingTokens != 12 || got.OutputTokens != 12 {
 		t.Errorf("thoughts-only metadata = %+v, want it reported with output inclusive", got)
+	}
+}
+
+// The model that answered is not always the model that was asked for: a
+// configured alias resolves to a dated snapshot, and it is the snapshot that was
+// billed. Pairing token usage with the alias would attribute the cost to
+// something that does not have a price.
+func TestTranslateResponsePrefersTheServedModel(t *testing.T) {
+	answer := &genai.GenerateContentResponse{
+		Candidates: []*genai.Candidate{{
+			Content:      &genai.Content{Parts: []*genai.Part{{Text: "ok"}}},
+			FinishReason: genai.FinishReasonStop,
+		}},
+	}
+
+	answer.ModelVersion = "gemini-2.5-flash-002"
+	if got := translateResponse(answer, "gemini-2.5-flash").Model; got != "gemini-2.5-flash-002" {
+		t.Errorf("Model = %q, want the version the provider reported", got)
+	}
+
+	// A provider that reports nothing leaves the configured id, which is still
+	// better than nothing at all.
+	answer.ModelVersion = ""
+	if got := translateResponse(answer, "gemini-2.5-flash").Model; got != "gemini-2.5-flash" {
+		t.Errorf("Model = %q, want the configured id as the fallback", got)
 	}
 }
