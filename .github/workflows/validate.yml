@@ -1,8 +1,27 @@
 name: validate
 
+# Pull requests, and main. Deliberately nothing else: an unfiltered `on: push`
+# alongside `on: pull_request` validated every branch with an open PR twice —
+# same jobs, same commit, same answer, two sets of runner minutes and two
+# status entries on the PR. The pull request is the gate; main is validated on
+# merge so every commit there has a result to bisect against.
+#
+# The cost is that a branch with no PR open is not validated. Open the PR —
+# draft counts — which is the point at which the result is worth having.
 on:
   push:
+    branches: [main]
   pull_request:
+
+# One live run per pull request. Pushing again while a run is in flight — a
+# fixup, or rebasing onto the branch below in a stack — otherwise leaves the
+# earlier run grinding five jobs through a commit nobody will merge. It also
+# collapses the duplicate `synchronize` GitHub emits when a stack's base branch
+# moves. Main is exempt: its commits are release candidates, and each keeps its
+# own result rather than being cancelled by the next merge.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   validate:
