@@ -150,8 +150,10 @@ func TestTraceFileTightensAnExistingPermissiveFile(t *testing.T) {
 }
 
 // A named pipe is a legitimate --traces-file: it is how someone watches a run
-// live without a file to clean up afterwards. Records must reach it, and its
-// permissions are not the runtime's to rewrite.
+// live without a file to clean up afterwards. Records must reach it, its
+// permissions are not the runtime's to rewrite, and closing it must report no
+// error — there is no disk behind a pipe to sync to, and Linux answers fsync on
+// one with EINVAL where macOS quietly succeeds. closeTracer is what asserts that.
 func TestTraceSinkWritesToANonRegularFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "trace.fifo")
 	if err := syscall.Mkfifo(path, 0o600); err != nil {
@@ -182,6 +184,51 @@ func TestTraceSinkWritesToANonRegularFile(t *testing.T) {
 		t.Fatal("could not open the fifo for reading")
 	}
 	defer func() { _ = reader.Close() }()
+}
+
+// TestTraceSinkSyncsOnlyRegularFiles pins the mechanism the test above depends on,
+// on every platform rather than only the one whose fsync refuses a pipe: the sink
+// decides what it may sync when it opens the file, not by trying and seeing.
+func TestTraceSinkSyncsOnlyRegularFiles(t *testing.T) {
+	dir := t.TempDir()
+
+	sink, err := newTraceSink(filepath.Join(dir, "trace.jsonl"))
+	if err != nil {
+		t.Fatalf("new sink: %v", err)
+	}
+	if !sink.regular {
+		t.Error("an ordinary trace file was not treated as syncable")
+	}
+	if err := sink.Close(); err != nil {
+		t.Errorf("close: %v", err)
+	}
+
+	fifo := filepath.Join(dir, "trace.fifo")
+	if mkErr := syscall.Mkfifo(fifo, 0o600); mkErr != nil {
+		t.Skipf("mkfifo unavailable: %v", mkErr)
+	}
+	opened := make(chan *os.File, 1)
+	go func() {
+		//nolint:gosec // G304: the path is this test's own t.TempDir fifo
+		reader, openErr := os.OpenFile(fifo, os.O_RDONLY, 0)
+		opened <- reader
+		_ = openErr
+	}()
+
+	pipeSink, err := newTraceSink(fifo)
+	if err != nil {
+		t.Fatalf("new fifo sink: %v", err)
+	}
+	if pipeSink.regular {
+		t.Error("a fifo was treated as syncable, which fsync refuses on Linux")
+	}
+	if err := pipeSink.Close(); err != nil {
+		t.Errorf("close fifo sink: %v", err)
+	}
+
+	if reader := <-opened; reader != nil {
+		_ = reader.Close()
+	}
 }
 
 // An empty File is the module's cue to name the file itself: the format and the

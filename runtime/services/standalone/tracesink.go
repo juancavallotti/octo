@@ -59,6 +59,9 @@ type traceSink struct {
 	file *os.File
 	buf  *bufio.Writer
 	enc  *json.Encoder
+	// regular reports whether the file is an ordinary file rather than a fifo or a
+	// device. It decides whether Close syncs — see there.
+	regular bool
 }
 
 // newTraceSink opens path for appending, creating it if needed. An existing file
@@ -79,9 +82,9 @@ func newTraceSink(path string) (*traceSink, error) {
 	if err != nil {
 		return nil, fmt.Errorf("standalone: open trace file %q: %w", path, err)
 	}
-	restrict(file, path)
+	regular := restrict(file, path)
 	buf := bufio.NewWriterSize(file, traceWriteBuffer)
-	return &traceSink{file: file, buf: buf, enc: json.NewEncoder(buf)}, nil
+	return &traceSink{file: file, buf: buf, enc: json.NewEncoder(buf), regular: regular}, nil
 }
 
 // restrict narrows a trace file that others can read.
@@ -95,20 +98,30 @@ func newTraceSink(path string) (*traceSink, error) {
 // Only regular files are touched. --traces-file is allowed to name a fifo or
 // /dev/stdout to watch a run live, and chmod on those is either meaningless or
 // somebody else's business.
-func restrict(file *os.File, path string) {
+//
+// It reports whether the file is a regular one, which is the same question Close
+// has to answer, so the stat is done once here rather than twice.
+func restrict(file *os.File, path string) bool {
 	info, err := file.Stat()
 	if err != nil {
+		// Unknown rather than false: a file whose kind could not be read is treated
+		// as ordinary, so a stat that failed for an unrelated reason does not
+		// silently cost a real file its sync.
 		slog.Warn("standalone: could not check the trace file's permissions",
 			"file", path, "error", err)
-		return
+		return true
 	}
-	if !info.Mode().IsRegular() || info.Mode().Perm()&^traceFilePerm == 0 {
-		return
+	if !info.Mode().IsRegular() {
+		return false
+	}
+	if info.Mode().Perm()&^traceFilePerm == 0 {
+		return true
 	}
 	if err := file.Chmod(traceFilePerm); err != nil {
 		slog.Warn("standalone: the trace file is readable by others and could not be restricted",
 			"file", path, "mode", info.Mode().Perm().String(), "error", err)
 	}
+	return true
 }
 
 // Write appends one record. json.Encoder terminates each value with a newline,
@@ -139,10 +152,18 @@ func (s *traceSink) Flush() error {
 // the loss the buffer exists to avoid, paid for a guarantee nobody asked tracing
 // for. One sync on a graceful stop is what makes the file complete when the
 // runtime was actually allowed to finish.
+//
+// Only a regular file is synced. --traces-file is allowed to name a fifo or
+// /dev/stdout, and there is no disk behind those to flush to: Linux answers
+// fsync on a pipe with EINVAL, where macOS quietly succeeds. Syncing them would
+// report a failure to close the sink on every run that used one, on one platform
+// only — a fault invented by the closing, not found by it.
 func (s *traceSink) Close() error {
 	flushErr := s.Flush()
-	if err := s.file.Sync(); err != nil && flushErr == nil {
-		flushErr = fmt.Errorf("standalone: sync trace file: %w", err)
+	if s.regular {
+		if err := s.file.Sync(); err != nil && flushErr == nil {
+			flushErr = fmt.Errorf("standalone: sync trace file: %w", err)
+		}
 	}
 	if err := s.file.Close(); err != nil && flushErr == nil {
 		flushErr = fmt.Errorf("standalone: close trace file: %w", err)
