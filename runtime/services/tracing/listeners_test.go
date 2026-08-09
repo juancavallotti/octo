@@ -27,6 +27,12 @@ func (c *collector) Publish(event types.TraceEvent) {
 	c.records = append(c.records, event)
 }
 
+func (c *collector) count() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.records)
+}
+
 func (c *collector) only(t *testing.T) types.TraceEvent {
 	t.Helper()
 	c.mu.Lock()

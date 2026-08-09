@@ -26,6 +26,7 @@ import (
 	"flag"
 	"log/slog"
 	"strings"
+	"sync"
 
 	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/services"
@@ -84,6 +85,10 @@ type Service struct {
 	vars       bool
 	maxPayload int
 	buffer     int
+
+	// watching guards listener registration, which the runtime's event streams
+	// offer no way to undo.
+	watching sync.Once
 }
 
 // New returns the service with nothing resolved yet; Flags fills it in.
@@ -219,26 +224,30 @@ func (s *Service) warn() {
 // watch registers the two listeners: one on the flow-event bus for the shape of
 // each invocation, one on the block dispatcher for what happened inside it.
 //
-// The block dispatcher has no unsubscribe, so this registers once, for the life
-// of the process — a --watch reload must not accumulate a listener per
-// generation. That is also why the listener re-checks core.Tracer().Enabled()
+// Neither has an unsubscribe, so registration happens once for the life of the
+// process and the sync.Once enforces it rather than leaving it to how the CLI
+// happens to call Start. A second registration would not fail or warn — it would
+// quietly write every record twice, which is the kind of wrong that survives a
+// long way. That is also why the listener re-checks core.Tracer().Enabled()
 // rather than trusting that registration implies recording.
 func (s *Service) watch() {
-	core.DefaultEventBus().Subscribe(s.onFlowEvent)
+	s.watching.Do(func() {
+		core.DefaultEventBus().Subscribe(s.onFlowEvent)
 
-	events := core.DefaultBlockEvents()
-	if s.blocks == watchAll {
-		events.AddSync(s.onBlockEvent)
-		return
-	}
-	addresses := parseAddresses(s.blocks)
-	if len(addresses) == 0 {
-		slog.Warn("tracing: --traces-blocks named no addresses, no blocks will be traced",
-			"value", s.blocks)
-		return
-	}
-	events.AddSyncFor(addresses, s.onBlockEvent)
-	slog.Info("tracing: recording named blocks", "blocks", len(addresses))
+		events := core.DefaultBlockEvents()
+		if s.blocks == watchAll {
+			events.AddSync(s.onBlockEvent)
+			return
+		}
+		addresses := parseAddresses(s.blocks)
+		if len(addresses) == 0 {
+			slog.Warn("tracing: --traces-blocks named no addresses, no blocks will be traced",
+				"value", s.blocks)
+			return
+		}
+		events.AddSyncFor(addresses, s.onBlockEvent)
+		slog.Info("tracing: recording named blocks", "blocks", len(addresses))
+	})
 }
 
 // Stop implements services.HostedService. Draining and closing belong to the

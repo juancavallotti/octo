@@ -139,6 +139,38 @@ func TestStartDoesNotInstallAPublisher(t *testing.T) {
 	}
 }
 
+// Neither event stream has an unsubscribe, so a second Start must not register a
+// second listener. It would not fail or warn — it would quietly write every
+// record twice, and a trace that says a block ran twice when it ran once is
+// worse than one that is merely missing.
+//
+// The assertion is on the delta rather than the total: this package's other
+// tests have already registered listeners on the same process-wide dispatcher,
+// and there is no way to take them back off.
+func TestStartingTwiceRegistersOneListener(t *testing.T) {
+	c := collecting(t)
+
+	msg := traceMessage(t, map[string]any{"amount": float64(1)})
+	event := blockEvent(msg)
+
+	core.DefaultBlockEvents().Emit(context.Background(), event)
+	baseline := c.count()
+
+	s := parseFlags(t, "--traces")
+	for range 2 {
+		if err := s.Start(context.Background(), services.NewHealth()); err != nil {
+			t.Fatalf("start: %v", err)
+		}
+	}
+
+	// The second emit re-runs the baseline listeners as well, so what this
+	// service added is the total less two baselines.
+	core.DefaultBlockEvents().Emit(context.Background(), event)
+	if added := c.count() - baseline*2; added != 1 {
+		t.Fatalf("two Starts produced %d records per block event, want 1", added)
+	}
+}
+
 // The service registers itself, so a binary importing this package gets it
 // without any wiring of its own.
 func TestServiceRegistersItself(t *testing.T) {
