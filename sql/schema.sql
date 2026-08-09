@@ -260,3 +260,243 @@ CREATE TABLE IF NOT EXISTS logs (
 
 CREATE INDEX IF NOT EXISTS idx_logs_deployment_ts ON logs (deployment_id, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_logs_ts ON logs (ts DESC);
+
+-- traces stores the trace records deployed runtimes ship over the internal.traces
+-- NATS subject, persisted by the same aggregator service that owns `logs`. One row
+-- is one record: the runtime's tracing has no span/parent-span model, so nesting is
+-- reconstructed by a reader from `trace_id` (the group), `seq` (the order within one
+-- publisher), `event_id` (the single message) and `path` (the block's address in the
+-- grammar core/blockpath.go defines).
+--
+-- `deployment_id`, `app_name` and `app_version` arrive stamped by the emitting pod,
+-- exactly as they do on a log record, so a trace keeps the exact integration version
+-- that produced it even after the deployment is rolled to a new tag. `integration_id`
+-- is resolved once at ingest from `deployment_id` (an immutable relation) so
+-- per-integration cost queries never join back. Neither carries a foreign key, for
+-- the same forensics reason `logs` gives.
+--
+-- `ts` is when the traced thing happened and `duration_ns` how long it took, so an
+-- interval is [ts - duration_ns, ts] — the runtime stamps a post-invoke at completion.
+-- A record that marks a point rather than an interval has duration_ns = 0.
+--
+-- `trace_id` defaults to '' rather than being nullable because the trace.dropped
+-- marker — the in-band record announcing how many records the publisher had to throw
+-- away — carries no trace id at all, and '' indexes without three-valued logic. It
+-- carries no timestamp either, so ingest stamps one, the way a log record with no
+-- `time` is stamped.
+--
+-- `body` and `vars` are the captured message payload, NULL when capture is off, when
+-- the message had none, or when the payload was over the runtime's cap (`truncated`
+-- says which). They are nullable rather than defaulting to '{}' because "not
+-- captured" and "captured, and empty" are different facts.
+CREATE TABLE IF NOT EXISTS traces (
+    id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    trace_id       varchar     NOT NULL DEFAULT '',
+    seq            bigint      NOT NULL DEFAULT 0,
+    kind           varchar     NOT NULL,
+    event_id       varchar     NOT NULL DEFAULT '',
+    correlation_id varchar     NOT NULL DEFAULT '',
+    flow           varchar     NOT NULL DEFAULT '',
+    path           varchar     NOT NULL DEFAULT '',
+    block_type     varchar     NOT NULL DEFAULT '',
+    ts             timestamptz NOT NULL,
+    duration_ns    bigint      NOT NULL DEFAULT 0,
+    error          text        NOT NULL DEFAULT '',
+    dropped        boolean     NOT NULL DEFAULT false,
+    truncated      boolean     NOT NULL DEFAULT false,
+    body           jsonb,
+    vars           jsonb,
+    attrs          jsonb       NOT NULL DEFAULT '{}'::jsonb,
+    deployment_id  uuid        NOT NULL,
+    integration_id uuid,
+    app_name       varchar     NOT NULL DEFAULT '',
+    app_version    varchar     NOT NULL DEFAULT '',
+    received_at    timestamptz NOT NULL DEFAULT now(),
+
+    -- Model-call accounting, lifted out of `attrs` onto columns so cost queries
+    -- neither parse JSON nor re-derive arithmetic. Populated only for the llm.turn
+    -- and llm.embed kinds; every other record leaves them at their defaults.
+    --
+    -- The token counts are NULLABLE on purpose. The runtime omits `attrs.usage`
+    -- entirely when the provider reported nothing, and a provider reporting nothing
+    -- is not a provider charging nothing — writing zeros here would erase that
+    -- distinction and under-report every total built on it. Note also that
+    -- output_tokens ALREADY INCLUDES thinking_tokens (the runtime normalizes every
+    -- provider to that inclusive figure), so summing the two double-counts.
+    --
+    -- cost_usd is numeric, not an integer of micro-dollars: one token of a $0.075/1M
+    -- model costs $7.5e-8, which micros round to zero. numeric also makes SUM() exact.
+    --
+    -- cost_status is what keeps "unpriced" from being read as "free". Every consumer
+    -- has to look at it to know what a NULL cost means:
+    --   ''             — not a model call
+    --   priced         — fully priced from a known rate
+    --   priced_partial — priced, but the rate card had no cache rate, so cached
+    --                    tokens were charged at the input rate (an over-estimate
+    --                    that says so)
+    --   unpriced_model — the model is not in the rate card; cost is unknown, NOT zero
+    --   no_usage       — the provider reported no usage; there is nothing to price
+    -- price_id is the audit trail: which llm_prices row produced cost_usd.
+    model           varchar NOT NULL DEFAULT '',
+    provider        varchar NOT NULL DEFAULT '',
+    input_tokens    integer,
+    output_tokens   integer,
+    thinking_tokens integer,
+    cached_tokens   integer,
+    cost_usd        numeric(20, 10),
+    cost_status     varchar NOT NULL DEFAULT '',
+    price_id        uuid
+);
+
+-- (trace_id, seq) serves the one query the detail view makes: every record of one
+-- trace, in publication order. The two time indexes mirror the logs table's pair —
+-- one app's records, and cross-deployment time scans (which retention pruning will
+-- ride once it exists).
+CREATE INDEX IF NOT EXISTS idx_traces_trace ON traces (trace_id, seq);
+CREATE INDEX IF NOT EXISTS idx_traces_deployment_ts ON traces (deployment_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_traces_ts ON traces (ts DESC);
+
+-- Cost rollups read only the two model-call kinds, which are a small fraction of the
+-- records, so the index that serves them is partial rather than paying for every
+-- block invocation.
+CREATE INDEX IF NOT EXISTS idx_traces_llm ON traces (integration_id, ts DESC)
+    WHERE kind IN ('llm.turn', 'llm.embed');
+
+-- Dropped-record markers are rarer still, and are the only way a reader learns the
+-- stream is incomplete. They carry no trace id, so they can only ever be reported per
+-- app and per time window — which is exactly what this index serves.
+CREATE INDEX IF NOT EXISTS idx_traces_dropped ON traces (deployment_id, ts DESC)
+    WHERE kind = 'trace.dropped';
+
+-- trace_summaries is one row per trace, maintained by upsert as records arrive.
+--
+-- It exists because the trace list is "one row per trace, newest first, keyset
+-- paginated", and deriving that from `traces` with GROUP BY trace_id ORDER BY min(ts)
+-- cannot use an index for the ordering: Postgres has to aggregate the whole qualifying
+-- set before it can order it, so the hundredth page costs what the first one does and
+-- both grow with total volume. A ten-block flow emits roughly two dozen records, so
+-- this table is one to two orders of magnitude smaller than the one it summarizes.
+--
+-- EVERY column here must be an order-independent aggregate of the records that fed it.
+-- Records arrive out of `seq` order (the publisher stamps the number and then queues
+-- the record) and spread across ingest batches, so any rule that depends on which
+-- record landed first is a rule that produces different answers on different runs.
+-- The upsert accordingly uses LEAST/GREATEST, addition, de-duped array union, and a
+-- ranked maximum for `status` (failed beats dropped beats ok) — never assignment.
+--
+-- `started_at` is MIN(ts - duration_ns), the same interval rule a waterfall applies,
+-- so the duration this table reports and the span a chart draws are the same number by
+-- construction rather than by two implementations agreeing.
+--
+-- A trace can cross deployments: the trace id rides on the message as an internal
+-- variable and ships as a header over queues and topics, so a flow that dispatches to
+-- another app keeps the same id. `deployment_id` is therefore the deployment of the
+-- record that ENTERED the trace (whichever batch carried it fills the identity
+-- columns), while `deployment_ids` accumulates every deployment seen.
+--
+-- `entry_kind`/`entry_label` name what started the trace: an HTTP request (method and
+-- route pattern), a schedule (the cron expression), or failing both, the root flow.
+-- The flow records carry no path and the source records carry no flow, which is why
+-- this is captured at ingest rather than derived on read.
+--
+-- `cost_usd` sums only what could be priced; `unpriced_calls` counts what could not.
+-- Keeping them apart is what stops an unknown model from silently reading as free.
+CREATE TABLE IF NOT EXISTS trace_summaries (
+    trace_id         varchar PRIMARY KEY,
+    deployment_id    uuid        NOT NULL,
+    deployment_ids   uuid[]      NOT NULL DEFAULT '{}',
+    integration_id   uuid,
+    app_name         varchar     NOT NULL DEFAULT '',
+    app_version      varchar     NOT NULL DEFAULT '',
+    started_at       timestamptz NOT NULL,
+    ended_at         timestamptz NOT NULL,
+    root_flow        varchar     NOT NULL DEFAULT '',
+    entry_kind       varchar     NOT NULL DEFAULT '',
+    entry_label      varchar     NOT NULL DEFAULT '',
+    status           varchar     NOT NULL DEFAULT 'ok',
+    root_duration_ns bigint      NOT NULL DEFAULT 0,
+    records          integer     NOT NULL DEFAULT 0,
+    llm_calls        integer     NOT NULL DEFAULT 0,
+    input_tokens     bigint      NOT NULL DEFAULT 0,
+    output_tokens    bigint      NOT NULL DEFAULT 0,
+    cached_tokens    bigint      NOT NULL DEFAULT 0,
+    cost_usd         numeric(20, 10) NOT NULL DEFAULT 0,
+    unpriced_calls   integer     NOT NULL DEFAULT 0,
+    models           text[]      NOT NULL DEFAULT '{}',
+    first_seen_at    timestamptz NOT NULL DEFAULT now(),
+    last_seen_at     timestamptz NOT NULL DEFAULT now()
+);
+
+-- The list view's orderings. Each carries trace_id as a tiebreaker because the cursor
+-- is composite: traces routinely start within the same millisecond, and a cursor on
+-- the timestamp alone skips or repeats rows that tie across a page boundary.
+CREATE INDEX IF NOT EXISTS idx_trace_summaries_app_started
+    ON trace_summaries (deployment_id, started_at DESC, trace_id DESC);
+CREATE INDEX IF NOT EXISTS idx_trace_summaries_integration_started
+    ON trace_summaries (integration_id, started_at DESC, trace_id DESC);
+CREATE INDEX IF NOT EXISTS idx_trace_summaries_started
+    ON trace_summaries (started_at DESC, trace_id DESC);
+
+-- "Show me what broke" is the first thing anyone asks of a trace view, and failures
+-- are a small minority of traces, so it gets a partial index of its own.
+CREATE INDEX IF NOT EXISTS idx_trace_summaries_failed
+    ON trace_summaries (deployment_id, started_at DESC)
+    WHERE status <> 'ok';
+
+-- llm_prices is the rate card the aggregator prices model calls from, kept as history
+-- rather than as current state.
+--
+-- Cost is frozen onto the trace row at ingest, so a price change must never move a
+-- number that has already been reported. Rows are therefore closed and superseded
+-- (effective_to is stamped, a new row inserted) rather than updated in place, and the
+-- row that priced a record is recorded on it as traces.price_id.
+--
+-- `model` is a PATTERN, not a served model id, and `operator` says how to apply it —
+-- the vocabulary of the upstream catalogue: `equals` (exact), `startsWith` (prefix),
+-- `includes` (substring). Resolution prefers the most specific match; see the cost
+-- package for the full ordering. Rates are per one million tokens, as published.
+--
+-- The partial unique index is what makes "refresh only when a price actually changed"
+-- enforceable rather than aspirational: at most one open row per pattern, so an
+-- unchanged fetch is a no-op and a changed one is a close plus an insert. A pattern
+-- that disappears from upstream is deliberately LEFT OPEN — a model vanishing from a
+-- catalogue must not retroactively unprice the calls it already explained.
+CREATE TABLE IF NOT EXISTS llm_prices (
+    id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    source             varchar NOT NULL,
+    provider           varchar NOT NULL,
+    model              varchar NOT NULL,
+    operator           varchar NOT NULL,
+    input_per_1m       numeric(20, 10) NOT NULL,
+    output_per_1m      numeric(20, 10) NOT NULL,
+    cache_read_per_1m  numeric(20, 10),
+    cache_write_per_1m numeric(20, 10),
+    preferred          boolean     NOT NULL DEFAULT false,
+    effective_from     timestamptz NOT NULL DEFAULT now(),
+    effective_to       timestamptz
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS llm_prices_current
+    ON llm_prices (source, provider, model, operator)
+    WHERE effective_to IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_llm_prices_history
+    ON llm_prices (source, provider, model, operator, effective_from DESC);
+
+-- llm_price_syncs records every attempt to refresh the rate card, successful or not.
+-- A pricing feed that quietly stopped answering looks exactly like a feed whose prices
+-- stopped changing, and the difference is the one an operator needs: without this
+-- table, costs drifting away from reality is invisible until someone checks a bill.
+CREATE TABLE IF NOT EXISTS llm_price_syncs (
+    id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    source     varchar     NOT NULL,
+    fetched_at timestamptz NOT NULL DEFAULT now(),
+    models     integer     NOT NULL DEFAULT 0,
+    added      integer     NOT NULL DEFAULT 0,
+    changed    integer     NOT NULL DEFAULT 0,
+    ok         boolean     NOT NULL DEFAULT true,
+    error      text        NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_llm_price_syncs_source_time
+    ON llm_price_syncs (source, fetched_at DESC);
