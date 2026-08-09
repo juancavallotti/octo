@@ -92,6 +92,9 @@ func (f fakeServices) Topics() core.Topics { return core.NoopTopics() }
 //nolint:ireturn // satisfies the RuntimeServices interface
 func (f fakeServices) Resources() core.ResourceLoader { return core.NoopResourceLoader{} }
 
+//nolint:ireturn // implements core.RuntimeServices
+func (f fakeServices) Traces() core.TracePublisher { return core.NoopTracer() }
+
 func (f fakeServices) Close() error { return nil }
 
 // oauth2Settings builds an http-client settings map configured for the

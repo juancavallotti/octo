@@ -42,10 +42,17 @@ const ModuleEnvVar = "RUNTIME_SERVICES_MODULE"
 const DefaultModule = "standalone"
 
 // Options carries construction inputs a provider may need beyond the context.
-// ResourceRoot roots the standalone module's filesystem resource loader (the
-// config directory); providers that resolve resources elsewhere (k8s) ignore it.
+// A provider reads what applies to it and ignores the rest.
 type Options struct {
+	// ResourceRoot roots the standalone module's filesystem resource loader (the
+	// config directory); providers that resolve resources elsewhere (k8s)
+	// ignore it.
 	ResourceRoot string
+	// Tracing configures the module's trace publisher. Disabled is the default,
+	// and a disabled module must not do setup with a side effect — notably it
+	// must not create an output file — so a run that asked for no traces leaves
+	// nothing behind.
+	Tracing core.TraceOptions
 }
 
 // Factory constructs a runtime services provider. Construction may do real work

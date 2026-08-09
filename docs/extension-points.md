@@ -102,11 +102,25 @@ blank import is behind `//go:build k8s` — see `runtime/octo/providers_*.go`).
 
 **Adding a capability to `core.RuntimeServices` is usually the wrong move.** The
 interface is already `//nolint:interfacebloat`, and widening it forces every
-provider to implement something most of them cannot. The pattern instead is an
-**optional side interface the caller type-asserts** — `core.LogShipper` is the
-worked example: the k8s module implements it, the standalone module does not, and
-`teeDefaultLoggerToSink` asserts and nil-checks rather than assuming. Copy that
-shape before you copy the interface.
+provider to implement something most of them cannot. The question to answer first
+is whether the capability is universal or optional.
+
+- **Optional — only some modules can have it.** Use an **optional side interface
+  the caller type-asserts**. `core.LogShipper` is the worked example: the k8s
+  module ships log records to a central subject, the standalone module ships
+  nothing at all, so `LogSink()` may return nil and `teeDefaultLoggerToSink`
+  asserts and nil-checks rather than assuming. This is the common case — reach
+  for it first.
+- **Universal — every module has one, they just differ.** Then it is an accessor,
+  like `Queues()`, `KV()` and `Traces()`. The standalone module queues in process
+  and the k8s module queues on NATS; the standalone module traces to a file and
+  the k8s module traces to a subject. There is no nil to check and no assertion
+  to write, because there is no module that lacks it. Forcing one of these
+  through a side interface buys nothing and costs every caller a type assertion
+  that can never fail.
+
+The test is not "is this new", it is "**could a module reasonably not have it?**"
+If yes, side interface. If no, accessor.
 
 ### Hosted facet
 

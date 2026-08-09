@@ -161,6 +161,15 @@ type RuntimeServices interface {
 	Topics() Topics
 	//nolint:ireturn // returns the ResourceLoader interface blocks and env loading depend on
 	Resources() ResourceLoader
+	// Traces returns where this module publishes trace records: a file for the
+	// standalone module, a broker subject for the k8s one. It is an accessor
+	// rather than an optional side interface (cf. LogShipper) because every
+	// module has somewhere to put them — what differs is where, exactly as it
+	// does for Queues and KV. It is never nil: a module with tracing disabled
+	// returns NoopTracer.
+	//
+	//nolint:ireturn // returns the TracePublisher interface emitters depend on
+	Traces() TracePublisher
 	Close() error
 }
 
@@ -186,6 +195,9 @@ func (noopRuntimeServices) Topics() Topics { return noopTopics{} }
 
 //nolint:ireturn // satisfies the RuntimeServices interface
 func (noopRuntimeServices) Resources() ResourceLoader { return NoopResourceLoader{} }
+
+//nolint:ireturn // satisfies the RuntimeServices interface
+func (noopRuntimeServices) Traces() TracePublisher { return NoopTracer() }
 
 func (noopRuntimeServices) Close() error { return nil }
 

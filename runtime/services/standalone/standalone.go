@@ -74,5 +74,11 @@ func (s *Services) Topics() core.Topics { return s.t }
 //nolint:ireturn // satisfies core.RuntimeServices
 func (s *Services) Resources() core.ResourceLoader { return s.resources }
 
+// Traces returns the module's trace publisher, which publishes nowhere: the
+// module has no sink of its own.
+//
+//nolint:ireturn // satisfies core.RuntimeServices
+func (s *Services) Traces() core.TracePublisher { return core.NoopTracer() }
+
 // Close releases resources. The standalone module holds none.
 func (s *Services) Close() error { return nil }

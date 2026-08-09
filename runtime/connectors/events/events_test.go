@@ -81,6 +81,9 @@ func (f fakeServices) Topics() core.Topics { return f.topics }
 //nolint:ireturn // satisfies core.RuntimeServices
 func (f fakeServices) Resources() core.ResourceLoader { return core.NoopResourceLoader{} }
 
+//nolint:ireturn // implements core.RuntimeServices
+func (f fakeServices) Traces() core.TracePublisher { return core.NoopTracer() }
+
 func (f fakeServices) Close() error { return nil }
 
 func contextWithTopics(t *fakeTopics) context.Context {

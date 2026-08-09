@@ -151,6 +151,12 @@ func (s *Services) Resources() core.ResourceLoader { return s.resources }
 //nolint:ireturn // satisfies core.LogShipper
 func (s *Services) LogSink() slog.Handler { return s.logSink }
 
+// Traces returns the module's trace publisher, which publishes nowhere: the
+// module has no sink of its own.
+//
+//nolint:ireturn // satisfies core.RuntimeServices
+func (s *Services) Traces() core.TracePublisher { return core.NoopTracer() }
+
 // Close releases the store client's idle connections and the NATS connection.
 // Leader-election campaigns are bound to the context passed to Acquire and stop
 // when the runtime stops.
