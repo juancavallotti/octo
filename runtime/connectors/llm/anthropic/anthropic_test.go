@@ -501,3 +501,13 @@ func TestThinkingYieldsToASmallerRequestMaxTokens(t *testing.T) {
 		}
 	})
 }
+
+// The vendor family the consumer prices against. Asserted as a literal rather
+// than against the constant, so a change to either is a change to a wire
+// contract and shows up as a failing test rather than as a silent re-spelling.
+func TestProviderNamesTheVendorFamily(t *testing.T) {
+	if got := (&Connector{}).Provider(); got != "ANTHROPIC" {
+		t.Errorf("Provider() = %q, want ANTHROPIC", got)
+	}
+	var _ core.LLMProvider = (*Connector)(nil)
+}

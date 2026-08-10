@@ -30,6 +30,37 @@ type LLMClient interface {
 	Complete(ctx context.Context, req LLMRequest) (*LLMResponse, error)
 }
 
+// LLMProvider is the optional half of a provider connector that names the vendor
+// family behind it. Callers type-assert for it exactly as they do for
+// LLMStreamClient and EmbedClient, so a connector that does not implement it
+// still works — its calls are simply recorded without a provider.
+//
+// It exists because the connector's configured *name* is the author's ("my-llm"),
+// not the vendor's, and the model id is not a reliable substitute: "gpt-4o" is
+// published under both OPENAI and AZURE, and a newly shipped Anthropic model can
+// match a BEDROCK pattern before the price catalogue lists it under ANTHROPIC.
+// Guessing wrong is not cosmetic — the provider decides how cached tokens are
+// counted, so it decides the cost.
+type LLMProvider interface {
+	// Provider returns the vendor family that serves this connector's calls, in
+	// the vocabulary the price catalogue uses: ANTHROPIC, OPENAI, GOOGLE.
+	//
+	// The family, not the endpoint: a connector pointed at a proxy or an
+	// OpenAI-compatible server still reports the family whose API and token
+	// accounting it speaks, because that is what the number downstream depends on.
+	Provider() string
+}
+
+// The vendor families the bundled connectors report. They are named here rather
+// than spelled at each connector so the vocabulary a cost reader parses is
+// enumerable from one place — and so the one that surprises people, Gemini's
+// vendor being GOOGLE, is written down once.
+const (
+	ProviderAnthropic = "ANTHROPIC"
+	ProviderOpenAI    = "OPENAI"
+	ProviderGoogle    = "GOOGLE"
+)
+
 // LLMStreamClient is the optional streaming half of a provider. A connector that
 // implements it can report a turn's output as it is produced instead of only when
 // it is finished. Callers type-assert for it exactly as they do for EmbedClient,

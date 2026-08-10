@@ -135,6 +135,13 @@ func toReasoningEffort(effort string) (shared.ReasoningEffort, error) {
 // Stop is a no-op: the connector holds no resources to release.
 func (c *Connector) Stop(context.Context) error { return nil }
 
+// Provider names the vendor family, in the vocabulary the price catalogue uses.
+// It is fixed rather than derived from baseURL: this connector speaks the OpenAI
+// API and its token accounting whether it is pointed at OpenAI, Azure, or any
+// other compatible server, and that accounting is what the figure downstream
+// depends on.
+func (c *Connector) Provider() string { return core.ProviderOpenAI }
+
 // Complete runs one Chat Completions turn, translating the request to SDK params
 // and the response back to the provider-agnostic DTOs.
 func (c *Connector) Complete(ctx context.Context, req core.LLMRequest) (*core.LLMResponse, error) {

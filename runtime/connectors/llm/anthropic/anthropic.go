@@ -169,6 +169,12 @@ func toThinking(set connectorSettings, maxTokens int64) (sdk.ThinkingConfigParam
 // Stop is a no-op: the connector holds no resources to release.
 func (c *Connector) Stop(context.Context) error { return nil }
 
+// Provider names the vendor family, in the vocabulary the price catalogue uses.
+// It is fixed rather than derived from baseURL: pointing this connector at a
+// proxy does not change whose API it speaks or how that API counts cached
+// tokens, which is what the figure downstream depends on.
+func (c *Connector) Provider() string { return core.ProviderAnthropic }
+
 // Complete runs one Messages turn, translating the request to SDK params and the
 // response back to the provider-agnostic DTOs.
 func (c *Connector) Complete(ctx context.Context, req core.LLMRequest) (*core.LLMResponse, error) {

@@ -300,3 +300,13 @@ func TestToReasoningEffort(t *testing.T) {
 		t.Error("expected an error for an unknown effort")
 	}
 }
+
+// The vendor family the consumer prices against — OPENAI whatever the baseURL
+// points at, because what the number depends on is whose token accounting the
+// API speaks, not which host answered.
+func TestProviderNamesTheVendorFamily(t *testing.T) {
+	if got := (&Connector{}).Provider(); got != "OPENAI" {
+		t.Errorf("Provider() = %q, want OPENAI", got)
+	}
+	var _ core.LLMProvider = (*Connector)(nil)
+}

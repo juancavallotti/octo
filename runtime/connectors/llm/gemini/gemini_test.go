@@ -375,3 +375,12 @@ func TestTranslateResponsePrefersTheServedModel(t *testing.T) {
 		t.Errorf("Model = %q, want the configured id as the fallback", got)
 	}
 }
+
+// GOOGLE, not GEMINI: the price catalogue spells Gemini's vendor that way, and a
+// family that does not match leaves every call here unpriced.
+func TestProviderNamesTheVendorFamily(t *testing.T) {
+	if got := (&Connector{}).Provider(); got != "GOOGLE" {
+		t.Errorf("Provider() = %q, want GOOGLE", got)
+	}
+	var _ core.LLMProvider = (*Connector)(nil)
+}
