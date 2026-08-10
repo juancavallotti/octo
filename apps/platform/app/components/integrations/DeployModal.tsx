@@ -252,7 +252,7 @@ export default function DeployModal({
 
           <Field
             label="Tracing"
-            hint="Records every flow, block and model call, with what each one cost. Off by default — it noticeably reduces throughput, so turn it on for a deployment you are investigating."
+            hint="Records every flow, block and model call, with what each one cost. For troubleshooting only — it significantly reduces throughput, so trace the deployment you are debugging and switch it off afterwards."
           >
             <TracingToggle busy={busy} checked={tracing} onChange={setTracing} />
           </Field>

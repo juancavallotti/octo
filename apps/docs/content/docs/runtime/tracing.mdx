@@ -241,9 +241,15 @@ OCTO_TRACING_BODIES=false
 OCTO_TRACING_BLOCKS=orders.charge
 ```
 
-Set them as integration environment variables and redeploy. These are read from
-the **process environment only**, not from a `.env` file: they are resolved when
-`octo run` parses its flags, before any config is loaded.
+On the platform you do not set the first one by hand: **Trace this deployment**
+in the deploy and rollout dialogs is a [per-deployment
+setting](/platform/deployments#tracing) that supplies it. The other two narrow
+what is captured and are bound as ordinary env vars.
+
+All of them are read from the **process environment only**, not from a `.env`
+file: they are resolved when `octo run` parses its flags, before any config is
+loaded. That is why the setting reaches a live deployment through a rollout — a
+pod has to start with it.
 
 What the pod publishes is then stored and queryable — see
 [Traces](/platform/traces) for how records are kept, what a model call is priced

@@ -318,7 +318,7 @@ function RolloutForm({
 
         <Field
           label="Tracing"
-          hint="Records every flow, block and model call, with what each one cost. Takes effect on this rollout, since the pods read it at startup."
+          hint="Records every flow, block and model call, with what each one cost. For troubleshooting only — it significantly reduces throughput. Takes effect on this rollout, since the pods read it at startup."
         >
           <TracingToggle busy={busy} checked={tracing} onChange={setTracing} />
         </Field>

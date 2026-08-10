@@ -11,13 +11,15 @@ See [Tracing](/runtime/tracing) for what the runtime emits and how to switch it 
 
 ## Turning it on
 
-Tracing is off unless asked for. Set it as an integration environment variable and redeploy:
+Tracing is off unless asked for. Tick **Trace this deployment** in the deploy or rollout dialog — it is a [per-deployment setting](/platform/deployments#tracing), so you switch it on for the one deployment you are investigating rather than for the integration.
 
-```
-OCTO_TRACING=true
-```
+<Callout type="warn">
+**Trace to troubleshoot, then switch it off.** Tracing significantly reduces the throughput of the deployment it is on — it records every block on the flow's own goroutine and marshals the message once per block to capture payloads. It is a debugging instrument, not a monitoring one: for steady-state health use [metrics](/runtime/observability) and [logs](/runtime/monitoring), which are aggregates and cost almost nothing.
+</Callout>
 
-`OCTO_TRACING_BODIES` and `OCTO_TRACING_BLOCKS` narrow what is captured; they are read from the process environment only, so they take effect on redeploy rather than on a config write.
+On an already-running deployment the switch takes effect through the rollout that carries it: the runtime resolves `OCTO_TRACING` when it parses its flags, before any config is loaded, so only pods that start with it are traced.
+
+`OCTO_TRACING_BODIES` and `OCTO_TRACING_BLOCKS` narrow what is captured. Those two have no dialog of their own — bind them as env vars on the deployment. They are read from the process environment only, so they too take effect on redeploy rather than on a config write.
 
 <Callout type="warn">
 Captured bodies and variables are stored as they arrived and are readable by anyone signed in to the platform — there is no per-tenant scoping on traces or logs today. A request body can hold credentials. On a shared cluster, prefer `OCTO_TRACING_BODIES=false`.

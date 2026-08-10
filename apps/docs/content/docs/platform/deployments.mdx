@@ -14,7 +14,7 @@ Deploying an integration runs a [version tag](/platform/snapshots) of it as its 
 For each deployment the orchestrator creates resources named `octo-dep-{deploymentId}` in its namespace, labelled with the deployment and integration ids:
 
 - **A ConfigMap** holding the frozen definition as `integration.yaml`, mounted read-only at `/etc/octo/integrations` — the runtime image's default config directory.
-- **A Deployment** running `octo-runtime` at the requested replica count (minimum 1). The orchestrator injects the runtime-services environment (`RUNTIME_SERVICES_MODULE=k8s`, `OCTO_DEPLOYMENT_ID`, `ORCHESTRATOR_URL`, `NATS_URL`, the pod's name/namespace via the downward API, and the deployment's display name, tag, and snapshot id) plus your env bindings.
+- **A Deployment** running `octo-runtime` at the requested replica count (minimum 1). The orchestrator injects the runtime-services environment (`RUNTIME_SERVICES_MODULE=k8s`, `OCTO_DEPLOYMENT_ID`, `ORCHESTRATOR_URL`, `NATS_URL`, the pod's name/namespace via the downward API, and the deployment's display name, tag, and snapshot id) plus your env bindings, and `OCTO_TRACING` when the deployment is [traced](#tracing).
 - **Services** — only for *networked* integrations (see below): a per-deployment ClusterIP Service, and a stable internal Service `octo-int-{slug}` other integrations address.
 - **An Ingress** — only when the deployment is exposed externally.
 
@@ -44,6 +44,22 @@ External endpoints require `BASE_DOMAIN` on the orchestrator (the Helm chart's `
 
 The deploy dialog lists every env var the tag's definition declares. Each can be bound to a **literal value** or a **cluster secret** by name (injected via `secretKeyRef`, so the value never touches the database). Keys already supplied by the tag's frozen `.env` resources count as provided. A deploy that leaves a *required* variable unbound — by neither a binding nor a frozen `.env` resource — is rejected up front instead of letting the pod crash-loop. Full details: [Resources and Secrets](/platform/resources-and-secrets).
 
+## Tracing
+
+**Trace this deployment** in the deploy and rollout dialogs runs its pods with the runtime's [tracer](/runtime/tracing) on, recording the flows and blocks each message passes through and every model call made on its behalf — the model calls priced with what they cost — for the platform to store and query. See [Traces](/platform/traces).
+
+<Callout type="warn">
+**Tracing is a troubleshooting tool, not a production setting.** It significantly reduces throughput: every traced block is recorded on the flow's own goroutine, and capturing payloads marshals the message once per block. Turn it on for the deployment you are debugging, and turn it off again once you have your answer — it is not something to leave running on a deployment serving real traffic.
+</Callout>
+
+That cost is why it is a per-deployment setting rather than an integration-wide one, and why it is off by default: a staging deployment can be traced while the production deployment of the same integration is not. Deployments that have it on are marked **Traced** in the deployment lists, so one left on by accident is visible at a glance.
+
+Because the runtime resolves `OCTO_TRACING` when it parses its flags — before any config is loaded — the setting only reaches a pod that starts with it. Changing it on a live deployment therefore goes through a **rollout**, which replaces the pods. A rollout that does not mention tracing leaves the deployment's setting as it was, so a plain version bump never stops a trace you are in the middle of reading.
+
+<Callout type="warn">
+Captured bodies and variables are stored as they arrived and are readable by anyone signed in to the platform. Avoid tracing a deployment whose messages carry credentials, or set `OCTO_TRACING_BODIES=false` as an env binding to record the sequence without payloads.
+</Callout>
+
 ## Status
 
 Deployment status is computed live from the cluster through Kubernetes informers, so reads are cheap and updates are push-based:
@@ -64,7 +80,7 @@ Each status change is published to NATS and streamed to the browser as SSE (see 
 
 ### Rolling out a new version
 
-A rollout ships a different tag's frozen definition to a live deployment as a **rolling update**: the orchestrator rewrites the ConfigMap, stamps a config-hash annotation on the pod template so Kubernetes rolls the pods, and records the new tag. The deployment keeps its identity — id, slug, internal and external URLs, replica count — and its env bindings (pass a replacement binding set to edit env during the rollout). Because the same mechanism accepts an older tag, **rollback is a rollout to the previous tag**.
+A rollout ships a different tag's frozen definition to a live deployment as a **rolling update**: the orchestrator rewrites the ConfigMap, stamps a config-hash annotation on the pod template so Kubernetes rolls the pods, and records the new tag. The deployment keeps its identity — id, slug, internal and external URLs, replica count — and its env bindings and tracing setting (pass a replacement binding set, or a tracing flag, to change either during the rollout). Because the same mechanism accepts an older tag, **rollback is a rollout to the previous tag**.
 
 Two guards apply, mirroring deploy: the target tag's required env vars must still be provided, and a tag that changes whether the integration is networked (adds or removes `HTTP_PORT`) is rejected — that would change the Service/Ingress topology, which a rolling update cannot express. Undeploy and redeploy instead.
 
