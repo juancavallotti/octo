@@ -52,10 +52,23 @@ export default function TracesManager({
   const [now, setNow] = useState(() => Date.now());
   const bounds = useMemo(() => windowFor(filters.window, now), [filters.window, now]);
 
+  // The URL follows the filters, but only when the two actually differ.
+  //
+  // Replacing unconditionally fires a navigation on the very first commit —
+  // including a hard load, where the URL already says exactly what the filters
+  // say. That navigation aborts the server actions this component's own effects
+  // have just started: child effects run before parent ones, so the trace detail
+  // gets its request out and the app list and trace list do not. Their promises
+  // then never settle, and both panes sit on "Loading…" for good.
+  const desiredQuery = writeFilters(filters);
+  const currentQuery = searchParams.toString();
   useEffect(() => {
-    const qs = writeFilters(filters);
-    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
-  }, [filters, pathname, router]);
+    if (desiredQuery === currentQuery) return;
+    router.replace(
+      desiredQuery ? `${pathname}?${desiredQuery}` : pathname,
+      { scroll: false },
+    );
+  }, [desiredQuery, currentQuery, pathname, router]);
 
   const apps = useTraceApps(bounds);
 

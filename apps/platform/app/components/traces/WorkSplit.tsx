@@ -66,8 +66,15 @@ export default function WorkSplit({ breakdown }: { breakdown: WorkBreakdown }) {
               {segment.label}
             </span>
             <span className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-black/[0.06] dark:bg-white/[0.08]">
+              {/* Floored at 2px for the same reason a waterfall bar is: a
+                  millisecond beside a second rounds to nothing, and an empty
+                  track reads as a full bar of a slightly different shade rather
+                  than as a value too small to see. */}
               <span
-                style={{ width: `${Math.min((value / total) * 100, 100)}%` }}
+                style={{
+                  width: `${Math.min((value / total) * 100, 100)}%`,
+                  minWidth: "2px",
+                }}
                 className={`block h-full rounded-full ${segment.color}`}
               />
             </span>
