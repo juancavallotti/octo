@@ -28,6 +28,8 @@ type fakeRepo struct {
 	statusCalls       int
 	updateSettingsErr error
 	updateMetadataErr error
+	// updateStateErr fails the combined metadata+settings write a rollout makes.
+	updateStateErr error
 	deleted           bool
 	deleteErr         error
 	// takenSlugs maps an already-claimed slug to its owning integration id, so
@@ -79,6 +81,20 @@ func (f *fakeRepo) UpdateSettings(_ context.Context, _ string, settings json.Raw
 func (f *fakeRepo) UpdateMetadata(_ context.Context, _ string, metadata json.RawMessage) error {
 	f.gotMetadata = metadata
 	return f.updateMetadataErr
+}
+
+func (f *fakeRepo) UpdateMetadataAndSettings(
+	_ context.Context, _ string, metadata, settings json.RawMessage,
+) error {
+	// Both or neither, like the single UPDATE it stands in for: a test that sees
+	// one of them land after a failure would be seeing something the real repo
+	// cannot do.
+	if f.updateStateErr != nil {
+		return f.updateStateErr
+	}
+	f.gotMetadata = metadata
+	f.gotSettings = settings
+	return nil
 }
 
 func (f *fakeRepo) Delete(_ context.Context, _ string) error {
@@ -1084,6 +1100,104 @@ func TestRolloutRejectsSnapshotFromAnotherIntegration(t *testing.T) {
 
 	if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil, nil); !errors.Is(err, ErrSnapshotMismatch) {
 		t.Errorf("got %v, want ErrSnapshotMismatch", err)
+	}
+}
+
+// TestRolloutFailsWhenItCannotRecordTheChange covers the whole point of #265: a
+// rollout that shipped new pods but could not store what it shipped must say so.
+//
+// Both settings a rollout can change follow "nil preserves, present replaces",
+// which makes the stored row the input to the *next* rollout and not merely a
+// record of this one. Swallow the write and the pods run the new value while the
+// row holds the old, so the next plain version bump reads the stale row and
+// silently undoes the operator's change. Reporting success is what makes that
+// invisible, so the assertion is on the error and not on the row.
+func TestRolloutFailsWhenItCannotRecordTheChange(t *testing.T) {
+	tracingOn := true
+	tests := []struct {
+		name    string
+		env     map[string]EnvBinding
+		tracing *bool
+	}{
+		{name: "env replaced", env: map[string]EnvBinding{"API_URL": {Value: "https://new"}}},
+		{name: "tracing switched on", tracing: &tracingOn},
+		{name: "plain version bump"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &fakeRepo{
+				getRet: Deployment{
+					ID: "dep-1", IntegrationID: "int-1",
+					Settings: json.RawMessage(`{"replicas":1}`),
+					Metadata: json.RawMessage(`{"slug":"orders"}`),
+				},
+				updateStateErr: errors.New("connection reset"),
+			}
+			snaps := &fakeSnapshots{ret: snapshot.Snapshot{
+				ID: "snap-2", IntegrationID: "int-1", Tag: "v2.0", Definition: exposableDef,
+			}}
+			kc := &fakeKube{status: kube.StatusRunning}
+			svc := NewService(repo, &fakeIntegrations{}, kc, WithSnapshots(snaps))
+
+			_, err := svc.Rollout(context.Background(), "dep-1", "snap-2", tc.env, tc.tracing)
+			if err == nil {
+				t.Fatal("Rollout reported success after failing to record the deployment")
+			}
+			// The error tells the operator the cluster moved even though the record
+			// did not, so it had better be true.
+			if !kc.rolledOut {
+				t.Error("kube.Rollout was not called, so the error message is wrong about the pods")
+			}
+			if !strings.Contains(err.Error(), "retry") {
+				t.Errorf("error = %v, want it to say the rollout can be retried", err)
+			}
+		})
+	}
+}
+
+// TestRolloutRecordsMetadataAndSettingsTogether pins the success path: both jsonb
+// blobs are written, and the returned Deployment carries them. The handler builds
+// its response straight off that value, so a rollout that returned the pre-write
+// deployment would serve the operator their own change back as if it had not
+// taken.
+func TestRolloutRecordsMetadataAndSettingsTogether(t *testing.T) {
+	repo := &fakeRepo{getRet: Deployment{
+		ID: "dep-1", IntegrationID: "int-1",
+		Settings: json.RawMessage(`{"replicas":2}`),
+		Metadata: json.RawMessage(`{"slug":"orders","tag":"v1.0"}`),
+	}}
+	snaps := &fakeSnapshots{ret: snapshot.Snapshot{
+		ID: "snap-2", IntegrationID: "int-1", Tag: "v2.0", Definition: exposableDef,
+	}}
+	kc := &fakeKube{status: kube.StatusRunning}
+	svc := NewService(repo, &fakeIntegrations{}, kc, WithSnapshots(snaps))
+
+	env := map[string]EnvBinding{"API_URL": {Value: "https://new"}}
+	on := true
+	dep, err := svc.Rollout(context.Background(), "dep-1", "snap-2", env, &on)
+	if err != nil {
+		t.Fatalf("Rollout: %v", err)
+	}
+
+	// Stored.
+	if got := ParseMetadata(repo.gotMetadata).Tag; got != "v2.0" {
+		t.Errorf("stored tag = %q, want v2.0", got)
+	}
+	stored := ParseSettings(repo.gotSettings)
+	if stored.SnapshotID != "snap-2" {
+		t.Errorf("stored snapshotId = %q, want snap-2", stored.SnapshotID)
+	}
+	if !stored.Tracing || stored.Env["API_URL"].Value != "https://new" {
+		t.Errorf("stored settings lost the rollout's changes: %+v", stored)
+	}
+
+	// Returned — the same facts, so the handler's response agrees with the row.
+	if got := ParseMetadata(dep.Metadata).Tag; got != "v2.0" {
+		t.Errorf("returned tag = %q, want v2.0", got)
+	}
+	returned := ParseSettings(dep.Settings)
+	if !returned.Tracing || returned.Env["API_URL"].Value != "https://new" {
+		t.Errorf("returned settings lost the rollout's changes: %+v", returned)
 	}
 }
 
