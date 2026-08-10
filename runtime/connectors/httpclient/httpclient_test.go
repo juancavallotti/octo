@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -40,6 +41,79 @@ func get(t *testing.T, c *Connector, path string) (int, string) {
 		t.Fatalf("ReadAll: %v", err)
 	}
 	return resp.StatusCode, string(body)
+}
+
+// TestResolveURL walks the whole base-path × ref-path matrix. Only one cell was
+// ever broken — a base with no path joined to a ref with no leading slash — but
+// it is the one nothing catches: the assertion is on RequestURI() rather than
+// String(), because String() inserts the missing slash itself and so reports a
+// perfectly good URL for a request that never reaches a handler.
+func TestResolveURL(t *testing.T) {
+	tests := []struct {
+		name    string
+		baseURL string
+		ref     string
+		want    string
+	}{
+		{"no base path, relative ref", "http://host", "things", "/things"},
+		{"no base path, absolute ref", "http://host", "/things", "/things"},
+		{"bare slash base, relative ref", "http://host/", "things", "/things"},
+		{"bare slash base, absolute ref", "http://host/", "/things", "/things"},
+		{"base prefix, relative ref", "http://host/v1", "things", "/v1/things"},
+		{"base prefix, absolute ref", "http://host/v1", "/things", "/v1/things"},
+		{"trailing slash prefix", "http://host/v1/", "things", "/v1/things"},
+		{"nested ref", "http://host/v1", "things/42", "/v1/things/42"},
+		{"ref trailing slash is kept", "http://host", "things/", "/things/"},
+		// An empty target is the base itself; url.RequestURI reports "/" for an
+		// empty path, so this is already a valid origin-form request line.
+		{"empty ref", "http://host", "", "/"},
+		{"empty ref with base prefix", "http://host/v1", "", "/v1"},
+		{"query on the ref", "http://host", "things?a=1", "/things?a=1"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c := startConnector(t, types.Settings{"baseURL": tc.baseURL})
+			ref, err := url.Parse(tc.ref)
+			if err != nil {
+				t.Fatalf("parse ref: %v", err)
+			}
+			if got := c.resolveURL(ref).RequestURI(); got != tc.want {
+				t.Errorf("RequestURI() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// The end-to-end half of the same bug: a relative path against a base with no
+// path used to produce "GET things HTTP/1.1", which net/http's server rejects
+// before routing. Asserting the handler ran at all is the point.
+func TestRelativePathReachesTheHandler(t *testing.T) {
+	var gotPath string
+	handled := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handled = true
+		gotPath = r.URL.Path
+		_, _ = io.WriteString(w, `{"ok":true}`)
+	}))
+	defer srv.Close()
+
+	// srv.URL is scheme://host with no trailing slash and no path — the exact
+	// shape the editor's "Base URL" field invites.
+	c := startConnector(t, types.Settings{"baseURL": srv.URL})
+
+	status, body := get(t, c, "things")
+	if !handled {
+		t.Fatal("handler never ran: the request target was not origin-form")
+	}
+	if status != http.StatusOK {
+		t.Fatalf("status = %d, want 200", status)
+	}
+	if gotPath != "/things" {
+		t.Errorf("path = %q, want /things", gotPath)
+	}
+	if body != `{"ok":true}` {
+		t.Errorf("body = %q", body)
+	}
 }
 
 func TestResolvesBasePathAndBearerAuth(t *testing.T) {

@@ -310,6 +310,20 @@ func (c *Connector) Do(req *http.Request) (*http.Response, error) {
 func (c *Connector) resolveURL(ref *url.URL) *url.URL {
 	final := *c.base
 	final.Path = joinPath(c.base.Path, ref.Path)
+	// A URL that has a host must carry an absolute path. RequestURI() — what
+	// actually goes on the wire — returns the path verbatim, so a relative one
+	// sends "GET things HTTP/1.1", which is not a valid origin-form target: the
+	// server rejects it at the parser with a bare 400 and no handler ever runs.
+	//
+	// This is the one place the invariant can be stated, because it is the only
+	// one that knows there is a host: Start validates the base is absolute, so
+	// every URL resolved here has one. joinPath cannot know — it sees two path
+	// strings. And nothing else notices, because String() inserts the missing
+	// slash when Host is set, so the log lines and the GET cache key both read
+	// perfectly while the request on the wire is malformed.
+	if final.Path != "" && !strings.HasPrefix(final.Path, "/") {
+		final.Path = "/" + final.Path
+	}
 	final.RawPath = ""
 	switch {
 	case c.base.RawQuery == "":
