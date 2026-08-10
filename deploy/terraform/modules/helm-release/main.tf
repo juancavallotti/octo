@@ -261,4 +261,18 @@ resource "helm_release" "octo" {
       value = var.kv_encryption_key
     }
   }
+
+  # Dev-run hash secret. Keys the HMAC deriving every dev run's identity and public
+  # hostname, so the chart's orchestrator.devRuns.enabled (true by default) refuses
+  # to render without it — a root that leaves this empty gets that error rather than
+  # a silently unkeyed install, which is the chart's design and not something to
+  # paper over here. Supplied only when set for the same reason as the KV key: the
+  # empty sentinel means "emit nothing", leaving whatever a values file said.
+  dynamic "set_sensitive" {
+    for_each = nonsensitive(var.dev_run_hash_secret != "") ? toset(["orchestrator.devRuns.hashSecret"]) : toset([])
+    content {
+      name  = set_sensitive.value
+      value = var.dev_run_hash_secret
+    }
+  }
 }

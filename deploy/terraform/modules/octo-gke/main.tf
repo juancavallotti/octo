@@ -198,6 +198,18 @@ resource "random_bytes" "kv_encryption_key" {
   }
 }
 
+# Dev-run hostname/identity HMAC key. Not optional either: the chart refuses to
+# render while orchestrator.devRuns.enabled is true (its default) and this is
+# empty. ignore_changes for the usual reason — rotating it re-labels every exposed
+# dev run and breaks webhooks registered against the old hostname.
+resource "random_bytes" "dev_run_hash_secret" {
+  length = 32
+
+  lifecycle {
+    ignore_changes = [length]
+  }
+}
+
 # --- The release ---
 
 module "octo" {
@@ -246,7 +258,8 @@ module "octo" {
   oidc_roles_claim   = var.oidc_roles_claim
   auth_secret        = var.oidc_enabled ? random_password.auth_secret.result : ""
 
-  kv_encryption_key = random_bytes.kv_encryption_key.base64
+  kv_encryption_key   = random_bytes.kv_encryption_key.base64
+  dev_run_hash_secret = random_bytes.dev_run_hash_secret.base64
 
   # Roll back a failed install rather than leaving half a release to inspect and
   # clean up by hand — this environment is rebuilt often enough that a clean

@@ -72,6 +72,21 @@ resource "random_bytes" "kv_encryption_key" {
   }
 }
 
+# Dev-run hash secret: 32 random bytes, base64 for the chart. Held in the release
+# state and never regenerated, which is the whole requirement — this keys the HMAC
+# deriving each dev run's public hostname, so rotating it re-labels every exposed
+# run and a webhook registered with Stripe or GitHub against the old hostname stops
+# being delivered, with nothing anywhere reporting it. Minted here rather than asked
+# for because the chart requires it whenever dev runs are on (they are, by default)
+# and there is nothing outside this deployment for the value to agree with.
+resource "random_bytes" "dev_run_hash_secret" {
+  length = 32
+
+  lifecycle {
+    ignore_changes = [length]
+  }
+}
+
 # Pull the target tag onto the node with a fresh token so the chart's pods
 # (imagePullPolicy IfNotPresent) find the images locally. Re-runs when the tag
 # changes; the chart install/upgrade depends on it.
@@ -196,6 +211,10 @@ module "octo" {
 
   # KV secret-namespace encryption key (base64), generated above and held in state.
   kv_encryption_key = random_bytes.kv_encryption_key.base64
+
+  # Dev-run hostname/identity HMAC key (base64), likewise generated above and stable
+  # in state. Required by the chart while orchestrator.devRuns.enabled is true.
+  dev_run_hash_secret = random_bytes.dev_run_hash_secret.base64
 
   depends_on = [null_resource.pull_images]
 }
