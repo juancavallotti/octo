@@ -326,4 +326,12 @@ func TestPriceNormalizesTheReportedProvider(t *testing.T) {
 	if got, _ := table.Price(call).CostUSD(); math.Abs(got-want) > epsilon {
 		t.Errorf("cost = %.12f, want %.12f (provider should normalize)", got, want)
 	}
+
+	// Whitespace names nothing, so it must fall back to the rate's provider
+	// rather than count as "reported" and skip the fallback altogether.
+	call.Provider = "   "
+	fellBack := amount(100, 3) + amount(900, 0.3) // inclusive, i.e. the BEDROCK rate's rule
+	if got, _ := table.Price(call).CostUSD(); math.Abs(got-fellBack) > epsilon {
+		t.Errorf("blank provider: cost = %.12f, want %.12f (should fall back to the rate)", got, fellBack)
+	}
 }

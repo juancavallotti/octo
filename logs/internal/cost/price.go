@@ -172,8 +172,11 @@ func (t *Table) Price(call Call) Priced {
 // It is the old behaviour exactly, kept so that adding the attribute changed no
 // historical figure.
 func providerOf(call Call, rate Rate) string {
-	if call.Provider != "" {
-		return normalizeProvider(call.Provider)
+	// Normalized before the emptiness check, not after: a reported provider of
+	// whitespace is non-empty as a string but names nothing, and taking it would
+	// skip the fallback and quietly apply the default convention.
+	if reported := normalizeProvider(call.Provider); reported != "" {
+		return reported
 	}
 	return rate.Provider
 }
