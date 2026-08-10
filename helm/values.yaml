@@ -206,13 +206,35 @@ orchestrator:
 # Log-aggregator service: consumes the NATS internal.logs subject (competing
 # consumer) and persists events to Postgres; serves the read query API the
 # platform's /logs view calls. Replicas scale safely (NATS queue group).
+# Telemetry aggregator. It consumes both internal.logs and internal.traces, and
+# serves the query API behind them — the name is historical, and tracked as its
+# own issue rather than a rename mid-stack.
 logs:
   repository: octo-logs-paas
   image: {}
+  # One replica by default. Both consumers join queue groups, so extra replicas
+  # share the stream rather than each storing every record — but a trace's
+  # records must all reach one writer to avoid two transactions upserting the
+  # same summaries in opposite orders, so scale this deliberately.
   replicas: 1
+
+  # Where the prices for traced model calls come from. A model call is priced
+  # once, at ingest, and the cost is stored frozen: refreshing a rate must never
+  # restate what last month already cost.
+  prices:
+    # Empty uses the service's own default, Helicone's public catalogue. Set it
+    # to a mirror for a cluster without egress. A cluster that can reach neither
+    # still serves whatever rates are already in llm_prices, and records what it
+    # could not fetch in llm_price_syncs.
+    url: ""
+    # How often the catalogue is re-read, as a Go duration. Empty uses the
+    # service's default of 12h; published prices move on the order of months, so
+    # this is about not drifting indefinitely rather than being current.
+    refreshInterval: ""
+
   service:
     port: 8091
-    # Service type. ClusterIP by default — the log query API stays internal
+    # Service type. ClusterIP by default — the query API stays internal
     # behind the platform's BFF proxy. NodePort for local clusters (k3d/kind) that map a host port;
     # LoadBalancer where a cloud LB fronts it directly.
     type: ClusterIP
