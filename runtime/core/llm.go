@@ -223,11 +223,17 @@ type LLMThinkingBlock struct {
 // already count reasoning inside their output total, Gemini reports thoughts
 // separately — so the connectors normalize to the inclusive figure and callers
 // never have to know which provider answered.
+// CachedTokens and CacheWriteTokens are the two halves of prompt caching and are
+// billed differently: a read is cheaper than ordinary input, a write is dearer
+// (Anthropic charges roughly 1.25x). Only Anthropic reports a write count today;
+// OpenAI's caching is automatic with no separate write charge, and Gemini bills
+// explicit caching by storage time rather than by tokens, so both leave it zero.
 type LLMUsage struct {
-	InputTokens    int
-	OutputTokens   int
-	ThinkingTokens int
-	CachedTokens   int
+	InputTokens      int
+	OutputTokens     int
+	ThinkingTokens   int
+	CachedTokens     int
+	CacheWriteTokens int
 }
 
 // LLMTool is a function the model may call. InputSchema is a JSON Schema object

@@ -256,3 +256,48 @@ func TestStreamMapsUnknownDeltaToCustom(t *testing.T) {
 		t.Errorf("text = %q, want the marshalled delta payload", ev.Text)
 	}
 }
+
+// TestStreamCarriesCacheWriteTokens exists because the accumulator has already
+// been caught dropping one usage field on this path — output_tokens_details,
+// which is copied over by hand a few lines from here. Cache creation is reported
+// on message_start rather than message_delta, so it should survive; this asserts
+// that rather than assuming it, and would catch it if a future SDK moved the
+// count to the delta.
+func TestStreamCarriesCacheWriteTokens(t *testing.T) {
+	frames := []frame{
+		{"message_start", `{"type":"message_start","message":{"id":"msg_1","type":"message",
+			"role":"assistant","model":"claude-sonnet-4-6","content":[],"stop_reason":null,
+			"usage":{"input_tokens":5,"output_tokens":1,
+				"cache_creation_input_tokens":4096,"cache_read_input_tokens":128}}}`},
+		{"content_block_start", `{"type":"content_block_start","index":0,
+			"content_block":{"type":"text","text":""}}`},
+		{"content_block_delta", `{"type":"content_block_delta","index":0,
+			"delta":{"type":"text_delta","text":"hi"}}`},
+		{"content_block_stop", `{"type":"content_block_stop","index":0}`},
+		{"message_delta", `{"type":"message_delta","delta":{"stop_reason":"end_turn"},
+			"usage":{"output_tokens":9}}`},
+		{"message_stop", `{"type":"message_stop"}`},
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeSSE(t, w, frames)
+	}))
+	defer srv.Close()
+	c := streamConnector(t, srv.URL)
+
+	resp, err := c.Stream(context.Background(), core.LLMRequest{
+		Messages: []core.LLMMessage{{Role: core.LLMRoleUser, Text: "hello"}},
+	}, func(core.LLMStreamEvent) error { return nil })
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	if resp.Usage == nil {
+		t.Fatal("streamed turn reported no usage")
+	}
+	if resp.Usage.CacheWriteTokens != 4096 {
+		t.Errorf("cacheWriteTokens = %d, want 4096", resp.Usage.CacheWriteTokens)
+	}
+	if resp.Usage.CachedTokens != 128 {
+		t.Errorf("cachedTokens = %d, want 128", resp.Usage.CachedTokens)
+	}
+}

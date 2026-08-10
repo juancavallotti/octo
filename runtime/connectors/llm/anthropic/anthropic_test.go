@@ -129,13 +129,24 @@ func TestTranslateUsage(t *testing.T) {
 	if got := translateUsage(sdk.Usage{CacheReadInputTokens: 30}); got == nil || got.CachedTokens != 30 {
 		t.Errorf("cache-only usage = %+v, want it reported", got)
 	}
+	// The same argument for a cache *write*: the first turn of a cached
+	// conversation is mostly cache creation, and its input count can be small or
+	// zero. It is real usage — and the dearest kind, billed above the input rate.
+	if got := translateUsage(sdk.Usage{CacheCreationInputTokens: 4096}); got == nil ||
+		got.CacheWriteTokens != 4096 {
+		t.Errorf("cache-write-only usage = %+v, want it reported", got)
+	}
 	got := translateUsage(sdk.Usage{
-		InputTokens:          100,
-		OutputTokens:         40,
-		CacheReadInputTokens: 30,
-		OutputTokensDetails:  sdk.OutputTokensDetails{ThinkingTokens: 25},
+		InputTokens:              100,
+		OutputTokens:             40,
+		CacheReadInputTokens:     30,
+		CacheCreationInputTokens: 4096,
+		OutputTokensDetails:      sdk.OutputTokensDetails{ThinkingTokens: 25},
 	})
-	want := core.LLMUsage{InputTokens: 100, OutputTokens: 40, ThinkingTokens: 25, CachedTokens: 30}
+	want := core.LLMUsage{
+		InputTokens: 100, OutputTokens: 40, ThinkingTokens: 25,
+		CachedTokens: 30, CacheWriteTokens: 4096,
+	}
 	if got == nil || *got != want {
 		t.Errorf("usage = %+v, want %+v", got, want)
 	}
