@@ -32,12 +32,12 @@ import {
 } from "@/app/model/orchestrator";
 import {
   flatten,
-  isDescendant,
   type Bucket,
   type DragData,
   type DropData,
   type FlatFolder,
 } from "./model";
+import { resolveDrag } from "./dragDrop";
 import { EMPTY, loadData, type Data } from "./managerData";
 import ManagementNav from "@/app/components/ManagementNav";
 import FolderTree from "./FolderTree";
@@ -274,52 +274,34 @@ export default function IntegrationsManager({
     run(() => reorderFolderIntegrations(folderId, next));
   };
 
-  // Resolve a drop. Integrations file/unfile (onto a folder/Unfiled) or reorder
-  // (onto a peer inside a folder); folders reparent (blocked from landing on
-  // themselves or a descendant). No-op moves and unsupported pairs are ignored.
+  // Resolve a drop, then carry it out. The rules — which pairs mean something,
+  // which are no-ops, and that a folder may not land inside its own subtree —
+  // live in dragDrop.ts, where they can be checked without a pointer.
   const onDragEnd = (e: DragEndEvent) => {
     setActiveDrag(null);
-    const a = e.active.data.current as DragData | undefined;
-    // `over` is a drop zone (DropData) or, for the sortable list, a peer card (DragData).
-    const o = e.over?.data.current as DropData | DragData | undefined;
-    if (!a || !o) return;
-
-    if (a.kind === "integration") {
-      // Dropped on a peer card: reorder within the current folder.
-      if (o.kind === "integration") {
-        if (o.id !== a.id) reorderShown(a.id, o.id);
-        return;
-      }
-      const current = membership.get(a.id) ?? null;
-      if (o.kind === "folder" && o.id !== current) {
-        run(() => assignIntegration(o.id, a.id));
-      } else if (o.kind === "unfiled" && current) {
-        run(() => unassignIntegration(current, a.id));
-      }
-      return; // dropping on "All" (root) is a no-op for integrations
-    }
-
-    // Folder dragged.
-    const f = flat.find((x) => x.id === a.id);
-    if (!f) return;
-
-    if (o.kind === "folder") {
-      if (o.id === a.id) return;
-      const target = flat.find((x) => x.id === o.id);
-      if (!target) return;
-      // Onto a sibling: reorder within the group. Onto a folder in another group:
-      // reparent under it (unless that would nest the folder inside itself).
-      if ((target.parentId ?? null) === (f.parentId ?? null)) {
-        reorderSiblings(f.parentId ?? null, a.id, o.id);
-      } else if (!isDescendant(flat, o.id, a.id)) {
-        run(() => renameFolder(a.id, f.name, o.id));
-      }
-      return;
-    }
-
-    // Onto the "All" bucket: lift to the top level (no-op if already a root).
-    if (o.kind === "root" && (f.parentId ?? null) !== null) {
-      run(() => renameFolder(a.id, f.name, null));
+    const outcome = resolveDrag(
+      e.active.data.current as DragData | undefined,
+      e.over?.data.current as DropData | DragData | undefined,
+      { flat, membership },
+    );
+    switch (outcome.kind) {
+      case "reorder-integration":
+        reorderShown(outcome.id, outcome.beforeId);
+        break;
+      case "file-integration":
+        run(() => assignIntegration(outcome.folderId, outcome.integrationId));
+        break;
+      case "unfile-integration":
+        run(() => unassignIntegration(outcome.folderId, outcome.integrationId));
+        break;
+      case "reorder-folder":
+        reorderSiblings(outcome.parentId, outcome.id, outcome.beforeId);
+        break;
+      case "reparent-folder":
+        run(() => renameFolder(outcome.id, outcome.name, outcome.parentId));
+        break;
+      case "none":
+        break;
     }
   };
 
