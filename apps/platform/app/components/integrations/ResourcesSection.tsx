@@ -9,6 +9,14 @@ import {
   listResources,
   listSnapshotResources,
 } from "@/app/model/orchestrator";
+import {
+  fromFrozen,
+  fromLive,
+  guessKind,
+  KINDS,
+  type DisplayResource,
+  type Kind,
+} from "./resources";
 
 /**
  * Resources (env files, templates) for one integration: upload a file plus the
@@ -25,24 +33,6 @@ import {
 
 /** A resource for display: a live resource (has an id, deletable) or a frozen
  * snapshot resource (metadata only). */
-interface DisplayResource {
-  key: string;
-  kind: string;
-  name: string;
-  /** Present only for live resources; frozen ones can't be deleted. */
-  id?: string;
-}
-
-const KINDS = ["env", "template"] as const;
-type Kind = (typeof KINDS)[number];
-
-// Guess a resource's kind from its name the way the standalone loader does: a
-// `.env`-convention file is env, everything else is a template.
-function guessKind(name: string): Kind {
-  const base = name.split("/").pop() ?? name;
-  return base.startsWith(".env") ? "env" : "template";
-}
-
 export default function ResourcesSection({
   integrationId,
   snapshotId,
@@ -72,18 +62,12 @@ export default function ResourcesSection({
   const reload = useCallback(() => {
     if (snapshotId != null) {
       listSnapshotResources(snapshotId).then(
-        (rs) =>
-          setResources(
-            rs.map((r) => ({ key: `${r.kind}:${r.name}`, kind: r.kind, name: r.name })),
-          ),
+        (rs) => setResources(rs.map(fromFrozen)),
         () => setResources([]),
       );
     } else {
       listResources(integrationId).then(
-        (rs) =>
-          setResources(
-            rs.map((r) => ({ key: r.id, id: r.id, kind: r.kind, name: r.name })),
-          ),
+        (rs) => setResources(rs.map(fromLive)),
         () => setResources([]),
       );
     }
