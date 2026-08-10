@@ -1,2 +1,2 @@
 // The published Octo version, stamped by release-please on every release.
-export const OCTO_VERSION = '0.7.0'; // x-release-please-version
+export const OCTO_VERSION = '0.8.0'; // x-release-please-version
