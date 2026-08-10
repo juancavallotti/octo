@@ -1256,6 +1256,6 @@ func resolveLLM(kind, name string, deps core.BlockDeps) (*llmCaller, error) {
 	return &llmCaller{
 		client:   client,
 		streamer: streamer,
-		who:      newIdentity(kind, name, deps),
+		who:      newIdentity(kind, name, providerOf(connector), deps),
 	}, nil
 }

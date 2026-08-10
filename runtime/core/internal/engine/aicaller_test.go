@@ -580,3 +580,105 @@ func TestNothingIsPublishedWhenTracingIsOff(t *testing.T) {
 		t.Fatalf("llm.embed records = %d with tracing off, want 0", len(embeds))
 	}
 }
+
+// providedLLM and providedEmbedder are the fakes plus a vendor family. Both
+// embed the concrete fake rather than core.Connector: embedding the interface
+// would promote only its methods, and the resolver's assertion for LLMClient or
+// EmbedClient would then fail.
+type providedLLM struct {
+	*scriptedLLM
+	family string
+}
+
+func (p providedLLM) Provider() string { return p.family }
+
+type providedEmbedder struct {
+	*fakeEmbedder
+	family string
+}
+
+func (p providedEmbedder) Provider() string { return p.family }
+
+// TestTraceCarriesTheProviderThatServedTheCall covers #254 on the turn path.
+//
+// The connector's name is the author's ("claude" here, but it could be
+// "my-llm"), and the model id is not a substitute: gpt-4o is published under
+// both OPENAI and AZURE. The consumer keys its cached-token arithmetic on the
+// provider, so a guess is a wrong cost rather than a cosmetic gap.
+func TestTraceCarriesTheProviderThatServedTheCall(t *testing.T) {
+	c := tracingAgent(t)
+
+	llm := providedLLM{
+		scriptedLLM: &scriptedLLM{repeat: endTurnResp("done")},
+		family:      core.ProviderAnthropic,
+	}
+	var seen []any
+	block := mustBuildAI(t, agentRegistry(&seen), depsLLM(llm), agentTurnConfig())
+	if _, err := block.Process(context.Background(), aiMessage(t)); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+
+	turns := c.turns()
+	if len(turns) != 1 {
+		t.Fatalf("llm.turn records = %d, want 1", len(turns))
+	}
+	if got := turns[0].Attrs[attrProvider]; got != core.ProviderAnthropic {
+		t.Errorf("provider = %v, want %s", got, core.ProviderAnthropic)
+	}
+	// Still the authored connector name, not the vendor: they answer different
+	// questions and a cost reader needs both.
+	if got := turns[0].Attrs[attrConnector]; got != "claude" {
+		t.Errorf("connector = %v, want the authored name claude", got)
+	}
+}
+
+// The same attribute on llm.embed, since embeddings are priced from their own
+// rate card and need the family for the same reason.
+func TestEmbedTraceCarriesTheProvider(t *testing.T) {
+	c := tracingAgent(t)
+
+	fake := providedEmbedder{
+		fakeEmbedder: &fakeEmbedder{resp: &core.EmbedResponse{
+			Vectors: [][]float32{{0.1}},
+			Model:   "text-embedding-3-small",
+		}},
+		family: core.ProviderOpenAI,
+	}
+	var seen []any
+	proc := mustBuildAI(t, embedRegistry(&seen), depsLLM(fake), embedConfig())
+	if _, err := proc.Process(context.Background(), newMessageBody(t, `{"text":"hello"}`)); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+
+	embeds := c.embeds()
+	if len(embeds) != 1 {
+		t.Fatalf("llm.embed records = %d, want 1", len(embeds))
+	}
+	if got := embeds[0].Attrs[attrProvider]; got != core.ProviderOpenAI {
+		t.Errorf("provider = %v, want %s", got, core.ProviderOpenAI)
+	}
+}
+
+// A third-party connector predating core.LLMProvider keeps working, and its
+// records carry no provider rather than a guessed one — the consumer then falls
+// back to inferring from the model id, exactly as it did for every record
+// written before the attribute existed.
+func TestTraceOmitsTheProviderWhenAConnectorReportsNone(t *testing.T) {
+	c := tracingAgent(t)
+
+	var seen []any
+	llm := &scriptedLLM{repeat: endTurnResp("done")} // no Provider method
+	block := mustBuildAI(t, agentRegistry(&seen), depsLLM(llm), agentTurnConfig())
+	if _, err := block.Process(context.Background(), aiMessage(t)); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+
+	turns := c.turns()
+	if len(turns) != 1 {
+		t.Fatalf("llm.turn records = %d, want 1", len(turns))
+	}
+	if _, present := turns[0].Attrs[attrProvider]; present {
+		t.Errorf("provider = %v, want it absent rather than empty or guessed",
+			turns[0].Attrs[attrProvider])
+	}
+}

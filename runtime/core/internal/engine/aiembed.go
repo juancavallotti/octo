@@ -195,5 +195,5 @@ func resolveEmbed(name string, deps core.BlockDeps) (*embedCaller, error) {
 			"ai-embed block: connector %q does not support embeddings (Anthropic has no embeddings API); "+
 				"use an llm-openai or llm-gemini connector", name)
 	}
-	return &embedCaller{client: client, who: newIdentity(blockTypeAIEmbed, name, deps)}, nil
+	return &embedCaller{client: client, who: newIdentity(blockTypeAIEmbed, name, providerOf(connector), deps)}, nil
 }
