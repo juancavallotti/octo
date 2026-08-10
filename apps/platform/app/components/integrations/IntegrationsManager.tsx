@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   DndContext,
@@ -12,13 +11,15 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { Folder as FolderIcon, Plus, Upload, Workflow } from "lucide-react";
+import { Folder as FolderIcon, Workflow } from "lucide-react";
 import AppHeader from "@/app/components/AppHeader";
 import { useConfirm } from "@/app/components/ConfirmDialog";
 import { useOrchestrator } from "@/app/run/OrchestratorContext";
 import { type Bucket, type DragData, type DropData } from "./model";
 import { resolveDrag } from "./dragDrop";
 import { useIntegrationTree } from "./useIntegrationTree";
+import IntegrationsToolbar from "./IntegrationsToolbar";
+import IntegrationsUnavailable from "./IntegrationsUnavailable";
 import ManagementNav from "@/app/components/ManagementNav";
 import FolderTree from "./FolderTree";
 import IntegrationList from "./IntegrationList";
@@ -130,64 +131,18 @@ export default function IntegrationsManager({
   if (!ready) return null;
 
   if (!available) {
-    return (
-      <div className="flex h-full flex-col">
-        <AppHeader userMenu={userMenu}>
-          <ManagementNav />
-        </AppHeader>
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-          <p className="text-sm text-zinc-500">
-            Integration management is unavailable. Set{" "}
-            <code className="rounded bg-black/[0.06] px-1 dark:bg-white/10">
-              ORCHESTRATOR_URL
-            </code>{" "}
-            to enable it.
-          </p>
-          <Link
-            href="/platform"
-            className="text-sm text-sky-600 hover:underline"
-          >
-            Back to dashboard
-          </Link>
-        </div>
-      </div>
-    );
+    return <IntegrationsUnavailable userMenu={userMenu} />;
   }
 
   return (
     <div className="flex h-full flex-col">
       <AppHeader userMenu={userMenu}>
         <ManagementNav />
-        <div className="ml-auto flex items-center gap-2">
-          <input
-            ref={importInput}
-            type="file"
-            accept=".yaml,.yml"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              // Reset first so re-selecting the same file fires onChange again.
-              e.target.value = "";
-              if (file) onImportFile(file);
-            }}
-          />
-          <button
-            type="button"
-            onClick={() => importInput.current?.click()}
-            disabled={busy}
-            className="inline-flex items-center gap-1.5 rounded-md border border-black/10 px-3 py-1 text-sm font-medium text-zinc-600 transition-colors hover:bg-black/[0.04] hover:text-zinc-900 disabled:opacity-50 dark:border-white/15 dark:text-zinc-300 dark:hover:bg-white/[0.06] dark:hover:text-zinc-100"
-          >
-            <Upload size={15} />
-            Import
-          </button>
-          <Link
-            href="/platform/new"
-            className="inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1 text-sm font-medium text-white hover:bg-sky-500"
-          >
-            <Plus size={15} />
-            New integration
-          </Link>
-        </div>
+        <IntegrationsToolbar
+          importInput={importInput}
+          busy={busy}
+          onImportFile={onImportFile}
+        />
       </AppHeader>
 
       {error && (
