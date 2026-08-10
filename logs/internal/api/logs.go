@@ -48,14 +48,18 @@ func (h *LogsHandler) Register(mux *http.ServeMux) {
 
 // logListResponse is one page of log rows, newest first. NextBefore is the cursor to
 // pass back as ?before= for the following page; it is omitted on the last page.
+//
+// It is an opaque string, not a timestamp, and clients should treat it as one:
+// the position it names is a (ts, id) pair, because a timestamp alone cannot name
+// a row when several share it.
 type logListResponse struct {
 	Items      []repo.LogRow `json:"items"`
-	NextBefore *time.Time    `json:"next_before,omitempty"`
+	NextBefore string        `json:"next_before,omitempty"`
 }
 
 // list parses the filter from the query string, runs the query, and returns a
-// page. A full page (len == limit) carries a next_before cursor (the oldest row's
-// timestamp), since more rows may exist beyond it.
+// page. A full page (len == limit) carries a next_before cursor pointing at the
+// oldest row served, since more rows may exist beyond it.
 func (h *LogsHandler) list(w http.ResponseWriter, r *http.Request) {
 	f, err := parseLogFilter(r)
 	if err != nil {
@@ -75,7 +79,8 @@ func (h *LogsHandler) list(w http.ResponseWriter, r *http.Request) {
 
 	resp := logListResponse{Items: rows}
 	if len(rows) == f.Limit {
-		resp.NextBefore = &rows[len(rows)-1].Time
+		last := rows[len(rows)-1]
+		resp.NextBefore = encodeKeyset(last.Time, last.ID)
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -105,11 +110,13 @@ func parseLogFilter(r *http.Request) (repo.LogFilter, error) {
 	}
 	f.To = to
 
-	before, err := parseTime(query.Get("before"))
+	beforeTS, beforeID, hasBefore, err := decodeKeyset(query.Get("before"), "logId")
 	if err != nil {
 		return repo.LogFilter{}, err
 	}
-	f.Before = before
+	if hasBefore {
+		f.Before = &repo.LogCursor{Time: beforeTS, ID: beforeID}
+	}
 
 	if raw := query.Get("limit"); raw != "" {
 		n, err := strconv.Atoi(raw)

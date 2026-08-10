@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/juancavallotti/octo/logs/internal/repo"
@@ -15,10 +14,6 @@ import (
 // stored without retention today, so a query with no window would widen with the
 // age of the deployment rather than with what anyone wanted to look at.
 const defaultWindow = 24 * time.Hour
-
-// cursorSeparator joins the two halves of a page cursor. An RFC3339 timestamp
-// cannot contain one, so the split is unambiguous however a trace id is spelled.
-const cursorSeparator = "|"
 
 // TraceQuerier reads stored traces. The repo implements it; the handler depends
 // on the interface so it can be tested without a database.
@@ -281,30 +276,18 @@ func isUUID(value string) bool {
 	return true
 }
 
-// encodeCursor renders a page position as "<rfc3339nano>|<traceId>".
+// encodeCursor renders a trace page position, and decodeCursor parses one. Both
+// are the shared keyset codec with the trace id as the tie-breaker; see cursor.go.
 func encodeCursor(c repo.TraceCursor) string {
-	return c.StartedAt.Format(time.RFC3339Nano) + cursorSeparator + c.TraceID
+	return encodeKeyset(c.StartedAt, c.TraceID)
 }
 
-// decodeCursor parses a cursor, returning nil for an empty one so the first page
-// needs no special case.
-//
-// Nanosecond precision is carried through deliberately: two traces a microsecond
-// apart are ordered by the database on the full timestamp, so a cursor rounded to
-// the second would resume in the wrong place.
+// decodeCursor returns nil for an empty cursor so the first page needs no
+// special case.
 func decodeCursor(raw string) (*repo.TraceCursor, error) {
-	if raw == "" {
-		return nil, nil
-	}
-	// Cut at the first separator, not the last: the timestamp cannot contain one,
-	// so everything after the first is the trace id however it is spelled.
-	stamp, traceID, found := strings.Cut(raw, cursorSeparator)
-	if !found || traceID == "" {
-		return nil, errInvalid("before must be <rfc3339>|<traceId>")
-	}
-	startedAt, err := time.Parse(time.RFC3339Nano, stamp)
-	if err != nil {
-		return nil, errInvalid("before must start with an RFC3339 timestamp: " + stamp)
+	startedAt, traceID, ok, err := decodeKeyset(raw, "traceId")
+	if err != nil || !ok {
+		return nil, err
 	}
 	return &repo.TraceCursor{StartedAt: startedAt, TraceID: traceID}, nil
 }

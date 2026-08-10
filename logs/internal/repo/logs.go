@@ -61,8 +61,21 @@ type LogRow struct {
 	ReceivedAt   time.Time       `json:"received_at"`
 }
 
+// LogCursor is a position in the log list: the timestamp of a row and its id.
+//
+// The id is not decoration. Log records arrive in bursts and a timestamp is not
+// unique — the whole point of a keyset cursor is that the next page resumes at
+// exactly the row after the last one served, and "the rows older than this
+// second" cannot express that when several share the second. Paging on the
+// timestamp alone either skips the rest of a tied group or serves it twice,
+// depending on which side of the boundary it lands.
+type LogCursor struct {
+	Time time.Time
+	ID   string
+}
+
 // LogFilter narrows a log query. A zero field means "no constraint on this axis".
-// Before is the keyset-pagination cursor: results are strictly older than it.
+// Before is the keyset-pagination cursor: results sort strictly before it.
 type LogFilter struct {
 	DeploymentID string
 	AppName      string
@@ -71,13 +84,14 @@ type LogFilter struct {
 	From         *time.Time
 	To           *time.Time
 	Search       string
-	Before       *time.Time
+	Before       *LogCursor
 	Limit        int
 }
 
 // Query returns log rows matching f, newest first. It builds a parameterized
 // WHERE from only the set filters so unused axes add no predicates, and orders by
-// (ts DESC) to ride the (deployment_id, ts DESC) / (ts DESC) indexes.
+// (ts DESC, id DESC) to ride the (deployment_id, ts DESC, id DESC) /
+// (ts DESC, id DESC) indexes.
 func (r *Logs) Query(ctx context.Context, f LogFilter) ([]LogRow, error) {
 	var sb strings.Builder
 	sb.WriteString(`SELECT id, deployment_id, app_name, app_version, ts, level, message, attrs, received_at
@@ -85,9 +99,15 @@ func (r *Logs) Query(ctx context.Context, f LogFilter) ([]LogRow, error) {
 
 	var where []string
 	var args []any
-	add := func(cond string, val any) {
-		args = append(args, val)
-		where = append(where, fmt.Sprintf(cond, len(args)))
+	// Variadic so one condition can consume more than one placeholder — the
+	// keyset row comparison below needs two.
+	add := func(cond string, vals ...any) {
+		placeholders := make([]any, len(vals))
+		for i, val := range vals {
+			args = append(args, val)
+			placeholders[i] = len(args)
+		}
+		where = append(where, fmt.Sprintf(cond, placeholders...))
 	}
 	if f.DeploymentID != "" {
 		add("deployment_id = $%d::uuid", f.DeploymentID)
@@ -111,14 +131,17 @@ func (r *Logs) Query(ctx context.Context, f LogFilter) ([]LogRow, error) {
 		add("message ILIKE '%%' || $%d || '%%'", f.Search)
 	}
 	if f.Before != nil {
-		add("ts < $%d", *f.Before)
+		// Row comparison, not two predicates: (a, b) < (x, y) is the whole keyset
+		// condition in the form the composite index can seek to directly. The id is
+		// cast because logs.id is a uuid and the cursor carries it as text.
+		add("(ts, id) < ($%d, $%d::uuid)", f.Before.Time, f.Before.ID)
 	}
 	if len(where) > 0 {
 		sb.WriteString(" WHERE ")
 		sb.WriteString(strings.Join(where, " AND "))
 	}
 	args = append(args, f.Limit)
-	fmt.Fprintf(&sb, " ORDER BY ts DESC LIMIT $%d", len(args))
+	fmt.Fprintf(&sb, " ORDER BY ts DESC, id DESC LIMIT $%d", len(args))
 
 	rows, err := r.pool.Query(ctx, sb.String(), args...)
 	if err != nil {

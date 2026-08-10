@@ -31,7 +31,10 @@ export interface LogEntry {
 /** One page of log events, newest first, with a keyset cursor for the next page. */
 export interface LogPage {
   items: LogEntry[];
-  /** Pass as `before` to fetch the next (older) page; null on the last page. */
+  /**
+   * Pass as `before` to fetch the next (older) page; null on the last page.
+   * Treat it as opaque — the format is the service's to change.
+   */
   nextBefore: string | null;
 }
 
@@ -50,7 +53,12 @@ export interface LogFilters {
   to?: string;
   /** Case-insensitive substring match on the message. */
   q?: string;
-  /** Keyset cursor: return rows strictly older than this RFC3339 timestamp. */
+  /**
+   * Keyset cursor from a previous page's `nextBefore`. Opaque: it names a
+   * position, not a time. A timestamp alone cannot name one, because several
+   * rows can carry the same timestamp — the log lines from a single request
+   * are all stamped from one clock read. Pass it back unchanged.
+   */
   before?: string;
   /** Page size (the service clamps it to a sane maximum). */
   limit?: number;

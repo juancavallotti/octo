@@ -243,9 +243,9 @@ UPDATE integrations
 -- never has to join back to the deployment tables and a log keeps the exact version
 -- that produced it even across a rollout. `ts` is the record's own timestamp;
 -- `received_at` is when the aggregator stored it. `attrs` holds the remaining
--- structured slog fields as JSON. The leading (deployment_id, ts DESC) index serves
--- the common "tail one app's logs" query; the (ts DESC) index serves cross-
--- deployment time scans and retention pruning.
+-- structured slog fields as JSON. The leading (deployment_id, ts DESC, id DESC)
+-- index serves the common "tail one app's logs" query; the (ts DESC, id DESC) index
+-- serves cross-deployment time scans and retention pruning.
 CREATE TABLE IF NOT EXISTS logs (
     id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     deployment_id uuid        NOT NULL,
@@ -258,8 +258,18 @@ CREATE TABLE IF NOT EXISTS logs (
     received_at   timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_logs_deployment_ts ON logs (deployment_id, ts DESC);
-CREATE INDEX IF NOT EXISTS idx_logs_ts ON logs (ts DESC);
+-- The list view's orderings. Each carries id as a tiebreaker because the cursor is
+-- composite: a burst of records routinely shares a timestamp, and a cursor on the
+-- timestamp alone skips or repeats rows that tie across a page boundary.
+CREATE INDEX IF NOT EXISTS idx_logs_deployment_ts_id ON logs (deployment_id, ts DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_logs_ts_id ON logs (ts DESC, id DESC);
+
+-- The timestamp-only indexes these replace are now redundant prefixes of the pair
+-- above: every query they served is served by the composite, and keeping them would
+-- be write cost for nothing. Dropped rather than left, so an upgraded database ends
+-- up with the same indexes a fresh one gets.
+DROP INDEX IF EXISTS idx_logs_deployment_ts;
+DROP INDEX IF EXISTS idx_logs_ts;
 
 -- traces stores the trace records deployed runtimes ship over the internal.traces
 -- NATS subject, persisted by the same aggregator service that owns `logs`. One row
