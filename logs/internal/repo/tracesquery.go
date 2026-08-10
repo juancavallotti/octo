@@ -67,7 +67,11 @@ dropped AS (
            COALESCE(integration_id::text, '') AS integration_id,
            app_name,
            app_version,
-           sum(COALESCE((attrs ->> 'dropped')::bigint, 0)) AS dropped_records,
+           -- Guarded rather than cast outright: one record whose attrs.dropped is
+           -- not a number would fail this query for every app in the window, and
+           -- the marker exists precisely to report that something went wrong.
+           sum(CASE WHEN jsonb_typeof(attrs -> 'dropped') = 'number'
+                    THEN (attrs ->> 'dropped')::bigint ELSE 0 END) AS dropped_records,
            max(ts)                                          AS last_seen_at
       FROM traces
      WHERE kind = 'trace.dropped' AND ts >= $1 AND ts <= $2

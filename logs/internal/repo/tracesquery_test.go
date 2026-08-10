@@ -823,3 +823,109 @@ func TestTraceDetailCapsAndSaysSo(t *testing.T) {
 		t.Errorf("served %d records, want all %d", len(records), maxTraceRecords)
 	}
 }
+
+// TestTraceListMinDurationUsesRealUnits pins the unit, not just the direction.
+//
+// The duration is bound as a Go value and compared against an interval, so a
+// silently wrong unit — milliseconds read as microseconds — would still filter,
+// just at a threshold a thousand times off. Two durations straddling the
+// threshold is what makes that visible; one is not.
+func TestTraceListMinDurationUsesRealUnits(t *testing.T) {
+	store := newTestTraceApps(t)
+	ctx := context.Background()
+
+	quick := appRecord("apps-dur-quick", 1, ingest.KindFlowCompleted, 5)
+	quick.Record.DurationNs = int64(100 * time.Millisecond)
+	slow := appRecord("apps-dur-slow", 2, ingest.KindFlowCompleted, 6)
+	slow.Record.DurationNs = int64(900 * time.Millisecond)
+
+	if err := store.Insert(ctx, []ingest.TraceRow{quick, slow}); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	rows, err := store.List(ctx, TraceFilter{
+		DeploymentID: depApps, MinDuration: 500 * time.Millisecond, Limit: 50,
+	})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if got := traceIDs(rows); len(got) != 1 || got[0] != "apps-dur-slow" {
+		t.Errorf("matched %v at a 500ms threshold, want only the 900ms trace", got)
+	}
+}
+
+// TestTraceAppsSurvivesAMalformedDropCount checks one bad marker cannot take the
+// whole app list down with it. The marker is how a reader learns something went
+// wrong, so it is the last record that should be able to break the query
+// reporting it.
+func TestTraceAppsSurvivesAMalformedDropCount(t *testing.T) {
+	store := newTestTraceApps(t)
+	ctx := context.Background()
+
+	marker := func(attrs string, minute int) ingest.TraceRow {
+		return ingest.TraceRow{
+			Record: ingest.TraceRecord{
+				Seq: 9, Kind: ingest.KindTraceDropped,
+				DeploymentID: depApps, AppName: "checkout", AppVersion: "v1",
+				Time: appsAt(minute), Attrs: json.RawMessage(attrs),
+			},
+			IntegrationID: intApps,
+		}
+	}
+	err := store.Insert(ctx, []ingest.TraceRow{
+		marker(`{"dropped":"lots"}`, 3),
+		marker(`{"total":9}`, 4),
+		marker(`{"dropped":5}`, 5),
+	})
+	if err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	apps, err := store.Apps(ctx, appsAt(0), appsAt(60))
+	if err != nil {
+		t.Fatalf("apps: %v", err)
+	}
+	if got := findApp(t, apps, depApps, "v1").DroppedRecords; got != 5 {
+		t.Errorf("dropped = %d, want 5 — the countable marker, the others ignored", got)
+	}
+}
+
+// TestTraceSummaryMergeBreaksTiesLikeTheFold checks the SQL comparison agrees
+// with betterEntry. They answer the same question about the same records, so a
+// trace summarized in one batch and the same trace summarized in two must come
+// out the same.
+func TestTraceSummaryMergeBreaksTiesLikeTheFold(t *testing.T) {
+	store := newTestTraceApps(t)
+	ctx := context.Background()
+
+	front := appRecord("apps-tiebreak", 1, ingest.KindSourceReceive, 5)
+	front.Record.Flow = ""
+	front.Record.Attrs = json.RawMessage(`{"method":"GET","route":"/a"}`)
+
+	// Same rank and sequence, a higher deployment id: the fold prefers the lower.
+	back := appRecord("apps-tiebreak", 1, ingest.KindSourceReceive, 5)
+	back.Record.DeploymentID = depAppsOther
+	back.Record.Flow = ""
+	back.Record.AppVersion = "v9"
+	back.Record.Attrs = json.RawMessage(`{"method":"POST","route":"/b"}`)
+
+	// The higher-id record lands first and alone, so the merge has to correct it.
+	if err := store.Insert(ctx, []ingest.TraceRow{back}); err != nil {
+		t.Fatalf("insert back: %v", err)
+	}
+	if err := store.Insert(ctx, []ingest.TraceRow{front}); err != nil {
+		t.Fatalf("insert front: %v", err)
+	}
+
+	var deployment, label, version string
+	err := store.pool.QueryRow(ctx,
+		`SELECT deployment_id::text, entry_label, app_version FROM trace_summaries WHERE trace_id = $1`,
+		"apps-tiebreak").Scan(&deployment, &label, &version)
+	if err != nil {
+		t.Fatalf("read summary: %v", err)
+	}
+	if deployment != depApps || label != "GET /a" || version != "v1" {
+		t.Errorf("identity = %s/%q/%s, want the lower deployment's (%s/GET /a/v1)",
+			deployment, label, version, depApps)
+	}
+}

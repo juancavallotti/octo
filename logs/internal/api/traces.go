@@ -175,6 +175,11 @@ func parseTraceFilter(r *http.Request) (repo.TraceFilter, error) {
 	if err := validateStatuses(f.Statuses); err != nil {
 		return repo.TraceFilter{}, err
 	}
+	for name, value := range map[string]string{"deploymentId": f.DeploymentID, "integrationId": f.IntegrationID} {
+		if err := validateUUID(name, value); err != nil {
+			return repo.TraceFilter{}, err
+		}
+	}
 
 	from, err := parseTime(query.Get("from"))
 	if err != nil {
@@ -234,6 +239,39 @@ func validateStatuses(statuses []string) error {
 		}
 	}
 	return nil
+}
+
+// validateUUID rejects a malformed identifier before it reaches SQL.
+//
+// These reach the query as ::uuid casts, so Postgres rejects a malformed one
+// with an error — which would surface as a 500, blaming the server for a value
+// the caller typed. An empty value is no filter at all and passes.
+func validateUUID(name, value string) error {
+	if value == "" || isUUID(value) {
+		return nil
+	}
+	return errInvalid(name + " must be a uuid: " + value)
+}
+
+// isUUID reports whether value has the canonical 8-4-4-4-12 hex shape.
+func isUUID(value string) bool {
+	if len(value) != 36 {
+		return false
+	}
+	for i, c := range value {
+		switch i {
+		case 8, 13, 18, 23:
+			if c != '-' {
+				return false
+			}
+		default:
+			isHex := (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+			if !isHex {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // encodeCursor renders a page position as "<rfc3339nano>|<traceId>".
@@ -312,6 +350,14 @@ func (h *TracesHandler) detail(w http.ResponseWriter, r *http.Request) {
 // trace without them and then opened a single block.
 func (h *TracesHandler) record(w http.ResponseWriter, r *http.Request) {
 	traceID, id := r.PathValue("traceId"), r.PathValue("id")
+
+	// A malformed id addresses no record, which is what 404 says. It is also a
+	// ::uuid cast away from a 500, and answering the same way for "malformed" and
+	// "absent" keeps the route from confirming which ids exist.
+	if !isUUID(id) {
+		writeError(w, http.StatusNotFound, "no such record")
+		return
+	}
 
 	row, found, err := h.q.Record(r.Context(), traceID, id)
 	if err != nil {

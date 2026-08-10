@@ -245,3 +245,59 @@ func TestResolveHonoursContextCancellationWhileWaiting(t *testing.T) {
 		t.Fatalf("error = %v, want context.Canceled", err)
 	}
 }
+
+// TestResolverSharedLookupSurvivesTheFirstCallerLeaving covers the hazard in
+// sharing one query: everyone waiting takes its answer, so running it under the
+// first caller's context would let that caller's cancellation resolve the
+// deployment as unknown for every record behind it.
+func TestResolverSharedLookupSurvivesTheFirstCallerLeaving(t *testing.T) {
+	release := make(chan struct{})
+	lookup := &blockingLookup{started: make(chan struct{}), release: release, integrationID: "int-1"}
+	resolver := NewIntegrationResolver(lookup)
+
+	// The owner's context is cancelled while its query is still running.
+	ownerCtx, cancelOwner := context.WithCancel(context.Background())
+	ownerDone := make(chan struct{})
+	go func() {
+		defer close(ownerDone)
+		_, _, _ = resolver.Resolve(ownerCtx, "dep-1")
+	}()
+
+	<-lookup.started
+	cancelOwner()
+	close(release)
+	<-ownerDone
+
+	// A caller behind it must still get the real answer, not the owner's regret.
+	id, found, err := resolver.Resolve(context.Background(), "dep-1")
+	if err != nil {
+		t.Fatalf("resolve after the owner left: %v", err)
+	}
+	if !found || id != "int-1" {
+		t.Errorf("resolved %q/%v, want int-1/true", id, found)
+	}
+	if got := lookup.calls.Load(); got != 1 {
+		t.Errorf("queried %d times, want 1 — the answer was already in hand", got)
+	}
+}
+
+// blockingLookup holds its answer until released, and reports the context it was
+// given so a test can tell whether it inherited a cancellation.
+type blockingLookup struct {
+	started       chan struct{}
+	release       chan struct{}
+	integrationID string
+	calls         atomic.Int64
+	startOnce     sync.Once
+}
+
+func (b *blockingLookup) IntegrationOf(ctx context.Context, _ string) (string, bool, error) {
+	b.calls.Add(1)
+	b.startOnce.Do(func() { close(b.started) })
+	select {
+	case <-b.release:
+	case <-ctx.Done():
+		return "", false, ctx.Err()
+	}
+	return b.integrationID, true, nil
+}

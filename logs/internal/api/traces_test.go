@@ -16,6 +16,16 @@ import (
 // assert exact bounds instead of a range.
 var fixedNow = time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
 
+// Record ids are uuids in the table, and the route rejects anything else — so a
+// fixture that used a friendlier name would exercise the malformed path while
+// claiming to test the absent one.
+const (
+	recordID      = "aaaaaaaa-1111-2222-3333-444444444444"
+	absentID      = "bbbbbbbb-1111-2222-3333-444444444444"
+	deploymentID  = "cccccccc-1111-2222-3333-444444444444"
+	integrationID = "dddddddd-1111-2222-3333-444444444444"
+)
+
 // fakeTraceQuerier records what it was asked for and returns canned rows.
 type fakeTraceQuerier struct {
 	gotFrom, gotTo time.Time
@@ -236,7 +246,8 @@ func decodeTraces(t *testing.T, rec *httptest.ResponseRecorder) traceListRespons
 // wrong traces.
 func TestTraceListParsesEveryFilter(t *testing.T) {
 	q := &fakeTraceQuerier{}
-	rec := doTraces(t, q, "/traces?deploymentId=dep-1&integrationId=int-1&appName=checkout&appVersion=v7"+
+	rec := doTraces(t, q, "/traces?deploymentId="+deploymentID+"&integrationId="+integrationID+
+		"&appName=checkout&appVersion=v7"+
 		"&flow=orders&status=failed&status=dropped&minDurationMs=250&hasLlm=true&q=boom"+
 		"&from=2026-01-01T00:00:00Z&to=2026-02-01T00:00:00Z&limit=50")
 	if rec.Code != http.StatusOK {
@@ -244,8 +255,8 @@ func TestTraceListParsesEveryFilter(t *testing.T) {
 	}
 
 	f := q.gotFilter
-	if f.DeploymentID != "dep-1" || f.IntegrationID != "int-1" {
-		t.Errorf("ids = %q/%q, want dep-1/int-1", f.DeploymentID, f.IntegrationID)
+	if f.DeploymentID != deploymentID || f.IntegrationID != integrationID {
+		t.Errorf("ids = %q/%q, want %s/%s", f.DeploymentID, f.IntegrationID, deploymentID, integrationID)
 	}
 	if f.AppName != "checkout" || f.AppVersion != "v7" || f.Flow != "orders" {
 		t.Errorf("app filter = %q/%q/%q, want checkout/v7/orders", f.AppName, f.AppVersion, f.Flow)
@@ -515,15 +526,15 @@ func TestTraceDetailFailsClosedOnAQueryError(t *testing.T) {
 func TestTraceRecordServesOnePayload(t *testing.T) {
 	q := &fakeTraceQuerier{
 		recordFound: true,
-		record:      repo.TraceRecordRow{ID: "rec-1", TraceID: "trace-a", Body: json.RawMessage(`{"order":7}`)},
+		record:      repo.TraceRecordRow{ID: recordID, TraceID: "trace-a", Body: json.RawMessage(`{"order":7}`)},
 	}
 
-	rec := doTraces(t, q, "/traces/trace-a/records/rec-1")
+	rec := doTraces(t, q, "/traces/trace-a/records/"+recordID)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body)
 	}
-	if q.gotTraceID != "trace-a" || q.gotRecordID != "rec-1" {
-		t.Errorf("queried %q/%q, want trace-a/rec-1", q.gotTraceID, q.gotRecordID)
+	if q.gotTraceID != "trace-a" || q.gotRecordID != recordID {
+		t.Errorf("queried %q/%q, want trace-a/%s", q.gotTraceID, q.gotRecordID, recordID)
 	}
 
 	var got repo.TraceRecordRow
@@ -538,7 +549,7 @@ func TestTraceRecordServesOnePayload(t *testing.T) {
 // TestTraceRecordMissingIs404 covers both a record that does not exist and one
 // asked for under the wrong trace, which the store reports the same way.
 func TestTraceRecordMissingIs404(t *testing.T) {
-	rec := doTraces(t, &fakeTraceQuerier{}, "/traces/trace-a/records/rec-9")
+	rec := doTraces(t, &fakeTraceQuerier{}, "/traces/trace-a/records/"+absentID)
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404 (body %s)", rec.Code, rec.Body)
 	}
@@ -550,12 +561,12 @@ func TestTraceRecordKeepsAnUnknownCostNull(t *testing.T) {
 	q := &fakeTraceQuerier{
 		recordFound: true,
 		record: repo.TraceRecordRow{
-			ID: "rec-1", TraceID: "trace-a", Kind: "llm.turn",
+			ID: recordID, TraceID: "trace-a", Kind: "llm.turn",
 			Model: "unknown-model", CostStatus: "unpriced_model",
 		},
 	}
 
-	rec := doTraces(t, q, "/traces/trace-a/records/rec-1")
+	rec := doTraces(t, q, "/traces/trace-a/records/"+recordID)
 
 	var raw map[string]json.RawMessage
 	if err := json.NewDecoder(rec.Body).Decode(&raw); err != nil {
@@ -577,5 +588,49 @@ func TestTraceAppsRouteIsNotReadAsATraceId(t *testing.T) {
 	}
 	if q.gotTraceID != "" {
 		t.Errorf("/traces/apps was served as trace %q", q.gotTraceID)
+	}
+}
+
+// TestTraceListRejectsAMalformedUUID checks a bad identifier is the caller's
+// error, not the server's. These reach the query as ::uuid casts, so without a
+// check Postgres rejects them and the response blames the server for a value the
+// caller typed.
+func TestTraceListRejectsAMalformedUUID(t *testing.T) {
+	for _, target := range []string{"/traces?deploymentId=not-a-uuid", "/traces?integrationId=12345"} {
+		q := &fakeTraceQuerier{}
+		rec := doTraces(t, q, target)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: status = %d, want 400 (body %s)", target, rec.Code, rec.Body)
+		}
+		if q.called {
+			t.Errorf("%s: a malformed uuid still reached the querier", target)
+		}
+	}
+}
+
+// TestTraceListAcceptsAWellFormedUUID keeps the check from rejecting the values
+// it exists to let through.
+func TestTraceListAcceptsAWellFormedUUID(t *testing.T) {
+	const id = "11111111-1111-1111-1111-111111111111"
+	q := &fakeTraceQuerier{}
+	if rec := doTraces(t, q, "/traces?deploymentId="+id+"&integrationId="+id); rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body)
+	}
+	if q.gotFilter.DeploymentID != id {
+		t.Errorf("deployment = %q, want %q", q.gotFilter.DeploymentID, id)
+	}
+}
+
+// TestTraceRecordMalformedIdIs404 answers a malformed address the same way as an
+// absent one: both name no record, and answering alike keeps the route from
+// confirming which ids exist.
+func TestTraceRecordMalformedIdIs404(t *testing.T) {
+	q := &fakeTraceQuerier{recordFound: true}
+	rec := doTraces(t, q, "/traces/trace-a/records/not-a-uuid")
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404 (body %s)", rec.Code, rec.Body)
+	}
+	if q.called {
+		t.Error("a malformed record id still reached the querier")
 	}
 }

@@ -440,3 +440,41 @@ func TestFoldEmitsTracesInAStableOrder(t *testing.T) {
 		}
 	}
 }
+
+// TestFoldChoosesTheSameEntryWhenSequencesTie covers the case that makes a
+// sequence number a bad tie-break on its own.
+//
+// Sequence is unique within one publisher, not within a trace. A trace that
+// crossed apps carries records numbered by two different processes, so two
+// records of the same rank can share a number — and without a third term the
+// winner would be whichever one happened to be read first.
+func TestFoldChoosesTheSameEntryWhenSequencesTie(t *testing.T) {
+	front := record(1, ingest.KindSourceReceive, fromDeployment("dep-a", "int-a", "front", "v1"),
+		withAttrs(`{"method":"GET","route":"/a"}`))
+	back := record(1, ingest.KindSourceReceive, fromDeployment("dep-b", "int-b", "back", "v2"),
+		withAttrs(`{"method":"POST","route":"/b"}`))
+
+	got := foldEveryOrder(t, []ingest.TraceRow{front, back})
+
+	if got.DeploymentID != "dep-a" {
+		t.Errorf("deployment = %q, want dep-a — the lower deployment id breaks the tie", got.DeploymentID)
+	}
+	if got.AppVersion != "v1" || got.EntryLabel != "GET /a" {
+		t.Errorf("identity = %s/%q, want v1/GET /a", got.AppVersion, got.EntryLabel)
+	}
+}
+
+// TestFoldChoosesTheSameRootFlowWhenSequencesTie is the same hole in the flow
+// selection, which tracks its own sequence.
+func TestFoldChoosesTheSameRootFlowWhenSequencesTie(t *testing.T) {
+	got := foldEveryOrder(t, []ingest.TraceRow{
+		record(4, ingest.KindFlowStarted, inFlow("refunds")),
+		record(4, ingest.KindFlowStarted, inFlow("orders")),
+	})
+	if got.RootFlow != "orders" {
+		t.Errorf("root flow = %q, want orders — the lower name breaks the tie", got.RootFlow)
+	}
+	if got.EntryLabel != "orders" {
+		t.Errorf("entry label = %q, want orders — same tie, same answer", got.EntryLabel)
+	}
+}

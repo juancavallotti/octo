@@ -156,20 +156,25 @@ func upsertSummaries(ctx context.Context, tx pgx.Tx, deltas []TraceDelta) error 
 // by hand at eight call sites and hoping every copy stays identical.
 const (
 	// betterEntrySQL asks whether the incoming batch's entry record named the
-	// trace better than the stored one did. Row comparison gives rank-then-
-	// sequence ordering in one expression.
-	betterEntrySQL = `((excluded.entry_rank, excluded.entry_seq) < ` +
-		`(trace_summaries.entry_rank, trace_summaries.entry_seq))`
+	// trace better than the stored one did. One row comparison over the same four
+	// terms betterEntry compares in summary.go, in the same order — the fold and
+	// this merge decide the same question, so a difference between them would make
+	// the answer depend on how a trace's records happened to be split into
+	// batches.
+	betterEntrySQL = `((excluded.entry_rank, excluded.entry_seq, excluded.deployment_id, excluded.entry_label) < ` +
+		`(trace_summaries.entry_rank, trace_summaries.entry_seq, ` +
+		`trace_summaries.deployment_id, trace_summaries.entry_label))`
 
 	// betterRootFlowSQL asks the same about the flow. It is separate because a
 	// batch can carry a better entry record and no flow at all, or the reverse:
 	// source records carry no flow, and flow records name no entry point.
 	betterRootFlowSQL = `(excluded.root_flow <> '' AND (trace_summaries.root_flow = '' ` +
-		`OR excluded.root_flow_seq < trace_summaries.root_flow_seq))`
+		`OR (excluded.root_flow_seq, excluded.root_flow) < ` +
+		`(trace_summaries.root_flow_seq, trace_summaries.root_flow)))`
 
-	// distinctTextSQL and distinctUUIDSQL union two sets. Ordered so the stored
-	// array is a function of its contents rather than of the order batches
-	// happened to arrive in.
+	// distinctTextSQL unions two sets, and serves both array columns. Ordered so
+	// the stored array is a function of its contents rather than of the order
+	// batches happened to arrive in.
 	distinctTextSQL = `ARRAY(SELECT DISTINCT unnest(trace_summaries.%[1]s || excluded.%[1]s) ORDER BY 1)`
 )
 

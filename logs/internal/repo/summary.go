@@ -154,37 +154,73 @@ func (d *TraceDelta) extendInterval(record ingest.TraceRecord) {
 	}
 }
 
+// entryCandidate is one record's claim to naming a trace, holding exactly the
+// terms the claims are compared on and in that order.
+type entryCandidate struct {
+	rank       int
+	seq        int64
+	deployment string
+	// kind and label are empty for a record that names no entry point.
+	kind  string
+	label string
+}
+
 // considerIdentity keeps the identity of the best entry record seen so far.
 func (d *TraceDelta) considerIdentity(row ingest.TraceRow) {
 	record := row.Record
-	rank := entryRankOf(record.Kind)
-	if d.hasIdentity && !betterEntry(rank, record.Seq, d.EntryRank, d.EntrySeq) {
+	candidate := entryCandidate{
+		rank:       entryRankOf(record.Kind),
+		seq:        record.Seq,
+		deployment: record.DeploymentID,
+		kind:       record.Kind,
+		label:      entryLabel(record),
+	}
+	if candidate.rank == entryRankFallback {
+		// This record names no entry point. Leave the label empty rather than
+		// inventing one from whichever block happened to sort first.
+		candidate.kind, candidate.label = "", ""
+	}
+
+	best := entryCandidate{rank: d.EntryRank, seq: d.EntrySeq, deployment: d.DeploymentID, label: d.EntryLabel}
+	if d.hasIdentity && !betterEntry(candidate, best) {
 		return
 	}
 
 	d.hasIdentity = true
-	d.EntryRank, d.EntrySeq = rank, record.Seq
+	d.EntryRank, d.EntrySeq = candidate.rank, candidate.seq
 	d.DeploymentID = record.DeploymentID
 	d.IntegrationID = row.IntegrationID
 	d.AppName = record.AppName
 	d.AppVersion = record.AppVersion
-
-	if rank == entryRankFallback {
-		// This record names no entry point. Leave the label empty rather than
-		// inventing one from whichever block happened to sort first.
-		d.EntryKind, d.EntryLabel = "", ""
-		return
-	}
-	d.EntryKind = record.Kind
-	d.EntryLabel = entryLabel(record)
+	d.EntryKind, d.EntryLabel = candidate.kind, candidate.label
 }
 
-// betterEntry compares two candidates by rank, then by sequence.
-func betterEntry(rank int, seq int64, bestRank int, bestSeq int64) bool {
-	if rank != bestRank {
-		return rank < bestRank
+// betterEntry orders two claims: better rank, then lower sequence, then lower
+// deployment, then lower label.
+//
+// Only the first two are about quality; the last two are there to make the
+// comparison a total order. Sequence numbers are unique within one publisher, not
+// within a trace — a trace that crossed apps carries records numbered by two
+// processes, and two replicas of one app both start counting at one — so records
+// of equal rank routinely share a number. With nothing further to compare, the
+// winner would be whichever arrived first, which is the order-dependence every
+// other column here is arranged to avoid.
+//
+// betterEntrySQL in traces.go compares the same four terms in the same order.
+// The fold and the cross-batch merge decide the same question, so a difference
+// between them would make the answer depend on how a trace's records happened to
+// be split into batches.
+func betterEntry(candidate, best entryCandidate) bool {
+	if candidate.rank != best.rank {
+		return candidate.rank < best.rank
 	}
-	return seq < bestSeq
+	if candidate.seq != best.seq {
+		return candidate.seq < best.seq
+	}
+	if candidate.deployment != best.deployment {
+		return candidate.deployment < best.deployment
+	}
+	return candidate.label < best.label
 }
 
 // considerRootFlow keeps the flow of the lowest-sequence record carrying one.
@@ -196,7 +232,11 @@ func (d *TraceDelta) considerRootFlow(record ingest.TraceRecord) {
 	if record.Flow == "" {
 		return
 	}
-	if d.hasRootFlow && record.Seq >= d.RootFlowSeq {
+	// Same tie-break shape as the entry identity, on the flow name itself: two
+	// processes can number their records alike, and the answer must not depend on
+	// which one's record was read first.
+	if d.hasRootFlow && (record.Seq > d.RootFlowSeq ||
+		(record.Seq == d.RootFlowSeq && record.Flow >= d.RootFlow)) {
 		return
 	}
 	d.hasRootFlow = true
