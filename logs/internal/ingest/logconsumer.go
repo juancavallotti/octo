@@ -68,6 +68,20 @@ type Subscription struct {
 func (c *LogConsumer) Start(ctx context.Context, conn *nats.Conn) (*Subscription, error) {
 	subCtx, cancel := context.WithCancel(ctx)
 
+	// Writes run under a context that outlives the subscription by exactly the
+	// shutdown budget, and no longer.
+	//
+	// The two halves matter separately. Detaching it means cancelling the
+	// subscription stops the delivery loop at once without aborting a write that
+	// has already started — the loss #260 is about. Cutting it off after the
+	// budget means Close cannot be held open past that by a database that has
+	// stopped answering, whatever a single write's own timeout says.
+	writeCtx, stopWrites := context.WithCancel(context.WithoutCancel(ctx))
+	go func() {
+		<-subCtx.Done()
+		time.AfterFunc(shutdownFlushTimeout, stopWrites)
+	}()
+
 	work := make(chan *nats.Msg, logBuffer)
 	var wg sync.WaitGroup
 	wg.Add(c.workers)
@@ -77,10 +91,10 @@ func (c *LogConsumer) Start(ctx context.Context, conn *nats.Conn) (*Subscription
 			for {
 				select {
 				case <-subCtx.Done():
-					c.drain(work)
+					c.drain(writeCtx, work)
 					return
 				case m := <-work:
-					c.write(m)
+					c.write(writeCtx, m)
 				}
 			}
 		}()
@@ -97,8 +111,7 @@ func (c *LogConsumer) Start(ctx context.Context, conn *nats.Conn) (*Subscription
 	return &Subscription{sub: sub, cancel: cancel, wg: &wg}, nil
 }
 
-// write persists one record under a context of its own, never the
-// subscription's.
+// write persists one record under writeCtx, never the subscription's context.
 //
 // A record that has reached this point is already off the wire, and core NATS
 // will not redeliver it, so cancelling its insert loses it for good. Passing the
@@ -107,31 +120,25 @@ func (c *LogConsumer) Start(ctx context.Context, conn *nats.Conn) (*Subscription
 // inserts" was really a wait for them to fail fast. That is a lost log record on
 // every rolling restart, which is every deploy.
 //
-// The subscription context still stops the loop above. It just no longer reaches
-// into a write that has already started.
-func (c *LogConsumer) write(m *nats.Msg) {
-	ctx, cancel := context.WithTimeout(context.Background(), logWriteTimeout)
+// The per-write timeout is a backstop for normal running, when writeCtx has no
+// deadline of its own; during a shutdown writeCtx expires first.
+func (c *LogConsumer) write(writeCtx context.Context, m *nats.Msg) {
+	ctx, cancel := context.WithTimeout(writeCtx, logWriteTimeout)
 	defer cancel()
 	c.handle(ctx, m)
 }
 
-// drain writes what is still buffered on the way out, within one shared budget.
+// drain writes what is still buffered on the way out, under the shutdown budget
+// writeCtx is already carrying by the time this runs.
 //
 // Workers used to return on cancellation and abandon whatever was still in the
 // channel — records NATS considers delivered and will never send again. Every
 // worker drains, so together they empty it; whichever finds it empty returns.
-//
-// The budget is bounded because a shutdown must not hang on a database that has
-// gone away, and unbounded here means "until the kubelet's grace period runs out
-// and SIGKILL arrives", which loses the records anyway and takes 30 seconds off
-// every deploy to do it.
-func (c *LogConsumer) drain(work <-chan *nats.Msg) {
-	ctx, cancel := context.WithTimeout(context.Background(), shutdownFlushTimeout)
-	defer cancel()
+func (c *LogConsumer) drain(writeCtx context.Context, work <-chan *nats.Msg) {
 	for {
 		select {
 		case m := <-work:
-			c.handle(ctx, m)
+			c.handle(writeCtx, m)
 		default:
 			return
 		}

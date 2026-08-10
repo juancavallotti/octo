@@ -180,7 +180,7 @@ Because records are keyed by deployment, you read **one stream per integration n
 Shipping is fire-and-forget on core NATS, so a record is delivered at most once and never redelivered. Two consequences worth knowing when you are reading logs during an incident:
 
 - **The aggregator sheds rather than blocks.** Delivered records wait in a bounded buffer while workers write them. If writes fall behind far enough to fill it, further records are dropped and a warning naming the running total is logged at most once every ten seconds. Expect a gap in history rather than a stall — the alternative, blocking, only moves the same loss into the NATS client and reports it with no count at all.
-- **A restart flushes what it holds.** On shutdown the aggregator finishes the writes already in flight and drains its buffer, within a five-second budget, instead of abandoning records the broker will not send again.
+- **A restart flushes what it holds.** On shutdown the aggregator finishes the writes already in flight and drains its buffer instead of abandoning records the broker will not send again. That work gets five seconds; a database that has stopped answering cannot hold the shutdown open past it, so a restart never spends its termination grace period waiting.
 
 If you see the shedding warning, the aggregator is not keeping up with its database: check the `logs` deployment's replica count and the database before trusting a quiet period in the history.
 

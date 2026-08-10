@@ -85,10 +85,78 @@ func TestConsumerWritesWhatItHoldsOnShutdown(t *testing.T) {
 	work <- logMsg("first")
 	work <- logMsg("second")
 
-	NewLogConsumer(store, 1).drain(work)
+	NewLogConsumer(store, 1).drain(context.Background(), work)
 
 	if got := store.messages(); len(got) != 2 || got[0] != "first" || got[1] != "second" {
 		t.Errorf("stored %v, want both buffered records written on the way out", got)
+	}
+}
+
+// wedgedStore never answers, standing in for a database that has stopped
+// responding rather than refused.
+type wedgedStore struct{ entered chan struct{} }
+
+func (s *wedgedStore) Insert(ctx context.Context, _ LogEvent) error {
+	select {
+	case s.entered <- struct{}{}:
+	default:
+	}
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+// TestConsumerCloseGivesUpOnAWedgedStore is the other side of finishing in-flight
+// writes: they get the shutdown budget, not their own full timeout. A write is
+// allowed to outlive the subscription so it can finish — but not to hold Close
+// open for logWriteTimeout, which would spend a pod's whole termination grace
+// period waiting on a database that is not going to answer.
+func TestConsumerCloseGivesUpOnAWedgedStore(t *testing.T) {
+	// The assertion below allows twice the budget for scheduling slack, so that
+	// is the relation the constants have to satisfy — otherwise the bound being
+	// ruled out is inside the tolerance and the test proves nothing.
+	if shutdownFlushTimeout*2 >= logWriteTimeout {
+		t.Fatalf("shutdownFlushTimeout (%v) must leave room for the 2x bound below before logWriteTimeout (%v)",
+			shutdownFlushTimeout, logWriteTimeout)
+	}
+
+	url := runServer(t)
+	pub := connect(t, url)
+	conn := connect(t, url)
+
+	store := &wedgedStore{entered: make(chan struct{}, 1)}
+	sub, err := NewLogConsumer(store, 1).Start(context.Background(), conn)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if err := conn.Flush(); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
+	if err := pub.Publish(LogSubject, logMsg("stuck").Data); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	select {
+	case <-store.entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the record never reached the store")
+	}
+
+	done := make(chan error, 1)
+	start := time.Now()
+	go func() { done <- sub.Close() }()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+		// Bounded by the shutdown budget, with slack for scheduling — and well
+		// under logWriteTimeout, which is the bound being ruled out.
+		if elapsed := time.Since(start); elapsed > shutdownFlushTimeout*2 {
+			t.Errorf("Close took %v, want it bounded by the %v shutdown budget", elapsed, shutdownFlushTimeout)
+		}
+	case <-time.After(logWriteTimeout):
+		t.Fatalf("Close did not return within %v: a stuck write is holding the shutdown open", logWriteTimeout)
 	}
 }
 
