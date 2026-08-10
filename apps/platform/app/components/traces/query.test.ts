@@ -2,10 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   buildHref,
   buildPath,
+  DEFAULT_FILTERS,
   NOTHING_SELECTED,
   parsePathname,
+  readFilters,
   readSelection,
   TRACES_BASE,
+  windowFor,
+  writeFilters,
 } from "./query";
 
 describe("the traces selection path", () => {
@@ -72,5 +76,57 @@ describe("the traces selection path", () => {
 
   it("reads a path that is not under the traces route as no selection", () => {
     expect(parsePathname("/platform/logs")).toEqual(NOTHING_SELECTED);
+  });
+});
+
+describe("the traces filter query string", () => {
+  it("leaves a default view's URL clean", () => {
+    expect(writeFilters(DEFAULT_FILTERS)).toBe("");
+    expect(readFilters(new URLSearchParams(""))).toEqual(DEFAULT_FILTERS);
+  });
+
+  it("round-trips everything a reader can narrow by", () => {
+    const filters = {
+      window: "7d" as const,
+      statuses: ["failed" as const, "dropped" as const],
+      hasLlm: true,
+      minDurationMs: 500,
+      q: "POST /orders",
+    };
+    const written = writeFilters(filters);
+    expect(readFilters(new URLSearchParams(written))).toEqual(filters);
+  });
+
+  it("drops a status the service would reject rather than sending it", () => {
+    // The service answers an unmatchable status with an error, which renders as
+    // an outage — for what is really a stale link or a typed URL.
+    const params = new URLSearchParams("status=failed&status=banana");
+    expect(readFilters(params).statuses).toEqual(["failed"]);
+  });
+
+  it("falls back to the default window for one it does not know", () => {
+    expect(readFilters(new URLSearchParams("w=eternity")).window).toBe(
+      DEFAULT_FILTERS.window,
+    );
+  });
+
+  it("ignores a duration threshold that is not one", () => {
+    expect(readFilters(new URLSearchParams("slower=soon")).minDurationMs).toBeNull();
+    expect(readFilters(new URLSearchParams("slower=-5")).minDurationMs).toBeNull();
+    expect(readFilters(new URLSearchParams("slower=0")).minDurationMs).toBeNull();
+  });
+});
+
+describe("windowFor", () => {
+  const now = Date.parse("2026-08-09T12:00:00.000Z");
+
+  it("resolves a preset against the instant it was given", () => {
+    // Given rather than read: a window recomputed each render would change each
+    // render, and a changing window is a query that refetches forever.
+    expect(windowFor("1h", now)).toEqual({
+      from: "2026-08-09T11:00:00.000Z",
+      to: "2026-08-09T12:00:00.000Z",
+    });
+    expect(windowFor("7d", now).from).toBe("2026-08-02T12:00:00.000Z");
   });
 });
