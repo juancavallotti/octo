@@ -413,6 +413,27 @@ CREATE TABLE IF NOT EXISTS trace_summaries (
     root_flow        varchar     NOT NULL DEFAULT '',
     entry_kind       varchar     NOT NULL DEFAULT '',
     entry_label      varchar     NOT NULL DEFAULT '',
+
+    -- The three columns below are not reported to anyone: they are how the
+    -- upsert decides which batch's version of a chosen column to keep.
+    --
+    -- Most of this table merges by bound, sum or set union, which need no
+    -- history. The identity columns cannot: they are chosen from one particular
+    -- record, and that record does not arrive first or even in the same batch as
+    -- the records needing it — a flow.started is routinely written before the
+    -- source.receive that supersedes it. Storing how good the winning record was
+    -- lets a later batch correct an earlier guess while stopping a worse later
+    -- record from overwriting a better earlier one, which neither
+    -- first-writer-wins nor last-writer-wins can do in both directions.
+    --
+    -- entry_rank is lower-is-better and 99 means no entry record has been seen
+    -- yet, so a stand-in is in place. root_flow_seq is tracked separately from
+    -- entry_seq because the record naming the entry point is usually not the one
+    -- naming the flow: source records carry no flow at all.
+    entry_rank       smallint    NOT NULL DEFAULT 99,
+    entry_seq        bigint      NOT NULL DEFAULT 0,
+    root_flow_seq    bigint      NOT NULL DEFAULT 0,
+
     status           varchar     NOT NULL DEFAULT 'ok',
     root_duration_ns bigint      NOT NULL DEFAULT 0,
     records          integer     NOT NULL DEFAULT 0,
