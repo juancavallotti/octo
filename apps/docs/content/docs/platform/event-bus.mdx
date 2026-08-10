@@ -16,7 +16,7 @@ One NATS broker is the platform's message backbone. Control-plane events, runtim
 | `internal.deployments.{integrationId}` | orchestrator | platform BFF (per-integration SSE) | Deployment status snapshots |
 | `internal.integrations.events` | platform BFF (MCP writes) | platform BFF (SSE) | Integration-write live-reload hints |
 | `internal.logs` | every runtime pod | log aggregator (queue group) | Structured log shipping |
-| `internal.traces` | every runtime pod with tracing on | *(traces engine — not yet built)* | [Trace](/runtime/tracing) record shipping |
+| `internal.traces` | every runtime pod with tracing on | log aggregator (queue group) | [Trace](/runtime/tracing) record shipping |
 | `octo.{deploymentId}.q.{subject}` | runtime pods | runtime pods (queue group) | Flow [queues](/runtime/clustering#queues-competing-consumers) — competing consumers |
 | `octo.{deploymentId}.t.{subject}` | runtime pods | runtime pods (plain subscribe) | Flow topics — broadcast fan-out |
 
@@ -25,8 +25,10 @@ The convention: control-plane infrastructure lives under `internal.*`; runtime m
 `internal.logs` and `internal.traces` are deliberately **not** scoped per deployment, unlike the `octo.{deploymentId}.*` subjects: a single aggregator consumes each as a competing consumer across every deployment, and the deployment identity travels inside each record. Scoping them would make the aggregator's subscription list grow with the number of deployments, which is the thing an aggregator exists to avoid.
 
 <Callout type="info">
-`internal.traces` is **produced but not yet consumed**. A runtime with `OCTO_TRACING=true` publishes to it today; the traces engine that reads it — the counterpart of the log aggregator — is future work. Until it exists, tracing is most useful against the [standalone runtime](/runtime/tracing), which writes a local file instead.
+Both subjects are consumed by the **same service** — the one still called the log aggregator. Traces landed there because they arrive the same way and are queried the same way; the name has not caught up.
 </Callout>
+
+The two consumers behave differently under load, and deliberately so. Log records are inserted one at a time by a small worker pool. Trace records are **batched** — one request through a ten-block flow emits a couple of dozen of them against a log line or two — and when the writer falls behind, the trace consumer **sheds** records rather than waiting for room, because its subscription callback shares a connection with the log consumer and blocking there would stall log shipping too. Traces are the load that can outrun its own writer, so traces are what gives way; the count of what was dropped is logged.
 
 ## Orchestrator events: deployment status
 
