@@ -102,6 +102,20 @@ describe("TraceAppList", () => {
     expect(current[0]).toHaveTextContent("v2.0");
   });
 
+  it("marks an untagged app as selected too", () => {
+    // A deployment from before version tags reports "", and the path omits the
+    // version segment entirely — so the two spellings of "no version" have to
+    // compare equal, or that app can never look like the one you picked.
+    renderList([{ ...APP, appVersion: "" }], {
+      selectedId: "dep-1",
+      selectedVersion: null,
+    });
+    expect(screen.getByRole("button", { name: /Orders/ })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+  });
+
   it("explains an empty list rather than just being empty", () => {
     // Nothing here is the expected state: tracing is off unless someone turned
     // it on, so "no traces" is much more likely to be a setting than a problem.

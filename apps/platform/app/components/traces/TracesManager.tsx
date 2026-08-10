@@ -8,6 +8,7 @@ import ManagementNav from "@/app/components/ManagementNav";
 import { EmptyState } from "@/app/(session)/platform/DashboardTiles";
 import type { TraceApp, TraceSummary } from "@/app/model/traces";
 import TraceAppList from "./TraceAppList";
+import TraceDetail from "./TraceDetail";
 import TraceFilters from "./TraceFilters";
 import TraceList from "./TraceList";
 import {
@@ -154,21 +155,24 @@ export default function TracesManager({
           </div>
         </div>
 
-        <div className="min-w-0 flex-1 overflow-y-auto p-6">
+        <div className="min-w-0 flex-1 overflow-hidden">
           {selection.traceId ? (
-            <p className="text-sm text-zinc-400">
-              The waterfall for this trace appears here.
-            </p>
+            // Keyed by the trace, so opening another one resets the chart's
+            // viewport and what was folded away rather than carrying a previous
+            // trace's shape onto a different one.
+            <TraceDetail key={selection.traceId} traceId={selection.traceId} />
           ) : (
-            <EmptyState
-              icon={Waypoints}
-              title={error ? "Traces unavailable" : "Pick a trace"}
-              body={
-                error
-                  ? "The platform can't reach the trace service. Set LOGS_URL to enable it."
-                  : "Choose an execution to see everything that happened on it — every flow, block and model call, with what each one took."
-              }
-            />
+            <div className="p-6">
+              <EmptyState
+                icon={Waypoints}
+                title={error ? "Traces unavailable" : "Pick a trace"}
+                body={
+                  error
+                    ? "The platform can't reach the trace service. Set LOGS_URL to enable it."
+                    : "Choose an execution to see everything that happened on it — every flow, block and model call, with what each one took."
+                }
+              />
+            </div>
           )}
         </div>
       </div>
