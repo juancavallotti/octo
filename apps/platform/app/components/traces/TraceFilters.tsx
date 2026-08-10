@@ -41,6 +41,13 @@ export default function TraceFilters({
   onChange,
 }: {
   value: TraceFilterValues;
+  /**
+   * Whether the *trace-list* controls are inert — they narrow a list that only
+   * exists once an app is chosen. The window is never disabled with them: it
+   * measures the app list too, and locking it until an app is picked would put
+   * the reader's only way of widening the search behind the thing they are
+   * trying to find.
+   */
   disabled?: boolean;
   onChange: (next: TraceFilterValues) => void;
 }) {
@@ -58,7 +65,6 @@ export default function TraceFilters({
       <select
         aria-label="Window"
         value={value.window}
-        disabled={disabled}
         onChange={(e) => set({ window: e.target.value as WindowPreset })}
         className={CONTROL}
       >

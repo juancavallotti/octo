@@ -285,6 +285,43 @@ describe("buildWaterfall", () => {
     expect(buildWaterfall(trace).warnings).toEqual([]);
   });
 
+  it("refuses a fork's inputs however far apart the overlapping pair sits", () => {
+    // The concurrency check compares neighbours once, sorted by start. That is
+    // sufficient rather than a shortcut: if a[i] overlaps a[j] then
+    // a[i].start <= a[i+1].start <= a[j].start < a[i].end, so a[i] overlaps its
+    // own neighbour too. Here the outer and the last invocation overlap while
+    // the middle one is nested well inside — a pair the neighbour comparison
+    // still has to catch.
+    const trace = records(
+      { kind: "block.pre-invoke", start: 0, path: "orders.fan[0].call" },
+      { kind: "block.pre-invoke", start: 1_000, path: "orders.fan[0].call" },
+      { kind: "block.pre-invoke", start: 2_000, path: "orders.fan[0].call" },
+      { kind: "block.post-invoke", start: 0, duration: 100_000, path: "orders.fan[0].call" },
+      { kind: "block.post-invoke", start: 10_000, duration: 5_000, path: "orders.fan[0].call" },
+      { kind: "block.post-invoke", start: 50_000, duration: 5_000, path: "orders.fan[0].call" },
+      { kind: "block.post-invoke", start: 0, duration: 120_000, path: "orders.fan" },
+      { kind: "flow.completed", start: 0, duration: 150_000, flow: "orders" },
+    );
+
+    const fan = find(buildWaterfall(trace).roots, "fan")!;
+    expect(fan.children).toHaveLength(3);
+    expect(fan.children.every((c) => !c.inputMatched)).toBe(true);
+  });
+
+  it("labels a stand-in from a member that knows its flow", () => {
+    // Not every record names its flow. Reading only whichever member happened to
+    // sort first would label a whole invocation "incomplete invocation" on the
+    // strength of one record that had nothing to say.
+    const trace = records(
+      { kind: "block.post-invoke", start: 20_000, duration: 5_000, path: "pricing.a", eventId: "ev-sub", flow: "" },
+      { kind: "block.post-invoke", start: 30_000, duration: 5_000, path: "pricing.b", eventId: "ev-sub", flow: "pricing" },
+      { kind: "flow.completed", start: 0, duration: 100_000, flow: "orders" },
+    );
+
+    const inferred = find(buildWaterfall(trace).roots, "pricing")!;
+    expect(inferred.inferred).toBe(true);
+  });
+
   it("says when a block was entered and never came back", () => {
     const trace = records(
       { kind: "block.pre-invoke", start: 10_000, path: "orders.hang" },

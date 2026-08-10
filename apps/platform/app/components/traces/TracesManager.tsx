@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Waypoints } from "lucide-react";
 import AppHeader from "@/app/components/AppHeader";
@@ -17,6 +17,7 @@ import {
   readFilters,
   windowFor,
   writeFilters,
+  type TraceFilterValues,
   type TraceSelection,
 } from "./query";
 import { useTraceApps } from "./useTraceApps";
@@ -43,32 +44,31 @@ export default function TracesManager({
   const searchParams = useSearchParams();
   const selection = useMemo(() => parsePathname(pathname), [pathname]);
 
-  // Filters start from the URL; thereafter the URL follows them.
-  const [filters, setFilters] = useState(() =>
-    readFilters(new URLSearchParams(searchParams.toString())),
+  // The URL *is* the filters — not a copy kept in step with them.
+  //
+  // Holding them in state and mirroring them into the URL breaks the Back
+  // button: history restores the path and the query string, the restored path
+  // updates the selection, but the in-memory filters survive and get written
+  // straight back over the restored query. The reader can then never navigate
+  // back to an earlier filter state, in a view whose whole point is that it is
+  // bookmarkable. Reading them back on every navigation makes history the one
+  // source, and removes the mount-time navigation entirely.
+  const filters = useMemo(
+    () => readFilters(new URLSearchParams(searchParams.toString())),
+    [searchParams],
   );
+  const setFilters = useCallback(
+    (next: TraceFilterValues) => {
+      const qs = writeFilters(next);
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    },
+    [router, pathname],
+  );
+
   // The window is resolved to absolute bounds once per change, not per render: a
   // window that moved every render would be a new query every render.
   const [now, setNow] = useState(() => Date.now());
   const bounds = useMemo(() => windowFor(filters.window, now), [filters.window, now]);
-
-  // The URL follows the filters, but only when the two actually differ.
-  //
-  // Replacing unconditionally fires a navigation on the very first commit —
-  // including a hard load, where the URL already says exactly what the filters
-  // say. That navigation aborts the server actions this component's own effects
-  // have just started: child effects run before parent ones, so the trace detail
-  // gets its request out and the app list and trace list do not. Their promises
-  // then never settle, and both panes sit on "Loading…" for good.
-  const desiredQuery = writeFilters(filters);
-  const currentQuery = searchParams.toString();
-  useEffect(() => {
-    if (desiredQuery === currentQuery) return;
-    router.replace(
-      desiredQuery ? `${pathname}?${desiredQuery}` : pathname,
-      { scroll: false },
-    );
-  }, [desiredQuery, currentQuery, pathname, router]);
 
   const apps = useTraceApps(bounds);
 
@@ -91,9 +91,15 @@ export default function TracesManager({
   );
   const list = useTraceList(query);
 
+  // A selection change carries the query string along, so moving between apps
+  // and traces does not silently drop the filters that produced the list.
   const go = useCallback(
-    (next: TraceSelection) => router.push(buildHref(next), { scroll: false }),
-    [router],
+    (next: TraceSelection) => {
+      const qs = searchParams.toString();
+      const href = buildHref(next);
+      router.push(qs ? `${href}?${qs}` : href, { scroll: false });
+    },
+    [router, searchParams],
   );
 
   const selectApp = useCallback(

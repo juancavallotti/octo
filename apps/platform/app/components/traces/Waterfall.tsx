@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TriangleAlert } from "lucide-react";
 import { flattenWaterfall, panBy, zoomAt } from "./chartLayout";
 import type { Interval } from "./timeSpans";
 import type { Waterfall as WaterfallModel, WaterfallNode } from "./types";
 import WaterfallAxis from "./WaterfallAxis";
 import WaterfallRow from "./WaterfallRow";
+import { rowElementId, useTreegridKeys } from "./useTreegridKeys";
 
 /**
  * The chart: everything that happened on one trace, nested as it ran.
@@ -53,26 +54,44 @@ export default function Waterfall({
     });
   }, []);
 
-  // Escape restores the whole trace, which is the way back from any zoom.
+  // Zoom on a modified wheel only — a bare wheel has to keep scrolling the rows,
+  // since a chart that hijacks it makes a long trace unreadable.
+  //
+  // Registered by hand rather than with an onWheel prop because React attaches
+  // wheel listeners passively: preventDefault() from a synthetic handler is
+  // ignored, so the page would zoom *and* scroll at once. A native listener with
+  // { passive: false } is the only way to hold the scroll still.
+  const scroller = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setView(bounds);
+    const element = scroller.current;
+    if (!element) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey && !e.altKey) return;
+      e.preventDefault();
+      const box = element.getBoundingClientRect();
+      const fraction = box.width ? (e.clientX - box.left) / box.width : 0.5;
+      setView((prev) => zoomAt(prev, fraction, e.deltaY > 0 ? 1.25 : 0.8, bounds));
     };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    element.addEventListener("wheel", onWheel, { passive: false });
+    return () => element.removeEventListener("wheel", onWheel);
   }, [bounds]);
 
-  // Zoom on a modified wheel only. A bare wheel has to keep scrolling the rows:
-  // a chart that hijacks it makes a long trace unreadable.
-  const onWheel = (e: React.WheelEvent) => {
-    if (!e.ctrlKey && !e.metaKey && !e.altKey) return;
-    e.preventDefault();
-    const box = e.currentTarget.getBoundingClientRect();
-    const fraction = box.width ? (e.clientX - box.left) / box.width : 0.5;
-    setView((prev) => zoomAt(prev, fraction, e.deltaY > 0 ? 1.25 : 0.8, bounds));
-  };
-
   const zoomed = view.start > bounds.start || view.end < bounds.end;
+
+  // Arrow keys walk and fold the tree, shifted arrows pan, Escape fits. Scoped
+  // to the chart rather than to the document: Escape belongs to whatever the
+  // reader is actually in, and a chart that claims it globally takes it from
+  // every dialog on the page.
+  const keys = useTreegridKeys(
+    rows,
+    (row) => onSelect(row.node),
+    (row) => toggle(row.node.id),
+    useCallback(
+      (direction: -1 | 1) => setView((prev) => panBy(prev, direction * 0.2, bounds)),
+      [bounds],
+    ),
+    useCallback(() => setView(bounds), [bounds]),
+  );
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -128,7 +147,7 @@ export default function Waterfall({
           lost a scrollbar's worth of it, and every bar would sit a few pixels
           off the tick it is measured against. Sticky also keeps it in view on a
           long trace, which is where reading a bar against it matters most. */}
-      <div onWheel={onWheel} className="min-h-0 flex-1 overflow-y-auto">
+      <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto">
         <div className="sticky top-0 z-10 bg-white pl-64 pr-20 dark:bg-zinc-900">
           <WaterfallAxis view={view} bounds={bounds} onChange={setView} />
         </div>
@@ -137,14 +156,10 @@ export default function Waterfall({
           role="treegrid"
           aria-label="Trace waterfall"
           aria-rowcount={waterfall.count}
-          onKeyDown={(e) => {
-            if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-            if (!zoomed) return;
-            e.preventDefault();
-            setView((prev) => panBy(prev, e.key === "ArrowLeft" ? -0.2 : 0.2, bounds));
-          }}
+          aria-activedescendant={keys.activeId}
+          onKeyDown={keys.onKeyDown}
           tabIndex={0}
-          className="outline-none"
+          className="outline-none focus-visible:ring-1 focus-visible:ring-sky-500/40"
         >
           {rows.map((row) => (
             <WaterfallRow
@@ -152,6 +167,7 @@ export default function Waterfall({
               row={row}
               view={view}
               selected={row.node.id === selectedId}
+              active={rowElementId(row.node.id) === keys.activeId}
               onSelect={() => onSelect(row.node)}
               onToggle={() => toggle(row.node.id)}
             />

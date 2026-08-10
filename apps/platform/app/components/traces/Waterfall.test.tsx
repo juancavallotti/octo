@@ -118,6 +118,40 @@ describe("Waterfall", () => {
     ).toBeInTheDocument();
   });
 
+  it("can be walked and folded from the keyboard", async () => {
+    // role="treegrid" is a promise about behaviour, not a source of it. Without
+    // this the widget claims an interaction it does not implement.
+    renderChart();
+    const grid = screen.getByRole("treegrid");
+    grid.focus();
+
+    await userEvent.keyboard("{ArrowDown}");
+    expect(grid).toHaveAttribute("aria-activedescendant");
+    const second = grid.getAttribute("aria-activedescendant");
+
+    await userEvent.keyboard("{ArrowDown}");
+    expect(grid.getAttribute("aria-activedescendant")).not.toBe(second);
+
+    // Left folds the branch the cursor is on rather than moving off it.
+    await userEvent.keyboard("{ArrowUp}{ArrowLeft}");
+    expect(screen.getByText("+1")).toBeInTheDocument();
+  });
+
+  it("opens the active span on Enter", async () => {
+    const onSelect = renderChart();
+    screen.getByRole("treegrid").focus();
+    await userEvent.keyboard("{ArrowDown}{Enter}");
+    expect(onSelect).toHaveBeenCalled();
+  });
+
+  it("leaves Escape alone unless the chart has focus", async () => {
+    // Escape belongs to whatever the reader is actually in; a chart that claims
+    // it on the document takes it from every dialog on the page.
+    renderChart();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("button", { name: "Fit (Esc)" })).not.toBeInTheDocument();
+  });
+
   it("offers a way back only once there is somewhere to come back from", () => {
     renderChart();
     expect(screen.queryByRole("button", { name: "Fit (Esc)" })).not.toBeInTheDocument();

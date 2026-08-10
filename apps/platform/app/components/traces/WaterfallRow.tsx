@@ -4,6 +4,7 @@ import { ChevronDown, ChevronRight, Split, TriangleAlert } from "lucide-react";
 import { classifySpan, type WorkClass } from "./blockClasses";
 import { formatDuration } from "./format";
 import { barStyle, type WaterfallRowModel } from "./chartLayout";
+import { rowElementId } from "./useTreegridKeys";
 import type { Interval } from "./timeSpans";
 
 /**
@@ -38,12 +39,15 @@ export default function WaterfallRow({
   row,
   view,
   selected,
+  active,
   onSelect,
   onToggle,
 }: {
   row: WaterfallRowModel;
   view: Interval;
   selected: boolean;
+  /** The row the keyboard is on, which is not the same as the one opened. */
+  active?: boolean;
   onSelect: () => void;
   onToggle: () => void;
 }) {
@@ -54,6 +58,7 @@ export default function WaterfallRow({
 
   return (
     <div
+      id={rowElementId(node.id)}
       role="row"
       aria-level={node.depth + 1}
       aria-selected={selected}
@@ -61,7 +66,7 @@ export default function WaterfallRow({
       onClick={onSelect}
       className={`flex h-6 cursor-default items-center text-xs transition-colors ${
         selected ? "bg-sky-500/10" : "hover:bg-black/[0.03] dark:hover:bg-white/[0.04]"
-      }`}
+      } ${active ? "ring-1 ring-inset ring-sky-500/40" : ""}`}
     >
       <div
         role="gridcell"
@@ -114,7 +119,7 @@ export default function WaterfallRow({
         {style && (
           <div
             style={{ ...style, minWidth: "2px" }}
-            title={tooltip(node.label, workClass, node.durationNs, node.inputMatched)}
+            title={tooltip(node, workClass)}
             className={`absolute inset-y-1 rounded-sm ${
               failed ? "bg-red-500/70" : CLASS_COLOR[workClass]
             } ${node.inferred ? "border border-dashed border-amber-500/70" : ""}`}
@@ -132,14 +137,15 @@ export default function WaterfallRow({
   );
 }
 
-function tooltip(
-  label: string,
-  workClass: WorkClass,
-  durationNs: number,
-  inputMatched: boolean,
-): string {
-  const lines = [`${label} — ${formatDuration(durationNs)}`, CLASS_LABEL[workClass]];
-  if (!inputMatched) {
+function tooltip(node: WaterfallRowModel["node"], workClass: WorkClass): string {
+  // An inferred span has no measured duration — the cell shows "—" for exactly
+  // that reason, and a tooltip quoting a number here would contradict it with
+  // a figure derived from its children.
+  const took = node.inferred
+    ? "no outcome recorded; extent inferred from what ran inside it"
+    : formatDuration(node.durationNs);
+  const lines = [`${node.label} — ${took}`, CLASS_LABEL[workClass]];
+  if (!node.inputMatched) {
     // The runtime is explicit that pre/post pairing is unreliable under a fork.
     // A plausible wrong payload is worse than none: nothing about it looks wrong.
     lines.push("input not matched — this address ran concurrently with itself");

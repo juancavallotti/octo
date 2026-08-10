@@ -192,7 +192,12 @@ function inferredRoots(
       id: `inferred:${eventId}`,
       // Not a record kind: nothing published this row, which is the point.
       kind: "invocation",
-      label: group[0].record?.flow || "incomplete invocation",
+      // The first member that knows its flow: source records carry none, so
+      // reading only group[0] would label a whole invocation "incomplete"
+      // whenever one of those happened to sort first.
+      label:
+        group.find((node) => node.record?.flow)?.record?.flow ??
+        "incomplete invocation",
       path: "",
       eventId,
       start: Math.min(...group.map((node) => node.start)),

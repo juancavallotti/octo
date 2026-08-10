@@ -102,6 +102,9 @@ function TraceRow({
     >
       <div className="flex items-center gap-2">
         <span
+          // A bare span's aria-label is not exposed by many screen readers, so
+          // without a role the outcome of a trace is carried by colour alone.
+          role="img"
           aria-label={trace.status}
           title={trace.status}
           className={`size-2 shrink-0 rounded-full ${STATUS_DOT[trace.status] ?? "bg-zinc-400"}`}

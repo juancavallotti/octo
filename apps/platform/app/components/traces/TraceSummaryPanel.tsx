@@ -27,6 +27,11 @@ export default function TraceSummaryPanel({
   waterfall: Waterfall;
 }) {
   const breakdown = useMemo(() => workBreakdown(waterfall), [waterfall]);
+  // From the rollup, like every other aggregate here. Reading it off the chart
+  // would make this the one number in the panel that a truncated record set
+  // could quietly shrink, in the panel whose whole claim is that it does not
+  // recompute what the list already showed.
+  const spanNs = (Date.parse(summary.endedAt) - Date.parse(summary.startedAt)) * 1e6;
   const cost = describeCost(summary.costUsd, summary.unpricedCalls, summary.llmCalls > 0);
 
   return (
@@ -102,7 +107,7 @@ export default function TraceSummaryPanel({
         )}
 
         <Stat label="Span" title="End to end, as the stored rollup measured it.">
-          <span className="font-mono">{formatDuration(breakdown.totalNs)}</span>
+          <span className="font-mono">{formatDuration(spanNs)}</span>
         </Stat>
       </dl>
     </section>

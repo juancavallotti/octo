@@ -37,12 +37,28 @@ export const NOTHING_SELECTED: TraceSelection = {
   traceId: null,
 };
 
+/**
+ * Decode one path segment, treating an invalid escape as literal text.
+ *
+ * decodeURIComponent throws on a malformed sequence, and this runs inside a
+ * useMemo during render — so a truncated or hand-edited shared link would take
+ * the whole view down rather than resolve to no selection, which is how the rest
+ * of this parser treats input it cannot read.
+ */
+function decodeSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
 /** Parse a full pathname (from usePathname) into a selection. */
 export function parsePathname(pathname: string): TraceSelection {
   const tail = pathname.startsWith(TRACES_BASE)
     ? pathname.slice(TRACES_BASE.length)
     : "";
-  return readSelection(tail.split("/").filter(Boolean).map(decodeURIComponent));
+  return readSelection(tail.split("/").filter(Boolean).map(decodeSegment));
 }
 
 /** Parse the catch-all route's segments into a selection. */

@@ -10,7 +10,7 @@
  * thing someone is looking for.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { listTraces, type TraceFilters, type TraceSummary } from "@/app/model/traces";
 
 /** How many traces a page holds. */
@@ -68,12 +68,25 @@ export function useTraceList(filters: TraceFilters | null): TraceList {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wanted]);
 
+  // The query as of right now, reachable from a callback without re-creating it.
+  const wantedNow = useRef(wanted);
+  useEffect(() => {
+    wantedNow.current = wanted;
+  }, [wanted]);
+
   const loadMore = useCallback(() => {
     if (!older || !filters || loadingMore) return;
+    // Which query this page belongs to. The main effect drops a stale answer by
+    // going out of scope; a paged one has to be checked against what is current
+    // when it lands, or clicking "Load older" and then switching app appends the
+    // previous app's traces under the new app's heading — and leaves a cursor
+    // that pages the wrong query from then on.
+    const pagedFor = wanted;
     setLoadingMore(true);
     listTraces({ ...filters, before: older, limit: PAGE_SIZE })
       .then(
         (page) => {
+          if (pagedFor !== wantedNow.current) return;
           // Appended without de-duplication: the composite cursor is exact, so a
           // repeat here would be the service disagreeing with itself rather than
           // something for this list to paper over.
@@ -81,10 +94,12 @@ export function useTraceList(filters: TraceFilters | null): TraceList {
           setOlder(page.nextBefore);
           setError(null);
         },
-        (err: Error) => setError(err.message),
+        (err: Error) => {
+          if (pagedFor === wantedNow.current) setError(err.message);
+        },
       )
       .finally(() => setLoadingMore(false));
-  }, [older, filters, loadingMore]);
+  }, [older, filters, loadingMore, wanted]);
 
   // What is in state belongs to whatever `loaded` names. When that is not what is
   // wanted — a different app, changed filters — it is withheld rather than shown
@@ -97,7 +112,10 @@ export function useTraceList(filters: TraceFilters | null): TraceList {
     older: fresh ? older : null,
     loading: wanted !== null && !fresh,
     loadingMore,
-    error,
+    // Withheld on the same terms as the list: an error raised by the query that
+    // was on screen a moment ago is not a fact about the one loading now, and
+    // leaving it up would blame the new app for the old one's failure.
+    error: fresh ? error : null,
     loadMore,
   };
 }
