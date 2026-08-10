@@ -146,6 +146,8 @@ tasks:
     desc: Verify lint configuration is present
     cmds:
       - test -f runtime/.golangci.yml
+      - test -f apps/platform/eslint.config.mjs
+      - test -f apps/standalone/eslint.config.mjs
       - test -f docs/linting-policy.md
 
   policy-check:

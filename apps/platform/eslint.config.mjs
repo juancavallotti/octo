@@ -5,7 +5,7 @@ import nextTs from "eslint-config-next/typescript";
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
-  // Coding standards: keep files small and focused. See CODING_STANDARDS.md.
+  // Coding standards: keep files small and focused. See docs/coding-standards.md.
   {
     rules: {
       "max-lines": [
