@@ -224,7 +224,7 @@ subjects for the other:
 | Module | Destination |
 | --- | --- |
 | standalone (default build) | A JSONL file, one object per line. Not a JSON array: a runtime is usually killed rather than stopped, and an array whose closing bracket was never written is unreadable, while JSONL cut anywhere is still valid up to its last complete line. |
-| k8s (`-tags k8s`) | The `internal.traces` NATS subject, consumed by the platform's [log aggregator](/platform/event-bus), which stores each record and prices any model calls. |
+| k8s (`-tags k8s`) | The `internal.traces` NATS subject, consumed by the platform's aggregator, which stores every record and prices any model calls — see [Traces](/platform/traces). |
 
 The file is flushed whenever the runtime goes idle, so you can `tail -f` it during
 a run, and synced on a graceful stop.
@@ -244,6 +244,10 @@ OCTO_TRACING_BLOCKS=orders.charge
 Set them as integration environment variables and redeploy. These are read from
 the **process environment only**, not from a `.env` file: they are resolved when
 `octo run` parses its flags, before any config is loaded.
+
+What the pod publishes is then stored and queryable — see
+[Traces](/platform/traces) for how records are kept, what a model call is priced
+at, and the API over both.
 
 `octo invoke` never traces — it starts no hosted services — which is also why
 [test suites](/testing) are unaffected by any of this.
