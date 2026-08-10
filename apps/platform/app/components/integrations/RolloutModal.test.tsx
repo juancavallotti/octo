@@ -101,6 +101,7 @@ describe("RolloutModal", () => {
       deploymentId: "dep-1",
       snapshotId: "snap-1",
       env: { API_KEY: { value: "seeded" } },
+      tracing: false,
     });
   });
 
@@ -120,6 +121,7 @@ describe("RolloutModal", () => {
       deploymentId: "dep-1",
       snapshotId: "snap-1",
       env: { API_KEY: { value: "abc123" } },
+      tracing: false,
     });
   });
 
@@ -140,6 +142,45 @@ describe("RolloutModal", () => {
       deploymentId: "dep-1",
       newTag: "v2.0.0",
       env: { API_KEY: { value: "seeded" } },
+      tracing: false,
     });
+  });
+
+  // The switch has to read as current state, not as a blank instruction: a rollout
+  // always sends a value, so a switch that defaulted to off would silently stop
+  // tracing a deployment on its next version bump.
+  it("seeds the tracing switch from the deployment and can turn it off", async () => {
+    const onSubmit = renderModal(vi.fn(), {
+      deployments: [{ ...DEPLOYMENT, tracing: true }],
+    });
+    const toggle = await screen.findByRole("checkbox", {
+      name: /trace this deployment/i,
+    });
+    expect(toggle).toBeChecked();
+
+    const roll = screen.getByRole("button", { name: "Roll out" });
+    await waitFor(() => expect(roll).toBeEnabled());
+    await userEvent.click(toggle);
+    await userEvent.click(roll);
+
+    expect(onSubmit).toHaveBeenCalledWith({
+      deploymentId: "dep-1",
+      snapshotId: "snap-1",
+      env: { API_KEY: { value: "seeded" } },
+      tracing: false,
+    });
+  });
+
+  it("keeps tracing on through a plain version bump", async () => {
+    const onSubmit = renderModal(vi.fn(), {
+      deployments: [{ ...DEPLOYMENT, tracing: true }],
+    });
+    const roll = await screen.findByRole("button", { name: "Roll out" });
+    await waitFor(() => expect(roll).toBeEnabled());
+    await userEvent.click(roll);
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ tracing: true }),
+    );
   });
 });

@@ -13,6 +13,7 @@ import SlugField from "./SlugField";
 import DeployEnvFields from "./DeployEnvFields";
 import { useDeployEnv } from "./useDeployEnv";
 import Field from "./Field";
+import TracingToggle from "./TracingToggle";
 
 /**
  * Modal that collects per-deploy options and deploys. The version is decided
@@ -39,6 +40,7 @@ export interface DeploySubmit {
   slug?: string;
   expose?: "external";
   env?: Record<string, EnvBindingInput>;
+  tracing?: boolean;
 }
 
 export default function DeployModal({
@@ -67,6 +69,7 @@ export default function DeployModal({
   const [expose, setExpose] = useState(false);
   const [slug, setSlug] = useState("");
   const [slugOk, setSlugOk] = useState(false);
+  const [tracing, setTracing] = useState(false);
   const [opts, setOpts] = useState<DeployOptions | null>(null);
   // The new tag to cut when deploying Current; prefilled with the suggested next
   // version. Unused in tag mode.
@@ -136,6 +139,7 @@ export default function DeployModal({
       ...(networked ? { slug: slug.trim() } : {}),
       ...(networked && expose ? { expose: "external" } : {}),
       ...(Object.keys(env).length ? { env } : {}),
+      ...(tracing ? { tracing: true } : {}),
     });
   };
 
@@ -245,6 +249,13 @@ export default function DeployModal({
               address.
             </p>
           )}
+
+          <Field
+            label="Tracing"
+            hint="Records every flow, block and model call, with what each one cost. Off by default — it noticeably reduces throughput, so turn it on for a deployment you are investigating."
+          >
+            <TracingToggle busy={busy} checked={tracing} onChange={setTracing} />
+          </Field>
 
           {envVars.length > 0 && (
             <Field

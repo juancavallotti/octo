@@ -41,8 +41,9 @@ export async function rolloutDeployment(
   id: string,
   snapshotId: string,
   env?: Record<string, EnvBindingInput>,
+  tracing?: boolean,
 ): Promise<ActionResult<Deployment>> {
-  return withWrite(() => client.rolloutDeployment(id, snapshotId, env));
+  return withWrite(() => client.rolloutDeployment(id, snapshotId, env, tracing));
 }
 
 export async function scaleDeployment(

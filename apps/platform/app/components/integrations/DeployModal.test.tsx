@@ -91,3 +91,54 @@ describe("DeployModal environment section", () => {
     });
   });
 });
+
+describe("DeployModal tracing", () => {
+  beforeEach(() => {
+    // No declared env vars, so nothing blocks the deploy button.
+    getDeployOptions.mockResolvedValue({
+      networked: false,
+      slugValid: false,
+      slugAvailable: false,
+    });
+    listSecrets.mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+    vi.restoreAllMocks();
+  });
+
+  it("is off by default and sends no tracing field", async () => {
+    const onSubmit = renderModal();
+    const toggle = await screen.findByRole("checkbox", {
+      name: /trace this deployment/i,
+    });
+    expect(toggle).not.toBeChecked();
+
+    await userEvent.click(screen.getByRole("button", { name: "Deploy" }));
+    // Absent rather than false: the orchestrator reads an omitted field as
+    // "leave it alone", and tracing is a thing you ask for, never a default.
+    expect(onSubmit).toHaveBeenCalledWith({
+      snapshotId: "snap-1",
+      replicas: 1,
+    });
+  });
+
+  it("submits tracing and warns about captured payloads once on", async () => {
+    const onSubmit = renderModal();
+    const toggle = await screen.findByRole("checkbox", {
+      name: /trace this deployment/i,
+    });
+    expect(screen.queryByText(/carry credentials/i)).not.toBeInTheDocument();
+
+    await userEvent.click(toggle);
+    expect(await screen.findByText(/carry credentials/i)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Deploy" }));
+    expect(onSubmit).toHaveBeenCalledWith({
+      snapshotId: "snap-1",
+      replicas: 1,
+      tracing: true,
+    });
+  });
+});
