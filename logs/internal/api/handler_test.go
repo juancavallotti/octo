@@ -13,12 +13,12 @@ import (
 
 // fakeQuerier records the filter it was called with and returns canned rows.
 type fakeQuerier struct {
-	gotFilter repo.Filter
+	gotFilter repo.LogFilter
 	rows      []repo.LogRow
 	err       error
 }
 
-func (f *fakeQuerier) Query(_ context.Context, filter repo.Filter) ([]repo.LogRow, error) {
+func (f *fakeQuerier) Query(_ context.Context, filter repo.LogFilter) ([]repo.LogRow, error) {
 	f.gotFilter = filter
 	return f.rows, f.err
 }

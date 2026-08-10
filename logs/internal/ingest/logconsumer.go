@@ -9,21 +9,21 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
-// Consumer subscribes to LogSubject as a competing consumer and persists each
-// delivered record through a Store. The subscription callback only enqueues, so a
+// LogConsumer subscribes to LogSubject as a competing consumer and persists each
+// delivered record through a LogStore. The subscription callback only enqueues, so a
 // slow store never stalls NATS delivery; a bounded worker pool does the inserts.
-type Consumer struct {
-	store   Store
+type LogConsumer struct {
+	store   LogStore
 	workers int
 }
 
-// NewConsumer returns a consumer that persists records through store using the
+// NewLogConsumer returns a consumer that persists records through store using the
 // given number of insert workers (clamped to at least one).
-func NewConsumer(store Store, workers int) *Consumer {
+func NewLogConsumer(store LogStore, workers int) *LogConsumer {
 	if workers < 1 {
 		workers = 1
 	}
-	return &Consumer{store: store, workers: workers}
+	return &LogConsumer{store: store, workers: workers}
 }
 
 // Subscription stops delivery and drains its workers on Close, so afterwards no
@@ -39,7 +39,7 @@ type Subscription struct {
 // returned Subscription is closed (or ctx is cancelled). Records are inserted
 // best-effort: a decode or store error is logged and the record dropped, matching
 // the at-most-once delivery of the runtime's core-NATS shipping.
-func (c *Consumer) Start(ctx context.Context, conn *nats.Conn) (*Subscription, error) {
+func (c *LogConsumer) Start(ctx context.Context, conn *nats.Conn) (*Subscription, error) {
 	subCtx, cancel := context.WithCancel(ctx)
 
 	work := make(chan *nats.Msg, c.workers)
@@ -59,7 +59,7 @@ func (c *Consumer) Start(ctx context.Context, conn *nats.Conn) (*Subscription, e
 		}()
 	}
 
-	sub, err := conn.QueueSubscribe(LogSubject, queueGroup, func(m *nats.Msg) {
+	sub, err := conn.QueueSubscribe(LogSubject, logQueueGroup, func(m *nats.Msg) {
 		select {
 		case work <- m:
 		case <-subCtx.Done():
@@ -75,8 +75,8 @@ func (c *Consumer) Start(ctx context.Context, conn *nats.Conn) (*Subscription, e
 
 // handle parses one delivered record and persists it, dropping (with a log) any
 // record that fails to decode or store.
-func (c *Consumer) handle(ctx context.Context, m *nats.Msg) {
-	ev, err := parseEvent(m.Data)
+func (c *LogConsumer) handle(ctx context.Context, m *nats.Msg) {
+	ev, err := parseLogEvent(m.Data)
 	if err != nil {
 		slog.Warn("ingest: drop undecodable record", "err", err)
 		return

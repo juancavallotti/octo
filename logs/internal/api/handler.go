@@ -24,7 +24,7 @@ const (
 // Querier returns log rows matching a filter. The repo implements it; the handler
 // depends on the interface so it can be tested without a database.
 type Querier interface {
-	Query(ctx context.Context, f repo.Filter) ([]repo.LogRow, error)
+	Query(ctx context.Context, f repo.LogFilter) ([]repo.LogRow, error)
 }
 
 // Handler serves the log query API.
@@ -76,11 +76,11 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// parseFilter builds a repo.Filter from the request query parameters, validating
+// parseFilter builds a repo.LogFilter from the request query parameters, validating
 // the typed ones (times, limit) and clamping limit to [1, maxLimit].
-func parseFilter(r *http.Request) (repo.Filter, error) {
+func parseFilter(r *http.Request) (repo.LogFilter, error) {
 	query := r.URL.Query()
-	f := repo.Filter{
+	f := repo.LogFilter{
 		DeploymentID: query.Get("deploymentId"),
 		AppName:      query.Get("appName"),
 		AppVersion:   query.Get("appVersion"),
@@ -91,26 +91,26 @@ func parseFilter(r *http.Request) (repo.Filter, error) {
 
 	from, err := parseTime(query.Get("from"))
 	if err != nil {
-		return repo.Filter{}, err
+		return repo.LogFilter{}, err
 	}
 	f.From = from
 
 	to, err := parseTime(query.Get("to"))
 	if err != nil {
-		return repo.Filter{}, err
+		return repo.LogFilter{}, err
 	}
 	f.To = to
 
 	before, err := parseTime(query.Get("before"))
 	if err != nil {
-		return repo.Filter{}, err
+		return repo.LogFilter{}, err
 	}
 	f.Before = before
 
 	if raw := query.Get("limit"); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil {
-			return repo.Filter{}, errInvalid("limit must be an integer")
+			return repo.LogFilter{}, errInvalid("limit must be an integer")
 		}
 		f.Limit = n
 	}

@@ -89,7 +89,7 @@ func run() error {
 		}
 		defer conn.Close()
 
-		consumer := ingest.NewConsumer(repo.NewRepo(database.Pool()), defaultWorkers)
+		consumer := ingest.NewLogConsumer(repo.NewLogs(database.Pool()), defaultWorkers)
 		sub, err := consumer.Start(ctx, conn)
 		if err != nil {
 			return err
@@ -133,7 +133,7 @@ func newServer(database *db.DB) http.Handler {
 		_, _ = w.Write([]byte("ok"))
 	})
 	if database != nil {
-		api.NewHandler(repo.NewRepo(database.Pool())).Register(mux)
+		api.NewHandler(repo.NewLogs(database.Pool())).Register(mux)
 		slog.Info("log query API registered", "endpoint", "GET /logs")
 	}
 	return mux
