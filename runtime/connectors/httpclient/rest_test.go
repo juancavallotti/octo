@@ -218,8 +218,12 @@ func TestRESTErrorRedactsBaseURLCredentials(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error for a 400 response")
 	}
-	if strings.Contains(err.Error(), "wonderland") {
-		t.Errorf("error leaked the base URL password: %q", err)
+	// Both halves: url.URL.Redacted() would mask the password and keep the
+	// username, which is not enough for an error that leaves the process.
+	for _, secret := range []string{"wonderland", "alice"} {
+		if strings.Contains(err.Error(), secret) {
+			t.Errorf("error leaked %q from the base URL userinfo: %v", secret, err)
+		}
 	}
 }
 

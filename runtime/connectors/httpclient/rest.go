@@ -223,14 +223,23 @@ func (p *processor) Process(ctx context.Context, msg *types.Message) (*types.Mes
 // it was joined to, which leaves a reader of "rest request to things returned
 // 400" with no indication a base URL was even involved.
 //
-// Redacted, so userinfo in a base URL cannot reach a flow error; and it falls
-// back to the configured target for the one path where Do returns before
-// resolving anything, an unstarted connector.
+// Userinfo is dropped whole rather than passed through URL.Redacted(), which
+// masks the password but keeps the username. That is the right trade for the
+// debug logs next door, where the username tells you which credential was used;
+// it is the wrong one here, because a block error travels — into the flow's
+// error handling, the shipped logs, and the traces UI — and the host and path
+// are the whole diagnostic value. The username adds nothing a reader cannot get
+// from the connector name.
+//
+// Falls back to the configured target for the one path where Do returns before
+// resolving anything: an unstarted connector.
 func requestedURL(req *http.Request, target string) string {
-	if req.URL != nil && req.URL.Host != "" {
-		return req.URL.Redacted()
+	if req.URL == nil || req.URL.Host == "" {
+		return target
 	}
-	return target
+	clean := *req.URL
+	clean.User = nil
+	return clean.String()
 }
 
 // buildURL renders the query expressions and assembles "path?query".
