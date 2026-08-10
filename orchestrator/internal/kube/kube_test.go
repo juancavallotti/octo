@@ -260,6 +260,52 @@ func TestRuntimeServicesEnvInjected(t *testing.T) {
 	}
 }
 
+// TestTracingEnvOnlyWhenEnabled verifies OCTO_TRACING is injected exactly when the
+// deployment asks for tracing — absent otherwise, never emitted as "false". A
+// deployment that predates the setting may carry its own OCTO_TRACING binding, and
+// an unconditional var would override it in whichever direction the orchestrator
+// happened to pick.
+func TestTracingEnvOnlyWhenEnabled(t *testing.T) {
+	c := testClientFor(testConfig(""))
+	ctx := context.Background()
+
+	if err := c.Apply(ctx, Spec{ID: "off", IntegrationID: "int-1", Definition: "x: 1", Replicas: 1}); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	dep, _ := c.clientset.AppsV1().Deployments(testNamespace).Get(ctx, resourceName("off"), metav1.GetOptions{})
+	for _, e := range dep.Spec.Template.Spec.Containers[0].Env {
+		if e.Name == envTracing {
+			t.Fatalf("%s should be absent with tracing off, got %q", envTracing, e.Value)
+		}
+	}
+
+	if err := c.Apply(ctx, Spec{ID: "on", IntegrationID: "int-1", Definition: "x: 1", Replicas: 1, Tracing: true}); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	dep, _ = c.clientset.AppsV1().Deployments(testNamespace).Get(ctx, resourceName("on"), metav1.GetOptions{})
+	env := dep.Spec.Template.Spec.Containers[0].Env
+	if len(env) == 0 || env[len(env)-1].Name != envTracing {
+		t.Fatalf("%s should be the last env var so it wins a duplicate, got %+v", envTracing, env)
+	}
+	if got := env[len(env)-1].Value; got != "true" {
+		t.Errorf("%s = %q, want true", envTracing, got)
+	}
+}
+
+// TestTracingEnvWinsOverAUserBinding verifies the setting beats an integration's own
+// OCTO_TRACING binding: Kubernetes takes the last entry for a duplicated name, so the
+// checkbox the operator sees is what the pod actually runs with.
+func TestTracingEnvWinsOverAUserBinding(t *testing.T) {
+	env := (&Client{}).podEnv(Spec{
+		Env:     map[string]string{envTracing: "false", "LOG_LEVEL": "debug"},
+		Tracing: true,
+	})
+	last := env[len(env)-1]
+	if last.Name != envTracing || last.Value != "true" {
+		t.Errorf("last env = %s=%q, want %s=true: %+v", last.Name, last.Value, envTracing, env)
+	}
+}
+
 // TestRuntimeServicesEnvOmitsNATSWhenUnset verifies that with the runtime-services
 // module configured but no broker URL, the runtime-services env is still injected
 // while NATS_URL is omitted (so a deploy without NATS injects nothing for it).

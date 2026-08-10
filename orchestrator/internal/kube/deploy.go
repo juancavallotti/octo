@@ -65,6 +65,12 @@ const (
 	envNATSURL        = "NATS_URL"
 	envPodName        = "POD_NAME"
 	envPodNamespace   = "POD_NAMESPACE"
+
+	// envTracing switches the runtime's tracer on. Unlike every other var here it
+	// comes from a per-deployment setting rather than from the integration's own env
+	// declarations: whether a deployment is being observed is an operational choice
+	// about that deployment, not something its author writes into the definition.
+	envTracing = "OCTO_TRACING"
 )
 
 // Spec describes the workload to create for one deployment.
@@ -82,6 +88,7 @@ type Spec struct {
 	SecretEnv     map[string]string // env-var name → cluster-secret key, injected via secretKeyRef (disjoint from Env)
 	Expose        bool              // when true, also publish an external Ingress
 	Subdomain     string            // external host label; the Ingress host is {Subdomain}.{baseDomain}
+	Tracing       bool              // when true, run the pods with the runtime's tracer on
 }
 
 // port returns the resolved runtime port, defaulting to runtimePort when unset.
@@ -392,16 +399,24 @@ func httpProbe(path string) corev1.ProbeHandler {
 }
 
 // podEnv is the full runtime container env: the orchestrator-injected runtime-
-// services vars (when wired) followed by the user's literal/secret bindings. The
-// two groups are each deterministic, so repeated Applies produce identical specs.
-// When neither group has entries the result is nil, matching a bare workload.
+// services vars (when wired), the user's literal/secret bindings, then the tracing
+// switch. Each group is deterministic, so repeated Applies produce identical specs.
+// When no group has entries the result is nil, matching a bare workload.
+//
+// Tracing goes last on purpose. An integration written before this setting existed
+// could declare OCTO_TRACING among its own env vars and bind it per deployment;
+// Kubernetes resolves a duplicated name to the last entry, so the setting wins over
+// such a binding rather than being silently overridden by it. Nothing at all is
+// emitted when tracing is off, so those integrations keep working as they did.
 func (c *Client) podEnv(spec Spec) []corev1.EnvVar {
-	rs := c.runtimeServicesEnv(spec)
-	user := containerEnv(spec)
-	if len(rs) == 0 {
-		return user
+	env := append(c.runtimeServicesEnv(spec), containerEnv(spec)...)
+	if spec.Tracing {
+		env = append(env, corev1.EnvVar{Name: envTracing, Value: "true"})
 	}
-	return append(rs, user...)
+	if len(env) == 0 {
+		return nil
+	}
+	return env
 }
 
 // runtimeServicesEnv builds the env the runtime's k8s services module reads:
