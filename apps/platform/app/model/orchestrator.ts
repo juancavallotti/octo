@@ -141,6 +141,8 @@ export interface Deployment {
   /** The deployment's persisted env bindings, keyed by var name — for a rollout
    * dialog to seed "edit existing". Secret bindings carry only the secret name. */
   env?: Record<string, EnvBindingInput>;
+  /** Whether this deployment's pods run with the runtime tracer on. */
+  tracing?: boolean;
 }
 
 /** How one declared env var is filled at deploy: a literal value or a secret ref. */
@@ -163,6 +165,8 @@ export interface DeploymentInput {
   subdomain?: string;
   /** Bindings for the integration's declared env vars, keyed by var name. */
   env?: Record<string, EnvBindingInput>;
+  /** Run the pods with the runtime tracer on. Off by default; it costs throughput. */
+  tracing?: boolean;
 }
 
 /** An environment variable an integration declares, for the modal to prompt on. */
@@ -282,14 +286,19 @@ export async function createDeployment(
 /**
  * Roll a live deployment over to a different version tag (rolling update).
  * An `env` map replaces the deployment's stored bindings (edit/extend on rollout);
- * omitting it preserves them (a plain version bump keeps the same env).
+ * omitting it preserves them (a plain version bump keeps the same env). `tracing`
+ * follows the same rule — omitted keeps the deployment's setting, so a version bump
+ * never silently stops tracing a deployment someone is investigating.
  */
 export async function rolloutDeployment(
   id: string,
   snapshotId: string,
   env?: Record<string, EnvBindingInput>,
+  tracing?: boolean,
 ): Promise<Deployment> {
-  return unwrap(await deploymentActions.rolloutDeployment(id, snapshotId, env));
+  return unwrap(
+    await deploymentActions.rolloutDeployment(id, snapshotId, env, tracing),
+  );
 }
 
 /** Scale an existing deployment to a new desired replica count. */

@@ -83,6 +83,9 @@ type deploymentResponse struct {
 	// Env are the deployment's persisted env bindings, so a rollout dialog can seed
 	// "edit existing". Omitted when the deployment has no bindings.
 	Env map[string]envBindingResponse `json:"env,omitempty"`
+	// Tracing reports whether this deployment's pods run with the runtime tracer on,
+	// so the rollout dialog can seed the switch from what is actually deployed.
+	Tracing bool `json:"tracing"`
 }
 
 func toResponse(d Deployment) deploymentResponse {
@@ -105,6 +108,7 @@ func toResponse(d Deployment) deploymentResponse {
 		InternalURL:     meta.InternalURL,
 		ExternalURL:     meta.ExternalURL,
 		LastUpdated:     d.LastUpdated,
+		Tracing:         settings.Tracing,
 	}
 	if !d.Detail.CreatedAt.IsZero() {
 		t := d.Detail.CreatedAt
@@ -267,12 +271,16 @@ func (h *Handler) scale(w http.ResponseWriter, r *http.Request) {
 }
 
 // rolloutRequest is the body of a rollout request: the version tag (snapshot id)
-// to upgrade the live deployment to, and optionally a replacement env binding set.
-// An omitted Env (nil) preserves the deployment's stored bindings; a present one
-// (even empty) replaces them, so the operator can edit or extend env on rollout.
+// to upgrade the live deployment to, and optionally a replacement env binding set
+// and tracing setting. An omitted Env (nil) preserves the deployment's stored
+// bindings; a present one (even empty) replaces them, so the operator can edit or
+// extend env on rollout. Tracing is a pointer for the same reason: omitted keeps
+// the deployment's setting, present sets it — and "off" has to be distinguishable
+// from "not mentioned", or every version bump would silently switch tracing off.
 type rolloutRequest struct {
 	SnapshotID string                `json:"snapshotId"`
 	Env        map[string]EnvBinding `json:"env"`
+	Tracing    *bool                 `json:"tracing"`
 }
 
 func (h *Handler) rollout(w http.ResponseWriter, r *http.Request) {
@@ -284,7 +292,7 @@ func (h *Handler) rollout(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	d, err := h.svc.Rollout(ctx, r.PathValue("id"), req.SnapshotID, req.Env)
+	d, err := h.svc.Rollout(ctx, r.PathValue("id"), req.SnapshotID, req.Env, req.Tracing)
 	if err != nil {
 		h.writeError(w, err)
 		return

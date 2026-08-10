@@ -13,6 +13,7 @@ import {
   ScrollText,
   Tag,
   Trash2,
+  Waypoints,
 } from "lucide-react";
 import type { Deployment, DeploymentStatus } from "@/app/model/orchestrator";
 import ReplicaStepper from "./ReplicaStepper";
@@ -162,6 +163,15 @@ export default function DeploymentRow({
           >
             <Tag size={10} />
             {d.tag}
+          </span>
+        )}
+        {d.tracing && (
+          <span
+            className="inline-flex items-center gap-1 rounded-full bg-violet-500/15 px-2 py-0.5 text-xs font-medium text-violet-600 dark:text-violet-400"
+            title="Tracing is on for this deployment — every flow, block and model call is recorded"
+          >
+            <Waypoints size={10} />
+            Traced
           </span>
         )}
         <ReplicaStepper

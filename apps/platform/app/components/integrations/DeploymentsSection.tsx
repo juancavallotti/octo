@@ -175,6 +175,7 @@ export default function DeploymentsSection({
           ...(input.slug ? { slug: input.slug } : {}),
           ...(input.expose ? { expose: input.expose } : {}),
           ...(input.env ? { env: input.env } : {}),
+          ...(input.tracing ? { tracing: true } : {}),
         });
         await refresh();
         onDeployOpenChange(false);
@@ -206,7 +207,12 @@ export default function DeploymentsSection({
           onSnapshotsChanged?.();
         }
         if (!snapshotId) throw new Error("no version selected to roll out");
-        await rolloutDeployment(input.deploymentId, snapshotId, input.env);
+        await rolloutDeployment(
+          input.deploymentId,
+          snapshotId,
+          input.env,
+          input.tracing,
+        );
         await refresh();
         setRolloutTarget(null);
       } catch (e) {

@@ -1,0 +1,99 @@
+import { describe, expect, it } from "vitest";
+import { describeCost, formatAge, formatCost, formatDuration, formatWindow } from "./format";
+
+describe("formatDuration", () => {
+  it("keeps a fast block visible instead of rounding it to nothing", () => {
+    // A set-variable runs in tens of nanoseconds; a millisecond-only formatter
+    // would print "0ms" for every one of them.
+    expect(formatDuration(40)).toBe("40ns");
+    expect(formatDuration(40_000)).toBe("40µs");
+    expect(formatDuration(1_500_000)).toBe("1.5ms");
+  });
+
+  it("scales up to a model call and past a minute", () => {
+    expect(formatDuration(2_400_000_000)).toBe("2.4s");
+    expect(formatDuration(95_000_000_000)).toBe("1m 35s");
+  });
+
+  it("says nothing rather than something wrong for a non-duration", () => {
+    expect(formatDuration(-1)).toBe("—");
+    expect(formatDuration(Number.NaN)).toBe("—");
+  });
+});
+
+describe("formatCost", () => {
+  it("never prints a real charge as zero", () => {
+    // One token of a cheap model is $7.5e-8. At two decimals it reads "$0.00",
+    // which is the exact claim the whole cost path avoids making.
+    expect(formatCost(0.000000075)).toBe("<$0.0001");
+    expect(formatCost(0.00042)).toBe("$0.0004");
+  });
+
+  it("prints an actual zero as zero", () => {
+    expect(formatCost(0)).toBe("$0");
+  });
+
+  it("uses cents once there are cents", () => {
+    expect(formatCost(1.239)).toBe("$1.24");
+    expect(formatCost(0.5)).toBe("$0.5000");
+  });
+});
+
+describe("describeCost", () => {
+  it("reports a fully priced total as the total", () => {
+    expect(describeCost(0.42, 0, true)).toMatchObject({ text: "$0.4200", partial: false });
+  });
+
+  it("marks a total with unpriced calls as a lower bound", () => {
+    const described = describeCost(0.42, 2, true);
+    expect(described.text).toBe("≥ $0.4200");
+    expect(described.partial).toBe(true);
+    expect(described.title).toContain("2 calls");
+  });
+
+  it("refuses to call an entirely unpriced trace free", () => {
+    // The sum really is 0 — nothing could be priced. Rendering it as "$0" would
+    // say the model calls cost nothing rather than that nobody could say.
+    const described = describeCost(0, 1, true);
+    expect(described.text).toBe("unpriced");
+    expect(described.partial).toBe(true);
+  });
+
+  it("shows nothing at all when there were no model calls", () => {
+    // Distinct from "$0": a trace with no model calls has no cost to report,
+    // and a dollar figure beside it invites the reader to compare the two.
+    expect(describeCost(0, 0, false)).toMatchObject({ text: "—", partial: false });
+  });
+});
+
+describe("formatAge", () => {
+  const now = Date.parse("2026-08-09T12:00:00Z");
+
+  it("scales from seconds to days", () => {
+    expect(formatAge("2026-08-09T11:59:30Z", now)).toBe("30s ago");
+    expect(formatAge("2026-08-09T11:30:00Z", now)).toBe("30m ago");
+    expect(formatAge("2026-08-09T06:00:00Z", now)).toBe("6h ago");
+    expect(formatAge("2026-08-07T12:00:00Z", now)).toBe("2d ago");
+  });
+
+  it("does not report a clock skew as the future", () => {
+    expect(formatAge("2026-08-09T12:00:05Z", now)).toBe("just now");
+  });
+
+  it("says nothing for an unreadable timestamp", () => {
+    expect(formatAge("nope", now)).toBe("—");
+  });
+});
+
+describe("formatWindow", () => {
+  it("describes the span the counts were measured over", () => {
+    expect(formatWindow("2026-08-08T12:00:00Z", "2026-08-09T12:00:00Z")).toBe("last 24 hours");
+    expect(formatWindow("2026-08-09T11:00:00Z", "2026-08-09T12:00:00Z")).toBe("last 1 hour");
+    expect(formatWindow("2026-08-02T12:00:00Z", "2026-08-09T12:00:00Z")).toBe("last 7 days");
+  });
+
+  it("says nothing for a window that is not one", () => {
+    expect(formatWindow("2026-08-09T12:00:00Z", "2026-08-09T12:00:00Z")).toBe("");
+    expect(formatWindow("nope", "also nope")).toBe("");
+  });
+});

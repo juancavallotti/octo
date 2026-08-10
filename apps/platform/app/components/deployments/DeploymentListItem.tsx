@@ -9,6 +9,7 @@ import {
   RotateCcw,
   ScrollText,
   SlidersHorizontal,
+  Waypoints,
 } from "lucide-react";
 import type {
   DeploymentStatus,
@@ -123,6 +124,15 @@ export default function DeploymentListItem({
         <h3 className="min-w-0 flex-1 truncate text-sm font-semibold">
           {d.integrationName}
         </h3>
+        {d.tracing && (
+          <span
+            className="inline-flex items-center gap-1 rounded-full bg-violet-500/15 px-2 py-0.5 text-xs font-medium text-violet-600 dark:text-violet-400"
+            title="Tracing is on for this deployment — every flow, block and model call is recorded"
+          >
+            <Waypoints size={10} />
+            Traced
+          </span>
+        )}
 
         <ReplicaStepper
           desired={desired}

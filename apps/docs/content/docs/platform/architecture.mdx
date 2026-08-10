@@ -3,7 +3,7 @@ title: "Architecture"
 description: "The platform app, orchestrator API, NATS, Postgres, and runtime workloads."
 ---
 
-The platform is a control plane — the Next.js platform app, the Go orchestrator, Postgres, NATS, and a log aggregator — and a data plane where every deployed integration runs as its own Kubernetes Deployment of the same `octo-runtime` image. This page maps the components and traces the main request paths between them.
+The platform is a control plane — the Next.js platform app, the Go orchestrator, Postgres, NATS, and a telemetry aggregator — and a data plane where every deployed integration runs as its own Kubernetes Deployment of the same `octo-runtime` image. This page maps the components and traces the main request paths between them.
 
 ![The platform app's visual editor — the block palette, an integration's flow graph, and the settings panel, with Save, Run, and Deploy in the toolbar](/screenshots/platform-editor-canvas.png)
 
@@ -29,12 +29,12 @@ The platform is a control plane — the Next.js platform app, the Go orchestrato
    ┌──────────────┐        ┌───────────┐       │  one Deployment per      │
    │ Postgres     │        │ NATS      │◀──────│  deployed integration    │
    │  :5432       │        │  :4222    │ queues│  (octo-runtime image)    │
-   └──────────────┘        └─────┬─────┘ logs  └──────────────────────────┘
-           ▲                     │ internal.logs
+   └──────────────┘        └─────┬─────┘ telem.└──────────────────────────┘
+           ▲                     │ internal.logs · internal.traces
            │ SQL                 ▼
            │              ┌──────────────┐
-           └──────────────│ Log          │
-                          │ aggregator   │  :8091
+           └──────────────│ Telemetry    │
+                          │ aggregator   │  :8091  (logs/)
                           └──────────────┘
 ```
 
@@ -75,11 +75,11 @@ The system of record, applied idempotently from `sql/schema.sql` by a schema Job
 
 ### NATS
 
-Core NATS (no JetStream) is the message backbone between planes. It carries four kinds of traffic on disjoint subject spaces: deployment-scoped runtime queues and topics (`octo.{deploymentId}.q.*` / `.t.*`), log shipping (`internal.logs`), [trace](/runtime/tracing) shipping (`internal.traces`, produced but not yet consumed), and control-plane events (`internal.deployments.*`, `internal.integrations.events`). See [Event Bus](/platform/event-bus).
+Core NATS (no JetStream) is the message backbone between planes. It carries four kinds of traffic on disjoint subject spaces: deployment-scoped runtime queues and topics (`octo.{deploymentId}.q.*` / `.t.*`), log shipping (`internal.logs`), [trace](/runtime/tracing) shipping (`internal.traces`), and control-plane events (`internal.deployments.*`, `internal.integrations.events`). See [Event Bus](/platform/event-bus).
 
-### Log aggregator
+### Telemetry aggregator
 
-A small Go service (`logs/`, port `8091`) that consumes `internal.logs` as a competing consumer (so replicas scale safely), persists each structured record to the `logs` table, and serves the query API behind the platform's logs view. See [Monitoring](/runtime/monitoring).
+A small Go service (`logs/`, port `8091`) that consumes `internal.logs` and `internal.traces` as a competing consumer (so replicas scale safely), persists log records to the `logs` table and trace records to `traces`/`trace_summaries`, and serves the query API behind the platform's logs view. See [Monitoring](/runtime/monitoring) and [Traces](/platform/traces).
 
 ### Runtime pods
 

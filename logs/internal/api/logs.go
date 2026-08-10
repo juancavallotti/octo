@@ -1,6 +1,10 @@
-// Package api exposes the read-only HTTP query surface over stored log events.
-// It owns no storage; it parses request filters, delegates to a Querier, and
-// shapes the JSON the platform's /logs view consumes.
+// Package api exposes the read-only HTTP query surface over what this service
+// stores: log events, and the traces beside them. It owns no storage; it parses
+// request filters, delegates to a querier, and shapes the JSON the platform's
+// views consume.
+//
+// Types are named for the stream they serve, the same way repo's are. The
+// package holds a handler per stream, so a bare "Handler" would name neither.
 package api
 
 import (
@@ -21,30 +25,30 @@ const (
 	maxLimit     = 1000
 )
 
-// Querier returns log rows matching a filter. The repo implements it; the handler
+// LogQuerier returns log rows matching a filter. The repo implements it; the handler
 // depends on the interface so it can be tested without a database.
-type Querier interface {
-	Query(ctx context.Context, f repo.Filter) ([]repo.LogRow, error)
+type LogQuerier interface {
+	Query(ctx context.Context, f repo.LogFilter) ([]repo.LogRow, error)
 }
 
-// Handler serves the log query API.
-type Handler struct {
-	q Querier
+// LogsHandler serves the log query API.
+type LogsHandler struct {
+	q LogQuerier
 }
 
-// NewHandler returns a handler backed by q.
-func NewHandler(q Querier) *Handler {
-	return &Handler{q: q}
+// NewLogsHandler returns a handler backed by q.
+func NewLogsHandler(q LogQuerier) *LogsHandler {
+	return &LogsHandler{q: q}
 }
 
 // Register wires the routes onto mux.
-func (h *Handler) Register(mux *http.ServeMux) {
+func (h *LogsHandler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /logs", h.list)
 }
 
-// listResponse is one page of log rows, newest first. NextBefore is the cursor to
+// logListResponse is one page of log rows, newest first. NextBefore is the cursor to
 // pass back as ?before= for the following page; it is omitted on the last page.
-type listResponse struct {
+type logListResponse struct {
 	Items      []repo.LogRow `json:"items"`
 	NextBefore *time.Time    `json:"next_before,omitempty"`
 }
@@ -52,8 +56,8 @@ type listResponse struct {
 // list parses the filter from the query string, runs the query, and returns a
 // page. A full page (len == limit) carries a next_before cursor (the oldest row's
 // timestamp), since more rows may exist beyond it.
-func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
-	f, err := parseFilter(r)
+func (h *LogsHandler) list(w http.ResponseWriter, r *http.Request) {
+	f, err := parseLogFilter(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -69,18 +73,18 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 		rows = []repo.LogRow{}
 	}
 
-	resp := listResponse{Items: rows}
+	resp := logListResponse{Items: rows}
 	if len(rows) == f.Limit {
 		resp.NextBefore = &rows[len(rows)-1].Time
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// parseFilter builds a repo.Filter from the request query parameters, validating
+// parseLogFilter builds a repo.LogFilter from the request query parameters, validating
 // the typed ones (times, limit) and clamping limit to [1, maxLimit].
-func parseFilter(r *http.Request) (repo.Filter, error) {
+func parseLogFilter(r *http.Request) (repo.LogFilter, error) {
 	query := r.URL.Query()
-	f := repo.Filter{
+	f := repo.LogFilter{
 		DeploymentID: query.Get("deploymentId"),
 		AppName:      query.Get("appName"),
 		AppVersion:   query.Get("appVersion"),
@@ -91,26 +95,26 @@ func parseFilter(r *http.Request) (repo.Filter, error) {
 
 	from, err := parseTime(query.Get("from"))
 	if err != nil {
-		return repo.Filter{}, err
+		return repo.LogFilter{}, err
 	}
 	f.From = from
 
 	to, err := parseTime(query.Get("to"))
 	if err != nil {
-		return repo.Filter{}, err
+		return repo.LogFilter{}, err
 	}
 	f.To = to
 
 	before, err := parseTime(query.Get("before"))
 	if err != nil {
-		return repo.Filter{}, err
+		return repo.LogFilter{}, err
 	}
 	f.Before = before
 
 	if raw := query.Get("limit"); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil {
-			return repo.Filter{}, errInvalid("limit must be an integer")
+			return repo.LogFilter{}, errInvalid("limit must be an integer")
 		}
 		f.Limit = n
 	}

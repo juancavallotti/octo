@@ -96,7 +96,7 @@ export default function DeployButton({
     setError(null);
     try {
       const snap = await createSnapshot(rollout.id, input.newTag);
-      await rolloutDeployment(input.deploymentId, snap.id, input.env);
+      await rolloutDeployment(input.deploymentId, snap.id, input.env, input.tracing);
       setRollout(null);
     } catch (e) {
       setError((e as Error).message);
@@ -118,6 +118,7 @@ export default function DeployButton({
         ...(input.slug ? { slug: input.slug } : {}),
         ...(input.expose ? { expose: input.expose } : {}),
         ...(input.env ? { env: input.env } : {}),
+        ...(input.tracing ? { tracing: true } : {}),
       });
       setFirstDeploy(null);
     } catch (e) {

@@ -9,7 +9,8 @@
     "resources-and-secrets",
     "kv-and-storage",
     "users-and-api-keys",
-    "event-bus"
+    "event-bus",
+    "traces"
   ],
   "title": "Platform"
 }

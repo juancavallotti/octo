@@ -1,6 +1,10 @@
-// Package repo persists log events to Postgres. It implements ingest.Store with a
-// hand-written INSERT against the logs table, mirroring the orchestrator's
-// pgxpool-based repositories.
+// Package repo holds this service's Postgres access, one type per table it owns.
+// Each is a thin wrapper over a shared pool with hand-written SQL, mirroring the
+// orchestrator's pgxpool-based repositories.
+//
+// The types are named for what they store rather than for being repositories,
+// and their filters and rows carry the table's name for the same reason: this
+// package holds several, and a generic name distinguishes none of them.
 package repo
 
 import (
@@ -15,19 +19,19 @@ import (
 	"github.com/juancavallotti/octo/logs/internal/ingest"
 )
 
-// Repo writes log events to the logs table.
-type Repo struct {
+// Logs reads and writes the logs table.
+type Logs struct {
 	pool *pgxpool.Pool
 }
 
-// NewRepo returns a repo backed by pool.
-func NewRepo(pool *pgxpool.Pool) *Repo {
-	return &Repo{pool: pool}
+// NewLogs returns a log store backed by pool.
+func NewLogs(pool *pgxpool.Pool) *Logs {
+	return &Logs{pool: pool}
 }
 
 // Insert stores one log event. attrs is passed as text so Postgres casts it into
 // the jsonb column; received_at defaults to now() in the schema.
-func (r *Repo) Insert(ctx context.Context, e ingest.Event) error {
+func (r *Logs) Insert(ctx context.Context, e ingest.LogEvent) error {
 	attrs := string(e.Attrs)
 	if attrs == "" {
 		attrs = "{}"
@@ -57,9 +61,9 @@ type LogRow struct {
 	ReceivedAt   time.Time       `json:"received_at"`
 }
 
-// Filter narrows a log query. A zero field means "no constraint on this axis".
+// LogFilter narrows a log query. A zero field means "no constraint on this axis".
 // Before is the keyset-pagination cursor: results are strictly older than it.
-type Filter struct {
+type LogFilter struct {
 	DeploymentID string
 	AppName      string
 	AppVersion   string
@@ -74,7 +78,7 @@ type Filter struct {
 // Query returns log rows matching f, newest first. It builds a parameterized
 // WHERE from only the set filters so unused axes add no predicates, and orders by
 // (ts DESC) to ride the (deployment_id, ts DESC) / (ts DESC) indexes.
-func (r *Repo) Query(ctx context.Context, f Filter) ([]LogRow, error) {
+func (r *Logs) Query(ctx context.Context, f LogFilter) ([]LogRow, error) {
 	var sb strings.Builder
 	sb.WriteString(`SELECT id, deployment_id, app_name, app_version, ts, level, message, attrs, received_at
 		FROM logs`)

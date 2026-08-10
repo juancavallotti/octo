@@ -18,16 +18,18 @@ name: octo
 
 deployments:
   octo:
+    # Explicit, and it must match: `task cluster:deploy` passes
+    # --namespace octo-dev and every dev selector below is scoped to it, so a
+    # release landing in `default` would leave those selectors matching nothing.
+    # It belongs on the deployment, not inside helm: — DevSpace v6's HelmConfig
+    # has no namespace field and rejects the config outright if it finds one.
+    namespace: octo-dev
     helm:
       # Release name "octo" matters: octo-common.fullname collapses the release
       # and chart name when one contains the other, so resources are named
       # octo-platform / octo-orchestrator rather than octo-octo-platform. The
       # dev selectors and the Taskfile's rollout restart both rely on that.
       releaseName: octo
-      # Explicit, and it must match: `task cluster:deploy` passes
-      # --namespace octo-dev and every dev selector below is scoped to it, so a
-      # release landing in `default` would leave those selectors matching nothing.
-      namespace: octo-dev
       chart:
         name: ./helm
       valuesFiles:

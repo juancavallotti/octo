@@ -1,6 +1,13 @@
-// Package ingest consumes log records from the internal.logs NATS subject and
-// hands them to a Store for persistence. Records are the JSON lines a runtime's
-// slog sink publishes, so parsing here is the inverse of that encoding.
+// Package ingest consumes the telemetry deployed runtimes publish over NATS and
+// hands it to a store for persistence: log records on internal.logs, trace
+// records on internal.traces. Parsing here is the inverse of the encoding each
+// sink applies at the other end.
+//
+// Both streams live in one package because they arrive the same way — a shared,
+// deployment-agnostic subject, consumed by a queue group so each record lands on
+// exactly one replica, with the emitting deployment's identity inside the record
+// rather than in the subject. Types are named for the stream they belong to,
+// since neither is "the" one.
 package ingest
 
 import (
@@ -14,9 +21,9 @@ import (
 // constant in the runtime's k8s services module; the two must stay in sync.
 const LogSubject = "internal.logs"
 
-// queueGroup makes every aggregator replica a competing consumer of LogSubject, so
+// logQueueGroup makes every aggregator replica a competing consumer of LogSubject, so
 // each record is delivered to exactly one replica (point-to-point).
-const queueGroup = "octo-logs"
+const logQueueGroup = "octo-logs"
 
 // Reserved JSON keys the slog sink emits for the built-in record fields and the
 // deployment identity. Everything else in the record is preserved as attrs.
@@ -29,9 +36,9 @@ const (
 	keyAppVersion = "appVersion"
 )
 
-// Event is a parsed log record ready to persist. Attrs holds the remaining
+// LogEvent is a parsed log record ready to persist. Attrs holds the remaining
 // structured fields (everything but the reserved keys) as a JSON object.
-type Event struct {
+type LogEvent struct {
 	DeploymentID string
 	AppName      string
 	AppVersion   string
@@ -41,27 +48,27 @@ type Event struct {
 	Attrs        json.RawMessage
 }
 
-// Store persists parsed log events. The repo implements it; the consumer depends
+// LogStore persists parsed log events. The repo implements it; the consumer depends
 // on the interface so it can be tested without a database.
-type Store interface {
-	Insert(ctx context.Context, e Event) error
+type LogStore interface {
+	Insert(ctx context.Context, e LogEvent) error
 }
 
-// parseEvent decodes a shipped slog JSON record into an Event: it pulls the
+// parseLogEvent decodes a shipped slog JSON record into a LogEvent: it pulls the
 // reserved keys into typed fields and keeps every other key in Attrs. A record
 // missing the deployment id is rejected, since the row could not be attributed.
-func parseEvent(data []byte) (Event, error) {
+func parseLogEvent(data []byte) (LogEvent, error) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(data, &fields); err != nil {
-		return Event{}, fmt.Errorf("ingest: decode record: %w", err)
+		return LogEvent{}, fmt.Errorf("ingest: decode record: %w", err)
 	}
 
 	deploymentID := takeString(fields, keyDeployment)
 	if deploymentID == "" {
-		return Event{}, fmt.Errorf("ingest: record has no %s", keyDeployment)
+		return LogEvent{}, fmt.Errorf("ingest: record has no %s", keyDeployment)
 	}
 
-	ev := Event{
+	ev := LogEvent{
 		DeploymentID: deploymentID,
 		AppName:      takeString(fields, keyAppName),
 		AppVersion:   takeString(fields, keyAppVersion),
@@ -72,7 +79,7 @@ func parseEvent(data []byte) (Event, error) {
 	if ts := takeString(fields, keyTime); ts != "" {
 		t, err := time.Parse(time.RFC3339Nano, ts)
 		if err != nil {
-			return Event{}, fmt.Errorf("ingest: parse time %q: %w", ts, err)
+			return LogEvent{}, fmt.Errorf("ingest: parse time %q: %w", ts, err)
 		}
 		ev.Time = t
 	} else {
@@ -84,7 +91,7 @@ func parseEvent(data []byte) (Event, error) {
 	// Whatever remains after removing the reserved keys is the structured payload.
 	attrs, err := json.Marshal(fields)
 	if err != nil {
-		return Event{}, fmt.Errorf("ingest: re-encode attrs: %w", err)
+		return LogEvent{}, fmt.Errorf("ingest: re-encode attrs: %w", err)
 	}
 	ev.Attrs = attrs
 	return ev, nil

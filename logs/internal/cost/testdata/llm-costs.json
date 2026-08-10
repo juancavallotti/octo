@@ -1,0 +1,108 @@
+{
+  "metadata": {
+    "total_models": 12,
+    "note": "All costs are per 1 million tokens unless otherwise specified",
+    "operators_explained": {
+      "equals": "Model name must match exactly",
+      "startsWith": "Model name must start with the specified value",
+      "includes": "Model name must contain the specified value"
+    }
+  },
+  "data": [
+    {
+      "provider": "ANTHROPIC",
+      "model": "claude-3-5-sonnet-20241022",
+      "operator": "equals",
+      "input_cost_per_1m": 3,
+      "output_cost_per_1m": 15,
+      "prompt_cache_write_per_1m": 3.75,
+      "prompt_cache_read_per_1m": 0.3,
+      "show_in_playground": true
+    },
+    {
+      "provider": "OPENAI",
+      "model": "gpt-4o",
+      "operator": "equals",
+      "input_cost_per_1m": 2.5,
+      "output_cost_per_1m": 10,
+      "prompt_cache_read_per_1m": 1.25,
+      "show_in_playground": true
+    },
+    {
+      "provider": "AZURE",
+      "model": "gpt-4o-mini",
+      "operator": "equals",
+      "input_cost_per_1m": 0.2,
+      "output_cost_per_1m": 0.6,
+      "prompt_cache_read_per_1m": 0.1
+    },
+    {
+      "provider": "AZURE",
+      "model": "gpt-4o-mini",
+      "operator": "equals",
+      "input_cost_per_1m": 0.15,
+      "output_cost_per_1m": 0.6,
+      "prompt_cache_read_per_1m": 0.075,
+      "show_in_playground": true
+    },
+    {
+      "provider": "TOGETHER",
+      "model": "meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo",
+      "operator": "equals",
+      "input_cost_per_1m": 3.5,
+      "output_cost_per_1m": 3.5
+    },
+    {
+      "provider": "TOGETHER",
+      "model": "meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo",
+      "operator": "equals",
+      "input_cost_per_1m": 5,
+      "output_cost_per_1m": 5
+    },
+    {
+      "provider": "OPENAI",
+      "model": "ft:gpt-3.5-turbo-",
+      "operator": "startsWith",
+      "input_cost_per_1m": 3,
+      "output_cost_per_1m": 6
+    },
+    {
+      "provider": "GOOGLE",
+      "model": "gemini-2.5-flash-lite",
+      "operator": "includes",
+      "input_cost_per_1m": 0.1,
+      "output_cost_per_1m": 0.4
+    },
+    {
+      "provider": "PERPLEXITY",
+      "model": "sonar",
+      "operator": "equals",
+      "input_cost_per_1m": 1,
+      "output_cost_per_1m": 1,
+      "per_call": 5e-06
+    },
+    {
+      "provider": "AZURE",
+      "model": "gpt-4o-mini-realtime",
+      "operator": "includes",
+      "input_cost_per_1m": 0.15,
+      "output_cost_per_1m": 0.6,
+      "prompt_audio_per_1m": 10,
+      "completion_audio_per_1m": 20
+    },
+    {
+      "provider": "MYSTERY",
+      "model": "regex-priced-model",
+      "operator": "matchesRegex",
+      "input_cost_per_1m": 99,
+      "output_cost_per_1m": 99
+    },
+    {
+      "provider": "MYSTERY",
+      "model": "",
+      "operator": "includes",
+      "input_cost_per_1m": 99,
+      "output_cost_per_1m": 99
+    }
+  ]
+}

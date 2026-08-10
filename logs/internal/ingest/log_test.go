@@ -18,9 +18,9 @@ func TestParseEventExtractsReservedKeysAndKeepsAttrs(t *testing.T) {
 		"user":"alice"
 	}`)
 
-	ev, err := parseEvent(data)
+	ev, err := parseLogEvent(data)
 	if err != nil {
-		t.Fatalf("parseEvent: %v", err)
+		t.Fatalf("parseLogEvent: %v", err)
 	}
 	if ev.DeploymentID != "dep-1" || ev.AppName != "checkout" || ev.AppVersion != "v2" {
 		t.Errorf("identity = %+v, want dep-1/checkout/v2", ev)
@@ -48,21 +48,21 @@ func TestParseEventExtractsReservedKeysAndKeepsAttrs(t *testing.T) {
 }
 
 func TestParseEventRejectsMissingDeployment(t *testing.T) {
-	if _, err := parseEvent([]byte(`{"msg":"x"}`)); err == nil {
+	if _, err := parseLogEvent([]byte(`{"msg":"x"}`)); err == nil {
 		t.Fatal("expected an error for a record without a deployment id")
 	}
 }
 
 func TestParseEventRejectsBadJSON(t *testing.T) {
-	if _, err := parseEvent([]byte(`not json`)); err == nil {
+	if _, err := parseLogEvent([]byte(`not json`)); err == nil {
 		t.Fatal("expected an error for malformed JSON")
 	}
 }
 
 func TestParseEventStampsTimeWhenAbsent(t *testing.T) {
-	ev, err := parseEvent([]byte(`{"deploymentId":"d","msg":"x"}`))
+	ev, err := parseLogEvent([]byte(`{"deploymentId":"d","msg":"x"}`))
 	if err != nil {
-		t.Fatalf("parseEvent: %v", err)
+		t.Fatalf("parseLogEvent: %v", err)
 	}
 	if ev.Time.IsZero() {
 		t.Error("expected a stamped time when the record carries none")

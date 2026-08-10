@@ -30,8 +30,9 @@
 - name: NATS_MONITOR_URL
   value: {{ include "octo.nats.monitorUrl" . | quote }}
 {{- end }}
-# Log-aggregator query API; the /platform/logs view reads stored log
-# events from here directly.
+# Log-aggregator query API. Both the /platform/logs and /platform/traces
+# views read from here directly — traces are stored by the same service,
+# so one URL serves both and neither needs the orchestrator in the path.
 - name: LOGS_URL
   value: {{ include "octo.logs.url" . | quote }}
 {{- if .Values.auth.oidc.enabled }}

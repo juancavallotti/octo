@@ -14,6 +14,7 @@ import VersionMenu from "./VersionMenu";
 import DeployEnvFields from "./DeployEnvFields";
 import { useDeployEnv } from "./useDeployEnv";
 import Field from "./Field";
+import TracingToggle from "./TracingToggle";
 
 /**
  * Modal that rolls a live deployment over to a version and edits its environment in
@@ -35,13 +36,14 @@ const INPUT =
   "rounded-md border border-black/10 dark:border-white/15 bg-transparent px-2 py-1 text-sm outline-none focus:border-black/30 dark:focus:border-white/30";
 
 /** What the modal submits: which deployment to upgrade, the target version (an
- * existing snapshot or a new tag to cut), and the full desired env (replaces the
- * deployment's stored bindings). */
+ * existing snapshot or a new tag to cut), the full desired env (replaces the
+ * deployment's stored bindings), and the desired tracing setting. */
 export interface RolloutSubmit {
   deploymentId: string;
   snapshotId?: string;
   newTag?: string;
   env: Record<string, EnvBindingInput>;
+  tracing: boolean;
 }
 
 export default function RolloutModal({
@@ -200,6 +202,10 @@ function RolloutForm({
     suggestNextTag(snapshots.map((s) => s.tag)),
   );
   const [opts, setOpts] = useState<DeployOptions | null>(null);
+  // Seeded from what the deployment is actually running, so the switch reads as
+  // current state rather than as a blank instruction. The form is keyed by
+  // deployment, so switching target re-seeds it.
+  const [tracing, setTracing] = useState(deployment.tracing ?? false);
 
   const targetSnapshot = useMemo(
     () =>
@@ -257,6 +263,7 @@ function RolloutForm({
         ? { newTag: newTag.trim() }
         : { snapshotId: targetSnapshot!.id }),
       env: buildEnv(),
+      tracing,
     });
   };
 
@@ -308,6 +315,13 @@ function RolloutForm({
             </div>
           </Field>
         )}
+
+        <Field
+          label="Tracing"
+          hint="Records every flow, block and model call, with what each one cost. For troubleshooting only — it significantly reduces throughput. Takes effect on this rollout, since the pods read it at startup."
+        >
+          <TracingToggle busy={busy} checked={tracing} onChange={setTracing} />
+        </Field>
 
         {opts === null ? (
           <p className="text-sm text-zinc-400">Loading options…</p>

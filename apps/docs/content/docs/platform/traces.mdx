@@ -1,0 +1,130 @@
+---
+title: "Traces"
+description: "How traced runs are stored, how model calls are priced, and the API over both."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+A runtime with tracing on publishes a record for every flow and model call it runs, and for the blocks `OCTO_TRACING_BLOCKS` selects. On the platform those records are consumed off NATS, stored in Postgres, and rolled up per trace — so a run that happened in a pod that has since been replaced can still be read back, at the version that produced it, with what its model calls cost.
+
+See [Tracing](/runtime/tracing) for what the runtime emits and how to switch it on. This page is the other end: what happens to a record after it is published.
+
+## Turning it on
+
+Tracing is off unless asked for. Tick **Trace this deployment** in the deploy or rollout dialog — it is a [per-deployment setting](/platform/deployments#tracing), so you switch it on for the one deployment you are investigating rather than for the integration.
+
+<Callout type="warn">
+**Trace to troubleshoot, then switch it off.** Tracing significantly reduces the throughput of the deployment it is on — it records every block on the flow's own goroutine and marshals the message once per block to capture payloads. It is a debugging instrument, not a monitoring one: for steady-state health use [metrics](/runtime/observability) and [logs](/runtime/monitoring), which are aggregates and cost almost nothing.
+</Callout>
+
+On an already-running deployment the switch takes effect through the rollout that carries it: the runtime resolves `OCTO_TRACING` when it parses its flags, before any config is loaded, so only pods that start with it are traced.
+
+`OCTO_TRACING_BODIES` and `OCTO_TRACING_BLOCKS` narrow what is captured. Those two have no dialog of their own — bind them as env vars on the deployment. They are read from the process environment only, so they too take effect on redeploy rather than on a config write.
+
+<Callout type="warn">
+Captured bodies and variables are stored as they arrived and are readable by anyone signed in to the platform — there is no per-tenant scoping on traces or logs today. A request body can hold credentials. On a shared cluster, prefer `OCTO_TRACING_BODIES=false`.
+</Callout>
+
+## Where records go
+
+Records ship to the `internal.traces` subject on the shared broker, and the aggregator consumes it as a queue group so each record lands on exactly one replica. Delivery is core NATS, fire-and-forget: **at most once, never redelivered.** A record that does not arrive is gone, which is a deliberate trade — tracing must not be able to back up the flows it observes.
+
+Two consequences worth knowing before you read a trace:
+
+- **The consumer sheds under load.** Trace records are batched (500, or every 50 ms) and buffered; when the writer falls behind, new records are dropped rather than queued. Waiting instead would only back them up until the NATS client hit its own limit and dropped them as a slow consumer — the same loss, with no count of what went or which app lost it. The count of what was shed appears in the aggregator's logs and per app in the API.
+- **A publisher that loses records says so.** The runtime emits a `trace.dropped` marker naming how many it could not keep. The marker carries **no trace id** — it describes the stream, not any one run — so it can only ever be reported per app and per window. Nothing can say which traces are incomplete, only that some are.
+
+Replaying the same records twice stores them twice. Records are not de-duplicated; the contract is at-most-once delivery, not exactly-once storage.
+
+## What is stored
+
+Two tables, and the difference between them is the whole design.
+
+**`traces`** holds one row per record, exactly as it arrived — kind, sequence, block path, timing, error, captured body and variables, and for a model call the tokens and the frozen cost. This is what a waterfall is drawn from.
+
+**`trace_summaries`** holds one row per trace, upserted as records arrive. It exists because the trace list is "one row per trace, newest first, paginated", and deriving that from the records with `GROUP BY trace_id ORDER BY min(ts)` cannot use an index for the ordering — Postgres aggregates the whole qualifying set before it can order it, so the hundredth page costs what the first one does and both grow with total volume. A ten-block flow emits roughly two dozen records, so the summary table is one to two orders of magnitude smaller than the one it summarizes.
+
+Every column of a summary is an **order-independent aggregate** — a bound, a sum, a ranked maximum, a set union. That is a requirement rather than a style: records arrive out of sequence order and spread across batches, so any rule depending on which record landed first would summarize the same trace differently on different runs.
+
+The identity columns (which deployment, which app version, what started the trace) are the exception, and they are *chosen* rather than merged. Each batch reports how well its best record named the trace — a `source.receive` beats a `source.emit` beats a `flow.started` — and the stored row remembers the rank it was written with, so a later batch can correct an earlier guess while a worse later record cannot overwrite a better earlier one.
+
+### Timing
+
+A record is stamped when the thing it describes **finished**, so it occupies `[ts − duration_ns, ts]`. A trace's `started_at` is the minimum of those interval starts, which is the same rule a waterfall applies — the duration the list reports and the span a chart draws are the same number by construction rather than by two implementations agreeing.
+
+`seq` is gapless across a **process**, not within a trace, so one trace's records are normally non-consecutive. A gap in a trace's sequence numbers is never evidence of loss.
+
+### Versions
+
+Every record carries the `app_name` and `app_version` stamped by the pod that emitted it. A trace keeps the version that produced it across a rollout, and the app list reports one row per `(deployment, name, version)` — so a cost belongs to the release that incurred it rather than to whichever release is current.
+
+### Traces that cross apps
+
+A trace id rides on the message and survives a queue or topic hop, so a flow that dispatches to another integration keeps the same trace. `deployment_id` on the summary is the deployment that *entered* the trace; `deployment_ids` accumulates every deployment that contributed records.
+
+## Pricing model calls
+
+The runtime reports tokens and never money — it deliberately knows no rate card. Pricing is the aggregator's job, and it happens **once, at ingest**. The cost is stored frozen alongside the id of the rate that produced it, so a price change next month cannot restate what last month cost.
+
+Rates come from a published catalogue (Helicone's, by default) and are kept as **history** in `llm_prices`: a changed price closes the old row and opens a new one, an unchanged price is a no-op, and a model that disappears from the feed is left open rather than closed — a missing catalogue entry must not retroactively unprice stored history. Every refresh, successful or not, is recorded in `llm_price_syncs`.
+
+The card is loaded from the database **before** anything is consumed and refreshed in the background afterwards. A service that waited on the catalogue would price nothing while the feed was slow, and nothing at all for as long as it was down.
+
+### Unpriced is not free
+
+This is the rule everything else here is arranged around. Every priced record carries a `cost_status` beside its cost, and a consumer has to read it to know what a `NULL` means:
+
+| `cost_status` | Meaning |
+| --- | --- |
+| `''` | Not a model call. |
+| `priced` | Fully priced from a known rate. |
+| `priced_partial` | Priced, but the card published no cache rate, so cached tokens were charged at the input rate — an over-estimate that says so. |
+| `unpriced_model` | The model is in no rate card. The cost is **unknown, not zero**. |
+| `no_usage` | The provider reported no token usage. There is nothing to price, which is different from pricing it at nothing. |
+
+Aggregates carry the same pairing: `cost_usd` sums only what could be priced, and `unpriced_calls` counts what could not. **A total is a lower bound whenever `unpriced_calls` is non-zero**, and a reader holding only the total has no way to know that.
+
+### Token arithmetic
+
+Two rules the connectors normalize and this service depends on:
+
+- **`output_tokens` already includes `thinking_tokens`.** Adding them bills reasoning twice.
+- **`cached_tokens` is cache *reads*.** Anthropic reports an input count that *excludes* them; OpenAI and Gemini report one that *includes* them. The cost formula keys on the provider the rate resolved to, which is why resolution bothers to disambiguate providers — a model id like `gpt-4o` is published under more than one.
+
+Cache **writes** are not captured by the connectors at all, so a run that populated a cache is under-costed by whatever the write cost. That is a gap in the source data, not one this service can close.
+
+## The API
+
+Served by the aggregator on the same port and `LOGS_URL` as the log query API. Responses are snake_case; the platform client maps them.
+
+| Route | Purpose |
+| --- | --- |
+| `GET /traces/apps` | One row per app with activity in a window: trace and failure counts, cost, unpriced calls, dropped records. `from`/`to` default to the last 24 hours and are echoed back. |
+| `GET /traces` | One page of traces. Filters: `deploymentId`, `integrationId`, `appName`, `appVersion`, `flow`, `status` (repeatable), `minDurationMs`, `hasLlm`, `q`, `from`, `to`. |
+| `GET /traces/{traceId}` | One trace: its stored summary, its records ordered by `seq`, and a `truncated` flag. `?bodies=0` omits the captured payloads. |
+| `GET /traces/{traceId}/records/{id}` | One record's body and variables, for click-to-inspect after loading a trace with `bodies=0`. |
+
+**Paging** is keyset, and the cursor is a **pair** — `<rfc3339nano>|<traceId>`, returned as `next_before` and passed back as `?before=`. It is a pair because traces tie: a burst of requests starts many of them inside the same microsecond, and a cursor on the timestamp alone either skips the rows that tie across a page boundary or serves them twice.
+
+A trace's detail response is capped at 20 000 records with `truncated: true`. A trace that large is pathological — a runaway `foreach`, a loop nobody meant to write — and it is exactly the trace someone opens to find out why, so the cap is reported rather than silently applied: a waterfall drawn from a cut record set is wrong in a way nothing in the picture reveals.
+
+The summary in the detail response is the **stored** rollup, not one recomputed from the records beneath it, so the number in the list and the number in the detail panel cannot disagree.
+
+## Configuration
+
+The aggregator needs `DATABASE_URL` and `NATS_URL`; without either it still serves `/healthz`. Two optional settings tune pricing:
+
+| Variable | Helm value | Default |
+| --- | --- | --- |
+| `LLM_PRICES_URL` | `logs.prices.url` | Helicone's public catalogue |
+| `LLM_PRICES_REFRESH` | `logs.prices.refreshInterval` | `12h` |
+
+Point the URL at a mirror for a cluster without egress. A cluster that can reach neither still serves whatever rates are already stored and records the failure in `llm_price_syncs`.
+
+<Callout type="warn">
+There is **no retention or pruning** for `traces` and `trace_summaries` yet — they grow without bound. Watch the table sizes on a busy cluster, and switch tracing off for integrations you are not actively investigating.
+</Callout>
+
+<Callout type="info">
+Both consumers join queue groups, so extra `logs` replicas share each stream rather than each storing every record. A trace's records may be split across replicas: every summary column is an order-independent aggregate, and the upserts are issued in trace-id order, so the halves merge to the same answer and concurrent writers take their row locks in the same order.
+</Callout>

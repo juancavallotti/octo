@@ -224,7 +224,7 @@ subjects for the other:
 | Module | Destination |
 | --- | --- |
 | standalone (default build) | A JSONL file, one object per line. Not a JSON array: a runtime is usually killed rather than stopped, and an array whose closing bracket was never written is unreadable, while JSONL cut anywhere is still valid up to its last complete line. |
-| k8s (`-tags k8s`) | The `internal.traces` NATS subject, for an aggregator to consume. |
+| k8s (`-tags k8s`) | The `internal.traces` NATS subject, consumed by the platform's telemetry aggregator, which stores the records it receives and prices the model calls among them where it can — a call whose provider reported no usage, or one on a model the price catalogue does not carry, is kept and marked unpriced rather than counted as free. See [Traces](/platform/traces). |
 
 The file is flushed whenever the runtime goes idle, so you can `tail -f` it during
 a run, and synced on a graceful stop.
@@ -241,9 +241,19 @@ OCTO_TRACING_BODIES=false
 OCTO_TRACING_BLOCKS=orders.charge
 ```
 
-Set them as integration environment variables and redeploy. These are read from
-the **process environment only**, not from a `.env` file: they are resolved when
-`octo run` parses its flags, before any config is loaded.
+On the platform you do not set the first one by hand: **Trace this deployment**
+in the deploy and rollout dialogs is a [per-deployment
+setting](/platform/deployments#tracing) that supplies it. The other two narrow
+what is captured and are bound as ordinary env vars.
+
+All of them are read from the **process environment only**, not from a `.env`
+file: they are resolved when `octo run` parses its flags, before any config is
+loaded. That is why the setting reaches a live deployment through a rollout — a
+pod has to start with it.
+
+What the pod publishes is then stored and queryable — see
+[Traces](/platform/traces) for how records are kept, what a model call is priced
+at, how to tell an unpriced call from a free one, and the API over all of it.
 
 `octo invoke` never traces — it starts no hosted services — which is also why
 [test suites](/testing) are unaffected by any of this.

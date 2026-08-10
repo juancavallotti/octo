@@ -248,6 +248,7 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 	// Persist the env bindings so reads, the SSE snapshot and the in-use check see
 	// them. Literal values are stored as-is; secret bindings hold only the name.
 	persisted.Env = settings.Env
+	persisted.Tracing = settings.Tracing
 	persisted.SnapshotID = snapID
 	settingsJSON, err := json.Marshal(persisted)
 	if err != nil {
@@ -284,6 +285,7 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 		SecretEnv:     secretEnv,
 		Expose:        external,
 		Subdomain:     subdomain,
+		Tracing:       settings.Tracing,
 	}
 	if err := s.kube.Apply(ctx, spec); err != nil {
 		// Roll back: remove any partially created resources and the row so the
@@ -638,11 +640,13 @@ func (s *Service) Scale(ctx context.Context, id string, replicas int) (Deploymen
 
 // Rollout upgrades a live deployment to a different version tag in place: it ships
 // the new snapshot's frozen definition as a rolling update, preserving the
-// deployment's id, address (slug/URLs), scale and env bindings, and records the new
-// tag. A tag that changes the integration's HTTP source (networked vs not) would
+// deployment's id, address (slug/URLs), scale, env bindings and tracing setting,
+// and records the new tag. It is also the path that edits env or tracing on a live
+// deployment, since both only reach the runtime by replacing its pods.
+// A tag that changes the integration's HTTP source (networked vs not) would
 // change the Service/Ingress topology, which a rolling update cannot express, so it
 // is rejected — undeploy and redeploy instead.
-func (s *Service) Rollout(ctx context.Context, id, snapshotID string, env map[string]EnvBinding) (Deployment, error) {
+func (s *Service) Rollout(ctx context.Context, id, snapshotID string, env map[string]EnvBinding, tracing *bool) (Deployment, error) {
 	if s.kube == nil {
 		return Deployment{}, ErrUnavailable
 	}
@@ -666,6 +670,15 @@ func (s *Service) Rollout(ctx context.Context, id, snapshotID string, env map[st
 	// bump keeps the same env).
 	if env != nil {
 		settings.Env = env
+	}
+
+	// Same convention for tracing: nil leaves the deployment's stored setting alone
+	// (a plain version bump keeps whatever it was running with), a value sets it.
+	// Rollout is how tracing is switched on or off for a deployment that is already
+	// live — the runtime reads OCTO_TRACING from its process environment when it
+	// parses flags, so the change only reaches it by replacing the pods.
+	if tracing != nil {
+		settings.Tracing = *tracing
 	}
 
 	// The runtime port/env come from the new frozen definition. A networked
@@ -721,6 +734,7 @@ func (s *Service) Rollout(ctx context.Context, id, snapshotID string, env map[st
 		SecretEnv:     secretEnv,
 		Expose:        settings.External(),
 		Subdomain:     settings.Subdomain,
+		Tracing:       settings.Tracing,
 	}
 	if err := s.kube.Rollout(ctx, spec); err != nil {
 		return Deployment{}, err

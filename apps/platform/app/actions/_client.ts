@@ -413,10 +413,15 @@ export function rolloutDeployment(
   id: string,
   snapshotId: string,
   env?: Record<string, EnvBindingInput>,
+  tracing?: boolean,
 ): Promise<ActionResult<Deployment>> {
   return call<Deployment>("POST", `/deployments/${enc(id)}/rollout`, {
     snapshotId,
     ...(env ? { env } : {}),
+    // Sent only when the caller has an opinion: the orchestrator reads an absent
+    // tracing field as "leave this deployment's setting alone", which is what a
+    // plain version bump wants.
+    ...(tracing === undefined ? {} : { tracing }),
   });
 }
 

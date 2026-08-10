@@ -50,6 +50,12 @@ type Settings struct {
 	// cannot be bound here. Literal values are persisted as-is; secret bindings
 	// persist only the secret name, never its value.
 	Env map[string]EnvBinding `json:"env,omitempty"`
+	// Tracing runs this deployment's pods with the runtime's tracer on, so every
+	// flow, block and model call they execute is published for the platform to
+	// store. It is off by default and costs throughput, so it is a per-deployment
+	// switch rather than an integration-wide one: you turn it on for the deployment
+	// you are investigating.
+	Tracing bool `json:"tracing,omitempty"`
 	// SnapshotID is the version tag (snapshot) to deploy. When the service is wired
 	// with a snapshot store (the production path) it is required, and the deploy
 	// ships that snapshot's frozen definition rather than the live one. Input only —

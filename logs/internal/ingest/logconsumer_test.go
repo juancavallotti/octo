@@ -32,7 +32,7 @@ func connect(t *testing.T, url string) *nats.Conn {
 // captureStore records every inserted event for assertions.
 type captureStore struct {
 	mu     sync.Mutex
-	events []Event
+	events []LogEvent
 	got    chan struct{}
 }
 
@@ -40,7 +40,7 @@ func newCaptureStore(n int) *captureStore {
 	return &captureStore{got: make(chan struct{}, n)}
 }
 
-func (s *captureStore) Insert(_ context.Context, e Event) error {
+func (s *captureStore) Insert(_ context.Context, e LogEvent) error {
 	s.mu.Lock()
 	s.events = append(s.events, e)
 	s.mu.Unlock()
@@ -54,7 +54,7 @@ func TestConsumerPersistsShippedRecord(t *testing.T) {
 	conn := connect(t, url)
 
 	store := newCaptureStore(1)
-	sub, err := NewConsumer(store, 4).Start(context.Background(), conn)
+	sub, err := NewLogConsumer(store, 4).Start(context.Background(), conn)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -92,7 +92,7 @@ func TestConsumerDropsUndecodableRecord(t *testing.T) {
 	conn := connect(t, url)
 
 	store := newCaptureStore(1)
-	sub, err := NewConsumer(store, 2).Start(context.Background(), conn)
+	sub, err := NewLogConsumer(store, 2).Start(context.Background(), conn)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
