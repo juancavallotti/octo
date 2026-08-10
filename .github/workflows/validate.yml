@@ -76,7 +76,10 @@ jobs:
           version: '~> v2'
           args: check
 
-  platform:
+  # Both Next apps. `standalone` had no job at all until now, so nothing was
+  # failing on its lint, its tests or its build — the same gap the Go service
+  # modules had in the job above.
+  web:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -89,6 +92,9 @@ jobs:
       - run: pnpm --filter platform lint
       - run: pnpm --filter platform test
       - run: pnpm --filter platform build
+      - run: pnpm --filter standalone lint
+      - run: pnpm --filter standalone test
+      - run: pnpm --filter standalone build
 
   # The Helm chart targets clusters CI cannot spin up on demand — GKE Autopilot,
   # EKS — so rendering every environment profile and validating the output
