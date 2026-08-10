@@ -17,6 +17,12 @@ import (
 // same trace differently on different runs.
 const shuffleRounds = 10
 
+// costTolerance is how far two orderings of the same costs may land apart before
+// the difference is the fold rather than the last bit of a float sum. Fractions
+// of a cent below any price anyone bills at, and many orders of magnitude above
+// the rounding it exists to absorb.
+const costTolerance = 1e-12
+
 var traceStart = time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
 
 // at returns a timestamp offset from the trace's start, in milliseconds.
@@ -110,7 +116,17 @@ func foldEveryOrder(t *testing.T, rows []ingest.TraceRow) TraceDelta {
 		rand.New(rand.NewPCG(uint64(round), 0)).Shuffle(len(shuffled), func(i, j int) {
 			shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
 		})
-		if got := foldOne(t, shuffled); !reflect.DeepEqual(got, want) {
+		got := foldOne(t, shuffled)
+		// Cost is the one field that is a float sum, and floating-point addition
+		// is not associative: the same three priced calls added in another order
+		// can land a bit apart. Comparing its bits would make this test fail for
+		// the arithmetic rather than for the ordering it is about.
+		if diff := got.CostUSD - want.CostUSD; diff > costTolerance || diff < -costTolerance {
+			t.Fatalf("ordering %d summed cost to %v, want %v", round, got.CostUSD, want.CostUSD)
+		}
+		got.CostUSD = want.CostUSD
+
+		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("ordering %d summarized differently:\n got %+v\nwant %+v", round, got, want)
 		}
 	}

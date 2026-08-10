@@ -151,8 +151,11 @@ func TestStoreSupersedesRatherThanUpdates(t *testing.T) {
 	// The superseded row is still there, closed, with its original price.
 	var total int
 	var oldPrice float64
+	// coalesce so the count below is what reports a supersede that stopped
+	// closing rows. Without it max() over no rows is NULL, Scan fails, and the
+	// test blames itself for a scan error instead.
 	if err := store.pool.QueryRow(ctx,
-		`SELECT count(*), max(input_per_1m) FROM llm_prices
+		`SELECT count(*), coalesce(max(input_per_1m), 0) FROM llm_prices
 		  WHERE source = $1 AND effective_to IS NOT NULL`, source).Scan(&total, &oldPrice); err != nil {
 		t.Fatalf("count closed rows: %v", err)
 	}
