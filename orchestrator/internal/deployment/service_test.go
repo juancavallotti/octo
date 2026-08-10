@@ -1040,7 +1040,7 @@ func TestRolloutShipsNewDefinitionAndRecordsTag(t *testing.T) {
 	kc := &fakeKube{status: kube.StatusRunning}
 	svc := NewService(repo, &fakeIntegrations{}, kc, WithSnapshots(snaps))
 
-	if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil); err != nil {
+	if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil, nil); err != nil {
 		t.Fatalf("Rollout: %v", err)
 	}
 	if !kc.rolledOut {
@@ -1072,7 +1072,7 @@ func TestRolloutRejectsTopologyChange(t *testing.T) {
 	snaps := &fakeSnapshots{ret: snapshot.Snapshot{ID: "snap-2", IntegrationID: "int-1", Definition: "service:\n  name: plain\n"}}
 	svc := NewService(repo, &fakeIntegrations{}, &fakeKube{}, WithSnapshots(snaps))
 
-	if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil); !errors.Is(err, ErrRolloutTopologyChange) {
+	if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil, nil); !errors.Is(err, ErrRolloutTopologyChange) {
 		t.Errorf("got %v, want ErrRolloutTopologyChange", err)
 	}
 }
@@ -1082,8 +1082,83 @@ func TestRolloutRejectsSnapshotFromAnotherIntegration(t *testing.T) {
 	snaps := &fakeSnapshots{ret: snapshot.Snapshot{ID: "snap-2", IntegrationID: "other", Definition: exposableDef}}
 	svc := NewService(repo, &fakeIntegrations{}, &fakeKube{}, WithSnapshots(snaps))
 
-	if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil); !errors.Is(err, ErrSnapshotMismatch) {
+	if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil, nil); !errors.Is(err, ErrSnapshotMismatch) {
 		t.Errorf("got %v, want ErrSnapshotMismatch", err)
+	}
+}
+
+// TestDeployShipsAndPersistsTracing verifies the tracing setting reaches the pod
+// spec and is stored, so a later read (and the rollout dialog seeded from it) can
+// tell whether a deployment is being traced.
+func TestDeployShipsAndPersistsTracing(t *testing.T) {
+	for _, tracing := range []bool{false, true} {
+		repo := &fakeRepo{created: Deployment{ID: "dep-1"}}
+		integrations := &fakeIntegrations{ret: integration.Integration{ID: "int-1", Name: "Orders", Definition: exposableDef}}
+		snaps := &fakeSnapshots{ret: snapshot.Snapshot{ID: "snap-1", IntegrationID: "int-1", Definition: exposableDef}}
+		kc := &fakeKube{status: kube.StatusRunning}
+		svc := NewService(repo, integrations, kc, WithSnapshots(snaps))
+
+		if _, err := svc.Deploy(context.Background(), "int-1", Settings{SnapshotID: "snap-1", Tracing: tracing}); err != nil {
+			t.Fatalf("Deploy(tracing=%v): %v", tracing, err)
+		}
+		if kc.gotSpec.Tracing != tracing {
+			t.Errorf("spec tracing = %v, want %v", kc.gotSpec.Tracing, tracing)
+		}
+		if got := ParseSettings(repo.gotSettings).Tracing; got != tracing {
+			t.Errorf("persisted tracing = %v, want %v", got, tracing)
+		}
+	}
+}
+
+// TestRolloutSetsTracingWhenProvided verifies rollout is how tracing is switched on
+// a deployment that is already live: the runtime reads OCTO_TRACING from its process
+// environment, so only replacing the pods can change it.
+func TestRolloutSetsTracingWhenProvided(t *testing.T) {
+	repo := &fakeRepo{getRet: Deployment{
+		ID: "dep-1", IntegrationID: "int-1",
+		Settings: json.RawMessage(`{"replicas":1}`),
+		Metadata: json.RawMessage(`{"slug":"orders"}`),
+	}}
+	snaps := &fakeSnapshots{ret: snapshot.Snapshot{ID: "snap-2", IntegrationID: "int-1", Tag: "v2.0", Definition: exposableDef}}
+	kc := &fakeKube{status: kube.StatusRunning}
+	svc := NewService(repo, &fakeIntegrations{}, kc, WithSnapshots(snaps))
+
+	on := true
+	if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil, &on); err != nil {
+		t.Fatalf("Rollout: %v", err)
+	}
+	if !kc.gotSpec.Tracing {
+		t.Error("spec tracing = false, want true")
+	}
+	if !ParseSettings(repo.gotSettings).Tracing {
+		t.Error("persisted tracing = false, want true")
+	}
+}
+
+// TestRolloutTracingNilPreservesOffAndOn verifies an omitted tracing flag leaves the
+// deployment's stored setting alone in both directions. Nil has to be distinct from
+// false, or a plain version bump would quietly stop tracing a deployment someone is
+// in the middle of investigating.
+func TestRolloutTracingNilPreservesOffAndOn(t *testing.T) {
+	for _, stored := range []bool{false, true} {
+		repo := &fakeRepo{getRet: Deployment{
+			ID: "dep-1", IntegrationID: "int-1",
+			Settings: json.RawMessage(fmt.Sprintf(`{"replicas":1,"tracing":%v}`, stored)),
+			Metadata: json.RawMessage(`{"slug":"orders"}`),
+		}}
+		snaps := &fakeSnapshots{ret: snapshot.Snapshot{ID: "snap-2", IntegrationID: "int-1", Tag: "v2.0", Definition: exposableDef}}
+		kc := &fakeKube{status: kube.StatusRunning}
+		svc := NewService(repo, &fakeIntegrations{}, kc, WithSnapshots(snaps))
+
+		if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil, nil); err != nil {
+			t.Fatalf("Rollout(stored=%v): %v", stored, err)
+		}
+		if kc.gotSpec.Tracing != stored {
+			t.Errorf("spec tracing = %v, want %v (preserved)", kc.gotSpec.Tracing, stored)
+		}
+		if got := ParseSettings(repo.gotSettings).Tracing; got != stored {
+			t.Errorf("persisted tracing = %v, want %v (preserved)", got, stored)
+		}
 	}
 }
 
@@ -1100,7 +1175,7 @@ func TestRolloutReplacesEnvWhenProvided(t *testing.T) {
 	svc := NewService(repo, &fakeIntegrations{}, kc, WithSnapshots(snaps))
 
 	env := map[string]EnvBinding{"NEW": {Value: "n"}}
-	if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2", env); err != nil {
+	if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2", env, nil); err != nil {
 		t.Fatalf("Rollout: %v", err)
 	}
 	if kc.gotSpec.Env["NEW"] != "n" {
@@ -1130,7 +1205,7 @@ func TestRolloutPreservesEnvWhenNil(t *testing.T) {
 	kc := &fakeKube{status: kube.StatusRunning}
 	svc := NewService(repo, &fakeIntegrations{}, kc, WithSnapshots(snaps))
 
-	if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil); err != nil {
+	if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil, nil); err != nil {
 		t.Fatalf("Rollout: %v", err)
 	}
 	if kc.gotSpec.Env["KEEP"] != "k" {
@@ -1155,7 +1230,7 @@ func TestRolloutRejectsMissingRequiredEnv(t *testing.T) {
 	kc := &fakeKube{status: kube.StatusRunning}
 	svc := NewService(repo, &fakeIntegrations{}, kc, WithSnapshots(snaps))
 
-	_, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil)
+	_, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil, nil)
 	if !errors.Is(err, ErrMissingRequiredEnv) {
 		t.Fatalf("got %v, want ErrMissingRequiredEnv", err)
 	}
@@ -1183,7 +1258,7 @@ func TestRolloutRequiredEnvSatisfiedByFrozenEnvFile(t *testing.T) {
 	kc := &fakeKube{status: kube.StatusRunning}
 	svc := NewService(repo, &fakeIntegrations{}, kc, WithSnapshots(snaps))
 
-	if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil); err != nil {
+	if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil, nil); err != nil {
 		t.Fatalf("Rollout: %v", err)
 	}
 	if !kc.rolledOut {
