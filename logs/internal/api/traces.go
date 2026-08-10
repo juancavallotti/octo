@@ -193,6 +193,13 @@ func parseTraceFilter(r *http.Request) (repo.TraceFilter, error) {
 	}
 	f.To = to
 
+	// Both bounds are optional here, unlike /traces/apps, but a pair that runs
+	// backwards is still a mistake rather than a query: it matches nothing, and an
+	// empty page reads exactly like "this app ran no traces".
+	if f.From != nil && f.To != nil && f.To.Before(*f.From) {
+		return repo.TraceFilter{}, errInvalid("to must not be before from")
+	}
+
 	before, err := decodeCursor(query.Get("before"))
 	if err != nil {
 		return repo.TraceFilter{}, err

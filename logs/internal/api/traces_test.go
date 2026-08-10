@@ -352,6 +352,9 @@ func TestTraceListRejectsBadInput(t *testing.T) {
 		"negative min duration": "/traces?minDurationMs=-5",
 		"non-numeric duration":  "/traces?minDurationMs=quick",
 		"non-numeric limit":     "/traces?limit=many",
+		// The window matches nothing, and an empty page reads like "this app ran
+		// no traces" — the answer a swapped pair is most likely mistaken for.
+		"window runs backwards": "/traces?from=2026-06-28T11:00:00Z&to=2026-06-28T10:00:00Z",
 	}
 
 	for name, target := range cases {
@@ -363,6 +366,27 @@ func TestTraceListRejectsBadInput(t *testing.T) {
 			}
 			if q.called {
 				t.Error("a rejected request still reached the querier")
+			}
+		})
+	}
+}
+
+// TestTraceListAcceptsEveryWindowThatIsNotBackwards guards the check above from
+// growing teeth it should not have. Unlike /traces/apps, this route treats both
+// bounds as optional — one-sided and unbounded are ordinary requests, and an
+// instant is a window a caller can legitimately ask for.
+func TestTraceListAcceptsEveryWindowThatIsNotBackwards(t *testing.T) {
+	for name, target := range map[string]string{
+		"no bounds":  "/traces",
+		"from only":  "/traces?from=2026-06-28T10:00:00Z",
+		"to only":    "/traces?to=2026-06-28T11:00:00Z",
+		"an instant": "/traces?from=2026-06-28T10:00:00Z&to=2026-06-28T10:00:00Z",
+		"in order":   "/traces?from=2026-06-28T10:00:00Z&to=2026-06-28T11:00:00Z",
+	} {
+		t.Run(name, func(t *testing.T) {
+			q := &fakeTraceQuerier{}
+			if rec := doTraces(t, q, target); rec.Code != http.StatusOK {
+				t.Errorf("status = %d, want 200 (body %s)", rec.Code, rec.Body)
 			}
 		})
 	}
