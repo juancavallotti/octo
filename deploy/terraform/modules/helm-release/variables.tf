@@ -320,3 +320,10 @@ variable "kv_encryption_key" {
   default     = ""
   sensitive   = true
 }
+
+variable "dev_run_hash_secret" {
+  type        = string
+  description = "HMAC key deriving every dev run's identity and public hostname. Required by the chart whenever orchestrator.devRuns.enabled is true (the default); generate it once and never rotate it — rotating re-labels every exposed dev run and silently breaks webhooks registered against the old hostname. Any string; no length or encoding requirement."
+  default     = ""
+  sensitive   = true
+}
