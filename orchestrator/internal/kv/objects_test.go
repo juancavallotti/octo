@@ -27,7 +27,7 @@ func TestObjectPutGetList(t *testing.T) {
 		resp := do(t, http.MethodPut, ts.URL+"/deployments/dep-1/objects/"+k, "",
 			`{"value":"`+k+`","version":0}`)
 		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("PUT %s status = %d, want 200 (%s)", k, resp.StatusCode, body)
 		}
@@ -40,7 +40,7 @@ func TestObjectPutGetList(t *testing.T) {
 
 	// Get returns the value with a utf8 encoding.
 	get := do(t, http.MethodGet, ts.URL+"/deployments/dep-1/objects/alpha", "", "")
-	defer get.Body.Close()
+	defer func() { _ = get.Body.Close() }()
 	if get.StatusCode != http.StatusOK {
 		t.Fatalf("GET status = %d, want 200", get.StatusCode)
 	}
@@ -54,7 +54,7 @@ func TestObjectPutGetList(t *testing.T) {
 
 	// List returns both keys, ordered by key.
 	list := do(t, http.MethodGet, ts.URL+"/deployments/dep-1/objects", "", "")
-	defer list.Body.Close()
+	defer func() { _ = list.Body.Close() }()
 	var listed struct {
 		Items []Entry `json:"items"`
 	}
@@ -69,7 +69,7 @@ func TestObjectPutGetList(t *testing.T) {
 func TestObjectListEmptyIsArray(t *testing.T) {
 	ts := newObjectServer(t, newFakeStore())
 	resp := do(t, http.MethodGet, ts.URL+"/deployments/dep-1/objects", "", "")
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 	if got := string(body); got != "{\"items\":[]}\n" {
 		t.Fatalf("empty list = %q, want an empty items array", got)
@@ -79,7 +79,7 @@ func TestObjectListEmptyIsArray(t *testing.T) {
 func TestObjectGetMissingIs404(t *testing.T) {
 	ts := newObjectServer(t, newFakeStore())
 	resp := do(t, http.MethodGet, ts.URL+"/deployments/dep-1/objects/absent", "", "")
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", resp.StatusCode)
 	}
@@ -91,7 +91,7 @@ func TestObjectPutConflictIs409(t *testing.T) {
 	ts := newObjectServer(t, store)
 	resp := do(t, http.MethodPut, ts.URL+"/deployments/dep-1/objects/k", "",
 		`{"value":"x","version":9}`)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusConflict {
 		t.Fatalf("status = %d, want 409", resp.StatusCode)
 	}
@@ -104,7 +104,7 @@ func TestObjectDeleteUsesVersionQuery(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 	resp := do(t, http.MethodDelete, ts.URL+"/deployments/dep-1/objects/k?version=1", "", "")
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("status = %d, want 204", resp.StatusCode)
 	}
@@ -120,7 +120,7 @@ func TestObjectNamespaceParamRoutesAndListsNamespaces(t *testing.T) {
 	// A write naming a non-default namespace lands there, not in "user".
 	resp := do(t, http.MethodPut, ts.URL+"/deployments/dep-1/objects/k?namespace=system", "",
 		`{"value":"v","version":0}`)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("PUT status = %d, want 200", resp.StatusCode)
 	}
@@ -132,7 +132,7 @@ func TestObjectNamespaceParamRoutesAndListsNamespaces(t *testing.T) {
 	// including secret namespaces (the browser can list/clean them up).
 	store.rows["user_secrets/s"] = []byte("ciphertext")
 	list := do(t, http.MethodGet, ts.URL+"/deployments/dep-1/namespaces", "", "")
-	defer list.Body.Close()
+	defer func() { _ = list.Body.Close() }()
 	var listed struct {
 		Items []string `json:"items"`
 	}
@@ -155,7 +155,7 @@ func TestObjectSecretNamespaceListAndDeleteButNotReadOrWrite(t *testing.T) {
 
 	// Listing a secret namespace returns key metadata (not the value).
 	list := do(t, http.MethodGet, ts.URL+"/deployments/dep-1/objects?namespace=user_secrets", "", "")
-	defer list.Body.Close()
+	defer func() { _ = list.Body.Close() }()
 	var listed struct {
 		Items []Entry `json:"items"`
 	}
@@ -168,20 +168,20 @@ func TestObjectSecretNamespaceListAndDeleteButNotReadOrWrite(t *testing.T) {
 
 	// Reading and writing a secret value are both refused.
 	get := do(t, http.MethodGet, ts.URL+"/deployments/dep-1/objects/oauth?namespace=user_secrets", "", "")
-	get.Body.Close()
+	_ = get.Body.Close()
 	if get.StatusCode != http.StatusBadRequest {
 		t.Fatalf("GET status = %d, want 400", get.StatusCode)
 	}
 	put := do(t, http.MethodPut, ts.URL+"/deployments/dep-1/objects/oauth?namespace=user_secrets", "",
 		`{"value":"x","version":1}`)
-	put.Body.Close()
+	_ = put.Body.Close()
 	if put.StatusCode != http.StatusBadRequest {
 		t.Fatalf("PUT status = %d, want 400", put.StatusCode)
 	}
 
 	// Deleting a secret key (cleanup) is allowed.
 	del := do(t, http.MethodDelete, ts.URL+"/deployments/dep-1/objects/oauth?namespace=user_secrets&version=1", "", "")
-	del.Body.Close()
+	_ = del.Body.Close()
 	if del.StatusCode != http.StatusNoContent {
 		t.Fatalf("DELETE status = %d, want 204", del.StatusCode)
 	}
@@ -197,7 +197,7 @@ func TestObjectBinaryRoundTripsAsBase64(t *testing.T) {
 	store.version["user/bin"] = 3
 
 	get := do(t, http.MethodGet, ts.URL+"/deployments/dep-1/objects/bin", "", "")
-	defer get.Body.Close()
+	defer func() { _ = get.Body.Close() }()
 	var val objectValue
 	if err := json.NewDecoder(get.Body).Decode(&val); err != nil {
 		t.Fatalf("decode: %v", err)
