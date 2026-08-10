@@ -13,13 +13,7 @@ import {
   listAllDeployments,
   type DeploymentWithIntegration,
 } from "@/app/model/orchestrator";
-import {
-  deleteObject,
-  getObject,
-  listNamespaces,
-  listObjects,
-  setObject,
-} from "@/app/model/objects";
+import { getObject, listNamespaces, listObjects } from "@/app/model/objects";
 import {
   DEFAULT_NAMESPACE,
   initState,
@@ -27,6 +21,7 @@ import {
   reducer,
 } from "./state";
 import { deploymentLabel } from "./format";
+import { useObjectWrites } from "./useObjectWrites";
 
 /**
  * The object browser's data lifecycle: which deployment and key are selected
@@ -191,69 +186,21 @@ export function useObjects({
   const selectedEntry =
     entries?.find((e) => e.key === selectedKey) ?? null;
 
-  const save = useCallback(async () => {
-    if (!deploymentId) return;
-    dispatch({ type: "busy" });
-    try {
-      if (creating) {
-        const key = newKey.trim();
-        if (!key) return dispatch({ type: "cancelCreate" });
-        await setObject(deploymentId, key, draft, 0, "utf8", namespace);
-        await loadEntries(deploymentId, namespace);
-        dispatch({ type: "created", key });
-        writeUrl(deploymentId, key, namespace);
-      } else if (current) {
-        const version = await setObject(
-          deploymentId,
-          current.key,
-          draft,
-          current.version,
-          "utf8",
-          namespace,
-        );
-        dispatch({ type: "saved", current: { ...current, value: draft, version } });
-        await loadEntries(deploymentId, namespace);
-      }
-    } catch (e) {
-      dispatch({ type: "error", error: (e as Error).message });
-    }
-  }, [creating, current, deploymentId, draft, loadEntries, namespace, newKey, writeUrl]);
-
-  const remove = useCallback(async () => {
-    // For a viewable object the version comes from the loaded value; for a secret
-    // key (no value loaded) it comes from the list entry.
-    const key = current?.key ?? selectedKey;
-    if (!deploymentId || !key) return;
-    const version = current?.version ?? selectedEntry?.version ?? 0;
-    const ok = await confirm({
-      title: `Delete "${key}"?`,
-      body: secret
-        ? "This permanently removes the secret from this deployment (e.g. to clear stale credentials)."
-        : "This permanently removes the object from this deployment.",
-      confirmLabel: "Delete",
-      danger: true,
-    });
-    if (!ok) return;
-    dispatch({ type: "busy" });
-    try {
-      await deleteObject(deploymentId, key, version, namespace);
-      await loadEntries(deploymentId, namespace);
-      dispatch({ type: "deleted" });
-      writeUrl(deploymentId, null, namespace);
-    } catch (e) {
-      dispatch({ type: "error", error: (e as Error).message });
-    }
-  }, [
-    confirm,
-    current,
+  const { save, remove } = useObjectWrites({
     deploymentId,
-    loadEntries,
     namespace,
-    secret,
-    selectedEntry,
     selectedKey,
+    selectedEntry,
+    current,
+    draft,
+    creating,
+    newKey,
+    secret,
+    dispatch,
+    loadEntries,
     writeUrl,
-  ]);
+    confirm,
+  });
 
   const sortedDeployments = useMemo(
     () =>
