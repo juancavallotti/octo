@@ -360,8 +360,10 @@ type TraceRecordRow struct {
 	OutputTokens   *int   `json:"output_tokens"`
 	ThinkingTokens *int   `json:"thinking_tokens"`
 	CachedTokens   *int   `json:"cached_tokens"`
-	// CacheWriteTokens is cache creation, billed above the input rate. NULL for a
-	// record written before the runtime reported it — unknown, not zero.
+	// CacheWriteTokens is cache creation, billed above the input rate. NULL only
+	// when the record carried no usage at all (including every record written
+	// before the column existed); 0 when a provider reported usage but no write
+	// count, which is every provider but Anthropic.
 	CacheWriteTokens *int     `json:"cache_write_tokens"`
 	CostUSD          *float64 `json:"cost_usd"`
 	CostStatus       string   `json:"cost_status"`

@@ -368,9 +368,15 @@ CREATE TABLE IF NOT EXISTS traces (
 -- reads, this counts creation. They are kept apart because they bill in opposite
 -- directions from ordinary input — a read cheaper, a write dearer (Anthropic
 -- charges roughly 1.25x) — so a single "cache tokens" column could not price
--- either. Added via ALTER, and NULLABLE like its neighbours: a row written before
--- the runtime reported the count reads as *unknown*, which is what it is, rather
--- than as a call that wrote nothing.
+-- either.
+--
+-- NULLABLE on the same rule as its neighbours, which is about the usage object
+-- and not this field: NULL means the record carried no usage at all, and that
+-- covers every row written before this column existed. A record that DID carry
+-- usage stores 0 here when its provider reports no write count — OpenAI and
+-- Gemini never do — exactly as thinking_tokens stores 0 for a provider that
+-- reports no reasoning. Zero is "the provider accounted for this and it was
+-- none"; NULL is "there was nothing to account for".
 ALTER TABLE traces
     ADD COLUMN IF NOT EXISTS cache_write_tokens integer;
 
