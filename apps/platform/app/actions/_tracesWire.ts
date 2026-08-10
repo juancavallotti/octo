@@ -88,6 +88,7 @@ export interface RawRecord {
   output_tokens: number | null;
   thinking_tokens: number | null;
   cached_tokens: number | null;
+  cache_write_tokens: number | null;
   cost_usd: number | null;
   cost_status: CostStatus;
   price_id: string;
@@ -180,12 +181,13 @@ export function toRecord(r: RawRecord): TraceRecord {
     appVersion: r.app_version,
     model: r.model,
     provider: r.provider,
-    // The five below stay null when they arrive null. `?? 0` here would turn
+    // The six below stay null when they arrive null. `?? 0` here would turn
     // "the provider reported nothing" into "this call was free".
     inputTokens: r.input_tokens,
     outputTokens: r.output_tokens,
     thinkingTokens: r.thinking_tokens,
     cachedTokens: r.cached_tokens,
+    cacheWriteTokens: r.cache_write_tokens ?? null,
     costUsd: r.cost_usd,
     costStatus: r.cost_status,
     priceId: r.price_id,

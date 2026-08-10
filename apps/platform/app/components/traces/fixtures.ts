@@ -86,6 +86,7 @@ export function record(spec: RecordSpec): TraceRecord {
     outputTokens: null,
     thinkingTokens: null,
     cachedTokens: null,
+    cacheWriteTokens: null,
     costUsd: null,
     costStatus: "",
     priceId: "",

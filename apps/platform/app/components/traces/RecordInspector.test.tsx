@@ -108,6 +108,29 @@ describe("RecordInspector", () => {
     );
   });
 
+  // Reads and writes bill in opposite directions from ordinary input — a read
+  // cheaper, a write dearer — so one number for both would explain neither, and a
+  // cost that jumped on a cache-populating call would be unaccountable from the
+  // counts beside it.
+  it("reports cache reads and cache writes separately", async () => {
+    const call = record({ kind: "llm.turn" });
+    show({
+      kind: "llm.turn",
+      record: {
+        ...call,
+        inputTokens: 200,
+        outputTokens: 100,
+        cachedTokens: 128,
+        cacheWriteTokens: 4096,
+        costStatus: "priced",
+        costUsd: 0.02,
+      },
+    });
+    await waitFor(() =>
+      expect(screen.getByText(/128 cache reads · 4096 cache writes/)).toBeInTheDocument(),
+    );
+  });
+
   it("says when a span's extent was inferred rather than measured", () => {
     show({ inferred: true, record: null });
     expect(screen.getByText(/a lower bound on what really happened/)).toBeInTheDocument();

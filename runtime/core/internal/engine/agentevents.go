@@ -202,10 +202,11 @@ func turnEndFields(resp *core.LLMResponse) map[string]any {
 // differently — and so a change to the shape lands in both at once.
 func usageFields(usage *core.LLMUsage) map[string]any {
 	return map[string]any{
-		"inputTokens":    usage.InputTokens,
-		"outputTokens":   usage.OutputTokens,
-		"thinkingTokens": usage.ThinkingTokens,
-		"cachedTokens":   usage.CachedTokens,
+		"inputTokens":      usage.InputTokens,
+		"outputTokens":     usage.OutputTokens,
+		"thinkingTokens":   usage.ThinkingTokens,
+		"cachedTokens":     usage.CachedTokens,
+		"cacheWriteTokens": usage.CacheWriteTokens,
 	}
 }
 

@@ -169,6 +169,12 @@ func toThinking(set connectorSettings, maxTokens int64) (sdk.ThinkingConfigParam
 // Stop is a no-op: the connector holds no resources to release.
 func (c *Connector) Stop(context.Context) error { return nil }
 
+// Provider names the vendor family, in the vocabulary the price catalogue uses.
+// It is fixed rather than derived from baseURL: pointing this connector at a
+// proxy does not change whose API it speaks or how that API counts cached
+// tokens, which is what the figure downstream depends on.
+func (c *Connector) Provider() string { return core.ProviderAnthropic }
+
 // Complete runs one Messages turn, translating the request to SDK params and the
 // response back to the provider-agnostic DTOs.
 func (c *Connector) Complete(ctx context.Context, req core.LLMRequest) (*core.LLMResponse, error) {
@@ -500,16 +506,20 @@ func servedBy(reported, configured string) string {
 // counted inside, which is the convention core.LLMUsage adopts.
 func translateUsage(u sdk.Usage) *core.LLMUsage {
 	// Cached input counts separately from InputTokens, which reports only the
-	// uncached remainder, so a response can carry real usage with both of the
-	// other two at zero.
-	if u.InputTokens == 0 && u.OutputTokens == 0 && u.CacheReadInputTokens == 0 {
+	// uncached remainder, so a response can carry real usage with the other counts
+	// at zero. That holds for a cache *write* too — the first turn of a cached
+	// conversation is mostly cache creation — so it belongs in this guard as well,
+	// or such a turn is reported as having no usage at all.
+	if u.InputTokens == 0 && u.OutputTokens == 0 &&
+		u.CacheReadInputTokens == 0 && u.CacheCreationInputTokens == 0 {
 		return nil
 	}
 	return &core.LLMUsage{
-		InputTokens:    int(u.InputTokens),
-		OutputTokens:   int(u.OutputTokens),
-		ThinkingTokens: int(u.OutputTokensDetails.ThinkingTokens),
-		CachedTokens:   int(u.CacheReadInputTokens),
+		InputTokens:      int(u.InputTokens),
+		OutputTokens:     int(u.OutputTokens),
+		ThinkingTokens:   int(u.OutputTokensDetails.ThinkingTokens),
+		CachedTokens:     int(u.CacheReadInputTokens),
+		CacheWriteTokens: int(u.CacheCreationInputTokens),
 	}
 }
 

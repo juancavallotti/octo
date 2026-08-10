@@ -23,6 +23,7 @@ import (
 const (
 	attrBlock      = "block"
 	attrConnector  = "connector"
+	attrProvider   = "provider"
 	attrIteration  = "iteration"
 	attrStopReason = "stopReason"
 	attrToolCalls  = "toolCalls"
@@ -41,18 +42,34 @@ const purposeMemory = "memory-compaction"
 type callerIdentity struct {
 	blockType string
 	connector string
+	provider  string
 	flow      string
 	path      string
 	name      string
 }
 
+// providerOf reads the vendor family off a connector, or "" when it does not
+// report one.
+//
+// Asserted rather than required, like the streaming half next door: a
+// third-party LLM connector predating core.LLMProvider keeps working, and its
+// calls are simply recorded without a family. Resolved once at build time, so a
+// record never repeats the type assertion per call.
+func providerOf(connector core.Connector) string {
+	if p, ok := connector.(core.LLMProvider); ok {
+		return p.Provider()
+	}
+	return ""
+}
+
 // newIdentity reads a block's identity off its build-time deps. The address is the
 // one the flow builder minted, so a model-call record lands at the same place a
 // block event for the same block would.
-func newIdentity(blockType, connector string, deps core.BlockDeps) callerIdentity {
+func newIdentity(blockType, connector, provider string, deps core.BlockDeps) callerIdentity {
 	return callerIdentity{
 		blockType: blockType,
 		connector: connector,
+		provider:  provider,
 		flow:      deps.Address.Flow,
 		path:      deps.Address.Path,
 		name:      deps.Address.Name,
@@ -83,6 +100,13 @@ func (id callerIdentity) record(
 	}
 	if id.name != "" {
 		event.SetAttr(attrBlock, id.name)
+	}
+	// Empty for a third-party connector that does not implement core.LLMProvider;
+	// omitted rather than guessed, since a wrong family costs more than a missing
+	// one — the consumer falls back to inferring from the model id, which is what
+	// it did for every record before this attribute existed.
+	if id.provider != "" {
+		event.SetAttr(attrProvider, id.provider)
 	}
 	return event
 }

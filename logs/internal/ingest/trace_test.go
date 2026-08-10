@@ -19,9 +19,11 @@ const (
 
 	wireLLMTurn = `{"seq":13,"kind":"llm.turn","traceId":"t1","eventId":"e1","flow":"orders",` +
 		`"path":"orders.agent","blockType":"ai-agent","at":"2026-08-09T12:00:00.5Z","durationNs":900000000,` +
-		`"attrs":{"block":"agent","connector":"myClaude","iteration":2,"model":"claude-3-5-sonnet-20241022",` +
+		`"attrs":{"block":"agent","connector":"myClaude","provider":"ANTHROPIC","iteration":2,` +
+		`"model":"claude-3-5-sonnet-20241022",` +
 		`"stopReason":"end_turn","toolCalls":1,` +
-		`"usage":{"cachedTokens":800,"inputTokens":1200,"outputTokens":340,"thinkingTokens":120}},` +
+		`"usage":{"cachedTokens":800,"cacheWriteTokens":4096,"inputTokens":1200,` +
+		`"outputTokens":340,"thinkingTokens":120}},` +
 		`"deploymentId":"11111111-1111-1111-1111-111111111111","appName":"orders","appVersion":"v3"}`
 
 	// A turn whose provider reported nothing: the runtime omits the usage object
@@ -111,7 +113,8 @@ func TestParseTraceRecordModelCall(t *testing.T) {
 		t.Fatal("usage did not survive the decode")
 	}
 	if got.Usage.InputTokens != 1200 || got.Usage.OutputTokens != 340 ||
-		got.Usage.ThinkingTokens != 120 || got.Usage.CachedTokens != 800 {
+		got.Usage.ThinkingTokens != 120 || got.Usage.CachedTokens != 800 ||
+		got.Usage.CacheWriteTokens != 4096 {
 		t.Fatalf("usage = %+v", *got.Usage)
 	}
 
@@ -124,6 +127,29 @@ func TestParseTraceRecordModelCall(t *testing.T) {
 	}
 	if call.Model != got.Model || call.Usage != got.Usage {
 		t.Errorf("call = %+v, want it to carry the record's model and usage", call)
+	}
+	// The vendor family, distinct from the authored connector name beside it. The
+	// consumer keys its cached-token arithmetic on this rather than inferring the
+	// vendor from the model id.
+	if got.Provider != "ANTHROPIC" {
+		t.Errorf("provider = %q, want ANTHROPIC", got.Provider)
+	}
+	if call.Provider != got.Provider {
+		t.Errorf("call provider = %q, want it to carry the record's %q", call.Provider, got.Provider)
+	}
+}
+
+// A record from a runtime that stamped no provider — everything stored before
+// the attribute existed — parses to an empty one rather than failing, and
+// pricing falls back to inferring from the model id as it always did.
+func TestParseTraceRecordWithoutAProvider(t *testing.T) {
+	got := mustParse(t, wireLLMTurnNoUsage)
+	if got.Provider != "" {
+		t.Errorf("provider = %q, want empty for a record that carried none", got.Provider)
+	}
+	call, isCall := got.ModelCall()
+	if !isCall || call.Provider != "" {
+		t.Errorf("call = %+v, want a model call with no provider", call)
 	}
 }
 

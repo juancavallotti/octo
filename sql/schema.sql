@@ -341,9 +341,11 @@ CREATE TABLE IF NOT EXISTS traces (
     -- has to look at it to know what a NULL cost means:
     --   ''             — not a model call
     --   priced         — fully priced from a known rate
-    --   priced_partial — priced, but the rate card had no cache rate, so cached
-    --                    tokens were charged at the input rate (an over-estimate
-    --                    that says so)
+    --   priced_partial — priced, but the rate card published no rate for one of the
+    --                    cache halves, so those tokens were charged at the input
+    --                    rate. The direction depends on which half: a cache READ
+    --                    costs less than input, so the fallback over-states it; a
+    --                    cache WRITE costs more, so the fallback under-states it.
     --   unpriced_model — the model is not in the rate card; cost is unknown, NOT zero
     --   no_usage       — the provider reported no usage; there is nothing to price
     -- price_id is the audit trail: which llm_prices row produced cost_usd.
@@ -362,6 +364,22 @@ CREATE TABLE IF NOT EXISTS traces (
 -- trace, in publication order. The two time indexes mirror the logs table's pair —
 -- one app's records, and cross-deployment time scans (which retention pruning will
 -- ride once it exists).
+-- cache_write_tokens is the other half of prompt caching: cached_tokens counts
+-- reads, this counts creation. They are kept apart because they bill in opposite
+-- directions from ordinary input — a read cheaper, a write dearer (Anthropic
+-- charges roughly 1.25x) — so a single "cache tokens" column could not price
+-- either.
+--
+-- NULLABLE on the same rule as its neighbours, which is about the usage object
+-- and not this field: NULL means the record carried no usage at all, and that
+-- covers every row written before this column existed. A record that DID carry
+-- usage stores 0 here when its provider reports no write count — OpenAI and
+-- Gemini never do — exactly as thinking_tokens stores 0 for a provider that
+-- reports no reasoning. Zero is "the provider accounted for this and it was
+-- none"; NULL is "there was nothing to account for".
+ALTER TABLE traces
+    ADD COLUMN IF NOT EXISTS cache_write_tokens integer;
+
 CREATE INDEX IF NOT EXISTS idx_traces_trace ON traces (trace_id, seq);
 CREATE INDEX IF NOT EXISTS idx_traces_deployment_ts ON traces (deployment_id, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_traces_ts ON traces (ts DESC);

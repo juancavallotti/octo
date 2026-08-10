@@ -79,11 +79,18 @@ type TraceRecord struct {
 	Vars  json.RawMessage
 	Attrs json.RawMessage
 
-	// Model and Usage are lifted out of Attrs for the two model-call kinds. Usage
-	// is nil when the provider reported none, and nil is not an empty Usage: a
-	// provider staying silent and a provider charging nothing are different facts.
-	Model string
-	Usage *cost.Usage
+	// Model, Provider and Usage are lifted out of Attrs for the two model-call
+	// kinds. Usage is nil when the provider reported none, and nil is not an empty
+	// Usage: a provider staying silent and a provider charging nothing are
+	// different facts.
+	//
+	// Provider is the vendor family the runtime stamped on the call. It is empty
+	// for a record written before the runtime carried one, and for a third-party
+	// connector that reports none — in both cases pricing falls back to the
+	// provider of whichever rate matched the model.
+	Model    string
+	Provider string
+	Usage    *cost.Usage
 }
 
 // ModelCall reports the call this record describes, and whether it describes one
@@ -93,9 +100,9 @@ type TraceRecord struct {
 func (r TraceRecord) ModelCall() (cost.Call, bool) {
 	switch r.Kind {
 	case KindLLMTurn:
-		return cost.Call{Model: r.Model, Usage: r.Usage}, true
+		return cost.Call{Model: r.Model, Provider: r.Provider, Usage: r.Usage}, true
 	case KindLLMEmbed:
-		return cost.Call{Model: r.Model, Usage: r.Usage, Embedding: true}, true
+		return cost.Call{Model: r.Model, Provider: r.Provider, Usage: r.Usage, Embedding: true}, true
 	default:
 		return cost.Call{}, false
 	}
@@ -143,18 +150,20 @@ type traceWire struct {
 // Attribute names the runtime gives a model call. Only the two this package
 // prices from are named; the rest travel through in Attrs untouched.
 const (
-	attrModel = "model"
-	attrUsage = "usage"
+	attrModel    = "model"
+	attrProvider = "provider"
+	attrUsage    = "usage"
 )
 
 // usageWire is the token accounting nested under attrs.usage. Every field is a
 // pointer-free int because the runtime omits the whole object rather than
 // individual counts when a provider reports nothing.
 type usageWire struct {
-	InputTokens    int `json:"inputTokens"`
-	OutputTokens   int `json:"outputTokens"`
-	ThinkingTokens int `json:"thinkingTokens"`
-	CachedTokens   int `json:"cachedTokens"`
+	InputTokens      int `json:"inputTokens"`
+	OutputTokens     int `json:"outputTokens"`
+	ThinkingTokens   int `json:"thinkingTokens"`
+	CachedTokens     int `json:"cachedTokens"`
+	CacheWriteTokens int `json:"cacheWriteTokens"`
 }
 
 // parseTraceRecord decodes one shipped record.
@@ -205,7 +214,7 @@ func parseTraceRecord(data []byte) (TraceRecord, error) {
 	}
 
 	if _, isModelCall := record.ModelCall(); isModelCall {
-		record.Model, record.Usage = parseModelCall(wire.Attrs)
+		record.Model, record.Provider, record.Usage = parseModelCall(wire.Attrs)
 	}
 	return record, nil
 }
@@ -217,13 +226,13 @@ func parseTraceRecord(data []byte) (TraceRecord, error) {
 // whose shape changed — cannot cost a record its usage. A record whose usage is
 // unreadable is priced as though the provider reported none, which is the same
 // answer as leaving it out and is honest about what is known.
-func parseModelCall(attrs json.RawMessage) (string, *cost.Usage) {
+func parseModelCall(attrs json.RawMessage) (string, string, *cost.Usage) {
 	if len(attrs) == 0 {
-		return "", nil
+		return "", "", nil
 	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(attrs, &fields); err != nil {
-		return "", nil
+		return "", "", nil
 	}
 
 	var model string
@@ -231,19 +240,25 @@ func parseModelCall(attrs json.RawMessage) (string, *cost.Usage) {
 		_ = json.Unmarshal(raw, &model)
 	}
 
+	var provider string
+	if raw, ok := fields[attrProvider]; ok {
+		_ = json.Unmarshal(raw, &provider)
+	}
+
 	raw, ok := fields[attrUsage]
 	if !ok {
-		return model, nil
+		return model, provider, nil
 	}
 	var usage usageWire
 	if err := json.Unmarshal(raw, &usage); err != nil {
-		return model, nil
+		return model, provider, nil
 	}
-	return model, &cost.Usage{
-		InputTokens:    usage.InputTokens,
-		OutputTokens:   usage.OutputTokens,
-		ThinkingTokens: usage.ThinkingTokens,
-		CachedTokens:   usage.CachedTokens,
+	return model, provider, &cost.Usage{
+		InputTokens:      usage.InputTokens,
+		OutputTokens:     usage.OutputTokens,
+		ThinkingTokens:   usage.ThinkingTokens,
+		CachedTokens:     usage.CachedTokens,
+		CacheWriteTokens: usage.CacheWriteTokens,
 	}
 }
 

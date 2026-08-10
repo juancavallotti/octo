@@ -133,6 +133,10 @@ export interface TraceRecord {
   /** Already counted inside `outputTokens`. Never add the two. */
   thinkingTokens: number | null;
   cachedTokens: number | null;
+  /** Cache creation, billed above the input rate. Null only when the record
+   *  carried no usage at all; 0 when the provider reported usage but no write
+   *  count, which is every provider but Anthropic. */
+  cacheWriteTokens: number | null;
   costUsd: number | null;
   costStatus: CostStatus;
   priceId: string;

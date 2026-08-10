@@ -16,7 +16,7 @@ func priceCard() *Table {
 	return NewTable([]Rate{
 		{
 			ID: "anthropic", Provider: "ANTHROPIC", Pattern: "claude-x", Operator: OpEquals,
-			InputPer1M: 3, OutputPer1M: 15, CacheReadPer1M: ptr(0.3),
+			InputPer1M: 3, OutputPer1M: 15, CacheReadPer1M: ptr(0.3), CacheWritePer1M: ptr(3.75),
 		},
 		{
 			ID: "anthropic-nocache", Provider: "ANTHROPIC", Pattern: "claude-nocache", Operator: OpEquals,
@@ -257,5 +257,152 @@ func TestNilTablePricesNothing(t *testing.T) {
 	}
 	if _, known := got.CostUSD(); known {
 		t.Fatal("a nil card produced a known cost")
+	}
+}
+
+// TestPriceUsesTheReportedProviderNotTheMatchedRate is the point of #254.
+//
+// A bare `claude-*` pattern is published under BEDROCK and AWS as well as
+// ANTHROPIC, so an Anthropic model shipped before the catalogue lists it under
+// its own dated entry resolves to one of those instead. The rate is close enough
+// to be plausible; the *convention* is not. Anthropic reports an input count
+// that excludes cached tokens, so applying the inclusive rule subtracts them
+// from a total that never contained them — silently under-charging by the whole
+// cached amount.
+func TestPriceUsesTheReportedProviderNotTheMatchedRate(t *testing.T) {
+	// One model, one rate, published under a provider that is not the vendor.
+	table := NewTable([]Rate{{
+		ID: "bedrock-claude", Provider: "BEDROCK", Pattern: "claude", Operator: OpIncludes,
+		InputPer1M: 3, OutputPer1M: 15, CacheReadPer1M: ptr(0.3),
+	}})
+
+	usage := &Usage{InputTokens: 1000, OutputTokens: 500, CachedTokens: 900}
+	call := Call{Model: "claude-brand-new-20991231", Usage: usage}
+
+	// Without a reported provider the rate's BEDROCK wins and the inclusive rule
+	// applies: 100 billable input tokens. This is the old behaviour, kept for
+	// records stored before the runtime carried a provider.
+	inferred := table.Price(call)
+	wantInferred := amount(100, 3) + amount(500, 15) + amount(900, 0.3)
+	if got, _ := inferred.CostUSD(); math.Abs(got-wantInferred) > epsilon {
+		t.Errorf("inferred provider: cost = %.12f, want %.12f", got, wantInferred)
+	}
+
+	// With the runtime's own answer, the exclusive rule applies: all 1000 input
+	// tokens are billable, because Anthropic never counted the cached ones there.
+	call.Provider = "ANTHROPIC"
+	reported := table.Price(call)
+	wantReported := amount(1000, 3) + amount(500, 15) + amount(900, 0.3)
+	if got, _ := reported.CostUSD(); math.Abs(got-wantReported) > epsilon {
+		t.Errorf("reported provider: cost = %.12f, want %.12f", got, wantReported)
+	}
+
+	// And the difference is the whole under-charge the issue describes.
+	if wantReported <= wantInferred {
+		t.Fatal("fixture does not reproduce the under-charge")
+	}
+
+	// The stored Provider stays the rate's: it is the audit trail for which rate
+	// produced the number, and conflating it with the reported family would lose
+	// the ability to see that the two disagreed.
+	if reported.Provider != "BEDROCK" {
+		t.Errorf("Priced.Provider = %q, want the rate's BEDROCK", reported.Provider)
+	}
+}
+
+// The reported family is normalized like every other provider string, so a
+// connector spelling it in lower case still matches.
+func TestPriceNormalizesTheReportedProvider(t *testing.T) {
+	table := NewTable([]Rate{{
+		ID: "bedrock-claude", Provider: "BEDROCK", Pattern: "claude", Operator: OpIncludes,
+		InputPer1M: 3, OutputPer1M: 15, CacheReadPer1M: ptr(0.3),
+	}})
+	call := Call{
+		Model:    "claude-x",
+		Provider: " anthropic ",
+		Usage:    &Usage{InputTokens: 1000, OutputTokens: 0, CachedTokens: 900},
+	}
+	want := amount(1000, 3) + amount(900, 0.3) // exclusive, i.e. recognised as Anthropic
+	if got, _ := table.Price(call).CostUSD(); math.Abs(got-want) > epsilon {
+		t.Errorf("cost = %.12f, want %.12f (provider should normalize)", got, want)
+	}
+
+	// Whitespace names nothing, so it must fall back to the rate's provider
+	// rather than count as "reported" and skip the fallback altogether.
+	call.Provider = "   "
+	fellBack := amount(100, 3) + amount(900, 0.3) // inclusive, i.e. the BEDROCK rate's rule
+	if got, _ := table.Price(call).CostUSD(); math.Abs(got-fellBack) > epsilon {
+		t.Errorf("blank provider: cost = %.12f, want %.12f (should fall back to the rate)", got, fellBack)
+	}
+}
+
+// TestPriceChargesCacheWrites is #253: a run that populated a cache used to be
+// under-costed by the whole write, because the count never left the runtime.
+// Anthropic bills creation above the input rate — the card here uses its
+// published 1.25x — so this is not a rounding difference on a cold first turn.
+func TestPriceChargesCacheWrites(t *testing.T) {
+	card := priceCard()
+	usage := &Usage{InputTokens: 200, OutputTokens: 100, CachedTokens: 0, CacheWriteTokens: 4096}
+
+	withWrite := card.Price(Call{Model: "claude-x", Provider: "ANTHROPIC", Usage: usage})
+	if withWrite.Status != StatusPriced {
+		t.Fatalf("status = %q, want %q — the card publishes a write rate", withWrite.Status, StatusPriced)
+	}
+	want := amount(200, 3) + amount(100, 15) + amount(4096, 3.75)
+	got, known := withWrite.CostUSD()
+	if !known || math.Abs(got-want) > epsilon {
+		t.Errorf("cost = %.12f, want %.12f", got, want)
+	}
+
+	// And it is additive for Anthropic, whose input count excludes both cache
+	// halves: the same call without the write costs strictly less.
+	noWrite := card.Price(Call{Model: "claude-x", Provider: "ANTHROPIC", Usage: &Usage{
+		InputTokens: 200, OutputTokens: 100,
+	}})
+	bare, _ := noWrite.CostUSD()
+	if got <= bare {
+		t.Errorf("a cache write did not add to the cost: %v vs %v", got, bare)
+	}
+}
+
+// A card with no published write rate charges the tokens at the input rate and
+// downgrades the status. Unlike the cache-read fallback this UNDER-states, since
+// writes bill above input — so the status is the only signal that the figure is
+// an estimate, and the test pins the direction so nobody later "fixes" it into a
+// silent 1.25x multiplier nobody published.
+func TestPriceWithoutAWriteRateSaysSo(t *testing.T) {
+	card := priceCard()
+	priced := card.Price(Call{Model: "claude-nocache", Provider: "ANTHROPIC", Usage: &Usage{
+		InputTokens: 200, OutputTokens: 100, CacheWriteTokens: 4096,
+	}})
+
+	if priced.Status != StatusPricedPartial {
+		t.Fatalf("status = %q, want %q", priced.Status, StatusPricedPartial)
+	}
+	want := amount(200, 3) + amount(100, 15) + amount(4096, 3) // charged at input
+	got, known := priced.CostUSD()
+	if !known || math.Abs(got-want) > epsilon {
+		t.Errorf("cost = %.12f, want %.12f", got, want)
+	}
+	// The direction: input < the real write rate, so this is a floor.
+	if realRate := amount(4096, 3.75); want >= amount(200, 3)+amount(100, 15)+realRate {
+		t.Error("the fallback should under-state a cache write, not match or exceed it")
+	}
+}
+
+// A provider whose input count already includes both cache halves must not be
+// charged for them twice. No connector reports a write for such a provider
+// today, so this pins the rule rather than a live case.
+func TestPriceDoesNotDoubleChargeAnInclusiveProvidersCacheWrite(t *testing.T) {
+	card := priceCard()
+	priced := card.Price(Call{Model: "gpt-x", Provider: "OPENAI", Usage: &Usage{
+		InputTokens: 1000, OutputTokens: 100, CachedTokens: 200, CacheWriteTokens: 300,
+	}})
+
+	// 1000 - 200 - 300 billable input, the two cache halves priced on their own.
+	want := amount(500, 2.5) + amount(100, 10) + amount(200, 1.25) + amount(300, 2.5)
+	got, known := priced.CostUSD()
+	if !known || math.Abs(got-want) > epsilon {
+		t.Errorf("cost = %.12f, want %.12f", got, want)
 	}
 }

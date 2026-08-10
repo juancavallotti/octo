@@ -159,6 +159,11 @@ func toThinkingConfig(set connectorSettings) (*genai.ThinkingConfig, error) {
 // Stop is a no-op: the connector holds no resources to release.
 func (c *Connector) Stop(context.Context) error { return nil }
 
+// Provider names the vendor family, in the vocabulary the price catalogue uses —
+// which spells Gemini's vendor GOOGLE, not GEMINI. Getting that string wrong
+// would leave every call here unmatched against its own rates.
+func (c *Connector) Provider() string { return core.ProviderGoogle }
+
 // Complete runs one GenerateContent turn, translating the request to SDK types
 // and the response back to the provider-agnostic DTOs.
 func (c *Connector) Complete(ctx context.Context, req core.LLMRequest) (*core.LLMResponse, error) {

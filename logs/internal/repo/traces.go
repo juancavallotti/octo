@@ -24,7 +24,7 @@ var traceColumns = []string{
 	"error", "dropped", "truncated", "body", "vars", "attrs",
 	"deployment_id", "integration_id", "app_name", "app_version",
 	"model", "provider", "input_tokens", "output_tokens", "thinking_tokens",
-	"cached_tokens", "cost_usd", "cost_status", "price_id",
+	"cached_tokens", "cache_write_tokens", "cost_usd", "cost_status", "price_id",
 }
 
 // Traces reads and writes the traces table and the per-trace rollup beside it.
@@ -89,12 +89,13 @@ func traceValues(row ingest.TraceRow) []any {
 		attrs = emptyJSONObject
 	}
 
-	var inputTokens, outputTokens, thinkingTokens, cachedTokens *int
+	var inputTokens, outputTokens, thinkingTokens, cachedTokens, cacheWriteTokens *int
 	if usage := record.Usage; usage != nil {
 		inputTokens = &usage.InputTokens
 		outputTokens = &usage.OutputTokens
 		thinkingTokens = &usage.ThinkingTokens
 		cachedTokens = &usage.CachedTokens
+		cacheWriteTokens = &usage.CacheWriteTokens
 	}
 
 	// A cost that is not known is stored as NULL, never as zero, and cost_status
@@ -110,7 +111,8 @@ func traceValues(row ingest.TraceRow) []any {
 		record.Err, record.Dropped, record.Truncated, body, vars, attrs,
 		record.DeploymentID, nilIfBlank(row.IntegrationID), record.AppName, record.AppVersion,
 		record.Model, row.Priced.Provider, inputTokens, outputTokens, thinkingTokens,
-		cachedTokens, costUSD, string(row.Priced.Status), nilIfBlank(row.Priced.PriceID),
+		cachedTokens, cacheWriteTokens, costUSD, string(row.Priced.Status),
+		nilIfBlank(row.Priced.PriceID),
 	}
 }
 

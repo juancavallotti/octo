@@ -89,9 +89,13 @@ Aggregates carry the same pairing: `cost_usd` sums only what could be priced, an
 Two rules the connectors normalize and this service depends on:
 
 - **`output_tokens` already includes `thinking_tokens`.** Adding them bills reasoning twice.
-- **`cached_tokens` is cache *reads*.** Anthropic reports an input count that *excludes* them; OpenAI and Gemini report one that *includes* them. The cost formula keys on the provider the rate resolved to, which is why resolution bothers to disambiguate providers — a model id like `gpt-4o` is published under more than one.
+- **`cached_tokens` is cache *reads*.** Anthropic reports an input count that *excludes* them; OpenAI and Gemini report one that *includes* them. The cost formula keys on `attrs.provider` — the vendor family the runtime stamped on the call — rather than on the provider of whichever rate matched the model. Those differ exactly when it matters: bare `claude-*` patterns are also published under `BEDROCK` and `AWS`, so an Anthropic model shipped before the catalogue lists it under its own dated entry would otherwise be priced by the inclusive rule and silently under-charged. A record carrying no `provider` — anything stored before the runtime stamped one — falls back to the matched rate's provider, so historical figures are unchanged.
 
-Cache **writes** are not captured by the connectors at all, so a run that populated a cache is under-costed by whatever the write cost. That is a gap in the source data, not one this service can close.
+- **`cache_write_tokens` is cache *creation*, and is charged separately.** It bills *above* the input rate — Anthropic's published figure is roughly 1.25x — where a read bills below it, so the two are stored and priced apart rather than summed. Only Anthropic reports a write count; the others leave it null.
+
+`priced_partial` means the rate card published no rate for one of the cache halves and those tokens were charged at the input rate instead. Which way that errs depends on the half: a read costs *less* than input, so the fallback **over**-states; a write costs *more*, so the fallback **under**-states. No multiplier is invented in either case — 1.25x is one vendor's published figure, not a universal one — so the status is the signal that the number is an estimate.
+
+`cache_write_tokens` is null on records written before the runtime reported the count: unknown, not zero. It is deliberately not rolled up into `trace_summaries`, whose `cost_usd` already carries the write cost into the aggregate.
 
 ## The API
 
