@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 
@@ -97,8 +98,10 @@ func TestListSetsNextBeforeOnFullPage(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if resp.NextBefore == nil || !resp.NextBefore.Equal(oldest) {
-		t.Errorf("next_before = %v, want %v", resp.NextBefore, oldest)
+	// The pair, not the timestamp: the id is what lets the next page resume after
+	// this exact row rather than after this second.
+	if want := oldest.Format(time.RFC3339Nano) + "|b"; resp.NextBefore != want {
+		t.Errorf("next_before = %q, want %q", resp.NextBefore, want)
 	}
 	if len(resp.Items) != 2 {
 		t.Errorf("items = %d, want 2", len(resp.Items))
@@ -113,8 +116,67 @@ func TestListOmitsNextBeforeOnPartialPage(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if resp.NextBefore != nil {
-		t.Errorf("next_before = %v, want nil on a partial page", resp.NextBefore)
+	if resp.NextBefore != "" {
+		t.Errorf("next_before = %q, want empty on a partial page", resp.NextBefore)
+	}
+}
+
+// TestListCursorRoundTrips walks the cursor back in as ?before= and checks the
+// filter it produces, which is the half a client actually depends on.
+func TestListCursorRoundTrips(t *testing.T) {
+	oldest := time.Date(2026, 1, 1, 9, 0, 0, 123456789, time.UTC)
+	first := &fakeLogQuerier{rows: []repo.LogRow{
+		{ID: "a", Time: time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)},
+		{ID: "b", Time: oldest},
+	}}
+	var page logListResponse
+	if err := json.Unmarshal(do(t, first, "/logs?limit=2").Body.Bytes(), &page); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	next := &fakeLogQuerier{}
+	rec := do(t, next, "/logs?limit=2&before="+url.QueryEscape(page.NextBefore))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body)
+	}
+	if next.gotFilter.Before == nil {
+		t.Fatal("before was not parsed into the filter")
+	}
+	// Nanoseconds survive: rows a microsecond apart are ordered on the full
+	// timestamp, so a cursor rounded to the second resumes in the wrong place.
+	if got := next.gotFilter.Before; !got.Time.Equal(oldest) || got.ID != "b" {
+		t.Errorf("before = %v/%q, want %v/b", got.Time, got.ID, oldest)
+	}
+}
+
+// TestListRejectsBadCursor: a malformed cursor is a 400, not a silent first page.
+// Serving the newest rows again in the middle of a scroll would look like data
+// duplicating itself.
+func TestListRejectsBadCursor(t *testing.T) {
+	for _, raw := range []string{
+		"not-a-cursor",
+		"2026-01-01T00:00:00Z",  // timestamp only, the old wire format
+		"2026-01-01T00:00:00Z|", // empty id
+		"nonsense|some-id",
+	} {
+		rec := do(t, &fakeLogQuerier{}, "/logs?before="+url.QueryEscape(raw))
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("before=%q gave status %d, want 400", raw, rec.Code)
+		}
+	}
+}
+
+// A log id may contain the separator in principle; the first one wins, so the id
+// survives intact.
+func TestListCursorSplitsAtTheFirstSeparator(t *testing.T) {
+	q := &fakeLogQuerier{}
+	ts := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
+	rec := do(t, q, "/logs?before="+url.QueryEscape(ts.Format(time.RFC3339Nano)+"|a|b"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body)
+	}
+	if got := q.gotFilter.Before; got == nil || got.ID != "a|b" {
+		t.Errorf("cursor id = %v, want a|b", got)
 	}
 }
 
