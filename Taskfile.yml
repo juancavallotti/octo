@@ -97,15 +97,17 @@ tasks:
     cmds:
       - task: runtime:tidy
       - task: orchestrator:tidy
+      - task: logs:tidy
       - task: sidecars:tidy
 
   lint:
-    desc: Lint all modules (runtime + platform + standalone + orchestrator + sidecars)
+    desc: Lint all modules (runtime + platform + standalone + orchestrator + logs + sidecars)
     cmds:
       - task: runtime:lint
       - task: platform:lint
       - task: standalone:lint
       - task: orchestrator:lint
+      - task: logs:lint
       - task: sidecars:lint
 
   run:

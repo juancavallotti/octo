@@ -49,12 +49,35 @@ jobs:
       # runtime's end-to-end tests, and the only ones that exercise the debug seam the way
       # a user meets it — through the CLI, with real mocks and spies.
       - run: task runtime:test:samples
-      # The sidecars module. Its own steps rather than an entry in a list, because
-      # this job enumerates what it runs — and note what that enumeration currently
-      # MISSES: neither `orchestrator` nor `logs` has a job here, so their tests
-      # never run in CI. That gap predates this module and is not fixed by adding
-      # it; it is called out so the next person to look does not assume coverage
-      # they do not have.
+      # The service modules. Each gets its own steps rather than an entry in a
+      # list, because this job enumerates what it runs — and what it enumerates is
+      # the whole guarantee. `orchestrator` and `logs` were missing here until
+      # they were added below, which is why `orchestrator` had accumulated 18 lint
+      # findings nothing was failing on.
+      #
+      # They run golangci's default linter set, not runtime/.golangci.yml. That is
+      # deliberate and recorded in docs/linting-policy.md: adopting the strict set
+      # in the service modules is its own project, and pointing them at it here
+      # would trade one silent backlog for a louder one.
+      - run: task orchestrator:tidy
+      - run: task orchestrator:fmt
+      - run: task logs:tidy
+      - run: task logs:fmt
+      # tidy and fmt repair go.* and Go sources and still exit 0, so a PR that
+      # needed either would otherwise merge with the drift unmade.
+      - name: Verify orchestrator and logs are tidy and formatted
+        run: git diff --exit-code -- orchestrator logs
+      - run: task orchestrator:lint
+      - run: task logs:lint
+      # -race for both: the orchestrator serialises concurrent deployment writes
+      # and the log aggregator runs a worker pool behind a NATS subscription, so
+      # in both the bug worth catching is the one that passes without it.
+      #
+      # NOTE: the repo-layer tests in `logs` skip unless TEST_DATABASE_URL is set,
+      # and nothing sets it here — so the keyset-paging tests do not run in CI.
+      # Tracked separately; do not read a green run as covering them.
+      - run: task orchestrator:test -- -race
+      - run: task logs:test -- -race
       - run: task sidecars:tidy
       - run: task sidecars:fmt
       # tidy and fmt can repair sidecars/go.* and Go sources and still exit 0, so a
