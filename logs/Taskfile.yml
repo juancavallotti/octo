@@ -20,9 +20,11 @@ tasks:
       - '{{.GO}} build -trimpath -o ../bin/logs .'
 
   test:
-    desc: Run the logs tests
+    desc: 'Run the logs tests (pass go test flags after --, e.g. task logs:test -- -race)'
     cmds:
-      - '{{.GO}} test ./...'
+      # CLI_ARGS lands before the package list so `-race` and friends are flags
+      # rather than package names. CI passes -race; a local run defaults to plain.
+      - '{{.GO}} test {{.CLI_ARGS}} ./...'
 
   lint:
     desc: Run golangci-lint over the logs module

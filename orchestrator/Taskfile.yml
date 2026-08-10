@@ -20,9 +20,11 @@ tasks:
       - '{{.GO}} build -trimpath -o ../bin/orchestrator .'
 
   test:
-    desc: Run the orchestrator tests
+    desc: 'Run the orchestrator tests (pass go test flags after --, e.g. task orchestrator:test -- -race)'
     cmds:
-      - '{{.GO}} test ./...'
+      # CLI_ARGS lands before the package list so `-race` and friends are flags
+      # rather than package names. CI passes -race; a local run defaults to plain.
+      - '{{.GO}} test {{.CLI_ARGS}} ./...'
 
   lint:
     desc: Run golangci-lint over the orchestrator module

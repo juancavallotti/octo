@@ -269,7 +269,7 @@ func TestPodLogsStreamsOwnedPod(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 	if !kc.podLogsCalled || kc.podLogsPod != "octo-dep-1-abc" {
 		t.Errorf("kube.PodLogs not called for the owned pod: called=%v pod=%q", kc.podLogsCalled, kc.podLogsPod)
 	}

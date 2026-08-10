@@ -102,7 +102,7 @@ func TestHandlerPutThenGet(t *testing.T) {
 	base := ts.URL + "/deployments/dep-1/kv/user/my-key"
 
 	put := do(t, http.MethodPut, base, "0", "hello")
-	defer put.Body.Close()
+	defer func() { _ = put.Body.Close() }()
 	if put.StatusCode != http.StatusOK {
 		t.Fatalf("PUT status = %d, want 200", put.StatusCode)
 	}
@@ -111,7 +111,7 @@ func TestHandlerPutThenGet(t *testing.T) {
 	}
 
 	get := do(t, http.MethodGet, base, "", "")
-	defer get.Body.Close()
+	defer func() { _ = get.Body.Close() }()
 	if get.StatusCode != http.StatusOK {
 		t.Fatalf("GET status = %d, want 200", get.StatusCode)
 	}
@@ -127,7 +127,7 @@ func TestHandlerPutThenGet(t *testing.T) {
 func TestHandlerGetMissing(t *testing.T) {
 	ts := newTestServer(t, newFakeStore())
 	resp := do(t, http.MethodGet, ts.URL+"/deployments/dep-1/kv/user/absent", "", "")
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", resp.StatusCode)
 	}
@@ -138,7 +138,7 @@ func TestHandlerConflictIs409(t *testing.T) {
 	store.setErr = ErrVersionConflict
 	ts := newTestServer(t, store)
 	resp := do(t, http.MethodPut, ts.URL+"/deployments/dep-1/kv/user/k", "9", "x")
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusConflict {
 		t.Fatalf("status = %d, want 409", resp.StatusCode)
 	}
@@ -149,7 +149,7 @@ func TestHandlerEncryptionDisabledIs503(t *testing.T) {
 	store.setErr = ErrEncryptionDisabled
 	ts := newTestServer(t, store)
 	resp := do(t, http.MethodPut, ts.URL+"/deployments/dep-1/kv/system_secrets/k", "0", "x")
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503", resp.StatusCode)
 	}

@@ -53,14 +53,12 @@ type snapshotResponse struct {
 	CreatedAt     time.Time `json:"createdAt"`
 }
 
+// toResponse converts rather than copies field by field: the two structs differ
+// only in their json tags, which a conversion ignores. Adding a field to either
+// one breaks this line, which is where the decision about whether it belongs on
+// the wire should be taken anyway.
 func toResponse(s Snapshot) snapshotResponse {
-	return snapshotResponse{
-		ID:            s.ID,
-		IntegrationID: s.IntegrationID,
-		Tag:           s.Tag,
-		Definition:    s.Definition,
-		CreatedAt:     s.CreatedAt,
-	}
+	return snapshotResponse(s)
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {

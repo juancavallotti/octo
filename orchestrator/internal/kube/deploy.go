@@ -248,10 +248,10 @@ func (c *Client) Rollout(ctx context.Context, spec Spec) error {
 	// Carry the resourceVersion so the update is a clean replace of the existing
 	// object (the Selector is unchanged, so the immutable field is preserved).
 	desired.ResourceVersion = existing.ResourceVersion
-	if desired.Spec.Template.ObjectMeta.Annotations == nil {
-		desired.Spec.Template.ObjectMeta.Annotations = map[string]string{}
+	if desired.Spec.Template.Annotations == nil {
+		desired.Spec.Template.Annotations = map[string]string{}
 	}
-	desired.Spec.Template.ObjectMeta.Annotations[configHashAnnotation] = configHash(spec.Definition)
+	desired.Spec.Template.Annotations[configHashAnnotation] = configHash(spec.Definition)
 	if _, err := deps.Update(ctx, desired, metav1.UpdateOptions{}); err != nil {
 		return fmt.Errorf("kube: rollout update deployment: %w", err)
 	}
