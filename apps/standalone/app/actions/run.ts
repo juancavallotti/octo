@@ -26,7 +26,8 @@ import {
   test,
   type RunState,
 } from "@octo/run-host";
-import { start, status, stop, sync } from "../run/localRunner";
+import { start, stop, sync } from "../run/localRunner";
+import { status } from "../run/session";
 import type {
   CelEvalRequest,
   CelEvalResult,

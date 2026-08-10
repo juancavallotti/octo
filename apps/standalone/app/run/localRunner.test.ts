@@ -3,15 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, readFile, writeFile, chmod, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  currentConfigPath,
-  localRunner,
-  snapshot,
-  start,
-  status,
-  stop,
-  sync,
-} from "./localRunner";
+import { localRunner, start, stop, sync } from "./localRunner";
+import { currentConfigPath, snapshot, status } from "./session";
 // The one-shot is here for the single case that proves it leaves a long-running run alone —
 // the property that lets it live in @octo/run-host while the runner lives here. It can only
 // be checked where both halves exist, which is this app and not the package.

@@ -1,6 +1,7 @@
 import { binaries, evalCel, invoke, newNamespace, test } from "@octo/run-host";
 import type { RunHostPort } from "@octo/mcp";
-import { localRunner, snapshot } from "@/app/run/localRunner";
+import { localRunner } from "@/app/run/localRunner";
+import { snapshot } from "@/app/run/session";
 
 /**
  * The standalone app's MCP run host: the in-process runner, which here is simply the

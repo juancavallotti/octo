@@ -1,4 +1,5 @@
-import { allSessions, stop } from "./localRunner";
+import { stop } from "./localRunner";
+import { allSessions } from "./session";
 
 /**
  * Idle-run reaper. A namespaced run holds an octo process and a pooled port; with
