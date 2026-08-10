@@ -354,15 +354,18 @@ type TraceRecordRow struct {
 	AppName      string `json:"app_name"`
 	AppVersion   string `json:"app_version"`
 
-	Model          string   `json:"model"`
-	Provider       string   `json:"provider"`
-	InputTokens    *int     `json:"input_tokens"`
-	OutputTokens   *int     `json:"output_tokens"`
-	ThinkingTokens *int     `json:"thinking_tokens"`
-	CachedTokens   *int     `json:"cached_tokens"`
-	CostUSD        *float64 `json:"cost_usd"`
-	CostStatus     string   `json:"cost_status"`
-	PriceID        string   `json:"price_id"`
+	Model          string `json:"model"`
+	Provider       string `json:"provider"`
+	InputTokens    *int   `json:"input_tokens"`
+	OutputTokens   *int   `json:"output_tokens"`
+	ThinkingTokens *int   `json:"thinking_tokens"`
+	CachedTokens   *int   `json:"cached_tokens"`
+	// CacheWriteTokens is cache creation, billed above the input rate. NULL for a
+	// record written before the runtime reported it — unknown, not zero.
+	CacheWriteTokens *int     `json:"cache_write_tokens"`
+	CostUSD          *float64 `json:"cost_usd"`
+	CostStatus       string   `json:"cost_status"`
+	PriceID          string   `json:"price_id"`
 }
 
 // traceRecordColumns is the record projection, with the two payload columns left
@@ -374,7 +377,7 @@ const traceRecordColumns = `
     %s, %s, attrs,
     deployment_id::text, app_name, app_version,
     model, provider, input_tokens, output_tokens, thinking_tokens, cached_tokens,
-    cost_usd, cost_status, COALESCE(price_id::text, '')`
+    cache_write_tokens, cost_usd, cost_status, COALESCE(price_id::text, '')`
 
 // The two projections, built once so the column order cannot drift between them.
 var (
@@ -462,7 +465,8 @@ func scanTraceRecordRow(src scanner) (TraceRecordRow, error) {
 		&row.Body, &row.Vars, &row.Attrs,
 		&row.DeploymentID, &row.AppName, &row.AppVersion,
 		&row.Model, &row.Provider, &row.InputTokens, &row.OutputTokens,
-		&row.ThinkingTokens, &row.CachedTokens, &row.CostUSD, &row.CostStatus, &row.PriceID,
+		&row.ThinkingTokens, &row.CachedTokens, &row.CacheWriteTokens,
+		&row.CostUSD, &row.CostStatus, &row.PriceID,
 	)
 	if err != nil {
 		return TraceRecordRow{}, fmt.Errorf("repo: scan trace record: %w", err)
