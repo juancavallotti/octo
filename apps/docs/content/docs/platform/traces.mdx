@@ -89,7 +89,7 @@ Aggregates carry the same pairing: `cost_usd` sums only what could be priced, an
 Two rules the connectors normalize and this service depends on:
 
 - **`output_tokens` already includes `thinking_tokens`.** Adding them bills reasoning twice.
-- **`cached_tokens` is cache *reads*.** Anthropic reports an input count that *excludes* them; OpenAI and Gemini report one that *includes* them. The cost formula keys on the provider the rate resolved to, which is why resolution bothers to disambiguate providers — a model id like `gpt-4o` is published under more than one.
+- **`cached_tokens` is cache *reads*.** Anthropic reports an input count that *excludes* them; OpenAI and Gemini report one that *includes* them. The cost formula keys on `attrs.provider` — the vendor family the runtime stamped on the call — rather than on the provider of whichever rate matched the model. Those differ exactly when it matters: bare `claude-*` patterns are also published under `BEDROCK` and `AWS`, so an Anthropic model shipped before the catalogue lists it under its own dated entry would otherwise be priced by the inclusive rule and silently under-charged. A record carrying no `provider` — anything stored before the runtime stamped one — falls back to the matched rate's provider, so historical figures are unchanged.
 
 Cache **writes** are not captured by the connectors at all, so a run that populated a cache is under-costed by whatever the write cost. That is a gap in the source data, not one this service can close.
 

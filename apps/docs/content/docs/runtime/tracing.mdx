@@ -105,7 +105,8 @@ everything that lookup needs.
 | --- | --- | --- |
 | `model` | both | The model that **actually served** the call, as the provider reported it, falling back to the configured id. A configured alias resolves to a dated snapshot, and it is the snapshot that has a price. |
 | `usage` | both | What the provider charged. `{inputTokens, outputTokens, thinkingTokens, cachedTokens}` for `llm.turn`, `{inputTokens}` for `llm.embed`. `outputTokens` is billing-authoritative and **already includes** `thinkingTokens` — adding them double-counts. |
-| `connector` | both | The connector the call went through. |
+| `connector` | both | The connector the call went through — the name **you** gave it, not the vendor's. |
+| `provider` | both | The vendor family that served the call, in the price catalogue's vocabulary: `ANTHROPIC`, `OPENAI`, `GOOGLE` (Gemini's vendor is spelled `GOOGLE`). Absent when the connector does not report one. Read this rather than guessing the vendor from `model`: a reader needs it to price cached tokens correctly, and a model id does not settle it — `gpt-4o` is published under more than one vendor. |
 | `block` | both | The block's authored name, when it has one. `path` addresses it either way. |
 | `iteration` | `llm.turn` | Which pass of the block's own loop this was, one-based — an agent's iteration, a router's round, a retry's attempt. Absent for a block that calls the model once per message. |
 | `stopReason` / `toolCalls` | `llm.turn` | Why the model stopped, and how many tools it asked for. |
