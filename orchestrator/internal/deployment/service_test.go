@@ -30,8 +30,8 @@ type fakeRepo struct {
 	updateMetadataErr error
 	// updateStateErr fails the combined metadata+settings write a rollout makes.
 	updateStateErr error
-	deleted           bool
-	deleteErr         error
+	deleted        bool
+	deleteErr      error
 	// takenSlugs maps an already-claimed slug to its owning integration id, so
 	// allocateSlug's scan sees collisions; subdomainOwner stands in for an existing
 	// deployment claiming a subdomain ("" means "not found").
