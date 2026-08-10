@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { ExternalLink, Pencil, SlidersHorizontal, type LucideIcon } from "lucide-react";
 import type { Deployment, DeploymentStatus } from "@/app/model/orchestrator";
+import { relativeAge } from "@/app/lib/relativeAge";
 
 /** A deployment paired with the name of the integration it belongs to. */
 export type DeployedTile = Deployment & { integrationName: string };
@@ -18,17 +19,6 @@ const STATUS_TEXT: Record<DeploymentStatus, string> = {
   pending: "text-amber-600 dark:text-amber-400",
   failed: "text-red-600 dark:text-red-400",
 };
-
-/** Compact relative age (e.g. "3m", "2h", "5d") from an RFC3339 timestamp. */
-function relativeAge(iso?: string): string | null {
-  if (!iso) return null;
-  const secs = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
-  if (!Number.isFinite(secs) || secs < 0) return null;
-  if (secs < 60) return `${secs}s`;
-  if (secs < 3600) return `${Math.floor(secs / 60)}m`;
-  if (secs < 86400) return `${Math.floor(secs / 3600)}h`;
-  return `${Math.floor(secs / 86400)}d`;
-}
 
 /** Strip the scheme so an address reads as a bare host[:port]/path. */
 function bareHost(url: string): string {

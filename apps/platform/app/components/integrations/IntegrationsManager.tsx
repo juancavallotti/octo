@@ -1,9 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import { useCallback, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { fromDefinitionYaml } from "@octo/editor";
 import {
   DndContext,
   DragOverlay,
@@ -13,37 +11,19 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { Folder as FolderIcon, Plus, Upload, Workflow } from "lucide-react";
+import { Folder as FolderIcon, Workflow } from "lucide-react";
 import AppHeader from "@/app/components/AppHeader";
 import { useConfirm } from "@/app/components/ConfirmDialog";
 import { useOrchestrator } from "@/app/run/OrchestratorContext";
-import { arrayMove } from "@dnd-kit/sortable";
-import {
-  assignIntegration,
-  createFolder,
-  createIntegration,
-  deleteFolder,
-  deleteIntegration,
-  renameFolder,
-  reorderFolderIntegrations,
-  reorderFolders,
-  unassignIntegration,
-  updateIntegration,
-} from "@/app/model/orchestrator";
-import {
-  flatten,
-  isDescendant,
-  type Bucket,
-  type DragData,
-  type DropData,
-  type FlatFolder,
-} from "./model";
-import { EMPTY, loadData, type Data } from "./managerData";
+import { type Bucket, type DragData, type DropData } from "./model";
+import { resolveDrag } from "./dragDrop";
+import { useIntegrationTree } from "./useIntegrationTree";
+import IntegrationsToolbar from "./IntegrationsToolbar";
+import IntegrationsUnavailable from "./IntegrationsUnavailable";
 import ManagementNav from "@/app/components/ManagementNav";
 import FolderTree from "./FolderTree";
 import IntegrationList from "./IntegrationList";
 import IntegrationDetail from "./IntegrationDetail";
-import { nameFromFilename } from "./yamlFile";
 import {
   INTEGRATIONS_BASE,
   buildPath,
@@ -74,28 +54,16 @@ export default function IntegrationsManager({
   // navigated client-side: the bucket + integration are derived from the path, and
   // selecting something is a router navigation (below). The manager lives in the
   // route's layout, so these navigations don't remount it — only the path updates.
-  const [data, setData] = useState<Data>(EMPTY);
   const { bucket, selectedId } = useMemo(
     () => parsePathname(pathname),
     [pathname],
   );
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [activeDrag, setActiveDrag] = useState<DragData | null>(null);
 
   // A small activation distance keeps a plain click (select) distinct from a drag.
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
   );
-
-  const refresh = useCallback(
-    () => loadData().then(setData, (e) => setError((e as Error).message)),
-    [],
-  );
-
-  useEffect(() => {
-    if (available) refresh();
-  }, [available, refresh]);
 
   // Navigate to a selection (client-side; updates the path the view derives from).
   const go = useCallback(
@@ -112,296 +80,69 @@ export default function IntegrationsManager({
     [go, bucket],
   );
 
-  /** Run a mutation, then refresh; surface failures inline. */
-  const run = useCallback(
-    async (fn: () => Promise<unknown>) => {
-      setBusy(true);
-      setError(null);
-      try {
-        await fn();
-        await refresh();
-      } catch (e) {
-        setError((e as Error).message);
-      } finally {
-        setBusy(false);
-      }
-    },
-    [refresh],
-  );
-
-  const { folders, integrations, membership, order } = data;
-  const flat = useMemo(() => flatten(folders), [folders]);
-
-  const shown = useMemo(() => {
-    if (bucket === "all") return integrations;
-    if (bucket === "unfiled")
-      return integrations.filter((i) => !membership.has(i.id));
-    const inFolder = integrations.filter(
-      (i) => membership.get(i.id) === bucket.folder,
-    );
-    // Honor the folder's stored order; ids missing from it (e.g. just assigned)
-    // sort to the end by their natural list position.
-    const pos = new Map(
-      (order.get(bucket.folder) ?? []).map((id, i) => [id, i]),
-    );
-    return [...inFolder].sort(
-      (a, b) =>
-        (pos.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
-        (pos.get(b.id) ?? Number.MAX_SAFE_INTEGER),
-    );
-  }, [bucket, integrations, membership, order]);
-
-  const unfiledCount = useMemo(
-    () => integrations.filter((i) => !membership.has(i.id)).length,
-    [integrations, membership],
-  );
-  const folderCount = (id: string) =>
-    integrations.filter((i) => membership.get(i.id) === id).length;
-
-  const selected = integrations.find((i) => i.id === selectedId) ?? null;
-  const selectedFolderId = selectedId
-    ? (membership.get(selectedId) ?? null)
-    : null;
-
-  // A new folder nests under the selected folder, else lives at the root.
-  const createParent = typeof bucket === "object" ? bucket.folder : null;
-
-  const createFolderHere = (name: string) =>
-    run(() => createFolder(name, createParent));
-
-  const renameFolderTo = (f: FlatFolder, name: string) =>
-    run(() => renameFolder(f.id, name, f.parentId));
-
-  const removeFolder = async (f: FlatFolder) => {
-    const ok = await confirm({
-      title: `Delete folder "${f.name}"?`,
-      body: "Its integrations become unfiled.",
-      confirmLabel: "Delete",
-      danger: true,
-    });
-    if (!ok) return;
-    if (typeof bucket === "object" && bucket.folder === f.id) selectBucket("all");
-    run(() => deleteFolder(f.id));
-  };
-
-  // Hidden file input backing the "Import" button. Importing a .yaml always
-  // creates a new integration (name from the filename); the file's contents are
-  // the runtime definition, validated before the create so malformed YAML fails
-  // fast with an inline error instead of a broken record.
-  const importInput = useRef<HTMLInputElement>(null);
-
-  const onImportFile = async (file: File) => {
-    setError(null);
-    const text = await file.text();
-    try {
-      fromDefinitionYaml(text);
-    } catch (e) {
-      setError(`Invalid integration YAML: ${(e as Error).message}`);
-      return;
-    }
-    run(async () => {
-      const created = await createIntegration({
-        name: nameFromFilename(file.name),
-        definition: text,
-      });
-      selectIntegration(created.id);
-    });
-  };
-
-  // Duplicate the selected integration into a fresh "Copy of …" record, then
-  // select the copy. Its definition is already loaded in the list, so no fetch.
-  const copySelected = () => {
-    if (!selected) return;
-    run(async () => {
-      const created = await createIntegration({
-        name: `Copy of ${selected.name}`,
-        definition: selected.definition,
-      });
-      selectIntegration(created.id);
-    });
-  };
-
-  // Rename the selected integration (its name is effectively its filename),
-  // preserving the definition. The updated name lands via the refresh. Returns
-  // whether the rename succeeded so the inline editor can stay open on conflict
-  // (e.g. a duplicate name); failures still surface in the inline error banner.
-  const renameSelected = async (name: string): Promise<boolean> => {
-    if (!selected) return false;
-    setBusy(true);
-    setError(null);
-    try {
-      await updateIntegration(selected.id, {
-        name,
-        definition: selected.definition,
-      });
-      await refresh();
-      return true;
-    } catch (e) {
-      setError((e as Error).message);
-      return false;
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const removeSelected = async () => {
-    if (!selected) return;
-    const ok = await confirm({
-      title: `Delete integration "${selected.name}"?`,
-      confirmLabel: "Delete",
-      danger: true,
-    });
-    if (!ok) return;
-    const id = selected.id;
-    selectIntegration(null);
-    run(() => deleteIntegration(id));
-  };
+  const {
+    integrations,
+    membership,
+    flat,
+    shown,
+    selected,
+    selectedFolderId,
+    unfiledCount,
+    folderCount,
+    createParent,
+    busy,
+    error,
+    createFolderHere,
+    renameFolderTo,
+    removeFolder,
+    importInput,
+    onImportFile,
+    copySelected,
+    renameSelected,
+    removeSelected,
+    applyDrag,
+  } = useIntegrationTree({
+    available,
+    bucket,
+    selectedId,
+    confirm,
+    selectBucket,
+    selectIntegration,
+  });
 
   const onDragStart = (e: DragStartEvent) =>
     setActiveDrag((e.active.data.current as DragData | undefined) ?? null);
 
-  // Persist a new order for the folder currently shown, optimistically reflecting
-  // it so the list doesn't snap back before the refresh lands.
-  const reorderShown = (activeId: string, overId: string) => {
-    if (typeof bucket !== "object") return;
-    const folderId = bucket.folder;
-    const ids = shown.map((i) => i.id);
-    const from = ids.indexOf(activeId);
-    const to = ids.indexOf(overId);
-    if (from === -1 || to === -1 || from === to) return;
-    const next = arrayMove(ids, from, to);
-    setData((d) => ({ ...d, order: new Map(d.order).set(folderId, next) }));
-    run(() => reorderFolderIntegrations(folderId, next));
-  };
-
-  // Resolve a drop. Integrations file/unfile (onto a folder/Unfiled) or reorder
-  // (onto a peer inside a folder); folders reparent (blocked from landing on
-  // themselves or a descendant). No-op moves and unsupported pairs are ignored.
+  // Resolve a drop, then carry it out. The rules — which pairs mean something,
+  // which are no-ops, and that a folder may not land inside its own subtree —
+  // live in dragDrop.ts, where they can be checked without a pointer.
   const onDragEnd = (e: DragEndEvent) => {
     setActiveDrag(null);
-    const a = e.active.data.current as DragData | undefined;
-    // `over` is a drop zone (DropData) or, for the sortable list, a peer card (DragData).
-    const o = e.over?.data.current as DropData | DragData | undefined;
-    if (!a || !o) return;
-
-    if (a.kind === "integration") {
-      // Dropped on a peer card: reorder within the current folder.
-      if (o.kind === "integration") {
-        if (o.id !== a.id) reorderShown(a.id, o.id);
-        return;
-      }
-      const current = membership.get(a.id) ?? null;
-      if (o.kind === "folder" && o.id !== current) {
-        run(() => assignIntegration(o.id, a.id));
-      } else if (o.kind === "unfiled" && current) {
-        run(() => unassignIntegration(current, a.id));
-      }
-      return; // dropping on "All" (root) is a no-op for integrations
-    }
-
-    // Folder dragged.
-    const f = flat.find((x) => x.id === a.id);
-    if (!f) return;
-
-    if (o.kind === "folder") {
-      if (o.id === a.id) return;
-      const target = flat.find((x) => x.id === o.id);
-      if (!target) return;
-      // Onto a sibling: reorder within the group. Onto a folder in another group:
-      // reparent under it (unless that would nest the folder inside itself).
-      if ((target.parentId ?? null) === (f.parentId ?? null)) {
-        reorderSiblings(f.parentId ?? null, a.id, o.id);
-      } else if (!isDescendant(flat, o.id, a.id)) {
-        run(() => renameFolder(a.id, f.name, o.id));
-      }
-      return;
-    }
-
-    // Onto the "All" bucket: lift to the top level (no-op if already a root).
-    if (o.kind === "root" && (f.parentId ?? null) !== null) {
-      run(() => renameFolder(a.id, f.name, null));
-    }
-  };
-
-  // Persist a new order for the folders sharing a parent. Folders live in the tree
-  // (not a flat order map), so a refresh — not an optimistic edit — reflects it;
-  // the sortable animation covers the brief gap.
-  const reorderSiblings = (
-    parentId: string | null,
-    activeId: string,
-    overId: string,
-  ) => {
-    const siblings = flat
-      .filter((x) => (x.parentId ?? null) === parentId)
-      .map((x) => x.id);
-    const from = siblings.indexOf(activeId);
-    const to = siblings.indexOf(overId);
-    if (from === -1 || to === -1 || from === to) return;
-    run(() => reorderFolders(parentId, arrayMove(siblings, from, to)));
+    applyDrag(
+      resolveDrag(
+        e.active.data.current as DragData | undefined,
+        e.over?.data.current as DropData | DragData | undefined,
+        { flat, membership },
+      ),
+    );
   };
 
   // Avoid flashing the "unavailable" message before the probe resolves.
   if (!ready) return null;
 
   if (!available) {
-    return (
-      <div className="flex h-full flex-col">
-        <AppHeader userMenu={userMenu}>
-          <ManagementNav />
-        </AppHeader>
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-          <p className="text-sm text-zinc-500">
-            Integration management is unavailable. Set{" "}
-            <code className="rounded bg-black/[0.06] px-1 dark:bg-white/10">
-              ORCHESTRATOR_URL
-            </code>{" "}
-            to enable it.
-          </p>
-          <Link
-            href="/platform"
-            className="text-sm text-sky-600 hover:underline"
-          >
-            Back to dashboard
-          </Link>
-        </div>
-      </div>
-    );
+    return <IntegrationsUnavailable userMenu={userMenu} />;
   }
 
   return (
     <div className="flex h-full flex-col">
       <AppHeader userMenu={userMenu}>
         <ManagementNav />
-        <div className="ml-auto flex items-center gap-2">
-          <input
-            ref={importInput}
-            type="file"
-            accept=".yaml,.yml"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              // Reset first so re-selecting the same file fires onChange again.
-              e.target.value = "";
-              if (file) onImportFile(file);
-            }}
-          />
-          <button
-            type="button"
-            onClick={() => importInput.current?.click()}
-            disabled={busy}
-            className="inline-flex items-center gap-1.5 rounded-md border border-black/10 px-3 py-1 text-sm font-medium text-zinc-600 transition-colors hover:bg-black/[0.04] hover:text-zinc-900 disabled:opacity-50 dark:border-white/15 dark:text-zinc-300 dark:hover:bg-white/[0.06] dark:hover:text-zinc-100"
-          >
-            <Upload size={15} />
-            Import
-          </button>
-          <Link
-            href="/platform/new"
-            className="inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1 text-sm font-medium text-white hover:bg-sky-500"
-          >
-            <Plus size={15} />
-            New integration
-          </Link>
-        </div>
+        <IntegrationsToolbar
+          importInput={importInput}
+          busy={busy}
+          onImportFile={onImportFile}
+        />
       </AppHeader>
 
       {error && (
