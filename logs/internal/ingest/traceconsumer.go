@@ -155,6 +155,13 @@ func (c *TraceConsumer) overflow() {
 
 // write accumulates rows and flushes them on size or on age, whichever comes
 // first, until ctx is done.
+//
+// Cancellation is checked in every branch rather than left to the ctx.Done() case
+// alone, because select does not rank its cases: with a record ready and the
+// context already finished, either is a legal choice. Taking the record would
+// write it — and the batch it joined — under a context that cannot succeed, which
+// is the loss drain exists to prevent. Whichever branch notices first hands over
+// to drain and its live context instead.
 func (c *TraceConsumer) write(ctx context.Context, in <-chan *nats.Msg) {
 	batch := newTraceBatch(c.store)
 	defer batch.stop()
@@ -162,38 +169,53 @@ func (c *TraceConsumer) write(ctx context.Context, in <-chan *nats.Msg) {
 	for {
 		select {
 		case <-ctx.Done():
-			c.drain(in, batch)
+			c.drain(nil, in, batch)
 			return
 		case m := <-in:
-			if row, ok := c.row(ctx, m); ok {
-				batch.add(ctx, row)
+			if ctx.Err() != nil {
+				c.drain(m, in, batch)
+				return
 			}
+			c.take(ctx, m, batch)
 		case <-batch.due():
+			if ctx.Err() != nil {
+				c.drain(nil, in, batch)
+				return
+			}
 			batch.flush(ctx)
 		}
 	}
 }
 
-// drain writes what is already in hand before shutting down.
+// drain writes what is already in hand before shutting down, starting with first
+// when the loop had already taken a record off the channel.
 //
 // Delivery has stopped by the time this runs, but records taken off the wire and
 // not yet written are lost if they are abandoned — and NATS will not send them
 // again. Since the context that got us here is already cancelled, the final write
 // gets one of its own, bounded so a stuck database cannot hold the process open.
-func (c *TraceConsumer) drain(in <-chan *nats.Msg, batch *traceBatch) {
+func (c *TraceConsumer) drain(first *nats.Msg, in <-chan *nats.Msg, batch *traceBatch) {
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownFlushTimeout)
 	defer cancel()
 
+	if first != nil {
+		c.take(ctx, first, batch)
+	}
 	for {
 		select {
 		case m := <-in:
-			if row, ok := c.row(ctx, m); ok {
-				batch.add(ctx, row)
-			}
+			c.take(ctx, m, batch)
 		default:
 			batch.flush(ctx)
 			return
 		}
+	}
+}
+
+// take decodes one delivered message into the batch, dropping what cannot be read.
+func (c *TraceConsumer) take(ctx context.Context, m *nats.Msg, batch *traceBatch) {
+	if row, ok := c.row(ctx, m); ok {
+		batch.add(ctx, row)
 	}
 }
 

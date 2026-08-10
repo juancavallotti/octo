@@ -35,7 +35,15 @@ func newTraceStore() *traceStore {
 	return &traceStore{wrote: make(chan int, 64)}
 }
 
-func (s *traceStore) Insert(_ context.Context, rows []TraceRow) error {
+// Insert refuses a cancelled context the way a real pool does, which is what
+// makes every test here an assertion about *which* context the consumer flushed
+// under. A store that ignored it would record batches the database would have
+// rejected, and the shutdown path would look like it worked.
+func (s *traceStore) Insert(ctx context.Context, rows []TraceRow) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	s.mu.Lock()
 	// Copied: the consumer reuses its slice between flushes, so keeping the
 	// caller's would leave every recorded batch aliasing the same array.
@@ -278,6 +286,34 @@ func TestTraceConsumerWritesWhatItHoldsOnShutdown(t *testing.T) {
 	batches := store.taken()
 	if len(batches) != 1 || len(batches[0]) != 2 {
 		t.Fatalf("batch sizes = %v, want one batch of 2 written on the way out", store.sizes())
+	}
+}
+
+// TestTraceConsumerWritesTheRecordItTookAsTheContextDied covers the branch a
+// cancelled writer can still be scheduled into: select does not prefer ctx.Done()
+// over a ready record, so the loop can take one more message after cancellation
+// and must not then write it — or the batch it joined — under the dead context.
+//
+// The race itself cannot be forced from outside; what is asserted here is the
+// property that makes it harmless, on the path the loop hands that record to.
+func TestTraceConsumerWritesTheRecordItTookAsTheContextDied(t *testing.T) {
+	store := newTraceStore()
+	consumer := testConsumer(store, resolvesTo(testIntegration))
+
+	in := make(chan *nats.Msg, 2)
+	in <- traceMsg(2, KindBlockPostInvoke)
+	in <- traceMsg(3, KindFlowCompleted)
+
+	batch := newTraceBatch(store)
+	defer batch.stop()
+	consumer.drain(traceMsg(1, KindFlowStarted), in, batch)
+
+	batches := store.taken()
+	if len(batches) != 1 || len(batches[0]) != 3 {
+		t.Fatalf("batch sizes = %v, want one batch of 3 — the record in hand and the two behind it", store.sizes())
+	}
+	if got := batches[0][0].Record.Seq; got != 1 {
+		t.Errorf("first record has seq %d, want the one already taken off the channel", got)
 	}
 }
 
