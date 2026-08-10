@@ -120,7 +120,7 @@ func toResponse(d Deployment) deploymentResponse {
 	if len(settings.Env) > 0 {
 		resp.Env = make(map[string]envBindingResponse, len(settings.Env))
 		for name, b := range settings.Env {
-			resp.Env[name] = envBindingResponse{Value: b.Value, Secret: b.Secret}
+			resp.Env[name] = envBindingResponse(b)
 		}
 	}
 	return resp
