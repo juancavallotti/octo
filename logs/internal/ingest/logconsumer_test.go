@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -40,12 +41,130 @@ func newCaptureStore(n int) *captureStore {
 	return &captureStore{got: make(chan struct{}, n)}
 }
 
-func (s *captureStore) Insert(_ context.Context, e LogEvent) error {
+// Insert refuses a cancelled context the way a real pool does, which is what
+// makes every test here an assertion about *which* context the consumer wrote
+// under. Ignoring it — as this fake did — records inserts the database would
+// have rejected, and the shutdown path looks like it worked.
+func (s *captureStore) Insert(ctx context.Context, e LogEvent) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	s.events = append(s.events, e)
 	s.mu.Unlock()
 	s.got <- struct{}{}
 	return nil
+}
+
+// logMsg renders one record on the wire.
+func logMsg(msg string) *nats.Msg {
+	return &nats.Msg{Subject: LogSubject, Data: []byte(fmt.Sprintf(
+		`{"time":"2026-06-28T10:00:00Z","level":"INFO","msg":%q,"deploymentId":"dep-9"}`, msg))}
+}
+
+func (s *captureStore) messages() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]string, len(s.events))
+	for i, e := range s.events {
+		out[i] = e.Message
+	}
+	return out
+}
+
+// TestConsumerWritesWhatItHoldsOnShutdown covers the records left in the buffer
+// when a termination signal arrives. Workers used to return on cancellation and
+// abandon them — and core NATS does not redeliver, so they were gone. On a
+// rolling restart, which is every deploy, that is a log line lost per worker.
+//
+// The store refuses a cancelled context, so this fails if the drain writes under
+// the subscription's context instead of one of its own.
+func TestConsumerWritesWhatItHoldsOnShutdown(t *testing.T) {
+	store := newCaptureStore(4)
+	work := make(chan *nats.Msg, 4)
+	work <- logMsg("first")
+	work <- logMsg("second")
+
+	NewLogConsumer(store, 1).drain(work)
+
+	if got := store.messages(); len(got) != 2 || got[0] != "first" || got[1] != "second" {
+		t.Errorf("stored %v, want both buffered records written on the way out", got)
+	}
+}
+
+// holdStore blocks every insert until released, so a test can be certain the
+// writes are in flight when the shutdown arrives rather than hoping they are.
+type holdStore struct {
+	*captureStore
+	started chan struct{}
+	release chan struct{}
+}
+
+func (s *holdStore) Insert(ctx context.Context, e LogEvent) error {
+	s.started <- struct{}{}
+	<-s.release
+	return s.captureStore.Insert(ctx, e)
+}
+
+// TestConsumerFinishesInsertsInFlightAtShutdown is the other half of #260, and
+// the one that cost a record on every deploy: not the buffer, but the writes
+// already running when the signal arrived. They were issued under the
+// subscription's context, so cancelling it aborted them — Close's promise to
+// "wait for in-flight inserts to finish" meant waiting for them to fail fast.
+//
+// The ordering here is exact, not hopeful: every record is parked inside its
+// insert before the context is cancelled, and only released afterwards. Against
+// the old code every one of those inserts returns context.Canceled and nothing
+// is stored.
+func TestConsumerFinishesInsertsInFlightAtShutdown(t *testing.T) {
+	url := runServer(t)
+	pub := connect(t, url)
+	conn := connect(t, url)
+
+	const records = 3
+	base := newCaptureStore(records)
+	store := &holdStore{
+		captureStore: base,
+		started:      make(chan struct{}, records),
+		release:      make(chan struct{}),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sub, err := NewLogConsumer(store, records).Start(ctx, conn)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if err := conn.Flush(); err != nil { // ensure the SUB is registered before publishing
+		t.Fatalf("flush: %v", err)
+	}
+
+	for _, m := range []string{"a", "b", "c"} {
+		if err := pub.Publish(LogSubject, logMsg(m).Data); err != nil {
+			t.Fatalf("publish %s: %v", m, err)
+		}
+	}
+
+	for i := 0; i < records; i++ {
+		select {
+		case <-store.started:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("only %d of %d records reached the store", i, records)
+		}
+	}
+
+	// Cancelling the parent marks the subscription context done before anything
+	// is released, so every insert below runs with it already dead.
+	cancel()
+	close(store.release)
+
+	if err := sub.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	// Close returns only once every worker has finished, so the count is final.
+	if got := base.messages(); len(got) != records {
+		t.Errorf("stored %v, want all %d records written across the shutdown", got, records)
+	}
 }
 
 func TestConsumerPersistsShippedRecord(t *testing.T) {

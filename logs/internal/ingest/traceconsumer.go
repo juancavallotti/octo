@@ -38,9 +38,10 @@ const (
 	// dropped record turns shedding trace load into a second, worse flood.
 	dropWarnInterval = 10 * time.Second
 
-	// shutdownFlushTimeout bounds the last write on the way out. Records held at
-	// that point are already off the wire and will not be redelivered, so they are
-	// worth waiting for — but not worth hanging a shutdown over.
+	// shutdownFlushTimeout bounds the last write on the way out, for both
+	// consumers. Records held at that point are already off the wire and will not
+	// be redelivered, so they are worth waiting for — but not worth hanging a
+	// shutdown over.
 	shutdownFlushTimeout = 5 * time.Second
 )
 
