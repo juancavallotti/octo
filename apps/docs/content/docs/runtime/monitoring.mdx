@@ -181,7 +181,7 @@ The editor's logs view queries that history:
 
 - **Filter** by deployment, level (for example, just ERROR and WARN), a time range, and free-text search on the message.
 - **Tail live** — the view polls for the newest rows and sticks to the bottom until you scroll up.
-- **Page back** through history, newest first.
+- **Page back** through history, newest first. Paging is keyset, and the cursor is a **pair** — `<rfc3339nano>|<logId>`, returned as `next_before` and passed back as `?before=`. It is a pair because log lines tie: one request emits several stamped from the same clock read, and a cursor on the timestamp alone either skips the rows that tie across a page boundary or serves them twice. Treat it as opaque.
 - **Share a view** — filters mirror to the URL, so a filtered query is a link.
 
 ![The platform log viewer streaming logs from a running flow](/screenshots/platform-log-viewer.png)
