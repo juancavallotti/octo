@@ -11,29 +11,29 @@ import (
 	"github.com/juancavallotti/octo/logs/internal/repo"
 )
 
-// fakeQuerier records the filter it was called with and returns canned rows.
-type fakeQuerier struct {
+// fakeLogQuerier records the filter it was called with and returns canned rows.
+type fakeLogQuerier struct {
 	gotFilter repo.LogFilter
 	rows      []repo.LogRow
 	err       error
 }
 
-func (f *fakeQuerier) Query(_ context.Context, filter repo.LogFilter) ([]repo.LogRow, error) {
+func (f *fakeLogQuerier) Query(_ context.Context, filter repo.LogFilter) ([]repo.LogRow, error) {
 	f.gotFilter = filter
 	return f.rows, f.err
 }
 
-func do(t *testing.T, q Querier, target string) *httptest.ResponseRecorder {
+func do(t *testing.T, q LogQuerier, target string) *httptest.ResponseRecorder {
 	t.Helper()
 	mux := http.NewServeMux()
-	NewHandler(q).Register(mux)
+	NewLogsHandler(q).Register(mux)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, target, nil))
 	return rec
 }
 
 func TestListParsesFiltersIntoQuery(t *testing.T) {
-	q := &fakeQuerier{}
+	q := &fakeLogQuerier{}
 	rec := do(t, q, "/logs?deploymentId=dep-1&appName=checkout&appVersion=v2&level=ERROR&level=WARN&q=boom&from=2026-01-01T00:00:00Z&to=2026-02-01T00:00:00Z&limit=50")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body)
@@ -67,7 +67,7 @@ func TestListDefaultsAndClampsLimit(t *testing.T) {
 		"/logs?limit=9999": maxLimit,
 	}
 	for target, want := range cases {
-		q := &fakeQuerier{}
+		q := &fakeLogQuerier{}
 		if rec := do(t, q, target); rec.Code != http.StatusOK {
 			t.Fatalf("%s: status %d", target, rec.Code)
 		}
@@ -79,7 +79,7 @@ func TestListDefaultsAndClampsLimit(t *testing.T) {
 
 func TestListRejectsBadParams(t *testing.T) {
 	for _, target := range []string{"/logs?limit=abc", "/logs?from=not-a-time"} {
-		if rec := do(t, &fakeQuerier{}, target); rec.Code != http.StatusBadRequest {
+		if rec := do(t, &fakeLogQuerier{}, target); rec.Code != http.StatusBadRequest {
 			t.Errorf("%s: status = %d, want 400", target, rec.Code)
 		}
 	}
@@ -87,13 +87,13 @@ func TestListRejectsBadParams(t *testing.T) {
 
 func TestListSetsNextBeforeOnFullPage(t *testing.T) {
 	oldest := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
-	q := &fakeQuerier{rows: []repo.LogRow{
+	q := &fakeLogQuerier{rows: []repo.LogRow{
 		{ID: "a", Time: time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)},
 		{ID: "b", Time: oldest},
 	}}
 	rec := do(t, q, "/logs?limit=2") // len(rows) == limit -> more may exist
 
-	var resp listResponse
+	var resp logListResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -106,10 +106,10 @@ func TestListSetsNextBeforeOnFullPage(t *testing.T) {
 }
 
 func TestListOmitsNextBeforeOnPartialPage(t *testing.T) {
-	q := &fakeQuerier{rows: []repo.LogRow{{ID: "a", Time: time.Now()}}}
+	q := &fakeLogQuerier{rows: []repo.LogRow{{ID: "a", Time: time.Now()}}}
 	rec := do(t, q, "/logs?limit=10") // fewer than limit -> last page
 
-	var resp listResponse
+	var resp logListResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestListOmitsNextBeforeOnPartialPage(t *testing.T) {
 }
 
 func TestListReturnsEmptyArrayNotNull(t *testing.T) {
-	rec := do(t, &fakeQuerier{rows: nil}, "/logs")
+	rec := do(t, &fakeLogQuerier{rows: nil}, "/logs")
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
 		t.Fatalf("decode: %v", err)

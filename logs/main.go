@@ -191,7 +191,7 @@ func newServer(database *db.DB) http.Handler {
 		_, _ = w.Write([]byte("ok"))
 	})
 	if database != nil {
-		api.NewHandler(repo.NewLogs(database.Pool())).Register(mux)
+		api.NewLogsHandler(repo.NewLogs(database.Pool())).Register(mux)
 		slog.Info("log query API registered", "endpoint", "GET /logs")
 	}
 	return mux
