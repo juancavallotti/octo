@@ -128,10 +128,13 @@ func TestLogsPageInDescendingOrder(t *testing.T) {
 	store := newTestLogs(t)
 	ctx := context.Background()
 
-	for i := 0; i < 5; i++ {
+	// Two rows per minute, so the tie-break branch below is actually reached —
+	// with distinct timestamps throughout it would never run and the id ordering
+	// would go unasserted.
+	for i := 0; i < 6; i++ {
 		if err := store.Insert(ctx, ingest.LogEvent{
 			DeploymentID: depLogs,
-			Time:         logsWindow.Add(time.Duration(i) * time.Minute),
+			Time:         logsWindow.Add(time.Duration(i/2) * time.Minute),
 			Level:        "INFO",
 			Message:      "line",
 		}); err != nil {
@@ -143,15 +146,22 @@ func TestLogsPageInDescendingOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("query: %v", err)
 	}
+	ties := 0
 	for i := 1; i < len(rows); i++ {
 		prev, cur := rows[i-1], rows[i]
 		if cur.Time.After(prev.Time) {
 			t.Fatalf("row %d (%v) is newer than row %d (%v): not newest-first",
 				i, cur.Time, i-1, prev.Time)
 		}
-		if cur.Time.Equal(prev.Time) && cur.ID >= prev.ID {
-			t.Fatalf("rows %d and %d tie on ts but ids are not descending: %s then %s",
-				i-1, i, prev.ID, cur.ID)
+		if cur.Time.Equal(prev.Time) {
+			ties++
+			if cur.ID >= prev.ID {
+				t.Fatalf("rows %d and %d tie on ts but ids are not descending: %s then %s",
+					i-1, i, prev.ID, cur.ID)
+			}
 		}
+	}
+	if ties == 0 {
+		t.Fatal("no two rows tied on ts, so the id ordering was never checked")
 	}
 }

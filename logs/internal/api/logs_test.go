@@ -112,9 +112,17 @@ func TestListOmitsNextBeforeOnPartialPage(t *testing.T) {
 	q := &fakeLogQuerier{rows: []repo.LogRow{{ID: "a", Time: time.Now()}}}
 	rec := do(t, q, "/logs?limit=10") // fewer than limit -> last page
 
+	// Asserted before the cursor: a 400 also has no next_before, so without this
+	// the check below would pass for a request that never ran.
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body)
+	}
 	var resp logListResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Items) != 1 {
+		t.Errorf("items = %d, want 1", len(resp.Items))
 	}
 	if resp.NextBefore != "" {
 		t.Errorf("next_before = %q, want empty on a partial page", resp.NextBefore)

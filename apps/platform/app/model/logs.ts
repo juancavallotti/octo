@@ -55,8 +55,9 @@ export interface LogFilters {
   q?: string;
   /**
    * Keyset cursor from a previous page's `nextBefore`. Opaque: it names a
-   * position, not a time — a timestamp alone cannot, since log lines from one
-   * request share one. Pass it back unchanged.
+   * position, not a time. A timestamp alone cannot name one, because several
+   * rows can carry the same timestamp — the log lines from a single request
+   * are all stamped from one clock read. Pass it back unchanged.
    */
   before?: string;
   /** Page size (the service clamps it to a sane maximum). */
