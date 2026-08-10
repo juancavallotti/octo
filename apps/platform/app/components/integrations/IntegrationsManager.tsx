@@ -1,9 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { fromDefinitionYaml } from "@octo/editor";
 import {
   DndContext,
   DragOverlay,
@@ -17,33 +16,13 @@ import { Folder as FolderIcon, Plus, Upload, Workflow } from "lucide-react";
 import AppHeader from "@/app/components/AppHeader";
 import { useConfirm } from "@/app/components/ConfirmDialog";
 import { useOrchestrator } from "@/app/run/OrchestratorContext";
-import { arrayMove } from "@dnd-kit/sortable";
-import {
-  assignIntegration,
-  createFolder,
-  createIntegration,
-  deleteFolder,
-  deleteIntegration,
-  renameFolder,
-  reorderFolderIntegrations,
-  reorderFolders,
-  unassignIntegration,
-  updateIntegration,
-} from "@/app/model/orchestrator";
-import {
-  flatten,
-  type Bucket,
-  type DragData,
-  type DropData,
-  type FlatFolder,
-} from "./model";
+import { type Bucket, type DragData, type DropData } from "./model";
 import { resolveDrag } from "./dragDrop";
-import { EMPTY, loadData, type Data } from "./managerData";
+import { useIntegrationTree } from "./useIntegrationTree";
 import ManagementNav from "@/app/components/ManagementNav";
 import FolderTree from "./FolderTree";
 import IntegrationList from "./IntegrationList";
 import IntegrationDetail from "./IntegrationDetail";
-import { nameFromFilename } from "./yamlFile";
 import {
   INTEGRATIONS_BASE,
   buildPath,
@@ -74,28 +53,16 @@ export default function IntegrationsManager({
   // navigated client-side: the bucket + integration are derived from the path, and
   // selecting something is a router navigation (below). The manager lives in the
   // route's layout, so these navigations don't remount it — only the path updates.
-  const [data, setData] = useState<Data>(EMPTY);
   const { bucket, selectedId } = useMemo(
     () => parsePathname(pathname),
     [pathname],
   );
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [activeDrag, setActiveDrag] = useState<DragData | null>(null);
 
   // A small activation distance keeps a plain click (select) distinct from a drag.
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
   );
-
-  const refresh = useCallback(
-    () => loadData().then(setData, (e) => setError((e as Error).message)),
-    [],
-  );
-
-  useEffect(() => {
-    if (available) refresh();
-  }, [available, refresh]);
 
   // Navigate to a selection (client-side; updates the path the view derives from).
   const go = useCallback(
@@ -112,214 +79,51 @@ export default function IntegrationsManager({
     [go, bucket],
   );
 
-  /** Run a mutation, then refresh; surface failures inline. */
-  const run = useCallback(
-    async (fn: () => Promise<unknown>) => {
-      setBusy(true);
-      setError(null);
-      try {
-        await fn();
-        await refresh();
-      } catch (e) {
-        setError((e as Error).message);
-      } finally {
-        setBusy(false);
-      }
-    },
-    [refresh],
-  );
-
-  const { folders, integrations, membership, order } = data;
-  const flat = useMemo(() => flatten(folders), [folders]);
-
-  const shown = useMemo(() => {
-    if (bucket === "all") return integrations;
-    if (bucket === "unfiled")
-      return integrations.filter((i) => !membership.has(i.id));
-    const inFolder = integrations.filter(
-      (i) => membership.get(i.id) === bucket.folder,
-    );
-    // Honor the folder's stored order; ids missing from it (e.g. just assigned)
-    // sort to the end by their natural list position.
-    const pos = new Map(
-      (order.get(bucket.folder) ?? []).map((id, i) => [id, i]),
-    );
-    return [...inFolder].sort(
-      (a, b) =>
-        (pos.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
-        (pos.get(b.id) ?? Number.MAX_SAFE_INTEGER),
-    );
-  }, [bucket, integrations, membership, order]);
-
-  const unfiledCount = useMemo(
-    () => integrations.filter((i) => !membership.has(i.id)).length,
-    [integrations, membership],
-  );
-  const folderCount = (id: string) =>
-    integrations.filter((i) => membership.get(i.id) === id).length;
-
-  const selected = integrations.find((i) => i.id === selectedId) ?? null;
-  const selectedFolderId = selectedId
-    ? (membership.get(selectedId) ?? null)
-    : null;
-
-  // A new folder nests under the selected folder, else lives at the root.
-  const createParent = typeof bucket === "object" ? bucket.folder : null;
-
-  const createFolderHere = (name: string) =>
-    run(() => createFolder(name, createParent));
-
-  const renameFolderTo = (f: FlatFolder, name: string) =>
-    run(() => renameFolder(f.id, name, f.parentId));
-
-  const removeFolder = async (f: FlatFolder) => {
-    const ok = await confirm({
-      title: `Delete folder "${f.name}"?`,
-      body: "Its integrations become unfiled.",
-      confirmLabel: "Delete",
-      danger: true,
-    });
-    if (!ok) return;
-    if (typeof bucket === "object" && bucket.folder === f.id) selectBucket("all");
-    run(() => deleteFolder(f.id));
-  };
-
-  // Hidden file input backing the "Import" button. Importing a .yaml always
-  // creates a new integration (name from the filename); the file's contents are
-  // the runtime definition, validated before the create so malformed YAML fails
-  // fast with an inline error instead of a broken record.
-  const importInput = useRef<HTMLInputElement>(null);
-
-  const onImportFile = async (file: File) => {
-    setError(null);
-    const text = await file.text();
-    try {
-      fromDefinitionYaml(text);
-    } catch (e) {
-      setError(`Invalid integration YAML: ${(e as Error).message}`);
-      return;
-    }
-    run(async () => {
-      const created = await createIntegration({
-        name: nameFromFilename(file.name),
-        definition: text,
-      });
-      selectIntegration(created.id);
-    });
-  };
-
-  // Duplicate the selected integration into a fresh "Copy of …" record, then
-  // select the copy. Its definition is already loaded in the list, so no fetch.
-  const copySelected = () => {
-    if (!selected) return;
-    run(async () => {
-      const created = await createIntegration({
-        name: `Copy of ${selected.name}`,
-        definition: selected.definition,
-      });
-      selectIntegration(created.id);
-    });
-  };
-
-  // Rename the selected integration (its name is effectively its filename),
-  // preserving the definition. The updated name lands via the refresh. Returns
-  // whether the rename succeeded so the inline editor can stay open on conflict
-  // (e.g. a duplicate name); failures still surface in the inline error banner.
-  const renameSelected = async (name: string): Promise<boolean> => {
-    if (!selected) return false;
-    setBusy(true);
-    setError(null);
-    try {
-      await updateIntegration(selected.id, {
-        name,
-        definition: selected.definition,
-      });
-      await refresh();
-      return true;
-    } catch (e) {
-      setError((e as Error).message);
-      return false;
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const removeSelected = async () => {
-    if (!selected) return;
-    const ok = await confirm({
-      title: `Delete integration "${selected.name}"?`,
-      confirmLabel: "Delete",
-      danger: true,
-    });
-    if (!ok) return;
-    const id = selected.id;
-    selectIntegration(null);
-    run(() => deleteIntegration(id));
-  };
+  const {
+    integrations,
+    membership,
+    flat,
+    shown,
+    selected,
+    selectedFolderId,
+    unfiledCount,
+    folderCount,
+    createParent,
+    busy,
+    error,
+    createFolderHere,
+    renameFolderTo,
+    removeFolder,
+    importInput,
+    onImportFile,
+    copySelected,
+    renameSelected,
+    removeSelected,
+    applyDrag,
+  } = useIntegrationTree({
+    available,
+    bucket,
+    selectedId,
+    confirm,
+    selectBucket,
+    selectIntegration,
+  });
 
   const onDragStart = (e: DragStartEvent) =>
     setActiveDrag((e.active.data.current as DragData | undefined) ?? null);
-
-  // Persist a new order for the folder currently shown, optimistically reflecting
-  // it so the list doesn't snap back before the refresh lands.
-  const reorderShown = (activeId: string, overId: string) => {
-    if (typeof bucket !== "object") return;
-    const folderId = bucket.folder;
-    const ids = shown.map((i) => i.id);
-    const from = ids.indexOf(activeId);
-    const to = ids.indexOf(overId);
-    if (from === -1 || to === -1 || from === to) return;
-    const next = arrayMove(ids, from, to);
-    setData((d) => ({ ...d, order: new Map(d.order).set(folderId, next) }));
-    run(() => reorderFolderIntegrations(folderId, next));
-  };
 
   // Resolve a drop, then carry it out. The rules — which pairs mean something,
   // which are no-ops, and that a folder may not land inside its own subtree —
   // live in dragDrop.ts, where they can be checked without a pointer.
   const onDragEnd = (e: DragEndEvent) => {
     setActiveDrag(null);
-    const outcome = resolveDrag(
-      e.active.data.current as DragData | undefined,
-      e.over?.data.current as DropData | DragData | undefined,
-      { flat, membership },
+    applyDrag(
+      resolveDrag(
+        e.active.data.current as DragData | undefined,
+        e.over?.data.current as DropData | DragData | undefined,
+        { flat, membership },
+      ),
     );
-    switch (outcome.kind) {
-      case "reorder-integration":
-        reorderShown(outcome.id, outcome.beforeId);
-        break;
-      case "file-integration":
-        run(() => assignIntegration(outcome.folderId, outcome.integrationId));
-        break;
-      case "unfile-integration":
-        run(() => unassignIntegration(outcome.folderId, outcome.integrationId));
-        break;
-      case "reorder-folder":
-        reorderSiblings(outcome.parentId, outcome.id, outcome.beforeId);
-        break;
-      case "reparent-folder":
-        run(() => renameFolder(outcome.id, outcome.name, outcome.parentId));
-        break;
-      case "none":
-        break;
-    }
-  };
-
-  // Persist a new order for the folders sharing a parent. Folders live in the tree
-  // (not a flat order map), so a refresh — not an optimistic edit — reflects it;
-  // the sortable animation covers the brief gap.
-  const reorderSiblings = (
-    parentId: string | null,
-    activeId: string,
-    overId: string,
-  ) => {
-    const siblings = flat
-      .filter((x) => (x.parentId ?? null) === parentId)
-      .map((x) => x.id);
-    const from = siblings.indexOf(activeId);
-    const to = siblings.indexOf(overId);
-    if (from === -1 || to === -1 || from === to) return;
-    run(() => reorderFolders(parentId, arrayMove(siblings, from, to)));
   };
 
   // Avoid flashing the "unavailable" message before the probe resolves.
