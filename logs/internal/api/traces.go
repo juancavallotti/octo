@@ -25,6 +25,9 @@ const cursorSeparator = "|"
 type TraceQuerier interface {
 	Apps(ctx context.Context, from, to time.Time) ([]repo.TraceApp, error)
 	List(ctx context.Context, f repo.TraceFilter) ([]repo.TraceListRow, error)
+	Trace(ctx context.Context, traceID string) (repo.TraceListRow, bool, error)
+	Records(ctx context.Context, traceID string, withBodies bool) ([]repo.TraceRecordRow, bool, error)
+	Record(ctx context.Context, traceID, id string) (repo.TraceRecordRow, bool, error)
 }
 
 // TracesHandler serves the trace query API.
@@ -41,8 +44,13 @@ func NewTracesHandler(q TraceQuerier) *TracesHandler {
 
 // Register wires the routes onto mux.
 func (h *TracesHandler) Register(mux *http.ServeMux) {
+	// /traces/apps is registered as a literal, so it wins over the {traceId}
+	// pattern for that one path — which is what makes a trace literally named
+	// "apps" unreachable, and why nothing generates one.
 	mux.HandleFunc("GET /traces/apps", h.apps)
 	mux.HandleFunc("GET /traces", h.list)
+	mux.HandleFunc("GET /traces/{traceId}", h.detail)
+	mux.HandleFunc("GET /traces/{traceId}/records/{id}", h.record)
 }
 
 // appsResponse is the list of apps with trace activity, plus the window it was
@@ -254,4 +262,80 @@ func decodeCursor(raw string) (*repo.TraceCursor, error) {
 		return nil, errInvalid("before must start with an RFC3339 timestamp: " + stamp)
 	}
 	return &repo.TraceCursor{StartedAt: startedAt, TraceID: traceID}, nil
+}
+
+// traceDetailResponse is one trace: the rollup the list already showed, plus
+// every record that fed it.
+//
+// The summary is served from the stored rollup rather than recomputed from the
+// records below it. That is not an optimization — it is what makes the number in
+// the list and the number in the panel the same number, instead of two
+// implementations that agree until one of them changes.
+type traceDetailResponse struct {
+	Summary repo.TraceListRow     `json:"summary"`
+	Items   []repo.TraceRecordRow `json:"items"`
+	// Truncated says the trace held more records than one response carries. It is
+	// reported rather than silently applied, because a waterfall drawn from a cut
+	// record set is wrong in a way nothing in the picture reveals.
+	Truncated bool `json:"truncated"`
+}
+
+// detail serves one trace and its records.
+func (h *TracesHandler) detail(w http.ResponseWriter, r *http.Request) {
+	traceID := r.PathValue("traceId")
+
+	summary, found, err := h.q.Trace(r.Context(), traceID)
+	if err != nil {
+		slog.Error("api: query trace", "trace", traceID, "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to query the trace")
+		return
+	}
+	if !found {
+		writeError(w, http.StatusNotFound, "no such trace")
+		return
+	}
+
+	records, truncated, err := h.q.Records(r.Context(), traceID, wantsBodies(r))
+	if err != nil {
+		slog.Error("api: query trace records", "trace", traceID, "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to query the trace")
+		return
+	}
+	if records == nil {
+		records = []repo.TraceRecordRow{}
+	}
+
+	writeJSON(w, http.StatusOK, traceDetailResponse{Summary: summary, Items: records, Truncated: truncated})
+}
+
+// record serves one record's captured payloads, for a client that loaded the
+// trace without them and then opened a single block.
+func (h *TracesHandler) record(w http.ResponseWriter, r *http.Request) {
+	traceID, id := r.PathValue("traceId"), r.PathValue("id")
+
+	row, found, err := h.q.Record(r.Context(), traceID, id)
+	if err != nil {
+		slog.Error("api: query trace record", "trace", traceID, "record", id, "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to query the record")
+		return
+	}
+	if !found {
+		writeError(w, http.StatusNotFound, "no such record")
+		return
+	}
+	writeJSON(w, http.StatusOK, row)
+}
+
+// wantsBodies reads ?bodies, which defaults to on.
+//
+// Defaulting to on keeps a plain fetch complete; a client that knows it is only
+// drawing a waterfall passes bodies=0 and leaves the captured payloads — which
+// are the whole weight of a trace — on the server.
+func wantsBodies(r *http.Request) bool {
+	switch r.URL.Query().Get("bodies") {
+	case "0", "false":
+		return false
+	default:
+		return true
+	}
 }

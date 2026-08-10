@@ -607,3 +607,219 @@ func TestTraceListScopesToOneIntegration(t *testing.T) {
 		}
 	}
 }
+
+// TestTraceDetailReturnsRecordsInPublicationOrder checks the detail query reads
+// the trace the way the waterfall reconstructs it: by seq, which is the only
+// total order a publisher gives, since two records can share a timestamp.
+func TestTraceDetailReturnsRecordsInPublicationOrder(t *testing.T) {
+	store := newTestTraceApps(t)
+	ctx := context.Background()
+
+	// Inserted out of order, and two of them sharing a timestamp.
+	err := store.Insert(ctx, []ingest.TraceRow{
+		appRecord("apps-detail", 3, ingest.KindFlowCompleted, 5),
+		appRecord("apps-detail", 1, ingest.KindSourceReceive, 5),
+		appRecord("apps-detail", 2, ingest.KindBlockPostInvoke, 5),
+	})
+	if err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	records, truncated, err := store.Records(ctx, "apps-detail", true)
+	if err != nil {
+		t.Fatalf("records: %v", err)
+	}
+	if truncated {
+		t.Error("a three-record trace reported as truncated")
+	}
+	want := []int64{1, 2, 3}
+	if len(records) != len(want) {
+		t.Fatalf("got %d records, want %d", len(records), len(want))
+	}
+	for i, seq := range want {
+		if records[i].Seq != seq {
+			t.Fatalf("record %d has seq %d, want %d", i, records[i].Seq, seq)
+		}
+	}
+}
+
+// TestTraceDetailOmitsBodiesWhenNotAsked is what makes a waterfall cheap: the
+// captured payloads are the whole weight of a trace, and drawing bars needs none
+// of them.
+func TestTraceDetailOmitsBodiesWhenNotAsked(t *testing.T) {
+	store := newTestTraceApps(t)
+	ctx := context.Background()
+
+	row := appRecord("apps-bodies", 1, ingest.KindBlockPostInvoke, 5)
+	row.Record.Body = json.RawMessage(`{"order":7}`)
+	row.Record.Vars = json.RawMessage(`{"tenant":"acme"}`)
+	row.Record.Attrs = json.RawMessage(`{"status":200}`)
+	if err := store.Insert(ctx, []ingest.TraceRow{row}); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	withBodies, _, err := store.Records(ctx, "apps-bodies", true)
+	if err != nil {
+		t.Fatalf("records with bodies: %v", err)
+	}
+	if len(withBodies) != 1 || string(withBodies[0].Body) != `{"order": 7}` {
+		t.Fatalf("body = %s, want the stored document", withBodies[0].Body)
+	}
+
+	without, _, err := store.Records(ctx, "apps-bodies", false)
+	if err != nil {
+		t.Fatalf("records without bodies: %v", err)
+	}
+	if len(without) != 1 {
+		t.Fatalf("got %d records, want 1", len(without))
+	}
+	if without[0].Body != nil || without[0].Vars != nil {
+		t.Errorf("body/vars = %s/%s, want both omitted", without[0].Body, without[0].Vars)
+	}
+	// Attributes stay: they are what a bar is labelled from, and they are small.
+	if without[0].Attrs == nil {
+		t.Error("attrs were omitted along with the bodies")
+	}
+}
+
+// TestTraceDetailKeepsAnUnknownCostNull is the rule the whole cost path exists
+// for, checked at the last place it could still be lost: a record whose model
+// could not be priced must arrive with no cost, not a cost of zero.
+func TestTraceDetailKeepsAnUnknownCostNull(t *testing.T) {
+	store := newTestTraceApps(t)
+	ctx := context.Background()
+
+	unpriced := appRecord("apps-null", 1, ingest.KindLLMTurn, 5)
+	unpriced.Record.Model = "model-nobody-published"
+	unpriced.Priced = cost.Priced{Status: cost.StatusUnpricedModel}
+
+	silent := appRecord("apps-null", 2, ingest.KindLLMTurn, 6)
+	silent.Record.Model = "gpt-4o"
+	silent.Priced = cost.Priced{Status: cost.StatusNoUsage}
+
+	if err := store.Insert(ctx, []ingest.TraceRow{unpriced, silent}); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	records, _, err := store.Records(ctx, "apps-null", false)
+	if err != nil {
+		t.Fatalf("records: %v", err)
+	}
+	if len(records) != 2 {
+		t.Fatalf("got %d records, want 2", len(records))
+	}
+	for _, record := range records {
+		if record.CostUSD != nil {
+			t.Errorf("%s cost = %v, want null", record.CostStatus, *record.CostUSD)
+		}
+	}
+	if records[0].CostStatus != string(cost.StatusUnpricedModel) {
+		t.Errorf("cost status = %q, want %q", records[0].CostStatus, cost.StatusUnpricedModel)
+	}
+	if records[1].CostStatus != string(cost.StatusNoUsage) {
+		t.Errorf("cost status = %q, want %q", records[1].CostStatus, cost.StatusNoUsage)
+	}
+	// The provider reported nothing, so there is nothing to report: a token count
+	// of zero would claim it did.
+	if records[1].InputTokens != nil {
+		t.Errorf("input tokens = %v, want null", *records[1].InputTokens)
+	}
+}
+
+// TestTraceLookupReportsAMissingTrace keeps "no such trace" distinguishable from
+// "the query failed", so the handler can answer 404 rather than 500.
+func TestTraceLookupReportsAMissingTrace(t *testing.T) {
+	store := newTestTraceApps(t)
+
+	if _, found, err := store.Trace(context.Background(), "apps-does-not-exist"); err != nil || found {
+		t.Errorf("Trace = found %v, err %v; want not found and no error", found, err)
+	}
+}
+
+// TestTraceRecordIsScopedToItsTrace checks a record cannot be read out from under
+// another trace's id. The id is only ever handed out beside its trace, so
+// requiring both is what stops the route from being a way to read captured
+// payloads by guessing.
+func TestTraceRecordIsScopedToItsTrace(t *testing.T) {
+	store := newTestTraceApps(t)
+	ctx := context.Background()
+
+	row := appRecord("apps-scoped", 1, ingest.KindBlockPostInvoke, 5)
+	row.Record.Body = json.RawMessage(`{"secret":"shh"}`)
+	if err := store.Insert(ctx, []ingest.TraceRow{
+		row,
+		appRecord("apps-other-trace", 1, ingest.KindFlowCompleted, 5),
+	}); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	records, _, err := store.Records(ctx, "apps-scoped", false)
+	if err != nil {
+		t.Fatalf("records: %v", err)
+	}
+	id := records[0].ID
+
+	got, found, err := store.Record(ctx, "apps-scoped", id)
+	if err != nil || !found {
+		t.Fatalf("Record under its own trace = found %v, err %v", found, err)
+	}
+	if string(got.Body) != `{"secret": "shh"}` {
+		t.Errorf("body = %s, want the stored document", got.Body)
+	}
+
+	if _, found, err = store.Record(ctx, "apps-other-trace", id); err != nil || found {
+		t.Errorf("Record under another trace = found %v, err %v; want not found", found, err)
+	}
+}
+
+// TestTraceDetailCapsAndSaysSo exercises the real cap rather than a lowered one.
+//
+// A trace this large is pathological — a runaway foreach, a loop nobody meant to
+// write — and it is exactly the trace someone opens to find out why, so the cap
+// has to hold at the size it is actually set to. It is checked with the payloads
+// left behind, which is how a client would fetch a trace this big.
+func TestTraceDetailCapsAndSaysSo(t *testing.T) {
+	store := newTestTraceApps(t)
+	ctx := context.Background()
+
+	rows := make([]ingest.TraceRow, 0, maxTraceRecords+1)
+	for i := 0; i <= maxTraceRecords; i++ {
+		rows = append(rows, appRecord("apps-huge", int64(i), ingest.KindBlockPostInvoke, 5))
+	}
+	if err := store.Insert(ctx, rows); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	records, truncated, err := store.Records(ctx, "apps-huge", false)
+	if err != nil {
+		t.Fatalf("records: %v", err)
+	}
+	if !truncated {
+		t.Error("a trace past the cap was served without the truncated flag")
+	}
+	if len(records) != maxTraceRecords {
+		t.Errorf("served %d records, want exactly the cap of %d", len(records), maxTraceRecords)
+	}
+
+	// A trace of exactly the cap is complete, not cut. This is the off-by-one the
+	// LIMIT of cap+1 exists to settle: without the extra row, a trace that ended
+	// on the boundary would be indistinguishable from one that ran past it.
+	exact := make([]ingest.TraceRow, 0, maxTraceRecords)
+	for i := 0; i < maxTraceRecords; i++ {
+		exact = append(exact, appRecord("apps-exact", int64(i), ingest.KindBlockPostInvoke, 6))
+	}
+	if err := store.Insert(ctx, exact); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	records, truncated, err = store.Records(ctx, "apps-exact", false)
+	if err != nil {
+		t.Fatalf("records: %v", err)
+	}
+	if truncated {
+		t.Error("a trace of exactly the cap was reported as truncated")
+	}
+	if len(records) != maxTraceRecords {
+		t.Errorf("served %d records, want all %d", len(records), maxTraceRecords)
+	}
+}

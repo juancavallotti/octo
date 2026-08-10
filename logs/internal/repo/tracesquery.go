@@ -2,9 +2,13 @@ package repo
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // TraceApp is one app's trace activity over a window: a row in the list you pick
@@ -297,6 +301,167 @@ func scanTraceListRow(src scanner) (TraceListRow, error) {
 	)
 	if err != nil {
 		return TraceListRow{}, fmt.Errorf("repo: scan trace: %w", err)
+	}
+	return row, nil
+}
+
+// maxTraceRecords caps one trace's detail response.
+//
+// A trace that large is pathological — a runaway foreach, or a loop nobody meant
+// to write — and it is exactly the trace someone opens to find out why. The cap
+// is what keeps opening it from being a second incident; the flag beside it is
+// what keeps the answer honest about being partial.
+const maxTraceRecords = 20_000
+
+// TraceRecordRow is one stored record, as the detail view reads it.
+//
+// The token counts and the cost are pointers because their absence is a fact:
+// NULL means the provider reported nothing, or the model could not be priced, and
+// cost_status says which. A zero here would be a cost of nothing, which is a
+// different claim and the one thing this path must never accidentally make.
+type TraceRecordRow struct {
+	ID            string `json:"id"`
+	TraceID       string `json:"trace_id"`
+	Seq           int64  `json:"seq"`
+	Kind          string `json:"kind"`
+	EventID       string `json:"event_id"`
+	CorrelationID string `json:"correlation_id"`
+	Flow          string `json:"flow"`
+	Path          string `json:"path"`
+	BlockType     string `json:"block_type"`
+
+	Time       time.Time `json:"ts"`
+	DurationNs int64     `json:"duration_ns"`
+
+	Err string `json:"error"`
+	// Dropped marks a record the runtime shipped as incomplete; Truncated marks
+	// one whose payload was cut to fit.
+	Dropped   bool `json:"dropped"`
+	Truncated bool `json:"truncated"`
+
+	// Body and Vars are null when the runtime captured no payload AND when the
+	// caller asked for the trace without them. The two are indistinguishable here
+	// by design: a client that asked for no bodies knows it did.
+	Body  json.RawMessage `json:"body"`
+	Vars  json.RawMessage `json:"vars"`
+	Attrs json.RawMessage `json:"attrs"`
+
+	DeploymentID string `json:"deployment_id"`
+	AppName      string `json:"app_name"`
+	AppVersion   string `json:"app_version"`
+
+	Model          string   `json:"model"`
+	Provider       string   `json:"provider"`
+	InputTokens    *int     `json:"input_tokens"`
+	OutputTokens   *int     `json:"output_tokens"`
+	ThinkingTokens *int     `json:"thinking_tokens"`
+	CachedTokens   *int     `json:"cached_tokens"`
+	CostUSD        *float64 `json:"cost_usd"`
+	CostStatus     string   `json:"cost_status"`
+	PriceID        string   `json:"price_id"`
+}
+
+// traceRecordColumns is the record projection, with the two payload columns left
+// to the caller: a waterfall needs every record's shape and almost none of their
+// contents, and the bodies are the whole weight of the response.
+const traceRecordColumns = `
+    id::text, trace_id, seq, kind, event_id, correlation_id, flow, path, block_type,
+    ts, duration_ns, error, dropped, truncated,
+    %s, %s, attrs,
+    deployment_id::text, app_name, app_version,
+    model, provider, input_tokens, output_tokens, thinking_tokens, cached_tokens,
+    cost_usd, cost_status, COALESCE(price_id::text, '')`
+
+// The two projections, built once so the column order cannot drift between them.
+var (
+	recordColumnsWithBodies = fmt.Sprintf(traceRecordColumns, "body", "vars")
+	recordColumnsNoBodies   = fmt.Sprintf(traceRecordColumns, "NULL::jsonb", "NULL::jsonb")
+)
+
+// Trace returns one trace's summary, reporting false when there is no such trace.
+func (t *Traces) Trace(ctx context.Context, traceID string) (TraceListRow, bool, error) {
+	row, err := scanTraceListRow(t.pool.QueryRow(ctx,
+		"SELECT"+traceListColumns+" FROM trace_summaries WHERE trace_id = $1", traceID))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return TraceListRow{}, false, nil
+		}
+		return TraceListRow{}, false, err
+	}
+	return row, true, nil
+}
+
+// Records returns one trace's records in publication order, and whether the trace
+// held more than the cap.
+//
+// Ordering by seq rides the (trace_id, seq) index, and it is publication order
+// rather than time order on purpose: seq is the only total order a publisher
+// gives, whereas two records can share a timestamp.
+func (t *Traces) Records(ctx context.Context, traceID string, withBodies bool) ([]TraceRecordRow, bool, error) {
+	columns := recordColumnsNoBodies
+	if withBodies {
+		columns = recordColumnsWithBodies
+	}
+
+	// One past the cap, so a full page can be told from a trace that happens to
+	// end exactly on it.
+	rows, err := t.pool.Query(ctx,
+		"SELECT"+columns+" FROM traces WHERE trace_id = $1 ORDER BY seq LIMIT $2",
+		traceID, maxTraceRecords+1)
+	if err != nil {
+		return nil, false, fmt.Errorf("repo: query trace records: %w", err)
+	}
+	defer rows.Close()
+
+	var out []TraceRecordRow
+	for rows.Next() {
+		row, err := scanTraceRecordRow(rows)
+		if err != nil {
+			return nil, false, err
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, false, fmt.Errorf("repo: iterate trace records: %w", err)
+	}
+
+	if len(out) > maxTraceRecords {
+		return out[:maxTraceRecords], true, nil
+	}
+	return out, false, nil
+}
+
+// Record returns one record of one trace, with its payloads.
+//
+// It is addressed under its trace rather than by id alone: a record id is only
+// ever handed out alongside the trace it belongs to, so requiring both keeps the
+// route from becoming a way to read arbitrary captured payloads by guessing.
+func (t *Traces) Record(ctx context.Context, traceID, id string) (TraceRecordRow, bool, error) {
+	row, err := scanTraceRecordRow(t.pool.QueryRow(ctx,
+		"SELECT"+recordColumnsWithBodies+" FROM traces WHERE trace_id = $1 AND id = $2::uuid",
+		traceID, id))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return TraceRecordRow{}, false, nil
+		}
+		return TraceRecordRow{}, false, err
+	}
+	return row, true, nil
+}
+
+func scanTraceRecordRow(src scanner) (TraceRecordRow, error) {
+	var row TraceRecordRow
+	err := src.Scan(
+		&row.ID, &row.TraceID, &row.Seq, &row.Kind, &row.EventID, &row.CorrelationID,
+		&row.Flow, &row.Path, &row.BlockType,
+		&row.Time, &row.DurationNs, &row.Err, &row.Dropped, &row.Truncated,
+		&row.Body, &row.Vars, &row.Attrs,
+		&row.DeploymentID, &row.AppName, &row.AppVersion,
+		&row.Model, &row.Provider, &row.InputTokens, &row.OutputTokens,
+		&row.ThinkingTokens, &row.CachedTokens, &row.CostUSD, &row.CostStatus, &row.PriceID,
+	)
+	if err != nil {
+		return TraceRecordRow{}, fmt.Errorf("repo: scan trace record: %w", err)
 	}
 	return row, nil
 }

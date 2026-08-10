@@ -23,7 +23,37 @@ type fakeTraceQuerier struct {
 	called         bool
 	apps           []repo.TraceApp
 	traces         []repo.TraceListRow
-	err            error
+
+	summary      repo.TraceListRow
+	summaryFound bool
+	records      []repo.TraceRecordRow
+	truncated    bool
+	record       repo.TraceRecordRow
+	recordFound  bool
+
+	gotTraceID    string
+	gotRecordID   string
+	gotWithBodies bool
+
+	err error
+}
+
+func (f *fakeTraceQuerier) Trace(_ context.Context, traceID string) (repo.TraceListRow, bool, error) {
+	f.called = true
+	f.gotTraceID = traceID
+	return f.summary, f.summaryFound, f.err
+}
+
+func (f *fakeTraceQuerier) Records(_ context.Context, traceID string, withBodies bool) ([]repo.TraceRecordRow, bool, error) {
+	f.gotTraceID = traceID
+	f.gotWithBodies = withBodies
+	return f.records, f.truncated, f.err
+}
+
+func (f *fakeTraceQuerier) Record(_ context.Context, traceID, id string) (repo.TraceRecordRow, bool, error) {
+	f.called = true
+	f.gotTraceID, f.gotRecordID = traceID, id
+	return f.record, f.recordFound, f.err
 }
 
 func (f *fakeTraceQuerier) Apps(_ context.Context, from, to time.Time) ([]repo.TraceApp, error) {
@@ -382,5 +412,170 @@ func TestTraceListLeavesOptionalFlagsOff(t *testing.T) {
 		if q.gotFilter.HasLLM {
 			t.Errorf("%s: hasLlm was on without being asked for", target)
 		}
+	}
+}
+
+func decodeDetail(t *testing.T, rec *httptest.ResponseRecorder) traceDetailResponse {
+	t.Helper()
+	var got traceDetailResponse
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	return got
+}
+
+// foundTrace is a querier that answers for one trace.
+func foundTrace(records ...repo.TraceRecordRow) *fakeTraceQuerier {
+	return &fakeTraceQuerier{
+		summary:      repo.TraceListRow{TraceID: "trace-a", Records: len(records)},
+		summaryFound: true,
+		records:      records,
+	}
+}
+
+// TestTraceDetailServesTheStoredSummary checks the panel is filled from the
+// rollup rather than recomputed. The list and the detail must report the same
+// numbers because they read the same row, not because two implementations agree.
+func TestTraceDetailServesTheStoredSummary(t *testing.T) {
+	q := foundTrace(repo.TraceRecordRow{ID: "rec-1", Seq: 1, Kind: "flow.started"})
+	q.summary = repo.TraceListRow{TraceID: "trace-a", Records: 1, LLMCalls: 2, CostUSD: 0.5, UnpricedCalls: 1}
+
+	rec := doTraces(t, q, "/traces/trace-a")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body)
+	}
+	if q.gotTraceID != "trace-a" {
+		t.Errorf("queried %q, want trace-a", q.gotTraceID)
+	}
+
+	got := decodeDetail(t, rec)
+	if got.Summary.CostUSD != 0.5 || got.Summary.UnpricedCalls != 1 || got.Summary.LLMCalls != 2 {
+		t.Errorf("summary = %+v, want the stored rollup", got.Summary)
+	}
+	if len(got.Items) != 1 || got.Items[0].ID != "rec-1" {
+		t.Errorf("items = %+v, want the one record", got.Items)
+	}
+	if got.Truncated {
+		t.Error("a one-record trace reported as truncated")
+	}
+}
+
+// TestTraceDetailBodiesParameter checks the flag reaches the query, and defaults
+// to on so a plain fetch is complete.
+func TestTraceDetailBodiesParameter(t *testing.T) {
+	cases := map[string]bool{
+		"/traces/trace-a":              true,
+		"/traces/trace-a?bodies=1":     true,
+		"/traces/trace-a?bodies=0":     false,
+		"/traces/trace-a?bodies=false": false,
+	}
+	for target, want := range cases {
+		q := foundTrace()
+		if rec := doTraces(t, q, target); rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d, want 200", target, rec.Code)
+		}
+		if q.gotWithBodies != want {
+			t.Errorf("%s: withBodies = %v, want %v", target, q.gotWithBodies, want)
+		}
+	}
+}
+
+// TestTraceDetailReportsTruncation checks a cut record set says so. A waterfall
+// drawn from one is wrong in a way nothing in the picture reveals.
+func TestTraceDetailReportsTruncation(t *testing.T) {
+	q := foundTrace(repo.TraceRecordRow{ID: "rec-1"})
+	q.truncated = true
+
+	if got := decodeDetail(t, doTraces(t, q, "/traces/trace-a")); !got.Truncated {
+		t.Error("truncated record set was served without the flag")
+	}
+}
+
+// TestTraceDetailMissingTraceIs404 keeps "no such trace" from reading as a trace
+// that happened to have no records.
+func TestTraceDetailMissingTraceIs404(t *testing.T) {
+	rec := doTraces(t, &fakeTraceQuerier{}, "/traces/nope")
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404 (body %s)", rec.Code, rec.Body)
+	}
+}
+
+// TestTraceDetailFailsClosedOnAQueryError separates a broken query from an
+// absent trace: one is a 500 and the other a 404, and serving the first as the
+// second would report a database outage as deleted data.
+func TestTraceDetailFailsClosedOnAQueryError(t *testing.T) {
+	rec := doTraces(t, &fakeTraceQuerier{err: context.DeadlineExceeded}, "/traces/trace-a")
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500 (body %s)", rec.Code, rec.Body)
+	}
+}
+
+// TestTraceRecordServesOnePayload checks the click-to-inspect route, including
+// that it carries both identifiers into the query.
+func TestTraceRecordServesOnePayload(t *testing.T) {
+	q := &fakeTraceQuerier{
+		recordFound: true,
+		record:      repo.TraceRecordRow{ID: "rec-1", TraceID: "trace-a", Body: json.RawMessage(`{"order":7}`)},
+	}
+
+	rec := doTraces(t, q, "/traces/trace-a/records/rec-1")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body)
+	}
+	if q.gotTraceID != "trace-a" || q.gotRecordID != "rec-1" {
+		t.Errorf("queried %q/%q, want trace-a/rec-1", q.gotTraceID, q.gotRecordID)
+	}
+
+	var got repo.TraceRecordRow
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if string(got.Body) != `{"order":7}` {
+		t.Errorf("body = %s, want the stored document", got.Body)
+	}
+}
+
+// TestTraceRecordMissingIs404 covers both a record that does not exist and one
+// asked for under the wrong trace, which the store reports the same way.
+func TestTraceRecordMissingIs404(t *testing.T) {
+	rec := doTraces(t, &fakeTraceQuerier{}, "/traces/trace-a/records/rec-9")
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404 (body %s)", rec.Code, rec.Body)
+	}
+}
+
+// TestTraceRecordKeepsAnUnknownCostNull is the last place a NULL cost could
+// become a zero: the JSON a client actually reads.
+func TestTraceRecordKeepsAnUnknownCostNull(t *testing.T) {
+	q := &fakeTraceQuerier{
+		recordFound: true,
+		record: repo.TraceRecordRow{
+			ID: "rec-1", TraceID: "trace-a", Kind: "llm.turn",
+			Model: "unknown-model", CostStatus: "unpriced_model",
+		},
+	}
+
+	rec := doTraces(t, q, "/traces/trace-a/records/rec-1")
+
+	var raw map[string]json.RawMessage
+	if err := json.NewDecoder(rec.Body).Decode(&raw); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for _, field := range []string{"cost_usd", "input_tokens", "output_tokens", "cached_tokens"} {
+		if string(raw[field]) != "null" {
+			t.Errorf("%s = %s, want null", field, raw[field])
+		}
+	}
+}
+
+// TestTraceAppsRouteIsNotReadAsATraceId checks the literal path still wins over
+// the {traceId} pattern now that both are registered.
+func TestTraceAppsRouteIsNotReadAsATraceId(t *testing.T) {
+	q := &fakeTraceQuerier{}
+	if rec := doTraces(t, q, "/traces/apps"); rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body)
+	}
+	if q.gotTraceID != "" {
+		t.Errorf("/traces/apps was served as trace %q", q.gotTraceID)
 	}
 }
