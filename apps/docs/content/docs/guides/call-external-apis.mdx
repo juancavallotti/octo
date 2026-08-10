@@ -48,6 +48,19 @@ A bad base URL or auth configuration fails at startup, not on the first
 request. You can also set `headers:` (a map applied to every request unless the
 block sets the same header) and `maxResponseBytes` (default 1 MiB) here.
 
+Write a block's `path` with or without a leading slash: it is joined onto the
+base URL's own path with exactly one slash between them. Any of these reach
+`https://api.example.com/v1/things`:
+
+| `baseURL` | `path` |
+| --- | --- |
+| `https://api.example.com/v1` | `/things` |
+| `https://api.example.com/v1` | `things` |
+| `https://api.example.com/v1/` | `things` |
+| `https://api.example.com` | `/v1/things` |
+
+Give the base URL no path at all when the block paths carry the whole route.
+
 ## Make the request
 
 The `rest` block runs one request through the connector and folds the response

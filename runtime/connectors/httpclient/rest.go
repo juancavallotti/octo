@@ -206,13 +206,40 @@ func (p *processor) Process(ctx context.Context, msg *types.Message) (*types.Mes
 	msg.Variables.Set(p.statusVar, resp.StatusCode)
 
 	if p.failOnError && resp.StatusCode >= http.StatusBadRequest {
-		return nil, fmt.Errorf("rest request to %s returned %d: %s", target, resp.StatusCode, snippet(respBody))
+		return nil, fmt.Errorf("rest request to %s returned %d: %s",
+			requestedURL(req, target), resp.StatusCode, snippet(respBody))
 	}
 
 	if err := foldResponse(msg, respBody, resp.Header.Get("Content-Type")); err != nil {
 		return nil, err
 	}
 	return msg, nil
+}
+
+// requestedURL names the URL the call actually went to. Connector.Do resolves
+// the block's path against the connector's base URL in place, so once it has
+// returned req.URL is the absolute URL — and that is the one worth reporting.
+// The configured path on its own ("things") names neither the host nor the base
+// it was joined to, which leaves a reader of "rest request to things returned
+// 400" with no indication a base URL was even involved.
+//
+// Userinfo is dropped whole rather than passed through URL.Redacted(), which
+// masks the password but keeps the username. That is the right trade for the
+// debug logs next door, where the username tells you which credential was used;
+// it is the wrong one here, because a block error travels — into the flow's
+// error handling, the shipped logs, and the traces UI — and the host and path
+// are the whole diagnostic value. The username adds nothing a reader cannot get
+// from the connector name.
+//
+// Falls back to the configured target for the one path where Do returns before
+// resolving anything: an unstarted connector.
+func requestedURL(req *http.Request, target string) string {
+	if req.URL == nil || req.URL.Host == "" {
+		return target
+	}
+	clean := *req.URL
+	clean.User = nil
+	return clean.String()
 }
 
 // buildURL renders the query expressions and assembles "path?query".

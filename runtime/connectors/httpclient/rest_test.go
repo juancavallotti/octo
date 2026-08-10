@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/juancavallotti/octo/runtime/core"
@@ -172,6 +173,57 @@ func TestRESTFailOnErrorDefault(t *testing.T) {
 	}
 	if got := out.Variables["statusCode"]; got != 500 {
 		t.Errorf("statusCode var = %v, want 500", got)
+	}
+}
+
+// The error a failed call produces has to name the URL that was called, not the
+// path as configured. "rest request to things returned 400" gives a reader no
+// scheme, no host, and no hint that a base URL was involved at all — which is
+// most of why #264 took a packet capture to find.
+func TestRESTErrorNamesTheResolvedURL(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `{"error":"nope"}`)
+	}))
+	defer srv.Close()
+
+	// A base with no path and a path with no leading slash: the shape from #264.
+	block, err := newREST(types.Settings{"connector": "api", "path": "things"}, restDeps(t, srv.URL))
+	if err != nil {
+		t.Fatalf("newREST: %v", err)
+	}
+	_, err = block.Process(context.Background(), restMessage(t, nil))
+	if err == nil {
+		t.Fatal("expected an error for a 400 response")
+	}
+	want := srv.URL + "/things"
+	if !strings.Contains(err.Error(), want) {
+		t.Errorf("error = %q, want it to name %q", err, want)
+	}
+}
+
+// A base URL may carry credentials; a flow error is not the place for them.
+func TestRESTErrorRedactsBaseURLCredentials(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+	defer srv.Close()
+
+	withUser := strings.Replace(srv.URL, "http://", "http://alice:wonderland@", 1)
+	block, err := newREST(types.Settings{"connector": "api", "path": "things"}, restDeps(t, withUser))
+	if err != nil {
+		t.Fatalf("newREST: %v", err)
+	}
+	_, err = block.Process(context.Background(), restMessage(t, nil))
+	if err == nil {
+		t.Fatal("expected an error for a 400 response")
+	}
+	// Both halves: url.URL.Redacted() would mask the password and keep the
+	// username, which is not enough for an error that leaves the process.
+	for _, secret := range []string{"wonderland", "alice"} {
+		if strings.Contains(err.Error(), secret) {
+			t.Errorf("error leaked %q from the base URL userinfo: %v", secret, err)
+		}
 	}
 }
 
