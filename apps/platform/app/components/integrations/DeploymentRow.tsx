@@ -1,23 +1,20 @@
 "use client";
 
-import { useState } from "react";
 import {
   AlertTriangle,
-  Check,
-  ChevronRight,
   Clock,
-  Copy,
-  ExternalLink,
   GitBranch,
   RotateCcw,
-  ScrollText,
   Tag,
   Trash2,
   Waypoints,
 } from "lucide-react";
-import type { Deployment, DeploymentStatus } from "@/app/model/orchestrator";
+import type { Deployment } from "@/app/model/orchestrator";
 import ReplicaStepper from "./ReplicaStepper";
 import { relativeAge } from "@/app/lib/relativeAge";
+import { totalRestarts } from "./podStats";
+import { AddressLine, StatusBadge } from "./DeploymentRowParts";
+import PodList from "./PodList";
 
 /**
  * One row in the deployments list, laid out as a small card: a header line with
@@ -26,91 +23,6 @@ import { relativeAge } from "@/app/lib/relativeAge";
  * failure reason when failed. Split out of DeploymentsSection to keep that
  * component focused on data/actions.
  */
-
-const STATUS_STYLES: Record<DeploymentStatus, string> = {
-  running: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
-  pending: "bg-amber-500/15 text-amber-600 dark:text-amber-400",
-  failed: "bg-red-500/15 text-red-600 dark:text-red-400",
-};
-
-function StatusBadge({ status }: { status: DeploymentStatus }) {
-  const cls = STATUS_STYLES[status] ?? "bg-zinc-500/15 text-zinc-500";
-  return (
-    <span
-      className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${cls}`}
-    >
-      {status}
-    </span>
-  );
-}
-
-/** Total container restarts across a deployment's pods. */
-function totalRestarts(d: Deployment): number {
-  return (d.pods ?? []).reduce((sum, p) => sum + p.restarts, 0);
-}
-
-/** Strip the scheme so an address reads as a bare host[:port]/path. */
-function bareHost(url: string): string {
-  return url.replace(/^https?:\/\//, "");
-}
-
-/** A small copy-to-clipboard button with brief "copied" feedback. */
-function CopyButton({ value }: { value: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <button
-      type="button"
-      aria-label="Copy address"
-      onClick={() => {
-        navigator.clipboard?.writeText(value).then(
-          () => {
-            setCopied(true);
-            setTimeout(() => setCopied(false), 1200);
-          },
-          () => {},
-        );
-      }}
-      className="rounded p-0.5 text-zinc-400 transition-colors hover:bg-zinc-500/10 hover:text-zinc-600 dark:hover:text-zinc-300"
-    >
-      {copied ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
-    </button>
-  );
-}
-
-/** A labelled address line: a tag, then the address (a link when external). */
-function AddressLine({
-  label,
-  value,
-  href,
-}: {
-  label: string;
-  value: string;
-  href?: string;
-}) {
-  return (
-    <div className="flex items-center gap-2">
-      <span className="w-14 shrink-0 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">
-        {label}
-      </span>
-      {href ? (
-        <a
-          href={href}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center gap-1 truncate font-mono text-xs text-sky-600 hover:underline dark:text-sky-400"
-        >
-          {bareHost(value)}
-          <ExternalLink size={11} className="shrink-0" />
-        </a>
-      ) : (
-        <span className="truncate font-mono text-xs text-zinc-600 dark:text-zinc-300">
-          {bareHost(value)}
-        </span>
-      )}
-      <CopyButton value={bareHost(value)} />
-    </div>
-  );
-}
 
 export default function DeploymentRow({
   deployment: d,
@@ -134,7 +46,6 @@ export default function DeploymentRow({
   const desired = d.desiredReplicas || d.replicas;
   const pods = d.pods ?? [];
   // Pods are collapsed by default to keep the row compact; expand to tail logs.
-  const [podsOpen, setPodsOpen] = useState(false);
 
   return (
     <li
@@ -241,63 +152,7 @@ export default function DeploymentRow({
       )}
 
       {onOpenLogs && pods.length > 0 && (
-        <div className="mt-2 border-t border-zinc-100 pt-2 dark:border-zinc-800/70">
-          <button
-            type="button"
-            onClick={() => setPodsOpen((o) => !o)}
-            aria-expanded={podsOpen}
-            className="flex w-full items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-400 transition-colors hover:text-zinc-600 dark:hover:text-zinc-300"
-          >
-            <ChevronRight
-              size={12}
-              className={`transition-transform ${podsOpen ? "rotate-90" : ""}`}
-            />
-            Pods
-            <span className="font-sans normal-case text-zinc-400">
-              ({pods.length})
-            </span>
-          </button>
-          {podsOpen && (
-            <div className="mt-1.5 space-y-1">
-              {pods.map((p) => (
-            <div key={p.name} className="flex items-center gap-2">
-              <span
-                aria-hidden
-                className={`h-2 w-2 shrink-0 rounded-full ${
-                  p.ready
-                    ? "bg-emerald-500"
-                    : p.phase === "Running"
-                      ? "bg-amber-500"
-                      : "bg-zinc-400"
-                }`}
-                title={p.ready ? "Ready" : p.phase}
-              />
-              <span className="min-w-0 flex-1 truncate font-mono text-xs text-zinc-600 dark:text-zinc-300">
-                {p.name}
-              </span>
-              {p.restarts > 0 && (
-                <span
-                  className="inline-flex shrink-0 items-center gap-0.5 text-xs text-amber-600 dark:text-amber-400"
-                  title="Container restarts"
-                >
-                  <RotateCcw size={11} />
-                  {p.restarts}
-                </span>
-              )}
-              <button
-                type="button"
-                onClick={() => onOpenLogs(d, p.name)}
-                aria-label={`View logs for ${p.name}`}
-                title="View logs"
-                className="shrink-0 rounded-md p-1 text-zinc-400 transition-colors hover:bg-black/[0.06] hover:text-zinc-600 dark:hover:bg-white/[0.08] dark:hover:text-zinc-300"
-              >
-                <ScrollText size={14} />
-              </button>
-            </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <PodList pods={pods} onOpenLogs={(pod) => onOpenLogs(d, pod)} />
       )}
     </li>
   );
