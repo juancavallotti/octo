@@ -1,16 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Globe, Rocket, Tag, X } from "lucide-react";
+import { Rocket, X } from "lucide-react";
 import type { EnvBindingInput, Snapshot } from "@/app/model/orchestrator";
 import { suggestNextTag } from "@/app/model/tags";
 import { useDeployOptions } from "./useDeployOptions";
-import { INPUT } from "./inputStyles";
-import SlugField from "./SlugField";
-import DeployEnvFields from "./DeployEnvFields";
 import { useDeployEnv } from "./useDeployEnv";
-import Field from "./Field";
-import TracingToggle from "./TracingToggle";
+import DeployFormFields from "./DeployFormFields";
 
 /**
  * Modal that collects per-deploy options and deploys. The version is decided
@@ -147,116 +143,32 @@ export default function DeployModal({
           </button>
         </header>
 
-        <div className="flex max-h-[70vh] flex-col gap-5 overflow-y-auto px-4 py-4">
-          {currentMode ? (
-            <Field
-              label="New version"
-              hint="Deploying Current tags the working copy first, then ships that frozen version."
-            >
-              <div className="flex items-center gap-2">
-                <Tag size={14} className="shrink-0 text-zinc-400" />
-                <input
-                  value={newTag}
-                  disabled={busy}
-                  placeholder="e.g. v1.0.0"
-                  onChange={(e) => setNewTag(e.target.value)}
-                  className={`${INPUT} w-full`}
-                />
-              </div>
-            </Field>
-          ) : (
-            <Field
-              label="Version"
-              hint="Ships this tag's frozen definition. Pick a different version from the header."
-            >
-              <span className="inline-flex items-center gap-1.5 rounded-md bg-sky-500/10 px-2 py-1 text-sm font-medium text-sky-600 dark:text-sky-400">
-                <Tag size={14} />
-                {activeSnapshot.tag}
-              </span>
-            </Field>
-          )}
-
-          <Field label="Scale" hint="Runtime pods load-balanced behind the service.">
-            <label className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-300">
-              Replicas
-              <input
-                type="number"
-                min={1}
-                value={replicas}
-                disabled={busy}
-                onChange={(e) =>
-                  setReplicas(Math.max(1, Number(e.target.value) || 1))
-                }
-                className={`${INPUT} w-20`}
-              />
-            </label>
-          </Field>
-
-          {opts === null ? (
-            <p className="text-sm text-zinc-400">Loading options…</p>
-          ) : networked ? (
-            <Field
-              label="Address"
-              hint={`Reachable in-cluster at octo-int-${slug.trim() || "{slug}"}. Must be unique.`}
-            >
-              <SlugField
-                integrationId={integrationId}
-                value={slug}
-                onChange={setSlug}
-                expose={expose}
-                busy={busy}
-                onValidChange={setSlugOk}
-              />
-              <label className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-300">
-                <input
-                  type="checkbox"
-                  checked={expose}
-                  disabled={busy}
-                  onChange={(e) => setExpose(e.target.checked)}
-                  className="accent-sky-500"
-                />
-                <Globe size={14} />
-                Expose externally at this address
-              </label>
-            </Field>
-          ) : (
-            <p className="text-sm text-zinc-400">
-              No HTTP source — this integration runs as an internal workload with no
-              address.
-            </p>
-          )}
-
-          <Field
-            label="Tracing"
-            hint="Records every flow, block and model call, with what each one cost. For troubleshooting only — it significantly reduces throughput, so trace the deployment you are debugging and switch it off afterwards."
-          >
-            <TracingToggle busy={busy} checked={tracing} onChange={setTracing} />
-          </Field>
-
-          {envVars.length > 0 && (
-            <Field
-              label="Environment"
-              hint="Fill each variable with a value or a cluster secret. Required ones are marked *."
-            >
-              <DeployEnvFields
-                envVars={envVars}
-                bindings={bindings}
-                secretNames={secretNames}
-                providedKeys={providedKeys}
-                busy={busy}
-                onChange={setBinding}
-              />
-              {missingRequired.length > 0 && (
-                <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
-                  Provide a value or secret for:{" "}
-                  <span className="font-mono">{missingRequired.join(", ")}</span>
-                </p>
-              )}
-            </Field>
-          )}
-
-          {error && <p className="text-sm text-red-500">{error}</p>}
-        </div>
+        <DeployFormFields
+          integrationId={integrationId}
+          currentMode={currentMode}
+          loading={opts === null}
+          activeVersionLabel={activeSnapshot?.tag ?? ""}
+          newTag={newTag}
+          onNewTag={setNewTag}
+          replicas={replicas}
+          onReplicas={setReplicas}
+          networked={networked}
+          expose={expose}
+          onExpose={setExpose}
+          slug={slug}
+          onSlug={setSlug}
+          onSlugOk={setSlugOk}
+          tracing={tracing}
+          onTracing={setTracing}
+          envVars={envVars}
+          bindings={bindings}
+          secretNames={secretNames}
+          providedKeys={providedKeys}
+          missingRequired={missingRequired}
+          onBinding={setBinding}
+          busy={busy}
+          error={error}
+        />
 
         <footer className="flex justify-end gap-2 border-t border-black/10 px-4 py-3 dark:border-white/10">
           <button
