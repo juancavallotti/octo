@@ -203,9 +203,6 @@ orchestrator:
     # requirement. 48+ random characters is a sensible choice.
     hashSecret: ""
 
-# Log-aggregator service: consumes the NATS internal.logs subject (competing
-# consumer) and persists events to Postgres; serves the read query API the
-# platform's /logs view calls. Replicas scale safely (NATS queue group).
 # Telemetry aggregator. It consumes both internal.logs and internal.traces, and
 # serves the query API behind them — the name is historical, and tracked as its
 # own issue rather than a rename mid-stack.

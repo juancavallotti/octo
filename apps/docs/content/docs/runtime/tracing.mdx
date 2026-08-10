@@ -224,7 +224,7 @@ subjects for the other:
 | Module | Destination |
 | --- | --- |
 | standalone (default build) | A JSONL file, one object per line. Not a JSON array: a runtime is usually killed rather than stopped, and an array whose closing bracket was never written is unreadable, while JSONL cut anywhere is still valid up to its last complete line. |
-| k8s (`-tags k8s`) | The `internal.traces` NATS subject, consumed by the platform's aggregator, which stores the records it receives and prices any model calls — see [Traces](/platform/traces). |
+| k8s (`-tags k8s`) | The `internal.traces` NATS subject, consumed by the platform's telemetry aggregator, which stores the records it receives and prices the model calls among them where it can — a call whose provider reported no usage, or one on a model the price catalogue does not carry, is kept and marked unpriced rather than counted as free. See [Traces](/platform/traces). |
 
 The file is flushed whenever the runtime goes idle, so you can `tail -f` it during
 a run, and synced on a graceful stop.
@@ -247,7 +247,7 @@ the **process environment only**, not from a `.env` file: they are resolved when
 
 What the pod publishes is then stored and queryable — see
 [Traces](/platform/traces) for how records are kept, what a model call is priced
-at, and the API over both.
+at, how to tell an unpriced call from a free one, and the API over all of it.
 
 `octo invoke` never traces — it starts no hosted services — which is also why
 [test suites](/testing) are unaffected by any of this.
