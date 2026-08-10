@@ -159,10 +159,11 @@ const (
 // pointer-free int because the runtime omits the whole object rather than
 // individual counts when a provider reports nothing.
 type usageWire struct {
-	InputTokens    int `json:"inputTokens"`
-	OutputTokens   int `json:"outputTokens"`
-	ThinkingTokens int `json:"thinkingTokens"`
-	CachedTokens   int `json:"cachedTokens"`
+	InputTokens      int `json:"inputTokens"`
+	OutputTokens     int `json:"outputTokens"`
+	ThinkingTokens   int `json:"thinkingTokens"`
+	CachedTokens     int `json:"cachedTokens"`
+	CacheWriteTokens int `json:"cacheWriteTokens"`
 }
 
 // parseTraceRecord decodes one shipped record.
@@ -253,10 +254,11 @@ func parseModelCall(attrs json.RawMessage) (string, string, *cost.Usage) {
 		return model, provider, nil
 	}
 	return model, provider, &cost.Usage{
-		InputTokens:    usage.InputTokens,
-		OutputTokens:   usage.OutputTokens,
-		ThinkingTokens: usage.ThinkingTokens,
-		CachedTokens:   usage.CachedTokens,
+		InputTokens:      usage.InputTokens,
+		OutputTokens:     usage.OutputTokens,
+		ThinkingTokens:   usage.ThinkingTokens,
+		CachedTokens:     usage.CachedTokens,
+		CacheWriteTokens: usage.CacheWriteTokens,
 	}
 }
 

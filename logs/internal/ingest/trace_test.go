@@ -22,7 +22,8 @@ const (
 		`"attrs":{"block":"agent","connector":"myClaude","provider":"ANTHROPIC","iteration":2,` +
 		`"model":"claude-3-5-sonnet-20241022",` +
 		`"stopReason":"end_turn","toolCalls":1,` +
-		`"usage":{"cachedTokens":800,"inputTokens":1200,"outputTokens":340,"thinkingTokens":120}},` +
+		`"usage":{"cachedTokens":800,"cacheWriteTokens":4096,"inputTokens":1200,` +
+		`"outputTokens":340,"thinkingTokens":120}},` +
 		`"deploymentId":"11111111-1111-1111-1111-111111111111","appName":"orders","appVersion":"v3"}`
 
 	// A turn whose provider reported nothing: the runtime omits the usage object
@@ -112,7 +113,8 @@ func TestParseTraceRecordModelCall(t *testing.T) {
 		t.Fatal("usage did not survive the decode")
 	}
 	if got.Usage.InputTokens != 1200 || got.Usage.OutputTokens != 340 ||
-		got.Usage.ThinkingTokens != 120 || got.Usage.CachedTokens != 800 {
+		got.Usage.ThinkingTokens != 120 || got.Usage.CachedTokens != 800 ||
+		got.Usage.CacheWriteTokens != 4096 {
 		t.Fatalf("usage = %+v", *got.Usage)
 	}
 

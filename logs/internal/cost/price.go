@@ -11,9 +11,12 @@ const tokensPerUnit = 1_000_000
 const (
 	// StatusPriced is a cost computed in full from a known rate.
 	StatusPriced Status = "priced"
-	// StatusPricedPartial is a cost computed from a rate that published nothing
-	// for cache reads, so cached tokens were charged at the full input rate. It
-	// over-states rather than under-states, and says which.
+	// StatusPricedPartial is a cost computed from a rate that published no cache
+	// rate, so those tokens were charged at the full input rate. The direction of
+	// the error depends on which half was missing: a cache read costs less than
+	// input, so the fallback over-states it; a cache write costs more, so the
+	// fallback under-states it. Either way the figure is an estimate, and this is
+	// how it says so.
 	StatusPricedPartial Status = "priced_partial"
 	// StatusUnpricedModel is a call whose model no rate in the card matches. The
 	// cost is unknown — not zero.
@@ -39,15 +42,18 @@ type Status string
 // two together therefore bills reasoning twice, which is why nothing here reads
 // ThinkingTokens at all — it is carried for reporting, not for arithmetic.
 //
-// CachedTokens is cache-READ tokens in all three connectors. Cache WRITES are not
-// captured anywhere in the runtime today, so a call that populated a cache is
-// under-costed by whatever the write cost; that is a gap in the source data, not
-// one this package can close.
+// CachedTokens is cache-READ tokens and CacheWriteTokens is cache CREATION. The
+// two bill in opposite directions from ordinary input — a read cheaper, a write
+// dearer — so they are counted and priced separately rather than summed.
 type Usage struct {
 	InputTokens    int
 	OutputTokens   int
 	ThinkingTokens int
 	CachedTokens   int
+	// CacheWriteTokens is cache CREATION: the tokens a call spent populating a
+	// prompt cache, which bill above the input rate (Anthropic charges roughly
+	// 1.25x). Only Anthropic reports one.
+	CacheWriteTokens int
 }
 
 // Call is one model call as a trace record reports it.
@@ -137,30 +143,50 @@ func (t *Table) Price(call Call) Priced {
 	input := nonNegative(call.Usage.InputTokens)
 	output := nonNegative(call.Usage.OutputTokens)
 	cached := nonNegative(call.Usage.CachedTokens)
+	written := nonNegative(call.Usage.CacheWriteTokens)
 
 	billableInput := input
 	if providerOf(call, rate) != anthropicProvider {
 		// Clamped rather than trusted: a provider reporting more cached tokens
 		// than input tokens is reporting something this arithmetic cannot mean,
 		// and a negative charge is worse than a conservative one.
-		billableInput = nonNegative(input - cached)
+		billableInput = nonNegative(input - cached - written)
 	}
 
 	priced.cost = amount(billableInput, rate.InputPer1M) + amount(output, rate.OutputPer1M)
-
-	if cached == 0 {
-		return priced
-	}
-	if rate.CacheReadPer1M == nil {
-		// No published cache rate. Charging the tokens at the full input rate
-		// over-states the cost; charging them at nothing under-states it while
-		// looking exactly like a confident answer. Over-state, and say so.
-		priced.Status = StatusPricedPartial
-		priced.cost += amount(cached, rate.InputPer1M)
-		return priced
-	}
-	priced.cost += amount(cached, *rate.CacheReadPer1M)
+	priced.cost += t.cacheCost(&priced, rate, cached, written)
 	return priced
+}
+
+// cacheCost prices the two cache halves and downgrades the status when either
+// has no published rate.
+//
+// Both fall back to the input rate, and the two fallbacks err in opposite
+// directions: a read costs *less* than input, so charging it at input
+// over-states; a write costs *more*, so charging it at input under-states. Only
+// the read fallback can be described as conservative. Neither invents a
+// multiplier — a 1.25x write rate is Anthropic's published figure, not a
+// universal one, and pricing from a rate nobody published would be a confident
+// answer with nothing behind it. The status is what says so, either way.
+func (t *Table) cacheCost(priced *Priced, rate Rate, cached, written int) float64 {
+	var cost float64
+	if cached > 0 {
+		if rate.CacheReadPer1M == nil {
+			priced.Status = StatusPricedPartial
+			cost += amount(cached, rate.InputPer1M)
+		} else {
+			cost += amount(cached, *rate.CacheReadPer1M)
+		}
+	}
+	if written > 0 {
+		if rate.CacheWritePer1M == nil {
+			priced.Status = StatusPricedPartial
+			cost += amount(written, rate.InputPer1M)
+		} else {
+			cost += amount(written, *rate.CacheWritePer1M)
+		}
+	}
+	return cost
 }
 
 // providerOf is the vendor family to apply the cached-token rule for: what the
