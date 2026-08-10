@@ -35,8 +35,6 @@ import {
   probeTestVersion,
   probeVersion,
   test,
-  type RunKey,
-  type RunState,
 } from "@octo/run-host";
 import type {
   CelEvalRequest,
@@ -49,42 +47,9 @@ import type {
 } from "@octo/editor";
 import type { ActionResult } from "@octo/http";
 import { ensureRunNamespace } from "@/app/run/namespace";
-import { orchestratorResourceProvider } from "@/app/lib/runResources";
 import { UNSAVED, remoteRunner } from "@/app/run/remoteRunner";
 import { withRead, withUser, withWrite, withWriteUser } from "./_auth";
-
-/**
- * The editor snapshot, composed from the two things it asks about at once: what this
- * host can spawn (its binaries, which back the one-shot debug runs) and what the app
- * runner is currently doing. They are separate because they answer to different owners
- * — a binary is installed on the host, a run belongs to a backend.
- */
-function snapshotOf(state: RunState): RunStatusSnapshot {
-  return { ...binaries(), ...state };
-}
-
-/** The resource provider for a run, or undefined for an unsaved draft (no id). */
-function resourcesFor(integrationId?: unknown) {
-  if (typeof integrationId !== "string" || integrationId.trim() === "") return undefined;
-  return orchestratorResourceProvider(integrationId);
-}
-
-/**
- * The key the app runner addresses: the owning user and integration, which is what a dev
- * run *is*, plus the run namespace, which it ignores.
- *
- * The namespace is resolved anyway rather than skipped, and not out of politeness to the
- * type: `ensureRunNamespace` is what mints the run cookie, and the one-shots below key
- * their staging directories on it. Dropping it here would leave the first `invoke` of a
- * session to mint it instead — which works, and hides why it has to happen at all.
- */
-async function runKey(
-  tabId: string,
-  userId: string,
-  integrationId?: string,
-): Promise<RunKey> {
-  return { namespace: await ensureRunNamespace(tabId), userId, integrationId };
-}
+import { resourcesFor, runKey, snapshotOf } from "./_run";
 
 /** Whether RUN is available, whether a dev run is live for this integration, and versions. */
 export async function runStatus(
