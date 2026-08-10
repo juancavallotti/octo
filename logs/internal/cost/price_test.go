@@ -259,3 +259,71 @@ func TestNilTablePricesNothing(t *testing.T) {
 		t.Fatal("a nil card produced a known cost")
 	}
 }
+
+// TestPriceUsesTheReportedProviderNotTheMatchedRate is the point of #254.
+//
+// A bare `claude-*` pattern is published under BEDROCK and AWS as well as
+// ANTHROPIC, so an Anthropic model shipped before the catalogue lists it under
+// its own dated entry resolves to one of those instead. The rate is close enough
+// to be plausible; the *convention* is not. Anthropic reports an input count
+// that excludes cached tokens, so applying the inclusive rule subtracts them
+// from a total that never contained them — silently under-charging by the whole
+// cached amount.
+func TestPriceUsesTheReportedProviderNotTheMatchedRate(t *testing.T) {
+	// One model, one rate, published under a provider that is not the vendor.
+	table := NewTable([]Rate{{
+		ID: "bedrock-claude", Provider: "BEDROCK", Pattern: "claude", Operator: OpIncludes,
+		InputPer1M: 3, OutputPer1M: 15, CacheReadPer1M: ptr(0.3),
+	}})
+
+	usage := &Usage{InputTokens: 1000, OutputTokens: 500, CachedTokens: 900}
+	call := Call{Model: "claude-brand-new-20991231", Usage: usage}
+
+	// Without a reported provider the rate's BEDROCK wins and the inclusive rule
+	// applies: 100 billable input tokens. This is the old behaviour, kept for
+	// records stored before the runtime carried a provider.
+	inferred := table.Price(call)
+	wantInferred := amount(100, 3) + amount(500, 15) + amount(900, 0.3)
+	if got, _ := inferred.CostUSD(); math.Abs(got-wantInferred) > epsilon {
+		t.Errorf("inferred provider: cost = %.12f, want %.12f", got, wantInferred)
+	}
+
+	// With the runtime's own answer, the exclusive rule applies: all 1000 input
+	// tokens are billable, because Anthropic never counted the cached ones there.
+	call.Provider = "ANTHROPIC"
+	reported := table.Price(call)
+	wantReported := amount(1000, 3) + amount(500, 15) + amount(900, 0.3)
+	if got, _ := reported.CostUSD(); math.Abs(got-wantReported) > epsilon {
+		t.Errorf("reported provider: cost = %.12f, want %.12f", got, wantReported)
+	}
+
+	// And the difference is the whole under-charge the issue describes.
+	if wantReported <= wantInferred {
+		t.Fatal("fixture does not reproduce the under-charge")
+	}
+
+	// The stored Provider stays the rate's: it is the audit trail for which rate
+	// produced the number, and conflating it with the reported family would lose
+	// the ability to see that the two disagreed.
+	if reported.Provider != "BEDROCK" {
+		t.Errorf("Priced.Provider = %q, want the rate's BEDROCK", reported.Provider)
+	}
+}
+
+// The reported family is normalized like every other provider string, so a
+// connector spelling it in lower case still matches.
+func TestPriceNormalizesTheReportedProvider(t *testing.T) {
+	table := NewTable([]Rate{{
+		ID: "bedrock-claude", Provider: "BEDROCK", Pattern: "claude", Operator: OpIncludes,
+		InputPer1M: 3, OutputPer1M: 15, CacheReadPer1M: ptr(0.3),
+	}})
+	call := Call{
+		Model:    "claude-x",
+		Provider: " anthropic ",
+		Usage:    &Usage{InputTokens: 1000, OutputTokens: 0, CachedTokens: 900},
+	}
+	want := amount(1000, 3) + amount(900, 0.3) // exclusive, i.e. recognised as Anthropic
+	if got, _ := table.Price(call).CostUSD(); math.Abs(got-want) > epsilon {
+		t.Errorf("cost = %.12f, want %.12f (provider should normalize)", got, want)
+	}
+}

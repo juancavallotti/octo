@@ -55,6 +55,10 @@ type Call struct {
 	// Model is the model that actually served the call, which is not necessarily
 	// the one that was asked for.
 	Model string
+	// Provider is the vendor family the runtime stamped on the call, in this
+	// package's vocabulary (ANTHROPIC, OPENAI, GOOGLE). Empty for a record written
+	// before the runtime carried one, or by a connector that reports none.
+	Provider string
 	// Usage is what the provider reported, and is nil when it reported nothing.
 	// Nil is not an empty Usage: a provider staying silent and a provider
 	// charging zero are different facts, and only one of them is a cost.
@@ -100,10 +104,17 @@ func (p Priced) CostUSD() (float64, bool) {
 // because providers disagree about what their input count contains. Anthropic
 // reports the uncached remainder, so its cached tokens are additional; OpenAI and
 // Gemini report a total that already contains them, so charging both the full
-// input count and the cache count bills the cached tokens twice. The rule is
-// therefore keyed on the provider the rate resolved to — which is the reason
-// resolution bothers to disambiguate providers at all — with the inclusive
-// convention as the default, since it is what the OpenAI-compatible APIs follow.
+// input count and the cache count bills the cached tokens twice. The inclusive
+// convention is the default, since it is what the OpenAI-compatible APIs follow.
+//
+// The rule is keyed on the provider the *call* reported, not on the provider of
+// whichever rate happened to match the model. Those differ exactly when it
+// matters: bare claude-* patterns are published under AWS and BEDROCK as well,
+// so an Anthropic model shipped before the catalogue lists it under ANTHROPIC
+// falls through to one of those — and the exclusive arithmetic its usage was
+// reported under is then applied as though it were inclusive, subtracting cached
+// tokens from an input count that never contained them. That under-charges, and
+// nothing in the stored record says so.
 func (t *Table) Price(call Call) Priced {
 	if call.Usage == nil {
 		return Priced{Status: StatusNoUsage}
@@ -128,7 +139,7 @@ func (t *Table) Price(call Call) Priced {
 	cached := nonNegative(call.Usage.CachedTokens)
 
 	billableInput := input
-	if rate.Provider != anthropicProvider {
+	if providerOf(call, rate) != anthropicProvider {
 		// Clamped rather than trusted: a provider reporting more cached tokens
 		// than input tokens is reporting something this arithmetic cannot mean,
 		// and a negative charge is worse than a conservative one.
@@ -150,6 +161,21 @@ func (t *Table) Price(call Call) Priced {
 	}
 	priced.cost += amount(cached, *rate.CacheReadPer1M)
 	return priced
+}
+
+// providerOf is the vendor family to apply the cached-token rule for: what the
+// runtime stamped on the call, falling back to the provider of the rate that
+// matched.
+//
+// The fallback is what every record stored before the runtime carried a provider
+// replays under, and what a third-party connector that reports none still gets.
+// It is the old behaviour exactly, kept so that adding the attribute changed no
+// historical figure.
+func providerOf(call Call, rate Rate) string {
+	if call.Provider != "" {
+		return normalizeProvider(call.Provider)
+	}
+	return rate.Provider
 }
 
 // amount converts a token count and a per-million rate into money.
