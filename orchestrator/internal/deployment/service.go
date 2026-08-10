@@ -28,6 +28,7 @@ type repository interface {
 	UpdateStatus(ctx context.Context, id, status string) error
 	UpdateSettings(ctx context.Context, id string, settings json.RawMessage) error
 	UpdateMetadata(ctx context.Context, id string, metadata json.RawMessage) error
+	UpdateMetadataAndSettings(ctx context.Context, id string, metadata, settings json.RawMessage) error
 	Delete(ctx context.Context, id string) error
 }
 
@@ -740,27 +741,38 @@ func (s *Service) Rollout(ctx context.Context, id, snapshotID string, env map[st
 		return Deployment{}, err
 	}
 
-	// Record the new tag in metadata (and mirror the snapshot id into settings, as
-	// Deploy does) so reads and the SSE snapshot reflect what is now running.
+	// Record the new tag in metadata and the new snapshot id in settings (as Deploy
+	// does), so reads and the SSE snapshot reflect what is now running.
+	//
+	// Both in one write, and the error returned rather than logged. The stored
+	// settings are not just a record of this rollout, they are the input to the
+	// next one: env and tracing both follow "nil preserves, present replaces", so
+	// a rollout that replaced either and then failed to persist leaves the pods on
+	// the new value and the row on the old — and the next plain version bump reads
+	// the stale row and quietly undoes the change. Reporting success there is the
+	// part that makes it invisible.
+	//
+	// The caller sees a failure for a rollout whose pods did roll. That is the
+	// honest report and the safe direction: the cluster is the harder thing to
+	// undo, and a rollout is idempotent, so retrying costs nothing.
 	meta.SnapshotID = snap.ID
 	meta.Tag = snap.Tag
 	metaJSON, err := json.Marshal(meta)
 	if err != nil {
-		return Deployment{}, err
+		return Deployment{}, fmt.Errorf("rollout %s: marshal metadata: %w", id, err)
 	}
-	if err := s.repo.UpdateMetadata(ctx, id, metaJSON); err != nil {
-		return Deployment{}, err
+	settings.SnapshotID = snap.ID
+	settingsJSON, err := json.Marshal(settings)
+	if err != nil {
+		return Deployment{}, fmt.Errorf("rollout %s: marshal settings: %w", id, err)
+	}
+	if err := s.repo.UpdateMetadataAndSettings(ctx, id, metaJSON, settingsJSON); err != nil {
+		return Deployment{}, fmt.Errorf(
+			"rollout %s: pods rolled to %s but recording it failed, so the stored "+
+				"deployment is behind them; retry the rollout: %w", id, snap.Tag, err)
 	}
 	dep.Metadata = metaJSON
-
-	settings.SnapshotID = snap.ID
-	if settingsJSON, mErr := json.Marshal(settings); mErr == nil {
-		if err := s.repo.UpdateSettings(ctx, id, settingsJSON); err != nil {
-			slog.Error("rollout: persist settings snapshot id", "id", id, "error", err)
-		} else {
-			dep.Settings = settingsJSON
-		}
-	}
+	dep.Settings = settingsJSON
 
 	s.applyRefresh(ctx, &dep)
 	return dep, nil
