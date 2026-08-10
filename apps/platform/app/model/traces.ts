@@ -133,6 +133,9 @@ export interface TraceRecord {
   /** Already counted inside `outputTokens`. Never add the two. */
   thinkingTokens: number | null;
   cachedTokens: number | null;
+  /** Cache creation, billed above the input rate. Null on a record written before
+   *  the runtime reported it — unknown, not zero. */
+  cacheWriteTokens: number | null;
   costUsd: number | null;
   costStatus: CostStatus;
   priceId: string;

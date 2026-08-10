@@ -148,5 +148,8 @@ function tokens(record: NonNullable<WaterfallNode["record"]>): string {
   // are never summed.
   if (record.thinkingTokens) parts.push(`${record.thinkingTokens} of it thinking`);
   if (record.cachedTokens) parts.push(`${record.cachedTokens} cache reads`);
+  // Beside the reads, not folded in with them: a write bills above the input
+  // rate and a read below it, so one number for both would explain neither.
+  if (record.cacheWriteTokens) parts.push(`${record.cacheWriteTokens} cache writes`);
   return parts.length > 0 ? parts.join(" · ") : "The provider reported no usage.";
 }
