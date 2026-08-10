@@ -84,6 +84,8 @@ A rollout ships a different tag's frozen definition to a live deployment as a **
 
 Two guards apply, mirroring deploy: the target tag's required env vars must still be provided, and a tag that changes whether the integration is networked (adds or removes `HTTP_PORT`) is rejected — that would change the Service/Ingress topology, which a rolling update cannot express. Undeploy and redeploy instead.
 
+The new tag, env bindings and tracing setting are recorded in one write once the pods have rolled. If that write fails, the rollout **reports the failure** even though the pods did roll: retry it. Do not read the failure as "nothing happened" — the pods are on the new version and the stored record is behind them until a retry succeeds. Retrying is safe, because a rollout is idempotent. The record has to be trusted, since an omitted env or tracing value on the *next* rollout is read from it.
+
 <Callout type="info">
 Deploying "Current" from the editor first creates a tag of the working copy, then deploys that tag — so even ad-hoc deploys are pinned to an immutable version.
 </Callout>
