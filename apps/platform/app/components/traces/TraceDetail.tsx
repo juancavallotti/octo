@@ -5,6 +5,7 @@ import { Waypoints } from "lucide-react";
 import { EmptyState } from "@/app/(session)/platform/DashboardTiles";
 import { formatDuration } from "./format";
 import type { WaterfallNode } from "./types";
+import RecordInspector from "./RecordInspector";
 import TraceSummaryPanel from "./TraceSummaryPanel";
 import { useTraceDetail } from "./useTraceDetail";
 import Waterfall from "./Waterfall";
@@ -64,7 +65,7 @@ export default function TraceDetail({ traceId }: { traceId: string }) {
 
       <TraceSummaryPanel summary={summary} waterfall={waterfall} />
 
-      <div className="min-h-0 flex-1 overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {/* Keyed by the trace, so its viewport and folded branches start fresh
             rather than carrying one trace's shape onto another. */}
         <Waterfall
@@ -74,6 +75,17 @@ export default function TraceDetail({ traceId }: { traceId: string }) {
           onSelect={setSelected}
         />
       </div>
+
+      {selected && (
+        // Keyed by the span, so opening another one refetches rather than
+        // showing the previous record's payloads under the new heading.
+        <RecordInspector
+          key={selected.id}
+          traceId={summary.traceId}
+          node={selected}
+          onClose={() => setSelected(null)}
+        />
+      )}
     </div>
   );
 }

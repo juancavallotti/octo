@@ -10,6 +10,8 @@
  * avoid.
  */
 
+import type { CostStatus } from "@/app/model/traces";
+
 const MINUTE_NS = 60_000_000_000;
 
 /** A duration in nanoseconds, at a scale a reader can hold. */
@@ -79,6 +81,36 @@ export function describeCost(
     `the provider reported no usage. The real cost is higher than this.`;
   if (usd === 0) return { text: "unpriced", partial: true, title };
   return { text: `≥ ${formatCost(usd)}`, partial: true, title };
+}
+
+/**
+ * Why one model call's cost is what it is, in the words a reader needs to judge
+ * whether they can trust the number beside it.
+ *
+ * The store records this per call rather than leaving it to be inferred, because
+ * every one of these cases produces a number — or a blank — that looks exactly
+ * like the others until you know which it is.
+ */
+export function describeCostStatus(status: CostStatus): string {
+  switch (status) {
+    case "priced":
+      return "Priced from the published rate for this model.";
+    case "priced_partial":
+      return (
+        "Partly priced: the catalogue publishes no cache-read rate for this " +
+        "model, so cache reads were charged at the input rate. An over-estimate " +
+        "that says so, rather than cache reads charged at nothing."
+      );
+    case "unpriced_model":
+      return (
+        "The model is not in the price catalogue, so nothing here can say what " +
+        "the call cost. That is not the same as it being free."
+      );
+    case "no_usage":
+      return "The provider reported no token usage for this call, so there is nothing to price.";
+    default:
+      return "";
+  }
 }
 
 /** A short "how long ago", for a column too narrow for a timestamp. */

@@ -75,7 +75,7 @@ export default function Waterfall({
   const zoomed = view.start > bounds.start || view.end < bounds.end;
 
   return (
-    <div className="flex min-h-0 flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       {waterfall.warnings.length > 0 && (
         <ul className="space-y-1 px-3 py-2">
           {waterfall.warnings.map((warning) => (
