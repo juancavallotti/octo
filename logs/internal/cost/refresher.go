@@ -99,6 +99,10 @@ func (r *Refresher) Run(ctx context.Context) {
 	}
 }
 
+// recordSyncTimeout bounds the write of a cycle's outcome. It runs on a detached
+// context, so something has to stop it holding a shutdown open.
+const recordSyncTimeout = 5 * time.Second
+
 // cycle runs one refresh and records what happened, including a failure.
 func (r *Refresher) cycle(ctx context.Context) {
 	sync, err := r.refresh(ctx)
@@ -112,7 +116,13 @@ func (r *Refresher) cycle(ctx context.Context) {
 			"added", sync.Added, "changed", sync.Changed, "rates", r.Card().Len())
 	}
 
-	if err := r.store.RecordSync(ctx, sync); err != nil {
+	// Detached, because the outcome most worth keeping is the one from a cycle
+	// that shutdown interrupted: the fetch fails with the cancellation, and a
+	// write on the same context would fail with it too, leaving no trace of the
+	// attempt in the one table that makes a failing feed visible.
+	record, cancel := context.WithTimeout(context.WithoutCancel(ctx), recordSyncTimeout)
+	defer cancel()
+	if err := r.store.RecordSync(record, sync); err != nil {
 		slog.Error("recording the refresh outcome failed", "source", r.source, "err", err)
 	}
 }

@@ -51,7 +51,12 @@ func (f *fakeStore) Apply(_ context.Context, _ string, changes []Change) error {
 	return nil
 }
 
-func (f *fakeStore) RecordSync(_ context.Context, sync Sync) error {
+// RecordSync refuses a cancelled context the way a real pool does, so a test can
+// tell a recorded outcome from one the database would have rejected.
+func (f *fakeStore) RecordSync(ctx context.Context, sync Sync) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.syncs = append(f.syncs, sync)
@@ -82,10 +87,13 @@ type fakeCatalogue struct {
 	calls int
 }
 
-func (f *fakeCatalogue) Fetch(_ context.Context) (Fetched, error) {
+func (f *fakeCatalogue) Fetch(ctx context.Context) (Fetched, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
+	if err := ctx.Err(); err != nil {
+		return Fetched{}, err
+	}
 	if f.err != nil {
 		return Fetched{}, f.err
 	}
@@ -252,6 +260,26 @@ func TestCycleRecordsBothOutcomes(t *testing.T) {
 	}
 	if got[1].Err == nil {
 		t.Error("the failed cycle recorded no error")
+	}
+}
+
+// The outcome most worth keeping is the one from a cycle that shutdown
+// interrupted, and it is the one a write on the cycle's own context would lose:
+// the fetch fails with the cancellation, and so would the record of it.
+func TestCycleRecordsAnOutcomeItsContextDidNotSurvive(t *testing.T) {
+	store := &fakeStore{}
+	refresher := NewRefresher(store, &fakeCatalogue{rates: []Rate{gpt4o(2.5, 10)}}, SourceHelicone, time.Hour)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	refresher.cycle(ctx)
+
+	got := store.outcomes()
+	if len(got) != 1 {
+		t.Fatalf("recorded %d outcomes, want the interrupted cycle's 1", len(got))
+	}
+	if got[0].Err == nil {
+		t.Error("the interrupted cycle recorded no error")
 	}
 }
 
