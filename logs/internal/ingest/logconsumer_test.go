@@ -92,6 +92,27 @@ func TestConsumerWritesWhatItHoldsOnShutdown(t *testing.T) {
 	}
 }
 
+// TestConsumerShedsRecordsItHasNoRoomFor pins the behaviour under a writer that
+// has fallen behind: drop, count, and stay non-blocking. The callback used to
+// block instead, which pushed the loss into the NATS client's own slow-consumer
+// handling — the same records gone, reported as a client-side error naming
+// neither a count nor an app.
+func TestConsumerShedsRecordsItHasNoRoomFor(t *testing.T) {
+	consumer := NewLogConsumer(newCaptureStore(1), 1)
+
+	work := make(chan *nats.Msg, 1)
+	consumer.offer(work, logMsg("kept"))
+	consumer.offer(work, logMsg("shed"))
+	consumer.offer(work, logMsg("shed too"))
+
+	if got := consumer.Dropped(); got != 2 {
+		t.Errorf("Dropped() = %d, want 2", got)
+	}
+	if len(work) != 1 {
+		t.Errorf("buffered %d records, want the one that fit", len(work))
+	}
+}
+
 // holdStore blocks every insert until released, so a test can be certain the
 // writes are in flight when the shutdown arrives rather than hoping they are.
 type holdStore struct {

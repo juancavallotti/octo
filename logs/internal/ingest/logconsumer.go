@@ -10,15 +10,35 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
-// logWriteTimeout bounds one insert. It is a backstop against a database that has
-// stopped answering rather than a tuning knob — a healthy insert is well under a
-// millisecond — and it exists so a worker cannot park forever holding up Close.
-const logWriteTimeout = 30 * time.Second
+const (
+	// logBuffer is how many delivered records may wait to be written.
+	//
+	// It was the worker count — eight — which is not a buffer so much as one slot
+	// per worker, and the callback blocked when it filled. Blocking there does not
+	// stall the other subscriptions, but it backs records up in this one's pending
+	// queue until the client drops them as a slow consumer: the same loss, arriving
+	// as a client-side error that names neither a count nor an app. This is sized
+	// to absorb a burst instead, and past it the consumer sheds and says so.
+	//
+	// Matched to traceBuffer deliberately. A log line is smaller than a trace
+	// record and a request produces fewer of them, so at the same depth the log
+	// path has strictly more slack than the trace path — which is the right way
+	// round for the records an operator reads when something is going wrong.
+	logBuffer = 8192
+
+	// logWriteTimeout bounds one insert. It is a backstop against a database that
+	// has stopped answering rather than a tuning knob — a healthy insert is well
+	// under a millisecond — and it exists so a worker cannot park forever holding
+	// up Close.
+	logWriteTimeout = 30 * time.Second
+)
 
 // LogConsumer subscribes to LogSubject as a competing consumer and persists each
 // delivered record through a LogStore. The subscription callback only enqueues, so a
 // slow store never stalls NATS delivery; a bounded worker pool does the inserts.
 type LogConsumer struct {
+	shedder
+
 	store   LogStore
 	workers int
 }
@@ -29,7 +49,7 @@ func NewLogConsumer(store LogStore, workers int) *LogConsumer {
 	if workers < 1 {
 		workers = 1
 	}
-	return &LogConsumer{store: store, workers: workers}
+	return &LogConsumer{shedder: shedder{what: "log"}, store: store, workers: workers}
 }
 
 // Subscription stops delivery and drains its workers on Close, so afterwards no
@@ -48,7 +68,7 @@ type Subscription struct {
 func (c *LogConsumer) Start(ctx context.Context, conn *nats.Conn) (*Subscription, error) {
 	subCtx, cancel := context.WithCancel(ctx)
 
-	work := make(chan *nats.Msg, c.workers)
+	work := make(chan *nats.Msg, logBuffer)
 	var wg sync.WaitGroup
 	wg.Add(c.workers)
 	for i := 0; i < c.workers; i++ {
@@ -67,10 +87,7 @@ func (c *LogConsumer) Start(ctx context.Context, conn *nats.Conn) (*Subscription
 	}
 
 	sub, err := conn.QueueSubscribe(LogSubject, logQueueGroup, func(m *nats.Msg) {
-		select {
-		case work <- m:
-		case <-subCtx.Done():
-		}
+		c.offer(work, m)
 	})
 	if err != nil {
 		cancel()
