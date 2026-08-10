@@ -2,13 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { Globe, Rocket, Tag, X } from "lucide-react";
-import {
-  getDeployOptions,
-  type DeployOptions,
-  type EnvBindingInput,
-  type Snapshot,
-} from "@/app/model/orchestrator";
+import type { EnvBindingInput, Snapshot } from "@/app/model/orchestrator";
 import { suggestNextTag } from "@/app/model/tags";
+import { useDeployOptions } from "./useDeployOptions";
+import { INPUT } from "./inputStyles";
 import SlugField from "./SlugField";
 import DeployEnvFields from "./DeployEnvFields";
 import { useDeployEnv } from "./useDeployEnv";
@@ -27,9 +24,6 @@ import TracingToggle from "./TracingToggle";
  * optional external exposure. The parent owns the deploy call (so it can create the
  * tag, refresh, and surface errors); this owns the form and closes on success.
  */
-
-const INPUT =
-  "rounded-md border border-black/10 dark:border-white/15 bg-transparent px-2 py-1 text-sm outline-none focus:border-black/30 dark:focus:border-white/30";
 
 /** What the modal submits: either an existing snapshot to deploy, or a new tag to
  * cut from the working copy first. The parent resolves the two into a deployment. */
@@ -70,7 +64,12 @@ export default function DeployModal({
   const [slug, setSlug] = useState("");
   const [slugOk, setSlugOk] = useState(false);
   const [tracing, setTracing] = useState(false);
-  const [opts, setOpts] = useState<DeployOptions | null>(null);
+  // A tag reads its frozen definition, Current the live working copy. The
+  // suggestion prefills the slug box on load, but not on the failure fallback —
+  // see useDeployOptions.
+  const opts = useDeployOptions(integrationId, activeSnapshot, (o) =>
+    setSlug(o.suggestedSlug ?? ""),
+  );
   // The new tag to cut when deploying Current; prefilled with the suggested next
   // version. Unused in tag mode.
   const [newTag, setNewTag] = useState(() =>
@@ -87,29 +86,6 @@ export default function DeployModal({
     providedKeys,
     build: buildEnv,
   } = useDeployEnv(opts);
-
-  // Load deploy options for the active version: a tag reads its frozen definition,
-  // Current the live working copy. Drives networked-ness, a free slug to prefill,
-  // and the env vars to prompt for. On failure assume non-networked.
-  useEffect(() => {
-    let active = true;
-    getDeployOptions(
-      integrationId,
-      activeSnapshot ? { snapshotId: activeSnapshot.id } : {},
-    ).then(
-      (o) => {
-        if (!active) return;
-        setOpts(o);
-        setSlug(o.suggestedSlug ?? "");
-      },
-      () =>
-        active &&
-        setOpts({ networked: false, slugValid: false, slugAvailable: false }),
-    );
-    return () => {
-      active = false;
-    };
-  }, [integrationId, activeSnapshot]);
 
   // Close on Escape, mirroring the editor's other overlays.
   useEffect(() => {
