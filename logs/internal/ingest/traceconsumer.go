@@ -96,11 +96,10 @@ func (c *TraceConsumer) Dropped() int64 {
 // Start joins the TraceSubject queue group and writes until the returned
 // Subscription is closed (or ctx is cancelled).
 //
-// There is exactly one writer, which is a correctness requirement rather than a
-// capacity choice: two transactions upserting the same two trace summaries in
-// opposite orders deadlock, and a batch's traces are in whatever order they
-// arrived. The way to add writers later is to shard on hash(traceID), so a given
-// trace is always written by the same one, and not to simply run this loop twice.
+// One writer, because one is enough and it keeps the batching to a single
+// accumulator. It is not a correctness constraint: FoldTraces emits its deltas in
+// trace-id order, so any two writers — in this process or in another replica —
+// take their row locks in the same order and cannot deadlock on each other.
 func (c *TraceConsumer) Start(ctx context.Context, conn *nats.Conn) (*Subscription, error) {
 	subCtx, cancel := context.WithCancel(ctx)
 
@@ -125,10 +124,12 @@ func (c *TraceConsumer) Start(ctx context.Context, conn *nats.Conn) (*Subscripti
 
 // offer hands a delivered record to the writer, shedding it if there is no room.
 //
-// It never blocks. This runs on the connection's delivery goroutine, so waiting
-// here for the writer to catch up would hold up every other subscription on that
-// connection — the log consumer among them. Traces are the load that can arrive
-// faster than it can be stored, so traces are what gives way.
+// It never blocks. Blocking here would not stall the other subscriptions — the
+// client runs a delivery goroutine per subscription — but it would back records
+// up in this one's pending queue until the client hit its own limit and dropped
+// them as a slow consumer. That is the same loss, arriving as a client-side
+// error with no count of what was lost or which app lost it. Shedding here loses
+// the same records and keeps the accounting.
 func (c *TraceConsumer) offer(work chan<- *nats.Msg, m *nats.Msg) {
 	select {
 	case work <- m:

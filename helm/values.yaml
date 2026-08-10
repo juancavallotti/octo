@@ -212,10 +212,11 @@ orchestrator:
 logs:
   repository: octo-logs-paas
   image: {}
-  # One replica by default. Both consumers join queue groups, so extra replicas
-  # share the stream rather than each storing every record — but a trace's
-  # records must all reach one writer to avoid two transactions upserting the
-  # same summaries in opposite orders, so scale this deliberately.
+  # Both consumers join queue groups, so extra replicas share each stream rather
+  # than each storing every record. A trace's records may be split across
+  # replicas: every summary column is an order-independent aggregate and the
+  # upserts are issued in trace-id order, so the halves merge to the same answer
+  # and concurrent writers cannot deadlock on each other.
   replicas: 1
 
   # Where the prices for traced model calls come from. A model call is priced

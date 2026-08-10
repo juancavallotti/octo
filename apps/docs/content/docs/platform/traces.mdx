@@ -5,7 +5,7 @@ description: "How traced runs are stored, how model calls are priced, and the AP
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-A runtime with tracing on publishes a record for every flow, block and model call it runs. On the platform those records are consumed off NATS, stored in Postgres, and rolled up per trace — so a run that happened in a pod that has since been replaced can still be read back, at the version that produced it, with what its model calls cost.
+A runtime with tracing on publishes a record for every flow and model call it runs, and for the blocks `OCTO_TRACING_BLOCKS` selects. On the platform those records are consumed off NATS, stored in Postgres, and rolled up per trace — so a run that happened in a pod that has since been replaced can still be read back, at the version that produced it, with what its model calls cost.
 
 See [Tracing](/runtime/tracing) for what the runtime emits and how to switch it on. This page is the other end: what happens to a record after it is published.
 
@@ -29,7 +29,7 @@ Records ship to the `internal.traces` subject on the shared broker, and the aggr
 
 Two consequences worth knowing before you read a trace:
 
-- **The consumer sheds under load.** Trace records are batched (500, or every 50 ms) and buffered; when the writer falls behind, new records are dropped rather than queued, because the subscription callback shares a connection with log shipping and blocking there would stall logs too. The count of what was dropped appears in the aggregator's logs and per app in the API.
+- **The consumer sheds under load.** Trace records are batched (500, or every 50 ms) and buffered; when the writer falls behind, new records are dropped rather than queued. Waiting instead would only back them up until the NATS client hit its own limit and dropped them as a slow consumer — the same loss, with no count of what went or which app lost it. The count of what was shed appears in the aggregator's logs and per app in the API.
 - **A publisher that loses records says so.** The runtime emits a `trace.dropped` marker naming how many it could not keep. The marker carries **no trace id** — it describes the stream, not any one run — so it can only ever be reported per app and per window. Nothing can say which traces are incomplete, only that some are.
 
 Replaying the same records twice stores them twice. Records are not de-duplicated; the contract is at-most-once delivery, not exactly-once storage.
@@ -124,5 +124,5 @@ There is **no retention or pruning** for `traces` and `trace_summaries` yet — 
 </Callout>
 
 <Callout type="info">
-Both consumers join queue groups, so extra `logs` replicas share the streams rather than each storing every record. Scale deliberately, though: a trace's records must all reach one writer, or two transactions upsert the same summaries in opposite orders.
+Both consumers join queue groups, so extra `logs` replicas share each stream rather than each storing every record. A trace's records may be split across replicas: every summary column is an order-independent aggregate, and the upserts are issued in trace-id order, so the halves merge to the same answer and concurrent writers take their row locks in the same order.
 </Callout>
