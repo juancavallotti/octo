@@ -1,0 +1,127 @@
+"use client";
+
+import { useMemo } from "react";
+import type { TraceSummary } from "@/app/model/traces";
+import { workBreakdown } from "./blockClasses";
+import { describeCost, formatDuration } from "./format";
+import type { Waterfall } from "./types";
+import WorkSplit from "./WorkSplit";
+
+/**
+ * What the trace adds up to.
+ *
+ * The split is deliberate. Every **aggregate** here — status, duration, tokens,
+ * cost, models — comes from the stored rollup rather than being recomputed from
+ * the records, so the number in the trace list and the number in this panel are
+ * the same number instead of two implementations that agree until one changes.
+ *
+ * The **I/O-vs-CPU breakdown** is the one thing computed here, because it needs
+ * the interval arithmetic the waterfall just did, and because which blocks count
+ * as waiting is presentation policy that changes whenever a connector is added.
+ */
+export default function TraceSummaryPanel({
+  summary,
+  waterfall,
+}: {
+  summary: TraceSummary;
+  waterfall: Waterfall;
+}) {
+  const breakdown = useMemo(() => workBreakdown(waterfall), [waterfall]);
+  const cost = describeCost(summary.costUsd, summary.unpricedCalls, summary.llmCalls > 0);
+
+  return (
+    <section className="grid gap-4 border-b border-black/10 px-4 py-3 md:grid-cols-2 dark:border-white/10">
+      <div className="space-y-1.5">
+        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+          Where the time went
+        </h3>
+        <WorkSplit breakdown={breakdown} />
+      </div>
+
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs sm:grid-cols-3">
+        <Stat label="Status" title={`This trace ended ${summary.status}`}>
+          <span
+            className={
+              summary.status === "failed"
+                ? "text-red-500"
+                : summary.status === "dropped"
+                  ? "text-amber-600 dark:text-amber-400"
+                  : "text-emerald-600 dark:text-emerald-400"
+            }
+          >
+            {summary.status}
+          </span>
+        </Stat>
+
+        <Stat
+          label="Records"
+          title="How many records were rolled up for this trace, which may be more than the chart draws."
+        >
+          {summary.records}
+        </Stat>
+
+        <Stat
+          label="Root flow"
+          title="The flow the trace started in. A flow-ref, split or aggregate runs inside it as its own invocation."
+        >
+          <span className="truncate">{summary.rootFlow || "—"}</span>
+        </Stat>
+
+        {summary.llmCalls > 0 && (
+          <>
+            <Stat label="Model calls" title={summary.models.join(", ")}>
+              {summary.llmCalls}
+            </Stat>
+
+            <Stat
+              label="Tokens"
+              title={
+                `${summary.inputTokens} in · ${summary.outputTokens} out` +
+                (summary.cachedTokens > 0 ? ` · ${summary.cachedTokens} cache reads` : "") +
+                ". Output already includes any thinking tokens — the provider counts them there, so the two are never added."
+              }
+            >
+              {summary.inputTokens + summary.outputTokens}
+            </Stat>
+
+            <Stat label="Cost" title={cost.title}>
+              <span className={cost.partial ? "text-amber-600 dark:text-amber-400" : ""}>
+                {cost.text}
+              </span>
+            </Stat>
+          </>
+        )}
+
+        {summary.deploymentIds.length > 1 && (
+          <Stat
+            label="Deployments"
+            title="This trace crossed more than one deployment — the trace id rides on the message and survives a queue hop, so this is not one app's story."
+          >
+            {summary.deploymentIds.length}
+          </Stat>
+        )}
+
+        <Stat label="Span" title="End to end, as the stored rollup measured it.">
+          <span className="font-mono">{formatDuration(breakdown.totalNs)}</span>
+        </Stat>
+      </dl>
+    </section>
+  );
+}
+
+function Stat({
+  label,
+  title,
+  children,
+}: {
+  label: string;
+  title?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="min-w-0" title={title}>
+      <dt className="text-[10px] uppercase tracking-wide text-zinc-400">{label}</dt>
+      <dd className="truncate">{children}</dd>
+    </div>
+  );
+}

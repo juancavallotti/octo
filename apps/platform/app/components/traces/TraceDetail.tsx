@@ -5,6 +5,7 @@ import { Waypoints } from "lucide-react";
 import { EmptyState } from "@/app/(session)/platform/DashboardTiles";
 import { formatDuration } from "./format";
 import type { WaterfallNode } from "./types";
+import TraceSummaryPanel from "./TraceSummaryPanel";
 import { useTraceDetail } from "./useTraceDetail";
 import Waterfall from "./Waterfall";
 
@@ -60,6 +61,8 @@ export default function TraceDetail({ traceId }: { traceId: string }) {
           a way the picture itself cannot show.
         </p>
       )}
+
+      <TraceSummaryPanel summary={summary} waterfall={waterfall} />
 
       <div className="min-h-0 flex-1 overflow-hidden">
         {/* Keyed by the trace, so its viewport and folded branches start fresh
