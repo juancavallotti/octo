@@ -6,6 +6,7 @@ import {
   Network,
   Rocket,
   ScrollText,
+  Waypoints,
 } from "lucide-react";
 
 /**
@@ -34,6 +35,7 @@ export const MANAGEMENT_SECTIONS = [
   { key: "secrets", label: "Secrets", href: "/platform/secrets", icon: KeyRound },
   { key: "queues", label: "Queues", href: "/platform/queues", icon: Network },
   { key: "logs", label: "Logs", href: "/platform/logs", icon: ScrollText },
+  { key: "traces", label: "Traces", href: "/platform/traces", icon: Waypoints },
 ] as const;
 
 export type ManagementSection = (typeof MANAGEMENT_SECTIONS)[number];
