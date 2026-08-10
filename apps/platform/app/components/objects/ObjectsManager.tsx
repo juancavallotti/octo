@@ -38,17 +38,7 @@ import {
   isSecretNamespace,
   reducer,
 } from "./state";
-
-/** Compact relative age (e.g. "3m", "2h", "5d") from an RFC3339 timestamp. */
-function relativeAge(iso?: string): string | null {
-  if (!iso) return null;
-  const secs = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
-  if (!Number.isFinite(secs) || secs < 0) return null;
-  if (secs < 60) return `${secs}s`;
-  if (secs < 3600) return `${Math.floor(secs / 60)}m`;
-  if (secs < 86400) return `${Math.floor(secs / 3600)}h`;
-  return `${Math.floor(secs / 86400)}d`;
-}
+import { relativeAge } from "@/app/lib/relativeAge";
 
 /** A readable label for a deployment in the picker. */
 function deploymentLabel(d: DeploymentWithIntegration): string {
