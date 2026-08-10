@@ -96,8 +96,8 @@ func readSummary(t *testing.T, store *Traces, traceID string) storedSummary {
 }
 
 // stored builds a record with a real deployment uuid.
-func storedRecord(traceID string, seq int64, kind string, opts ...func(*TraceRow)) TraceRow {
-	row := TraceRow{
+func storedRecord(traceID string, seq int64, kind string, opts ...func(*ingest.TraceRow)) ingest.TraceRow {
+	row := ingest.TraceRow{
 		Record: ingest.TraceRecord{
 			TraceID:      traceID,
 			Seq:          seq,
@@ -128,7 +128,7 @@ func TestTracesInsertStoresARecord(t *testing.T) {
 	row.Record.Vars = json.RawMessage(`{"tenant":"acme"}`)
 	row.Record.Attrs = json.RawMessage(`{"status":200}`)
 
-	if err := store.Insert(ctx, []TraceRow{row}); err != nil {
+	if err := store.Insert(ctx, []ingest.TraceRow{row}); err != nil {
 		t.Fatalf("insert: %v", err)
 	}
 
@@ -170,7 +170,7 @@ func TestTracesInsertKeepsAbsentPayloadsNull(t *testing.T) {
 	store, traceID := newTestTraces(t)
 	ctx := context.Background()
 
-	if err := store.Insert(ctx, []TraceRow{storedRecord(traceID, 1, ingest.KindFlowStarted)}); err != nil {
+	if err := store.Insert(ctx, []ingest.TraceRow{storedRecord(traceID, 1, ingest.KindFlowStarted)}); err != nil {
 		t.Fatalf("insert: %v", err)
 	}
 
@@ -201,7 +201,7 @@ func TestTracesInsertStoresUnknownCostsAsNull(t *testing.T) {
 	unpriced.Record.Usage = usage
 	unpriced.Priced = table.Price(cost.Call{Model: unpriced.Record.Model, Usage: usage})
 
-	if err := store.Insert(ctx, []TraceRow{unpriced}); err != nil {
+	if err := store.Insert(ctx, []ingest.TraceRow{unpriced}); err != nil {
 		t.Fatalf("insert: %v", err)
 	}
 
@@ -234,7 +234,7 @@ func TestTracesInsertRollsUpASummary(t *testing.T) {
 	store, traceID := newTestTraces(t)
 	ctx := context.Background()
 
-	err := store.Insert(ctx, []TraceRow{
+	err := store.Insert(ctx, []ingest.TraceRow{
 		storedRecord(traceID, 1, ingest.KindSourceReceive,
 			withAttrs(`{"method":"POST","route":"/checkout"}`)),
 		storedRecord(traceID, 2, ingest.KindFlowStarted, inFlow("checkout")),
@@ -268,19 +268,19 @@ func TestTracesSummaryMergesAcrossBatchesEitherWay(t *testing.T) {
 	// The second batch carries the entry record and the failure; the first
 	// carries only interior work. Whichever is stored first, the summary is the
 	// same.
-	interior := func(traceID string) []TraceRow {
-		return []TraceRow{
+	interior := func(traceID string) []ingest.TraceRow {
+		return []ingest.TraceRow{
 			storedRecord(traceID, 5, ingest.KindFlowStarted, inFlow("checkout")),
 			storedRecord(traceID, 6, ingest.KindBlockPostInvoke, inFlow("checkout"), endingAt(30, 25)),
-			storedRecord(traceID, 7, ingest.KindLLMTurn, func(r *TraceRow) {
+			storedRecord(traceID, 7, ingest.KindLLMTurn, func(r *ingest.TraceRow) {
 				r.Record.Model = "m"
 				r.Record.Usage = &cost.Usage{InputTokens: 1000, OutputTokens: 200}
 				r.Priced = priced(0.01, "OPENAI", rateID)
 			}),
 		}
 	}
-	entry := func(traceID string) []TraceRow {
-		return []TraceRow{
+	entry := func(traceID string) []ingest.TraceRow {
+		return []ingest.TraceRow{
 			storedRecord(traceID, 1, ingest.KindSourceReceive,
 				withAttrs(`{"method":"POST","route":"/checkout"}`)),
 			storedRecord(traceID, 9, ingest.KindFlowFailed, inFlow("checkout"), endingAt(95, 95)),
@@ -289,15 +289,15 @@ func TestTracesSummaryMergesAcrossBatchesEitherWay(t *testing.T) {
 
 	cases := []struct {
 		name  string
-		order func(traceID string) [][]TraceRow
+		order func(traceID string) [][]ingest.TraceRow
 	}{
 		{
 			name:  "the entry record arrives last",
-			order: func(id string) [][]TraceRow { return [][]TraceRow{interior(id), entry(id)} },
+			order: func(id string) [][]ingest.TraceRow { return [][]ingest.TraceRow{interior(id), entry(id)} },
 		},
 		{
 			name:  "the entry record arrives first",
-			order: func(id string) [][]TraceRow { return [][]TraceRow{entry(id), interior(id)} },
+			order: func(id string) [][]ingest.TraceRow { return [][]ingest.TraceRow{entry(id), interior(id)} },
 		},
 	}
 
@@ -344,12 +344,12 @@ func TestTracesSummaryKeepsTheBetterEntryRecord(t *testing.T) {
 	store, traceID := newTestTraces(t)
 	ctx := context.Background()
 
-	if err := store.Insert(ctx, []TraceRow{
+	if err := store.Insert(ctx, []ingest.TraceRow{
 		storedRecord(traceID, 1, ingest.KindSourceReceive, withAttrs(`{"method":"GET","route":"/health"}`)),
 	}); err != nil {
 		t.Fatalf("first batch: %v", err)
 	}
-	if err := store.Insert(ctx, []TraceRow{
+	if err := store.Insert(ctx, []ingest.TraceRow{
 		storedRecord(traceID, 2, ingest.KindFlowStarted, inFlow("health")),
 	}); err != nil {
 		t.Fatalf("second batch: %v", err)
@@ -371,13 +371,13 @@ func TestTracesSummaryAcrossDeployments(t *testing.T) {
 	store, traceID := newTestTraces(t)
 	ctx := context.Background()
 
-	back := func(r *TraceRow) {
+	back := func(r *ingest.TraceRow) {
 		r.Record.DeploymentID = depBack
 		r.Record.AppName = "fulfilment"
 		r.Record.AppVersion = "v2"
 		r.IntegrationID = intBack
 	}
-	err := store.Insert(ctx, []TraceRow{
+	err := store.Insert(ctx, []ingest.TraceRow{
 		storedRecord(traceID, 1, ingest.KindSourceReceive, withAttrs(`{"method":"POST","route":"/checkout"}`)),
 		storedRecord(traceID, 1, ingest.KindBlockPostInvoke, inFlow("fulfil"), back),
 	})
@@ -405,17 +405,17 @@ func TestTracesSummaryUnionsModelsAcrossBatches(t *testing.T) {
 	store, traceID := newTestTraces(t)
 	ctx := context.Background()
 
-	call := func(seq int64, model string) TraceRow {
-		return storedRecord(traceID, seq, ingest.KindLLMTurn, func(r *TraceRow) {
+	call := func(seq int64, model string) ingest.TraceRow {
+		return storedRecord(traceID, seq, ingest.KindLLMTurn, func(r *ingest.TraceRow) {
 			r.Record.Model = model
 			r.Record.Usage = &cost.Usage{InputTokens: 10}
 			r.Priced = priced(0.001, "OPENAI", rateID)
 		})
 	}
-	if err := store.Insert(ctx, []TraceRow{call(1, "model-a"), call(2, "model-b")}); err != nil {
+	if err := store.Insert(ctx, []ingest.TraceRow{call(1, "model-a"), call(2, "model-b")}); err != nil {
 		t.Fatalf("first batch: %v", err)
 	}
-	if err := store.Insert(ctx, []TraceRow{call(3, "model-b"), call(4, "model-c")}); err != nil {
+	if err := store.Insert(ctx, []ingest.TraceRow{call(3, "model-b"), call(4, "model-c")}); err != nil {
 		t.Fatalf("second batch: %v", err)
 	}
 
@@ -441,7 +441,7 @@ func TestTracesInsertStoresTheDroppedMarkerWithoutASummary(t *testing.T) {
 	ctx := context.Background()
 
 	marker := storedRecord("", 99, ingest.KindTraceDropped, withAttrs(`{"dropped":5,"total":5}`))
-	if err := store.Insert(ctx, []TraceRow{marker}); err != nil {
+	if err := store.Insert(ctx, []ingest.TraceRow{marker}); err != nil {
 		t.Fatalf("insert: %v", err)
 	}
 

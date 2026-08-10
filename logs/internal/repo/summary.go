@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/juancavallotti/octo/logs/internal/cost"
 	"github.com/juancavallotti/octo/logs/internal/ingest"
 )
 
@@ -43,16 +42,6 @@ const (
 	attrRoute    = "route"
 	attrSchedule = "schedule"
 )
-
-// TraceRow is one record ready to store: what arrived on the wire, together with
-// what ingest worked out about it.
-type TraceRow struct {
-	Record ingest.TraceRecord
-	// IntegrationID is empty when the deployment could not be resolved.
-	IntegrationID string
-	// Priced is the zero value for records that are not model calls.
-	Priced cost.Priced
-}
 
 // TraceDelta is what one batch of records contributes to a trace's summary.
 //
@@ -114,7 +103,7 @@ type TraceDelta struct {
 //
 // The output is sorted so a batch always upserts in the same order, which keeps
 // two writers touching overlapping traces from deadlocking on each other.
-func FoldTraces(rows []TraceRow) []TraceDelta {
+func FoldTraces(rows []ingest.TraceRow) []TraceDelta {
 	byTrace := make(map[string]*TraceDelta)
 	for _, row := range rows {
 		if row.Record.TraceID == "" {
@@ -139,7 +128,7 @@ func FoldTraces(rows []TraceRow) []TraceDelta {
 }
 
 // absorb merges one record into the delta.
-func (d *TraceDelta) absorb(row TraceRow) {
+func (d *TraceDelta) absorb(row ingest.TraceRow) {
 	d.Records++
 	d.extendInterval(row.Record)
 	d.considerIdentity(row)
@@ -166,7 +155,7 @@ func (d *TraceDelta) extendInterval(record ingest.TraceRecord) {
 }
 
 // considerIdentity keeps the identity of the best entry record seen so far.
-func (d *TraceDelta) considerIdentity(row TraceRow) {
+func (d *TraceDelta) considerIdentity(row ingest.TraceRow) {
 	record := row.Record
 	rank := entryRankOf(record.Kind)
 	if d.hasIdentity && !betterEntry(rank, record.Seq, d.EntryRank, d.EntrySeq) {
@@ -241,7 +230,7 @@ func (d *TraceDelta) considerOutcome(record ingest.TraceRecord) {
 }
 
 // considerModelCall folds in what a model call reported and cost.
-func (d *TraceDelta) considerModelCall(row TraceRow) {
+func (d *TraceDelta) considerModelCall(row ingest.TraceRow) {
 	if _, isCall := row.Record.ModelCall(); !isCall {
 		return
 	}

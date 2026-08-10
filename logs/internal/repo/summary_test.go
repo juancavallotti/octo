@@ -25,8 +25,8 @@ func at(ms int) time.Time { return traceStart.Add(time.Duration(ms) * time.Milli
 func ms(n int) int64 { return int64(n) * int64(time.Millisecond) }
 
 // record builds a row with the fields most tests care about.
-func record(seq int64, kind string, opts ...func(*TraceRow)) TraceRow {
-	row := TraceRow{
+func record(seq int64, kind string, opts ...func(*ingest.TraceRow)) ingest.TraceRow {
+	row := ingest.TraceRow{
 		Record: ingest.TraceRecord{
 			TraceID:      "t1",
 			Seq:          seq,
@@ -44,23 +44,23 @@ func record(seq int64, kind string, opts ...func(*TraceRow)) TraceRow {
 	return row
 }
 
-func endingAt(endMs int, durationMs int) func(*TraceRow) {
-	return func(r *TraceRow) {
+func endingAt(endMs int, durationMs int) func(*ingest.TraceRow) {
+	return func(r *ingest.TraceRow) {
 		r.Record.Time = at(endMs)
 		r.Record.DurationNs = ms(durationMs)
 	}
 }
 
-func inFlow(flow string) func(*TraceRow) {
-	return func(r *TraceRow) { r.Record.Flow = flow }
+func inFlow(flow string) func(*ingest.TraceRow) {
+	return func(r *ingest.TraceRow) { r.Record.Flow = flow }
 }
 
-func withAttrs(raw string) func(*TraceRow) {
-	return func(r *TraceRow) { r.Record.Attrs = json.RawMessage(raw) }
+func withAttrs(raw string) func(*ingest.TraceRow) {
+	return func(r *ingest.TraceRow) { r.Record.Attrs = json.RawMessage(raw) }
 }
 
-func fromDeployment(deployment, integration, app, version string) func(*TraceRow) {
-	return func(r *TraceRow) {
+func fromDeployment(deployment, integration, app, version string) func(*ingest.TraceRow) {
+	return func(r *ingest.TraceRow) {
 		r.Record.DeploymentID = deployment
 		r.Record.AppName = app
 		r.Record.AppVersion = version
@@ -68,8 +68,8 @@ func fromDeployment(deployment, integration, app, version string) func(*TraceRow
 	}
 }
 
-func modelCall(model string, usage *cost.Usage, priced cost.Priced) func(*TraceRow) {
-	return func(r *TraceRow) {
+func modelCall(model string, usage *cost.Usage, priced cost.Priced) func(*ingest.TraceRow) {
+	return func(r *ingest.TraceRow) {
 		r.Record.Model = model
 		r.Record.Usage = usage
 		r.Priced = priced
@@ -90,7 +90,7 @@ func priced(amount float64, provider, priceID string) cost.Priced {
 }
 
 // foldOne folds rows and returns the single delta they must produce.
-func foldOne(t *testing.T, rows []TraceRow) TraceDelta {
+func foldOne(t *testing.T, rows []ingest.TraceRow) TraceDelta {
 	t.Helper()
 	got := FoldTraces(rows)
 	if len(got) != 1 {
@@ -101,11 +101,11 @@ func foldOne(t *testing.T, rows []TraceRow) TraceDelta {
 
 // foldEveryOrder folds the same rows in many orders and fails if any two
 // orderings disagree, returning the delta they all produced.
-func foldEveryOrder(t *testing.T, rows []TraceRow) TraceDelta {
+func foldEveryOrder(t *testing.T, rows []ingest.TraceRow) TraceDelta {
 	t.Helper()
 	want := foldOne(t, rows)
 	for round := range shuffleRounds {
-		shuffled := make([]TraceRow, len(rows))
+		shuffled := make([]ingest.TraceRow, len(rows))
 		copy(shuffled, rows)
 		rand.New(rand.NewPCG(uint64(round), 0)).Shuffle(len(shuffled), func(i, j int) {
 			shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
@@ -121,7 +121,7 @@ func foldEveryOrder(t *testing.T, rows []TraceRow) TraceDelta {
 // latest thing that ended, and a record is stamped when it finished. Reading the
 // timestamp alone would place the trace's start at its first completion.
 func TestFoldSpansTheWholeInterval(t *testing.T) {
-	got := foldEveryOrder(t, []TraceRow{
+	got := foldEveryOrder(t, []ingest.TraceRow{
 		record(1, ingest.KindSourceReceive, endingAt(0, 0)),
 		record(2, ingest.KindBlockPostInvoke, endingAt(30, 25)),
 		record(3, ingest.KindBlockPostInvoke, endingAt(90, 55)),
@@ -143,7 +143,7 @@ func TestFoldSpansTheWholeInterval(t *testing.T) {
 // A block that finished before anything else began still moves the trace's start
 // back, which is only visible if the interval is used rather than the timestamp.
 func TestFoldStartIsTheEarliestBeginning(t *testing.T) {
-	got := foldEveryOrder(t, []TraceRow{
+	got := foldEveryOrder(t, []ingest.TraceRow{
 		record(1, ingest.KindBlockPostInvoke, endingAt(50, 40)),
 		record(2, ingest.KindBlockPostInvoke, endingAt(20, 20)),
 	})
@@ -156,13 +156,13 @@ func TestFoldStartIsTheEarliestBeginning(t *testing.T) {
 func TestFoldEntryPoint(t *testing.T) {
 	cases := []struct {
 		name      string
-		rows      []TraceRow
+		rows      []ingest.TraceRow
 		wantKind  string
 		wantLabel string
 	}{
 		{
 			name: "an http request names itself by method and route",
-			rows: []TraceRow{
+			rows: []ingest.TraceRow{
 				record(1, ingest.KindSourceReceive, withAttrs(`{"method":"POST","route":"/orders/{id}","status":201}`)),
 				record(2, ingest.KindFlowStarted, inFlow("orders")),
 			},
@@ -171,7 +171,7 @@ func TestFoldEntryPoint(t *testing.T) {
 		},
 		{
 			name: "a schedule names itself by its expression",
-			rows: []TraceRow{
+			rows: []ingest.TraceRow{
 				record(1, ingest.KindSourceEmit, withAttrs(`{"schedule":"0 */5 * * * *"}`)),
 				record(2, ingest.KindFlowStarted, inFlow("sweep")),
 			},
@@ -182,7 +182,7 @@ func TestFoldEntryPoint(t *testing.T) {
 			// Nothing said how the trace was triggered, so the flow it ran is
 			// the most specific honest answer.
 			name: "a trace with no source falls back to the flow",
-			rows: []TraceRow{
+			rows: []ingest.TraceRow{
 				record(1, ingest.KindFlowStarted, inFlow("orders")),
 				record(2, ingest.KindBlockPostInvoke, inFlow("orders")),
 			},
@@ -193,7 +193,7 @@ func TestFoldEntryPoint(t *testing.T) {
 			// A source record outranks a flow record even when it arrives later
 			// and carries a higher sequence.
 			name: "a source record outranks a flow record whatever the order",
-			rows: []TraceRow{
+			rows: []ingest.TraceRow{
 				record(9, ingest.KindSourceReceive, withAttrs(`{"method":"GET","route":"/health"}`)),
 				record(1, ingest.KindFlowStarted, inFlow("orders")),
 			},
@@ -204,7 +204,7 @@ func TestFoldEntryPoint(t *testing.T) {
 			// Nothing here names an entry point, so no label is invented from a
 			// block that happened to sort first.
 			name: "blocks alone name no entry point",
-			rows: []TraceRow{
+			rows: []ingest.TraceRow{
 				record(4, ingest.KindBlockPostInvoke, inFlow("orders")),
 				record(5, ingest.KindBlockPostInvoke, inFlow("orders")),
 			},
@@ -229,7 +229,7 @@ func TestFoldEntryPoint(t *testing.T) {
 // The identity shown for a trace is the entry record's, not whichever record was
 // folded last — which matters once a trace crosses deployments.
 func TestFoldIdentityComesFromTheEntryRecord(t *testing.T) {
-	got := foldEveryOrder(t, []TraceRow{
+	got := foldEveryOrder(t, []ingest.TraceRow{
 		record(1, ingest.KindSourceReceive,
 			fromDeployment("dep-front", "int-front", "storefront", "v9"),
 			withAttrs(`{"method":"POST","route":"/checkout"}`)),
@@ -259,28 +259,28 @@ func TestFoldIdentityComesFromTheEntryRecord(t *testing.T) {
 func TestFoldStatus(t *testing.T) {
 	cases := []struct {
 		name string
-		rows []TraceRow
+		rows []ingest.TraceRow
 		want string
 	}{
 		{
 			name: "a completed flow is ok",
-			rows: []TraceRow{record(1, ingest.KindFlowCompleted, inFlow("orders"))},
+			rows: []ingest.TraceRow{record(1, ingest.KindFlowCompleted, inFlow("orders"))},
 			want: StatusOK,
 		},
 		{
 			name: "a dropped flow is dropped",
-			rows: []TraceRow{record(1, ingest.KindFlowDropped, inFlow("orders"))},
+			rows: []ingest.TraceRow{record(1, ingest.KindFlowDropped, inFlow("orders"))},
 			want: StatusDropped,
 		},
 		{
 			name: "a failed flow is failed",
-			rows: []TraceRow{record(1, ingest.KindFlowFailed, inFlow("orders"))},
+			rows: []ingest.TraceRow{record(1, ingest.KindFlowFailed, inFlow("orders"))},
 			want: StatusFailed,
 		},
 		{
 			// A sub-flow completing must not clear the failure beside it.
 			name: "a failure anywhere outranks everything else",
-			rows: []TraceRow{
+			rows: []ingest.TraceRow{
 				record(1, ingest.KindFlowCompleted, inFlow("orders")),
 				record(2, ingest.KindFlowFailed, inFlow("orders.charge")),
 				record(3, ingest.KindFlowDropped, inFlow("orders.notify")),
@@ -289,7 +289,7 @@ func TestFoldStatus(t *testing.T) {
 		},
 		{
 			name: "a drop outranks a completion",
-			rows: []TraceRow{
+			rows: []ingest.TraceRow{
 				record(1, ingest.KindFlowCompleted, inFlow("orders")),
 				record(2, ingest.KindFlowDropped, inFlow("orders.filter")),
 			},
@@ -309,7 +309,7 @@ func TestFoldStatus(t *testing.T) {
 // A flow reached through flow-ref times itself and nests inside its caller, so
 // the longest terminal is the outermost — the duration the trace actually took.
 func TestFoldRootDurationIsTheOutermostFlow(t *testing.T) {
-	got := foldEveryOrder(t, []TraceRow{
+	got := foldEveryOrder(t, []ingest.TraceRow{
 		record(1, ingest.KindFlowCompleted, inFlow("orders"), endingAt(100, 100)),
 		record(2, ingest.KindFlowCompleted, inFlow("orders.enrich"), endingAt(60, 40)),
 	})
@@ -320,7 +320,7 @@ func TestFoldRootDurationIsTheOutermostFlow(t *testing.T) {
 }
 
 func TestFoldModelCalls(t *testing.T) {
-	got := foldEveryOrder(t, []TraceRow{
+	got := foldEveryOrder(t, []ingest.TraceRow{
 		record(1, ingest.KindSourceReceive),
 		record(2, ingest.KindLLMTurn, modelCall("claude-3-5-sonnet-20241022",
 			&cost.Usage{InputTokens: 1000, OutputTokens: 200, ThinkingTokens: 50, CachedTokens: 300},
@@ -361,15 +361,15 @@ func TestFoldModelCalls(t *testing.T) {
 func TestFoldCountsUnpricedCallsApartFromTheTotal(t *testing.T) {
 	var table *cost.Table // prices nothing
 
-	got := foldEveryOrder(t, []TraceRow{
+	got := foldEveryOrder(t, []ingest.TraceRow{
 		record(1, ingest.KindLLMTurn, modelCall("a-known-model",
 			&cost.Usage{InputTokens: 1000}, priced(0.01, "OPENAI", rateID))),
-		record(2, ingest.KindLLMTurn, func(r *TraceRow) {
+		record(2, ingest.KindLLMTurn, func(r *ingest.TraceRow) {
 			r.Record.Model = "a-model-nobody-published"
 			r.Record.Usage = &cost.Usage{InputTokens: 5000, OutputTokens: 2000}
 			r.Priced = table.Price(cost.Call{Model: "a-model-nobody-published", Usage: r.Record.Usage})
 		}),
-		record(3, ingest.KindLLMTurn, func(r *TraceRow) {
+		record(3, ingest.KindLLMTurn, func(r *ingest.TraceRow) {
 			r.Record.Model = "a-silent-provider"
 			r.Record.Usage = nil
 			r.Priced = table.Price(cost.Call{Model: "a-silent-provider"})
@@ -395,9 +395,9 @@ func TestFoldCountsUnpricedCallsApartFromTheTotal(t *testing.T) {
 // The dropped-records marker describes the stream a publisher produced, not any
 // one trace. Giving it a summary row would invent a trace that never ran.
 func TestFoldSkipsRecordsBelongingToNoTrace(t *testing.T) {
-	rows := []TraceRow{
+	rows := []ingest.TraceRow{
 		record(1, ingest.KindSourceReceive),
-		func() TraceRow {
+		func() ingest.TraceRow {
 			row := record(2, ingest.KindTraceDropped, withAttrs(`{"dropped":5,"total":5}`))
 			row.Record.TraceID = ""
 			return row
@@ -419,7 +419,7 @@ func TestFoldSkipsRecordsBelongingToNoTrace(t *testing.T) {
 // Deltas are emitted in a fixed order so a batch always upserts in the same
 // sequence, which keeps two writers touching overlapping traces from deadlocking.
 func TestFoldEmitsTracesInAStableOrder(t *testing.T) {
-	rows := []TraceRow{}
+	rows := []ingest.TraceRow{}
 	for _, id := range []string{"t-c", "t-a", "t-b"} {
 		row := record(1, ingest.KindSourceReceive)
 		row.Record.TraceID = id
@@ -427,7 +427,7 @@ func TestFoldEmitsTracesInAStableOrder(t *testing.T) {
 	}
 
 	for round := range shuffleRounds {
-		shuffled := make([]TraceRow, len(rows))
+		shuffled := make([]ingest.TraceRow, len(rows))
 		copy(shuffled, rows)
 		rand.New(rand.NewPCG(uint64(round), 7)).Shuffle(len(shuffled), func(i, j int) {
 			shuffled[i], shuffled[j] = shuffled[j], shuffled[i]

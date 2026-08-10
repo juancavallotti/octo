@@ -101,6 +101,20 @@ func (r TraceRecord) ModelCall() (cost.Call, bool) {
 	}
 }
 
+// TraceRow is one record ready to store: what arrived on the wire, together with
+// what ingest worked out about it.
+//
+// It lives here rather than with the store because ingest is what produces it —
+// decoding the record, resolving its integration and pricing its model call are
+// all steps on the way in. The store only consumes it.
+type TraceRow struct {
+	Record TraceRecord
+	// IntegrationID is empty when the deployment could not be resolved.
+	IntegrationID string
+	// Priced is the zero value for records that are not model calls.
+	Priced cost.Priced
+}
+
 // traceWire is the record as it arrives: the runtime's TraceEvent flattened
 // together with the deployment that emitted it, one JSON object per message.
 type traceWire struct {

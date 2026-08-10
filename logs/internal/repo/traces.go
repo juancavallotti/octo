@@ -7,6 +7,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/juancavallotti/octo/logs/internal/ingest"
 )
 
 // emptyJSONObject is what a record with no attributes is stored as. The column is
@@ -46,7 +48,7 @@ func NewTraces(pool *pgxpool.Pool) *Traces {
 // ten-block flow is a couple of dozen records where the same request produces one
 // or two log lines, so the per-statement round trip that suits the log path is the
 // wrong shape here.
-func (t *Traces) Insert(ctx context.Context, rows []TraceRow) error {
+func (t *Traces) Insert(ctx context.Context, rows []ingest.TraceRow) error {
 	if len(rows) == 0 {
 		return nil
 	}
@@ -75,7 +77,7 @@ func (t *Traces) Insert(ctx context.Context, rows []TraceRow) error {
 }
 
 // traceValues renders one row in traceColumns order.
-func traceValues(row TraceRow) []any {
+func traceValues(row ingest.TraceRow) []any {
 	record := row.Record
 
 	// Absent and empty are different facts for a payload: nil means the runtime
