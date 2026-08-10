@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -32,11 +31,6 @@ const (
 	// than holding its records until the next burst pushes them out.
 	traceBatchSize = 500
 	traceBatchWait = 50 * time.Millisecond
-
-	// dropWarnInterval rate-limits the overflow warning. The condition that
-	// produces it produces it thousands of times a second, and a log line per
-	// dropped record turns shedding trace load into a second, worse flood.
-	dropWarnInterval = 10 * time.Second
 
 	// shutdownFlushTimeout bounds the last write on the way out, for both
 	// consumers. Records held at that point are already off the wire and will not
@@ -71,27 +65,22 @@ type pricer interface {
 // per-record round trip that suits the log path would spend most of its time in
 // protocol overhead here.
 type TraceConsumer struct {
+	shedder
+
 	store        TraceStore
 	integrations integrations
 	prices       pricer
-
-	dropped atomic.Int64
-
-	warnMu   sync.Mutex
-	nextWarn time.Time
 }
 
 // NewTraceConsumer returns a consumer that resolves and prices each record before
 // handing batches of them to store.
 func NewTraceConsumer(store TraceStore, resolver integrations, prices pricer) *TraceConsumer {
-	return &TraceConsumer{store: store, integrations: resolver, prices: prices}
-}
-
-// Dropped is the running total of records shed because the writer could not keep
-// up. It is the number the overflow warning names, exposed so a caller can report
-// it without parsing logs.
-func (c *TraceConsumer) Dropped() int64 {
-	return c.dropped.Load()
+	return &TraceConsumer{
+		shedder:      shedder{what: "trace"},
+		store:        store,
+		integrations: resolver,
+		prices:       prices,
+	}
 }
 
 // Start joins the TraceSubject queue group and writes until the returned
@@ -121,37 +110,6 @@ func (c *TraceConsumer) Start(ctx context.Context, conn *nats.Conn) (*Subscripti
 		return nil, fmt.Errorf("ingest: subscribe %q: %w", TraceSubject, err)
 	}
 	return &Subscription{sub: sub, cancel: cancel, wg: &wg}, nil
-}
-
-// offer hands a delivered record to the writer, shedding it if there is no room.
-//
-// It never blocks. Blocking here would not stall the other subscriptions — the
-// client runs a delivery goroutine per subscription — but it would back records
-// up in this one's pending queue until the client hit its own limit and dropped
-// them as a slow consumer. That is the same loss, arriving as a client-side
-// error with no count of what was lost or which app lost it. Shedding here loses
-// the same records and keeps the accounting.
-func (c *TraceConsumer) offer(work chan<- *nats.Msg, m *nats.Msg) {
-	select {
-	case work <- m:
-	default:
-		c.overflow()
-	}
-}
-
-// overflow counts a shed record and warns about it at most occasionally, naming
-// the running total so one line says how bad it has got rather than how recently.
-func (c *TraceConsumer) overflow() {
-	total := c.dropped.Add(1)
-
-	c.warnMu.Lock()
-	defer c.warnMu.Unlock()
-	now := time.Now()
-	if now.Before(c.nextWarn) {
-		return
-	}
-	c.nextWarn = now.Add(dropWarnInterval)
-	slog.Warn("ingest: dropping trace records, the writer is behind", "dropped", total)
 }
 
 // write accumulates rows and flushes them on size or on age, whichever comes
