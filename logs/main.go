@@ -181,7 +181,7 @@ func priceRefreshInterval() time.Duration {
 	return interval
 }
 
-// newServer wires the HTTP routes. The log query API is registered only when a
+// newServer wires the HTTP routes. The query API is registered only when a
 // database is configured; /healthz always serves so liveness probes pass even
 // before Postgres is reachable.
 func newServer(database *db.DB) http.Handler {
@@ -192,7 +192,8 @@ func newServer(database *db.DB) http.Handler {
 	})
 	if database != nil {
 		api.NewLogsHandler(repo.NewLogs(database.Pool())).Register(mux)
-		slog.Info("log query API registered", "endpoint", "GET /logs")
+		api.NewTracesHandler(repo.NewTraces(database.Pool())).Register(mux)
+		slog.Info("query API registered", "endpoints", "GET /logs, GET /traces/apps")
 	}
 	return mux
 }
