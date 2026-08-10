@@ -206,13 +206,31 @@ func (p *processor) Process(ctx context.Context, msg *types.Message) (*types.Mes
 	msg.Variables.Set(p.statusVar, resp.StatusCode)
 
 	if p.failOnError && resp.StatusCode >= http.StatusBadRequest {
-		return nil, fmt.Errorf("rest request to %s returned %d: %s", target, resp.StatusCode, snippet(respBody))
+		return nil, fmt.Errorf("rest request to %s returned %d: %s",
+			requestedURL(req, target), resp.StatusCode, snippet(respBody))
 	}
 
 	if err := foldResponse(msg, respBody, resp.Header.Get("Content-Type")); err != nil {
 		return nil, err
 	}
 	return msg, nil
+}
+
+// requestedURL names the URL the call actually went to. Connector.Do resolves
+// the block's path against the connector's base URL in place, so once it has
+// returned req.URL is the absolute URL — and that is the one worth reporting.
+// The configured path on its own ("things") names neither the host nor the base
+// it was joined to, which leaves a reader of "rest request to things returned
+// 400" with no indication a base URL was even involved.
+//
+// Redacted, so userinfo in a base URL cannot reach a flow error; and it falls
+// back to the configured target for the one path where Do returns before
+// resolving anything, an unstarted connector.
+func requestedURL(req *http.Request, target string) string {
+	if req.URL != nil && req.URL.Host != "" {
+		return req.URL.Redacted()
+	}
+	return target
 }
 
 // buildURL renders the query expressions and assembles "path?query".
