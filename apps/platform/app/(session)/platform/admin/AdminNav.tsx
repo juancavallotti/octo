@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowLeft, Mail, Settings, Sparkles } from "lucide-react";
+import { ArrowLeft, Bot, Mail, Settings, Sparkles } from "lucide-react";
 
 /**
  * The admin section's own switcher, in the shared header's controls slot.
@@ -31,6 +31,7 @@ export const ADMIN_SECTIONS: readonly AdminSection[] = [
   { key: "overview", href: "/platform/admin", label: "Overview", icon: Settings },
   { key: "email", href: "/platform/admin/email", label: "Email", icon: Mail },
   { key: "llm", href: "/platform/admin/llm", label: "LLM provider", icon: Sparkles },
+  { key: "agent", href: "/platform/admin/agent", label: "Platform agent", icon: Bot },
 ] as const;
 
 export default function AdminNav({ sections }: { sections?: readonly AdminSection[] }) {

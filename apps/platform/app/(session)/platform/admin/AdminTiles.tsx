@@ -15,7 +15,7 @@ import { ShortcutTile } from "../DashboardTiles";
  * would go looking for it.
  */
 
-const LIVE = [
+export const LIVE = [
   {
     href: "/platform/admin/email",
     icon: Mail,
