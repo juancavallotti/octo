@@ -116,6 +116,12 @@ The example above is the real one: `internal.integrations.events` is the subject
 
 What is published is the message **body, as JSON** — the same payload any other topic message carries, which is what the platform hands to the browser.
 
+### Publish only
+
+A `system:` subject can be published to and **not subscribed to** — an `events` source naming one is refused when the flow starts.
+
+The prefix buys a flow the ability to raise a platform event, not to read the platform's traffic. The unscoped plane carries `internal.logs` and `internal.traces`, which hold every deployment's records; a flow that could subscribe there would be reading workloads it has nothing to do with, wildcards included. Publishing has no equivalent reach — a publish subject cannot contain a wildcard, and the worst a wrong name does is go nowhere.
+
 <Callout type="warn">
 The runtime holds no list of system subjects and validates nothing about them. It does not know which exist, what may be published on them, or what shape a subscriber expects — the caller names the subject and owns the payload. An unroutable name publishes into the void, and a malformed payload is the subscriber's problem, exactly as they would be on any other subject. Check the name against the [event bus reference](/platform/event-bus) before relying on it.
 

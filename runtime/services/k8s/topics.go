@@ -61,10 +61,22 @@ func (t *natsTopics) Publish(_ context.Context, subject string, msg types.Messag
 // concurrent workers. It uses a plain subscription (no queue group), so this
 // subscriber receives every message independently of any other.
 //
+// A system: subject is refused. The prefix exists so a flow can *raise* a platform
+// event; letting it subscribe as well would be a different capability entirely,
+// because the unscoped plane carries every deployment's log and trace records. A
+// flow could name system:internal.logs, or a wildcard, and read traffic belonging
+// to workloads it has nothing to do with. Publishing has no equivalent reach — a
+// publish subject cannot contain a wildcard, and the worst a wrong name does is go
+// nowhere.
+//
 //nolint:ireturn // satisfies core.Topics
 func (t *natsTopics) Subscribe(
 	ctx context.Context, subject string, handler core.TopicHandler, opts ...core.SubscribeOption,
 ) (core.Subscription, error) {
+	if strings.HasPrefix(subject, systemPrefix) {
+		return nil, fmt.Errorf(
+			"topics: subscribe %q: a %s subject may be published to, not subscribed to", subject, systemPrefix)
+	}
 	cfg := core.NewSubscribeConfig(opts...)
 	scoped := t.subject(subject)
 	// A plain subscription (no queue group) makes every subscriber, across every

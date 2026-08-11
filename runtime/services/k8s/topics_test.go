@@ -3,6 +3,7 @@ package k8s
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -99,18 +100,12 @@ func TestTopicsSystemSubjectCrossesDeployments(t *testing.T) {
 	b := newNATSTopics(connect(t, url), "dep-b")
 	ctx := context.Background()
 
-	got := make(chan types.Message, 1)
-	sub, err := a.Subscribe(ctx, "system:internal.integrations.events",
-		func(_ context.Context, m types.Message) error {
-			got <- m
-			return nil
-		})
+	// Subscribed with a raw client, because a flow may not subscribe to a system
+	// subject — the platform is the consumer here, and it is not a flow.
+	sub, err := a.conn.SubscribeSync("internal.integrations.events")
 	if err != nil {
-		t.Fatalf("Subscribe: %v", err)
+		t.Fatalf("SubscribeSync: %v", err)
 	}
-	defer func() { _ = sub.Close() }()
-	// The subscribe and the publish are on separate connections, so the interest has
-	// to reach the server before b publishes or the message is simply dropped.
 	if err := a.conn.Flush(); err != nil {
 		t.Fatalf("Flush: %v", err)
 	}
@@ -118,14 +113,42 @@ func TestTopicsSystemSubjectCrossesDeployments(t *testing.T) {
 	if err := b.Publish(ctx, "system:internal.integrations.events", bodyMessage("hi")); err != nil {
 		t.Fatalf("Publish: %v", err)
 	}
-	select {
-	case m := <-got:
-		if m.Body != "hi" {
-			t.Errorf("body = %#v, want it to survive the hop", m.Body)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("a system subject did not cross deployments")
+	m, err := sub.NextMsg(3 * time.Second)
+	if err != nil {
+		t.Fatalf("a system subject published by one deployment did not reach a listener outside it: %v", err)
 	}
+	if string(m.Data) != `"hi"` {
+		t.Errorf("payload = %s, want the body", m.Data)
+	}
+}
+
+// The prefix buys a flow the ability to raise a platform event, not to read the
+// platform's traffic. internal.logs and internal.traces carry every deployment's
+// records, so a flow that could subscribe there would be reading workloads it has
+// nothing to do with — including through a wildcard.
+func TestTopicsRefusesToSubscribeToASystemSubject(t *testing.T) {
+	tp := newNATSTopics(connect(t, runServer(t)), "dep-a")
+
+	for _, subject := range []string{"system:internal.logs", "system:internal.traces", "system:>"} {
+		sub, err := tp.Subscribe(context.Background(), subject,
+			func(context.Context, types.Message) error { return nil })
+		if err == nil {
+			_ = sub.Close()
+			t.Errorf("want %q refused", subject)
+			continue
+		}
+		if !strings.Contains(err.Error(), "published to, not subscribed to") {
+			t.Errorf("error for %q = %v, want it to say why", subject, err)
+		}
+	}
+
+	// An ordinary subject still subscribes, scoped to the deployment as before.
+	sub, err := tp.Subscribe(context.Background(), "events",
+		func(context.Context, types.Message) error { return nil })
+	if err != nil {
+		t.Fatalf("an ordinary subject should still subscribe: %v", err)
+	}
+	_ = sub.Close()
 }
 
 // What reaches the platform is the payload, and the platform hands it to a browser
