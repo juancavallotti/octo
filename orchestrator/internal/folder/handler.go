@@ -73,6 +73,17 @@ func toResponse(f Folder) folderResponse {
 	return out
 }
 
+// create godoc
+//
+//	@Summary		Create a folder
+//	@Description	Folders organise integrations for browsing; an integration belongs to at most one.
+//	@Tags			folders
+//	@Accept			json
+//	@Produce		json
+//	@Param			body	body		folderRequest	true	"Name and optional parent"
+//	@Success		201		{object}	folderResponse
+//	@Failure		400		{object}	httpx.ErrorResponse
+//	@Router			/folders [post]
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	var req folderRequest
 	if err := httpx.DecodeJSON(w, r, &req); err != nil {
@@ -91,6 +102,15 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusCreated, toResponse(f))
 }
 
+// list godoc
+//
+//	@Summary		List folders as a tree
+//	@Description	The whole hierarchy in one call, children nested under their parent and in display order.
+//	@Tags			folders
+//	@Produce		json
+//	@Success		200	{array}		folderResponse
+//	@Failure		500	{object}	httpx.ErrorResponse
+//	@Router			/folders [get]
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
@@ -108,6 +128,15 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
+// get godoc
+//
+//	@Summary	Get a folder
+//	@Tags		folders
+//	@Produce	json
+//	@Param		id	path		string	true	"Folder id"
+//	@Success	200	{object}	folderResponse
+//	@Failure	404	{object}	httpx.ErrorResponse
+//	@Router		/folders/{id} [get]
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
@@ -120,6 +149,18 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, toResponse(f))
 }
 
+// update godoc
+//
+//	@Summary		Rename or move a folder
+//	@Tags			folders
+//	@Accept			json
+//	@Produce		json
+//	@Param			id		path		string			true	"Folder id"
+//	@Param			body	body		folderRequest	true	"New name and parent"
+//	@Success		200		{object}	folderResponse
+//	@Failure		400		{object}	httpx.ErrorResponse	"a move that would make a folder its own ancestor"
+//	@Failure		404		{object}	httpx.ErrorResponse
+//	@Router			/folders/{id} [put]
 func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	var req folderRequest
 	if err := httpx.DecodeJSON(w, r, &req); err != nil {
@@ -138,6 +179,16 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, toResponse(f))
 }
 
+// delete godoc
+//
+//	@Summary		Delete a folder
+//	@Description	Deletes the folder itself. The integrations it held are not deleted, only unfiled.
+//	@Tags			folders
+//	@Produce		json
+//	@Param			id	path	string	true	"Folder id"
+//	@Success		204	"deleted"
+//	@Failure		404	{object}	httpx.ErrorResponse
+//	@Router			/folders/{id} [delete]
 func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
@@ -149,6 +200,15 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// listIntegrations godoc
+//
+//	@Summary		List a folder's integrations
+//	@Tags			folders
+//	@Produce		json
+//	@Param			id	path		string	true	"Folder id"
+//	@Success		200	{array}		integrationResponse
+//	@Failure		404	{object}	httpx.ErrorResponse
+//	@Router			/folders/{id}/integrations [get]
 func (h *Handler) listIntegrations(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
@@ -187,6 +247,17 @@ type reorderFoldersRequest struct {
 	FolderIDs []string `json:"folderIds"`
 }
 
+// reorderFolders godoc
+//
+//	@Summary		Reorder folders under one parent
+//	@Description	The ids in their new display order, scoped to a single parent (null for the root level).
+//	@Tags			folders
+//	@Accept			json
+//	@Produce		json
+//	@Param			body	body	reorderFoldersRequest	true	"Parent and the ordered folder ids"
+//	@Success		204		"reordered"
+//	@Failure		400		{object}	httpx.ErrorResponse
+//	@Router			/folders/reorder [put]
 func (h *Handler) reorderFolders(w http.ResponseWriter, r *http.Request) {
 	var req reorderFoldersRequest
 	if err := httpx.DecodeJSON(w, r, &req); err != nil {
@@ -204,6 +275,17 @@ func (h *Handler) reorderFolders(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// reorderIntegrations godoc
+//
+//	@Summary		Reorder the integrations inside a folder
+//	@Tags			folders
+//	@Accept			json
+//	@Produce		json
+//	@Param			id		path	string			true	"Folder id"
+//	@Param			body	body	reorderRequest	true	"The ordered integration ids"
+//	@Success		204		"reordered"
+//	@Failure		400		{object}	httpx.ErrorResponse
+//	@Router			/folders/{id}/integration-order [put]
 func (h *Handler) reorderIntegrations(w http.ResponseWriter, r *http.Request) {
 	var req reorderRequest
 	if err := httpx.DecodeJSON(w, r, &req); err != nil {
@@ -221,6 +303,17 @@ func (h *Handler) reorderIntegrations(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// addIntegration godoc
+//
+//	@Summary		File an integration into a folder
+//	@Description	Moves it out of whatever folder it was in; membership is exclusive.
+//	@Tags			folders
+//	@Produce		json
+//	@Param			id				path	string	true	"Folder id"
+//	@Param			integrationId	path	string	true	"Integration id"
+//	@Success		204				"filed"
+//	@Failure		404				{object}	httpx.ErrorResponse
+//	@Router			/folders/{id}/integrations/{integrationId} [put]
 func (h *Handler) addIntegration(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
@@ -232,6 +325,17 @@ func (h *Handler) addIntegration(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// removeIntegration godoc
+//
+//	@Summary		Remove an integration from a folder
+//	@Description	Unfiles it. The integration itself is untouched.
+//	@Tags			folders
+//	@Produce		json
+//	@Param			id				path	string	true	"Folder id"
+//	@Param			integrationId	path	string	true	"Integration id"
+//	@Success		204				"removed"
+//	@Failure		404				{object}	httpx.ErrorResponse
+//	@Router			/folders/{id}/integrations/{integrationId} [delete]
 func (h *Handler) removeIntegration(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()

@@ -108,6 +108,16 @@ func (h *Handler) toResponse(s Settings) settingsResponse {
 	}
 }
 
+// get godoc
+//
+//	@Summary		Get the site's email settings
+//	@Description	The from identity and whether a provider key is stored. The key is never returned,
+//	@Description	only its last four characters.
+//	@Tags			settings
+//	@Produce		json
+//	@Success		200	{object}	settingsResponse
+//	@Failure		500	{object}	httpx.ErrorResponse
+//	@Router			/settings/email [get]
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
@@ -120,6 +130,19 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, h.toResponse(settings))
 }
 
+// update godoc
+//
+//	@Summary		Save the site's email settings
+//	@Description	apiKey is three-state: omitted keeps the stored key, an empty string removes it, and
+//	@Description	any other value replaces it. Storing one requires encryption to be configured.
+//	@Tags			settings
+//	@Accept			json
+//	@Produce		json
+//	@Param			body	body		updateRequest	true	"From identity and optionally the key"
+//	@Success		200		{object}	settingsResponse
+//	@Failure		400		{object}	httpx.ErrorResponse	"an invalid address or key"
+//	@Failure		503		{object}	httpx.ErrorResponse	"encryption is not configured"
+//	@Router			/settings/email [put]
 func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	var req updateRequest
 	if err := httpx.DecodeJSON(w, r, &req); err != nil {
@@ -138,6 +161,21 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, h.toResponse(settings))
 }
 
+// test godoc
+//
+//	@Summary		Send a test message
+//	@Description	Uses the draft in the request rather than what is stored, so a configuration can be
+//	@Description	proved before it is saved; a supplied key wins over the stored one, and the stored
+//	@Description	one is the fallback after a reload.
+//	@Tags			settings
+//	@Accept			json
+//	@Produce		json
+//	@Param			body	body		testRequest	true	"Recipient and the draft settings"
+//	@Success		200		{object}	sendResponse
+//	@Failure		400		{object}	httpx.ErrorResponse	"the provider rejected the key or the from address"
+//	@Failure		409		{object}	httpx.ErrorResponse	"no key supplied and none stored"
+//	@Failure		502		{object}	httpx.ErrorResponse	"the provider was unreachable"
+//	@Router			/settings/email/test [post]
 func (h *Handler) test(w http.ResponseWriter, r *http.Request) {
 	var req testRequest
 	if err := httpx.DecodeJSON(w, r, &req); err != nil {
@@ -156,6 +194,22 @@ func (h *Handler) test(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, sendResponse{MessageID: id})
 }
 
+// send godoc
+//
+//	@Summary		Send an email
+//	@Description	The operation in-cluster callers use. The key and the from identity come from the
+//	@Description	stored settings and the request carries neither — a body supplying one is rejected
+//	@Description	by the decoder, which is what keeps this from being a relay for whatever key a
+//	@Description	caller holds. Recipients are capped, and CR/LF is refused in the subject.
+//	@Tags			email
+//	@Accept			json
+//	@Produce		json
+//	@Param			body	body		sendRequestBody	true	"Recipients, subject and body"
+//	@Success		200		{object}	sendResponse
+//	@Failure		400		{object}	httpx.ErrorResponse	"invalid recipients, subject or body"
+//	@Failure		409		{object}	httpx.ErrorResponse	"email is not configured"
+//	@Failure		502		{object}	httpx.ErrorResponse	"the provider was unreachable"
+//	@Router			/email/send [post]
 func (h *Handler) send(w http.ResponseWriter, r *http.Request) {
 	var req sendRequestBody
 	if err := httpx.DecodeJSON(w, r, &req); err != nil {

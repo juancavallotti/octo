@@ -126,6 +126,25 @@ func toResponse(d Deployment) deploymentResponse {
 	return resp
 }
 
+// deploy godoc
+//
+//	@Summary		Deploy an integration
+//	@Description	Runs a version tag as its own Kubernetes workload. The body is optional and
+//	@Description	defaults to a single internal-only replica. A tag is required in production: the
+//	@Description	deploy ships that tag's frozen definition, so later edits to the integration do
+//	@Description	not disturb what is running. Declaring HTTP_PORT is what makes a deployment
+//	@Description	networked and earns it a stable internal address.
+//	@Tags			deployments
+//	@Accept			json
+//	@Produce		json
+//	@Param			id		path		string		true	"Integration id"
+//	@Param			body	body		Settings	false	"Replicas, address, exposure, env bindings, tracing and the tag"
+//	@Success		201		{object}	deploymentResponse
+//	@Failure		400		{object}	httpx.ErrorResponse	"a missing tag, an unbound required env var, or a reserved one"
+//	@Failure		404		{object}	httpx.ErrorResponse
+//	@Failure		409		{object}	httpx.ErrorResponse	"the address or subdomain is taken"
+//	@Failure		503		{object}	httpx.ErrorResponse	"no cluster access"
+//	@Router			/integrations/{id}/deployments [post]
 func (h *Handler) deploy(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
@@ -168,6 +187,21 @@ type envVarResponse struct {
 // deployOptions backs the deploy modal: with no slug query it reports whether the
 // integration is networked and a free slug to suggest; with ?slug= it validates
 // that candidate (?expose=external also checks the subdomain is free).
+// deployOptions godoc
+//
+//	@Summary		What a deploy of this integration would need
+//	@Description	The env vars the chosen tag declares, whether an address is free, and whether
+//	@Description	external exposure is available — so a caller can compose a valid deploy before
+//	@Description	attempting one rather than discovering the gaps through failures.
+//	@Tags			deployments
+//	@Produce		json
+//	@Param			id			path		string	true	"Integration id"
+//	@Param			slug		query		string	false	"Candidate internal address to check"
+//	@Param			external	query		boolean	false	"Whether an external endpoint is wanted"
+//	@Param			snapshotId	query		string	false	"The tag being considered"
+//	@Success		200			{object}	deployOptionsResponse
+//	@Failure		404			{object}	httpx.ErrorResponse
+//	@Router			/integrations/{id}/deployments/options [get]
 func (h *Handler) deployOptions(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
@@ -194,6 +228,16 @@ func (h *Handler) deployOptions(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// listByIntegration godoc
+//
+//	@Summary		List an integration's deployments
+//	@Description	Each with its live cluster status: replicas, pods and any failure reason.
+//	@Tags			deployments
+//	@Produce		json
+//	@Param			id	path		string	true	"Integration id"
+//	@Success		200	{array}		deploymentResponse
+//	@Failure		503	{object}	httpx.ErrorResponse	"no cluster access"
+//	@Router			/integrations/{id}/deployments [get]
 func (h *Handler) listByIntegration(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
@@ -210,6 +254,15 @@ func (h *Handler) listByIntegration(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
+// get godoc
+//
+//	@Summary	Get a deployment
+//	@Tags		deployments
+//	@Produce	json
+//	@Param		id	path		string	true	"Deployment id"
+//	@Success	200	{object}	deploymentResponse
+//	@Failure	404	{object}	httpx.ErrorResponse
+//	@Router		/deployments/{id} [get]
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
@@ -227,6 +280,20 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 // (which cancels the request context and closes the k8s stream). It bypasses the
 // shared request timeout since a follow stream is long-lived by design; the tail
 // is bounded so the initial replay stays small.
+// podLogs godoc
+//
+//	@Summary		Stream a pod's logs
+//	@Description	Plain text, not JSON, flushed as it arrives. With follow the response stays open
+//	@Description	until the caller disconnects.
+//	@Tags			deployments
+//	@Produce		plain
+//	@Param			id		path	string	true	"Deployment id"
+//	@Param			pod		path	string	true	"Pod name"
+//	@Param			follow	query	boolean	false	"Keep the stream open"
+//	@Param			tail	query	integer	false	"How many trailing lines to start from"
+//	@Success		200		"the log stream"
+//	@Failure		404		{object}	httpx.ErrorResponse
+//	@Router			/deployments/{id}/pods/{pod}/logs [get]
 func (h *Handler) podLogs(w http.ResponseWriter, r *http.Request) {
 	follow := r.URL.Query().Get("follow") == "1" || r.URL.Query().Get("follow") == "true"
 	tail := int64(defaultLogTail)
@@ -253,6 +320,20 @@ type scaleRequest struct {
 	Replicas int `json:"replicas"`
 }
 
+// scale godoc
+//
+//	@Summary		Change a deployment's replica count
+//	@Description	The one change that does not replace pods, which is why it is its own route
+//	@Description	rather than part of rollout.
+//	@Tags			deployments
+//	@Accept			json
+//	@Produce		json
+//	@Param			id		path		string			true	"Deployment id"
+//	@Param			body	body		scaleRequest	true	"Desired replicas"
+//	@Success		200		{object}	deploymentResponse
+//	@Failure		400		{object}	httpx.ErrorResponse
+//	@Failure		404		{object}	httpx.ErrorResponse
+//	@Router			/deployments/{id} [patch]
 func (h *Handler) scale(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
@@ -283,6 +364,24 @@ type rolloutRequest struct {
 	Tracing    *bool                 `json:"tracing"`
 }
 
+// rollout godoc
+//
+//	@Summary		Roll a deployment onto a different version, env or tracing setting
+//	@Description	A rolling update in place: the id, address, scale and exposure survive. Each of
+//	@Description	env and tracing is preserve-if-absent, so a plain version bump keeps whatever the
+//	@Description	deployment was running with. This is also the only way to switch tracing on or
+//	@Description	off, because the runtime reads it at startup and so only new pods see the change.
+//	@Description	A tag that adds or removes the integration's HTTP source is refused — that
+//	@Description	changes the Service topology, which a rolling update cannot express.
+//	@Tags			deployments
+//	@Accept			json
+//	@Produce		json
+//	@Param			id		path		string			true	"Deployment id"
+//	@Param			body	body		rolloutRequest	true	"Target tag, and optionally env and tracing"
+//	@Success		200		{object}	deploymentResponse
+//	@Failure		400		{object}	httpx.ErrorResponse	"a topology change or an unbound required env var"
+//	@Failure		404		{object}	httpx.ErrorResponse
+//	@Router			/deployments/{id}/rollout [post]
 func (h *Handler) rollout(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
@@ -300,6 +399,17 @@ func (h *Handler) rollout(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, toResponse(d))
 }
 
+// undeploy godoc
+//
+//	@Summary		Undeploy
+//	@Description	Removes the workload and its addresses, and cleans up the deployment's stored
+//	@Description	data. The integration and its version tags are untouched.
+//	@Tags			deployments
+//	@Produce		json
+//	@Param			id	path	string	true	"Deployment id"
+//	@Success		204	"undeployed"
+//	@Failure		404	{object}	httpx.ErrorResponse
+//	@Router			/deployments/{id} [delete]
 func (h *Handler) undeploy(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()

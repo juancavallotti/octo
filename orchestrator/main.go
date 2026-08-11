@@ -295,27 +295,39 @@ func runtimeServicesConfig() kube.RuntimeServices {
 	}
 }
 
-// newServer wires the routes. database may be nil when DATABASE_URL is unset.
-// kc configures deployment management, which is enabled only when both a
-// database and in-cluster Kubernetes access are present. ctx bounds the lifetime
-// of background work started here (the deployment status informers).
-func newServer(ctx context.Context, database *db.DB, kc kube.Config) (http.Handler, error) {
-	mux := http.NewServeMux()
+// healthz answers the liveness probe.
+//
+// A named function rather than a closure so it can carry its annotation: an
+// undocumented route is a route the API description quietly lies about having.
+//
+//	@Summary		Liveness
+//	@Description	Answers as soon as the process is serving, with no dependency on the
+//	@Description	database — which is the point, since it is what a probe uses to decide
+//	@Description	whether to restart the pod while Postgres is still coming up.
+//	@Tags			meta
+//	@Produce		plain
+//	@Success		200	"ok"
+//	@Router			/healthz [get]
+func healthz(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = w.Write([]byte("ok"))
+}
 
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = w.Write([]byte("ok"))
-	})
-
-	// The API's own description, generated from the handler annotations and embedded
-	// at build time. Registered here rather than inside the database gate below: the
-	// description of a route is true whether or not its storage is wired, and an
-	// install still coming up is exactly when someone wants to read it.
-	openapi.NewHandler().Register(mux)
-	slog.Info("openapi routes registered",
-		"endpoints", "GET /openapi.json, GET /openapi/operations")
-
-	mux.HandleFunc("GET /db-version", func(w http.ResponseWriter, r *http.Request) {
+// dbVersion reports the schema version the database was seeded with.
+//
+//	@Summary		The database schema version
+//	@Description	Reads the db_version row the schema job seeds, and passes the stored JSON
+//	@Description	through unmodified so a caller sees exactly what was written. Reports 503
+//	@Description	rather than failing when no database is configured, so the difference
+//	@Description	between "not wired" and "wired and broken" stays visible.
+//	@Tags			meta
+//	@Produce		json
+//	@Success		200	"the seeded db_version value"
+//	@Failure		500	"the row could not be read"
+//	@Failure		503	"no database is configured"
+//	@Router			/db-version [get]
+func dbVersion(database *db.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		if database == nil {
 			http.Error(w, "database not configured", http.StatusServiceUnavailable)
 			return
@@ -337,7 +349,27 @@ func newServer(ctx context.Context, database *db.DB, kc kube.Config) (http.Handl
 
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		_, _ = w.Write(value)
-	})
+	}
+}
+
+// newServer wires the routes. database may be nil when DATABASE_URL is unset.
+// kc configures deployment management, which is enabled only when both a
+// database and in-cluster Kubernetes access are present. ctx bounds the lifetime
+// of background work started here (the deployment status informers).
+func newServer(ctx context.Context, database *db.DB, kc kube.Config) (http.Handler, error) {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("GET /healthz", healthz)
+
+	// The API's own description, generated from the handler annotations and embedded
+	// at build time. Registered here rather than inside the database gate below: the
+	// description of a route is true whether or not its storage is wired, and an
+	// install still coming up is exactly when someone wants to read it.
+	openapi.NewHandler().Register(mux)
+	slog.Info("openapi routes registered",
+		"endpoints", "GET /openapi.json, GET /openapi/operations")
+
+	mux.HandleFunc("GET /db-version", dbVersion(database))
 
 	if database != nil {
 		// Kubernetes access is built first because of the one dependency cycle in this

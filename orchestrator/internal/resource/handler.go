@@ -60,6 +60,20 @@ func toResponse(res Resource) resourceResponse {
 	return resourceResponse(res)
 }
 
+// create godoc
+//
+//	@Summary		Add a resource to an integration
+//	@Description	Resources are the files a definition refers to: env files and templates. Names are
+//	@Description	relative paths and may contain slashes.
+//	@Tags			resources
+//	@Accept			json
+//	@Produce		json
+//	@Param			id		path		string			true	"Integration id"
+//	@Param			body	body		resourceRequest	true	"Kind, name and content"
+//	@Success		201		{object}	resourceResponse
+//	@Failure		400		{object}	httpx.ErrorResponse	"an unknown kind or an unsafe name"
+//	@Failure		409		{object}	httpx.ErrorResponse	"the name is taken"
+//	@Router			/integrations/{id}/resources [post]
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	var req resourceRequest
 	if err := httpx.DecodeJSON(w, r, &req); err != nil {
@@ -78,6 +92,15 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusCreated, toResponse(res))
 }
 
+// listByIntegration godoc
+//
+//	@Summary		List an integration's resources
+//	@Tags			resources
+//	@Produce		json
+//	@Param			id	path		string	true	"Integration id"
+//	@Success		200	{array}		resourceResponse
+//	@Failure		500	{object}	httpx.ErrorResponse
+//	@Router			/integrations/{id}/resources [get]
 func (h *Handler) listByIntegration(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
@@ -94,6 +117,16 @@ func (h *Handler) listByIntegration(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
+// get godoc
+//
+//	@Summary	Get a resource
+//	@Tags		resources
+//	@Produce	json
+//	@Param		id			path		string	true	"Integration id"
+//	@Param		resourceId	path		string	true	"Resource id"
+//	@Success	200			{object}	resourceResponse
+//	@Failure	404			{object}	httpx.ErrorResponse
+//	@Router		/integrations/{id}/resources/{resourceId} [get]
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
@@ -106,6 +139,20 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, toResponse(res))
 }
 
+// update godoc
+//
+//	@Summary	Replace a resource
+//	@Tags		resources
+//	@Accept		json
+//	@Produce	json
+//	@Param		id			path		string			true	"Integration id"
+//	@Param		resourceId	path		string			true	"Resource id"
+//	@Param		body		body		resourceRequest	true	"Kind, name and content"
+//	@Success	200			{object}	resourceResponse
+//	@Failure	400			{object}	httpx.ErrorResponse
+//	@Failure	404			{object}	httpx.ErrorResponse
+//	@Failure	409			{object}	httpx.ErrorResponse	"the name is taken"
+//	@Router		/integrations/{id}/resources/{resourceId} [put]
 func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	var req resourceRequest
 	if err := httpx.DecodeJSON(w, r, &req); err != nil {
@@ -124,6 +171,16 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, toResponse(res))
 }
 
+// delete godoc
+//
+//	@Summary	Delete a resource
+//	@Tags		resources
+//	@Produce	json
+//	@Param		id			path	string	true	"Integration id"
+//	@Param		resourceId	path	string	true	"Resource id"
+//	@Success	204			"deleted"
+//	@Failure	404			{object}	httpx.ErrorResponse
+//	@Router		/integrations/{id}/resources/{resourceId} [delete]
 func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()

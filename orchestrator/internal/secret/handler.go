@@ -51,6 +51,16 @@ type setRequest struct {
 	Value string `json:"value"`
 }
 
+// list godoc
+//
+//	@Summary		List cluster secret names
+//	@Description	Names only. Values live in the cluster's own Secret and are never read back
+//	@Description	through this API; a deployment references one by name.
+//	@Tags			secrets
+//	@Produce		json
+//	@Success		200	{array}		secretResponse
+//	@Failure		503	{object}	httpx.ErrorResponse	"no cluster access"
+//	@Router			/secrets [get]
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
@@ -67,6 +77,19 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
+// set godoc
+//
+//	@Summary		Create or replace a cluster secret
+//	@Description	Writes the value into the cluster Secret and records only the name. Deployments
+//	@Description	bind env vars to it by name, so the value never enters a deployment record.
+//	@Tags			secrets
+//	@Accept			json
+//	@Produce		json
+//	@Param			name	path		string		true	"Secret name"
+//	@Param			body	body		setRequest	true	"The value"
+//	@Success		200		{object}	secretResponse
+//	@Failure		400		{object}	httpx.ErrorResponse
+//	@Router			/secrets/{name} [put]
 func (h *Handler) set(w http.ResponseWriter, r *http.Request) {
 	var req setRequest
 	if err := httpx.DecodeJSON(w, r, &req); err != nil {
@@ -85,6 +108,19 @@ func (h *Handler) set(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, toResponse(s))
 }
 
+// delete godoc
+//
+//	@Summary		Delete a cluster secret
+//	@Description	Refused while a deployment binds it, unless forced — removing it under a running
+//	@Description	workload would leave pods unable to start on their next restart.
+//	@Tags			secrets
+//	@Produce		json
+//	@Param			name	path	string	true	"Secret name"
+//	@Param			force	query	boolean	false	"Delete even if a deployment references it"
+//	@Success		204		"deleted"
+//	@Failure		404		{object}	httpx.ErrorResponse
+//	@Failure		409		{object}	httpx.ErrorResponse	"a deployment references it"
+//	@Router			/secrets/{name} [delete]
 func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()

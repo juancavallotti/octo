@@ -51,6 +51,20 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE "+base, h.delete)
 }
 
+// get godoc
+//
+//	@Summary		Read a key
+//	@Description	The deployment-scoped store the runtime calls. Values are raw bytes, not JSON, and
+//	@Description	the current version comes back in the X-Object-Version header. Keys in a secret
+//	@Description	namespace are encrypted at rest and decrypted here.
+//	@Tags			kv
+//	@Produce		octet-stream
+//	@Param			id			path	string	true	"Deployment id"
+//	@Param			namespace	path	string	true	"Namespace"
+//	@Param			key			path	string	true	"Key (may contain slashes)"
+//	@Success		200			"the value bytes, with X-Object-Version"
+//	@Failure		404			"no such key"
+//	@Router			/deployments/{id}/kv/{namespace}/{key} [get]
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
@@ -69,6 +83,24 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(value)
 }
 
+// put godoc
+//
+//	@Summary		Write a key
+//	@Description	The body is the raw value, capped at 1 MiB. Optimistic concurrency is by header:
+//	@Description	send X-Object-Version with the version you last read and the write is refused if
+//	@Description	someone has written since; omit it to write unconditionally. The new version comes
+//	@Description	back in the same header.
+//	@Tags			kv
+//	@Accept			octet-stream
+//	@Param			id					path	string	true	"Deployment id"
+//	@Param			namespace			path	string	true	"Namespace"
+//	@Param			key					path	string	true	"Key (may contain slashes)"
+//	@Param			X-Object-Version	header	integer	false	"Expected version"
+//	@Success		200					"written, with the new X-Object-Version"
+//	@Failure		409					{object}	httpx.ErrorResponse	"the version did not match"
+//	@Failure		413					{object}	httpx.ErrorResponse	"the value is too large"
+//	@Failure		503					{object}	httpx.ErrorResponse	"a secret write without encryption configured"
+//	@Router			/deployments/{id}/kv/{namespace}/{key} [put]
 func (h *Handler) put(w http.ResponseWriter, r *http.Request) {
 	expected, err := versionHeader(r)
 	if err != nil {
@@ -93,6 +125,18 @@ func (h *Handler) put(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+// delete godoc
+//
+//	@Summary	Delete a key
+//	@Tags		kv
+//	@Produce	json
+//	@Param		id			path	string	true	"Deployment id"
+//	@Param		namespace	path	string	true	"Namespace"
+//	@Param		key			path	string	true	"Key (may contain slashes)"
+//	@Param		X-Object-Version	header	integer	false	"Expected version; omit to delete unconditionally"
+//	@Success	204			"deleted"
+//	@Failure	409			{object}	httpx.ErrorResponse	"the version did not match"
+//	@Router		/deployments/{id}/kv/{namespace}/{key} [delete]
 func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 	expected, err := versionHeader(r)
 	if err != nil {
