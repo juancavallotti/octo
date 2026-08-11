@@ -34,6 +34,7 @@ import (
 	"github.com/juancavallotti/octo/orchestrator/internal/kv"
 	"github.com/juancavallotti/octo/orchestrator/internal/llm"
 	"github.com/juancavallotti/octo/orchestrator/internal/mailer"
+	"github.com/juancavallotti/octo/orchestrator/internal/openapi"
 	"github.com/juancavallotti/octo/orchestrator/internal/resource"
 	"github.com/juancavallotti/octo/orchestrator/internal/secret"
 	"github.com/juancavallotti/octo/orchestrator/internal/snapshot"
@@ -305,6 +306,14 @@ func newServer(ctx context.Context, database *db.DB, kc kube.Config) (http.Handl
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = w.Write([]byte("ok"))
 	})
+
+	// The API's own description, generated from the handler annotations and embedded
+	// at build time. Registered here rather than inside the database gate below: the
+	// description of a route is true whether or not its storage is wired, and an
+	// install still coming up is exactly when someone wants to read it.
+	openapi.NewHandler().Register(mux)
+	slog.Info("openapi routes registered",
+		"endpoints", "GET /openapi.json, GET /openapi/operations")
 
 	mux.HandleFunc("GET /db-version", func(w http.ResponseWriter, r *http.Request) {
 		if database == nil {

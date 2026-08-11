@@ -66,6 +66,18 @@ func toResponse(it Integration) integrationResponse {
 	return integrationResponse(it)
 }
 
+// create godoc
+//
+//	@Summary		Create an integration
+//	@Description	Stores a new integration definition under a name unique across the install (case-insensitively).
+//	@Tags			integrations
+//	@Accept			json
+//	@Produce		json
+//	@Param			body	body		integrationRequest	true	"Name and definition"
+//	@Success		201		{object}	integrationResponse
+//	@Failure		400		{object}	httpx.ErrorResponse	"invalid name or body"
+//	@Failure		409		{object}	httpx.ErrorResponse	"the name is taken"
+//	@Router			/integrations [post]
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	var req integrationRequest
 	if err := httpx.DecodeJSON(w, r, &req); err != nil {
@@ -84,6 +96,15 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusCreated, toResponse(it))
 }
 
+// list godoc
+//
+//	@Summary		List integrations
+//	@Description	Every integration in the install, each with its full definition.
+//	@Tags			integrations
+//	@Produce		json
+//	@Success		200	{array}		integrationResponse
+//	@Failure		500	{object}	httpx.ErrorResponse
+//	@Router			/integrations [get]
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
@@ -101,6 +122,15 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
+// get godoc
+//
+//	@Summary		Get an integration
+//	@Tags			integrations
+//	@Produce		json
+//	@Param			id	path		string	true	"Integration id"
+//	@Success		200	{object}	integrationResponse
+//	@Failure		404	{object}	httpx.ErrorResponse
+//	@Router			/integrations/{id} [get]
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
@@ -113,6 +143,22 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, toResponse(it))
 }
 
+// update godoc
+//
+//	@Summary		Replace an integration
+//	@Description	Overwrites the name and definition. This is the live working copy, not a
+//	@Description	version tag: a running deployment keeps serving its own frozen snapshot
+//	@Description	until it is rolled out.
+//	@Tags			integrations
+//	@Accept			json
+//	@Produce		json
+//	@Param			id		path		string				true	"Integration id"
+//	@Param			body	body		integrationRequest	true	"Name and definition"
+//	@Success		200		{object}	integrationResponse
+//	@Failure		400		{object}	httpx.ErrorResponse
+//	@Failure		404		{object}	httpx.ErrorResponse
+//	@Failure		409		{object}	httpx.ErrorResponse	"the name is taken"
+//	@Router			/integrations/{id} [put]
 func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	var req integrationRequest
 	if err := httpx.DecodeJSON(w, r, &req); err != nil {
@@ -131,6 +177,15 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, toResponse(it))
 }
 
+// delete godoc
+//
+//	@Summary	Delete an integration
+//	@Tags		integrations
+//	@Produce	json
+//	@Param		id	path	string	true	"Integration id"
+//	@Success	204	"deleted"
+//	@Failure	404	{object}	httpx.ErrorResponse
+//	@Router		/integrations/{id} [delete]
 func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()

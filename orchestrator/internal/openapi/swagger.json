@@ -1,0 +1,560 @@
+{
+    "components": {
+        "schemas": {
+            "httpx.ErrorResponse": {
+                "properties": {
+                    "error": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "integration.integrationRequest": {
+                "properties": {
+                    "actorId": {
+                        "type": "string"
+                    },
+                    "definition": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "integration.integrationResponse": {
+                "properties": {
+                    "createdBy": {
+                        "type": "string"
+                    },
+                    "createdByEmail": {
+                        "type": "string"
+                    },
+                    "createdByName": {
+                        "type": "string"
+                    },
+                    "definition": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "lastUpdated": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "updatedBy": {
+                        "type": "string"
+                    },
+                    "updatedByEmail": {
+                        "type": "string"
+                    },
+                    "updatedByName": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "llm.settingsResponse": {
+                "properties": {
+                    "configured": {
+                        "type": "boolean"
+                    },
+                    "encryptionAvailable": {
+                        "description": "EncryptionAvailable is not stored; it reports whether this orchestrator can\nencrypt a key at all.",
+                        "type": "boolean"
+                    },
+                    "last4": {
+                        "type": "string"
+                    },
+                    "model": {
+                        "type": "string"
+                    },
+                    "provider": {
+                        "type": "string"
+                    },
+                    "updatedAt": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "llm.updateRequest": {
+                "properties": {
+                    "apiKey": {
+                        "type": "string"
+                    },
+                    "model": {
+                        "type": "string"
+                    },
+                    "provider": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.Operation": {
+                "properties": {
+                    "method": {
+                        "type": "string"
+                    },
+                    "operationId": {
+                        "type": "string"
+                    },
+                    "path": {
+                        "type": "string"
+                    },
+                    "summary": {
+                        "type": "string"
+                    },
+                    "tags": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            }
+        }
+    },
+    "info": {
+        "description": "The control plane behind the Octo platform: integrations and their\nresources, version tags, deployments, cluster secrets, the\ndeployment-scoped key-value store, users and API keys, and the\nsite-wide settings.\n\nThe orchestrator is an in-cluster service and performs no\nauthentication of its own. Callers reach it over the cluster network\nand the platform BFF is the authorization boundary in front of it.\nIdentity, where a route needs it, is passed as a parameter (an actor\nid, a user id in the path) rather than proven by a credential.",
+        "license": {
+            "name": "Elastic License 2.0",
+            "url": "https://www.elastic.co/licensing/elastic-license"
+        },
+        "title": "Octo Orchestrator API",
+        "version": "1.0"
+    },
+    "externalDocs": {
+        "description": "Octo documentation",
+        "url": "https://octopaas.dev/docs"
+    },
+    "paths": {
+        "/integrations": {
+            "get": {
+                "description": "Every integration in the install, each with its full definition.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/integration.integrationResponse"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "List integrations",
+                "tags": [
+                    "integrations"
+                ]
+            },
+            "post": {
+                "description": "Stores a new integration definition under a name unique across the install (case-insensitively).",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/integration.integrationRequest",
+                                        "summary": "body",
+                                        "description": "Name and definition"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Name and definition",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/integration.integrationResponse"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "invalid name or body"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the name is taken"
+                    }
+                },
+                "summary": "Create an integration",
+                "tags": [
+                    "integrations"
+                ]
+            }
+        },
+        "/integrations/{id}": {
+            "delete": {
+                "parameters": [
+                    {
+                        "description": "Integration id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "deleted"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "summary": "Delete an integration",
+                "tags": [
+                    "integrations"
+                ]
+            },
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Integration id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/integration.integrationResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "summary": "Get an integration",
+                "tags": [
+                    "integrations"
+                ]
+            },
+            "put": {
+                "description": "Overwrites the name and definition. This is the live working copy, not a\nversion tag: a running deployment keeps serving its own frozen snapshot\nuntil it is rolled out.",
+                "parameters": [
+                    {
+                        "description": "Integration id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/integration.integrationRequest",
+                                        "summary": "body",
+                                        "description": "Name and definition"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Name and definition",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/integration.integrationResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the name is taken"
+                    }
+                },
+                "summary": "Replace an integration",
+                "tags": [
+                    "integrations"
+                ]
+            }
+        },
+        "/openapi.json": {
+            "get": {
+                "description": "This API as an OpenAPI 3.1 document. Narrow it with tag or path — the\nfull document is mostly schemas, and a filtered one carries only the\nschemas its operations can reach. The two filters are alternatives, not\na combination.",
+                "parameters": [
+                    {
+                        "description": "Keep only operations carrying this tag",
+                        "in": "query",
+                        "name": "tag",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Keep only routes starting with this prefix",
+                        "in": "query",
+                        "name": "path",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "description": "the description, filtered when asked"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "tag and path were both supplied"
+                    }
+                },
+                "summary": "The API description",
+                "tags": [
+                    "openapi"
+                ]
+            }
+        },
+        "/openapi/operations": {
+            "get": {
+                "description": "Every route as one line: method, path, summary and tags. Read this\nfirst to find the tag or path worth asking the description about.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/openapi.Operation"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "The route index",
+                "tags": [
+                    "openapi"
+                ]
+            }
+        },
+        "/settings/llm": {
+            "get": {
+                "description": "The provider, model and whether a key is stored. The key itself is never\nreturned — only its last four characters, so a reader can tell which key\nis in place without being able to use it.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/llm.settingsResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Get the site's LLM provider settings",
+                "tags": [
+                    "settings"
+                ]
+            },
+            "put": {
+                "description": "apiKey is three-state: omitted keeps the stored key, an empty string\nremoves it, and any other value replaces it. Storing a key requires the\norchestrator to have an encryption key configured; without one the save is\nrefused rather than performed in the clear.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/llm.updateRequest",
+                                        "summary": "body",
+                                        "description": "Provider, model and optionally the key"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Provider, model and optionally the key",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/llm.settingsResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "unknown provider, or an invalid model or key"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "encryption is not configured"
+                    }
+                },
+                "summary": "Save the site's LLM provider settings",
+                "tags": [
+                    "settings"
+                ]
+            }
+        }
+    },
+    "openapi": "3.1.0"
+}

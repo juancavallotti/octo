@@ -33,7 +33,15 @@ func WriteJSON(w http.ResponseWriter, status int, v any) {
 	}
 }
 
+// ErrorResponse is the envelope every failing request returns. It is a named type
+// rather than an inline map so the API description has something to point at: the
+// same shape is the documented failure body of every route in the orchestrator, and
+// the BFF unwraps this exact field into the message a user reads.
+type ErrorResponse struct {
+	Error string `json:"error"`
+}
+
 // WriteError writes a JSON error envelope with the given status code.
 func WriteError(w http.ResponseWriter, status int, msg string) {
-	WriteJSON(w, status, map[string]string{"error": msg})
+	WriteJSON(w, status, ErrorResponse{Error: msg})
 }

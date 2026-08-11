@@ -64,6 +64,17 @@ func (h *Handler) toResponse(s Settings) settingsResponse {
 	}
 }
 
+// get godoc
+//
+//	@Summary		Get the site's LLM provider settings
+//	@Description	The provider, model and whether a key is stored. The key itself is never
+//	@Description	returned — only its last four characters, so a reader can tell which key
+//	@Description	is in place without being able to use it.
+//	@Tags			settings
+//	@Produce		json
+//	@Success		200	{object}	settingsResponse
+//	@Failure		500	{object}	httpx.ErrorResponse
+//	@Router			/settings/llm [get]
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
@@ -76,6 +87,21 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, h.toResponse(settings))
 }
 
+// update godoc
+//
+//	@Summary		Save the site's LLM provider settings
+//	@Description	apiKey is three-state: omitted keeps the stored key, an empty string
+//	@Description	removes it, and any other value replaces it. Storing a key requires the
+//	@Description	orchestrator to have an encryption key configured; without one the save is
+//	@Description	refused rather than performed in the clear.
+//	@Tags			settings
+//	@Accept			json
+//	@Produce		json
+//	@Param			body	body		updateRequest	true	"Provider, model and optionally the key"
+//	@Success		200		{object}	settingsResponse
+//	@Failure		400		{object}	httpx.ErrorResponse	"unknown provider, or an invalid model or key"
+//	@Failure		503		{object}	httpx.ErrorResponse	"encryption is not configured"
+//	@Router			/settings/llm [put]
 func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	var req updateRequest
 	if err := httpx.DecodeJSON(w, r, &req); err != nil {

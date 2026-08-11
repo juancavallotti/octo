@@ -63,9 +63,15 @@ jobs:
       - run: task orchestrator:fmt
       - run: task logs:tidy
       - run: task logs:fmt
-      # tidy and fmt repair go.* and Go sources and still exit 0, so a PR that
-      # needed either would otherwise merge with the drift unmade.
-      - name: Verify orchestrator and logs are tidy and formatted
+      # The committed OpenAPI description is generated from the handler annotations,
+      # so it can go stale the moment a route or a request type changes. Regenerating
+      # it here folds it into the same diff check below: an annotation edited without
+      # regenerating, or a route added without annotating, fails exactly as
+      # unformatted Go does.
+      - run: task orchestrator:openapi
+      # tidy, fmt and openapi repair go.*, Go sources and the spec and still exit 0,
+      # so a PR that needed any of them would otherwise merge with the drift unmade.
+      - name: Verify orchestrator and logs are tidy, formatted and describe their API
         run: git diff --exit-code -- orchestrator logs
       - run: task orchestrator:lint
       - run: task logs:lint
