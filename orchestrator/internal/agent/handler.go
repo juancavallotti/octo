@@ -101,7 +101,7 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 
 	status, err := h.svc.Status(ctx)
 	if err != nil {
-		h.writeError(w, err)
+		h.writeError(w, "read the status of", err)
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, toResponse(status))
@@ -124,7 +124,7 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 //	@Failure		503		{object}	httpx.ErrorResponse	"no cluster access, or encryption is not configured"
 //	@Router			/settings/agent/install [post]
 func (h *Handler) install(w http.ResponseWriter, r *http.Request) {
-	h.act(w, r, func(ctx context.Context, actorID string) (Status, error) {
+	h.act(w, r, "install", func(ctx context.Context, actorID string) (Status, error) {
 		return h.svc.Install(ctx, actorID)
 	})
 }
@@ -146,7 +146,7 @@ func (h *Handler) install(w http.ResponseWriter, r *http.Request) {
 //	@Failure		503		{object}	httpx.ErrorResponse	"no cluster access"
 //	@Router			/settings/agent/rollout [post]
 func (h *Handler) rollout(w http.ResponseWriter, r *http.Request) {
-	h.act(w, r, func(ctx context.Context, actorID string) (Status, error) {
+	h.act(w, r, "roll out", func(ctx context.Context, actorID string) (Status, error) {
 		return h.svc.Rollout(ctx, actorID)
 	})
 }
@@ -178,7 +178,7 @@ func (h *Handler) tracing(w http.ResponseWriter, r *http.Request) {
 
 	status, err := h.svc.SetTracing(ctx, req.Tracing)
 	if err != nil {
-		h.writeError(w, err)
+		h.writeError(w, "change tracing on", err)
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, toResponse(status))
@@ -203,7 +203,7 @@ func (h *Handler) uninstall(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	if err := h.svc.Uninstall(ctx, purge); err != nil {
-		h.writeError(w, err)
+		h.writeError(w, "remove", err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -213,7 +213,7 @@ func (h *Handler) uninstall(w http.ResponseWriter, r *http.Request) {
 // optional body — an empty one is fine, since the actor is advisory attribution
 // rather than authorisation.
 func (h *Handler) act(
-	w http.ResponseWriter, r *http.Request,
+	w http.ResponseWriter, r *http.Request, op string,
 	run func(ctx context.Context, actorID string) (Status, error),
 ) {
 	var req actorRequest
@@ -229,7 +229,7 @@ func (h *Handler) act(
 
 	status, err := run(ctx, req.ActorID)
 	if err != nil {
-		h.writeError(w, err)
+		h.writeError(w, op, err)
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, toResponse(status))
@@ -238,7 +238,7 @@ func (h *Handler) act(
 // writeError maps domain errors to statuses. These strings reach the operator
 // verbatim — the BFF passes the error envelope straight through — so each says what
 // to do rather than what went wrong.
-func (h *Handler) writeError(w http.ResponseWriter, err error) {
+func (h *Handler) writeError(w http.ResponseWriter, op string, err error) {
 	switch {
 	case errors.Is(err, ErrClusterUnavailable):
 		httpx.WriteError(w, http.StatusServiceUnavailable,
@@ -262,7 +262,16 @@ func (h *Handler) writeError(w http.ResponseWriter, err error) {
 		httpx.WriteError(w, http.StatusConflict,
 			"an integration named \""+agentapp.Name+"\" already exists — rename it, then install")
 	default:
-		slog.Error("agent handler", "error", err)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
+		// Say what actually failed, both in the log and to the caller.
+		//
+		// The usual reason to answer "internal error" is that the caller is a
+		// browser that might be anyone's. This caller is not: these routes are
+		// admin operations behind the write roles, and the person reading the
+		// message is the one who has to fix whatever went wrong — an opaque reply
+		// sends them to the pod logs to find a line that, until this change, said
+		// no more than the reply did. The wrapped errors name the step and carry no
+		// key material.
+		slog.Error("agent operation failed", "operation", op, "error", err)
+		httpx.WriteError(w, http.StatusInternalServerError, "could not "+op+" the agent: "+err.Error())
 	}
 }

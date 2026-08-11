@@ -209,7 +209,15 @@ type fakeSecrets struct {
 	deleted []string
 }
 
+// Create enforces the real service's name rule. A fake that accepted any name is
+// how "octo-agent-llm-key" reached a cluster and was refused there: every test
+// below passed, because the only thing that knew the rule was the code the tests
+// had replaced. A fake may be simple, but it may not be more permissive than the
+// thing it stands in for.
 func (f *fakeSecrets) Create(_ context.Context, name, value string) (secret.Secret, error) {
+	if !secret.ValidName(name) {
+		return secret.Secret{}, secret.ErrInvalidName
+	}
 	if f.written == nil {
 		f.written = map[string]string{}
 	}
@@ -1029,5 +1037,27 @@ func TestInstallRefusesWithoutAnOrchestratorURL(t *testing.T) {
 	}
 	if len(h.deployments.deployed) != 0 {
 		t.Error("want nothing deployed")
+	}
+}
+
+// The name is a constant in this package and the rule that governs it lives in
+// another, so nothing connected the two until an install reached a real cluster
+// and was refused. This is that connection: change the rule or the constant and
+// one of them has to give.
+func TestLLMKeySecretIsAValidPlatformSecretName(t *testing.T) {
+	if !secret.ValidName(llmKeySecret) {
+		t.Fatalf("llmKeySecret = %q, which the secrets catalogue refuses; "+
+			"a platform secret name is UPPER_SNAKE_CASE, because it is a data key "+
+			"in the shared Secret and not a Secret object of its own", llmKeySecret)
+	}
+}
+
+// Every environment name the installer binds is also an env var in the agent's
+// own config.yaml, and the same rule applies to all of them.
+func TestBoundEnvironmentNamesAreValid(t *testing.T) {
+	for _, name := range []string{envConnectorType, envModel, envAPIKey, envOrchestrator} {
+		if !secret.ValidName(name) {
+			t.Errorf("env name %q is not a valid environment variable name", name)
+		}
 	}
 }

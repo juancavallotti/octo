@@ -42,10 +42,22 @@ const (
 	BlockedLLMKey = "llm_key"
 )
 
-// llmKeySecret is the cluster secret the agent's provider key is written to. The
+// llmKeySecret is the platform secret the agent's provider key is written to. The
 // deployment binds LLM_API_KEY to it by name, so the key itself never enters a
 // deployment record.
-const llmKeySecret = "octo-agent-llm-key"
+//
+// UPPER_SNAKE_CASE because that is what a platform secret is: not a Kubernetes
+// Secret object of its own, but a data key inside the one shared `octo-secrets`
+// Secret, and the catalogue constrains those to the intersection of a valid env
+// var name and a valid Secret data key. A name in any other shape is refused —
+// which is what the first install of this agent did. TestLLMKeySecretIsAValidPlatformSecretName
+// holds it to that rule.
+//
+// It is deliberately an ordinary platform secret, visible in the secrets list
+// alongside every other one, because the agent is deployed through the ordinary
+// path and this is how that path carries a credential. Uninstalling with purge
+// removes it.
+const llmKeySecret = "OCTO_AGENT_LLM_KEY"
 
 // Environment variables the installer binds on the agent's deployment. They mirror
 // the app's own env block; a change on either side without the other fails the

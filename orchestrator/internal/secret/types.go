@@ -29,8 +29,12 @@ const maxNameLen = 253
 // both — this regexp is a strict subset of each.
 var nameRe = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
 
-// validName reports whether name is usable as both an env var name and a Secret
-// data key.
-func validName(name string) bool {
+// ValidName reports whether name is usable as both an env var name and a Secret
+// data key, which is what Create accepts.
+//
+// Exported so a caller that hard-codes a secret name — the platform agent's
+// provider key is one — can be held to this rule by its own tests, rather than
+// discovering at install time that the name it has always used is refused.
+func ValidName(name string) bool {
 	return len(name) <= maxNameLen && nameRe.MatchString(name)
 }

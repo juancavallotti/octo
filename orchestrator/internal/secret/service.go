@@ -46,7 +46,7 @@ func (s *Service) Create(ctx context.Context, name, value string) (Secret, error
 	if s.kube == nil {
 		return Secret{}, ErrUnavailable
 	}
-	if !validName(name) {
+	if !ValidName(name) {
 		return Secret{}, ErrInvalidName
 	}
 	if err := s.kube.SetSecret(ctx, name, value); err != nil {

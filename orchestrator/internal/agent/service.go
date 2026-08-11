@@ -370,14 +370,19 @@ func (s *Service) install(ctx context.Context, cur stored, actorID string) (stor
 		return cur, err
 	}
 
+	// Each step names itself in its error. An install is half a dozen operations
+	// against the database, the cluster's Secret and the Kubernetes API, and any of
+	// them can fail for reasons outside this package — so "which step" is the first
+	// thing anyone reading the failure needs, and the only party that knows it is
+	// the code that took the step.
 	next := cur
 	if err := s.syncResources(ctx, next.IntegrationID); err != nil {
-		return cur, err
+		return cur, fmt.Errorf("write the agent's skills as resources: %w", err)
 	}
 
 	snap, err := s.ensureTag(ctx, next.IntegrationID, agentapp.Tag(digest))
 	if err != nil {
-		return cur, err
+		return cur, fmt.Errorf("publish version %q: %w", agentapp.Tag(digest), err)
 	}
 	next.SnapshotID = snap.ID
 	next.InstalledTag = snap.Tag
@@ -395,7 +400,7 @@ func (s *Service) install(ctx context.Context, cur stored, actorID string) (stor
 		Env:        bindings,
 	})
 	if err != nil {
-		return cur, err
+		return cur, fmt.Errorf("deploy version %q: %w", snap.Tag, err)
 	}
 
 	meta := deployment.ParseMetadata(dep.Metadata)
@@ -493,7 +498,7 @@ func (s *Service) ensureTag(ctx context.Context, integrationID, tag string) (sna
 func (s *Service) envBindings(ctx context.Context) (map[string]deployment.EnvBinding, error) {
 	creds, err := s.credentials.Reveal(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read the site's llm settings: %w", err)
 	}
 	connectorType, ok := ConnectorTypeFor(creds.Provider)
 	if !ok {
@@ -505,8 +510,12 @@ func (s *Service) envBindings(ctx context.Context) (map[string]deployment.EnvBin
 	if s.orchestratorURL == "" {
 		return nil, ErrNoOrchestratorURL
 	}
+	// The provider key becomes an ordinary platform secret, because the agent is
+	// deployed through the ordinary path and that is how it carries a credential:
+	// the deployment binds LLM_API_KEY to this name, so the key itself never enters
+	// a deployment record.
 	if _, err := s.secrets.Create(ctx, llmKeySecret, creds.APIKey); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("store the provider key as platform secret %s: %w", llmKeySecret, err)
 	}
 
 	return map[string]deployment.EnvBinding{
