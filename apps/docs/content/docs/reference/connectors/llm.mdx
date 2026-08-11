@@ -71,7 +71,7 @@ than pending:
 | `llm-gemini` | fragments | fragments | whole, in one event |
 
 <Callout type="warn">
-Use `default` sparingly, and expect it to break tool use on a reasoning model. Omitting `reasoning_effort` asks the model for *its* default, which is not none — and OpenAI refuses a request that combines a non-none effort with function tools on `/v1/chat/completions`, with a 400 naming `reasoning_effort`. That is why `none` is the default here and why it is sent explicitly rather than by omission.
+Use `default` knowing it depends on the model. Omitting `reasoning_effort` asks the model for *its* default, which on a reasoning model is not none — and **some** models refuse a request combining a non-none effort with function tools on `/v1/chat/completions`, answering 400 and naming `reasoning_effort`. Others accept tool calls at every effort. Since which is which changes with each model release, `none` is the default here and is sent explicitly rather than by omission: it is the one value that works everywhere. If your model supports tools while reasoning and you want it to, set the effort you want rather than leaving it to `default`.
 </Callout>
 
 OpenAI's Chat Completions API returns no reasoning content at all — not while

@@ -66,9 +66,6 @@ const (
 	reasoningNone = "none"
 	// reasoningDefault omits reasoning_effort so the model applies its own.
 	reasoningDefault = "default"
-	// reasoningOff is the old spelling of "none". It omitted the field entirely,
-	// which is what "default" now means — see toReasoningEffort.
-	reasoningOff = "off"
 )
 
 // Connector is a configured OpenAI client that AI elements call through. It is
@@ -137,7 +134,7 @@ func toReasoningEffort(effort string) (shared.ReasoningEffort, error) {
 	// own default, which is not none — and a non-none default cannot be combined
 	// with function tools on /v1/chat/completions, so every agent built on such a
 	// model failed its first turn with a 400 naming reasoning_effort.
-	case "", reasoningOff, reasoningNone:
+	case "", reasoningNone:
 		return shared.ReasoningEffort(reasoningNone), nil
 	// The old behaviour, for a model that rejects an explicit none.
 	case reasoningDefault:
