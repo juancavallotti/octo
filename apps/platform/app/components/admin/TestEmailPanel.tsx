@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { sendTestEmail, type EmailSettingsInput } from "@/app/model/siteSettings";
-import { Field, INPUT, SaveButton } from "./fields";
+import { Field, INPUT, PrimaryButton } from "./fields";
 
 /**
  * Sends a test message using the draft currently on screen, so a key can be checked
@@ -83,9 +83,9 @@ export default function TestEmailPanel({
         </span>
       )}
 
-      <SaveButton onClick={send} disabled={!canSend}>
+      <PrimaryButton onClick={send} disabled={!canSend}>
         {sending ? "Sending…" : "Send test email"}
-      </SaveButton>
+      </PrimaryButton>
     </div>
   );
 }

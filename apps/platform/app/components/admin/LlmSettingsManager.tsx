@@ -7,7 +7,7 @@ import {
   saveLlmSettings,
   type LlmSettings,
 } from "@/app/model/siteSettings";
-import { ApiKeyField, EncryptionWarning, Field, INPUT, SaveButton } from "./fields";
+import { ApiKeyField, EncryptionWarning, Field, INPUT, PrimaryButton } from "./fields";
 import {
   LLM_PROVIDERS,
   modelForProviderChange,
@@ -162,7 +162,7 @@ export default function LlmSettingsManager() {
             onRemove={removeKey}
           />
 
-          <SaveButton onClick={save} disabled={!canSave} />
+          <PrimaryButton onClick={save} disabled={!canSave} />
         </div>
       </div>
     </div>

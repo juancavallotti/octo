@@ -103,7 +103,7 @@ export function ApiKeyField({
           <button
             type="button"
             onClick={onRemove}
-            className="text-xs font-medium text-red-500 hover:underline disabled:opacity-50"
+            className="text-xs font-medium text-red-500 hover:underline"
           >
             Remove
           </button>
@@ -114,7 +114,7 @@ export function ApiKeyField({
 }
 
 /** The primary action button, matching the rest of the platform's forms. */
-export function SaveButton({
+export function PrimaryButton({
   onClick,
   disabled,
   children = "Save",

@@ -8,7 +8,7 @@ import {
   type EmailSettings,
   type EmailSettingsInput,
 } from "@/app/model/siteSettings";
-import { ApiKeyField, EncryptionWarning, Field, INPUT, SaveButton } from "./fields";
+import { ApiKeyField, EncryptionWarning, Field, INPUT, PrimaryButton } from "./fields";
 import TestEmailPanel from "./TestEmailPanel";
 
 /**
@@ -171,7 +171,7 @@ export default function EmailSettingsManager() {
             onRemove={removeKey}
           />
 
-          <SaveButton onClick={save} disabled={!canSave} />
+          <PrimaryButton onClick={save} disabled={!canSave} />
         </div>
 
         <TestEmailPanel
