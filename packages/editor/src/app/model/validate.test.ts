@@ -65,6 +65,33 @@ describe("validateDocument", () => {
     ).toBe(true);
   });
 
+  // An unrelated placeholder connection is not a candidate for an implicit source
+  // binding: it might resolve to anything, so counting it as a second cron would
+  // demand a choice the author does not have to make.
+  it("an unrelated placeholder does not make the implicit source binding ambiguous", () => {
+    const doc = runnableDoc();
+    doc.flows[0].source!.connectorRef = "";
+    doc.connectors.push({
+      id: "c1",
+      name: "llm",
+      type: "${LLM_CONNECTOR_TYPE}",
+      settings: {},
+    });
+
+    expect(validateDocument(doc)).toEqual({ ok: true, issues: [] });
+  });
+
+  // Two connections of the type the source names is still ambiguous.
+  it("still flags two connections of the source's own type", () => {
+    const doc = runnableDoc();
+    doc.flows[0].source!.connectorRef = "";
+    doc.connectors.push({ id: "c1", name: "clock2", type: "cron", settings: {} });
+
+    const result = validateDocument(doc);
+    expect(result.ok).toBe(false);
+    expect(issueMessages(result).some((i) => i.includes("choose one"))).toBe(true);
+  });
+
   // Only a bare placeholder is exempt. Anything else is a type name that happens to
   // contain a brace, and pretending otherwise would let real typos through.
   it("does not exempt a type that merely contains a placeholder", () => {

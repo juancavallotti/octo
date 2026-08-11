@@ -110,16 +110,47 @@ flows:
           heartbeat: 15s
           maxDuration: 10m
     process:
+      # A conversation is addressed by the caller, so the thread id alone cannot be
+      # the memory key: anyone could pass someone else's and be handed their
+      # transcript. The key is the user the platform authenticated, plus the thread —
+      # so a stolen thread id names a conversation that does not exist. The user
+      # block is injected server-side by the chat route and overwritten there, so a
+      # forged one in the request never reaches this expression.
+      - type: set-variable
+        name: thread-key
+        settings:
+          name: threadKey
+          value: >-
+            (has(body.user) && has(body.user.id) && body.user.id != ""
+              ? body.user.id : "anonymous")
+            + "/" +
+            (has(body.threadId) && body.threadId != "" ? body.threadId : "default")
+
+      # The agent's input, stated rather than inherited. Everything in the body
+      # reaches the model, so the body is narrowed to what the model is actually for:
+      # the question, where it was asked, and who is asking by name. The email is
+      # dropped — it identifies a real person to an external provider and nothing in
+      # the prompt needs it.
+      - type: set-payload
+        name: agent-input
+        settings:
+          value: >-
+            {
+              "message": has(body.message) ? body.message : "",
+              "page": has(body.page) ? body.page : "",
+              "user": has(body.user) && has(body.user.name) ? {"name": body.user.name} : {}
+            }
+
       - type: ai-agent
         name: dr-octo
         connector: llm
         stream: true
         maxIterations: ${AGENT_MAX_ITERATIONS}
 
-        # One thread per conversation. Memory rides the deployment's KV store,
-        # which under the k8s services module is the orchestrator's own — so a
-        # conversation survives a pod restart with nothing written for it here.
-        memoryThreadId: body.threadId
+        # Memory rides the deployment's KV store, which under the k8s services module
+        # is the orchestrator's own — so a conversation survives a pod restart with
+        # nothing written for it here.
+        memoryThreadId: vars.threadKey
         memoryMaxTokens: ${AGENT_MEMORY_TOKENS}
         memoryCompaction: summarize
 
@@ -150,11 +181,11 @@ flows:
           it is a fact, not a personality.
 
 
-          You are talking to a signed-in user of this platform. Their name and email
-          arrive in body.user, and the page they are on arrives in body.page — use
-          the page for context about what they mean by "this" or "here", and use
-          their name sparingly and naturally. When body.user is empty, authentication
-          is off and you are talking to a local developer.
+          You are talking to a signed-in user of this platform. Their name arrives in
+          body.user.name, and the page they are on arrives in body.page — use the page
+          for context about what they mean by "this" or "here", and use their name
+          sparingly and naturally. When body.user is empty, authentication is off and
+          you are talking to a local developer.
 
 
           You help with the platform: reading and explaining integrations, writing

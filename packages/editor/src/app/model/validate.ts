@@ -133,21 +133,30 @@ function checkSource(
   // binds implicitly (serialize resolves it). It only has to be chosen when the
   // choice is ambiguous — two or more connections of that type. An explicit
   // binding, however, must still resolve.
-  // A connection whose type is an environment placeholder is treated as a match, for
-  // the same reason it matches every reference field: the editor cannot know what it
-  // resolves to, and refusing the binding would be a claim it cannot support.
-  const matching = doc.connectors.filter(
-    (c) => c.type === source.connector || isEnvPlaceholder(c.type),
-  );
+  // Two different questions, so two different sets.
+  //
+  // An explicit binding only has to be *plausible*, and a connection whose type is an
+  // environment placeholder is: the editor cannot know what it resolves to, so
+  // refusing it would be a claim it cannot support.
+  //
+  // Ambiguity is the opposite. It asks whether the implicit binding is unclear, and
+  // an implicit binding resolves against connections of the matching type — so a
+  // placeholder that might turn out to be something else entirely must not count.
+  // Otherwise one http connection alongside one unrelated placeholder would demand a
+  // choice between them that the author does not have to make.
+  const declared = doc.connectors.filter((c) => c.type === source.connector);
   if (source.connectorRef) {
-    if (!matching.some((c) => c.name === source.connectorRef)) {
+    const bindable = doc.connectors.filter(
+      (c) => c.type === source.connector || isEnvPlaceholder(c.type),
+    );
+    if (!bindable.some((c) => c.name === source.connectorRef)) {
       raise(
         issues,
         scope,
         `source connection "${source.connectorRef}" doesn't exist.`,
       );
     }
-  } else if (matching.length >= 2) {
+  } else if (declared.length >= 2) {
     raise(
       issues,
       scope,

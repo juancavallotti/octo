@@ -27,6 +27,9 @@ flow: chat
 #     composite. A placeholder that is exactly one variable takes its natural type;
 #     were that not true of composite slots, the build would fail here.
 #   - The agent takes the STREAMING path, not the buffered one.
+#   - The two things the flow does BEFORE the agent, which are the two that would
+#     fail silently and expensively: the memory key is scoped to the authenticated
+#     user, and the email never reaches the model.
 #
 # What is NOT pinned: the frames, emit filtering, the tool loop, memory, and
 # stop-on-disconnect. All of them need a model, a live connection, or both.
@@ -44,6 +47,14 @@ inputs:
       message: list my integrations
       page: /platform/integrations
       user: { id: u-1, name: Ada, email: ada@example.com }
+  # The same thread id, asked by somebody else. The chat route injects the user
+  # block server-side, so this is what a stolen thread id looks like by the time it
+  # reaches the flow.
+  the same thread from another user:
+    data:
+      threadId: t-1
+      message: what were we discussing
+      user: { id: u-2, name: Bob, email: bob@example.com }
 
 cases:
   # Not mocked, so the agent is built and run for real — with the model UNREACHABLE.
@@ -79,14 +90,59 @@ cases:
         count: 1
         records:
           - input:
-              # The user block and the page matter: they are the context the prompt
-              # tells Dr. Octo to read, and a chat route that dropped them would look
-              # fine until someone asked "what is this page".
+              # The page and the name matter: they are the context the prompt tells
+              # Dr. Octo to read, and a chat route that dropped them would look fine
+              # until someone asked "what is this page".
+              #
+              # The thread id is deliberately absent: it addresses the conversation,
+              # it is not part of it, and it has already been folded into the memory
+              # key by the time the agent runs.
               that:
-                - 'body.threadId == "t-1"'
                 - 'body.message == "list my integrations"'
                 - 'body.page == "/platform/integrations"'
                 - 'body.user.name == "Ada"'
+
+  # Everything in the body reaches the model. The email identifies a real person to
+  # an external provider and nothing in the prompt needs it, so the flow narrows the
+  # body to what the agent is actually for. Asserted on the agent's input, because
+  # that is the boundary the data crosses.
+  - name: the user's email never reaches the agent
+    input: a question
+    mocks:
+      chat.dr-octo:
+        default:
+          body: { answer: ok }
+    spies:
+      chat.dr-octo:
+        count: 1
+        records:
+          - input:
+              that:
+                - '!has(body.user.email)'
+                - '!has(body.threadId)'
+                - 'body.user.name == "Ada"'
+
+  # A thread id is supplied by the caller, so it cannot be the whole memory key: one
+  # user passing another's would be handed their transcript. The key is the
+  # authenticated user plus the thread, so the same thread id asked by two people
+  # names two different conversations.
+  - name: the memory key is scoped to the user, so a stolen thread id resumes nothing
+    input: a question
+    mocks:
+      chat.dr-octo:
+        default:
+          body: { answer: ok }
+    expect:
+      vars: { threadKey: "u-1/t-1" }
+
+  - name: the same thread id under another user is a different conversation
+    input: the same thread from another user
+    mocks:
+      chat.dr-octo:
+        default:
+          body: { answer: ok }
+    expect:
+      vars: { threadKey: "u-2/t-1" }
 
   # A conversation with no user block is the local-development case: authentication
   # is off, so the session carries no name or email. The flow must not care.
@@ -101,3 +157,6 @@ cases:
           body: { answer: Hello. }
     expect:
       body: { answer: Hello. }
+      # No user means no principal to scope by, which is honest rather than a
+      # fallback to something guessable.
+      vars: { threadKey: "anonymous/t-2" }
