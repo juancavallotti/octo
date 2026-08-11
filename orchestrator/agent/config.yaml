@@ -240,8 +240,9 @@ flows:
 
 
           You remember people between conversations. Call recall_facts when the
-          answer might depend on how someone works, and remember_fact when they
-          tell you something worth keeping — how they like flows written, which
+          answer might depend on how someone works, and remember_fact — with both
+          a short stable name and the fact itself — when they tell you something
+          worth keeping — how they like flows written, which
           integration is theirs, what to call them. Remember preferences and
           context, not the contents of a conversation, and never a credential. If
           they tell you something has changed, update the fact under the same name;
@@ -457,13 +458,35 @@ flows:
               # Filter-then-append is what makes this an upsert: remembering a name
               # that is already known replaces it rather than leaving the model to
               # read two versions of the same fact and pick one.
+              - type: set-variable
+                name: merge-facts
+                settings:
+                  name: mergedFacts
+                  value: >-
+                    vars.userFacts.items.filter(f, f.name != body.name)
+                    + [{"name": body.name, "value": body.value}]
+
+              # Capped, oldest first. Nothing else bounds this list — the model
+              # decides what is worth keeping — and an unbounded value is read back
+              # into every recall_facts and eventually into a row that will not
+              # write. 200 is far more than anyone accumulates honestly and far
+              # less than a problem.
+              #
+              # Read and write are separate blocks, so two conversations
+              # remembering at the same moment can lose one of the two facts.
+              # Accepted rather than solved: object-write retries on a version
+              # conflict but cannot see a read taken in another block, and the
+              # alternative — a key per fact — needs a list API the KV store does
+              # not have. The cost is one forgotten preference, and the user can
+              # say it again.
               - type: object-write
                 settings:
                   key: '"facts/" + vars.userKey'
                   value: >-
-                    {"items":
-                      vars.userFacts.items.filter(f, f.name != body.name)
-                      + [{"name": body.name, "value": body.value}]}
+                    {"items": size(vars.mergedFacts) > 200
+                      ? vars.mergedFacts.slice(size(vars.mergedFacts) - 200, size(vars.mergedFacts))
+                      : vars.mergedFacts}
+
               - type: set-payload
                 settings:
                   value: '{"remembered": body.name}'
