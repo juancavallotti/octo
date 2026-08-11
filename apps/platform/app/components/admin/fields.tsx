@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { Rocket } from "lucide-react";
 
 /**
  * The form primitives both admin settings pages share: the input styling, a
@@ -129,6 +130,83 @@ export function PrimaryButton({
       onClick={onClick}
       disabled={disabled}
       className="self-start rounded-md bg-sky-600 px-3 py-1 text-sm font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-50"
+    >
+      {children}
+    </button>
+  );
+}
+
+/**
+ * The primary action, matching the Deploy button on an integration: filled sky,
+ * an icon, and the same size — so "the main thing to do here" looks the same
+ * wherever you are.
+ */
+export function PrimaryAction({
+  onClick,
+  disabled,
+  children,
+}: {
+  onClick: () => void;
+  disabled: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1 text-sm font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-50"
+    >
+      <Rocket size={14} />
+      {children}
+    </button>
+  );
+}
+
+/** An icon-only action, as the integration header uses for its secondary ones. */
+export function IconAction({
+  onClick,
+  disabled,
+  label,
+  className,
+  children,
+}: {
+  onClick: () => void;
+  disabled: boolean;
+  label: string;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      title={label}
+      className={`rounded-md p-1.5 text-zinc-400 transition-colors hover:bg-black/[0.06] hover:text-zinc-700 disabled:opacity-50 dark:hover:bg-white/10 dark:hover:text-zinc-200 ${className ?? ""}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+/** A non-primary action, for the toggles that sit beside the main button. */
+export function SecondaryButton({
+  onClick,
+  disabled,
+  children,
+}: {
+  onClick: () => void;
+  disabled: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="rounded-md border border-black/10 px-3 py-1 text-sm font-medium text-zinc-700 transition-colors hover:bg-black/[0.04] disabled:opacity-50 dark:border-white/15 dark:text-zinc-200 dark:hover:bg-white/[0.06]"
     >
       {children}
     </button>

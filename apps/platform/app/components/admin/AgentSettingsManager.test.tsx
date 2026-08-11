@@ -74,7 +74,7 @@ describe("AgentSettingsManager", () => {
 
     await waitFor(() => expect(screen.getByRole("button", { name: "Install" })).toBeTruthy());
     expect(screen.queryByRole("button", { name: /tracing/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Remove the agent" })).toBeNull();
   });
 
   // Every button on this page is a decision about what is already installed, so a
@@ -187,8 +187,8 @@ describe("AgentSettingsManager", () => {
     getAgentStatus.mockResolvedValue(DEPLOYED);
     renderManager();
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Remove" })).toBeTruthy());
-    await user.click(screen.getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Remove the agent" })).toBeTruthy());
+    await user.click(screen.getByRole("button", { name: "Remove the agent" }));
     await confirmDialog(user, /^Remove$/);
 
     await waitFor(() => expect(uninstallAgent).toHaveBeenCalledWith(false));
@@ -207,7 +207,7 @@ describe("AgentSettingsManager", () => {
     getAgentStatus.mockResolvedValue(DEPLOYED);
     await user.click(screen.getByRole("button", { name: "Try again" }));
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Remove" })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Remove the agent" })).toBeTruthy());
     expect(screen.queryByText("orchestrator unreachable")).toBeNull();
   });
 

@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { Activity, Pencil, Trash2 } from "lucide-react";
 import { useConfirm } from "@/app/components/ConfirmDialog";
 import {
   getAgentStatus,
@@ -11,7 +13,7 @@ import {
   type AgentStatus,
 } from "@/app/model/agent";
 import AgentStatusCard from "./AgentStatusCard";
-import { PrimaryButton } from "./fields";
+import { IconAction, PrimaryAction, SecondaryButton } from "./fields";
 
 /**
  * Install, update, trace and remove the platform agent.
@@ -142,45 +144,76 @@ export default function AgentSettingsManager() {
           <p className="mt-4 text-sm text-zinc-500">Loading…</p>
         ) : (
           <>
-            <AgentStatusCard status={status} />
+            <AgentStatusCard
+              status={status}
+              actions={
+                <>
+                  {/* One primary action per state, in the sky the platform uses
+                      for Deploy everywhere else. */}
+                  {!installed && (
+                    <PrimaryAction onClick={install} disabled={!canAct || blocked}>
+                      Install
+                    </PrimaryAction>
+                  )}
+                  {installed && !deployed && (
+                    <PrimaryAction onClick={install} disabled={!canAct || blocked}>
+                      Deploy
+                    </PrimaryAction>
+                  )}
+                  {installed && status.updateAvailable && (
+                    <PrimaryAction onClick={rollout} disabled={!canAct || blocked}>
+                      Roll out update
+                    </PrimaryAction>
+                  )}
+                  {installed &&
+                    status.state === "failed" &&
+                    !status.updateAvailable && (
+                      <PrimaryAction onClick={rollout} disabled={!canAct || blocked}>
+                        Redeploy
+                      </PrimaryAction>
+                    )}
 
-            <div className="mt-4 flex flex-wrap items-center gap-2">
-              {!installed && (
-                <PrimaryButton onClick={install} disabled={!canAct || blocked}>
-                  Install
-                </PrimaryButton>
-              )}
-              {installed && !deployed && (
-                <PrimaryButton onClick={install} disabled={!canAct || blocked}>
-                  Deploy
-                </PrimaryButton>
-              )}
-              {installed && status.updateAvailable && (
-                <PrimaryButton onClick={rollout} disabled={!canAct || blocked}>
-                  Roll out update
-                </PrimaryButton>
-              )}
-              {installed && status.state === "failed" && !status.updateAvailable && (
-                <PrimaryButton onClick={rollout} disabled={!canAct || blocked}>
-                  Redeploy
-                </PrimaryButton>
-              )}
-              {deployed && (
-                <SecondaryButton onClick={toggleTracing} disabled={!canAct}>
-                  {status.tracing ? "Turn tracing off" : "Turn tracing on"}
-                </SecondaryButton>
-              )}
-              {installed && (
-                <button
-                  type="button"
-                  onClick={remove}
-                  disabled={!canAct}
-                  className="text-sm font-medium text-red-500 hover:underline disabled:opacity-50"
-                >
-                  Remove
-                </button>
-              )}
-            </div>
+                  {deployed && (
+                    <IconAction
+                      onClick={toggleTracing}
+                      disabled={!canAct}
+                      label={status.tracing ? "Turn tracing off" : "Turn tracing on"}
+                      // Lit when on, so the toggle's state is legible without
+                      // reading the badge beside it.
+                      className={
+                        status.tracing
+                          ? "text-violet-500 hover:bg-violet-500/10"
+                          : undefined
+                      }
+                    >
+                      <Activity size={16} />
+                    </IconAction>
+                  )}
+
+                  {status.integrationId && (
+                    <Link
+                      href={`/platform/i/${status.integrationId}`}
+                      aria-label="Open the agent in the editor"
+                      title="Open in the editor"
+                      className="rounded-md p-1.5 text-zinc-400 transition-colors hover:bg-black/[0.06] hover:text-zinc-700 dark:hover:bg-white/10 dark:hover:text-zinc-200"
+                    >
+                      <Pencil size={16} />
+                    </Link>
+                  )}
+
+                  {installed && (
+                    <IconAction
+                      onClick={remove}
+                      disabled={!canAct}
+                      label="Remove the agent"
+                      className="hover:bg-red-500/10 hover:text-red-500"
+                    >
+                      <Trash2 size={16} />
+                    </IconAction>
+                  )}
+                </>
+              }
+            />
 
             {deployed && (
               <p className="mt-2 text-xs text-zinc-500">
@@ -193,27 +226,5 @@ export default function AgentSettingsManager() {
         )}
       </div>
     </div>
-  );
-}
-
-/** A non-primary action, for the toggles that sit beside the main button. */
-function SecondaryButton({
-  onClick,
-  disabled,
-  children,
-}: {
-  onClick: () => void;
-  disabled: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className="rounded-md border border-black/10 px-3 py-1 text-sm font-medium text-zinc-700 transition-colors hover:bg-black/[0.04] disabled:opacity-50 dark:border-white/15 dark:text-zinc-200 dark:hover:bg-white/[0.06]"
-    >
-      {children}
-    </button>
   );
 }

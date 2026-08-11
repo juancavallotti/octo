@@ -1,11 +1,15 @@
 "use client";
 
 import Link from "next/link";
+import type { ReactNode } from "react";
 import type { AgentStatus } from "@/app/model/agent";
 
 /**
- * What the agent's status looks like on screen. Presentation only — the manager
- * owns loading and the actions, so this stays a function of one status object.
+ * The agent's state, as a panel with its actions in the header — the shape the
+ * integration surfaces use, because this *is* an integration and reading it
+ * differently would be the odd thing.
+ *
+ * Presentation only: the manager owns loading and the actions and passes them in.
  */
 
 const STATE_LABELS: Record<string, string> = {
@@ -44,7 +48,7 @@ export const BLOCKED_REASONS: Record<string, { text: string; href?: string; cta?
 };
 
 /** One label/value row, with the value in mono when it is an identifier. */
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
+function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-4 text-xs">
       <span className="shrink-0 text-zinc-500">{label}</span>
@@ -55,12 +59,21 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-export default function AgentStatusCard({ status }: { status: AgentStatus }) {
+export default function AgentStatusCard({
+  status,
+  actions,
+}: {
+  status: AgentStatus;
+  /** The buttons for this state, rendered at the top right of the panel. */
+  actions: ReactNode;
+}) {
   const blocked = status.blocked ? BLOCKED_REASONS[status.blocked] : undefined;
 
   return (
-    <div className="mt-4 flex flex-col gap-3 rounded-lg border border-black/10 p-4 dark:border-white/10">
-      <div className="flex items-center gap-2">
+    <div className="mt-4 overflow-hidden rounded-lg border border-black/10 dark:border-white/10">
+      {/* Badges left, actions right, on one line — the integration header's
+          arrangement, so the two read the same way. */}
+      <header className="flex flex-wrap items-center gap-2 border-b border-black/10 px-3 py-2 dark:border-white/10">
         <span
           className={`rounded-full px-2 py-0.5 text-xs font-medium ${
             STATE_STYLES[status.state] ?? STATE_STYLES.not_installed
@@ -78,58 +91,56 @@ export default function AgentStatusCard({ status }: { status: AgentStatus }) {
             Edited
           </span>
         )}
+        <div className="ml-auto flex shrink-0 items-center gap-1.5">{actions}</div>
+      </header>
+
+      <div className="flex flex-col gap-3 px-3 py-3">
+        {/* The blocked reason sits above the detail: it is why the buttons are
+            disabled, so reading it first is the point. */}
+        {blocked && (
+          <p className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-600 dark:text-amber-400">
+            {blocked.text}
+            {blocked.href && (
+              <>
+                {" "}
+                <Link href={blocked.href} className="font-medium underline">
+                  {blocked.cta}
+                </Link>
+                .
+              </>
+            )}
+          </p>
+        )}
+
+        {status.state === "failed" && status.reason && (
+          <p className="rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-600 dark:text-red-400">
+            {status.reason}
+          </p>
+        )}
+
+        {status.integrationId ? (
+          <div className="flex flex-col gap-1.5">
+            <Row label="Version">
+              <code className="font-mono">{status.installedTag || "—"}</code>
+            </Row>
+            {status.internalUrl && (
+              <Row label="Internal address">
+                <code className="font-mono">{status.internalUrl}</code>
+              </Row>
+            )}
+            {status.deploymentStatus && (
+              <Row label="Deployment">
+                <span className="capitalize">{status.deploymentStatus}</span>
+              </Row>
+            )}
+          </div>
+        ) : (
+          <p className="text-xs text-zinc-500">
+            Installing creates him as an integration, publishes a version from the
+            bundle this orchestrator ships, and deploys him with no external route.
+          </p>
+        )}
       </div>
-
-      {/* The blocked reason sits above the detail: it is why the buttons below are
-          disabled, so reading it first is the point. */}
-      {blocked && (
-        <p className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-600 dark:text-amber-400">
-          {blocked.text}
-          {blocked.href && (
-            <>
-              {" "}
-              <Link href={blocked.href} className="font-medium underline">
-                {blocked.cta}
-              </Link>
-              .
-            </>
-          )}
-        </p>
-      )}
-
-      {status.state === "failed" && status.reason && (
-        <p className="rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-600 dark:text-red-400">
-          {status.reason}
-        </p>
-      )}
-
-      {status.integrationId && (
-        <div className="flex flex-col gap-1.5 border-t border-black/5 pt-3 dark:border-white/5">
-          <Row label="Version">
-            <code className="font-mono">{status.installedTag || "—"}</code>
-          </Row>
-          {status.internalUrl && (
-            <Row label="Internal address">
-              <code className="font-mono">{status.internalUrl}</code>
-            </Row>
-          )}
-          {status.deploymentStatus && (
-            <Row label="Deployment">
-              <span className="capitalize">{status.deploymentStatus}</span>
-            </Row>
-          )}
-          <Row label="Definition">
-            {/* The agent is an ordinary integration, and this link is the proof —
-                it opens in the same editor as anything else. */}
-            <Link
-              href={`/platform/i/${status.integrationId}`}
-              className="font-medium text-sky-600 hover:underline dark:text-sky-400"
-            >
-              Open in the editor
-            </Link>
-          </Row>
-        </div>
-      )}
     </div>
   );
 }
