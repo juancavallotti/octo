@@ -99,6 +99,42 @@ describe("parseAgentEvent", () => {
     expect(parseAgentEvent("not json")).toBeNull();
     expect(parseAgentEvent('"a string"')).toBeNull();
   });
+
+  // A frame can be well-formed JSON and still wrong in its fields, and each of
+  // these has a consequence downstream: "null" concatenated into the answer, a
+  // chip no result can close, and — for a non-string error — an object handed to
+  // React as a child, which takes the panel down.
+  it("refuses a frame whose fields are not what the panel will do with them", () => {
+    expect(parseAgentEvent('{"type":"text","text":null}')).toBeNull();
+    expect(parseAgentEvent('{"type":"text","text":42}')).toBeNull();
+    expect(parseAgentEvent('{"type":"text"}')).toBeNull();
+    expect(parseAgentEvent('{"type":"tool_call","tool":"octo_api"}')).toBeNull();
+    expect(parseAgentEvent('{"type":"tool_call","toolCallId":"c1"}')).toBeNull();
+    expect(parseAgentEvent('{"type":"tool_result","tool":"octo_api"}')).toBeNull();
+    expect(parseAgentEvent('{"type":"error","error":{"message":"boom"}}')).toBeNull();
+  });
+
+  // These two carry optional text, so a frame without it is still usable — the
+  // reducer has a fallback for both.
+  it("keeps done and guardrail frames that carry no text", () => {
+    expect(parseAgentEvent('{"type":"done"}')).toEqual({ type: "done", text: undefined });
+    expect(parseAgentEvent('{"type":"guardrail"}')).toEqual({
+      type: "guardrail",
+      reason: undefined,
+    });
+  });
+
+  it("normalises isError to a boolean rather than passing it through", () => {
+    const event = parseAgentEvent('{"type":"tool_result","tool":"t","toolCallId":"c1"}');
+
+    expect(event).toEqual({
+      type: "tool_result",
+      tool: "t",
+      toolCallId: "c1",
+      output: undefined,
+      isError: false,
+    });
+  });
 });
 
 describe("parseNavigateEvent", () => {

@@ -71,10 +71,17 @@ export interface NavigateEvent {
   reason?: string;
 }
 
+const str = (v: unknown): v is string => typeof v === "string";
+
 /**
- * Parse an agent frame. Returns null for anything unrecognised rather than
- * throwing: the agent's emit list is editable, so a frame this build has never
- * heard of is a configuration the user chose, not a failure.
+ * Parse an agent frame, checking the fields the panel actually uses.
+ *
+ * Returns null for anything it cannot use rather than throwing. The type check
+ * alone is not enough: the agent's definition is editable and its emit list is
+ * open, so a frame can arrive well-formed as JSON and wrong in its fields — and
+ * each of those has a consequence. A null `text` concatenates the word "null" into
+ * the answer; a `tool_call` with no id opens a chip no result can ever close; a
+ * non-string `error` reaches React as an object child and takes the panel down.
  */
 export function parseAgentEvent(data: string): AgentEvent | null {
   let parsed: unknown;
@@ -84,16 +91,51 @@ export function parseAgentEvent(data: string): AgentEvent | null {
     return null;
   }
   if (!parsed || typeof parsed !== "object") return null;
-  const type = (parsed as { type?: unknown }).type;
-  switch (type) {
+  const frame = parsed as Record<string, unknown>;
+
+  switch (frame.type) {
     case "text":
+      if (!str(frame.text)) return null;
+      return {
+        type: "text",
+        text: frame.text,
+        index: typeof frame.index === "number" ? frame.index : undefined,
+      };
+
     case "tool_call":
+      if (!str(frame.tool) || !str(frame.toolCallId)) return null;
+      return {
+        type: "tool_call",
+        tool: frame.tool,
+        toolCallId: frame.toolCallId,
+        input: frame.input,
+      };
+
     case "tool_result":
+      if (!str(frame.tool) || !str(frame.toolCallId)) return null;
+      return {
+        type: "tool_result",
+        tool: frame.tool,
+        toolCallId: frame.toolCallId,
+        output: frame.output,
+        isError: Boolean(frame.isError),
+      };
+
+    // The only one whose text is optional: it repeats what streamed, and the
+    // reducer takes it only when nothing did.
     case "done":
+      return { type: "done", text: str(frame.text) ? frame.text : undefined };
+
     case "error":
+      if (!str(frame.error)) return null;
+      return { type: "error", error: frame.error };
+
     case "guardrail":
-      return parsed as AgentEvent;
+      return { type: "guardrail", reason: str(frame.reason) ? frame.reason : undefined };
+
     default:
+      // A kind this build has never heard of is a configuration somebody chose,
+      // not a failure. Skipping it beats throwing mid-stream.
       return null;
   }
 }
