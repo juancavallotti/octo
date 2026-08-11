@@ -142,7 +142,7 @@ cases:
         default:
           body: { answer: ok }
     expect:
-      vars: { threadKey: "u-1/t-1" }
+      vars: { threadKey: "u-1/t-1", userKey: "u-1" }
 
   - name: the same thread id under another user is a different conversation
     input: the same thread from another user
@@ -151,7 +151,10 @@ cases:
         default:
           body: { answer: ok }
     expect:
-      vars: { threadKey: "u-2/t-1" }
+      # The facts key is built from this same variable, so one person's facts are
+      # unreachable from another's conversation however the model is asked — it
+      # names a fact, the flow decides whose.
+      vars: { threadKey: "u-2/t-1", userKey: "u-2" }
 
   # A conversation with no user block is the local-development case: authentication
   # is off, so the session carries no name or email. The flow must not care.
@@ -168,7 +171,7 @@ cases:
       body: { answer: Hello. }
       # No user means no principal to scope by, which is honest rather than a
       # fallback to something guessable.
-      vars: { threadKey: "anonymous/t-2" }
+      vars: { threadKey: "anonymous/t-2", userKey: "anonymous" }
     spies:
       chat.dr-octo:
         count: 1

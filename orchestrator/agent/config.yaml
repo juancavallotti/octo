@@ -116,14 +116,25 @@ flows:
       # so a stolen thread id names a conversation that does not exist. The user
       # block is injected server-side by the chat route and overwritten there, so a
       # forged one in the request never reaches this expression.
+      # Who the platform authenticated, kept as a variable rather than left in the
+      # body. It scopes both the conversation and the remembered facts, and the
+      # model never sees it: it supplies a fact's name and value, the flow supplies
+      # whose facts they are. That is what makes one user's facts unreachable from
+      # another's conversation however the model is asked.
+      - type: set-variable
+        name: user-key
+        settings:
+          name: userKey
+          value: >-
+            has(body.user) && has(body.user.id) && body.user.id != ""
+              ? body.user.id : "anonymous"
+
       - type: set-variable
         name: thread-key
         settings:
           name: threadKey
           value: >-
-            (has(body.user) && has(body.user.id) && body.user.id != ""
-              ? body.user.id : "anonymous")
-            + "/" +
+            vars.userKey + "/" +
             (has(body.threadId) && body.threadId != "" ? body.threadId : "default")
 
       # The agent's input, stated rather than inherited. Everything in the body
@@ -226,6 +237,15 @@ flows:
 
           After you change an integration through the API, call refresh_platform_ui
           with its id so an editor with it open offers to reload.
+
+
+          You remember people between conversations. Call recall_facts when the
+          answer might depend on how someone works, and remember_fact when they
+          tell you something worth keeping — how they like flows written, which
+          integration is theirs, what to call them. Remember preferences and
+          context, not the contents of a conversation, and never a credential. If
+          they tell you something has changed, update the fact under the same name;
+          if they ask you to forget something, forget it without arguing.
 
 
           Write in Markdown — the panel renders it. Fenced code blocks with a language
@@ -377,6 +397,102 @@ flows:
               - type: set-payload
                 settings:
                   value: '{"navigated": true}'
+
+          # ---------------------------------------------------------------- facts
+          #
+          # What Dr. Octo remembers about a person between conversations: how they
+          # like flows written, which integration is theirs, that they prefer the
+          # short answer. Memory holds a *conversation*; this holds what outlives
+          # one.
+          #
+          # All three keep every fact for a user in a single object at
+          # facts/{userKey}. One key per fact would have been the obvious shape and
+          # is the wrong one here: core.KV has get, set and delete but no list, so
+          # enumerating them would mean an HTTP call to the objects route and the
+          # deployment's own id. A list in one value needs neither, and CEL can
+          # filter and append it without any of that.
+          #
+          # The key is built from vars.userKey, which the model cannot see or set.
+          # It names a fact; the flow decides whose.
+
+          - name: recall_facts
+            description: >
+              Everything you have been told to remember about this user. Read it
+              early when the answer might depend on how they work — do not ask them
+              to repeat something you were already told.
+            inputSchema: |
+              { "type": "object", "properties": {} }
+            process:
+              - type: object-read
+                settings:
+                  key: '"facts/" + vars.userKey'
+                  as: userFacts
+                  default: '{"items": []}'
+              - type: set-payload
+                settings:
+                  value: '{"facts": vars.userFacts.items}'
+
+          - name: remember_fact
+            description: >
+              Remember something about this user for later conversations. Use a
+              short stable name so the same fact can be updated rather than
+              duplicated — "preferred-model", "main-integration". Remember what
+              they tell you about themselves and how they work, not the contents of
+              this conversation, and not anything secret.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["name", "value"],
+                "properties": {
+                  "name":  { "type": "string", "description": "Short stable identifier for the fact." },
+                  "value": { "type": "string", "description": "The fact, in a sentence." }
+                }
+              }
+            process:
+              - type: object-read
+                settings:
+                  key: '"facts/" + vars.userKey'
+                  as: userFacts
+                  default: '{"items": []}'
+              # Filter-then-append is what makes this an upsert: remembering a name
+              # that is already known replaces it rather than leaving the model to
+              # read two versions of the same fact and pick one.
+              - type: object-write
+                settings:
+                  key: '"facts/" + vars.userKey'
+                  value: >-
+                    {"items":
+                      vars.userFacts.items.filter(f, f.name != body.name)
+                      + [{"name": body.name, "value": body.value}]}
+              - type: set-payload
+                settings:
+                  value: '{"remembered": body.name}'
+
+          - name: forget_fact
+            description: >
+              Forget a fact by name. Use this when the user says something is no
+              longer true, and when they ask you to forget something.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["name"],
+                "properties": {
+                  "name": { "type": "string", "description": "The fact's name, as given to remember_fact." }
+                }
+              }
+            process:
+              - type: object-read
+                settings:
+                  key: '"facts/" + vars.userKey'
+                  as: userFacts
+                  default: '{"items": []}'
+              - type: object-write
+                settings:
+                  key: '"facts/" + vars.userKey'
+                  value: '{"items": vars.userFacts.items.filter(f, f.name != body.name)}'
+              - type: set-payload
+                settings:
+                  value: '{"forgotten": body.name}'
 
         skills:
           - name: flow-file
