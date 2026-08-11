@@ -19,7 +19,7 @@ import (
 // (and unexported) so service tests can substitute a fake; *Repo satisfies it.
 type repository interface {
 	Get(ctx context.Context) (stored, error)
-	Put(ctx context.Context, s stored) error
+	Mutate(ctx context.Context, fn func(current stored) (stored, error)) error
 }
 
 // Service owns the LLM provider settings.
@@ -55,26 +55,25 @@ func (s *Service) Update(ctx context.Context, u Update) (Settings, error) {
 	if err := validateUpdate(u); err != nil {
 		return Settings{}, err
 	}
-	cur, err := s.repo.Get(ctx)
+	var saved Settings
+	err := s.repo.Mutate(ctx, func(cur stored) (stored, error) {
+		key, err := cur.APIKey.Apply(u.APIKey, s.cipher)
+		if err != nil {
+			return stored{}, err
+		}
+		next := stored{
+			Provider:  u.Provider,
+			Model:     strings.TrimSpace(u.Model),
+			APIKey:    key,
+			UpdatedAt: time.Now().UTC(),
+		}
+		saved = next.toSettings()
+		return next, nil
+	})
 	if err != nil {
 		return Settings{}, err
 	}
-
-	key, err := cur.APIKey.Apply(u.APIKey, s.cipher)
-	if err != nil {
-		return Settings{}, err
-	}
-
-	next := stored{
-		Provider:  u.Provider,
-		Model:     strings.TrimSpace(u.Model),
-		APIKey:    key,
-		UpdatedAt: time.Now().UTC(),
-	}
-	if err := s.repo.Put(ctx, next); err != nil {
-		return Settings{}, err
-	}
-	return next.toSettings(), nil
+	return saved, nil
 }
 
 // Reveal returns everything a server-side consumer needs to call the provider,

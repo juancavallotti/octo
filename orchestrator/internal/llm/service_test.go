@@ -20,9 +20,13 @@ type fakeRepo struct {
 
 func (f *fakeRepo) Get(context.Context) (stored, error) { return f.row, nil }
 
-func (f *fakeRepo) Put(_ context.Context, s stored) error {
+func (f *fakeRepo) Mutate(_ context.Context, fn func(stored) (stored, error)) error {
+	next, err := fn(f.row)
+	if err != nil {
+		return err
+	}
 	f.putCalls++
-	f.row = s
+	f.row = next
 	return nil
 }
 
@@ -72,6 +76,7 @@ func TestUpdateValidation(t *testing.T) {
 		{"over-long model", func(u *Update) { u.Model = strings.Repeat("x", maxModelLen+1) }, ErrInvalidModel},
 		{"model with a newline", func(u *Update) { u.Model = "gpt\n5.4" }, ErrInvalidModel},
 		{"short api key", func(u *Update) { u.APIKey = ptr("sk-abc") }, ErrInvalidAPIKey},
+		{"over-long api key", func(u *Update) { u.APIKey = ptr(strings.Repeat("k", maxAPIKeyLen+1)) }, ErrInvalidAPIKey},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

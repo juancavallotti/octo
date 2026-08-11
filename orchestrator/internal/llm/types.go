@@ -23,8 +23,11 @@ const (
 	// maxModelLen bounds the model identifier.
 	maxModelLen = 200
 	// minAPIKeyLen is short enough to accept any real provider key and long enough
-	// that the stored last4 is not most of the secret.
+	// that the stored last4 is not most of the secret. maxAPIKeyLen is far above any
+	// real key and exists so a mistyped paste — a whole file, say — is refused here
+	// rather than encrypted and stored.
 	minAPIKeyLen = 8
+	maxAPIKeyLen = 512
 )
 
 // providers is the closed set a stored provider must belong to.
@@ -99,7 +102,8 @@ func validateUpdate(u Update) error {
 		return ErrInvalidModel
 	}
 	if u.APIKey != nil {
-		if trimmed := strings.TrimSpace(*u.APIKey); trimmed != "" && len(trimmed) < minAPIKeyLen {
+		if trimmed := strings.TrimSpace(*u.APIKey); trimmed != "" &&
+			(len(trimmed) < minAPIKeyLen || len(trimmed) > maxAPIKeyLen) {
 			return ErrInvalidAPIKey
 		}
 	}
