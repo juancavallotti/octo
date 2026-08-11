@@ -375,3 +375,115 @@ func TestDynamicRejectsAQueryThatIsNotAMap(t *testing.T) {
 		t.Errorf("error = %v, want it to say what shape was expected", err)
 	}
 }
+
+// A prefix that reads as a path boundary has to be one. "/integrations" admitting
+// "/integrations-internal" would restrict less than the operator who wrote it
+// believes, which is worse than not restricting at all.
+func TestDynamicPathPrefixMatchesOnSegmentBoundaries(t *testing.T) {
+	var got echo
+	srv := echoServer(t, &got, http.StatusOK, `{}`)
+
+	proc := newDynamic(t, srv.URL, types.Settings{
+		"method":     `"GET"`,
+		"path":       "body.path",
+		"pathPrefix": "/integrations",
+	})
+
+	for _, path := range []string{"/integrations-internal/secrets", "/integrationsfoo"} {
+		got = echo{}
+		if _, err := proc.Process(context.Background(), restMessage(t, map[string]any{
+			"path": path,
+		})); err == nil {
+			t.Errorf("want %q refused: it shares a string prefix, not a path one", path)
+		}
+		if got.method != "" {
+			t.Errorf("want no request made for %q", path)
+		}
+	}
+
+	// The prefix itself, and anything beneath it, still pass.
+	for _, path := range []string{"/integrations", "/integrations/abc"} {
+		if _, err := proc.Process(context.Background(), restMessage(t, map[string]any{
+			"path": path,
+		})); err != nil {
+			t.Errorf("want %q allowed: %v", path, err)
+		}
+	}
+}
+
+// url.Parse percent-decodes, so the encoded form is caught by the same scan. An
+// upstream that decodes before routing would otherwise be reached by it.
+func TestDynamicRejectsPercentEncodedTraversal(t *testing.T) {
+	var got echo
+	srv := echoServer(t, &got, http.StatusOK, `{}`)
+
+	proc := newDynamic(t, srv.URL, types.Settings{
+		"method": `"GET"`,
+		"path":   "body.path",
+	})
+
+	_, err := proc.Process(context.Background(), restMessage(t, map[string]any{
+		"path": "/v1/%2e%2e/%2e%2e/admin",
+	}))
+	if err == nil {
+		t.Fatal("want an encoded .. segment refused")
+	}
+	if got.method != "" {
+		t.Error("want no request made at all")
+	}
+}
+
+// The traversal scan looks at the path, not the whole rendered string, so a query
+// value that happens to contain ".." is not mistaken for traversal it cannot do.
+func TestDynamicAllowsDotDotInsideAQueryValue(t *testing.T) {
+	var got echo
+	srv := echoServer(t, &got, http.StatusOK, `{}`)
+
+	proc := newDynamic(t, srv.URL, types.Settings{
+		"method": `"GET"`,
+		"path":   `"/search"`,
+		"query":  `{"q": "../etc/passwd"}`,
+	})
+
+	if _, err := proc.Process(context.Background(), restMessage(t, map[string]any{})); err != nil {
+		t.Fatalf("a query value is not a path: %v", err)
+	}
+	if got.path != "/search" {
+		t.Errorf("path = %q, want /search", got.path)
+	}
+	if !strings.Contains(got.query, "%2Fetc%2Fpasswd") {
+		t.Errorf("query = %q, want the value passed through encoded", got.query)
+	}
+}
+
+// The connector applies its credential only when the request carries none, so a
+// rendered Authorization header replaces it rather than adding to it. On this block
+// the header names are data, so that would hand the choice of credential to
+// whatever produced the message.
+func TestDynamicRefusesARenderedAuthorizationHeader(t *testing.T) {
+	var got echo
+	srv := echoServer(t, &got, http.StatusOK, `{}`)
+
+	proc := newDynamic(t, srv.URL, types.Settings{
+		"method":  `"GET"`,
+		"path":    `"/things"`,
+		"headers": "body.headers",
+	})
+
+	for _, name := range []string{"Authorization", "authorization"} {
+		got = echo{}
+		_, err := proc.Process(context.Background(), restMessage(t, map[string]any{
+			"headers": map[string]any{name: "Bearer attacker"},
+		}))
+		if err == nil {
+			t.Errorf("want %q refused", name)
+			continue
+		}
+		if !strings.Contains(err.Error(), "connector") {
+			t.Errorf("error = %v, want it to point at where a credential belongs", err)
+		}
+		if got.method != "" {
+			t.Errorf("want no request made for %q", name)
+		}
+	}
+}

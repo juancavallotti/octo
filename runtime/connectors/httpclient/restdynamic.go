@@ -232,7 +232,7 @@ func (p *dynamicProcessor) buildTarget(activation map[string]any) (string, error
 	return path + separator + values.Encode(), nil
 }
 
-// checkPath refuses the two shapes a rendered path must not take.
+// checkPath refuses the shapes a rendered path must not take.
 //
 // The connector's base URL is already a hard boundary: Connector.resolveURL starts
 // from the configured base and takes only the path, query and fragment from the
@@ -245,23 +245,42 @@ func (p *dynamicProcessor) buildTarget(activation map[string]any) (string, error
 // so "../.." escapes a base path prefix like "/v1" and reaches routes the connector
 // was configured to sit beneath. Nothing legitimate needs it in a path built for an
 // API call, and here the path is data.
+//
+// Every check runs against the parsed path rather than the rendered string, which
+// gets two things right that scanning the raw value does not: url.Parse
+// percent-decodes, so "%2e%2e" is caught alongside the literal "..", and the query
+// is separated out, so a parameter value that happens to contain ".." is not
+// mistaken for traversal it cannot perform.
 func (p *dynamicProcessor) checkPath(path string) error {
 	if path == "" {
 		return fmt.Errorf("rest-dynamic path: evaluated to empty")
 	}
-	if parsed, err := url.Parse(path); err == nil && (parsed.Scheme != "" || parsed.Host != "") {
+	parsed, err := url.Parse(path)
+	if err != nil {
+		return fmt.Errorf("rest-dynamic path: %q does not parse: %w", path, err)
+	}
+	if parsed.Scheme != "" || parsed.Host != "" {
 		return fmt.Errorf("rest-dynamic path: %q is a full URL; "+
 			"the host comes from the connector's base URL and a path cannot change it", path)
 	}
-	for _, segment := range strings.Split(path, "/") {
+	for _, segment := range strings.Split(parsed.Path, "/") {
 		if segment == ".." {
 			return fmt.Errorf("rest-dynamic path: %q contains a %q segment", path, "..")
 		}
 	}
-	if p.pathPrefix != "" && !strings.HasPrefix(path, p.pathPrefix) {
+	if p.pathPrefix != "" && !underPrefix(parsed.Path, p.pathPrefix) {
 		return fmt.Errorf("rest-dynamic path: %q is outside the allowed prefix %q", path, p.pathPrefix)
 	}
 	return nil
+}
+
+// underPrefix reports whether path sits at or beneath prefix, on a segment
+// boundary. A plain string prefix would let "/integrations" admit
+// "/integrations-internal": the setting reads as a path boundary, so it has to be
+// one, or it restricts less than the operator who wrote it believes.
+func underPrefix(path, prefix string) bool {
+	trimmed := strings.TrimSuffix(prefix, "/")
+	return path == trimmed || strings.HasPrefix(path, trimmed+"/")
 }
 
 // buildQuery evaluates the query expression to a map of parameters.
@@ -281,12 +300,23 @@ func (p *dynamicProcessor) buildQuery(activation map[string]any) (url.Values, er
 }
 
 // applyHeaders evaluates the header expression to a map and sets each entry.
+//
+// Authorization is refused. The connector only applies its configured credential
+// when the request does not already carry one, so a rendered Authorization header
+// does not sit alongside the connector's auth — it replaces it. On this block the
+// header names are themselves data, which would put the choice of credential in the
+// hands of whatever produced the message. The connector's auth setting is where a
+// credential belongs, and it is the one place an operator can see it.
 func (p *dynamicProcessor) applyHeaders(req *http.Request, activation map[string]any) error {
 	entries, err := evalStringMap(p.headers, activation, "headers")
 	if err != nil {
 		return err
 	}
 	for name, value := range entries {
+		if http.CanonicalHeaderKey(name) == "Authorization" {
+			return fmt.Errorf("rest-dynamic headers: %q is set by the connector, not by this block; "+
+				"configure it under the http-client connector's auth", name)
+		}
 		req.Header.Set(name, value)
 	}
 	return nil

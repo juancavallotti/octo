@@ -399,7 +399,7 @@ Query and headers differ in shape from `rest`. Each is a **single expression eva
 | `headers` | expression | No | — | CEL expression evaluating to a map of request headers. |
 | `body` | expression | No | — | CEL expression for the request body, as in `rest`. |
 | `allowMethods` | list of string | No | — | Methods this block may issue. Empty allows any of the standard set. |
-| `pathPrefix` | string | No | — | Path prefix this block may call under. Empty allows the whole base URL. |
+| `pathPrefix` | string | No | — | Path prefix this block may call under, matched on segment boundaries. Empty allows the whole base URL. |
 | `failOnError` | boolean | No | `true` | Turn a 400+ status into a flow error. |
 | `statusVar` | string | No | `statusCode` | Variable to store the response status code in. |
 
@@ -409,9 +409,10 @@ A static path is written by whoever wrote the flow. A rendered one is data, so t
 
 - **The method must be one of the seven above.** Go's HTTP client accepts any token that lexes as a method, so without this the method is whatever produced it.
 - **The path must be a relative reference.** A full URL is refused by name. It would not have worked anyway — the connector resolves the request against its own base URL and takes only the path, query and fragment, so no expression here can reach another host — but it would have been rewritten silently, and a caller who wrote a URL deserves to be told it was ignored rather than have a different request made for them.
-- **The path may not contain a `..` segment.** Paths are joined without normalisation, so `..` escapes a base URL that carries a prefix like `/v1`.
+- **The path may not contain a `..` segment.** Paths are joined without normalisation, so `..` escapes a base URL that carries a prefix like `/v1`. The check runs on the parsed path, so `%2e%2e` is refused with the literal form, and a `..` inside a query *value* is left alone — it cannot traverse anything.
+- **A rendered `Authorization` header is refused.** The connector applies its configured credential only when the request does not already carry one, so a rendered `Authorization` would not sit alongside the connector's auth — it would replace it. Here the header *names* are data too, so that would hand the choice of credential to whatever produced the message. Configure credentials under the connector's [`auth`](#authentication-auth).
 
-`allowMethods` and `pathPrefix` are the restriction you configure on top. Both are empty by default — the block is unrestricted unless you say otherwise — and an `allowMethods` entry that is not an HTTP method fails at startup rather than silently allowing nothing.
+`allowMethods` and `pathPrefix` are the restriction you configure on top. Both are empty by default — the block is unrestricted unless you say otherwise — and an `allowMethods` entry that is not an HTTP method fails at startup rather than silently allowing nothing. `pathPrefix` matches on segment boundaries: `/integrations` admits `/integrations` and `/integrations/abc`, but not `/integrations-internal`.
 
 <Callout type="warn">
 The connector's `baseURL` is the security boundary, and it holds: nothing this block evaluates can change the host it calls. Everything *under* that host is reachable unless you set `pathPrefix`. Point the connector at the narrowest base URL that does the job.
