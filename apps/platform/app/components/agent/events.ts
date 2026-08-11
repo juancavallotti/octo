@@ -174,11 +174,20 @@ export function parseNavigateEvent(data: string): NavigateEvent | null {
   if (!parsed || typeof parsed !== "object") return null;
   const { path, reason } = parsed as { path?: unknown; reason?: unknown };
   if (typeof path !== "string") return null;
-  if (!path.startsWith("/") || path.startsWith("//")) return null;
-  // A backslash is normalised to a forward slash by some browsers, so "/\evil.com"
-  // can also leave the site. Nothing legitimate here contains one.
-  if (path.includes("\\")) return null;
-  return { path, reason: typeof reason === "string" ? reason : undefined };
+
+  // Strip the characters a URL parser discards *before* testing anything, and
+  // then use the stripped value. Checking the raw string would be checking a
+  // different string than the browser acts on: "/\t/evil.example" starts with a
+  // single slash and holds no backslash, so it passes every test below — and the
+  // browser then removes the tab, leaving "//evil.example", which is
+  // protocol-relative and off-site.
+  const clean = path.replace(/[\t\n\r]/g, "");
+
+  if (!clean.startsWith("/") || clean.startsWith("//")) return null;
+  // A backslash is normalised to a forward slash by some browsers, so
+  // "/\evil.example" can also leave the site. Nothing legitimate here has one.
+  if (clean.includes("\\")) return null;
+  return { path: clean, reason: typeof reason === "string" ? reason : undefined };
 }
 
 /**

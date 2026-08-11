@@ -173,6 +173,23 @@ describe("parseNavigateEvent", () => {
     }
   });
 
+  // A URL parser strips tab, LF and CR before resolving, so the string tested has
+  // to be the stripped one: "/\t/evil.example" passes a naive check and becomes
+  // "//evil.example" — protocol-relative, and off the site.
+  it("refuses a path that only looks site-relative until the browser strips it", () => {
+    for (const path of ["/\t/evil.example", "/\n/evil.example", "/\r/evil.example", "/\t\t/evil.example"]) {
+      expect(parseNavigateEvent(JSON.stringify({ path }))).toBeNull();
+    }
+  });
+
+  // And a stray control character inside an otherwise fine path is removed rather
+  // than passed on, so what routes is what was checked.
+  it("returns the stripped path, not the raw one", () => {
+    expect(parseNavigateEvent(JSON.stringify({ path: "/platform/\tadmin" }))?.path).toBe(
+      "/platform/admin",
+    );
+  });
+
   it("refuses a frame with no path at all", () => {
     expect(parseNavigateEvent('{"reason":"nowhere"}')).toBeNull();
     expect(parseNavigateEvent('{"path":42}')).toBeNull();
