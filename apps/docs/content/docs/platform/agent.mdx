@@ -38,6 +38,24 @@ Note that he is deployed **internal-only**. Nothing outside the cluster reaches 
 Dr. Octo has full read **and write** access to the orchestrator API, deploying included. Access is gated by the same `AUTH_WRITE_ROLES` as every other cluster-wide write, and **that variable defaults to empty, meaning any signed-in user**. Set it before you install him on a shared installation. To narrow what he may do regardless of who asks, see [Restrict what he can do](#restrict-what-he-can-do).
 </Callout>
 
+## Talk to him
+
+Once he is running, look for the round button in the bottom-right corner of any signed-in page. It appears only when he is deployed, so if you do not see it, install him first.
+
+Type a question and the answer streams back a word at a time. Expect three things in the panel that a plain chat box does not have:
+
+- **Markdown.** He answers in it, so a flow definition arrives in a code block you can copy, and a comparison arrives as a table.
+- **Tool chips.** Each API call he makes appears as a chip while it runs. Watch them to see what he actually did rather than what he says he did.
+- **Navigation.** When the answer to your question is a page, he takes you there and says why. He can only reach pages inside the platform — the panel refuses any other destination, whatever his definition has been changed to say.
+
+Press **Stop** to end a run in progress, or close the panel: both abort the request, which ends the agent's run rather than leaving a model generating for nobody. Press **New conversation** to start fresh — that drops the thread, and with it what he remembers of it.
+
+He knows which page you are on, so ask about "this integration" or "this deployment" and expect him to know what you mean.
+
+<Callout>
+Conversations are scoped to you. The panel sends a thread id, but he keys his memory on the signed-in user *and* that thread, and the identity comes from your session on the server rather than from the browser — so a thread id belonging to someone else names a conversation that does not exist.
+</Callout>
+
 ## Update him
 
 His definition ships inside the orchestrator binary, so upgrading the platform can bring a newer one. When it does, the page reports **Update available**. Press **Roll out update** to publish the new bundle as a version and roll his deployment onto it.
