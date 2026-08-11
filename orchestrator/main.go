@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/juancavallotti/octo/orchestrator/internal/agent"
 	"github.com/juancavallotti/octo/orchestrator/internal/apikey"
 	"github.com/juancavallotti/octo/orchestrator/internal/bus"
 	cryptox "github.com/juancavallotti/octo/orchestrator/internal/crypto"
@@ -482,10 +483,16 @@ func newServer(ctx context.Context, database *db.DB, kc kube.Config) (http.Handl
 			"encryption", cipher != nil,
 			"endpoints", "GET/PUT /settings/email, POST /settings/email/test, POST /email/send")
 
-		llm.NewHandler(llm.NewService(llm.NewRepo(database.Pool()), cipher)).Register(mux)
+		llmSvc := llm.NewService(llm.NewRepo(database.Pool()), cipher)
+		llm.NewHandler(llmSvc).Register(mux)
 		slog.Info("llm settings routes registered",
 			"encryption", cipher != nil,
 			"endpoints", "GET/PUT /settings/llm")
+
+		// The platform agent is registered after the Kubernetes block below, because
+		// it takes the deployment and secret services when a cluster is there. Its
+		// options are collected here so the registration reads as one thing.
+		var agentOpts []agent.Option
 
 		// Deployment and dev-run management need both the database and in-cluster
 		// Kubernetes access. Outside a cluster (e.g. local `go run`) the client is nil
@@ -544,6 +551,10 @@ func newServer(ctx context.Context, database *db.DB, kc kube.Config) (http.Handl
 			slog.Info("secret routes registered",
 				"endpoints", "GET /secrets, PUT/DELETE /secrets/{name}")
 
+			// The agent needs both: a deploy to run it, and a cluster secret to hold
+			// its provider key without the key entering a deployment record.
+			agentOpts = append(agentOpts, agent.WithCluster(deploymentSvc, secretSvc))
+
 			// Dev runs: the editor's Run button, as a pod of its own rather than a child
 			// process of whichever platform replica answered the request.
 			if devrunSvc.Enabled() {
@@ -565,6 +576,23 @@ func newServer(ctx context.Context, database *db.DB, kc kube.Config) (http.Handl
 					"orchestratorUrl", kc.OrchestratorURL != "" || kc.RuntimeServices.OrchestratorURL != "")
 			}
 		}
+
+		// The platform agent: itself an integration, deployed through the same path
+		// as anything a user builds. Registered outside the Kubernetes gate above so
+		// GET /settings/agent answers everywhere and names what is missing — a route
+		// that vanished would leave the admin page with a 404 to interpret. Without
+		// a cluster the mutating routes refuse with 503.
+		agentSvc := agent.NewService(
+			agent.NewRepo(database.Pool()),
+			integrationSvc, resourceSvc, snapshotSvc, llmSvc,
+			kc.RuntimeServices.OrchestratorURL,
+			agentOpts...,
+		)
+		agent.NewHandler(agentSvc).Register(mux)
+		slog.Info("agent routes registered",
+			"cluster", len(agentOpts) > 0,
+			"endpoints", "GET/DELETE /settings/agent, "+
+				"POST /settings/agent/{install,rollout,tracing}")
 	} else {
 		slog.Warn("DATABASE_URL not set; integration, folder and deployment routes disabled")
 	}

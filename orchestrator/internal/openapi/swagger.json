@@ -1,6 +1,64 @@
 {
     "components": {
         "schemas": {
+            "agent.actorRequest": {
+                "properties": {
+                    "actorId": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "agent.statusResponse": {
+                "properties": {
+                    "blocked": {
+                        "description": "Blocked is empty, or names what stands in the way: kubernetes, encryption or\nllm_key.",
+                        "type": "string"
+                    },
+                    "deploymentId": {
+                        "type": "string"
+                    },
+                    "deploymentStatus": {
+                        "type": "string"
+                    },
+                    "edited": {
+                        "type": "boolean"
+                    },
+                    "installedTag": {
+                        "type": "string"
+                    },
+                    "integrationId": {
+                        "type": "string"
+                    },
+                    "internalUrl": {
+                        "type": "string"
+                    },
+                    "reason": {
+                        "type": "string"
+                    },
+                    "state": {
+                        "type": "string"
+                    },
+                    "tracing": {
+                        "type": "boolean"
+                    },
+                    "updateAvailable": {
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "agent.tracingRequest": {
+                "properties": {
+                    "actorId": {
+                        "type": "string"
+                    },
+                    "tracing": {
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
             "apikey.apiKeyResponse": {
                 "properties": {
                     "createdAt": {
@@ -3798,6 +3856,270 @@
                 "summary": "Create or replace a cluster secret",
                 "tags": [
                     "secrets"
+                ]
+            }
+        },
+        "/settings/agent": {
+            "delete": {
+                "description": "Undeploys it. The integration is kept by default because it holds the\ndefinition, which may have been edited; purge deletes that too.",
+                "parameters": [
+                    {
+                        "description": "Also delete the integration",
+                        "in": "query",
+                        "name": "purge",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "removed"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "not installed"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no cluster access"
+                    }
+                },
+                "summary": "Remove the agent",
+                "tags": [
+                    "agent"
+                ]
+            },
+            "get": {
+                "description": "What is installed, what is running, and what stands in the way. Never\nfails for a reason the caller could act on: no cluster access, no\nencryption key and no stored LLM key are reported in `blocked` rather\nthan as errors, because a page that 500s cannot say what to configure.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/agent.statusResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "The platform agent's status",
+                "tags": [
+                    "agent"
+                ]
+            }
+        },
+        "/settings/agent/install": {
+            "post": {
+                "description": "Creates the agent as an ordinary integration, writes its skills as\nresources, tags a version from the bundle this binary ships, and deploys\nit internal-only. Idempotent: an existing integration is reused and an\nexisting tag is not recreated, so installing twice is not an error and\ndoes not produce a second agent.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/agent.actorRequest",
+                                        "summary": "body",
+                                        "description": "The acting user"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The acting user"
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/agent.statusResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no llm key is configured, or the name is taken"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no cluster access, or encryption is not configured"
+                    }
+                },
+                "summary": "Install the platform agent",
+                "tags": [
+                    "agent"
+                ]
+            }
+        },
+        "/settings/agent/rollout": {
+            "post": {
+                "description": "Publishes a new version tag and rolls the deployment onto it, also\nre-resolving the provider and model from the site's LLM settings.\nTagging freezes the integration's working copy, so this replaces any\nlocal edits with the shipped agent — the status reports `edited` so the\nchoice can be made knowingly.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/agent.actorRequest",
+                                        "summary": "body",
+                                        "description": "The acting user"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The acting user"
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/agent.statusResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "not installed, or no llm key is configured"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no cluster access"
+                    }
+                },
+                "summary": "Roll the agent onto the bundle this binary ships",
+                "tags": [
+                    "agent"
+                ]
+            }
+        },
+        "/settings/agent/tracing": {
+            "post": {
+                "description": "A rolling update, because the runtime reads the setting at startup — so\nit only reaches the agent by replacing its pods. Nothing else changes:\nthe same version tag and the same environment.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/agent.tracingRequest",
+                                        "summary": "body",
+                                        "description": "Whether tracing is on"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Whether tracing is on",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/agent.statusResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "not installed, or not deployed"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no cluster access"
+                    }
+                },
+                "summary": "Turn tracing on or off for the agent",
+                "tags": [
+                    "agent"
                 ]
             }
         },
