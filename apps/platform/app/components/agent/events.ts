@@ -124,6 +124,34 @@ export function parseNavigateEvent(data: string): NavigateEvent | null {
   return { path, reason: typeof reason === "string" ? reason : undefined };
 }
 
+/**
+ * Pull readable text out of the route's closing `answer` frame, whose data is the
+ * flow's whole result body.
+ *
+ * Normally this repeats what already streamed and is discarded. It earns its keep
+ * on the paths where nothing streamed: the agent's guardrail answers from a
+ * `set-payload`, not from the model, so that reply exists *only* here.
+ */
+export function parseFinalAnswer(data: string): string | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(data);
+  } catch {
+    // Not JSON at all, so it is already the text.
+    return data.trim() || null;
+  }
+  if (typeof parsed === "string") return parsed.trim() || null;
+  if (parsed && typeof parsed === "object") {
+    // `answer` is what the agent's own guardrail uses; `text` and `message` are
+    // what an edited one is most likely to reach for.
+    for (const key of ["answer", "text", "message"]) {
+      const value = (parsed as Record<string, unknown>)[key];
+      if (typeof value === "string" && value.trim()) return value.trim();
+    }
+  }
+  return null;
+}
+
 /** The default event name a frame carries when it declares none. */
 const DEFAULT_EVENT = "message";
 

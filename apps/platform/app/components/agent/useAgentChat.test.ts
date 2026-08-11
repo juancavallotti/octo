@@ -132,17 +132,20 @@ describe("useAgentChat", () => {
     expect(result.current.turns[1].text).toBe("Hello.");
   });
 
-  it("shows the guardrail's reason as a note rather than an answer", async () => {
+  // The reasons come from the runtime and can grow. One this build does not know is
+  // still worth saying something about, but never by showing the raw string — those
+  // are written for a log.
+  it("falls back to a readable note for a guardrail reason it does not know", async () => {
     fetchMock.mockResolvedValue(
-      sseResponse(frames({ type: "guardrail", reason: "Outside my remit." })),
+      sseResponse(frames({ type: "guardrail", reason: "some future reason" })),
     );
     const { result } = renderHook(() => useAgentChat("u-1", "/platform", () => {}));
 
     act(() => result.current.send("write me a poem"));
 
     await waitFor(() => expect(result.current.busy).toBe(false));
-    expect(result.current.turns[1].note).toBe("Outside my remit.");
-    expect(result.current.turns[1].text).toBe("");
+    expect(result.current.turns[1].note).toBe("He stopped short of an answer.");
+    expect(result.current.turns[1].note).not.toContain("some future reason");
   });
 
   // `busy` only becomes true once React commits, so two sends in one tick both pass
@@ -164,9 +167,20 @@ describe("useAgentChat", () => {
   });
 
   // Stop releases the controller synchronously, so the next question is not refused
-  // by the guard above while the aborted reader is still unwinding.
-  it("accepts a new question immediately after a stop", async () => {
-    fetchMock.mockResolvedValue(sseResponse(frames({ type: "text", text: "ok" })));
+  // by the guard above. The first call rejects the way an aborted fetch really does,
+  // so the abandoned reader unwinds *while* the second stream is live — which is the
+  // state in which it must not clear busy or the controller out from under it.
+  it("accepts a new question immediately after a stop, and lets it finish", async () => {
+    fetchMock
+      .mockImplementationOnce(
+        (_url: string, init: { signal: AbortSignal }) =>
+          new Promise((_resolve, reject) => {
+            init.signal.addEventListener("abort", () =>
+              reject(Object.assign(new Error("aborted"), { name: "AbortError" })),
+            );
+          }),
+      )
+      .mockResolvedValueOnce(sseResponse(frames({ type: "text", text: "the second answer" })));
     const { result } = renderHook(() => useAgentChat("u-1", "/platform", () => {}));
 
     act(() => {
@@ -175,8 +189,34 @@ describe("useAgentChat", () => {
       result.current.send("second");
     });
 
-    await waitFor(() => expect(result.current.busy).toBe(false));
+    await waitFor(() =>
+      expect(result.current.turns.at(-1)?.text).toBe("the second answer"),
+    );
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.current.error).toBeNull();
+    // The abandoned run must not have switched off the live one's lights.
+    await waitFor(() => expect(result.current.busy).toBe(false));
+    expect(result.current.turns.at(-1)?.streaming).toBe(false);
+  });
+
+  // The guardrail answers from a set-payload rather than the model, so nothing
+  // streams and the reply exists only in the route's closing frame. Dropping that
+  // frame unconditionally left the user with a diagnostic string and no answer.
+  it("shows the guardrail's reply, which arrives only in the closing frame", async () => {
+    fetchMock.mockResolvedValue(
+      sseResponse(
+        frames({ type: "guardrail", reason: "model refused" }) +
+          'event: answer\ndata: {"answer":"That one is outside my remit."}\n\n',
+      ),
+    );
+    const { result } = renderHook(() => useAgentChat("u-1", "/platform", () => {}));
+
+    act(() => result.current.send("write me a poem"));
+
+    await waitFor(() => expect(result.current.busy).toBe(false));
+    expect(result.current.turns[1].text).toBe("That one is outside my remit.");
+    // And the raw reason is not what the reader is shown.
+    expect(result.current.turns[1].note).toBe("He declined this one.");
   });
 
   it("reports the proxy's error message when the request is refused", async () => {

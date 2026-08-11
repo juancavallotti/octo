@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   parseAgentEvent,
+  parseFinalAnswer,
   parseNavigateEvent,
   parseSSE,
   type AgentEvent,
@@ -90,6 +91,15 @@ export function useAgentChat(
     );
   }, []);
 
+  /** Take the closing frame's answer, but only when nothing streamed. */
+  const setFinalAnswer = useCallback((turnId: string, answer: string) => {
+    setTurns((current) =>
+      current.map((turn) =>
+        turn.id === turnId && !turn.text ? { ...turn, text: answer } : turn,
+      ),
+    );
+  }, []);
+
   const send = useCallback(
     (message: string) => {
       const text = message.trim();
@@ -138,9 +148,15 @@ export function useAgentChat(
               if (target) navigate.current(target);
               continue;
             }
-            // The route's closing frame repeats the answer the agent already
-            // streamed, so rendering it would duplicate the turn.
-            if (frame.event === "answer") continue;
+            // The route's closing frame carries the flow's result body. Usually
+            // that repeats what already streamed, so it is dropped — but when the
+            // guardrail answered, nothing streamed and this is the only place the
+            // reply exists.
+            if (frame.event === "answer") {
+              const answer = parseFinalAnswer(frame.data);
+              if (answer) setFinalAnswer(agentTurnId, answer);
+              continue;
+            }
             const event = parseAgentEvent(frame.data);
             if (event) apply(agentTurnId, event);
           }
@@ -149,10 +165,14 @@ export function useAgentChat(
           // failure to report.
           if ((e as Error).name !== "AbortError") setError((e as Error).message);
         } finally {
-          setBusy(false);
-          // Only if it is still ours: clearing unconditionally would drop a
-          // controller belonging to a run that started after this one.
-          if (abort.current === controller) abort.current = null;
+          // Both only if this run is still the current one. An aborted reader
+          // unwinds a microtask after stop(), by which time a new question may
+          // already be streaming — and clearing either the controller or busy then
+          // would be this run switching off the next one's lights.
+          if (abort.current === controller) {
+            abort.current = null;
+            setBusy(false);
+          }
           setTurns((current) =>
             current.map((turn) =>
               turn.id === agentTurnId ? { ...turn, streaming: false } : turn,
@@ -161,7 +181,7 @@ export function useAgentChat(
         }
       })();
     },
-    [apply, busy, page, userKey],
+    [apply, busy, page, setFinalAnswer, userKey],
   );
 
   /**
@@ -170,8 +190,11 @@ export function useAgentChat(
    * immediately after a stop would be refused by the guard above.
    */
   const stop = useCallback(() => {
-    abort.current?.abort();
+    const controller = abort.current;
+    if (!controller) return;
+    controller.abort();
     abort.current = null;
+    setBusy(false);
   }, []);
 
   /**
@@ -181,6 +204,7 @@ export function useAgentChat(
   const reset = useCallback(() => {
     abort.current?.abort();
     abort.current = null;
+    setBusy(false);
     sessionStorage.removeItem(threadKey(userKey));
     setTurns([]);
     setError(null);
@@ -188,6 +212,13 @@ export function useAgentChat(
 
   return { turns, busy, error, send, stop, reset };
 }
+
+/** The runtime's guardrail reasons, said in a way a reader can act on. */
+const GUARDRAIL_NOTES: Record<string, string> = {
+  "model refused": "He declined this one.",
+  "exceeded max iterations":
+    "He ran out of steps before finishing. Try narrowing the question, or raise AGENT_MAX_ITERATIONS on his deployment.",
+};
 
 /** Fold one frame into a turn. */
 function reduce(turn: Turn, event: AgentEvent): Turn {
@@ -222,7 +253,10 @@ function reduce(turn: Turn, event: AgentEvent): Turn {
     case "error":
       return { ...turn, note: event.error };
 
+    // The reason is diagnostic and written for a log — "model refused",
+    // "exceeded max iterations". The *reply* to the user comes from the
+    // guardrail's own set-payload, and reaches the panel as the closing frame.
     case "guardrail":
-      return { ...turn, note: event.reason ?? "That one is outside my remit." };
+      return { ...turn, note: GUARDRAIL_NOTES[event.reason ?? ""] ?? "He stopped short of an answer." };
   }
 }
