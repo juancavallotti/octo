@@ -81,6 +81,21 @@ type SendRequest struct {
 	HTML    string
 }
 
+// normalized returns the request with its header-bound fields trimmed. Validation
+// accepts a padded address (it trims before parsing), so without this the provider
+// would receive the untrimmed original and reject an address that passed our own
+// check — a failure that would read as the provider's fault. The bodies are left
+// alone: leading whitespace in a message body is content, not formatting.
+func (r SendRequest) normalized() SendRequest {
+	to := make([]string, len(r.To))
+	for i, addr := range r.To {
+		to[i] = strings.TrimSpace(addr)
+	}
+	r.To = to
+	r.Subject = strings.TrimSpace(r.Subject)
+	return r
+}
+
 // toSettings maps the stored row to the read model.
 func (s stored) toSettings() Settings {
 	out := Settings{

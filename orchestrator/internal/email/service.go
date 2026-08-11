@@ -136,6 +136,7 @@ func (s *Service) Send(ctx context.Context, r SendRequest) (string, error) {
 	if err := validateSendRequest(r); err != nil {
 		return "", err
 	}
+	r = r.normalized()
 	cur, err := s.repo.Get(ctx)
 	if err != nil {
 		return "", err

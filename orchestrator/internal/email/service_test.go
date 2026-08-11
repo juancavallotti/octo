@@ -408,6 +408,29 @@ func TestSendUsesStoredIdentityAndKey(t *testing.T) {
 	}
 }
 
+// Validation trims before parsing, so a padded address passes. What reaches the
+// provider must be trimmed too, or our own check would pass and theirs would fail.
+func TestSendNormalizesAddressesAndSubject(t *testing.T) {
+	svc, _, sender := newService(t, "re_storedkey123")
+
+	if _, err := svc.Send(context.Background(), SendRequest{
+		To:      []string{" a@b.co ", "\tc@d.co\n"},
+		Subject: "  hi  ",
+		Text:    "  body keeps its spacing  ",
+	}); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if sender.last.To[0] != "a@b.co" || sender.last.To[1] != "c@d.co" {
+		t.Fatalf("to = %q, want trimmed addresses", sender.last.To)
+	}
+	if sender.last.Subject != "hi" {
+		t.Fatalf("subject = %q, want trimmed", sender.last.Subject)
+	}
+	if sender.last.Text != "  body keeps its spacing  " {
+		t.Fatalf("text = %q, want the body left alone", sender.last.Text)
+	}
+}
+
 func TestSendWhenNotConfigured(t *testing.T) {
 	tests := []struct {
 		name string
