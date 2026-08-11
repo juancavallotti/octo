@@ -10,6 +10,7 @@
     "kv-and-storage",
     "users-and-api-keys",
     "admin-settings",
+    "api-reference",
     "event-bus",
     "traces"
   ],

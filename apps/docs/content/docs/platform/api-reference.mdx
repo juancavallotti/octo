@@ -1,0 +1,70 @@
+---
+title: "API Reference"
+description: "The orchestrator describes its own API: an OpenAPI 3.1 document, filters for reading part of it, and a compact operation index."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The orchestrator serves a description of its own API. Everything the platform UI does — integrations, snapshots, deployments, resources, secrets, KV, users, API keys — goes through that API, so the description is the reference for driving it yourself.
+
+```bash
+curl -sS "$ORCHESTRATOR_URL/openapi.json"
+```
+
+It is **OpenAPI 3.1**, generated from annotations on the handlers at build time, committed, and embedded in the binary. It is never generated at runtime, so what a running orchestrator serves is exactly what was reviewed with the code that serves it.
+
+<Callout>
+Both routes answer whether or not a database is configured. The API description is a property of the build, not of what it is connected to.
+</Callout>
+
+## The operation index
+
+The full document is large. `/openapi/operations` is a compact list of every route — method, path, summary and tags — and is a few kilobytes:
+
+```bash
+curl -sS "$ORCHESTRATOR_URL/openapi/operations"
+```
+
+```json
+[
+  {
+    "method": "GET",
+    "path": "/integrations",
+    "summary": "List integrations",
+    "tags": ["integrations"]
+  }
+]
+```
+
+Sorted by path, then method. Read this first to find the tag worth asking about, then fetch that tag's detail — which is exactly how the [platform agent](/platform/agent) uses it, and the reason the index exists.
+
+The tags are `apikeys`, `deployments`, `devruns`, `email`, `folders`, `integrations`, `kv`, `meta`, `objects`, `openapi`, `resources`, `secrets`, `settings`, `snapshots` and `users`.
+
+## Reading part of the document
+
+Two filters, and they are mutually exclusive — supplying both is a `400`:
+
+| Query | Keeps |
+| --- | --- |
+| `?tag=deployments` | Operations carrying that tag |
+| `?path=/integrations` | Routes whose path starts with that prefix |
+
+```bash
+curl -sS "$ORCHESTRATOR_URL/openapi.json?tag=deployments"
+```
+
+A filtered document is a **valid OpenAPI document**, not an excerpt: schemas are pruned to the ones the surviving operations can actually reach, following `$ref` transitively, so the result still resolves. An unknown tag yields a document with no paths rather than an error — nothing matched is an answer.
+
+## Keeping it honest
+
+The spec is regenerated in CI and the build fails if the committed copy differs, the same way it fails on unformatted code.
+
+A separate test compares the routes registered in the source against the routes described in the spec, in **both** directions. Regenerating cannot catch a route that was added without annotations — it simply regenerates without it, identically — so a new route with no documentation fails that test by name.
+
+## Authentication
+
+There is none. The orchestrator is `ClusterIP` in the chart and trusts its callers; the platform BFF is the authorization boundary in front of it.
+
+<Callout type="warn">
+This means anything that can reach the orchestrator's address can call every route on it. Keep it internal.
+</Callout>
