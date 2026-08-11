@@ -117,6 +117,36 @@ describe("LlmSettingsManager", () => {
     expect(save.disabled).toBe(true);
   });
 
+  // The form seeds itself with a provider and model before the load resolves, so an
+  // ungated Save would write those defaults over whatever was stored.
+  it("cannot save before the settings have loaded", async () => {
+    let resolveLoad: (v: typeof CONFIGURED) => void = () => {};
+    getLlmSettings.mockReturnValue(
+      new Promise<typeof CONFIGURED>((r) => {
+        resolveLoad = r;
+      }),
+    );
+    renderManager();
+
+    const save = screen.getByRole("button", { name: "Save" }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+
+    resolveLoad(CONFIGURED);
+    await waitFor(() => expect(save.disabled).toBe(false));
+  });
+
+  it("will not remove the key while the model is empty", async () => {
+    const user = userEvent.setup();
+    renderManager();
+    await waitFor(() => expect(screen.getByText(/9f2a/)).toBeTruthy());
+
+    await user.clear(modelInput());
+    await user.click(screen.getByRole("button", { name: "Remove" }));
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(saveLlmSettings).not.toHaveBeenCalled();
+  });
+
   it("removes the stored key only after confirming", async () => {
     const user = userEvent.setup();
     renderManager();

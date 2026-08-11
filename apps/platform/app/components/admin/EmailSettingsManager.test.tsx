@@ -136,6 +136,22 @@ describe("EmailSettingsManager", () => {
     expect(save.disabled).toBe(false);
   });
 
+  it("cannot save before the settings have loaded", async () => {
+    let resolveLoad: (v: typeof CONFIGURED) => void = () => {};
+    getEmailSettings.mockReturnValue(
+      new Promise<typeof CONFIGURED>((r) => {
+        resolveLoad = r;
+      }),
+    );
+    renderManager();
+
+    const save = screen.getByRole("button", { name: "Save" }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+
+    resolveLoad(CONFIGURED);
+    await waitFor(() => expect(save.disabled).toBe(false));
+  });
+
   it("removes the stored key only after confirming", async () => {
     const user = userEvent.setup();
     renderManager();

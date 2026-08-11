@@ -77,7 +77,10 @@ export default function LlmSettingsManager() {
     setProvider(next);
   };
 
-  const canSave = !busy && model.trim().length > 0;
+  // Gated on the settings having loaded, not just on the fields being valid. The
+  // form seeds itself with a provider and model before the request resolves, so
+  // without this a fast click saves those defaults over whatever was stored.
+  const canSave = settings !== null && !busy && model.trim().length > 0;
 
   const save = () => {
     if (!canSave) return;
@@ -93,6 +96,10 @@ export default function LlmSettingsManager() {
   };
 
   const removeKey = async () => {
+    // Removing the key still writes the rest of the row, so it has to clear the
+    // same bar a save does — otherwise clearing Model and pressing Remove sends a
+    // state the Save button refuses.
+    if (!canSave) return;
     const ok = await confirm({
       title: "Remove the stored API key?",
       body: "The platform agent will not be able to reach the provider until a new key is saved.",

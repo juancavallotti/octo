@@ -86,7 +86,11 @@ export default function EmailSettingsManager() {
     ...(apiKey ? { apiKey } : {}),
   });
 
-  const canSave = !busy && EMAIL_RE.test(fromEmail.trim());
+  // Gated on the settings having loaded as well as on the address being valid. The
+  // empty initial from-address happens to fail the pattern today, so this is belt
+  // and braces — but saving before the load resolves would overwrite the stored row
+  // with a blank form, and that should not depend on a coincidence.
+  const canSave = settings !== null && !busy && EMAIL_RE.test(fromEmail.trim());
 
   const save = () => {
     if (!canSave) return;
@@ -98,6 +102,9 @@ export default function EmailSettingsManager() {
   };
 
   const removeKey = async () => {
+    // Removing the key still writes the rest of the row, so it has to clear the
+    // same bar a save does.
+    if (!canSave) return;
     const ok = await confirm({
       title: "Remove the stored API key?",
       body: "Email sending will stop working until a new key is saved.",
