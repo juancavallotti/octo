@@ -1,8 +1,8 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-import { currentUserId } from "@/app/actions/_auth";
-import { auth, authEnabled } from "@/auth";
+import { currentWriteUserId } from "@/app/actions/_auth";
+import { AuthError, ForbiddenError } from "@/app/auth/guard";
 import { resolveAgentUrl, forgetAgentUrl, orchestratorUrl } from "../resolve";
 
 /**
@@ -32,11 +32,20 @@ export async function POST(req: Request) {
     return Response.json({ error: "invalid request body" }, { status: 400 });
   }
 
+  // The write roles, not merely a session. Dr. Octo holds full read-write access to
+  // the orchestrator API, so a chat route open to any signed-in user would be a way
+  // around the gate every other write on this platform goes through.
   let user: { id: string; name: string };
   try {
-    user = await identify();
+    user = await currentWriteUserId();
   } catch (e) {
-    return Response.json({ error: (e as Error).message }, { status: 401 });
+    if (e instanceof ForbiddenError) {
+      return Response.json({ error: "forbidden" }, { status: 403 });
+    }
+    if (e instanceof AuthError) {
+      return Response.json({ error: "unauthenticated" }, { status: 401 });
+    }
+    throw e;
   }
 
   const agent = await resolveAgentUrl();
@@ -87,17 +96,3 @@ export async function POST(req: Request) {
   });
 }
 
-/**
- * Who is asking, from the session rather than the request.
- *
- * With authentication off there is no principal at all, and the flow is written to
- * cope: an empty id scopes the conversation to "anonymous", which is honest for a
- * single local developer and would be a shared mailbox on a real installation —
- * which is exactly what running without authentication already is.
- */
-async function identify(): Promise<{ id: string; name: string }> {
-  const id = await currentUserId();
-  if (!authEnabled) return { id, name: "" };
-  const session = await auth();
-  return { id, name: session?.user?.name ?? "" };
-}

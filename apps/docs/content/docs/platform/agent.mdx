@@ -35,12 +35,12 @@ Press it twice if you are unsure — it is idempotent. An existing integration i
 Note that he is deployed **internal-only**. Nothing outside the cluster reaches him directly; the platform proxies to the in-cluster address shown on the status card.
 
 <Callout type="warn">
-Dr. Octo has full read **and write** access to the orchestrator API, deploying included. Access is gated by the same `AUTH_WRITE_ROLES` as every other cluster-wide write, and **that variable defaults to empty, meaning any signed-in user**. Set it before you install him on a shared installation. To narrow what he may do regardless of who asks, see [Restrict what he can do](#restrict-what-he-can-do).
+Dr. Octo has full read **and write** access to the orchestrator API, deploying included. The chat panel is therefore gated by `AUTH_WRITE_ROLES`, the same roles every other cluster-wide write requires — and **that variable defaults to empty, which means any signed-in user**. Set it before you install him on a shared installation. To narrow what he may do regardless of who asks, see [Restrict what he can do](#restrict-what-he-can-do).
 </Callout>
 
 ## Talk to him
 
-Once he is running, look for the round button in the bottom-right corner of any signed-in page. It appears only when he is deployed, so if you do not see it, install him first.
+Once he is running, look for the round button in the bottom-right corner of any signed-in page. It appears only when he is deployed **and you hold the write roles** — he can write, so the panel requires what any other write requires. If you do not see it, check both.
 
 Type a question and the answer streams back a word at a time. Expect three things in the panel that a plain chat box does not have:
 

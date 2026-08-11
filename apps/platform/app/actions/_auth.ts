@@ -131,3 +131,18 @@ export function withWriteUser<T>(
 export async function currentUserId(): Promise<string> {
   return userIdOf(await requireSession());
 }
+
+/**
+ * {@link currentUserId}, for a route handler whose caller can cause cluster-wide
+ * writes. Throws ForbiddenError when the session lacks the write roles, for the
+ * route to turn into a 403.
+ *
+ * The agent's chat route is the caller, and it needs this rather than
+ * {@link currentUserId} because of what sits behind it: the agent holds full
+ * read-write access to the orchestrator API, so admitting any signed-in user there
+ * would route around the very gate every other write goes through.
+ */
+export async function currentWriteUserId(): Promise<{ id: string; name: string }> {
+  const session = await requireRole(...writeRoles);
+  return { id: await userIdOf(session), name: session.user?.name ?? "" };
+}
