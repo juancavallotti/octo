@@ -67,6 +67,7 @@ A Go HTTP API, listening on port `8090` by default (`PORT`). It owns all persist
 | email | `GET/PUT /settings/email`, `POST /settings/email/test`, `POST /email/send` | database |
 | llm | `GET/PUT /settings/llm` | database |
 | openapi | `GET /openapi.json`, `GET /openapi/operations` | nothing — the [description](/platform/api-reference) is embedded in the binary |
+| agent | `GET/DELETE /settings/agent`, `POST /settings/agent/{install,rollout,tracing}` | database + in-cluster Kubernetes |
 
 The wiring is graceful: without `DATABASE_URL` only `/healthz`, the OpenAPI routes (which describe the build rather than what it is connected to) and a degraded `/db-version` serve; outside a cluster the deployment and secret routes stay disabled while everything database-backed still works.
 
