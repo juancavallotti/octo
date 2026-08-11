@@ -34,11 +34,26 @@ func (r *Repo) Get(ctx context.Context) (stored, error) {
 	return s, nil
 }
 
-// Put replaces the stored settings.
-func (r *Repo) Put(ctx context.Context, s stored) error {
-	raw, err := json.Marshal(s)
-	if err != nil {
-		return fmt.Errorf("email settings: encode value: %w", err)
-	}
-	return r.store.Put(ctx, settingsKey, raw)
+// Mutate applies fn to the stored settings and writes the result back, with the row
+// locked for the duration. This is the only write path: a save carries the existing
+// API key forward, so reading and writing it as separate statements would let a
+// concurrent save discard a key rotation.
+func (r *Repo) Mutate(ctx context.Context, fn func(current stored) (stored, error)) error {
+	return r.store.Mutate(ctx, settingsKey, func(raw json.RawMessage, ok bool) (json.RawMessage, error) {
+		var cur stored
+		if ok {
+			if err := json.Unmarshal(raw, &cur); err != nil {
+				return nil, fmt.Errorf("email settings: decode stored value: %w", err)
+			}
+		}
+		next, err := fn(cur)
+		if err != nil {
+			return nil, err
+		}
+		out, err := json.Marshal(next)
+		if err != nil {
+			return nil, fmt.Errorf("email settings: encode value: %w", err)
+		}
+		return out, nil
+	})
 }

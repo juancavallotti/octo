@@ -21,8 +21,11 @@ const (
 	maxNameLen    = 200
 	maxSubjectLen = 998
 	// minAPIKeyLen is short enough to accept any real provider key and long enough
-	// that the stored last4 is not most of the secret.
+	// that the stored last4 is not most of the secret. maxAPIKeyLen is far above any
+	// real key and exists so a mistyped paste — a whole file, say — is refused here
+	// rather than encrypted and stored.
 	minAPIKeyLen = 8
+	maxAPIKeyLen = 512
 	// maxRecipients bounds one send. This is a transactional mailer for notifications
 	// the platform itself raises; the cap is what keeps it from quietly becoming a
 	// bulk sender.
@@ -159,7 +162,8 @@ func validateSuppliedKey(key *string) error {
 	if key == nil {
 		return nil
 	}
-	if trimmed := strings.TrimSpace(*key); trimmed != "" && len(trimmed) < minAPIKeyLen {
+	if trimmed := strings.TrimSpace(*key); trimmed != "" &&
+		(len(trimmed) < minAPIKeyLen || len(trimmed) > maxAPIKeyLen) {
 		return ErrInvalidAPIKey
 	}
 	return nil

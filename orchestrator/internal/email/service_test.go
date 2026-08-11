@@ -24,9 +24,13 @@ func (f *fakeRepo) Get(context.Context) (stored, error) {
 	return f.row, f.getErr
 }
 
-func (f *fakeRepo) Put(_ context.Context, s stored) error {
+func (f *fakeRepo) Mutate(_ context.Context, fn func(stored) (stored, error)) error {
+	next, err := fn(f.row)
+	if err != nil {
+		return err
+	}
 	f.putCalls++
-	f.row = s
+	f.row = next
 	return nil
 }
 
@@ -100,6 +104,7 @@ func TestUpdateValidation(t *testing.T) {
 		{"over-long name", func(u *Update) { u.FromName = strings.Repeat("x", maxNameLen+1) }, ErrInvalidFromName},
 		{"name with newline", func(u *Update) { u.FromName = "Acme\r\nBcc: x@y.z" }, ErrInvalidFromName},
 		{"short api key", func(u *Update) { u.APIKey = ptr("re_abc") }, ErrInvalidAPIKey},
+		{"over-long api key", func(u *Update) { u.APIKey = ptr(strings.Repeat("k", maxAPIKeyLen+1)) }, ErrInvalidAPIKey},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
