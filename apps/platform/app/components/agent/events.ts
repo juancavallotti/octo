@@ -160,6 +160,9 @@ export async function* parseSSE(
         split = buffer.search(/\r?\n\r?\n/);
       }
     }
+    // Flush any bytes the decoder is still holding — a multi-byte character split
+    // across the last chunk boundary lives there until asked for.
+    buffer += decoder.decode();
     // A stream that ends without a trailing blank line still had a frame in it.
     const frame = parseFrame(buffer);
     if (frame) yield frame;

@@ -93,7 +93,11 @@ export function useAgentChat(
   const send = useCallback(
     (message: string) => {
       const text = message.trim();
-      if (!text || busy) return;
+      // The controller ref, not just `busy`: state is only true after React commits,
+      // so two sends in one tick would both pass a `busy` check, and the second
+      // would replace the controller the first is holding — leaving Stop unable to
+      // reach the stream that is actually running. The ref is set synchronously.
+      if (!text || busy || abort.current) return;
 
       const controller = new AbortController();
       abort.current = controller;
@@ -146,7 +150,9 @@ export function useAgentChat(
           if ((e as Error).name !== "AbortError") setError((e as Error).message);
         } finally {
           setBusy(false);
-          abort.current = null;
+          // Only if it is still ours: clearing unconditionally would drop a
+          // controller belonging to a run that started after this one.
+          if (abort.current === controller) abort.current = null;
           setTurns((current) =>
             current.map((turn) =>
               turn.id === agentTurnId ? { ...turn, streaming: false } : turn,
@@ -158,7 +164,15 @@ export function useAgentChat(
     [apply, busy, page, userKey],
   );
 
-  const stop = useCallback(() => abort.current?.abort(), []);
+  /**
+   * End the run in progress. The ref is released here rather than left to the
+   * reader's `finally`, which runs a microtask later — long enough that a send
+   * immediately after a stop would be refused by the guard above.
+   */
+  const stop = useCallback(() => {
+    abort.current?.abort();
+    abort.current = null;
+  }, []);
 
   /**
    * Start a fresh conversation. The thread id goes too — the agent keys its memory
@@ -166,6 +180,7 @@ export function useAgentChat(
    */
   const reset = useCallback(() => {
     abort.current?.abort();
+    abort.current = null;
     sessionStorage.removeItem(threadKey(userKey));
     setTurns([]);
     setError(null);

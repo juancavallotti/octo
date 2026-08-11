@@ -18,6 +18,23 @@ import { resolveAgentUrl, forgetAgentUrl, orchestratorUrl } from "../resolve";
  * `text/event-stream`, and the target is resolved rather than configured.
  */
 export async function POST(req: Request) {
+  // Authorization first, before anything that would describe this installation to
+  // whoever asked. The write roles, not merely a session: Dr. Octo holds full
+  // read-write access to the orchestrator API, so a chat route open to any signed-in
+  // user would be a way around the gate every other write goes through.
+  let user: { id: string; name: string };
+  try {
+    user = await currentWriteUserId();
+  } catch (e) {
+    if (e instanceof ForbiddenError) {
+      return Response.json({ error: "forbidden" }, { status: 403 });
+    }
+    if (e instanceof AuthError) {
+      return Response.json({ error: "unauthenticated" }, { status: 401 });
+    }
+    throw e;
+  }
+
   if (!orchestratorUrl()) {
     return Response.json(
       { error: "orchestrator not configured (ORCHESTRATOR_URL unset)" },
@@ -30,22 +47,6 @@ export async function POST(req: Request) {
     body = (await req.json()) as Record<string, unknown>;
   } catch {
     return Response.json({ error: "invalid request body" }, { status: 400 });
-  }
-
-  // The write roles, not merely a session. Dr. Octo holds full read-write access to
-  // the orchestrator API, so a chat route open to any signed-in user would be a way
-  // around the gate every other write on this platform goes through.
-  let user: { id: string; name: string };
-  try {
-    user = await currentWriteUserId();
-  } catch (e) {
-    if (e instanceof ForbiddenError) {
-      return Response.json({ error: "forbidden" }, { status: 403 });
-    }
-    if (e instanceof AuthError) {
-      return Response.json({ error: "unauthenticated" }, { status: 401 });
-    }
-    throw e;
   }
 
   const agent = await resolveAgentUrl();

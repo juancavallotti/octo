@@ -145,6 +145,40 @@ describe("useAgentChat", () => {
     expect(result.current.turns[1].text).toBe("");
   });
 
+  // `busy` only becomes true once React commits, so two sends in one tick both pass
+  // a state-based guard. The second would replace the controller the first is
+  // holding, and Stop would then reach a stream that had already finished while the
+  // live one ran on.
+  it("starts only one run when send is called twice in the same tick", async () => {
+    fetchMock.mockResolvedValue(sseResponse(frames({ type: "text", text: "ok" })));
+    const { result } = renderHook(() => useAgentChat("u-1", "/platform", () => {}));
+
+    act(() => {
+      result.current.send("first");
+      result.current.send("second");
+    });
+
+    await waitFor(() => expect(result.current.busy).toBe(false));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.current.turns.filter((t) => t.role === "user")).toHaveLength(1);
+  });
+
+  // Stop releases the controller synchronously, so the next question is not refused
+  // by the guard above while the aborted reader is still unwinding.
+  it("accepts a new question immediately after a stop", async () => {
+    fetchMock.mockResolvedValue(sseResponse(frames({ type: "text", text: "ok" })));
+    const { result } = renderHook(() => useAgentChat("u-1", "/platform", () => {}));
+
+    act(() => {
+      result.current.send("first");
+      result.current.stop();
+      result.current.send("second");
+    });
+
+    await waitFor(() => expect(result.current.busy).toBe(false));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("reports the proxy's error message when the request is refused", async () => {
     fetchMock.mockResolvedValue({
       ok: false,
