@@ -44,9 +44,16 @@ locals {
   pull_args = length(local.pull_refs) > 0 ? "--ref ${join(" ", local.pull_refs)}" : var.image_tag
   # -f so an HTTP error is a failure rather than an error page written over the
   # helper, and install(1) so a half-downloaded file never lands on the PATH.
+  #
+  # The download lands in a root-owned 0700 directory rather than /tmp. Writing to a
+  # predictable path in a world-writable directory as root is how a local user gets
+  # to choose the contents of something that is about to be installed onto the PATH
+  # and executed as root: pre-create the path as a symlink and curl follows it.
   pull_command = join(" && ", [
-    "sudo curl -sf -H \"Metadata-Flavor: Google\" http://metadata.google.internal/computeMetadata/v1/instance/attributes/octo-pull-sh -o /tmp/octo-pull",
-    "sudo install -m 0755 /tmp/octo-pull /usr/local/bin/octo-pull",
+    "sudo install -d -m 0700 -o root -g root /var/lib/octo",
+    "sudo curl -sf -H \"Metadata-Flavor: Google\" http://metadata.google.internal/computeMetadata/v1/instance/attributes/octo-pull-sh -o /var/lib/octo/octo-pull.tmp",
+    "sudo install -m 0755 /var/lib/octo/octo-pull.tmp /usr/local/bin/octo-pull",
+    "sudo rm -f /var/lib/octo/octo-pull.tmp",
     "sudo octo-pull ${local.pull_args}",
   ])
 }
