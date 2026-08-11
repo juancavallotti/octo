@@ -101,6 +101,10 @@ Both forms submit every field on every save, so any other design would mean edit
 
 Both features are rows in the `site_settings` table — `key = 'email'` and `key = 'llm'`, each a jsonb document. Adding a setting costs a key, not a migration, which is why the coming capabilities below need no schema change.
 
+## Platform agent
+
+Use `/platform/admin/agent` to install, update, trace or remove the platform's own agent — the one thing that consumes the LLM settings above. See [The Platform Agent](/platform/agent) for what it does and how to change it.
+
 ## Not built yet
 
-The admin hub also lists **Data retention** and **Agent install** as coming soon. They are shown rather than hidden so the section reads as intentional; neither does anything yet.
+The admin hub also lists **Data retention** as coming soon. It is shown rather than hidden so the section reads as intentional; it does nothing yet.
