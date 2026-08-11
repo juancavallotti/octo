@@ -97,9 +97,22 @@ Read this before you change him. The whole file is in the editor.
 | `octo_api` | Calls the API, with the method and path decided per call |
 | `refresh_platform_ui` | Publishes to the platform's [event bus](/platform/event-bus) so an editor with that integration open offers to reload |
 | `navigate_to` | Moves your browser to a page, when the answer to a question is a page |
+| `recall_facts`, `remember_fact`, `forget_fact` | What he remembers about you between conversations |
 | Skills | Six documents on flow files, blocks, connectors, expressions, testing and the platform, loaded on demand rather than sitting in every prompt |
 
 His memory rides the deployment's [KV store](/platform/kv-and-storage), which in a cluster is the orchestrator's own — so conversations survive a pod restart with nothing configured for it.
+
+### What he remembers
+
+Memory holds a conversation; **facts** hold what outlives one — how you like flows written, which integration is yours, what to call you. Tell him something worth keeping and he stores it; ask him to forget it and he does.
+
+Expect three things of it:
+
+- **Facts are yours.** They are keyed on the user the platform authenticated, which he can neither see nor set — he names a fact, the flow decides whose. Another person's conversation cannot reach them however he is asked.
+- **He keeps the last 200.** Nothing else bounds the list, since he decides what is worth keeping.
+- **Two conversations remembering at once can lose one fact.** The read and the write are separate steps. Say it again if it matters; the cost is a forgotten preference, not a wrong one.
+
+Tell him to forget something and he will, but treat that as housekeeping rather than a privacy control: what he already said in a conversation is in that conversation's memory, and a fact he was told not to keep may still be in the transcript. Purging the agent removes both.
 
 ## Run him yourself
 
