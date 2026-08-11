@@ -249,6 +249,9 @@ func (h *Handler) writeError(w http.ResponseWriter, err error) {
 	case errors.Is(err, sitesettings.ErrNotConfigured):
 		httpx.WriteError(w, http.StatusConflict,
 			"no llm api key is configured — set one under Admin, LLM provider")
+	case errors.Is(err, ErrNoOrchestratorURL):
+		httpx.WriteError(w, http.StatusServiceUnavailable,
+			"the agent needs ORCHESTRATOR_URL set on the orchestrator to call back to it")
 	case errors.Is(err, ErrUnknownProvider):
 		httpx.WriteError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, ErrNotInstalled):

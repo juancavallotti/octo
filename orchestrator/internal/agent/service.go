@@ -2,12 +2,11 @@ package agent
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
 	"time"
 
 	agentapp "github.com/juancavallotti/octo/orchestrator/agent"
@@ -32,6 +31,7 @@ type (
 	integrations interface {
 		Create(ctx context.Context, name, definition, actorID string) (integration.Integration, error)
 		Get(ctx context.Context, id string) (integration.Integration, error)
+		List(ctx context.Context) ([]integration.Integration, error)
 		Update(ctx context.Context, id, name, definition, actorID string) (integration.Integration, error)
 		Delete(ctx context.Context, id string) error
 	}
@@ -249,26 +249,10 @@ func (s *Service) liveDigest(ctx context.Context, integrationID string) (string,
 			files[item.Name] = item.Content
 		}
 	}
-	return digestFiles(files), nil
-}
-
-// digestFiles hashes a name→content map the way the bundle does: sorted names, each
-// with its length, so no rearrangement produces another map's sum.
-func digestFiles(files map[string]string) string {
-	names := make([]string, 0, len(files))
-	for name := range files {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
-	sum := sha256.New()
-	for _, name := range names {
-		// hash.Hash never returns an error, which is why the interface's own docs say
-		// so; discarding it keeps the loop readable.
-		_, _ = fmt.Fprintf(sum, "%s\x00%d\x00", name, len(files[name]))
-		_, _ = sum.Write([]byte(files[name]))
-	}
-	return hex.EncodeToString(sum.Sum(nil))
+	// The same hashing the bundle uses, so the two are comparable. Shared rather
+	// than reimplemented: two copies would be correct only while identical, and a
+	// change to one would report every installed agent as edited.
+	return agentapp.DigestFiles(files), nil
 }
 
 // Install creates the agent and deploys it. It is idempotent: an integration that
@@ -279,6 +263,21 @@ func (s *Service) Install(ctx context.Context, actorID string) (Status, error) {
 		return Status{}, ErrClusterUnavailable
 	}
 
+	// Two writes, deliberately, because the integration is created through a
+	// different connection than the one holding this row — so it commits whether or
+	// not the rest of the install does.
+	//
+	// Recording the id first makes that survivable. If the deploy then fails on a
+	// transient API-server error, the settings roll back to a row that already knows
+	// which integration is ours, and the next attempt reuses it. Doing it all under
+	// one lock instead would roll the id back and leave an integration nobody owns,
+	// after which every install fails on the unique name and the operator is told to
+	// rename something the installer itself created.
+	if err := s.repo.Mutate(ctx, func(cur stored) (stored, error) {
+		return s.ensureIntegration(ctx, cur, actorID)
+	}); err != nil {
+		return Status{}, err
+	}
 	if err := s.repo.Mutate(ctx, func(cur stored) (stored, error) {
 		return s.install(ctx, cur, actorID)
 	}); err != nil {
@@ -287,11 +286,65 @@ func (s *Service) Install(ctx context.Context, actorID string) (Status, error) {
 	return s.Status(ctx)
 }
 
-// install is the body of Install, run with the settings row locked.
-func (s *Service) install(ctx context.Context, cur stored, actorID string) (stored, error) {
+// ensureIntegration records which integration is the agent's, creating it the first
+// time. Everything after this can fail and be retried.
+func (s *Service) ensureIntegration(ctx context.Context, cur stored, actorID string) (stored, error) {
+	if cur.IntegrationID != "" {
+		return cur, nil
+	}
 	definition, err := agentapp.Definition()
 	if err != nil {
 		return cur, err
+	}
+
+	it, err := s.integrations.Create(ctx, agentapp.Name, definition, actorID)
+	if errors.Is(err, integration.ErrNameTaken) {
+		// An earlier attempt created it and did not get as far as recording it — the
+		// narrow window where even the two-step write above loses. Adopting it is
+		// right, and better than telling the operator to rename an integration they
+		// did not make. A user who has an integration by this name gets it adopted
+		// too; the name belongs to the agent, and the roll-out warning about
+		// replacing edits is what covers that case.
+		adopted, findErr := s.findByName(ctx, agentapp.Name)
+		if findErr != nil {
+			return cur, err
+		}
+		it, err = adopted, nil
+		slog.Warn("agent install adopted an existing integration",
+			"integrationId", it.ID, "name", agentapp.Name)
+	}
+	if err != nil {
+		return cur, err
+	}
+
+	next := cur
+	next.IntegrationID = it.ID
+	next.InstalledAt = time.Now().UTC()
+	next.UpdatedAt = next.InstalledAt
+	return next, nil
+}
+
+// findByName resolves an integration by name, case-insensitively as the unique
+// index does. Over the full list because a by-name read is not on the service and
+// one recovery path does not justify adding it.
+func (s *Service) findByName(ctx context.Context, name string) (integration.Integration, error) {
+	items, err := s.integrations.List(ctx)
+	if err != nil {
+		return integration.Integration{}, err
+	}
+	for _, it := range items {
+		if strings.EqualFold(it.Name, name) {
+			return it, nil
+		}
+	}
+	return integration.Integration{}, integration.ErrNotFound
+}
+
+// install is the body of Install after the integration exists, run with the
+// settings row locked.
+func (s *Service) install(ctx context.Context, cur stored, actorID string) (stored, error) {
+	if cur.IntegrationID == "" {
+		return cur, ErrNotInstalled
 	}
 	digest, err := agentapp.Digest()
 	if err != nil {
@@ -299,15 +352,6 @@ func (s *Service) install(ctx context.Context, cur stored, actorID string) (stor
 	}
 
 	next := cur
-	if next.IntegrationID == "" {
-		it, createErr := s.integrations.Create(ctx, agentapp.Name, definition, actorID)
-		if createErr != nil {
-			return cur, createErr
-		}
-		next.IntegrationID = it.ID
-		next.InstalledAt = time.Now().UTC()
-	}
-
 	if err := s.syncResources(ctx, next.IntegrationID); err != nil {
 		return cur, err
 	}
@@ -421,6 +465,12 @@ func (s *Service) envBindings(ctx context.Context) (map[string]deployment.EnvBin
 	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrUnknownProvider, creds.Provider)
 	}
+	// An empty URL would satisfy the deploy-time check for required variables and
+	// then fail on the agent's first call back — the late failure this binding
+	// exists to prevent. Refusing here says so while someone is looking.
+	if s.orchestratorURL == "" {
+		return nil, ErrNoOrchestratorURL
+	}
 	if _, err := s.secrets.Create(ctx, llmKeySecret, creds.APIKey); err != nil {
 		return nil, err
 	}
@@ -451,7 +501,8 @@ func (s *Service) Rollout(ctx context.Context, actorID string) (Status, error) {
 		}
 		if cur.DeploymentID == "" {
 			// Nothing is running, so there is nothing to roll — but the install path
-			// does exactly the right thing from here.
+			// does exactly the right thing from here, and the integration already
+			// exists or the check above would have refused.
 			return s.install(ctx, cur, actorID)
 		}
 		return s.rollout(ctx, cur, actorID)

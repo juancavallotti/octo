@@ -92,7 +92,17 @@ func Digest() (string, error) {
 	for name, content := range skills {
 		files[name] = content
 	}
+	return DigestFiles(files), nil
+}
 
+// DigestFiles hashes a name→content map: sorted names, each with its length, so no
+// rearrangement of names and contents produces another map's sum.
+//
+// Exported because the installer digests the *live* integration rows the same way
+// and compares the two to decide whether someone has edited the agent. Two copies
+// of this loop would be correct only while they stayed identical, and a change to
+// one would make every installed agent report as edited.
+func DigestFiles(files map[string]string) string {
 	names := make([]string, 0, len(files))
 	for name := range files {
 		names = append(names, name)
@@ -106,7 +116,7 @@ func Digest() (string, error) {
 		_, _ = fmt.Fprintf(sum, "%s\x00%d\x00", name, len(files[name]))
 		_, _ = sum.Write([]byte(files[name]))
 	}
-	return hex.EncodeToString(sum.Sum(nil)), nil
+	return hex.EncodeToString(sum.Sum(nil))
 }
 
 // Tag is the version tag a bundle is installed under: deterministic, so

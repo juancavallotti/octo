@@ -582,10 +582,17 @@ func newServer(ctx context.Context, database *db.DB, kc kube.Config) (http.Handl
 		// GET /settings/agent answers everywhere and names what is missing — a route
 		// that vanished would leave the admin page with a 404 to interpret. Without
 		// a cluster the mutating routes refuse with 503.
+		// Both fields come from ORCHESTRATOR_URL today, so this is belt and braces —
+		// but the agent binds whichever it is given, and an empty one produces a pod
+		// that starts and cannot call back. The dev-run gate reads them the same way.
+		agentOrchestratorURL := kc.RuntimeServices.OrchestratorURL
+		if agentOrchestratorURL == "" {
+			agentOrchestratorURL = kc.OrchestratorURL
+		}
 		agentSvc := agent.NewService(
 			agent.NewRepo(database.Pool()),
 			integrationSvc, resourceSvc, snapshotSvc, llmSvc,
-			kc.RuntimeServices.OrchestratorURL,
+			agentOrchestratorURL,
 			agentOpts...,
 		)
 		agent.NewHandler(agentSvc).Register(mux)

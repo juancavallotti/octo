@@ -68,6 +68,14 @@ func (f *fakeIntegrations) Get(_ context.Context, id string) (integration.Integr
 	return it, nil
 }
 
+func (f *fakeIntegrations) List(context.Context) ([]integration.Integration, error) {
+	out := make([]integration.Integration, 0, len(f.items))
+	for _, it := range f.items {
+		out = append(out, it)
+	}
+	return out, nil
+}
+
 func (f *fakeIntegrations) Update(_ context.Context, id, name, definition, _ string) (integration.Integration, error) {
 	f.updates++
 	it := integration.Integration{ID: id, Name: name, Definition: definition}
@@ -768,5 +776,73 @@ func TestStatusToleratesAVanishedDeployment(t *testing.T) {
 	}
 	if got.State != StateDeployed && got.State != StateInstalled {
 		t.Errorf("state = %q, want the install still reported", got.State)
+	}
+}
+
+// A deploy that fails on a transient error must not wedge the feature. The
+// integration is created through its own connection and commits regardless, so the
+// id is recorded first — and a retry reuses it instead of colliding with the name
+// the installer itself took.
+func TestAFailedDeployLeavesTheInstallRetryable(t *testing.T) {
+	h := newHarness(t, true)
+	ctx := context.Background()
+
+	h.credentials.err = errors.New("the api server hiccuped")
+	if _, err := h.svc.Install(ctx, "user-1"); err == nil {
+		t.Fatal("want the install to fail")
+	}
+	if h.repo.row.IntegrationID == "" {
+		t.Fatal("want the integration recorded even though the install failed")
+	}
+
+	h.credentials.err = nil
+	got, err := h.svc.Install(ctx, "user-1")
+	if err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+	if h.integrations.creates != 1 {
+		t.Errorf("integration creates = %d, want the first one reused", h.integrations.creates)
+	}
+	if got.State != StateDeployed {
+		t.Errorf("state = %q, want the retry to complete", got.State)
+	}
+}
+
+// The residual window: created, and the row write lost. Adopting is right, and
+// better than telling the operator to rename an integration they did not make.
+func TestInstallAdoptsAnOrphanedIntegration(t *testing.T) {
+	h := newHarness(t, true)
+	ctx := context.Background()
+
+	if _, err := h.integrations.Create(ctx, agentapp.Name, "# left behind", "someone"); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	h.integrations.createFn = func(string, string) error { return integration.ErrNameTaken }
+
+	got, err := h.svc.Install(ctx, "user-1")
+	if err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if got.IntegrationID == "" {
+		t.Fatal("want the orphan adopted")
+	}
+	if got.State != StateDeployed {
+		t.Errorf("state = %q, want the install to complete", got.State)
+	}
+}
+
+// An empty URL satisfies the deploy-time check for required variables and then
+// fails on the agent's first call back. Refusing while someone is looking is the
+// whole point.
+func TestInstallRefusesWithoutAnOrchestratorURL(t *testing.T) {
+	h := newHarness(t, true)
+	h.svc.orchestratorURL = ""
+
+	_, err := h.svc.Install(context.Background(), "")
+	if !errors.Is(err, ErrNoOrchestratorURL) {
+		t.Fatalf("error = %v, want ErrNoOrchestratorURL", err)
+	}
+	if len(h.deployments.deployed) != 0 {
+		t.Error("want nothing deployed")
 	}
 }

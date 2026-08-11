@@ -14,6 +14,11 @@ var (
 	// deployment to roll out or trace.
 	ErrNotDeployed = errors.New("agent: not deployed")
 
+	// ErrNoOrchestratorURL — ORCHESTRATOR_URL is not set on this orchestrator, so
+	// there is no address to give the agent for calling back. Its own error because
+	// binding an empty one produces a pod that starts and then cannot work.
+	ErrNoOrchestratorURL = errors.New("agent: ORCHESTRATOR_URL is not configured")
+
 	// ErrUnknownProvider — the site's LLM settings name a provider this orchestrator
 	// cannot map to a runtime connector. Its own error because the fix is in the LLM
 	// settings, not here.
