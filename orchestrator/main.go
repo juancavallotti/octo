@@ -26,11 +26,14 @@ import (
 	"github.com/juancavallotti/octo/orchestrator/internal/db"
 	"github.com/juancavallotti/octo/orchestrator/internal/deployment"
 	"github.com/juancavallotti/octo/orchestrator/internal/devrun"
+	"github.com/juancavallotti/octo/orchestrator/internal/email"
 	"github.com/juancavallotti/octo/orchestrator/internal/folder"
 	httpx "github.com/juancavallotti/octo/orchestrator/internal/http"
 	"github.com/juancavallotti/octo/orchestrator/internal/integration"
 	"github.com/juancavallotti/octo/orchestrator/internal/kube"
 	"github.com/juancavallotti/octo/orchestrator/internal/kv"
+	"github.com/juancavallotti/octo/orchestrator/internal/llm"
+	"github.com/juancavallotti/octo/orchestrator/internal/mailer"
 	"github.com/juancavallotti/octo/orchestrator/internal/resource"
 	"github.com/juancavallotti/octo/orchestrator/internal/secret"
 	"github.com/juancavallotti/octo/orchestrator/internal/snapshot"
@@ -422,6 +425,26 @@ func newServer(ctx context.Context, database *db.DB, kc kube.Config) (http.Handl
 		kv.NewObjectHandler(kvSvc).Register(mux)
 		slog.Info("object routes registered",
 			"endpoints", "GET /deployments/{id}/objects, GET/PUT/DELETE /deployments/{id}/objects/{key}")
+
+		// Site-wide settings: the email provider the platform sends through, and the
+		// LLM provider its agent reasons with. Both keep their API key encrypted with
+		// the same cipher the KV secret namespaces use; without it the routes still
+		// serve and the non-secret fields still save, but storing a key is refused
+		// rather than silently performed in the clear.
+		//
+		// Registered inside the database gate but outside the Kubernetes one below:
+		// neither feature needs a cluster, so an install without in-cluster access
+		// can still configure them.
+		emailSvc := email.NewService(email.NewRepo(database.Pool()), mailer.NewResend(), cipher)
+		email.NewHandler(emailSvc).Register(mux)
+		slog.Info("email settings routes registered",
+			"encryption", cipher != nil,
+			"endpoints", "GET/PUT /settings/email, POST /settings/email/test, POST /email/send")
+
+		llm.NewHandler(llm.NewService(llm.NewRepo(database.Pool()), cipher)).Register(mux)
+		slog.Info("llm settings routes registered",
+			"encryption", cipher != nil,
+			"endpoints", "GET/PUT /settings/llm")
 
 		// Deployment and dev-run management need both the database and in-cluster
 		// Kubernetes access. Outside a cluster (e.g. local `go run`) the client is nil
