@@ -1,10 +1,16 @@
 package kv
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"testing"
+
+	cryptox "github.com/juancavallotti/octo/orchestrator/internal/crypto"
 )
+
+// key32 is a fixed 32-byte (AES-256) key for these tests.
+var key32 = bytes.Repeat([]byte{0x42}, 32)
 
 // fakeRepo records the last value written so encryption behavior can be checked
 // without a database.
@@ -35,9 +41,9 @@ func (f *fakeRepo) ListNamespaces(context.Context, string) ([]string, error)    
 func (f *fakeRepo) Delete(context.Context, string, string, string, int64) error { return nil }
 func (f *fakeRepo) DeleteByDeployment(context.Context, string) error            { return nil }
 
-func testCipher(t *testing.T) *Cipher {
+func testCipher(t *testing.T) *cryptox.Cipher {
 	t.Helper()
-	c, err := NewCipher(key32)
+	c, err := cryptox.NewCipher(key32)
 	if err != nil {
 		t.Fatalf("NewCipher: %v", err)
 	}

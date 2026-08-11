@@ -22,6 +22,7 @@ import (
 
 	"github.com/juancavallotti/octo/orchestrator/internal/apikey"
 	"github.com/juancavallotti/octo/orchestrator/internal/bus"
+	cryptox "github.com/juancavallotti/octo/orchestrator/internal/crypto"
 	"github.com/juancavallotti/octo/orchestrator/internal/db"
 	"github.com/juancavallotti/octo/orchestrator/internal/deployment"
 	"github.com/juancavallotti/octo/orchestrator/internal/devrun"
@@ -405,7 +406,7 @@ func newServer(ctx context.Context, database *db.DB, kc kube.Config) (http.Handl
 		// Deployment-scoped KV store the runtime's k8s services module calls. Values
 		// in a secret namespace are encrypted with KV_ENCRYPTION_KEY; without the key,
 		// secrets are rejected but plain KV still works.
-		cipher, cipherErr := newKVCipher(os.Getenv("KV_ENCRYPTION_KEY"))
+		cipher, cipherErr := newCipher(os.Getenv("KV_ENCRYPTION_KEY"))
 		if cipherErr != nil {
 			return nil, cipherErr
 		}
@@ -532,7 +533,7 @@ func newKubeClient(ctx context.Context, kc kube.Config) (*kube.Client, error) {
 // unset). A nil service reports Enabled() == false, so the caller registers nothing.
 //
 // DEV_RUN_HASH_SECRET is required as soon as dev runs are otherwise configured, and its
-// absence stops startup naming it — the same posture newKVCipher takes for
+// absence stops startup naming it — the same posture newCipher takes for
 // KV_ENCRYPTION_KEY, for the same class of reason. Every dev run's identity and, more
 // to the point, its public hostname are HMACs keyed on this secret. Unkeyed they would
 // be pure functions of a user id and an integration id, which is to say that the
@@ -594,10 +595,14 @@ func startDevRunReaper(ctx context.Context, svc *devrun.Service) {
 	}()
 }
 
-// newKVCipher builds the secret-namespace encryption cipher from a base64-encoded
-// key. An empty key disables encryption (secret-namespace writes are then rejected);
-// a malformed key or an invalid key length is a startup error.
-func newKVCipher(b64 string) (*kv.Cipher, error) {
+// newCipher builds the at-rest encryption cipher from a base64-encoded key. An empty
+// key disables encryption (secret-namespace writes are then rejected); a malformed key
+// or an invalid key length is a startup error.
+//
+// The env var is still named KV_ENCRYPTION_KEY, though the cipher now also protects
+// the site-wide provider API keys. Renaming it would be a breaking chart change for a
+// cosmetic gain, so the name stays and this comment carries the correction.
+func newCipher(b64 string) (*cryptox.Cipher, error) {
 	if b64 == "" {
 		slog.Warn("KV_ENCRYPTION_KEY not set; KV secret-namespace writes will be rejected")
 		return nil, nil //nolint:nilnil // nil cipher means encryption disabled, not an error
@@ -606,7 +611,7 @@ func newKVCipher(b64 string) (*kv.Cipher, error) {
 	if err != nil {
 		return nil, fmt.Errorf("decode KV_ENCRYPTION_KEY: %w", err)
 	}
-	return kv.NewCipher(key)
+	return cryptox.NewCipher(key)
 }
 
 func envOr(key, fallback string) string {
