@@ -93,6 +93,7 @@ type fakeResources struct {
 	items   map[string]resource.Resource // keyed by name
 	creates int
 	updates int
+	deletes int
 }
 
 func newFakeResources() *fakeResources {
@@ -115,6 +116,17 @@ func (f *fakeResources) Update(_ context.Context, integrationID, id, kind, name,
 	}
 	f.items[name] = res
 	return res, nil
+}
+
+func (f *fakeResources) Delete(_ context.Context, _, id string) error {
+	f.deletes++
+	for name, item := range f.items {
+		if item.ID == id {
+			delete(f.items, name)
+			return nil
+		}
+	}
+	return nil
 }
 
 func (f *fakeResources) ListByIntegration(context.Context, string) ([]resource.Resource, error) {
@@ -194,6 +206,7 @@ func (f *fakeDeployments) Undeploy(context.Context, string) error {
 
 type fakeSecrets struct {
 	written map[string]string
+	deleted []string
 }
 
 func (f *fakeSecrets) Create(_ context.Context, name, value string) (secret.Secret, error) {
@@ -205,11 +218,33 @@ func (f *fakeSecrets) Create(_ context.Context, name, value string) (secret.Secr
 }
 
 type fakeCredentials struct {
-	creds llm.Credentials
-	err   error
+	creds    llm.Credentials
+	err      error
+	noCipher bool
+	reveals  int
 }
 
+func (f *fakeSecrets) Delete(_ context.Context, name string, _ bool) error {
+	f.deleted = append(f.deleted, name)
+	delete(f.written, name)
+	return nil
+}
+
+func (f *fakeCredentials) Get(context.Context) (llm.Settings, error) {
+	if f.err != nil {
+		return llm.Settings{}, f.err
+	}
+	return llm.Settings{
+		Provider:   f.creds.Provider,
+		Model:      f.creds.Model,
+		Configured: f.creds.APIKey != "",
+	}, nil
+}
+
+func (f *fakeCredentials) EncryptionAvailable() bool { return !f.noCipher }
+
 func (f *fakeCredentials) Reveal(context.Context) (llm.Credentials, error) {
+	f.reveals++
 	if f.err != nil {
 		return llm.Credentials{}, f.err
 	}
@@ -290,26 +325,43 @@ func TestStatusReportsTheBlockageWithoutACluster(t *testing.T) {
 }
 
 func TestStatusDistinguishesAMissingKeyFromMissingEncryption(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		err  error
-		want string
-	}{
-		{"no key stored", sitesettings.ErrNotConfigured, BlockedLLMKey},
-		{"no cipher", sitesettings.ErrEncryptionUnavailable, BlockedEncryption},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			h := newHarness(t, true)
-			h.credentials.err = tc.err
+	t.Run("no key stored", func(t *testing.T) {
+		h := newHarness(t, true)
+		h.credentials.creds.APIKey = ""
 
-			got, err := h.svc.Status(context.Background())
-			if err != nil {
-				t.Fatalf("Status: %v", err)
-			}
-			if got.Blocked != tc.want {
-				t.Errorf("blocked = %q, want %q", got.Blocked, tc.want)
-			}
-		})
+		got, err := h.svc.Status(context.Background())
+		if err != nil {
+			t.Fatalf("Status: %v", err)
+		}
+		if got.Blocked != BlockedLLMKey {
+			t.Errorf("blocked = %q, want %q", got.Blocked, BlockedLLMKey)
+		}
+	})
+
+	t.Run("a key stored that cannot be decrypted", func(t *testing.T) {
+		h := newHarness(t, true)
+		h.credentials.noCipher = true
+
+		got, err := h.svc.Status(context.Background())
+		if err != nil {
+			t.Fatalf("Status: %v", err)
+		}
+		if got.Blocked != BlockedEncryption {
+			t.Errorf("blocked = %q, want %q", got.Blocked, BlockedEncryption)
+		}
+	})
+}
+
+// Reading a status is a poll. Decrypting a provider key to ask whether one exists
+// would put the plaintext in memory on every one of them.
+func TestStatusNeverDecryptsTheProviderKey(t *testing.T) {
+	h := newHarness(t, true)
+
+	if _, err := h.svc.Status(context.Background()); err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if h.credentials.reveals != 0 {
+		t.Errorf("Reveal called %d times reading a status; want none", h.credentials.reveals)
 	}
 }
 
@@ -814,7 +866,11 @@ func TestInstallAdoptsAnOrphanedIntegration(t *testing.T) {
 	h := newHarness(t, true)
 	ctx := context.Background()
 
-	if _, err := h.integrations.Create(ctx, agentapp.Name, "# left behind", "someone"); err != nil {
+	definition, err := agentapp.Definition()
+	if err != nil {
+		t.Fatalf("Definition: %v", err)
+	}
+	if _, err := h.integrations.Create(ctx, agentapp.Name, definition, "someone"); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	h.integrations.createFn = func(string, string) error { return integration.ErrNameTaken }
@@ -828,6 +884,135 @@ func TestInstallAdoptsAnOrphanedIntegration(t *testing.T) {
 	}
 	if got.State != StateDeployed {
 		t.Errorf("state = %q, want the install to complete", got.State)
+	}
+}
+
+// An integration a user happens to have named "Dr. Octo" is theirs. Adopting it
+// would snapshot and deploy their work and replace it on the next roll-out, with
+// Edited in the status as the only warning — after the fact. The name alone is not
+// enough; the definition has to be recognisably the agent's.
+func TestInstallDoesNotAdoptAUsersOwnIntegration(t *testing.T) {
+	h := newHarness(t, true)
+	ctx := context.Background()
+
+	if _, err := h.integrations.Create(ctx, agentapp.Name,
+		"service:\n  name: my-own-thing\n", "someone"); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	h.integrations.createFn = func(string, string) error { return integration.ErrNameTaken }
+
+	_, err := h.svc.Install(ctx, "user-1")
+	if !errors.Is(err, integration.ErrNameTaken) {
+		t.Fatalf("error = %v, want the name collision reported so the operator decides", err)
+	}
+	if len(h.deployments.deployed) != 0 {
+		t.Error("want nothing deployed from someone else's integration")
+	}
+}
+
+// A skill the bundle stops shipping has to go, or liveDigest keeps counting it
+// while the bundle digest does not — leaving the agent permanently "edited" with no
+// roll-out able to clear it.
+func TestRolloutRemovesASkillTheBundleNoLongerShips(t *testing.T) {
+	h := newHarness(t, true)
+	ctx := context.Background()
+
+	installed, err := h.svc.Install(ctx, "")
+	if err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if _, err := h.resources.Create(ctx, installed.IntegrationID,
+		agentapp.SkillResourceKind, "skills/retired.md", "an older bundle shipped this"); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	stale, err := h.svc.Status(ctx)
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if !stale.Edited {
+		t.Fatal("a leftover skill should read as edited until it is removed")
+	}
+
+	if _, err := h.svc.Rollout(ctx, ""); err != nil {
+		t.Fatalf("Rollout: %v", err)
+	}
+	if _, ok := h.resources.items["skills/retired.md"]; ok {
+		t.Error("want the retired skill removed")
+	}
+
+	got, err := h.svc.Status(ctx)
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if got.Edited {
+		t.Error("want the roll-out to have cleared the edit")
+	}
+}
+
+// The credential is the part of an install that most needs to go. Left behind it is
+// a plaintext provider key in the cluster with nothing owning it.
+func TestPurgeRemovesTheProviderKeySecret(t *testing.T) {
+	h := newHarness(t, true)
+	ctx := context.Background()
+
+	if _, err := h.svc.Install(ctx, ""); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if err := h.svc.Uninstall(ctx, true); err != nil {
+		t.Fatalf("Uninstall: %v", err)
+	}
+
+	if len(h.secrets.deleted) == 0 || h.secrets.deleted[0] != llmKeySecret {
+		t.Errorf("deleted secrets = %v, want %q removed", h.secrets.deleted, llmKeySecret)
+	}
+	if _, ok := h.secrets.written[llmKeySecret]; ok {
+		t.Error("want the key gone from the cluster")
+	}
+}
+
+// Undeploying without purge keeps the integration, so it keeps the key it will need
+// when it is deployed again.
+func TestUninstallWithoutPurgeKeepsTheProviderKeySecret(t *testing.T) {
+	h := newHarness(t, true)
+	ctx := context.Background()
+
+	if _, err := h.svc.Install(ctx, ""); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if err := h.svc.Uninstall(ctx, false); err != nil {
+		t.Fatalf("Uninstall: %v", err)
+	}
+	if len(h.secrets.deleted) != 0 {
+		t.Errorf("deleted secrets = %v, want none", h.secrets.deleted)
+	}
+}
+
+// Rolling out with nothing running still has to publish the shipped definition, or
+// an operator who asked for the shipped agent gets their own edits frozen into the
+// new tag instead.
+func TestRolloutRepublishesEvenWhenNothingIsDeployed(t *testing.T) {
+	h := newHarness(t, true)
+	ctx := context.Background()
+
+	installed, err := h.svc.Install(ctx, "")
+	if err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if err := h.svc.Uninstall(ctx, false); err != nil {
+		t.Fatalf("Uninstall: %v", err)
+	}
+
+	it := h.integrations.items[installed.IntegrationID]
+	edited := it.Definition + "\n# a local change\n"
+	it.Definition = edited
+	h.integrations.items[installed.IntegrationID] = it
+
+	if _, err := h.svc.Rollout(ctx, "user-1"); err != nil {
+		t.Fatalf("Rollout: %v", err)
+	}
+	if h.integrations.items[installed.IntegrationID].Definition == edited {
+		t.Error("want the shipped definition republished, not the local edit kept")
 	}
 }
 

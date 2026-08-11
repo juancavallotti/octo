@@ -15,7 +15,6 @@ import (
 	"github.com/juancavallotti/octo/orchestrator/internal/llm"
 	"github.com/juancavallotti/octo/orchestrator/internal/resource"
 	"github.com/juancavallotti/octo/orchestrator/internal/secret"
-	"github.com/juancavallotti/octo/orchestrator/internal/sitesettings"
 	"github.com/juancavallotti/octo/orchestrator/internal/snapshot"
 )
 
@@ -39,6 +38,7 @@ type (
 	resources interface {
 		Create(ctx context.Context, integrationID, kind, name, content string) (resource.Resource, error)
 		Update(ctx context.Context, integrationID, id, kind, name, content string) (resource.Resource, error)
+		Delete(ctx context.Context, integrationID, id string) error
 		ListByIntegration(ctx context.Context, integrationID string) ([]resource.Resource, error)
 	}
 
@@ -58,11 +58,16 @@ type (
 
 	secrets interface {
 		Create(ctx context.Context, name, value string) (secret.Secret, error)
+		Delete(ctx context.Context, name string, force bool) error
 	}
 
 	// credentials is llm.Service. Reveal is the read path that exists for exactly
-	// this consumer and is on no route.
+	// this consumer and is on no route — and it decrypts, so only install and
+	// rollout call it. Get and EncryptionAvailable answer "is one configured?"
+	// without ever materialising the key, which is what a polled status page needs.
 	credentials interface {
+		Get(ctx context.Context) (llm.Settings, error)
+		EncryptionAvailable() bool
 		Reveal(ctx context.Context) (llm.Credentials, error)
 	}
 )
@@ -198,13 +203,21 @@ func (s *Service) blocked(ctx context.Context) string {
 	if s.deployments == nil || s.secrets == nil {
 		return BlockedKubernetes
 	}
-	if _, err := s.credentials.Reveal(ctx); err != nil {
-		switch {
-		case errors.Is(err, sitesettings.ErrEncryptionUnavailable):
-			return BlockedEncryption
-		default:
-			return BlockedLLMKey
-		}
+	// Deliberately not Reveal. This runs on every poll of a status page, and
+	// decrypting a provider key to ask whether one exists would put the plaintext in
+	// memory hundreds of times for a question the metadata already answers.
+	settings, err := s.credentials.Get(ctx)
+	if err != nil {
+		slog.Warn("agent status: cannot read the llm settings", "error", err)
+		return BlockedLLMKey
+	}
+	if !settings.Configured {
+		return BlockedLLMKey
+	}
+	if !s.credentials.EncryptionAvailable() {
+		// A key is stored and this orchestrator cannot decrypt it, so the install
+		// would fail at the point it reads it.
+		return BlockedEncryption
 	}
 	return ""
 }
@@ -300,17 +313,23 @@ func (s *Service) ensureIntegration(ctx context.Context, cur stored, actorID str
 	it, err := s.integrations.Create(ctx, agentapp.Name, definition, actorID)
 	if errors.Is(err, integration.ErrNameTaken) {
 		// An earlier attempt created it and did not get as far as recording it — the
-		// narrow window where even the two-step write above loses. Adopting it is
-		// right, and better than telling the operator to rename an integration they
-		// did not make. A user who has an integration by this name gets it adopted
-		// too; the name belongs to the agent, and the roll-out warning about
-		// replacing edits is what covers that case.
+		// narrow window where even the two-step write above loses. Adopting it beats
+		// telling the operator to rename an integration the installer itself made.
+		//
+		// But only if it is recognisably ours. An integration a user happens to have
+		// named "Dr. Octo" is theirs, and adopting it would snapshot and deploy their
+		// work and then replace it on the next roll-out — with Edited in the status
+		// as the only warning, after the fact. So the definition has to declare the
+		// agent's own service name, which nothing but this bundle does.
 		adopted, findErr := s.findByName(ctx, agentapp.Name)
-		if findErr != nil {
+		switch {
+		case findErr != nil:
+			return cur, err
+		case !agentapp.IsAgentDefinition(adopted.Definition):
 			return cur, err
 		}
 		it, err = adopted, nil
-		slog.Warn("agent install adopted an existing integration",
+		slog.Warn("agent install adopted an integration left by an earlier attempt",
 			"integrationId", it.ID, "name", agentapp.Name)
 	}
 	if err != nil {
@@ -432,6 +451,21 @@ func (s *Service) syncResources(ctx context.Context, integrationID string) error
 			return err
 		}
 	}
+
+	// A skill the bundle no longer ships has to go, or it stays on the integration
+	// for ever: liveDigest counts it (it still matches the skills/ prefix) while the
+	// bundle digest does not, so the agent would report as permanently edited and no
+	// roll-out would clear it. Only the bundle's own resources are considered — a
+	// template a user added is theirs.
+	for name, item := range byName {
+		if _, shipped := skills[name]; shipped || !agentapp.IsSkill(name) {
+			continue
+		}
+		if err := s.resources.Delete(ctx, integrationID, item.ID); err != nil {
+			return err
+		}
+		slog.Info("agent skill removed", "integrationId", integrationID, "resource", name)
+	}
 	return nil
 }
 
@@ -500,9 +534,14 @@ func (s *Service) Rollout(ctx context.Context, actorID string) (Status, error) {
 			return cur, ErrNotInstalled
 		}
 		if cur.DeploymentID == "" {
-			// Nothing is running, so there is nothing to roll — but the install path
-			// does exactly the right thing from here, and the integration already
-			// exists or the check above would have refused.
+			// Nothing is running, so there is no rolling update to do — but the
+			// definition still has to be republished, or an operator who asked for
+			// the shipped agent would get their own edits frozen into the new tag.
+			// Install alone does not do that, deliberately: it must not overwrite a
+			// definition on a plain retry.
+			if err := s.republish(ctx, cur.IntegrationID, actorID); err != nil {
+				return cur, err
+			}
 			return s.install(ctx, cur, actorID)
 		}
 		return s.rollout(ctx, cur, actorID)
@@ -512,21 +551,28 @@ func (s *Service) Rollout(ctx context.Context, actorID string) (Status, error) {
 	return s.Status(ctx)
 }
 
-// rollout is the body of Rollout, run with the settings row locked.
-func (s *Service) rollout(ctx context.Context, cur stored, actorID string) (stored, error) {
+// republish writes the bundle's definition and skills over the integration. This is
+// what "rolling out replaces local edits" means, and it is only ever called from a
+// roll-out — an install must not overwrite a definition on a retry.
+func (s *Service) republish(ctx context.Context, integrationID, actorID string) error {
 	definition, err := agentapp.Definition()
 	if err != nil {
-		return cur, err
+		return err
 	}
+	if _, err := s.integrations.Update(ctx, integrationID, agentapp.Name, definition, actorID); err != nil {
+		return err
+	}
+	return s.syncResources(ctx, integrationID)
+}
+
+// rollout is the body of Rollout, run with the settings row locked.
+func (s *Service) rollout(ctx context.Context, cur stored, actorID string) (stored, error) {
 	digest, err := agentapp.Digest()
 	if err != nil {
 		return cur, err
 	}
 
-	if _, err := s.integrations.Update(ctx, cur.IntegrationID, agentapp.Name, definition, actorID); err != nil {
-		return cur, err
-	}
-	if err := s.syncResources(ctx, cur.IntegrationID); err != nil {
+	if err := s.republish(ctx, cur.IntegrationID, actorID); err != nil {
 		return cur, err
 	}
 
@@ -619,6 +665,19 @@ func (s *Service) Uninstall(ctx context.Context, purge bool) error {
 		if purge {
 			if err := s.integrations.Delete(ctx, cur.IntegrationID); err != nil {
 				return cur, err
+			}
+			// The credential is the part that most needs to go. Left behind it is a
+			// plaintext provider key in the cluster with nothing owning it and no
+			// record pointing at it. force, because the deployment that referenced it
+			// has just been removed and the reference may still be visible.
+			if s.secrets != nil {
+				if err := s.secrets.Delete(ctx, llmKeySecret, true); err != nil {
+					// Not fatal: the install is gone either way, and failing here
+					// would leave the record describing an agent that no longer
+					// exists. Logged loudly because it is a credential.
+					slog.Error("agent purge could not remove the provider key secret",
+						"secret", llmKeySecret, "error", err)
+				}
 			}
 			// Everything the record described is gone, so the record goes with it —
 			// leaving a digest behind would report an update available for an agent

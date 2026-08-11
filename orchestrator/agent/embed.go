@@ -139,6 +139,21 @@ const Name = "Dr. Octo"
 // because that is what the ai-agent block's skills slot resolves.
 const SkillResourceKind = "template"
 
+// serviceName is what the app calls itself. It is the marker that identifies a
+// definition as this agent's.
+const serviceName = "dr-octo"
+
+// IsAgentDefinition reports whether a definition is recognisably this agent's.
+//
+// Used to decide whether an integration already carrying the agent's name is one an
+// earlier install left behind, or a user's own work that happens to share the name.
+// Adopting the second would snapshot and deploy their integration and replace it on
+// the next roll-out, so the check is deliberately narrow: only the bundle declares
+// this service name.
+func IsAgentDefinition(definition string) bool {
+	return strings.Contains(definition, "name: "+serviceName)
+}
+
 // IsSkill reports whether a resource name belongs to the bundle's skills, which is
 // how the installer tells its own resources from anything a user added.
 func IsSkill(name string) bool {
