@@ -60,14 +60,34 @@ func TestToToolConfig(t *testing.T) {
 }
 
 func TestResponseMap(t *testing.T) {
-	if m := responseMap(core.LLMToolResult{Content: `{"a":1}`}); m["a"] != float64(1) {
-		t.Errorf("object content should pass through: %#v", m)
+	// Every result goes back as text under one key. It used to be spread when it
+	// parsed as an object, which handed Gemini the tool's own keys and values to
+	// interpret — see the $ref case below.
+	if m := responseMap(core.LLMToolResult{Content: `{"a":1}`}); m["result"] != `{"a":1}` {
+		t.Errorf("object content should go back as text under result: %#v", m)
 	}
-	if m := responseMap(core.LLMToolResult{Content: `[1,2]`}); m["result"] == nil {
-		t.Errorf("non-object content should be wrapped under result: %#v", m)
+	if m := responseMap(core.LLMToolResult{Content: `[1,2]`}); m["result"] != `[1,2]` {
+		t.Errorf("list content should go back as text under result: %#v", m)
 	}
 	if m := responseMap(core.LLMToolResult{Content: "boom", IsError: true}); m["error"] != "boom" {
 		t.Errorf("error result should be reported under error: %#v", m)
+	}
+}
+
+// The failure this exists to prevent: a tool returning OpenAPI or JSON Schema.
+// Spread into the function response, every "#/components/schemas/..." was read as
+// a reference to a part that did not exist, and the whole turn came back 400.
+// Under one key there is nothing for the API to resolve.
+func TestResponseMapDoesNotExposeRefsAsFields(t *testing.T) {
+	doc := `{"components":{"schemas":{"x":{"$ref":"#/components/schemas/email.sendRequestBody"}}}}`
+
+	m := responseMap(core.LLMToolResult{Content: doc})
+
+	if len(m) != 1 || m["result"] != doc {
+		t.Fatalf("the document should be one string under result, got %#v", m)
+	}
+	if _, spread := m["components"]; spread {
+		t.Error("the document's own keys must not become function response fields")
 	}
 }
 
