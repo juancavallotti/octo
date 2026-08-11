@@ -48,6 +48,8 @@ Topics are the broadcast counterpart of queues. Where a queue delivers each mess
 
 In the k8s module topics ride NATS under a separate scope (`octo.<deploymentId>.t.<subject>`) as plain, non-queue subscriptions; standalone, they fan out to local subscribers in-process. Delivery is likewise at-most-once. See [the events connector](/reference/connectors/events).
 
+There is one way out of that scope. A subject written with a **`system:` prefix** is published verbatim instead of being scoped to the deployment, which is how a flow reaches the platform's own subjects — the [`system:` prefix](/reference/connectors/events#reaching-the-platform-the-system-prefix) covers what that is for and what the runtime does and does not check.
+
 <Callout type="info">
 Rule of thumb: scale-out **work** goes on a queue (one replica handles each message); **notifications** go on a topic (every replica reacts). Running three replicas of a flow with an `events` source means the flow runs three times per published event — by design.
 </Callout>

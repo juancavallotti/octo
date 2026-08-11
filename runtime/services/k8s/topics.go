@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/types"
@@ -12,9 +13,10 @@ import (
 
 // natsTopics is the NATS-backed Topics implementation for the k8s module. Subjects
 // are prefixed with the deployment id (under a "t" segment, distinct from the queues'
-// "q") so deployments sharing one broker never collide. Unlike natsQueues it uses a
-// plain Subscribe, not a queue group, so every subscriber — across every replica —
-// receives every message (broadcast fan-out). There is no reply.
+// "q") so deployments sharing one broker never collide — unless they opt out with
+// the system: prefix, see below. Unlike natsQueues it uses a plain Subscribe, not a
+// queue group, so every subscriber — across every replica — receives every message
+// (broadcast fan-out). There is no reply.
 type natsTopics struct {
 	conn         *nats.Conn
 	deploymentID string
@@ -24,8 +26,29 @@ func newNATSTopics(conn *nats.Conn, deploymentID string) *natsTopics {
 	return &natsTopics{conn: conn, deploymentID: deploymentID}
 }
 
-// subject scopes a user subject to this deployment, e.g. octo.<id>.t.<subject>.
+// systemPrefix opts a subject out of deployment scoping.
+//
+// Everything else becomes octo.<id>.t.<subject> so deployments sharing a broker
+// cannot collide, which is right for a flow talking to itself and wrong for one
+// talking to the platform: a subject nobody else can name is a subject nobody else
+// receives. A subject written "system:x.y" is published to "x.y" verbatim,
+// alongside the platform's other unscoped subjects (see LogSubject and
+// TraceSubject).
+//
+// The runtime deliberately holds no list of what those subjects are, and validates
+// nothing about them. The caller names the subject and owns the payload shape; an
+// unroutable name publishes into the void and a malformed payload is the
+// subscriber's problem, exactly as they would be on any other subject. A table here
+// would be this module keeping an inventory of the platform's internals, which is
+// the coupling the convention exists to avoid.
+const systemPrefix = "system:"
+
+// subject resolves a user subject to the one that goes on the wire: scoped to this
+// deployment, or verbatim when it opts out.
 func (t *natsTopics) subject(subject string) string {
+	if unscoped, ok := strings.CutPrefix(subject, systemPrefix); ok {
+		return unscoped
+	}
 	return fmt.Sprintf("octo.%s.t.%s", t.deploymentID, subject)
 }
 

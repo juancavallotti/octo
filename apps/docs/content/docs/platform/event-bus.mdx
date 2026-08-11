@@ -14,13 +14,15 @@ One NATS broker is the platform's message backbone. Control-plane events, runtim
 | Subject | Publisher | Consumer | Purpose |
 | --- | --- | --- | --- |
 | `internal.deployments.{integrationId}` | orchestrator | platform BFF (per-integration SSE) | Deployment status snapshots |
-| `internal.integrations.events` | platform BFF (MCP writes) | platform BFF (SSE) | Integration-write live-reload hints |
+| `internal.integrations.events` | platform BFF (MCP writes); deployed apps via `system:` | platform BFF (SSE) | Integration-write live-reload hints |
 | `internal.logs` | every runtime pod | telemetry aggregator (queue group) | Structured log shipping |
 | `internal.traces` | every runtime pod with tracing on | telemetry aggregator (queue group) | [Trace](/runtime/tracing) record shipping |
 | `octo.{deploymentId}.q.{subject}` | runtime pods | runtime pods (queue group) | Flow [queues](/runtime/clustering#queues-competing-consumers) — competing consumers |
 | `octo.{deploymentId}.t.{subject}` | runtime pods | runtime pods (plain subscribe) | Flow topics — broadcast fan-out |
 
 The convention: control-plane infrastructure lives under `internal.*`; runtime messaging is scoped per deployment under `octo.{deploymentId}.*`, so deployments sharing the broker can never collide with each other or with the platform's own traffic.
+
+A deployed app can publish onto an `internal.*` subject deliberately, by writing the subject with a [`system:` prefix](/reference/connectors/events#reaching-the-platform-the-system-prefix), which opts that one subject out of deployment scoping. The scoping is a default, not a wall — the platform agent uses it to tell an open editor that something it just changed is worth re-reading.
 
 `internal.logs` and `internal.traces` are deliberately **not** scoped per deployment, unlike the `octo.{deploymentId}.*` subjects: a single aggregator consumes each as a competing consumer across every deployment, and the deployment identity travels inside each record. Scoping them would make the aggregator's subscription list grow with the number of deployments, which is the thing an aggregator exists to avoid.
 
@@ -42,6 +44,17 @@ Snapshots carry the same wire shape as the REST response on purpose: the browser
 
 When an MCP client creates or updates an integration, the BFF publishes an `integration.updated` event (the integration's id and name) so an editor with that integration open can live-reload it. With NATS configured the event goes to `internal.integrations.events` and reaches editors on any replica; the SSE route `GET /api/integrations/events` relays it. Delivery is fire-and-forget by contract — an MCP write never fails because the reload hint couldn't be delivered.
 
+A **deployed app** can publish the same event, with a `publish-event` block whose subject carries the `system:` prefix:
+
+```yaml
+- type: publish-event
+  settings:
+    subject: '"system:internal.integrations.events"'
+    value: '{"type": "integration.updated", "id": body.id, "name": body.name}'
+```
+
+The payload is the message body as JSON, which is what the SSE route relays and the browser parses — so it must match one of the `OctoEvent` shapes. Nothing checks that: the runtime does not know what belongs on the subject, and a malformed event reaches the browser and is ignored. This is the path the platform agent uses after it writes an integration on your behalf.
+
 ### The in-process fallback (`packages/events`)
 
 `@octo/events` is a tiny shared package: the `OctoEvent` types, an in-process publish/subscribe bus, an SSE `Response` builder, and the browser `EventSource` client. When `NATS_URL` is unset or the broker is unreachable — the standalone app, local development, a single-replica deploy without a broker — the BFF publishes on this in-process bus instead, which reaches editors connected to the same process. The subscription API the browser sees is identical either way.
@@ -61,4 +74,6 @@ The chart deploys NATS by default (`nats.enabled`) as core NATS — ephemeral fa
 
 ## Relationship to runtime messaging
 
-The runtime's `queue` and `topic` constructs (see [Clustering](/runtime/clustering)) use the *same broker* through the same injected `NATS_URL`, but they are user-level messaging between a deployment's replicas — deployment-scoped subjects, queue groups for competing consumers, native request–reply — while the `internal.*` subjects are platform plumbing. A flow never sees platform events, and platform components never consume flow queues.
+The runtime's `queue` and `topic` constructs (see [Clustering](/runtime/clustering)) use the *same broker* through the same injected `NATS_URL`, but they are user-level messaging between a deployment's replicas — deployment-scoped subjects, queue groups for competing consumers, native request–reply — while the `internal.*` subjects are platform plumbing. The two planes stay apart by default: a flow's subjects are scoped to its deployment, and platform components never consume flow queues.
+
+The one crossing is deliberate and one-way. A flow that writes `system:` in front of a subject publishes onto the unscoped plane, which is how a deployed app raises a platform event. Nothing carries traffic the other way: platform events are not delivered into flows unless a flow subscribes to that subject by name.
