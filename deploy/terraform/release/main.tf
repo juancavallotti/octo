@@ -19,6 +19,43 @@ locals {
   # The domain per-integration subdomains + the wildcard cert actually use. Falls
   # back to `domain` for the original single-domain setup.
   apps_domain_eff = var.apps_domain != "" ? var.apps_domain : var.domain
+
+  # The exact image references this release will ask the kubelet for, derived from
+  # the digest-pinned values file when there is one. octo-pull is handed these
+  # rather than a tag because containerd keys images by reference: an image stored
+  # as `repo:v0.8.0` does not satisfy a pod that asks for `repo@sha256:...`, so a
+  # tag-only pre-pull leaves every pull to re-resolve against the registry — with
+  # the node's boot token, which expires an hour after boot. That is a 401 and an
+  # ImagePullBackOff for the whole release, an hour after any given VM boot.
+  #
+  # The top-level `image` key holds registry/pullPolicy rather than a component, so
+  # the `can(...)` guard is what skips it; every other key is one image.
+  image_values  = var.image_values_file != "" ? yamldecode(file(var.image_values_file)) : {}
+  pull_registry = try(local.image_values.image.registry, local.image_base)
+  pull_refs = [
+    for _, component in local.image_values :
+    "${local.pull_registry}/${component.image.repository}@${component.image.digest}"
+    if can(component.image.digest)
+  ]
+
+  # Digest-pinned when there is a values file, tag otherwise (a bare `task deploy`
+  # without one). Assembled here rather than inline so the provisioner stays a
+  # single line, and single-quote-free: it is passed inside `ssh --command '...'`.
+  pull_args = length(local.pull_refs) > 0 ? "--ref ${join(" ", local.pull_refs)}" : var.image_tag
+  # -f so an HTTP error is a failure rather than an error page written over the
+  # helper, and install(1) so a half-downloaded file never lands on the PATH.
+  #
+  # The download lands in a root-owned 0700 directory rather than /tmp. Writing to a
+  # predictable path in a world-writable directory as root is how a local user gets
+  # to choose the contents of something that is about to be installed onto the PATH
+  # and executed as root: pre-create the path as a symlink and curl follows it.
+  pull_command = join(" && ", [
+    "sudo install -d -m 0700 -o root -g root /var/lib/octo",
+    "sudo curl -sf -H \"Metadata-Flavor: Google\" http://metadata.google.internal/computeMetadata/v1/instance/attributes/octo-pull-sh -o /var/lib/octo/octo-pull.tmp",
+    "sudo install -m 0755 /var/lib/octo/octo-pull.tmp /usr/local/bin/octo-pull",
+    "sudo rm -f /var/lib/octo/octo-pull.tmp",
+    "sudo octo-pull ${local.pull_args}",
+  ])
 }
 
 # Operator access token for pulling the OCI chart from Artifact Registry.
@@ -87,12 +124,24 @@ resource "random_bytes" "dev_run_hash_secret" {
   }
 }
 
-# Pull the target tag onto the node with a fresh token so the chart's pods
-# (imagePullPolicy IfNotPresent) find the images locally. Re-runs when the tag
-# changes; the chart install/upgrade depends on it.
+# Pull the images this release runs onto the node with a fresh token, so the
+# chart's pods (imagePullPolicy IfNotPresent) find them locally. Re-runs when the
+# tag, any digest, OR the helper itself changes; the chart install/upgrade depends
+# on it.
 resource "null_resource" "pull_images" {
   triggers = {
     image_tag = var.image_tag
+    # Without this a digest-only change (same tag re-pushed, or a values file from
+    # a different build) would leave the pre-pull cached and the new digests absent.
+    pull_refs = join(",", local.pull_refs)
+    # The provisioner refreshes octo-pull from metadata before running it, but only
+    # if it runs at all: without this trigger a helper-only fix would sit on the
+    # shelf until some image happened to change, which is the same "waiting for an
+    # unrelated event" failure that refreshing from metadata was meant to end.
+    # Hashed from the source template rather than the rendered metadata: the value
+    # only has to move when the helper does, and its one substitution is the
+    # registry base, which a deploy that changed it would change in the refs too.
+    pull_helper = filesha256("${path.module}/../infra/octo-pull.sh.tftpl")
   }
 
   provisioner "local-exec" {
@@ -104,7 +153,12 @@ resource "null_resource" "pull_images" {
     # ("Permission denied (publickey)") because the guest agent only provisions
     # keys for non-root users (with passwordless sudo). Retried because the first
     # SSH after the key is pushed fails until it propagates to the instance.
-    command = "for i in $(seq 1 5); do gcloud compute ssh octodeploy@${var.instance_name} --zone ${var.zone} --project ${var.project_id} --tunnel-through-iap --quiet --command 'sudo octo-pull ${var.image_tag}' && exit 0; echo \"octo-pull SSH attempt $i failed; retrying in 15s\" >&2; sleep 15; done; exit 1"
+    #
+    # The helper is refreshed from its (Terraform-managed) metadata before it runs:
+    # the startup script only does that at boot, so without this a fix to octo-pull
+    # would sit unused on a long-lived VM until someone rebooted it — which is
+    # precisely how a pre-pull helper silently stops covering what it should.
+    command = "for i in $(seq 1 5); do gcloud compute ssh octodeploy@${var.instance_name} --zone ${var.zone} --project ${var.project_id} --tunnel-through-iap --quiet --command '${local.pull_command}' && exit 0; echo \"octo-pull SSH attempt $i failed; retrying in 15s\" >&2; sleep 15; done; exit 1"
   }
 }
 

@@ -1,22 +1,52 @@
 #!/usr/bin/env bash
-# Pull octo images for a tag into containerd so pods (imagePullPolicy IfNotPresent)
-# — including the per-integration runtime image the orchestrator deploys — find
-# them locally. Invoked over SSH by the release root before each `helm` apply, so
-# image pulls never depend on the (short-lived) boot token in registries.yaml.
+# Pull octo images into containerd so pods (imagePullPolicy IfNotPresent) — including
+# the per-integration runtime and the dev-run pods the orchestrator creates later —
+# find them locally. Invoked over SSH by the release root before each `helm` apply,
+# so image pulls never depend on the (short-lived) boot token in registries.yaml.
 #
-# Installed at /usr/local/bin/octo-pull by the startup script (via metadata).
+# Installed at /usr/local/bin/octo-pull by the startup script (via metadata), and
+# refreshed from that same metadata by the release root before each run — a change
+# here reaches an already-provisioned VM on the next deploy, not the next reboot.
+#
 # Rendered by Terraform: image_base is substituted; $VAR / $${VAR} are shell.
-# Usage (on the VM, as root): sudo octo-pull <image-tag>
+#
+# Usage (on the VM, as root):
+#   sudo octo-pull <tag>              pull every octo image at that tag
+#   sudo octo-pull --ref <ref>...     pull exactly these references
+#
+# --ref is what the release root uses whenever the deploy is digest-pinned (every
+# Cloud Build deploy is). It matters more than it looks: a pod whose image is
+# `repo@sha256:...` is NOT satisfied by an image containerd stored as `repo:v0.8.0`,
+# because the reference is the key. Pulling by tag while deploying by digest left
+# every pull to re-resolve against the registry with the expired boot token, which
+# is a 401 and an ImagePullBackOff for the whole release. Pull what will actually
+# be requested.
 set -euo pipefail
 
-TAG="$${1:-latest}"
-
-# Fresh registry token from the VM's service account.
+# Fresh registry token from the VM's service account. Valid about an hour, which is
+# all this needs — the point is that the pulls below happen now, with a good token,
+# rather than at pod-start with whatever is left in registries.yaml.
 TOKEN=$(curl -s -H "Metadata-Flavor: Google" \
   "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" \
   | jq -r .access_token)
 
-for img in octo-platform-paas octo-orchestrator-paas octo-logs-paas octo-schema-paas octo-runtime-paas; do
-  k3s ctr images pull --user "oauth2accesstoken:$TOKEN" "${image_base}/$img:$TAG"
+if [ "$${1:-}" = "--ref" ]; then
+  shift
+  [ "$#" -gt 0 ] || { echo "octo-pull: --ref needs at least one reference" >&2; exit 2; }
+  REFS=("$@")
+else
+  TAG="$${1:-latest}"
+  # Every image the chart can run, including the two dev-run images. Leaving those
+  # out is how a dev run gets an ImagePullBackOff hours after a green deploy, when
+  # nobody is looking at the deploy any more.
+  REFS=()
+  for img in octo-platform-paas octo-orchestrator-paas octo-logs-paas octo-schema-paas \
+             octo-runtime-paas octo-devruntime-paas octo-devsidecar-paas; do
+    REFS+=("${image_base}/$img:$TAG")
+  done
+fi
+
+for ref in "$${REFS[@]}"; do
+  k3s ctr images pull --user "oauth2accesstoken:$TOKEN" "$ref"
 done
-echo "octo-pull: tag=$TAG done"
+echo "octo-pull: $${#REFS[@]} image(s) done"
