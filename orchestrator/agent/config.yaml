@@ -161,9 +161,16 @@ flows:
 
         # A type left out of this list is never *built* — no event message, no
         # sub-flow run. On a token stream that is a real lever rather than a filter,
-        # which is why thinking and the turn boundaries are absent: nothing in the
-        # panel reads them.
-        emit: [text, tool_call, tool_result, done, error, guardrail]
+        # which is why the turn boundaries are absent: nothing in the panel reads
+        # them.
+        #
+        # `thinking` is here because leaving it out made the panel look broken. A
+        # reasoning model spends most of its output on thinking — measured on the
+        # first real conversation, 875 of 900 tokens — and every one of those was
+        # streamed by the provider and dropped here. The panel showed nothing for
+        # five seconds and then the whole answer at once, which reads as a freeze
+        # rather than as a model that is working.
+        emit: [thinking, text, tool_call, tool_result, done, error, guardrail]
         events:
           process:
             # No configuration: the emitter copies the agent's variables onto every
