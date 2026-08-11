@@ -1,7 +1,7 @@
 // Package openapi serves the orchestrator's own API description.
 //
 // The document is generated from the annotations on the feature handlers by
-// `task orchestrator:openapi` and committed as openapi.json beside this file, then
+// `task orchestrator:openapi` and committed as swagger.json beside this file, then
 // embedded into the binary. Generation is strictly a build-time step: nothing here
 // parses Go source at runtime, and the swaggo toolchain is not a dependency of the
 // module — only of the task that regenerates the artifact. CI regenerates and fails

@@ -187,7 +187,6 @@ type envVarResponse struct {
 // deployOptions backs the deploy modal: with no slug query it reports whether the
 // integration is networked and a free slug to suggest; with ?slug= it validates
 // that candidate (?expose=external also checks the subdomain is free).
-// deployOptions godoc
 //
 //	@Summary		What a deploy of this integration would need
 //	@Description	The env vars the chosen tag declares, whether an address is free, and whether
@@ -280,7 +279,6 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 // (which cancels the request context and closes the k8s stream). It bypasses the
 // shared request timeout since a follow stream is long-lived by design; the tail
 // is bounded so the initial replay stays small.
-// podLogs godoc
 //
 //	@Summary		Stream a pod's logs
 //	@Description	Plain text, not JSON, flushed as it arrives. With follow the response stays open
@@ -291,8 +289,8 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 //	@Param			pod		path	string	true	"Pod name"
 //	@Param			follow	query	boolean	false	"Keep the stream open"
 //	@Param			tail	query	integer	false	"How many trailing lines to start from"
-//	@Success		200		"the log stream"
-//	@Failure		404		{object}	httpx.ErrorResponse
+//	@Success		200		{string}	string	"the log stream"
+//	@Failure		404		"no such deployment or pod"
 //	@Router			/deployments/{id}/pods/{pod}/logs [get]
 func (h *Handler) podLogs(w http.ResponseWriter, r *http.Request) {
 	follow := r.URL.Query().Get("follow") == "1" || r.URL.Query().Get("follow") == "true"
@@ -367,9 +365,9 @@ type rolloutRequest struct {
 // rollout godoc
 //
 //	@Summary		Roll a deployment onto a different version, env or tracing setting
-//	@Description	A rolling update in place: the id, address, scale and exposure survive. Each of
-//	@Description	env and tracing is preserve-if-absent, so a plain version bump keeps whatever the
-//	@Description	deployment was running with. This is also the only way to switch tracing on or
+//	@Description	A rolling update in place: the id, address, scale and exposure survive. Omitting
+//	@Description	env or tracing keeps its existing value, so a plain version bump runs the new tag
+//	@Description	on the settings the deployment already had. This is also the only way to switch tracing on or
 //	@Description	off, because the runtime reads it at startup and so only new pods see the change.
 //	@Description	A tag that adds or removes the integration's HTTP source is refused — that
 //	@Description	changes the Service topology, which a rolling update cannot express.

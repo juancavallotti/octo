@@ -36,6 +36,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 //	@Param			path	query	string	false	"Keep only routes starting with this prefix"
 //	@Success		200		"the description, filtered when asked"
 //	@Failure		400		{object}	httpx.ErrorResponse	"tag and path were both supplied"
+//	@Failure		500		{object}	httpx.ErrorResponse
 //	@Router			/openapi.json [get]
 func (h *Handler) document(w http.ResponseWriter, r *http.Request) {
 	tag := r.URL.Query().Get("tag")

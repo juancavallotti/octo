@@ -72,6 +72,7 @@ func toResponse(res Resource) resourceResponse {
 //	@Param			body	body		resourceRequest	true	"Kind, name and content"
 //	@Success		201		{object}	resourceResponse
 //	@Failure		400		{object}	httpx.ErrorResponse	"an unknown kind or an unsafe name"
+//	@Failure		404		{object}	httpx.ErrorResponse	"no such integration"
 //	@Failure		409		{object}	httpx.ErrorResponse	"the name is taken"
 //	@Router			/integrations/{id}/resources [post]
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {

@@ -118,8 +118,10 @@ func reachableSchemas(paths, schemas map[string]any) map[string]any {
 
 		schema, ok := schemas[name]
 		if !ok {
-			// A dangling reference is the generator's problem, not ours; dropping it
-			// silently would turn a broken spec into a quietly incomplete one.
+			// A dangling reference is the generator's problem, not ours: there is no
+			// schema to carry, and the operation still references it either way. Skipping
+			// is what leaves the filtered document exactly as broken as the input, rather
+			// than failing a read because the input was.
 			continue
 		}
 		out[name] = schema

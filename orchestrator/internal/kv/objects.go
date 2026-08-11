@@ -47,14 +47,13 @@ func (h *ObjectHandler) Register(mux *http.ServeMux) {
 // offer a picker. Secret namespaces are included — the browser can list and clean up
 // their keys (just not view/edit values), which is the point of the troubleshooting
 // view.
-// namespaces godoc
 //
 //	@Summary		List a deployment's namespaces
 //	@Description	Secret namespaces are included: their keys can be listed and deleted, just not read.
 //	@Tags			objects
 //	@Produce		json
 //	@Param			id	path	string	true	"Deployment id"
-//	@Success		200	"the namespace names"
+//	@Success		200	{object}	namespacesResponse
 //	@Failure		500	{object}	httpx.ErrorResponse
 //	@Router			/deployments/{id}/namespaces [get]
 func (h *ObjectHandler) namespaces(w http.ResponseWriter, r *http.Request) {
@@ -73,7 +72,18 @@ func (h *ObjectHandler) namespaces(w http.ResponseWriter, r *http.Request) {
 			out = append(out, ns)
 		}
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"items": out})
+	httpx.WriteJSON(w, http.StatusOK, namespacesResponse{Items: out})
+}
+
+// namespacesResponse and objectListResponse are the list envelopes. Named types
+// rather than inline maps so the API description has a shape to point at: a caller
+// reading the description otherwise learns only that something comes back.
+type namespacesResponse struct {
+	Items []string `json:"items"`
+}
+
+type objectListResponse struct {
+	Items []Entry `json:"items"`
 }
 
 // objectValue is the JSON shape a single object is returned/written as. Encoding is
@@ -94,7 +104,7 @@ type objectValue struct {
 //	@Produce		json
 //	@Param			id			path	string	true	"Deployment id"
 //	@Param			namespace	query	string	false	"Namespace; defaults to the user namespace"
-//	@Success		200			"the keys and their versions"
+//	@Success		200			{object}	objectListResponse
 //	@Failure		500			{object}	httpx.ErrorResponse
 //	@Router			/deployments/{id}/objects [get]
 func (h *ObjectHandler) list(w http.ResponseWriter, r *http.Request) {
@@ -115,7 +125,7 @@ func (h *ObjectHandler) list(w http.ResponseWriter, r *http.Request) {
 	if entries == nil {
 		entries = []Entry{}
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"items": entries})
+	httpx.WriteJSON(w, http.StatusOK, objectListResponse{Items: entries})
 }
 
 // get godoc

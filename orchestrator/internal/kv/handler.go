@@ -59,10 +59,11 @@ func (h *Handler) Register(mux *http.ServeMux) {
 //	@Description	namespace are encrypted at rest and decrypted here.
 //	@Tags			kv
 //	@Produce		octet-stream
-//	@Param			id			path	string	true	"Deployment id"
-//	@Param			namespace	path	string	true	"Namespace"
-//	@Param			key			path	string	true	"Key (may contain slashes)"
-//	@Success		200			"the value bytes, with X-Object-Version"
+//	@Param			id			path		string	true	"Deployment id"
+//	@Param			namespace	path		string	true	"Namespace"
+//	@Param			key			path		string	true	"Key (may contain slashes)"
+//	@Success		200			{string}	string	"the value bytes"
+//	@Header			200			{integer}	X-Object-Version	"the version this value is at, to send back on a conditional write"
 //	@Failure		404			"no such key"
 //	@Router			/deployments/{id}/kv/{namespace}/{key} [get]
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
@@ -96,7 +97,8 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 //	@Param			namespace			path	string	true	"Namespace"
 //	@Param			key					path	string	true	"Key (may contain slashes)"
 //	@Param			X-Object-Version	header	integer	false	"Expected version"
-//	@Success		200					"written, with the new X-Object-Version"
+//	@Success		200					"written"
+//	@Header			200					{integer}	X-Object-Version	"the version the write produced"
 //	@Failure		409					{object}	httpx.ErrorResponse	"the version did not match"
 //	@Failure		413					{object}	httpx.ErrorResponse	"the value is too large"
 //	@Failure		503					{object}	httpx.ErrorResponse	"a secret write without encryption configured"

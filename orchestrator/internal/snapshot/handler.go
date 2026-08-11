@@ -182,7 +182,6 @@ func (h *Handler) listResources(w http.ResponseWriter, r *http.Request) {
 // resourceContent serves one frozen resource's raw bytes. kind and name are
 // required query params; a missing resource is a 404. This is the endpoint the
 // runtime's k8s resource loader calls.
-// resourceContent godoc
 //
 //	@Summary		Read one frozen resource
 //	@Description	Returns the bytes verbatim. Kind and name are query parameters rather than path
@@ -192,9 +191,9 @@ func (h *Handler) listResources(w http.ResponseWriter, r *http.Request) {
 //	@Param			id		path	string	true	"Snapshot id"
 //	@Param			kind	query	string	true	"Resource kind (env or template)"
 //	@Param			name	query	string	true	"Resource name"
-//	@Success		200		"the resource bytes"
-//	@Failure		400		{object}	httpx.ErrorResponse
-//	@Failure		404		{object}	httpx.ErrorResponse
+//	@Success		200		{string}	string	"the resource bytes"
+//	@Failure		400		"kind or name is missing"
+//	@Failure		404		"no such snapshot or resource"
 //	@Router			/snapshots/{id}/resources/content [get]
 func (h *Handler) resourceContent(w http.ResponseWriter, r *http.Request) {
 	kind := r.URL.Query().Get("kind")

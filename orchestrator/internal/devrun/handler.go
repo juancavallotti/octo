@@ -151,7 +151,6 @@ func toResponse(run DevRun) devRunResponse {
 // ensure starts a dev run, or attaches to the one already running the integration.
 // 201 for a create and 200 for an attach, so the outcome is visible in the status line
 // as well as in the body.
-// ensure godoc
 //
 //	@Summary		Start or reuse a dev run
 //	@Description	A short-lived pod that runs an integration's working copy — no version tag — so
@@ -161,7 +160,8 @@ func toResponse(run DevRun) devRunResponse {
 //	@Accept			json
 //	@Produce		json
 //	@Param			body	body		ensureRequest	true	"Integration and owner"
-//	@Success		200		{object}	ensureResponse
+//	@Success		200		{object}	ensureResponse	"attached to a run that was already up"
+//	@Success		201		{object}	ensureResponse	"a run was started"
 //	@Failure		400		{object}	httpx.ErrorResponse
 //	@Failure		503		{object}	httpx.ErrorResponse	"no cluster access"
 //	@Router			/devruns [post]
@@ -192,7 +192,6 @@ func (h *Handler) ensure(w http.ResponseWriter, r *http.Request) {
 
 // list answers "what am I running?", and with ?integrationId= the editor's
 // Run-vs-Attach question. Both are one label lookup against the informer cache.
-// list godoc
 //
 //	@Summary	List dev runs
 //	@Tags		devruns
@@ -225,7 +224,6 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 // to learn that will make the one that cannot answer it. The sidecar is asked with a
 // short timeout and simply left out when it does not reply, which is the normal state
 // while a pod is still starting.
-// status godoc
 //
 //	@Summary	Get a dev run
 //	@Tags		devruns
@@ -275,7 +273,6 @@ func (h *Handler) stop(w http.ResponseWriter, r *http.Request) {
 // reload's effect is the sidecar pulling and the runtime re-reading its directory, so
 // any status read taken at this moment would describe the state before the reload. The
 // caller polls status for the state after it.
-// reload godoc
 //
 //	@Summary		Tell a dev run its integration changed
 //	@Description	Prompts the sidecar to pull the current bundle. Best-effort: a run that cannot be
@@ -303,7 +300,6 @@ func (h *Handler) reload(w http.ResponseWriter, r *http.Request) {
 //
 // It deliberately does not take requestTimeout: a follow stream is long-lived by
 // design, and the tail bound keeps the initial replay small instead.
-// logs godoc
 //
 //	@Summary		Stream a dev run's logs
 //	@Description	Plain text, flushed as it arrives.
@@ -312,8 +308,8 @@ func (h *Handler) reload(w http.ResponseWriter, r *http.Request) {
 //	@Param			id		path	string	true	"Dev run id"
 //	@Param			follow	query	boolean	false	"Keep the stream open"
 //	@Param			tail	query	integer	false	"How many trailing lines to start from"
-//	@Success		200		"the log stream"
-//	@Failure		404		{object}	httpx.ErrorResponse
+//	@Success		200		{string}	string	"the log stream"
+//	@Failure		404		"no such dev run"
 //	@Router			/devruns/{id}/logs [get]
 func (h *Handler) logs(w http.ResponseWriter, r *http.Request) {
 	follow := r.URL.Query().Get("follow") == "1" || r.URL.Query().Get("follow") == "true"
@@ -341,7 +337,6 @@ func (h *Handler) logs(w http.ResponseWriter, r *http.Request) {
 // treats it as terminal — this run no longer addresses anything real — and asks to be
 // expired, where it retries a 5xx forever. So a run that is genuinely gone must reach
 // here as ErrNotFound and not as an internal error.
-// bundle godoc
 //
 //	@Summary		Fetch the dev run's current bundle
 //	@Description	The definition and resources the sidecar writes into the workspace the runtime
@@ -371,7 +366,6 @@ func (h *Handler) bundle(w http.ResponseWriter, r *http.Request) {
 // expire tears the dev run down at its own sidecar's request, which is what a sidecar
 // does when its bundle pull 404s. Separate from DELETE /devruns/{id} because that route
 // authorises a user action and a pod holding a dev-run token is not a user.
-// expire godoc
 //
 //	@Summary		Expire a dev run at its own request
 //	@Description	What a sidecar calls when its bundle pull 404s. Separate from the user-facing

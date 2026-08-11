@@ -663,6 +663,47 @@
                 },
                 "type": "object"
             },
+            "kv.Entry": {
+                "properties": {
+                    "key": {
+                        "type": "string"
+                    },
+                    "size": {
+                        "type": "integer"
+                    },
+                    "updatedAt": {
+                        "type": "string"
+                    },
+                    "version": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "kv.namespacesResponse": {
+                "properties": {
+                    "items": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "kv.objectListResponse": {
+                "properties": {
+                    "items": {
+                        "items": {
+                            "$ref": "#/components/schemas/kv.Entry"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
             "kv.objectValue": {
                 "properties": {
                     "encoding": {
@@ -1213,12 +1254,19 @@
                         "content": {
                             "application/octet-stream": {
                                 "schema": {
-                                    "format": "binary",
                                     "type": "string"
                                 }
                             }
                         },
-                        "description": "the value bytes, with X-Object-Version"
+                        "description": "the value bytes",
+                        "headers": {
+                            "X-Object-Version": {
+                                "description": "the version this value is at, to send back on a conditional write",
+                                "schema": {
+                                    "type": "integer"
+                                }
+                            }
+                        }
                     },
                     "404": {
                         "description": "no such key"
@@ -1280,7 +1328,15 @@
                 },
                 "responses": {
                     "200": {
-                        "description": "written, with the new X-Object-Version"
+                        "description": "written",
+                        "headers": {
+                            "X-Object-Version": {
+                                "description": "the version the write produced",
+                                "schema": {
+                                    "type": "integer"
+                                }
+                            }
+                        }
                     },
                     "409": {
                         "content": {
@@ -1338,11 +1394,11 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object"
+                                    "$ref": "#/components/schemas/kv.namespacesResponse"
                                 }
                             }
                         },
-                        "description": "the namespace names"
+                        "description": "OK"
                     },
                     "500": {
                         "content": {
@@ -1388,11 +1444,11 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object"
+                                    "$ref": "#/components/schemas/kv.objectListResponse"
                                 }
                             }
                         },
-                        "description": "the keys and their versions"
+                        "description": "OK"
                     },
                     "500": {
                         "content": {
@@ -1666,14 +1722,7 @@
                         "description": "the log stream"
                     },
                     "404": {
-                        "content": {
-                            "text/plain": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
-                                }
-                            }
-                        },
-                        "description": "Not Found"
+                        "description": "no such deployment or pod"
                     }
                 },
                 "summary": "Stream a pod's logs",
@@ -1684,7 +1733,7 @@
         },
         "/deployments/{id}/rollout": {
             "post": {
-                "description": "A rolling update in place: the id, address, scale and exposure survive. Each of\nenv and tracing is preserve-if-absent, so a plain version bump keeps whatever the\ndeployment was running with. This is also the only way to switch tracing on or\noff, because the runtime reads it at startup and so only new pods see the change.\nA tag that adds or removes the integration's HTTP source is refused — that\nchanges the Service topology, which a rolling update cannot express.",
+                "description": "A rolling update in place: the id, address, scale and exposure survive. Omitting\nenv or tracing keeps its existing value, so a plain version bump runs the new tag\non the settings the deployment already had. This is also the only way to switch tracing on or\noff, because the runtime reads it at startup and so only new pods see the change.\nA tag that adds or removes the integration's HTTP source is refused — that\nchanges the Service topology, which a rolling update cannot express.",
                 "parameters": [
                     {
                         "description": "Deployment id",
@@ -1817,7 +1866,17 @@
                                 }
                             }
                         },
-                        "description": "OK"
+                        "description": "attached to a run that was already up"
+                    },
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/devrun.ensureResponse"
+                                }
+                            }
+                        },
+                        "description": "a run was started"
                     },
                     "400": {
                         "content": {
@@ -2039,14 +2098,7 @@
                         "description": "the log stream"
                     },
                     "404": {
-                        "content": {
-                            "text/plain": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
-                                }
-                            }
-                        },
-                        "description": "Not Found"
+                        "description": "no such dev run"
                     }
                 },
                 "summary": "Stream a dev run's logs",
@@ -3179,6 +3231,16 @@
                         },
                         "description": "an unknown kind or an unsafe name"
                     },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no such integration"
+                    },
                     "409": {
                         "content": {
                             "application/json": {
@@ -3540,6 +3602,16 @@
                             }
                         },
                         "description": "tag and path were both supplied"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
                     }
                 },
                 "summary": "The API description",
@@ -4107,7 +4179,6 @@
                         "content": {
                             "application/octet-stream": {
                                 "schema": {
-                                    "format": "binary",
                                     "type": "string"
                                 }
                             }
@@ -4115,24 +4186,10 @@
                         "description": "the resource bytes"
                     },
                     "400": {
-                        "content": {
-                            "application/octet-stream": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
-                                }
-                            }
-                        },
-                        "description": "Bad Request"
+                        "description": "kind or name is missing"
                     },
                     "404": {
-                        "content": {
-                            "application/octet-stream": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
-                                }
-                            }
-                        },
-                        "description": "Not Found"
+                        "description": "no such snapshot or resource"
                     }
                 },
                 "summary": "Read one frozen resource",
