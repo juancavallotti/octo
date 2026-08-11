@@ -9,6 +9,7 @@
     "resources-and-secrets",
     "kv-and-storage",
     "users-and-api-keys",
+    "admin-settings",
     "event-bus",
     "traces"
   ],

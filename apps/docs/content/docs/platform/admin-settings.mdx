@@ -1,0 +1,102 @@
+---
+title: "Admin Settings"
+description: "Site-wide configuration: email delivery and the platform's LLM provider."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Most configuration in octo belongs to an integration or to a person. A few things belong to the **installation** — how it sends email, which model its agent reasons with. Those live in the admin section, reached from **Admin** in the account menu (the avatar, top right) at `/platform/admin`.
+
+<Callout type="warn">
+Access is gated by the same write roles as every other cluster-wide write (`AUTH_WRITE_ROLES`), and that variable **defaults to empty, meaning any signed-in user**. Set it before configuring email — an unset value lets anyone who can sign in overwrite the API key and send mail from your verified domain. Finer-grained admin roles are not implemented yet.
+</Callout>
+
+## Prerequisite: an encryption key
+
+Provider API keys are encrypted at rest with the same AES-GCM cipher the [KV secret namespaces](/platform/kv-and-storage) use, keyed by `KV_ENCRYPTION_KEY`. The chart leaves it unset by default, so on most installs it has to be turned on:
+
+```yaml
+kv:
+  encryptionKey: "<base64 of 32 random bytes>"
+```
+
+Until it is set, both admin pages show an amber banner, the API-key field is disabled, and an attempt to store a key is refused with a 503 naming the variable. **A key is never stored in the clear** — a refused save is the only other option.
+
+Everything else on those pages still saves without it, because carrying an already-stored key forward copies ciphertext and decrypts nothing.
+
+<Callout>
+Do not rotate `kv.encryptionKey` casually. It also protects existing KV secret values, and changing it orphans every one of them. The name is historical — the cipher now covers these settings too.
+</Callout>
+
+## Email
+
+`/platform/admin/email` configures outbound email, sent through [Resend](https://resend.com).
+
+| Field | Notes |
+| --- | --- |
+| From address | A **bare** address, e.g. `notifications@acme.com`. It must be on a domain you have verified with Resend. |
+| From name | Optional display name. |
+| Reply-to | Optional address for replies. |
+| API key | Write-only. Stored encrypted; the page only ever shows the last four characters. |
+
+The from address is deliberately rejected if it carries a display name (`Acme <a@b.co>`) — that belongs in the **From name** field, and accepting it in both places is how the two end up disagreeing.
+
+### Send a test
+
+The **Send a test** panel uses whatever is in the form *right now*, including a key you have not saved yet. That is the intended order: paste a key, send yourself a test, then save. With no key typed it falls back to the stored one, so the button still works after a reload.
+
+Failures report what to do about them rather than a generic error — an invalid key says so, and an unverified domain comes back in Resend's own words, naming the domain.
+
+### Sending from your own code
+
+Once configured, anything running inside the cluster can send through the site's identity:
+
+```bash
+curl -sS -X POST "$ORCHESTRATOR_URL/email/send" \
+  -H 'Content-Type: application/json' \
+  -d '{"to":["you@example.com"],"subject":"hello","text":"body"}'
+```
+
+The endpoint takes **no API key and no from-address**: both come from the stored settings, so email identity is defined in exactly one place. Supplying either is rejected as an unknown field rather than silently ignored. Either `text` or `html` (or both) is required, and a request may carry at most 50 recipients — this is a transactional sender for notifications the platform raises, not a bulk mailer.
+
+It returns `{"messageId": "..."}` on success, and `409` until email is configured.
+
+<Callout>
+Keep this internal. The orchestrator is ClusterIP in the chart and trusts its callers; there is deliberately no browser-facing route to it.
+</Callout>
+
+## LLM provider
+
+`/platform/admin/llm` configures the model the platform's **own agent** reasons with: provider, model, and API key.
+
+| Field | Notes |
+| --- | --- |
+| Provider | `Anthropic`, `OpenAI`, or `Google` — the three the runtime can talk to. |
+| Model | Free text, prefilled with that provider's default. Switching provider swaps the default in, but leaves a model you typed yourself alone. |
+| API key | Write-only, same handling as the email key. |
+
+Model is free text on purpose: model names turn over faster than releases of this app, and a fixed list would block you from pointing at something newer than the version you are running.
+
+<Callout type="warn">
+This setting does **not** affect your integrations. The `llm-anthropic`, `llm-openai` and `llm-gemini` connectors continue to use the key configured on each connector. This one belongs to the installation, is read only by the platform, and today nothing reads it — it is stored for the agent work that follows.
+</Callout>
+
+## How a save handles the API key
+
+Worth knowing, because it explains a behaviour that would otherwise look odd. Leaving the key field blank does **not** clear the stored key — it keeps it. The three cases:
+
+| You do | Result |
+| --- | --- |
+| Leave the field blank | The stored key is kept |
+| Type a new key | It replaces the stored one |
+| Press **Remove** (and confirm) | The stored key is deleted |
+
+Both forms submit every field on every save, so any other design would mean editing a from-address destroyed the key beside it. Saves also take a row lock, so two people saving at once cannot silently discard each other's key rotation.
+
+## Storage
+
+Both features are rows in the `site_settings` table — `key = 'email'` and `key = 'llm'`, each a jsonb document. Adding a setting costs a key, not a migration, which is why the coming capabilities below need no schema change.
+
+## Not built yet
+
+The admin hub also lists **Data retention** and **Agent install** as coming soon. They are shown rather than hidden so the section reads as intentional; neither does anything yet.

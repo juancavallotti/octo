@@ -64,6 +64,8 @@ A Go HTTP API, listening on port `8090` by default (`PORT`). It owns all persist
 | deployment | `POST/GET /integrations/{id}/deployments`, `GET/PATCH/DELETE /deployments/{id}`, rollout, pod logs | database + in-cluster Kubernetes |
 | devrun | `POST/GET /devruns`, `GET/DELETE /devruns/{id}`, reload, logs, bundle, expire | database + in-cluster Kubernetes |
 | secret | `GET /secrets`, `PUT/DELETE /secrets/{name}` | database + in-cluster Kubernetes |
+| email | `GET/PUT /settings/email`, `POST /settings/email/test`, `POST /email/send` | database |
+| llm | `GET/PUT /settings/llm` | database |
 
 The wiring is graceful: without `DATABASE_URL` only `/healthz` (and a degraded `/db-version`) serve; outside a cluster the deployment and secret routes stay disabled while everything database-backed still works.
 
@@ -71,7 +73,7 @@ The orchestrator trusts the platform app as its authentication boundary — the 
 
 ### Postgres
 
-The system of record, applied idempotently from `sql/schema.sql` by a schema Job on every install/upgrade. Main tables: `integrations`, `integration_idx_structure` + `integration_folder_members` (folders), `integration_snapshots` + `integration_resource_snapshots` (version tags), `integration_resources` (live env files/templates), `integration_deployments`, `cluster_secrets` (names only — values live in Kubernetes), `kv_store`, `users`, `api_keys`, and `logs`.
+The system of record, applied idempotently from `sql/schema.sql` by a schema Job on every install/upgrade. Main tables: `integrations`, `integration_idx_structure` + `integration_folder_members` (folders), `integration_snapshots` + `integration_resource_snapshots` (version tags), `integration_resources` (live env files/templates), `integration_deployments`, `cluster_secrets` (names only — values live in Kubernetes), `kv_store`, `site_settings` (one jsonb row per [site-wide setting](/platform/admin-settings)), `users`, `api_keys`, and `logs`.
 
 ### NATS
 
