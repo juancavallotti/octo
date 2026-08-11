@@ -27,9 +27,10 @@ flow: chat
 #     composite. A placeholder that is exactly one variable takes its natural type;
 #     were that not true of composite slots, the build would fail here.
 #   - The agent takes the STREAMING path, not the buffered one.
-#   - The two things the flow does BEFORE the agent, which are the two that would
-#     fail silently and expensively: the memory key is scoped to the authenticated
-#     user, and the email never reaches the model.
+#   - The three things the flow does BEFORE the agent, the ones that would fail
+#     silently and expensively: the memory key is scoped to the authenticated user,
+#     the email never reaches the model, and the client's route catalogue survives
+#     the narrowing that drops the email.
 #
 # What is NOT pinned: the frames, emit filtering, the tool loop, memory, and
 # stop-on-disconnect. All of them need a model, a live connection, or both.
@@ -47,6 +48,9 @@ inputs:
       message: list my integrations
       page: /platform/integrations
       user: { id: u-1, name: Ada, email: ada@example.com }
+      routes:
+        - { path: /platform/integrations, description: Every integration. }
+        - { path: "/platform/i/{id}", description: One integration in the editor. }
   # The same thread id, asked by somebody else. The chat route injects the user
   # block server-side, so this is what a stolen thread id looks like by the time it
   # reaches the flow.
@@ -101,6 +105,11 @@ cases:
                 - 'body.message == "list my integrations"'
                 - 'body.page == "/platform/integrations"'
                 - 'body.user.name == "Ada"'
+                # Where the agent may send them is the client's to declare — the
+                # platform owns its own routes — so the flow has to carry the
+                # catalogue through rather than hold one of its own.
+                - 'size(body.routes) == 2'
+                - 'body.routes[1].path == "/platform/i/{id}"'
 
   # Everything in the body reaches the model. The email identifies a real person to
   # an external provider and nothing in the prompt needs it, so the flow narrows the
@@ -160,3 +169,13 @@ cases:
       # No user means no principal to scope by, which is honest rather than a
       # fallback to something guessable.
       vars: { threadKey: "anonymous/t-2" }
+    spies:
+      chat.dr-octo:
+        count: 1
+        records:
+          # A caller that sends no catalogue gets an empty one rather than a missing
+          # field. The prompt tells Dr. Octo to navigate only to a path from this
+          # list, so the absent case has to read as "nowhere" and not as "unset".
+          - input:
+              that:
+                - 'size(body.routes) == 0'

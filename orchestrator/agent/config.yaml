@@ -128,9 +128,13 @@ flows:
 
       # The agent's input, stated rather than inherited. Everything in the body
       # reaches the model, so the body is narrowed to what the model is actually for:
-      # the question, where it was asked, and who is asking by name. The email is
-      # dropped — it identifies a real person to an external provider and nothing in
-      # the prompt needs it.
+      # the question, where it was asked, where it could send them, and who is asking
+      # by name. The email is dropped — it identifies a real person to an external
+      # provider and nothing in the prompt needs it.
+      #
+      # The route catalogue comes from the client rather than living here on purpose:
+      # the app that owns the routes is the only thing that knows them, and a list
+      # baked into this file would rot the first time the platform grew a page.
       - type: set-payload
         name: agent-input
         settings:
@@ -138,6 +142,7 @@ flows:
             {
               "message": has(body.message) ? body.message : "",
               "page": has(body.page) ? body.page : "",
+              "routes": has(body.routes) ? body.routes : [],
               "user": has(body.user) && has(body.user.name) ? {"name": body.user.name} : {}
             }
 
@@ -188,6 +193,15 @@ flows:
           you are talking to a local developer.
 
 
+          body.routes lists the pages you can send them to: each has a path and a
+          description of what it shows, and a path containing a segment like {id} is a
+          template you fill in. When the answer to a question is a page, take them
+          there with navigate_to instead of describing how to find it — but say what
+          you are showing them in the same turn, because a panel that moves the page
+          without a word is unsettling. Never navigate to a path that is not built
+          from that list.
+
+
           You help with the platform: reading and explaining integrations, writing
           and fixing flow definitions, investigating deployments that will not start,
           and reading logs and traces. You have full read and write access to the
@@ -207,7 +221,13 @@ flows:
           with its id so an editor with it open offers to reload.
 
 
-          Answer in prose. You are a chat panel, not a JSON API.
+          Write in Markdown — the panel renders it. Fenced code blocks with a language
+          on them, tables, lists and links all display properly, so a flow definition
+          belongs in a ```yaml fence and a comparison belongs in a table. Keep it
+          light otherwise: no heading on a one-paragraph reply, and never wrap an
+          ordinary sentence in a code fence. You are a chat panel, not a JSON API —
+          answer in prose with structure where structure helps, never as a bare JSON
+          object.
 
         guardrail: >
           If the request is not about this Octo platform, its integrations,
@@ -307,6 +327,49 @@ flows:
               - type: set-payload
                 settings:
                   value: '{"published": true}'
+
+          - name: navigate_to
+            description: >
+              Take the user to a page in the platform. Use a path from body.routes,
+              filling in any {id} segment. Navigation is a courtesy and not an
+              answer — say what you are showing them and why in the same turn.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["path", "reason"],
+                "properties": {
+                  "path":   { "type": "string", "description": "A path within the platform, e.g. /platform/i/abc. Never a full URL." },
+                  "reason": { "type": "string", "description": "One short line for the user saying why you are taking them there." }
+                }
+              }
+            process:
+              # A tool's process chain runs on the agent's own message, and an SSE
+              # route stamps the caller's stream address into a variable on it — so
+              # this reaches the open panel with nothing configured, exactly as the
+              # events path above does.
+              #
+              # ifClosed: ignore, unlike the events path. A closed panel means nobody
+              # is being navigated, which is not a reason to end the run mid-tool: the
+              # stop flag rides in the message variables and this chain shares the
+              # agent's message, so a stop here would follow the agent out of the tool
+              # call. The events path stops the run at the next token anyway.
+              #
+              # The path is NOT validated here. This app is meant to be edited, so a
+              # guard in this file is advice rather than a boundary — the panel is
+              # what performs the navigation and is where a path that is not a
+              # relative path within the platform has to be refused.
+              - type: sse-event
+                settings:
+                  event: navigate
+                  ifClosed: ignore
+                  data: >-
+                    {
+                      "path": has(body.path) ? body.path : "",
+                      "reason": has(body.reason) ? body.reason : ""
+                    }
+              - type: set-payload
+                settings:
+                  value: '{"navigated": true}'
 
         skills:
           - name: flow-file
