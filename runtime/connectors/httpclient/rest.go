@@ -192,25 +192,47 @@ func (p *processor) Process(ctx context.Context, msg *types.Message) (*types.Mes
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	resp, err := p.conn.Do(req)
+	return exchange(p.conn, req, target, msg, responseOptions{
+		block: "rest", statusVar: p.statusVar, failOnError: p.failOnError,
+	})
+}
+
+// responseOptions is what a block wants done with the response it gets back.
+type responseOptions struct {
+	// block names the caller, so an error says which block produced it.
+	block       string
+	statusVar   string
+	failOnError bool
+}
+
+// exchange runs req through conn and folds the response into msg.
+//
+// Shared by rest and rest-dynamic, which differ entirely in how they build a
+// request and not at all in what they do with the answer: record the status, fail
+// the message on a 4xx/5xx if asked, and fold the body in.
+func exchange(
+	conn *Connector, req *http.Request, target string,
+	msg *types.Message, opts responseOptions,
+) (*types.Message, error) {
+	resp, err := conn.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("rest request: %w", err)
+		return nil, fmt.Errorf("%s request: %w", opts.block, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	respBody, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("rest read response: %w", err)
+		return nil, fmt.Errorf("%s read response: %w", opts.block, err)
 	}
 
-	msg.Variables.Set(p.statusVar, resp.StatusCode)
+	msg.Variables.Set(opts.statusVar, resp.StatusCode)
 
-	if p.failOnError && resp.StatusCode >= http.StatusBadRequest {
-		return nil, fmt.Errorf("rest request to %s returned %d: %s",
-			requestedURL(req, target), resp.StatusCode, snippet(respBody))
+	if opts.failOnError && resp.StatusCode >= http.StatusBadRequest {
+		return nil, fmt.Errorf("%s request to %s returned %d: %s",
+			opts.block, requestedURL(req, target), resp.StatusCode, snippet(body))
 	}
 
-	if err := foldResponse(msg, respBody, resp.Header.Get("Content-Type")); err != nil {
+	if err := foldResponse(msg, body, resp.Header.Get("Content-Type")); err != nil {
 		return nil, err
 	}
 	return msg, nil
@@ -265,21 +287,42 @@ func (p *processor) buildURL(activation map[string]any) (string, error) {
 // buildBody renders the body expression, returning a reader and whether a body
 // was produced. A string result is sent verbatim; any other value is JSON-encoded.
 func (p *processor) buildBody(activation map[string]any) (io.Reader, bool, error) {
-	if p.body == nil {
+	return buildBodyFrom(p.body, activation, "rest")
+}
+
+// buildBodyFrom is the body rendering shared by rest and rest-dynamic. block names
+// the caller so an error says which one it came from.
+func buildBodyFrom(program *expr.Program, activation map[string]any, block string) (io.Reader, bool, error) {
+	if program == nil {
 		return nil, false, nil
 	}
-	value, err := p.body.Eval(activation)
+	value, err := program.Eval(activation)
 	if err != nil {
-		return nil, false, fmt.Errorf("rest body: %w", err)
+		return nil, false, fmt.Errorf("%s body: %w", block, err)
 	}
 	if s, ok := value.(string); ok {
 		return strings.NewReader(s), true, nil
 	}
 	raw, err := json.Marshal(value)
 	if err != nil {
-		return nil, false, fmt.Errorf("rest encode body: %w", err)
+		return nil, false, fmt.Errorf("%s encode body: %w", block, err)
 	}
 	return bytes.NewReader(raw), true, nil
+}
+
+// renderValue turns one evaluated value into the string that goes on the wire,
+// following the same rule Program.EvalString uses: a string verbatim, anything else
+// as compact JSON. It exists because rest-dynamic evaluates a whole map at once and
+// so renders its values itself, rather than getting one string per expression.
+func renderValue(value any) (string, error) {
+	if s, ok := value.(string); ok {
+		return s, nil
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return "", fmt.Errorf("encode value: %w", err)
+	}
+	return string(raw), nil
 }
 
 // applyHeaders renders and sets each configured request header.
