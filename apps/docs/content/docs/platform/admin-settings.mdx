@@ -78,7 +78,7 @@ Keep this internal. The orchestrator is ClusterIP in the chart and trusts its ca
 Model is free text on purpose: model names turn over faster than releases of this app, and a fixed list would block you from pointing at something newer than the version you are running.
 
 <Callout type="warn">
-This setting does **not** affect your integrations. The `llm-anthropic`, `llm-openai` and `llm-gemini` connectors continue to use the key configured on each connector. This one belongs to the installation, is read only by the platform, and today nothing reads it — it is stored for the agent work that follows.
+This setting does **not** affect your integrations. The `llm-anthropic`, `llm-openai` and `llm-gemini` connectors continue to use the key configured on each connector. This one belongs to the installation, and the only thing that reads it is the platform's own agent — it is bound onto that deployment when the agent is installed.
 </Callout>
 
 ## How a save handles the API key
@@ -92,6 +92,10 @@ Worth knowing, because it explains a behaviour that would otherwise look odd. Le
 | Press **Remove** (and confirm) | The stored key is deleted |
 
 Both forms submit every field on every save, so any other design would mean editing a from-address destroyed the key beside it. Saves also take a row lock, so two people saving at once cannot silently discard each other's key rotation.
+
+<Callout type="warn">
+**Changing the LLM provider is the one exception.** A key authenticates against one provider, so saving a provider change with the key field blank **clears** the stored key rather than carrying it forward. Carrying it would leave the page reporting a configured key that cannot work, and hand an Anthropic key to an OpenAI connector — which fails on the agent's first model call, a long way from the page that caused it. Switch provider and key together.
+</Callout>
 
 ## Storage
 
