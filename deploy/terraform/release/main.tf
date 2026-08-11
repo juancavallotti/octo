@@ -126,13 +126,22 @@ resource "random_bytes" "dev_run_hash_secret" {
 
 # Pull the images this release runs onto the node with a fresh token, so the
 # chart's pods (imagePullPolicy IfNotPresent) find them locally. Re-runs when the
-# tag OR any digest changes; the chart install/upgrade depends on it.
+# tag, any digest, OR the helper itself changes; the chart install/upgrade depends
+# on it.
 resource "null_resource" "pull_images" {
   triggers = {
     image_tag = var.image_tag
     # Without this a digest-only change (same tag re-pushed, or a values file from
     # a different build) would leave the pre-pull cached and the new digests absent.
     pull_refs = join(",", local.pull_refs)
+    # The provisioner refreshes octo-pull from metadata before running it, but only
+    # if it runs at all: without this trigger a helper-only fix would sit on the
+    # shelf until some image happened to change, which is the same "waiting for an
+    # unrelated event" failure that refreshing from metadata was meant to end.
+    # Hashed from the source template rather than the rendered metadata: the value
+    # only has to move when the helper does, and its one substitution is the
+    # registry base, which a deploy that changed it would change in the refs too.
+    pull_helper = filesha256("${path.module}/../infra/octo-pull.sh.tftpl")
   }
 
   provisioner "local-exec" {
