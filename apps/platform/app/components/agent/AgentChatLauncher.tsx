@@ -1,8 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { Bot } from "lucide-react";
-import AgentChatPanel from "./AgentChatPanel";
+
+/**
+ * Loaded on demand, because this launcher sits in the layout every signed-in page
+ * shares and the panel brings a Markdown renderer with it. Installing the agent is
+ * a deliberate act, so on most installations that is weight on every page for
+ * something nobody can open — and even where he is installed, it is weight before
+ * anybody asks him anything.
+ */
+const AgentChatPanel = dynamic(() => import("./AgentChatPanel"), { ssr: false });
 
 /**
  * The button that opens the chat, mounted in the signed-in shell so it is on every
