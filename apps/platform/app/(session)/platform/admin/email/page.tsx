@@ -1,5 +1,3 @@
-import AppHeader from "@/app/components/AppHeader";
-import UserMenu from "@/app/components/UserMenu";
 import { ConfirmProvider } from "@/app/components/ConfirmDialog";
 import EmailSettingsManager from "@/app/components/admin/EmailSettingsManager";
 
@@ -9,13 +7,8 @@ import EmailSettingsManager from "@/app/components/admin/EmailSettingsManager";
  */
 export default function AdminEmailPage() {
   return (
-    <div className="flex h-full flex-col">
-      <AppHeader userMenu={<UserMenu />} />
-      <div className="min-h-0 flex-1">
-        <ConfirmProvider>
-          <EmailSettingsManager />
-        </ConfirmProvider>
-      </div>
-    </div>
+    <ConfirmProvider>
+      <EmailSettingsManager />
+    </ConfirmProvider>
   );
 }
