@@ -13,6 +13,9 @@ describe("AdminTiles", () => {
     expect(screen.getByRole("link", { name: /LLM provider/ }).getAttribute("href")).toBe(
       "/platform/admin/llm",
     );
+    expect(screen.getByRole("link", { name: /Platform agent/ }).getAttribute("href")).toBe(
+      "/platform/admin/agent",
+    );
   });
 
   // The unbuilt capabilities are shown so the section reads as intentional, but they
@@ -20,16 +23,16 @@ describe("AdminTiles", () => {
   it("renders the unbuilt capabilities as inert, not as links", () => {
     render(<AdminTiles />);
 
-    for (const name of [/Data retention/, /Agent install/]) {
+    for (const name of [/Data retention/]) {
       expect(screen.queryByRole("link", { name })).toBeNull();
       expect(screen.getByText(name.source.replace(/\\/g, ""))).toBeTruthy();
     }
-    expect(screen.getAllByText("Coming soon")).toHaveLength(2);
+    expect(screen.getAllByText("Coming soon")).toHaveLength(1);
   });
 
   it("marks the unbuilt tiles as disabled for assistive tech", () => {
     const { container } = render(<AdminTiles />);
 
-    expect(container.querySelectorAll('[aria-disabled="true"]')).toHaveLength(2);
+    expect(container.querySelectorAll('[aria-disabled="true"]')).toHaveLength(1);
   });
 });

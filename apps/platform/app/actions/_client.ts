@@ -19,3 +19,4 @@ export * from "./client/identity";
 export * from "./client/integrations";
 export * from "./client/deployments";
 export * from "./client/settings";
+export * from "./client/agent";

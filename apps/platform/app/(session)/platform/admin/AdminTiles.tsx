@@ -28,6 +28,12 @@ const LIVE = [
     title: "LLM provider",
     subtitle: "Provider, model and API key for the platform agent",
   },
+  {
+    href: "/platform/admin/agent",
+    icon: Bot,
+    title: "Platform agent",
+    subtitle: "Install Dr. Octo, roll out updates, and trace him",
+  },
 ] as const;
 
 const COMING_SOON = [
@@ -35,11 +41,6 @@ const COMING_SOON = [
     icon: Trash2,
     title: "Data retention",
     subtitle: "Scheduled cleanup of old logs and traces",
-  },
-  {
-    icon: Bot,
-    title: "Agent install",
-    subtitle: "Deploy the platform agent into the cluster",
   },
 ] as const;
 
