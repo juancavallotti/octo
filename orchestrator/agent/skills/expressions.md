@@ -1,0 +1,73 @@
+# Expressions
+
+Every value documented as an *expression* is CEL, compiled once at build time and
+evaluated per message. A bad expression fails the load, not the request.
+
+## What is in scope
+
+| Variable | Type | What it holds |
+| --- | --- | --- |
+| `body` | dyn | The decoded body — JSON-native shapes. In raw-content mode, a `{contentType, rawData}` envelope. |
+| `vars` | map(string, dyn) | Message variables: path params, captured headers, the query map, and anything `set-variable` or `enrich` wrote. |
+| `eventID` | string | The message's unique id. |
+| `correlationID` | string | Set by a source or block; for following a message across flows. |
+| `env` | map(string, string) | The declared environment variables, e.g. `env.API_BASE_URL`. An unresolved name is an evaluation error. |
+| `now` | timestamp | Evaluation time. `string(now)`, or `now - duration("1h")`. |
+
+A **source payload** expression runs before any message exists, so it sees only
+`now` and `settings`. The functions below are still available there.
+
+## Octo's own functions
+
+| Function | Signature | Use |
+| --- | --- | --- |
+| `toJson` | `toJson(dyn) -> string` | Embed a structure into a string field — a log line, a prompt, an outgoing body. |
+| `fromJson` | `fromJson(string) -> dyn` | Parse a JSON string into a value. |
+| `toFormData` | `toFormData(map) -> string` | URL-encoded form body. |
+| `fromFormData` | `fromFormData(string) -> map` | Parse one. |
+| `templateResource` | `templateResource(name) -> string` | Render a declared template resource against the current message. |
+
+## Standard libraries available
+
+Strings (including `format`), lists, encoders (base64), math, two-variable
+comprehensions, sets, and regex. Regex functions return `optional<T>` — a miss is a
+successful "no match", not an error — so unwrap with `orValue`.
+
+## Idioms that come up constantly
+
+```cel
+// Guard an optional field. has() is the difference between a default and a crash.
+has(body.query) ? body.query : {}
+
+// Build a JSON body.
+'{"name": body.name, "at": string(now)}'
+
+// A CEL *string literal* — note the inner quotes. A bare /orders is not valid CEL.
+'"/orders"'
+
+// Read a path param or captured header.
+vars.id
+vars["X-Request-Id"]
+
+// Filter by method on an HTTP route, which accepts every method.
+vars.method == "DELETE"
+
+// Environment variable inside an expression — prefer this over ${NAME},
+// which lands as raw CEL source.
+env.API_BASE_URL
+```
+
+The most common mistake in a static-vs-expression setting: `path: /orders` is a
+plain string setting on `rest`, but `path: '"/orders"'` on `rest-dynamic`, where the
+setting is an expression. Read the block's table before writing the value.
+
+## Checking one
+
+`bin/octo eval` evaluates an expression against a body without running anything:
+
+```bash
+bin/octo eval --expr '"hi " + body.name' --data '{"name": "Ada"}'
+# {"ok":true,"result":"hi Ada"}
+```
+
+Prefer proving an expression this way over asserting it works.

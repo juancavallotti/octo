@@ -61,6 +61,18 @@ export function flowNames(doc: EditorDocument): string[] {
 }
 
 /**
+ * Whether a value is exactly one `${NAME}` reference.
+ *
+ * The runtime substitutes these across the whole document before it decodes
+ * anything, so such a value is not the literal text it looks like — it is whatever
+ * the environment supplies. The editor has no environment, so the only honest thing
+ * it can say about one is nothing.
+ */
+export function isEnvPlaceholder(value: string): boolean {
+  return /^\$\{[A-Za-z_][A-Za-z0-9_]*\}$/.test(value.trim());
+}
+
+/**
  * The valid targets a reference field can resolve to: the names of connections of
  * the referenced type, every flow name, or every declared template's reference
  * name. Shared by the settings dropdown and the validity check so "what the UI
@@ -71,11 +83,16 @@ export function referenceOptions(
   spec: ReferenceSpec,
 ): string[] {
   if (spec.kind === "connector") {
-    const matches =
+    const wanted =
       "connectorCategory" in spec
         ? (type: string) =>
             getConnectorSpec(type)?.category === spec.connectorCategory
         : (type: string) => type === spec.connectorType;
+    // A connection whose type is an environment placeholder matches everything. The
+    // runtime resolves it at load and the editor has no environment, so which types
+    // it satisfies is unknowable here — and offering it is the useful default,
+    // because the alternative is a reference the author cannot make at all.
+    const matches = (type: string) => isEnvPlaceholder(type) || wanted(type);
     return doc.connectors.filter((c) => matches(c.type) && c.name).map((c) => c.name);
   }
   if (spec.kind === "template") {

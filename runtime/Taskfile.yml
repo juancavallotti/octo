@@ -51,6 +51,21 @@ tasks:
     cmds:
       - ../bin/dolphin test ../samples/*_test.yaml ../samples/*/*_test.yaml --env-file ../samples/.env.test
 
+  test:agent:
+    desc: Run the dolphin test suite over the platform agent app
+    deps: [build]
+    # OCTO_PATH pins the binary under test. Without it dolphin resolves octo from the
+    # working directory and then PATH, and a stale globally-installed one will run
+    # instead — which reports a config the current runtime loads fine as a parse
+    # error, and sends you looking at the config.
+    #
+    # Its own target because the agent lives under orchestrator/, which the samples
+    # glob will never reach.
+    env:
+      OCTO_PATH: ../bin
+    cmds:
+      - ../bin/dolphin test ../orchestrator/agent/*_test.yaml
+
   # Both CLIs. Kept as an aggregator rather than one task that builds both, so that
   # `bin/octo` — which the docs drift check shells out to — is still produced by a
   # task of its own.

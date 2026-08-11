@@ -44,6 +44,37 @@ describe("validateDocument", () => {
     expect(issueMessages(result).some((i) => i.includes("Value is required"))).toBe(true);
   });
 
+  // A connector type can come from the environment, which the runtime substitutes
+  // across the whole document before decoding. The editor has no environment, so
+  // reporting it as unknown would block Run and Deploy on a config that loads fine.
+  it("accepts a connector type that is an environment placeholder", () => {
+    const doc = runnableDoc();
+    doc.connectors[0].type = "${CLOCK_CONNECTOR_TYPE}";
+
+    expect(validateDocument(doc)).toEqual({ ok: true, issues: [] });
+  });
+
+  it("still flags a connector type that is merely unknown", () => {
+    const doc = runnableDoc();
+    doc.connectors[0].type = "not-a-connector";
+
+    const result = validateDocument(doc);
+    expect(result.ok).toBe(false);
+    expect(
+      issueMessages(result).some((i) => i.includes('unknown connector type')),
+    ).toBe(true);
+  });
+
+  // Only a bare placeholder is exempt. Anything else is a type name that happens to
+  // contain a brace, and pretending otherwise would let real typos through.
+  it("does not exempt a type that merely contains a placeholder", () => {
+    const doc = runnableDoc();
+    doc.connectors[0].type = "llm-${PROVIDER}";
+
+    const result = validateDocument(doc);
+    expect(result.ok).toBe(false);
+  });
+
   it("flags a dangling connector reference", () => {
     const rest = newBlock("rest");
     rest.settings.connector = "nope";

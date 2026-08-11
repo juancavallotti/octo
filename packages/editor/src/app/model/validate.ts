@@ -5,7 +5,12 @@ import {
   SourceNode,
   isSlotField,
 } from "./document";
-import { duplicateNames, flowNames, referenceOptions } from "./identity";
+import {
+  duplicateNames,
+  flowNames,
+  isEnvPlaceholder,
+  referenceOptions,
+} from "./identity";
 import { getBlockSpec, getConnectorSpec, getSourceSpec } from "../schema";
 import type { FieldSpec } from "../schema/types";
 
@@ -128,7 +133,12 @@ function checkSource(
   // binds implicitly (serialize resolves it). It only has to be chosen when the
   // choice is ambiguous — two or more connections of that type. An explicit
   // binding, however, must still resolve.
-  const matching = doc.connectors.filter((c) => c.type === source.connector);
+  // A connection whose type is an environment placeholder is treated as a match, for
+  // the same reason it matches every reference field: the editor cannot know what it
+  // resolves to, and refusing the binding would be a claim it cannot support.
+  const matching = doc.connectors.filter(
+    (c) => c.type === source.connector || isEnvPlaceholder(c.type),
+  );
   if (source.connectorRef) {
     if (!matching.some((c) => c.name === source.connectorRef)) {
       raise(
@@ -231,6 +241,14 @@ export function validateDocument(doc: EditorDocument): ValidationResult {
     // A connection is not a canvas node, so its issues carry no ids — clicking one
     // has nothing to select.
     const scope: Scope = { label: `Connection "${conn.name || conn.type}"` };
+    // A type that is a bare ${NAME} is resolved from the environment at load, so
+    // there is nothing here to look up and nothing meaningful to say about the
+    // settings either — which fields are valid depends on which type it becomes.
+    // Reporting it as unknown would block Run and Deploy on a config the runtime
+    // loads perfectly well.
+    if (isEnvPlaceholder(conn.type)) {
+      continue;
+    }
     const spec = getConnectorSpec(conn.type);
     if (!spec) {
       raise(issues, scope, `unknown connector type "${conn.type}".`);

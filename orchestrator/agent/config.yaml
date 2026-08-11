@@ -1,0 +1,318 @@
+service:
+  name: dr-octo
+
+# Dr. Octo — the platform's own agent.
+#
+# The joke is load-bearing: this is an Octo App. Not a service with a flow engine
+# bolted on, not a sidecar — a config.yaml with an ai-agent block in it, deployed
+# by the same POST /integrations/{id}/deployments that deploys anything a user
+# builds. That is what makes tracing, pod logs, scaling, version tags and rollback
+# work on the agent without any of them being written for it. And it is why you can
+# open this in the editor and change the prompt, add a tool, or take one away.
+#
+# Run it standalone exactly as the orchestrator runs it:
+#
+#   export LLM_CONNECTOR_TYPE=llm-anthropic LLM_API_KEY=sk-ant-... \
+#          LLM_MODEL=claude-sonnet-4-6 ORCHESTRATOR_URL=http://localhost:8090
+#   bin/octo run --config orchestrator/agent
+#   curl -N -X POST localhost:8080/chat \
+#     -d '{"threadId":"t1","message":"list my integrations"}'
+
+env:
+  # Which provider to talk to, as a connector type. The orchestrator binds this
+  # from the site's LLM settings at install. It is an env var and not three
+  # connectors because every declared connector is started eagerly and each LLM
+  # connector fails startup on an empty apiKey — so declaring all three would mean
+  # two guaranteed failures. Substitution rewrites the parsed YAML before it is
+  # decoded, so a connector's *type* can come from a variable like anything else.
+  - name: LLM_CONNECTOR_TYPE # llm-anthropic | llm-openai | llm-gemini
+    required: true
+  - name: LLM_API_KEY
+    required: true
+  - name: LLM_MODEL
+    required: true
+
+  # Where the orchestrator lives. Required *and* bound at deploy time: the
+  # orchestrator injects ORCHESTRATOR_URL into every pod, but the deploy-time check
+  # for required variables looks only at bindings and .env resources, so an unbound
+  # declaration is refused before the pod is ever created.
+  - name: ORCHESTRATOR_URL
+    required: true
+
+  # How long a conversation runs before it is compacted. Half a million rather than
+  # a million: this is what the model is billed to re-read on every turn of a long
+  # thread, and the compaction is a summary, so the tail of the conversation stays
+  # verbatim either way.
+  - name: AGENT_MEMORY_TOKENS
+    default: "500000"
+  - name: AGENT_MAX_ITERATIONS
+    default: "24"
+
+  - name: HTTP_HOST
+    default: 0.0.0.0
+  # Declaring HTTP_PORT with a numeric default is what makes this deployment
+  # networked, which is what earns it a stable internal address for the platform to
+  # proxy the chat panel to.
+  - name: HTTP_PORT
+    default: "8080"
+
+resources:
+  templates:
+    - resource: skills/flow-file.md
+      as: flow-file
+    - resource: skills/blocks.md
+      as: blocks
+    - resource: skills/connectors.md
+      as: connectors
+    - resource: skills/expressions.md
+      as: expressions
+    - resource: skills/testing.md
+      as: testing
+    - resource: skills/platform.md
+      as: platform
+
+connectors:
+  - name: llm
+    type: ${LLM_CONNECTOR_TYPE}
+    settings:
+      apiKey: ${LLM_API_KEY}
+      model: ${LLM_MODEL}
+      maxTokens: 8192
+
+  - name: api
+    type: http
+    settings:
+      host: ${HTTP_HOST}
+      port: ${HTTP_PORT}
+
+  # The orchestrator's own API. baseURL is the security boundary for every tool
+  # below: rest-dynamic can build any path under it and no path at all outside it.
+  - name: octo
+    type: http-client
+    settings:
+      baseURL: ${ORCHESTRATOR_URL}
+      timeout: 60s
+
+flows:
+  - name: chat
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /chat
+        # On an SSE route this bounds the wait for the FIRST frame only. An agent
+        # takes a moment to produce its first token.
+        timeout: 60s
+        sse:
+          enabled: true
+          finalEvent: true
+          finalEventName: answer
+          heartbeat: 15s
+          maxDuration: 10m
+    process:
+      - type: ai-agent
+        name: dr-octo
+        connector: llm
+        stream: true
+        maxIterations: ${AGENT_MAX_ITERATIONS}
+
+        # One thread per conversation. Memory rides the deployment's KV store,
+        # which under the k8s services module is the orchestrator's own — so a
+        # conversation survives a pod restart with nothing written for it here.
+        memoryThreadId: body.threadId
+        memoryMaxTokens: ${AGENT_MEMORY_TOKENS}
+        memoryCompaction: summarize
+
+        # A type left out of this list is never *built* — no event message, no
+        # sub-flow run. On a token stream that is a real lever rather than a filter,
+        # which is why thinking and the turn boundaries are absent: nothing in the
+        # panel reads them.
+        emit: [text, tool_call, tool_result, done, error, guardrail]
+        events:
+          process:
+            # No configuration: the emitter copies the agent's variables onto every
+            # event, and the caller's stream address is one of them. ifClosed: stop
+            # ends the run when the panel closes, so a shut tab does not leave a
+            # model running at full price with nobody reading it.
+            - type: sse-event
+              settings:
+                event: agent
+                ifClosed: stop
+
+        prompt: >
+          You are Dr. Octo, the agent built into this Octo platform. You are named
+          after a certain bald doctor with a fondness for elaborate schemes, and you
+          have his flair without his ethics: you are genuinely helpful, you never
+          hold anything to ransom, and one MILLION dollars is not a running joke you
+          need to make unprompted. You are also, literally, an Octo App — a flow
+          definition with an ai-agent block, deployed by the orchestrator exactly
+          like the integrations you help build. Mention that only if someone asks;
+          it is a fact, not a personality.
+
+
+          You are talking to a signed-in user of this platform. Their name and email
+          arrive in body.user, and the page they are on arrives in body.page — use
+          the page for context about what they mean by "this" or "here", and use
+          their name sparingly and naturally. When body.user is empty, authentication
+          is off and you are talking to a local developer.
+
+
+          You help with the platform: reading and explaining integrations, writing
+          and fixing flow definitions, investigating deployments that will not start,
+          and reading logs and traces. You have full read and write access to the
+          orchestrator API through octo_api, including deploying — so say what you
+          are about to do before you do anything destructive, and prefer showing a
+          user a definition over silently saving it.
+
+
+          Work from evidence rather than memory. Call list_api_operations to see what
+          the API offers, read_api_docs for the detail of one tag, then octo_api to
+          make the call. Load a skill before writing a flow definition — the schema
+          changes faster than any model's training data, and a flow that does not
+          load is worse than an admission that you are unsure.
+
+
+          After you change an integration through the API, call refresh_platform_ui
+          with its id so an editor with it open offers to reload.
+
+
+          Answer in prose. You are a chat panel, not a JSON API.
+
+        guardrail: >
+          If the request is not about this Octo platform, its integrations,
+          deployments or the flows a user is building, take the default path.
+
+        tools:
+          - name: list_api_operations
+            description: >
+              List every route the orchestrator API serves — method, path, summary
+              and tag. Cheap. Read this first to find the tag worth asking about.
+            inputSchema: |
+              { "type": "object", "properties": {} }
+            process:
+              - type: rest
+                settings:
+                  connector: octo
+                  method: GET
+                  path: /openapi/operations
+
+          - name: read_api_docs
+            description: >
+              Read the orchestrator's OpenAPI description, narrowed to one tag (from
+              list_api_operations) or one path prefix. Pass one or the other, never
+              both. Without a filter this is very large; use a filter.
+            inputSchema: |
+              {
+                "type": "object",
+                "properties": {
+                  "tag": { "type": "string", "description": "Keep only operations with this tag." },
+                  "path": { "type": "string", "description": "Keep only routes starting with this prefix." }
+                }
+              }
+            process:
+              - type: rest
+                settings:
+                  connector: octo
+                  method: GET
+                  path: /openapi.json
+                  query:
+                    tag: 'has(body.tag) ? body.tag : ""'
+                    path: 'has(body.path) ? body.path : ""'
+
+          - name: octo_api
+            description: >
+              Call the orchestrator API. Look the route up with read_api_docs first
+              rather than guessing. Returns the response body; the HTTP status is in
+              vars.statusCode, and a 4xx comes back as data rather than an error, so
+              read it and correct the call.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["method", "path"],
+                "properties": {
+                  "method": { "type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"] },
+                  "path":   { "type": "string", "description": "Path only, e.g. /integrations/abc. Never a full URL." },
+                  "query":  { "type": "object", "description": "Query parameters." },
+                  "payload": { "type": "object", "description": "JSON request body." }
+                }
+              }
+            process:
+              # The tool's arguments arrive as the message body, which is already the
+              # shape this block reads. To restrict what Dr. Octo may do, add
+              # allowMethods or pathPrefix here — this is the one place that decides
+              # it, and it is editable in the integration manager like the rest of
+              # the app.
+              - type: rest-dynamic
+                settings:
+                  connector: octo
+                  method: body.method
+                  path: body.path
+                  query: 'has(body.query) ? body.query : {}'
+                  body: 'has(body.payload) ? body.payload : null'
+                  failOnError: false
+
+          - name: refresh_platform_ui
+            description: >
+              Tell the platform an integration changed, so an editor with it open
+              offers to reload. Call this after writing an integration through
+              octo_api. Fire-and-forget.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["id", "name"],
+                "properties": {
+                  "id":   { "type": "string", "description": "The integration's id." },
+                  "name": { "type": "string", "description": "The integration's name." }
+                }
+              }
+            process:
+              # The system: prefix publishes to the platform's own subject instead of
+              # this deployment's, so no HTTP hop is needed — the pod already holds
+              # the broker connection.
+              - type: publish-event
+                settings:
+                  subject: '"system:internal.integrations.events"'
+                  value: '{"type": "integration.updated", "id": body.id, "name": body.name}'
+              - type: set-payload
+                settings:
+                  value: '{"published": true}'
+
+        skills:
+          - name: flow-file
+            description: >
+              The shape of a flow definition: service, env, resources, connectors,
+              flows, sources and process chains. Load before writing or editing one.
+            resource: flow-file
+          - name: blocks
+            description: >
+              The blocks a process chain can contain — control flow, data, storage,
+              AI and integration — and what each is for.
+            resource: blocks
+          - name: connectors
+            description: >
+              The connectors available (HTTP, database, queue, cron, LLM, and the
+              rest) and the settings each takes.
+            resource: connectors
+          - name: expressions
+            description: >
+              CEL as octo uses it: the message activation, the octo extension
+              functions, and where expressions are allowed.
+            resource: expressions
+          - name: testing
+            description: >
+              Writing dolphin test suites for a flow: cases, inputs, mocks and spies.
+            resource: testing
+          - name: platform
+            description: >
+              How the platform runs an integration: version tags, deployments,
+              resources, cluster secrets, and what a failing deployment looks like.
+            resource: platform
+
+        default:
+          process:
+            - type: set-payload
+              settings:
+                value: >-
+                  {"answer": "That one is outside my remit. I am Dr. Octo — I run
+                  this Octo platform, and my schemes extend to integrations,
+                  deployments and the flows you are building. Ask me about those."}
