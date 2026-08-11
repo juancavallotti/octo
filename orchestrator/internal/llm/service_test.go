@@ -110,15 +110,19 @@ func TestUpdateAcceptsEveryProvider(t *testing.T) {
 	}
 }
 
-// The same invariant email has: switching provider or model must not destroy the
-// credentials sitting beside them on the form.
+// The same invariant email has: editing the form must not destroy the credentials
+// sitting beside the fields being edited.
+//
+// Bounded by provider, though — see TestUpdateClearsTheKeyWhenTheProviderChanges.
+// A key belongs to one provider, so "do not destroy it" stops applying at the point
+// it stops being usable.
 func TestUpdateWithoutAPIKeyPreservesStoredKey(t *testing.T) {
 	svc, repo := newService(t, "sk-ant-storedkey123")
 	before := repo.row.APIKey
 
 	got, err := svc.Update(context.Background(), Update{
-		Provider: ProviderOpenAI,
-		Model:    "gpt-5.4",
+		Provider: ProviderAnthropic,
+		Model:    "claude-opus-4-1",
 	})
 	if err != nil {
 		t.Fatalf("Update: %v", err)
@@ -129,8 +133,8 @@ func TestUpdateWithoutAPIKeyPreservesStoredKey(t *testing.T) {
 	if !got.Configured || got.Last4 != before.Last4 {
 		t.Fatalf("settings = %+v, want the key still reported as stored", got)
 	}
-	if repo.row.Provider != ProviderOpenAI || repo.row.Model != "gpt-5.4" {
-		t.Fatalf("row = %+v, want provider and model updated", repo.row)
+	if repo.row.Model != "claude-opus-4-1" {
+		t.Fatalf("row = %+v, want the model updated", repo.row)
 	}
 }
 
@@ -260,5 +264,46 @@ func TestGetNeverCarriesTheKey(t *testing.T) {
 	}
 	if got.Last4 != "y123" {
 		t.Fatalf("last4 = %q", got.Last4)
+	}
+}
+
+// A key authenticates against one provider. Carrying it forward onto another leaves
+// the settings claiming a configured key that cannot work — and, now that the agent
+// installer consumes them, hands it to a connector the API will refuse on its first
+// call, which is a much worse way to find out.
+func TestUpdateClearsTheKeyWhenTheProviderChanges(t *testing.T) {
+	svc, repo := newService(t, "sk-ant-storedkey123")
+
+	got, err := svc.Update(context.Background(), Update{
+		Provider: ProviderOpenAI,
+		Model:    "gpt-5.4",
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if got.Configured {
+		t.Error("want the key cleared when the provider changes and none is supplied")
+	}
+	if got.Last4 != "" {
+		t.Errorf("last4 = %q, want it gone with the key", got.Last4)
+	}
+	if len(repo.row.APIKey.Ciphertext) != 0 {
+		t.Error("want the stored ciphertext removed, not merely hidden")
+	}
+}
+
+func TestUpdateStoresASuppliedKeyWhenTheProviderChanges(t *testing.T) {
+	svc, _ := newService(t, "sk-ant-storedkey123")
+
+	got, err := svc.Update(context.Background(), Update{
+		Provider: ProviderOpenAI,
+		Model:    "gpt-5.4",
+		APIKey:   ptr("sk-openai-wxyz5678"),
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if !got.Configured || got.Last4 != "5678" {
+		t.Errorf("settings = %+v, want the newly supplied key stored", got)
 	}
 }
