@@ -153,6 +153,31 @@ describe("LlmSettingsManager", () => {
     expect(await screen.findByText(/invalid provider/)).toBeTruthy();
   });
 
+  // A stored provider we no longer offer would otherwise leave the select showing
+  // something other than what a save would send.
+  it("falls back when the stored provider is not one we offer", async () => {
+    getLlmSettings.mockResolvedValue({ ...CONFIGURED, provider: "COHERE" });
+    renderManager();
+
+    await waitFor(() =>
+      expect((screen.getByRole("combobox") as HTMLSelectElement).value).toBe("ANTHROPIC"),
+    );
+  });
+
+  it("trims the model before saving", async () => {
+    const user = userEvent.setup();
+    renderManager();
+    await waitFor(() => expect(screen.getByDisplayValue("claude-sonnet-4-6")).toBeTruthy());
+
+    const model = modelInput();
+    await user.clear(model);
+    await user.type(model, "  spaced-model  ");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(saveLlmSettings).toHaveBeenCalled());
+    expect(saveLlmSettings.mock.calls[0][0].model).toBe("spaced-model");
+  });
+
   it("falls back to the first provider and its default when nothing is stored", async () => {
     getLlmSettings.mockResolvedValue({
       provider: "",

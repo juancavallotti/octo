@@ -73,11 +73,16 @@ export default function EmailSettingsManager() {
     [load],
   );
 
-  /** The draft, with apiKey present only when one was typed. */
+  /**
+   * The draft, with apiKey present only when one was typed. Addresses are trimmed
+   * so what is sent is what was validated — the orchestrator trims before parsing
+   * too, but agreeing here keeps the test send and the save from disagreeing about
+   * a padded address.
+   */
   const draft = (): EmailSettingsInput => ({
-    fromEmail,
-    fromName,
-    replyTo,
+    fromEmail: fromEmail.trim(),
+    fromName: fromName.trim(),
+    replyTo: replyTo.trim(),
     ...(apiKey ? { apiKey } : {}),
   });
 
@@ -101,7 +106,7 @@ export default function EmailSettingsManager() {
     });
     if (!ok) return;
     run(async () => {
-      await saveEmailSettings({ fromEmail, fromName, replyTo, apiKey: "" });
+      await saveEmailSettings({ ...draft(), apiKey: "" });
       setApiKey("");
     });
   };

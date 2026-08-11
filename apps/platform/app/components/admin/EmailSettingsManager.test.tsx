@@ -97,6 +97,28 @@ describe("EmailSettingsManager", () => {
     });
   });
 
+  // What is sent should be what was validated; the orchestrator trims too, but
+  // agreeing here keeps the save and the test send from disagreeing.
+  it("trims the addresses before saving", async () => {
+    const user = userEvent.setup();
+    getEmailSettings.mockResolvedValue({ ...CONFIGURED, fromEmail: "", replyTo: "" });
+    renderManager();
+    await waitFor(() => expect(screen.getByText("Email")).toBeTruthy());
+
+    await user.type(
+      screen.getByPlaceholderText("notifications@example.com"),
+      "  ops@acme.com  ",
+    );
+    await user.type(screen.getByPlaceholderText("support@example.com"), " r@acme.com ");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(saveEmailSettings).toHaveBeenCalled());
+    expect(saveEmailSettings.mock.calls[0][0]).toMatchObject({
+      fromEmail: "ops@acme.com",
+      replyTo: "r@acme.com",
+    });
+  });
+
   it("keeps Save disabled until the from address looks like an address", async () => {
     const user = userEvent.setup();
     getEmailSettings.mockResolvedValue({ ...CONFIGURED, fromEmail: "" });

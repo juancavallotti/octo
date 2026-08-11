@@ -34,10 +34,13 @@ export default function LlmSettingsManager() {
 
   const apply = useCallback((next: LlmSettings) => {
     setSettings(next);
-    // An unconfigured site has neither, so fall back to the first provider and its
-    // default model rather than showing an empty form.
-    setProvider(next.provider || LLM_PROVIDERS[0].id);
-    setModel(next.model || providerById(next.provider).defaultModel);
+    // Normalised through the provider list rather than taken as given: an
+    // unconfigured site has no provider, and a stored one we no longer offer would
+    // leave the select with no matching option — showing a provider that is not the
+    // one a save would send. providerById falls back to the first entry for both.
+    const provider = providerById(next.provider).id;
+    setProvider(provider);
+    setModel(next.model || providerById(provider).defaultModel);
   }, []);
 
   // Shaped as a promise chain rather than an async body so nothing sets state in the
@@ -81,7 +84,7 @@ export default function LlmSettingsManager() {
     run(async () => {
       await saveLlmSettings({
         provider,
-        model,
+        model: model.trim(),
         ...(apiKey ? { apiKey } : {}),
       });
       setApiKey("");
@@ -98,7 +101,7 @@ export default function LlmSettingsManager() {
     });
     if (!ok) return;
     run(async () => {
-      await saveLlmSettings({ provider, model, apiKey: "" });
+      await saveLlmSettings({ provider, model: model.trim(), apiKey: "" });
       setApiKey("");
     });
   };
