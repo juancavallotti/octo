@@ -52,6 +52,14 @@ env:
 # the target of a deploy/purge/dev command.
 vars:
   KCTX: k3d-octo
+  # The seven images the orchestrator and the chart expect to find already in the
+  # node's containerd. Declared once because three tasks need the same list, and a
+  # list that drifts between them is how a cluster ends up holding a subset of it.
+  # Nothing pulls these: they exist only in the local docker daemon, so an image
+  # that misses the import is not a slow start but a hard ImagePullBackOff.
+  CLUSTER_IMAGES: >-
+    octo-platform:dev octo-orchestrator:dev octo-logs:dev octo-schema:dev
+    octo-runtime:dev octo-devsidecar:dev octo-devruntime:dev
 
 tasks:
   fmt:
@@ -214,7 +222,58 @@ tasks:
       - docker build -t octo-devsidecar:dev -f sidecars/dev/Dockerfile ./sidecars
       - docker build --build-arg GOTAGS= -t octo-devruntime:dev -f runtime/Dockerfile .
       # Load the images straight into the cluster's containerd (no registry needed).
-      - k3d image import octo-platform:dev octo-orchestrator:dev octo-logs:dev octo-schema:dev octo-runtime:dev octo-devsidecar:dev octo-devruntime:dev -c octo
+      - k3d image import {{.CLUSTER_IMAGES}} -c octo
+      # Then prove they landed, and are still there. A gap never surfaces here: it
+      # surfaces much later and in another component, as an integration pod stuck
+      # on "pull access denied" for an image that was never meant to be pulled.
+      # Two ways to open one — an import interrupted partway, or the kubelet
+      # reclaiming images it already holds (see verify). A second spent here names
+      # the missing image instead of leaving it to be found from the other end.
+      - task: cluster:images:verify
+
+  cluster:images:verify:
+    desc: Check that the k3d 'octo' cluster holds every image the orchestrator deploys
+    silent: true
+    cmds:
+      - |
+        node="$(k3d node list 2>/dev/null | awk '$2 == "server" && $3 == "octo" {print $1; exit}')"
+        if [ -z "$node" ]; then
+          echo "✖ no k3d 'octo' server node — run 'task cluster:deploy' first" >&2
+          exit 1
+        fi
+        # crictl is the node's own view. Asking docker instead would answer a
+        # different question — the daemon is where these images already are.
+        have="$(docker exec "$node" crictl images 2>/dev/null | awk 'NR > 1 {print $1 ":" $2}')"
+        missing=
+        for img in {{.CLUSTER_IMAGES}}; do
+          printf '%s\n' "$have" | grep -qx "docker.io/library/$img" || missing="$missing $img"
+        done
+        if [ -z "$missing" ]; then
+          echo "✓ all seven images present in cluster 'octo'"
+          exit 0
+        fi
+        echo "✖ cluster 'octo' is missing:$missing" >&2
+        echo "  these exist only in the local docker daemon, so the kubelet cannot pull them:" >&2
+        echo "  any pod that needs one fails with ImagePullBackOff / 'pull access denied'." >&2
+        # An import that landed and then vanished is the confusing case, and it has
+        # a specific cause: the node's image filesystem is the docker VM's disk,
+        # shared with every build cache and volume on the host. Over the kubelet's
+        # 85% high threshold, image GC deletes images no running pod references —
+        # which is exactly the dev-run pair and any runtime not currently serving.
+        # Re-importing does not stick, so say so rather than recommending a loop.
+        use="$(docker exec "$node" df -P / 2>/dev/null | awk 'NR == 2 {print 0 + $5}')"
+        if [ -n "$use" ] && [ "$use" -ge 85 ]; then
+          echo "" >&2
+          echo "  the node's image filesystem is ${use}% full, over the kubelet's 85% threshold," >&2
+          echo "  so these were likely garbage-collected after a successful import." >&2
+          echo "  re-importing alone will not hold — reclaim space on the docker host first:" >&2
+          echo "    docker builder prune     # build cache is usually the bulk of it" >&2
+          echo "    docker image prune -a    # then unreferenced images" >&2
+          echo "  check with: docker system df" >&2
+        fi
+        echo "" >&2
+        echo "  run: task cluster:images" >&2
+        exit 1
 
   cluster:images:kind:
     desc: Build the seven images and load them into a kind 'octo' cluster
@@ -226,7 +285,9 @@ tasks:
       - docker build -t octo-runtime:dev -f runtime/Dockerfile .
       - docker build -t octo-devsidecar:dev -f sidecars/dev/Dockerfile ./sidecars
       - docker build --build-arg GOTAGS= -t octo-devruntime:dev -f runtime/Dockerfile .
-      - kind load docker-image --name octo octo-platform:dev octo-orchestrator:dev octo-logs:dev octo-schema:dev octo-runtime:dev octo-devsidecar:dev octo-devruntime:dev
+      # No verify step to match cluster:images: that check reads the k3d node's
+      # containerd, and a kind node is a different name and a different runtime.
+      - kind load docker-image --name octo {{.CLUSTER_IMAGES}}
 
   cluster:images:dev:
     desc: Build + load the dev (hot-reload) images into the k3d 'octo' cluster
