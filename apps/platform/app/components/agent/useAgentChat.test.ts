@@ -219,6 +219,64 @@ describe("useAgentChat", () => {
     expect(result.current.turns[1].note).toBe("He declined this one.");
   });
 
+  // Most of what a reasoning model emits, and the thing whose absence made the
+  // panel look frozen. It accumulates separately from the answer so the two can be
+  // shown differently.
+  it("accumulates thinking apart from the answer", async () => {
+    fetchMock.mockResolvedValue(
+      sseResponse(
+        frames(
+          { type: "thinking", text: "They want " },
+          { type: "thinking", text: "the integrations." },
+          { type: "text", text: "You have three." },
+        ),
+      ),
+    );
+    const { result } = renderHook(() => useAgentChat("u-1", "/platform", () => {}));
+
+    act(() => result.current.send("how many"));
+
+    await waitFor(() => expect(result.current.busy).toBe(false));
+    expect(result.current.turns[1].thinking).toBe("They want the integrations.");
+    expect(result.current.turns[1].text).toBe("You have three.");
+  });
+
+  // The chip shows them on expand, which for an agent with write access is the
+  // audit trail you get without turning tracing on.
+  it("keeps a tool call's arguments and its result", async () => {
+    fetchMock.mockResolvedValue(
+      sseResponse(
+        frames(
+          {
+            type: "tool_call",
+            tool: "octo_api",
+            toolCallId: "c1",
+            input: { method: "GET", path: "/integrations" },
+          },
+          {
+            type: "tool_result",
+            tool: "octo_api",
+            toolCallId: "c1",
+            output: { count: 3 },
+          },
+        ),
+      ),
+    );
+    const { result } = renderHook(() => useAgentChat("u-1", "/platform", () => {}));
+
+    act(() => result.current.send("list them"));
+
+    await waitFor(() => expect(result.current.busy).toBe(false));
+    expect(result.current.turns[1].tools[0]).toEqual({
+      id: "c1",
+      tool: "octo_api",
+      done: true,
+      failed: false,
+      input: { method: "GET", path: "/integrations" },
+      output: { count: 3 },
+    });
+  });
+
   it("reports the proxy's error message when the request is refused", async () => {
     fetchMock.mockResolvedValue({
       ok: false,

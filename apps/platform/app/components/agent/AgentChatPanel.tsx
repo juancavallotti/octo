@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { MessageSquarePlus, Send, Square, X } from "lucide-react";
+import { ChevronDown, MessageSquarePlus, Send, Square } from "lucide-react";
 import AgentMessage from "./AgentMessage";
 import { useAgentChat } from "./useAgentChat";
 
@@ -15,10 +15,10 @@ import { useAgentChat } from "./useAgentChat";
  */
 export default function AgentChatPanel({
   userKey,
-  onClose,
+  onCollapse,
 }: {
   userKey: string;
-  onClose: () => void;
+  onCollapse: () => void;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -61,12 +61,12 @@ export default function AgentChatPanel({
           </button>
           <button
             type="button"
-            onClick={onClose}
-            title="Close"
-            aria-label="Close"
+            onClick={onCollapse}
+            title="Collapse"
+            aria-label="Collapse"
             className="rounded-md p-1 text-zinc-500 hover:bg-black/[0.05] hover:text-zinc-800 dark:hover:bg-white/10 dark:hover:text-zinc-100"
           >
-            <X size={15} />
+            <ChevronDown size={15} />
           </button>
         </div>
       </header>

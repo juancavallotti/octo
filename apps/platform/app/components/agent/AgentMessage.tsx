@@ -2,8 +2,10 @@
 
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { AlertTriangle, Check, Loader2, Wrench, X } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import type { Turn } from "./useAgentChat";
+import ThinkingPanel from "./ThinkingPanel";
+import ToolChip from "./ToolChip";
 
 /**
  * One turn in the transcript.
@@ -65,30 +67,6 @@ const COMPONENTS = {
   h3: (props: React.ComponentProps<"h3">) => <h3 {...props} className="mt-3 mb-1 text-sm font-semibold" />,
 };
 
-/** A chip for one tool call, showing whether it is still running. */
-function ToolChip({ tool, done, failed }: { tool: string; done: boolean; failed: boolean }) {
-  const Icon = failed ? X : done ? Check : Loader2;
-  return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
-        failed
-          ? "bg-red-500/15 text-red-600 dark:text-red-400"
-          : done
-            ? "bg-black/[0.05] text-zinc-600 dark:bg-white/10 dark:text-zinc-300"
-            : "bg-sky-500/15 text-sky-600 dark:text-sky-400"
-      }`}
-    >
-      {done ? (
-        <Icon size={11} className="shrink-0" />
-      ) : (
-        <Icon size={11} className="shrink-0 animate-spin" />
-      )}
-      <Wrench size={11} className="shrink-0 opacity-60" />
-      <span className="font-mono">{tool}</span>
-    </span>
-  );
-}
-
 export default function AgentMessage({ turn }: { turn: Turn }) {
   if (turn.role === "user") {
     return (
@@ -100,12 +78,24 @@ export default function AgentMessage({ turn }: { turn: Turn }) {
     );
   }
 
+  // The reasoning is the only thing on screen until the answer begins, so what
+  // counts as "answered" is the first token of it — not the end of the run.
+  const answered = turn.text.length > 0;
+
   return (
     <div className="flex flex-col gap-1.5">
+      {turn.thinking && (
+        <ThinkingPanel
+          text={turn.thinking}
+          streaming={turn.streaming}
+          answered={answered || turn.tools.length > 0}
+        />
+      )}
+
       {turn.tools.length > 0 && (
-        <div className="flex flex-wrap gap-1">
+        <div className="flex flex-col gap-1">
           {turn.tools.map((run) => (
-            <ToolChip key={run.id} tool={run.tool} done={run.done} failed={run.failed} />
+            <ToolChip key={run.id} run={run} />
           ))}
         </div>
       )}
@@ -120,7 +110,7 @@ export default function AgentMessage({ turn }: { turn: Turn }) {
 
       {/* A caret while the answer is still arriving and no token has landed yet,
           so the panel is never silent between sending and the first word. */}
-      {turn.streaming && !turn.text && turn.tools.length === 0 && (
+      {turn.streaming && !turn.text && !turn.thinking && turn.tools.length === 0 && (
         <span className="inline-block h-3 w-1.5 animate-pulse rounded-sm bg-zinc-400" />
       )}
 

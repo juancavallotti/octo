@@ -21,13 +21,18 @@ const AgentChatPanel = dynamic(() => import("./AgentChatPanel"), { ssr: false })
  * which is most installations, since installing him is a deliberate act. A launcher
  * that opened onto an error would be worse than no launcher.
  *
- * The panel is mounted only while open, so a closed panel holds no conversation
- * state and no connection. That is deliberate rather than incidental: keeping it
- * mounted and hidden would leave a stream running behind a panel nobody can see.
+ * The panel mounts on first open and then stays mounted, hidden when collapsed —
+ * so minimising it keeps the conversation and lets an answer in flight finish
+ * arriving. Before that first open nothing of it exists, which is what keeps an
+ * installation that never uses the agent from paying for it.
  */
 export default function AgentChatLauncher({ userKey }: { userKey: string }) {
   const [available, setAvailable] = useState(false);
   const [open, setOpen] = useState(false);
+  // Whether the panel has ever been opened. Separate from `open` because the panel
+  // stays mounted once it exists, and this is what keeps it from existing at all
+  // until somebody asks for it.
+  const [opened, setOpened] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -44,17 +49,36 @@ export default function AgentChatLauncher({ userKey }: { userKey: string }) {
 
   if (!available) return null;
 
-  if (open) return <AgentChatPanel userKey={userKey} onClose={() => setOpen(false)} />;
-
   return (
-    <button
-      type="button"
-      onClick={() => setOpen(true)}
-      title="Ask Dr. Octo"
-      aria-label="Ask Dr. Octo"
-      className="fixed right-4 bottom-4 z-40 flex h-11 w-11 items-center justify-center rounded-full bg-sky-600 text-white shadow-lg transition-colors hover:bg-sky-500"
-    >
-      <Bot size={20} />
-    </button>
+    <>
+      {/* Mounted from the first open onwards and hidden rather than unmounted, so
+          collapsing the panel keeps the conversation and lets an answer in flight
+          carry on arriving — reopen and it is there, finished. Unmounting would
+          abort the fetch, which is the right thing for a tab that has gone away
+          and the wrong thing for a panel somebody minimised for a minute.
+
+          Nothing is mounted before the first open, so an installation where the
+          agent is never used pays for none of it. */}
+      {opened && (
+        <div className={open ? undefined : "hidden"}>
+          <AgentChatPanel userKey={userKey} onCollapse={() => setOpen(false)} />
+        </div>
+      )}
+
+      {!open && (
+        <button
+          type="button"
+          onClick={() => {
+            setOpened(true);
+            setOpen(true);
+          }}
+          title="Ask Dr. Octo"
+          aria-label="Ask Dr. Octo"
+          className="fixed right-4 bottom-4 z-40 flex h-11 w-11 items-center justify-center rounded-full bg-sky-600 text-white shadow-lg transition-colors hover:bg-sky-500"
+        >
+          <Bot size={20} />
+        </button>
+      )}
+    </>
   );
 }

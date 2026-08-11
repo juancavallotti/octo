@@ -95,9 +95,19 @@ describe("parseAgentEvent", () => {
   // The agent's emit list is editable, so an unknown type is a configuration
   // somebody chose rather than a fault. Skipping it beats throwing mid-stream.
   it("returns null for an unknown type or unparseable data", () => {
-    expect(parseAgentEvent('{"type":"thinking","text":"…"}')).toBeNull();
+    expect(parseAgentEvent('{"type":"turn_start"}')).toBeNull();
     expect(parseAgentEvent("not json")).toBeNull();
     expect(parseAgentEvent('"a string"')).toBeNull();
+  });
+
+  // Most of what a reasoning model produces. Dropping it is what made the panel
+  // look frozen for the five seconds before an answer began.
+  it("reads a thinking frame", () => {
+    expect(parseAgentEvent('{"type":"thinking","text":"weighing it up","index":0}')).toEqual({
+      type: "thinking",
+      text: "weighing it up",
+      index: 0,
+    });
   });
 
   // A frame can be well-formed JSON and still wrong in its fields, and each of

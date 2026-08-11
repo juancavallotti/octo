@@ -22,6 +22,19 @@ export interface TextEvent {
   index?: number;
 }
 
+/**
+ * A token of the model's reasoning, before it commits to an answer.
+ *
+ * Usually most of what a run produces — on a reasoning model the thinking can be
+ * an order of magnitude longer than the reply — so this is what fills the time
+ * between the question and the first word of the answer.
+ */
+export interface ThinkingEvent {
+  type: "thinking";
+  text: string;
+  index?: number;
+}
+
 /** The model asking for a tool, with its arguments complete. */
 export interface ToolCallEvent {
   type: "tool_call";
@@ -59,6 +72,7 @@ export interface GuardrailEvent {
 
 export type AgentEvent =
   | TextEvent
+  | ThinkingEvent
   | ToolCallEvent
   | ToolResultEvent
   | DoneEvent
@@ -95,9 +109,10 @@ export function parseAgentEvent(data: string): AgentEvent | null {
 
   switch (frame.type) {
     case "text":
+    case "thinking":
       if (!str(frame.text)) return null;
       return {
-        type: "text",
+        type: frame.type,
         text: frame.text,
         index: typeof frame.index === "number" ? frame.index : undefined,
       };

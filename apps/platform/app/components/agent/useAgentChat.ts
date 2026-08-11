@@ -10,25 +10,9 @@ import {
   type NavigateEvent,
 } from "./events";
 import { ROUTE_CATALOGUE } from "./routes";
+import { reduce, type Turn } from "./turns";
 
-/** One tool the agent called, and how it went. */
-export interface ToolRun {
-  id: string;
-  tool: string;
-  done: boolean;
-  failed: boolean;
-}
-
-/** One turn in the transcript. A user turn carries only text. */
-export interface Turn {
-  id: string;
-  role: "user" | "agent";
-  text: string;
-  tools: ToolRun[];
-  /** Set when the agent declined the question or the run failed. */
-  note?: string;
-  streaming: boolean;
-}
+export type { ToolRun, Turn } from "./turns";
 
 export interface AgentChat {
   turns: Turn[];
@@ -117,8 +101,15 @@ export function useAgentChat(
       const agentTurnId = crypto.randomUUID();
       setTurns((current) => [
         ...current,
-        { id: crypto.randomUUID(), role: "user", text, tools: [], streaming: false },
-        { id: agentTurnId, role: "agent", text: "", tools: [], streaming: true },
+        {
+          id: crypto.randomUUID(),
+          role: "user",
+          text,
+          tools: [],
+          thinking: "",
+          streaming: false,
+        },
+        { id: agentTurnId, role: "agent", text: "", tools: [], thinking: "", streaming: true },
       ]);
 
       void (async () => {
@@ -213,50 +204,3 @@ export function useAgentChat(
   return { turns, busy, error, send, stop, reset };
 }
 
-/** The runtime's guardrail reasons, said in a way a reader can act on. */
-const GUARDRAIL_NOTES: Record<string, string> = {
-  "model refused": "He declined this one.",
-  "exceeded max iterations":
-    "He ran out of steps before finishing. Try narrowing the question, or raise AGENT_MAX_ITERATIONS on his deployment.",
-};
-
-/** Fold one frame into a turn. */
-function reduce(turn: Turn, event: AgentEvent): Turn {
-  switch (event.type) {
-    case "text":
-      return { ...turn, text: turn.text + event.text };
-
-    case "tool_call":
-      return {
-        ...turn,
-        tools: [
-          ...turn.tools,
-          { id: event.toolCallId, tool: event.tool, done: false, failed: false },
-        ],
-      };
-
-    case "tool_result":
-      return {
-        ...turn,
-        tools: turn.tools.map((run) =>
-          run.id === event.toolCallId
-            ? { ...run, done: true, failed: Boolean(event.isError) }
-            : run,
-        ),
-      };
-
-    // The final answer, which on a streaming run is the text already accumulated.
-    // Taken only when nothing streamed, so a non-streaming agent still shows one.
-    case "done":
-      return turn.text ? turn : { ...turn, text: event.text ?? "" };
-
-    case "error":
-      return { ...turn, note: event.error };
-
-    // The reason is diagnostic and written for a log — "model refused",
-    // "exceeded max iterations". The *reply* to the user comes from the
-    // guardrail's own set-payload, and reaches the panel as the closing frame.
-    case "guardrail":
-      return { ...turn, note: GUARDRAIL_NOTES[event.reason ?? ""] ?? "He stopped short of an answer." };
-  }
-}
