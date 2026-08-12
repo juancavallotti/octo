@@ -68,9 +68,17 @@ His definition ships inside the orchestrator binary, so upgrading the platform c
 
 Nothing happens silently: a newer bundle waits for you, and installing never happens twice.
 
+## Put him back the way he shipped
+
+The same button is there when no update is waiting, reading **Reinstall from stock**. Press it to republish the definition this orchestrator ships and replace his pods with it.
+
+Reach for it after editing him into a state you would rather undo, or when he is running something you no longer trust. Before, there was no way back: the button only appeared when the shipped digest had moved, so an agent that was current and broken had nothing to press.
+
 <Callout type="warn">
-**Rolling out replaces changes you made to the agent.** Publishing a version freezes the integration's working copy first, so that is what a roll-out does. Watch for the **Edited** badge — the confirmation also says the edits will be replaced. Copy the definition out of the editor first if you want to keep it.
+**This replaces changes you made to the agent** — but it does not destroy them. The live definition is frozen as its own version first, tagged `agent-edited-…`, and only then overwritten. Watch for the **Edited** badge; the confirmation names what is about to happen.
 </Callout>
+
+So an edit you want back is under [Versions](/platform/snapshots) with that tag: read it, copy from it, or deploy it again. The tag is derived from the definition's content, so reinstalling twice from the same edited state reuses one version rather than piling up near-identical ones — and an unedited reinstall freezes nothing at all.
 
 ## Trace him
 
