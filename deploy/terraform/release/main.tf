@@ -30,7 +30,13 @@ locals {
   #
   # The top-level `image` key holds registry/pullPolicy rather than a component, so
   # the `can(...)` guard is what skips it; every other key is one image.
-  image_values  = var.image_values_file != "" ? yamldecode(file(var.image_values_file)) : {}
+  #
+  # The conditional picks the *document* rather than the decoded value: both arms of
+  # a `?:` must unify, and an empty object never unifies with the seven-component
+  # object a real values file decodes to ("Inconsistent conditional result types",
+  # which is a planning error, not a validation one — `terraform validate` runs with
+  # the variable unset, so the true arm's type is unknown and it type-checks there).
+  image_values  = yamldecode(var.image_values_file != "" ? file(var.image_values_file) : "{}")
   pull_registry = try(local.image_values.image.registry, local.image_base)
   pull_refs = [
     for _, component in local.image_values :
