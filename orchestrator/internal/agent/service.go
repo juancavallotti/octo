@@ -180,16 +180,24 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 	}
 
 	dep, err := s.deployments.Get(ctx, cur.DeploymentID)
-	if err != nil {
-		// A deployment that has been removed underneath us is not an error to
-		// report — it is the install being back at "not running". So say that
-		// completely: the id and the address describe a deployment that no longer
-		// exists, and a caller that believed them offered a roll-out of nothing and
-		// hid the Deploy button behind it. State said "installed, not running" while
-		// these two said otherwise, which is one read model with two answers.
-		slog.Warn("agent status: deployment unreadable", "deploymentId", cur.DeploymentID, "error", err)
+	if errors.Is(err, deployment.ErrNotFound) {
+		// A deployment removed underneath us is not an error to report — it is the
+		// install being back at "not running". So say that completely: the id and the
+		// address describe something that no longer exists, and a caller that believed
+		// them offered a roll-out of nothing while hiding Deploy behind it. State said
+		// "installed, not running" and these two said otherwise, which is one read
+		// model with two answers.
+		slog.Warn("agent status: deployment is gone", "deploymentId", cur.DeploymentID)
 		out.DeploymentID = ""
 		out.InternalURL = ""
+		return out, nil
+	}
+	if err != nil {
+		// Anything else is this orchestrator failing to look, not the deployment
+		// being absent. Keep reporting what the row says: clearing the id here would
+		// offer Deploy against a deployment that is running fine, and pressing it
+		// would create a second one.
+		slog.Warn("agent status: deployment unreadable", "deploymentId", cur.DeploymentID, "error", err)
 		return out, nil
 	}
 	out.DeploymentStatus = dep.Status
@@ -566,7 +574,11 @@ func (s *Service) Rollout(ctx context.Context, actorID string) (Status, error) {
 		if cur.IntegrationID == "" {
 			return cur, ErrNotInstalled
 		}
-		if cur.DeploymentID == "" || !s.deploymentExists(ctx, cur.DeploymentID) {
+		running, err := s.hasRunningDeployment(ctx, cur)
+		if err != nil {
+			return cur, err
+		}
+		if !running {
 			// Nothing is running, so there is no rolling update to do — but the
 			// definition still has to be republished, or an operator who asked for
 			// the shipped agent would get their own edits frozen into the new tag.
@@ -587,6 +599,15 @@ func (s *Service) Rollout(ctx context.Context, actorID string) (Status, error) {
 		return Status{}, err
 	}
 	return s.Status(ctx)
+}
+
+// hasRunningDeployment reports whether the row names a deployment that still
+// exists, so Rollout can tell a rolling update from a fresh deploy.
+func (s *Service) hasRunningDeployment(ctx context.Context, cur stored) (bool, error) {
+	if cur.DeploymentID == "" {
+		return false, nil
+	}
+	return s.deploymentExists(ctx, cur.DeploymentID)
 }
 
 // preserveEdits tags the integration's live definition when it differs from the
@@ -619,17 +640,22 @@ func (s *Service) preserveEdits(ctx context.Context, integrationID, bundleDigest
 
 // deploymentExists reports whether the recorded deployment is still there.
 //
-// An unreadable deployment is treated as absent rather than as an error. The caller
-// is deciding between rolling one out and creating one, and for that question a
-// deployment nobody can read is the same as one that is not there — where the two
-// differ, creating is the recoverable direction.
-func (s *Service) deploymentExists(ctx context.Context, deploymentID string) bool {
-	if _, err := s.deployments.Get(ctx, deploymentID); err != nil {
-		slog.Warn("agent rollout: recorded deployment unreadable, deploying a new one",
-			"deploymentId", deploymentID, "error", err)
-		return false
+// Only ErrNotFound counts as gone. Every other failure is propagated, because the
+// caller uses this to choose between rolling the deployment out and creating a new
+// one — and answering "not there" to a timeout would create a second agent beside
+// a first that is running perfectly well. "I could not tell" and "it is not there"
+// are different answers, and only one of them is safe to guess.
+func (s *Service) deploymentExists(ctx context.Context, deploymentID string) (bool, error) {
+	switch _, err := s.deployments.Get(ctx, deploymentID); {
+	case errors.Is(err, deployment.ErrNotFound):
+		slog.Warn("agent rollout: recorded deployment is gone, deploying a new one",
+			"deploymentId", deploymentID)
+		return false, nil
+	case err != nil:
+		return false, fmt.Errorf("read the recorded deployment: %w", err)
+	default:
+		return true, nil
 	}
-	return true
 }
 
 // republish writes the bundle's definition and skills over the integration. This is

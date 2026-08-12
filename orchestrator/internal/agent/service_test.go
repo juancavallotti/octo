@@ -952,7 +952,7 @@ func TestStatusToleratesAVanishedDeployment(t *testing.T) {
 	if _, err := h.svc.Install(ctx, ""); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
-	h.deployments.getErr = errors.New("not found")
+	h.deployments.getErr = deployment.ErrNotFound
 
 	got, err := h.svc.Status(ctx)
 	if err != nil {
@@ -984,7 +984,7 @@ func TestRolloutDeploysAgainWhenTheRecordedDeploymentIsGone(t *testing.T) {
 		t.Fatalf("Install: %v", err)
 	}
 	deploysAfterInstall := len(h.deployments.deployed)
-	h.deployments.getErr = errors.New("deployment not found")
+	h.deployments.getErr = deployment.ErrNotFound
 
 	if _, err := h.svc.Rollout(ctx, "user-1"); err != nil {
 		t.Fatalf("Rollout: %v", err)
@@ -995,6 +995,54 @@ func TestRolloutDeploysAgainWhenTheRecordedDeploymentIsGone(t *testing.T) {
 	}
 	if got := len(h.deployments.deployed); got != deploysAfterInstall+1 {
 		t.Errorf("deploys = %d, want a new one created", got)
+	}
+}
+
+// "Gone" and "I could not tell" are different answers, and only one of them is safe
+// to guess at. A cluster API that times out must not be read as an absent
+// deployment: taking the create path then puts a second agent beside a first that is
+// running perfectly well, and the roll-out an operator asked for silently became a
+// duplicate.
+func TestATransientLookupFailureNeitherDeploysNorRollsOut(t *testing.T) {
+	h := newHarness(t, true)
+	ctx := context.Background()
+
+	if _, err := h.svc.Install(ctx, ""); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	deploysAfterInstall := len(h.deployments.deployed)
+	h.deployments.getErr = errors.New("etcdserver: request timed out")
+
+	if _, err := h.svc.Rollout(ctx, "user-1"); err == nil {
+		t.Fatal("want the roll-out to fail rather than guess")
+	}
+
+	if got := len(h.deployments.deployed); got != deploysAfterInstall {
+		t.Errorf("deploys = %d, want no second deployment created", got)
+	}
+	if len(h.deployments.rollouts) != 0 {
+		t.Error("want no rolling update either")
+	}
+}
+
+// The same distinction on the read path. Clearing the id on a transient failure
+// would offer Deploy for a deployment that is running fine, and pressing it is how
+// the duplicate above gets created by hand instead.
+func TestStatusKeepsTheDeploymentOnATransientLookupFailure(t *testing.T) {
+	h := newHarness(t, true)
+	ctx := context.Background()
+
+	if _, err := h.svc.Install(ctx, ""); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	h.deployments.getErr = errors.New("etcdserver: request timed out")
+
+	got, err := h.svc.Status(ctx)
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if got.DeploymentID == "" {
+		t.Error("want the recorded deployment still reported when the lookup merely failed")
 	}
 }
 
