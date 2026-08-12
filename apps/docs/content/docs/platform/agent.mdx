@@ -88,11 +88,13 @@ So an edit you want back is under [Versions](/platform/snapshots) with that tag:
 
 ## Trace him
 
-Press **Turn tracing on**, then find his runs under [Traces](/platform/traces) like any other integration's — every model call, every tool call, every block.
+**He installs with tracing already on**, so his runs are under [Traces](/platform/traces) from the first one — every model call, every tool call, every block.
 
-Expect his pods to be replaced: the runtime reads the tracing setting when it starts, so it cannot be changed in place. Nothing else about the deployment changes — same version, same environment.
+That is the opposite of the default for anything you build, and for the same reasons. [Tracing is off by default](/platform/deployments#tracing) because it costs throughput, and a chat agent answering a handful of questions has none to lose. What he does have is the ability to deploy, and a diet of text other people wrote — so "what did he actually do, and was he told to" is worth being able to answer about every run rather than only the ones after somebody thought to switch it on.
 
-Reach for this whenever you want to know why he did something. It is the cheapest way to find out, and it is the one setting on this page that is genuinely his rather than the deployment's.
+Turn it off with the toggle if you would rather. That is a decision, and it sticks: a redeploy or a roll-out afterwards leaves it off rather than quietly restoring the default.
+
+Expect his pods to be replaced either way: the runtime reads the tracing setting when it starts, so it cannot be changed in place. Nothing else about the deployment changes — same version, same environment.
 
 ## Remove him
 
@@ -122,7 +124,7 @@ You do not need to defend the host: the connector's `baseURL` is a boundary he c
 His `logs_api` tool is a second, independent boundary — a different connector with a different `baseURL` — so narrowing one does nothing to the other. It already ships with `allowMethods: [GET]`, which costs nothing there because the observability API serves no other method. To take stored logs and traces away from him entirely, untick the observability grant and roll out; that removes the address rather than the tool, and he will say so when asked.
 
 <Callout>
-Bear in mind that he reads integration definitions, resource contents, pod logs and — with the observability grant — stored log messages and captured request bodies from every deployment. All of that is text other people wrote, which makes prompt injection a real consideration: a malicious string in a flow definition, or in a log line an integration was made to emit, is an instruction he may see. Narrow `allowMethods` to bound what such an instruction could achieve, untick the observability grant if you would rather he did not read that surface at all, and turn tracing on to see whether one was followed.
+Bear in mind that he reads integration definitions, resource contents, pod logs and — with the observability grant — stored log messages and captured request bodies from every deployment. All of that is text other people wrote, which makes prompt injection a real consideration: a malicious string in a flow definition, or in a log line an integration was made to emit, is an instruction he may see. Narrow `allowMethods` to bound what such an instruction could achieve, untick the observability grant if you would rather he did not read that surface at all, and leave tracing on — it is on by default precisely so that "was he told to do that" is answerable after the fact rather than only from the run you happened to be watching.
 </Callout>
 
 ## What he is made of
