@@ -169,6 +169,45 @@ func TestParallelCallsToOneToolGetDistinctIDs(t *testing.T) {
 	}
 }
 
+// TestProviderCallIDSurvivesTheRoundTrip pins that an id Gemini issued comes back
+// on *both* sides of the echoed turn.
+//
+// Gemini 3.x supplies real ids, and they are how it pairs a response with the call
+// that asked for it. Putting the id only on the function response left the response
+// referring to a call that no longer claimed it — the shape in which a turn's
+// earlier responses are silently dropped.
+func TestProviderCallIDSurvivesTheRoundTrip(t *testing.T) {
+	resp := translateResponse(&genai.GenerateContentResponse{
+		Candidates: []*genai.Candidate{{
+			Content: &genai.Content{Role: genai.RoleModel, Parts: []*genai.Part{
+				{FunctionCall: &genai.FunctionCall{ID: "call_abc", Name: "lookup_order"}},
+			}},
+			FinishReason: genai.FinishReasonStop,
+		}},
+	}, "gemini-3.5-flash")
+	if len(resp.ToolCalls) != 1 {
+		t.Fatalf("tool calls = %d, want 1", len(resp.ToolCalls))
+	}
+
+	contents, err := toContents([]core.LLMMessage{
+		resp.Raw,
+		{Role: core.LLMRoleTool, ToolResults: []core.LLMToolResult{
+			{ToolCallID: resp.ToolCalls[0].ID, Tool: resp.ToolCalls[0].Name, Content: `{"ok":true}`},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("toContents: %v", err)
+	}
+	call := contents[0].Parts[0].FunctionCall
+	if call == nil || call.ID != "call_abc" {
+		t.Errorf("echoed call lost the provider's id: %+v", call)
+	}
+	fr := contents[1].Parts[0].FunctionResponse
+	if fr == nil || fr.ID != "call_abc" || fr.Name != "lookup_order" {
+		t.Errorf("function response = %+v, want id call_abc and name lookup_order", fr)
+	}
+}
+
 // TestProviderCallIDIsPreferred pins that an id Gemini itself supplies wins over
 // the synthesized one — the synthesized id exists only because the field is
 // usually empty, and echoing back an id the provider did not issue is how a

@@ -433,6 +433,13 @@ func toContents(msgs []core.LLMMessage) ([]*genai.Content, error) {
 			}
 			for _, tc := range m.ToolCalls {
 				part := genai.NewPartFromFunctionCall(tc.Name, argsToMap(tc.Input))
+				// Replay the id on the call as well as on the response it is answered
+				// by. Gemini 3.x issues real ids — call_90655, call_90656 for two calls
+				// in one turn — and they are how it pairs a response with the call that
+				// asked for it. Echoing the id on only one side leaves the response
+				// referring to a call that no longer claims it, which is how a turn's
+				// earlier responses get dropped.
+				part.FunctionCall.ID = tc.ID
 				// Replay the thought signature Gemini 3.x attaches to a function call;
 				// it is required on the echoed call for the next turn to be accepted.
 				part.ThoughtSignature = tc.Signature
