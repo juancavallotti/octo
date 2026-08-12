@@ -129,6 +129,26 @@ type BlockConfig struct {
 	// Guardrail describes when the model should fall back to the Default path; it
 	// is used by ai-router and ai-agent.
 	Guardrail string `yaml:"guardrail,omitempty"`
+	// Answer is the shape an "ai-agent" is told to reply in: "json" (the default)
+	// or "text". It decides one sentence of the system prompt and nothing else —
+	// the reply is parsed the same way either way, becoming a structured body when
+	// it happens to be JSON and a string when it does not.
+	//
+	// The default exists because an agent's answer is the next block's body, so a
+	// flow reading body.tier needs the model to have been asked for an object. An
+	// agent whose answer a person reads wants "text", and needs it: told to reply
+	// in JSON here and in prose by its own prompt, which instruction a model obeys
+	// is decided by the provider rather than by the flow.
+	Answer string `yaml:"answer,omitempty"`
+	// Input is a CEL expression producing the text of an "ai-agent"'s opening user
+	// turn. Empty hands the model the whole input body as a JSON document to work
+	// from, which is what an agent transforming a payload wants.
+	//
+	// A conversational agent wants the opposite: state the question, and the model
+	// answers it. Handed a body, a model that does not reason before replying tends
+	// to answer with a body of the same shape — so an agent whose reply is read as
+	// prose says here which part of the message is the question.
+	Input string `yaml:"input,omitempty"`
 	// Routes are the named, described branches of an "ai-router" block. The model
 	// picks one; Default is the guardrail taken when it is not confident.
 	Routes []RouteConfig `yaml:"routes,omitempty"`

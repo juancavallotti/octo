@@ -303,6 +303,16 @@ type aiAgentMeta struct {
 	Prompt string `json:"prompt" octo:"label=Prompt,required"`
 	// Describes when to fall back to the default path (cannot complete with confidence).
 	Guardrail string `json:"guardrail" octo:"label=Guardrail"`
+	// CEL expression for the agent's opening user turn. Empty hands the model the
+	// whole input body as a JSON document to work from, which is what an agent
+	// transforming a payload wants; a conversational one states its question here so
+	// the model answers it rather than replying in the shape it was handed.
+	Input string `json:"input" octo:"label=Opening turn,type=cel"`
+	// The shape the model is told to answer in. "json" suits an agent whose answer
+	// is the next block's body; "text" suits one whose answer a person reads and
+	// leaves the format to the prompt. The reply is parsed the same way either way.
+	//nolint:lll // the enum tag (options + default) is inherently longer than 120 cols
+	Answer string `json:"answer" octo:"label=Answer format,type=enum,enum=json|text,default=json"`
 	// Cap on tool-calling turns before falling back to the guardrail.
 	MaxIterations int `json:"maxIterations" octo:"label=Max iterations"`
 	// CEL expression for the conversation thread id. When set, the agent loads the

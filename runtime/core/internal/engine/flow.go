@@ -537,6 +537,8 @@ func compositeSlots(cfg types.BlockConfig) []string {
 	add(len(cfg.Routes) > 0, "routes")
 	add(len(cfg.Tools) > 0, "tools")
 	add(len(cfg.Skills) > 0, "skills")
+	add(cfg.Input != "", "input")
+	add(cfg.Answer != "", "answer")
 	add(cfg.MaxIterations != 0, "maxIterations")
 	add(cfg.MaxAttempts != 0, "maxAttempts")
 	add(cfg.ServerName != "", "serverName")

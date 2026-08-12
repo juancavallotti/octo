@@ -116,6 +116,117 @@ func TestToContentsRoles(t *testing.T) {
 	}
 }
 
+// TestParallelCallsToOneToolGetDistinctIDs pins the fix for the collision that
+// synthesizing an id from the function name alone caused.
+//
+// Gemini calls tools in parallel, and calling the same tool twice in one turn is
+// ordinary rather than a corner: two reads of different paths through one
+// `octo_api` tool is exactly what an agent does. When both calls carried the id
+// `octo_api`, the two became one to everything correlating on it — the agent
+// reported both under a single id and the panel drew one chip for two calls.
+func TestParallelCallsToOneToolGetDistinctIDs(t *testing.T) {
+	resp := translateResponse(&genai.GenerateContentResponse{
+		Candidates: []*genai.Candidate{{
+			Content: &genai.Content{Role: genai.RoleModel, Parts: []*genai.Part{
+				{FunctionCall: &genai.FunctionCall{Name: "octo_api", Args: map[string]any{"path": "/a"}}},
+				{FunctionCall: &genai.FunctionCall{Name: "octo_api", Args: map[string]any{"path": "/b"}}},
+			}},
+			FinishReason: genai.FinishReasonStop,
+		}},
+	}, "gemini-3.5-flash")
+
+	if len(resp.ToolCalls) != 2 {
+		t.Fatalf("tool calls = %d, want 2", len(resp.ToolCalls))
+	}
+	first, second := resp.ToolCalls[0], resp.ToolCalls[1]
+	if first.ID == second.ID {
+		t.Fatalf("both calls share the id %q; parallel calls to one tool must be distinguishable", first.ID)
+	}
+	if first.Name != "octo_api" || second.Name != "octo_api" {
+		t.Errorf("names = %q/%q, want both octo_api", first.Name, second.Name)
+	}
+
+	// The results still have to reach Gemini addressed by *name*, which is what it
+	// matches on — the id only tells the two calls apart.
+	contents, err := toContents([]core.LLMMessage{{
+		Role: core.LLMRoleTool,
+		ToolResults: []core.LLMToolResult{
+			{ToolCallID: first.ID, Tool: first.Name, Content: `{"ok":1}`},
+			{ToolCallID: second.ID, Tool: second.Name, Content: `{"ok":2}`},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("toContents: %v", err)
+	}
+	for i, part := range contents[0].Parts {
+		fr := part.FunctionResponse
+		if fr == nil || fr.Name != "octo_api" {
+			t.Fatalf("response %d = %+v, want one named octo_api", i, fr)
+		}
+	}
+	if a, b := contents[0].Parts[0].FunctionResponse, contents[0].Parts[1].FunctionResponse; a.ID == b.ID {
+		t.Errorf("function responses share the id %q", a.ID)
+	}
+}
+
+// TestProviderCallIDSurvivesTheRoundTrip pins that an id Gemini issued comes back
+// on *both* sides of the echoed turn.
+//
+// Gemini 3.x supplies real ids, and they are how it pairs a response with the call
+// that asked for it. Putting the id only on the function response left the response
+// referring to a call that no longer claimed it — the shape in which a turn's
+// earlier responses are silently dropped.
+func TestProviderCallIDSurvivesTheRoundTrip(t *testing.T) {
+	resp := translateResponse(&genai.GenerateContentResponse{
+		Candidates: []*genai.Candidate{{
+			Content: &genai.Content{Role: genai.RoleModel, Parts: []*genai.Part{
+				{FunctionCall: &genai.FunctionCall{ID: "call_abc", Name: "lookup_order"}},
+			}},
+			FinishReason: genai.FinishReasonStop,
+		}},
+	}, "gemini-3.5-flash")
+	if len(resp.ToolCalls) != 1 {
+		t.Fatalf("tool calls = %d, want 1", len(resp.ToolCalls))
+	}
+
+	contents, err := toContents([]core.LLMMessage{
+		resp.Raw,
+		{Role: core.LLMRoleTool, ToolResults: []core.LLMToolResult{
+			{ToolCallID: resp.ToolCalls[0].ID, Tool: resp.ToolCalls[0].Name, Content: `{"ok":true}`},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("toContents: %v", err)
+	}
+	call := contents[0].Parts[0].FunctionCall
+	if call == nil || call.ID != "call_abc" {
+		t.Errorf("echoed call lost the provider's id: %+v", call)
+	}
+	fr := contents[1].Parts[0].FunctionResponse
+	if fr == nil || fr.ID != "call_abc" || fr.Name != "lookup_order" {
+		t.Errorf("function response = %+v, want id call_abc and name lookup_order", fr)
+	}
+}
+
+// TestProviderCallIDIsPreferred pins that an id Gemini itself supplies wins over
+// the synthesized one — the synthesized id exists only because the field is
+// usually empty, and echoing back an id the provider did not issue is how a
+// multi-turn tool loop stops matching.
+func TestProviderCallIDIsPreferred(t *testing.T) {
+	resp := translateResponse(&genai.GenerateContentResponse{
+		Candidates: []*genai.Candidate{{
+			Content: &genai.Content{Role: genai.RoleModel, Parts: []*genai.Part{
+				{FunctionCall: &genai.FunctionCall{ID: "call_abc", Name: "octo_api"}},
+			}},
+			FinishReason: genai.FinishReasonStop,
+		}},
+	}, "gemini-3.5-flash")
+
+	if len(resp.ToolCalls) != 1 || resp.ToolCalls[0].ID != "call_abc" {
+		t.Errorf("tool calls = %+v, want the provider's own id", resp.ToolCalls)
+	}
+}
+
 // TestCompleteEndToEnd drives Complete against a canned Gemini response served by
 // an httptest server, proving request marshaling and response translation,
 // including the STOP-with-function-call case.
@@ -171,7 +282,7 @@ func TestCompleteEndToEnd(t *testing.T) {
 	var input struct {
 		Route string `json:"route"`
 	}
-	if call.Name != "select_route" || call.ID != "select_route" ||
+	if call.Name != "select_route" || call.ID != "select_route-0" ||
 		json.Unmarshal(call.Input, &input) != nil || input.Route != "billing" {
 		t.Errorf("tool call = %+v (route=%q)", call, input.Route)
 	}

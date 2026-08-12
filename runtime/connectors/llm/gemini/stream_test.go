@@ -137,7 +137,7 @@ func TestStreamEmitsCanonicalEvents(t *testing.T) {
 		{Kind: core.LLMStreamText, Text: "ting", Index: 1},
 		{
 			Kind: core.LLMStreamToolInput, Text: `{"route":"billing"}`,
-			Tool: "select_route", ToolCallID: "select_route", Index: 2,
+			Tool: "select_route", ToolCallID: "select_route-0", Index: 2,
 		},
 	}
 	if !reflect.DeepEqual(got, want) {

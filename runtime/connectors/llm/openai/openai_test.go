@@ -9,7 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	sdk "github.com/openai/openai-go/v2"
+	"github.com/openai/openai-go/v2/packages/param"
+	"github.com/openai/openai-go/v2/responses"
+	"github.com/openai/openai-go/v2/shared"
 
 	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/types"
@@ -35,21 +37,29 @@ func TestStartAppliesDefaultModel(t *testing.T) {
 	}
 }
 
-func TestMapFinishReason(t *testing.T) {
+func TestMapStopReason(t *testing.T) {
 	cases := []struct {
-		reason, refusal string
-		want            core.LLMStopReason
+		name     string
+		reason   string
+		hasCalls bool
+		refused  bool
+		want     core.LLMStopReason
 	}{
-		{"tool_calls", "", core.LLMStopToolUse},
-		{"length", "", core.LLMStopMaxTokens},
-		{"content_filter", "", core.LLMStopRefusal},
-		{"stop", "", core.LLMStopEndTurn},
-		{"stop", "I can't help with that", core.LLMStopRefusal},
+		// Responses names no finish reason for an ordinary turn: a turn that wants
+		// tools just ends completed with function_call items in its output.
+		{name: "calls mean tool use", hasCalls: true, want: core.LLMStopToolUse},
+		{name: "truncated", reason: "max_output_tokens", want: core.LLMStopMaxTokens},
+		{name: "filtered", reason: "content_filter", want: core.LLMStopRefusal},
+		{name: "plain end", want: core.LLMStopEndTurn},
+		{name: "refusal outranks calls", hasCalls: true, refused: true, want: core.LLMStopRefusal},
 	}
 	for _, tt := range cases {
-		if got := mapFinishReason(tt.reason, tt.refusal); got != tt.want {
-			t.Errorf("mapFinishReason(%q,%q) = %q, want %q", tt.reason, tt.refusal, got, tt.want)
-		}
+		t.Run(tt.name, func(t *testing.T) {
+			resp := &responses.Response{IncompleteDetails: responses.ResponseIncompleteDetails{Reason: tt.reason}}
+			if got := mapStopReason(resp, tt.hasCalls, tt.refused); got != tt.want {
+				t.Errorf("mapStopReason = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 
@@ -57,14 +67,17 @@ func TestToToolChoice(t *testing.T) {
 	if _, ok := toToolChoice(core.LLMToolChoice{}); ok {
 		t.Error("auto (zero) mode should signal unset")
 	}
-	if c, ok := toToolChoice(core.LLMToolChoice{Mode: core.LLMToolChoiceAny}); !ok || c.OfAuto.Value != "required" {
+	if c, ok := toToolChoice(core.LLMToolChoice{Mode: core.LLMToolChoiceAny}); !ok ||
+		c.OfToolChoiceMode.Value != responses.ToolChoiceOptionsRequired {
 		t.Errorf("any mode should map to required: %+v", c)
 	}
-	if c, ok := toToolChoice(core.LLMToolChoice{Mode: core.LLMToolChoiceNone}); !ok || c.OfAuto.Value != "none" {
+	if c, ok := toToolChoice(core.LLMToolChoice{Mode: core.LLMToolChoiceNone}); !ok ||
+		c.OfToolChoiceMode.Value != responses.ToolChoiceOptionsNone {
 		t.Errorf("none mode should map to none: %+v", c)
 	}
-	if c, ok := toToolChoice(core.LLMToolChoice{Mode: core.LLMToolChoiceTool, Name: "pick"}); !ok || c.OfFunctionToolChoice == nil {
-		t.Errorf("tool mode should set the function tool choice: %+v", c)
+	if c, ok := toToolChoice(core.LLMToolChoice{Mode: core.LLMToolChoiceTool, Name: "pick"}); !ok ||
+		c.OfFunctionTool == nil || c.OfFunctionTool.Name != "pick" {
+		t.Errorf("tool mode should set the named function tool choice: %+v", c)
 	}
 }
 
@@ -80,56 +93,162 @@ func TestToToolsDecodesSchema(t *testing.T) {
 	if len(tools) != 1 || tools[0].OfFunction == nil {
 		t.Fatalf("expected one function tool, got %+v", tools)
 	}
-	fn := tools[0].OfFunction.Function
+	fn := tools[0].OfFunction
 	if fn.Name != "select_route" || fn.Description.Value != "pick a route" || fn.Parameters["type"] != "object" {
 		t.Errorf("function definition not mapped: %+v", fn)
 	}
+	// Strict defaults to on, and on demands a schema shape a hand-written
+	// inputSchema will not have — every property required, additionalProperties
+	// false. The connector passes the author's schema through, so strict is off.
+	if fn.Strict.Value {
+		t.Error("strict must be off: the connector passes an author's schema through verbatim")
+	}
 }
 
-func TestToMessagesRoles(t *testing.T) {
-	msgs, err := toMessages(core.LLMRequest{
-		System: "be terse",
-		Messages: []core.LLMMessage{
-			{Role: core.LLMRoleUser, Text: "hi"},
-			{Role: core.LLMRoleAssistant, Text: "ok", ToolCalls: []core.LLMToolCall{
-				{ID: "t1", Name: "look", Input: json.RawMessage(`{"q":"x"}`)},
-			}},
-			{Role: core.LLMRoleTool, ToolResults: []core.LLMToolResult{{ToolCallID: "t1", Content: `{"ok":true}`}}},
-		},
+func TestToInputRoles(t *testing.T) {
+	input, err := toInput([]core.LLMMessage{
+		{Role: core.LLMRoleUser, Text: "hi"},
+		{Role: core.LLMRoleAssistant, Text: "ok", ToolCalls: []core.LLMToolCall{
+			{ID: "t1", Name: "look", Input: json.RawMessage(`{"q":"x"}`)},
+		}},
+		{Role: core.LLMRoleTool, ToolResults: []core.LLMToolResult{
+			{ToolCallID: "t1", Tool: "look", Content: `{"ok":true}`},
+		}},
 	})
 	if err != nil {
-		t.Fatalf("toMessages: %v", err)
+		t.Fatalf("toInput: %v", err)
 	}
-	// system + user + assistant + tool = 4
-	if len(msgs) != 4 {
-		t.Fatalf("messages = %d, want 4 (incl. system)", len(msgs))
+	// user + assistant text + assistant call + call output = 4. The system prompt is
+	// not an item here: Responses carries it as instructions.
+	if len(input) != 4 {
+		t.Fatalf("items = %d, want 4: %+v", len(input), input)
 	}
-	if _, err := toMessages(core.LLMRequest{Messages: []core.LLMMessage{{Role: "bogus"}}}); err == nil {
+	if input[1].OfMessage == nil {
+		t.Errorf("item 1 should be the assistant's text: %+v", input[1])
+	}
+	if input[2].OfFunctionCall == nil || input[2].OfFunctionCall.CallID != "t1" {
+		t.Errorf("item 2 should be the function call: %+v", input[2])
+	}
+	if input[3].OfFunctionCallOutput == nil || input[3].OfFunctionCallOutput.CallID != "t1" {
+		t.Errorf("item 3 should be the call output: %+v", input[3])
+	}
+	if _, err := toInput([]core.LLMMessage{{Role: "bogus"}}); err == nil {
 		t.Error("expected error for unknown role")
 	}
 }
 
+// TestReasoningIsEchoedBeforeItsCall pins the ordering the server enforces: a
+// reasoning item must precede the function call it produced, or the turn is
+// rejected as a call whose reasoning went missing. Nothing is stored on the
+// provider's side, so the encrypted content is the only thing that carries the
+// reasoning forward.
+func TestReasoningIsEchoedBeforeItsCall(t *testing.T) {
+	input, err := toInput([]core.LLMMessage{{
+		Role: core.LLMRoleAssistant,
+		Thinking: []core.LLMThinkingBlock{
+			{Text: "weighing it up", Signature: "rs_1", Redacted: []byte("gAAAA")},
+		},
+		ToolCalls: []core.LLMToolCall{{ID: "call_1", Name: "look"}},
+	}})
+	if err != nil {
+		t.Fatalf("toInput: %v", err)
+	}
+	if len(input) != 2 {
+		t.Fatalf("items = %d, want 2 (reasoning then call)", len(input))
+	}
+	reasoning := input[0].OfReasoning
+	if reasoning == nil {
+		t.Fatalf("item 0 should be the reasoning: %+v", input[0])
+	}
+	if reasoning.ID != "rs_1" || reasoning.EncryptedContent.Value != "gAAAA" {
+		t.Errorf("reasoning item lost its id or encrypted content: %+v", reasoning)
+	}
+	if input[1].OfFunctionCall == nil {
+		t.Errorf("item 1 should be the function call: %+v", input[1])
+	}
+}
+
+// TestEchoedReasoningAlwaysCarriesASummary pins the field on the wire, not on the
+// struct, because that is where it went missing.
+//
+// A reasoning item's summary is required even when empty, and empty is the
+// ordinary case: a turn that never asked for a summary still returns reasoning
+// items carrying encrypted content and nothing else. A nil slice is dropped by the
+// encoder rather than sent as [], so the server saw no field at all and refused
+// the request — "Missing required parameter: 'input[1].summary'" — which killed
+// every turn after a tool call. Asserting on the struct would not have caught it;
+// the struct was fine and the bytes were not.
+func TestEchoedReasoningAlwaysCarriesASummary(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		text string
+	}{
+		{name: "no summary returned", text: ""},
+		{name: "summary returned", text: "weighing it up"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			input, err := toInput([]core.LLMMessage{{
+				Role:     core.LLMRoleAssistant,
+				Thinking: []core.LLMThinkingBlock{{Text: tt.text, Signature: "rs_1", Redacted: []byte("gAAAA")}},
+			}})
+			if err != nil {
+				t.Fatalf("toInput: %v", err)
+			}
+			raw, err := json.Marshal(input[0].OfReasoning)
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			var onWire map[string]any
+			if err := json.Unmarshal(raw, &onWire); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if _, ok := onWire["summary"]; !ok {
+				t.Errorf("summary is absent from the request: %s", raw)
+			}
+		})
+	}
+}
+
+// TestReasoningWithoutASignatureIsDropped pins that a block with no id is left out
+// rather than sent. The id is what the server matches the echo against, so an item
+// invented without one is not the model's reasoning coming back — it is a new item
+// the server has never seen.
+func TestReasoningWithoutASignatureIsDropped(t *testing.T) {
+	input, err := toInput([]core.LLMMessage{{
+		Role:     core.LLMRoleAssistant,
+		Thinking: []core.LLMThinkingBlock{{Text: "no id here"}},
+		Text:     "hello",
+	}})
+	if err != nil {
+		t.Fatalf("toInput: %v", err)
+	}
+	if len(input) != 1 || input[0].OfMessage == nil {
+		t.Errorf("items = %+v, want only the assistant text", input)
+	}
+}
+
 // TestCompleteEndToEnd drives Complete against a canned OpenAI response served by
-// an httptest server, proving request marshaling and response translation.
+// an httptest server, proving request marshaling and response translation —
+// including that reasoning is collected as reasoning rather than folded into the
+// answer, which is what keeps a caller from publishing the model's own reasoning.
 func TestCompleteEndToEnd(t *testing.T) {
 	const cannedResponse = `{
-		"id": "chatcmpl-1",
-		"object": "chat.completion",
-		"created": 1,
-		"model": "gpt-4.1",
-		"choices": [{
-			"index": 0,
-			"message": {
-				"role": "assistant",
-				"content": "routing",
-				"tool_calls": [
-					{"id": "call_1", "type": "function",
-					 "function": {"name": "select_route", "arguments": "{\"route\":\"billing\"}"}}
-				]
-			},
-			"finish_reason": "tool_calls"
-		}],
-		"usage": {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8}
+		"id": "resp_1",
+		"object": "response",
+		"created_at": 1,
+		"model": "gpt-5.6-luna",
+		"status": "completed",
+		"output": [
+			{"type": "reasoning", "id": "rs_1", "encrypted_content": "gAAAA",
+			 "summary": [{"type": "summary_text", "text": "billing, then"}]},
+			{"type": "message", "id": "msg_1", "role": "assistant", "status": "completed",
+			 "content": [{"type": "output_text", "text": "routing", "annotations": []}]},
+			{"type": "function_call", "id": "fc_1", "call_id": "call_1",
+			 "name": "select_route", "arguments": "{\"route\":\"billing\"}"}
+		],
+		"usage": {"input_tokens": 5, "output_tokens": 3, "total_tokens": 8,
+		          "input_tokens_details": {"cached_tokens": 0},
+		          "output_tokens_details": {"reasoning_tokens": 2}}
 	}`
 
 	var gotBody map[string]any
@@ -175,10 +294,28 @@ func TestCompleteEndToEnd(t *testing.T) {
 		t.Errorf("tool call = %+v (route=%q)", call, input.Route)
 	}
 
-	// The request should carry the system message (role system) and a function
-	// tool_choice.
-	if msgs, ok := gotBody["messages"].([]any); !ok || len(msgs) == 0 {
-		t.Errorf("request messages missing: %v", gotBody["messages"])
+	// Reasoning is carried on the turn, never in the answer.
+	if strings.Contains(resp.Text, "billing, then") {
+		t.Error("the reasoning summary leaked into the answer text")
+	}
+	if len(resp.Raw.Thinking) != 1 {
+		t.Fatalf("thinking blocks = %d, want 1: %+v", len(resp.Raw.Thinking), resp.Raw.Thinking)
+	}
+	tb := resp.Raw.Thinking[0]
+	if tb.Text != "billing, then" || tb.Signature != "rs_1" || string(tb.Redacted) != "gAAAA" {
+		t.Errorf("thinking block = %+v", tb)
+	}
+	if resp.Usage == nil || resp.Usage.ThinkingTokens != 2 {
+		t.Errorf("usage = %+v, want 2 thinking tokens", resp.Usage)
+	}
+
+	// The system prompt rides as instructions rather than as an input item, and the
+	// tool choice names the function.
+	if gotBody["instructions"] != "you route tickets" {
+		t.Errorf("request instructions = %v", gotBody["instructions"])
+	}
+	if items, ok := gotBody["input"].([]any); !ok || len(items) == 0 {
+		t.Errorf("request input missing: %v", gotBody["input"])
 	}
 	if tc, ok := gotBody["tool_choice"].(map[string]any); !ok || tc["type"] != "function" {
 		t.Errorf("request tool_choice = %v, want type=function", gotBody["tool_choice"])
@@ -269,16 +406,16 @@ func TestEmbedRequiresInput(t *testing.T) {
 }
 
 func TestTranslateUsage(t *testing.T) {
-	if got := translateUsage(sdk.CompletionUsage{}); got != nil {
+	if got := translateUsage(responses.ResponseUsage{}); got != nil {
 		t.Errorf("empty usage = %+v, want nil", got)
 	}
-	got := translateUsage(sdk.CompletionUsage{
-		PromptTokens:            100,
-		CompletionTokens:        40,
-		CompletionTokensDetails: sdk.CompletionUsageCompletionTokensDetails{ReasoningTokens: 25},
-		PromptTokensDetails:     sdk.CompletionUsagePromptTokensDetails{CachedTokens: 30},
+	got := translateUsage(responses.ResponseUsage{
+		InputTokens:         100,
+		OutputTokens:        40,
+		OutputTokensDetails: responses.ResponseUsageOutputTokensDetails{ReasoningTokens: 25},
+		InputTokensDetails:  responses.ResponseUsageInputTokensDetails{CachedTokens: 30},
 	})
-	// CompletionTokens already counts reasoning, so OutputTokens passes through.
+	// OutputTokens already counts reasoning, so it passes through.
 	want := core.LLMUsage{InputTokens: 100, OutputTokens: 40, ThinkingTokens: 25, CachedTokens: 30}
 	if got == nil || *got != want {
 		t.Errorf("usage = %+v, want %+v", got, want)
@@ -286,32 +423,77 @@ func TestTranslateUsage(t *testing.T) {
 }
 
 func TestToReasoningEffort(t *testing.T) {
-	// Unset and "none" both mean no reasoning, and both say so on the wire. Omitting the field instead asks a reasoning model for its
-	// own default, which is not none — and a non-none default cannot be combined
-	// with function tools on /v1/chat/completions, so an agent on such a model
-	// failed its first turn with a 400 naming reasoning_effort.
-	for _, in := range []string{"", "none"} {
-		if got, err := toReasoningEffort(in); err != nil || string(got) != "none" {
-			t.Errorf("toReasoningEffort(%q) = %q (err %v), want none", in, got, err)
+	// Unset means default, and default sends no reasoning field at all. That is the
+	// only setting safe on every model this connector can be pointed at: reasoning is
+	// documented for gpt-5 and o-series only, and baseURL aims this at Azure, proxies
+	// and other compatible servers whose model list is not OpenAI's.
+	for _, in := range []string{"", "default"} {
+		if got, err := toReasoningEffort(in); err != nil || got != "" {
+			t.Errorf("toReasoningEffort(%q) = %q (err %v), want the field omitted", in, got, err)
 		}
 	}
-	// The old behaviour is still reachable, for a model that rejects an explicit
-	// none.
-	if got, err := toReasoningEffort("default"); err != nil || got != "" {
-		t.Errorf(`toReasoningEffort("default") = %q (err %v), want the field omitted`, got, err)
-	}
-	for _, in := range []string{"minimal", "low", "medium", "high"} {
+	for _, in := range []string{"none", "minimal", "low", "medium", "high"} {
 		if got, err := toReasoningEffort(in); err != nil || string(got) != in {
 			t.Errorf("toReasoningEffort(%q) = %q (err %v), want it passed through", in, got, err)
 		}
 	}
-	// "off" was the old spelling and is gone rather than aliased, per the standard
-	// that prefers a complete refactor to a compatibility shim.
+	// "off" was the original spelling and is gone rather than aliased, per the
+	// standard that prefers a complete refactor to a compatibility shim.
 	if _, err := toReasoningEffort("off"); err == nil {
 		t.Error("expected an error for the removed \"off\" spelling")
 	}
 	if _, err := toReasoningEffort("extreme"); err == nil {
 		t.Error("expected an error for an unknown effort")
+	}
+}
+
+// TestDefaultReasoningSendsNoReasoningField pins the request shape the default
+// produces, because it is the setting that broke and the one every install gets:
+// an explicit "none" is what stopped a reasoning model reasoning, and a model told
+// not to reason answered in the shape of its input instead of the shape its prompt
+// asked for.
+func TestDefaultReasoningSendsNoReasoningField(t *testing.T) {
+	c := &Connector{}
+	if err := c.Start(context.Background(), types.ConnectorConfig{
+		Name: "gpt", Settings: types.Settings{"apiKey": "sk-test"},
+	}); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	params, err := c.params(core.LLMRequest{Messages: []core.LLMMessage{{Role: core.LLMRoleUser, Text: "hi"}}})
+	if err != nil {
+		t.Fatalf("params: %v", err)
+	}
+	if !param.IsOmitted(params.Reasoning) {
+		t.Errorf("reasoning = %+v, want the field omitted by default", params.Reasoning)
+	}
+	if len(params.Include) != 0 {
+		t.Errorf("include = %+v, want nothing asked for when reasoning is not configured", params.Include)
+	}
+}
+
+// TestConfiguredReasoningAsksForASummaryAndItsEncryptedForm pins the two things a
+// reasoning turn needs beyond the effort itself: a summary, which is the only
+// readable reasoning Responses returns, and the encrypted content, which is what
+// carries reasoning to the next turn when nothing is stored server-side.
+func TestConfiguredReasoningAsksForASummaryAndItsEncryptedForm(t *testing.T) {
+	c := &Connector{}
+	if err := c.Start(context.Background(), types.ConnectorConfig{
+		Name: "gpt", Settings: types.Settings{"apiKey": "sk-test", "reasoning": "medium"},
+	}); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	params, err := c.params(core.LLMRequest{Messages: []core.LLMMessage{{Role: core.LLMRoleUser, Text: "hi"}}})
+	if err != nil {
+		t.Fatalf("params: %v", err)
+	}
+	if params.Reasoning.Effort != "medium" || params.Reasoning.Summary != shared.ReasoningSummaryAuto {
+		t.Errorf("reasoning = %+v, want medium effort with an auto summary", params.Reasoning)
+	}
+	if len(params.Include) != 1 || params.Include[0] != responses.ResponseIncludableReasoningEncryptedContent {
+		t.Errorf("include = %+v, want the encrypted reasoning content", params.Include)
+	}
+	if params.Store.Value {
+		t.Error("store must be off: the conversation is sent whole every turn")
 	}
 }
 

@@ -215,6 +215,11 @@ type streamFold struct {
 	finish genai.FinishReason
 	usage  *genai.GenerateContentResponseUsageMetadata
 	seen   bool
+	// calls counts the function calls folded so far, so a tool_input event can be
+	// given the same id translateResponse will give the finished call. The two agree
+	// because both number calls by their position among the turn's parts, and
+	// appendPart never merges a function call into anything.
+	calls int
 }
 
 // add folds one chunk in and reports its content as canonical events.
@@ -239,7 +244,12 @@ func (f *streamFold) add(chunk *genai.GenerateContentResponse, on func(core.LLMS
 		return nil
 	}
 	for _, part := range cand.Content.Parts {
-		if err := emitPart(part, f.appendPart(part), on); err != nil {
+		index := f.appendPart(part)
+		ordinal := f.calls
+		if part.FunctionCall != nil {
+			f.calls++
+		}
+		if err := emitPart(part, index, ordinal, on); err != nil {
 			return err
 		}
 	}
@@ -287,14 +297,16 @@ func (f *streamFold) response() *genai.GenerateContentResponse {
 }
 
 // emitPart maps one part onto the canonical vocabulary. index identifies the run
-// the part belongs to, so the fragments of one text run share it.
+// the part belongs to, so the fragments of one text run share it; ordinal is the
+// part's position among the turn's function calls, used to build the same call id
+// translateResponse will report on the finished response.
 //
 // A function call is reported as a single tool_input carrying its complete
 // arguments. Gemini never fragments them, unlike the other two providers, but a
 // consumer concatenating tool_input text per call still ends up with the same
 // valid JSON — which is the point of a canonical vocabulary, and better than
 // staying silent because the delivery differs.
-func emitPart(part *genai.Part, index int, on func(core.LLMStreamEvent) error) error {
+func emitPart(part *genai.Part, index, ordinal int, on func(core.LLMStreamEvent) error) error {
 	switch {
 	case part.Thought && part.Text != "":
 		if err := on(core.LLMStreamEvent{
@@ -316,7 +328,7 @@ func emitPart(part *genai.Part, index int, on func(core.LLMStreamEvent) error) e
 		}
 		if err := on(core.LLMStreamEvent{
 			Kind: core.LLMStreamToolInput, Text: string(args),
-			Tool: fc.Name, ToolCallID: fc.Name, Index: index,
+			Tool: fc.Name, ToolCallID: callID(fc, ordinal), Index: index,
 		}); err != nil {
 			return err
 		}
@@ -421,6 +433,13 @@ func toContents(msgs []core.LLMMessage) ([]*genai.Content, error) {
 			}
 			for _, tc := range m.ToolCalls {
 				part := genai.NewPartFromFunctionCall(tc.Name, argsToMap(tc.Input))
+				// Replay the id on the call as well as on the response it is answered
+				// by. Gemini 3.x issues real ids — call_90655, call_90656 for two calls
+				// in one turn — and they are how it pairs a response with the call that
+				// asked for it. Echoing the id on only one side leaves the response
+				// referring to a call that no longer claims it, which is how a turn's
+				// earlier responses get dropped.
+				part.FunctionCall.ID = tc.ID
 				// Replay the thought signature Gemini 3.x attaches to a function call;
 				// it is required on the echoed call for the next turn to be accepted.
 				part.ThoughtSignature = tc.Signature
@@ -430,7 +449,19 @@ func toContents(msgs []core.LLMMessage) ([]*genai.Content, error) {
 		case core.LLMRoleTool:
 			parts := make([]*genai.Part, 0, len(m.ToolResults))
 			for _, tr := range m.ToolResults {
-				parts = append(parts, genai.NewPartFromFunctionResponse(tr.ToolCallID, responseMap(tr)))
+				// Name and id are both carried: the name is what Gemini requires and what
+				// it matches on, the id is what disambiguates two calls to the same tool
+				// in one turn. Falling back to the id keeps a result built before results
+				// carried a name working rather than arriving nameless.
+				name := tr.Tool
+				if name == "" {
+					name = tr.ToolCallID
+				}
+				parts = append(parts, &genai.Part{FunctionResponse: &genai.FunctionResponse{
+					ID:       tr.ToolCallID,
+					Name:     name,
+					Response: responseMap(tr),
+				}})
 			}
 			out = append(out, genai.NewContentFromParts(parts, genai.RoleUser))
 		default:
@@ -524,7 +555,9 @@ func translateResponse(resp *genai.GenerateContentResponse, configuredModel stri
 		}
 		if fc := part.FunctionCall; fc != nil {
 			input, _ := json.Marshal(fc.Args)
-			calls = append(calls, core.LLMToolCall{ID: fc.Name, Name: fc.Name, Input: input, Signature: sig})
+			calls = append(calls, core.LLMToolCall{
+				ID: callID(fc, len(calls)), Name: fc.Name, Input: input, Signature: sig,
+			})
 			sig = nil // consumed by this call
 		}
 	}
@@ -543,6 +576,25 @@ func translateResponse(resp *genai.GenerateContentResponse, configuredModel stri
 		ToolCalls: calls,
 	}
 	return out
+}
+
+// callID is the id a tool call is addressed by, for a provider that usually sends
+// none. Gemini populates FunctionCall.ID only sometimes, so ordinal is the call's
+// position in the turn and the fallback is built from it.
+//
+// The name alone will not do, which is what this used to be. Gemini calls tools in
+// parallel — two `octo_api` calls in one turn is the ordinary case, not a corner —
+// and identical ids collapse them: the agent reports both under one id, the panel
+// draws one chip for two calls, and the two results become indistinguishable to
+// anything correlating on the id.
+//
+// The ordinal is per turn, which is all the scope an id needs: a result is matched
+// against the calls of the assistant turn it answers, never across turns.
+func callID(fc *genai.FunctionCall, ordinal int) string {
+	if fc.ID != "" {
+		return fc.ID
+	}
+	return fmt.Sprintf("%s-%d", fc.Name, ordinal)
 }
 
 // servedBy is the model that answered, preferring what the provider echoed over

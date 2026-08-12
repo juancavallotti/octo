@@ -69,6 +69,14 @@ func logModelResp(kind, name string, resp *core.LLMResponse) {
 // guardrail (Default) path when it is not confident in any named route.
 const routeGuardrailSentinel = "__guardrail__"
 
+// The shapes an ai-agent can be told to answer in. JSON is the default because an
+// agent's answer becomes the next block's body; text is for an agent whose answer
+// a person reads, and leaves the format to the block's own prompt.
+const (
+	answerJSON = "json"
+	answerText = "text"
+)
+
 // defaultRouterRounds caps how many inspection turns the router runs before it
 // gives up and takes the guardrail. Each turn is one model call.
 const defaultRouterRounds = 5
@@ -209,29 +217,29 @@ func (r *aiRouter) inspect(call core.LLMToolCall, msg *types.Message) core.LLMTo
 	case "get_body":
 		body, err := msg.BodyJSON()
 		if err != nil {
-			return errorResult(call.ID, fmt.Sprintf("encode body: %v", err))
+			return errorResult(call, fmt.Sprintf("encode body: %v", err))
 		}
-		return core.LLMToolResult{ToolCallID: call.ID, Content: string(body)}
+		return core.LLMToolResult{ToolCallID: call.ID, Tool: call.Name, Content: string(body)}
 	case "list_variables":
-		return core.LLMToolResult{ToolCallID: call.ID, Content: jsonStringArray(variableNames(msg))}
+		return core.LLMToolResult{ToolCallID: call.ID, Tool: call.Name, Content: jsonStringArray(variableNames(msg))}
 	case "get_variable":
 		var args struct {
 			Name string `json:"name"`
 		}
 		if err := json.Unmarshal(call.Input, &args); err != nil {
-			return errorResult(call.ID, "invalid arguments")
+			return errorResult(call, "invalid arguments")
 		}
 		value, ok := msg.Variables[args.Name]
 		if !ok {
-			return errorResult(call.ID, fmt.Sprintf("variable %q is not set", args.Name))
+			return errorResult(call, fmt.Sprintf("variable %q is not set", args.Name))
 		}
 		encoded, err := json.Marshal(value)
 		if err != nil {
-			return errorResult(call.ID, fmt.Sprintf("encode variable: %v", err))
+			return errorResult(call, fmt.Sprintf("encode variable: %v", err))
 		}
-		return core.LLMToolResult{ToolCallID: call.ID, Content: string(encoded)}
+		return core.LLMToolResult{ToolCallID: call.ID, Tool: call.Name, Content: string(encoded)}
 	default:
-		return errorResult(call.ID, fmt.Sprintf("unknown tool %q", call.Name))
+		return errorResult(call, fmt.Sprintf("unknown tool %q", call.Name))
 	}
 }
 
@@ -352,7 +360,7 @@ func (r *aiRetry) Process(ctx context.Context, msg *types.Message) (*types.Messa
 		slog.Info("ai-retry attempt failed", "block", r.name, "attempt", attempt+1, "error", err)
 		SetErrorVariable(msg, r.name, err)
 		convo = append(convo, core.LLMMessage{Role: core.LLMRoleTool, ToolResults: []core.LLMToolResult{{
-			ToolCallID: call.ID, IsError: true,
+			ToolCallID: call.ID, Tool: call.Name, IsError: true,
 			Content: "That revision did not fix it; the step failed again.\n" + r.stateText(msg) +
 				"\nCall revise_message again with a different fix.",
 		}}})
@@ -498,6 +506,9 @@ type aiAgent struct {
 	// resource against the current message when it is loaded.
 	skills        []agentSkill
 	skillRegistry *expr.TemplateRegistry
+	// input states the opening user turn, or is nil to hand the model the whole
+	// input body as a JSON document. See initConversation.
+	input *expr.Program
 	// Conversation memory (optional). When memoryThreadID is nil, memory is
 	// disabled and the agent is stateless across invocations. When set, the agent
 	// loads the thread's transcript before its run and saves the accumulated
@@ -513,18 +524,29 @@ type aiAgent struct {
 	streaming bool
 }
 
-//nolint:ireturn // builders intentionally return the MessageProcessor interface
-func (b *builder) aiAgent(cfg types.BlockConfig) (core.MessageProcessor, error) {
+// validateAgentConfig rejects an ai-agent block that cannot be built, before any
+// of it is. It is separate from the builder so the checks can grow without the
+// builder growing with them.
+func validateAgentConfig(cfg types.BlockConfig) error {
 	if len(cfg.Tools) == 0 {
-		return nil, errors.New("ai-agent block requires at least one tool")
+		return errors.New("ai-agent block requires at least one tool")
 	}
 	if strings.TrimSpace(cfg.Prompt) == "" {
-		return nil, errors.New("ai-agent block requires a prompt")
+		return errors.New("ai-agent block requires a prompt")
 	}
-	if err := allowSlots(cfg, blockKindAIAgent,
-		"tools", "skills", "default", "connector", "prompt", "guardrail", "maxIterations",
-		"memoryThreadId", "memoryMaxTokens", "memoryCompaction",
-		"events", "emit", "stream"); err != nil {
+	if cfg.Answer != "" && cfg.Answer != answerJSON && cfg.Answer != answerText {
+		return fmt.Errorf("ai-agent answer must be %q or %q, got %q",
+			answerJSON, answerText, cfg.Answer)
+	}
+	return allowSlots(cfg, blockKindAIAgent,
+		"tools", "skills", "default", "connector", "prompt", "guardrail", "input", "answer",
+		"maxIterations", "memoryThreadId", "memoryMaxTokens", "memoryCompaction",
+		"events", "emit", "stream")
+}
+
+//nolint:ireturn // builders intentionally return the MessageProcessor interface
+func (b *builder) aiAgent(cfg types.BlockConfig) (core.MessageProcessor, error) {
+	if err := validateAgentConfig(cfg); err != nil {
 		return nil, err
 	}
 
@@ -553,7 +575,7 @@ func (b *builder) aiAgent(cfg types.BlockConfig) (core.MessageProcessor, error) 
 
 	block := &aiAgent{
 		caller:        caller,
-		system:        buildAgentSystem(cfg.Prompt, cfg.Guardrail, skills),
+		system:        buildAgentSystem(cfg.Prompt, cfg.Guardrail, cfg.Answer, skills),
 		tools:         tools,
 		branches:      branches,
 		skills:        skills,
@@ -563,14 +585,18 @@ func (b *builder) aiAgent(cfg types.BlockConfig) (core.MessageProcessor, error) 
 		connector:     cfg.Connector,
 		env:           expr.EnvActivation(b.deps.Env),
 	}
-	if err := b.configureAgentMemory(block, cfg); err != nil {
-		return nil, err
-	}
-	if err := b.configureAgentEvents(block, cfg); err != nil {
-		return nil, err
-	}
-	if err := b.configureAgentGuardrail(block, cfg); err != nil {
-		return nil, err
+	// The optional halves, each of which is a no-op for a block that declares none.
+	// They run from a list rather than as four consecutive checks so that adding the
+	// next one is a line here rather than another branch in an already long builder.
+	for _, configure := range []func(*aiAgent, types.BlockConfig) error{
+		b.configureAgentInput,
+		b.configureAgentMemory,
+		b.configureAgentEvents,
+		b.configureAgentGuardrail,
+	} {
+		if err := configure(block, cfg); err != nil {
+			return nil, err
+		}
 	}
 	return block, nil
 }
@@ -587,6 +613,20 @@ func (b *builder) configureAgentGuardrail(block *aiAgent, cfg types.BlockConfig)
 		return fmt.Errorf("ai-agent default: %w", err)
 	}
 	block.guardrail = guardrail
+	return nil
+}
+
+// configureAgentInput compiles the expression stating the agent's opening user
+// turn. A block without one is left to the default framing in initConversation.
+func (b *builder) configureAgentInput(block *aiAgent, cfg types.BlockConfig) error {
+	if strings.TrimSpace(cfg.Input) == "" {
+		return nil
+	}
+	input, err := expr.CompileMessage(b.deps.Resources, cfg.Input)
+	if err != nil {
+		return fmt.Errorf("ai-agent input: %w", err)
+	}
+	block.input = input
 	return nil
 }
 
@@ -918,13 +958,13 @@ func (a *aiAgent) halt(
 	return current, nil
 }
 
-// initConversation encodes the input body and seeds the LLM message list,
+// initConversation seeds the LLM message list with the opening user turn,
 // prepending the thread's prior transcript when memory is enabled. It returns the
 // resolved thread id (empty when memory is disabled).
 func (a *aiAgent) initConversation(ctx context.Context, msg *types.Message) (string, []core.LLMMessage, error) {
-	body, err := msg.BodyJSON()
+	opening, err := a.openingTurn(msg)
 	if err != nil {
-		return "", nil, fmt.Errorf("ai-agent: encode input body: %w", err)
+		return "", nil, err
 	}
 	threadID, history, err := a.loadHistory(ctx, msg)
 	if err != nil {
@@ -932,11 +972,37 @@ func (a *aiAgent) initConversation(ctx context.Context, msg *types.Message) (str
 	}
 	messages := make([]core.LLMMessage, 0, len(history)+1)
 	messages = append(messages, history...)
-	messages = append(messages, core.LLMMessage{
-		Role: core.LLMRoleUser,
-		Text: "Accomplish the task for this input message body:\n" + string(body),
-	})
+	messages = append(messages, core.LLMMessage{Role: core.LLMRoleUser, Text: opening})
 	return threadID, messages, nil
+}
+
+// openingTurn is the text of the agent's first user message.
+//
+// The default hands over the whole body as a JSON document, which is what an agent
+// transforming a payload needs — and, for the same reason, the wrong thing to give
+// a conversational one. A model that answers without reasoning first tends to
+// reply in the shape it was handed, so an agent given a body answers with a body:
+// `{"message":"hello chat"}` came back from one provider for an input whose
+// message was "hello chat". Nothing downstream can undo that, because the reply is
+// streamed a token at a time to whoever is reading it.
+//
+// So an agent may state its own opening turn instead, and a conversational one
+// should: ask the question and the model answers the question. The expression
+// decides what of the body is the question and what is context, which is a choice
+// only the flow can make.
+func (a *aiAgent) openingTurn(msg *types.Message) (string, error) {
+	if a.input == nil {
+		body, err := msg.BodyJSON()
+		if err != nil {
+			return "", fmt.Errorf("ai-agent: encode input body: %w", err)
+		}
+		return "Accomplish the task for this input message body:\n" + string(body), nil
+	}
+	text, err := a.input.EvalString(expr.MessageActivation(msg, a.env))
+	if err != nil {
+		return "", fmt.Errorf("ai-agent input: %w", err)
+	}
+	return text, nil
 }
 
 // loadHistory resolves the memory thread id and loads its prior transcript when
@@ -987,13 +1053,13 @@ func (a *aiAgent) runTool(
 	}
 	flow, ok := a.branches[call.Name]
 	if !ok {
-		return errorResult(call.ID, fmt.Sprintf("unknown tool %q", call.Name)), current
+		return errorResult(call, fmt.Sprintf("unknown tool %q", call.Name)), current
 	}
 	content, out, errMsg := dispatchToolBranch(ctx, flow, call.Input, current)
 	if errMsg != "" {
-		return errorResult(call.ID, errMsg), out
+		return errorResult(call, errMsg), out
 	}
-	return core.LLMToolResult{ToolCallID: call.ID, Content: content}, out
+	return core.LLMToolResult{ToolCallID: call.ID, Tool: call.Name, Content: content}, out
 }
 
 // dispatchToolBranch runs a tool's flow branch on the shared message: the JSON
@@ -1034,22 +1100,22 @@ func (a *aiAgent) loadSkill(ctx context.Context, call core.LLMToolCall, msg *typ
 		Name string `json:"name"`
 	}
 	if err := json.Unmarshal(call.Input, &args); err != nil || args.Name == "" {
-		return errorResult(call.ID, "invalid arguments: name is required")
+		return errorResult(call, "invalid arguments: name is required")
 	}
 	skill, ok := a.findSkill(args.Name)
 	if !ok {
-		return errorResult(call.ID, fmt.Sprintf("unknown skill %q", args.Name))
+		return errorResult(call, fmt.Sprintf("unknown skill %q", args.Name))
 	}
 	tpl, err := a.skillRegistry.Get(ctx, skill.resource)
 	if err != nil {
-		return errorResult(call.ID, fmt.Sprintf("load skill %q: %v", skill.name, err))
+		return errorResult(call, fmt.Sprintf("load skill %q: %v", skill.name, err))
 	}
 	rendered, err := tpl.Render(expr.MessageActivation(msg, a.env))
 	if err != nil {
-		return errorResult(call.ID, fmt.Sprintf("render skill %q: %v", skill.name, err))
+		return errorResult(call, fmt.Sprintf("render skill %q: %v", skill.name, err))
 	}
 	slog.Info("ai-agent loaded skill", "block", a.name, "skill", skill.name)
-	return core.LLMToolResult{ToolCallID: call.ID, Content: rendered}
+	return core.LLMToolResult{ToolCallID: call.ID, Tool: call.Name, Content: rendered}
 }
 
 // findSkill returns the configured skill with the given name.
@@ -1107,11 +1173,34 @@ func toolInputSchema(tool types.ToolConfig) (json.RawMessage, error) {
 
 // buildAgentSystem assembles the agent's task system prompt, listing any skills
 // so the model knows what it can load via load_skill.
-func buildAgentSystem(prompt, guardrail string, skills []agentSkill) string {
+func buildAgentSystem(prompt, guardrail, answer string, skills []agentSkill) string {
 	var b strings.Builder
 	b.WriteString("You are an agent that accomplishes a task by calling the available tools. ")
-	b.WriteString("Call tools as needed; when the task is complete, respond with the final result ")
-	b.WriteString("as JSON only (no prose, no markdown code fences).\n\n")
+	b.WriteString("Call tools as needed; when the task is complete, respond with the final result")
+	// The one sentence the answer setting decides.
+	//
+	// Demanding JSON is the default because an agent's answer becomes the next
+	// block's body, and a flow reading body.tier needs the model to have been asked
+	// for an object rather than left to choose. What it cannot be is unconditional,
+	// which it was: it is written ahead of the block's own prompt, so an agent asked
+	// by its author for Markdown prose was asked here, first, for JSON and nothing
+	// else. No flow author can win that argument — Anthropic followed the later,
+	// more specific instruction and answered the sentence, while OpenAI and Gemini
+	// followed this one and answered `{"message":"…"}`. Streaming makes it
+	// permanent, since the JSON reaches the reader a token at a time.
+	//
+	// Saying nothing is therefore a real choice rather than an absence, and both
+	// shapes work downstream either way: foldResult parses an answer that is JSON
+	// and keeps anything else as text.
+	if answer != answerText {
+		b.WriteString(" as JSON only (no prose, no markdown code fences), ")
+		// The concession is not the fix — `answer: text` is — but it is what an agent
+		// gets whose author never found the setting, and it costs one clause. It names
+		// the instructions rather than "the user" because that is a place the model can
+		// actually look: they are the next thing in this prompt.
+		b.WriteString("unless the instructions below call for a different format")
+	}
+	b.WriteString(".\n\n")
 	b.WriteString(strings.TrimSpace(prompt))
 	if len(skills) > 0 {
 		b.WriteString("\n\nYou have these skills available. Call load_skill(name) to read a skill's ")
@@ -1207,9 +1296,11 @@ func selectRouteSchema(enum []string) json.RawMessage {
 		enumJSON))
 }
 
-// errorResult builds a tool result marked as an error so the model can react.
-func errorResult(toolCallID, message string) core.LLMToolResult {
-	return core.LLMToolResult{ToolCallID: toolCallID, Content: message, IsError: true}
+// errorResult builds a tool result marked as an error so the model can react. It
+// takes the call rather than its id so the result carries the tool's name too,
+// which a provider addressing its function responses by name needs.
+func errorResult(call core.LLMToolCall, message string) core.LLMToolResult {
+	return core.LLMToolResult{ToolCallID: call.ID, Tool: call.Name, Content: message, IsError: true}
 }
 
 // variableNames returns the message's variable names, sorted for determinism.

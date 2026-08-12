@@ -26,6 +26,8 @@ Lets an LLM accomplish a task by calling flow branches as tools, one or more tim
 | `connector` | string | Yes | — | Name of the LLM connector that drives the agent loop. |
 | `prompt` | string | Yes | — | Task instruction; the model calls tools as needed, then stops. |
 | `guardrail` | string | No | — | Describes when the model should fall back to the `default` path. |
+| `input` | `expression` (string) | No | — | The agent's opening user turn. Empty hands the model the whole input body as a JSON document to work from. |
+| `answer` | enum `json` \| `text` | No | `json` | The shape the model is told to reply in. `json` suits an agent whose answer is the next block's body; `text` leaves the format to your `prompt`. |
 | `maxIterations` | int | No | `8` | Cap on tool-calling turns (one model call each) before falling back to the guardrail. |
 | `memoryThreadId` | `expression` (string) | No | — | Conversation thread id. When set, the agent loads the thread's prior transcript before the run and saves it after. Empty disables memory. |
 | `memoryMaxTokens` | int | No | `8000` | Estimated-token budget for the stored transcript; compacted when exceeded. |
@@ -110,11 +112,43 @@ turn mid-stream rather than paying a provider for output nobody will read.
 Behavior notes:
 
 - The final assistant text becomes the message body — parsed as JSON when possible, stored as text otherwise; an empty answer leaves the last tool's body standing.
+- **Set `answer: text` for an agent a person reads.** The default adds *"respond with the final result as JSON only (no prose, no markdown code fences)"* ahead of your `prompt` — right when the answer feeds the next block, and a direct contradiction when your prompt asks for Markdown. A model handed both instructions picks one, and which one is the provider's choice rather than yours. The reply is parsed the same way either way.
 - The events path cannot fail the run: an error inside it is logged and the agent carries on. Only a stop travels back.
 - A tool-branch error or dropped message becomes an error result fed back to the model rather than aborting the agent.
 - On refusal or `maxIterations`, the `default` flow runs; **with no `default` configured, the block errors** so the failure reaches a recovery path.
 - With skills configured, the agent gets an implicit `load_skill(name)` tool; skill bodies are rendered against the current message like any template.
 - Memory is saved best-effort (a save failure logs, it does not fail the flow); wipe a thread with [clear-agent-memory](#clear-agent-memory).
+
+### The opening turn
+
+By default the agent's first user message hands the model the whole input body as
+a JSON document — `Accomplish the task for this input message body:` followed by
+the body. That is what an agent transforming a payload wants, and it is why the
+`enrich-lead` example below can ask for a JSON answer and get one.
+
+A conversational agent wants the opposite. Handed a body, a model that answers
+without reasoning first tends to reply **in the shape it was given**: an agent
+whose input body is `{"message": "hello"}` answers `{"message": "hello"}` rather
+than saying hello. Nothing downstream can undo that — with `stream: true` the
+reply has already reached the caller a token at a time.
+
+So set `input` to say which part of the message is the question:
+
+```yaml
+- type: ai-agent
+  name: support-chat
+  connector: claude
+  stream: true
+  input: >-
+    body.message + "\n\n[context: page=" + body.page + "]"
+  prompt: >
+    Answer the user's question in Markdown prose.
+  tools: [...]
+```
+
+The expression is evaluated against the message like any other, so `toJson(...)`
+can fold structured context in. Leave `input` unset and the body-document framing
+applies unchanged.
 
 ```yaml
 - type: ai-agent
