@@ -245,6 +245,52 @@ logs:
     nodePorts: {}
     externalTrafficPolicy: ""
 
+# Data retention: the nightly job that asks the aggregator to enforce whatever
+# retention policy the admin section has stored.
+#
+# There are two switches and they answer different questions. This one decides
+# whether the CronJob exists at all. The policy itself — how many days of logs,
+# how many days of traces — lives in the database and is edited at
+# /platform/admin/retention, because it is an operational decision rather than a
+# deployment one.
+#
+# Enabled by default is safe because the policy defaults to keeping everything: a
+# fresh install runs a nightly no-op until somebody sets a window, and turning
+# retention on later needs no chart change. Set enabled=false to remove the
+# CronJob outright — the endpoint it calls stays served either way, so Run now on
+# the admin page still works.
+retention:
+  enabled: true
+  # When the sweep runs, in the cluster's timezone. Deliberately in the small
+  # hours: a first sweep after a policy is switched on can be the whole of both
+  # tables, and it competes with ingest while it runs.
+  schedule: "0 3 * * *"
+  # The job is one HTTP POST, and the octo images are distroless with no shell
+  # and no client to make it with. So it borrows a third-party curl image, under
+  # the same registry rules as postgres and nats above: empty registry means
+  # Docker Hub, and it deliberately does NOT inherit the shared image.registry,
+  # which holds the octo-* images only.
+  image:
+    registry: ""
+    repository: curlimages/curl
+    tag: "8.11.1"
+    pullPolicy: IfNotPresent
+  # How long curl waits for the sweep, in seconds. It matches the aggregator's
+  # own limit on a sweep, so neither side gives up while the other is still
+  # working — a client that timed out first would abandon a purge that was making
+  # progress, every night, and never converge.
+  timeoutSeconds: 900
+  # Retries within a single scheduled run. Low on purpose: a sweep that fails
+  # twice is not going to succeed on the third try, and the next night's run
+  # picks up wherever this one stopped — each batch commits on its own, so a
+  # partial sweep is simply less deleted, never inconsistent.
+  backoffLimit: 2
+  # Skip a run entirely if the previous one is still going, rather than stacking
+  # sweeps that would only refuse each other with a 409.
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+
 # Generic runtime image the orchestrator deploys per integration. Passed to the
 # orchestrator as RUNTIME_IMAGE; pre-pulled into containerd at provision so
 # integration pods (imagePullPolicy IfNotPresent) never hit the registry later.

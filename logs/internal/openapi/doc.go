@@ -18,8 +18,8 @@
 //
 //	@title						Octo Logs API
 //	@version					1.0
-//	@description				The read side of the platform's telemetry: log events and the traces
-//	@description				beside them, as shipped by deployed runtimes and stored in Postgres.
+//	@description				The platform's stored telemetry: log events and the traces beside them,
+//	@description				as shipped by deployed runtimes and stored in Postgres.
 //	@description
 //	@description				The service is called "logs" everywhere — the binary, the image, the pod
 //	@description				and the LOGS_URL other services reach it by — but it stores traces too.
@@ -28,7 +28,10 @@
 //	@description
 //	@description				This is an in-cluster service and performs no authentication of its own.
 //	@description				It is ClusterIP in the chart and the platform BFF is the authorization
-//	@description				boundary in front of it. Every route is a read; nothing here writes.
+//	@description				boundary in front of it. Every query route is a read; the three
+//	@description				retention routes are the exception, and one of them deletes stored
+//	@description				telemetry — so anything that can reach this address can erase it as
+//	@description				well as read it. Keep it internal.
 //	@license.name				Elastic License 2.0
 //	@license.url				https://www.elastic.co/licensing/elastic-license
 //	@externalDocs.description	Octo documentation

@@ -38,7 +38,7 @@ curl -sS "$LOGS_URL/openapi/operations"
 
 Sorted by path, then method. Read this first to find the tag worth asking about, then fetch that tag's detail — which is exactly how the [platform agent](/platform/agent) uses it.
 
-The tags are `logs`, `traces`, `meta` and `openapi`.
+The tags are `logs`, `traces`, `retention`, `meta` and `openapi`.
 
 ## Reading part of the document
 
@@ -57,11 +57,56 @@ A filtered document is a **valid OpenAPI document**, not an excerpt: schemas are
 
 ## What the API offers
 
-Every route is a `GET`; nothing here writes. Two things are worth knowing before you read the description itself.
+Every query route is a `GET`. The three [retention](#data-retention) routes are the exception, and one of them deletes. Two things are worth knowing about the query side before you read the description itself.
 
 **Paging is keyset-based.** `/logs` and `/traces` return at most `limit` rows (default 200, clamped to 1000). A page that came back full carries `next_before`; send it as `before=` for the page after it. Treat it as opaque — it names a `(timestamp, id)` pair, not a timestamp, because rows routinely share a timestamp and a timestamp-only cursor would either skip the ties or serve them twice.
 
 **Trace payloads are optional.** `/traces/{traceId}` includes every record's captured body by default, and those payloads are the whole weight of a trace. Pass `bodies=0` when you are only drawing a waterfall, then fetch the one record you need from `/traces/{traceId}/records/{id}`.
+
+## Data retention
+
+Stored telemetry grows without bound until you say otherwise. The policy that bounds it lives here rather than on the orchestrator, because this service owns the tables a sweep deletes from. Set it at [`/platform/admin/retention`](/platform/admin-settings#data-retention) unless you are automating it — these are the routes that page calls.
+
+| Route | Purpose |
+| --- | --- |
+| `GET /settings/retention` | The two windows, in days, and when they were last changed |
+| `PUT /settings/retention` | Set them |
+| `POST /retention/run` | Enforce the stored policy now |
+
+Two windows, because logs and traces have very different weights per day:
+
+```bash
+curl -sS -X PUT "$LOGS_URL/settings/retention" \
+  -H 'Content-Type: application/json' \
+  -d '{"logs_days":30,"traces_days":7}'
+```
+
+**Zero means keep forever**, on either axis, and zero is the default — so an installation that never sets a policy behaves exactly as it did before the feature existed. The upper bound is 3650 days.
+
+A save replaces the whole policy, so **both fields are required** and a body naming only one is a `400`. That is deliberate: zero is a value here, not an absence, so a request mentioning only `logs_days` would otherwise read as "and switch trace retention off" — nobody means that by omission, and it is the direction that loses data.
+
+A save deletes nothing. `POST /retention/run` is what deletes, and it reports what went:
+
+```json
+{
+  "logs_deleted": 120412,
+  "traces_deleted": 44980,
+  "trace_summaries_deleted": 2211,
+  "logs_cutoff": "2026-07-12T03:00:00Z",
+  "traces_cutoff": null,
+  "duration_ms": 8140
+}
+```
+
+A `null` cutoff is how you tell an axis set to keep everything apart from one where nothing had expired — both report zero deleted. A policy that keeps everything is a `200` with zeros rather than an error: being asked to do nothing is an answer.
+
+Only one sweep runs at a time, held by a Postgres advisory lock, so the nightly job and somebody pressing **Run now** cannot overlap. The loser gets a `409`.
+
+Deletes are issued in batches and each commits on its own, so an interrupted sweep has simply deleted less — never something inconsistent — and the next run continues from there. A trace is deleted whole, and stored model prices are never swept; see [Traces](/platform/traces#retention) for why both of those matter.
+
+### Running it nightly
+
+The chart installs a CronJob that calls `POST /retention/run` at 03:00, controlled by `retention.enabled` (on by default) and `retention.schedule`. Because the policy defaults to keeping everything, that job is a nightly no-op until you set a window — turning retention on is a change to the policy, not to the release.
 
 ## Keeping it honest
 
@@ -74,5 +119,7 @@ A separate test compares the routes registered in the source against the routes 
 There is none, on the same terms as the orchestrator. The aggregator is `ClusterIP` in the chart and trusts its callers; the platform BFF is the authorization boundary in front of it.
 
 <Callout type="warn">
-This means anything that can reach the aggregator's address can read every stored log line and trace payload on the install — which includes whatever your flows logged. Keep it internal.
+This means anything that can reach the aggregator's address can read every stored log line and trace payload on the install — which includes whatever your flows logged. Since the retention routes landed it can also **change the policy and delete that history**, with no confirmation and nothing to undo it. Keep it internal.
 </Callout>
+
+The browser never reaches any of this directly — the platform's server actions do, and they gate every call behind a session, with writes additionally behind `AUTH_WRITE_ROLES`. That variable [defaults to empty, meaning any signed-in user](/platform/admin-settings). Set it.

@@ -11,9 +11,11 @@ import (
 	"github.com/juancavallotti/octo/logs/internal/repo"
 )
 
-// defaultWindow is how far back an unbounded trace query reaches. Traces are
-// stored without retention today, so a query with no window would widen with the
-// age of the deployment rather than with what anyone wanted to look at.
+// defaultWindow is how far back an unbounded trace query reaches. A query with
+// no window would otherwise widen with however much history is stored rather
+// than with what anyone wanted to look at — and retention only bounds that at
+// whatever the policy says, which may be years and defaults to keeping
+// everything.
 const defaultWindow = 24 * time.Hour
 
 // TraceQuerier reads stored traces. The repo implements it; the handler depends

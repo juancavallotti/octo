@@ -10,9 +10,9 @@ import { ShortcutTile } from "../DashboardTiles";
  * directive, so its components are plain functions and a server page cannot pass one
  * across the RSC boundary. Dashboard.tsx does the same for the same reason.
  *
- * The unbuilt capabilities are listed rather than hidden, so the section reads as
- * intentional rather than half-finished, and so the roadmap is visible where someone
- * would go looking for it.
+ * Everything listed here is built. The grid carried a "Coming soon" tile for as
+ * long as data retention was the one capability the section described but did not
+ * have; now that it exists, the list is simply what the section does.
  */
 
 export const LIVE = [
@@ -34,13 +34,11 @@ export const LIVE = [
     title: "Platform agent",
     subtitle: "Install Dr. Octo, roll out updates, and trace him",
   },
-] as const;
-
-const COMING_SOON = [
   {
+    href: "/platform/admin/retention",
     icon: Trash2,
     title: "Data retention",
-    subtitle: "Scheduled cleanup of old logs and traces",
+    subtitle: "How long stored logs and traces are kept",
   },
 ] as const;
 
@@ -57,9 +55,6 @@ export default function AdminTiles() {
         <div className="mt-5 grid gap-3 sm:grid-cols-2">
           {LIVE.map((tile) => (
             <ShortcutTile key={tile.title} {...tile} />
-          ))}
-          {COMING_SOON.map((tile) => (
-            <ShortcutTile key={tile.title} {...tile} href="" disabled badge="Coming soon" />
           ))}
         </div>
       </div>

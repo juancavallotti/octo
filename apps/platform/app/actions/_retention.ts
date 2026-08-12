@@ -1,0 +1,103 @@
+/**
+ * The data-retention client — the middle layer between the retention server
+ * actions and the `fetch` abstraction (`@octo/http`):
+ *
+ *     serverAction (auth) → this client (getRetention()) → requestJson() → fetch
+ *
+ * It talks to the log aggregator rather than the orchestrator, like `_logs.ts`
+ * and `_traces.ts` beside it and for the same reason: the aggregator owns the
+ * tables a retention policy governs, and serves the policy alongside the queries
+ * over them. The other admin settings go through `actions/client/settings.ts` to
+ * the orchestrator, so this is deliberately not there — the split follows which
+ * service owns the data, not which page the form happens to sit on.
+ *
+ * The server-only `LOGS_URL` and the snake_case→camelCase shaping are internal;
+ * callers see only the types in `app/model/retention.ts`, which is where they
+ * live so that nothing client-side has to import this module to name them.
+ */
+
+import { requestJson, type ActionResult } from "@octo/http";
+import type {
+  RetentionPolicy,
+  RetentionPolicyInput,
+  RetentionRun,
+} from "@/app/model/retention";
+
+/** The policy as the service emits it (snake_case). */
+interface RawPolicy {
+  logs_days: number;
+  traces_days: number;
+  updated_at: string | null;
+}
+
+/** A sweep's report as the service emits it. */
+interface RawRun {
+  logs_deleted: number;
+  traces_deleted: number;
+  trace_summaries_deleted: number;
+  logs_cutoff: string | null;
+  traces_cutoff: string | null;
+  duration_ms: number;
+}
+
+/** The aggregator's base URL with any trailing slash trimmed, or "" when unset. */
+function baseUrl(): string {
+  return (process.env.LOGS_URL ?? "").replace(/\/+$/, "");
+}
+
+function unconfigured<T>(): ActionResult<T> {
+  return { ok: false, error: "retention not configured (LOGS_URL unset)" };
+}
+
+function toPolicy(r: RawPolicy): RetentionPolicy {
+  return {
+    logsDays: r.logs_days,
+    tracesDays: r.traces_days,
+    updatedAt: r.updated_at,
+  };
+}
+
+/** Read the stored policy. */
+export async function getRetention(): Promise<ActionResult<RetentionPolicy>> {
+  const base = baseUrl();
+  if (!base) return unconfigured();
+
+  const res = await requestJson<RawPolicy>("GET", `${base}/settings/retention`);
+  if (!res.ok) return res;
+  return { ok: true, data: toPolicy(res.data) };
+}
+
+/** Save the policy. Both windows are sent; the service refuses a partial one. */
+export async function saveRetention(
+  input: RetentionPolicyInput,
+): Promise<ActionResult<RetentionPolicy>> {
+  const base = baseUrl();
+  if (!base) return unconfigured();
+
+  const res = await requestJson<RawPolicy>("PUT", `${base}/settings/retention`, {
+    logs_days: input.logsDays,
+    traces_days: input.tracesDays,
+  });
+  if (!res.ok) return res;
+  return { ok: true, data: toPolicy(res.data) };
+}
+
+/** Enforce the stored policy now, and report what went. */
+export async function runRetention(): Promise<ActionResult<RetentionRun>> {
+  const base = baseUrl();
+  if (!base) return unconfigured();
+
+  const res = await requestJson<RawRun>("POST", `${base}/retention/run`);
+  if (!res.ok) return res;
+  return {
+    ok: true,
+    data: {
+      logsDeleted: res.data.logs_deleted,
+      tracesDeleted: res.data.traces_deleted,
+      traceSummariesDeleted: res.data.trace_summaries_deleted,
+      logsCutoff: res.data.logs_cutoff,
+      tracesCutoff: res.data.traces_cutoff,
+      durationMs: res.data.duration_ms,
+    },
+  };
+}
