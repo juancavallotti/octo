@@ -65,7 +65,7 @@ Every query route is a `GET`. The three [retention](#data-retention) routes are 
 
 ## Data retention
 
-Stored telemetry grows without bound until you say otherwise. The policy that bounds it lives here rather than on the orchestrator, because this service owns the tables a sweep deletes from.
+Stored telemetry grows without bound until you say otherwise. The policy that bounds it lives here rather than on the orchestrator, because this service owns the tables a sweep deletes from. Most people will set it at [`/platform/admin/retention`](/platform/admin-settings#data-retention) rather than over the API; this is what that page talks to.
 
 | Route | Purpose |
 | --- | --- |

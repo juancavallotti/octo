@@ -127,7 +127,7 @@ Point the URL at a mirror for a cluster without egress. A cluster that can reach
 
 ## Retention
 
-`traces` and `trace_summaries` are pruned by the site's data retention policy — a number of days, with its own window separate from the one for logs. See [Data retention](/platform/logs-api-reference#data-retention) for the policy and the routes that read, write and enforce it. It defaults to **keeping everything**, so an installation that has not configured it grows without bound exactly as before.
+`traces` and `trace_summaries` are pruned by the site's [data retention policy](/platform/admin-settings#data-retention) — a number of days, set at `/platform/admin/retention`, with its own window separate from the one for logs. It defaults to **keeping everything**, so an installation that has not configured it grows without bound exactly as before. The routes behind it are in the [logs API reference](/platform/logs-api-reference#data-retention).
 
 Traces usually want the shorter of the two windows. A ten-block flow emits roughly two dozen records and each can carry a captured body, so a day of tracing costs far more than a day of logs — which is also why tracing is a debugging instrument you switch off again rather than leave on.
 
