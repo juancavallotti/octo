@@ -107,22 +107,22 @@ Use `/platform/admin/agent` to install, update, trace or remove the platform's o
 
 ## Data retention
 
-`/platform/admin/retention` sets how long this installation keeps stored logs and traces. Two windows, in days, because the streams have very different weights: a ten-block flow emits a couple of dozen trace records — each able to carry a captured request body — where the same request produces a log line or two. Traces usually want the shorter window.
+Set how long this installation keeps stored logs and traces at `/platform/admin/retention`. You get two windows rather than one, because the streams have very different weights: a ten-block flow emits a couple of dozen trace records — each able to carry a captured request body — where the same request produces a log line or two. Give traces the shorter window.
 
-| Field | Notes |
+| Field | Enter |
 | --- | --- |
-| Keep logs for | Days, or **0 to keep them forever**. Maximum 3650. |
+| Keep logs for | A number of days, or **0 to keep them forever**. Maximum 3650. |
 | Keep traces for | The same, on its own axis. Pruning a trace takes all of its records with it. |
 
-**Both default to 0**, so an installation that never opens this page behaves exactly as it did before the feature existed — nothing is deleted until you say so. The page says as much beneath each field, because a bare `0` in a box labelled "days" reads as a value nobody set rather than as a decision.
+**Both default to 0**, so an installation that never opens this page behaves exactly as it did before the feature existed — nothing is deleted until you say so. Each field says as much beneath it, because a bare `0` in a box labelled "days" reads as a value nobody set rather than as a decision.
 
-Saving deletes nothing. A [nightly job](/deploy/helm#data-retention) applies the policy at 03:00.
+Saving deletes nothing. By default a [nightly job](/deploy/helm#data-retention) applies the policy at 03:00; set `retention.schedule` in the Helm values to change when it runs, or `retention.enabled=false` to remove it.
 
 ### Run now
 
-**Delete now** applies the saved policy immediately, and asks first — naming the windows it is about to enforce. It reports what went: log events, trace records, and traces.
+Press **Delete now** to apply the saved policy immediately instead of waiting for tonight. It asks first, naming the windows it is about to enforce, then reports what went: log events, trace records, and traces.
 
-It is deliberately unavailable while the form has unsaved edits. A sweep enforces what is *stored*, so running it against numbers you can see you have changed would delete to a policy the confirmation never described.
+Save before you run it — the button stays disabled while the form has unsaved edits. A sweep enforces what is *stored*, so running it against numbers you can see you have changed would delete to a policy the confirmation never described.
 
 <Callout type="warn">
 This is the one thing in the admin section that destroys data rather than configuring something, and there is no undo. It is gated by the same write roles as every other cluster-wide write (`AUTH_WRITE_ROLES`) — the variable that **defaults to empty, meaning any signed-in user**. If you have not set it yet, set it before you set a retention window.

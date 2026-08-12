@@ -144,9 +144,10 @@ describe("RetentionSettingsManager", () => {
     await user.click(within(dialog).getByRole("button", { name: "Delete now" }));
 
     await waitFor(() => expect(runRetention).toHaveBeenCalled());
-    expect(
-      screen.getByText("Deleted 120 log events, 44 trace records, 6 traces."),
-    ).toBeTruthy();
+    // Announced, not merely rendered: the message lands after an await, so
+    // without a live region a screen reader user gets no report at all.
+    const report = await screen.findByRole("status");
+    expect(report.textContent).toBe("Deleted 120 log events, 44 trace records, 6 traces.");
   });
 
   it("does not delete when the confirmation is dismissed", async () => {
@@ -209,7 +210,7 @@ describe("RetentionSettingsManager", () => {
     await user.type(tracesInput(), "14");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(await screen.findByText("forbidden")).toBeTruthy();
+    expect(await screen.findByRole("alert")).toBeTruthy();
     expect(screen.queryByText(/Deleted 120 log events/)).toBeNull();
   });
 

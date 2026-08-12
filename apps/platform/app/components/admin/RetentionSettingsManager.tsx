@@ -164,14 +164,22 @@ export default function RetentionSettingsManager() {
           this nightly; nothing is deleted until you set a window.
         </p>
 
-        {error && <p className="mt-3 text-sm text-red-500">{error}</p>}
+        {/* Live regions, because every one of these appears after an await
+            rather than in response to a keystroke — without them a screen
+            reader user presses Delete now, hears nothing, and has no way to
+            tell a sweep that deleted 40 000 rows from one that was refused. */}
+        {error && (
+          <p role="alert" className="mt-3 text-sm text-red-500">
+            {error}
+          </p>
+        )}
         {saved && !error && (
-          <p className="mt-3 text-sm text-emerald-600 dark:text-emerald-400">
+          <p role="status" className="mt-3 text-sm text-emerald-600 dark:text-emerald-400">
             Policy saved.
           </p>
         )}
         {lastRun && !error && (
-          <p className="mt-3 text-sm text-emerald-600 dark:text-emerald-400">
+          <p role="status" className="mt-3 text-sm text-emerald-600 dark:text-emerald-400">
             {describeRun(lastRun)}
           </p>
         )}
