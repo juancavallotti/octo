@@ -288,8 +288,15 @@ type LLMToolCall struct {
 // IsError marks it as a failure the model should react to rather than an answer.
 type LLMToolResult struct {
 	ToolCallID string
-	Content    string
-	IsError    bool
+	// Tool is the name of the call this answers, carried alongside the id because
+	// not every provider correlates on the id alone: Gemini's function response is
+	// addressed by function *name*, so a connector that had only the id would have
+	// to reconstruct the name by looking back at the preceding assistant turn.
+	//
+	// It must match the originating LLMToolCall.Name.
+	Tool    string
+	Content string
+	IsError bool
 }
 
 // LLMStopReason is why the model stopped generating.

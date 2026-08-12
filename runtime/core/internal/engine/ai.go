@@ -209,29 +209,29 @@ func (r *aiRouter) inspect(call core.LLMToolCall, msg *types.Message) core.LLMTo
 	case "get_body":
 		body, err := msg.BodyJSON()
 		if err != nil {
-			return errorResult(call.ID, fmt.Sprintf("encode body: %v", err))
+			return errorResult(call, fmt.Sprintf("encode body: %v", err))
 		}
-		return core.LLMToolResult{ToolCallID: call.ID, Content: string(body)}
+		return core.LLMToolResult{ToolCallID: call.ID, Tool: call.Name, Content: string(body)}
 	case "list_variables":
-		return core.LLMToolResult{ToolCallID: call.ID, Content: jsonStringArray(variableNames(msg))}
+		return core.LLMToolResult{ToolCallID: call.ID, Tool: call.Name, Content: jsonStringArray(variableNames(msg))}
 	case "get_variable":
 		var args struct {
 			Name string `json:"name"`
 		}
 		if err := json.Unmarshal(call.Input, &args); err != nil {
-			return errorResult(call.ID, "invalid arguments")
+			return errorResult(call, "invalid arguments")
 		}
 		value, ok := msg.Variables[args.Name]
 		if !ok {
-			return errorResult(call.ID, fmt.Sprintf("variable %q is not set", args.Name))
+			return errorResult(call, fmt.Sprintf("variable %q is not set", args.Name))
 		}
 		encoded, err := json.Marshal(value)
 		if err != nil {
-			return errorResult(call.ID, fmt.Sprintf("encode variable: %v", err))
+			return errorResult(call, fmt.Sprintf("encode variable: %v", err))
 		}
-		return core.LLMToolResult{ToolCallID: call.ID, Content: string(encoded)}
+		return core.LLMToolResult{ToolCallID: call.ID, Tool: call.Name, Content: string(encoded)}
 	default:
-		return errorResult(call.ID, fmt.Sprintf("unknown tool %q", call.Name))
+		return errorResult(call, fmt.Sprintf("unknown tool %q", call.Name))
 	}
 }
 
@@ -352,7 +352,7 @@ func (r *aiRetry) Process(ctx context.Context, msg *types.Message) (*types.Messa
 		slog.Info("ai-retry attempt failed", "block", r.name, "attempt", attempt+1, "error", err)
 		SetErrorVariable(msg, r.name, err)
 		convo = append(convo, core.LLMMessage{Role: core.LLMRoleTool, ToolResults: []core.LLMToolResult{{
-			ToolCallID: call.ID, IsError: true,
+			ToolCallID: call.ID, Tool: call.Name, IsError: true,
 			Content: "That revision did not fix it; the step failed again.\n" + r.stateText(msg) +
 				"\nCall revise_message again with a different fix.",
 		}}})
@@ -987,13 +987,13 @@ func (a *aiAgent) runTool(
 	}
 	flow, ok := a.branches[call.Name]
 	if !ok {
-		return errorResult(call.ID, fmt.Sprintf("unknown tool %q", call.Name)), current
+		return errorResult(call, fmt.Sprintf("unknown tool %q", call.Name)), current
 	}
 	content, out, errMsg := dispatchToolBranch(ctx, flow, call.Input, current)
 	if errMsg != "" {
-		return errorResult(call.ID, errMsg), out
+		return errorResult(call, errMsg), out
 	}
-	return core.LLMToolResult{ToolCallID: call.ID, Content: content}, out
+	return core.LLMToolResult{ToolCallID: call.ID, Tool: call.Name, Content: content}, out
 }
 
 // dispatchToolBranch runs a tool's flow branch on the shared message: the JSON
@@ -1034,22 +1034,22 @@ func (a *aiAgent) loadSkill(ctx context.Context, call core.LLMToolCall, msg *typ
 		Name string `json:"name"`
 	}
 	if err := json.Unmarshal(call.Input, &args); err != nil || args.Name == "" {
-		return errorResult(call.ID, "invalid arguments: name is required")
+		return errorResult(call, "invalid arguments: name is required")
 	}
 	skill, ok := a.findSkill(args.Name)
 	if !ok {
-		return errorResult(call.ID, fmt.Sprintf("unknown skill %q", args.Name))
+		return errorResult(call, fmt.Sprintf("unknown skill %q", args.Name))
 	}
 	tpl, err := a.skillRegistry.Get(ctx, skill.resource)
 	if err != nil {
-		return errorResult(call.ID, fmt.Sprintf("load skill %q: %v", skill.name, err))
+		return errorResult(call, fmt.Sprintf("load skill %q: %v", skill.name, err))
 	}
 	rendered, err := tpl.Render(expr.MessageActivation(msg, a.env))
 	if err != nil {
-		return errorResult(call.ID, fmt.Sprintf("render skill %q: %v", skill.name, err))
+		return errorResult(call, fmt.Sprintf("render skill %q: %v", skill.name, err))
 	}
 	slog.Info("ai-agent loaded skill", "block", a.name, "skill", skill.name)
-	return core.LLMToolResult{ToolCallID: call.ID, Content: rendered}
+	return core.LLMToolResult{ToolCallID: call.ID, Tool: call.Name, Content: rendered}
 }
 
 // findSkill returns the configured skill with the given name.
@@ -1207,9 +1207,11 @@ func selectRouteSchema(enum []string) json.RawMessage {
 		enumJSON))
 }
 
-// errorResult builds a tool result marked as an error so the model can react.
-func errorResult(toolCallID, message string) core.LLMToolResult {
-	return core.LLMToolResult{ToolCallID: toolCallID, Content: message, IsError: true}
+// errorResult builds a tool result marked as an error so the model can react. It
+// takes the call rather than its id so the result carries the tool's name too,
+// which a provider addressing its function responses by name needs.
+func errorResult(call core.LLMToolCall, message string) core.LLMToolResult {
+	return core.LLMToolResult{ToolCallID: call.ID, Tool: call.Name, Content: message, IsError: true}
 }
 
 // variableNames returns the message's variable names, sorted for determinism.
