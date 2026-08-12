@@ -306,6 +306,68 @@ func TestTracingEnvWinsOverAUserBinding(t *testing.T) {
 	}
 }
 
+// TestObservabilityEnvNeedsBothTheGrantAndTheAddress verifies LOGS_URL reaches a pod
+// only when the deployment asked for it and this orchestrator has an address to give.
+//
+// Both halves matter. Injecting without the grant would hand every integration the
+// stored telemetry of every other one; injecting an empty value because the grant was
+// given would turn a missing chart setting into a confusing failure inside the flow,
+// which is the shape of bug that gets blamed on the query rather than the install.
+func TestObservabilityEnvNeedsBothTheGrantAndTheAddress(t *testing.T) {
+	const logsURL = "http://octo-logs.octo:8091"
+
+	for _, tc := range []struct {
+		name    string
+		address string
+		granted bool
+		want    string // "" means the var must be absent
+	}{
+		{"granted and configured", logsURL, true, logsURL},
+		{"granted but no address", "", true, ""},
+		{"address but not granted", logsURL, false, ""},
+		{"neither", "", false, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &Client{runtimeServices: RuntimeServices{LogsURL: tc.address}}
+			env := c.podEnv(Spec{ObservabilityAPI: tc.granted})
+
+			var got string
+			var found bool
+			for _, e := range env {
+				if e.Name == envLogs {
+					got, found = e.Value, true
+				}
+			}
+			switch {
+			case tc.want == "" && found:
+				t.Errorf("%s should be absent, got %q", envLogs, got)
+			case tc.want != "" && !found:
+				t.Errorf("%s should be present with value %q, got nothing", envLogs, tc.want)
+			case got != tc.want:
+				t.Errorf("%s = %q, want %q", envLogs, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestObservabilityEnvWinsOverAUserBinding verifies the grant beats an integration's
+// own LOGS_URL binding, for the same reason tracing does: Kubernetes takes the last
+// entry for a duplicated name, so the address the platform granted is the one the pod
+// uses rather than one the definition's author chose.
+func TestObservabilityEnvWinsOverAUserBinding(t *testing.T) {
+	const logsURL = "http://octo-logs.octo:8091"
+	c := &Client{runtimeServices: RuntimeServices{LogsURL: logsURL}}
+
+	env := c.podEnv(Spec{
+		Env:              map[string]string{envLogs: "http://somewhere-else:9999"},
+		ObservabilityAPI: true,
+	})
+	last := env[len(env)-1]
+	if last.Name != envLogs || last.Value != logsURL {
+		t.Errorf("last env = %s=%q, want %s=%q: %+v", last.Name, last.Value, envLogs, logsURL, env)
+	}
+}
+
 // TestRuntimeServicesEnvOmitsNATSWhenUnset verifies that with the runtime-services
 // module configured but no broker URL, the runtime-services env is still injected
 // while NATS_URL is omitted (so a deploy without NATS injects nothing for it).

@@ -14,6 +14,14 @@
   value: {{ .Values.runtime.servicesModule | quote }}
 - name: ORCHESTRATOR_URL
   value: {{ include "octo.orchestrator.url" . | quote }}
+{{- /* The log aggregator's query API. The orchestrator never calls it — it binds
+       this onto the platform agent's deployment, which is what lets Dr. Octo read
+       stored logs and traces rather than only tailing live pods. Unconditional
+       because the chart always deploys the aggregator; if that ever becomes
+       optional, the agent install refuses with a message naming this variable
+       rather than deploying an agent that half works. */}}
+- name: LOGS_URL
+  value: {{ include "octo.logs.url" . | quote }}
 {{- if .Values.nats.enabled }}
 # In-cluster NATS broker for cross-node pub-sub. Set so the URL is
 # discoverable; consumers land with the pub-sub migration.

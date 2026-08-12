@@ -250,6 +250,11 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 	// them. Literal values are stored as-is; secret bindings hold only the name.
 	persisted.Env = settings.Env
 	persisted.Tracing = settings.Tracing
+	// The platform-access grants are persisted for the same reason as the env
+	// bindings: they are what the next rollout starts from, and what a future access
+	// model reads to decide whether a call was ever meant to be allowed.
+	persisted.OrchestratorAPI = settings.OrchestratorAPI
+	persisted.ObservabilityAPI = settings.ObservabilityAPI
 	persisted.SnapshotID = snapID
 	settingsJSON, err := json.Marshal(persisted)
 	if err != nil {
@@ -273,20 +278,21 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 	}
 
 	spec := kube.Spec{
-		ID:            dep.ID,
-		IntegrationID: integrationID,
-		Name:          it.Name,
-		Version:       snapTag,
-		SnapshotID:    snapID,
-		Definition:    definition,
-		Replicas:      int32(replicas),
-		Slug:          slug,
-		Port:          port,
-		Env:           literalEnv,
-		SecretEnv:     secretEnv,
-		Expose:        external,
-		Subdomain:     subdomain,
-		Tracing:       settings.Tracing,
+		ID:               dep.ID,
+		IntegrationID:    integrationID,
+		Name:             it.Name,
+		Version:          snapTag,
+		SnapshotID:       snapID,
+		Definition:       definition,
+		Replicas:         int32(replicas),
+		Slug:             slug,
+		Port:             port,
+		Env:              literalEnv,
+		SecretEnv:        secretEnv,
+		Expose:           external,
+		Subdomain:        subdomain,
+		Tracing:          settings.Tracing,
+		ObservabilityAPI: settings.ObservabilityAPI,
 	}
 	if err := s.kube.Apply(ctx, spec); err != nil {
 		// Roll back: remove any partially created resources and the row so the
@@ -722,20 +728,21 @@ func (s *Service) Rollout(ctx context.Context, id, snapshotID string, env map[st
 	// the existing Service's targetPort — tags of one integration normally share a
 	// port, so this edge is left for a future enhancement.
 	spec := kube.Spec{
-		ID:            dep.ID,
-		IntegrationID: dep.IntegrationID,
-		Name:          meta.Name,
-		Version:       snap.Tag,
-		SnapshotID:    snap.ID,
-		Definition:    snap.Definition,
-		Replicas:      int32(replicas),
-		Slug:          meta.Slug,
-		Port:          port,
-		Env:           literalEnv,
-		SecretEnv:     secretEnv,
-		Expose:        settings.External(),
-		Subdomain:     settings.Subdomain,
-		Tracing:       settings.Tracing,
+		ID:               dep.ID,
+		IntegrationID:    dep.IntegrationID,
+		Name:             meta.Name,
+		Version:          snap.Tag,
+		SnapshotID:       snap.ID,
+		Definition:       snap.Definition,
+		Replicas:         int32(replicas),
+		Slug:             meta.Slug,
+		Port:             port,
+		Env:              literalEnv,
+		SecretEnv:        secretEnv,
+		Expose:           settings.External(),
+		Subdomain:        settings.Subdomain,
+		Tracing:          settings.Tracing,
+		ObservabilityAPI: settings.ObservabilityAPI,
 	}
 	if err := s.kube.Rollout(ctx, spec); err != nil {
 		return Deployment{}, err

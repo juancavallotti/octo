@@ -100,10 +100,13 @@
 {{- end }}
 
 {{/*
-  In-cluster URL of the log-aggregator's query API, injected into the platform as
-  LOGS_URL. It serves two views: /platform/logs reads stored log events, and
-  /platform/traces reads stored traces — traces live in the same service, which
-  is why one URL covers both.
+  In-cluster URL of the log-aggregator's query API, injected as LOGS_URL into both
+  the platform and the orchestrator. It serves two views: /platform/logs reads
+  stored log events, and /platform/traces reads stored traces — traces live in the
+  same service, which is why one URL covers both.
+
+  The orchestrator does not query it itself; it binds the value onto the platform
+  agent's deployment so Dr. Octo can read the same history the two views do.
 */}}
 {{- define "octo.logs.url" -}}
 {{- printf "http://%s.%s:%d" (include "octo.logs.serviceName" .) .Release.Namespace (int .Values.logs.service.port) -}}
