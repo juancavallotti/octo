@@ -168,6 +168,47 @@ func TestReasoningIsEchoedBeforeItsCall(t *testing.T) {
 	}
 }
 
+// TestEchoedReasoningAlwaysCarriesASummary pins the field on the wire, not on the
+// struct, because that is where it went missing.
+//
+// A reasoning item's summary is required even when empty, and empty is the
+// ordinary case: a turn that never asked for a summary still returns reasoning
+// items carrying encrypted content and nothing else. A nil slice is dropped by the
+// encoder rather than sent as [], so the server saw no field at all and refused
+// the request — "Missing required parameter: 'input[1].summary'" — which killed
+// every turn after a tool call. Asserting on the struct would not have caught it;
+// the struct was fine and the bytes were not.
+func TestEchoedReasoningAlwaysCarriesASummary(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		text string
+	}{
+		{name: "no summary returned", text: ""},
+		{name: "summary returned", text: "weighing it up"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			input, err := toInput([]core.LLMMessage{{
+				Role:     core.LLMRoleAssistant,
+				Thinking: []core.LLMThinkingBlock{{Text: tt.text, Signature: "rs_1", Redacted: []byte("gAAAA")}},
+			}})
+			if err != nil {
+				t.Fatalf("toInput: %v", err)
+			}
+			raw, err := json.Marshal(input[0].OfReasoning)
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			var onWire map[string]any
+			if err := json.Unmarshal(raw, &onWire); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if _, ok := onWire["summary"]; !ok {
+				t.Errorf("summary is absent from the request: %s", raw)
+			}
+		})
+	}
+}
+
 // TestReasoningWithoutASignatureIsDropped pins that a block with no id is left out
 // rather than sent. The id is what the server matches the echo against, so an item
 // invented without one is not the model's reasoning coming back — it is a new item

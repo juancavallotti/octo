@@ -444,7 +444,17 @@ func assistantItems(m core.LLMMessage) []responses.ResponseInputItemUnionParam {
 		if tb.Signature == "" {
 			continue
 		}
-		item := responses.ResponseReasoningItemParam{ID: tb.Signature}
+		// Summary is required on the wire even when there is nothing to summarize, and
+		// nothing to summarize is the ordinary case: a turn that never asked for a
+		// summary still returns reasoning items, carrying encrypted content and an
+		// empty summary. Start from an empty slice rather than nil, because the encoder
+		// drops a nil one instead of sending [] — the server then sees the field
+		// missing and refuses the request with "Missing required parameter:
+		// 'input[N].summary'", which fails the turn after any tool call.
+		item := responses.ResponseReasoningItemParam{
+			ID:      tb.Signature,
+			Summary: []responses.ResponseReasoningItemSummaryParam{},
+		}
 		if tb.Text != "" {
 			item.Summary = []responses.ResponseReasoningItemSummaryParam{{Text: tb.Text}}
 		}
