@@ -612,12 +612,18 @@ func responseMap(tr core.LLMToolResult) map[string]any {
 	if tr.IsError {
 		return map[string]any{"error": tr.Content}
 	}
-	var v any
-	if err := json.Unmarshal([]byte(tr.Content), &v); err == nil {
-		if m, ok := v.(map[string]any); ok {
-			return m
-		}
-		return map[string]any{"result": v}
-	}
+	// The result goes back as text under one key, never as the object it may
+	// parse into.
+	//
+	// Gemini reads the structure it is handed: a FunctionResponse may carry parts
+	// with display names, and a string value of the form "#/..." inside `response`
+	// is resolved against them. Spreading a tool's own object into `response`
+	// therefore made its *contents* meaningful to the API — and a result carrying
+	// JSON Schema or OpenAPI, where every $ref is "#/components/schemas/...",
+	// came back as INVALID_ARGUMENT naming a reference that matched no part.
+	//
+	// One string cannot be mistaken for a reference to anything, and it is what
+	// the other providers send: Anthropic tool results are text, which is why the
+	// same agent worked there and failed here.
 	return map[string]any{"result": tr.Content}
 }

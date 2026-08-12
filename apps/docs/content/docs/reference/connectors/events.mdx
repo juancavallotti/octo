@@ -96,3 +96,34 @@ flows:
 <Callout type="info">
 Use events when every interested flow should see the message. When each message must be handled exactly once across replicas — or when you need a reply — use the [queue](/reference/connectors/queue) connector instead.
 </Callout>
+
+## Reaching the platform: the `system:` prefix
+
+Every topic subject is scoped to the deployment that publishes it. On the cluster runtime `notifications` goes on the wire as `octo.<deploymentId>.t.notifications`, so two deployments using the same subject name never hear each other. That is right for a flow talking to itself, and wrong for one talking to the platform: a subject nobody else can name is a subject nobody else receives.
+
+A subject written with a **`system:` prefix opts out of that scoping**. The rest of the string is the subject, verbatim:
+
+```yaml
+- type: publish-event
+  settings:
+    # Goes on the wire as internal.integrations.events, not
+    # octo.<deploymentId>.t.system:internal.integrations.events
+    subject: '"system:internal.integrations.events"'
+    value: '{"type": "integration.updated", "id": body.id, "name": body.name}'
+```
+
+The example above is the real one: `internal.integrations.events` is the subject the platform relays to open browser tabs, so publishing an [`OctoEvent`](/platform/event-bus) on it makes an editor viewing that integration offer to reload. A deployed app can therefore tell the UI that something it changed is worth re-reading, without an HTTP hop back through the orchestrator.
+
+What is published is the message **body, as JSON** — the same payload any other topic message carries, which is what the platform hands to the browser.
+
+### Publish only
+
+A `system:` subject can be published to and **not subscribed to** — an `events` source naming one is refused when the flow starts.
+
+The prefix buys a flow the ability to raise a platform event, not to read the platform's traffic. The unscoped plane carries `internal.logs` and `internal.traces`, which hold every deployment's records; a flow that could subscribe there would be reading workloads it has nothing to do with, wildcards included. Publishing has no equivalent reach — a publish subject cannot contain a wildcard, and the worst a wrong name does is go nowhere.
+
+<Callout type="warn">
+The runtime holds no list of system subjects and validates nothing about them. It does not know which exist, what may be published on them, or what shape a subscriber expects — the caller names the subject and owns the payload. An unroutable name publishes into the void, and a malformed payload is the subscriber's problem, exactly as they would be on any other subject. Check the name against the [event bus reference](/platform/event-bus) before relying on it.
+
+Only a leading `system:` opts out, so an ordinary subject that happens to contain the word is still scoped to its deployment. Standalone runs have no platform to notify: a `system:` subject there is an ordinary in-process topic name that reaches whatever subscribes to it locally, and nothing else.
+</Callout>

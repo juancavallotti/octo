@@ -47,6 +47,15 @@ func (h *ObjectHandler) Register(mux *http.ServeMux) {
 // offer a picker. Secret namespaces are included — the browser can list and clean up
 // their keys (just not view/edit values), which is the point of the troubleshooting
 // view.
+//
+//	@Summary		List a deployment's namespaces
+//	@Description	Secret namespaces are included: their keys can be listed and deleted, just not read.
+//	@Tags			objects
+//	@Produce		json
+//	@Param			id	path	string	true	"Deployment id"
+//	@Success		200	{object}	namespacesResponse
+//	@Failure		500	{object}	httpx.ErrorResponse
+//	@Router			/deployments/{id}/namespaces [get]
 func (h *ObjectHandler) namespaces(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
@@ -63,7 +72,18 @@ func (h *ObjectHandler) namespaces(w http.ResponseWriter, r *http.Request) {
 			out = append(out, ns)
 		}
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"items": out})
+	httpx.WriteJSON(w, http.StatusOK, namespacesResponse{Items: out})
+}
+
+// namespacesResponse and objectListResponse are the list envelopes. Named types
+// rather than inline maps so the API description has a shape to point at: a caller
+// reading the description otherwise learns only that something comes back.
+type namespacesResponse struct {
+	Items []string `json:"items"`
+}
+
+type objectListResponse struct {
+	Items []Entry `json:"items"`
 }
 
 // objectValue is the JSON shape a single object is returned/written as. Encoding is
@@ -76,6 +96,17 @@ type objectValue struct {
 	Version  int64  `json:"version"`
 }
 
+// list godoc
+//
+//	@Summary		List the objects in a namespace
+//	@Description	Key metadata only, no values, which is why secret namespaces are allowed here.
+//	@Tags			objects
+//	@Produce		json
+//	@Param			id			path	string	true	"Deployment id"
+//	@Param			namespace	query	string	false	"Namespace; defaults to the user namespace"
+//	@Success		200			{object}	objectListResponse
+//	@Failure		500			{object}	httpx.ErrorResponse
+//	@Router			/deployments/{id}/objects [get]
 func (h *ObjectHandler) list(w http.ResponseWriter, r *http.Request) {
 	// Listing exposes only key metadata (no values), so secret namespaces are fine.
 	namespace, ok := objectNamespace(w, r, true)
@@ -94,9 +125,23 @@ func (h *ObjectHandler) list(w http.ResponseWriter, r *http.Request) {
 	if entries == nil {
 		entries = []Entry{}
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"items": entries})
+	httpx.WriteJSON(w, http.StatusOK, objectListResponse{Items: entries})
 }
 
+// get godoc
+//
+//	@Summary		Read one object
+//	@Description	Encoding is utf8 for readable values and base64 for binary ones, so a value round
+//	@Description	trips losslessly either way. Secret namespaces are refused: this returns values.
+//	@Tags			objects
+//	@Produce		json
+//	@Param			id			path		string	true	"Deployment id"
+//	@Param			namespace	query		string	false	"Namespace; defaults to the user namespace"
+//	@Param			key			path		string	true	"Key (may contain slashes)"
+//	@Success		200			{object}	objectValue
+//	@Failure		400			{object}	httpx.ErrorResponse	"a secret namespace"
+//	@Failure		404			{object}	httpx.ErrorResponse
+//	@Router			/deployments/{id}/objects/{key} [get]
 func (h *ObjectHandler) get(w http.ResponseWriter, r *http.Request) {
 	// Reading a value: secret namespaces are refused so plaintext never leaks.
 	namespace, ok := objectNamespace(w, r, false)
@@ -131,6 +176,20 @@ func (h *ObjectHandler) get(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
+// put godoc
+//
+//	@Summary	Write one object
+//	@Tags		objects
+//	@Accept		json
+//	@Produce	json
+//	@Param		id			path		string		true	"Deployment id"
+//	@Param		namespace	query		string		false	"Namespace; defaults to the user namespace"
+//	@Param		key			path		string		true	"Key (may contain slashes)"
+//	@Param		body		body		objectValue	true	"Value, encoding and expected version"
+//	@Success	200			{object}	objectValue
+//	@Failure	400			{object}	httpx.ErrorResponse
+//	@Failure	409			{object}	httpx.ErrorResponse	"the version did not match"
+//	@Router		/deployments/{id}/objects/{key} [put]
 func (h *ObjectHandler) put(w http.ResponseWriter, r *http.Request) {
 	// Writing a value: secret namespaces are refused (edit them via the secrets API).
 	namespace, ok := objectNamespace(w, r, false)
@@ -160,6 +219,17 @@ func (h *ObjectHandler) put(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, map[string]int64{"version": version})
 }
 
+// delete godoc
+//
+//	@Summary	Delete one object
+//	@Tags		objects
+//	@Produce	json
+//	@Param		id			path	string	true	"Deployment id"
+//	@Param		namespace	query	string	false	"Namespace; defaults to the user namespace"
+//	@Param		key			path	string	true	"Key (may contain slashes)"
+//	@Success	204			"deleted"
+//	@Failure	409			{object}	httpx.ErrorResponse	"the version did not match"
+//	@Router		/deployments/{id}/objects/{key} [delete]
 func (h *ObjectHandler) delete(w http.ResponseWriter, r *http.Request) {
 	// Deleting removes a key (cleanup) without exposing its value, so secret
 	// namespaces are allowed — e.g. to clear stale OAuth credentials.

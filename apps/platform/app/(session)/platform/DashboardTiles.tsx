@@ -33,6 +33,8 @@ export function ShortcutTile({
   subtitle,
   accent,
   external,
+  disabled,
+  badge,
 }: {
   href: string;
   icon: LucideIcon;
@@ -41,17 +43,27 @@ export function ShortcutTile({
   accent?: boolean;
   /** Open in a new tab via a plain anchor (for off-app links like the docs). */
   external?: boolean;
+  /**
+   * Render as inert rather than as a link — for a capability that is announced but
+   * not built yet. Same shape and layout as a live tile, muted, so a grid of both
+   * still reads as one set.
+   */
+  disabled?: boolean;
+  /** Short pill beside the title, e.g. "Coming soon". */
+  badge?: string;
 }) {
   const className = `group flex items-center gap-3 rounded-xl border p-4 transition-colors ${
-    accent
-      ? "border-sky-500/30 bg-sky-500/[0.07] hover:bg-sky-500/[0.12]"
-      : "border-black/10 bg-white/40 hover:bg-black/[0.03] dark:border-white/10 dark:bg-zinc-900/30 dark:hover:bg-white/[0.04]"
+    disabled
+      ? "cursor-not-allowed border-black/10 bg-black/[0.02] opacity-60 dark:border-white/10 dark:bg-white/[0.02]"
+      : accent
+        ? "border-sky-500/30 bg-sky-500/[0.07] hover:bg-sky-500/[0.12]"
+        : "border-black/10 bg-white/40 hover:bg-black/[0.03] dark:border-white/10 dark:bg-zinc-900/30 dark:hover:bg-white/[0.04]"
   }`;
   const inner = (
     <>
       <span
         className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
-          accent
+          accent && !disabled
             ? "bg-sky-600 text-white"
             : "bg-black/[0.05] text-zinc-600 dark:bg-white/[0.08] dark:text-zinc-300"
         }`}
@@ -59,7 +71,14 @@ export function ShortcutTile({
         <Icon size={18} />
       </span>
       <span className="min-w-0">
-        <span className="block text-sm font-medium">{title}</span>
+        <span className="flex items-center gap-1.5">
+          <span className="block text-sm font-medium">{title}</span>
+          {badge && (
+            <span className="rounded-full bg-black/[0.06] px-1.5 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-white/10 dark:text-zinc-400">
+              {badge}
+            </span>
+          )}
+        </span>
         <span className="block truncate text-xs text-zinc-500 dark:text-zinc-400">
           {subtitle}
         </span>
@@ -67,6 +86,15 @@ export function ShortcutTile({
     </>
   );
 
+  if (disabled) {
+    // A span, not a disabled link: there is nothing to navigate to yet, and
+    // aria-disabled says so without leaving a focusable target that goes nowhere.
+    return (
+      <span aria-disabled="true" className={className}>
+        {inner}
+      </span>
+    );
+  }
   if (external) {
     return (
       <a href={href} target="_blank" rel="noreferrer" className={className}>

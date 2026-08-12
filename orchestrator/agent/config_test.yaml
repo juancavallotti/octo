@@ -1,0 +1,184 @@
+flow: chat
+
+# HONEST LIMITS, and they are the same ones samples/ai-agent-sse_test.yaml states,
+# for the same two compounding reasons:
+#
+#   1) An invoke drives the flow through the implicit source, so the http connector
+#      never starts and there is no open connection. Every sse-event in the events
+#      path has no stream to write to.
+#   2) The events path only runs when the agent produces an event, and an agent only
+#      produces events by taking a model turn. Mocking the agent to avoid the model
+#      replaces the block AND its sub-flows, so the events path goes with it.
+#
+# So nothing here sees an SSE frame. Frames are verified by hand:
+#   bin/octo run --config orchestrator/agent
+#   curl -N -X POST localhost:8080/chat -d '{"threadId":"t1","message":"hello"}'
+#
+# What IS pinned, and it is the part that breaks silently:
+#
+#   - The whole config builds. Every tool's inputSchema parses, every skill resolves
+#     to a declared template resource, the events path and emit list are valid, and
+#     the block/slot shapes are right.
+#   - ${LLM_CONNECTOR_TYPE} really does fill a connector's *type*. That is the one
+#     load-bearing trick in this app — three LLM connectors cannot be declared
+#     because each fails startup on an empty apiKey — and if substitution ever
+#     stopped reaching that field, this suite is what would say so.
+#   - ${AGENT_MAX_ITERATIONS} and ${AGENT_MEMORY_TOKENS} fill integer slots on a
+#     composite. A placeholder that is exactly one variable takes its natural type;
+#     were that not true of composite slots, the build would fail here.
+#   - The agent takes the STREAMING path, not the buffered one.
+#   - The three things the flow does BEFORE the agent, the ones that would fail
+#     silently and expensively: the memory key is scoped to the authenticated user,
+#     the email never reaches the model, and the client's route catalogue survives
+#     the narrowing that drops the email.
+#
+# What is NOT pinned: the frames, emit filtering, the tool loop, memory, and
+# stop-on-disconnect. All of them need a model, a live connection, or both.
+
+env:
+  LLM_CONNECTOR_TYPE: llm-anthropic
+  LLM_API_KEY: sk-ant-not-a-real-key
+  LLM_MODEL: claude-sonnet-4-6
+  ORCHESTRATOR_URL: http://127.0.0.1:9
+
+inputs:
+  a question:
+    data:
+      threadId: t-1
+      message: list my integrations
+      page: /platform/integrations
+      user: { id: u-1, name: Ada, email: ada@example.com }
+      routes:
+        - { path: /platform/integrations, description: Every integration. }
+        - { path: "/platform/i/{id}", description: One integration in the editor. }
+  # The same thread id, asked by somebody else. The chat route injects the user
+  # block server-side, so this is what a stolen thread id looks like by the time it
+  # reaches the flow.
+  the same thread from another user:
+    data:
+      threadId: t-1
+      message: what were we discussing
+      user: { id: u-2, name: Bob, email: bob@example.com }
+
+cases:
+  # Not mocked, so the agent is built and run for real — with the model UNREACHABLE.
+  # The Anthropic SDK honours ANTHROPIC_BASE_URL, and 127.0.0.1:9 (discard) refuses
+  # the connection offline in milliseconds. No network, no cost, same outcome every
+  # run.
+  - name: the config builds and the agent drives the model over the streaming api
+    input: a question
+    env:
+      ANTHROPIC_BASE_URL: http://127.0.0.1:9
+    expect:
+      # The discard port is named in full ON PURPOSE. A looser assertion — just
+      # "llm-anthropic stream" — would also be satisfied by a 401 from the real
+      # api.anthropic.com, so if the SDK ever stopped honouring ANTHROPIC_BASE_URL
+      # this case would stay green while quietly calling out from CI. Naming the URL
+      # the call actually went to makes that impossible.
+      error: 'llm-anthropic stream: Post "http://127.0.0.1:9/v1/messages"'
+
+  # What the agent is *given* is the flow's own doing and is a real assertion. The
+  # result body is the mock's, and is asserted to pin that the agent's answer is the
+  # flow's answer unwrapped — which is also what the route's finalEvent sends as its
+  # last frame.
+  - name: the whole request reaches the agent untouched, and its answer is the result
+    input: a question
+    mocks:
+      chat.dr-octo:
+        default:
+          body: { answer: You have three integrations. }
+    expect:
+      body: { answer: You have three integrations. }
+    spies:
+      chat.dr-octo:
+        count: 1
+        records:
+          - input:
+              # The page and the name matter: they are the context the prompt tells
+              # Dr. Octo to read, and a chat route that dropped them would look fine
+              # until someone asked "what is this page".
+              #
+              # The thread id is deliberately absent: it addresses the conversation,
+              # it is not part of it, and it has already been folded into the memory
+              # key by the time the agent runs.
+              that:
+                - 'body.message == "list my integrations"'
+                - 'body.page == "/platform/integrations"'
+                - 'body.user.name == "Ada"'
+                # Where the agent may send them is the client's to declare — the
+                # platform owns its own routes — so the flow has to carry the
+                # catalogue through rather than hold one of its own.
+                - 'size(body.routes) == 2'
+                - 'body.routes[1].path == "/platform/i/{id}"'
+
+  # Everything in the body reaches the model. The email identifies a real person to
+  # an external provider and nothing in the prompt needs it, so the flow narrows the
+  # body to what the agent is actually for. Asserted on the agent's input, because
+  # that is the boundary the data crosses.
+  - name: the user's email never reaches the agent
+    input: a question
+    mocks:
+      chat.dr-octo:
+        default:
+          body: { answer: ok }
+    spies:
+      chat.dr-octo:
+        count: 1
+        records:
+          - input:
+              that:
+                - '!has(body.user.email)'
+                - '!has(body.threadId)'
+                - 'body.user.name == "Ada"'
+
+  # A thread id is supplied by the caller, so it cannot be the whole memory key: one
+  # user passing another's would be handed their transcript. The key is the
+  # authenticated user plus the thread, so the same thread id asked by two people
+  # names two different conversations.
+  - name: the memory key is scoped to the user, so a stolen thread id resumes nothing
+    input: a question
+    mocks:
+      chat.dr-octo:
+        default:
+          body: { answer: ok }
+    expect:
+      vars: { threadKey: "u-1/t-1", userKey: "u-1" }
+
+  - name: the same thread id under another user is a different conversation
+    input: the same thread from another user
+    mocks:
+      chat.dr-octo:
+        default:
+          body: { answer: ok }
+    expect:
+      # The facts key is built from this same variable, so one person's facts are
+      # unreachable from another's conversation however the model is asked — it
+      # names a fact, the flow decides whose.
+      vars: { threadKey: "u-2/t-1", userKey: "u-2" }
+
+  # A conversation with no user block is the local-development case: authentication
+  # is off, so the session carries no name or email. The flow must not care.
+  - name: a request with no user block still reaches the agent
+    input:
+      data:
+        threadId: t-2
+        message: hello
+    mocks:
+      chat.dr-octo:
+        default:
+          body: { answer: Hello. }
+    expect:
+      body: { answer: Hello. }
+      # No user means no principal to scope by, which is honest rather than a
+      # fallback to something guessable.
+      vars: { threadKey: "anonymous/t-2", userKey: "anonymous" }
+    spies:
+      chat.dr-octo:
+        count: 1
+        records:
+          # A caller that sends no catalogue gets an empty one rather than a missing
+          # field. The prompt tells Dr. Octo to navigate only to a path from this
+          # list, so the absent case has to read as "nowhere" and not as "unset".
+          - input:
+              that:
+                - 'size(body.routes) == 0'

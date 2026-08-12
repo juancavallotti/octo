@@ -286,15 +286,29 @@ func TestTranslateUsage(t *testing.T) {
 }
 
 func TestToReasoningEffort(t *testing.T) {
-	for _, in := range []string{"", "off"} {
-		if got, err := toReasoningEffort(in); err != nil || got != "" {
-			t.Errorf("toReasoningEffort(%q) = %q (err %v), want unset", in, got, err)
+	// Unset and "none" both mean no reasoning, and both say so on the wire. Omitting the field instead asks a reasoning model for its
+	// own default, which is not none — and a non-none default cannot be combined
+	// with function tools on /v1/chat/completions, so an agent on such a model
+	// failed its first turn with a 400 naming reasoning_effort.
+	for _, in := range []string{"", "none"} {
+		if got, err := toReasoningEffort(in); err != nil || string(got) != "none" {
+			t.Errorf("toReasoningEffort(%q) = %q (err %v), want none", in, got, err)
 		}
+	}
+	// The old behaviour is still reachable, for a model that rejects an explicit
+	// none.
+	if got, err := toReasoningEffort("default"); err != nil || got != "" {
+		t.Errorf(`toReasoningEffort("default") = %q (err %v), want the field omitted`, got, err)
 	}
 	for _, in := range []string{"minimal", "low", "medium", "high"} {
 		if got, err := toReasoningEffort(in); err != nil || string(got) != in {
 			t.Errorf("toReasoningEffort(%q) = %q (err %v), want it passed through", in, got, err)
 		}
+	}
+	// "off" was the old spelling and is gone rather than aliased, per the standard
+	// that prefers a complete refactor to a compatibility shim.
+	if _, err := toReasoningEffort("off"); err == nil {
+		t.Error("expected an error for the removed \"off\" spelling")
 	}
 	if _, err := toReasoningEffort("extreme"); err == nil {
 		t.Error("expected an error for an unknown effort")

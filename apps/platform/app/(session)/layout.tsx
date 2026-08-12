@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { auth, authEnabled } from "@/auth";
+import AgentChatLauncher from "@/app/components/agent/AgentChatLauncher";
 
 /**
  * Render every signed-in route per request. The account tile (UserMenu) reads the
@@ -18,16 +19,28 @@ export const dynamic = "force-dynamic";
  * dev) the check is skipped and the platform is open.
  *
  * Each page composes its own header from the shared AppLogo + account tile, so
- * this layout only owns the full-height shell.
+ * this layout only owns the full-height shell — and the agent's launcher, which is
+ * here because it belongs on every signed-in page and this is the one shell they
+ * all share. It renders nothing when the agent is not deployed.
  */
 export default async function SessionLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  let userKey = "local";
   if (authEnabled) {
     const session = await auth();
     if (!session?.user) redirect("/");
+    // Only ever a sessionStorage key for the conversation id, so that it cannot be
+    // resumed by whoever signs in next on a shared machine. The identity the agent
+    // actually trusts is read server-side by the chat route.
+    userKey = session.user.id ?? session.user.email ?? "user";
   }
-  return <div className="flex h-full flex-1 flex-col">{children}</div>;
+  return (
+    <div className="flex h-full flex-1 flex-col">
+      {children}
+      <AgentChatLauncher userKey={userKey} />
+    </div>
+  );
 }

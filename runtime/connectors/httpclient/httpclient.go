@@ -33,6 +33,7 @@ import (
 func init() {
 	registerConnector()
 	registerREST()
+	registerRESTDynamic()
 }
 
 func registerConnector() {

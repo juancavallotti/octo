@@ -179,13 +179,13 @@ func TestValidName(t *testing.T) {
 	accept := []string{"FOO", "FOO_BAR", "A1", "_X", "API_KEY"}
 	reject := []string{"", "foo", "1FOO", "FOO-BAR", "FOO.BAR", "FOO BAR", "fooBar"}
 	for _, n := range accept {
-		if !validName(n) {
-			t.Errorf("validName(%q) = false, want true", n)
+		if !ValidName(n) {
+			t.Errorf("ValidName(%q) = false, want true", n)
 		}
 	}
 	for _, n := range reject {
-		if validName(n) {
-			t.Errorf("validName(%q) = true, want false", n)
+		if ValidName(n) {
+			t.Errorf("ValidName(%q) = true, want false", n)
 		}
 	}
 }

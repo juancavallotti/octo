@@ -1,0 +1,558 @@
+service:
+  name: dr-octo
+
+# Dr. Octo — the platform's own agent.
+#
+# The joke is load-bearing: this is an Octo App. Not a service with a flow engine
+# bolted on, not a sidecar — a config.yaml with an ai-agent block in it, deployed
+# by the same POST /integrations/{id}/deployments that deploys anything a user
+# builds. That is what makes tracing, pod logs, scaling, version tags and rollback
+# work on the agent without any of them being written for it. And it is why you can
+# open this in the editor and change the prompt, add a tool, or take one away.
+#
+# Run it standalone exactly as the orchestrator runs it:
+#
+#   export LLM_CONNECTOR_TYPE=llm-anthropic LLM_API_KEY=sk-ant-... \
+#          LLM_MODEL=claude-sonnet-4-6 ORCHESTRATOR_URL=http://localhost:8090
+#   bin/octo run --config orchestrator/agent
+#   curl -N -X POST localhost:8080/chat \
+#     -d '{"threadId":"t1","message":"list my integrations"}'
+
+env:
+  # Which provider to talk to, as a connector type. The orchestrator binds this
+  # from the site's LLM settings at install. It is an env var and not three
+  # connectors because every declared connector is started eagerly and each LLM
+  # connector fails startup on an empty apiKey — so declaring all three would mean
+  # two guaranteed failures. Substitution rewrites the parsed YAML before it is
+  # decoded, so a connector's *type* can come from a variable like anything else.
+  - name: LLM_CONNECTOR_TYPE # llm-anthropic | llm-openai | llm-gemini
+    required: true
+  - name: LLM_API_KEY
+    required: true
+  - name: LLM_MODEL
+    required: true
+
+  # Where the orchestrator lives. Required *and* bound at deploy time: the
+  # orchestrator injects ORCHESTRATOR_URL into every pod, but the deploy-time check
+  # for required variables looks only at bindings and .env resources, so an unbound
+  # declaration is refused before the pod is ever created.
+  - name: ORCHESTRATOR_URL
+    required: true
+
+  # How long a conversation runs before it is compacted. Half a million rather than
+  # a million: this is what the model is billed to re-read on every turn of a long
+  # thread, and the compaction is a summary, so the tail of the conversation stays
+  # verbatim either way.
+  - name: AGENT_MEMORY_TOKENS
+    default: "500000"
+  - name: AGENT_MAX_ITERATIONS
+    default: "24"
+
+  - name: HTTP_HOST
+    default: 0.0.0.0
+  # Declaring HTTP_PORT with a numeric default is what makes this deployment
+  # networked, which is what earns it a stable internal address for the platform to
+  # proxy the chat panel to.
+  - name: HTTP_PORT
+    default: "8080"
+
+resources:
+  templates:
+    - resource: skills/flow-file.md
+      as: flow-file
+    - resource: skills/blocks.md
+      as: blocks
+    - resource: skills/connectors.md
+      as: connectors
+    - resource: skills/expressions.md
+      as: expressions
+    - resource: skills/testing.md
+      as: testing
+    - resource: skills/platform.md
+      as: platform
+
+connectors:
+  - name: llm
+    type: ${LLM_CONNECTOR_TYPE}
+    settings:
+      apiKey: ${LLM_API_KEY}
+      model: ${LLM_MODEL}
+      maxTokens: 8192
+
+  - name: api
+    type: http
+    settings:
+      host: ${HTTP_HOST}
+      port: ${HTTP_PORT}
+
+  # The orchestrator's own API. baseURL is the security boundary for every tool
+  # below: rest-dynamic can build any path under it and no path at all outside it.
+  - name: octo
+    type: http-client
+    settings:
+      baseURL: ${ORCHESTRATOR_URL}
+      timeout: 60s
+
+flows:
+  - name: chat
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /chat
+        # On an SSE route this bounds the wait for the FIRST frame only. An agent
+        # takes a moment to produce its first token.
+        timeout: 60s
+        sse:
+          enabled: true
+          finalEvent: true
+          finalEventName: answer
+          heartbeat: 15s
+          maxDuration: 10m
+    process:
+      # A conversation is addressed by the caller, so the thread id alone cannot be
+      # the memory key: anyone could pass someone else's and be handed their
+      # transcript. The key is the user the platform authenticated, plus the thread —
+      # so a stolen thread id names a conversation that does not exist. The user
+      # block is injected server-side by the chat route and overwritten there, so a
+      # forged one in the request never reaches this expression.
+      # Who the platform authenticated, kept as a variable rather than left in the
+      # body. It scopes both the conversation and the remembered facts, and the
+      # model never sees it: it supplies a fact's name and value, the flow supplies
+      # whose facts they are. That is what makes one user's facts unreachable from
+      # another's conversation however the model is asked.
+      - type: set-variable
+        name: user-key
+        settings:
+          name: userKey
+          value: >-
+            has(body.user) && has(body.user.id) && body.user.id != ""
+              ? body.user.id : "anonymous"
+
+      - type: set-variable
+        name: thread-key
+        settings:
+          name: threadKey
+          value: >-
+            vars.userKey + "/" +
+            (has(body.threadId) && body.threadId != "" ? body.threadId : "default")
+
+      # The agent's input, stated rather than inherited. Everything in the body
+      # reaches the model, so the body is narrowed to what the model is actually for:
+      # the question, where it was asked, where it could send them, and who is asking
+      # by name. The email is dropped — it identifies a real person to an external
+      # provider and nothing in the prompt needs it.
+      #
+      # The route catalogue comes from the client rather than living here on purpose:
+      # the app that owns the routes is the only thing that knows them, and a list
+      # baked into this file would rot the first time the platform grew a page.
+      - type: set-payload
+        name: agent-input
+        settings:
+          value: >-
+            {
+              "message": has(body.message) ? body.message : "",
+              "page": has(body.page) ? body.page : "",
+              "routes": has(body.routes) ? body.routes : [],
+              "user": has(body.user) && has(body.user.name) ? {"name": body.user.name} : {}
+            }
+
+      - type: ai-agent
+        name: dr-octo
+        connector: llm
+        stream: true
+        maxIterations: ${AGENT_MAX_ITERATIONS}
+
+        # Memory rides the deployment's KV store, which under the k8s services module
+        # is the orchestrator's own — so a conversation survives a pod restart with
+        # nothing written for it here.
+        memoryThreadId: vars.threadKey
+        memoryMaxTokens: ${AGENT_MEMORY_TOKENS}
+        memoryCompaction: summarize
+
+        # A type left out of this list is never *built* — no event message, no
+        # sub-flow run. On a token stream that is a real lever rather than a filter,
+        # which is why the turn boundaries are absent: nothing in the panel reads
+        # them.
+        #
+        # `thinking` is here because leaving it out made the panel look broken. A
+        # reasoning model spends most of its output on thinking — measured on the
+        # first real conversation, 875 of 900 tokens — and every one of those was
+        # streamed by the provider and dropped here. The panel showed nothing for
+        # five seconds and then the whole answer at once, which reads as a freeze
+        # rather than as a model that is working.
+        emit: [thinking, text, tool_call, tool_result, done, error, guardrail]
+        events:
+          process:
+            # No configuration: the emitter copies the agent's variables onto every
+            # event, and the caller's stream address is one of them. ifClosed: stop
+            # ends the run when the panel closes, so a shut tab does not leave a
+            # model running at full price with nobody reading it.
+            - type: sse-event
+              settings:
+                event: agent
+                ifClosed: stop
+
+        prompt: >
+          You are Dr. Octo, the agent built into this Octo platform. You are named
+          after a certain bald doctor with a fondness for elaborate schemes, and you
+          have his flair without his ethics: you are genuinely helpful, you never
+          hold anything to ransom, and one MILLION dollars is not a running joke you
+          need to make unprompted. You are also, literally, an Octo App — a flow
+          definition with an ai-agent block, deployed by the orchestrator exactly
+          like the integrations you help build. Mention that only if someone asks;
+          it is a fact, not a personality.
+
+
+          You are talking to a signed-in user of this platform. Their name arrives in
+          body.user.name, and the page they are on arrives in body.page — use the page
+          for context about what they mean by "this" or "here", and use their name
+          sparingly and naturally. When body.user is empty, authentication is off and
+          you are talking to a local developer.
+
+
+          body.routes lists the pages you can send them to: each has a path and a
+          description of what it shows, and a path containing a segment like {id} is a
+          template you fill in. When the answer to a question is a page, take them
+          there with navigate_to instead of describing how to find it — but say what
+          you are showing them in the same turn, because a panel that moves the page
+          without a word is unsettling. Never navigate to a path that is not built
+          from that list.
+
+
+          You help with the platform: reading and explaining integrations, writing
+          and fixing flow definitions, investigating deployments that will not start,
+          and reading logs and traces. You have full read and write access to the
+          orchestrator API through octo_api, including deploying — so say what you
+          are about to do before you do anything destructive, and prefer showing a
+          user a definition over silently saving it.
+
+
+          Work from evidence rather than memory. Call list_api_operations to see what
+          the API offers, read_api_docs for the detail of one tag, then octo_api to
+          make the call. Load a skill before writing a flow definition — the schema
+          changes faster than any model's training data, and a flow that does not
+          load is worse than an admission that you are unsure.
+
+
+          After you change an integration through the API, call refresh_platform_ui
+          with its id so an editor with it open offers to reload.
+
+
+          You remember people between conversations. Call recall_facts when the
+          answer might depend on how someone works, and remember_fact — with both
+          a short stable name and the fact itself — when they tell you something
+          worth keeping — how they like flows written, which
+          integration is theirs, what to call them. Remember preferences and
+          context, not the contents of a conversation, and never a credential. If
+          they tell you something has changed, update the fact under the same name;
+          if they ask you to forget something, forget it without arguing.
+
+
+          Write in Markdown — the panel renders it. Fenced code blocks with a language
+          on them, tables, lists and links all display properly, so a flow definition
+          belongs in a ```yaml fence and a comparison belongs in a table. Keep it
+          light otherwise: no heading on a one-paragraph reply, and never wrap an
+          ordinary sentence in a code fence. You are a chat panel, not a JSON API —
+          answer in prose with structure where structure helps, never as a bare JSON
+          object.
+
+        guardrail: >
+          If the request is not about this Octo platform, its integrations,
+          deployments or the flows a user is building, take the default path.
+
+        tools:
+          - name: list_api_operations
+            description: >
+              List every route the orchestrator API serves — method, path, summary
+              and tag. Cheap. Read this first to find the tag worth asking about.
+            inputSchema: |
+              { "type": "object", "properties": {} }
+            process:
+              - type: rest
+                settings:
+                  connector: octo
+                  method: GET
+                  path: /openapi/operations
+
+          - name: read_api_docs
+            description: >
+              Read the orchestrator's OpenAPI description, narrowed to one tag (from
+              list_api_operations) or one path prefix. Pass one or the other, never
+              both. Without a filter this is very large; use a filter.
+            inputSchema: |
+              {
+                "type": "object",
+                "properties": {
+                  "tag": { "type": "string", "description": "Keep only operations with this tag." },
+                  "path": { "type": "string", "description": "Keep only routes starting with this prefix." }
+                }
+              }
+            process:
+              - type: rest
+                settings:
+                  connector: octo
+                  method: GET
+                  path: /openapi.json
+                  query:
+                    tag: 'has(body.tag) ? body.tag : ""'
+                    path: 'has(body.path) ? body.path : ""'
+
+          - name: octo_api
+            description: >
+              Call the orchestrator API. Look the route up with read_api_docs first
+              rather than guessing. Returns the response body; the HTTP status is in
+              vars.statusCode, and a 4xx comes back as data rather than an error, so
+              read it and correct the call.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["method", "path"],
+                "properties": {
+                  "method": { "type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"] },
+                  "path":   { "type": "string", "description": "Path only, e.g. /integrations/abc. Never a full URL." },
+                  "query":  { "type": "object", "description": "Query parameters." },
+                  "payload": { "type": "object", "description": "JSON request body." }
+                }
+              }
+            process:
+              # The tool's arguments arrive as the message body, which is already the
+              # shape this block reads. To restrict what Dr. Octo may do, add
+              # allowMethods or pathPrefix here — this is the one place that decides
+              # it, and it is editable in the integration manager like the rest of
+              # the app.
+              - type: rest-dynamic
+                settings:
+                  connector: octo
+                  method: body.method
+                  path: body.path
+                  query: 'has(body.query) ? body.query : {}'
+                  body: 'has(body.payload) ? body.payload : null'
+                  failOnError: false
+
+          - name: refresh_platform_ui
+            description: >
+              Tell the platform an integration changed, so an editor with it open
+              offers to reload. Call this after writing an integration through
+              octo_api. Fire-and-forget.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["id", "name"],
+                "properties": {
+                  "id":   { "type": "string", "description": "The integration's id." },
+                  "name": { "type": "string", "description": "The integration's name." }
+                }
+              }
+            process:
+              # The system: prefix publishes to the platform's own subject instead of
+              # this deployment's, so no HTTP hop is needed — the pod already holds
+              # the broker connection.
+              - type: publish-event
+                settings:
+                  subject: '"system:internal.integrations.events"'
+                  value: '{"type": "integration.updated", "id": body.id, "name": body.name}'
+              - type: set-payload
+                settings:
+                  value: '{"published": true}'
+
+          - name: navigate_to
+            description: >
+              Take the user to a page in the platform. Use a path from body.routes,
+              filling in any {id} segment. Navigation is a courtesy and not an
+              answer — say what you are showing them and why in the same turn.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["path", "reason"],
+                "properties": {
+                  "path":   { "type": "string", "description": "A path within the platform, e.g. /platform/i/abc. Never a full URL." },
+                  "reason": { "type": "string", "description": "One short line for the user saying why you are taking them there." }
+                }
+              }
+            process:
+              # A tool's process chain runs on the agent's own message, and an SSE
+              # route stamps the caller's stream address into a variable on it — so
+              # this reaches the open panel with nothing configured, exactly as the
+              # events path above does.
+              #
+              # ifClosed: ignore, unlike the events path. A closed panel means nobody
+              # is being navigated, which is not a reason to end the run mid-tool: the
+              # stop flag rides in the message variables and this chain shares the
+              # agent's message, so a stop here would follow the agent out of the tool
+              # call. The events path stops the run at the next token anyway.
+              #
+              # The path is NOT validated here. This app is meant to be edited, so a
+              # guard in this file is advice rather than a boundary — the panel is
+              # what performs the navigation and is where a path that is not a
+              # relative path within the platform has to be refused.
+              - type: sse-event
+                settings:
+                  event: navigate
+                  ifClosed: ignore
+                  data: >-
+                    {
+                      "path": has(body.path) ? body.path : "",
+                      "reason": has(body.reason) ? body.reason : ""
+                    }
+              - type: set-payload
+                settings:
+                  value: '{"navigated": true}'
+
+          # ---------------------------------------------------------------- facts
+          #
+          # What Dr. Octo remembers about a person between conversations: how they
+          # like flows written, which integration is theirs, that they prefer the
+          # short answer. Memory holds a *conversation*; this holds what outlives
+          # one.
+          #
+          # All three keep every fact for a user in a single object at
+          # facts/{userKey}. One key per fact would have been the obvious shape and
+          # is the wrong one here: core.KV has get, set and delete but no list, so
+          # enumerating them would mean an HTTP call to the objects route and the
+          # deployment's own id. A list in one value needs neither, and CEL can
+          # filter and append it without any of that.
+          #
+          # The key is built from vars.userKey, which the model cannot see or set.
+          # It names a fact; the flow decides whose.
+
+          - name: recall_facts
+            description: >
+              Everything you have been told to remember about this user. Read it
+              early when the answer might depend on how they work — do not ask them
+              to repeat something you were already told.
+            inputSchema: |
+              { "type": "object", "properties": {} }
+            process:
+              - type: object-read
+                settings:
+                  key: '"facts/" + vars.userKey'
+                  as: userFacts
+                  default: '{"items": []}'
+              - type: set-payload
+                settings:
+                  value: '{"facts": vars.userFacts.items}'
+
+          - name: remember_fact
+            description: >
+              Remember something about this user for later conversations. Use a
+              short stable name so the same fact can be updated rather than
+              duplicated — "preferred-model", "main-integration". Remember what
+              they tell you about themselves and how they work, not the contents of
+              this conversation, and not anything secret.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["name", "value"],
+                "properties": {
+                  "name":  { "type": "string", "description": "Short stable identifier for the fact." },
+                  "value": { "type": "string", "description": "The fact, in a sentence." }
+                }
+              }
+            process:
+              - type: object-read
+                settings:
+                  key: '"facts/" + vars.userKey'
+                  as: userFacts
+                  default: '{"items": []}'
+              # Filter-then-append is what makes this an upsert: remembering a name
+              # that is already known replaces it rather than leaving the model to
+              # read two versions of the same fact and pick one.
+              - type: set-variable
+                name: merge-facts
+                settings:
+                  name: mergedFacts
+                  value: >-
+                    vars.userFacts.items.filter(f, f.name != body.name)
+                    + [{"name": body.name, "value": body.value}]
+
+              # Capped, oldest first. Nothing else bounds this list — the model
+              # decides what is worth keeping — and an unbounded value is read back
+              # into every recall_facts and eventually into a row that will not
+              # write. 200 is far more than anyone accumulates honestly and far
+              # less than a problem.
+              #
+              # Read and write are separate blocks, so two conversations
+              # remembering at the same moment can lose one of the two facts.
+              # Accepted rather than solved: object-write retries on a version
+              # conflict but cannot see a read taken in another block, and the
+              # alternative — a key per fact — needs a list API the KV store does
+              # not have. The cost is one forgotten preference, and the user can
+              # say it again.
+              - type: object-write
+                settings:
+                  key: '"facts/" + vars.userKey'
+                  value: >-
+                    {"items": size(vars.mergedFacts) > 200
+                      ? vars.mergedFacts.slice(size(vars.mergedFacts) - 200, size(vars.mergedFacts))
+                      : vars.mergedFacts}
+
+              - type: set-payload
+                settings:
+                  value: '{"remembered": body.name}'
+
+          - name: forget_fact
+            description: >
+              Forget a fact by name. Use this when the user says something is no
+              longer true, and when they ask you to forget something.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["name"],
+                "properties": {
+                  "name": { "type": "string", "description": "The fact's name, as given to remember_fact." }
+                }
+              }
+            process:
+              - type: object-read
+                settings:
+                  key: '"facts/" + vars.userKey'
+                  as: userFacts
+                  default: '{"items": []}'
+              - type: object-write
+                settings:
+                  key: '"facts/" + vars.userKey'
+                  value: '{"items": vars.userFacts.items.filter(f, f.name != body.name)}'
+              - type: set-payload
+                settings:
+                  value: '{"forgotten": body.name}'
+
+        skills:
+          - name: flow-file
+            description: >
+              The shape of a flow definition: service, env, resources, connectors,
+              flows, sources and process chains. Load before writing or editing one.
+            resource: flow-file
+          - name: blocks
+            description: >
+              The blocks a process chain can contain — control flow, data, storage,
+              AI and integration — and what each is for.
+            resource: blocks
+          - name: connectors
+            description: >
+              The connectors available (HTTP, database, queue, cron, LLM, and the
+              rest) and the settings each takes.
+            resource: connectors
+          - name: expressions
+            description: >
+              CEL as octo uses it: the message activation, the octo extension
+              functions, and where expressions are allowed.
+            resource: expressions
+          - name: testing
+            description: >
+              Writing dolphin test suites for a flow: cases, inputs, mocks and spies.
+            resource: testing
+          - name: platform
+            description: >
+              How the platform runs an integration: version tags, deployments,
+              resources, cluster secrets, and what a failing deployment looks like.
+            resource: platform
+
+        default:
+          process:
+            - type: set-payload
+              settings:
+                value: >-
+                  {"answer": "That one is outside my remit. I am Dr. Octo — I run
+                  this Octo platform, and my schemes extend to integrations,
+                  deployments and the flows you are building. Ask me about those."}

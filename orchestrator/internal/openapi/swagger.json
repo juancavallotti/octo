@@ -1,0 +1,4765 @@
+{
+    "components": {
+        "schemas": {
+            "agent.actorRequest": {
+                "properties": {
+                    "actorId": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "agent.statusResponse": {
+                "properties": {
+                    "blocked": {
+                        "description": "Blocked is empty, or names what stands in the way: kubernetes, encryption or\nllm_key.",
+                        "type": "string"
+                    },
+                    "deploymentId": {
+                        "type": "string"
+                    },
+                    "deploymentStatus": {
+                        "type": "string"
+                    },
+                    "edited": {
+                        "type": "boolean"
+                    },
+                    "installedTag": {
+                        "type": "string"
+                    },
+                    "integrationId": {
+                        "type": "string"
+                    },
+                    "internalUrl": {
+                        "type": "string"
+                    },
+                    "reason": {
+                        "type": "string"
+                    },
+                    "state": {
+                        "type": "string"
+                    },
+                    "tracing": {
+                        "type": "boolean"
+                    },
+                    "updateAvailable": {
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "agent.tracingRequest": {
+                "properties": {
+                    "actorId": {
+                        "type": "string"
+                    },
+                    "tracing": {
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "apikey.apiKeyResponse": {
+                "properties": {
+                    "createdAt": {
+                        "type": "string"
+                    },
+                    "expiresAt": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "last4": {
+                        "type": "string"
+                    },
+                    "lastUsedAt": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "prefix": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "apikey.createRequest": {
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "ttlSeconds": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "apikey.createResponse": {
+                "properties": {
+                    "createdAt": {
+                        "type": "string"
+                    },
+                    "expiresAt": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "last4": {
+                        "type": "string"
+                    },
+                    "lastUsedAt": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "prefix": {
+                        "type": "string"
+                    },
+                    "token": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "apikey.verifyRequest": {
+                "properties": {
+                    "token": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "apikey.verifyResponse": {
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "userId": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "deployment.EnvBinding": {
+                "properties": {
+                    "secret": {
+                        "type": "string"
+                    },
+                    "value": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "deployment.Settings": {
+                "properties": {
+                    "env": {
+                        "additionalProperties": {
+                            "$ref": "#/components/schemas/deployment.EnvBinding"
+                        },
+                        "description": "Env binds the integration's declared environment variables for this\ndeployment, keyed by env var name. Each binding is either a literal value or a\nreference to a cluster secret. HTTP_PORT/HTTP_HOST are orchestrator-managed and\ncannot be bound here. Literal values are persisted as-is; secret bindings\npersist only the secret name, never its value.",
+                        "type": "object"
+                    },
+                    "expose": {
+                        "description": "Expose opts the deployment into an external HTTP endpoint. \"external\"\npublishes a {subdomain}.{baseDomain} Ingress with TLS; empty = internal only.",
+                        "type": "string"
+                    },
+                    "replicas": {
+                        "description": "Replicas is the desired runtime replica count; \u003c1 is normalized to 1. The\nper-deployment Service load-balances across them for internal callers.",
+                        "type": "integer"
+                    },
+                    "slug": {
+                        "description": "Slug is the user-chosen internal address label for a networked deployment\n(the internal Service is octo-int-{slug}). It must be unique across\ndeployments; empty asks the orchestrator to allocate a free one. Ignored for\nintegrations with no HTTP source. Input only — the resolved slug lives in\nMetadata.",
+                        "type": "string"
+                    },
+                    "snapshotId": {
+                        "description": "SnapshotID is the version tag (snapshot) to deploy. When the service is wired\nwith a snapshot store (the production path) it is required, and the deploy\nships that snapshot's frozen definition rather than the live one. Input only —\nthe resolved snapshot id/tag are recorded in Metadata.",
+                        "type": "string"
+                    },
+                    "subdomain": {
+                        "description": "Subdomain is the external host label; empty defaults to the integration\nslug. Only meaningful when Expose is \"external\".",
+                        "type": "string"
+                    },
+                    "tracing": {
+                        "description": "Tracing runs this deployment's pods with the runtime's tracer on, so every\nflow, block and model call they execute is published for the platform to\nstore. It is off by default and costs throughput, so it is a per-deployment\nswitch rather than an integration-wide one: you turn it on for the deployment\nyou are investigating.",
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "deployment.deployOptionsResponse": {
+                "properties": {
+                    "envProvidedKeys": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "envVars": {
+                        "items": {
+                            "$ref": "#/components/schemas/deployment.envVarResponse"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "networked": {
+                        "type": "boolean"
+                    },
+                    "slug": {
+                        "type": "string"
+                    },
+                    "slugAvailable": {
+                        "type": "boolean"
+                    },
+                    "slugValid": {
+                        "type": "boolean"
+                    },
+                    "suggestedSlug": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "deployment.deploymentResponse": {
+                "properties": {
+                    "createdAt": {
+                        "type": "string"
+                    },
+                    "desiredReplicas": {
+                        "type": "integer"
+                    },
+                    "env": {
+                        "additionalProperties": {
+                            "$ref": "#/components/schemas/deployment.envBindingResponse"
+                        },
+                        "description": "Env are the deployment's persisted env bindings, so a rollout dialog can seed\n\"edit existing\". Omitted when the deployment has no bindings.",
+                        "type": "object"
+                    },
+                    "externalUrl": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "integrationId": {
+                        "type": "string"
+                    },
+                    "internalUrl": {
+                        "type": "string"
+                    },
+                    "lastUpdated": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "pods": {
+                        "items": {
+                            "$ref": "#/components/schemas/deployment.podResponse"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "readyReplicas": {
+                        "type": "integer"
+                    },
+                    "reason": {
+                        "type": "string"
+                    },
+                    "replicas": {
+                        "type": "integer"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "tag": {
+                        "type": "string"
+                    },
+                    "tracing": {
+                        "description": "Tracing reports whether this deployment's pods run with the runtime tracer on,\nso the rollout dialog can seed the switch from what is actually deployed.",
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "deployment.envBindingResponse": {
+                "properties": {
+                    "secret": {
+                        "type": "string"
+                    },
+                    "value": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "deployment.envVarResponse": {
+                "properties": {
+                    "default": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "required": {
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "deployment.podResponse": {
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "phase": {
+                        "type": "string"
+                    },
+                    "ready": {
+                        "type": "boolean"
+                    },
+                    "restarts": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "deployment.rolloutRequest": {
+                "properties": {
+                    "env": {
+                        "additionalProperties": {
+                            "$ref": "#/components/schemas/deployment.EnvBinding"
+                        },
+                        "type": "object"
+                    },
+                    "snapshotId": {
+                        "type": "string"
+                    },
+                    "tracing": {
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "deployment.scaleRequest": {
+                "properties": {
+                    "replicas": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "devrun.Bundle": {
+                "properties": {
+                    "definition": {
+                        "type": "string"
+                    },
+                    "generation": {
+                        "type": "string"
+                    },
+                    "resources": {
+                        "items": {
+                            "$ref": "#/components/schemas/devrun.Resource"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "devrun.Resource": {
+                "properties": {
+                    "content": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "devrun.devRunResponse": {
+                "properties": {
+                    "createdAt": {
+                        "description": "CreatedAt and LastActivity are pointers so an unknown one is omitted rather than\nreported as the zero time, which a client would render as 1 January year 1.",
+                        "type": "string"
+                    },
+                    "host": {
+                        "description": "Host and TestURL are absent for an integration that serves no HTTP.",
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "integrationId": {
+                        "type": "string"
+                    },
+                    "lastActivity": {
+                        "type": "string"
+                    },
+                    "ready": {
+                        "type": "boolean"
+                    },
+                    "reason": {
+                        "type": "string"
+                    },
+                    "restarts": {
+                        "description": "Restarts is the total across the run's pods, which is how a crash loop shows up\nin a UI that otherwise only reports the current phase.",
+                        "type": "integer"
+                    },
+                    "sidecar": {
+                        "description": "Sidecar is the sidecar's own status document, passed through as it produced it.\nAbsent when the sidecar was not asked or did not answer in time.\n\nswaggertype says what RawMessage means on the wire: bytes to Go, an arbitrary\nJSON object to a client. The API description generator cannot see through the\nalias on its own, and the honest answer is \"whatever the sidecar sent\" — this\nfield is a passthrough whose shape the sidecar owns, not this API.",
+                        "type": "object"
+                    },
+                    "status": {
+                        "description": "Status is pending|running|failed, as computed from the workload and its pods.",
+                        "type": "string"
+                    },
+                    "testUrl": {
+                        "type": "string"
+                    },
+                    "userId": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "devrun.ensureRequest": {
+                "properties": {
+                    "integrationId": {
+                        "type": "string"
+                    },
+                    "userId": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "devrun.ensureResponse": {
+                "properties": {
+                    "created": {
+                        "type": "boolean"
+                    },
+                    "createdAt": {
+                        "description": "CreatedAt and LastActivity are pointers so an unknown one is omitted rather than\nreported as the zero time, which a client would render as 1 January year 1.",
+                        "type": "string"
+                    },
+                    "host": {
+                        "description": "Host and TestURL are absent for an integration that serves no HTTP.",
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "integrationId": {
+                        "type": "string"
+                    },
+                    "lastActivity": {
+                        "type": "string"
+                    },
+                    "ready": {
+                        "type": "boolean"
+                    },
+                    "reason": {
+                        "type": "string"
+                    },
+                    "restarts": {
+                        "description": "Restarts is the total across the run's pods, which is how a crash loop shows up\nin a UI that otherwise only reports the current phase.",
+                        "type": "integer"
+                    },
+                    "sidecar": {
+                        "description": "Sidecar is the sidecar's own status document, passed through as it produced it.\nAbsent when the sidecar was not asked or did not answer in time.\n\nswaggertype says what RawMessage means on the wire: bytes to Go, an arbitrary\nJSON object to a client. The API description generator cannot see through the\nalias on its own, and the honest answer is \"whatever the sidecar sent\" — this\nfield is a passthrough whose shape the sidecar owns, not this API.",
+                        "type": "object"
+                    },
+                    "status": {
+                        "description": "Status is pending|running|failed, as computed from the workload and its pods.",
+                        "type": "string"
+                    },
+                    "testUrl": {
+                        "type": "string"
+                    },
+                    "userId": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "email.sendRequestBody": {
+                "properties": {
+                    "html": {
+                        "type": "string"
+                    },
+                    "subject": {
+                        "type": "string"
+                    },
+                    "text": {
+                        "type": "string"
+                    },
+                    "to": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "email.sendResponse": {
+                "properties": {
+                    "messageId": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "email.settingsResponse": {
+                "properties": {
+                    "configured": {
+                        "type": "boolean"
+                    },
+                    "encryptionAvailable": {
+                        "description": "EncryptionAvailable is not stored; it reports whether this orchestrator can\nencrypt a key at all, so the UI can explain a disabled input rather than\nletting the operator discover it when the save fails.",
+                        "type": "boolean"
+                    },
+                    "fromEmail": {
+                        "type": "string"
+                    },
+                    "fromName": {
+                        "type": "string"
+                    },
+                    "last4": {
+                        "type": "string"
+                    },
+                    "replyTo": {
+                        "type": "string"
+                    },
+                    "updatedAt": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "email.testRequest": {
+                "properties": {
+                    "apiKey": {
+                        "type": "string"
+                    },
+                    "fromEmail": {
+                        "type": "string"
+                    },
+                    "fromName": {
+                        "type": "string"
+                    },
+                    "replyTo": {
+                        "type": "string"
+                    },
+                    "to": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "email.updateRequest": {
+                "properties": {
+                    "apiKey": {
+                        "type": "string"
+                    },
+                    "fromEmail": {
+                        "type": "string"
+                    },
+                    "fromName": {
+                        "type": "string"
+                    },
+                    "replyTo": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "folder.folderRequest": {
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "parentId": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "folder.folderResponse": {
+                "properties": {
+                    "children": {
+                        "items": {
+                            "$ref": "#/components/schemas/folder.folderResponse"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "parentId": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "folder.integrationResponse": {
+                "properties": {
+                    "definition": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "lastUpdated": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "folder.reorderFoldersRequest": {
+                "properties": {
+                    "folderIds": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "parentId": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "folder.reorderRequest": {
+                "properties": {
+                    "integrationIds": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "httpx.ErrorResponse": {
+                "properties": {
+                    "error": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "integration.integrationRequest": {
+                "properties": {
+                    "actorId": {
+                        "type": "string"
+                    },
+                    "definition": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "integration.integrationResponse": {
+                "properties": {
+                    "createdBy": {
+                        "type": "string"
+                    },
+                    "createdByEmail": {
+                        "type": "string"
+                    },
+                    "createdByName": {
+                        "type": "string"
+                    },
+                    "definition": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "lastUpdated": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "updatedBy": {
+                        "type": "string"
+                    },
+                    "updatedByEmail": {
+                        "type": "string"
+                    },
+                    "updatedByName": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "kv.Entry": {
+                "properties": {
+                    "key": {
+                        "type": "string"
+                    },
+                    "size": {
+                        "type": "integer"
+                    },
+                    "updatedAt": {
+                        "type": "string"
+                    },
+                    "version": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "kv.namespacesResponse": {
+                "properties": {
+                    "items": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "kv.objectListResponse": {
+                "properties": {
+                    "items": {
+                        "items": {
+                            "$ref": "#/components/schemas/kv.Entry"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "kv.objectValue": {
+                "properties": {
+                    "encoding": {
+                        "type": "string"
+                    },
+                    "key": {
+                        "type": "string"
+                    },
+                    "value": {
+                        "type": "string"
+                    },
+                    "version": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "llm.settingsResponse": {
+                "properties": {
+                    "configured": {
+                        "type": "boolean"
+                    },
+                    "encryptionAvailable": {
+                        "description": "EncryptionAvailable is not stored; it reports whether this orchestrator can\nencrypt a key at all.",
+                        "type": "boolean"
+                    },
+                    "last4": {
+                        "type": "string"
+                    },
+                    "model": {
+                        "type": "string"
+                    },
+                    "provider": {
+                        "type": "string"
+                    },
+                    "updatedAt": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "llm.updateRequest": {
+                "properties": {
+                    "apiKey": {
+                        "type": "string"
+                    },
+                    "model": {
+                        "type": "string"
+                    },
+                    "provider": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.Operation": {
+                "properties": {
+                    "method": {
+                        "type": "string"
+                    },
+                    "operationId": {
+                        "type": "string"
+                    },
+                    "path": {
+                        "type": "string"
+                    },
+                    "summary": {
+                        "type": "string"
+                    },
+                    "tags": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "resource.resourceRequest": {
+                "properties": {
+                    "content": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "resource.resourceResponse": {
+                "properties": {
+                    "content": {
+                        "type": "string"
+                    },
+                    "createdAt": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "integrationId": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "type": "string"
+                    },
+                    "lastUpdated": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "secret.secretResponse": {
+                "properties": {
+                    "createdAt": {
+                        "type": "string"
+                    },
+                    "lastUpdated": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "secret.setRequest": {
+                "properties": {
+                    "value": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "snapshot.createRequest": {
+                "properties": {
+                    "tag": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "snapshot.resourceResponse": {
+                "properties": {
+                    "createdAt": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "snapshot.snapshotResponse": {
+                "properties": {
+                    "createdAt": {
+                        "type": "string"
+                    },
+                    "definition": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "integrationId": {
+                        "type": "string"
+                    },
+                    "tag": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "user.bootstrapRequest": {
+                "properties": {
+                    "email": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "subject": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "user.userResponse": {
+                "properties": {
+                    "createdAt": {
+                        "type": "string"
+                    },
+                    "email": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "lastLoginAt": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            }
+        }
+    },
+    "info": {
+        "description": "The control plane behind the Octo platform: integrations and their\nresources, version tags, deployments, cluster secrets, the\ndeployment-scoped key-value store, users and API keys, and the\nsite-wide settings.\n\nThe orchestrator is an in-cluster service and performs no\nauthentication of its own. Callers reach it over the cluster network\nand the platform BFF is the authorization boundary in front of it.\nIdentity, where a route needs it, is passed as a parameter (an actor\nid, a user id in the path) rather than proven by a credential.",
+        "license": {
+            "name": "Elastic License 2.0",
+            "url": "https://www.elastic.co/licensing/elastic-license"
+        },
+        "title": "Octo Orchestrator API",
+        "version": "1.0"
+    },
+    "externalDocs": {
+        "description": "Octo documentation",
+        "url": "https://octopaas.dev/docs"
+    },
+    "paths": {
+        "/apikeys/verify": {
+            "post": {
+                "description": "How a caller holding an octo API key is identified. An expired or unknown token is\na 401 rather than a 404, so an attacker cannot tell the two apart.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/apikey.verifyRequest",
+                                        "summary": "body",
+                                        "description": "The token to verify"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The token to verify",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/apikey.verifyResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "unknown or expired"
+                    }
+                },
+                "summary": "Resolve a bearer token to its owner",
+                "tags": [
+                    "apikeys"
+                ]
+            }
+        },
+        "/db-version": {
+            "get": {
+                "description": "Reads the db_version row the schema job seeds, and passes the stored JSON\nthrough unmodified so a caller sees exactly what was written. Reports 503\nrather than failing when no database is configured, so the difference\nbetween \"not wired\" and \"wired and broken\" stays visible.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "description": "the seeded db_version value"
+                    },
+                    "500": {
+                        "description": "the row could not be read"
+                    },
+                    "503": {
+                        "description": "no database is configured"
+                    }
+                },
+                "summary": "The database schema version",
+                "tags": [
+                    "meta"
+                ]
+            }
+        },
+        "/deployments/{id}": {
+            "delete": {
+                "description": "Removes the workload and its addresses, and cleans up the deployment's stored\ndata. The integration and its version tags are untouched.",
+                "parameters": [
+                    {
+                        "description": "Deployment id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "undeployed"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "summary": "Undeploy",
+                "tags": [
+                    "deployments"
+                ]
+            },
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Deployment id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/deployment.deploymentResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "summary": "Get a deployment",
+                "tags": [
+                    "deployments"
+                ]
+            },
+            "patch": {
+                "description": "The one change that does not replace pods, which is why it is its own route\nrather than part of rollout.",
+                "parameters": [
+                    {
+                        "description": "Deployment id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/deployment.scaleRequest",
+                                        "summary": "body",
+                                        "description": "Desired replicas"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Desired replicas",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/deployment.deploymentResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "summary": "Change a deployment's replica count",
+                "tags": [
+                    "deployments"
+                ]
+            }
+        },
+        "/deployments/{id}/kv/{namespace}/{key}": {
+            "delete": {
+                "parameters": [
+                    {
+                        "description": "Deployment id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Namespace",
+                        "in": "path",
+                        "name": "namespace",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Key (may contain slashes)",
+                        "in": "path",
+                        "name": "key",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Expected version; omit to delete unconditionally",
+                        "in": "header",
+                        "name": "X-Object-Version",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "deleted"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the version did not match"
+                    }
+                },
+                "summary": "Delete a key",
+                "tags": [
+                    "kv"
+                ]
+            },
+            "get": {
+                "description": "The deployment-scoped store the runtime calls. Values are raw bytes, not JSON, and\nthe current version comes back in the X-Object-Version header. Keys in a secret\nnamespace are encrypted at rest and decrypted here.",
+                "parameters": [
+                    {
+                        "description": "Deployment id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Namespace",
+                        "in": "path",
+                        "name": "namespace",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Key (may contain slashes)",
+                        "in": "path",
+                        "name": "key",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/octet-stream": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "description": "the value bytes",
+                        "headers": {
+                            "X-Object-Version": {
+                                "description": "the version this value is at, to send back on a conditional write",
+                                "schema": {
+                                    "type": "integer"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "no such key"
+                    }
+                },
+                "summary": "Read a key",
+                "tags": [
+                    "kv"
+                ]
+            },
+            "put": {
+                "description": "The body is the raw value, capped at 1 MiB. Optimistic concurrency is by header:\nsend X-Object-Version with the version you last read and the write is refused if\nsomeone has written since; omit it to write unconditionally. The new version comes\nback in the same header.",
+                "parameters": [
+                    {
+                        "description": "Deployment id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Namespace",
+                        "in": "path",
+                        "name": "namespace",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Key (may contain slashes)",
+                        "in": "path",
+                        "name": "key",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Expected version",
+                        "in": "header",
+                        "name": "X-Object-Version",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/octet-stream": {
+                            "schema": {
+                                "format": "binary",
+                                "type": "string"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "written",
+                        "headers": {
+                            "X-Object-Version": {
+                                "description": "the version the write produced",
+                                "schema": {
+                                    "type": "integer"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the version did not match"
+                    },
+                    "413": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the value is too large"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "a secret write without encryption configured"
+                    }
+                },
+                "summary": "Write a key",
+                "tags": [
+                    "kv"
+                ]
+            }
+        },
+        "/deployments/{id}/namespaces": {
+            "get": {
+                "description": "Secret namespaces are included: their keys can be listed and deleted, just not read.",
+                "parameters": [
+                    {
+                        "description": "Deployment id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/kv.namespacesResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "List a deployment's namespaces",
+                "tags": [
+                    "objects"
+                ]
+            }
+        },
+        "/deployments/{id}/objects": {
+            "get": {
+                "description": "Key metadata only, no values, which is why secret namespaces are allowed here.",
+                "parameters": [
+                    {
+                        "description": "Deployment id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Namespace; defaults to the user namespace",
+                        "in": "query",
+                        "name": "namespace",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/kv.objectListResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "List the objects in a namespace",
+                "tags": [
+                    "objects"
+                ]
+            }
+        },
+        "/deployments/{id}/objects/{key}": {
+            "delete": {
+                "parameters": [
+                    {
+                        "description": "Deployment id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Namespace; defaults to the user namespace",
+                        "in": "query",
+                        "name": "namespace",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Key (may contain slashes)",
+                        "in": "path",
+                        "name": "key",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "deleted"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the version did not match"
+                    }
+                },
+                "summary": "Delete one object",
+                "tags": [
+                    "objects"
+                ]
+            },
+            "get": {
+                "description": "Encoding is utf8 for readable values and base64 for binary ones, so a value round\ntrips losslessly either way. Secret namespaces are refused: this returns values.",
+                "parameters": [
+                    {
+                        "description": "Deployment id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Namespace; defaults to the user namespace",
+                        "in": "query",
+                        "name": "namespace",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Key (may contain slashes)",
+                        "in": "path",
+                        "name": "key",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/kv.objectValue"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "a secret namespace"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "summary": "Read one object",
+                "tags": [
+                    "objects"
+                ]
+            },
+            "put": {
+                "parameters": [
+                    {
+                        "description": "Deployment id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Namespace; defaults to the user namespace",
+                        "in": "query",
+                        "name": "namespace",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Key (may contain slashes)",
+                        "in": "path",
+                        "name": "key",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/kv.objectValue",
+                                        "summary": "body",
+                                        "description": "Value, encoding and expected version"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Value, encoding and expected version",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/kv.objectValue"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the version did not match"
+                    }
+                },
+                "summary": "Write one object",
+                "tags": [
+                    "objects"
+                ]
+            }
+        },
+        "/deployments/{id}/pods/{pod}/logs": {
+            "get": {
+                "description": "Plain text, not JSON, flushed as it arrives. With follow the response stays open\nuntil the caller disconnects.",
+                "parameters": [
+                    {
+                        "description": "Deployment id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Pod name",
+                        "in": "path",
+                        "name": "pod",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Keep the stream open",
+                        "in": "query",
+                        "name": "follow",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    },
+                    {
+                        "description": "How many trailing lines to start from",
+                        "in": "query",
+                        "name": "tail",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "text/plain": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "description": "the log stream"
+                    },
+                    "404": {
+                        "description": "no such deployment or pod"
+                    }
+                },
+                "summary": "Stream a pod's logs",
+                "tags": [
+                    "deployments"
+                ]
+            }
+        },
+        "/deployments/{id}/rollout": {
+            "post": {
+                "description": "A rolling update in place: the id, address, scale and exposure survive. Omitting\nenv or tracing keeps its existing value, so a plain version bump runs the new tag\non the settings the deployment already had. This is also the only way to switch tracing on or\noff, because the runtime reads it at startup and so only new pods see the change.\nA tag that adds or removes the integration's HTTP source is refused — that\nchanges the Service topology, which a rolling update cannot express.",
+                "parameters": [
+                    {
+                        "description": "Deployment id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/deployment.rolloutRequest",
+                                        "summary": "body",
+                                        "description": "Target tag, and optionally env and tracing"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Target tag, and optionally env and tracing",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/deployment.deploymentResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "a topology change or an unbound required env var"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "summary": "Roll a deployment onto a different version, env or tracing setting",
+                "tags": [
+                    "deployments"
+                ]
+            }
+        },
+        "/devruns": {
+            "get": {
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/devrun.devRunResponse"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no cluster access"
+                    }
+                },
+                "summary": "List dev runs",
+                "tags": [
+                    "devruns"
+                ]
+            },
+            "post": {
+                "description": "A short-lived pod that runs an integration's working copy — no version tag — so\nthe editor can execute unsaved work. Idempotent: an existing run for the same\nintegration and user is returned rather than duplicated.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/devrun.ensureRequest",
+                                        "summary": "body",
+                                        "description": "Integration and owner"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Integration and owner",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/devrun.ensureResponse"
+                                }
+                            }
+                        },
+                        "description": "attached to a run that was already up"
+                    },
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/devrun.ensureResponse"
+                                }
+                            }
+                        },
+                        "description": "a run was started"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no cluster access"
+                    }
+                },
+                "summary": "Start or reuse a dev run",
+                "tags": [
+                    "devruns"
+                ]
+            }
+        },
+        "/devruns/{id}": {
+            "delete": {
+                "description": "The user-initiated teardown, as against expire, which a sidecar calls on itself.",
+                "parameters": [
+                    {
+                        "description": "Dev run id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "stopped"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "summary": "Stop a dev run",
+                "tags": [
+                    "devruns"
+                ]
+            },
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Dev run id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/devrun.devRunResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "summary": "Get a dev run",
+                "tags": [
+                    "devruns"
+                ]
+            }
+        },
+        "/devruns/{id}/bundle": {
+            "get": {
+                "description": "The definition and resources the sidecar writes into the workspace the runtime\nwatches, with a generation digest so an unchanged bundle costs nothing to\nre-apply. Authenticated by the run's own token, not a user session — a 404 here\nis how a sidecar learns its run is gone.",
+                "parameters": [
+                    {
+                        "description": "Dev run id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/devrun.Bundle"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "summary": "Fetch the dev run's current bundle",
+                "tags": [
+                    "devruns"
+                ]
+            }
+        },
+        "/devruns/{id}/expire": {
+            "post": {
+                "description": "What a sidecar calls when its bundle pull 404s. Separate from the user-facing\ndelete because a pod holding a dev-run token is not a user.",
+                "parameters": [
+                    {
+                        "description": "Dev run id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "expired"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "summary": "Expire a dev run at its own request",
+                "tags": [
+                    "devruns"
+                ]
+            }
+        },
+        "/devruns/{id}/logs": {
+            "get": {
+                "description": "Plain text, flushed as it arrives.",
+                "parameters": [
+                    {
+                        "description": "Dev run id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Keep the stream open",
+                        "in": "query",
+                        "name": "follow",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    },
+                    {
+                        "description": "How many trailing lines to start from",
+                        "in": "query",
+                        "name": "tail",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "text/plain": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "description": "the log stream"
+                    },
+                    "404": {
+                        "description": "no such dev run"
+                    }
+                },
+                "summary": "Stream a dev run's logs",
+                "tags": [
+                    "devruns"
+                ]
+            }
+        },
+        "/devruns/{id}/reload": {
+            "post": {
+                "description": "Prompts the sidecar to pull the current bundle. Best-effort: a run that cannot be\nreached is stale, not broken, and its own status says so.",
+                "parameters": [
+                    {
+                        "description": "Dev run id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "notified"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "summary": "Tell a dev run its integration changed",
+                "tags": [
+                    "devruns"
+                ]
+            }
+        },
+        "/email/send": {
+            "post": {
+                "description": "The operation in-cluster callers use. The key and the from identity come from the\nstored settings and the request carries neither — a body supplying one is rejected\nby the decoder, which is what keeps this from being a relay for whatever key a\ncaller holds. Recipients are capped, and CR/LF is refused in the subject.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/email.sendRequestBody",
+                                        "summary": "body",
+                                        "description": "Recipients, subject and body"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Recipients, subject and body",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/email.sendResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "invalid recipients, subject or body"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "email is not configured"
+                    },
+                    "502": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the provider was unreachable"
+                    }
+                },
+                "summary": "Send an email",
+                "tags": [
+                    "email"
+                ]
+            }
+        },
+        "/folders": {
+            "get": {
+                "description": "The whole hierarchy in one call, children nested under their parent and in display order.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/folder.folderResponse"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "List folders as a tree",
+                "tags": [
+                    "folders"
+                ]
+            },
+            "post": {
+                "description": "Folders organise integrations for browsing; an integration belongs to at most one.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/folder.folderRequest",
+                                        "summary": "body",
+                                        "description": "Name and optional parent"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Name and optional parent",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/folder.folderResponse"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    }
+                },
+                "summary": "Create a folder",
+                "tags": [
+                    "folders"
+                ]
+            }
+        },
+        "/folders/reorder": {
+            "put": {
+                "description": "The ids in their new display order, scoped to a single parent (null for the root level).",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/folder.reorderFoldersRequest",
+                                        "summary": "body",
+                                        "description": "Parent and the ordered folder ids"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Parent and the ordered folder ids",
+                    "required": true
+                },
+                "responses": {
+                    "204": {
+                        "description": "reordered"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    }
+                },
+                "summary": "Reorder folders under one parent",
+                "tags": [
+                    "folders"
+                ]
+            }
+        },
+        "/folders/{id}": {
+            "delete": {
+                "description": "Deletes the folder itself. The integrations it held are not deleted, only unfiled.",
+                "parameters": [
+                    {
+                        "description": "Folder id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "deleted"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "summary": "Delete a folder",
+                "tags": [
+                    "folders"
+                ]
+            },
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Folder id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/folder.folderResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "summary": "Get a folder",
+                "tags": [
+                    "folders"
+                ]
+            },
+            "put": {
+                "parameters": [
+                    {
+                        "description": "Folder id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/folder.folderRequest",
+                                        "summary": "body",
+                                        "description": "New name and parent"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "New name and parent",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/folder.folderResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "a move that would make a folder its own ancestor"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "summary": "Rename or move a folder",
+                "tags": [
+                    "folders"
+                ]
+            }
+        },
+        "/folders/{id}/integration-order": {
+            "put": {
+                "parameters": [
+                    {
+                        "description": "Folder id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/folder.reorderRequest",
+                                        "summary": "body",
+                                        "description": "The ordered integration ids"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The ordered integration ids",
+                    "required": true
+                },
+                "responses": {
+                    "204": {
+                        "description": "reordered"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    }
+                },
+                "summary": "Reorder the integrations inside a folder",
+                "tags": [
+                    "folders"
+                ]
+            }
+        },
+        "/folders/{id}/integrations": {
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Folder id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/folder.integrationResponse"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "summary": "List a folder's integrations",
+                "tags": [
+                    "folders"
+                ]
+            }
+        },
+        "/folders/{id}/integrations/{integrationId}": {
+            "delete": {
+                "description": "Unfiles it. The integration itself is untouched.",
+                "parameters": [
+                    {
+                        "description": "Folder id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Integration id",
+                        "in": "path",
+                        "name": "integrationId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "removed"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "summary": "Remove an integration from a folder",
+                "tags": [
+                    "folders"
+                ]
+            },
+            "put": {
+                "description": "Moves it out of whatever folder it was in; membership is exclusive.",
+                "parameters": [
+                    {
+                        "description": "Folder id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Integration id",
+                        "in": "path",
+                        "name": "integrationId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "filed"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "summary": "File an integration into a folder",
+                "tags": [
+                    "folders"
+                ]
+            }
+        },
+        "/healthz": {
+            "get": {
+                "description": "Answers as soon as the process is serving, with no dependency on the\ndatabase — which is the point, since it is what a probe uses to decide\nwhether to restart the pod while Postgres is still coming up.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "text/plain": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "description": "ok"
+                    }
+                },
+                "summary": "Liveness",
+                "tags": [
+                    "meta"
+                ]
+            }
+        },
+        "/integrations": {
+            "get": {
+                "description": "Every integration in the install, each with its full definition.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/integration.integrationResponse"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "List integrations",
+                "tags": [
+                    "integrations"
+                ]
+            },
+            "post": {
+                "description": "Stores a new integration definition under a name unique across the install (case-insensitively).",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/integration.integrationRequest",
+                                        "summary": "body",
+                                        "description": "Name and definition"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Name and definition",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/integration.integrationResponse"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "invalid name or body"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the name is taken"
+                    }
+                },
+                "summary": "Create an integration",
+                "tags": [
+                    "integrations"
+                ]
+            }
+        },
+        "/integrations/{id}": {
+            "delete": {
+                "parameters": [
+                    {
+                        "description": "Integration id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "deleted"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "summary": "Delete an integration",
+                "tags": [
+                    "integrations"
+                ]
+            },
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Integration id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/integration.integrationResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "summary": "Get an integration",
+                "tags": [
+                    "integrations"
+                ]
+            },
+            "put": {
+                "description": "Overwrites the name and definition. This is the live working copy, not a\nversion tag: a running deployment keeps serving its own frozen snapshot\nuntil it is rolled out.",
+                "parameters": [
+                    {
+                        "description": "Integration id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/integration.integrationRequest",
+                                        "summary": "body",
+                                        "description": "Name and definition"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Name and definition",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/integration.integrationResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the name is taken"
+                    }
+                },
+                "summary": "Replace an integration",
+                "tags": [
+                    "integrations"
+                ]
+            }
+        },
+        "/integrations/{id}/deployments": {
+            "get": {
+                "description": "Each with its live cluster status: replicas, pods and any failure reason.",
+                "parameters": [
+                    {
+                        "description": "Integration id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/deployment.deploymentResponse"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no cluster access"
+                    }
+                },
+                "summary": "List an integration's deployments",
+                "tags": [
+                    "deployments"
+                ]
+            },
+            "post": {
+                "description": "Runs a version tag as its own Kubernetes workload. The body is optional and\ndefaults to a single internal-only replica. A tag is required in production: the\ndeploy ships that tag's frozen definition, so later edits to the integration do\nnot disturb what is running. Declaring HTTP_PORT is what makes a deployment\nnetworked and earns it a stable internal address.",
+                "parameters": [
+                    {
+                        "description": "Integration id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/deployment.Settings",
+                                        "summary": "body",
+                                        "description": "Replicas, address, exposure, env bindings, tracing and the tag"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Replicas, address, exposure, env bindings, tracing and the tag"
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/deployment.deploymentResponse"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "a missing tag, an unbound required env var, or a reserved one"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the address or subdomain is taken"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no cluster access"
+                    }
+                },
+                "summary": "Deploy an integration",
+                "tags": [
+                    "deployments"
+                ]
+            }
+        },
+        "/integrations/{id}/deployments/options": {
+            "get": {
+                "description": "The env vars the chosen tag declares, whether an address is free, and whether\nexternal exposure is available — so a caller can compose a valid deploy before\nattempting one rather than discovering the gaps through failures.",
+                "parameters": [
+                    {
+                        "description": "Integration id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Candidate internal address to check",
+                        "in": "query",
+                        "name": "slug",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Whether an external endpoint is wanted",
+                        "in": "query",
+                        "name": "external",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    },
+                    {
+                        "description": "The tag being considered",
+                        "in": "query",
+                        "name": "snapshotId",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/deployment.deployOptionsResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "summary": "What a deploy of this integration would need",
+                "tags": [
+                    "deployments"
+                ]
+            }
+        },
+        "/integrations/{id}/resources": {
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Integration id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/resource.resourceResponse"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "List an integration's resources",
+                "tags": [
+                    "resources"
+                ]
+            },
+            "post": {
+                "description": "Resources are the files a definition refers to: env files and templates. Names are\nrelative paths and may contain slashes.",
+                "parameters": [
+                    {
+                        "description": "Integration id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/resource.resourceRequest",
+                                        "summary": "body",
+                                        "description": "Kind, name and content"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Kind, name and content",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/resource.resourceResponse"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "an unknown kind or an unsafe name"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no such integration"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the name is taken"
+                    }
+                },
+                "summary": "Add a resource to an integration",
+                "tags": [
+                    "resources"
+                ]
+            }
+        },
+        "/integrations/{id}/resources/{resourceId}": {
+            "delete": {
+                "parameters": [
+                    {
+                        "description": "Integration id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Resource id",
+                        "in": "path",
+                        "name": "resourceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "deleted"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "summary": "Delete a resource",
+                "tags": [
+                    "resources"
+                ]
+            },
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Integration id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Resource id",
+                        "in": "path",
+                        "name": "resourceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/resource.resourceResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "summary": "Get a resource",
+                "tags": [
+                    "resources"
+                ]
+            },
+            "put": {
+                "parameters": [
+                    {
+                        "description": "Integration id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Resource id",
+                        "in": "path",
+                        "name": "resourceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/resource.resourceRequest",
+                                        "summary": "body",
+                                        "description": "Kind, name and content"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Kind, name and content",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/resource.resourceResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the name is taken"
+                    }
+                },
+                "summary": "Replace a resource",
+                "tags": [
+                    "resources"
+                ]
+            }
+        },
+        "/integrations/{id}/snapshots": {
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Integration id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/snapshot.snapshotResponse"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "summary": "List an integration's version tags",
+                "tags": [
+                    "snapshots"
+                ]
+            },
+            "post": {
+                "description": "Freezes the integration's current definition and a copy of its resources under a\ntag. Tags are immutable and unique per integration; a deploy ships a tag's frozen\ndefinition rather than the live one, which is what makes a running deployment\nindependent of later edits.",
+                "parameters": [
+                    {
+                        "description": "Integration id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/snapshot.createRequest",
+                                        "summary": "body",
+                                        "description": "The tag to create"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The tag to create",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/snapshot.snapshotResponse"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "an invalid tag"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the tag already exists"
+                    }
+                },
+                "summary": "Tag a version of an integration",
+                "tags": [
+                    "snapshots"
+                ]
+            }
+        },
+        "/openapi.json": {
+            "get": {
+                "description": "This API as an OpenAPI 3.1 document. Narrow it with tag or path — the\nfull document is mostly schemas, and a filtered one carries only the\nschemas its operations can reach. The two filters are alternatives, not\na combination.",
+                "parameters": [
+                    {
+                        "description": "Keep only operations carrying this tag",
+                        "in": "query",
+                        "name": "tag",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Keep only routes starting with this prefix",
+                        "in": "query",
+                        "name": "path",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "description": "the description, filtered when asked"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "tag and path were both supplied"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "The API description",
+                "tags": [
+                    "openapi"
+                ]
+            }
+        },
+        "/openapi/operations": {
+            "get": {
+                "description": "Every route as one line: method, path, summary and tags. Read this\nfirst to find the tag or path worth asking the description about.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/openapi.Operation"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "The route index",
+                "tags": [
+                    "openapi"
+                ]
+            }
+        },
+        "/secrets": {
+            "get": {
+                "description": "Names only. Values live in the cluster's own Secret and are never read back\nthrough this API; a deployment references one by name.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/secret.secretResponse"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no cluster access"
+                    }
+                },
+                "summary": "List cluster secret names",
+                "tags": [
+                    "secrets"
+                ]
+            }
+        },
+        "/secrets/{name}": {
+            "delete": {
+                "description": "Refused while a deployment binds it, unless forced — removing it under a running\nworkload would leave pods unable to start on their next restart.",
+                "parameters": [
+                    {
+                        "description": "Secret name",
+                        "in": "path",
+                        "name": "name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Delete even if a deployment references it",
+                        "in": "query",
+                        "name": "force",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "deleted"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "a deployment references it"
+                    }
+                },
+                "summary": "Delete a cluster secret",
+                "tags": [
+                    "secrets"
+                ]
+            },
+            "put": {
+                "description": "Writes the value into the cluster Secret and records only the name. Deployments\nbind env vars to it by name, so the value never enters a deployment record.",
+                "parameters": [
+                    {
+                        "description": "Secret name",
+                        "in": "path",
+                        "name": "name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/secret.setRequest",
+                                        "summary": "body",
+                                        "description": "The value"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The value",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/secret.secretResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    }
+                },
+                "summary": "Create or replace a cluster secret",
+                "tags": [
+                    "secrets"
+                ]
+            }
+        },
+        "/settings/agent": {
+            "delete": {
+                "description": "Undeploys it. The integration is kept by default because it holds the\ndefinition, which may have been edited; purge deletes that too.",
+                "parameters": [
+                    {
+                        "description": "Also delete the integration",
+                        "in": "query",
+                        "name": "purge",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "removed"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "not installed"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no cluster access"
+                    }
+                },
+                "summary": "Remove the agent",
+                "tags": [
+                    "agent"
+                ]
+            },
+            "get": {
+                "description": "What is installed, what is running, and what stands in the way. Never\nfails for a reason the caller could act on: no cluster access, no\nencryption key and no stored LLM key are reported in `blocked` rather\nthan as errors, because a page that 500s cannot say what to configure.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/agent.statusResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "The platform agent's status",
+                "tags": [
+                    "agent"
+                ]
+            }
+        },
+        "/settings/agent/install": {
+            "post": {
+                "description": "Creates the agent as an ordinary integration, writes its skills as\nresources, tags a version from the bundle this binary ships, and deploys\nit internal-only. Idempotent: an existing integration is reused and an\nexisting tag is not recreated, so installing twice is not an error and\ndoes not produce a second agent.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/agent.actorRequest",
+                                        "summary": "body",
+                                        "description": "The acting user"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The acting user"
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/agent.statusResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no llm key is configured, or the name is taken"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no cluster access, or encryption is not configured"
+                    }
+                },
+                "summary": "Install the platform agent",
+                "tags": [
+                    "agent"
+                ]
+            }
+        },
+        "/settings/agent/rollout": {
+            "post": {
+                "description": "Publishes a new version tag and rolls the deployment onto it, also\nre-resolving the provider and model from the site's LLM settings.\nTagging freezes the integration's working copy, so this replaces any\nlocal edits with the shipped agent — the status reports `edited` so the\nchoice can be made knowingly.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/agent.actorRequest",
+                                        "summary": "body",
+                                        "description": "The acting user"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The acting user"
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/agent.statusResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "not installed, or no llm key is configured"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no cluster access"
+                    }
+                },
+                "summary": "Roll the agent onto the bundle this binary ships",
+                "tags": [
+                    "agent"
+                ]
+            }
+        },
+        "/settings/agent/tracing": {
+            "post": {
+                "description": "A rolling update, because the runtime reads the setting at startup — so\nit only reaches the agent by replacing its pods. Nothing else changes:\nthe same version tag and the same environment.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/agent.tracingRequest",
+                                        "summary": "body",
+                                        "description": "Whether tracing is on"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Whether tracing is on",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/agent.statusResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "not installed, or not deployed"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no cluster access"
+                    }
+                },
+                "summary": "Turn tracing on or off for the agent",
+                "tags": [
+                    "agent"
+                ]
+            }
+        },
+        "/settings/email": {
+            "get": {
+                "description": "The from identity and whether a provider key is stored. The key is never returned,\nonly its last four characters.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/email.settingsResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Get the site's email settings",
+                "tags": [
+                    "settings"
+                ]
+            },
+            "put": {
+                "description": "apiKey is three-state: omitted keeps the stored key, an empty string removes it, and\nany other value replaces it. Storing one requires encryption to be configured.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/email.updateRequest",
+                                        "summary": "body",
+                                        "description": "From identity and optionally the key"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "From identity and optionally the key",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/email.settingsResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "an invalid address or key"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "encryption is not configured"
+                    }
+                },
+                "summary": "Save the site's email settings",
+                "tags": [
+                    "settings"
+                ]
+            }
+        },
+        "/settings/email/test": {
+            "post": {
+                "description": "Uses the draft in the request rather than what is stored, so a configuration can be\nproved before it is saved; a supplied key wins over the stored one, and the stored\none is the fallback after a reload.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/email.testRequest",
+                                        "summary": "body",
+                                        "description": "Recipient and the draft settings"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Recipient and the draft settings",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/email.sendResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the provider rejected the key or the from address"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no key supplied and none stored"
+                    },
+                    "502": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the provider was unreachable"
+                    }
+                },
+                "summary": "Send a test message",
+                "tags": [
+                    "settings"
+                ]
+            }
+        },
+        "/settings/llm": {
+            "get": {
+                "description": "The provider, model and whether a key is stored. The key itself is never\nreturned — only its last four characters, so a reader can tell which key\nis in place without being able to use it.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/llm.settingsResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Get the site's LLM provider settings",
+                "tags": [
+                    "settings"
+                ]
+            },
+            "put": {
+                "description": "apiKey is three-state: omitted keeps the stored key, an empty string\nremoves it, and any other value replaces it. Storing a key requires the\norchestrator to have an encryption key configured; without one the save is\nrefused rather than performed in the clear.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/llm.updateRequest",
+                                        "summary": "body",
+                                        "description": "Provider, model and optionally the key"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Provider, model and optionally the key",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/llm.settingsResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "unknown provider, or an invalid model or key"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "encryption is not configured"
+                    }
+                },
+                "summary": "Save the site's LLM provider settings",
+                "tags": [
+                    "settings"
+                ]
+            }
+        },
+        "/snapshots/{id}": {
+            "delete": {
+                "description": "Refused while a deployment still references it — deleting it would leave that\ndeployment unable to say what it is running.",
+                "parameters": [
+                    {
+                        "description": "Snapshot id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "deleted"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "a deployment is using it"
+                    }
+                },
+                "summary": "Delete a version tag",
+                "tags": [
+                    "snapshots"
+                ]
+            }
+        },
+        "/snapshots/{id}/resources": {
+            "get": {
+                "description": "Metadata only. This is what a running runtime reads to discover its resources.",
+                "parameters": [
+                    {
+                        "description": "Snapshot id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/snapshot.resourceResponse"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "summary": "List the resources frozen under a tag",
+                "tags": [
+                    "snapshots"
+                ]
+            }
+        },
+        "/snapshots/{id}/resources/content": {
+            "get": {
+                "description": "Returns the bytes verbatim. Kind and name are query parameters rather than path\nsegments because a resource name may itself contain slashes.",
+                "parameters": [
+                    {
+                        "description": "Snapshot id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Resource kind (env or template)",
+                        "in": "query",
+                        "name": "kind",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Resource name",
+                        "in": "query",
+                        "name": "name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/octet-stream": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "description": "the resource bytes"
+                    },
+                    "400": {
+                        "description": "kind or name is missing"
+                    },
+                    "404": {
+                        "description": "no such snapshot or resource"
+                    }
+                },
+                "summary": "Read one frozen resource",
+                "tags": [
+                    "snapshots"
+                ]
+            }
+        },
+        "/users/bootstrap": {
+            "post": {
+                "description": "Called on sign-in. Creates the user on first sight and returns the same durable id\non every later call, so the platform has one identity to attribute writes to\nregardless of what the identity provider changes about the account.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/user.bootstrapRequest",
+                                        "summary": "body",
+                                        "description": "Subject, email and display name"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Subject, email and display name",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/user.userResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    }
+                },
+                "summary": "Resolve a signed-in identity to an octo user",
+                "tags": [
+                    "users"
+                ]
+            }
+        },
+        "/users/{id}": {
+            "get": {
+                "parameters": [
+                    {
+                        "description": "User id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/user.userResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "summary": "Get a user",
+                "tags": [
+                    "users"
+                ]
+            }
+        },
+        "/users/{userId}/apikeys": {
+            "get": {
+                "description": "Metadata only — prefix and last four characters, never the token.",
+                "parameters": [
+                    {
+                        "description": "User id",
+                        "in": "path",
+                        "name": "userId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/apikey.apiKeyResponse"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "List a user's API keys",
+                "tags": [
+                    "apikeys"
+                ]
+            },
+            "post": {
+                "description": "The only response that ever carries the token: it is hashed on the way in and\ncannot be read back, so a caller that loses it mints another.",
+                "parameters": [
+                    {
+                        "description": "User id",
+                        "in": "path",
+                        "name": "userId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/apikey.createRequest",
+                                        "summary": "body",
+                                        "description": "Name and lifetime in seconds"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Name and lifetime in seconds",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/apikey.createResponse"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    }
+                },
+                "summary": "Mint an API key for a user",
+                "tags": [
+                    "apikeys"
+                ]
+            }
+        },
+        "/users/{userId}/apikeys/{id}": {
+            "delete": {
+                "parameters": [
+                    {
+                        "description": "User id",
+                        "in": "path",
+                        "name": "userId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "API key id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "revoked"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "summary": "Revoke an API key",
+                "tags": [
+                    "apikeys"
+                ]
+            }
+        }
+    },
+    "openapi": "3.1.0"
+}

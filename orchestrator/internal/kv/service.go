@@ -9,6 +9,8 @@ package kv
 import (
 	"context"
 	"strings"
+
+	cryptox "github.com/juancavallotti/octo/orchestrator/internal/crypto"
 )
 
 // secretNamespaceSuffix marks the namespaces whose values are encrypted at rest. It
@@ -30,13 +32,13 @@ type repository interface {
 // the repo and decrypting them on read.
 type Service struct {
 	repo   repository
-	cipher *Cipher // nil disables secrets (secret-namespace ops fail with ErrEncryptionDisabled)
+	cipher *cryptox.Cipher // nil disables secrets (secret-namespace ops fail with ErrEncryptionDisabled)
 }
 
 // NewService returns a service backed by repo. cipher may be nil to run without
 // encryption configured, in which case writes/reads in a secret namespace fail with
 // ErrEncryptionDisabled while plain namespaces still work.
-func NewService(repo repository, cipher *Cipher) *Service {
+func NewService(repo repository, cipher *cryptox.Cipher) *Service {
 	return &Service{repo: repo, cipher: cipher}
 }
 

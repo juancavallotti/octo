@@ -38,6 +38,7 @@ export type WorkClass = "io" | "cpu" | "control" | "unclassified";
 export const BLOCK_CLASSES: Record<string, WorkClass> = {
   // --- leaves the process ---------------------------------------------------
   rest: "io",
+  "rest-dynamic": "io",
   sql: "io",
   "queue-dispatch": "io",
   "publish-event": "io",

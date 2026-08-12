@@ -58,6 +58,19 @@ func toResponse(u User) userResponse {
 	}
 }
 
+// bootstrap godoc
+//
+//	@Summary		Resolve a signed-in identity to an octo user
+//	@Description	Called on sign-in. Creates the user on first sight and returns the same durable id
+//	@Description	on every later call, so the platform has one identity to attribute writes to
+//	@Description	regardless of what the identity provider changes about the account.
+//	@Tags			users
+//	@Accept			json
+//	@Produce		json
+//	@Param			body	body		bootstrapRequest	true	"Subject, email and display name"
+//	@Success		200		{object}	userResponse
+//	@Failure		400		{object}	httpx.ErrorResponse
+//	@Router			/users/bootstrap [post]
 func (h *Handler) bootstrap(w http.ResponseWriter, r *http.Request) {
 	var req bootstrapRequest
 	if err := httpx.DecodeJSON(w, r, &req); err != nil {
@@ -76,6 +89,15 @@ func (h *Handler) bootstrap(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, toResponse(u))
 }
 
+// get godoc
+//
+//	@Summary	Get a user
+//	@Tags		users
+//	@Produce	json
+//	@Param		id	path		string	true	"User id"
+//	@Success	200	{object}	userResponse
+//	@Failure	404	{object}	httpx.ErrorResponse
+//	@Router		/users/{id} [get]
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()

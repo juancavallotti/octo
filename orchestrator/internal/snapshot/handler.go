@@ -61,6 +61,23 @@ func toResponse(s Snapshot) snapshotResponse {
 	return snapshotResponse(s)
 }
 
+// create godoc
+//
+//	@Summary		Tag a version of an integration
+//	@Description	Freezes the integration's current definition and a copy of its resources under a
+//	@Description	tag. Tags are immutable and unique per integration; a deploy ships a tag's frozen
+//	@Description	definition rather than the live one, which is what makes a running deployment
+//	@Description	independent of later edits.
+//	@Tags			snapshots
+//	@Accept			json
+//	@Produce		json
+//	@Param			id		path		string			true	"Integration id"
+//	@Param			body	body		createRequest	true	"The tag to create"
+//	@Success		201		{object}	snapshotResponse
+//	@Failure		400		{object}	httpx.ErrorResponse	"an invalid tag"
+//	@Failure		404		{object}	httpx.ErrorResponse
+//	@Failure		409		{object}	httpx.ErrorResponse	"the tag already exists"
+//	@Router			/integrations/{id}/snapshots [post]
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	var req createRequest
 	if err := httpx.DecodeJSON(w, r, &req); err != nil {
@@ -79,6 +96,15 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusCreated, toResponse(s))
 }
 
+// listByIntegration godoc
+//
+//	@Summary		List an integration's version tags
+//	@Tags			snapshots
+//	@Produce		json
+//	@Param			id	path		string	true	"Integration id"
+//	@Success		200	{array}		snapshotResponse
+//	@Failure		404	{object}	httpx.ErrorResponse
+//	@Router			/integrations/{id}/snapshots [get]
 func (h *Handler) listByIntegration(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
@@ -95,6 +121,18 @@ func (h *Handler) listByIntegration(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
+// delete godoc
+//
+//	@Summary		Delete a version tag
+//	@Description	Refused while a deployment still references it — deleting it would leave that
+//	@Description	deployment unable to say what it is running.
+//	@Tags			snapshots
+//	@Produce		json
+//	@Param			id	path	string	true	"Snapshot id"
+//	@Success		204	"deleted"
+//	@Failure		404	{object}	httpx.ErrorResponse
+//	@Failure		409	{object}	httpx.ErrorResponse	"a deployment is using it"
+//	@Router			/snapshots/{id} [delete]
 func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
@@ -115,6 +153,16 @@ type resourceResponse struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
+// listResources godoc
+//
+//	@Summary		List the resources frozen under a tag
+//	@Description	Metadata only. This is what a running runtime reads to discover its resources.
+//	@Tags			snapshots
+//	@Produce		json
+//	@Param			id	path		string	true	"Snapshot id"
+//	@Success		200	{array}		resourceResponse
+//	@Failure		404	{object}	httpx.ErrorResponse
+//	@Router			/snapshots/{id}/resources [get]
 func (h *Handler) listResources(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
@@ -134,6 +182,19 @@ func (h *Handler) listResources(w http.ResponseWriter, r *http.Request) {
 // resourceContent serves one frozen resource's raw bytes. kind and name are
 // required query params; a missing resource is a 404. This is the endpoint the
 // runtime's k8s resource loader calls.
+//
+//	@Summary		Read one frozen resource
+//	@Description	Returns the bytes verbatim. Kind and name are query parameters rather than path
+//	@Description	segments because a resource name may itself contain slashes.
+//	@Tags			snapshots
+//	@Produce		octet-stream
+//	@Param			id		path	string	true	"Snapshot id"
+//	@Param			kind	query	string	true	"Resource kind (env or template)"
+//	@Param			name	query	string	true	"Resource name"
+//	@Success		200		{string}	string	"the resource bytes"
+//	@Failure		400		"kind or name is missing"
+//	@Failure		404		"no such snapshot or resource"
+//	@Router			/snapshots/{id}/resources/content [get]
 func (h *Handler) resourceContent(w http.ResponseWriter, r *http.Request) {
 	kind := r.URL.Query().Get("kind")
 	name := r.URL.Query().Get("name")

@@ -24,7 +24,7 @@ Each connector concentrates provider policy — API key, model, and the default 
 | `apiKey` | string | Yes | — | Authenticates with the OpenAI API; source from `${OPENAI_API_KEY}`. Never logged. |
 | `model` | string | No | `gpt-5.4` | Model ID. |
 | `maxTokens` | int | No | model default | Default response token cap (0 = the model default); a request may override it. |
-| `reasoning` | enum `off` \| `minimal` \| `low` \| `medium` \| `high` | No | `off` | How much reasoning effort a reasoning-capable model spends. `off` sends nothing and leaves it to the model. It steers cost, not visibility: Chat Completions never returns reasoning content. |
+| `reasoning` | enum `none` \| `minimal` \| `low` \| `medium` \| `high` \| `default` | No | `none` | How much reasoning effort a reasoning-capable model spends. `none` turns it off explicitly; `default` omits the field so the model chooses. It steers cost, not visibility: Chat Completions never returns reasoning content. |
 | `baseURL` | string | No | OpenAI API | Overrides the API endpoint — for proxies, Azure, or **OpenAI-compatible servers** (any endpoint speaking the Chat Completions protocol, e.g. a local model server). |
 
 ## `llm-anthropic` connector
@@ -70,11 +70,23 @@ than pending:
 | `llm-openai` | fragments | **never** | fragments |
 | `llm-gemini` | fragments | fragments | whole, in one event |
 
+<Callout type="warn">
+Use `default` knowing it depends on the model. Omitting `reasoning_effort` asks the model for *its* default, which on a reasoning model is not none — and **some** models refuse a request combining a non-none effort with function tools on `/v1/chat/completions`, answering 400 and naming `reasoning_effort`. Others accept tool calls at every effort. Since which is which changes with each model release, `none` is the default here and is sent explicitly rather than by omission: it is the one value that works everywhere. If your model supports tools while reasoning and you want it to, set the effort you want rather than leaving it to `default`.
+</Callout>
+
 OpenAI's Chat Completions API returns no reasoning content at all — not while
 streaming, not on a finished message — so `reasoning` steers how much a model
 spends without ever showing it. Gemini delivers a tool call's arguments complete
 rather than in pieces; a path that concatenates `tool_input` fragments per call
 still ends up with the same JSON on all three.
+
+**A tool's result goes back to every provider as text**, under a single field on
+Gemini rather than spread into the function response. Gemini reads the structure
+it is given — a `#/...` string inside a function response is resolved against the
+response's parts — so a tool returning OpenAPI or JSON Schema, where every `$ref`
+looks like that, had its own document read as a set of dangling references and the
+turn refused. Your tools can return whatever JSON they like; the model still sees
+it, as text.
 
 Two things to know before turning thinking on:
 

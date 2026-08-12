@@ -20,16 +20,22 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/juancavallotti/octo/orchestrator/internal/agent"
 	"github.com/juancavallotti/octo/orchestrator/internal/apikey"
 	"github.com/juancavallotti/octo/orchestrator/internal/bus"
+	cryptox "github.com/juancavallotti/octo/orchestrator/internal/crypto"
 	"github.com/juancavallotti/octo/orchestrator/internal/db"
 	"github.com/juancavallotti/octo/orchestrator/internal/deployment"
 	"github.com/juancavallotti/octo/orchestrator/internal/devrun"
+	"github.com/juancavallotti/octo/orchestrator/internal/email"
 	"github.com/juancavallotti/octo/orchestrator/internal/folder"
 	httpx "github.com/juancavallotti/octo/orchestrator/internal/http"
 	"github.com/juancavallotti/octo/orchestrator/internal/integration"
 	"github.com/juancavallotti/octo/orchestrator/internal/kube"
 	"github.com/juancavallotti/octo/orchestrator/internal/kv"
+	"github.com/juancavallotti/octo/orchestrator/internal/llm"
+	"github.com/juancavallotti/octo/orchestrator/internal/mailer"
+	"github.com/juancavallotti/octo/orchestrator/internal/openapi"
 	"github.com/juancavallotti/octo/orchestrator/internal/resource"
 	"github.com/juancavallotti/octo/orchestrator/internal/secret"
 	"github.com/juancavallotti/octo/orchestrator/internal/snapshot"
@@ -290,19 +296,39 @@ func runtimeServicesConfig() kube.RuntimeServices {
 	}
 }
 
-// newServer wires the routes. database may be nil when DATABASE_URL is unset.
-// kc configures deployment management, which is enabled only when both a
-// database and in-cluster Kubernetes access are present. ctx bounds the lifetime
-// of background work started here (the deployment status informers).
-func newServer(ctx context.Context, database *db.DB, kc kube.Config) (http.Handler, error) {
-	mux := http.NewServeMux()
+// healthz answers the liveness probe.
+//
+// A named function rather than a closure so it can carry its annotation: an
+// undocumented route is a route the API description quietly lies about having.
+//
+//	@Summary		Liveness
+//	@Description	Answers as soon as the process is serving, with no dependency on the
+//	@Description	database — which is the point, since it is what a probe uses to decide
+//	@Description	whether to restart the pod while Postgres is still coming up.
+//	@Tags			meta
+//	@Produce		plain
+//	@Success		200	"ok"
+//	@Router			/healthz [get]
+func healthz(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = w.Write([]byte("ok"))
+}
 
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = w.Write([]byte("ok"))
-	})
-
-	mux.HandleFunc("GET /db-version", func(w http.ResponseWriter, r *http.Request) {
+// dbVersion reports the schema version the database was seeded with.
+//
+//	@Summary		The database schema version
+//	@Description	Reads the db_version row the schema job seeds, and passes the stored JSON
+//	@Description	through unmodified so a caller sees exactly what was written. Reports 503
+//	@Description	rather than failing when no database is configured, so the difference
+//	@Description	between "not wired" and "wired and broken" stays visible.
+//	@Tags			meta
+//	@Produce		json
+//	@Success		200	"the seeded db_version value"
+//	@Failure		500	"the row could not be read"
+//	@Failure		503	"no database is configured"
+//	@Router			/db-version [get]
+func dbVersion(database *db.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		if database == nil {
 			http.Error(w, "database not configured", http.StatusServiceUnavailable)
 			return
@@ -324,7 +350,27 @@ func newServer(ctx context.Context, database *db.DB, kc kube.Config) (http.Handl
 
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		_, _ = w.Write(value)
-	})
+	}
+}
+
+// newServer wires the routes. database may be nil when DATABASE_URL is unset.
+// kc configures deployment management, which is enabled only when both a
+// database and in-cluster Kubernetes access are present. ctx bounds the lifetime
+// of background work started here (the deployment status informers).
+func newServer(ctx context.Context, database *db.DB, kc kube.Config) (http.Handler, error) {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("GET /healthz", healthz)
+
+	// The API's own description, generated from the handler annotations and embedded
+	// at build time. Registered here rather than inside the database gate below: the
+	// description of a route is true whether or not its storage is wired, and an
+	// install still coming up is exactly when someone wants to read it.
+	openapi.NewHandler().Register(mux)
+	slog.Info("openapi routes registered",
+		"endpoints", "GET /openapi.json, GET /openapi/operations")
+
+	mux.HandleFunc("GET /db-version", dbVersion(database))
 
 	if database != nil {
 		// Kubernetes access is built first because of the one dependency cycle in this
@@ -405,7 +451,7 @@ func newServer(ctx context.Context, database *db.DB, kc kube.Config) (http.Handl
 		// Deployment-scoped KV store the runtime's k8s services module calls. Values
 		// in a secret namespace are encrypted with KV_ENCRYPTION_KEY; without the key,
 		// secrets are rejected but plain KV still works.
-		cipher, cipherErr := newKVCipher(os.Getenv("KV_ENCRYPTION_KEY"))
+		cipher, cipherErr := newCipher(os.Getenv("KV_ENCRYPTION_KEY"))
 		if cipherErr != nil {
 			return nil, cipherErr
 		}
@@ -421,6 +467,32 @@ func newServer(ctx context.Context, database *db.DB, kc kube.Config) (http.Handl
 		kv.NewObjectHandler(kvSvc).Register(mux)
 		slog.Info("object routes registered",
 			"endpoints", "GET /deployments/{id}/objects, GET/PUT/DELETE /deployments/{id}/objects/{key}")
+
+		// Site-wide settings: the email provider the platform sends through, and the
+		// LLM provider its agent reasons with. Both keep their API key encrypted with
+		// the same cipher the KV secret namespaces use; without it the routes still
+		// serve and the non-secret fields still save, but storing a key is refused
+		// rather than silently performed in the clear.
+		//
+		// Registered inside the database gate but outside the Kubernetes one below:
+		// neither feature needs a cluster, so an install without in-cluster access
+		// can still configure them.
+		emailSvc := email.NewService(email.NewRepo(database.Pool()), mailer.NewResend(), cipher)
+		email.NewHandler(emailSvc).Register(mux)
+		slog.Info("email settings routes registered",
+			"encryption", cipher != nil,
+			"endpoints", "GET/PUT /settings/email, POST /settings/email/test, POST /email/send")
+
+		llmSvc := llm.NewService(llm.NewRepo(database.Pool()), cipher)
+		llm.NewHandler(llmSvc).Register(mux)
+		slog.Info("llm settings routes registered",
+			"encryption", cipher != nil,
+			"endpoints", "GET/PUT /settings/llm")
+
+		// The platform agent is registered after the Kubernetes block below, because
+		// it takes the deployment and secret services when a cluster is there. Its
+		// options are collected here so the registration reads as one thing.
+		var agentOpts []agent.Option
 
 		// Deployment and dev-run management need both the database and in-cluster
 		// Kubernetes access. Outside a cluster (e.g. local `go run`) the client is nil
@@ -479,6 +551,10 @@ func newServer(ctx context.Context, database *db.DB, kc kube.Config) (http.Handl
 			slog.Info("secret routes registered",
 				"endpoints", "GET /secrets, PUT/DELETE /secrets/{name}")
 
+			// The agent needs both: a deploy to run it, and a cluster secret to hold
+			// its provider key without the key entering a deployment record.
+			agentOpts = append(agentOpts, agent.WithCluster(deploymentSvc, secretSvc))
+
 			// Dev runs: the editor's Run button, as a pod of its own rather than a child
 			// process of whichever platform replica answered the request.
 			if devrunSvc.Enabled() {
@@ -500,6 +576,30 @@ func newServer(ctx context.Context, database *db.DB, kc kube.Config) (http.Handl
 					"orchestratorUrl", kc.OrchestratorURL != "" || kc.RuntimeServices.OrchestratorURL != "")
 			}
 		}
+
+		// The platform agent: itself an integration, deployed through the same path
+		// as anything a user builds. Registered outside the Kubernetes gate above so
+		// GET /settings/agent answers everywhere and names what is missing — a route
+		// that vanished would leave the admin page with a 404 to interpret. Without
+		// a cluster the mutating routes refuse with 503.
+		// Both fields come from ORCHESTRATOR_URL today, so this is belt and braces —
+		// but the agent binds whichever it is given, and an empty one produces a pod
+		// that starts and cannot call back. The dev-run gate reads them the same way.
+		agentOrchestratorURL := kc.RuntimeServices.OrchestratorURL
+		if agentOrchestratorURL == "" {
+			agentOrchestratorURL = kc.OrchestratorURL
+		}
+		agentSvc := agent.NewService(
+			agent.NewRepo(database.Pool()),
+			integrationSvc, resourceSvc, snapshotSvc, llmSvc,
+			agentOrchestratorURL,
+			agentOpts...,
+		)
+		agent.NewHandler(agentSvc).Register(mux)
+		slog.Info("agent routes registered",
+			"cluster", len(agentOpts) > 0,
+			"endpoints", "GET/DELETE /settings/agent, "+
+				"POST /settings/agent/{install,rollout,tracing}")
 	} else {
 		slog.Warn("DATABASE_URL not set; integration, folder and deployment routes disabled")
 	}
@@ -532,7 +632,7 @@ func newKubeClient(ctx context.Context, kc kube.Config) (*kube.Client, error) {
 // unset). A nil service reports Enabled() == false, so the caller registers nothing.
 //
 // DEV_RUN_HASH_SECRET is required as soon as dev runs are otherwise configured, and its
-// absence stops startup naming it — the same posture newKVCipher takes for
+// absence stops startup naming it — the same posture newCipher takes for
 // KV_ENCRYPTION_KEY, for the same class of reason. Every dev run's identity and, more
 // to the point, its public hostname are HMACs keyed on this secret. Unkeyed they would
 // be pure functions of a user id and an integration id, which is to say that the
@@ -594,10 +694,14 @@ func startDevRunReaper(ctx context.Context, svc *devrun.Service) {
 	}()
 }
 
-// newKVCipher builds the secret-namespace encryption cipher from a base64-encoded
-// key. An empty key disables encryption (secret-namespace writes are then rejected);
-// a malformed key or an invalid key length is a startup error.
-func newKVCipher(b64 string) (*kv.Cipher, error) {
+// newCipher builds the at-rest encryption cipher from a base64-encoded key. An empty
+// key disables encryption (secret-namespace writes are then rejected); a malformed key
+// or an invalid key length is a startup error.
+//
+// The env var is still named KV_ENCRYPTION_KEY, though the cipher now also protects
+// the site-wide provider API keys. Renaming it would be a breaking chart change for a
+// cosmetic gain, so the name stays and this comment carries the correction.
+func newCipher(b64 string) (*cryptox.Cipher, error) {
 	if b64 == "" {
 		slog.Warn("KV_ENCRYPTION_KEY not set; KV secret-namespace writes will be rejected")
 		return nil, nil //nolint:nilnil // nil cipher means encryption disabled, not an error
@@ -606,7 +710,7 @@ func newKVCipher(b64 string) (*kv.Cipher, error) {
 	if err != nil {
 		return nil, fmt.Errorf("decode KV_ENCRYPTION_KEY: %w", err)
 	}
-	return kv.NewCipher(key)
+	return cryptox.NewCipher(key)
 }
 
 func envOr(key, fallback string) string {

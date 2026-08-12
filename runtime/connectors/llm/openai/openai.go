@@ -52,14 +52,21 @@ type connectorSettings struct {
 	Model string `json:"model" octo:"label=Model,default=gpt-5.4"`
 	// Default response token cap (0 = the model default); a request may override it.
 	MaxTokens int `json:"maxTokens" octo:"label=Max tokens"`
-	// How much reasoning effort a reasoning-capable model spends; off leaves it to the model.
-	Reasoning string `json:"reasoning" octo:"label=Reasoning,type=enum,enum=off|minimal|low|medium|high,default=off"`
+	// How much reasoning effort a reasoning-capable model spends. "none" turns it
+	// off explicitly; "default" leaves the field off the request and lets the model
+	// choose, which for a reasoning model is not the same thing as none.
+	//nolint:lll // a struct tag cannot be wrapped, and the enum has to list every option
+	Reasoning string `json:"reasoning" octo:"label=Reasoning,type=enum,enum=none|minimal|low|medium|high|default,default=none"`
 	// Overrides the API endpoint (for proxies, Azure, or OpenAI-compatible servers).
 	BaseURL string `json:"baseURL" octo:"label=Base URL"`
 }
 
-// reasoningOff leaves reasoning_effort off the request entirely.
-const reasoningOff = "off"
+const (
+	// reasoningNone asks the model for no reasoning at all, on the wire.
+	reasoningNone = "none"
+	// reasoningDefault omits reasoning_effort so the model applies its own.
+	reasoningDefault = "default"
+)
 
 // Connector is a configured OpenAI client that AI elements call through. It is
 // safe for concurrent use: the SDK client is, and the connector holds only
@@ -122,13 +129,22 @@ func (c *Connector) Start(_ context.Context, config types.ConnectorConfig) error
 // make reasoning observable, which Chat Completions never does.
 func toReasoningEffort(effort string) (shared.ReasoningEffort, error) {
 	switch effort {
-	case "", reasoningOff:
+	// Unset and "off" both mean no reasoning, and both now say so on the wire
+	// rather than by omission. Omitting the field asks a reasoning model for its
+	// own default, which is not none — and a non-none default cannot be combined
+	// with function tools on /v1/chat/completions, so every agent built on such a
+	// model failed its first turn with a 400 naming reasoning_effort.
+	case "", reasoningNone:
+		return shared.ReasoningEffort(reasoningNone), nil
+	// The old behaviour, for a model that rejects an explicit none.
+	case reasoningDefault:
 		return "", nil
 	case string(shared.ReasoningEffortMinimal), string(shared.ReasoningEffortLow),
 		string(shared.ReasoningEffortMedium), string(shared.ReasoningEffortHigh):
 		return shared.ReasoningEffort(effort), nil
 	default:
-		return "", fmt.Errorf("reasoning must be one of off, minimal, low, medium, high, got %q", effort)
+		return "", fmt.Errorf(
+			"reasoning must be one of none, minimal, low, medium, high, default, got %q", effort)
 	}
 }
 

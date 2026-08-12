@@ -82,6 +82,19 @@ func toResponse(k APIKey) apiKeyResponse {
 	}
 }
 
+// create godoc
+//
+//	@Summary		Mint an API key for a user
+//	@Description	The only response that ever carries the token: it is hashed on the way in and
+//	@Description	cannot be read back, so a caller that loses it mints another.
+//	@Tags			apikeys
+//	@Accept			json
+//	@Produce		json
+//	@Param			userId	path		string			true	"User id"
+//	@Param			body	body		createRequest	true	"Name and lifetime in seconds"
+//	@Success		201		{object}	createResponse
+//	@Failure		400		{object}	httpx.ErrorResponse
+//	@Router			/users/{userId}/apikeys [post]
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	var req createRequest
 	if err := httpx.DecodeJSON(w, r, &req); err != nil {
@@ -104,6 +117,16 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// list godoc
+//
+//	@Summary		List a user's API keys
+//	@Description	Metadata only — prefix and last four characters, never the token.
+//	@Tags			apikeys
+//	@Produce		json
+//	@Param			userId	path		string	true	"User id"
+//	@Success		200		{array}		apiKeyResponse
+//	@Failure		500		{object}	httpx.ErrorResponse
+//	@Router			/users/{userId}/apikeys [get]
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
@@ -120,6 +143,16 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
+// delete godoc
+//
+//	@Summary	Revoke an API key
+//	@Tags		apikeys
+//	@Produce	json
+//	@Param		userId	path	string	true	"User id"
+//	@Param		id		path	string	true	"API key id"
+//	@Success	204		"revoked"
+//	@Failure	404		{object}	httpx.ErrorResponse
+//	@Router		/users/{userId}/apikeys/{id} [delete]
 func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
@@ -131,6 +164,18 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// verify godoc
+//
+//	@Summary		Resolve a bearer token to its owner
+//	@Description	How a caller holding an octo API key is identified. An expired or unknown token is
+//	@Description	a 401 rather than a 404, so an attacker cannot tell the two apart.
+//	@Tags			apikeys
+//	@Accept			json
+//	@Produce		json
+//	@Param			body	body		verifyRequest	true	"The token to verify"
+//	@Success		200		{object}	verifyResponse
+//	@Failure		401		{object}	httpx.ErrorResponse	"unknown or expired"
+//	@Router			/apikeys/verify [post]
 func (h *Handler) verify(w http.ResponseWriter, r *http.Request) {
 	var req verifyRequest
 	if err := httpx.DecodeJSON(w, r, &req); err != nil {

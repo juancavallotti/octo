@@ -1,4 +1,13 @@
-package kv
+// Package cryptox holds the orchestrator's symmetric encryption primitive: the
+// AES-GCM cipher that protects values stored at rest in Postgres. It is shared by
+// every feature that keeps a secret in a column — the KV store's secret namespaces
+// and the site-wide provider API keys — so there is one construction, one stored
+// format, and one place to change if the format ever has to move.
+//
+// The package is named cryptox rather than crypto so it does not shadow the
+// standard library package of that name, which this file itself imports. That
+// mirrors internal/http, which is package httpx for the same reason.
+package cryptox
 
 import (
 	"crypto/aes"
@@ -9,8 +18,8 @@ import (
 	"io"
 )
 
-// Cipher encrypts and decrypts secret-namespace values with AES-GCM. The stored
-// form is nonce || ciphertext, so each value carries the nonce it was sealed with.
+// Cipher encrypts and decrypts values with AES-GCM. The stored form is
+// nonce || ciphertext, so each value carries the nonce it was sealed with.
 type Cipher struct {
 	aead cipher.AEAD
 }
@@ -20,11 +29,11 @@ type Cipher struct {
 func NewCipher(key []byte) (*Cipher, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
-		return nil, fmt.Errorf("kv cipher: %w", err)
+		return nil, fmt.Errorf("cipher: %w", err)
 	}
 	aead, err := cipher.NewGCM(block)
 	if err != nil {
-		return nil, fmt.Errorf("kv cipher: gcm: %w", err)
+		return nil, fmt.Errorf("cipher: gcm: %w", err)
 	}
 	return &Cipher{aead: aead}, nil
 }
@@ -33,7 +42,7 @@ func NewCipher(key []byte) (*Cipher, error) {
 func (c *Cipher) Encrypt(plaintext []byte) ([]byte, error) {
 	nonce := make([]byte, c.aead.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return nil, fmt.Errorf("kv cipher: nonce: %w", err)
+		return nil, fmt.Errorf("cipher: nonce: %w", err)
 	}
 	// Seal appends the ciphertext to nonce, so the result is nonce || ciphertext.
 	return c.aead.Seal(nonce, nonce, plaintext, nil), nil
@@ -43,12 +52,12 @@ func (c *Cipher) Encrypt(plaintext []byte) ([]byte, error) {
 func (c *Cipher) Decrypt(data []byte) ([]byte, error) {
 	ns := c.aead.NonceSize()
 	if len(data) < ns {
-		return nil, errors.New("kv cipher: ciphertext too short")
+		return nil, errors.New("cipher: ciphertext too short")
 	}
 	nonce, ciphertext := data[:ns], data[ns:]
 	plaintext, err := c.aead.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
-		return nil, fmt.Errorf("kv cipher: decrypt: %w", err)
+		return nil, fmt.Errorf("cipher: decrypt: %w", err)
 	}
 	return plaintext, nil
 }

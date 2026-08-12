@@ -49,6 +49,10 @@ jobs:
       # runtime's end-to-end tests, and the only ones that exercise the debug seam the way
       # a user meets it — through the CLI, with real mocks and spies.
       - run: task runtime:test:samples
+      # The platform agent is an octo app like any other, so it is tested like one.
+      # Separate from the samples because it lives under orchestrator/ — inside the
+      # binary's embed root, not the samples tree.
+      - run: task runtime:test:agent
       # The service modules. Each gets its own steps rather than an entry in a
       # list, because this job enumerates what it runs — and what it enumerates is
       # the whole guarantee. `orchestrator` and `logs` were missing here until
@@ -63,9 +67,15 @@ jobs:
       - run: task orchestrator:fmt
       - run: task logs:tidy
       - run: task logs:fmt
-      # tidy and fmt repair go.* and Go sources and still exit 0, so a PR that
-      # needed either would otherwise merge with the drift unmade.
-      - name: Verify orchestrator and logs are tidy and formatted
+      # The committed OpenAPI description is generated from the handler annotations,
+      # so it can go stale the moment a route or a request type changes. Regenerating
+      # it here folds it into the same diff check below: an annotation edited without
+      # regenerating, or a route added without annotating, fails exactly as
+      # unformatted Go does.
+      - run: task orchestrator:openapi
+      # tidy, fmt and openapi repair go.*, Go sources and the spec and still exit 0,
+      # so a PR that needed any of them would otherwise merge with the drift unmade.
+      - name: Verify orchestrator and logs are tidy, formatted and describe their API
         run: git diff --exit-code -- orchestrator logs
       - run: task orchestrator:lint
       - run: task logs:lint
