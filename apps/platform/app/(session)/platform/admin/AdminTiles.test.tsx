@@ -16,23 +16,24 @@ describe("AdminTiles", () => {
     expect(screen.getByRole("link", { name: /Platform agent/ }).getAttribute("href")).toBe(
       "/platform/admin/agent",
     );
+    expect(screen.getByRole("link", { name: /Data retention/ }).getAttribute("href")).toBe(
+      "/platform/admin/retention",
+    );
   });
 
-  // The unbuilt capabilities are shown so the section reads as intentional, but they
-  // must not look clickable — there is nothing behind them yet.
-  it("renders the unbuilt capabilities as inert, not as links", () => {
+  // Data retention was the last tile the section described without having, and
+  // its arrival empties the unbuilt list. These two assert the placeholder
+  // treatment is gone rather than merely unused: a tile left inert would look
+  // identical to a working one that had quietly lost its href.
+  it("shows nothing as coming soon", () => {
     render(<AdminTiles />);
 
-    for (const name of [/Data retention/]) {
-      expect(screen.queryByRole("link", { name })).toBeNull();
-      expect(screen.getByText(name.source.replace(/\\/g, ""))).toBeTruthy();
-    }
-    expect(screen.getAllByText("Coming soon")).toHaveLength(1);
+    expect(screen.queryByText("Coming soon")).toBeNull();
   });
 
-  it("marks the unbuilt tiles as disabled for assistive tech", () => {
+  it("marks no tile as disabled for assistive tech", () => {
     const { container } = render(<AdminTiles />);
 
-    expect(container.querySelectorAll('[aria-disabled="true"]')).toHaveLength(1);
+    expect(container.querySelectorAll('[aria-disabled="true"]')).toHaveLength(0);
   });
 });
