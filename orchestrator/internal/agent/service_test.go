@@ -638,6 +638,74 @@ func TestRolloutPublishesTheBundleAndRollsTheDeployment(t *testing.T) {
 	}
 }
 
+// A roll-out overwrites the working copy with the shipped bundle, so whatever was
+// there is gone the moment republish runs. Freezing it first is the only thing that
+// makes "your changes stop running" different from "your changes are destroyed",
+// and it is what the confirmation now promises.
+func TestRolloutFreezesTheEditedDefinitionBeforeReplacingIt(t *testing.T) {
+	h := newHarness(t, true)
+	ctx := context.Background()
+
+	installed, err := h.svc.Install(ctx, "")
+	if err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	tagsAfterInstall := len(h.snapshots.items)
+
+	// Edit the agent the way the editor does: change the working copy in place.
+	it := h.integrations.items[installed.IntegrationID]
+	edited := it.Definition + "\n# someone changed the prompt\n"
+	it.Definition = edited
+	h.integrations.items[installed.IntegrationID] = it
+
+	if _, err := h.svc.Rollout(ctx, "user-1"); err != nil {
+		t.Fatalf("Rollout: %v", err)
+	}
+
+	var preserved *snapshot.Snapshot
+	for i, snap := range h.snapshots.items {
+		if strings.HasPrefix(snap.Tag, "agent-edited-") {
+			preserved = &h.snapshots.items[i]
+		}
+	}
+	if preserved == nil {
+		t.Fatalf("want the edited definition frozen under an agent-edited- tag, got %v",
+			h.snapshots.items)
+	}
+	if len(h.snapshots.items) != tagsAfterInstall+1 {
+		t.Errorf("snapshots = %d, want exactly one added for the edits", len(h.snapshots.items))
+	}
+	// The working copy is stock again, which is the point of the roll-out — the
+	// edits live in the tag above and nowhere else.
+	if got := h.integrations.items[installed.IntegrationID].Definition; got == edited {
+		t.Error("want the working copy replaced by the shipped bundle")
+	}
+}
+
+// A roll-out with nothing to preserve must not mint a version per press. The button
+// is now always offered, so a redeploy of an unedited agent is an ordinary thing to
+// do repeatedly.
+func TestRolloutFreezesNothingWhenTheAgentIsUnedited(t *testing.T) {
+	h := newHarness(t, true)
+	ctx := context.Background()
+
+	if _, err := h.svc.Install(ctx, ""); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	before := len(h.snapshots.items)
+
+	for i := range 2 {
+		if _, err := h.svc.Rollout(ctx, "user-1"); err != nil {
+			t.Fatalf("Rollout %d: %v", i, err)
+		}
+	}
+
+	if got := len(h.snapshots.items); got != before {
+		t.Errorf("snapshots = %d, want %d — an unedited roll-out has nothing to freeze",
+			got, before)
+	}
+}
+
 // Editing the agent is supported, so the status has to say when it has happened —
 // a roll-out replaces those edits, and that should be a known choice.
 func TestStatusReportsAnEditedIntegration(t *testing.T) {

@@ -567,6 +567,34 @@ func (s *Service) Rollout(ctx context.Context, actorID string) (Status, error) {
 	return s.Status(ctx)
 }
 
+// preserveEdits tags the integration's live definition when it differs from the
+// bundle about to replace it, so the edits survive the roll-out as a version anyone
+// can read, deploy or copy back.
+//
+// Compared against the bundle rather than against the installed digest: what matters
+// is whether republishing is about to change anything, not whether the change was
+// made since the last install. When they match there is nothing to lose and no tag
+// is created, which is what keeps a plain redeploy from minting a version per press.
+//
+// A failure here fails the roll-out. Preserving the edits is the promise the
+// confirmation makes, and continuing past a failed snapshot would break it at
+// exactly the moment it mattered.
+func (s *Service) preserveEdits(ctx context.Context, integrationID, bundleDigest string) error {
+	live, err := s.liveDigest(ctx, integrationID)
+	if err != nil {
+		return fmt.Errorf("read the integration before replacing it: %w", err)
+	}
+	if live == bundleDigest {
+		return nil
+	}
+	snap, err := s.ensureTag(ctx, integrationID, agentapp.EditedTag(live))
+	if err != nil {
+		return fmt.Errorf("freeze the current definition before replacing it: %w", err)
+	}
+	slog.Info("agent edits preserved before roll-out", "tag", snap.Tag)
+	return nil
+}
+
 // republish writes the bundle's definition and skills over the integration. This is
 // what "rolling out replaces local edits" means, and it is only ever called from a
 // roll-out — an install must not overwrite a definition on a retry.
@@ -585,6 +613,15 @@ func (s *Service) republish(ctx context.Context, integrationID, actorID string) 
 func (s *Service) rollout(ctx context.Context, cur stored, actorID string) (stored, error) {
 	digest, err := agentapp.Digest()
 	if err != nil {
+		return cur, err
+	}
+
+	// Freeze the live definition before republishing writes over it, so a roll-out
+	// that discards someone's edits leaves them recoverable as a version rather than
+	// gone. Snapshotting is the only place edits could survive: republish overwrites
+	// the working copy, and the tag published below is of the bundle, not of what was
+	// there before it.
+	if err := s.preserveEdits(ctx, cur.IntegrationID, digest); err != nil {
 		return cur, err
 	}
 

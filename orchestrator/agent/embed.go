@@ -123,11 +123,27 @@ func DigestFiles(files map[string]string) string {
 // re-installing the same bundle finds the tag it already created rather than
 // making a second one. Short enough to read, long enough not to collide.
 func Tag(digest string) string {
+	return "agent-" + shortDigest(digest)
+}
+
+// EditedTag is the version tag the *live* definition is frozen under before a
+// roll-out replaces it with the shipped bundle. Deterministic on the same content,
+// so rolling out twice from one edited state reuses the tag rather than piling up
+// near-identical versions.
+//
+// A separate prefix from Tag's because the version list is read by people: "which
+// of these is the agent I edited" should be answerable without digesting anything.
+func EditedTag(digest string) string {
+	return "agent-edited-" + shortDigest(digest)
+}
+
+// shortDigest truncates a digest to something readable that still will not collide.
+func shortDigest(digest string) string {
 	const shortLen = 12
 	if len(digest) > shortLen {
-		digest = digest[:shortLen]
+		return digest[:shortLen]
 	}
-	return "agent-" + digest
+	return digest
 }
 
 // Name is the integration name the agent is installed under. Integration names are
