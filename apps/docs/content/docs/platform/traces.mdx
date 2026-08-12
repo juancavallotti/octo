@@ -125,8 +125,20 @@ The aggregator needs `DATABASE_URL` and `NATS_URL`; without either it still serv
 
 Point the URL at a mirror for a cluster without egress. A cluster that can reach neither still serves whatever rates are already stored and records the failure in `llm_price_syncs`.
 
+## Retention
+
+`traces` and `trace_summaries` are pruned by the site's data retention policy — a number of days, with its own window separate from the one for logs. See [Data retention](/platform/logs-api-reference#data-retention) for the policy and the routes that read, write and enforce it. It defaults to **keeping everything**, so an installation that has not configured it grows without bound exactly as before.
+
+Traces usually want the shorter of the two windows. A ten-block flow emits roughly two dozen records and each can carry a captured body, so a day of tracing costs far more than a day of logs — which is also why tracing is a debugging instrument you switch off again rather than leave on.
+
+**A trace is deleted whole.** The unit of retention is the summary, and a trace's records go with it, so a swept trace never becomes one that appears in the list but cannot be opened. That matters because the two tables sit on different clocks: `started_at` is `MIN(ts − duration_ns)` across the trace, so it is at or before every record's `ts`, and pruning each table on its own timestamp would strand the late records of a trace that straddles the boundary.
+
+Dropped-record markers are collected too. They carry no trace id, so they never appear in `trace_summaries` and a by-trace sweep alone would never reach them.
+
+`llm_prices` and `llm_price_syncs` are **never** pruned. A stored cost points at the rate that produced it, and expiring rate history to save a few rows would unprice traces that are still inside their window.
+
 <Callout type="warn">
-There is **no retention or pruning** for `traces` and `trace_summaries` yet — they grow without bound. Watch the table sizes on a busy cluster, and switch tracing off for integrations you are not actively investigating.
+Until you set a policy, nothing is deleted. Watch the table sizes on a busy cluster, set a window that suits it, and switch tracing off for integrations you are not actively investigating — retention bounds the growth, it does not slow it.
 </Callout>
 
 <Callout type="info">
