@@ -70,9 +70,15 @@ Nothing happens silently: a newer bundle waits for you, and installing never hap
 
 ## Put him back the way he shipped
 
-The same button is there when no update is waiting, reading **Reinstall from stock**. Press it to republish the definition this orchestrator ships and replace his pods with it.
+There is one button on a deployed agent, and it always does the same thing — republish the definition this orchestrator ships and replace his pods with it. Only its name changes, to say which of the three reasons you are pressing it for:
 
-Reach for it after editing him into a state you would rather undo, or when he is running something you no longer trust. Before, there was no way back: the button only appeared when the shipped digest had moved, so an agent that was current and broken had nothing to press.
+| It reads | When |
+| --- | --- |
+| **Roll out update** | A newer bundle ships with this orchestrator |
+| **Redeploy** | The deployment is in a failed state |
+| **Reinstall from stock** | Neither — he is current and running |
+
+Reach for the last one after editing him into a state you would rather undo, or when he is running something you no longer trust. Before, there was no way back: the button only appeared when the shipped digest had moved or the deployment had failed, so an agent that was current, running and wrong had nothing to press.
 
 <Callout type="warn">
 **This replaces changes you made to the agent** — but it does not destroy them. The live definition is frozen as its own version first, tagged `agent-edited-…`, and only then overwritten. Watch for the **Edited** badge; the confirmation names what is about to happen.
