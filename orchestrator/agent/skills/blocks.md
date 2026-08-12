@@ -92,6 +92,7 @@ put everything under `settings`.
     What the agent is for.
   guardrail: >               # slot, optional — when to take the default path
     If the question is not about orders, take the default path.
+  input: body.message        # CEL — the opening user turn; unset sends the whole body
   maxIterations: 8           # slot, default 8
   stream: true               # token-level streaming; needs an events path
   emit: [text, tool_call, tool_result, done]

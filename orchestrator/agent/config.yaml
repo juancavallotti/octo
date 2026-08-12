@@ -196,6 +196,33 @@ flows:
         stream: true
         maxIterations: ${AGENT_MAX_ITERATIONS}
 
+        # A person reads this answer, so it is prose and not a document.
+        #
+        # The default is json, because an agent's answer is normally the next
+        # block's body. Left at the default this agent was told to answer in JSON
+        # here and in Markdown by its own prompt below, and which of the two a model
+        # obeyed turned out to be the provider's choice: Anthropic wrote the
+        # sentence, OpenAI and Gemini wrote {"message":"..."} — a token at a time,
+        # into a panel that renders Markdown.
+        answer: text
+
+        # The question is the turn; everything else is labelled as context.
+        #
+        # Without this the agent's opening turn is the whole body as a JSON document
+        # ("Accomplish the task for this input message body: {...}"), and a model that
+        # answers without reasoning first replies in the shape it was handed: asked
+        # "hello chat", one provider answered `{"message":"hello chat"}`. Claude does
+        # not, which is why this was invisible until a second provider was configured.
+        #
+        # Nothing downstream can repair that. The reply streams to the panel a token
+        # at a time, so `{"`, `message`, `":"` are already rendered by the time the
+        # finished answer could be unwrapped.
+        input: >-
+          body.message +
+          "\n\n---\nContext, not part of the question. The user is on page " +
+          body.page + ". Pages you may navigate to, and who is asking:\n" +
+          toJson({"routes": body.routes, "user": body.user})
+
         # Memory rides the deployment's KV store, which under the k8s services module
         # is the orchestrator's own — so a conversation survives a pod restart with
         # nothing written for it here.
