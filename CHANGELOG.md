@@ -1,5 +1,131 @@
 # Changelog
 
+## [0.8.1](https://github.com/juancavallotti/octo/compare/v0.8.0...v0.8.1) (2026-08-12)
+
+
+### Features
+
+* **agent:** dr. octo remembers facts about the person he is talking to ([ccb7eb7](https://github.com/juancavallotti/octo/commit/ccb7eb76ee028404c96f61717bdfb6c6f032edde))
+* **agent:** dr. octo speaks markdown and can move the user around ([91d7d39](https://github.com/juancavallotti/octo/commit/91d7d39842433e77f300e94b9edb970ef721f34d))
+* **agent:** dr. octo, the platform agent, as an octo app ([01dbefd](https://github.com/juancavallotti/octo/commit/01dbefdf5ebfeffb65565edec806710453f3ff0c))
+* **agent:** let dr. octo read stored logs and traces ([6092629](https://github.com/juancavallotti/octo/commit/60926294f33e0d2f7542c7cbe1f32ed0163e046e))
+* **helm:** a nightly job that enforces the retention policy ([ce3a2cd](https://github.com/juancavallotti/octo/commit/ce3a2cd448a4f83c9ac6cf787e9282e125be1112))
+* **logs:** a store for the site's retention policy ([015fed1](https://github.com/juancavallotti/octo/commit/015fed11905ebc88be52cfa9837b66e92ebfc157))
+* **logs:** prune logs and traces past a cutoff ([321eca8](https://github.com/juancavallotti/octo/commit/321eca8213ec8e827b52b1c7667fe420251cdca1))
+* **logs:** publish an openapi description of the api ([3acf976](https://github.com/juancavallotti/octo/commit/3acf976adcd9c2ad541bb8730db7e261a7d47965))
+* **logs:** serve the retention policy and the sweep behind it ([c398cae](https://github.com/juancavallotti/octo/commit/c398cae429e964444c462be0be450fff90fbdf58))
+* **orchestrator:** a store for site-wide settings ([f5ff528](https://github.com/juancavallotti/octo/commit/f5ff52849ec6262ca7c38627d51b49a1303fff56))
+* **orchestrator:** describe every route the api serves ([8ddcde8](https://github.com/juancavallotti/octo/commit/8ddcde8f9150922221f74d3f9bb2dcd1c0374ae8))
+* **orchestrator:** freeze the agent's edits before replacing them ([bcaee1d](https://github.com/juancavallotti/octo/commit/bcaee1d95a5a475bcf80876778e2880d5d4d3f9b))
+* **orchestrator:** install dr. octo as an integration ([8b76263](https://github.com/juancavallotti/octo/commit/8b76263a3a09074d396893547c19f64fd638ad7f))
+* **orchestrator:** make a settings save atomic ([e898f76](https://github.com/juancavallotti/octo/commit/e898f76235344019adc5fd451ab511f09c4bc7cb))
+* **orchestrator:** per-deployment platform access grants ([049bf5c](https://github.com/juancavallotti/octo/commit/049bf5c92d7a973507b5204acbd4a45ed1062027))
+* **orchestrator:** publish an openapi description of the api ([b9157b2](https://github.com/juancavallotti/octo/commit/b9157b2b9d9b4831bd1b5f55ce7d48a6588e4a1f))
+* **orchestrator:** send email through the site's provider ([21ebbee](https://github.com/juancavallotti/octo/commit/21ebbee92992f23b889a7f6326122985ea9add28))
+* **orchestrator:** send mail through resend ([478eaab](https://github.com/juancavallotti/octo/commit/478eaab778c96e55ee0de43e0ebff545651c3839))
+* **orchestrator:** serve the site settings routes ([5b113af](https://github.com/juancavallotti/octo/commit/5b113af35502b98e4274fee13463000186242901))
+* **orchestrator:** the site's email settings ([1c55fa7](https://github.com/juancavallotti/octo/commit/1c55fa7278f5eb8c201e6d3ac443a411e34ad782))
+* **orchestrator:** the site's llm provider settings ([9e1bd8a](https://github.com/juancavallotti/octo/commit/9e1bd8a7fbde99f2449c1c3fd42fb63bfa099be8))
+* **orchestrator:** trace the agent from his first deploy ([c68a368](https://github.com/juancavallotti/octo/commit/c68a368d4a6a05398b08fc968feb0335dfaddc42))
+* **platform:** a chat panel for dr. octo on every signed-in page ([2da40b7](https://github.com/juancavallotti/octo/commit/2da40b7cacec5ad10be2ef286017a2d3312e249c))
+* **platform:** a client for the site's retention policy ([75a1c5e](https://github.com/juancavallotti/octo/commit/75a1c5e9f683ee5c1a32c491147886fde98d4fac))
+* **platform:** a way back to the agent this orchestrator ships ([37bc48d](https://github.com/juancavallotti/octo/commit/37bc48d6183476f590b64e730f4e30c6caf9fa02))
+* **platform:** an admin page for the platform agent ([98df6a0](https://github.com/juancavallotti/octo/commit/98df6a09d57860f34f306ad3728b93ec0af888cf))
+* **platform:** an admin section for site-wide settings ([6c3fd86](https://github.com/juancavallotti/octo/commit/6c3fd86a991f60e5a89d914c3ee12515ac0934f8))
+* **platform:** ask for platform access in the deploy dialog ([8b4284a](https://github.com/juancavallotti/octo/commit/8b4284a12b7c81468663f7d34faa4fc798fc638a))
+* **platform:** give the agent panel the same shape as an integration ([1b9a822](https://github.com/juancavallotti/octo/commit/1b9a822f5bbaa62e1e6b229b11f7eb0b4c348bc0))
+* **platform:** navigation between the admin pages ([a60d40a](https://github.com/juancavallotti/octo/commit/a60d40a8ec9eb2e9d8bd5c927a91c6d9a52413cf))
+* **platform:** show the thinking, open up the tool calls, and collapse instead of closing ([0082e49](https://github.com/juancavallotti/octo/commit/0082e49bc3bdf560b0b8e7bb7326c7d6e0c9a9d3))
+* **platform:** stream a conversation with the agent to the browser ([ccbaac2](https://github.com/juancavallotti/octo/commit/ccbaac20ae2a9c9e730bafa9d8662c01f8db1e27))
+* **platform:** the data retention admin page ([d18a3e0](https://github.com/juancavallotti/octo/commit/d18a3e0ef6095737742365bad5cdd830c4554561))
+* **platform:** the data retention admin page ([27d0be5](https://github.com/juancavallotti/octo/commit/27d0be5abc533cf57dd63873699fff2705506b22))
+* **runtime:** a rest block that builds the whole request from expressions ([f199073](https://github.com/juancavallotti/octo/commit/f1990730c6214ef7260f88d7ee65a39143d5afbc))
+* **runtime:** a system subject convention for the platform event plane ([439ab6c](https://github.com/juancavallotti/octo/commit/439ab6c3db2128ae689e993d086a191dc1226b2f))
+* **runtime:** an ai-agent states its turn and the shape of its answer ([53468af](https://github.com/juancavallotti/octo/commit/53468af1835b37a6314c1eced338788921a5ee73))
+* **runtime:** openai reasons through the responses api ([0d0009a](https://github.com/juancavallotti/octo/commit/0d0009a7f9f548ae3138b63a07e6b55a68d14cca))
+
+
+### Bug Fixes
+
+* **agent:** a 404 is an out-of-date service, not a missing permission ([6d9a47a](https://github.com/juancavallotti/octo/commit/6d9a47a43937b713c49a92c59b5d40c84ebf4866))
+* **agent:** bound what dr. octo remembers, and say what the race costs ([ce1a87b](https://github.com/juancavallotti/octo/commit/ce1a87b0e32d5e1c93cc8c75db5024b4f730b79b))
+* **agent:** dr. octo is asked a question, and answers in prose ([1b39e9b](https://github.com/juancavallotti/octo/commit/1b39e9bd6be5e807da2eb86242bdd0447e885c0f))
+* **agent:** scope dr. octo's memory to the user, and keep email from the model ([04629b7](https://github.com/juancavallotti/octo/commit/04629b7047b772be76a65a65844e347a7f4ae79b))
+* **agent:** stream the thinking, which is most of what the model produces ([ea69b5e](https://github.com/juancavallotti/octo/commit/ea69b5ed3d951b6b895db2b97b764b1acbc9d115))
+* **logs:** a retention save must name both windows ([37897b2](https://github.com/juancavallotti/octo/commit/37897b23c481f8411e2307a21d0c704224840ecd))
+* **orchestrator:** "gone" and "I could not tell" are different answers ([fe73062](https://github.com/juancavallotti/octo/commit/fe73062279e5cef5d0ab933de6d95fa4196dd7fe))
+* **orchestrator:** a manually undeployed agent can be deployed again ([78895e5](https://github.com/juancavallotti/octo/commit/78895e50e534f2dc7a384ba2ad4ee4efe1650e51))
+* **orchestrator:** a provider change invalidates the stored llm key ([3262c2a](https://github.com/juancavallotti/octo/commit/3262c2a4519b2d21add5ce3396cba1b7fd5d187d))
+* **orchestrator:** describe responses as they are actually served ([96cfacc](https://github.com/juancavallotti/octo/commit/96cfaccb1dc5c1addcc86fb5bdb08bf1972e78ce))
+* **orchestrator:** five gaps in what installing the agent leaves behind ([ef6ff87](https://github.com/juancavallotti/octo/commit/ef6ff874ddb2f2ec6d713b0798ede83c3693374c))
+* **orchestrator:** LOGS_URL is the grant's to set, and nobody else's ([e06e7ec](https://github.com/juancavallotti/octo/commit/e06e7ec7de8f00ba4cec1fa8465bde21e6f44fe9))
+* **orchestrator:** make a failed agent install retryable ([26fe96e](https://github.com/juancavallotti/octo/commit/26fe96e099db890c74996e3e1b7e8258fa729765))
+* **orchestrator:** redeploy the agent after a manual undeploy ([92e85d7](https://github.com/juancavallotti/octo/commit/92e85d7dddbc209bf9f004d644dc849c1667dba8))
+* **orchestrator:** save email settings under a row lock ([2d7ef58](https://github.com/juancavallotti/octo/commit/2d7ef5817320c93c88dce03974abe29afc9edd32))
+* **orchestrator:** save llm settings under a row lock ([a916a08](https://github.com/juancavallotti/octo/commit/a916a0860ea34ccc98e8949aac215a4374a6437c))
+* **orchestrator:** the agent's provider key must be a valid platform secret name ([f2ecedd](https://github.com/juancavallotti/octo/commit/f2ecedda258de0c781568ecf8dd524cea64866ed))
+* **orchestrator:** trim addresses and subject before sending ([e5cf1c7](https://github.com/juancavallotti/octo/commit/e5cf1c796b303cfb19eb080cb0afe98e96127bf6))
+* **platform:** a sweep's report does not outlive the sweep ([cbe3ce1](https://github.com/juancavallotti/octo/commit/cbe3ce1128445e9986f693cf17f31600b44bf602))
+* **platform:** announce a sweep's outcome, and say 03:00 is a default ([9bea28b](https://github.com/juancavallotti/octo/commit/9bea28bdf204de5924816a980673cdb70dc4711f))
+* **platform:** check an agent frame's fields, not just its type ([175cde5](https://github.com/juancavallotti/octo/commit/175cde55d8e08b5c03c583c05d5de7b40b74c625))
+* **platform:** classify rest-dynamic in the trace waterfall ([fa24e47](https://github.com/juancavallotti/octo/commit/fa24e47d7d2fe99ec07f485d0706ceb6944823eb))
+* **platform:** do not let an admin form save before it has loaded ([5411692](https://github.com/juancavallotti/octo/commit/541169212c07e40318e239c61a71fc0ffcc77e99))
+* **platform:** normalise what the admin forms submit ([d55d2bc](https://github.com/juancavallotti/octo/commit/d55d2bc25417f74b7b6057546e85301c8b8d7b4b))
+* **platform:** one header on the agent page, and a tab that leads to it ([b6724ca](https://github.com/juancavallotti/octo/commit/b6724ca81030884aee1c2ac25cbb83d6bb5bbb37))
+* **platform:** one run at a time, guarded by the controller and not by state ([d6197b1](https://github.com/juancavallotti/octo/commit/d6197b1845ed39e8ac71b5653b1a10f0337d5466))
+* **platform:** show the guardrail's reply, and let a stopped run bow out quietly ([497e83e](https://github.com/juancavallotti/octo/commit/497e83ee165d52b15b49335e01bd68c9d4457b5f))
+* **platform:** the chat panel needs the write roles, not just a session ([08af560](https://github.com/juancavallotti/octo/commit/08af5605a8b45c46b81e2245d8732c79a143aaca))
+* **platform:** two ways the chat panel broke outside a browser tab on https ([8b2d525](https://github.com/juancavallotti/octo/commit/8b2d52550b714defbad26fb65903f25837dd321d))
+* **runtime:** a gemini tool call needs an id of its own ([69907ad](https://github.com/juancavallotti/octo/commit/69907adc1cfe72ffd3122a7ba794d3d90153298a))
+* **runtime:** a system subject may be published to, not subscribed to ([ccbd9f2](https://github.com/juancavallotti/octo/commit/ccbd9f24c63530de2ed9768e5462a034f15bb62a))
+* **runtime:** an echoed reasoning item must carry a summary, even an empty one ([98bb036](https://github.com/juancavallotti/octo/commit/98bb03669c3e0d63ca93507b3e899adbc832cec1))
+* **runtime:** close three gaps in what rest-dynamic accepts ([5fdaa60](https://github.com/juancavallotti/octo/commit/5fdaa6059785d687eb64ba081836374e3de103d4))
+* **runtime:** drop the "off" alias, and scope the tool-use warning to the model ([ca32f14](https://github.com/juancavallotti/octo/commit/ca32f14fe1e500b899009b0bdd3874251c41b47a))
+* **runtime:** let openai and gemini agents actually call their tools ([6408d20](https://github.com/juancavallotti/octo/commit/6408d2055cdaa7795766900ef81d3aba58d19fe9))
+* **runtime:** let openai and gemini agents actually call their tools ([08ff0b8](https://github.com/juancavallotti/octo/commit/08ff0b8b5aff281775933016542ff02d9e0c33cb))
+* **runtime:** non-Anthropic agents answer in JSON where prose was asked for ([171031e](https://github.com/juancavallotti/octo/commit/171031e2a4cb4d58a32a8d99c5a2041627f30771))
+* **runtime:** replay a gemini call id on the call as well as the response ([e45bfa5](https://github.com/juancavallotti/octo/commit/e45bfa5ceb7c8e7f079da0ad6f9e30021f954e04))
+* **taskfile:** restart the log aggregator on a cluster deploy ([03c35b6](https://github.com/juancavallotti/octo/commit/03c35b628c61429438fa134e3844ebb59e6689e7))
+* **taskfile:** stop hiding rollout restart failures behind || true ([2460d2f](https://github.com/juancavallotti/octo/commit/2460d2f2091e5a7361be363adc082afdf3b6a88d))
+* **terraform:** pre-pull the digests the release actually deploys ([3bbf3b9](https://github.com/juancavallotti/octo/commit/3bbf3b9c27749fae213505d0f9023319dd4f3581))
+* **terraform:** pre-pull the digests the release actually deploys ([72149ab](https://github.com/juancavallotti/octo/commit/72149ab8bc6a3e7478c6b196e981d27ad5186ecf))
+* **terraform:** re-pull when the helper itself changes ([f3bc7b5](https://github.com/juancavallotti/octo/commit/f3bc7b5469d52a20974b4736f0d49f43db08080b))
+* **terraform:** stage the octo-pull download outside /tmp ([f315d29](https://github.com/juancavallotti/octo/commit/f315d29b4a7a2f260327ac421e90ad07f78fc482))
+* **terraform:** supply the chart's dev-run hash secret ([abc539e](https://github.com/juancavallotti/octo/commit/abc539e995d7b1ddf77931ae7a79051dc04bb3d6))
+* **terraform:** supply the chart's dev-run hash secret ([3d338d4](https://github.com/juancavallotti/octo/commit/3d338d40f0e9b559a8944deba69f63b3271cb465))
+
+
+### Performance
+
+* **platform:** load the chat panel only when it is opened ([3dc36a4](https://github.com/juancavallotti/octo/commit/3dc36a45621825979d680f2618137b6be053ba02))
+
+
+### Refactoring
+
+* **orchestrator:** the AES-GCM cipher is not the kv package's ([0a9e715](https://github.com/juancavallotti/octo/commit/0a9e7151e5c828d12f9cce5572b6697a6bb6c909))
+* **platform:** name the shared button for what it is ([25f7b74](https://github.com/juancavallotti/octo/commit/25f7b745a18c6ca1da168dd5e8d839ccc380deca))
+
+
+### Documentation
+
+* **agent:** the skills describe the answer slot they teach flows to use ([54370b3](https://github.com/juancavallotti/octo/commit/54370b3e58167c393f35ff44bc211867fa055a40))
+* **platform:** data retention is built ([fac0260](https://github.com/juancavallotti/octo/commit/fac0260bc57c57df689106c239c4268565f13e66))
+* **platform:** dr. octo reads history, not just live pods ([86ea661](https://github.com/juancavallotti/octo/commit/86ea6618731e439de826b2354affae3ad1aca5c0))
+* **platform:** how to install, update, trace and edit dr. octo ([393104c](https://github.com/juancavallotti/octo/commit/393104c786b7569968be2d01aa5decdd18bdc748))
+* **platform:** how to talk to dr. octo ([36a1f4e](https://github.com/juancavallotti/octo/commit/36a1f4eb864e23f7ff501ac97a6eac276d7b0c02))
+* **platform:** list the agent module in the orchestrator's route table ([4b8c18b](https://github.com/juancavallotti/octo/commit/4b8c18b434c4e5f59f2971ba206f1f941580a500))
+* **platform:** list the openapi module, and what still serves without a database ([1febc83](https://github.com/juancavallotti/octo/commit/1febc83d1c0f4075d8fb9d8a86f4a84358ecdb61))
+* **platform:** name all three labels the one button takes ([c5192be](https://github.com/juancavallotti/octo/commit/c5192be29b846b0a44073b1dd34f6e8c817babce))
+* **platform:** retention, and what a sweep takes with it ([4ff23fc](https://github.com/juancavallotti/octo/commit/4ff23fc1a32e6e84f1d72ee415694a6f5e9af672))
+* **platform:** the agent ships traced, and why that is backwards on purpose ([68902df](https://github.com/juancavallotti/octo/commit/68902df1919ed72bdd6a72930d2480f345f37366))
+* **platform:** the api description, and how to read part of it ([8f770d5](https://github.com/juancavallotti/octo/commit/8f770d563a9903e3e9dad24cdbb06fd08f204a17))
+* **platform:** the llm key now has a consumer, and a provider switch clears it ([a4d7fc2](https://github.com/juancavallotti/octo/commit/a4d7fc2ac37921db28b79d135d5a8d2edf0e0f79))
+* **platform:** the logs api describes itself ([78781de](https://github.com/juancavallotti/octo/commit/78781de1ebf89054efc83d6058972b5d09b835bb))
+* **platform:** what a deployment may reach on the platform ([ccccd1e](https://github.com/juancavallotti/octo/commit/ccccd1ec2127979c88bcba65383f992001feb8d1))
+* **platform:** what dr. octo remembers, and what that does not mean ([61a4a56](https://github.com/juancavallotti/octo/commit/61a4a569ff38cd7df7f2d403c5562f72ca126f0a))
+* **platform:** what the observability grant does and does not widen ([071cf67](https://github.com/juancavallotti/octo/commit/071cf671d58417ac4988c2cd144e3eaf594ee7bf))
+* **platform:** where the agent's edits go when you reinstall him ([b1c3929](https://github.com/juancavallotti/octo/commit/b1c392989ba5be5a18f4abc3444e6895d9337da9))
+
 ## [0.8.0](https://github.com/juancavallotti/octo/compare/v0.7.0...v0.8.0) (2026-08-10)
 
 

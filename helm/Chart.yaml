@@ -17,8 +17,8 @@ type: application
 #
 # appVersion is not decoration: image.tag defaults to empty and falls back to it,
 # so a chart pulled from OCI installs the images of its own release.
-version: 0.8.0 # x-release-please-version
-appVersion: 0.8.0 # x-release-please-version
+version: 0.8.1 # x-release-please-version
+appVersion: 0.8.1 # x-release-please-version
 dependencies:
   # The octo-common library chart, vendored in-tree at charts/octo-common. An
   # empty repository is how Helm spells "already present under charts/" — there
@@ -31,5 +31,5 @@ dependencies:
   # stale one packages clean and ships a chart lying about what it vendors — so
   # the release workflow checks it instead.
   - name: octo-common
-    version: 0.8.0 # x-release-please-version
+    version: 0.8.1 # x-release-please-version
     repository: ""
