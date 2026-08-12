@@ -340,7 +340,20 @@ tasks:
       # aggregator then 404s in the cluster while working locally, which reads as a
       # wrong URL or a permission problem rather than as a pod that was never
       # replaced.
-      - kubectl --context {{.KCTX}} rollout restart deployment octo-platform octo-orchestrator octo-logs -n octo-dev 2>/dev/null || true
+      #
+      # Skipping a deployment that does not exist yet is the only failure worth
+      # tolerating, and it is checked for by name rather than by discarding every
+      # error: `|| true` also swallowed a wrong context, an unreachable cluster and a
+      # missing namespace, so the task reported success while nothing restarted —
+      # which is the same silence the missing octo-logs above produced.
+      - |
+        for dep in octo-platform octo-orchestrator octo-logs; do
+          if ! kubectl --context {{.KCTX}} -n octo-dev get deployment "$dep" >/dev/null 2>&1; then
+            echo "· $dep not deployed yet, skipping restart"
+            continue
+          fi
+          kubectl --context {{.KCTX}} -n octo-dev rollout restart deployment "$dep"
+        done
       - |
         echo ""
         echo "✓ cluster up:"
