@@ -7,6 +7,8 @@ import { Callout } from 'fumadocs-ui/components/callout';
 
 The orchestrator serves a description of its own API. Everything the platform UI does — integrations, snapshots, deployments, resources, secrets, KV, users, API keys — goes through that API, so the description is the reference for driving it yourself.
 
+The log aggregator describes itself the same way, on the same terms; stored logs and traces are read from [its API](/platform/logs-api-reference), not this one.
+
 ```bash
 curl -sS "$ORCHESTRATOR_URL/openapi.json"
 ```
