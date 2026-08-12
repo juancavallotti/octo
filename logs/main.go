@@ -28,6 +28,7 @@ import (
 	"github.com/juancavallotti/octo/logs/internal/cost"
 	"github.com/juancavallotti/octo/logs/internal/db"
 	"github.com/juancavallotti/octo/logs/internal/ingest"
+	"github.com/juancavallotti/octo/logs/internal/openapi"
 	"github.com/juancavallotti/octo/logs/internal/repo"
 )
 
@@ -182,20 +183,40 @@ func priceRefreshInterval() time.Duration {
 }
 
 // newServer wires the HTTP routes. The query API is registered only when a
-// database is configured; /healthz always serves so liveness probes pass even
-// before Postgres is reachable.
+// database is configured; /healthz and the API description always serve, so a
+// liveness probe passes and the description reads even before Postgres is
+// reachable.
 func newServer(database *db.DB) http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = w.Write([]byte("ok"))
-	})
+	mux.HandleFunc("GET /healthz", healthz)
+	openapi.NewHandler().Register(mux)
+	slog.Info("openapi routes registered",
+		"endpoints", "GET /openapi.json, GET /openapi/operations")
 	if database != nil {
 		api.NewLogsHandler(repo.NewLogs(database.Pool())).Register(mux)
 		api.NewTracesHandler(repo.NewTraces(database.Pool())).Register(mux)
-		slog.Info("query API registered", "endpoints", "GET /logs, GET /traces/apps")
+		slog.Info("query API registered", "endpoints", "GET /logs, GET /traces, "+
+			"GET /traces/apps, GET /traces/{traceId}, GET /traces/{traceId}/records/{id}")
 	}
 	return mux
+}
+
+// healthz reports that the process is up.
+//
+// A named function rather than the closure it used to be, because an annotation
+// has to hang off something the generator can see.
+//
+//	@Summary		Liveness
+//	@Description	Answers as soon as the process is serving, whether or not Postgres or
+//	@Description	NATS are reachable — it is what the readiness probe polls while the
+//	@Description	rest is still coming up.
+//	@Tags			meta
+//	@Produce		plain
+//	@Success		200	{string}	string	"ok"
+//	@Router			/healthz [get]
+func healthz(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = w.Write([]byte("ok"))
 }
 
 // envOr returns the value of key, or fallback when it is empty.

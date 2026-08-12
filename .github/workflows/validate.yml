@@ -67,12 +67,13 @@ jobs:
       - run: task orchestrator:fmt
       - run: task logs:tidy
       - run: task logs:fmt
-      # The committed OpenAPI description is generated from the handler annotations,
-      # so it can go stale the moment a route or a request type changes. Regenerating
-      # it here folds it into the same diff check below: an annotation edited without
-      # regenerating, or a route added without annotating, fails exactly as
-      # unformatted Go does.
+      # The committed OpenAPI descriptions are generated from the handler annotations,
+      # so they can go stale the moment a route or a request type changes. Regenerating
+      # them here folds them into the same diff check below: an annotation edited
+      # without regenerating, or a route added without annotating, fails exactly as
+      # unformatted Go does. Both services describe themselves, so both regenerate.
       - run: task orchestrator:openapi
+      - run: task logs:openapi
       # tidy, fmt and openapi repair go.*, Go sources and the spec and still exit 0,
       # so a PR that needed any of them would otherwise merge with the drift unmade.
       - name: Verify orchestrator and logs are tidy, formatted and describe their API
