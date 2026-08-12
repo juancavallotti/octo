@@ -333,7 +333,14 @@ tasks:
       - devspace deploy --kube-context {{.KCTX}} --namespace octo-dev
       # Fixed :dev tags don't change between runs, so nudge the apps to pull the
       # freshly imported images. Harmless on first run; ignored if not yet present.
-      - kubectl --context {{.KCTX}} rollout restart deployment octo-platform octo-orchestrator -n octo-dev 2>/dev/null || true
+      #
+      # Every deployment built above belongs here. octo-logs was missing, and the
+      # way that surfaces is nasty: the build succeeds, the import succeeds, verify
+      # passes — and the pod keeps serving the previous binary. A route added to the
+      # aggregator then 404s in the cluster while working locally, which reads as a
+      # wrong URL or a permission problem rather than as a pod that was never
+      # replaced.
+      - kubectl --context {{.KCTX}} rollout restart deployment octo-platform octo-orchestrator octo-logs -n octo-dev 2>/dev/null || true
       - |
         echo ""
         echo "✓ cluster up:"
