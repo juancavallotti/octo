@@ -924,6 +924,41 @@ func TestStatusToleratesAVanishedDeployment(t *testing.T) {
 	if got.State != StateDeployed && got.State != StateInstalled {
 		t.Errorf("state = %q, want the install still reported", got.State)
 	}
+	// The id and the address describe something that is gone, and a page that
+	// believed them offered a roll-out of nothing while hiding Deploy behind it —
+	// the state field said "not running" and these two said otherwise.
+	if got.DeploymentID != "" {
+		t.Errorf("deploymentId = %q, want it cleared with the deployment", got.DeploymentID)
+	}
+	if got.InternalURL != "" {
+		t.Errorf("internalUrl = %q, want it cleared with the deployment", got.InternalURL)
+	}
+}
+
+// Undeploying the agent through the ordinary deployments path leaves this package's
+// row pointing at a deployment that is gone. Pressing the button then asked for a
+// rolling update of nothing and failed with "deployment not found", which left the
+// admin page with no way to get the agent running again.
+func TestRolloutDeploysAgainWhenTheRecordedDeploymentIsGone(t *testing.T) {
+	h := newHarness(t, true)
+	ctx := context.Background()
+
+	if _, err := h.svc.Install(ctx, ""); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	deploysAfterInstall := len(h.deployments.deployed)
+	h.deployments.getErr = errors.New("deployment not found")
+
+	if _, err := h.svc.Rollout(ctx, "user-1"); err != nil {
+		t.Fatalf("Rollout: %v", err)
+	}
+
+	if len(h.deployments.rollouts) != 0 {
+		t.Error("want no rolling update against a deployment that does not exist")
+	}
+	if got := len(h.deployments.deployed); got != deploysAfterInstall+1 {
+		t.Errorf("deploys = %d, want a new one created", got)
+	}
 }
 
 // A deploy that fails on a transient error must not wedge the feature. The

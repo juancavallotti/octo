@@ -182,8 +182,14 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 	dep, err := s.deployments.Get(ctx, cur.DeploymentID)
 	if err != nil {
 		// A deployment that has been removed underneath us is not an error to
-		// report — it is the install being back at "not running".
+		// report — it is the install being back at "not running". So say that
+		// completely: the id and the address describe a deployment that no longer
+		// exists, and a caller that believed them offered a roll-out of nothing and
+		// hid the Deploy button behind it. State said "installed, not running" while
+		// these two said otherwise, which is one read model with two answers.
 		slog.Warn("agent status: deployment unreadable", "deploymentId", cur.DeploymentID, "error", err)
+		out.DeploymentID = ""
+		out.InternalURL = ""
 		return out, nil
 	}
 	out.DeploymentStatus = dep.Status
@@ -549,12 +555,17 @@ func (s *Service) Rollout(ctx context.Context, actorID string) (Status, error) {
 		if cur.IntegrationID == "" {
 			return cur, ErrNotInstalled
 		}
-		if cur.DeploymentID == "" {
+		if cur.DeploymentID == "" || !s.deploymentExists(ctx, cur.DeploymentID) {
 			// Nothing is running, so there is no rolling update to do — but the
 			// definition still has to be republished, or an operator who asked for
 			// the shipped agent would get their own edits frozen into the new tag.
 			// Install alone does not do that, deliberately: it must not overwrite a
 			// definition on a plain retry.
+			//
+			// The recorded deployment may also be gone rather than absent: undeploying
+			// the agent through the ordinary deployments path leaves this row pointing
+			// at nothing, and it is also what a redeploy races against. Deploying a new
+			// one is what the operator asked for either way, so the two cases are one.
 			if err := s.republish(ctx, cur.IntegrationID, actorID); err != nil {
 				return cur, err
 			}
@@ -593,6 +604,21 @@ func (s *Service) preserveEdits(ctx context.Context, integrationID, bundleDigest
 	}
 	slog.Info("agent edits preserved before roll-out", "tag", snap.Tag)
 	return nil
+}
+
+// deploymentExists reports whether the recorded deployment is still there.
+//
+// An unreadable deployment is treated as absent rather than as an error. The caller
+// is deciding between rolling one out and creating one, and for that question a
+// deployment nobody can read is the same as one that is not there — where the two
+// differ, creating is the recoverable direction.
+func (s *Service) deploymentExists(ctx context.Context, deploymentID string) bool {
+	if _, err := s.deployments.Get(ctx, deploymentID); err != nil {
+		slog.Warn("agent rollout: recorded deployment unreadable, deploying a new one",
+			"deploymentId", deploymentID, "error", err)
+		return false
+	}
+	return true
 }
 
 // republish writes the bundle's definition and skills over the integration. This is
