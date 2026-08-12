@@ -9,12 +9,26 @@ import (
 	"net/http"
 )
 
+// maxRequestBytes caps request bodies so a malformed or hostile client cannot
+// force unbounded reads.
+const maxRequestBytes = 1 << 20 // 1 MiB
+
 // ErrorResponse is the envelope WriteError produces, and so the failure body of
 // every route this service serves. It is a named type rather than an inline map so
 // the API description has one shape to point at, and so a caller reading that
 // description learns the field name rather than guessing it.
 type ErrorResponse struct {
 	Error string `json:"error"`
+}
+
+// DecodeJSON decodes the request body into dst, bounding its size and rejecting
+// unknown fields so typos in client payloads surface as errors rather than as a
+// setting that silently did not take.
+func DecodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBytes)
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	return dec.Decode(dst)
 }
 
 // WriteJSON writes v as a JSON response with the given status code.

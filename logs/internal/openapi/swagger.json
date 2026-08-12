@@ -34,6 +34,54 @@
                 },
                 "type": "object"
             },
+            "api.retentionPolicyResponse": {
+                "properties": {
+                    "logs_days": {
+                        "type": "integer"
+                    },
+                    "traces_days": {
+                        "type": "integer"
+                    },
+                    "updated_at": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.retentionRunResponse": {
+                "properties": {
+                    "duration_ms": {
+                        "type": "integer"
+                    },
+                    "logs_cutoff": {
+                        "type": "string"
+                    },
+                    "logs_deleted": {
+                        "type": "integer"
+                    },
+                    "trace_summaries_deleted": {
+                        "type": "integer"
+                    },
+                    "traces_cutoff": {
+                        "type": "string"
+                    },
+                    "traces_deleted": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "api.retentionUpdateRequest": {
+                "properties": {
+                    "logs_days": {
+                        "type": "integer"
+                    },
+                    "traces_days": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
             "api.traceDetailResponse": {
                 "properties": {
                     "items": {
@@ -349,7 +397,7 @@
         }
     },
     "info": {
-        "description": "The read side of the platform's telemetry: log events and the traces\nbeside them, as shipped by deployed runtimes and stored in Postgres.\n\nThe service is called \"logs\" everywhere — the binary, the image, the pod\nand the LOGS_URL other services reach it by — but it stores traces too.\nThey landed here because they are the same shape of problem, so one\ndescription covers both.\n\nThis is an in-cluster service and performs no authentication of its own.\nIt is ClusterIP in the chart and the platform BFF is the authorization\nboundary in front of it. Every route is a read; nothing here writes.",
+        "description": "The platform's stored telemetry: log events and the traces beside them,\nas shipped by deployed runtimes and stored in Postgres.\n\nThe service is called \"logs\" everywhere — the binary, the image, the pod\nand the LOGS_URL other services reach it by — but it stores traces too.\nThey landed here because they are the same shape of problem, so one\ndescription covers both.\n\nThis is an in-cluster service and performs no authentication of its own.\nIt is ClusterIP in the chart and the platform BFF is the authorization\nboundary in front of it. Every query route is a read; the three\nretention routes are the exception, and one of them deletes stored\ntelemetry — so anything that can reach this address can erase it as\nwell as read it. Keep it internal.",
         "license": {
             "name": "Elastic License 2.0",
             "url": "https://www.elastic.co/licensing/elastic-license"
@@ -593,6 +641,137 @@
                 "summary": "The route index",
                 "tags": [
                     "openapi"
+                ]
+            }
+        },
+        "/retention/run": {
+            "post": {
+                "description": "Deletes what the stored policy no longer keeps and reports how much went.\nThis is what the chart's nightly job calls. A policy that keeps everything\nis a 200 with zero counts and null cutoffs rather than an error — being\nasked to do nothing is an answer.\n\nA trace is deleted whole: its records go with its summary, so a swept trace\nnever becomes one that lists but cannot be opened. Stored model prices are\nnever swept, because a traced call's cost points into that history.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.retentionRunResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "another sweep is already running"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Enforce the retention policy now",
+                "tags": [
+                    "retention"
+                ]
+            }
+        },
+        "/settings/retention": {
+            "get": {
+                "description": "How many days of log events and of traces this installation keeps. Zero on\nan axis means keep forever, which is the default — an installation that has\nnever configured retention reads back as zeros rather than as an error.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.retentionPolicyResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Get the data-retention policy",
+                "tags": [
+                    "retention"
+                ]
+            },
+            "put": {
+                "description": "Both windows are supplied on every save. Zero keeps that stream forever;\nthe maximum is 3650 days. Saving does not delete anything — the sweep runs\nnightly, or on demand through POST /retention/run.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.retentionUpdateRequest",
+                                        "summary": "body",
+                                        "description": "The two retention windows, in days"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The two retention windows, in days",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.retentionPolicyResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "a window is negative or beyond 3650 days"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Save the data-retention policy",
+                "tags": [
+                    "retention"
                 ]
             }
         },

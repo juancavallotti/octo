@@ -30,6 +30,7 @@ import (
 	"github.com/juancavallotti/octo/logs/internal/ingest"
 	"github.com/juancavallotti/octo/logs/internal/openapi"
 	"github.com/juancavallotti/octo/logs/internal/repo"
+	"github.com/juancavallotti/octo/logs/internal/retention"
 )
 
 const (
@@ -197,6 +198,14 @@ func newServer(database *db.DB) http.Handler {
 		api.NewTracesHandler(repo.NewTraces(database.Pool())).Register(mux)
 		slog.Info("query API registered", "endpoints", "GET /logs, GET /traces, "+
 			"GET /traces/apps, GET /traces/{traceId}, GET /traces/{traceId}/records/{id}")
+
+		// Data retention: the policy for how long the two streams above are kept,
+		// and the sweep that enforces it. It belongs to this service because this
+		// service owns the tables a sweep deletes from — the policy itself is a
+		// row in site_settings, so it costs a key rather than a migration.
+		api.NewRetentionHandler(retention.NewService(database.Pool())).Register(mux)
+		slog.Info("retention routes registered",
+			"endpoints", "GET/PUT /settings/retention, POST /retention/run")
 	}
 	return mux
 }
