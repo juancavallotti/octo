@@ -63,16 +63,17 @@ type retentionPolicyResponse struct {
 	UpdatedAt  *time.Time `json:"updated_at"`
 }
 
-// retentionUpdateRequest is the body of a policy save. Both fields are required:
-// the form submits the whole policy, and accepting a partial one would make
-// "absent" and "keep forever" the same request.
+// retentionUpdateRequest is the body of a policy save.
 //
-// It converts directly to retention.Update, so the field layouts have to match —
-// if either gains a field the conversion stops compiling, which is the signal to
-// write an explicit mapping.
+// Pointers because zero is a meaningful value here, and the one it means is
+// "keep this stream forever". Plain ints would decode an omitted field to zero
+// and be indistinguishable from someone asking for exactly that — so a request
+// naming only logs_days would quietly switch trace retention off, which is the
+// direction that loses data rather than the direction that keeps it. Both fields
+// are required, and update rejects a body missing either.
 type retentionUpdateRequest struct {
-	LogsDays   int `json:"logs_days"`
-	TracesDays int `json:"traces_days"`
+	LogsDays   *int `json:"logs_days"`
+	TracesDays *int `json:"traces_days"`
 }
 
 // retentionRunResponse reports what a sweep deleted. A cutoff is null for an axis
@@ -128,9 +129,9 @@ func (h *RetentionHandler) get(w http.ResponseWriter, r *http.Request) {
 //	@Tags			retention
 //	@Accept			json
 //	@Produce		json
-//	@Param			body	body		retentionUpdateRequest	true	"The two retention windows, in days"
+//	@Param			body	body		retentionUpdateRequest	true	"The two retention windows, in days. Both are required"
 //	@Success		200		{object}	retentionPolicyResponse
-//	@Failure		400		{object}	httpx.ErrorResponse	"a window is negative or beyond 3650 days"
+//	@Failure		400		{object}	httpx.ErrorResponse	"a window is missing, negative, or beyond 3650 days"
 //	@Failure		500		{object}	httpx.ErrorResponse
 //	@Router			/settings/retention [put]
 func (h *RetentionHandler) update(w http.ResponseWriter, r *http.Request) {
@@ -139,11 +140,23 @@ func (h *RetentionHandler) update(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	// A save replaces the policy outright, so a body that names one window is not
+	// a partial update — it is a request to set the other one to zero, which means
+	// keep that stream forever. Refusing is the only reading that cannot silently
+	// switch retention off for the stream nobody mentioned.
+	if req.LogsDays == nil || req.TracesDays == nil {
+		httpx.WriteError(w, http.StatusBadRequest,
+			"logs_days and traces_days are both required (0 keeps everything)")
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), settingsTimeout)
 	defer cancel()
 
-	policy, err := h.svc.Update(ctx, retention.Update(req))
+	policy, err := h.svc.Update(ctx, retention.Update{
+		LogsDays:   *req.LogsDays,
+		TracesDays: *req.TracesDays,
+	})
 	if err != nil {
 		if errors.Is(err, retention.ErrInvalidDays) {
 			httpx.WriteError(w, http.StatusBadRequest,

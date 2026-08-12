@@ -141,6 +141,63 @@ func TestRetentionUpdateRejectsAnUnknownField(t *testing.T) {
 	}
 }
 
+// A save replaces the whole policy, so a body naming one window is a request to
+// set the other to zero — which switches that stream's retention off. Nobody
+// means that by omission, and it is the direction that loses data.
+func TestRetentionUpdateRejectsAPartialPolicy(t *testing.T) {
+	for _, body := range []string{
+		`{"logs_days":30}`,
+		`{"traces_days":7}`,
+		`{"logs_days":30,"traces_days":null}`,
+		`{}`,
+	} {
+		t.Run(body, func(t *testing.T) {
+			svc := &fakeRetention{}
+
+			rec := doRetention(t, svc, http.MethodPut, "/settings/retention", body)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400 (body %s)", rec.Code, rec.Body)
+			}
+			if svc.gotUpdate != nil {
+				t.Fatalf("a partial policy reached the service as %+v", *svc.gotUpdate)
+			}
+		})
+	}
+}
+
+// Zero is a value, not an absence: it is how you ask for a stream to be kept
+// forever, and it has to be accepted as readily as any other number.
+func TestRetentionUpdateAcceptsExplicitZeros(t *testing.T) {
+	svc := &fakeRetention{}
+
+	rec := doRetention(t, svc, http.MethodPut, "/settings/retention",
+		`{"logs_days":0,"traces_days":0}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body)
+	}
+	if svc.gotUpdate == nil {
+		t.Fatal("an explicit keep-everything policy did not reach the service")
+	}
+	if svc.gotUpdate.LogsDays != 0 || svc.gotUpdate.TracesDays != 0 {
+		t.Fatalf("update = %+v", *svc.gotUpdate)
+	}
+}
+
+// Two concatenated objects would otherwise decode the first and drop the second,
+// applying half of what was sent without saying so.
+func TestRetentionUpdateRejectsASecondValue(t *testing.T) {
+	svc := &fakeRetention{}
+
+	rec := doRetention(t, svc, http.MethodPut, "/settings/retention",
+		`{"logs_days":30,"traces_days":7}{"logs_days":1,"traces_days":1}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (body %s)", rec.Code, rec.Body)
+	}
+	if svc.gotUpdate != nil {
+		t.Fatalf("a body with two values reached the service as %+v", *svc.gotUpdate)
+	}
+}
+
 func TestRetentionRunReportsWhatWent(t *testing.T) {
 	logsCut := time.Date(2026, 7, 12, 3, 0, 0, 0, time.UTC)
 	svc := &fakeRetention{result: retention.RunResult{

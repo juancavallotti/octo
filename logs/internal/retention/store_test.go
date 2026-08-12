@@ -35,9 +35,18 @@ func newTestPool(t *testing.T) *pgxpool.Pool {
 }
 
 func TestStoreGetAbsentKey(t *testing.T) {
-	store := NewStore(newTestPool(t))
+	pool := newTestPool(t)
+	store := NewStore(pool)
+	ctx := context.Background()
 
-	value, ok, err := store.Get(context.Background(), testKey)
+	// Established rather than assumed: cleanup is best-effort, so a run that was
+	// interrupted leaves the key behind and this test would fail on the previous
+	// run's residue rather than on anything it means to check.
+	if _, err := pool.Exec(ctx, `DELETE FROM site_settings WHERE key = $1`, testKey); err != nil {
+		t.Fatalf("clear the test key: %v", err)
+	}
+
+	value, ok, err := store.Get(ctx, testKey)
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
@@ -78,18 +87,39 @@ func TestStorePutOverwrites(t *testing.T) {
 // in, and what comes back is Postgres's rendering of the value.
 //
 // This one exercises the real settings key, because that is the key the repo
-// hard-codes. It restores whatever was there on the way out.
+// hard-codes, and it deletes that row to set up the absent case. Point
+// TEST_DATABASE_URL at a database of its own: run against a live installation it
+// would take the policy away for the duration and put it back afterwards, and
+// anything that wrote in between would lose its write.
+//
+// The restore goes through the raw store rather than through repo.Put, and
+// carries the row's presence as well as its value. repo.Get answers an absent
+// row with the zero policy, so restoring through it would leave behind a row
+// that says "keep everything" where before there was no row at all — the same
+// meaning, but not the same state, and the next run of this very test would then
+// have nothing absent to check.
 func TestRepoAbsentRowThenRoundTrip(t *testing.T) {
 	pool := newTestPool(t)
 	repo := NewRepo(pool)
+	store := NewStore(pool)
 	ctx := context.Background()
 
-	before, err := repo.Get(ctx)
+	before, existed, err := store.Get(ctx, settingsKey)
 	if err != nil {
 		t.Fatalf("read the existing policy: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = repo.Put(context.Background(), before)
+		restore := context.Background()
+		if existed {
+			if err := store.Put(restore, settingsKey, before); err != nil {
+				t.Errorf("restore the policy row: %v", err)
+			}
+			return
+		}
+		if _, err := pool.Exec(restore,
+			`DELETE FROM site_settings WHERE key = $1`, settingsKey); err != nil {
+			t.Errorf("remove the policy row this test created: %v", err)
+		}
 	})
 
 	if _, err := pool.Exec(ctx,

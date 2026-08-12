@@ -728,13 +728,13 @@
                                     {
                                         "$ref": "#/components/schemas/api.retentionUpdateRequest",
                                         "summary": "body",
-                                        "description": "The two retention windows, in days"
+                                        "description": "The two retention windows, in days. Both are required"
                                     }
                                 ]
                             }
                         }
                     },
-                    "description": "The two retention windows, in days",
+                    "description": "The two retention windows, in days. Both are required",
                     "required": true
                 },
                 "responses": {
@@ -756,7 +756,7 @@
                                 }
                             }
                         },
-                        "description": "a window is negative or beyond 3650 days"
+                        "description": "a window is missing, negative, or beyond 3650 days"
                     },
                     "500": {
                         "content": {

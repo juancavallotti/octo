@@ -81,7 +81,9 @@ curl -sS -X PUT "$LOGS_URL/settings/retention" \
   -d '{"logs_days":30,"traces_days":7}'
 ```
 
-**Zero means keep forever**, on either axis, and zero is the default — so an installation that never sets a policy behaves exactly as it did before the feature existed. The upper bound is 3650 days. Both fields are required on every save: accepting a partial policy would make "I did not mention traces" indistinguishable from "keep traces forever".
+**Zero means keep forever**, on either axis, and zero is the default — so an installation that never sets a policy behaves exactly as it did before the feature existed. The upper bound is 3650 days.
+
+A save replaces the whole policy, so **both fields are required** and a body naming only one is a `400`. That is deliberate: zero is a value here, not an absence, so a request mentioning only `logs_days` would otherwise read as "and switch trace retention off" — nobody means that by omission, and it is the direction that loses data.
 
 A save deletes nothing. `POST /retention/run` is what deletes, and it reports what went:
 
