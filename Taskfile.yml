@@ -742,6 +742,13 @@ tasks:
         check dev-runs-wildcard \
           --set orchestrator.baseDomain=apps.example.com \
           --set wildcardTLS.enabled=true --set wildcardTLS.clusterIssuer=letsencrypt-dns
+        # The retention CronJob is on by default, so `check defaults` already
+        # renders it. What this adds is the tuning knobs — the ones an operator
+        # actually reaches for — since a values key that no profile sets is a key
+        # whose plumbing nothing renders.
+        check retention-tuned \
+          --set retention.schedule='30 4 * * 0' --set retention.timeoutSeconds=120 \
+          --set retention.concurrencyPolicy=Replace --set retention.backoffLimit=0
         # Every guard, asserted. Each of these combinations would otherwise
         # install cleanly and publish endpoints nothing serves.
         check_fails bad-mode          "is not one of ingress, gateway" \
@@ -777,6 +784,13 @@ tasks:
           --set orchestrator.devRuns.enabled=false \
           --set orchestrator.devRuns.hashSecret= \
           --set orchestrator.baseDomain=apps.example.com
+        # Retention turned off: the CronJob vanishes entirely. It is the only
+        # CronJob the chart has, and the flag's whole job is to remove it, so
+        # nothing that asserts a successful render could catch this regressing.
+        # The endpoint it calls is served either way — the switch governs the
+        # schedule, not the capability.
+        check_absent retention-disabled "kind: CronJob" \
+          --set retention.enabled=false
         # An empty issuer means the Secret exists already. What that produces is
         # the absence of a Certificate, which every success-only check misses.
         check_absent wildcard-no-cert "kind: Certificate" \
