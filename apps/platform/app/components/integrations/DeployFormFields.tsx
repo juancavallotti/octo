@@ -8,9 +8,11 @@ import SlugField from "./SlugField";
 import DeployEnvFields, { type EnvBinding } from "./DeployEnvFields";
 import Field from "./Field";
 import TracingToggle from "./TracingToggle";
+import PlatformAccessFields from "./PlatformAccessFields";
 
 /**
- * The deploy dialog's scrolling body: version, scale, address, tracing and env.
+ * The deploy dialog's scrolling body: version, scale, address, tracing, env and
+ * the platform-access grants.
  *
  * Every one of these fields is already its own component — SlugField,
  * ReplicaStepper, TracingToggle, DeployEnvFields — and this is the container that
@@ -34,6 +36,10 @@ export default function DeployFormFields({
   onSlugOk,
   tracing,
   onTracing,
+  orchestratorApi,
+  onOrchestratorApi,
+  observabilityApi,
+  onObservabilityApi,
   envVars,
   bindings,
   secretNames,
@@ -64,6 +70,10 @@ export default function DeployFormFields({
   onSlugOk: (ok: boolean) => void;
   tracing: boolean;
   onTracing: (on: boolean) => void;
+  orchestratorApi: boolean;
+  onOrchestratorApi: (on: boolean) => void;
+  observabilityApi: boolean;
+  onObservabilityApi: (on: boolean) => void;
   envVars: DeployEnvVar[];
   bindings: Record<string, EnvBinding>;
   secretNames: string[];
@@ -184,6 +194,16 @@ export default function DeployFormFields({
           )}
         </Field>
       )}
+
+      {/* Last, and collapsed: almost no integration needs either grant, and the
+          ones that do are written for it. */}
+      <PlatformAccessFields
+        busy={busy}
+        orchestratorApi={orchestratorApi}
+        onOrchestratorApi={onOrchestratorApi}
+        observabilityApi={observabilityApi}
+        onObservabilityApi={onObservabilityApi}
+      />
 
       {error && <p className="text-sm text-red-500">{error}</p>}
     </div>

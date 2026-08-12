@@ -31,6 +31,8 @@ export interface DeploySubmit {
   expose?: "external";
   env?: Record<string, EnvBindingInput>;
   tracing?: boolean;
+  orchestratorApi?: boolean;
+  observabilityApi?: boolean;
 }
 
 export default function DeployModal({
@@ -60,6 +62,10 @@ export default function DeployModal({
   const [slug, setSlug] = useState("");
   const [slugOk, setSlugOk] = useState(false);
   const [tracing, setTracing] = useState(false);
+  // Platform-access grants, both off by default: an integration that reads its own
+  // installation is the exception, and the default should be the rule.
+  const [orchestratorApi, setOrchestratorApi] = useState(false);
+  const [observabilityApi, setObservabilityApi] = useState(false);
   // A tag reads its frozen definition, Current the live working copy. The
   // suggestion prefills the slug box on load, but not on the failure fallback —
   // see useDeployOptions.
@@ -112,6 +118,8 @@ export default function DeployModal({
       ...(networked && expose ? { expose: "external" } : {}),
       ...(Object.keys(env).length ? { env } : {}),
       ...(tracing ? { tracing: true } : {}),
+      ...(orchestratorApi ? { orchestratorApi: true } : {}),
+      ...(observabilityApi ? { observabilityApi: true } : {}),
     });
   };
 
@@ -160,6 +168,10 @@ export default function DeployModal({
           onSlugOk={setSlugOk}
           tracing={tracing}
           onTracing={setTracing}
+          orchestratorApi={orchestratorApi}
+          onOrchestratorApi={setOrchestratorApi}
+          observabilityApi={observabilityApi}
+          onObservabilityApi={setObservabilityApi}
           envVars={envVars}
           bindings={bindings}
           secretNames={secretNames}

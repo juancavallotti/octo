@@ -163,6 +163,17 @@ export interface DeploymentInput {
   env?: Record<string, EnvBindingInput>;
   /** Run the pods with the runtime tracer on. Off by default; it costs throughput. */
   tracing?: boolean;
+  /**
+   * Declares that this deployment's flows call the orchestrator's own API. Grants
+   * nothing today — ORCHESTRATOR_URL is already in every pod for the runtime's KV
+   * store — but it is the declaration a future access model gates on.
+   */
+  orchestratorApi?: boolean;
+  /**
+   * Grants this deployment the log aggregator's address as LOGS_URL. Off by
+   * default: stored logs and traces span every deployment on the installation.
+   */
+  observabilityApi?: boolean;
 }
 
 /** An environment variable an integration declares, for the modal to prompt on. */

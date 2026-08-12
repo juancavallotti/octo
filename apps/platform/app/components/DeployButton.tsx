@@ -119,6 +119,8 @@ export default function DeployButton({
         ...(input.expose ? { expose: input.expose } : {}),
         ...(input.env ? { env: input.env } : {}),
         ...(input.tracing ? { tracing: true } : {}),
+        ...(input.orchestratorApi ? { orchestratorApi: true } : {}),
+        ...(input.observabilityApi ? { observabilityApi: true } : {}),
       });
       setFirstDeploy(null);
     } catch (e) {
