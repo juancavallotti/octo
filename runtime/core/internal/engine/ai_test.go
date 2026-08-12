@@ -520,6 +520,131 @@ func TestAIAgentBuildValidation(t *testing.T) {
 	if err := build(badSchema); err == nil {
 		t.Error("expected error with an invalid inputSchema")
 	}
+	badInput := base()
+	badInput.Input = `body.(`
+	if err := build(badInput); err == nil {
+		t.Error("expected error with an input expression that does not compile")
+	}
+}
+
+// TestAgentSystemAnswerFormat pins both halves of the answer setting.
+//
+// The JSON demand is the default and has to stay: an agent's answer becomes the
+// next block's body, so a flow reading body.tier depends on the model having been
+// asked for an object. What it cannot be is unconditional, which is what it was —
+// written ahead of the block's own prompt, it told an agent asked by its author
+// for Markdown to answer in JSON and nothing else. Anthropic followed the later,
+// more specific instruction; OpenAI and Gemini followed this one and answered
+// `{"message":"…"}` where a sentence was wanted.
+func TestAgentSystemAnswerFormat(t *testing.T) {
+	const prosePrompt = "Answer in Markdown prose, never as a bare JSON object."
+
+	// Unset and "json" are the same request, so an existing agent that never named
+	// a format keeps the structured body its next block reads.
+	for _, answer := range []string{"", answerJSON} {
+		system := buildAgentSystem(prosePrompt, "", answer, nil)
+		if !strings.Contains(system, "as JSON only (no prose, no markdown code fences)") {
+			t.Errorf("answer %q dropped the JSON demand:\n%s", answer, system)
+		}
+		// The default yields to a prompt that names a format, so an author who never
+		// found this setting is not fought by the engine. It is a concession, not the
+		// guarantee: which way a model reads it is the reason `text` exists.
+		if !strings.Contains(system, "unless the instructions below call for a different format") {
+			t.Errorf("answer %q does not yield to the prompt:\n%s", answer, system)
+		}
+	}
+
+	text := buildAgentSystem(prosePrompt, "", answerText, nil)
+	for _, banned := range []string{"JSON only", "no prose", "no markdown"} {
+		if strings.Contains(text, banned) {
+			t.Errorf("answer %q still dictates a format (%q):\n%s", answerText, banned, text)
+		}
+	}
+	if !strings.Contains(text, prosePrompt) {
+		t.Errorf("the block's own prompt did not survive:\n%s", text)
+	}
+}
+
+// TestAIAgentRejectsAnUnknownAnswerFormat pins that a misspelling fails the build
+// rather than silently falling back to JSON — which would be the shape the setting
+// was added to escape.
+func TestAIAgentRejectsAnUnknownAnswerFormat(t *testing.T) {
+	reg := agentRegistry(&[]any{})
+	cfg := types.BlockConfig{
+		Type: "ai-agent", Connector: "claude", Prompt: "answer", Answer: "prose",
+		Tools: []types.ToolConfig{toolBranch("a", "d", types.Settings{})},
+	}
+	_, err := (&builder{reg: reg, pool: pool.New(0, 0), deps: depsLLM(&scriptedLLM{})}).block(cfg)
+	if err == nil {
+		t.Fatal("expected an error for an unknown answer format")
+	}
+}
+
+// TestAIAgentDefaultOpeningTurnCarriesTheBody pins the framing an agent with no
+// input expression gets: the whole body, as a JSON document to work from.
+func TestAIAgentDefaultOpeningTurnCarriesTheBody(t *testing.T) {
+	reg := agentRegistry(&[]any{})
+	fake := &scriptedLLM{responses: []*core.LLMResponse{endTurnResp("done")}}
+	cfg := types.BlockConfig{
+		Type: "ai-agent", Connector: "claude", Prompt: "enrich",
+		Tools: []types.ToolConfig{toolBranch("a", "d", types.Settings{})},
+	}
+	if _, err := mustBuildAI(t, reg, depsLLM(fake), cfg).Process(context.Background(), aiMessage(t)); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	opening := fake.calls[0].Messages[0]
+	if opening.Role != core.LLMRoleUser {
+		t.Fatalf("opening turn role = %q, want user", opening.Role)
+	}
+	if !strings.Contains(opening.Text, `{"subject":"refund please"}`) {
+		t.Errorf("opening turn = %q, want it to carry the input body", opening.Text)
+	}
+}
+
+// TestAIAgentInputStatesTheOpeningTurn pins that an agent that says what its
+// opening turn is gets exactly that, with no body envelope around it.
+//
+// This is what keeps a conversational agent's reply readable. Handed the body as a
+// document, a model that answers without reasoning first replies in the shape it
+// was given — one provider returned `{"message":"hello chat"}` for an input whose
+// message was "hello chat" — and that reply is streamed to a panel a token at a
+// time, so there is no later point at which it can be unwrapped.
+func TestAIAgentInputStatesTheOpeningTurn(t *testing.T) {
+	reg := agentRegistry(&[]any{})
+	fake := &scriptedLLM{responses: []*core.LLMResponse{endTurnResp("done")}}
+	cfg := types.BlockConfig{
+		Type: "ai-agent", Connector: "claude", Prompt: "answer",
+		Input: `"Question: " + body.subject`,
+		Tools: []types.ToolConfig{toolBranch("a", "d", types.Settings{})},
+	}
+	if _, err := mustBuildAI(t, reg, depsLLM(fake), cfg).Process(context.Background(), aiMessage(t)); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	opening := fake.calls[0].Messages[0]
+	if opening.Text != "Question: refund please" {
+		t.Errorf("opening turn = %q, want only what the input expression stated", opening.Text)
+	}
+}
+
+// TestAIAgentInputEvalFailureFailsTheBlock pins that an input expression which
+// cannot be evaluated fails the run rather than quietly falling back to the body —
+// a silent fallback would send the model the very envelope the expression exists
+// to keep out of the conversation.
+func TestAIAgentInputEvalFailureFailsTheBlock(t *testing.T) {
+	reg := agentRegistry(&[]any{})
+	fake := &scriptedLLM{responses: []*core.LLMResponse{endTurnResp("done")}}
+	cfg := types.BlockConfig{
+		Type: "ai-agent", Connector: "claude", Prompt: "answer",
+		Input: `body.missing`,
+		Tools: []types.ToolConfig{toolBranch("a", "d", types.Settings{})},
+	}
+	_, err := mustBuildAI(t, reg, depsLLM(fake), cfg).Process(context.Background(), aiMessage(t))
+	if err == nil {
+		t.Fatal("expected an error when the input expression cannot be evaluated")
+	}
+	if len(fake.calls) != 0 {
+		t.Errorf("model called %d times, want 0: the turn was never built", len(fake.calls))
+	}
 }
 
 // mapResources is a core.ResourceLoader backed by an in-memory map keyed by id,
