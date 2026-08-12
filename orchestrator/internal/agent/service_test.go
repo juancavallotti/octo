@@ -790,8 +790,13 @@ func TestSetTracingRollsTheCurrentTagWithTracingOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
+	if !installed.Tracing {
+		t.Fatal("want the agent traced from the first deploy")
+	}
 
-	got, err := h.svc.SetTracing(ctx, true)
+	// Off, because that is the change this install can actually make — and the
+	// direction that must work, since it is how someone opts out of the default.
+	got, err := h.svc.SetTracing(ctx, false)
 	if err != nil {
 		t.Fatalf("SetTracing: %v", err)
 	}
@@ -806,14 +811,46 @@ func TestSetTracingRollsTheCurrentTagWithTracingOnly(t *testing.T) {
 	if call.env != nil {
 		t.Error("want a nil env so the deployment's bindings are preserved")
 	}
-	if call.tracing == nil || !*call.tracing {
-		t.Errorf("tracing = %v, want it set on", call.tracing)
+	if call.tracing == nil || *call.tracing {
+		t.Errorf("tracing = %v, want it set off", call.tracing)
 	}
-	if !got.Tracing {
-		t.Error("want the status to report tracing on")
+	if got.Tracing {
+		t.Error("want the status to report tracing off")
 	}
-	if installed.Tracing {
-		t.Error("tracing should have been off before")
+}
+
+// Tracing defaults on for the agent and nothing else, so the first deploy has to
+// carry it — the setting only reaches a pod that starts with it.
+func TestInstallDeploysWithTracingOn(t *testing.T) {
+	h := newHarness(t, true)
+
+	if _, err := h.svc.Install(context.Background(), ""); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if !h.deployments.deployed[0].Tracing {
+		t.Error("want the first deploy traced")
+	}
+}
+
+// Turning it off is a decision. A redeploy afterwards — which is now an ordinary
+// button rather than something only an update offered — must not quietly undo it.
+func TestRedeployKeepsTracingOffOnceItHasBeenTurnedOff(t *testing.T) {
+	h := newHarness(t, true)
+	ctx := context.Background()
+
+	if _, err := h.svc.Install(ctx, ""); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if _, err := h.svc.SetTracing(ctx, false); err != nil {
+		t.Fatalf("SetTracing: %v", err)
+	}
+
+	got, err := h.svc.Rollout(ctx, "user-1")
+	if err != nil {
+		t.Fatalf("Rollout: %v", err)
+	}
+	if got.Tracing {
+		t.Error("want tracing to stay off across a redeploy")
 	}
 }
 

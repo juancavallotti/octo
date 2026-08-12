@@ -344,6 +344,17 @@ func (s *Service) ensureIntegration(ctx context.Context, cur stored, actorID str
 
 	next := cur
 	next.IntegrationID = it.ID
+	// Tracing on from the first deploy, which is the opposite of the default for
+	// anything a user builds — and right for exactly the reasons the general default
+	// is off. That default is about throughput, and a chat agent answering a handful
+	// of questions has none to lose. What he does have is the ability to deploy, and
+	// a diet of text other people wrote, so "what did he actually do, and was he
+	// told to" is a question worth being able to answer about every run rather than
+	// only the ones after somebody thought to switch it on.
+	//
+	// Only on the first install. Turning it off afterwards is a decision, and a later
+	// redeploy must not quietly undo it.
+	next.Tracing = true
 	next.InstalledAt = time.Now().UTC()
 	next.UpdatedAt = next.InstalledAt
 	return next, nil
