@@ -508,6 +508,25 @@ func TestInstallDeploysInternalOnly(t *testing.T) {
 	}
 }
 
+// The agent asks for the platform-access grants the same way any integration does.
+// Observability is the one that does something: it is what puts LOGS_URL in his pod,
+// and without it his logs tools answer that they were not granted rather than that
+// there is nothing stored.
+func TestInstallAsksForThePlatformAccessGrants(t *testing.T) {
+	h := newHarness(t, true)
+
+	if _, err := h.svc.Install(context.Background(), ""); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	got := h.deployments.deployed[0]
+	if !got.ObservabilityAPI {
+		t.Error("want the observability grant; without it he cannot read stored logs or traces")
+	}
+	if !got.OrchestratorAPI {
+		t.Error("want the orchestrator grant declared; he drives that API on every turn")
+	}
+}
+
 func TestInstallRefusesWithoutACluster(t *testing.T) {
 	h := newHarness(t, false)
 

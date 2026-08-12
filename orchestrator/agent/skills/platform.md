@@ -78,6 +78,18 @@ Work through it in this order, because each step rules out the one below:
 4. **A secret binding that names a secret that does not exist** fails the pod at
    start, not the deploy.
 
+Pod logs are the *live* output of a pod that still exists, so they are no use once it
+has been replaced — and a crash loop replaces it repeatedly. For anything that has
+already happened, use the observability API (`list_logs_operations`, `read_logs_docs`,
+`logs_api`) instead: stored log events survive the pod, and a trace is the whole run
+block by block rather than whatever the process happened to print. Filter logs by
+`deploymentId`, and traces by `deploymentId` with `status=failed` to go straight to
+the runs that broke.
+
+That API is a separate service from the orchestrator, and reaching it needs the
+deployment to have been granted the observability API. If the tools answer that it was
+not granted, that is the answer — it does not mean there is nothing stored.
+
 ## Resources
 
 Env files and templates belong to the integration

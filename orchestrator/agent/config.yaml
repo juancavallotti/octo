@@ -39,6 +39,27 @@ env:
   - name: ORCHESTRATOR_URL
     required: true
 
+  # Where stored logs and traces are queried. Deliberately NOT required, and it has
+  # no counterpart binding: LOGS_URL is orchestrator-managed, injected only into a
+  # deployment granted the observability API, and the deploy-time check for required
+  # variables reads bindings and .env resources only — so declaring it required would
+  # refuse every deploy, including the ones that were granted it.
+  #
+  # The default is a sentinel, and it is load-bearing twice over.
+  #
+  # It exists at all because connectors start eagerly and http-client refuses an
+  # empty baseURL, which would crash-loop the whole agent on an install that never
+  # granted him the API. And every logs tool below compares against it before doing
+  # anything, so "not granted" is answered from a CEL check rather than from a failed
+  # request — no waiting on a connection, and an explanation instead of a transport
+  # error the model has to interpret.
+  #
+  # The host is under .invalid, reserved by RFC 2606 to never resolve, so the
+  # sentinel is also a safe address: anything that ever slipped past the checks
+  # fails to connect rather than reaching something real.
+  - name: LOGS_URL
+    default: http://observability-not-granted.invalid
+
   # How long a conversation runs before it is compacted. Half a million rather than
   # a million: this is what the model is billed to re-read on every turn of a long
   # thread, and the compaction is a summary, so the tail of the conversation stays
@@ -92,6 +113,18 @@ connectors:
     settings:
       baseURL: ${ORCHESTRATOR_URL}
       timeout: 60s
+
+  # The log aggregator's query API — stored logs and traces, for every deployment on
+  # the install. A second boundary, restrictable independently of the one above, and
+  # read-only in a way that one is not: every route it serves is a GET.
+  - name: logs
+    type: http-client
+    settings:
+      baseURL: ${LOGS_URL}
+      # Shorter than the orchestrator's. A query that has to reach an address this
+      # deployment was never granted should come back while someone is still reading
+      # the answer, not sixty seconds later.
+      timeout: 20s
 
 flows:
   - name: chat
@@ -235,6 +268,18 @@ flows:
           load is worse than an admission that you are unsure.
 
 
+          Stored logs and traces are a second API, reached the same way:
+          list_logs_operations, then read_logs_docs for one tag, then logs_api. Reach
+          for it whenever the question is about something that already happened —
+          why a deployment failed, which flows are erroring, what a run actually did,
+          what it cost. Prefer it to pod logs for anything but the present moment:
+          pod logs are what one pod is printing now and vanish with it, while a trace
+          is the whole run, block by block, and is still there tomorrow. If those
+          tools answer that the observability API was not granted, say so plainly
+          rather than reporting that you found nothing — those two answers look
+          identical to whoever asked, and only one of them is true.
+
+
           After you change an integration through the API, call refresh_platform_ui
           with its id so an editor with it open offers to reload.
 
@@ -329,6 +374,120 @@ flows:
                   query: 'has(body.query) ? body.query : {}'
                   body: 'has(body.payload) ? body.payload : null'
                   failOnError: false
+
+          # The three logs tools each open with the same guard: when LOGS_URL is
+          # still the sentinel, this deployment was never granted the observability
+          # API, and the honest answer is that sentence rather than a request to an
+          # address that does not resolve. Answering it here also means the model is
+          # told once, on whichever tool it reached for first, instead of learning it
+          # from three transport errors in a row.
+          # The three logs tools each open with the same guard. When LOGS_URL is still
+          # the sentinel, this deployment was never granted the observability API, and
+          # that sentence is the honest answer — cheaper than a request to an address
+          # that does not resolve, and an explanation rather than a transport error the
+          # model has to interpret. Answered per tool so whichever one he reached for
+          # first tells him, instead of three failures in a row teaching him the same
+          # thing.
+          - name: list_logs_operations
+            description: >
+              List every route the observability API serves — stored logs and traces.
+              Cheap. Read this first to find the tag worth asking about.
+            inputSchema: |
+              { "type": "object", "properties": {} }
+            process:
+              - type: if
+                name: observability-granted
+                condition: env.LOGS_URL != "http://observability-not-granted.invalid"
+                then:
+                  process:
+                    - type: rest
+                      settings:
+                        connector: logs
+                        method: GET
+                        path: /openapi/operations
+                        failOnError: false
+                else:
+                  process:
+                    - type: set-payload
+                      name: not-granted
+                      settings:
+                        value: '{"error": "This installation has not granted this deployment the observability API, so stored logs and traces cannot be read. Say so \u2014 it does not mean there are none."}'
+
+          - name: read_logs_docs
+            description: >
+              Read the observability API's OpenAPI description, narrowed to one tag
+              (from list_logs_operations) or one path prefix. Pass one or the other,
+              never both. Without a filter this is large; use a filter.
+            inputSchema: |
+              {
+                "type": "object",
+                "properties": {
+                  "tag": { "type": "string", "description": "Keep only operations with this tag." },
+                  "path": { "type": "string", "description": "Keep only routes starting with this prefix." }
+                }
+              }
+            process:
+              - type: if
+                name: observability-granted
+                condition: env.LOGS_URL != "http://observability-not-granted.invalid"
+                then:
+                  process:
+                    - type: rest
+                      settings:
+                        connector: logs
+                        method: GET
+                        path: /openapi.json
+                        failOnError: false
+                        query:
+                          tag: 'has(body.tag) ? body.tag : ""'
+                          path: 'has(body.path) ? body.path : ""'
+                else:
+                  process:
+                    - type: set-payload
+                      name: not-granted
+                      settings:
+                        value: '{"error": "This installation has not granted this deployment the observability API, so stored logs and traces cannot be read. Say so \u2014 it does not mean there are none."}'
+
+          - name: logs_api
+            description: >
+              Query stored logs and traces. Look the route up with read_logs_docs
+              first rather than guessing. This is history — what already happened,
+              across every deployment. For what a pod is printing right now, use
+              octo_api instead. Returns the response body; the HTTP status is in
+              vars.statusCode, and a 4xx comes back as data rather than an error, so
+              read it and correct the call.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["path"],
+                "properties": {
+                  "path":  { "type": "string", "description": "Path only, e.g. /traces. Never a full URL." },
+                  "query": { "type": "object", "description": "Query parameters." }
+                }
+              }
+            process:
+              - type: if
+                name: observability-granted
+                condition: env.LOGS_URL != "http://observability-not-granted.invalid"
+                then:
+                  process:
+                    # allowMethods is set from the start, unlike octo_api's. It costs
+                    # nothing: every route this API serves is a GET, so the restriction
+                    # the docs describe as opt-in is simply true here.
+                    - type: rest-dynamic
+                      settings:
+                        connector: logs
+                        method: '"GET"'
+                        path: body.path
+                        allowMethods: [GET]
+                        query: 'has(body.query) ? body.query : {}'
+                        failOnError: false
+                else:
+                  process:
+                    - type: set-payload
+                      name: not-granted
+                      settings:
+                        value: '{"error": "This installation has not granted this deployment the observability API, so stored logs and traces cannot be read. Say so \u2014 it does not mean there are none."}'
 
           - name: refresh_platform_ui
             description: >
