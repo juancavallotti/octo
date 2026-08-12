@@ -89,10 +89,11 @@ type LLMStreamClient interface {
 // something a canonical kind already covers, and never synthesizes a kind it does
 // not actually have.
 //
-// Consumers must tolerate any kind being absent, because the gaps between
-// providers are real and permanent rather than bugs waiting to be fixed. Today
-// the only such gap is thinking on OpenAI, whose Chat Completions API exposes no
-// reasoning content at all — not on a delta, not on the finished message.
+// Consumers must tolerate any kind being absent, because a kind reports what its
+// provider actually produces and every provider withholds something. Thinking is
+// the one that varies most: it arrives only where reasoning was both asked for and
+// returned as content, so a connector configured for no reasoning reports none, and
+// OpenAI reports a summary of its reasoning rather than the reasoning itself.
 //
 // Granularity is not guaranteed either, only meaning. Gemini delivers a tool
 // call's arguments whole where the other two fragment them, so it reports one
@@ -202,15 +203,24 @@ type LLMMessage struct {
 // on the second turn. Callers treat these blocks as opaque: they never inspect,
 // merge, or construct one, they only carry it back via LLMResponse.Raw.
 //
-// Exactly one of Text or Redacted is set. A redacted block is reasoning the
-// provider encrypted rather than returned; it must still be echoed verbatim.
+// Which fields carry the block depends on how the provider returns reasoning, and
+// the two shapes in use disagree. Anthropic returns either readable text with an
+// attestation over it, or an encrypted payload standing in for text it withheld —
+// exactly one of Text and Redacted. OpenAI's Responses API returns both at once:
+// a readable summary and, separately, the encrypted reasoning the next turn has to
+// echo. So a consumer must not treat the two as exclusive; a connector carries
+// whichever its provider gave it and echoes all of them back untouched.
 type LLMThinkingBlock struct {
-	// Text is the reasoning content. Empty for a redacted block.
+	// Text is the reasoning content, or a summary of it. Empty when the provider
+	// returned no readable reasoning.
 	Text string
-	// Signature is the provider's attestation over Text. It is verified against the
-	// exact bytes of Text, so changing either invalidates the block.
+	// Signature is the token that makes the block echoable. For Anthropic it is an
+	// attestation over Text, verified against its exact bytes, so changing either
+	// invalidates the block. For OpenAI it is the reasoning item's id, which the
+	// server matches the echoed item against.
 	Signature string
-	// Redacted is the opaque payload of a redacted block, echoed back as-is.
+	// Redacted is the opaque encrypted payload, echoed back as-is. It is the whole
+	// block for Anthropic and rides alongside Text for OpenAI.
 	Redacted []byte
 }
 

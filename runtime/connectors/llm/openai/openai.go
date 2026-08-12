@@ -1,14 +1,26 @@
 // Package openai provides the "llm-openai" connector: a configured OpenAI
-// Chat Completions client that satisfies core.LLMClient so the AI flow elements
-// can drive it interchangeably with the other providers. It translates the
+// Responses client that satisfies core.LLMClient so the AI flow elements can
+// drive it interchangeably with the other providers. It translates the
 // provider-agnostic core.LLM* DTOs to and from the OpenAI SDK types on each
 // Complete call.
 //
-// Chat Completions exposes no reasoning content — not on a delta, not on the
-// finished message — so core.LLMMessage.Thinking is always empty here and an
-// echoed turn carries none. Reasoning is visible only as a token count. That is
-// an API limitation, not an omission: reasoning summaries live on the Responses
-// API, which this connector does not use.
+// It speaks Responses rather than Chat Completions, and the reason is reasoning.
+// On /v1/chat/completions a non-none reasoning effort could not be combined with
+// function tools on some models — the server answered 400 naming reasoning_effort
+// — so an agent had to ask for no reasoning at all to be able to call its tools.
+// That is not a small loss: a model told not to reason stops following the parts
+// of a prompt that need any, and one told to answer in prose started answering
+// with a copy of the JSON body it was handed. Responses has no such conflict.
+//
+// Chat Completions also returned no reasoning content whatsoever, so
+// core.LLMMessage.Thinking was always empty here and thinking never streamed.
+// Responses returns reasoning summaries, so both now work.
+//
+// Requests are stateless: store is off and the whole conversation is sent every
+// turn, matching how the other two connectors work and keeping nothing on the
+// provider's side. That is why reasoning items are echoed with their encrypted
+// content — with no stored response to refer back to, the encrypted item is what
+// lets the next turn continue the same reasoning.
 package openai
 
 import (
@@ -22,6 +34,7 @@ import (
 	sdk "github.com/openai/openai-go/v2"
 	"github.com/openai/openai-go/v2/option"
 	"github.com/openai/openai-go/v2/packages/param"
+	"github.com/openai/openai-go/v2/responses"
 	"github.com/openai/openai-go/v2/shared"
 
 	"github.com/juancavallotti/octo/runtime/core"
@@ -52,11 +65,11 @@ type connectorSettings struct {
 	Model string `json:"model" octo:"label=Model,default=gpt-5.4"`
 	// Default response token cap (0 = the model default); a request may override it.
 	MaxTokens int `json:"maxTokens" octo:"label=Max tokens"`
-	// How much reasoning effort a reasoning-capable model spends. "none" turns it
-	// off explicitly; "default" leaves the field off the request and lets the model
-	// choose, which for a reasoning model is not the same thing as none.
+	// How much reasoning effort a reasoning-capable model spends. "default" sends no
+	// reasoning field at all and lets the model choose, which is the only setting
+	// that is also safe on a model with no reasoning to configure.
 	//nolint:lll // a struct tag cannot be wrapped, and the enum has to list every option
-	Reasoning string `json:"reasoning" octo:"label=Reasoning,type=enum,enum=none|minimal|low|medium|high|default,default=none"`
+	Reasoning string `json:"reasoning" octo:"label=Reasoning,type=enum,enum=default|none|minimal|low|medium|high,default=default"`
 	// Overrides the API endpoint (for proxies, Azure, or OpenAI-compatible servers).
 	BaseURL string `json:"baseURL" octo:"label=Base URL"`
 }
@@ -124,27 +137,30 @@ func (c *Connector) Start(_ context.Context, config types.ConnectorConfig) error
 }
 
 // toReasoningEffort validates the setting at startup, returning the empty effort
-// for off so the request carries no reasoning_effort and the model's own default
-// applies. This steers how many reasoning tokens the model spends; it does not
-// make reasoning observable, which Chat Completions never does.
+// for the default so the request carries no reasoning field at all.
+//
+// Unset means default, and default means silent. The reasoning field is documented
+// for gpt-5 and o-series models only, and this connector's baseURL points it at
+// Azure, proxies and other OpenAI-compatible servers whose model list is not
+// OpenAI's — so sending the field unasked is how a connector pointed at a model
+// without reasoning fails on every call. Saying nothing works everywhere and lets
+// a reasoning model apply the effort it was trained to.
+//
+// The previous default was an explicit none, which existed only to dodge the
+// Chat Completions conflict between reasoning and function tools. Responses has no
+// such conflict, so the workaround is gone with the API that needed it — and with
+// it the behaviour it caused, of a model with reasoning switched off answering in
+// the shape of its input rather than the shape its prompt asked for.
 func toReasoningEffort(effort string) (shared.ReasoningEffort, error) {
 	switch effort {
-	// Unset and "off" both mean no reasoning, and both now say so on the wire
-	// rather than by omission. Omitting the field asks a reasoning model for its
-	// own default, which is not none — and a non-none default cannot be combined
-	// with function tools on /v1/chat/completions, so every agent built on such a
-	// model failed its first turn with a 400 naming reasoning_effort.
-	case "", reasoningNone:
-		return shared.ReasoningEffort(reasoningNone), nil
-	// The old behaviour, for a model that rejects an explicit none.
-	case reasoningDefault:
+	case "", reasoningDefault:
 		return "", nil
-	case string(shared.ReasoningEffortMinimal), string(shared.ReasoningEffortLow),
+	case reasoningNone, string(shared.ReasoningEffortMinimal), string(shared.ReasoningEffortLow),
 		string(shared.ReasoningEffortMedium), string(shared.ReasoningEffortHigh):
 		return shared.ReasoningEffort(effort), nil
 	default:
 		return "", fmt.Errorf(
-			"reasoning must be one of none, minimal, low, medium, high, default, got %q", effort)
+			"reasoning must be one of default, none, minimal, low, medium, high, got %q", effort)
 	}
 }
 
@@ -158,30 +174,28 @@ func (c *Connector) Stop(context.Context) error { return nil }
 // depends on.
 func (c *Connector) Provider() string { return core.ProviderOpenAI }
 
-// Complete runs one Chat Completions turn, translating the request to SDK params
-// and the response back to the provider-agnostic DTOs.
+// Complete runs one Responses turn, translating the request to SDK params and the
+// response back to the provider-agnostic DTOs.
 func (c *Connector) Complete(ctx context.Context, req core.LLMRequest) (*core.LLMResponse, error) {
 	params, err := c.params(req)
 	if err != nil {
 		return nil, err
 	}
-	cc, err := c.client.Chat.Completions.New(ctx, params)
+	resp, err := c.client.Responses.New(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("llm-openai complete: %w", err)
 	}
-	return translateResponse(cc, c.model)
+	return translateResponse(resp, c.model)
 }
 
-// Stream runs one Chat Completions turn over the streaming endpoint, reporting
-// content as it arrives and returning the same response Complete would have.
+// Stream runs one Responses turn over the streaming endpoint, reporting content as
+// it arrives and returning the same response Complete would have.
 //
-// Usage and the finish reason are taken from the chunks directly rather than from
-// the SDK accumulator, which sums usage and overwrites the finish reason on every
-// chunk carrying choices. Against real OpenAI both are harmless — non-final chunks
-// report no usage, and the usage chunk carries no choices — but this connector
-// advertises baseURL for OpenAI-compatible servers, where a server that echoes
-// usage on every chunk would be multiplied and a late chunk would clear the finish
-// reason back to a plain end-of-turn.
+// The finished response arrives whole on the terminal response.completed event, so
+// there is no accumulator here and no fold: the deltas are reported as they pass
+// and the server's own final object is what gets translated. That is the closest
+// of the three connectors to the equality the interface promises, since the
+// streamed and blocking paths translate literally the same type.
 func (c *Connector) Stream(
 	ctx context.Context, req core.LLMRequest, on func(core.LLMStreamEvent) error,
 ) (*core.LLMResponse, error) {
@@ -189,125 +203,127 @@ func (c *Connector) Stream(
 	if err != nil {
 		return nil, err
 	}
-	params.StreamOptions = sdk.ChatCompletionStreamOptionsParam{IncludeUsage: param.NewOpt(true)}
 
-	stream := c.client.Chat.Completions.NewStreaming(ctx, params)
+	stream := c.client.Responses.NewStreaming(ctx, params)
 	defer func() { _ = stream.Close() }()
 
-	var (
-		acc    sdk.ChatCompletionAccumulator
-		usage  sdk.CompletionUsage
-		finish string
-	)
+	// Function-call deltas name neither the tool nor the call; both are announced
+	// once, on the output_item.added that opens the call. They are kept by output
+	// index so an argument fragment can be labelled with the call it belongs to.
+	opened := map[int64]responses.ResponseOutputItemUnion{}
+	var final *responses.Response
+
 	for stream.Next() {
-		chunk := stream.Current()
-		acc.AddChunk(chunk)
-		if chunk.Usage.PromptTokens != 0 || chunk.Usage.CompletionTokens != 0 {
-			usage = chunk.Usage
+		event := stream.Current()
+		switch event.Type {
+		case "response.output_item.added":
+			opened[event.OutputIndex] = event.Item
+		case "response.completed", "response.incomplete":
+			resp := event.Response
+			final = &resp
+		case "response.failed":
+			if msg := event.Response.Error.Message; msg != "" {
+				return nil, fmt.Errorf("llm-openai stream: %s", msg)
+			}
+			return nil, fmt.Errorf("llm-openai stream: the response failed")
 		}
-		if len(chunk.Choices) > 0 && chunk.Choices[0].FinishReason != "" {
-			finish = chunk.Choices[0].FinishReason
-		}
-		// Accumulate first: a fragment after the first carries no name or id, so the
-		// call it belongs to has to be read off what the accumulator has opened.
-		if emitErr := emitChunk(&acc, chunk, on); emitErr != nil {
+		if emitErr := emitEvent(event, opened, on); emitErr != nil {
 			return nil, emitErr
 		}
 	}
 	if streamErr := stream.Err(); streamErr != nil {
 		return nil, fmt.Errorf("llm-openai stream: %w", streamErr)
 	}
-
-	cc := acc.ChatCompletion
-	cc.Usage = usage
-	if len(cc.Choices) > 0 {
-		cc.Choices[0].FinishReason = finish
+	if final == nil {
+		return nil, fmt.Errorf("llm-openai stream: ended without a completed response")
 	}
-	return translateResponse(&cc, c.model)
+	return translateResponse(final, c.model)
 }
 
-// emitChunk maps one chunk onto the canonical vocabulary. The final usage chunk
-// carries no choices and so produces nothing.
+// emitEvent maps one stream event onto the canonical vocabulary.
 //
-// Only the first choice is streamed, matching translateResponse. The connector
-// never asks for more than one — it does not set n — so the rest is a case that
-// cannot arise today; a change that starts requesting them has to come back here
-// rather than silently dropping their events.
-func emitChunk(
-	acc *sdk.ChatCompletionAccumulator, chunk sdk.ChatCompletionChunk, on func(core.LLMStreamEvent) error,
+// Only the deltas map. The lifecycle events carry nothing a caller cannot read off
+// the returned response, which is the same rule the other two connectors follow.
+func emitEvent(
+	event responses.ResponseStreamEventUnion,
+	opened map[int64]responses.ResponseOutputItemUnion,
+	on func(core.LLMStreamEvent) error,
 ) error {
-	if len(chunk.Choices) == 0 {
+	index := int(event.OutputIndex)
+	switch event.Type {
+	case "response.output_text.delta":
+		return on(core.LLMStreamEvent{Kind: core.LLMStreamText, Text: event.Delta, Index: index})
+
+	// The summary is the only reasoning Responses returns as readable text; the
+	// reasoning itself comes back encrypted. Streaming the summary is what fills the
+	// gap between a question and the first word of an answer, which on a reasoning
+	// model is most of the wait.
+	case "response.reasoning_summary_text.delta":
+		return on(core.LLMStreamEvent{Kind: core.LLMStreamThinking, Text: event.Delta, Index: index})
+
+	case "response.function_call_arguments.delta":
+		ev := core.LLMStreamEvent{Kind: core.LLMStreamToolInput, Text: event.Delta, Index: index}
+		if item, ok := opened[event.OutputIndex]; ok {
+			ev.Tool, ev.ToolCallID = item.Name, item.CallID
+		}
+		return on(ev)
+
+	// A refusal is content, but it is not the answer, so it is not text. There is no
+	// canonical kind for it and inventing one would grow the vocabulary for a single
+	// provider, which is what custom exists to avoid.
+	case "response.refusal.delta":
+		return on(core.LLMStreamEvent{
+			Kind: core.LLMStreamCustom, Name: "refusal", Text: event.Delta, Index: index,
+		})
+
+	default:
 		return nil
 	}
-	delta := chunk.Choices[0].Delta
-	if delta.Content != "" {
-		if err := on(core.LLMStreamEvent{Kind: core.LLMStreamText, Text: delta.Content}); err != nil {
-			return err
-		}
-	}
-	if delta.Refusal != "" {
-		// A refusal is content, but it is not the answer, so it is not text. There is
-		// no canonical kind for it and inventing one would grow the vocabulary for a
-		// single provider, which is what custom exists to avoid.
-		if err := on(core.LLMStreamEvent{
-			Kind: core.LLMStreamCustom, Name: "refusal", Text: delta.Refusal,
-		}); err != nil {
-			return err
-		}
-	}
-	for _, tc := range delta.ToolCalls {
-		if tc.Function.Arguments == "" {
-			continue
-		}
-		// The index is the server's, and it indexes a slice. An upper bound alone
-		// would still panic on a negative one, which matters here because baseURL
-		// points this connector at OpenAI-compatible servers whose framing is not
-		// OpenAI's to guarantee.
-		idx := int(tc.Index)
-		if idx < 0 {
-			continue
-		}
-		ev := core.LLMStreamEvent{
-			Kind:  core.LLMStreamToolInput,
-			Text:  tc.Function.Arguments,
-			Index: idx,
-		}
-		if len(acc.Choices) > 0 && idx < len(acc.Choices[0].Message.ToolCalls) {
-			call := acc.Choices[0].Message.ToolCalls[idx]
-			ev.Tool, ev.ToolCallID = call.Function.Name, call.ID
-		}
-		if err := on(ev); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // params builds the SDK request shared by Complete and Stream, so the two paths
 // cannot drift in what they ask the model for.
-func (c *Connector) params(req core.LLMRequest) (sdk.ChatCompletionNewParams, error) {
-	msgs, err := toMessages(req)
+func (c *Connector) params(req core.LLMRequest) (responses.ResponseNewParams, error) {
+	input, err := toInput(req.Messages)
 	if err != nil {
-		return sdk.ChatCompletionNewParams{}, err
+		return responses.ResponseNewParams{}, err
 	}
 	tools, err := toTools(req.Tools)
 	if err != nil {
-		return sdk.ChatCompletionNewParams{}, err
+		return responses.ResponseNewParams{}, err
 	}
 
-	params := sdk.ChatCompletionNewParams{
-		Model:    c.model,
-		Messages: msgs,
+	params := responses.ResponseNewParams{
+		Model: c.model,
+		Input: responses.ResponseNewParamsInputUnion{OfInputItemList: input},
+		// Nothing is kept on the provider's side: the conversation is sent whole every
+		// turn, exactly as the other two connectors send theirs.
+		Store: param.NewOpt(false),
+	}
+	if strings.TrimSpace(req.System) != "" {
+		params.Instructions = param.NewOpt(req.System)
 	}
 	maxTokens := c.maxTokens
 	if req.MaxTokens > 0 {
 		maxTokens = req.MaxTokens
 	}
 	if maxTokens > 0 {
-		params.MaxCompletionTokens = param.NewOpt(int64(maxTokens))
+		params.MaxOutputTokens = param.NewOpt(int64(maxTokens))
 	}
 	if c.reasoning != "" {
-		params.ReasoningEffort = c.reasoning
+		params.Reasoning = shared.ReasoningParam{Effort: c.reasoning}
+		// A summary is the only way reasoning becomes visible, and asking for one is
+		// free when there is reasoning to summarize. It is not asked for alongside an
+		// explicit none, where there would be nothing to summarize.
+		if c.reasoning != reasoningNone {
+			params.Reasoning.Summary = shared.ReasoningSummaryAuto
+		}
+		// Reasoning that is not stored has to travel back on the next turn, and it can
+		// only do that encrypted — without this the echoed items carry no content and
+		// the server rejects the turn that follows a tool call.
+		params.Include = []responses.ResponseIncludable{
+			responses.ResponseIncludableReasoningEncryptedContent,
+		}
 	}
 	if len(tools) > 0 {
 		params.Tools = tools
@@ -384,42 +400,29 @@ func toFloat32(in []float64) []float32 {
 	return out
 }
 
-// toMessages converts the conversation to SDK message params, prepending the
-// system prompt as a system message. Assistant turns carry their tool calls;
-// each tool result becomes its own tool message.
-func toMessages(req core.LLMRequest) ([]sdk.ChatCompletionMessageParamUnion, error) {
-	out := make([]sdk.ChatCompletionMessageParamUnion, 0, len(req.Messages)+1)
-	if strings.TrimSpace(req.System) != "" {
-		out = append(out, sdk.SystemMessage(req.System))
-	}
-	for i, m := range req.Messages {
+// toInput converts the conversation to Responses input items. An assistant turn
+// becomes several items — reasoning, then text, then one per tool call — because
+// Responses models a turn as a flat list rather than as one message with parts.
+//
+// The order is load-bearing. A reasoning item has to precede the function call it
+// produced, or the server rejects the turn as a call whose reasoning is missing;
+// it is the same rule Anthropic enforces on echoed thinking blocks, and it is why
+// both connectors put reasoning first.
+func toInput(msgs []core.LLMMessage) (responses.ResponseInputParam, error) {
+	out := make(responses.ResponseInputParam, 0, len(msgs))
+	for i, m := range msgs {
 		switch m.Role {
 		case core.LLMRoleUser:
-			out = append(out, sdk.UserMessage(m.Text))
+			out = append(out, responses.ResponseInputItemParamOfMessage(m.Text, responses.EasyInputMessageRoleUser))
 		case core.LLMRoleAssistant:
-			asst := sdk.ChatCompletionAssistantMessageParam{}
-			if m.Text != "" {
-				asst.Content.OfString = param.NewOpt(m.Text)
-			}
-			for _, tc := range m.ToolCalls {
-				asst.ToolCalls = append(asst.ToolCalls, sdk.ChatCompletionMessageToolCallUnionParam{
-					OfFunction: &sdk.ChatCompletionMessageFunctionToolCallParam{
-						ID: tc.ID,
-						Function: sdk.ChatCompletionMessageFunctionToolCallFunctionParam{
-							Name:      tc.Name,
-							Arguments: string(tc.Input),
-						},
-					},
-				})
-			}
-			out = append(out, sdk.ChatCompletionMessageParamUnion{OfAssistant: &asst})
+			out = append(out, assistantItems(m)...)
 		case core.LLMRoleTool:
 			for _, tr := range m.ToolResults {
 				content := tr.Content
 				if tr.IsError {
 					content = "ERROR: " + tr.Content
 				}
-				out = append(out, sdk.ToolMessage(content, tr.ToolCallID))
+				out = append(out, responses.ResponseInputItemParamOfFunctionCallOutput(tr.ToolCallID, content))
 			}
 		default:
 			return nil, fmt.Errorf("llm-openai: unknown message role %q at index %d", m.Role, i)
@@ -428,75 +431,161 @@ func toMessages(req core.LLMRequest) ([]sdk.ChatCompletionMessageParamUnion, err
 	return out, nil
 }
 
+// assistantItems builds one assistant turn's items: reasoning, then text, then the
+// function calls.
+//
+// A reasoning block with no signature is dropped rather than sent. The signature is
+// the item id the server matches the echo against, and an item invented without one
+// is not the model's reasoning being returned — it is a new item the server has
+// never seen, which is worse than saying nothing.
+func assistantItems(m core.LLMMessage) []responses.ResponseInputItemUnionParam {
+	items := make([]responses.ResponseInputItemUnionParam, 0, len(m.Thinking)+1+len(m.ToolCalls))
+	for _, tb := range m.Thinking {
+		if tb.Signature == "" {
+			continue
+		}
+		item := responses.ResponseReasoningItemParam{ID: tb.Signature}
+		if tb.Text != "" {
+			item.Summary = []responses.ResponseReasoningItemSummaryParam{{Text: tb.Text}}
+		}
+		if len(tb.Redacted) > 0 {
+			item.EncryptedContent = param.NewOpt(string(tb.Redacted))
+		}
+		items = append(items, responses.ResponseInputItemUnionParam{OfReasoning: &item})
+	}
+	if m.Text != "" {
+		items = append(items, responses.ResponseInputItemParamOfMessage(
+			m.Text, responses.EasyInputMessageRoleAssistant))
+	}
+	for _, tc := range m.ToolCalls {
+		items = append(items, responses.ResponseInputItemParamOfFunctionCall(
+			string(tc.Input), tc.ID, tc.Name))
+	}
+	return items
+}
+
 // toTools converts tool definitions to SDK function tools, decoding each JSON
-// Schema into the SDK's function-parameters map.
-func toTools(tools []core.LLMTool) ([]sdk.ChatCompletionToolUnionParam, error) {
+// Schema into the SDK's parameters map.
+//
+// Strict is off, and has to be: it defaults to on, and on requires every property
+// listed in required and additionalProperties false throughout. A flow author
+// writes an inputSchema by hand and this connector passes it through verbatim, so
+// enforcing a shape the author never agreed to would reject ordinary tools —
+// starting with the empty `{"type":"object"}` an agent tool defaults to.
+func toTools(tools []core.LLMTool) ([]responses.ToolUnionParam, error) {
 	if len(tools) == 0 {
 		return nil, nil
 	}
-	out := make([]sdk.ChatCompletionToolUnionParam, 0, len(tools))
+	out := make([]responses.ToolUnionParam, 0, len(tools))
 	for _, t := range tools {
-		var params shared.FunctionParameters
+		params := map[string]any{}
 		if len(t.InputSchema) > 0 {
 			if err := json.Unmarshal(t.InputSchema, &params); err != nil {
 				return nil, fmt.Errorf("llm-openai: tool %q input schema: %w", t.Name, err)
 			}
 		}
-		fn := shared.FunctionDefinitionParam{Name: t.Name, Parameters: params}
+		fn := responses.FunctionToolParam{
+			Name:       t.Name,
+			Parameters: params,
+			Strict:     param.NewOpt(false),
+		}
 		if t.Description != "" {
 			fn.Description = param.NewOpt(t.Description)
 		}
-		out = append(out, sdk.ChatCompletionFunctionTool(fn))
+		out = append(out, responses.ToolUnionParam{OfFunction: &fn})
 	}
 	return out, nil
 }
 
 // toToolChoice maps the agnostic tool choice to the SDK union. The second return
 // is false for the auto (zero) mode, signalling the caller to leave it unset.
-func toToolChoice(tc core.LLMToolChoice) (sdk.ChatCompletionToolChoiceOptionUnionParam, bool) {
+func toToolChoice(tc core.LLMToolChoice) (responses.ResponseNewParamsToolChoiceUnion, bool) {
 	switch tc.Mode {
 	case core.LLMToolChoiceAny:
-		return sdk.ChatCompletionToolChoiceOptionUnionParam{OfAuto: param.NewOpt("required")}, true
+		return responses.ResponseNewParamsToolChoiceUnion{
+			OfToolChoiceMode: param.NewOpt(responses.ToolChoiceOptionsRequired),
+		}, true
 	case core.LLMToolChoiceNone:
-		return sdk.ChatCompletionToolChoiceOptionUnionParam{OfAuto: param.NewOpt("none")}, true
+		return responses.ResponseNewParamsToolChoiceUnion{
+			OfToolChoiceMode: param.NewOpt(responses.ToolChoiceOptionsNone),
+		}, true
 	case core.LLMToolChoiceTool:
-		return sdk.ToolChoiceOptionFunctionToolChoice(
-			sdk.ChatCompletionNamedToolChoiceFunctionParam{Name: tc.Name}), true
+		return responses.ResponseNewParamsToolChoiceUnion{
+			OfFunctionTool: &responses.ToolChoiceFunctionParam{Name: tc.Name},
+		}, true
 	default:
-		return sdk.ChatCompletionToolChoiceOptionUnionParam{}, false
+		return responses.ResponseNewParamsToolChoiceUnion{}, false
 	}
 }
 
-// translateResponse folds the first choice into the agnostic response, collecting
-// text and function tool calls and mapping the finish reason.
-func translateResponse(cc *sdk.ChatCompletion, configuredModel string) (*core.LLMResponse, error) {
-	if len(cc.Choices) == 0 {
-		return nil, fmt.Errorf("llm-openai: response had no choices")
+// translateResponse folds the output items into the agnostic response, collecting
+// reasoning, text and function calls and mapping the stop reason.
+func translateResponse(resp *responses.Response, configuredModel string) (*core.LLMResponse, error) {
+	if resp == nil {
+		return nil, fmt.Errorf("llm-openai: no response")
 	}
-	choice := cc.Choices[0]
-	message := choice.Message
-
-	var calls []core.LLMToolCall
-	for _, tc := range message.ToolCalls {
-		if tc.Type != "" && tc.Type != "function" {
-			continue
-		}
-		var input json.RawMessage
-		if tc.Function.Arguments != "" {
-			input = json.RawMessage(tc.Function.Arguments)
-		}
-		calls = append(calls, core.LLMToolCall{ID: tc.ID, Name: tc.Function.Name, Input: input})
+	if resp.Error.Message != "" {
+		return nil, fmt.Errorf("llm-openai: %s", resp.Error.Message)
 	}
 
-	resp := &core.LLMResponse{
-		Text:       message.Content,
+	var (
+		text     strings.Builder
+		calls    []core.LLMToolCall
+		thinking []core.LLMThinkingBlock
+		refused  bool
+	)
+	for _, item := range resp.Output {
+		switch item.Type {
+		case "reasoning":
+			// Reasoning, not the answer. Keeping it out of Text is what stops a caller
+			// that folds the answer into a message body from publishing it.
+			thinking = append(thinking, core.LLMThinkingBlock{
+				Text:      summaryText(item.Summary),
+				Signature: item.ID,
+				Redacted:  []byte(item.EncryptedContent),
+			})
+		case "message":
+			for _, part := range item.Content {
+				switch part.Type {
+				case "output_text":
+					text.WriteString(part.Text)
+				case "refusal":
+					refused = true
+				}
+			}
+		case "function_call":
+			var input json.RawMessage
+			if item.Arguments != "" {
+				input = json.RawMessage(item.Arguments)
+			}
+			calls = append(calls, core.LLMToolCall{ID: item.CallID, Name: item.Name, Input: input})
+		}
+	}
+
+	out := &core.LLMResponse{
+		Text:       text.String(),
 		ToolCalls:  calls,
-		StopReason: mapFinishReason(choice.FinishReason, message.Refusal),
-		Usage:      translateUsage(cc.Usage),
-		Model:      servedBy(cc.Model, configuredModel),
+		StopReason: mapStopReason(resp, len(calls) > 0, refused),
+		Usage:      translateUsage(resp.Usage),
+		Model:      servedBy(resp.Model, configuredModel),
 	}
-	resp.Raw = core.LLMMessage{Role: core.LLMRoleAssistant, Text: message.Content, ToolCalls: calls}
-	return resp, nil
+	out.Raw = core.LLMMessage{
+		Role:      core.LLMRoleAssistant,
+		Text:      out.Text,
+		Thinking:  thinking,
+		ToolCalls: calls,
+	}
+	return out, nil
+}
+
+// summaryText joins a reasoning item's summary parts, which arrive split the same
+// way the stream delivers them.
+func summaryText(parts []responses.ResponseReasoningItemSummary) string {
+	var b strings.Builder
+	for _, p := range parts {
+		b.WriteString(p.Text)
+	}
+	return b.String()
 }
 
 // servedBy is the model that answered, preferring what the provider echoed over
@@ -510,30 +599,35 @@ func servedBy(reported, configured string) string {
 }
 
 // translateUsage converts the SDK's token counts, reporting nil when the response
-// carried none. CompletionTokens already counts reasoning tokens inside itself,
+// carried none. OutputTokens already counts reasoning tokens inside itself,
 // matching the inclusive convention core.LLMUsage adopts.
-func translateUsage(u sdk.CompletionUsage) *core.LLMUsage {
-	if u.PromptTokens == 0 && u.CompletionTokens == 0 {
+func translateUsage(u responses.ResponseUsage) *core.LLMUsage {
+	if u.InputTokens == 0 && u.OutputTokens == 0 {
 		return nil
 	}
 	return &core.LLMUsage{
-		InputTokens:    int(u.PromptTokens),
-		OutputTokens:   int(u.CompletionTokens),
-		ThinkingTokens: int(u.CompletionTokensDetails.ReasoningTokens),
-		CachedTokens:   int(u.PromptTokensDetails.CachedTokens),
+		InputTokens:    int(u.InputTokens),
+		OutputTokens:   int(u.OutputTokens),
+		ThinkingTokens: int(u.OutputTokensDetails.ReasoningTokens),
+		CachedTokens:   int(u.InputTokensDetails.CachedTokens),
 	}
 }
 
-// mapFinishReason maps the OpenAI finish reason (and a refusal) to the agnostic
-// stop reason.
-func mapFinishReason(reason, refusal string) core.LLMStopReason {
-	if refusal != "" {
+// mapStopReason maps the response's status to the agnostic stop reason.
+//
+// Responses reports no per-turn finish reason: a turn that wants tools simply ends
+// completed with function_call items in its output, so the presence of calls is
+// what says tool_use — the same shape Gemini has, and the opposite of Chat
+// Completions, which named the reason outright.
+func mapStopReason(resp *responses.Response, hasCalls, refused bool) core.LLMStopReason {
+	if refused {
 		return core.LLMStopRefusal
 	}
-	switch reason {
-	case "tool_calls":
+	if hasCalls {
 		return core.LLMStopToolUse
-	case "length":
+	}
+	switch resp.IncompleteDetails.Reason {
+	case "max_output_tokens":
 		return core.LLMStopMaxTokens
 	case "content_filter":
 		return core.LLMStopRefusal
