@@ -508,6 +508,25 @@ func TestInstallDeploysInternalOnly(t *testing.T) {
 	}
 }
 
+// The agent asks for the platform-access grants the same way any integration does.
+// Observability is the one that does something: it is what puts LOGS_URL in his pod,
+// and without it his logs tools answer that they were not granted rather than that
+// there is nothing stored.
+func TestInstallAsksForThePlatformAccessGrants(t *testing.T) {
+	h := newHarness(t, true)
+
+	if _, err := h.svc.Install(context.Background(), ""); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	got := h.deployments.deployed[0]
+	if !got.ObservabilityAPI {
+		t.Error("want the observability grant; without it he cannot read stored logs or traces")
+	}
+	if !got.OrchestratorAPI {
+		t.Error("want the orchestrator grant declared; he drives that API on every turn")
+	}
+}
+
 func TestInstallRefusesWithoutACluster(t *testing.T) {
 	h := newHarness(t, false)
 
@@ -619,6 +638,74 @@ func TestRolloutPublishesTheBundleAndRollsTheDeployment(t *testing.T) {
 	}
 }
 
+// A roll-out overwrites the working copy with the shipped bundle, so whatever was
+// there is gone the moment republish runs. Freezing it first is the only thing that
+// makes "your changes stop running" different from "your changes are destroyed",
+// and it is what the confirmation now promises.
+func TestRolloutFreezesTheEditedDefinitionBeforeReplacingIt(t *testing.T) {
+	h := newHarness(t, true)
+	ctx := context.Background()
+
+	installed, err := h.svc.Install(ctx, "")
+	if err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	tagsAfterInstall := len(h.snapshots.items)
+
+	// Edit the agent the way the editor does: change the working copy in place.
+	it := h.integrations.items[installed.IntegrationID]
+	edited := it.Definition + "\n# someone changed the prompt\n"
+	it.Definition = edited
+	h.integrations.items[installed.IntegrationID] = it
+
+	if _, err := h.svc.Rollout(ctx, "user-1"); err != nil {
+		t.Fatalf("Rollout: %v", err)
+	}
+
+	var preserved *snapshot.Snapshot
+	for i, snap := range h.snapshots.items {
+		if strings.HasPrefix(snap.Tag, "agent-edited-") {
+			preserved = &h.snapshots.items[i]
+		}
+	}
+	if preserved == nil {
+		t.Fatalf("want the edited definition frozen under an agent-edited- tag, got %v",
+			h.snapshots.items)
+	}
+	if len(h.snapshots.items) != tagsAfterInstall+1 {
+		t.Errorf("snapshots = %d, want exactly one added for the edits", len(h.snapshots.items))
+	}
+	// The working copy is stock again, which is the point of the roll-out — the
+	// edits live in the tag above and nowhere else.
+	if got := h.integrations.items[installed.IntegrationID].Definition; got == edited {
+		t.Error("want the working copy replaced by the shipped bundle")
+	}
+}
+
+// A roll-out with nothing to preserve must not mint a version per press. The button
+// is now always offered, so a redeploy of an unedited agent is an ordinary thing to
+// do repeatedly.
+func TestRolloutFreezesNothingWhenTheAgentIsUnedited(t *testing.T) {
+	h := newHarness(t, true)
+	ctx := context.Background()
+
+	if _, err := h.svc.Install(ctx, ""); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	before := len(h.snapshots.items)
+
+	for i := range 2 {
+		if _, err := h.svc.Rollout(ctx, "user-1"); err != nil {
+			t.Fatalf("Rollout %d: %v", i, err)
+		}
+	}
+
+	if got := len(h.snapshots.items); got != before {
+		t.Errorf("snapshots = %d, want %d — an unedited roll-out has nothing to freeze",
+			got, before)
+	}
+}
+
 // Editing the agent is supported, so the status has to say when it has happened —
 // a roll-out replaces those edits, and that should be a known choice.
 func TestStatusReportsAnEditedIntegration(t *testing.T) {
@@ -703,8 +790,13 @@ func TestSetTracingRollsTheCurrentTagWithTracingOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
+	if !installed.Tracing {
+		t.Fatal("want the agent traced from the first deploy")
+	}
 
-	got, err := h.svc.SetTracing(ctx, true)
+	// Off, because that is the change this install can actually make — and the
+	// direction that must work, since it is how someone opts out of the default.
+	got, err := h.svc.SetTracing(ctx, false)
 	if err != nil {
 		t.Fatalf("SetTracing: %v", err)
 	}
@@ -719,14 +811,46 @@ func TestSetTracingRollsTheCurrentTagWithTracingOnly(t *testing.T) {
 	if call.env != nil {
 		t.Error("want a nil env so the deployment's bindings are preserved")
 	}
-	if call.tracing == nil || !*call.tracing {
-		t.Errorf("tracing = %v, want it set on", call.tracing)
+	if call.tracing == nil || *call.tracing {
+		t.Errorf("tracing = %v, want it set off", call.tracing)
 	}
-	if !got.Tracing {
-		t.Error("want the status to report tracing on")
+	if got.Tracing {
+		t.Error("want the status to report tracing off")
 	}
-	if installed.Tracing {
-		t.Error("tracing should have been off before")
+}
+
+// Tracing defaults on for the agent and nothing else, so the first deploy has to
+// carry it — the setting only reaches a pod that starts with it.
+func TestInstallDeploysWithTracingOn(t *testing.T) {
+	h := newHarness(t, true)
+
+	if _, err := h.svc.Install(context.Background(), ""); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if !h.deployments.deployed[0].Tracing {
+		t.Error("want the first deploy traced")
+	}
+}
+
+// Turning it off is a decision. A redeploy afterwards — which is now an ordinary
+// button rather than something only an update offered — must not quietly undo it.
+func TestRedeployKeepsTracingOffOnceItHasBeenTurnedOff(t *testing.T) {
+	h := newHarness(t, true)
+	ctx := context.Background()
+
+	if _, err := h.svc.Install(ctx, ""); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if _, err := h.svc.SetTracing(ctx, false); err != nil {
+		t.Fatalf("SetTracing: %v", err)
+	}
+
+	got, err := h.svc.Rollout(ctx, "user-1")
+	if err != nil {
+		t.Fatalf("Rollout: %v", err)
+	}
+	if got.Tracing {
+		t.Error("want tracing to stay off across a redeploy")
 	}
 }
 
@@ -828,7 +952,7 @@ func TestStatusToleratesAVanishedDeployment(t *testing.T) {
 	if _, err := h.svc.Install(ctx, ""); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
-	h.deployments.getErr = errors.New("not found")
+	h.deployments.getErr = deployment.ErrNotFound
 
 	got, err := h.svc.Status(ctx)
 	if err != nil {
@@ -836,6 +960,89 @@ func TestStatusToleratesAVanishedDeployment(t *testing.T) {
 	}
 	if got.State != StateDeployed && got.State != StateInstalled {
 		t.Errorf("state = %q, want the install still reported", got.State)
+	}
+	// The id and the address describe something that is gone, and a page that
+	// believed them offered a roll-out of nothing while hiding Deploy behind it —
+	// the state field said "not running" and these two said otherwise.
+	if got.DeploymentID != "" {
+		t.Errorf("deploymentId = %q, want it cleared with the deployment", got.DeploymentID)
+	}
+	if got.InternalURL != "" {
+		t.Errorf("internalUrl = %q, want it cleared with the deployment", got.InternalURL)
+	}
+}
+
+// Undeploying the agent through the ordinary deployments path leaves this package's
+// row pointing at a deployment that is gone. Pressing the button then asked for a
+// rolling update of nothing and failed with "deployment not found", which left the
+// admin page with no way to get the agent running again.
+func TestRolloutDeploysAgainWhenTheRecordedDeploymentIsGone(t *testing.T) {
+	h := newHarness(t, true)
+	ctx := context.Background()
+
+	if _, err := h.svc.Install(ctx, ""); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	deploysAfterInstall := len(h.deployments.deployed)
+	h.deployments.getErr = deployment.ErrNotFound
+
+	if _, err := h.svc.Rollout(ctx, "user-1"); err != nil {
+		t.Fatalf("Rollout: %v", err)
+	}
+
+	if len(h.deployments.rollouts) != 0 {
+		t.Error("want no rolling update against a deployment that does not exist")
+	}
+	if got := len(h.deployments.deployed); got != deploysAfterInstall+1 {
+		t.Errorf("deploys = %d, want a new one created", got)
+	}
+}
+
+// "Gone" and "I could not tell" are different answers, and only one of them is safe
+// to guess at. A cluster API that times out must not be read as an absent
+// deployment: taking the create path then puts a second agent beside a first that is
+// running perfectly well, and the roll-out an operator asked for silently became a
+// duplicate.
+func TestATransientLookupFailureNeitherDeploysNorRollsOut(t *testing.T) {
+	h := newHarness(t, true)
+	ctx := context.Background()
+
+	if _, err := h.svc.Install(ctx, ""); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	deploysAfterInstall := len(h.deployments.deployed)
+	h.deployments.getErr = errors.New("etcdserver: request timed out")
+
+	if _, err := h.svc.Rollout(ctx, "user-1"); err == nil {
+		t.Fatal("want the roll-out to fail rather than guess")
+	}
+
+	if got := len(h.deployments.deployed); got != deploysAfterInstall {
+		t.Errorf("deploys = %d, want no second deployment created", got)
+	}
+	if len(h.deployments.rollouts) != 0 {
+		t.Error("want no rolling update either")
+	}
+}
+
+// The same distinction on the read path. Clearing the id on a transient failure
+// would offer Deploy for a deployment that is running fine, and pressing it is how
+// the duplicate above gets created by hand instead.
+func TestStatusKeepsTheDeploymentOnATransientLookupFailure(t *testing.T) {
+	h := newHarness(t, true)
+	ctx := context.Background()
+
+	if _, err := h.svc.Install(ctx, ""); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	h.deployments.getErr = errors.New("etcdserver: request timed out")
+
+	got, err := h.svc.Status(ctx)
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if got.DeploymentID == "" {
+		t.Error("want the recorded deployment still reported when the lookup merely failed")
 	}
 }
 

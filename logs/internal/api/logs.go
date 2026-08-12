@@ -9,12 +9,12 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
 
+	"github.com/juancavallotti/octo/logs/internal/httpx"
 	"github.com/juancavallotti/octo/logs/internal/repo"
 )
 
@@ -60,17 +60,37 @@ type logListResponse struct {
 // list parses the filter from the query string, runs the query, and returns a
 // page. A full page (len == limit) carries a next_before cursor pointing at the
 // oldest row served, since more rows may exist beyond it.
+//
+//	@Summary		List log events
+//	@Description	One page of stored log events, newest first. Every filter is optional and
+//	@Description	they combine; a page that came back full carries next_before, which is the
+//	@Description	cursor to send as before= for the page after it.
+//	@Tags			logs
+//	@Produce		json
+//	@Param			deploymentId	query		string		false	"Only this deployment's events"
+//	@Param			appName			query		string		false	"Only this app's events"
+//	@Param			appVersion		query		string		false	"Only this version's events"
+//	@Param			level			query		[]string	false	"Only these levels; repeat the parameter for more than one"	collectionFormat(multi)
+//	@Param			q				query		string		false	"Free-text search over the message"
+//	@Param			from			query		string		false	"Oldest event to return, RFC3339"
+//	@Param			to				query		string		false	"Newest event to return, RFC3339"
+//	@Param			before			query		string		false	"A previous page's next_before. Opaque — it names a (ts, id) pair, not a timestamp"
+//	@Param			limit			query		int			false	"Page size, clamped to 1..1000"	default(200)
+//	@Success		200				{object}	logListResponse
+//	@Failure		400				{object}	httpx.ErrorResponse	"a time is not RFC3339, the cursor is malformed, or limit is not a number"
+//	@Failure		500				{object}	httpx.ErrorResponse
+//	@Router			/logs [get]
 func (h *LogsHandler) list(w http.ResponseWriter, r *http.Request) {
 	f, err := parseLogFilter(r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	rows, err := h.q.Query(r.Context(), f)
 	if err != nil {
 		slog.Error("api: query logs", "err", err)
-		writeError(w, http.StatusInternalServerError, "failed to query logs")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to query logs")
 		return
 	}
 	if rows == nil {
@@ -82,7 +102,7 @@ func (h *LogsHandler) list(w http.ResponseWriter, r *http.Request) {
 		last := rows[len(rows)-1]
 		resp.NextBefore = encodeKeyset(last.Time, last.ID)
 	}
-	writeJSON(w, http.StatusOK, resp)
+	httpx.WriteJSON(w, http.StatusOK, resp)
 }
 
 // parseLogFilter builds a repo.LogFilter from the request query parameters, validating
@@ -151,15 +171,3 @@ func parseTime(raw string) (*time.Time, error) {
 type errInvalid string
 
 func (e errInvalid) Error() string { return string(e) }
-
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(v); err != nil {
-		slog.Error("api: encode response", "err", err)
-	}
-}
-
-func writeError(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]string{"error": msg})
-}

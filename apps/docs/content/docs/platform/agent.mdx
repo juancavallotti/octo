@@ -30,6 +30,12 @@ Expect the status page never to fail for a reason you could act on: no cluster, 
 
 Press **Install**. That creates the integration, writes his skills as [resources](/platform/resources-and-secrets), publishes a version tag derived from the bundle this orchestrator ships, writes the provider key as a cluster secret, and deploys him with one replica and **no external route**.
 
+He is deployed with both [platform access grants](/platform/deployments#platform-access) — he asks for them the way any integration does, rather than through a private path. The observability grant is what puts `LOGS_URL` in his pod and lets him read stored logs and traces; without it he still installs and works, and simply says he was not granted that access when asked about history.
+
+<Callout>
+Granting him observability hands a chat-panel user nothing they could not already read. [Traces](/platform/traces) and [Logs](/platform/logs) are readable by any signed-in user, while the chat panel additionally requires the write roles — so anyone who can ask him is already entitled to open those views directly, and to far more besides. Untick the grant and roll out if you want him without it anyway; the reason to weigh is prompt injection, below, not the reader's own entitlement.
+</Callout>
+
 Press it twice if you are unsure — it is idempotent. An existing integration is reused and an existing tag is not recreated, so you never get a second agent, and retrying after a failed deploy picks up where it stopped.
 
 Note that he is deployed **internal-only**. Nothing outside the cluster reaches him directly; the platform proxies to the in-cluster address shown on the status card.
@@ -62,17 +68,33 @@ His definition ships inside the orchestrator binary, so upgrading the platform c
 
 Nothing happens silently: a newer bundle waits for you, and installing never happens twice.
 
+## Put him back the way he shipped
+
+There is one button on a deployed agent, and it always does the same thing — republish the definition this orchestrator ships and replace his pods with it. Only its name changes, to say which of the three reasons you are pressing it for:
+
+| It reads | When |
+| --- | --- |
+| **Roll out update** | A newer bundle ships with this orchestrator |
+| **Redeploy** | The deployment is in a failed state |
+| **Reinstall from stock** | Neither — he is current and running |
+
+Reach for the last one after editing him into a state you would rather undo, or when he is running something you no longer trust. Before, there was no way back: the button only appeared when the shipped digest had moved or the deployment had failed, so an agent that was current, running and wrong had nothing to press.
+
 <Callout type="warn">
-**Rolling out replaces changes you made to the agent.** Publishing a version freezes the integration's working copy first, so that is what a roll-out does. Watch for the **Edited** badge — the confirmation also says the edits will be replaced. Copy the definition out of the editor first if you want to keep it.
+**This replaces changes you made to the agent** — but it does not destroy them. The live definition is frozen as its own version first, tagged `agent-edited-…`, and only then overwritten. Watch for the **Edited** badge; the confirmation names what is about to happen.
 </Callout>
+
+So an edit you want back is under [Versions](/platform/snapshots) with that tag: read it, copy from it, or deploy it again. The tag is derived from the definition's content, so reinstalling twice from the same edited state reuses one version rather than piling up near-identical ones — and an unedited reinstall freezes nothing at all.
 
 ## Trace him
 
-Press **Turn tracing on**, then find his runs under [Traces](/platform/traces) like any other integration's — every model call, every tool call, every block.
+**He installs with tracing already on**, so his runs are under [Traces](/platform/traces) from the first one — every model call, every tool call, every block.
 
-Expect his pods to be replaced: the runtime reads the tracing setting when it starts, so it cannot be changed in place. Nothing else about the deployment changes — same version, same environment.
+That is the opposite of the default for anything you build, and for the same reasons. [Tracing is off by default](/platform/deployments#tracing) because it costs throughput, and a chat agent answering a handful of questions has none to lose. What he does have is the ability to deploy, and a diet of text other people wrote — so "what did he actually do, and was he told to" is worth being able to answer about every run rather than only the ones after somebody thought to switch it on.
 
-Reach for this whenever you want to know why he did something. It is the cheapest way to find out, and it is the one setting on this page that is genuinely his rather than the deployment's.
+Turn it off with the toggle if you would rather. That is a decision, and it sticks: a redeploy or a roll-out afterwards leaves it off rather than quietly restoring the default.
+
+Expect his pods to be replaced either way: the runtime reads the tracing setting when it starts, so it cannot be changed in place. Nothing else about the deployment changes — same version, same environment.
 
 ## Remove him
 
@@ -99,8 +121,10 @@ Use `allowMethods: [GET]` to make him read-only, or `pathPrefix` to confine him 
 
 You do not need to defend the host: the connector's `baseURL` is a boundary he cannot cross whatever the block says, because a dynamic path resolves against it and no rendered path can redirect the call elsewhere.
 
+His `logs_api` tool is a second, independent boundary — a different connector with a different `baseURL` — so narrowing one does nothing to the other. It already ships with `allowMethods: [GET]`, which costs nothing there because the observability API serves no other method. To take stored logs and traces away from him entirely, untick the observability grant and roll out; that removes the address rather than the tool, and he will say so when asked.
+
 <Callout>
-Bear in mind that he reads integration definitions, resource contents and pod logs — text other people wrote — which makes prompt injection a real consideration: a malicious string in a flow definition is an instruction he may see. Narrow `allowMethods` to bound what such an instruction could achieve, and turn tracing on to see whether one was followed.
+Bear in mind that he reads integration definitions, resource contents, pod logs and — with the observability grant — stored log messages and captured request bodies from every deployment. All of that is text other people wrote, which makes prompt injection a real consideration: a malicious string in a flow definition, or in a log line an integration was made to emit, is an instruction he may see. Narrow `allowMethods` to bound what such an instruction could achieve, untick the observability grant if you would rather he did not read that surface at all, and leave tracing on — it is on by default precisely so that "was he told to do that" is answerable after the fact rather than only from the run you happened to be watching.
 </Callout>
 
 ## What he is made of
@@ -113,6 +137,8 @@ Read this before you change him. The whole file is in the editor.
 | `ai-agent` block | Streaming, with memory keyed to the signed-in user and the conversation, a 500k-token window and summarising compaction |
 | `list_api_operations`, `read_api_docs` | Read the orchestrator's own [API description](/platform/api-reference) — the cheap index first, then one tag's detail |
 | `octo_api` | Calls the API, with the method and path decided per call |
+| `list_logs_operations`, `read_logs_docs` | The same two, against the [observability API](/platform/logs-api-reference) |
+| `logs_api` | Queries stored logs and traces. Read-only — `allowMethods: [GET]` from the start, because every route it serves is a GET |
 | `refresh_platform_ui` | Publishes to the platform's [event bus](/platform/event-bus) so an editor with that integration open offers to reload |
 | `navigate_to` | Moves your browser to a page, when the answer to a question is a page |
 | `recall_facts`, `remember_fact`, `forget_fact` | What he remembers about you between conversations |
@@ -141,6 +167,8 @@ export LLM_CONNECTOR_TYPE=llm-anthropic
 export LLM_API_KEY=sk-ant-...
 export LLM_MODEL=claude-sonnet-4-6
 export ORCHESTRATOR_URL=http://localhost:8090
+# Optional. Without it his logs tools answer that the access was not granted.
+export LOGS_URL=http://localhost:8091
 bin/octo run --config orchestrator/agent
 ```
 

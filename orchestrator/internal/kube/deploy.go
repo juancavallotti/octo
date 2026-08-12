@@ -71,6 +71,12 @@ const (
 	// declarations: whether a deployment is being observed is an operational choice
 	// about that deployment, not something its author writes into the definition.
 	envTracing = "OCTO_TRACING"
+
+	// envLogs is the log aggregator's query API, injected only into deployments
+	// granted the observability API. A per-deployment setting for the same reason as
+	// tracing, and unlike tracing it is a grant: the definition's author asks for it,
+	// but whoever deploys decides.
+	envLogs = "LOGS_URL"
 )
 
 // Spec describes the workload to create for one deployment.
@@ -89,6 +95,13 @@ type Spec struct {
 	Expose        bool              // when true, also publish an external Ingress
 	Subdomain     string            // external host label; the Ingress host is {Subdomain}.{baseDomain}
 	Tracing       bool              // when true, run the pods with the runtime's tracer on
+	// ObservabilityAPI grants the pods the log aggregator's query address, injected
+	// as LOGS_URL. Nothing else puts it in a pod, so this flag is the whole of the
+	// grant. The orchestrator's own API needs no counterpart here: ORCHESTRATOR_URL
+	// is already injected for the runtime services module, and the declaration that
+	// a deployment calls that API lives on the deployment record for a future access
+	// model to read.
+	ObservabilityAPI bool
 }
 
 // port returns the resolved runtime port, defaulting to runtimePort when unset.
@@ -399,24 +412,49 @@ func httpProbe(path string) corev1.ProbeHandler {
 }
 
 // podEnv is the full runtime container env: the orchestrator-injected runtime-
-// services vars (when wired), the user's literal/secret bindings, then the tracing
-// switch. Each group is deterministic, so repeated Applies produce identical specs.
-// When no group has entries the result is nil, matching a bare workload.
+// services vars (when wired), the user's literal/secret bindings, then the
+// per-deployment switches. Each group is deterministic, so repeated Applies produce
+// identical specs. When no group has entries the result is nil, matching a bare
+// workload.
 //
-// Tracing goes last on purpose. An integration written before this setting existed
-// could declare OCTO_TRACING among its own env vars and bind it per deployment;
-// Kubernetes resolves a duplicated name to the last entry, so the setting wins over
-// such a binding rather than being silently overridden by it. Nothing at all is
-// emitted when tracing is off, so those integrations keep working as they did.
+// The switches go last on purpose. An integration written before either setting
+// existed could declare OCTO_TRACING or LOGS_URL among its own env vars and bind it
+// per deployment; Kubernetes resolves a duplicated name to the last entry, so the
+// setting wins over such a binding rather than being silently overridden by it.
+// Nothing at all is emitted when a switch is off, so those integrations keep
+// working as they did.
 func (c *Client) podEnv(spec Spec) []corev1.EnvVar {
-	env := append(c.runtimeServicesEnv(spec), containerEnv(spec)...)
+	// LOGS_URL is the orchestrator's to set, so it is dropped from the user's
+	// bindings wherever it came from. The deployment service already refuses a
+	// binding that targets it, and this is the same rule at the layer that actually
+	// builds the pod — so a caller assembling a Spec directly cannot hand a
+	// deployment the address that its own record says it was never granted.
+	env := append(c.runtimeServicesEnv(spec), without(containerEnv(spec), envLogs)...)
 	if spec.Tracing {
 		env = append(env, corev1.EnvVar{Name: envTracing, Value: "true"})
+	}
+	// The grant and the address are both required. A deployment that asked for
+	// observability on an orchestrator that has no aggregator address gets nothing,
+	// rather than an empty LOGS_URL that turns every query into a confusing failure
+	// inside the flow.
+	if spec.ObservabilityAPI && c.runtimeServices.LogsURL != "" {
+		env = append(env, corev1.EnvVar{Name: envLogs, Value: c.runtimeServices.LogsURL})
 	}
 	if len(env) == 0 {
 		return nil
 	}
 	return env
+}
+
+// without returns env minus any entry named name, preserving order.
+func without(env []corev1.EnvVar, name string) []corev1.EnvVar {
+	out := env[:0:0]
+	for _, e := range env {
+		if e.Name != name {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // runtimeServicesEnv builds the env the runtime's k8s services module reads:

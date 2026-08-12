@@ -346,9 +346,12 @@ type TraceRecordRow struct {
 	// Body and Vars are null when the runtime captured no payload AND when the
 	// caller asked for the trace without them. The two are indistinguishable here
 	// by design: a client that asked for no bodies knows it did.
-	Body  json.RawMessage `json:"body"`
-	Vars  json.RawMessage `json:"vars"`
-	Attrs json.RawMessage `json:"attrs"`
+	// swaggertype says what RawMessage means on the wire: bytes to Go, arbitrary
+	// JSON to a client. Without it the description would call these base64 strings.
+	// Their shape belongs to the block that was traced, not to this API.
+	Body  json.RawMessage `json:"body" swaggertype:"object"`
+	Vars  json.RawMessage `json:"vars" swaggertype:"object"`
+	Attrs json.RawMessage `json:"attrs" swaggertype:"object"`
 
 	DeploymentID string `json:"deployment_id"`
 	AppName      string `json:"app_name"`

@@ -1,0 +1,78 @@
+---
+title: "Logs API Reference"
+description: "The log aggregator describes its own API: an OpenAPI 3.1 document, filters for reading part of it, and a compact operation index."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The log aggregator serves a description of its own API, the same way the [orchestrator](/platform/api-reference) does. Everything the `/platform/logs` and `/platform/traces` views read goes through that API, so the description is the reference for querying stored telemetry yourself.
+
+```bash
+curl -sS "$LOGS_URL/openapi.json"
+```
+
+It is **OpenAPI 3.1**, generated from annotations on the handlers at build time, committed, and embedded in the binary. It is never generated at runtime, so what a running aggregator serves is exactly what was reviewed with the code that serves it.
+
+<Callout>
+The service is called `logs` everywhere — the binary, the image, the pod and the `LOGS_URL` other services reach it by — but it stores traces too. They live here because they are the same shape of problem, so one description covers both.
+</Callout>
+
+## The operation index
+
+`/openapi/operations` is a compact list of every route — method, path, summary and tags:
+
+```bash
+curl -sS "$LOGS_URL/openapi/operations"
+```
+
+```json
+[
+  {
+    "method": "GET",
+    "path": "/logs",
+    "summary": "List log events",
+    "tags": ["logs"]
+  }
+]
+```
+
+Sorted by path, then method. Read this first to find the tag worth asking about, then fetch that tag's detail — which is exactly how the [platform agent](/platform/agent) uses it.
+
+The tags are `logs`, `traces`, `meta` and `openapi`.
+
+## Reading part of the document
+
+Two filters, and they are mutually exclusive — supplying both is a `400`:
+
+| Query | Keeps |
+| --- | --- |
+| `?tag=traces` | Operations carrying that tag |
+| `?path=/traces` | Routes whose path starts with that prefix |
+
+```bash
+curl -sS "$LOGS_URL/openapi.json?tag=logs"
+```
+
+A filtered document is a **valid OpenAPI document**, not an excerpt: schemas are pruned to the ones the surviving operations can actually reach, following `$ref` transitively, so the result still resolves. An unknown tag yields a document with no paths rather than an error — nothing matched is an answer.
+
+## What the API offers
+
+Every route is a `GET`; nothing here writes. Two things are worth knowing before you read the description itself.
+
+**Paging is keyset-based.** `/logs` and `/traces` return at most `limit` rows (default 200, clamped to 1000). A page that came back full carries `next_before`; send it as `before=` for the page after it. Treat it as opaque — it names a `(timestamp, id)` pair, not a timestamp, because rows routinely share a timestamp and a timestamp-only cursor would either skip the ties or serve them twice.
+
+**Trace payloads are optional.** `/traces/{traceId}` includes every record's captured body by default, and those payloads are the whole weight of a trace. Pass `bodies=0` when you are only drawing a waterfall, then fetch the one record you need from `/traces/{traceId}/records/{id}`.
+
+## Keeping it honest
+
+The spec is regenerated in CI and the build fails if the committed copy differs, the same way it fails on unformatted code.
+
+A separate test compares the routes registered in the source against the routes described in the spec, in **both** directions. Regenerating cannot catch a route that was added without annotations — it simply regenerates without it, identically — so a new route with no documentation fails that test by name.
+
+## Authentication
+
+There is none, on the same terms as the orchestrator. The aggregator is `ClusterIP` in the chart and trusts its callers; the platform BFF is the authorization boundary in front of it.
+
+<Callout type="warn">
+This means anything that can reach the aggregator's address can read every stored log line and trace payload on the install — which includes whatever your flows logged. Keep it internal.
+</Callout>

@@ -306,6 +306,108 @@ func TestTracingEnvWinsOverAUserBinding(t *testing.T) {
 	}
 }
 
+// TestObservabilityEnvNeedsBothTheGrantAndTheAddress verifies LOGS_URL reaches a pod
+// only when the deployment asked for it and this orchestrator has an address to give.
+//
+// Both halves matter. Injecting without the grant would hand every integration the
+// stored telemetry of every other one; injecting an empty value because the grant was
+// given would turn a missing chart setting into a confusing failure inside the flow,
+// which is the shape of bug that gets blamed on the query rather than the install.
+func TestObservabilityEnvNeedsBothTheGrantAndTheAddress(t *testing.T) {
+	const logsURL = "http://octo-logs.octo:8091"
+
+	for _, tc := range []struct {
+		name    string
+		address string
+		granted bool
+		want    string // "" means the var must be absent
+	}{
+		{"granted and configured", logsURL, true, logsURL},
+		{"granted but no address", "", true, ""},
+		{"address but not granted", logsURL, false, ""},
+		{"neither", "", false, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &Client{runtimeServices: RuntimeServices{LogsURL: tc.address}}
+			env := c.podEnv(Spec{ObservabilityAPI: tc.granted})
+
+			var got string
+			var found bool
+			for _, e := range env {
+				if e.Name == envLogs {
+					got, found = e.Value, true
+				}
+			}
+			switch {
+			case tc.want == "" && found:
+				t.Errorf("%s should be absent, got %q", envLogs, got)
+			case tc.want != "" && !found:
+				t.Errorf("%s should be present with value %q, got nothing", envLogs, tc.want)
+			case got != tc.want:
+				t.Errorf("%s = %q, want %q", envLogs, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestObservabilityEnvIgnoresAUserBinding verifies LOGS_URL is the orchestrator's to
+// set and nobody else's: a binding that targets it is dropped whether or not the
+// grant was given.
+//
+// The deployment service refuses such a binding outright, so reaching this code needs
+// a Spec assembled directly — which is exactly the case worth covering, because the
+// ungranted half is the one that matters. A deployment whose pod carries the address
+// while its record says it was never granted the API is a record that lies, and the
+// record is what a future access model reads.
+func TestObservabilityEnvIgnoresAUserBinding(t *testing.T) {
+	const logsURL = "http://octo-logs.octo:8091"
+	const smuggled = "http://somewhere-else:9999"
+	c := &Client{runtimeServices: RuntimeServices{LogsURL: logsURL}}
+
+	t.Run("granted", func(t *testing.T) {
+		env := c.podEnv(Spec{
+			Env:              map[string]string{envLogs: smuggled},
+			ObservabilityAPI: true,
+		})
+		if got := valueOf(env, envLogs); got != logsURL {
+			t.Errorf("%s = %q, want the granted %q: %+v", envLogs, got, logsURL, env)
+		}
+		if n := count(env, envLogs); n != 1 {
+			t.Errorf("%s appears %d times, want exactly 1: %+v", envLogs, n, env)
+		}
+	})
+
+	t.Run("not granted", func(t *testing.T) {
+		env := c.podEnv(Spec{Env: map[string]string{envLogs: smuggled}})
+		if got := valueOf(env, envLogs); got != "" {
+			t.Errorf("%s = %q, want it absent without the grant: %+v", envLogs, got, env)
+		}
+	})
+}
+
+// valueOf returns the value of the named env var, or "" when it is absent.
+func valueOf(env []corev1.EnvVar, name string) string {
+	for _, e := range env {
+		if e.Name == name {
+			return e.Value
+		}
+	}
+	return ""
+}
+
+// count returns how many entries carry name. A duplicate is not harmless: Kubernetes
+// resolves it to the last one, so two entries mean the winner is decided by ordering
+// rather than by the grant.
+func count(env []corev1.EnvVar, name string) int {
+	n := 0
+	for _, e := range env {
+		if e.Name == name {
+			n++
+		}
+	}
+	return n
+}
+
 // TestRuntimeServicesEnvOmitsNATSWhenUnset verifies that with the runtime-services
 // module configured but no broker URL, the runtime-services env is still injected
 // while NATS_URL is omitted (so a deploy without NATS injects nothing for it).

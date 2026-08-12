@@ -14,6 +14,11 @@ const (
 	// makes an integration externally exposable; HTTP_HOST is optional.
 	envHTTPPort = "HTTP_PORT"
 	envHTTPHost = "HTTP_HOST"
+	// envLogsURL is supplied by the orchestrator to deployments granted the
+	// observability API, so a binding may not target it: a deployment whose pod
+	// carries LOGS_URL while its record says it was never granted the API is a
+	// record that lies, and the record is the thing a future access model reads.
+	envLogsURL = "LOGS_URL"
 	// bindAllHost is supplied as HTTP_HOST so the runtime binds all interfaces,
 	// which is required for the pod to be reachable through its Service.
 	bindAllHost = "0.0.0.0"
@@ -50,7 +55,7 @@ func declaredEnvVars(definition string) []EnvVarDecl {
 	out := make([]EnvVarDecl, 0, len(decl.Env))
 	for _, e := range decl.Env {
 		name := strings.TrimSpace(e.Name)
-		if name == "" || name == envHTTPPort || name == envHTTPHost {
+		if name == "" || name == envHTTPPort || name == envHTTPHost || name == envLogsURL {
 			continue
 		}
 		d := ""

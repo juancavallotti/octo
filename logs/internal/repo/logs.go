@@ -50,15 +50,18 @@ func (r *Logs) Insert(ctx context.Context, e ingest.LogEvent) error {
 // LogRow is a stored log event returned by Query. JSON tags are snake_case; the
 // platform client maps them to camelCase. attrs is passed through as raw JSON.
 type LogRow struct {
-	ID           string          `json:"id"`
-	DeploymentID string          `json:"deployment_id"`
-	AppName      string          `json:"app_name"`
-	AppVersion   string          `json:"app_version"`
-	Time         time.Time       `json:"ts"`
-	Level        string          `json:"level"`
-	Message      string          `json:"message"`
-	Attrs        json.RawMessage `json:"attrs"`
-	ReceivedAt   time.Time       `json:"received_at"`
+	ID           string    `json:"id"`
+	DeploymentID string    `json:"deployment_id"`
+	AppName      string    `json:"app_name"`
+	AppVersion   string    `json:"app_version"`
+	Time         time.Time `json:"ts"`
+	Level        string    `json:"level"`
+	Message      string    `json:"message"`
+	// Attrs is whatever the runtime attached to the log call, passed through as it
+	// sent it. swaggertype keeps the description honest about that: bytes to Go,
+	// arbitrary JSON to a client.
+	Attrs      json.RawMessage `json:"attrs" swaggertype:"object"`
+	ReceivedAt time.Time       `json:"received_at"`
 }
 
 // LogCursor is a position in the log list: the timestamp of a row and its id.

@@ -60,6 +60,33 @@ Because the runtime resolves `OCTO_TRACING` when it parses its flags — before 
 Captured bodies and variables are stored as they arrived and are readable by anyone signed in to the platform. Avoid tracing a deployment whose messages carry credentials, or set `OCTO_TRACING_BODIES=false` as an env binding to record the sequence without payloads.
 </Callout>
 
+## Platform access
+
+Most integrations have no business reading the installation they run on. A few are written to — the [platform agent](/platform/agent) is the first, but anything that reports on your own deployments is another — so the deploy and rollout dialogs carry two grants under **Advanced**, both off by default.
+
+| Grant | What it does |
+| --- | --- |
+| **Needs access to the orchestrator API** | Declares that this deployment's flows call the [orchestrator API](/platform/api-reference) |
+| **Needs access to the observability API** | Injects `LOGS_URL`, the address of the [logs and traces API](/platform/logs-api-reference) |
+
+The two are not symmetric today, and the difference is worth understanding.
+
+**The observability grant supplies the address.** `LOGS_URL` is in no pod unless this box is ticked, and it is orchestrator-managed: a definition cannot declare it and a deploy cannot bind it, so the grant is the only way it reaches a pod. That keeps the deployment record honest about what was handed out.
+
+<Callout type="warn">
+Stored logs and traces span **every** deployment on the installation, not just the one being granted. An integration that can read them can read its neighbours' captured request bodies. Grant it only to integrations you would trust with the Traces view itself.
+</Callout>
+
+<Callout type="warn">
+**This is not a network boundary.** The [logs API](/platform/logs-api-reference) performs no authentication and is reachable from anywhere on the cluster network, so a flow author determined to query it can point a connector at the aggregator's address directly and never tick this box. Withholding the grant does not stop that; it withholds the convenience and keeps the record accurate. Treat the grant as a declaration until the API gains authentication — the same footing as the orchestrator one below.
+</Callout>
+
+**The orchestrator grant is a declaration.** `ORCHESTRATOR_URL` is already in every runtime pod — the runtime's k8s services module needs it for the [KV store](/platform/kv-and-storage) and leader election — so ticking the box opens nothing that was closed. What it records is intent.
+
+That is deliberate rather than a placeholder. Access control over the orchestrator API is expected to arrive as RBAC, and when it does it will gate on exactly this declaration. Collecting it now means the enforcement point arrives with the declarations already in place, instead of having to reclassify every deployment that already exists. Declare it for the integrations that genuinely call the API, and a later release can restrict the API to them without breaking anything.
+
+Both grants are stored on the deployment and, like tracing, are carried through a rollout that does not mention them — so a plain version bump never quietly revokes access an integration depends on.
+
 ## Status
 
 Deployment status is computed live from the cluster through Kubernetes informers, so reads are cheap and updates are push-based:

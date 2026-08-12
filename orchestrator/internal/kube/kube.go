@@ -41,6 +41,10 @@ type RuntimeServices struct {
 	OrchestratorURL string // in-cluster URL of the orchestrator KV API
 	ServiceAccount  string // pod serviceAccountName granting leases RBAC ("" = default SA)
 	NATSURL         string // in-cluster URL of the NATS broker backing the queues ("" = omit)
+	// LogsURL is the log aggregator's query API. Unlike the others it is injected
+	// only into deployments that were granted the observability API, so an empty
+	// value here disables the grant everywhere rather than degrading every pod.
+	LogsURL string
 }
 
 // Client wraps a Kubernetes clientset scoped to one namespace and runtime image.

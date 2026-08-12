@@ -180,9 +180,23 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 	}
 
 	dep, err := s.deployments.Get(ctx, cur.DeploymentID)
+	if errors.Is(err, deployment.ErrNotFound) {
+		// A deployment removed underneath us is not an error to report — it is the
+		// install being back at "not running". So say that completely: the id and the
+		// address describe something that no longer exists, and a caller that believed
+		// them offered a roll-out of nothing while hiding Deploy behind it. State said
+		// "installed, not running" and these two said otherwise, which is one read
+		// model with two answers.
+		slog.Warn("agent status: deployment is gone", "deploymentId", cur.DeploymentID)
+		out.DeploymentID = ""
+		out.InternalURL = ""
+		return out, nil
+	}
 	if err != nil {
-		// A deployment that has been removed underneath us is not an error to
-		// report — it is the install being back at "not running".
+		// Anything else is this orchestrator failing to look, not the deployment
+		// being absent. Keep reporting what the row says: clearing the id here would
+		// offer Deploy against a deployment that is running fine, and pressing it
+		// would create a second one.
 		slog.Warn("agent status: deployment unreadable", "deploymentId", cur.DeploymentID, "error", err)
 		return out, nil
 	}
@@ -338,6 +352,17 @@ func (s *Service) ensureIntegration(ctx context.Context, cur stored, actorID str
 
 	next := cur
 	next.IntegrationID = it.ID
+	// Tracing on from the first deploy, which is the opposite of the default for
+	// anything a user builds — and right for exactly the reasons the general default
+	// is off. That default is about throughput, and a chat agent answering a handful
+	// of questions has none to lose. What he does have is the ability to deploy, and
+	// a diet of text other people wrote, so "what did he actually do, and was he
+	// told to" is a question worth being able to answer about every run rather than
+	// only the ones after somebody thought to switch it on.
+	//
+	// Only on the first install. Turning it off afterwards is a decision, and a later
+	// redeploy must not quietly undo it.
+	next.Tracing = true
 	next.InstalledAt = time.Now().UTC()
 	next.UpdatedAt = next.InstalledAt
 	return next, nil
@@ -393,11 +418,18 @@ func (s *Service) install(ctx context.Context, cur stored, actorID string) (stor
 		return cur, err
 	}
 
+	// Dr. Octo is the reference consumer of both platform-access grants, so he asks
+	// for them the same way any integration does rather than through a private path.
+	// Observability is what puts LOGS_URL in his pod; the orchestrator one grants
+	// nothing today and is the declaration a future access model reads — an agent
+	// that drives the whole API is precisely the deployment that should carry it.
 	dep, err := s.deployments.Deploy(ctx, next.IntegrationID, deployment.Settings{
-		Replicas:   1,
-		SnapshotID: snap.ID,
-		Tracing:    next.Tracing,
-		Env:        bindings,
+		Replicas:         1,
+		SnapshotID:       snap.ID,
+		Tracing:          next.Tracing,
+		Env:              bindings,
+		OrchestratorAPI:  true,
+		ObservabilityAPI: true,
 	})
 	if err != nil {
 		return cur, fmt.Errorf("deploy version %q: %w", snap.Tag, err)
@@ -542,12 +574,21 @@ func (s *Service) Rollout(ctx context.Context, actorID string) (Status, error) {
 		if cur.IntegrationID == "" {
 			return cur, ErrNotInstalled
 		}
-		if cur.DeploymentID == "" {
+		running, err := s.hasRunningDeployment(ctx, cur)
+		if err != nil {
+			return cur, err
+		}
+		if !running {
 			// Nothing is running, so there is no rolling update to do — but the
 			// definition still has to be republished, or an operator who asked for
 			// the shipped agent would get their own edits frozen into the new tag.
 			// Install alone does not do that, deliberately: it must not overwrite a
 			// definition on a plain retry.
+			//
+			// The recorded deployment may also be gone rather than absent: undeploying
+			// the agent through the ordinary deployments path leaves this row pointing
+			// at nothing, and it is also what a redeploy races against. Deploying a new
+			// one is what the operator asked for either way, so the two cases are one.
 			if err := s.republish(ctx, cur.IntegrationID, actorID); err != nil {
 				return cur, err
 			}
@@ -558,6 +599,63 @@ func (s *Service) Rollout(ctx context.Context, actorID string) (Status, error) {
 		return Status{}, err
 	}
 	return s.Status(ctx)
+}
+
+// hasRunningDeployment reports whether the row names a deployment that still
+// exists, so Rollout can tell a rolling update from a fresh deploy.
+func (s *Service) hasRunningDeployment(ctx context.Context, cur stored) (bool, error) {
+	if cur.DeploymentID == "" {
+		return false, nil
+	}
+	return s.deploymentExists(ctx, cur.DeploymentID)
+}
+
+// preserveEdits tags the integration's live definition when it differs from the
+// bundle about to replace it, so the edits survive the roll-out as a version anyone
+// can read, deploy or copy back.
+//
+// Compared against the bundle rather than against the installed digest: what matters
+// is whether republishing is about to change anything, not whether the change was
+// made since the last install. When they match there is nothing to lose and no tag
+// is created, which is what keeps a plain redeploy from minting a version per press.
+//
+// A failure here fails the roll-out. Preserving the edits is the promise the
+// confirmation makes, and continuing past a failed snapshot would break it at
+// exactly the moment it mattered.
+func (s *Service) preserveEdits(ctx context.Context, integrationID, bundleDigest string) error {
+	live, err := s.liveDigest(ctx, integrationID)
+	if err != nil {
+		return fmt.Errorf("read the integration before replacing it: %w", err)
+	}
+	if live == bundleDigest {
+		return nil
+	}
+	snap, err := s.ensureTag(ctx, integrationID, agentapp.EditedTag(live))
+	if err != nil {
+		return fmt.Errorf("freeze the current definition before replacing it: %w", err)
+	}
+	slog.Info("agent edits preserved before roll-out", "tag", snap.Tag)
+	return nil
+}
+
+// deploymentExists reports whether the recorded deployment is still there.
+//
+// Only ErrNotFound counts as gone. Every other failure is propagated, because the
+// caller uses this to choose between rolling the deployment out and creating a new
+// one — and answering "not there" to a timeout would create a second agent beside
+// a first that is running perfectly well. "I could not tell" and "it is not there"
+// are different answers, and only one of them is safe to guess.
+func (s *Service) deploymentExists(ctx context.Context, deploymentID string) (bool, error) {
+	switch _, err := s.deployments.Get(ctx, deploymentID); {
+	case errors.Is(err, deployment.ErrNotFound):
+		slog.Warn("agent rollout: recorded deployment is gone, deploying a new one",
+			"deploymentId", deploymentID)
+		return false, nil
+	case err != nil:
+		return false, fmt.Errorf("read the recorded deployment: %w", err)
+	default:
+		return true, nil
+	}
 }
 
 // republish writes the bundle's definition and skills over the integration. This is
@@ -578,6 +676,15 @@ func (s *Service) republish(ctx context.Context, integrationID, actorID string) 
 func (s *Service) rollout(ctx context.Context, cur stored, actorID string) (stored, error) {
 	digest, err := agentapp.Digest()
 	if err != nil {
+		return cur, err
+	}
+
+	// Freeze the live definition before republishing writes over it, so a roll-out
+	// that discards someone's edits leaves them recoverable as a version rather than
+	// gone. Snapshotting is the only place edits could survive: republish overwrites
+	// the working copy, and the tag published below is of the bundle, not of what was
+	// there before it.
+	if err := s.preserveEdits(ctx, cur.IntegrationID, digest); err != nil {
 		return cur, err
 	}
 

@@ -293,6 +293,9 @@ func runtimeServicesConfig() kube.RuntimeServices {
 		OrchestratorURL: orchestratorURL,
 		ServiceAccount:  os.Getenv("RUNTIME_SERVICE_ACCOUNT"),
 		NATSURL:         os.Getenv("NATS_URL"),
+		// Only reaches the pods that were granted the observability API, so an
+		// orchestrator without it disables that grant rather than degrading anything.
+		LogsURL: os.Getenv("LOGS_URL"),
 	}
 }
 

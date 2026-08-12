@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/juancavallotti/octo/logs/internal/httpx"
 	"github.com/juancavallotti/octo/logs/internal/repo"
 )
 
@@ -58,23 +59,39 @@ type appsResponse struct {
 }
 
 // apps serves the app list the trace view is navigated from.
+//
+//	@Summary		List apps with trace activity
+//	@Description	Every app that ran a trace in the window, with its counts and cost. Read this
+//	@Description	first to find the app worth listing traces for.
+//	@Description
+//	@Description	The window is echoed back in the response, because the caller may not have
+//	@Description	chosen it and every count is meaningless without it. Either bound may be given
+//	@Description	alone: from with no to reads to now, and to with no from reads back 24 hours.
+//	@Tags			traces
+//	@Produce		json
+//	@Param			from	query		string	false	"Start of the window, RFC3339. Defaults to 24h before to"
+//	@Param			to		query		string	false	"End of the window, RFC3339. Defaults to now"
+//	@Success		200		{object}	appsResponse
+//	@Failure		400		{object}	httpx.ErrorResponse	"a time is not RFC3339, or to is before from"
+//	@Failure		500		{object}	httpx.ErrorResponse
+//	@Router			/traces/apps [get]
 func (h *TracesHandler) apps(w http.ResponseWriter, r *http.Request) {
 	from, to, err := h.window(r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	apps, err := h.q.Apps(r.Context(), from, to)
 	if err != nil {
 		slog.Error("api: query trace apps", "err", err)
-		writeError(w, http.StatusInternalServerError, "failed to query traces")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to query traces")
 		return
 	}
 	if apps == nil {
 		apps = []repo.TraceApp{}
 	}
-	writeJSON(w, http.StatusOK, appsResponse{Items: apps, From: from, To: to})
+	httpx.WriteJSON(w, http.StatusOK, appsResponse{Items: apps, From: from, To: to})
 }
 
 // window reads the from/to pair, defaulting to the last defaultWindow.
@@ -127,17 +144,44 @@ type traceListResponse struct {
 // is the last row's (started_at, trace_id) pair rather than its timestamp alone:
 // traces routinely start inside the same millisecond, and a timestamp-only cursor
 // either skips the rows that tie across the boundary or serves them twice.
+//
+//	@Summary		List traces
+//	@Description	One page of trace summaries, newest first. Every filter is optional and they
+//	@Description	combine; a page that came back full carries next_before, which is the cursor
+//	@Description	to send as before= for the page after it.
+//	@Description
+//	@Description	Unlike /traces/apps neither time bound is defaulted, so an unfiltered call
+//	@Description	reaches back as far as the store goes.
+//	@Tags			traces
+//	@Produce		json
+//	@Param			deploymentId	query		string		false	"Only this deployment's traces; must be a uuid"
+//	@Param			integrationId	query		string		false	"Only this integration's traces; must be a uuid"
+//	@Param			appName			query		string		false	"Only this app's traces"
+//	@Param			appVersion		query		string		false	"Only this version's traces"
+//	@Param			flow			query		string		false	"Only traces whose root flow is this one"
+//	@Param			status			query		[]string	false	"Only these outcomes; repeat the parameter for more than one"	Enums(ok, dropped, failed)	collectionFormat(multi)
+//	@Param			hasLlm			query		string		false	"Pass true for only the traces that called a model"
+//	@Param			q				query		string		false	"Free-text search"
+//	@Param			minDurationMs	query		int			false	"Only traces at least this long, in milliseconds"
+//	@Param			from			query		string		false	"Oldest trace to return, RFC3339"
+//	@Param			to				query		string		false	"Newest trace to return, RFC3339"
+//	@Param			before			query		string		false	"A previous page's next_before. Opaque — it names a (started_at, trace_id) pair"
+//	@Param			limit			query		int			false	"Page size, clamped to 1..1000"	default(200)
+//	@Success		200				{object}	traceListResponse
+//	@Failure		400				{object}	httpx.ErrorResponse	"an id is not a uuid, a status is not one of ok/dropped/failed, a time is not RFC3339, to is before from, or a number is malformed"
+//	@Failure		500				{object}	httpx.ErrorResponse
+//	@Router			/traces [get]
 func (h *TracesHandler) list(w http.ResponseWriter, r *http.Request) {
 	f, err := parseTraceFilter(r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	rows, err := h.q.List(r.Context(), f)
 	if err != nil {
 		slog.Error("api: query traces", "err", err)
-		writeError(w, http.StatusInternalServerError, "failed to query traces")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to query traces")
 		return
 	}
 	if rows == nil {
@@ -149,7 +193,7 @@ func (h *TracesHandler) list(w http.ResponseWriter, r *http.Request) {
 		last := rows[len(rows)-1]
 		resp.NextBefore = encodeCursor(repo.TraceCursor{StartedAt: last.StartedAt, TraceID: last.TraceID})
 	}
-	writeJSON(w, http.StatusOK, resp)
+	httpx.WriteJSON(w, http.StatusOK, resp)
 }
 
 // parseTraceFilter builds a repo.TraceFilter from the query string.
@@ -309,35 +353,68 @@ type traceDetailResponse struct {
 }
 
 // detail serves one trace and its records.
+//
+//	@Summary		Read one trace
+//	@Description	One trace: the summary the list already showed, plus every record that fed
+//	@Description	it, in sequence. The summary is the stored rollup rather than a recomputation,
+//	@Description	so the number here and the number in the list are the same number.
+//	@Description
+//	@Description	Captured payloads are the whole weight of a trace. A client drawing only a
+//	@Description	waterfall should pass bodies=0 and leave them on the server, then fetch the one
+//	@Description	record it needs from /traces/{traceId}/records/{id}.
+//	@Tags			traces
+//	@Produce		json
+//	@Param			traceId	path		string	true	"The trace id"
+//	@Param			bodies	query		string	false	"Pass 0 or false to omit the captured payloads. Defaults to including them"
+//	@Success		200		{object}	traceDetailResponse
+//	@Failure		404		{object}	httpx.ErrorResponse	"no such trace"
+//	@Failure		500		{object}	httpx.ErrorResponse
+//	@Router			/traces/{traceId} [get]
 func (h *TracesHandler) detail(w http.ResponseWriter, r *http.Request) {
 	traceID := r.PathValue("traceId")
 
 	summary, found, err := h.q.Trace(r.Context(), traceID)
 	if err != nil {
 		slog.Error("api: query trace", "trace", traceID, "err", err)
-		writeError(w, http.StatusInternalServerError, "failed to query the trace")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to query the trace")
 		return
 	}
 	if !found {
-		writeError(w, http.StatusNotFound, "no such trace")
+		httpx.WriteError(w, http.StatusNotFound, "no such trace")
 		return
 	}
 
 	records, truncated, err := h.q.Records(r.Context(), traceID, wantsBodies(r))
 	if err != nil {
 		slog.Error("api: query trace records", "trace", traceID, "err", err)
-		writeError(w, http.StatusInternalServerError, "failed to query the trace")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to query the trace")
 		return
 	}
 	if records == nil {
 		records = []repo.TraceRecordRow{}
 	}
 
-	writeJSON(w, http.StatusOK, traceDetailResponse{Summary: summary, Items: records, Truncated: truncated})
+	httpx.WriteJSON(w, http.StatusOK, traceDetailResponse{Summary: summary, Items: records, Truncated: truncated})
 }
 
 // record serves one record's captured payloads, for a client that loaded the
 // trace without them and then opened a single block.
+//
+//	@Summary		Read one trace record
+//	@Description	One record with its captured payloads, for a client that loaded the trace
+//	@Description	with bodies=0 and then opened a single block.
+//	@Description
+//	@Description	A malformed id answers 404 rather than 400: it addresses no record either
+//	@Description	way, and answering alike for "malformed" and "absent" keeps the route from
+//	@Description	confirming which ids exist.
+//	@Tags			traces
+//	@Produce		json
+//	@Param			traceId	path		string	true	"The trace id"
+//	@Param			id		path		string	true	"The record id, a uuid"
+//	@Success		200		{object}	repo.TraceRecordRow
+//	@Failure		404		{object}	httpx.ErrorResponse	"no such record, or the id is not a uuid"
+//	@Failure		500		{object}	httpx.ErrorResponse
+//	@Router			/traces/{traceId}/records/{id} [get]
 func (h *TracesHandler) record(w http.ResponseWriter, r *http.Request) {
 	traceID, id := r.PathValue("traceId"), r.PathValue("id")
 
@@ -345,21 +422,21 @@ func (h *TracesHandler) record(w http.ResponseWriter, r *http.Request) {
 	// ::uuid cast away from a 500, and answering the same way for "malformed" and
 	// "absent" keeps the route from confirming which ids exist.
 	if !isUUID(id) {
-		writeError(w, http.StatusNotFound, "no such record")
+		httpx.WriteError(w, http.StatusNotFound, "no such record")
 		return
 	}
 
 	row, found, err := h.q.Record(r.Context(), traceID, id)
 	if err != nil {
 		slog.Error("api: query trace record", "trace", traceID, "record", id, "err", err)
-		writeError(w, http.StatusInternalServerError, "failed to query the record")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to query the record")
 		return
 	}
 	if !found {
-		writeError(w, http.StatusNotFound, "no such record")
+		httpx.WriteError(w, http.StatusNotFound, "no such record")
 		return
 	}
-	writeJSON(w, http.StatusOK, row)
+	httpx.WriteJSON(w, http.StatusOK, row)
 }
 
 // wantsBodies reads ?bodies, which defaults to on.

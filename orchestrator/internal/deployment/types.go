@@ -56,6 +56,26 @@ type Settings struct {
 	// switch rather than an integration-wide one: you turn it on for the deployment
 	// you are investigating.
 	Tracing bool `json:"tracing,omitempty"`
+	// OrchestratorAPI declares that this deployment's flows call the orchestrator's
+	// own API — the platform agent being the first, but any integration that reads
+	// its own installation is another.
+	//
+	// It grants nothing today: ORCHESTRATOR_URL is already in every runtime pod,
+	// because the k8s services module needs it for the KV store and leader election,
+	// and taking it away would break both. What this records is the *intent*, which
+	// is what a future access model gates on — a deployment that never declared it
+	// has no business calling the API, and saying so now means the enforcement point
+	// arrives with the declarations already in place rather than needing every
+	// existing deployment reclassified.
+	OrchestratorAPI bool `json:"orchestratorApi,omitempty"`
+	// ObservabilityAPI grants this deployment's flows the address of the log
+	// aggregator's query API, injected as LOGS_URL. Unlike the orchestrator's, that
+	// address is in no pod otherwise, so this switch is the whole of the access.
+	//
+	// Off by default: stored logs and traces span every deployment on the install,
+	// so an integration that can read them can read its neighbours' — which is a
+	// thing to ask for rather than to receive by default.
+	ObservabilityAPI bool `json:"observabilityApi,omitempty"`
 	// SnapshotID is the version tag (snapshot) to deploy. When the service is wired
 	// with a snapshot store (the production path) it is required, and the deploy
 	// ships that snapshot's frozen definition rather than the live one. Input only —

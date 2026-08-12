@@ -96,11 +96,15 @@ export default function AgentSettingsManager() {
   const rollout = async () => {
     if (!canAct || blocked) return;
     const ok = await confirm({
-      title: "Roll out the update?",
+      title: status?.updateAvailable ? "Roll out the update?" : "Reinstall from stock?",
+      // The edited case used to read as a threat, which overstated it: the live
+      // definition is frozen as its own version before it is replaced, so the edits
+      // are recoverable rather than lost. Saying which version, and that it can be
+      // deployed again, is the difference between a warning and a dead end.
       body: status?.edited
-        ? "Publishing a new version freezes the integration's current definition first, so the changes made to this agent will be replaced by the version shipped with this orchestrator."
-        : "The agent will be published as a new version and its pods replaced.",
-      confirmLabel: "Roll out",
+        ? "The current definition is frozen as its own version first — look for an agent-edited-… tag under Versions — and then replaced by the one shipped with this orchestrator. Your changes stop running, but you can read or deploy that version afterwards."
+        : "The agent is published as a version and its pods replaced with the definition shipped by this orchestrator.",
+      confirmLabel: status?.updateAvailable ? "Roll out" : "Reinstall",
       danger: status?.edited,
     });
     if (ok) run(() => rolloutAgent());
@@ -160,18 +164,22 @@ export default function AgentSettingsManager() {
                       Deploy
                     </PrimaryAction>
                   )}
-                  {installed && status.updateAvailable && (
+                  {/* One button, three names. All three call the same roll-out —
+                      republish the shipped bundle and replace the pods — so making
+                      them separate controls would only invite the question of which
+                      one to press. It is always offered once something is deployed:
+                      before, an agent edited into a state you wanted to undo had no
+                      way back, because the shipped digest had not moved and the
+                      button that would have fixed it was hidden for that reason. */}
+                  {installed && deployed && (
                     <PrimaryAction onClick={rollout} disabled={!canAct || blocked}>
-                      Roll out update
+                      {status.updateAvailable
+                        ? "Roll out update"
+                        : status.state === "failed"
+                          ? "Redeploy"
+                          : "Reinstall from stock"}
                     </PrimaryAction>
                   )}
-                  {installed &&
-                    status.state === "failed" &&
-                    !status.updateAvailable && (
-                      <PrimaryAction onClick={rollout} disabled={!canAct || blocked}>
-                        Redeploy
-                      </PrimaryAction>
-                    )}
 
                   {deployed && (
                     <IconAction

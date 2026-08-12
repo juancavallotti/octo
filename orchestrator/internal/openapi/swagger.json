@@ -171,6 +171,14 @@
                         "description": "Expose opts the deployment into an external HTTP endpoint. \"external\"\npublishes a {subdomain}.{baseDomain} Ingress with TLS; empty = internal only.",
                         "type": "string"
                     },
+                    "observabilityApi": {
+                        "description": "ObservabilityAPI grants this deployment's flows the address of the log\naggregator's query API, injected as LOGS_URL. Unlike the orchestrator's, that\naddress is in no pod otherwise, so this switch is the whole of the access.\n\nOff by default: stored logs and traces span every deployment on the install,\nso an integration that can read them can read its neighbours' — which is a\nthing to ask for rather than to receive by default.",
+                        "type": "boolean"
+                    },
+                    "orchestratorApi": {
+                        "description": "OrchestratorAPI declares that this deployment's flows call the orchestrator's\nown API — the platform agent being the first, but any integration that reads\nits own installation is another.\n\nIt grants nothing today: ORCHESTRATOR_URL is already in every runtime pod,\nbecause the k8s services module needs it for the KV store and leader election,\nand taking it away would break both. What this records is the *intent*, which\nis what a future access model gates on — a deployment that never declared it\nhas no business calling the API, and saying so now means the enforcement point\narrives with the declarations already in place rather than needing every\nexisting deployment reclassified.",
+                        "type": "boolean"
+                    },
                     "replicas": {
                         "description": "Replicas is the desired runtime replica count; \u003c1 is normalized to 1. The\nper-deployment Service load-balances across them for internal callers.",
                         "type": "integer"
