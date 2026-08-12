@@ -30,6 +30,8 @@ Expect the status page never to fail for a reason you could act on: no cluster, 
 
 Press **Install**. That creates the integration, writes his skills as [resources](/platform/resources-and-secrets), publishes a version tag derived from the bundle this orchestrator ships, writes the provider key as a cluster secret, and deploys him with one replica and **no external route**.
 
+He is deployed with both [platform access grants](/platform/deployments#platform-access) — he asks for them the way any integration does, rather than through a private path. The observability grant is what puts `LOGS_URL` in his pod and lets him read stored logs and traces; without it he still installs and works, and simply says he was not granted that access when asked about history.
+
 Press it twice if you are unsure — it is idempotent. An existing integration is reused and an existing tag is not recreated, so you never get a second agent, and retrying after a failed deploy picks up where it stopped.
 
 Note that he is deployed **internal-only**. Nothing outside the cluster reaches him directly; the platform proxies to the in-cluster address shown on the status card.
@@ -99,6 +101,8 @@ Use `allowMethods: [GET]` to make him read-only, or `pathPrefix` to confine him 
 
 You do not need to defend the host: the connector's `baseURL` is a boundary he cannot cross whatever the block says, because a dynamic path resolves against it and no rendered path can redirect the call elsewhere.
 
+His `logs_api` tool is a second, independent boundary — a different connector with a different `baseURL` — so narrowing one does nothing to the other. It already ships with `allowMethods: [GET]`, which costs nothing there because the observability API serves no other method. To take stored logs and traces away from him entirely, untick the observability grant and roll out; that removes the address rather than the tool, and he will say so when asked.
+
 <Callout>
 Bear in mind that he reads integration definitions, resource contents and pod logs — text other people wrote — which makes prompt injection a real consideration: a malicious string in a flow definition is an instruction he may see. Narrow `allowMethods` to bound what such an instruction could achieve, and turn tracing on to see whether one was followed.
 </Callout>
@@ -113,6 +117,8 @@ Read this before you change him. The whole file is in the editor.
 | `ai-agent` block | Streaming, with memory keyed to the signed-in user and the conversation, a 500k-token window and summarising compaction |
 | `list_api_operations`, `read_api_docs` | Read the orchestrator's own [API description](/platform/api-reference) — the cheap index first, then one tag's detail |
 | `octo_api` | Calls the API, with the method and path decided per call |
+| `list_logs_operations`, `read_logs_docs` | The same two, against the [observability API](/platform/logs-api-reference) |
+| `logs_api` | Queries stored logs and traces. Read-only — `allowMethods: [GET]` from the start, because every route it serves is a GET |
 | `refresh_platform_ui` | Publishes to the platform's [event bus](/platform/event-bus) so an editor with that integration open offers to reload |
 | `navigate_to` | Moves your browser to a page, when the answer to a question is a page |
 | `recall_facts`, `remember_fact`, `forget_fact` | What he remembers about you between conversations |
@@ -141,6 +147,8 @@ export LLM_CONNECTOR_TYPE=llm-anthropic
 export LLM_API_KEY=sk-ant-...
 export LLM_MODEL=claude-sonnet-4-6
 export ORCHESTRATOR_URL=http://localhost:8090
+# Optional. Without it his logs tools answer that the access was not granted.
+export LOGS_URL=http://localhost:8091
 bin/octo run --config orchestrator/agent
 ```
 
