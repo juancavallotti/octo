@@ -32,6 +32,10 @@ Press **Install**. That creates the integration, writes his skills as [resources
 
 He is deployed with both [platform access grants](/platform/deployments#platform-access) — he asks for them the way any integration does, rather than through a private path. The observability grant is what puts `LOGS_URL` in his pod and lets him read stored logs and traces; without it he still installs and works, and simply says he was not granted that access when asked about history.
 
+<Callout>
+Granting him observability hands a chat-panel user nothing they could not already read. [Traces](/platform/traces) and [Logs](/platform/logs) are readable by any signed-in user, while the chat panel additionally requires the write roles — so anyone who can ask him is already entitled to open those views directly, and to far more besides. Untick the grant and roll out if you want him without it anyway; the reason to weigh is prompt injection, below, not the reader's own entitlement.
+</Callout>
+
 Press it twice if you are unsure — it is idempotent. An existing integration is reused and an existing tag is not recreated, so you never get a second agent, and retrying after a failed deploy picks up where it stopped.
 
 Note that he is deployed **internal-only**. Nothing outside the cluster reaches him directly; the platform proxies to the in-cluster address shown on the status card.
@@ -104,7 +108,7 @@ You do not need to defend the host: the connector's `baseURL` is a boundary he c
 His `logs_api` tool is a second, independent boundary — a different connector with a different `baseURL` — so narrowing one does nothing to the other. It already ships with `allowMethods: [GET]`, which costs nothing there because the observability API serves no other method. To take stored logs and traces away from him entirely, untick the observability grant and roll out; that removes the address rather than the tool, and he will say so when asked.
 
 <Callout>
-Bear in mind that he reads integration definitions, resource contents and pod logs — text other people wrote — which makes prompt injection a real consideration: a malicious string in a flow definition is an instruction he may see. Narrow `allowMethods` to bound what such an instruction could achieve, and turn tracing on to see whether one was followed.
+Bear in mind that he reads integration definitions, resource contents, pod logs and — with the observability grant — stored log messages and captured request bodies from every deployment. All of that is text other people wrote, which makes prompt injection a real consideration: a malicious string in a flow definition, or in a log line an integration was made to emit, is an instruction he may see. Narrow `allowMethods` to bound what such an instruction could achieve, untick the observability grant if you would rather he did not read that surface at all, and turn tracing on to see whether one was followed.
 </Callout>
 
 ## What he is made of
