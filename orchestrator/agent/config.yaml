@@ -391,7 +391,10 @@ flows:
           - name: list_logs_operations
             description: >
               List every route the observability API serves — stored logs and traces.
-              Cheap. Read this first to find the tag worth asking about.
+              Cheap. Read this first to find the tag worth asking about. A 404 here
+              means the log aggregator is older than these tools and serves no
+              description — report that as an out-of-date service, never as missing
+              access; the tools say so explicitly when access is what is missing.
             inputSchema: |
               { "type": "object", "properties": {} }
             process:
@@ -417,7 +420,9 @@ flows:
             description: >
               Read the observability API's OpenAPI description, narrowed to one tag
               (from list_logs_operations) or one path prefix. Pass one or the other,
-              never both. Without a filter this is large; use a filter.
+              never both. Without a filter this is large; use a filter. A 404 means
+              the log aggregator is older than these tools, not that access is
+              missing.
             inputSchema: |
               {
                 "type": "object",
@@ -455,7 +460,8 @@ flows:
               across every deployment. For what a pod is printing right now, use
               octo_api instead. Returns the response body; the HTTP status is in
               vars.statusCode, and a 4xx comes back as data rather than an error, so
-              read it and correct the call.
+              read it and correct the call — a 404 is a wrong path or an aggregator
+              older than these tools, and never a statement about access.
             inputSchema: |
               {
                 "type": "object",
