@@ -141,9 +141,10 @@ describe("AgentSettingsManager", () => {
     await waitFor(() => expect(setAgentTracing).toHaveBeenCalledWith(false));
   });
 
-  // The headline risk of rolling out: tagging freezes the working copy first, so an
-  // edited agent is replaced by the shipped one. Saying so is the whole point of
-  // tracking `edited`.
+  // The headline risk of rolling out: an edited agent is replaced by the shipped
+  // one. Saying so is the whole point of tracking `edited` — and saying that the
+  // edits are frozen as their own version first is what makes it a warning rather
+  // than a dead end.
   it("warns that a roll-out replaces local edits when the agent was edited", async () => {
     const user = userEvent.setup();
     getAgentStatus.mockResolvedValue({
@@ -158,9 +159,27 @@ describe("AgentSettingsManager", () => {
     await user.click(screen.getByRole("button", { name: "Roll out update" }));
 
     await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
-    expect(screen.getByText(/will be replaced/)).toBeTruthy();
+    expect(screen.getByText(/frozen as its own version/)).toBeTruthy();
+    expect(screen.getByText(/agent-edited-/)).toBeTruthy();
 
     await confirmDialog(user, /^Roll out$/);
+    await waitFor(() => expect(rolloutAgent).toHaveBeenCalledTimes(1));
+  });
+
+  // Without this the only way back to the shipped agent was for the bundle's digest
+  // to move: an agent edited into a state you wanted to undo had no button, because
+  // "no update available" hid the one that would have fixed it.
+  it("offers a reinstall when the agent is current, not just when an update exists", async () => {
+    const user = userEvent.setup();
+    getAgentStatus.mockResolvedValue(DEPLOYED);
+    renderManager();
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Reinstall from stock" })).toBeTruthy(),
+    );
+    await user.click(screen.getByRole("button", { name: "Reinstall from stock" }));
+
+    await confirmDialog(user, /^Reinstall$/);
     await waitFor(() => expect(rolloutAgent).toHaveBeenCalledTimes(1));
   });
 
