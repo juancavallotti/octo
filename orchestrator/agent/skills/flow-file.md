@@ -137,7 +137,7 @@ message: `block "log" is a leaf and must not declare composite slots [condition]
 The slot vocabulary: `process`, `error`, `branches`, `condition`, `then`, `else`,
 `cases`, `default`, `items`, `as`, `mode`, `body`, `setBody`, `setVars`, `key`,
 `ttl`, `rules`, `onReject`, `rejectStatus`, `connector`, `prompt`, `guardrail`,
-`routes`, `tools`, `skills`, `input`, `maxIterations`, `maxAttempts`, `serverName`,
+`routes`, `tools`, `skills`, `input`, `answer`, `maxIterations`, `maxAttempts`, `serverName`,
 `resources`, `prompts`, `memoryThreadId`, `memoryMaxTokens`, `memoryCompaction`.
 
 ## processors

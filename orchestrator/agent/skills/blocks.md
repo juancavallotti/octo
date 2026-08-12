@@ -93,6 +93,7 @@ put everything under `settings`.
   guardrail: >               # slot, optional — when to take the default path
     If the question is not about orders, take the default path.
   input: body.message        # CEL — the opening user turn; unset sends the whole body
+  answer: text               # json (default) or text — see below
   maxIterations: 8           # slot, default 8
   stream: true               # token-level streaming; needs an events path
   emit: [text, tool_call, tool_result, done]
@@ -125,6 +126,18 @@ put everything under `settings`.
 A tool's arguments arrive **as the message body**, and the branch's output body is
 returned to the model as the result. A branch error becomes an error *result* fed
 back to the model rather than aborting the agent.
+
+`answer` decides one sentence of the system prompt. The default, `json`, tells the
+model to reply as JSON only — right when the agent's answer becomes the next
+block's body, since that is what a later `body.tier` depends on. Use `answer: text`
+whenever a **person** reads the reply: without it the agent is told to answer in
+JSON here and in prose by its own prompt, and which instruction it follows is the
+provider's choice rather than yours. The reply is parsed the same way either way —
+JSON becomes a structured body, anything else stays a string.
+
+`input` is the opening user turn. Unset, the model is handed the whole input body
+as a JSON document, which is what an agent transforming a payload wants; a chat
+agent sets it to the question so the rest travels as labelled context.
 
 Agent event types: `turn_start`, `text`, `thinking`, `tool_input`, `custom`,
 `tool_call`, `tool_result`, `turn_end`, `guardrail`, `done`, `error`. A type left
