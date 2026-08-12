@@ -350,22 +350,62 @@ func TestObservabilityEnvNeedsBothTheGrantAndTheAddress(t *testing.T) {
 	}
 }
 
-// TestObservabilityEnvWinsOverAUserBinding verifies the grant beats an integration's
-// own LOGS_URL binding, for the same reason tracing does: Kubernetes takes the last
-// entry for a duplicated name, so the address the platform granted is the one the pod
-// uses rather than one the definition's author chose.
-func TestObservabilityEnvWinsOverAUserBinding(t *testing.T) {
+// TestObservabilityEnvIgnoresAUserBinding verifies LOGS_URL is the orchestrator's to
+// set and nobody else's: a binding that targets it is dropped whether or not the
+// grant was given.
+//
+// The deployment service refuses such a binding outright, so reaching this code needs
+// a Spec assembled directly — which is exactly the case worth covering, because the
+// ungranted half is the one that matters. A deployment whose pod carries the address
+// while its record says it was never granted the API is a record that lies, and the
+// record is what a future access model reads.
+func TestObservabilityEnvIgnoresAUserBinding(t *testing.T) {
 	const logsURL = "http://octo-logs.octo:8091"
+	const smuggled = "http://somewhere-else:9999"
 	c := &Client{runtimeServices: RuntimeServices{LogsURL: logsURL}}
 
-	env := c.podEnv(Spec{
-		Env:              map[string]string{envLogs: "http://somewhere-else:9999"},
-		ObservabilityAPI: true,
+	t.Run("granted", func(t *testing.T) {
+		env := c.podEnv(Spec{
+			Env:              map[string]string{envLogs: smuggled},
+			ObservabilityAPI: true,
+		})
+		if got := valueOf(env, envLogs); got != logsURL {
+			t.Errorf("%s = %q, want the granted %q: %+v", envLogs, got, logsURL, env)
+		}
+		if n := count(env, envLogs); n != 1 {
+			t.Errorf("%s appears %d times, want exactly 1: %+v", envLogs, n, env)
+		}
 	})
-	last := env[len(env)-1]
-	if last.Name != envLogs || last.Value != logsURL {
-		t.Errorf("last env = %s=%q, want %s=%q: %+v", last.Name, last.Value, envLogs, logsURL, env)
+
+	t.Run("not granted", func(t *testing.T) {
+		env := c.podEnv(Spec{Env: map[string]string{envLogs: smuggled}})
+		if got := valueOf(env, envLogs); got != "" {
+			t.Errorf("%s = %q, want it absent without the grant: %+v", envLogs, got, env)
+		}
+	})
+}
+
+// valueOf returns the value of the named env var, or "" when it is absent.
+func valueOf(env []corev1.EnvVar, name string) string {
+	for _, e := range env {
+		if e.Name == name {
+			return e.Value
+		}
 	}
+	return ""
+}
+
+// count returns how many entries carry name. A duplicate is not harmless: Kubernetes
+// resolves it to the last one, so two entries mean the winner is decided by ordering
+// rather than by the grant.
+func count(env []corev1.EnvVar, name string) int {
+	n := 0
+	for _, e := range env {
+		if e.Name == name {
+			n++
+		}
+	}
+	return n
 }
 
 // TestRuntimeServicesEnvOmitsNATSWhenUnset verifies that with the runtime-services

@@ -71,10 +71,14 @@ Most integrations have no business reading the installation they run on. A few a
 
 The two are not symmetric today, and the difference is worth understanding.
 
-**The observability grant is real access.** `LOGS_URL` is in no pod unless this box is ticked, so ticking it is the whole of the grant.
+**The observability grant supplies the address.** `LOGS_URL` is in no pod unless this box is ticked, and it is orchestrator-managed: a definition cannot declare it and a deploy cannot bind it, so the grant is the only way it reaches a pod. That keeps the deployment record honest about what was handed out.
 
 <Callout type="warn">
 Stored logs and traces span **every** deployment on the installation, not just the one being granted. An integration that can read them can read its neighbours' captured request bodies. Grant it only to integrations you would trust with the Traces view itself.
+</Callout>
+
+<Callout type="warn">
+**This is not a network boundary.** The [logs API](/platform/logs-api-reference) performs no authentication and is reachable from anywhere on the cluster network, so a flow author determined to query it can point a connector at the aggregator's address directly and never tick this box. Withholding the grant does not stop that; it withholds the convenience and keeps the record accurate. Treat the grant as a declaration until the API gains authentication — the same footing as the orchestrator one below.
 </Callout>
 
 **The orchestrator grant is a declaration.** `ORCHESTRATOR_URL` is already in every runtime pod — the runtime's k8s services module needs it for the [KV store](/platform/kv-and-storage) and leader election — so ticking the box opens nothing that was closed. What it records is intent.

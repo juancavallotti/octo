@@ -348,7 +348,7 @@ func (s *Service) resolveEnvBindings(ctx context.Context, runtimeEnv map[string]
 		literal[k] = v
 	}
 	for name, b := range bindings {
-		if name == envHTTPPort || name == envHTTPHost {
+		if name == envHTTPPort || name == envHTTPHost || name == envLogsURL {
 			return nil, nil, ErrReservedEnvVar
 		}
 		if b.Secret != "" {

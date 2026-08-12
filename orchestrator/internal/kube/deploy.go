@@ -424,7 +424,12 @@ func httpProbe(path string) corev1.ProbeHandler {
 // Nothing at all is emitted when a switch is off, so those integrations keep
 // working as they did.
 func (c *Client) podEnv(spec Spec) []corev1.EnvVar {
-	env := append(c.runtimeServicesEnv(spec), containerEnv(spec)...)
+	// LOGS_URL is the orchestrator's to set, so it is dropped from the user's
+	// bindings wherever it came from. The deployment service already refuses a
+	// binding that targets it, and this is the same rule at the layer that actually
+	// builds the pod — so a caller assembling a Spec directly cannot hand a
+	// deployment the address that its own record says it was never granted.
+	env := append(c.runtimeServicesEnv(spec), without(containerEnv(spec), envLogs)...)
 	if spec.Tracing {
 		env = append(env, corev1.EnvVar{Name: envTracing, Value: "true"})
 	}
@@ -439,6 +444,17 @@ func (c *Client) podEnv(spec Spec) []corev1.EnvVar {
 		return nil
 	}
 	return env
+}
+
+// without returns env minus any entry named name, preserving order.
+func without(env []corev1.EnvVar, name string) []corev1.EnvVar {
+	out := env[:0:0]
+	for _, e := range env {
+		if e.Name != name {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // runtimeServicesEnv builds the env the runtime's k8s services module reads:
