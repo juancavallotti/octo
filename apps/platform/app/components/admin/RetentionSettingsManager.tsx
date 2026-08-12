@@ -89,7 +89,12 @@ export default function RetentionSettingsManager() {
     async (fn: () => Promise<unknown>) => {
       setBusy(true);
       setError(null);
+      // Both outcome messages are cleared up front, not just on success. A sweep's
+      // report is about the sweep that produced it, so leaving it up through the
+      // next action would pair a stale "deleted 120 events" with whatever that
+      // action reported — including an error.
       setSaved(false);
+      setLastRun(null);
       try {
         await fn();
         await load();
@@ -120,7 +125,6 @@ export default function RetentionSettingsManager() {
     run(async () => {
       await saveRetention({ logsDays: logsDays!, tracesDays: tracesDays! });
       setSaved(true);
-      setLastRun(null);
     });
   };
 

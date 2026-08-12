@@ -189,6 +189,30 @@ describe("RetentionSettingsManager", () => {
     expect(screen.getByText(/Nothing to delete/)).toBeTruthy();
   });
 
+  // A sweep's report describes the sweep that produced it. Left up through the
+  // next action it would sit beside that action's own outcome — including, as
+  // here, an error saying the opposite.
+  it("clears a previous sweep's report before the next action", async () => {
+    const user = userEvent.setup();
+    renderManager();
+    await loaded();
+
+    await user.click(screen.getByRole("button", { name: "Delete now" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Delete now" }));
+    await waitFor(() =>
+      expect(screen.getByText(/Deleted 120 log events/)).toBeTruthy(),
+    );
+
+    saveRetention.mockRejectedValue(new Error("forbidden"));
+    await user.clear(tracesInput());
+    await user.type(tracesInput(), "14");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByText("forbidden")).toBeTruthy();
+    expect(screen.queryByText(/Deleted 120 log events/)).toBeNull();
+  });
+
   it("surfaces a failure inline", async () => {
     const user = userEvent.setup();
     saveRetention.mockRejectedValue(new Error("forbidden"));
