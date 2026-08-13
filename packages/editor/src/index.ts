@@ -2,6 +2,10 @@
  * Public API of the @octo/editor library: the embeddable visual flow editor plus
  * the capability contracts an embedding app implements (filesystem + run). The
  * app supplies the concrete capabilities; this package owns the editor itself.
+ *
+ * Server-safe helpers are not re-exported here — they live on the
+ * `@octo/editor/runtime` subpath, so a host can read capability metadata without
+ * pulling in React.
  */
 
 // Editor shell + state
