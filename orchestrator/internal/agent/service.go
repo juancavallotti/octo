@@ -405,9 +405,9 @@ func (s *Service) install(ctx context.Context, cur stored, actorID string) (stor
 		return cur, fmt.Errorf("write the agent's skills as resources: %w", err)
 	}
 
-	snap, err := s.ensureTag(ctx, next.IntegrationID, agentapp.Tag(digest))
+	snap, err := s.publishBundle(ctx, cur, digest)
 	if err != nil {
-		return cur, fmt.Errorf("publish version %q: %w", agentapp.Tag(digest), err)
+		return cur, fmt.Errorf("publish the agent as a version: %w", err)
 	}
 	next.SnapshotID = snap.ID
 	next.InstalledTag = snap.Tag
@@ -509,6 +509,47 @@ func (s *Service) syncResources(ctx context.Context, integrationID string) error
 // ensureTag returns the version tag for this bundle, creating it only if it is not
 // already there. Tags are immutable, so a bundle that has been installed before
 // already has its tag and creating it again would fail.
+// publishBundle publishes the embedded bundle as a version of the integration and
+// returns the snapshot to deploy.
+//
+// The tag names the octo release rather than the bundle's contents, which is what
+// makes it worth reading — but the two only move together in a released binary. A
+// build made between releases can carry a changed bundle under a version that is
+// already published, and reusing that tag would deploy the older snapshot while the
+// row recorded the newer digest: a roll-out that reported success and changed
+// nothing. So the release's tag is used only when this bundle is provably the one
+// behind it, and anything else is published beside it under a build tag.
+//
+// "Provably" is the settings row, not the snapshot. A snapshot freezes the
+// definition *and* the skills, and the digest covers both, so no field of a
+// snapshot answers "is this that bundle?" on its own — only the digest recorded
+// beside the snapshot id when it was published does.
+func (s *Service) publishBundle(ctx context.Context, cur stored, digest string) (snapshot.Snapshot, error) {
+	existing, err := s.snapshots.ListByIntegration(ctx, cur.IntegrationID)
+	if err != nil {
+		return snapshot.Snapshot{}, err
+	}
+
+	published := cur.InstalledDigest == digest && cur.SnapshotID != ""
+	tag := agentapp.Tag()
+	taken := false
+	for _, snap := range existing {
+		if published && snap.ID == cur.SnapshotID {
+			return snap, nil
+		}
+		if snap.Tag == tag {
+			taken = true
+		}
+	}
+	if taken {
+		// The release has published a version already, from a bundle this cannot
+		// show is the one in hand. A second version beside it is a redundant row at
+		// worst; reusing it would be a silent no-op.
+		tag = agentapp.BuildTag(digest)
+	}
+	return s.ensureTag(ctx, cur.IntegrationID, tag)
+}
+
 func (s *Service) ensureTag(ctx context.Context, integrationID, tag string) (snapshot.Snapshot, error) {
 	existing, err := s.snapshots.ListByIntegration(ctx, integrationID)
 	if err != nil {
@@ -692,7 +733,7 @@ func (s *Service) rollout(ctx context.Context, cur stored, actorID string) (stor
 		return cur, err
 	}
 
-	snap, err := s.ensureTag(ctx, cur.IntegrationID, agentapp.Tag(digest))
+	snap, err := s.publishBundle(ctx, cur, digest)
 	if err != nil {
 		return cur, err
 	}

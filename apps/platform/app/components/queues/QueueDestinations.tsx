@@ -3,14 +3,14 @@
 import { useState } from "react";
 import { ChevronRight, Layers } from "lucide-react";
 import type { QueueDestination } from "@/app/model/queues";
-import { ConnectionsTable, num } from "./QueueViews";
+import { SubscribersTable, num } from "./QueueViews";
 
 /**
  * The queue destinations: one expandable row per subject clients consume from.
- * Collapsed, a row shows the queue name (and its deployment), subscriber count,
- * and delivered messages; expanded, it shows the full stats of the connections
- * consuming it. The subject doubles as the queue group for platform queues, so
- * subscriber count is how many competing consumers share the load.
+ * Collapsed, a row shows the queue name (and its deployment), subscription count,
+ * and delivered messages; expanded, it shows the clients consuming it. The subject
+ * doubles as the queue group for platform queues, so the subscription count is how
+ * many competing consumers share the load.
  */
 export default function QueueDestinations({
   destinations,
@@ -62,7 +62,7 @@ function DestinationRow({ dest }: { dest: QueueDestination }) {
           </span>
         )}
         <span className="shrink-0 text-xs tabular-nums text-zinc-500">
-          {num(dest.subscribers)} sub{dest.subscribers === 1 ? "" : "s"}
+          {num(dest.subscriptions)} sub{dest.subscriptions === 1 ? "" : "s"}
         </span>
         <span className="shrink-0 text-xs tabular-nums text-zinc-500">
           {num(dest.msgs)} msg{dest.msgs === 1 ? "" : "s"}
@@ -71,7 +71,7 @@ function DestinationRow({ dest }: { dest: QueueDestination }) {
 
       {open && (
         <div className="border-t border-black/5 bg-black/[0.015] p-3 dark:border-white/5 dark:bg-white/[0.02]">
-          <ConnectionsTable connections={dest.connections} />
+          <SubscribersTable subscribers={dest.subscribers} />
         </div>
       )}
     </div>

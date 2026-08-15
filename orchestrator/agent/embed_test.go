@@ -3,6 +3,8 @@ package agent
 import (
 	"strings"
 	"testing"
+
+	"github.com/juancavallotti/octo/orchestrator/internal/version"
 )
 
 func TestDefinitionIsTheApp(t *testing.T) {
@@ -71,22 +73,33 @@ func TestDigestIsStable(t *testing.T) {
 	}
 }
 
-func TestTagDerivesFromTheDigest(t *testing.T) {
-	tag := Tag("abcdef0123456789abcdef")
-	if tag != "agent-abcdef012345" {
-		t.Errorf("Tag = %q, want agent- plus the first 12 characters", tag)
+func TestTagNamesTheRelease(t *testing.T) {
+	if tag := Tag(); tag != "v"+version.Version {
+		t.Errorf("Tag = %q, want the octo release %q", tag, "v"+version.Version)
 	}
-	// Version tags allow only [A-Za-z0-9._-], so a tag built from a hex digest
-	// cannot be rejected by the snapshot layer.
-	for _, r := range tag {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '_', r == '-':
-		default:
-			t.Errorf("tag %q contains %q, which a version tag may not", tag, r)
+}
+
+func TestBuildTagStandsBesideTheRelease(t *testing.T) {
+	tag := BuildTag("abcdef0123456789abcdef")
+	if want := Tag() + "-abcdef012345"; tag != want {
+		t.Errorf("BuildTag = %q, want %q", tag, want)
+	}
+}
+
+// Version tags allow only [A-Za-z0-9._-] and at most 64 characters, so neither
+// tag the installer mints can be rejected by the snapshot layer.
+func TestTagsAreAcceptableVersionTags(t *testing.T) {
+	for _, tag := range []string{Tag(), BuildTag("abcdef0123456789abcdef")} {
+		for _, r := range tag {
+			switch {
+			case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '_', r == '-':
+			default:
+				t.Errorf("tag %q contains %q, which a version tag may not", tag, r)
+			}
 		}
-	}
-	if len(tag) > 64 {
-		t.Errorf("tag %q is longer than a version tag may be", tag)
+		if len(tag) > 64 {
+			t.Errorf("tag %q is longer than a version tag may be", tag)
+		}
 	}
 }
 

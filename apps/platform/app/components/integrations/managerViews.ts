@@ -14,8 +14,11 @@ import type { Data } from "./managerData";
 
 /** The integrations this bucket shows, in the order it shows them. */
 export function shownFor(bucket: Bucket, data: Data): Integration[] {
-  const { integrations, membership, order } = data;
+  const { integrations, membership, order, deployed } = data;
   if (bucket === "all") return integrations;
+  if (bucket === "running") {
+    return integrations.filter((i) => deployed.has(i.id));
+  }
   if (bucket === "unfiled") {
     return integrations.filter((i) => !membership.has(i.id));
   }
@@ -31,6 +34,17 @@ export function shownFor(bucket: Bucket, data: Data): Integration[] {
       (pos.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
       (pos.get(b.id) ?? Number.MAX_SAFE_INTEGER),
   );
+}
+
+/**
+ * How many integrations have something deployed.
+ *
+ * Counted over the integration list rather than over the deployed set, so an id
+ * left behind by an integration deleted between two reads does not inflate a
+ * count of rows the middle column would then not show.
+ */
+export function runningCountOf(data: Data): number {
+  return data.integrations.filter((i) => data.deployed.has(i.id)).length;
 }
 
 /** How many integrations sit in no folder at all. */

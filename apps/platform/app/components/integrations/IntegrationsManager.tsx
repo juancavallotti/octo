@@ -87,6 +87,7 @@ export default function IntegrationsManager({
     shown,
     selected,
     selectedFolderId,
+    runningCount,
     unfiledCount,
     folderCount,
     createParent,
@@ -162,6 +163,7 @@ export default function IntegrationsManager({
             folders={flat}
             bucket={bucket}
             total={integrations.length}
+            runningCount={runningCount}
             unfiledCount={unfiledCount}
             folderCount={folderCount}
             nesting={createParent !== null}

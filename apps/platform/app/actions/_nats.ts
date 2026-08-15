@@ -17,6 +17,7 @@ import type {
   QueueDestination,
   QueueServerStats,
   QueueStats,
+  QueueSubscriber,
 } from "@/app/model/queues";
 
 /** The subset of NATS `/varz` we surface (snake_case as the broker emits it). */
@@ -35,7 +36,14 @@ interface Varz {
   subscriptions: number;
 }
 
-/** One subscription as NATS reports it under `?subs=detail`. */
+/**
+ * One subscription as NATS reports it under `?subs=detail`.
+ *
+ * `msgs` is the only per-subject counter the broker gives: everything else on a
+ * connection (in/out messages and bytes, pending, subscription count) covers every
+ * subject that client touches. Keeping that distinction is what stops two subjects
+ * consumed by one client from reporting identical, meaningless numbers.
+ */
 interface SubDetail {
   subject: string;
   /** Queue-group name; present only for queue (load-balanced) subscriptions. */
@@ -104,10 +112,14 @@ function toConnections(c: Connz): QueueConnection[] {
 
 /**
  * Roll the per-connection subscription detail up into destinations: one row per
- * subject, carrying its subscriber/message totals and the full connections
- * consuming it (so expanding a destination shows the same per-connection stats the
- * old standalone table did). Internal subjects (reply inboxes, system) are dropped
- * — they aren't queues. `connections` indexes the full connection objects by cid.
+ * subject, carrying its subscription/message totals and the clients consuming it.
+ * Internal subjects (reply inboxes, system) are dropped — they aren't queues.
+ * `connections` indexes the full connection objects by cid.
+ *
+ * A subscriber carries only what is true of this subject — the subscriptions that
+ * client holds on it and the messages they were delivered. Its connection-wide
+ * totals stay on the connection, listed once each: attaching them to a subject was
+ * how two destinations consumed by one client came to report the same numbers.
  */
 function toDestinations(
   c: Connz,
@@ -115,7 +127,8 @@ function toDestinations(
 ): QueueDestination[] {
   const byCid = new Map(connections.map((conn) => [conn.cid, conn]));
   const bySubject = new Map<string, QueueDestination>();
-  const seen = new Map<string, Set<number>>();
+  // subject -> cid -> the subscriber row being accumulated for that pair.
+  const subscribers = new Map<string, Map<number, QueueSubscriber>>();
   for (const conn of c.connections) {
     for (const sub of conn.subscriptions_list_detail ?? []) {
       if (isInternalSubject(sub.subject)) continue;
@@ -127,21 +140,33 @@ function toDestinations(
           queue: sub.qgroup ?? null,
           deployment: m?.[1] ?? null,
           name: m?.[2] ?? sub.subject,
-          subscribers: 0,
+          subscriptions: 0,
           msgs: 0,
-          connections: [],
+          subscribers: [],
         };
         bySubject.set(sub.subject, dest);
-        seen.set(sub.subject, new Set());
+        subscribers.set(sub.subject, new Map());
       }
-      dest.subscribers += 1;
+      dest.subscriptions += 1;
       dest.msgs += sub.msgs;
-      const cids = seen.get(sub.subject)!;
+
       const full = byCid.get(conn.cid);
-      if (full && !cids.has(conn.cid)) {
-        cids.add(conn.cid);
-        dest.connections.push(full);
+      if (!full) continue;
+      const perCid = subscribers.get(sub.subject)!;
+      let row = perCid.get(conn.cid);
+      if (!row) {
+        row = {
+          cid: conn.cid,
+          name: full.name,
+          queue: sub.qgroup ?? null,
+          subscriptions: 0,
+          msgs: 0,
+        };
+        perCid.set(conn.cid, row);
+        dest.subscribers.push(row);
       }
+      row.subscriptions += 1;
+      row.msgs += sub.msgs;
     }
   }
   return [...bySubject.values()].sort((a, b) => a.name.localeCompare(b.name));
@@ -171,6 +196,7 @@ export async function getQueueStats(): Promise<ActionResult<QueueStats>> {
     ok: true,
     data: {
       server: toServer(varz.data),
+      connections,
       destinations: toDestinations(connz.data, connections),
     },
   };

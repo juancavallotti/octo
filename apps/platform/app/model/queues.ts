@@ -46,13 +46,36 @@ export interface QueueConnection {
 }
 
 /**
+ * One connection's consumption of one destination.
+ *
+ * Only what is true of *this subject*. NATS reports at two levels and only one of
+ * them is per-subject: `msgs` is the subscription's own, while a connection's
+ * counters cover every subject that client touches. The latter live on
+ * QueueConnection and are listed once each, because a client subscribed to two
+ * subjects has one set of them, not two — repeating them under every subject was
+ * how two destinations came to show identical traffic. `cid` is what ties a row
+ * here to the connection it belongs to.
+ */
+export interface QueueSubscriber {
+  cid: number;
+  /** Client-supplied name, from the connection. */
+  name: string;
+  /** Queue group these subscriptions joined, when they are queue subscriptions. */
+  queue: string | null;
+  /** How many subscriptions this connection holds on this subject. */
+  subscriptions: number;
+  /** Messages delivered to them — the only per-subject counter NATS reports. */
+  msgs: number;
+}
+
+/**
  * A queue destination: a subject that one or more clients consume from, derived
  * from the broker's per-subscription detail. The platform scopes its queues as
  * `octo.<deployment>.q.<name>` and queue-subscribes on that same string, so for
  * platform queues `name`/`deployment` carry the readable parts and `queue` is set;
  * other (non-internal) subjects pass through with `name` = the raw subject. The
- * consuming connections (with their full stats) hang off `connections`, revealed
- * when the destination is expanded.
+ * consuming clients hang off `subscribers`, revealed when the destination is
+ * expanded.
  */
 export interface QueueDestination {
   /** The raw NATS subject (and, for platform queues, the queue-group name). */
@@ -64,19 +87,26 @@ export interface QueueDestination {
   /** Readable queue name (the user subject) for platform queues, else the subject. */
   name: string;
   /** Total subscriptions on this destination across all connections. */
-  subscribers: number;
+  subscriptions: number;
   /** Total messages delivered across those subscriptions. */
   msgs: number;
-  /** The connections consuming from this destination, with their full stats. */
-  connections: QueueConnection[];
+  /** The clients consuming from this destination, one entry per connection. */
+  subscribers: QueueSubscriber[];
 }
 
 /**
- * A single monitoring snapshot: broker totals and the queue destinations clients
- * consume from (each carrying its consuming connections).
+ * A single monitoring snapshot, at the three levels the broker reports and in the
+ * order they narrow: the whole server, then each open client, then each subject.
+ *
+ * They are separate fields rather than one merged shape because every counter
+ * belongs to exactly one of the three, and a number shown at the wrong level is
+ * read as disagreeing with the level above it — a client's `outMsgs` sitting under
+ * a subject looks like the server's `outMsgs` failing to add up.
  */
 export interface QueueStats {
   server: QueueServerStats;
+  /** Every open client connection, once each, with its own totals. */
+  connections: QueueConnection[];
   destinations: QueueDestination[];
 }
 

@@ -5,15 +5,17 @@ import {
   Clock,
   GitBranch,
   RotateCcw,
-  Tag,
   Trash2,
-  Waypoints,
 } from "lucide-react";
 import type { Deployment } from "@/app/model/orchestrator";
 import ReplicaStepper from "./ReplicaStepper";
 import { relativeAge } from "@/app/lib/relativeAge";
 import { totalRestarts } from "./podStats";
-import { AddressLine, StatusBadge } from "./DeploymentRowParts";
+import {
+  AddressLine,
+  DeploymentPills,
+  StatusBadge,
+} from "./DeploymentRowParts";
 import PodList from "./PodList";
 
 /**
@@ -22,6 +24,12 @@ import PodList from "./PodList";
  * Undeploy action, then clearly-labelled External/Internal address lines and the
  * failure reason when failed. Split out of DeploymentsSection to keep that
  * component focused on data/actions.
+ *
+ * The version and tracing pills sit on their own line under the header rather
+ * than inside it. The header is a fixed set of controls whose widths are known;
+ * the pills are two variable-width labels, and threading them through the middle
+ * pushed the numbers and actions around by however long a version tag happened
+ * to be.
  */
 
 export default function DeploymentRow({
@@ -57,24 +65,6 @@ export default function DeploymentRow({
         <span className="font-mono text-xs text-zinc-500">
           {d.id.slice(0, 8)}
         </span>
-        {d.tag && (
-          <span
-            className="inline-flex items-center gap-1 rounded-full bg-sky-500/15 px-2 py-0.5 text-xs font-medium text-sky-600 dark:text-sky-400"
-            title={`Version ${d.tag}`}
-          >
-            <Tag size={10} />
-            {d.tag}
-          </span>
-        )}
-        {d.tracing && (
-          <span
-            className="inline-flex items-center gap-1 rounded-full bg-violet-500/15 px-2 py-0.5 text-xs font-medium text-violet-600 dark:text-violet-400"
-            title="Tracing is on for this deployment — every flow, block and model call is recorded"
-          >
-            <Waypoints size={10} />
-            Traced
-          </span>
-        )}
         <ReplicaStepper
           desired={desired}
           busy={busy}
@@ -128,6 +118,8 @@ export default function DeploymentRow({
           </button>
         </div>
       </div>
+
+      <DeploymentPills tag={d.tag} tracing={d.tracing} className="mt-1.5" />
 
       {d.reason && (
         <div className="mt-1.5 flex items-start gap-1 text-xs text-red-500">

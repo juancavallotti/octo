@@ -418,8 +418,8 @@ func TestInstallCreatesTheIntegrationItsSkillsATagAndADeployment(t *testing.T) {
 	}
 }
 
-// The version tag is derived from the bundle, so re-installing the same binary
-// finds the tag it already made rather than failing on an immutable one.
+// The version tag names the release, so re-installing the same binary finds the
+// version it already published rather than failing on an immutable tag.
 func TestInstallIsIdempotent(t *testing.T) {
 	h := newHarness(t, true)
 	ctx := context.Background()
@@ -444,7 +444,7 @@ func TestInstallIsIdempotent(t *testing.T) {
 	}
 }
 
-func TestInstallTagsFromTheBundleDigest(t *testing.T) {
+func TestInstallTagsWithTheRelease(t *testing.T) {
 	h := newHarness(t, true)
 
 	got, err := h.svc.Install(context.Background(), "")
@@ -452,12 +452,47 @@ func TestInstallTagsFromTheBundleDigest(t *testing.T) {
 		t.Fatalf("Install: %v", err)
 	}
 
+	if got.InstalledTag != agentapp.Tag() {
+		t.Errorf("tag = %q, want the release tag %q", got.InstalledTag, agentapp.Tag())
+	}
+}
+
+// The tag names the release and the release does not move between builds, so a
+// development binary can carry a changed bundle under a version that is already
+// published. Reusing that version would deploy the older snapshot while the row
+// recorded the newer digest — a roll-out that reports success and changes nothing.
+func TestInstallPublishesBesideAReleaseTagHoldingAnotherBundle(t *testing.T) {
+	h := newHarness(t, true)
+	ctx := context.Background()
+
+	if _, err := h.svc.Install(ctx, "user-1"); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	released := h.repo.row.SnapshotID
+	before := len(h.snapshots.items)
+
+	// Stand in for a binary built after that install with the bundle changed: the
+	// release's tag is there, published by something that is not the bundle in hand.
+	h.repo.row.InstalledDigest = "a-different-bundle"
+
+	got, err := h.svc.Install(ctx, "user-1")
+	if err != nil {
+		t.Fatalf("second Install: %v", err)
+	}
+
 	digest, err := agentapp.Digest()
 	if err != nil {
 		t.Fatalf("Digest: %v", err)
 	}
-	if got.InstalledTag != agentapp.Tag(digest) {
-		t.Errorf("tag = %q, want %q", got.InstalledTag, agentapp.Tag(digest))
+	if got.InstalledTag != agentapp.BuildTag(digest) {
+		t.Errorf("tag = %q, want the build tag %q beside the release's",
+			got.InstalledTag, agentapp.BuildTag(digest))
+	}
+	if len(h.snapshots.items) != before+1 {
+		t.Errorf("snapshots = %d, want one added (%d)", len(h.snapshots.items), before+1)
+	}
+	if h.repo.row.SnapshotID == released {
+		t.Error("want a new snapshot deployed, not the one the release tag already held")
 	}
 }
 

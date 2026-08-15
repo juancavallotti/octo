@@ -16,8 +16,13 @@ export function flatten(folders: Folder[], depth = 0): FlatFolder[] {
   ]);
 }
 
-/** Which bucket of integrations the middle column shows. */
-export type Bucket = "all" | "unfiled" | { folder: string };
+/**
+ * Which bucket of integrations the middle column shows.
+ *
+ * "running" is derived rather than filed: it is every integration with something
+ * deployed, so nothing can be dragged into or out of it.
+ */
+export type Bucket = "all" | "running" | "unfiled" | { folder: string };
 
 /** Whether `bucket` is the given folder. */
 export function isFolderBucket(bucket: Bucket, id: string): boolean {

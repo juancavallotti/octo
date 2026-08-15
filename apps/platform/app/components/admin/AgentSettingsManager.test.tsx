@@ -31,7 +31,7 @@ const DEPLOYED: AgentStatus = {
   integrationId: "int-1",
   deploymentId: "dep-1",
   internalUrl: "http://octo-int-dr-octo:8080",
-  installedTag: "agent-abc123def456",
+  installedTag: "v0.8.1",
   updateAvailable: false,
   edited: false,
   tracing: false,

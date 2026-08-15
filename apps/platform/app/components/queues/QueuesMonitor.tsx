@@ -1,10 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Network, RefreshCw } from "lucide-react";
+import {
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  Download,
+  History,
+  Layers,
+  Network,
+  Plug,
+  RefreshCw,
+  TriangleAlert,
+  Upload,
+} from "lucide-react";
 import { EmptyState } from "@/app/(session)/platform/DashboardTiles";
 import { listQueueStats, type QueueStats } from "@/app/model/queues";
-import { Stat, bytes, num } from "./QueueViews";
+import { ConnectionsTable, Stat, bytes, num } from "./QueueViews";
 import QueueDestinations from "./QueueDestinations";
 
 /** How often to re-poll the broker snapshot. SSE isn't warranted for a counter. */
@@ -94,20 +105,43 @@ export default function QueuesMonitor() {
         ) : (
           <>
             <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-              <Stat label="Connections" value={num(stats.server.connections)} />
               <Stat
+                icon={Plug}
+                label="Connections"
+                value={num(stats.server.connections)}
+              />
+              <Stat
+                icon={Layers}
                 label="Subscriptions"
                 value={num(stats.server.subscriptions)}
               />
-              <Stat label="Messages in" value={num(stats.server.inMsgs)} />
-              <Stat label="Messages out" value={num(stats.server.outMsgs)} />
-              <Stat label="Data in" value={bytes(stats.server.inBytes)} />
-              <Stat label="Data out" value={bytes(stats.server.outBytes)} />
               <Stat
+                icon={ArrowDownToLine}
+                label="Messages in"
+                value={num(stats.server.inMsgs)}
+              />
+              <Stat
+                icon={ArrowUpFromLine}
+                label="Messages out"
+                value={num(stats.server.outMsgs)}
+              />
+              <Stat
+                icon={Download}
+                label="Data in"
+                value={bytes(stats.server.inBytes)}
+              />
+              <Stat
+                icon={Upload}
+                label="Data out"
+                value={bytes(stats.server.outBytes)}
+              />
+              <Stat
+                icon={History}
                 label="Total connections"
                 value={num(stats.server.totalConnections)}
               />
               <Stat
+                icon={TriangleAlert}
                 label="Slow consumers"
                 value={num(stats.server.slowConsumers)}
                 alert={stats.server.slowConsumers > 0}
@@ -118,7 +152,8 @@ export default function QueuesMonitor() {
               Destinations
             </h2>
             <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-              Subjects clients consume from. Expand one to see its connections.
+              Subjects clients consume from. Expand one to see who consumes it
+              and how much of it each has taken.
             </p>
             <div className="mt-4">
               {stats.destinations.length === 0 ? (
@@ -129,6 +164,25 @@ export default function QueuesMonitor() {
                 />
               ) : (
                 <QueueDestinations destinations={stats.destinations} />
+              )}
+            </div>
+
+            <h2 className="mt-10 text-sm font-semibold uppercase tracking-wide text-zinc-400">
+              Connections
+            </h2>
+            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+              Each open client once, with the traffic that belongs to the client
+              rather than to any one subject. Counted from the broker&apos;s
+              side, so a client that only consumes publishes nothing — the
+              messages it received were published by another connection here.
+            </p>
+            <div className="mt-4">
+              {stats.connections.length === 0 ? (
+                <p className="text-sm text-zinc-400">
+                  No clients are connected right now.
+                </p>
+              ) : (
+                <ConnectionsTable connections={stats.connections} />
               )}
             </div>
           </>
