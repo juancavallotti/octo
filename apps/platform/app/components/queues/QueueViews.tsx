@@ -1,5 +1,6 @@
 "use client";
 
+import type { LucideIcon } from "lucide-react";
 import type { QueueSubscriber } from "@/app/model/queues";
 
 /** Group digits for readability; counts and byte values can run large. */
@@ -20,12 +21,20 @@ export function bytes(n: number): string {
   return `${v.toFixed(v >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
-/** One headline counter tile. */
+/**
+ * One headline counter tile.
+ *
+ * The icon carries the direction of the counter — in against out, live against
+ * lifetime — which is the distinction a reader scanning eight near-identical tiles
+ * has to make, and the one the labels alone make slowest.
+ */
 export function Stat({
+  icon: Icon,
   label,
   value,
   alert,
 }: {
+  icon: LucideIcon;
   label: string;
   value: string;
   /** Render the value in the alert color (e.g. nonzero slow consumers). */
@@ -33,7 +42,14 @@ export function Stat({
 }) {
   return (
     <div className="rounded-xl border border-black/10 bg-white/40 p-4 dark:border-white/10 dark:bg-zinc-900/30">
-      <div className="text-xs text-zinc-500 dark:text-zinc-400">{label}</div>
+      <div className="flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+        <Icon
+          size={13}
+          aria-hidden
+          className={`shrink-0 ${alert ? "text-red-500" : "text-zinc-400"}`}
+        />
+        <span className="truncate">{label}</span>
+      </div>
       <div
         className={`mt-1 text-lg font-semibold tabular-nums ${
           alert ? "text-red-500" : ""

@@ -1,7 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Network, RefreshCw } from "lucide-react";
+import {
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  Download,
+  History,
+  Layers,
+  Network,
+  Plug,
+  RefreshCw,
+  TriangleAlert,
+  Upload,
+} from "lucide-react";
 import { EmptyState } from "@/app/(session)/platform/DashboardTiles";
 import { listQueueStats, type QueueStats } from "@/app/model/queues";
 import { Stat, bytes, num } from "./QueueViews";
@@ -94,20 +105,43 @@ export default function QueuesMonitor() {
         ) : (
           <>
             <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-              <Stat label="Connections" value={num(stats.server.connections)} />
               <Stat
+                icon={Plug}
+                label="Connections"
+                value={num(stats.server.connections)}
+              />
+              <Stat
+                icon={Layers}
                 label="Subscriptions"
                 value={num(stats.server.subscriptions)}
               />
-              <Stat label="Messages in" value={num(stats.server.inMsgs)} />
-              <Stat label="Messages out" value={num(stats.server.outMsgs)} />
-              <Stat label="Data in" value={bytes(stats.server.inBytes)} />
-              <Stat label="Data out" value={bytes(stats.server.outBytes)} />
               <Stat
+                icon={ArrowDownToLine}
+                label="Messages in"
+                value={num(stats.server.inMsgs)}
+              />
+              <Stat
+                icon={ArrowUpFromLine}
+                label="Messages out"
+                value={num(stats.server.outMsgs)}
+              />
+              <Stat
+                icon={Download}
+                label="Data in"
+                value={bytes(stats.server.inBytes)}
+              />
+              <Stat
+                icon={Upload}
+                label="Data out"
+                value={bytes(stats.server.outBytes)}
+              />
+              <Stat
+                icon={History}
                 label="Total connections"
                 value={num(stats.server.totalConnections)}
               />
               <Stat
+                icon={TriangleAlert}
                 label="Slow consumers"
                 value={num(stats.server.slowConsumers)}
                 alert={stats.server.slowConsumers > 0}
