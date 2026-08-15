@@ -336,3 +336,42 @@ func TestCLIRunDynamicProgram(t *testing.T) {
 		}
 	}
 }
+
+// TestCLIRunCollectsOutputWhileWatchingIt is the regression for a block that
+// reported "lines: 18" alongside an empty stdout.
+//
+// The events path is an observer: it reports on the run without taking part in
+// it. Buffering used to be skipped whenever a handler existed, so watching the
+// output quietly consumed it — and an EMPTY events path, which does nothing at
+// all, was enough to trigger it. Both shapes are covered here because the empty
+// one is a real configuration: an author who wants the block and not the
+// streaming.
+func TestCLIRunCollectsOutputWhileWatchingIt(t *testing.T) {
+	requireProgram(t, catPath)
+
+	cases := map[string]*types.FlowConfig{
+		"no events path":       nil,
+		"an empty events path": {Process: nil},
+		"an events path that does something": {
+			Process: []types.BlockConfig{
+				toolBranch("noop", "", types.Settings{"result": `{}`}).Process[0],
+			},
+		},
+	}
+	for name, events := range cases {
+		t.Run(name, func(t *testing.T) {
+			cfg := cliConfig()
+			cfg.Events = events
+			body := runCLI(t, buildCLI(t, cfg), "one\ntwo\nthree\n")
+
+			if body["lines"] != 3 {
+				t.Errorf("lines = %v, want 3", body["lines"])
+			}
+			// The claim: a line count and the output it counted always agree.
+			if body["stdout"] != "one\ntwo\nthree\n" {
+				t.Errorf("stdout = %q, want the command's output regardless of the events path",
+					body["stdout"])
+			}
+		})
+	}
+}

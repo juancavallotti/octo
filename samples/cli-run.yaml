@@ -64,9 +64,9 @@ flows:
                 # body.type is the event: "stdout", "stderr", or "exit".
                 message: 'body.type == "exit" ? "exited " + string(body.exitCode) : body.text'
 
-      # The chain carries on with how the command ended. stdout and stderr are
-      # empty here because the events path above streamed them — a caller that
-      # watched every line should not be charged for a second copy.
+      # The chain carries on with how the command ended, output included. The
+      # events path above is an observer: watching the lines go by does not
+      # consume them, so body.stdout is here whether or not anything watched.
       - type: set-payload
         name: report
         settings:

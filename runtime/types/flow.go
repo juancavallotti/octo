@@ -237,8 +237,10 @@ type BlockConfig struct {
 	// duration string ("30s"). A command holds a flow worker for as long as it
 	// runs, so there is no unbounded option; empty applies the block's default.
 	Timeout string `yaml:"timeout,omitempty"`
-	// MaxOutputBytes caps the output a "cli-run" captures when nothing is
-	// streaming it. It is ignored when an Events path is set, which never buffers.
+	// MaxOutputBytes caps the output a "cli-run" captures onto its result. It
+	// applies whether or not an Events path is watching, since watching output
+	// does not consume it. Lines still counts everything the command produced, so
+	// a capture cut short by this cap is visible rather than silent.
 	MaxOutputBytes int64 `yaml:"maxOutputBytes,omitempty"`
 	// OnExit is what a "cli-run" does with a non-zero exit status: "fail" (the
 	// default) errors the block so the flow's error chain sees it, "continue"

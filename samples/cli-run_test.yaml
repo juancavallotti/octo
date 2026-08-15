@@ -17,6 +17,29 @@ cases:
     expect:
       body: { ok: true, exitCode: 0, lines: 3 }
 
+  # The events path is an observer: watching the lines go by must not consume
+  # them. A block that reported a line count with no output to match was
+  # contradicting itself, and an EMPTY events path was enough to cause it.
+  #
+  # `report` replaces the body, so the claim is checked on what cli-run handed
+  # it — which is the block's actual output.
+  - name: the output is collected even though the events path watched it
+    input:
+      data: { text: "one\ntwo\nthree\n" }
+    expect:
+      that:
+        - 'body.lines == 3'
+    spies:
+      echo.report:
+        count: 1
+        records:
+          - input:
+              body:
+                exitCode: 0
+                lines: 3
+                stdout: "one\ntwo\nthree\n"
+                stderr: ""
+
   # The events path saw every line, in order, plus the terminal exit event.
   - name: the events path sees each line and then the exit
     input:

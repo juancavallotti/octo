@@ -388,8 +388,8 @@ type cliRunMeta struct {
 	// How long the command may run before it is killed. A command holds a flow
 	// worker for as long as it runs, so there is no unbounded option.
 	Timeout string `json:"timeout" octo:"label=Timeout,type=string,default=30s"`
-	// Cap on captured output. Ignored when an events path is set, since streaming
-	// never buffers.
+	// Cap on captured output. It applies whether or not an events path is
+	// watching: watching the lines go by does not consume them.
 	MaxOutputBytes int64 `json:"maxOutputBytes" octo:"label=Max output bytes,type=number,default=1048576"`
 	// What a non-zero exit means: fail the block so the error path sees it, or
 	// carry on and let a later block decide on body.exitCode.

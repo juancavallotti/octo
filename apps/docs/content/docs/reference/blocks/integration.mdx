@@ -148,9 +148,11 @@ Rules worth knowing:
 
 ### Output
 
-The chain carries on with a body of `{exitCode, stdout, stderr, lines}`. When an
-`events` path is set it streams the output instead, so `stdout` and `stderr`
-come back empty — a caller that saw every line is not charged for a second copy.
+The chain carries on with a body of `{exitCode, stdout, stderr, lines}`. The
+output is captured whether or not an `events` path watched it go by: the path is
+an observer, and watching is not consuming. `maxOutputBytes` caps what is kept,
+while `lines` always counts everything the command produced — so a truncated
+capture is visible rather than silent.
 
 Each event's body is `{type, text, index}` for `stdout`/`stderr`, and
 `{type: "exit", exitCode, lines}` at the end. The exit event **always** fires,

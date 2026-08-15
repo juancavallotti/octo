@@ -320,9 +320,9 @@ func (c *cliRun) evalProgram(msg *types.Message) (string, error) {
 	return resolved, nil
 }
 
-// lineHandler returns the per-line callback, or nil when nothing is watching —
-// which is what puts the command back into buffering mode and costs the run
-// nothing.
+// lineHandler returns the per-line callback, or nil when nothing is watching, in
+// which case the run costs nothing extra. Either way the output is captured; this
+// only decides whether anyone hears about it while the command is still going.
 func (c *cliRun) lineHandler(ctx context.Context, msg *types.Message) func(commandLine) error {
 	if c.events == nil {
 		return nil
@@ -360,9 +360,11 @@ func (c *cliRun) emitExit(ctx context.Context, msg *types.Message, result *comma
 	})
 }
 
-// cliResultBody is what the rest of the flow carries on with. stdout and stderr
-// are present but empty when an events path streamed them, since the caller has
-// already seen every line.
+// cliResultBody is what the rest of the flow carries on with.
+//
+// stdout and stderr are filled whether or not an events path watched the lines go
+// by. Watching is an observation, not a consumption, and a block that reported
+// "lines: 18" alongside an empty stdout was contradicting itself on its face.
 func cliResultBody(result *commandResult) map[string]any {
 	return map[string]any{
 		"exitCode": result.exitCode,

@@ -31,8 +31,8 @@ const (
 // worth offering.
 const defaultCommandTimeout = 30 * time.Second
 
-// defaultMaxOutputBytes caps captured output when nothing is streaming it, so a
-// chatty program cannot grow the runtime's heap without bound.
+// defaultMaxOutputBytes caps captured output, so a chatty program cannot grow the
+// runtime's heap without bound.
 const defaultMaxOutputBytes int64 = 1 << 20
 
 // maxLineBytes caps one line of output. bufio.Scanner's own default is 64 KiB and
@@ -121,9 +121,9 @@ type commandResult struct {
 	// exitCode is the process's exit status: 0 for success, and non-zero for a
 	// failure, a signal, or the timeout, the way a shell would report it.
 	exitCode int
-	// stdout and stderr hold the captured output, and are populated only when no
-	// line handler was given. A caller that streamed has already seen every line,
-	// and buffering a second copy would be paying twice for it.
+	// stdout and stderr hold the captured output, up to the configured cap. They
+	// are filled whether or not anything watched the lines go by: the events path
+	// is an observer, so watching output must not consume it.
 	stdout string
 	stderr string
 	// lines counts the output lines produced, streamed or buffered.
@@ -141,7 +141,7 @@ type command struct {
 }
 
 // run executes the program with these arguments, reporting each output line to on
-// as it is read. A nil on buffers the output onto the result instead.
+// as it is read. The output is captured on the result either way.
 //
 // on is called on the calling goroutine, in order, between reads of the process's
 // pipes — so a slow handler backpressures the child rather than buffering without
@@ -201,9 +201,7 @@ func runCommand(
 	wg.Wait()
 
 	result := &commandResult{lines: sink.count()}
-	if on == nil {
-		result.stdout, result.stderr = sink.buffered()
-	}
+	result.stdout, result.stderr = sink.buffered()
 	if result.exitCode, err = waitFor(cmd); err != nil {
 		return nil, err
 	}
@@ -244,8 +242,14 @@ func commandEnv(names []string) []string {
 	return env
 }
 
-// lineSink turns the two pipes into lines, either handing them to the caller as
-// they arrive or buffering them.
+// lineSink turns the two pipes into lines: buffering every one, and handing it to
+// the caller as it arrives when there is a caller to hand it to.
+//
+// It does both rather than choosing, because they answer different questions. The
+// handler is how a line reaches a watcher WHILE the command runs; the buffer is
+// what the rest of the flow reads AFTER it ends. Making the second conditional on
+// the first is what once made a block with an events path report a line count and
+// no output — the watcher had quietly eaten it.
 //
 // Both pumps share it under one mutex, which does double duty: it keeps the index
 // and the buffers consistent, and it serializes the handler, so on is called one
@@ -278,7 +282,7 @@ func (s *lineSink) pump(stream string, r io.Reader) {
 	}
 }
 
-// add reports one line, or records it, and stops calling the handler once one has
+// add records one line and reports it, and stops calling the handler once one has
 // failed.
 func (s *lineSink) add(stream, text string) {
 	s.mu.Lock()
@@ -286,12 +290,12 @@ func (s *lineSink) add(stream, text string) {
 
 	line := commandLine{stream: stream, text: text, index: s.index}
 	s.index++
+	s.buffer(stream, text)
 
-	if s.on == nil {
-		s.buffer(stream, text)
-		return
-	}
-	if s.handler != nil {
+	// A handler that has already failed is not called again: it asked to stop.
+	// The buffering above continues regardless, so the flow still sees whatever
+	// the command produced before it was told nobody was listening.
+	if s.on == nil || s.handler != nil {
 		return
 	}
 	if err := s.on(line); err != nil {
@@ -301,7 +305,7 @@ func (s *lineSink) add(stream, text string) {
 
 // buffer appends a line to the captured output, up to the cap. Past it output is
 // dropped rather than growing the heap; the line count still reflects everything
-// the command produced.
+// the command produced, so a truncated capture is visible rather than silent.
 func (s *lineSink) buffer(stream, text string) {
 	if s.written >= s.max {
 		return
