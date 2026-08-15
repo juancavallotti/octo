@@ -280,3 +280,19 @@ func TestCLIRunDynamicProgram(t *testing.T) {
 		}
 	}
 }
+
+// TestCLIRunRejectsAConstantProgramTheAllowListOmits: a program that never
+// varies and is not on the list can never run. Left to the runtime check it
+// would build cleanly and then fail on every single message.
+func TestCLIRunRejectsAConstantProgramTheAllowListOmits(t *testing.T) {
+	requireProgram(t, catPath)
+	cfg := cliConfig()
+	cfg.Allow = []string{"/usr/bin/false"}
+	_, err := newCLIBuilder().block(cfg)
+	if err == nil {
+		t.Fatal("a constant program outside the allow list should fail the build")
+	}
+	if !strings.Contains(err.Error(), "could never run") {
+		t.Errorf("error %q should say why", err)
+	}
+}

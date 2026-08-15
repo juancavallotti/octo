@@ -129,10 +129,10 @@ func buildCommand(cfg types.BlockConfig) (*command, error) {
 func buildAllowList(
 	cfg types.BlockConfig, program *expr.Program, env map[string]any,
 ) (map[string]bool, error) {
+	constant, isConstant := constantProgram(program, env)
 	allow := cfg.Allow
 	if len(allow) == 0 {
-		constant, ok := constantProgram(program, env)
-		if !ok {
+		if !isConstant {
 			return nil, errors.New(
 				"cli-run program depends on the message, so it requires an allow list naming every " +
 					"program this block may run: that list is the only thing deciding what a caller " +
@@ -147,6 +147,14 @@ func buildAllowList(
 			return nil, fmt.Errorf("cli-run: %w", err)
 		}
 		allowed[entry] = true
+	}
+	// A program that never varies and is not on the list can never run, so say so
+	// now. Left to the runtime check it would build cleanly and then fail on every
+	// single message, which is the failure this file exists to move to startup.
+	if isConstant && !allowed[constant] {
+		return nil, fmt.Errorf(
+			"cli-run program is always %q, which the allow list does not include: it could never run",
+			constant)
 	}
 	return allowed, nil
 }

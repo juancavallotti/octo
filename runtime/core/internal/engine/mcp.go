@@ -548,7 +548,11 @@ func (m *mcpRouter) readResource(ctx context.Context, req jsonrpcRequest, msg *t
 	if !ok {
 		return errorResponse(req.ID, jsonrpcInvalidParams, fmt.Sprintf("unknown resource %q", params.URI))
 	}
-	text, err := m.render(ctx, res.resource, m.resourceMessage(msg, values))
+	target, err := m.resourceMessage(msg, values)
+	if err != nil {
+		return errorResponse(req.ID, jsonrpcInternalError, fmt.Sprintf("read resource %q: %v", params.URI, err))
+	}
+	text, err := m.render(ctx, res.resource, target)
 	if err != nil {
 		return errorResponse(req.ID, jsonrpcInternalError, fmt.Sprintf("read resource %q: %v", params.URI, err))
 	}
@@ -588,22 +592,25 @@ func (m *mcpRouter) matchResource(uri string) (mcpResource, map[string]any, bool
 //
 // A resource with no template variables renders against the request message
 // untouched, which is what it has always done.
-func (m *mcpRouter) resourceMessage(msg *types.Message, values map[string]any) *types.Message {
+func (m *mcpRouter) resourceMessage(msg *types.Message, values map[string]any) (*types.Message, error) {
 	if len(values) == 0 {
-		return msg
+		return msg, nil
 	}
 	// Carrying the variables over rather than cloning is the same trade the agent
 	// events path makes: the body is being replaced anyway, so deep-copying it
 	// first would be work thrown away.
 	out, err := types.NewMessage(msg.CorrelationID)
 	if err != nil {
-		return msg
+		// Falling back to the request message would render the resource against
+		// the JSON-RPC envelope instead of the extracted variables, and answer 200
+		// with content built from the wrong data. An error is the honest reply.
+		return nil, err
 	}
 	for name, v := range msg.Variables {
 		out.Variables.Set(name, v)
 	}
 	out.Body = values
-	return out
+	return out, nil
 }
 
 // promptList advertises the configured prompts and their argument metadata.
