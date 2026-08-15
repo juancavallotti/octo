@@ -19,6 +19,8 @@ import (
 	"path"
 	"sort"
 	"strings"
+
+	"github.com/juancavallotti/octo/orchestrator/internal/version"
 )
 
 // bundleFS holds the app. config.yaml is named explicitly rather than matched by a
@@ -119,11 +121,26 @@ func DigestFiles(files map[string]string) string {
 	return hex.EncodeToString(sum.Sum(nil))
 }
 
-// Tag is the version tag a bundle is installed under: deterministic, so
-// re-installing the same bundle finds the tag it already created rather than
-// making a second one. Short enough to read, long enough not to collide.
-func Tag(digest string) string {
-	return "agent-" + shortDigest(digest)
+// Tag is the version tag a bundle is installed under: the octo release this
+// orchestrator was built from.
+//
+// The bundle ships inside this binary, so "which agent is this" and "which octo is
+// this" are one question, and the release answers it in the form every other
+// version on the platform is already written in. The content digest this replaced
+// was unique and told a reader nothing — it is still the identity the installer
+// compares (see Digest), which is the job it was actually doing.
+func Tag() string {
+	return "v" + version.Version
+}
+
+// BuildTag names a bundle that is not the one its release already published.
+//
+// Only a build made between releases can produce that: the version has not moved
+// but the app inside it has, so the release's tag is taken by different content.
+// Such a bundle is published beside that tag rather than under it — see the
+// installer's publishBundle, which is the only caller.
+func BuildTag(digest string) string {
+	return Tag() + "-" + shortDigest(digest)
 }
 
 // EditedTag is the version tag the *live* definition is frozen under before a
