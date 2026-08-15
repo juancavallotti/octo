@@ -1,0 +1,127 @@
+# Tests the front door: every request is authenticated by its HMAC signature
+# before anything else runs.
+#
+# Sources do not run under invoke, so each case seeds what the http source would
+# have produced:
+#   vars["X-Hub-Signature-256"], vars["X-GitHub-Event"] — the declared headers
+#   vars.rawBody  — the exact request bytes (the source's `rawBodyVar: rawBody`),
+#                   which is what the HMAC is computed over
+#   data          — the parsed payload, which is what body.* reads
+#
+# Unlike samples/slack-bot_test.yaml, this suite can test the ACCEPT path with a
+# real, committed signature — and so it pins the HMAC comparison itself, not just
+# "nothing unverifiable got past". GitHub's scheme signs the body alone with no
+# timestamp, so a signature written into this file never goes stale. Each one
+# below was produced by:
+#
+#   printf '%s' "$BODY" | openssl dgst -sha256 -hmac test-webhook-secret -r
+#
+# against GITHUB_WEBHOOK_SECRET in samples/.env.test. Edit a payload and its
+# signature stops matching, which is the point.
+flow: pull-request
+
+cases:
+  # --- accept: the real HMAC, over the real bytes ----------------------------
+  - name: a correctly signed pull request is accepted
+    input:
+      data:
+        action: opened
+        repository: { full_name: juancavallotti/octo }
+        pull_request: { number: 7 }
+      vars:
+        rawBody: '{"action":"opened","repository":{"full_name":"juancavallotti/octo"},"pull_request":{"number":7}}'
+        X-GitHub-Event: pull_request
+        X-Hub-Signature-256: sha256=f99008c3bd3687fe565d9748a083446b5d3c5521011a72d2f73ef49c359ebf31
+    expect:
+      body: { ok: true, pullRequest: 7, action: opened }
+
+  # --- reject: nothing gets past verify -------------------------------------
+  - name: an unsigned request is rejected and nothing downstream runs
+    input:
+      data:
+        action: opened
+        repository: { full_name: juancavallotti/octo }
+        pull_request: { number: 7 }
+      vars:
+        rawBody: '{"action":"opened","repository":{"full_name":"juancavallotti/octo"},"pull_request":{"number":7}}'
+        # No X-Hub-Signature-256 at all. This must be a 401, not a flow failure:
+        # reading an absent variable is an evaluation error, and an errored flow
+        # answers 500 — the one status a webhook sender retries for hours.
+        X-GitHub-Event: pull_request
+    expect:
+      that:
+        - 'vars.httpStatus == 401'
+    spies:
+      pull-request.known-repository: { count: 0 }
+      pull-request.supported-pull-request-event: { count: 0 }
+
+  - name: a wrong signature is rejected
+    input:
+      data:
+        action: opened
+        repository: { full_name: juancavallotti/octo }
+        pull_request: { number: 7 }
+      vars:
+        rawBody: '{"action":"opened","repository":{"full_name":"juancavallotti/octo"},"pull_request":{"number":7}}'
+        X-GitHub-Event: pull_request
+        X-Hub-Signature-256: sha256=0000000000000000000000000000000000000000000000000000000000000000
+    expect:
+      that:
+        - 'vars.httpStatus == 401'
+    spies:
+      pull-request.known-repository: { count: 0 }
+
+  # The signature covers the BYTES. A valid signature for one payload must not
+  # authenticate another — this is the case that would pass if the flow hashed a
+  # re-serialized body instead of the captured request bytes.
+  - name: a signature for a different payload does not authenticate this one
+    input:
+      data:
+        action: opened
+        repository: { full_name: juancavallotti/octo }
+        pull_request: { number: 7 }
+      vars:
+        rawBody: '{"action":"opened","repository":{"full_name":"juancavallotti/octo"},"pull_request":{"number":7}}'
+        X-GitHub-Event: pull_request
+        X-Hub-Signature-256: sha256=81d60fbd4d99871fdcd3adeda09911d109957c3e48cefd0a8c466cf82121c173
+    expect:
+      that:
+        - 'vars.httpStatus == 401'
+    spies:
+      pull-request.known-repository: { count: 0 }
+
+  # The prefix is compared as part of the signature rather than stripped from the
+  # incoming one, so a bare digest is not a valid signature.
+  - name: a signature missing its scheme prefix is rejected
+    input:
+      data:
+        action: opened
+        repository: { full_name: juancavallotti/octo }
+        pull_request: { number: 7 }
+      vars:
+        rawBody: '{"action":"opened","repository":{"full_name":"juancavallotti/octo"},"pull_request":{"number":7}}'
+        X-GitHub-Event: pull_request
+        X-Hub-Signature-256: f99008c3bd3687fe565d9748a083446b5d3c5521011a72d2f73ef49c359ebf31
+    expect:
+      that:
+        - 'vars.httpStatus == 401'
+
+  # Authentication and authorization are separate: this request really is from
+  # GitHub, and is still refused — with a different status, from a later block.
+  - name: a genuinely signed webhook for another repository is authorized away
+    input:
+      data:
+        action: opened
+        repository: { full_name: someone/else }
+        pull_request: { number: 7 }
+      vars:
+        rawBody: '{"action":"opened","repository":{"full_name":"someone/else"},"pull_request":{"number":7}}'
+        X-GitHub-Event: pull_request
+        X-Hub-Signature-256: sha256=81d60fbd4d99871fdcd3adeda09911d109957c3e48cefd0a8c466cf82121c173
+    expect:
+      that:
+        - 'vars.httpStatus == 403'
+    spies:
+      # verify passed — this is the block that refused it.
+      pull-request.known-repository: { count: 1 }
+      pull-request.supported-pull-request-event: { count: 0 }

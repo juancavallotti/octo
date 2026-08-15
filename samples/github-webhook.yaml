@@ -1,0 +1,109 @@
+service:
+  name: github-webhook
+
+# Authenticating a signed webhook with CEL, no provider-specific block involved.
+#
+# Every provider worth verifying signs some arrangement of the request with a
+# shared secret and puts the digest in a header. What differs between them is
+# only which bytes are signed, how the digest is rendered, and what prefixes it —
+# so three functions (hmacSha256, hexEncode, secureCompare) cover GitHub here and
+# Stripe, Shopify or Twilio with a different expression, no runtime release
+# needed. See the guide for those recipes.
+#
+# The control this replaces is worth naming: a webhook whose only protection is
+# an unguessable path is protected by a secret in a URL, and a URL lands in proxy
+# logs, in browser history, and in every redirect it passes through.
+#
+#   export GITHUB_WEBHOOK_SECRET=s3cr3t GITHUB_WEBHOOK_PATH=hook
+#   go run ./cli run -config ../samples/github-webhook.yaml
+#
+#   BODY='{"action":"opened","repository":{"full_name":"juancavallotti/octo"},"pull_request":{"number":7}}'
+#   SIG="sha256=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$GITHUB_WEBHOOK_SECRET" -r | cut -d' ' -f1)"
+#   curl -i localhost:8080/github/hook -H "X-GitHub-Event: pull_request" \
+#     -H "X-Hub-Signature-256: $SIG" -d "$BODY"          # 200
+#   curl -i localhost:8080/github/hook -H "X-GitHub-Event: pull_request" -d "$BODY"   # 401
+
+env:
+  - name: HTTP_PORT
+    default: "8080"
+  - name: GITHUB_WEBHOOK_PATH
+    required: true
+  - name: GITHUB_WEBHOOK_SECRET
+    required: true
+
+connectors:
+  - name: webhook
+    type: http
+    settings:
+      port: ${HTTP_PORT}
+
+flows:
+  - name: pull-request
+    source:
+      connector: webhook
+      type: http
+      settings:
+        path: /github/${GITHUB_WEBHOOK_PATH}
+        # Both of these are load-bearing.
+        #
+        # rawBodyVar captures the request bytes EXACTLY as they arrived. GitHub
+        # signs the body verbatim, and re-serializing the parsed JSON would
+        # reorder keys or drop whitespace — so a signature computed over
+        # `body` would never match, no matter how correct the HMAC was.
+        rawBodyVar: rawBody
+        # A header only reaches vars if the route copies it.
+        headers:
+          - X-Hub-Signature-256
+          - X-GitHub-Event
+          - X-GitHub-Delivery
+        correlationIdHeader: X-GitHub-Delivery
+    process:
+      # 1. Authenticate. Nothing below this line runs on an unsigned request.
+      #
+      # The prefix is compared as PART of the signature rather than stripped off
+      # the incoming one, so a request that omits it fails instead of passing.
+      #
+      # The `in` guard is not decoration. Reading a variable that is not there is
+      # an evaluation ERROR, which fails the flow — and a failed flow is a 500,
+      # which is the one answer a webhook sender will retry for hours. Guarding
+      # first turns "no signature" into a plain false, and a false here is a 401.
+      # (It has to be `in` rather than has(): has() takes a field selection, and
+      # a header name with dashes can only be reached as an index.)
+      - type: validate
+        name: verify-signature
+        rejectStatus: 401
+        rules:
+          - expr: >
+              "X-Hub-Signature-256" in vars &&
+              secureCompare(
+                vars["X-Hub-Signature-256"],
+                "sha256=" + hexEncode(hmacSha256(env.GITHUB_WEBHOOK_SECRET, vars.rawBody)))
+            message: invalid webhook signature
+
+      # 2. Only now is the payload worth reading. This check stays, and is a
+      #    different thing: authentication asked "did GitHub send this", this
+      #    asks "is it about a repository we act on".
+      - type: validate
+        name: known-repository
+        rejectStatus: 403
+        rules:
+          - expr: 'has(body.repository.full_name) && body.repository.full_name == "juancavallotti/octo"'
+            message: webhook repository is not juancavallotti/octo
+
+      - type: if
+        name: supported-pull-request-event
+        condition: >
+          vars["X-GitHub-Event"] == "pull_request" &&
+          body.action in ["opened", "reopened", "synchronize", "ready_for_review"]
+        then:
+          process:
+            - type: set-payload
+              name: accepted
+              settings:
+                value: '{"ok": true, "pullRequest": body.pull_request.number, "action": body.action}'
+        else:
+          process:
+            - type: set-payload
+              name: ignored
+              settings:
+                value: '{"ok": true, "ignored": true}'

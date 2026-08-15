@@ -52,7 +52,7 @@ source:
 
 ## Functions
 
-Octo registers five functions of its own. They are available in every message
+Octo registers nine functions of its own. They are available in every message
 expression, in every source payload, and inside a template's `{{ }}` spans —
 the three environments expose the same set, as do the [extension
 libraries](/reference/cel/libraries).
@@ -161,6 +161,115 @@ flows:
         settings:
           value: '{"subject": "Welcome!", "text": templateResource("welcome")}'
 ```
+
+## Verifying a webhook signature
+
+Four of the functions exist for one job: authenticating an inbound webhook.
+
+Every provider worth verifying — GitHub, Slack, Stripe, Notion, Shopify —
+signs some arrangement of the request with a shared secret and puts the digest
+in a header. What differs between them is only *which bytes are signed*, *how
+the digest is rendered*, and *what prefixes it*. All three are things an
+expression can already say, so these are primitives rather than a block per
+provider: a scheme nobody has implemented yet is a `validate` rule away.
+
+```yaml
+- type: validate
+  name: verify-signature
+  rejectStatus: 401
+  rules:
+    - expr: >
+        "X-Hub-Signature-256" in vars &&
+        secureCompare(
+          vars["X-Hub-Signature-256"],
+          "sha256=" + hexEncode(hmacSha256(env.GITHUB_WEBHOOK_SECRET, vars.rawBody)))
+      message: invalid webhook signature
+```
+
+Three things about that rule are load-bearing:
+
+- **`vars.rawBody` is the exact request bytes**, captured by the http source's
+  [`rawBodyVar`](/reference/connectors/http). A signature computed over the
+  parsed `body` would never match — re-serializing reorders keys and drops
+  whitespace.
+- **The prefix is compared as part of the signature**, not stripped from the
+  incoming one, so a request that omits it fails rather than passes.
+- **The `in` guard turns a missing header into a rejection, not a failure.**
+  Reading an absent variable is an evaluation error, which fails the flow and
+  answers `500` — the one status a webhook sender retries for hours. Guarded, it
+  is a plain `false`, and a `false` here is the `401` you wanted. (`has()` will
+  not do: it takes a field selection, and a header name with dashes can only be
+  reached as an index.)
+
+See [samples/github-webhook.yaml](https://github.com/juancavallotti/octo/blob/main/samples/github-webhook.yaml)
+for the whole flow. Other providers differ only in the expression:
+
+| Provider | Signed payload | Rendering |
+| --- | --- | --- |
+| GitHub | `vars.rawBody` | `"sha256=" + hexEncode(...)` |
+| Slack | `"v0:" + vars["X-Slack-Request-Timestamp"] + ":" + vars.rawBody` | `"v0=" + hexEncode(...)` |
+| Stripe | `<timestamp> + "." + vars.rawBody` | `hexEncode(...)`, from the compound `t=…,v1=…` header |
+| Shopify | `vars.rawBody` | `base64.encode(...)` |
+
+Slack and Stripe also bound replay by timestamp, which `now` already expresses —
+compare it against the request's timestamp before checking the HMAC. Slack and
+Notion additionally have dedicated blocks
+([`slack-verify-request`](/reference/connectors/slack),
+[`notion-verify-request`](/reference/connectors/notion)) that do all of this for
+you; reach for these functions when no block covers your provider.
+
+### hmacSha256
+
+```
+hmacSha256(dyn, dyn) -> bytes
+```
+
+The HMAC-SHA256 of a payload under a key, as raw bytes. Both arguments take a
+string or bytes. Rendering is a separate step, so the same function serves a hex
+scheme and a base64 one.
+
+```bash
+bin/octo eval --expr 'hexEncode(hmacSha256("key", "hello"))'
+```
+
+### hmacSha1
+
+```
+hmacSha1(dyn, dyn) -> bytes
+```
+
+The same, with SHA-1. It is here for legacy schemes that still sign with it —
+Twilio, and GitHub's older `X-Hub-Signature` — and should not be chosen for
+anything new.
+
+### hexEncode
+
+```
+hexEncode(dyn) -> string
+```
+
+Renders bytes as lowercase hex, the form most providers put in their signature
+header. For the ones that use base64, `base64.encode` from the
+[encoder library](/reference/cel/libraries) already applies.
+
+### secureCompare
+
+```
+secureCompare(dyn, dyn) -> bool
+```
+
+Compares two values without a content-dependent early return, and it is what
+makes the rest safe to offer.
+
+CEL's own `==` on strings stops at the first differing byte, and how long it took
+to stop is observable — which, over enough requests, is a way to learn the
+expected signature one byte at a time. `secureCompare` does not. It does not hide
+the lengths, which is fine: for a fixed-width digest they are equal anyway.
+
+<Callout type="warn">
+  Never compare a signature with `==`. Use `secureCompare` for anything an
+  attacker can submit repeatedly and observe the timing of.
+</Callout>
 
 <Callout type="warn">
   `templateResource` needs a loaded config to resolve resources, so it cannot
