@@ -169,7 +169,7 @@ POST, one response. It handles:
 
 | Method | Behavior |
 | --- | --- |
-| `initialize` | Reports capabilities (`tools`, `resources`, `prompts`) and `serverInfo`. Echoes the client's requested `protocolVersion`; defaults to `2024-11-05` when the client sends none. |
+| `initialize` | Reports `serverInfo` (the runtime's own release version) and negotiates the protocol version. Advertises only the capabilities the block actually declares — a router with tools but no prompts does not claim `prompts`. |
 | `ping` | Returns an empty result. |
 | `tools/list` | The declared tools with their JSON Schemas. |
 | `tools/call` | Routes to the matching tool branch. |
@@ -180,6 +180,29 @@ A request without an `id` is a JSON-RPC notification (clients send
 `notifications/initialized` after the handshake): the router acknowledges it
 with an empty `202` response instead of a JSON-RPC reply. Any other method
 returns a standard `-32601` method-not-found error.
+
+### Protocol version negotiation
+
+The router speaks `2024-11-05`, `2025-03-26` and `2025-06-18` — one
+implementation serves all three, because it covers the subset of the protocol
+that has not changed across them.
+
+Ask for one of those and you get it back. Ask for anything else and you get
+`2025-06-18`, the latest the router supports, rather than your own version
+echoed: echoing back a version the server has never heard of is a false
+agreement, and worse than a mismatch a client can detect and act on. Send no
+version at all and you get `2024-11-05` — a client that omits the field has not
+said what it can read, so the router does not guess upward.
+
+### Capabilities are advertised honestly
+
+`initialize` reports only what the block declares. A router with `tools` and no
+`prompts` does not advertise `prompts`, so a client never calls `prompts/list`
+on a server that has none.
+
+Neither `subscribe` nor `listChanged` is ever claimed. The router is stateless —
+one POST is one request and one response — so there is no channel to notify a
+client over, and the default for both is `false`.
 
 ## Test it with curl
 

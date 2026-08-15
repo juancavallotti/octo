@@ -12,12 +12,24 @@ import (
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
-// mcpProtocolVersion is the MCP protocol version the router reports when a client
-// does not request one in initialize.
-const mcpProtocolVersion = "2024-11-05"
-
-// mcpServerVersion is the version the router reports in its initialize serverInfo.
-const mcpServerVersion = "0.1.0"
+// The MCP protocol revisions this router speaks. One implementation serves all of
+// them: the router covers the subset — initialize, ping, tools, resources,
+// prompts — that has not changed across them.
+const (
+	// mcpProtocolVersion is what a client that names no version is answered with.
+	// It is deliberately the oldest supported rather than the newest: a client
+	// that omits the field has not told us what it can read, and the transport
+	// spec makes the same conservative assumption for a missing
+	// MCP-Protocol-Version header.
+	mcpProtocolVersion = "2024-11-05"
+	// mcpProtocolVersion2025March is supported but never chosen by the router
+	// itself; it is here so a client asking for it is answered in kind.
+	mcpProtocolVersion2025March = "2025-03-26"
+	// mcpLatestProtocolVersion is what a request for a version the router does not
+	// speak is answered with, per the spec's "respond with another protocol
+	// version it supports (SHOULD be the latest version supported by the server)".
+	mcpLatestProtocolVersion = "2025-06-18"
+)
 
 // defaultMCPServerName names the server when neither serverName nor the block
 // name is set.
@@ -245,27 +257,66 @@ func (m *mcpRouter) dispatch(ctx context.Context, req jsonrpcRequest, msg *types
 	}
 }
 
-// initialize reports the router's capabilities and server info, echoing the
-// client's requested protocol version when it supplies one.
+// initialize reports the router's capabilities and server info, on a protocol
+// version negotiated with the client.
 func (m *mcpRouter) initialize(req jsonrpcRequest) jsonrpcResponse {
-	version := mcpProtocolVersion
+	requested := ""
 	if len(req.Params) > 0 {
 		var params struct {
 			ProtocolVersion string `json:"protocolVersion"`
 		}
-		if json.Unmarshal(req.Params, &params) == nil && params.ProtocolVersion != "" {
-			version = params.ProtocolVersion
+		if json.Unmarshal(req.Params, &params) == nil {
+			requested = params.ProtocolVersion
 		}
 	}
 	return okResponse(req.ID, map[string]any{
-		"protocolVersion": version,
-		"capabilities": map[string]any{
-			"tools":     map[string]any{},
-			"resources": map[string]any{},
-			"prompts":   map[string]any{},
-		},
-		"serverInfo": map[string]any{mcpKeyName: m.serverName, "version": mcpServerVersion},
+		"protocolVersion": negotiateProtocolVersion(requested),
+		"capabilities":    m.capabilities(),
+		"serverInfo":      map[string]any{mcpKeyName: m.serverName, "version": core.Version},
 	})
+}
+
+// negotiateProtocolVersion answers with the client's own version when the router
+// speaks it, the conservative default when the client named none, and the latest
+// supported otherwise.
+//
+// The last case is the one that matters: echoing back a version the router has
+// never heard of — which is what it used to do — is a false agreement, and worse
+// than a mismatch. Answering with a version the router does speak lets a client
+// that cannot read it disconnect rather than proceed on the lie.
+func negotiateProtocolVersion(requested string) string {
+	switch requested {
+	case "":
+		return mcpProtocolVersion
+	case mcpProtocolVersion, mcpProtocolVersion2025March, mcpLatestProtocolVersion:
+		return requested
+	default:
+		return mcpLatestProtocolVersion
+	}
+}
+
+// capabilities reports only what this router can actually serve.
+//
+// Advertising a capability nothing is configured for is what sends a client to
+// prompts/list on a tools-only server, and then makes it log the error it gets
+// back. The builder already requires at least one of the three, so this is never
+// empty.
+//
+// Neither subscribe nor listChanged is claimed. The router is stateless — one
+// POST is one request and one response — so there is no channel to notify a
+// client over; the default for both is false, and omitting them says so.
+func (m *mcpRouter) capabilities() map[string]any {
+	caps := make(map[string]any)
+	if len(m.tools) > 0 {
+		caps["tools"] = map[string]any{}
+	}
+	if len(m.resources) > 0 {
+		caps["resources"] = map[string]any{}
+	}
+	if len(m.prompts) > 0 {
+		caps["prompts"] = map[string]any{}
+	}
+	return caps
 }
 
 // toolList advertises the tool flows with their JSON-Schema input.

@@ -95,11 +95,74 @@ func TestMCPRouterInitialize(t *testing.T) {
 	}
 }
 
+func TestMCPRouterInitializeReportsTheRuntimeVersion(t *testing.T) {
+	proc := mustBuildAI(t, agentRegistry(&[]any{}), depsRes(mcpResources()), mcpRouterConfig())
+	resp := mcpCall(t, proc, `{"jsonrpc":"2.0","id":1,"method":"initialize"}`)
+	info, ok := resultOf(t, resp)["serverInfo"].(map[string]any)
+	if !ok {
+		t.Fatalf("initialize has no serverInfo: %v", resp)
+	}
+	if info["version"] != core.Version {
+		t.Errorf("serverInfo.version = %v, want the runtime version %q", info["version"], core.Version)
+	}
+}
+
 func TestMCPRouterInitializeDefaultsVersion(t *testing.T) {
 	proc := mustBuildAI(t, agentRegistry(&[]any{}), depsRes(mcpResources()), mcpRouterConfig())
 	resp := mcpCall(t, proc, `{"jsonrpc":"2.0","id":1,"method":"initialize"}`)
 	if resultOf(t, resp)["protocolVersion"] != mcpProtocolVersion {
 		t.Errorf("protocolVersion should default when the client sends none")
+	}
+}
+
+// TestMCPRouterNegotiatesProtocolVersion covers the whole rule in one table: a
+// version the router speaks comes back unchanged, and anything else is answered
+// with one it does speak rather than echoed.
+func TestMCPRouterNegotiatesProtocolVersion(t *testing.T) {
+	cases := []struct {
+		name      string
+		requested string
+		want      string
+	}{
+		{"oldest supported is echoed", "2024-11-05", "2024-11-05"},
+		{"middle supported is echoed", "2025-03-26", "2025-03-26"},
+		{"latest supported is echoed", "2025-06-18", "2025-06-18"},
+		{"unknown future version falls back to the latest", "2099-01-01", mcpLatestProtocolVersion},
+		{"nonsense falls back to the latest", "not-a-version", mcpLatestProtocolVersion},
+		{"an empty version is the conservative default", "", mcpProtocolVersion},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := negotiateProtocolVersion(tc.requested); got != tc.want {
+				t.Errorf("negotiateProtocolVersion(%q) = %q, want %q", tc.requested, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestMCPRouterAdvertisesOnlyConfiguredCapabilities is the other half of the
+// contacts-mcp bug: a tools-only server used to advertise resources and prompts,
+// which is what sent clients to methods that could only answer empty.
+func TestMCPRouterAdvertisesOnlyConfiguredCapabilities(t *testing.T) {
+	cfg := types.BlockConfig{
+		Type: "mcp-router", Name: "tools-only",
+		Tools: []types.ToolConfig{
+			toolBranch("echo", "echoes a fixed result", types.Settings{"result": `{"echoed":true}`}),
+		},
+	}
+	proc := mustBuildAI(t, agentRegistry(&[]any{}), depsRes(mcpResources()), cfg)
+	resp := mcpCall(t, proc, `{"jsonrpc":"2.0","id":1,"method":"initialize"}`)
+	caps, ok := resultOf(t, resp)["capabilities"].(map[string]any)
+	if !ok {
+		t.Fatalf("initialize has no capabilities: %v", resp)
+	}
+	if _, ok := caps["tools"]; !ok {
+		t.Errorf("capabilities should advertise tools: %v", caps)
+	}
+	for _, key := range []string{"resources", "prompts"} {
+		if _, ok := caps[key]; ok {
+			t.Errorf("capabilities should not advertise %q on a tools-only router: %v", key, caps)
+		}
 	}
 }
 

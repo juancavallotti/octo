@@ -14,14 +14,36 @@ cases:
     input:
       data: { jsonrpc: "2.0", id: 1, method: initialize }
     expect:
-      # exact: the JSON-RPC envelope is the contract, id echoed included
-      body:
+      # Asserted by shape rather than as an exact body, because one field is not
+      # ours to pin: serverInfo.version is the runtime's own release version, so
+      # an exact match here would make every release break this suite.
+      that:
+        - 'body.jsonrpc == "2.0"'
+        - 'body.id == 1'
+        # A client that names no version gets the oldest the router speaks — it
+        # has not said what it can read, so the router does not guess upward.
+        - 'body.result.protocolVersion == "2024-11-05"'
+        - 'body.result.serverInfo.name == "weather-tools"'
+        - 'body.result.serverInfo.version.matches("^[0-9]+[.][0-9]+[.][0-9]+")'
+        # This sample declares tools, resources and prompts, so all three are
+        # advertised. A router missing one must not advertise it.
+        - 'has(body.result.capabilities.tools)'
+        - 'has(body.result.capabilities.resources)'
+        - 'has(body.result.capabilities.prompts)'
+
+  # Negotiation, not echo: a version the router has never heard of is answered
+  # with one it actually speaks, so a client that cannot read the answer can
+  # disconnect instead of proceeding on a false agreement.
+  - name: an unsupported protocol version is answered with the latest supported
+    input:
+      data:
         jsonrpc: "2.0"
         id: 1
-        result:
-          protocolVersion: "2024-11-05"
-          serverInfo: { name: weather-tools, version: "0.1.0" }
-          capabilities: { tools: {}, resources: {}, prompts: {} }
+        method: initialize
+        params: { protocolVersion: "2099-01-01" }
+    expect:
+      that:
+        - 'body.result.protocolVersion == "2025-06-18"'
 
   # A tool flow declared in the block becomes an MCP tool, schema and all — and
   # listing it must NOT execute it.
