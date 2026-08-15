@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   createSnapshot,
   listSnapshots,
@@ -41,17 +41,30 @@ export function useRollout(
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Which fetch the dialog is waiting on. Opening or closing invalidates the one
+  // before it, because the tags of a deployment nobody is looking at any more
+  // must not land in the dialog of the one they are: two integrations' versions
+  // are indistinguishable once they are in the picker, and rolling out to the
+  // wrong one would succeed.
+  const request = useRef(0);
 
   const open = useCallback((d: DeployedTile) => {
+    const mine = ++request.current;
     setError(null);
     setSnapshots([]);
     setTarget(d);
-    listSnapshots(d.integrationId).then(setSnapshots, (e) =>
-      setError((e as Error).message),
+    listSnapshots(d.integrationId).then(
+      (tags) => {
+        if (mine === request.current) setSnapshots(tags);
+      },
+      (e) => {
+        if (mine === request.current) setError((e as Error).message);
+      },
     );
   }, []);
 
   const close = useCallback(() => {
+    request.current += 1;
     setError(null);
     setTarget(null);
   }, []);
