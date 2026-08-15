@@ -682,11 +682,11 @@ func (b *builder) configureAgentEvents(block *aiAgent, cfg types.BlockConfig) er
 	if err != nil {
 		return fmt.Errorf("ai-agent events: %w", err)
 	}
-	kinds, err := emitKinds(cfg.Emit)
+	kinds, err := emitKinds(blockKindAIAgent, agentEventKinds, cfg.Emit)
 	if err != nil {
 		return err
 	}
-	block.events = &emitter{flow: flow, kinds: kinds}
+	block.events = &emitter{flow: flow, kinds: kinds, label: blockKindAIAgent}
 
 	if cfg.Stream {
 		if !block.caller.streams() {
