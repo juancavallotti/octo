@@ -46,13 +46,37 @@ export interface QueueConnection {
 }
 
 /**
+ * One connection's consumption of one destination.
+ *
+ * NATS reports at two levels and only one of them is per-subject: a connection's
+ * counters (`connection` below) cover every subject that client touches, while
+ * `msgs` is the subscription's own. A client subscribed to two subjects therefore
+ * carries the *same* connection totals under both, which is why they are kept
+ * apart here rather than flattened into one row of numbers that would read as
+ * though they described the subject.
+ */
+export interface QueueSubscriber {
+  cid: number;
+  /** Client-supplied name, from the connection. */
+  name: string;
+  /** Queue group these subscriptions joined, when they are queue subscriptions. */
+  queue: string | null;
+  /** How many subscriptions this connection holds on this subject. */
+  subscriptions: number;
+  /** Messages delivered to them — the only per-subject counter NATS reports. */
+  msgs: number;
+  /** The connection's own totals, across every subject it touches — not this one. */
+  connection: QueueConnection;
+}
+
+/**
  * A queue destination: a subject that one or more clients consume from, derived
  * from the broker's per-subscription detail. The platform scopes its queues as
  * `octo.<deployment>.q.<name>` and queue-subscribes on that same string, so for
  * platform queues `name`/`deployment` carry the readable parts and `queue` is set;
  * other (non-internal) subjects pass through with `name` = the raw subject. The
- * consuming connections (with their full stats) hang off `connections`, revealed
- * when the destination is expanded.
+ * consuming clients hang off `subscribers`, revealed when the destination is
+ * expanded.
  */
 export interface QueueDestination {
   /** The raw NATS subject (and, for platform queues, the queue-group name). */
@@ -64,11 +88,11 @@ export interface QueueDestination {
   /** Readable queue name (the user subject) for platform queues, else the subject. */
   name: string;
   /** Total subscriptions on this destination across all connections. */
-  subscribers: number;
+  subscriptions: number;
   /** Total messages delivered across those subscriptions. */
   msgs: number;
-  /** The connections consuming from this destination, with their full stats. */
-  connections: QueueConnection[];
+  /** The clients consuming from this destination, one entry per connection. */
+  subscribers: QueueSubscriber[];
 }
 
 /**

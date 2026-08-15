@@ -1,6 +1,6 @@
 "use client";
 
-import type { QueueConnection } from "@/app/model/queues";
+import type { QueueSubscriber } from "@/app/model/queues";
 
 /** Group digits for readability; counts and byte values can run large. */
 export function num(n: number): string {
@@ -45,54 +45,90 @@ export function Stat({
   );
 }
 
-/** The per-connection breakdown table. */
-export function ConnectionsTable({
-  connections,
+/**
+ * The clients consuming one destination.
+ *
+ * Split into two column groups, because the broker reports at two levels and only
+ * the first is about this subject: a subscription's messages are its own, while a
+ * connection's counters cover every subject that client touches. One client
+ * subscribed to two subjects shows identical connection totals under both — true,
+ * and misread as a bug for as long as the two sat under one header.
+ */
+export function SubscribersTable({
+  subscribers,
 }: {
-  connections: QueueConnection[];
+  subscribers: QueueSubscriber[];
 }) {
+  const th = "px-3 py-2 font-medium";
+  const thr = `${th} text-right`;
+  const td = "px-3 py-2 text-right tabular-nums";
   return (
     <div className="overflow-x-auto rounded-xl border border-black/10 dark:border-white/10">
       <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-black/10 text-left text-xs uppercase tracking-wide text-zinc-400 dark:border-white/10">
-            <th className="px-3 py-2 font-medium">CID</th>
-            <th className="px-3 py-2 font-medium">Name</th>
-            <th className="px-3 py-2 text-right font-medium">Subs</th>
-            <th className="px-3 py-2 text-right font-medium">Pending</th>
-            <th className="px-3 py-2 text-right font-medium">Msgs in</th>
-            <th className="px-3 py-2 text-right font-medium">Msgs out</th>
-            <th className="px-3 py-2 text-right font-medium">Data in</th>
-            <th className="px-3 py-2 text-right font-medium">Data out</th>
+        <thead className="text-xs uppercase tracking-wide text-zinc-400">
+          <tr className="border-b border-black/5 text-left dark:border-white/5">
+            <th className={th} colSpan={4}>
+              On this destination
+            </th>
+            <th
+              className={`${th} border-l border-black/10 dark:border-white/10`}
+              colSpan={5}
+              title="Counters for the whole client connection, across every subject it consumes — not just this one"
+            >
+              Connection totals (all subjects)
+            </th>
+          </tr>
+          <tr className="border-b border-black/10 text-left dark:border-white/10">
+            <th className={th}>CID</th>
+            <th className={th}>Name</th>
+            <th className={th}>Queue group</th>
+            <th className={thr}>Msgs</th>
+            <th
+              className={`${thr} border-l border-black/10 dark:border-white/10`}
+            >
+              Subs
+            </th>
+            <th className={thr}>Pending</th>
+            <th className={thr}>Msgs in</th>
+            <th className={thr}>Msgs out</th>
+            <th className={thr}>Data out</th>
           </tr>
         </thead>
         <tbody>
-          {connections.map((c) => (
+          {subscribers.map((s) => (
             <tr
-              key={c.cid}
+              key={s.cid}
               className="border-b border-black/5 last:border-0 dark:border-white/5"
             >
-              <td className="px-3 py-2 tabular-nums text-zinc-500">{c.cid}</td>
-              <td className="max-w-xs truncate px-3 py-2" title={c.name}>
-                {c.name || <span className="text-zinc-400">—</span>}
+              <td className="px-3 py-2 tabular-nums text-zinc-500">{s.cid}</td>
+              <td className="max-w-xs truncate px-3 py-2" title={s.name}>
+                {s.name || <span className="text-zinc-400">—</span>}
               </td>
-              <td className="px-3 py-2 text-right tabular-nums">
-                {num(c.subscriptions)}
+              <td className="max-w-xs truncate px-3 py-2" title={s.queue ?? ""}>
+                {s.queue ?? <span className="text-zinc-400">—</span>}
               </td>
-              <td className="px-3 py-2 text-right tabular-nums">
-                {bytes(c.pending)}
+              <td
+                className={td}
+                title={`over ${num(s.subscriptions)} subscription(s)`}
+              >
+                {num(s.msgs)}
               </td>
-              <td className="px-3 py-2 text-right tabular-nums">
-                {num(c.inMsgs)}
+              <td
+                className={`${td} border-l border-black/10 text-zinc-500 dark:border-white/10`}
+              >
+                {num(s.connection.subscriptions)}
               </td>
-              <td className="px-3 py-2 text-right tabular-nums">
-                {num(c.outMsgs)}
+              <td className={`${td} text-zinc-500`}>
+                {bytes(s.connection.pending)}
               </td>
-              <td className="px-3 py-2 text-right tabular-nums">
-                {bytes(c.inBytes)}
+              <td className={`${td} text-zinc-500`}>
+                {num(s.connection.inMsgs)}
               </td>
-              <td className="px-3 py-2 text-right tabular-nums">
-                {bytes(c.outBytes)}
+              <td className={`${td} text-zinc-500`}>
+                {num(s.connection.outMsgs)}
+              </td>
+              <td className={`${td} text-zinc-500`}>
+                {bytes(s.connection.outBytes)}
               </td>
             </tr>
           ))}
