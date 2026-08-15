@@ -5,41 +5,36 @@ import {
   AlertTriangle,
   Clock,
   ExternalLink,
+  GitBranch,
   Pencil,
-  RotateCcw,
   ScrollText,
   SlidersHorizontal,
-  Waypoints,
 } from "lucide-react";
-import type {
-  DeploymentStatus,
-  PodStatus,
-} from "@/app/model/orchestrator";
+import type { DeploymentStatus } from "@/app/model/orchestrator";
 import type { DeployedTile } from "@/app/(session)/platform/DashboardTiles";
 import ReplicaStepper from "@/app/components/integrations/ReplicaStepper";
+import { DeploymentPills } from "@/app/components/integrations/DeploymentRowParts";
 import { relativeAge } from "@/app/lib/relativeAge";
+import PodLines from "./PodLines";
 
 /**
  * One deployment in the deployments page's list (as opposed to the dashboard's
  * tile grid). Unlike the read-only tile, this row shows the live per-pod state and
- * lets you scale the deployment and jump to its logs in context — the management
- * actions the dedicated page is for. Scaling is delegated to the parent (which
- * performs the call and refreshes), mirroring the in-context DeploymentRow.
+ * carries the management actions the dedicated page is for: scale it, roll it over
+ * to another version (which is also where tracing is turned on and off), tail one
+ * pod's logs, or open the integration behind it. Every one of those is delegated
+ * to the parent, which performs the call and refreshes — mirroring the in-context
+ * DeploymentRow.
+ *
+ * The version and tracing pills sit under the header for the same reason they do
+ * there: the header is a fixed set of controls, and threading variable-width
+ * labels through it moved the numbers and actions around.
  */
 
 const STATUS_STYLES: Record<DeploymentStatus, string> = {
   running: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
   pending: "bg-amber-500/15 text-amber-600 dark:text-amber-400",
   failed: "bg-red-500/15 text-red-600 dark:text-red-400",
-};
-
-// Pod phases come straight from Kubernetes; colour the healthy/terminal ones.
-const PHASE_DOT: Record<string, string> = {
-  Running: "bg-emerald-500",
-  Pending: "bg-amber-500",
-  Succeeded: "bg-sky-500",
-  Failed: "bg-red-500",
-  Unknown: "bg-zinc-400",
 };
 
 /** Strip the scheme so an address reads as a bare host[:port]/path. */
@@ -56,43 +51,20 @@ function logsHref(d: DeployedTile): string {
   return qs ? `/platform/logs?${qs}` : "/platform/logs";
 }
 
-function PodLine({ pod }: { pod: PodStatus }) {
-  return (
-    <li className="flex items-center gap-2 text-xs">
-      <span
-        className={`h-1.5 w-1.5 shrink-0 rounded-full ${PHASE_DOT[pod.phase] ?? "bg-zinc-400"}`}
-        title={pod.phase}
-      />
-      <span className="min-w-0 flex-1 truncate font-mono text-zinc-600 dark:text-zinc-300">
-        {pod.name}
-      </span>
-      <span className="shrink-0 text-zinc-400">{pod.phase}</span>
-      <span
-        className={`shrink-0 ${pod.ready ? "text-emerald-600 dark:text-emerald-400" : "text-zinc-400"}`}
-      >
-        {pod.ready ? "ready" : "not ready"}
-      </span>
-      {pod.restarts > 0 && (
-        <span
-          className="inline-flex shrink-0 items-center gap-0.5 text-amber-600 dark:text-amber-400"
-          title="Container restarts"
-        >
-          <RotateCcw size={10} />
-          {pod.restarts}
-        </span>
-      )}
-    </li>
-  );
-}
-
 export default function DeploymentListItem({
   deployment: d,
   busy,
   onScale,
+  onOpenRollout,
+  onOpenLogs,
 }: {
   deployment: DeployedTile;
   busy: boolean;
   onScale: (d: DeployedTile, replicas: number) => void;
+  /** Open the rollout dialog: change version, env, or tracing. */
+  onOpenRollout?: (d: DeployedTile) => void;
+  /** Open the dockable log panel tailing one pod of this deployment. */
+  onOpenLogs?: (d: DeployedTile, podName: string) => void;
 }) {
   const age = relativeAge(d.createdAt);
   const desired = d.desiredReplicas || d.replicas;
@@ -114,15 +86,6 @@ export default function DeploymentListItem({
         <h3 className="min-w-0 flex-1 truncate text-sm font-semibold">
           {d.integrationName}
         </h3>
-        {d.tracing && (
-          <span
-            className="inline-flex items-center gap-1 rounded-full bg-violet-500/15 px-2 py-0.5 text-xs font-medium text-violet-600 dark:text-violet-400"
-            title="Tracing is on for this deployment — every flow, block and model call is recorded"
-          >
-            <Waypoints size={10} />
-            Traced
-          </span>
-        )}
 
         <ReplicaStepper
           desired={desired}
@@ -146,6 +109,18 @@ export default function DeploymentListItem({
         )}
 
         <div className="flex items-center gap-2">
+          {onOpenRollout && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onOpenRollout(d)}
+              title="Change version, environment or tracing"
+              className="inline-flex items-center gap-1.5 rounded-md border border-black/10 px-2.5 py-1 text-xs font-medium text-zinc-600 transition-colors hover:bg-black/[0.04] hover:text-zinc-900 disabled:opacity-50 dark:border-white/15 dark:text-zinc-300 dark:hover:bg-white/[0.06] dark:hover:text-zinc-100"
+            >
+              <GitBranch size={13} />
+              Roll out
+            </button>
+          )}
           <RowAction href={logsHref(d)} icon={ScrollText} label="Logs" />
           <RowAction
             href={`/platform/integrations/i/${encodeURIComponent(d.integrationId)}`}
@@ -159,6 +134,8 @@ export default function DeploymentListItem({
           />
         </div>
       </div>
+
+      <DeploymentPills tag={d.tag} tracing={d.tracing} className="mt-2" />
 
       {d.reason && (
         <div className="mt-2 flex items-start gap-1 text-xs text-red-500">
@@ -180,15 +157,10 @@ export default function DeploymentListItem({
       )}
 
       <div className="mt-3 border-t border-black/5 pt-2 dark:border-white/10">
-        {pods.length === 0 ? (
-          <p className="text-xs text-zinc-400">No pods reported.</p>
-        ) : (
-          <ul className="space-y-1.5">
-            {pods.map((p) => (
-              <PodLine key={p.name} pod={p} />
-            ))}
-          </ul>
-        )}
+        <PodLines
+          pods={pods}
+          onOpenLogs={onOpenLogs ? (pod) => onOpenLogs(d, pod) : undefined}
+        />
       </div>
     </li>
   );
