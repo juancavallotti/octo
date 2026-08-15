@@ -45,6 +45,7 @@ put everything under `settings`.
 | `rest` | `connector`, `method`, `path` (both **static**), `query`/`headers` (maps of CEL), `body` (CEL), `failOnError`, `statusVar`. |
 | `rest-dynamic` | Same, but `method`, `path`, `query`, `headers`, `body` are **all** CEL, and `query`/`headers` are one expression evaluating to a whole map. Use when the endpoint itself is data. Also takes `allowMethods` and `pathPrefix`. |
 | `flow-ref` | `flow`, `oneWay` — invoke another flow by name. |
+| `cli-run` | `program` (CEL, absolute path), `args` (CEL list), `allow` (absolute paths; required when `program` depends on the message), `env`, `workDir`, `timeout`, `onExit`, `events`/`emit` (stdout/stderr/exit). Runs a local program; no shell, argv only. |
 | `jwt-validate` | Filter: verify a bearer JWT against an OIDC provider; claims land in `vars.jwt`. |
 | `sse-event` | `event`, `data`, `close`, `ifClosed` — write one frame to the caller's open stream. Requires an SSE route. |
 | `publish-event` | `subject` (CEL), `value` — broadcast to a topic. |

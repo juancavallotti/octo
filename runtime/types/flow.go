@@ -173,9 +173,11 @@ type BlockConfig struct {
 	// MemoryCompaction is how an "ai-agent" shrinks memory over budget: "prune"
 	// (drop oldest, the default) or "summarize" (fold the oldest turns into a summary).
 	MemoryCompaction string `yaml:"memoryCompaction,omitempty"`
-	// Events is the observer sub-flow an "ai-agent" runs once per agent event, with
-	// the event as the message body. Its result is discarded: the sub-flow reports,
-	// it does not take part in the run.
+	// Events is the observer sub-flow a block runs once per event it reports, with
+	// the event as the message body. Its result is discarded: the sub-flow
+	// reports, it does not take part in the run. An "ai-agent" reports on its own
+	// turns and tool calls; a "cli-run" reports its command's output a line at a
+	// time.
 	Events *FlowConfig `yaml:"events,omitempty"`
 	// Emit lists which event types reach Events. Empty emits every type the block's
 	// configuration can produce. A type left out is never built, so this is the
@@ -188,6 +190,58 @@ type BlockConfig struct {
 	// after an LLM-driven revision before falling through to Error (default
 	// applied by the builder).
 	MaxAttempts int `yaml:"maxAttempts,omitempty"`
+
+	// Program is a "cli-run" CEL expression yielding the absolute path of the
+	// program to execute. Its result is checked against Allow on every message,
+	// and a program not on that list is refused before anything is spawned.
+	//
+	// It is an expression rather than a literal so the choice of program can come
+	// from the message — which is what lets an "ai-agent" tool branch hand a model
+	// a set of commands and let it pick. That makes Allow the only thing standing
+	// between the model and arbitrary execution, so it is checked per message
+	// rather than per build, and it should be written as narrowly as the job
+	// allows.
+	Program string `yaml:"program,omitempty"`
+	// Args is a "cli-run" CEL expression yielding the argument list, which must
+	// evaluate to a list of strings. Arguments reach the program as argv and no
+	// shell is involved, so nothing in them is interpreted: a semicolon is a
+	// semicolon.
+	Args string `yaml:"args,omitempty"`
+	// Stdin is a "cli-run" CEL expression whose string result is written to the
+	// process's standard input. Empty writes nothing and closes it, so a program
+	// that reads stdin sees EOF rather than hanging.
+	Stdin string `yaml:"stdin,omitempty"`
+	// Allow is the set of absolute paths a "cli-run" may execute. Everything else
+	// is refused, and the block's own Program is checked against it when the flow
+	// is built.
+	//
+	// Absolute paths, not bare names, and deliberately so. A bare name is resolved
+	// through $PATH at exec time, which would mean the program a flow runs is
+	// decided by the process environment rather than by this file.
+	Allow []string `yaml:"allow,omitempty"`
+	// AllowInterpreters permits an interpreter (sh, bash, python, env, xargs, …)
+	// on a "cli-run" Allow list. One is refused by default because its arguments
+	// are themselves a program, which makes the allowlist a formality.
+	AllowInterpreters bool `yaml:"allowInterpreters,omitempty"`
+	// Env names the environment variables a "cli-run" passes to the child.
+	// Nothing else is passed: the command starts with these and nothing more, so
+	// a secret in the runtime's own environment cannot reach it. Most programs
+	// want at least PATH and HOME.
+	Env []string `yaml:"env,omitempty"`
+	// WorkDir is the directory a "cli-run" runs its command in. Empty uses the
+	// runtime's own.
+	WorkDir string `yaml:"workDir,omitempty"`
+	// Timeout is how long a "cli-run" command may run before it is killed, a
+	// duration string ("30s"). A command holds a flow worker for as long as it
+	// runs, so there is no unbounded option; empty applies the block's default.
+	Timeout string `yaml:"timeout,omitempty"`
+	// MaxOutputBytes caps the output a "cli-run" captures when nothing is
+	// streaming it. It is ignored when an Events path is set, which never buffers.
+	MaxOutputBytes int64 `yaml:"maxOutputBytes,omitempty"`
+	// OnExit is what a "cli-run" does with a non-zero exit status: "fail" (the
+	// default) errors the block so the flow's error chain sees it, "continue"
+	// carries on and leaves the decision to a later block reading body.exitCode.
+	OnExit string `yaml:"onExit,omitempty"`
 
 	// ServerName is the MCP server name an "mcp-router" reports in its initialize
 	// response; it defaults to the block name (then "octo-mcp") when unset.

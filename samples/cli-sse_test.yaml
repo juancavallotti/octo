@@ -1,0 +1,70 @@
+flow: echo
+
+# An SSE flow under `invoke` has no stream to write to: invoke mode replaces the
+# route with an implicit source and skips the connector behind it, so there is no
+# request, no connection and no stream. So the sse-event block is mocked, the way
+# a test mocks the block that would have called a payment API — see the header of
+# samples/http-sse_test.yaml for the full reasoning and for what the Go tests in
+# runtime/connectors/http cover instead.
+#
+# What these cases prove is the part dolphin can see, and it is the part this
+# sample is about: that a real command's output reaches the emit point one line
+# at a time, in order, while the block is still running — and that the chain
+# carries on afterwards with how the command ended. The command itself is real.
+#
+# What they CANNOT prove is the timing that motivates the whole design: that the
+# caller's connection is still open when the lines arrive. That needs a live
+# stream, so it is a manual check:
+#
+#   curl -N localhost:8080/echo -d '{"text":"one\ntwo\nthree\n"}'
+#
+# Lines should appear as the command produces them, and the connection should
+# stay open until it exits.
+
+mocks:
+  echo.cat[events].line: { default: { body: {} } }
+
+cases:
+  - name: every output line reaches the stream, in order, before the exit status
+    input:
+      data: { text: "one\ntwo\nthree\n" }
+    expect:
+      body: { ok: true, exitCode: 0, lines: 3 }
+    spies:
+      echo.cat[events].line:
+        # Three lines and no exit event: this sample emits only stdout/stderr,
+        # because the route's own finalEvent carries the exit status.
+        count: 3
+        records:
+          - input:
+              body: { type: stdout, text: one, index: 0 }
+          - input:
+              body: { type: stdout, text: two, index: 1 }
+          - input:
+              body: { type: stdout, text: three, index: 2 }
+
+  # Nothing in the events path names the stream, and nothing has to: an event
+  # message carries the parent's variables, so vars.sseStream rides along and
+  # sse-event finds the caller's connection on its own.
+  - name: the stream address reaches the events path without being configured
+    input:
+      data: { text: "one\n" }
+      vars:
+        sseStream: "api:testStream"
+    expect:
+      that:
+        - 'body.lines == 1'
+    spies:
+      echo.cat[events].line:
+        count: 1
+        records:
+          - input:
+              vars: { sseStream: "api:testStream" }
+
+  - name: a command that prints nothing emits no frames and still reports
+    input:
+      data: { text: "" }
+    expect:
+      body: { ok: true, exitCode: 0, lines: 0 }
+    spies:
+      echo.cat[events].line: { count: 0 }

@@ -110,6 +110,11 @@ export const BLOCK_CLASSES: Record<string, WorkClass> = {
   "ai-router": "control",
   "ai-retry": "control",
   "mcp-router": "control",
+  // A cli-run holds a child process and, when it has an events path, the
+  // sub-flow it runs per output line. Its own span is almost entirely the wait
+  // on that child, which is work happening outside this process — the same
+  // reason `rest` and `sql` are io rather than cpu.
+  "cli-run": "io",
   // Injected by `octo invoke --break-at/--spies/--mocks`, never authored, and
   // never present in a deployed pod. Classified so a dev-run trace reads.
   breakpoint: "control",

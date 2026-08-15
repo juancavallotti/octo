@@ -166,6 +166,16 @@ func registerAIComposites() {
 		Config: reflect.TypeFor[aiAgentMeta](),
 	})
 	core.RegisterBlockMeta(core.BlockMeta{
+		Type:     "cli-run",
+		Label:    "Run Command",
+		Category: core.CategoryControlFlow,
+		Group:    "Integration",
+		Icon:     "Terminal",
+		Description: "Run a local program from an allowlist and carry on with how it ended. The " +
+			"events path watches its output a line at a time while it runs.",
+		Config: reflect.TypeFor[cliRunMeta](),
+	})
+	core.RegisterBlockMeta(core.BlockMeta{
 		Type:     "mcp-router",
 		Label:    "MCP Router",
 		Category: core.CategoryControlFlow,
@@ -343,6 +353,53 @@ type aiAgentMeta struct {
 	Skills *struct{} `json:"skills" octo:"label=Skills,type=skill-list"`
 	// The guardrail path, run when the agent cannot complete the task.
 	Default *struct{} `json:"default" octo:"label=Default,type=flow"`
+}
+
+// cliRunMeta describes the cli-run composite's editor fields.
+type cliRunMeta struct {
+	// CEL expression for the absolute path of the program to run, checked against
+	// Allowed programs on every message. Write a constant ('"/usr/bin/git"') for a
+	// fixed command, or read it from the message to let a caller — or a model —
+	// choose from the list below.
+	Program string `json:"program" octo:"label=Program,type=cel,required"`
+	// CEL expression for the argument list; it must yield a list of strings.
+	// Arguments reach the program as argv with no shell, so nothing in them is
+	// interpreted.
+	Args string `json:"args" octo:"label=Arguments,type=cel"`
+	// CEL expression written to the program's standard input. Empty closes it, so
+	// a program that reads stdin sees EOF rather than hanging.
+	Stdin string `json:"stdin" octo:"label=Standard input,type=cel"`
+	// Every program this block may run, as absolute paths. Required only when
+	// Program depends on the message: a program that is the same every time is
+	// already its own list of one. A bare name would be resolved through $PATH at
+	// exec time, letting the environment decide what actually runs, so only
+	// absolute paths are accepted.
+	Allow []string `json:"allow" octo:"label=Allowed programs,type=string-list"`
+	// Permit an interpreter (sh, bash, python, env, xargs, …) to be allowed. One
+	// is refused by default because its arguments are themselves a program, which
+	// makes the allowlist a formality.
+	AllowInterpreters bool `json:"allowInterpreters" octo:"label=Allow interpreters,default=false"`
+	// Environment variables passed to the command, by name. Nothing else is: it
+	// starts with these and nothing more, so a secret in the runtime's own
+	// environment cannot reach it. Most programs want at least PATH and HOME.
+	Env []string `json:"env" octo:"label=Environment passthrough,type=string-list"`
+	// Directory the command runs in. Empty uses the runtime's own.
+	WorkDir string `json:"workDir" octo:"label=Working directory"`
+	// How long the command may run before it is killed. A command holds a flow
+	// worker for as long as it runs, so there is no unbounded option.
+	Timeout string `json:"timeout" octo:"label=Timeout,type=string,default=30s"`
+	// Cap on captured output. Ignored when an events path is set, since streaming
+	// never buffers.
+	MaxOutputBytes int64 `json:"maxOutputBytes" octo:"label=Max output bytes,type=number,default=1048576"`
+	// What a non-zero exit means: fail the block so the error path sees it, or
+	// carry on and let a later block decide on body.exitCode.
+	OnExit string `json:"onExit" octo:"label=On non-zero exit,type=enum,enum=fail|continue,default=fail"`
+	// Observer path, run once per output line and once when the command exits,
+	// with the event as the message body. Its result is discarded — it watches the
+	// command, it does not take part in it.
+	Events *struct{} `json:"events" octo:"label=Events,type=flow"`
+	// Which events reach that path: stdout, stderr, exit. Empty emits all three.
+	Emit []string `json:"emit" octo:"label=Emit events,type=string-list"`
 }
 
 // mcpRouterMeta describes the mcp-router composite's editor slots.

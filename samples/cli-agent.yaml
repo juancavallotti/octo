@@ -1,0 +1,139 @@
+service:
+  name: cli-agent
+
+# Giving an agent a set of command-line tools.
+#
+# This is what cli-run's `program` being an expression is for. The model picks a
+# command by name, the tool branch turns that name into a path, and `allow` is
+# what decides whether it may run — checked on every message, before anything is
+# spawned. The model never supplies a path, only a name from a fixed vocabulary,
+# and even if it did the allow list is an exact string match: no prefixes, no
+# path normalization, no "/bin/../bin/sh".
+#
+# Two other things are doing security work here, and neither is obvious:
+#
+#   - Arguments are argv. No shell is involved anywhere, so a semicolon, a pipe
+#     or a $(…) in a model-supplied argument is just bytes to the callee. This is
+#     the injection class that command-running usually falls to, and it is closed
+#     by construction rather than by escaping.
+#   - The child's environment is exactly `env:` and nothing more. The runtime's
+#     own environment — every API key the integration holds — is not inherited,
+#     so a command cannot read what it was not handed.
+#
+# The allow list is the boundary. Write it as narrowly as the job allows, and
+# keep interpreters off it: allowing /bin/sh would let the model run anything,
+# which is why the block refuses one unless allowInterpreters says otherwise.
+#
+#   export ANTHROPIC_API_KEY=...
+#   go run ./cli run -config ../samples/cli-agent.yaml
+#   curl -s localhost:8080/ask -d '{"question":"what is in the current directory?"}'
+
+env:
+  - name: HTTP_PORT
+    default: "8080"
+  - name: ANTHROPIC_API_KEY
+    required: true
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      port: ${HTTP_PORT}
+  - name: llm
+    type: llm-anthropic
+    settings:
+      apiKey: ${ANTHROPIC_API_KEY}
+      model: claude-sonnet-5
+
+flows:
+  - name: ask
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /ask
+    process:
+      - type: ai-agent
+        name: assistant
+        connector: llm
+        answer: text
+        input: body.question
+        prompt: >
+          Answer the user's question about this machine. Use the run_command tool
+          when you need to inspect it. Only the commands named in the tool's
+          schema are available.
+        guardrail: The question cannot be answered with the available commands.
+        tools:
+          - name: run_command
+            description: >
+              Run one of a fixed set of read-only commands and return its output.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["command"],
+                "properties": {
+                  "command": {
+                    "type": "string",
+                    "enum": ["list-files", "disk-usage", "date"]
+                  }
+                }
+              }
+            process:
+              # The boundary lives in its own flow, which is the point: it can be
+              # invoked and tested on its own, with no model and no API key. See
+              # cli-agent_test.yaml.
+              - type: flow-ref
+                name: dispatch
+                settings:
+                  flow: run-command
+
+      - type: set-payload
+        name: answer
+        settings:
+          value: '{"answer": body}'
+
+  # A sourceless flow, callable by name. Nothing here trusts the caller: it takes
+  # a command NAME and produces a path itself.
+  - name: run-command
+    process:
+      # The model names a command; this maps the name to a path. The mapping is
+      # the flow author's, not the model's — the model never supplies a path, and
+      # a name outside the three below resolves to "", which the allow list
+      # refuses.
+      - type: multi-transform
+        name: resolve
+        settings:
+          transforms:
+            - setVar: program
+              value: >
+                body.command == "list-files" ? "/bin/ls" :
+                body.command == "disk-usage" ? "/bin/df" :
+                body.command == "date" ? "/bin/date" : ""
+            - setVar: args
+              value: >
+                body.command == "list-files" ? ["-la"] :
+                body.command == "disk-usage" ? ["-h"] : []
+
+      - type: cli-run
+        name: run
+        program: vars.program
+        args: vars.args
+        # The boundary. Every program the model can possibly reach, and nothing
+        # else — checked on each call, before anything is spawned.
+        allow:
+          - /bin/ls
+          - /bin/df
+          - /bin/date
+        # Exactly what these commands need. The integration's own
+        # ANTHROPIC_API_KEY is not among them, and so cannot be read.
+        env: [PATH]
+        workDir: /tmp
+        timeout: 10s
+        # A failed command is information for the model, not a failed message: it
+        # should see the error and try something else.
+        onExit: continue
+
+      - type: set-payload
+        name: tool-result
+        settings:
+          value: '{"exitCode": body.exitCode, "output": body.stdout, "error": body.stderr}'

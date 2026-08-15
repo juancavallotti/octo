@@ -1,0 +1,51 @@
+# Tests the cli-run block: the command runs, its output is watched a line at a
+# time, and the chain carries on with how it ended.
+#
+# Sources do not run under invoke, so `data` is the request body the http source
+# would have handed the flow. The command itself is real — /bin/cat actually
+# runs — because mocking it would leave nothing worth testing.
+#
+# The events path is a sub-flow like any other, so its blocks are spied on by
+# address: that is how these cases assert what the command emitted, line by line,
+# without the block having to expose it.
+flow: echo
+
+cases:
+  - name: the command runs and the chain carries on with how it ended
+    input:
+      data: { text: "one\ntwo\nthree\n" }
+    expect:
+      body: { ok: true, exitCode: 0, lines: 3 }
+
+  # The events path saw every line, in order, plus the terminal exit event.
+  - name: the events path sees each line and then the exit
+    input:
+      data: { text: "one\ntwo\n" }
+    expect:
+      that:
+        - 'body.lines == 2'
+    spies:
+      echo.cat[events].line:
+        # two stdout lines and the exit event
+        count: 3
+        records:
+          - input:
+              body: { type: stdout, text: one, index: 0 }
+          - input:
+              body: { type: stdout, text: two, index: 1 }
+
+  # The exit event ALWAYS fires, even for a command that printed nothing. That is
+  # why it is its own event rather than a flag on the last line: a silent command
+  # would otherwise never report its exit status at all, and a streaming caller
+  # would have nowhere to send its done frame.
+  - name: a command that prints nothing still reports its exit
+    input:
+      data: { text: "" }
+    expect:
+      body: { ok: true, exitCode: 0, lines: 0 }
+    spies:
+      echo.cat[events].line:
+        count: 1
+        records:
+          - input:
+              body: { type: exit, exitCode: 0, lines: 0 }
