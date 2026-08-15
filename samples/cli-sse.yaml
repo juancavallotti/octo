@@ -1,0 +1,87 @@
+service:
+  name: cli-sse
+
+# Streaming a command's output to an HTTP caller as it is produced.
+#
+# This is the pairing cli-run's events path exists for, and the reason the block
+# is synchronous. cli-run blocks for as long as the command runs, so the request
+# that started it stays open the whole time and its stream stays alive; each line
+# reaches the caller through an sse-event in the events path, and the chain
+# carries on with the exit status once the command is done.
+#
+# The alternative — a block that takes the flow over and resumes it once per line
+# — could not work here. Taking over ENDS the caller's own chain, so the request
+# would be answered and its connection torn down while the command was still
+# running, and every line after that would be written to a stream nobody was
+# reading.
+#
+# Nothing in the events path names the stream. It does not have to: the route
+# stamps the stream's address into vars.sseStream, an event message carries the
+# parent's variables, and sse-event defaults to reading vars.sseStream. So a
+# block written for one route works behind any of them.
+#
+#   task run:sample -- cli-sse.yaml
+#   curl -N localhost:8080/echo -d '{"text":"one\ntwo\nthree\n"}'
+#
+# /bin/cat is used because it exists at that path on macOS, Debian and Alpine
+# (a busybox symlink there) and needs no shell.
+
+env:
+  - name: HTTP_PORT
+    default: "8080"
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      port: ${HTTP_PORT}
+
+flows:
+  - name: echo
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /echo
+        sse:
+          enabled: true
+          # An SSE route clears the server's write timeout once the stream opens,
+          # so a long command is bounded by maxDuration rather than by the
+          # ordinary request timeout. Keep the command's own timeout below it, so
+          # the command is what gives up first and the caller learns why.
+          maxDuration: 5m
+          heartbeat: 15s
+          # Send the flow's final message as one last frame before closing, so
+          # the caller gets the exit status on the same connection.
+          finalEvent: true
+          finalEventName: done
+    process:
+      - type: cli-run
+        name: cat
+        program: '"cat"'
+        stdin: body.text
+        timeout: 2m
+        # Only the output lines go to the caller; the exit status arrives as the
+        # route's own final frame, so emitting it here too would send it twice.
+        emit: [stdout, stderr]
+        events:
+          process:
+            - type: sse-event
+              name: line
+              settings:
+                # `event` is a literal frame name, not an expression — so which
+                # stream a line came from travels in the data instead. The other
+                # way round is an `if` on body.type with an sse-event per branch,
+                # which gets you separate `event:` names to dispatch on at the
+                # cost of two blocks; this is the one-block version.
+                event: line
+                data: '{"stream": body.type, "text": body.text}'
+                # A caller that hung up stops the command rather than letting it
+                # produce output nobody will read: the events path asks the run to
+                # stop, and cli-run stops reading, which kills the process.
+                ifClosed: stop
+
+      - type: set-payload
+        name: report
+        settings:
+          value: '{"ok": body.exitCode == 0, "exitCode": body.exitCode, "lines": body.lines}'

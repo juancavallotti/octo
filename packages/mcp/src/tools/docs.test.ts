@@ -149,6 +149,26 @@ describe("getCelFunctions tool", () => {
     );
   });
 
+  it("serves the webhook-signature functions", async () => {
+    // This table mirrors Go declarations by hand (see the header of cel.ts), so
+    // a function added to runtime/core/expr and not added here is invisible to
+    // every MCP client. These four are the ones an author reaches for least
+    // often and can least afford to get wrong.
+    const client = await connect();
+    const result = await client.callTool({
+      name: "getCelFunctions",
+      arguments: { library: "octo" },
+    });
+    const names = (
+      JSON.parse((result.content as { text: string }[])[0].text) as {
+        functions: { name: string }[];
+      }
+    ).functions.map((f) => f.name);
+    expect(names).toEqual(
+      expect.arrayContaining(["hmacSha256", "hmacSha1", "hexEncode", "secureCompare"]),
+    );
+  });
+
   // cel-go declares reverse on both string and list, so neither library may look
   // like it lacks one, and a lookup by name has to answer with both.
   it("carries reverse under both the strings and lists libraries", async () => {

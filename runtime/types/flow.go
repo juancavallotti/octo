@@ -173,9 +173,11 @@ type BlockConfig struct {
 	// MemoryCompaction is how an "ai-agent" shrinks memory over budget: "prune"
 	// (drop oldest, the default) or "summarize" (fold the oldest turns into a summary).
 	MemoryCompaction string `yaml:"memoryCompaction,omitempty"`
-	// Events is the observer sub-flow an "ai-agent" runs once per agent event, with
-	// the event as the message body. Its result is discarded: the sub-flow reports,
-	// it does not take part in the run.
+	// Events is the observer sub-flow a block runs once per event it reports, with
+	// the event as the message body. Its result is discarded: the sub-flow
+	// reports, it does not take part in the run. An "ai-agent" reports on its own
+	// turns and tool calls; a "cli-run" reports its command's output a line at a
+	// time.
 	Events *FlowConfig `yaml:"events,omitempty"`
 	// Emit lists which event types reach Events. Empty emits every type the block's
 	// configuration can produce. A type left out is never built, so this is the
@@ -188,6 +190,63 @@ type BlockConfig struct {
 	// after an LLM-driven revision before falling through to Error (default
 	// applied by the builder).
 	MaxAttempts int `yaml:"maxAttempts,omitempty"`
+
+	// Program is a "cli-run" CEL expression naming the program to execute: a bare
+	// name, resolved through $PATH, or an absolute path. Its result is resolved
+	// and then checked against Allow on every message, when Allow is set.
+	//
+	// It is an expression rather than a literal so the choice of program can come
+	// from the message — which is what lets an "ai-agent" tool branch hand a model
+	// a set of commands and let it pick. In that arrangement Allow is the only
+	// thing standing between the model and arbitrary execution.
+	Program string `yaml:"program,omitempty"`
+	// Args is a "cli-run" CEL expression yielding the argument list, which must
+	// evaluate to a list of strings. Arguments reach the program as argv and no
+	// shell is involved, so nothing in them is interpreted: a semicolon is a
+	// semicolon.
+	Args string `yaml:"args,omitempty"`
+	// Stdin is a "cli-run" CEL expression whose string result is written to the
+	// process's standard input. Empty writes nothing and closes it, so a program
+	// that reads stdin sees EOF rather than hanging.
+	Stdin string `yaml:"stdin,omitempty"`
+	// Allow is the set of programs a "cli-run" may execute, written as bare names,
+	// absolute paths, or a mix. Entries are matched after resolution, so a bare
+	// name matches the absolute path $PATH resolves it to. Symlinks are not
+	// followed — see resolveProgram for why.
+	//
+	// Empty means no restriction. That keeps the block usable for the local,
+	// iterative work it is best at, where requiring a list that repeats the
+	// program two lines above would be ceremony. It also means a block with no
+	// Allow whose Program comes from the message runs whatever it is handed — the
+	// builder warns about exactly that combination, and a flow anyone else can
+	// reach should declare a list.
+	Allow []string `yaml:"allow,omitempty"`
+	// AllowInterpreters permits an interpreter (sh, bash, python, env, xargs, …)
+	// on a "cli-run" Allow list. One is refused by default because its arguments
+	// are themselves a program, which makes the list a formality. It applies only
+	// to an explicit list — a block with no list has already said "anything".
+	AllowInterpreters bool `yaml:"allowInterpreters,omitempty"`
+	// Env names the environment variables a "cli-run" passes to the child.
+	// Nothing else is passed: the command starts with these and nothing more, so
+	// a secret in the runtime's own environment cannot reach it. Most programs
+	// want at least PATH and HOME.
+	Env []string `yaml:"env,omitempty"`
+	// WorkDir is the directory a "cli-run" runs its command in. Empty uses the
+	// runtime's own.
+	WorkDir string `yaml:"workDir,omitempty"`
+	// Timeout is how long a "cli-run" command may run before it is killed, a
+	// duration string ("30s"). A command holds a flow worker for as long as it
+	// runs, so there is no unbounded option; empty applies the block's default.
+	Timeout string `yaml:"timeout,omitempty"`
+	// MaxOutputBytes caps the output a "cli-run" captures onto its result. It
+	// applies whether or not an Events path is watching, since watching output
+	// does not consume it. Lines still counts everything the command produced, so
+	// a capture cut short by this cap is visible rather than silent.
+	MaxOutputBytes int64 `yaml:"maxOutputBytes,omitempty"`
+	// OnExit is what a "cli-run" does with a non-zero exit status: "fail" (the
+	// default) errors the block so the flow's error chain sees it, "continue"
+	// carries on and leaves the decision to a later block reading body.exitCode.
+	OnExit string `yaml:"onExit,omitempty"`
 
 	// ServerName is the MCP server name an "mcp-router" reports in its initialize
 	// response; it defaults to the block name (then "octo-mcp") when unset.
@@ -257,11 +316,24 @@ type BlockConfig struct {
 	OnOverflow string `yaml:"onOverflow,omitempty"`
 }
 
-// MCPResourceConfig is one resource an "mcp-router" advertises. URI is the stable
-// id MCP clients read by; Name/Description/MimeType are advertised metadata;
-// Resource is the template resource whose rendered content is returned.
+// MCPResourceConfig is one resource an "mcp-router" advertises. Exactly one of
+// URI and URITemplate is set: a URI is one fixed document, listed on
+// resources/list; a URITemplate is a family of them, listed on
+// resources/templates/list instead. Name/Description/MimeType are advertised
+// metadata; Resource is the template resource whose rendered content is returned.
 type MCPResourceConfig struct {
-	URI         string `yaml:"uri"`
+	URI string `yaml:"uri,omitempty"`
+	// URITemplate is an RFC 6570 level-1 template — literal text with {name}
+	// placeholders, e.g. "contacts://contact/{id}" — that stands for a family of
+	// documents rather than one. A client fills the placeholders in and reads the
+	// concrete uri; resources/read matches it back against the template and
+	// exposes what each placeholder took to the rendered template as the message
+	// body (body.id), the same bargain a prompt's arguments strike.
+	//
+	// Only simple expansion is supported: no operators (+ # . / ; ? &), no explode,
+	// no prefix lengths. Each of those changes what a match even means, and no
+	// client has asked for one.
+	URITemplate string `yaml:"uriTemplate,omitempty"`
 	Name        string `yaml:"name"`
 	Description string `yaml:"description,omitempty"`
 	MimeType    string `yaml:"mimeType,omitempty"`
@@ -326,6 +398,46 @@ type ToolConfig struct {
 	Description string        `yaml:"description"`
 	InputSchema string        `yaml:"inputSchema,omitempty"`
 	Process     []BlockConfig `yaml:"process"`
+
+	// Title, Annotations and OutputSchema are MCP metadata, advertised by an
+	// "mcp-router" and rejected on an "ai-agent": an LLM tool call has no protocol
+	// carrying them, so accepting them there would be config that silently does
+	// nothing.
+
+	// Title is a display name for people, where Name is the identifier the client
+	// calls by. An MCP client shows this in a consent prompt or a tool picker.
+	Title string `yaml:"title,omitempty"`
+	// Annotations are hints about what calling this tool does, so a client can
+	// decide how much ceremony to put in front of it.
+	Annotations *ToolAnnotations `yaml:"annotations,omitempty"`
+	// OutputSchema is the JSON Schema of what the tool branch returns. Declaring it
+	// makes the router send the branch's result as structuredContent alongside the
+	// text block, so a client can consume it as data rather than re-parsing prose.
+	OutputSchema string `yaml:"outputSchema,omitempty"`
+}
+
+// ToolAnnotations are the MCP hints an "mcp-router" advertises about a tool.
+//
+// Every field is a pointer because "not stated" and "stated false" are different
+// answers and the protocol's defaults are not all the same — readOnlyHint and
+// idempotentHint default false, openWorldHint and destructiveHint default true.
+// A bool would silently assert the default for every hint an author left out.
+//
+// They are hints, not enforcement. The protocol says clients must treat them as
+// untrusted, and the runtime does not check a tool branch against them: a tool
+// annotated readOnly can still write, and it is the author's job not to.
+type ToolAnnotations struct {
+	// ReadOnlyHint says the tool does not modify anything.
+	ReadOnlyHint *bool `yaml:"readOnlyHint,omitempty"`
+	// DestructiveHint says an update it performs may be destructive rather than
+	// additive. Only meaningful when the tool is not read-only.
+	DestructiveHint *bool `yaml:"destructiveHint,omitempty"`
+	// IdempotentHint says calling it twice with the same arguments has no more
+	// effect than calling it once. Only meaningful when the tool is not read-only.
+	IdempotentHint *bool `yaml:"idempotentHint,omitempty"`
+	// OpenWorldHint says the tool touches something outside the server — the web, a
+	// third-party API — rather than a closed domain the server owns.
+	OpenWorldHint *bool `yaml:"openWorldHint,omitempty"`
 }
 
 // SkillConfig is one skill available to an "ai-agent": a Name and Description

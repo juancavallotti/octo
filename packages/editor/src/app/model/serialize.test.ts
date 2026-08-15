@@ -321,6 +321,39 @@ describe("serialize", () => {
     expect(node.slots!.default[0].process[0].type).toBe("set-payload");
   });
 
+  it("round-trips mcp-router tool metadata so a save cannot strip it", () => {
+    // The mcp-resource-list and tool-list slots are opaque to the generated Go
+    // schema, so nothing but this test stops the editor quietly dropping fields
+    // it does not have a form control for.
+    const doc = fromConfig({
+      flows: [
+        {
+          name: "mcp",
+          process: [
+            {
+              type: "mcp-router",
+              name: "server",
+              tools: [
+                {
+                  name: "lookup",
+                  description: "looks something up",
+                  title: "Look it up",
+                  annotations: { readOnlyHint: true, openWorldHint: false },
+                  outputSchema: '{ "type": "object" }',
+                  process: [{ type: "set-payload", settings: { value: "body" } }],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    const tool = toConfig(doc).flows![0].process![0].tools![0];
+    expect(tool.title).toBe("Look it up");
+    expect(tool.annotations).toEqual({ readOnlyHint: true, openWorldHint: false });
+    expect(tool.outputSchema).toBe('{ "type": "object" }');
+  });
+
   it("round-trips ai-agent: tools carry name, description, and inputSchema", () => {
     const doc = emptyDocument();
     const agent = newBlock("ai-agent"); // seeds tools + default slots

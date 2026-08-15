@@ -1,8 +1,9 @@
 ---
 title: "Integration"
-description: "Call other flows, validate JWTs, and render template resources."
+description: "Call other flows, run local commands, validate JWTs, and render template resources."
 octo_types:
   - flow-ref
+  - cli-run
   - jwt-validate
   - template-resource
 ---
@@ -41,6 +42,140 @@ Semantics:
 ```
 
 See [Composing flows](/guides/composing-flows) for patterns.
+
+## cli-run
+
+Runs a local program and carries on with how it ended. The `events` path watches
+its output a line at a time **while the command is still running**, which is what
+makes streaming a long command to a caller possible.
+
+```yaml
+- type: cli-run
+  name: build
+  program: '"go"'
+  args: '["build", "./..."]'
+  workDir: /src
+  env: [PATH, HOME]
+  timeout: 5m
+  events:
+    process:
+      - type: sse-event
+        name: line
+        settings:
+          event: line
+          data: '{"stream": body.type, "text": body.text}'
+```
+
+The block is **synchronous**: it returns once the command has exited. That is
+deliberate. A block that took the flow over and resumed it once per line would
+end the caller's own chain, so an HTTP request would be answered and its
+connection torn down while the command was still running — and every line after
+that would be written to a stream nobody was reading.
+
+### Settings
+
+| Field | Meaning |
+| --- | --- |
+| `program` | CEL expression naming the program: a bare name resolved through `$PATH`, or an absolute path. |
+| `args` | CEL expression yielding a list of strings, passed as argv. |
+| `stdin` | CEL expression written to the process's standard input, then closed. |
+| `allow` | Every program this block may run. Empty means no restriction — see below. |
+| `allowInterpreters` | Permit an interpreter on `allow`. Default `false`. |
+| `env` | Environment variables passed to the child, by name. Nothing else is passed. |
+| `workDir` | Directory the command runs in. |
+| `timeout` | How long it may run before it is killed. Default `30s`. |
+| `maxOutputBytes` | Cap on captured output when nothing is streaming it. Default 1 MiB. |
+| `onExit` | `fail` (default) errors the block on a non-zero exit; `continue` carries on. |
+| `events` | Observer sub-flow, run once per event. Its result is discarded. |
+| `emit` | Which events reach it: `stdout`, `stderr`, `exit`. Empty emits all three. |
+
+### The allow list
+
+`allow` is **optional**. A block without one may run anything that resolves,
+which keeps `cli-run` pleasant for the local, iterative work it is best at —
+requiring a list that repeats the program two lines above would be ceremony.
+
+```yaml
+# Fine: the program is written right there.
+program: '"go"'
+```
+
+`program` is an expression, though, so which program runs can come from the
+message. That is the point — it is what lets an [`ai-agent`](/reference/blocks/ai)
+tool branch hand a model a set of commands and let it choose. In that
+arrangement `allow` is the only thing standing between the caller and arbitrary
+execution, and it is checked on **every message**, before anything is spawned:
+
+```yaml
+program: vars.program
+allow: [ls, df, date]
+```
+
+<Callout type="warn">
+  A block with no `allow` whose `program` comes from the message will run
+  whatever it is handed. That is exactly what you want at a terminal, and it is
+  remote code execution if the flow is reachable by anyone else. **Declare an
+  allow list for anything you deploy.** The builder logs a warning at startup for
+  precisely that combination — no list and a message-supplied program — so the
+  answer arrives before the postmortem does.
+</Callout>
+
+Rules worth knowing:
+
+- **Bare names or absolute paths, either way.** A bare name is resolved through
+  `$PATH`; an absolute path is used as it stands. Every entry is resolved at
+  build time, so an entry naming a program that is not installed fails at
+  startup, not on the message that first reached for it.
+- **Matching is on the resolved path, not the string you typed.** A bare name
+  matches the absolute path `$PATH` resolves it to, and `..` segments are
+  normalized, so `/bin/../bin/sh` cannot dodge an entry for `/bin/sh`.
+  Symlinks are deliberately *not* followed: on a busybox system every applet is
+  a symlink to the same binary, so following them would make an allow list of
+  `["cat"]` also admit `sh`. The cost is that on a usr-merged Linux `/bin/ls`
+  and `/usr/bin/ls` are two spellings of one file that do not match each other —
+  so write the list the way the flow names the program.
+- **Interpreters are refused** on an explicit list unless
+  `allowInterpreters: true`. An interpreter's arguments *are* a program, so
+  listing `sh` or `python` allows everything it can reach. The check applies only
+  to a list — a block with no list has already said "anything". It is a guardrail
+  against an easy mistake, not a sandbox: the list can never be complete (`git`
+  runs a pager, `tar` has `--to-command`), so the list is the boundary either
+  way.
+
+### What is not a risk
+
+- **No shell is ever involved.** Arguments are passed as argv, so a semicolon, a
+  pipe or a `$(…)` in an argument is just bytes to the callee. The injection
+  class that command-running usually falls to is closed by construction rather
+  than by escaping.
+- **The child inherits nothing.** It sees exactly the variables named in `env`
+  and no others, so a command cannot read an API key the integration holds.
+
+### Output
+
+The chain carries on with a body of `{exitCode, stdout, stderr, lines}`. The
+output is captured whether or not an `events` path watched it go by: the path is
+an observer, and watching is not consuming. `maxOutputBytes` caps what is kept,
+while `lines` always counts everything the command produced — so a truncated
+capture is visible rather than silent.
+
+Each event's body is `{type, text, index}` for `stdout`/`stderr`, and
+`{type: "exit", exitCode, lines}` at the end. The exit event fires for every
+run, even one that printed nothing — which is why it is its own event rather
+than a flag on the last line. It still passes through `emit`, so a path that
+wants it must not filter it out.
+
+An events path that stops the flow — an `sse-event` whose caller hung up, with
+`ifClosed: stop` — stops the command too, rather than letting it produce output
+nobody will read.
+
+<Callout>
+  Backpressure is free. The events path runs between reads of the process's
+  pipes, so a slow sink blocks the child on write rather than buffering its
+  output without bound.
+</Callout>
+
+See `samples/cli-run.yaml`, `samples/cli-sse.yaml` and `samples/cli-agent.yaml`.
 
 ## jwt-validate
 

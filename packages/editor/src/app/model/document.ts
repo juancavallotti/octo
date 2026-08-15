@@ -66,6 +66,10 @@ export interface FlowDoc {
   description?: string;
   /** JSON Schema for an ai-agent tool's arguments (written inline as a string). */
   inputSchema?: string;
+  /** mcp-router tool metadata, round-tripped so a save cannot drop it. */
+  title?: string;
+  annotations?: Record<string, boolean>;
+  outputSchema?: string;
   /**
    * Root-flow-only concurrency tuning (the runtime's FlowConfig — see
    * runtime/types/flow.go). Sub-flows must not set them, so they are only edited

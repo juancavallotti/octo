@@ -1,15 +1,21 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, X } from "lucide-react";
+import { Braces, Plus, X } from "lucide-react";
 import ReferenceField from "./ReferenceField";
 
 const INPUT =
   "w-full rounded-md border border-black/10 dark:border-white/15 bg-transparent px-2 py-1 text-sm outline-none focus:border-black/30 dark:focus:border-white/30";
 
-/** One MCP resource: a uri clients read by, advertised metadata, and its template. */
+/**
+ * One MCP resource: the uri clients read it by, advertised metadata, and its
+ * template. Exactly one of `uri` and `uriTemplate` is set — a uri is one fixed
+ * document, a uriTemplate ("contacts://contact/{id}") a family of them, and the
+ * two are advertised on different MCP methods.
+ */
 type Resource = {
   uri: string;
+  uriTemplate: string;
   name: string;
   description: string;
   mimeType: string;
@@ -20,11 +26,17 @@ function toResource(value: unknown): Resource {
   const v = (value ?? {}) as Partial<Resource>;
   return {
     uri: v.uri ?? "",
+    uriTemplate: v.uriTemplate ?? "",
     name: v.name ?? "",
     description: v.description ?? "",
     mimeType: v.mimeType ?? "",
     resource: v.resource ?? "",
   };
+}
+
+/** Whether a row starts out addressing a family of documents rather than one. */
+function isTemplated(row: Resource): boolean {
+  return row.uriTemplate !== "";
 }
 
 /**
@@ -44,10 +56,30 @@ export default function MCPResourceListEditor({
   const [rows, setRows] = useState<Resource[]>(() =>
     Array.isArray(value) ? value.map(toResource) : [],
   );
+  // Which rows show a uriTemplate field, held explicitly rather than derived from
+  // the value. Deriving it cannot express "templated but not typed yet": a new row
+  // has both fields empty, so a toggle that copied uri into uriTemplate copied ""
+  // and the row stayed exactly where it was.
+  const [templated, setTemplated] = useState<boolean[]>(() =>
+    Array.isArray(value) ? value.map((v) => isTemplated(toResource(v))) : [],
+  );
 
-  function commit(next: Resource[]) {
+  function commit(next: Resource[], modes?: boolean[]) {
     setRows(next);
+    if (modes) setTemplated(modes);
     onChange(next);
+  }
+
+  /** Swap a row between a fixed uri and a uri template, carrying what was typed. */
+  function toggleMode(i: number) {
+    const row = rows[i];
+    const next = templated[i]
+      ? { uri: row.uriTemplate, uriTemplate: "" }
+      : { uri: "", uriTemplate: row.uri };
+    commit(
+      rows.map((r, j) => (j === i ? { ...r, ...next } : r)),
+      templated.map((t, j) => (j === i ? !t : t)),
+    );
   }
 
   function patch(i: number, edit: Partial<Resource>) {
@@ -62,17 +94,47 @@ export default function MCPResourceListEditor({
           className="flex flex-col gap-1.5 rounded-md border border-black/10 dark:border-white/15 p-2"
         >
           <div className="flex items-center gap-1.5">
-            <input
-              type="text"
-              value={row.uri}
-              placeholder="uri (e.g. octo://guide)"
-              onChange={(e) => patch(i, { uri: e.target.value })}
-              className={INPUT}
-            />
+            {/*
+              The two address fields are mutually exclusive, so only the one in
+              use is shown: typing a uriTemplate hides the uri and vice versa.
+              The runtime rejects a resource declaring both, and an editor that
+              let you type both would only be a way to build a broken flow.
+            */}
+            {templated[i] ? (
+              <input
+                type="text"
+                value={row.uriTemplate}
+                placeholder="uriTemplate (e.g. octo://city/{city})"
+                onChange={(e) => patch(i, { uriTemplate: e.target.value })}
+                className={INPUT}
+              />
+            ) : (
+              <input
+                type="text"
+                value={row.uri}
+                placeholder="uri (e.g. octo://guide)"
+                onChange={(e) => patch(i, { uri: e.target.value })}
+                className={INPUT}
+              />
+            )}
+            <button
+              type="button"
+              aria-label={templated[i] ? "Use a fixed uri" : "Use a uri template"}
+              title={templated[i] ? "Use a fixed uri" : "Use a uri template"}
+              onClick={() => toggleMode(i)}
+              className="shrink-0 rounded p-1 text-zinc-400 transition-colors hover:text-zinc-600 dark:hover:text-zinc-300"
+            >
+              <Braces size={14} />
+            </button>
             <button
               type="button"
               aria-label="Remove resource"
-              onClick={() => commit(rows.filter((_, j) => j !== i))}
+              onClick={() =>
+              commit(
+                rows.filter((_, j) => j !== i),
+                templated.filter((_, j) => j !== i),
+              )
+            }
               className="shrink-0 rounded p-1 text-zinc-400 transition-colors hover:text-red-500"
             >
               <X size={14} />
@@ -110,7 +172,13 @@ export default function MCPResourceListEditor({
       <button
         type="button"
         onClick={() =>
-          commit([...rows, { uri: "", name: "", description: "", mimeType: "", resource: "" }])
+          commit(
+            [
+              ...rows,
+              { uri: "", uriTemplate: "", name: "", description: "", mimeType: "", resource: "" },
+            ],
+            [...templated, false],
+          )
         }
         className="flex items-center gap-1.5 self-start rounded-md px-2 py-1 text-xs text-zinc-500 transition-colors hover:text-zinc-700 dark:hover:text-zinc-300"
       >

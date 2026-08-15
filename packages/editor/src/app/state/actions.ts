@@ -52,7 +52,7 @@ export enum EditorActionType {
   ADD_SLOT_FLOW = "ADD_SLOT_FLOW",
   /** Remove a sub-flow from a composite block's list slot by id. */
   REMOVE_SLOT_FLOW = "REMOVE_SLOT_FLOW",
-  /** Set a flow field by name: a sub-flow's when/description/inputSchema, or a root flow's workers/buffer/pool. */
+  /** Set a flow field by name: a sub-flow's when/description/inputSchema/outputSchema, or a root flow's workers/buffer/pool. */
   SET_FLOW_META = "SET_FLOW_META",
   /** Replace the document's declared environment variables. */
   SET_ENV = "SET_ENV",
@@ -200,11 +200,18 @@ export interface SetFlowMetaPayload {
   flowId: string;
   /**
    * Which flow field to set: a sub-flow's per-entry metadata (a case's `when`, a
-   * route/tool's `description`, a tool's `inputSchema`) or a root flow's
+   * route/tool's `description`, a tool's `inputSchema`/`outputSchema`) or a root flow's
    * concurrency tuning (`workers`/`buffer`/`pool`). Numeric fields take `undefined`
    * to clear them back to the runtime default.
    */
-  field: "when" | "description" | "inputSchema" | "workers" | "buffer" | "pool";
+  field:
+    | "when"
+    | "description"
+    | "inputSchema"
+    | "outputSchema"
+    | "workers"
+    | "buffer"
+    | "pool";
   value: string | number | undefined;
 }
 

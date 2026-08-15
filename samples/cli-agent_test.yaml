@@ -1,0 +1,58 @@
+# Tests the tool branch, not the agent: what matters here is the boundary between
+# a model's choice and what actually runs.
+#
+# The tool's body is a named, sourceless flow, so it is invoked directly: no
+# model is called and no API key is used. That is why it was written as its own
+# flow rather than inline in the tool — a security boundary you cannot test
+# without an LLM in the loop is one nobody will test.
+#
+# The commands themselves are real.
+#
+# What these cases pin is the security claim the sample makes: the model names a
+# command, the flow maps the name to a path, and the allow list refuses anything
+# that mapping did not produce. Every case below is a way that could go wrong.
+flow: run-command
+
+cases:
+  - name: a named command runs and its output goes back to the model
+    input:
+      data: { command: date }
+    expect:
+      that:
+        - 'body.exitCode == 0'
+        - 'body.output != ""'
+
+  - name: the name is mapped to a path by the flow, never supplied by the model
+    input:
+      data: { command: list-files }
+    expect:
+      that:
+        - 'body.exitCode == 0'
+    spies:
+      run-command.resolve:
+        count: 1
+        records:
+          - output:
+              vars: { program: ls, args: ["-la"] }
+
+  # A command name outside the enum maps to "", so there is nothing to run and
+  # nothing is spawned. The model gets an error, not an execution.
+  - name: an unknown command name is refused rather than run
+    input:
+      data: { command: rm-rf-slash }
+    expect:
+      error: produced an empty name
+
+  # The model cannot smuggle a program through the command name: the mapping only
+  # ever produces one of three literals, so anything else lands on "".
+  - name: a path supplied as the command name is refused
+    input:
+      data: { command: /bin/sh }
+    expect:
+      error: produced an empty name
+
+# The allow list itself — that a program the mapping did not produce is refused,
+# and that a spelling cannot dodge it — is covered by TestCLIRunMatchesResolvedPaths
+# in runtime/core/internal/engine/cli_test.go. It cannot be tested from here
+# without seeding vars the `resolve` block then overwrites, which would be testing
+# the fixture rather than the block.

@@ -3,16 +3,10 @@
 package engine
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"log/slog"
-	"sort"
-	"strings"
 
 	"github.com/juancavallotti/octo/runtime/core"
-	"github.com/juancavallotti/octo/runtime/types"
 )
 
 // The agent event vocabulary. Half of it mirrors what the provider streams; the
@@ -71,107 +65,6 @@ var deltaKinds = map[core.LLMStreamKind]string{
 // an error only because that is the one channel a provider's stream callback has;
 // the agent unwraps it into an ordinary stop rather than a failure.
 var errEventStop = errors.New("ai-agent events path requested stop")
-
-// emitter runs an ai-agent's events sub-flow.
-//
-// A nil emitter is inert, so the agent reports unconditionally and a block with no
-// events path pays nothing for the calls.
-type emitter struct {
-	flow *Flow
-	// kinds is the emit allow-list, or nil to emit every kind.
-	kinds map[string]bool
-}
-
-// wants reports whether a kind reaches the sub-flow at all.
-//
-// It is checked before an event is built rather than after, so an excluded kind
-// costs one map lookup — no fields, no message, no invocation. That is what makes
-// emit a real lever on a token stream instead of just a filter with extra steps.
-func (e *emitter) wants(kind string) bool {
-	if e == nil {
-		return false
-	}
-	return e.kinds == nil || e.kinds[kind]
-}
-
-// send runs the sub-flow for one event and reports whether the run should stop.
-func (e *emitter) send(ctx context.Context, parent *types.Message, kind string, fields map[string]any) bool {
-	if !e.wants(kind) {
-		return false
-	}
-	msg, err := e.message(parent, kind, fields)
-	if err != nil {
-		slog.Debug("ai-agent could not build an event", "kind", kind, "error", err)
-		return false
-	}
-	out, err := e.flow.Process(ctx, msg)
-	if err != nil {
-		// The path reports on the run; it does not get to fail it. A broken sink is
-		// worth a log line, not worth discarding the work the agent has already done.
-		slog.Debug("ai-agent events path failed", "kind", kind, "error", err)
-		return false
-	}
-	// A stop is the one thing that travels back. It means nobody is listening any
-	// more — an sse-event whose caller hung up is the ordinary cause — and carrying
-	// on would spend a whole agent run reporting to no one.
-	return out != nil && out.StopRequested()
-}
-
-// message builds the event's own message: a fresh one carrying the agent's
-// variables, with the event as its body.
-//
-// It is deliberately not the agent's message. Tool branches run on that one and
-// overwrite its body with each call's arguments, so handing it over would both
-// corrupt the loop and hand the sub-flow a body that is not the event. It is
-// deliberately not a Clone either: Clone deep-copies the body, a cost that would
-// be paid once per fragment on a token stream.
-//
-// Carrying the variables over is what makes the path useful with no configuration
-// at all — vars.sseStream travels with them, so an sse-event in the path writes to
-// the caller that started the run.
-func (e *emitter) message(parent *types.Message, kind string, fields map[string]any) (*types.Message, error) {
-	msg, err := types.NewMessage(parent.CorrelationID)
-	if err != nil {
-		return nil, err
-	}
-	for name, v := range parent.Variables {
-		msg.Variables.Set(name, v)
-	}
-	body := make(map[string]any, len(fields)+1)
-	body["type"] = kind
-	for name, v := range fields {
-		body[name] = v
-	}
-	msg.Body = body
-	return msg, nil
-}
-
-// emitKinds validates an emit list into a lookup, returning nil for an empty list
-// so every kind passes.
-func emitKinds(emit []string) (map[string]bool, error) {
-	if len(emit) == 0 {
-		return nil, nil
-	}
-	kinds := make(map[string]bool, len(emit))
-	for _, kind := range emit {
-		if !agentEventKinds[kind] {
-			return nil, fmt.Errorf("ai-agent emit %q is not an event type (one of: %s)", kind, knownEventKinds())
-		}
-		kinds[kind] = true
-	}
-	return kinds, nil
-}
-
-// knownEventKinds lists the vocabulary for an error message, sorted so the same
-// bad config always reports the same way.
-func knownEventKinds() string {
-	names := make([]string, 0, len(agentEventKinds))
-	for kind := range agentEventKinds {
-		names = append(names, kind)
-	}
-	sort.Strings(names)
-	return strings.Join(names, ", ")
-}
 
 // deltaFields describes one provider stream event.
 func deltaFields(ev core.LLMStreamEvent) map[string]any {

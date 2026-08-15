@@ -8,7 +8,7 @@ service:
 # resources, and its template resources as MCP prompts, and routes tools/call to
 # the matching flow. It calls no LLM — it is a protocol adapter.
 #
-#   go run ./cli run -config ../samples/mcp-router
+#   task run:sample -- mcp-router
 #   PORT=8080
 #   curl -s localhost:$PORT/mcp -d '{"jsonrpc":"2.0","id":1,"method":"initialize"}'
 #   curl -s localhost:$PORT/mcp -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
@@ -16,6 +16,9 @@ service:
 #     "params":{"name":"forecast","arguments":{"city":"Paris"}}}'
 #   curl -s localhost:$PORT/mcp -d '{"jsonrpc":"2.0","id":4,"method":"resources/read",
 #     "params":{"uri":"octo://guide"}}'
+#   curl -s localhost:$PORT/mcp -d '{"jsonrpc":"2.0","id":6,"method":"resources/templates/list"}'
+#   curl -s localhost:$PORT/mcp -d '{"jsonrpc":"2.0","id":7,"method":"resources/read",
+#     "params":{"uri":"octo://city/Paris"}}'
 #   curl -s localhost:$PORT/mcp -d '{"jsonrpc":"2.0","id":5,"method":"prompts/get",
 #     "params":{"name":"assist","arguments":{"city":"Paris"}}}'
 
@@ -30,6 +33,8 @@ resources:
       as: guide
     - resource: greet.md
       as: greet
+    - resource: city.md
+      as: city
 
 connectors:
   - name: api
@@ -51,11 +56,30 @@ flows:
         tools:
           - name: forecast
             description: Return a short weather forecast for a city.
+            # Display name for people; `name` stays the identifier clients call by.
+            title: Weather forecast
+            # Hints, so a client knows how much ceremony to put in front of a call.
+            # They are advisory — the runtime does not enforce them, and the
+            # protocol tells clients to treat them as untrusted.
+            annotations:
+              readOnlyHint: true
+              openWorldHint: true
             inputSchema: |
               {
                 "type": "object",
                 "required": ["city"],
                 "properties": { "city": { "type": "string" } }
+              }
+            # Declaring the shape of the answer makes the router return it as
+            # structuredContent as well as text, so a client can use it as data.
+            outputSchema: |
+              {
+                "type": "object",
+                "required": ["city", "summary"],
+                "properties": {
+                  "city": { "type": "string" },
+                  "summary": { "type": "string" }
+                }
               }
             process:
               # A real tool would call a weather API; here we echo a fixed
@@ -69,6 +93,14 @@ flows:
             description: Operator guide for the weather tools.
             mimeType: text/markdown
             resource: guide
+          # A family of documents rather than one. Clients discover it on
+          # resources/templates/list, fill in {city}, then read the concrete uri;
+          # what the placeholder took reaches the template as body.city.
+          - uriTemplate: octo://city/{city}
+            name: city-briefing
+            description: A briefing for any city.
+            mimeType: text/markdown
+            resource: city
         prompts:
           - name: assist
             description: Prime an assistant to help a user in a given city.

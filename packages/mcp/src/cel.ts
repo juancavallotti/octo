@@ -11,6 +11,7 @@
  *   - toJson/fromJson: runtime/core/expr/json.go
  *   - toFormData/fromFormData: runtime/core/expr/formdata.go
  *   - templateResource: runtime/core/expr/template.go
+ *   - hmacSha256/hmacSha1/hexEncode/secureCompare: runtime/core/expr/crypto.go
  *   - the cel-go extension libraries and their pinned versions, which decide
  *     which of their functions exist: runtime/core/expr/stdext.go
  */
@@ -92,7 +93,7 @@ export const CEL_VARIABLES: CelVariable[] = [
 
 /**
  * Every function available on top of the CEL standard library: the runtime's own
- * five, then the cel-go extension libraries it enables. Receiver-style entries are
+ * nine, then the cel-go extension libraries it enables. Receiver-style entries are
  * named bare (`upperAscii`) with the receiver shown in the signature; namespaced
  * entries carry their namespace (`math.round`).
  */
@@ -135,6 +136,39 @@ export const CEL_FUNCTIONS: CelFunction[] = [
     summary:
       "Render a template resource (by id) against the current message; the template sees the in-scope variables (body, vars, env, …) via {{ env.NAME }} / {{ body.* }}.",
     example: `templateResource("welcome-email")`,
+  },
+
+  {
+    name: "hmacSha256",
+    library: "octo",
+    signature: "hmacSha256(dyn, dyn) -> bytes",
+    summary:
+      "The HMAC-SHA256 of a payload under a key, as raw bytes; both arguments take a string or bytes. Rendering is separate (hexEncode or base64.encode), so the same function serves any webhook scheme. Compare the result with secureCompare, never ==.",
+    example: `"X-Hub-Signature-256" in vars && secureCompare(vars["X-Hub-Signature-256"], "sha256=" + hexEncode(hmacSha256(env.GITHUB_WEBHOOK_SECRET, vars.rawBody)))`,
+  },
+  {
+    name: "hmacSha1",
+    library: "octo",
+    signature: "hmacSha1(dyn, dyn) -> bytes",
+    summary:
+      "The HMAC-SHA1 of a payload under a key. For legacy schemes that still sign with SHA-1 (Twilio, GitHub's older X-Hub-Signature) — do not choose it for anything new.",
+    example: `hexEncode(hmacSha1(env.WEBHOOK_SECRET, vars.rawBody))`,
+  },
+  {
+    name: "hexEncode",
+    library: "octo",
+    signature: "hexEncode(dyn) -> string",
+    summary:
+      "Render bytes as lowercase hex, the form most providers put a signature in. For base64 schemes (Shopify, Twilio) use base64.encode instead.",
+    example: `hexEncode(hmacSha256(env.WEBHOOK_SECRET, vars.rawBody))`,
+  },
+  {
+    name: "secureCompare",
+    library: "octo",
+    signature: "secureCompare(dyn, dyn) -> bool",
+    summary:
+      "Compare two values without a content-dependent early return. Always use this for a signature: == stops at the first differing byte, and the timing of that is observable, which over enough requests leaks the expected value a byte at a time. Guard the header read with `\"Name\" in vars &&` — an absent variable is an evaluation error, which fails the flow and answers 500 rather than rejecting.",
+    example: `"X-Signature" in vars && secureCompare(vars["X-Signature"], hexEncode(hmacSha256(env.WEBHOOK_SECRET, vars.rawBody)))`,
   },
 
   // --- strings ---

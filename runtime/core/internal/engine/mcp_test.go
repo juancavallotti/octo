@@ -95,11 +95,74 @@ func TestMCPRouterInitialize(t *testing.T) {
 	}
 }
 
+func TestMCPRouterInitializeReportsTheRuntimeVersion(t *testing.T) {
+	proc := mustBuildAI(t, agentRegistry(&[]any{}), depsRes(mcpResources()), mcpRouterConfig())
+	resp := mcpCall(t, proc, `{"jsonrpc":"2.0","id":1,"method":"initialize"}`)
+	info, ok := resultOf(t, resp)["serverInfo"].(map[string]any)
+	if !ok {
+		t.Fatalf("initialize has no serverInfo: %v", resp)
+	}
+	if info["version"] != core.Version {
+		t.Errorf("serverInfo.version = %v, want the runtime version %q", info["version"], core.Version)
+	}
+}
+
 func TestMCPRouterInitializeDefaultsVersion(t *testing.T) {
 	proc := mustBuildAI(t, agentRegistry(&[]any{}), depsRes(mcpResources()), mcpRouterConfig())
 	resp := mcpCall(t, proc, `{"jsonrpc":"2.0","id":1,"method":"initialize"}`)
 	if resultOf(t, resp)["protocolVersion"] != mcpProtocolVersion {
 		t.Errorf("protocolVersion should default when the client sends none")
+	}
+}
+
+// TestMCPRouterNegotiatesProtocolVersion covers the whole rule in one table: a
+// version the router speaks comes back unchanged, and anything else is answered
+// with one it does speak rather than echoed.
+func TestMCPRouterNegotiatesProtocolVersion(t *testing.T) {
+	cases := []struct {
+		name      string
+		requested string
+		want      string
+	}{
+		{"oldest supported is echoed", "2024-11-05", "2024-11-05"},
+		{"middle supported is echoed", "2025-03-26", "2025-03-26"},
+		{"latest supported is echoed", "2025-06-18", "2025-06-18"},
+		{"unknown future version falls back to the latest", "2099-01-01", mcpLatestProtocolVersion},
+		{"nonsense falls back to the latest", "not-a-version", mcpLatestProtocolVersion},
+		{"an empty version is the conservative default", "", mcpProtocolVersion},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := negotiateProtocolVersion(tc.requested); got != tc.want {
+				t.Errorf("negotiateProtocolVersion(%q) = %q, want %q", tc.requested, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestMCPRouterAdvertisesOnlyConfiguredCapabilities is the other half of the
+// contacts-mcp bug: a tools-only server used to advertise resources and prompts,
+// which is what sent clients to methods that could only answer empty.
+func TestMCPRouterAdvertisesOnlyConfiguredCapabilities(t *testing.T) {
+	cfg := types.BlockConfig{
+		Type: "mcp-router", Name: "tools-only",
+		Tools: []types.ToolConfig{
+			toolBranch("echo", "echoes a fixed result", types.Settings{"result": `{"echoed":true}`}),
+		},
+	}
+	proc := mustBuildAI(t, agentRegistry(&[]any{}), depsRes(mcpResources()), cfg)
+	resp := mcpCall(t, proc, `{"jsonrpc":"2.0","id":1,"method":"initialize"}`)
+	caps, ok := resultOf(t, resp)["capabilities"].(map[string]any)
+	if !ok {
+		t.Fatalf("initialize has no capabilities: %v", resp)
+	}
+	if _, ok := caps["tools"]; !ok {
+		t.Errorf("capabilities should advertise tools: %v", caps)
+	}
+	for _, key := range []string{"resources", "prompts"} {
+		if _, ok := caps[key]; ok {
+			t.Errorf("capabilities should not advertise %q on a tools-only router: %v", key, caps)
+		}
 	}
 }
 
@@ -157,6 +220,109 @@ func TestMCPRouterResources(t *testing.T) {
 	}
 	if contents["uri"] != "octo://guide" {
 		t.Errorf("resources/read uri = %v", contents["uri"])
+	}
+}
+
+// templatedRouterConfig adds a templated resource beside the fixed one, plus a
+// fixed uri that the template would also match — which is how the shadowing rule
+// gets exercised.
+func templatedRouterConfig() types.BlockConfig {
+	cfg := mcpRouterConfig()
+	cfg.Resources = append(cfg.Resources,
+		types.MCPResourceConfig{
+			URITemplate: "octo://city/{name}", Name: "city",
+			Description: "a city briefing", MimeType: "text/markdown", Resource: "city",
+		},
+		types.MCPResourceConfig{
+			URI: "octo://city/atlantis", Name: "atlantis", Resource: "guide",
+		},
+	)
+	return cfg
+}
+
+func templatedResources() mapResources {
+	res := mcpResources()
+	res["city"] = "Briefing for {{ body.name }}."
+	return res
+}
+
+// TestMCPRouterResourceTemplates is the contacts-mcp bug: the method used to
+// answer -32601, so its author hand-wrote a switch in front of the router to
+// return an empty list instead.
+func TestMCPRouterResourceTemplates(t *testing.T) {
+	proc := mustBuildAI(t, agentRegistry(&[]any{}), depsRes(templatedResources()), templatedRouterConfig())
+
+	list := resultOf(t, mcpCall(t, proc, `{"jsonrpc":"2.0","id":1,"method":"resources/templates/list"}`))
+	templates, ok := list["resourceTemplates"].([]any)
+	if !ok || len(templates) != 1 {
+		t.Fatalf("resources/templates/list = %v, want the one template", list)
+	}
+	entry := templates[0].(map[string]any)
+	if entry["uriTemplate"] != "octo://city/{name}" {
+		t.Errorf("uriTemplate = %v", entry["uriTemplate"])
+	}
+	if entry["mimeType"] != "text/markdown" {
+		t.Errorf("mimeType = %v", entry["mimeType"])
+	}
+
+	// A template is a shape to fill in, not a document, so it must not appear
+	// among the readable resources.
+	readable := resultOf(t, mcpCall(t, proc, `{"jsonrpc":"2.0","id":2,"method":"resources/list"}`))
+	for _, r := range readable["resources"].([]any) {
+		if uri := r.(map[string]any)["uri"]; uri == "octo://city/{name}" {
+			t.Errorf("resources/list must not advertise the template: %v", readable)
+		}
+	}
+}
+
+func TestMCPRouterReadsThroughATemplate(t *testing.T) {
+	proc := mustBuildAI(t, agentRegistry(&[]any{}), depsRes(templatedResources()), templatedRouterConfig())
+
+	read := resultOf(t, mcpCall(t, proc,
+		`{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"octo://city/Paris"}}`))
+	contents := read["contents"].([]any)[0].(map[string]any)
+	if contents["text"] != "Briefing for Paris." {
+		t.Errorf("read text = %v, want the extracted variable rendered", contents["text"])
+	}
+	// The concrete uri the client asked for, not the template it matched.
+	if contents["uri"] != "octo://city/Paris" {
+		t.Errorf("read uri = %v, want the concrete uri", contents["uri"])
+	}
+}
+
+// TestMCPRouterFixedResourceShadowsATemplate pins the declaration-order contract:
+// an exact uri always wins, so an author can carve one special case out of a family.
+func TestMCPRouterFixedResourceShadowsATemplate(t *testing.T) {
+	proc := mustBuildAI(t, agentRegistry(&[]any{}), depsRes(templatedResources()), templatedRouterConfig())
+	read := resultOf(t, mcpCall(t, proc,
+		`{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"octo://city/atlantis"}}`))
+	contents := read["contents"].([]any)[0].(map[string]any)
+	if contents["text"] != "The operator guide." {
+		t.Errorf("read text = %v, want the fixed resource to shadow the template", contents["text"])
+	}
+}
+
+// TestMCPRouterTemplateResourcesKeepVariables covers the half that is easy to
+// miss: a jwt-validate in front of the router leaves claims in vars, and a
+// per-caller resource is useless without them.
+func TestMCPRouterTemplateResourcesKeepVariables(t *testing.T) {
+	res := templatedResources()
+	res["city"] = "{{ vars.sub }} asked about {{ body.name }}."
+	proc := mustBuildAI(t, agentRegistry(&[]any{}), depsRes(res), templatedRouterConfig())
+
+	msg := newMessageBody(t,
+		`{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"octo://city/Paris"}}`)
+	msg.Variables.Set("sub", "user-7")
+	out, err := proc.Process(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	raw, err := out.BodyJSON()
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	if !strings.Contains(string(raw), "user-7 asked about Paris.") {
+		t.Errorf("a templated resource should see the request's vars: %s", raw)
 	}
 }
 
@@ -249,5 +415,139 @@ func TestMCPRouterBuildValidation(t *testing.T) {
 	noResourceRef.Resources[0].Resource = ""
 	if err := build(noResourceRef); err == nil {
 		t.Error("expected error with a resource missing its resource ref")
+	}
+
+	// A resource is either one fixed document or a family of them, never both and
+	// never neither — the two fields decide which method advertises it.
+	bothURIs := mcpRouterConfig()
+	bothURIs.Resources[0].URITemplate = "octo://guide/{id}"
+	if err := build(bothURIs); err == nil {
+		t.Error("expected error with both a uri and a uriTemplate")
+	}
+	neitherURI := mcpRouterConfig()
+	neitherURI.Resources[0].URI = ""
+	if err := build(neitherURI); err == nil {
+		t.Error("expected error with neither a uri nor a uriTemplate")
+	}
+	// A malformed template fails the build rather than never matching at runtime.
+	badTemplate := mcpRouterConfig()
+	badTemplate.Resources[0] = types.MCPResourceConfig{
+		URITemplate: "octo://city/{bad-name}", Name: "city", Resource: "guide",
+	}
+	if err := build(badTemplate); err == nil {
+		t.Error("expected error with a uriTemplate variable that is not an identifier")
+	}
+	dupTemplate := mcpRouterConfig()
+	dupTemplate.Resources = append(dupTemplate.Resources,
+		types.MCPResourceConfig{URITemplate: "octo://city/{name}", Name: "a", Resource: "guide"},
+		types.MCPResourceConfig{URITemplate: "octo://city/{name}", Name: "b", Resource: "guide"})
+	if err := build(dupTemplate); err == nil {
+		t.Error("expected error with a duplicate uriTemplate")
+	}
+}
+
+// boolPtr is how a test states a hint, since "unset" and "false" are different
+// answers in ToolAnnotations.
+func boolPtr(b bool) *bool { return &b }
+
+// annotatedRouterConfig gives the tool the full MCP metadata set.
+func annotatedRouterConfig() types.BlockConfig {
+	cfg := mcpRouterConfig()
+	cfg.Tools[0].Title = "Echo a result"
+	cfg.Tools[0].Annotations = &types.ToolAnnotations{
+		ReadOnlyHint:  boolPtr(true),
+		OpenWorldHint: boolPtr(false),
+	}
+	cfg.Tools[0].OutputSchema = `{"type":"object","properties":{"echoed":{"type":"boolean"}}}`
+	return cfg
+}
+
+func TestMCPRouterAdvertisesToolMetadata(t *testing.T) {
+	proc := mustBuildAI(t, agentRegistry(&[]any{}), depsRes(mcpResources()), annotatedRouterConfig())
+	list := resultOf(t, mcpCall(t, proc, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
+	tool := list["tools"].([]any)[0].(map[string]any)
+
+	if tool["title"] != "Echo a result" {
+		t.Errorf("title = %v", tool["title"])
+	}
+	annotations, ok := tool["annotations"].(map[string]any)
+	if !ok {
+		t.Fatalf("tool has no annotations: %v", tool)
+	}
+	if annotations["readOnlyHint"] != true || annotations["openWorldHint"] != false {
+		t.Errorf("annotations = %v", annotations)
+	}
+	// A hint nobody stated must not be written out: the protocol's defaults differ
+	// per hint, so asserting one would claim something the author did not.
+	for _, key := range []string{"destructiveHint", "idempotentHint"} {
+		if _, ok := annotations[key]; ok {
+			t.Errorf("annotations should omit the unstated %q: %v", key, annotations)
+		}
+	}
+	if _, ok := tool["outputSchema"]; !ok {
+		t.Errorf("tool should advertise its outputSchema: %v", tool)
+	}
+}
+
+// TestMCPRouterOmitsUndeclaredToolMetadata keeps the wire shape clean for the
+// common tool that declares none of it.
+func TestMCPRouterOmitsUndeclaredToolMetadata(t *testing.T) {
+	proc := mustBuildAI(t, agentRegistry(&[]any{}), depsRes(mcpResources()), mcpRouterConfig())
+	list := resultOf(t, mcpCall(t, proc, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
+	tool := list["tools"].([]any)[0].(map[string]any)
+	for _, key := range []string{"title", "annotations", "outputSchema"} {
+		if _, ok := tool[key]; ok {
+			t.Errorf("tool should omit undeclared %q: %v", key, tool)
+		}
+	}
+}
+
+func TestMCPRouterReturnsStructuredContent(t *testing.T) {
+	proc := mustBuildAI(t, agentRegistry(&[]any{}), depsRes(mcpResources()), annotatedRouterConfig())
+	result := resultOf(t, mcpCall(t, proc,
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"echo","arguments":{}}}`))
+
+	structured, ok := result["structuredContent"].(map[string]any)
+	if !ok {
+		t.Fatalf("a tool with an outputSchema should return structuredContent: %v", result)
+	}
+	if structured["echoed"] != true {
+		t.Errorf("structuredContent = %v", structured)
+	}
+	// The text block stays: the spec requires the serialized JSON to remain there
+	// for a client that does not read structuredContent.
+	content := result["content"].([]any)[0].(map[string]any)
+	if !strings.Contains(content["text"].(string), "echoed") {
+		t.Errorf("the text content block should still carry the result: %v", content)
+	}
+}
+
+// TestMCPRouterOmitsStructuredContentWithoutASchema pins that the field is opt-in.
+func TestMCPRouterOmitsStructuredContentWithoutASchema(t *testing.T) {
+	proc := mustBuildAI(t, agentRegistry(&[]any{}), depsRes(mcpResources()), mcpRouterConfig())
+	result := resultOf(t, mcpCall(t, proc,
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"echo","arguments":{}}}`))
+	if _, ok := result["structuredContent"]; ok {
+		t.Errorf("a tool with no outputSchema should not return structuredContent: %v", result)
+	}
+}
+
+// TestAIAgentRejectsMCPToolMetadata: an LLM tool call has no protocol carrying
+// these, so accepting them would be config that silently does nothing.
+func TestAIAgentRejectsMCPToolMetadata(t *testing.T) {
+	cases := map[string]func(*types.ToolConfig){
+		"title":        func(c *types.ToolConfig) { c.Title = "Echo" },
+		"annotations":  func(c *types.ToolConfig) { c.Annotations = &types.ToolAnnotations{} },
+		"outputSchema": func(c *types.ToolConfig) { c.OutputSchema = `{"type":"object"}` },
+	}
+	for field, set := range cases {
+		t.Run(field, func(t *testing.T) {
+			tool := toolBranch("echo", "echoes", types.Settings{"result": `{"ok":true}`})
+			set(&tool)
+			b := &builder{reg: agentRegistry(&[]any{}), pool: pool.New(0, 0), deps: depsRes(mcpResources())}
+			if _, _, err := b.agentTools("ai-agent", []types.ToolConfig{tool}); err == nil {
+				t.Errorf("ai-agent should reject the mcp-router-only %q", field)
+			}
+		})
 	}
 }

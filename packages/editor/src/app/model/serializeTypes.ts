@@ -32,6 +32,13 @@ export interface RuntimeRoute extends RuntimeFlow {
 export interface RuntimeTool extends RuntimeFlow {
   description?: string;
   inputSchema?: string;
+  // mcp-router-only metadata. The editor round-trips all three so opening and
+  // saving an MCP server's flow cannot silently strip them; only outputSchema
+  // has a field in the UI, because annotations are four tri-state hints that
+  // read better in YAML than as a row of checkboxes.
+  title?: string;
+  annotations?: Record<string, boolean>;
+  outputSchema?: string;
 }
 
 /**

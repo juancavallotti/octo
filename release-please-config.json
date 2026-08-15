@@ -18,6 +18,7 @@
       "package-name": "octo",
       "changelog-path": "CHANGELOG.md",
       "extra-files": [
+        "runtime/core/version.go",
         "runtime/octo/version.go",
         "runtime/dolphin/version.go",
         "packages/mcp/src/handler.ts",

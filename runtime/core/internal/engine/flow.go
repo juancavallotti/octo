@@ -56,6 +56,7 @@ const (
 	blockKindAIAgent   = "ai-agent"
 	blockKindAIRetry   = "ai-retry"
 	blockKindMCPRouter = "mcp-router"
+	blockKindCLIRun    = "cli-run"
 	// blockKindBreakpoint is injected by the runtime around an addressed block for
 	// `invoke --break-at`; it is never authored in a flow (see breakpoint.go).
 	blockKindBreakpoint = "breakpoint"
@@ -479,6 +480,7 @@ func (b *builder) compositeBuilders() map[string]func(types.BlockConfig) (core.M
 		blockKindAIAgent:      b.aiAgent,
 		blockKindAIRetry:      b.aiRetry,
 		blockKindMCPRouter:    b.mcpRouter,
+		blockKindCLIRun:       b.cliRun,
 		blockKindBreakpoint:   b.breakpoint,
 		blockKindSpy:          b.spy,
 		blockKindMock:         b.mock,
@@ -550,7 +552,30 @@ func compositeSlots(cfg types.BlockConfig) []string {
 	add(cfg.Events != nil, "events")
 	add(len(cfg.Emit) > 0, "emit")
 	add(cfg.Stream, "stream")
-	return append(slots, takeoverSlots(cfg)...)
+	return append(slots, append(cliSlots(cfg), takeoverSlots(cfg)...)...)
+}
+
+// cliSlots lists the slots owned by cli-run. Split out from compositeSlots to
+// keep that function's length in check; together they are still the single
+// source of truth for which slots exist.
+func cliSlots(cfg types.BlockConfig) []string {
+	var slots []string
+	add := func(set bool, name string) {
+		if set {
+			slots = append(slots, name)
+		}
+	}
+	add(cfg.Program != "", "program")
+	add(cfg.Args != "", "args")
+	add(cfg.Stdin != "", "stdin")
+	add(len(cfg.Allow) > 0, "allow")
+	add(cfg.AllowInterpreters, "allowInterpreters")
+	add(len(cfg.Env) > 0, "env")
+	add(cfg.WorkDir != "", "workDir")
+	add(cfg.Timeout != "", "timeout")
+	add(cfg.MaxOutputBytes != 0, "maxOutputBytes")
+	add(cfg.OnExit != "", "onExit")
+	return slots
 }
 
 // takeoverSlots lists the slots owned by the blocks that take the flow over

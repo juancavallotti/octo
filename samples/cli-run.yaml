@@ -1,0 +1,73 @@
+service:
+  name: cli-run
+
+# Running a local program from a flow, and watching its output as it is produced.
+#
+# `program` is a CEL expression. Here it is a constant, so what runs is written
+# right there and needs no `allow` list; when it comes from the message instead,
+# `allow` is what decides — see samples/cli-agent.yaml. Arguments are passed as
+# argv with no shell anywhere, so nothing in them is interpreted: a semicolon is
+# a semicolon.
+#
+# The `events` path runs once per output line and once when the command exits.
+# It is an observer — its result is discarded — so it reports on the run without
+# taking part in it. See samples/cli-sse.yaml for the same path wired to an SSE
+# route, which is what makes a long command's output arrive as it happens.
+#
+#   task run:sample -- cli-run.yaml
+#   curl -s localhost:8080/echo -d '{"text":"one\ntwo\nthree\n"}'
+#
+# /bin/cat is used because it exists at that path on macOS, Debian and Alpine
+# (a busybox symlink there), needs no shell, and echoing stdin makes the output
+# predictable. Any sample that runs a program has to pick something portable.
+
+env:
+  - name: HTTP_PORT
+    default: "8080"
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      port: ${HTTP_PORT}
+
+flows:
+  - name: echo
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /echo
+    process:
+      - type: cli-run
+        name: cat
+        # A CEL expression, so the program can come from the message — see
+        # samples/cli-agent.yaml for that. A bare name is resolved through $PATH,
+        # so this works wherever cat lives; an absolute path works too.
+        #
+        # No `allow:` here: the program is named right there, so a list repeating
+        # it would say nothing. Declare one as soon as the program stops being
+        # yours — see the cli-agent sample.
+        program: '"cat"'
+        # The message becomes the command's standard input.
+        stdin: body.text
+        timeout: 10s
+        # Watch the output. Without this path the command still runs — its
+        # output is buffered onto the result instead, and the block costs
+        # nothing extra.
+        emit: [stdout, stderr, exit]
+        events:
+          process:
+            - type: log
+              name: line
+              settings:
+                # body.type is the event: "stdout", "stderr", or "exit".
+                message: 'body.type == "exit" ? "exited " + string(body.exitCode) : body.text'
+
+      # The chain carries on with how the command ended, output included. The
+      # events path above is an observer: watching the lines go by does not
+      # consume them, so body.stdout is here whether or not anything watched.
+      - type: set-payload
+        name: report
+        settings:
+          value: '{"ok": body.exitCode == 0, "exitCode": body.exitCode, "lines": body.lines}'
