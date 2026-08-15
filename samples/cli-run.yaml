@@ -42,10 +42,13 @@ flows:
       - type: cli-run
         name: cat
         # A CEL expression, so the program can come from the message — see
-        # samples/cli-agent.yaml for that. A constant like this one is its own
-        # allow list of one, so no `allow:` is needed: what may run is already
-        # written down, right here.
-        program: '"/bin/cat"'
+        # samples/cli-agent.yaml for that. A bare name is resolved through $PATH,
+        # so this works wherever cat lives; an absolute path works too.
+        #
+        # No `allow:` here: the program is named right there, so a list repeating
+        # it would say nothing. Declare one as soon as the program stops being
+        # yours — see the cli-agent sample.
+        program: '"cat"'
         # The message becomes the command's standard input.
         stdin: body.text
         timeout: 10s

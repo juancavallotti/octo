@@ -101,36 +101,30 @@ func TestCLIRunBuildValidation(t *testing.T) {
 	}{
 		{"no program", func(c *types.BlockConfig) { c.Program = "" }, "requires a program"},
 		{
-			// The case the allow list exists for: a program from the message, with
-			// nothing saying what it may be.
-			"a dynamic program with no allow list",
-			func(c *types.BlockConfig) { c.Program = "body.program" },
-			"requires an allow list",
-		},
-		{
-			"a bare name",
-			func(c *types.BlockConfig) { c.Program = `"cat"` },
-			"must be an absolute path",
-		},
-		{
-			"a missing path",
+			"a program that does not exist",
 			func(c *types.BlockConfig) { c.Program = `"/nope/nothing"` },
-			"no such file",
+			"/nope/nothing",
 		},
 		{
 			"a directory",
 			func(c *types.BlockConfig) { c.Program = `"` + dir + `"` },
-			"not a regular file",
+			dir,
 		},
 		{
 			"a non-executable file",
 			func(c *types.BlockConfig) { c.Program = `"` + notExecutable + `"` },
-			"not executable",
+			notExecutable,
 		},
 		{
-			"a bad entry on the allow list",
-			func(c *types.BlockConfig) { c.Program, c.Allow = "body.program", []string{"cat"} },
-			"must be an absolute path",
+			"an allow list entry that does not exist",
+			func(c *types.BlockConfig) { c.Program, c.Allow = "body.program", []string{"definitely-not-a-program"} },
+			"definitely-not-a-program",
+		},
+		{
+			// A program that never varies and is not on the list can never run.
+			"a constant program the allow list omits",
+			func(c *types.BlockConfig) { c.Allow = []string{"/usr/bin/false"} },
+			"could never run",
 		},
 		{"a bad timeout", func(c *types.BlockConfig) { c.Timeout = "soon" }, "timeout"},
 		{"a negative timeout", func(c *types.BlockConfig) { c.Timeout = "-1s" }, "must be positive"},
@@ -158,11 +152,14 @@ func TestCLIRunRefusesAnInterpreterUnlessAsked(t *testing.T) {
 	const shell = "/bin/sh"
 	requireProgram(t, shell)
 
+	// The check is on the allow LIST, which is the only place it means anything:
+	// a block with no list has already said "anything".
 	cfg := cliConfig()
 	cfg.Program = `"` + shell + `"`
+	cfg.Allow = []string{shell}
 	_, err := newCLIBuilder().block(cfg)
 	if err == nil {
-		t.Fatal("an interpreter should be refused by default")
+		t.Fatal("an interpreter on the allow list should be refused by default")
 	}
 	if !strings.Contains(err.Error(), "allowInterpreters") {
 		t.Errorf("error %q should name the setting that permits it", err)
@@ -171,6 +168,64 @@ func TestCLIRunRefusesAnInterpreterUnlessAsked(t *testing.T) {
 	cfg.AllowInterpreters = true
 	if _, err := newCLIBuilder().block(cfg); err != nil {
 		t.Errorf("allowInterpreters: true should permit a shell: %v", err)
+	}
+}
+
+// TestCLIRunResolvesThroughPath: a bare name is looked up on $PATH, so a flow can
+// say "cat" without hard-coding where the platform keeps it.
+func TestCLIRunResolvesThroughPath(t *testing.T) {
+	requireProgram(t, catPath)
+	cfg := cliConfig()
+	cfg.Program = `"cat"`
+	body := runCLI(t, buildCLI(t, cfg), "one\n")
+	if body["exitCode"] != 0 {
+		t.Errorf("a bare name should resolve through $PATH: %v", body)
+	}
+}
+
+// TestCLIRunMatchesResolvedPaths is why both sides go through resolveProgram:
+// "cat" and "/bin/cat" are the same program, and a spelling should neither dodge
+// an allow list nor sneak onto one.
+func TestCLIRunMatchesResolvedPaths(t *testing.T) {
+	requireProgram(t, catPath)
+	cfg := types.BlockConfig{
+		Type: blockKindCLIRun, Name: "run",
+		Program: "body.program",
+		// Listed by bare name; the calls below name it three other ways.
+		Allow: []string{"cat"},
+		Stdin: `"hi\n"`,
+	}
+	proc := buildCLI(t, cfg)
+
+	for _, spelling := range []string{"cat", catPath, "/bin/../bin/cat"} {
+		if _, err := proc.Process(context.Background(),
+			newMessageBody(t, `{"program":`+quote(spelling)+`}`)); err != nil {
+			t.Errorf("%q names the same program as the allow list entry: %v", spelling, err)
+		}
+	}
+	if _, err := proc.Process(context.Background(), newMessageBody(t, `{"program":"echo"}`)); err == nil {
+		t.Error("a different program must still be refused")
+	}
+}
+
+// TestCLIRunWithNoAllowListRunsAnything is the development default the block is
+// tuned for: no list means no restriction.
+func TestCLIRunWithNoAllowListRunsAnything(t *testing.T) {
+	requireProgram(t, catPath)
+	cfg := types.BlockConfig{
+		Type: blockKindCLIRun, Name: "run",
+		Program: "body.program",
+		Stdin:   `"hi\n"`,
+	}
+	proc := buildCLI(t, cfg)
+	if _, err := proc.Process(context.Background(),
+		newMessageBody(t, `{"program":"`+catPath+`"}`)); err != nil {
+		t.Errorf("with no allow list any resolvable program should run: %v", err)
+	}
+	// It still has to exist.
+	if _, err := proc.Process(context.Background(),
+		newMessageBody(t, `{"program":"definitely-not-a-program"}`)); err == nil {
+		t.Error("a program that does not resolve should still fail")
 	}
 }
 
@@ -272,27 +327,12 @@ func TestCLIRunDynamicProgram(t *testing.T) {
 		t.Errorf("error %q should say why", err)
 	}
 
-	// Exact match only: no prefix matching, no path normalization into the list.
-	for _, sneaky := range []string{"/bin/cat ", "/bin/../bin/cat", "/bin/cat\n"} {
+	// A name that does not resolve to an allowed program is refused however it is
+	// spelled.
+	for _, sneaky := range []string{"/bin/cat ", "/bin/cat\n", "/usr/bin/env"} {
 		if _, err := proc.Process(context.Background(),
 			newMessageBody(t, `{"program":`+quote(sneaky)+`}`)); err == nil {
-			t.Errorf("%q should not match the allow list", sneaky)
+			t.Errorf("%q should not be allowed", sneaky)
 		}
-	}
-}
-
-// TestCLIRunRejectsAConstantProgramTheAllowListOmits: a program that never
-// varies and is not on the list can never run. Left to the runtime check it
-// would build cleanly and then fail on every single message.
-func TestCLIRunRejectsAConstantProgramTheAllowListOmits(t *testing.T) {
-	requireProgram(t, catPath)
-	cfg := cliConfig()
-	cfg.Allow = []string{"/usr/bin/false"}
-	_, err := newCLIBuilder().block(cfg)
-	if err == nil {
-		t.Fatal("a constant program outside the allow list should fail the build")
-	}
-	if !strings.Contains(err.Error(), "could never run") {
-		t.Errorf("error %q should say why", err)
 	}
 }

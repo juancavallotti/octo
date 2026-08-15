@@ -47,45 +47,63 @@ const maxLineBytes = 1 << 20
 // WaitDelay is what bounds that.
 const commandWaitDelay = 5 * time.Second
 
-// interpreters are refused on a cli-run's allowlist unless allowInterpreters says
-// otherwise. An interpreter's arguments ARE a program, so allowing one turns the
-// allowlist into a formality — the block could then run anything.
+// interpreters are refused on a cli-run's allow list unless allowInterpreters
+// says otherwise. An interpreter's arguments ARE a program, so listing one turns
+// the list into a formality — the block could then run anything through it.
+//
+// It only applies to an explicit list, because that is the only case where it
+// means anything: a block with no list has already said "anything", so there is
+// nothing left to guard.
 //
 // This is a guardrail against an easy mistake, not a sandbox, and the list can
 // never be complete: git runs a pager, tar has --to-command, find has -exec. The
-// allowlist is the boundary either way.
+// list is the boundary either way.
 var interpreters = map[string]bool{
 	"sh": true, "bash": true, "zsh": true, "dash": true, "ksh": true, "csh": true, "fish": true,
 	"env": true, "xargs": true, "awk": true, "gawk": true,
 	"python": true, "python3": true, "perl": true, "ruby": true, "node": true, "php": true,
 }
 
-// checkProgram validates one allowlist entry when the flow is built, so a program
-// nobody can run fails at startup rather than on the first message that needed
-// it. Each failure names the entry and what is wrong with it.
-func checkProgram(program string, allowInterpreters bool) error {
-	if !filepath.IsAbs(program) {
-		return fmt.Errorf(
-			"allowed program %q must be an absolute path: a bare name is resolved through $PATH at "+
-				"exec time, which would let the environment decide what actually runs", program)
+// resolveProgram turns a program name into the absolute path that will actually
+// run: a bare name is looked up on $PATH, an absolute path is checked as it
+// stands, and either way the result is cleaned.
+//
+// Resolving both the allow list and the program through the same function is what
+// makes matching them honest. "ls" and "/bin/ls" name the same binary and now
+// compare equal, and so do "/bin/sh" and "/bin/../bin/sh" — a spelling can
+// neither dodge the list nor sneak onto it.
+func resolveProgram(program string) (string, error) {
+	if program == "" {
+		return "", errors.New(
+			"program expression produced an empty name, so there is nothing to run")
 	}
-	info, err := os.Stat(program)
+	path, err := exec.LookPath(program)
 	if err != nil {
-		return fmt.Errorf("allowed program %q: %w", program, err)
+		return "", fmt.Errorf("program %q: %w", program, err)
 	}
-	if !info.Mode().IsRegular() {
-		return fmt.Errorf("allowed program %q is not a regular file", program)
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("program %q: %w", program, err)
 	}
-	if info.Mode().Perm()&0o111 == 0 {
-		return fmt.Errorf("allowed program %q is not executable", program)
+	return filepath.Clean(abs), nil
+}
+
+// checkAllowEntry resolves one allow-list entry when the flow is built, so an
+// entry naming a program that is not there fails at startup rather than on the
+// first message that reached for it. It returns the resolved path the entry
+// stands for.
+func checkAllowEntry(program string, allowInterpreters bool) (string, error) {
+	resolved, err := resolveProgram(program)
+	if err != nil {
+		return "", fmt.Errorf("allowed %w", err)
 	}
-	if !allowInterpreters && interpreters[filepath.Base(program)] {
-		return fmt.Errorf(
+	if !allowInterpreters && interpreters[filepath.Base(resolved)] {
+		return "", fmt.Errorf(
 			"allowed program %q is an interpreter: its arguments are themselves a program, so "+
-				"allowing it allows everything. Set allowInterpreters: true if that is the intent",
-			program)
+				"allowing it allows everything it can reach. Set allowInterpreters: true if that "+
+				"is the intent", program)
 	}
-	return nil
+	return resolved, nil
 }
 
 // commandLine is one line of a running command's output.
@@ -140,10 +158,9 @@ func (c *command) run(
 	runCtx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
-	//nolint:gosec // G204: program was matched exactly against this block's allow list by
-	// cliRun.evalProgram before we got here, and every entry on that list was checked at build
-	// time to be an absolute path to a real executable (see checkProgram). args are passed as
-	// argv with no shell, so nothing in them is interpreted.
+	//nolint:gosec // G204: program is the absolute path cliRun.evalProgram resolved and then
+	// checked against this block's allow list, when it declares one. args are passed as argv
+	// with no shell, so nothing in them is interpreted.
 	cmd := exec.CommandContext(runCtx, program, args...)
 	cmd.Dir = c.workDir
 	// Exactly the declared passthrough and nothing else, so a secret in the

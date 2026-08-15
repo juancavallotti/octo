@@ -52,7 +52,7 @@ makes streaming a long command to a caller possible.
 ```yaml
 - type: cli-run
   name: build
-  program: '"/usr/bin/go"'
+  program: '"go"'
   args: '["build", "./..."]'
   workDir: /src
   env: [PATH, HOME]
@@ -76,10 +76,10 @@ that would be written to a stream nobody was reading.
 
 | Field | Meaning |
 | --- | --- |
-| `program` | CEL expression for the absolute path to run. Checked against `allow` on every message. |
+| `program` | CEL expression naming the program: a bare name resolved through `$PATH`, or an absolute path. |
 | `args` | CEL expression yielding a list of strings, passed as argv. |
 | `stdin` | CEL expression written to the process's standard input, then closed. |
-| `allow` | Every program this block may run, as absolute paths. See below. |
+| `allow` | Every program this block may run. Empty means no restriction — see below. |
 | `allowInterpreters` | Permit an interpreter on `allow`. Default `false`. |
 | `env` | Environment variables passed to the child, by name. Nothing else is passed. |
 | `workDir` | Directory the command runs in. |
@@ -91,39 +91,51 @@ that would be written to a stream nobody was reading.
 
 ### The allow list
 
-`program` is an expression, so which program runs can come from the message.
-That is the point — it is what lets an [`ai-agent`](/reference/blocks/ai) tool
-branch hand a model a set of commands and let it choose. It also means `allow`
-is the only thing standing between a caller and arbitrary execution, so it is
-checked on **every message**, before anything is spawned.
-
-`allow` is required only when it has a job to do. A `program` that resolves to
-the same string every time is already its own list of one, and repeating it
-would be ceremony:
+`allow` is **optional**. A block without one may run anything that resolves,
+which keeps `cli-run` pleasant for the local, iterative work it is best at —
+requiring a list that repeats the program two lines above would be ceremony.
 
 ```yaml
-# No allow needed: what may run is written right there.
-program: '"/bin/cat"'
-
-# allow is required, and is the boundary.
-program: vars.program
-allow: [/bin/ls, /bin/df, /bin/date]
+# Fine: the program is written right there.
+program: '"go"'
 ```
+
+`program` is an expression, though, so which program runs can come from the
+message. That is the point — it is what lets an [`ai-agent`](/reference/blocks/ai)
+tool branch hand a model a set of commands and let it choose. In that
+arrangement `allow` is the only thing standing between the caller and arbitrary
+execution, and it is checked on **every message**, before anything is spawned:
+
+```yaml
+program: vars.program
+allow: [ls, df, date]
+```
+
+<Callout type="warn">
+  A block with no `allow` whose `program` comes from the message will run
+  whatever it is handed. That is exactly what you want at a terminal, and it is
+  remote code execution if the flow is reachable by anyone else. **Declare an
+  allow list for anything you deploy.** The builder logs a warning at startup for
+  precisely that combination — no list and a message-supplied program — so the
+  answer arrives before the postmortem does.
+</Callout>
 
 Rules worth knowing:
 
-- **Absolute paths only.** A bare name is resolved through `$PATH` at exec time,
-  which would let the environment decide what actually runs. Every entry is
-  checked at build time to be a real, executable, regular file — so a typo fails
-  at startup, not on the message that first reached for it.
-- **Exact match.** The program expression's result is compared against the list
-  as a whole string. No prefixes, no path normalization: `/bin/../bin/sh` does
-  not match `/bin/sh`.
-- **Interpreters are refused** unless `allowInterpreters: true`. An interpreter's
-  arguments *are* a program, so allowing `sh` or `python` allows everything. This
-  is a guardrail against an easy mistake, not a sandbox — the list can never be
-  complete (`git` runs a pager, `tar` has `--to-command`), so the allow list is
-  the boundary either way.
+- **Bare names or absolute paths, either way.** A bare name is resolved through
+  `$PATH`; an absolute path is used as it stands. Every entry is resolved at
+  build time, so an entry naming a program that is not installed fails at
+  startup, not on the message that first reached for it.
+- **Matching is on resolved paths, not on the strings you typed.** `ls` and
+  `/bin/ls` name the same program and match the same entry, and
+  `/bin/../bin/sh` cannot dodge an entry for `/bin/sh`.
+- **Interpreters are refused** on an explicit list unless
+  `allowInterpreters: true`. An interpreter's arguments *are* a program, so
+  listing `sh` or `python` allows everything it can reach. The check applies only
+  to a list — a block with no list has already said "anything". It is a guardrail
+  against an easy mistake, not a sandbox: the list can never be complete (`git`
+  runs a pager, `tar` has `--to-command`), so the list is the boundary either
+  way.
 
 ### What is not a risk
 

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/juancavallotti/octo/runtime/core"
@@ -45,7 +46,8 @@ const (
 type cliRun struct {
 	command *command
 	program *expr.Program
-	// allowed is every program this block may run. It is the whole security
+	// allowed is every program this block may run, as resolved absolute paths, or
+	// nil when it was given no list and may run anything. It is the whole security
 	// boundary, and it is checked on every message rather than once at build,
 	// because the program is an expression: what runs can come from the message,
 	// which is what lets an ai-agent tool branch hand a model a set of commands.
@@ -115,46 +117,67 @@ func buildCommand(cfg types.BlockConfig) (*command, error) {
 	}, nil
 }
 
-// buildAllowList works out which programs this block may run, and checks each one
-// is a real, absolute, executable path — so a typo fails at startup rather than on
-// the message that first reached for it.
+// buildAllowList resolves the programs this block may run, or reports nil for a
+// block that may run anything.
 //
-// An explicit allow list is required only when the block actually needs one. A
-// program expression that resolves to the same string every time is its own allow
-// list of one, and making an author repeat it would be ceremony: the expression
-// already says exactly what may run. The list is required precisely when the
-// program depends on the message — which is the case it exists for, and the case
-// where it is the only thing standing between a caller (or a model) and arbitrary
-// execution.
+// An empty list means no restriction, and that is the deliberate default:
+// requiring one to run a command you spelled out two lines above is ceremony,
+// and it makes the block clumsy for exactly the local, iterative work it is most
+// useful for.
+//
+// What it costs is worth naming. A block with no list whose program comes from
+// the message will run whatever it is handed — which is fine when the caller is
+// the flow author at a terminal, and is remote code execution when the caller is
+// the internet. That combination gets a warning at build time, so the answer
+// arrives at startup rather than in a postmortem; a constant program stays quiet,
+// because it can only ever run the one thing.
+//
+// Every entry is resolved the same way the program will be, so a list may be
+// written as bare names, absolute paths, or a mix. An entry that resolves to
+// nothing fails the build rather than the first message that reached for it.
 func buildAllowList(
 	cfg types.BlockConfig, program *expr.Program, env map[string]any,
 ) (map[string]bool, error) {
-	constant, isConstant := constantProgram(program, env)
-	allow := cfg.Allow
-	if len(allow) == 0 {
+	if len(cfg.Allow) == 0 {
+		constant, isConstant := constantProgram(program, env)
 		if !isConstant {
-			return nil, errors.New(
-				"cli-run program depends on the message, so it requires an allow list naming every " +
-					"program this block may run: that list is the only thing deciding what a caller " +
-					"can execute. A program that is the same every time needs no list")
+			slog.Warn("cli-run has no allow list and takes its program from the message, so it "+
+				"will run whatever it is handed: declare an allow list before this flow is "+
+				"reachable by anyone but you",
+				"block", blockLabel(blockKindCLIRun, cfg.Name), "program", cfg.Program)
+			return nil, nil
 		}
-		allow = []string{constant}
-	}
-
-	allowed := make(map[string]bool, len(allow))
-	for _, entry := range allow {
-		if err := checkProgram(entry, cfg.AllowInterpreters); err != nil {
+		// A program named outright is still resolved now. There is no list to check
+		// it against, but a literal that resolves to nothing can never run, and
+		// saying so at startup costs nothing.
+		if _, err := resolveProgram(constant); err != nil {
 			return nil, fmt.Errorf("cli-run: %w", err)
 		}
-		allowed[entry] = true
+		return nil, nil
 	}
+
+	allowed := make(map[string]bool, len(cfg.Allow))
+	for _, entry := range cfg.Allow {
+		resolved, err := checkAllowEntry(entry, cfg.AllowInterpreters)
+		if err != nil {
+			return nil, fmt.Errorf("cli-run: %w", err)
+		}
+		allowed[resolved] = true
+	}
+
 	// A program that never varies and is not on the list can never run, so say so
 	// now. Left to the runtime check it would build cleanly and then fail on every
 	// single message, which is the failure this file exists to move to startup.
-	if isConstant && !allowed[constant] {
-		return nil, fmt.Errorf(
-			"cli-run program is always %q, which the allow list does not include: it could never run",
-			constant)
+	if constant, ok := constantProgram(program, env); ok {
+		resolved, err := resolveProgram(constant)
+		if err != nil {
+			return nil, fmt.Errorf("cli-run: %w", err)
+		}
+		if !allowed[resolved] {
+			return nil, fmt.Errorf(
+				"cli-run program is always %q, which the allow list does not include: it could "+
+					"never run", constant)
+		}
 	}
 	return allowed, nil
 }
@@ -269,25 +292,32 @@ func (c *cliRun) Process(ctx context.Context, msg *types.Message) (*types.Messag
 	return msg, nil
 }
 
-// evalProgram resolves which program to run and refuses anything not on the
-// allowlist.
+// evalProgram resolves which program to run, and refuses anything the block's
+// allow list does not cover.
 //
 // This is the enforcement point, and it runs before a process is spawned. The
 // program can come from the message — an ai-agent tool branch handing a model a
-// set of commands is the case this exists for — so the check has to happen here
-// rather than at build time, and it has to be exact: the expression's result is
-// compared against the allowlist as a whole string, never prefix-matched or
-// path-normalized into one.
+// set of commands is the case it exists for — so the check belongs here rather
+// than at build time.
+//
+// It compares resolved paths, not the strings the author and the caller happened
+// to type. "ls" and "/bin/ls" are the same program and match the same entry;
+// "/bin/../bin/sh" cannot dodge an entry for "/bin/sh". A nil list means the
+// block was given no restriction, so anything that resolves runs.
 func (c *cliRun) evalProgram(msg *types.Message) (string, error) {
-	program, err := c.program.EvalString(expr.MessageActivation(msg, c.env))
+	name, err := c.program.EvalString(expr.MessageActivation(msg, c.env))
 	if err != nil {
 		return "", fmt.Errorf("cli-run program: %w", err)
 	}
-	if !c.allowed[program] {
-		return "", fmt.Errorf("cli-run %s: program %q is not in this block's allow list",
-			blockLabel(blockKindCLIRun, c.name), program)
+	resolved, err := resolveProgram(name)
+	if err != nil {
+		return "", fmt.Errorf("cli-run %s: %w", blockLabel(blockKindCLIRun, c.name), err)
 	}
-	return program, nil
+	if c.allowed != nil && !c.allowed[resolved] {
+		return "", fmt.Errorf("cli-run %s: program %q is not in this block's allow list",
+			blockLabel(blockKindCLIRun, c.name), name)
+	}
+	return resolved, nil
 }
 
 // lineHandler returns the per-line callback, or nil when nothing is watching —

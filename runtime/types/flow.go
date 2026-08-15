@@ -191,16 +191,14 @@ type BlockConfig struct {
 	// applied by the builder).
 	MaxAttempts int `yaml:"maxAttempts,omitempty"`
 
-	// Program is a "cli-run" CEL expression yielding the absolute path of the
-	// program to execute. Its result is checked against Allow on every message,
-	// and a program not on that list is refused before anything is spawned.
+	// Program is a "cli-run" CEL expression naming the program to execute: a bare
+	// name, resolved through $PATH, or an absolute path. Its result is resolved
+	// and then checked against Allow on every message, when Allow is set.
 	//
 	// It is an expression rather than a literal so the choice of program can come
 	// from the message — which is what lets an "ai-agent" tool branch hand a model
-	// a set of commands and let it pick. That makes Allow the only thing standing
-	// between the model and arbitrary execution, so it is checked per message
-	// rather than per build, and it should be written as narrowly as the job
-	// allows.
+	// a set of commands and let it pick. In that arrangement Allow is the only
+	// thing standing between the model and arbitrary execution.
 	Program string `yaml:"program,omitempty"`
 	// Args is a "cli-run" CEL expression yielding the argument list, which must
 	// evaluate to a list of strings. Arguments reach the program as argv and no
@@ -211,17 +209,21 @@ type BlockConfig struct {
 	// process's standard input. Empty writes nothing and closes it, so a program
 	// that reads stdin sees EOF rather than hanging.
 	Stdin string `yaml:"stdin,omitempty"`
-	// Allow is the set of absolute paths a "cli-run" may execute. Everything else
-	// is refused, and the block's own Program is checked against it when the flow
-	// is built.
+	// Allow is the set of programs a "cli-run" may execute, written as bare names,
+	// absolute paths, or a mix. Entries are matched after resolution, so "git" and
+	// "/usr/bin/git" name the same program.
 	//
-	// Absolute paths, not bare names, and deliberately so. A bare name is resolved
-	// through $PATH at exec time, which would mean the program a flow runs is
-	// decided by the process environment rather than by this file.
+	// Empty means no restriction. That keeps the block usable for the local,
+	// iterative work it is best at, where requiring a list that repeats the
+	// program two lines above would be ceremony. It also means a block with no
+	// Allow whose Program comes from the message runs whatever it is handed — the
+	// builder warns about exactly that combination, and a flow anyone else can
+	// reach should declare a list.
 	Allow []string `yaml:"allow,omitempty"`
 	// AllowInterpreters permits an interpreter (sh, bash, python, env, xargs, …)
 	// on a "cli-run" Allow list. One is refused by default because its arguments
-	// are themselves a program, which makes the allowlist a formality.
+	// are themselves a program, which makes the list a formality. It applies only
+	// to an explicit list — a block with no list has already said "anything".
 	AllowInterpreters bool `yaml:"allowInterpreters,omitempty"`
 	// Env names the environment variables a "cli-run" passes to the child.
 	// Nothing else is passed: the command starts with these and nothing more, so

@@ -20,7 +20,7 @@ and [`cli-agent.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/
 ```yaml
 - type: cli-run
   name: build
-  program: '"/usr/bin/go"'
+  program: '"go"'
   args: '["build", "./..."]'
   workDir: /src
   env: [PATH, HOME]
@@ -31,9 +31,13 @@ The chain carries on with `{exitCode, stdout, stderr, lines}`. A non-zero exit
 errors the block by default so the [error path](/reference/flow-file#error) sees
 it; `onExit: continue` leaves the decision to a later block.
 
-`program` is a CEL expression, which is why a constant is written
-`'"/usr/bin/go"'` — quoted twice, once for YAML and once for CEL. That looks
-fussy for a fixed command and pays for itself in the last section.
+`program` is a CEL expression, which is why a constant is written `'"go"'` —
+quoted twice, once for YAML and once for CEL. That looks fussy for a fixed
+command and pays for itself in the last section.
+
+A bare name is resolved through `$PATH`, so you do not have to know where the
+platform keeps it; an absolute path works too. No `allow` list is needed here,
+because the program is written right there.
 
 ## Watching the output
 
@@ -82,7 +86,7 @@ source:
 process:
   - type: cli-run
     name: build
-    program: '"/usr/bin/go"'
+    program: '"go"'
     args: '["build", "./..."]'
     emit: [stdout, stderr]
     events:
@@ -125,13 +129,13 @@ commands and let it choose. That is when `allow` earns its keep: it is checked o
   name: run
   program: vars.program
   args: vars.args
-  allow: [/bin/ls, /bin/df, /bin/date]
+  allow: [ls, df, date]
   env: [PATH]
   workDir: /tmp
   onExit: continue
 ```
 
-Have the flow map a command *name* to a path, rather than letting the model
+Have the flow map a command *name* to a program, rather than letting the model
 supply one:
 
 ```yaml
@@ -141,21 +145,27 @@ supply one:
     transforms:
       - setVar: program
         value: >
-          body.command == "list-files" ? "/bin/ls" :
-          body.command == "disk-usage" ? "/bin/df" : ""
+          body.command == "list-files" ? "ls" :
+          body.command == "disk-usage" ? "df" : ""
 ```
 
-A name outside the list resolves to `""`, which the allow list refuses. Put that
-mapping in its own sourceless flow and you can test the whole boundary with no
-model and no API key — `samples/cli-agent_test.yaml` does.
+A name outside the list maps to `""`, so there is nothing to run and nothing is
+spawned; anything else the mapping could produce still has to be on `allow`. Put
+that mapping in its own sourceless flow and you can test the whole boundary with
+no model and no API key — `samples/cli-agent_test.yaml` does.
 
 ## What keeps this safe
 
-**The allow list is the boundary.** Absolute paths only: a bare name would be
-resolved through `$PATH` at exec time, letting the environment decide what
-actually runs. Every entry is checked at build time to be a real, executable
-file, so a typo fails at startup. Matching is exact — `/bin/../bin/sh` does not
-match `/bin/sh`.
+**The allow list is the boundary — when you declare one.** `allow` is optional,
+and a block without one may run anything; that is the right default for a
+command you spelled out yourself, and the wrong one the moment the program comes
+from somewhere else. The builder warns at startup about exactly that
+combination.
+
+Entries may be bare names or absolute paths, and both sides are compared **after
+resolution** — so `ls` and `/bin/ls` match the same entry, and `/bin/../bin/sh`
+cannot dodge an entry for `/bin/sh`. Every entry is resolved at build time, so
+one naming a program that is not installed fails at startup.
 
 **No shell is ever involved.** Arguments are passed as argv, so a semicolon, a
 pipe or a `$(…)` in a model-supplied argument is just bytes to the callee. The
@@ -165,10 +175,15 @@ rather than by escaping.
 **The child inherits nothing.** It sees exactly the variables named in `env` and
 no others, so a command cannot read an API key the integration holds.
 
-**Interpreters are refused** unless `allowInterpreters: true`. An interpreter's
-arguments *are* a program, so allowing `sh` or `python` allows everything.
+**Interpreters are refused** on an explicit list unless
+`allowInterpreters: true`. An interpreter's arguments *are* a program, so listing
+`sh` or `python` allows everything it can reach.
 
 <Callout type="warn">
+  **Declare an allow list for anything you deploy.** Everything above is about
+  keeping development quick; a flow the internet can reach and no allow list is
+  remote code execution, whatever else the flow does.
+
   The interpreter check is a guardrail against an easy mistake, not a sandbox.
   The list can never be complete — `git` runs a pager, `tar` has `--to-command`,
   `find` has `-exec` — so write the allow list as narrowly as the job allows and

@@ -33,20 +33,26 @@ cases:
         count: 1
         records:
           - output:
-              vars: { program: /bin/ls, args: ["-la"] }
+              vars: { program: ls, args: ["-la"] }
 
-  # A command name outside the enum resolves to "", which the allow list refuses
-  # before anything is spawned. The model gets an error, not an execution.
+  # A command name outside the enum maps to "", so there is nothing to run and
+  # nothing is spawned. The model gets an error, not an execution.
   - name: an unknown command name is refused rather than run
     input:
       data: { command: rm-rf-slash }
     expect:
-      error: is not in this block's allow list
+      error: produced an empty name
 
-  # The model cannot smuggle a path through the command name: the mapping only
+  # The model cannot smuggle a program through the command name: the mapping only
   # ever produces one of three literals, so anything else lands on "".
   - name: a path supplied as the command name is refused
     input:
       data: { command: /bin/sh }
     expect:
-      error: is not in this block's allow list
+      error: produced an empty name
+
+# The allow list itself — that a program the mapping did not produce is refused,
+# and that a spelling cannot dodge it — is covered by TestCLIRunMatchesResolvedPaths
+# in runtime/core/internal/engine/cli_test.go. It cannot be tested from here
+# without seeding vars the `resolve` block then overwrites, which would be testing
+# the fixture rather than the block.

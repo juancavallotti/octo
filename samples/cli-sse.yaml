@@ -58,7 +58,7 @@ flows:
     process:
       - type: cli-run
         name: cat
-        program: '"/bin/cat"'
+        program: '"cat"'
         stdin: body.text
         timeout: 2m
         # Only the output lines go to the caller; the exit status arrives as the

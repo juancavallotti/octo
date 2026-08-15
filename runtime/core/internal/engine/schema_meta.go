@@ -357,8 +357,8 @@ type aiAgentMeta struct {
 
 // cliRunMeta describes the cli-run composite's editor fields.
 type cliRunMeta struct {
-	// CEL expression for the absolute path of the program to run, checked against
-	// Allowed programs on every message. Write a constant ('"/usr/bin/git"') for a
+	// CEL expression for the program to run: a bare name resolved through $PATH
+	// ('"git"') or an absolute path ('"/usr/bin/git"'). Write a constant for a
 	// fixed command, or read it from the message to let a caller — or a model —
 	// choose from the list below.
 	Program string `json:"program" octo:"label=Program,type=cel,required"`
@@ -369,11 +369,11 @@ type cliRunMeta struct {
 	// CEL expression written to the program's standard input. Empty closes it, so
 	// a program that reads stdin sees EOF rather than hanging.
 	Stdin string `json:"stdin" octo:"label=Standard input,type=cel"`
-	// Every program this block may run, as absolute paths. Required only when
-	// Program depends on the message: a program that is the same every time is
-	// already its own list of one. A bare name would be resolved through $PATH at
-	// exec time, letting the environment decide what actually runs, so only
-	// absolute paths are accepted.
+	// Every program this block may run, as bare names or absolute paths. Leave it
+	// empty and the block may run anything, which is convenient while developing
+	// and is how a caller-supplied program becomes arbitrary execution — so
+	// declare one before anyone but you can reach the flow. Entries are matched
+	// after resolution, so "git" and "/usr/bin/git" name the same program.
 	Allow []string `json:"allow" octo:"label=Allowed programs,type=string-list"`
 	// Permit an interpreter (sh, bash, python, env, xargs, …) to be allowed. One
 	// is refused by default because its arguments are themselves a program, which

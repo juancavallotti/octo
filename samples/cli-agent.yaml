@@ -4,11 +4,15 @@ service:
 # Giving an agent a set of command-line tools.
 #
 # This is what cli-run's `program` being an expression is for. The model picks a
-# command by name, the tool branch turns that name into a path, and `allow` is
+# command by name, the tool branch turns that name into a program, and `allow` is
 # what decides whether it may run — checked on every message, before anything is
-# spawned. The model never supplies a path, only a name from a fixed vocabulary,
-# and even if it did the allow list is an exact string match: no prefixes, no
-# path normalization, no "/bin/../bin/sh".
+# spawned.
+#
+# `allow` is optional in general: a block with no list may run anything, which is
+# what makes cli-run pleasant for local work. This is precisely the case where
+# that is wrong, and where the list has to be there — the caller choosing the
+# program is a language model. Both sides are compared after resolution, so
+# "/bin/../bin/sh" cannot dodge the list and a bare name cannot sneak onto it.
 #
 # Two other things are doing security work here, and neither is obvious:
 #
@@ -106,9 +110,9 @@ flows:
           transforms:
             - setVar: program
               value: >
-                body.command == "list-files" ? "/bin/ls" :
-                body.command == "disk-usage" ? "/bin/df" :
-                body.command == "date" ? "/bin/date" : ""
+                body.command == "list-files" ? "ls" :
+                body.command == "disk-usage" ? "df" :
+                body.command == "date" ? "date" : ""
             - setVar: args
               value: >
                 body.command == "list-files" ? ["-la"] :
@@ -120,10 +124,7 @@ flows:
         args: vars.args
         # The boundary. Every program the model can possibly reach, and nothing
         # else — checked on each call, before anything is spawned.
-        allow:
-          - /bin/ls
-          - /bin/df
-          - /bin/date
+        allow: [ls, df, date]
         # Exactly what these commands need. The integration's own
         # ANTHROPIC_API_KEY is not among them, and so cannot be read.
         env: [PATH]
