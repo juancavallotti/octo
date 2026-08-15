@@ -3,18 +3,18 @@ service:
 
 # Running a local program from a flow, and watching its output as it is produced.
 #
-# The allowlist is the whole security story. `program` is a literal, not an
-# expression, so what runs is decidable when the flow is BUILT — a program
-# outside `allow` fails at startup rather than on the first request that needed
-# it. Arguments are dynamic, and are passed as argv with no shell anywhere, so
-# nothing in them is interpreted: a semicolon is a semicolon.
+# `program` is a CEL expression. Here it is a constant, so what runs is written
+# right there and needs no `allow` list; when it comes from the message instead,
+# `allow` is what decides — see samples/cli-agent.yaml. Arguments are passed as
+# argv with no shell anywhere, so nothing in them is interpreted: a semicolon is
+# a semicolon.
 #
 # The `events` path runs once per output line and once when the command exits.
 # It is an observer — its result is discarded — so it reports on the run without
 # taking part in it. See samples/cli-sse.yaml for the same path wired to an SSE
 # route, which is what makes a long command's output arrive as it happens.
 #
-#   go run ./cli run -config ../samples/cli-run.yaml
+#   task run:sample -- cli-run.yaml
 #   curl -s localhost:8080/echo -d '{"text":"one\ntwo\nthree\n"}'
 #
 # /bin/cat is used because it exists at that path on macOS, Debian and Alpine
@@ -55,7 +55,7 @@ flows:
         # Watch the output. Without this path the command still runs — its
         # output is buffered onto the result instead, and the block costs
         # nothing extra.
-        emit: [stdout, exit]
+        emit: [stdout, stderr, exit]
         events:
           process:
             - type: log

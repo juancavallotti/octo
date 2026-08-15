@@ -66,12 +66,19 @@ var interpreters = map[string]bool{
 
 // resolveProgram turns a program name into the absolute path that will actually
 // run: a bare name is looked up on $PATH, an absolute path is checked as it
-// stands, and either way the result is cleaned.
+// stands, and either way the result is made absolute and cleaned.
 //
-// Resolving both the allow list and the program through the same function is what
-// makes matching them honest. "ls" and "/bin/ls" name the same binary and now
-// compare equal, and so do "/bin/sh" and "/bin/../bin/sh" — a spelling can
-// neither dodge the list nor sneak onto it.
+// Running the allow list and the program through the same function is what makes
+// comparing them meaningful: both sides end up as the path exec will use, so
+// "/bin/../bin/sh" cannot dodge an entry for "/bin/sh", and a bare name matches
+// the absolute path it resolves to.
+//
+// Symlinks are deliberately NOT followed. It is tempting — on a usr-merged Linux
+// /bin/cat and /usr/bin/cat are one file, and resolving would unify them. But on
+// a busybox system every applet is a symlink to the same binary, so following
+// them would make an allow list of ["cat"] also admit sh, awk and wget. Refusing
+// to unify two spellings of the same file is a confusing day; unifying every
+// applet on the box is a breach.
 func resolveProgram(program string) (string, error) {
 	if program == "" {
 		return "", errors.New(
@@ -97,7 +104,9 @@ func checkAllowEntry(program string, allowInterpreters bool) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("allowed %w", err)
 	}
-	if !allowInterpreters && interpreters[filepath.Base(resolved)] {
+	// Both the name as written and what it resolved to are checked, so neither
+	// "/usr/bin/python3" nor a PATH lookup of "python3" slips past.
+	if !allowInterpreters && (interpreters[filepath.Base(program)] || interpreters[filepath.Base(resolved)]) {
 		return "", fmt.Errorf(
 			"allowed program %q is an interpreter: its arguments are themselves a program, so "+
 				"allowing it allows everything it can reach. Set allowInterpreters: true if that "+
@@ -143,11 +152,17 @@ type command struct {
 // run executes the program with these arguments, reporting each output line to on
 // as it is read. The output is captured on the result either way.
 //
-// on is called on the calling goroutine, in order, between reads of the process's
-// pipes — so a slow handler backpressures the child rather than buffering without
-// bound. That is what lets a flow stream a chatty command to an SSE caller with
-// no queue to size: while the handler runs, neither pipe is drained, and the
-// process blocks on write.
+// on is called on whichever pump goroutine read the line, one line at a time —
+// the sink's mutex is what serializes it — and between reads of the process's
+// pipes. So a slow handler backpressures the child rather than buffering without
+// bound: while it runs, neither pipe is drained and the process blocks on write.
+// That is what lets a flow stream a chatty command to an SSE caller with no queue
+// to size.
+//
+// A handler that returns an error ends the run: the context is cancelled, the
+// child is killed, and the error comes back alongside whatever was captured
+// before it. That is how a hung-up caller stops a command instead of leaving it
+// to run to completion producing output nobody will read.
 //
 // A non-zero exit is reported on the result, not as an error: it is an outcome of
 // the command, and whether it should fail the flow is the block's decision. An
@@ -171,12 +186,14 @@ func (c *command) run(
 	// pipe, must not block Wait forever.
 	cmd.WaitDelay = commandWaitDelay
 
-	return runCommand(cmd, stdin, on, c.maxOutputBytes)
+	// cancel is what turns a handler failure into a dead child rather than a
+	// drained one: exec.CommandContext kills the process when runCtx ends.
+	return runCommand(cmd, stdin, on, c.maxOutputBytes, cancel)
 }
 
 // runCommand starts the process, pumps both output streams to EOF, and waits.
 func runCommand(
-	cmd *exec.Cmd, stdin string, on func(commandLine) error, maxOutput int64,
+	cmd *exec.Cmd, stdin string, on func(commandLine) error, maxOutput int64, stop func(),
 ) (*commandResult, error) {
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -192,7 +209,7 @@ func runCommand(
 		return nil, fmt.Errorf("cli-run: start %q: %w", cmd.Path, err)
 	}
 
-	sink := &lineSink{on: on, max: maxOutput}
+	sink := &lineSink{on: on, max: maxOutput, stop: stop}
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() { defer wg.Done(); sink.pump(commandStdout, stdout) }()
@@ -202,14 +219,17 @@ func runCommand(
 
 	result := &commandResult{lines: sink.count()}
 	result.stdout, result.stderr = sink.buffered()
-	if result.exitCode, err = waitFor(cmd); err != nil {
-		return nil, err
-	}
 	// A handler failure is reported after the wait, so the process is reaped
-	// either way — the caller asked to stop reading, not to leak a child.
+	// either way, and alongside the result so a caller can still see what the
+	// command managed to produce before it was stopped.
+	exitCode, waitErr := waitFor(cmd)
 	if handlerErr := sink.err(); handlerErr != nil {
-		return nil, handlerErr
+		return result, handlerErr
 	}
+	if waitErr != nil {
+		return nil, waitErr
+	}
+	result.exitCode = exitCode
 	return result, nil
 }
 
@@ -256,8 +276,11 @@ func commandEnv(names []string) []string {
 // line at a time even though two goroutines are reading. That serialization is
 // what makes the backpressure work.
 type lineSink struct {
-	mu      sync.Mutex
-	on      func(commandLine) error
+	mu sync.Mutex
+	on func(commandLine) error
+	// stop ends the run when the handler fails. It is the run context's cancel,
+	// so the child is killed rather than drained to EOF while nobody reads it.
+	stop    func()
 	max     int64
 	index   int
 	written int64
@@ -300,6 +323,9 @@ func (s *lineSink) add(stream, text string) {
 	}
 	if err := s.on(line); err != nil {
 		s.handler = err
+		if s.stop != nil {
+			s.stop()
+		}
 	}
 }
 

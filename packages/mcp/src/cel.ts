@@ -144,7 +144,7 @@ export const CEL_FUNCTIONS: CelFunction[] = [
     signature: "hmacSha256(dyn, dyn) -> bytes",
     summary:
       "The HMAC-SHA256 of a payload under a key, as raw bytes; both arguments take a string or bytes. Rendering is separate (hexEncode or base64.encode), so the same function serves any webhook scheme. Compare the result with secureCompare, never ==.",
-    example: `secureCompare(vars["X-Hub-Signature-256"], "sha256=" + hexEncode(hmacSha256(env.GITHUB_WEBHOOK_SECRET, vars.rawBody)))`,
+    example: `"X-Hub-Signature-256" in vars && secureCompare(vars["X-Hub-Signature-256"], "sha256=" + hexEncode(hmacSha256(env.GITHUB_WEBHOOK_SECRET, vars.rawBody)))`,
   },
   {
     name: "hmacSha1",
@@ -167,8 +167,8 @@ export const CEL_FUNCTIONS: CelFunction[] = [
     library: "octo",
     signature: "secureCompare(dyn, dyn) -> bool",
     summary:
-      "Compare two values without a content-dependent early return. Always use this for a signature: == stops at the first differing byte, and the timing of that is observable, which over enough requests leaks the expected value a byte at a time.",
-    example: `secureCompare(vars["X-Signature"], hexEncode(hmacSha256(env.WEBHOOK_SECRET, vars.rawBody)))`,
+      "Compare two values without a content-dependent early return. Always use this for a signature: == stops at the first differing byte, and the timing of that is observable, which over enough requests leaks the expected value a byte at a time. Guard the header read with `\"Name\" in vars &&` — an absent variable is an evaluation error, which fails the flow and answers 500 rather than rejecting.",
+    example: `"X-Signature" in vars && secureCompare(vars["X-Signature"], hexEncode(hmacSha256(env.WEBHOOK_SECRET, vars.rawBody)))`,
   },
 
   // --- strings ---

@@ -12,7 +12,8 @@ service:
 # what makes cli-run pleasant for local work. This is precisely the case where
 # that is wrong, and where the list has to be there — the caller choosing the
 # program is a language model. Both sides are compared after resolution, so
-# "/bin/../bin/sh" cannot dodge the list and a bare name cannot sneak onto it.
+# "/bin/../bin/sh" cannot dodge an entry for "/bin/sh", and a bare name matches
+# the absolute path $PATH resolves it to.
 #
 # Two other things are doing security work here, and neither is obvious:
 #
@@ -29,7 +30,7 @@ service:
 # which is why the block refuses one unless allowInterpreters says otherwise.
 #
 #   export ANTHROPIC_API_KEY=...
-#   go run ./cli run -config ../samples/cli-agent.yaml
+#   task run:sample -- cli-agent.yaml
 #   curl -s localhost:8080/ask -d '{"question":"what is in the current directory?"}'
 
 env:

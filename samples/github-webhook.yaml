@@ -15,13 +15,14 @@ service:
 # logs, in browser history, and in every redirect it passes through.
 #
 #   export GITHUB_WEBHOOK_SECRET=s3cr3t GITHUB_WEBHOOK_PATH=hook
-#   go run ./cli run -config ../samples/github-webhook.yaml
+#   task run:sample -- github-webhook.yaml
 #
 #   BODY='{"action":"opened","repository":{"full_name":"juancavallotti/octo"},"pull_request":{"number":7}}'
 #   SIG="sha256=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$GITHUB_WEBHOOK_SECRET" -r | cut -d' ' -f1)"
-#   curl -i localhost:8080/github/hook -H "X-GitHub-Event: pull_request" \
-#     -H "X-Hub-Signature-256: $SIG" -d "$BODY"          # 200
-#   curl -i localhost:8080/github/hook -H "X-GitHub-Event: pull_request" -d "$BODY"   # 401
+#   curl -i localhost:8080/github/hook -H "Content-Type: application/json" \
+#     -H "X-GitHub-Event: pull_request" -H "X-Hub-Signature-256: $SIG" -d "$BODY"   # 200
+#   curl -i localhost:8080/github/hook -H "Content-Type: application/json" \
+#     -H "X-GitHub-Event: pull_request" -d "$BODY"                                  # 401
 
 env:
   - name: HTTP_PORT
@@ -93,6 +94,7 @@ flows:
       - type: if
         name: supported-pull-request-event
         condition: >
+          "X-GitHub-Event" in vars &&
           vars["X-GitHub-Event"] == "pull_request" &&
           body.action in ["opened", "reopened", "synchronize", "ready_for_review"]
         then:

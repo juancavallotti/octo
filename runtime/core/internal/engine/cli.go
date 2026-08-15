@@ -279,6 +279,17 @@ func (c *cliRun) Process(ctx context.Context, msg *types.Message) (*types.Messag
 	}
 
 	result, err := c.command.run(ctx, program, args, stdin, c.lineHandler(ctx, msg))
+	if errors.Is(err, errCLIStopped) {
+		// The events path asked to stop, which is an ordinary end and not a
+		// failure: nobody is listening any more. Carry back what the command
+		// managed to produce and stop the chain, rather than routing a hung-up
+		// caller into the flow's error path.
+		if result != nil {
+			msg.Body = cliResultBody(result)
+		}
+		msg.RequestStop()
+		return msg, nil
+	}
 	if err != nil {
 		return nil, fmt.Errorf("cli-run %s: %w", blockLabel(blockKindCLIRun, c.name), err)
 	}

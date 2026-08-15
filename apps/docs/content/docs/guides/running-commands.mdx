@@ -45,7 +45,7 @@ Add an `events` path and it runs once per output line, and once when the command
 exits:
 
 ```yaml
-  emit: [stdout, stderr]
+  emit: [stdout, stderr, exit]
   events:
     process:
       - type: log
@@ -57,9 +57,12 @@ exits:
 Each event's body is `{type, text, index}`, where `type` is `stdout` or
 `stderr`. The final one is `{type: "exit", exitCode, lines}`.
 
-The exit event **always** fires, even for a command that printed nothing. That
-is why it is its own event rather than a flag on the last line: a silent command
-would otherwise never report how it ended.
+The exit event fires for every run, even one that printed nothing — which is why
+it is its own event rather than a flag on the last line: a silent command would
+otherwise never report how it ended. It goes through `emit` like any other, so
+list it when the path wants it. (`samples/cli-sse.yaml` deliberately leaves it
+out, because there the route's own `finalEvent` already carries the exit status
+and emitting it here would send it twice.)
 
 <Callout>
   The path is an observer — its result is discarded. It reports on the run
@@ -163,9 +166,11 @@ from somewhere else. The builder warns at startup about exactly that
 combination.
 
 Entries may be bare names or absolute paths, and both sides are compared **after
-resolution** — so `ls` and `/bin/ls` match the same entry, and `/bin/../bin/sh`
-cannot dodge an entry for `/bin/sh`. Every entry is resolved at build time, so
-one naming a program that is not installed fails at startup.
+resolution** — a bare name matches the absolute path `$PATH` resolves it to, and
+`/bin/../bin/sh` cannot dodge an entry for `/bin/sh`. Symlinks are not followed,
+on purpose: on a busybox system every applet is a symlink to the same binary, so
+following them would make `["cat"]` also admit `sh`. Every entry is resolved at
+build time, so one naming a program that is not installed fails at startup.
 
 **No shell is ever involved.** Arguments are passed as argv, so a semicolon, a
 pipe or a `$(…)` in a model-supplied argument is just bytes to the callee. The

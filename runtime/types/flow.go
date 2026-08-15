@@ -210,8 +210,9 @@ type BlockConfig struct {
 	// that reads stdin sees EOF rather than hanging.
 	Stdin string `yaml:"stdin,omitempty"`
 	// Allow is the set of programs a "cli-run" may execute, written as bare names,
-	// absolute paths, or a mix. Entries are matched after resolution, so "git" and
-	// "/usr/bin/git" name the same program.
+	// absolute paths, or a mix. Entries are matched after resolution, so a bare
+	// name matches the absolute path $PATH resolves it to. Symlinks are not
+	// followed — see resolveProgram for why.
 	//
 	// Empty means no restriction. That keeps the block usable for the local,
 	// iterative work it is best at, where requiring a list that repeats the

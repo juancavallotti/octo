@@ -126,18 +126,22 @@ export default function SlotListEditor({
                 className={`${INPUT} resize-y font-mono`}
               />
               {/*
-                MCP only: declaring it makes an mcp-router send the tool's result
-                as structuredContent beside the text block. An ai-agent rejects
-                it, since an LLM tool call has nowhere to carry it.
+                mcp-router only, and shown only there. Declaring it makes the
+                router send the tool's result as structuredContent beside the text
+                block; an ai-agent REJECTS it when the flow is built, since an LLM
+                tool call has nowhere to carry it. Offering the field on an agent
+                would only be a way to author a config that fails to start.
               */}
-              <textarea
-                rows={3}
-                aria-label="tool output schema"
-                value={flow.outputSchema ?? ""}
-                placeholder="Output JSON Schema (mcp-router only, optional)"
-                onChange={(e) => setMeta(flow, "outputSchema", e.target.value)}
-                className={`${INPUT} resize-y font-mono`}
-              />
+              {block.type === "mcp-router" && (
+                <textarea
+                  rows={3}
+                  aria-label="tool output schema"
+                  value={flow.outputSchema ?? ""}
+                  placeholder="Output JSON Schema (optional)"
+                  onChange={(e) => setMeta(flow, "outputSchema", e.target.value)}
+                  className={`${INPUT} resize-y font-mono`}
+                />
+              )}
             </>
           )}
         </div>

@@ -373,7 +373,8 @@ type cliRunMeta struct {
 	// empty and the block may run anything, which is convenient while developing
 	// and is how a caller-supplied program becomes arbitrary execution — so
 	// declare one before anyone but you can reach the flow. Entries are matched
-	// after resolution, so "git" and "/usr/bin/git" name the same program.
+	// after resolution, so a bare name matches the absolute path $PATH resolves
+	// it to.
 	Allow []string `json:"allow" octo:"label=Allowed programs,type=string-list"`
 	// Permit an interpreter (sh, bash, python, env, xargs, …) to be allowed. One
 	// is refused by default because its arguments are themselves a program, which

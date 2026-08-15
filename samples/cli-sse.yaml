@@ -20,7 +20,7 @@ service:
 # parent's variables, and sse-event defaults to reading vars.sseStream. So a
 # block written for one route works behind any of them.
 #
-#   go run ./cli run -config ../samples/cli-sse.yaml
+#   task run:sample -- cli-sse.yaml
 #   curl -N localhost:8080/echo -d '{"text":"one\ntwo\nthree\n"}'
 #
 # /bin/cat is used because it exists at that path on macOS, Debian and Alpine

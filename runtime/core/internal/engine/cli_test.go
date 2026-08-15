@@ -3,9 +3,11 @@ package engine
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/core/internal/pool"
@@ -47,7 +49,21 @@ func buildCLI(t *testing.T, cfg types.BlockConfig) core.MessageProcessor {
 }
 
 func newCLIBuilder() *builder {
-	return &builder{reg: agentRegistry(&[]any{}), pool: pool.New(0, 0), deps: depsRes(mapResources{})}
+	return &builder{reg: cliRegistry(), pool: pool.New(0, 0), deps: depsRes(mapResources{})}
+}
+
+// cliRegistry adds a block that asks the flow to stop, which is what an
+// sse-event with `ifClosed: stop` does when its caller has hung up. The engine
+// package cannot import the http connector, so the behaviour is stood in for.
+func cliRegistry() *core.BlockRegistry {
+	reg := agentRegistry(&[]any{})
+	reg.MustRegister("cli.stop", func(types.Settings, core.BlockDeps) (core.MessageProcessor, error) {
+		return processorFunc(func(_ context.Context, msg *types.Message) (*types.Message, error) {
+			msg.RequestStop()
+			return msg, nil
+		}), nil
+	})
+	return reg
 }
 
 // runCLI pushes one message through the block and returns the resulting body.
@@ -183,21 +199,39 @@ func TestCLIRunResolvesThroughPath(t *testing.T) {
 	}
 }
 
-// TestCLIRunMatchesResolvedPaths is why both sides go through resolveProgram:
-// "cat" and "/bin/cat" are the same program, and a spelling should neither dodge
-// an allow list nor sneak onto one.
+// TestCLIRunMatchesResolvedPaths is why both sides go through resolveProgram: a
+// spelling should neither dodge an allow list nor sneak onto one.
+//
+// The absolute path is looked up rather than hardcoded, because where cat lives
+// is not the same everywhere — /bin/cat on macOS, /usr/bin/cat on a usr-merged
+// Linux. Symlinks are not followed (see resolveProgram), so the two are NOT
+// interchangeable and the test must not pretend they are.
 func TestCLIRunMatchesResolvedPaths(t *testing.T) {
-	requireProgram(t, catPath)
+	catAbs, err := exec.LookPath("cat")
+	if err != nil {
+		t.Skip("cat is not on PATH here")
+	}
+	catAbs, err = filepath.Abs(catAbs)
+	if err != nil {
+		t.Fatalf("abs: %v", err)
+	}
+
 	cfg := types.BlockConfig{
 		Type: blockKindCLIRun, Name: "run",
+		// Listed by bare name; the calls below name it two other ways.
 		Program: "body.program",
-		// Listed by bare name; the calls below name it three other ways.
-		Allow: []string{"cat"},
-		Stdin: `"hi\n"`,
+		Allow:   []string{"cat"},
+		Stdin:   `"hi\n"`,
 	}
 	proc := buildCLI(t, cfg)
 
-	for _, spelling := range []string{"cat", catPath, "/bin/../bin/cat"} {
+	// The same program, spelled as the bare name, as the absolute path the bare
+	// name resolves to, and with a .. segment that cleans to that same path.
+	// Built by concatenation, not filepath.Join: Join cleans as it goes, which
+	// would collapse the ".." before the block ever saw it.
+	dir := filepath.Dir(catAbs)
+	viaDotDot := dir + "/../" + filepath.Base(dir) + "/" + filepath.Base(catAbs)
+	for _, spelling := range []string{"cat", catAbs, viaDotDot} {
 		if _, err := proc.Process(context.Background(),
 			newMessageBody(t, `{"program":`+quote(spelling)+`}`)); err != nil {
 			t.Errorf("%q names the same program as the allow list entry: %v", spelling, err)
@@ -373,5 +407,45 @@ func TestCLIRunCollectsOutputWhileWatchingIt(t *testing.T) {
 					body["stdout"])
 			}
 		})
+	}
+}
+
+// TestCLIRunStopsTheCommandWhenNobodyIsListening is the claim the docs make about
+// `ifClosed: stop`: a caller that hangs up ends the command rather than leaving
+// it to run to completion producing output nobody will read.
+//
+// Two halves, and both were once missing. The handler failing has to actually
+// kill the child — it used to only stop the handler being called, while the pumps
+// drained the pipes to EOF — and the resulting error has to read as a stop rather
+// than get routed into the flow's error path.
+func TestCLIRunStopsTheCommandWhenNobodyIsListening(t *testing.T) {
+	const yesPath = "/usr/bin/yes"
+	requireProgram(t, yesPath)
+
+	// `yes` never ends on its own, so if the stop does not kill it this test hangs
+	// until the timeout below rather than passing.
+	cfg := types.BlockConfig{
+		Type: blockKindCLIRun, Name: "run", Program: `"` + yesPath + `"`,
+		Timeout: "20s",
+		Events:  &types.FlowConfig{Process: []types.BlockConfig{{Type: "cli.stop"}}},
+	}
+	proc := buildCLI(t, cfg)
+
+	done := make(chan *types.Message, 1)
+	go func() {
+		out, err := proc.Process(context.Background(), newMessageBody(t, `{}`))
+		if err != nil {
+			t.Errorf("a stop is not a failure: %v", err)
+		}
+		done <- out
+	}()
+
+	select {
+	case out := <-done:
+		if out == nil || !out.StopRequested() {
+			t.Fatalf("the block should have requested the flow stop, got %v", out)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the command was not killed when the events path asked to stop")
 	}
 }

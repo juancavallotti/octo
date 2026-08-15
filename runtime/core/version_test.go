@@ -5,10 +5,10 @@ import (
 	"testing"
 )
 
-// semver matches the shape release-please writes. It is deliberately anchored:
-// the failure this guards against is the updater not firing at all, which leaves
-// the marker text or a placeholder in the constant rather than a version.
-var semver = regexp.MustCompile(`^\d+\.\d+\.\d+`)
+// semver matches the shape release-please writes. It is anchored at BOTH ends:
+// this value is reported as an MCP serverInfo.version, so "0.8.1-wip" or a
+// half-rewritten "0.8.1x-release-please" has to fail rather than ship.
+var semver = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 
 // TestVersionIsAReleaseVersion checks that Version looks like one. A botched
 // release-please rewrite would otherwise ship silently and surface as an

@@ -8,7 +8,7 @@ service:
 # resources, and its template resources as MCP prompts, and routes tools/call to
 # the matching flow. It calls no LLM — it is a protocol adapter.
 #
-#   go run ./cli run -config ../samples/mcp-router
+#   task run:sample -- mcp-router
 #   PORT=8080
 #   curl -s localhost:$PORT/mcp -d '{"jsonrpc":"2.0","id":1,"method":"initialize"}'
 #   curl -s localhost:$PORT/mcp -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'

@@ -34,7 +34,7 @@ function toResource(value: unknown): Resource {
   };
 }
 
-/** A row addresses a family of documents once it has a uriTemplate. */
+/** Whether a row starts out addressing a family of documents rather than one. */
 function isTemplated(row: Resource): boolean {
   return row.uriTemplate !== "";
 }
@@ -56,10 +56,30 @@ export default function MCPResourceListEditor({
   const [rows, setRows] = useState<Resource[]>(() =>
     Array.isArray(value) ? value.map(toResource) : [],
   );
+  // Which rows show a uriTemplate field, held explicitly rather than derived from
+  // the value. Deriving it cannot express "templated but not typed yet": a new row
+  // has both fields empty, so a toggle that copied uri into uriTemplate copied ""
+  // and the row stayed exactly where it was.
+  const [templated, setTemplated] = useState<boolean[]>(() =>
+    Array.isArray(value) ? value.map((v) => isTemplated(toResource(v))) : [],
+  );
 
-  function commit(next: Resource[]) {
+  function commit(next: Resource[], modes?: boolean[]) {
     setRows(next);
+    if (modes) setTemplated(modes);
     onChange(next);
+  }
+
+  /** Swap a row between a fixed uri and a uri template, carrying what was typed. */
+  function toggleMode(i: number) {
+    const row = rows[i];
+    const next = templated[i]
+      ? { uri: row.uriTemplate, uriTemplate: "" }
+      : { uri: "", uriTemplate: row.uri };
+    commit(
+      rows.map((r, j) => (j === i ? { ...r, ...next } : r)),
+      templated.map((t, j) => (j === i ? !t : t)),
+    );
   }
 
   function patch(i: number, edit: Partial<Resource>) {
@@ -80,7 +100,7 @@ export default function MCPResourceListEditor({
               The runtime rejects a resource declaring both, and an editor that
               let you type both would only be a way to build a broken flow.
             */}
-            {isTemplated(row) ? (
+            {templated[i] ? (
               <input
                 type="text"
                 value={row.uriTemplate}
@@ -99,11 +119,9 @@ export default function MCPResourceListEditor({
             )}
             <button
               type="button"
-              aria-label={isTemplated(row) ? "Use a fixed uri" : "Use a uri template"}
-              title={isTemplated(row) ? "Use a fixed uri" : "Use a uri template"}
-              onClick={() =>
-                patch(i, isTemplated(row) ? { uriTemplate: "" } : { uri: "", uriTemplate: row.uri })
-              }
+              aria-label={templated[i] ? "Use a fixed uri" : "Use a uri template"}
+              title={templated[i] ? "Use a fixed uri" : "Use a uri template"}
+              onClick={() => toggleMode(i)}
               className="shrink-0 rounded p-1 text-zinc-400 transition-colors hover:text-zinc-600 dark:hover:text-zinc-300"
             >
               <Braces size={14} />
@@ -111,7 +129,12 @@ export default function MCPResourceListEditor({
             <button
               type="button"
               aria-label="Remove resource"
-              onClick={() => commit(rows.filter((_, j) => j !== i))}
+              onClick={() =>
+              commit(
+                rows.filter((_, j) => j !== i),
+                templated.filter((_, j) => j !== i),
+              )
+            }
               className="shrink-0 rounded p-1 text-zinc-400 transition-colors hover:text-red-500"
             >
               <X size={14} />
@@ -149,10 +172,13 @@ export default function MCPResourceListEditor({
       <button
         type="button"
         onClick={() =>
-          commit([
-            ...rows,
-            { uri: "", uriTemplate: "", name: "", description: "", mimeType: "", resource: "" },
-          ])
+          commit(
+            [
+              ...rows,
+              { uri: "", uriTemplate: "", name: "", description: "", mimeType: "", resource: "" },
+            ],
+            [...templated, false],
+          )
         }
         className="flex items-center gap-1.5 self-start rounded-md px-2 py-1 text-xs text-zinc-500 transition-colors hover:text-zinc-700 dark:hover:text-zinc-300"
       >

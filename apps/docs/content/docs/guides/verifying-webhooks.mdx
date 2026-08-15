@@ -121,9 +121,16 @@ be bounded rather than replayed forever. `now` is already in scope, so the check
 is an ordinary rule alongside the signature:
 
 ```yaml
-- expr: 'now - timestamp(int(vars["X-Slack-Request-Timestamp"])) < duration("5m")'
-  message: request timestamp is too old
+- expr: >
+    "X-Slack-Request-Timestamp" in vars &&
+    now - timestamp(int(vars["X-Slack-Request-Timestamp"])) < duration("5m") &&
+    timestamp(int(vars["X-Slack-Request-Timestamp"])) - now < duration("5m")
+  message: request timestamp is outside the accepted window
 ```
+
+Bound it in **both** directions. A one-sided `now - ts < 5m` passes for any
+timestamp in the future, so a captured request re-sent with a far-future
+timestamp sails through the check that was supposed to stop exactly that.
 
 ## Other providers
 
@@ -131,6 +138,7 @@ Slack, with the timestamped payload and a `v0=` prefix:
 
 ```yaml
 - expr: >
+    "X-Slack-Signature" in vars && "X-Slack-Request-Timestamp" in vars &&
     secureCompare(
       vars["X-Slack-Signature"],
       "v0=" + hexEncode(hmacSha256(
@@ -144,6 +152,7 @@ bytes and rendering is a separate step:
 
 ```yaml
 - expr: >
+    "X-Shopify-Hmac-Sha256" in vars &&
     secureCompare(
       vars["X-Shopify-Hmac-Sha256"],
       base64.encode(hmacSha256(env.SHOPIFY_SECRET, vars.rawBody)))
@@ -160,11 +169,20 @@ committed next to its payload never goes stale, so a test suite can exercise the
 `samples/github-webhook_test.yaml` does exactly that, with vectors produced by:
 
 ```bash
-printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET" -r
+SIG="sha256=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET" -r | cut -d' ' -f1)"
 ```
 
-Then run it end to end:
+The `cut` is not decoration: `openssl dgst -r` prints the digest followed by
+` *stdin`, and a signature carrying that suffix never verifies.
+
+Then run it end to end. Send it as JSON — with a bare `-d`, curl sets
+`application/x-www-form-urlencoded` and the flow has no `body.repository` to
+read:
 
 ```bash
-curl -i localhost:8080/github/hook -H "X-Hub-Signature-256: $SIG" -d "$BODY"
+curl -i localhost:8080/github/hook \
+  -H "Content-Type: application/json" \
+  -H "X-GitHub-Event: pull_request" \
+  -H "X-Hub-Signature-256: $SIG" \
+  -d "$BODY"
 ```
