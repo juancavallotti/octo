@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { folderCountOf, shownFor, unfiledCountOf } from "./managerViews";
+import {
+  folderCountOf,
+  runningCountOf,
+  shownFor,
+  unfiledCountOf,
+} from "./managerViews";
 
 import type { Data } from "./managerData";
 import type { Integration } from "@/app/model/orchestrator";
@@ -17,6 +22,8 @@ const data: Data = {
   ]),
   // f1 lists b before a, and does not mention a card assigned since.
   order: new Map([["f1", ["b", "a"]]]),
+  // Deployed cuts across filing: one filed, one not.
+  deployed: new Set(["a", "d"]),
 };
 
 const ids = (list: Integration[]) => list.map((i) => i.id);
@@ -28,6 +35,19 @@ describe("shownFor", () => {
 
   it("shows only what is in no folder under Unfiled", () => {
     expect(ids(shownFor("unfiled", data))).toEqual(["d"]);
+  });
+
+  // Running is derived from deployments, not from filing, so it crosses folders.
+  it("shows what is deployed under Running, filed or not", () => {
+    expect(ids(shownFor("running", data))).toEqual(["a", "d"]);
+  });
+
+  // The deployed set is read from a separate call, so it can name an integration
+  // the list no longer has. Showing it would render a card with nothing behind it.
+  it("ignores a deployed id with no integration left", () => {
+    const stale: Data = { ...data, deployed: new Set(["a", "gone"]) };
+    expect(ids(shownFor("running", stale))).toEqual(["a"]);
+    expect(runningCountOf(stale)).toBe(1);
   });
 
   it("honours a folder's stored order", () => {
@@ -51,8 +71,9 @@ describe("shownFor", () => {
 });
 
 describe("counts", () => {
-  it("counts what is unfiled and what is in each folder", () => {
+  it("counts what is unfiled, running, and in each folder", () => {
     expect(unfiledCountOf(data)).toBe(1);
+    expect(runningCountOf(data)).toBe(2);
     expect(folderCountOf(data, "f1")).toBe(2);
     expect(folderCountOf(data, "f2")).toBe(1);
     expect(folderCountOf(data, "nope")).toBe(0);

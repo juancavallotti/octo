@@ -14,7 +14,12 @@ import {
 import { flatten, type Bucket, type FlatFolder } from "./model";
 import type { DragOutcome } from "./dragDrop";
 import { EMPTY, loadData, type Data } from "./managerData";
-import { folderCountOf, shownFor, unfiledCountOf } from "./managerViews";
+import {
+  folderCountOf,
+  runningCountOf,
+  shownFor,
+  unfiledCountOf,
+} from "./managerViews";
 import { useIntegrationActions } from "./useIntegrationActions";
 
 /**
@@ -86,6 +91,7 @@ export function useIntegrationTree({
   const flat = useMemo(() => flatten(folders), [folders]);
 
   const shown = useMemo(() => shownFor(bucket, data), [bucket, data]);
+  const runningCount = useMemo(() => runningCountOf(data), [data]);
   const unfiledCount = useMemo(() => unfiledCountOf(data), [data]);
   const folderCount = (id: string) => folderCountOf(data, id);
 
@@ -197,6 +203,7 @@ export function useIntegrationTree({
     shown,
     selected,
     selectedFolderId,
+    runningCount,
     unfiledCount,
     folderCount,
     /** A new folder would nest here — the selected folder, or the root. */

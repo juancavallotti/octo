@@ -5,25 +5,27 @@ import {
   SortableContext,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { FolderPlus, Inbox, Layers } from "lucide-react";
+import { FolderPlus, Inbox, Layers, Rocket } from "lucide-react";
 import { type Bucket, type FlatFolder, isFolderBucket } from "./model";
-import { BucketRow, FolderRow } from "./FolderRow";
+import { BucketRow, FolderRow, ViewRow } from "./FolderRow";
 
 /** localStorage key holding the ids of collapsed folders (so new folders default open). */
 const COLLAPSED_KEY = "octo.folderTree.collapsed";
 
 /**
- * The folder tree sidebar of the management view: the "All"/"Unfiled" buckets
- * plus the folder tree with inline create/rename and delete. It owns only the
- * transient inline-edit and collapse UI state; folder mutations are delegated to
- * the manager via callbacks. Folders and the buckets are drop targets (an
- * integration dragged here is filed/unfiled; a folder dragged here is reparented),
- * and each folder row is itself a drag source.
+ * The folder tree sidebar of the management view: the "All"/"Running apps"/
+ * "Unfiled" buckets plus the folder tree with inline create/rename and delete. It
+ * owns only the transient inline-edit and collapse UI state; folder mutations are
+ * delegated to the manager via callbacks. Folders and the filing buckets are drop
+ * targets (an integration dragged here is filed/unfiled; a folder dragged here is
+ * reparented), and each folder row is itself a drag source. "Running apps" is
+ * derived from what is deployed, so it is a view and not a target.
  */
 interface Props {
   folders: FlatFolder[];
   bucket: Bucket;
   total: number;
+  runningCount: number;
   unfiledCount: number;
   folderCount: (id: string) => number;
   /** True when a new folder would nest under the selected folder. */
@@ -38,6 +40,7 @@ export default function FolderTree({
   folders,
   bucket,
   total,
+  runningCount,
   unfiledCount,
   folderCount,
   nesting,
@@ -146,6 +149,16 @@ export default function FolderTree({
           <span className="flex-1">All integrations</span>
           <span className="text-xs text-zinc-400">{total}</span>
         </BucketRow>
+        <ViewRow
+          active={bucket === "running"}
+          onClick={() => onSelect("running")}
+        >
+          <Rocket size={15} className="text-zinc-400" />
+          <span className="flex-1" title="Every integration with a deployment">
+            Running apps
+          </span>
+          <span className="text-xs text-zinc-400">{runningCount}</span>
+        </ViewRow>
         <BucketRow
           dropId="bucket:unfiled"
           dropData={{ kind: "unfiled" }}

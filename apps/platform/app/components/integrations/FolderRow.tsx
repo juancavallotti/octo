@@ -22,7 +22,6 @@ import { type DragData, type DropData, type FlatFolder } from "./model";
  * at a file boundary rather than implicit halfway down a longer file.
  */
 
-/** A top-level bucket ("All"/"Unfiled") that is also a drop target. */
 /** The shared row chrome both a bucket and a folder wear. */
 const bucketRow = (active: boolean) =>
   `flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm ${
@@ -31,6 +30,31 @@ const bucketRow = (active: boolean) =>
       : "hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
   }`;
 
+/**
+ * A bucket that is only a view of the integrations, not a place any of them can
+ * be put — so, unlike BucketRow, it is not a drop target. Dragging a card onto
+ * one has to do nothing, and a row that lights up under the pointer and then
+ * does nothing is worse than one that never lights up.
+ */
+export function ViewRow({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <li>
+      <button type="button" onClick={onClick} className={bucketRow(active)}>
+        {children}
+      </button>
+    </li>
+  );
+}
+
+/** A top-level bucket ("All"/"Unfiled") that is also a drop target. */
 export function BucketRow({
   dropId,
   dropData,
@@ -112,7 +136,10 @@ export function FolderRow({
     isDragging,
     isOver,
   } = useSortable({ id: `folder:${f.id}`, data });
-  const sortableStyle = { transform: CSS.Transform.toString(transform), transition };
+  const sortableStyle = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
 
   if (editing) {
     return (

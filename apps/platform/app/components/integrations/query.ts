@@ -5,7 +5,8 @@
  * button deep-links straight to one. Kept out of the component.
  *
  * The path after `/platform/integrations` encodes two independent dimensions:
- *   - the folder bucket: nothing (the default "all"), `unfiled`, or `f/<folderId>`
+ *   - the folder bucket: nothing (the default "all"), `running`, `unfiled`, or
+ *     `f/<folderId>`
  *   - the selected integration: nothing, or `i/<integrationId>`
  * so e.g. `/platform/integrations/f/<folderId>/i/<integrationId>` opens an
  * integration with its folder in view. Folder ids are opaque (UUIDs), so the `f`/`i`
@@ -36,7 +37,10 @@ export function parsePathname(pathname: string): ManagerSelection {
 export function readSelection(segments: string[]): ManagerSelection {
   let rest = segments;
   let bucket: Bucket = "all";
-  if (rest[0] === "unfiled") {
+  if (rest[0] === "running") {
+    bucket = "running";
+    rest = rest.slice(1);
+  } else if (rest[0] === "unfiled") {
     bucket = "unfiled";
     rest = rest.slice(1);
   } else if (rest[0] === "f" && rest[1]) {
@@ -54,7 +58,8 @@ export function readSelection(segments: string[]): ManagerSelection {
  */
 export function buildPath(sel: ManagerSelection): string {
   const segs: string[] = [];
-  if (sel.bucket === "unfiled") segs.push("unfiled");
+  if (sel.bucket === "running") segs.push("running");
+  else if (sel.bucket === "unfiled") segs.push("unfiled");
   else if (typeof sel.bucket === "object") segs.push("f", sel.bucket.folder);
   if (sel.selectedId) segs.push("i", sel.selectedId);
   return segs.length ? `/${segs.map(encodeURIComponent).join("/")}` : "";
