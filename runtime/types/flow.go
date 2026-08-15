@@ -257,11 +257,24 @@ type BlockConfig struct {
 	OnOverflow string `yaml:"onOverflow,omitempty"`
 }
 
-// MCPResourceConfig is one resource an "mcp-router" advertises. URI is the stable
-// id MCP clients read by; Name/Description/MimeType are advertised metadata;
-// Resource is the template resource whose rendered content is returned.
+// MCPResourceConfig is one resource an "mcp-router" advertises. Exactly one of
+// URI and URITemplate is set: a URI is one fixed document, listed on
+// resources/list; a URITemplate is a family of them, listed on
+// resources/templates/list instead. Name/Description/MimeType are advertised
+// metadata; Resource is the template resource whose rendered content is returned.
 type MCPResourceConfig struct {
-	URI         string `yaml:"uri"`
+	URI string `yaml:"uri,omitempty"`
+	// URITemplate is an RFC 6570 level-1 template — literal text with {name}
+	// placeholders, e.g. "contacts://contact/{id}" — that stands for a family of
+	// documents rather than one. A client fills the placeholders in and reads the
+	// concrete uri; resources/read matches it back against the template and
+	// exposes what each placeholder took to the rendered template as the message
+	// body (body.id), the same bargain a prompt's arguments strike.
+	//
+	// Only simple expansion is supported: no operators (+ # . / ; ? &), no explode,
+	// no prefix lengths. Each of those changes what a match even means, and no
+	// client has asked for one.
+	URITemplate string `yaml:"uriTemplate,omitempty"`
 	Name        string `yaml:"name"`
 	Description string `yaml:"description,omitempty"`
 	MimeType    string `yaml:"mimeType,omitempty"`

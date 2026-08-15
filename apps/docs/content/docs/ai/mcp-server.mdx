@@ -141,15 +141,61 @@ protocol error.
 
 ### `resources[]`
 
-Documents the server advertises and serves on `resources/read`:
+Documents the server advertises and serves on `resources/read`. Each entry
+declares **either** a `uri` or a `uriTemplate`, never both:
 
-- **`uri`** — the stable identifier clients read by, e.g. `octo://guide`.
-  Unique within the block.
+- **`uri`** — the stable identifier clients read by, e.g. `octo://guide`. One
+  fixed document, listed on `resources/list`. Unique within the block.
+- **`uriTemplate`** — a family of documents rather than one, listed on
+  `resources/templates/list` instead. See below.
 - **`name`** — a human-readable name. Required.
 - **`description`** — optional.
 - **`mimeType`** — defaults to `text/plain`.
 - **`resource`** — the alias of a [template resource](/concepts/resources)
   declared under `resources.templates`. The template is rendered on each read.
+
+#### Resource templates
+
+A `uriTemplate` is an [RFC 6570](https://datatracker.ietf.org/doc/html/rfc6570)
+level-1 template: literal text with `{name}` placeholders. It says "any document
+of this shape", so one declaration stands in for every city, contact or ticket a
+client might ask about.
+
+```yaml
+resources:
+  - uriTemplate: octo://city/{city}
+    name: city-briefing
+    description: A briefing for any city.
+    mimeType: text/markdown
+    resource: city
+```
+
+A client discovers it on `resources/templates/list`, fills in the placeholders,
+and reads the concrete uri. The router matches that uri back against the
+template and hands what each placeholder took to the rendered template **as the
+body** — so `{city}` is `{{ body.city }}`, the same bargain a prompt's arguments
+strike. The template also sees the request's variables, so a router behind a
+`jwt-validate` can render per-caller content with no extra wiring.
+
+```bash
+curl -s localhost:8080/mcp -d '{"jsonrpc":"2.0","id":1,"method":"resources/templates/list"}'
+curl -s localhost:8080/mcp -d '{"jsonrpc":"2.0","id":2,"method":"resources/read","params":{"uri":"octo://city/Paris"}}'
+```
+
+Matching rules worth knowing:
+
+- Only simple expansion is supported — no operators (`+ # . / ; ? &`), no
+  explode, no prefix lengths.
+- A placeholder matches up to the next literal rather than greedily, so
+  `octo://city/{city}/weather` takes one segment instead of swallowing the rest.
+- A placeholder never matches empty: `octo://city/` is not a city.
+- Values are percent-decoded, so `octo://city/S%C3%A3o%20Paulo` renders as
+  `São Paulo`.
+- A fixed `uri` always wins over a template that would also match it, which is
+  how you carve one special case out of a family. Templates are otherwise tried
+  in declaration order.
+- A placeholder name must be a valid identifier, because its value is read as
+  `body.<name>`. `{contact-id}` is rejected when the flow is built.
 
 ### `prompts[]`
 
@@ -159,8 +205,9 @@ Parameterized prompt templates served on `prompts/get`:
 - **`arguments[]`** — each with `name`, `description`, and `required`.
 - **`resource`** — the template resource alias to render. The client's
   arguments are exposed to the template as the body, so an argument `city`
-  renders as `{{ body.city }}`. The rendered text is returned as a single
-  `user` message.
+  renders as `{{ body.city }}`. The request's variables are available too, so a
+  prompt can read what a `jwt-validate` in front of the router left behind. The
+  rendered text is returned as a single `user` message.
 
 ## The protocol surface
 
@@ -173,7 +220,9 @@ POST, one response. It handles:
 | `ping` | Returns an empty result. |
 | `tools/list` | The declared tools with their JSON Schemas. |
 | `tools/call` | Routes to the matching tool branch. |
-| `resources/list`, `resources/read` | The declared resources; read renders the template. |
+| `resources/list` | The declared fixed-uri resources. |
+| `resources/templates/list` | The declared `uriTemplate` resources. |
+| `resources/read` | Renders the resource a uri names, matching it against the templates when no fixed uri matches. |
 | `prompts/list`, `prompts/get` | The declared prompts; get renders the template with the arguments as `body`. |
 
 A request without an `id` is a JSON-RPC notification (clients send

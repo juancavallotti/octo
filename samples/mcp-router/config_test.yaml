@@ -141,6 +141,52 @@ cases:
         - 'body.result.contents[0].text.startsWith("# Weather tools")'
         - 'body.result.contents[0].text.contains("`forecast` returns a short forecast")'
 
+  # The exact body above is also the assertion that a TEMPLATED resource does not
+  # appear on resources/list: a template is a shape to fill in, not a document,
+  # and the spec gives it its own method for exactly that reason.
+  - name: templated resources are advertised on their own list
+    input:
+      data: { jsonrpc: "2.0", id: 7, method: resources/templates/list }
+    expect:
+      body:
+        jsonrpc: "2.0"
+        id: 7
+        result:
+          resourceTemplates:
+            - uriTemplate: octo://city/{city}
+              name: city-briefing
+              description: A briefing for any city.
+              mimeType: text/markdown
+
+  - name: reading a concrete uri matches it back against the template
+    input:
+      data:
+        jsonrpc: "2.0"
+        id: 8
+        method: resources/read
+        params: { uri: "octo://city/Paris" }
+    expect:
+      that:
+        # The concrete uri the client asked for, not the template it matched.
+        - 'body.result.contents[0].uri == "octo://city/Paris"'
+        - 'body.result.contents[0].mimeType == "text/markdown"'
+        # What the {city} placeholder took reached the template as body.city.
+        - 'body.result.contents[0].text.startsWith("# Paris")'
+        - 'body.result.contents[0].text.contains("A briefing for **Paris**")'
+
+  # An empty expansion is not a match: "octo://city/" would otherwise be a city.
+  - name: a uri that only starts like the template is not a resource
+    input:
+      data:
+        jsonrpc: "2.0"
+        id: 9
+        method: resources/read
+        params: { uri: "octo://city/" }
+    expect:
+      that:
+        - 'body.error.code == -32602'
+        - 'body.error.message.contains("unknown resource")'
+
   # The same template machinery serves prompts, and a prompt's arguments are the
   # message the template renders against: {{ body.city }} in greet.md.
   - name: getting a prompt renders its template against the prompt arguments

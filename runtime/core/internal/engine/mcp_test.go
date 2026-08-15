@@ -223,6 +223,109 @@ func TestMCPRouterResources(t *testing.T) {
 	}
 }
 
+// templatedRouterConfig adds a templated resource beside the fixed one, plus a
+// fixed uri that the template would also match — which is how the shadowing rule
+// gets exercised.
+func templatedRouterConfig() types.BlockConfig {
+	cfg := mcpRouterConfig()
+	cfg.Resources = append(cfg.Resources,
+		types.MCPResourceConfig{
+			URITemplate: "octo://city/{name}", Name: "city",
+			Description: "a city briefing", MimeType: "text/markdown", Resource: "city",
+		},
+		types.MCPResourceConfig{
+			URI: "octo://city/atlantis", Name: "atlantis", Resource: "guide",
+		},
+	)
+	return cfg
+}
+
+func templatedResources() mapResources {
+	res := mcpResources()
+	res["city"] = "Briefing for {{ body.name }}."
+	return res
+}
+
+// TestMCPRouterResourceTemplates is the contacts-mcp bug: the method used to
+// answer -32601, so its author hand-wrote a switch in front of the router to
+// return an empty list instead.
+func TestMCPRouterResourceTemplates(t *testing.T) {
+	proc := mustBuildAI(t, agentRegistry(&[]any{}), depsRes(templatedResources()), templatedRouterConfig())
+
+	list := resultOf(t, mcpCall(t, proc, `{"jsonrpc":"2.0","id":1,"method":"resources/templates/list"}`))
+	templates, ok := list["resourceTemplates"].([]any)
+	if !ok || len(templates) != 1 {
+		t.Fatalf("resources/templates/list = %v, want the one template", list)
+	}
+	entry := templates[0].(map[string]any)
+	if entry["uriTemplate"] != "octo://city/{name}" {
+		t.Errorf("uriTemplate = %v", entry["uriTemplate"])
+	}
+	if entry["mimeType"] != "text/markdown" {
+		t.Errorf("mimeType = %v", entry["mimeType"])
+	}
+
+	// A template is a shape to fill in, not a document, so it must not appear
+	// among the readable resources.
+	readable := resultOf(t, mcpCall(t, proc, `{"jsonrpc":"2.0","id":2,"method":"resources/list"}`))
+	for _, r := range readable["resources"].([]any) {
+		if uri := r.(map[string]any)["uri"]; uri == "octo://city/{name}" {
+			t.Errorf("resources/list must not advertise the template: %v", readable)
+		}
+	}
+}
+
+func TestMCPRouterReadsThroughATemplate(t *testing.T) {
+	proc := mustBuildAI(t, agentRegistry(&[]any{}), depsRes(templatedResources()), templatedRouterConfig())
+
+	read := resultOf(t, mcpCall(t, proc,
+		`{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"octo://city/Paris"}}`))
+	contents := read["contents"].([]any)[0].(map[string]any)
+	if contents["text"] != "Briefing for Paris." {
+		t.Errorf("read text = %v, want the extracted variable rendered", contents["text"])
+	}
+	// The concrete uri the client asked for, not the template it matched.
+	if contents["uri"] != "octo://city/Paris" {
+		t.Errorf("read uri = %v, want the concrete uri", contents["uri"])
+	}
+}
+
+// TestMCPRouterFixedResourceShadowsATemplate pins the declaration-order contract:
+// an exact uri always wins, so an author can carve one special case out of a family.
+func TestMCPRouterFixedResourceShadowsATemplate(t *testing.T) {
+	proc := mustBuildAI(t, agentRegistry(&[]any{}), depsRes(templatedResources()), templatedRouterConfig())
+	read := resultOf(t, mcpCall(t, proc,
+		`{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"octo://city/atlantis"}}`))
+	contents := read["contents"].([]any)[0].(map[string]any)
+	if contents["text"] != "The operator guide." {
+		t.Errorf("read text = %v, want the fixed resource to shadow the template", contents["text"])
+	}
+}
+
+// TestMCPRouterTemplateResourcesKeepVariables covers the half that is easy to
+// miss: a jwt-validate in front of the router leaves claims in vars, and a
+// per-caller resource is useless without them.
+func TestMCPRouterTemplateResourcesKeepVariables(t *testing.T) {
+	res := templatedResources()
+	res["city"] = "{{ vars.sub }} asked about {{ body.name }}."
+	proc := mustBuildAI(t, agentRegistry(&[]any{}), depsRes(res), templatedRouterConfig())
+
+	msg := newMessageBody(t,
+		`{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"octo://city/Paris"}}`)
+	msg.Variables.Set("sub", "user-7")
+	out, err := proc.Process(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	raw, err := out.BodyJSON()
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	if !strings.Contains(string(raw), "user-7 asked about Paris.") {
+		t.Errorf("a templated resource should see the request's vars: %s", raw)
+	}
+}
+
 func TestMCPRouterResourceReadUnknown(t *testing.T) {
 	proc := mustBuildAI(t, agentRegistry(&[]any{}), depsRes(mcpResources()), mcpRouterConfig())
 	resp := mcpCall(t, proc,
@@ -312,5 +415,33 @@ func TestMCPRouterBuildValidation(t *testing.T) {
 	noResourceRef.Resources[0].Resource = ""
 	if err := build(noResourceRef); err == nil {
 		t.Error("expected error with a resource missing its resource ref")
+	}
+
+	// A resource is either one fixed document or a family of them, never both and
+	// never neither — the two fields decide which method advertises it.
+	bothURIs := mcpRouterConfig()
+	bothURIs.Resources[0].URITemplate = "octo://guide/{id}"
+	if err := build(bothURIs); err == nil {
+		t.Error("expected error with both a uri and a uriTemplate")
+	}
+	neitherURI := mcpRouterConfig()
+	neitherURI.Resources[0].URI = ""
+	if err := build(neitherURI); err == nil {
+		t.Error("expected error with neither a uri nor a uriTemplate")
+	}
+	// A malformed template fails the build rather than never matching at runtime.
+	badTemplate := mcpRouterConfig()
+	badTemplate.Resources[0] = types.MCPResourceConfig{
+		URITemplate: "octo://city/{bad-name}", Name: "city", Resource: "guide",
+	}
+	if err := build(badTemplate); err == nil {
+		t.Error("expected error with a uriTemplate variable that is not an identifier")
+	}
+	dupTemplate := mcpRouterConfig()
+	dupTemplate.Resources = append(dupTemplate.Resources,
+		types.MCPResourceConfig{URITemplate: "octo://city/{name}", Name: "a", Resource: "guide"},
+		types.MCPResourceConfig{URITemplate: "octo://city/{name}", Name: "b", Resource: "guide"})
+	if err := build(dupTemplate); err == nil {
+		t.Error("expected error with a duplicate uriTemplate")
 	}
 }

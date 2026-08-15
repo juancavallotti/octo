@@ -44,8 +44,9 @@ const (
 
 // Repeated JSON keys/values in the MCP wire shape, named so they are written once.
 const (
-	mcpKeyName = "name"
-	mcpKeyText = "text"
+	mcpKeyName     = "name"
+	mcpKeyText     = "text"
+	mcpKeyMimeType = "mimeType"
 )
 
 // JSON-RPC 2.0 error codes (the subset the router emits).
@@ -81,8 +82,11 @@ type jsonrpcError struct {
 }
 
 // mcpResource is one resource the router advertises and serves on resources/read.
+// Exactly one of uri and template is set: uri is one fixed document, template a
+// family of them reached by matching a concrete uri back against it.
 type mcpResource struct {
 	uri         string
+	template    *uriTemplate
 	name        string
 	description string
 	mimeType    string
@@ -108,6 +112,7 @@ type mcpRouter struct {
 	tools      []core.LLMTool
 	branches   map[string]*Flow
 	resources  []mcpResource
+	templates  []mcpResource
 	prompts    []mcpPrompt
 	registry   *expr.TemplateRegistry
 	env        map[string]any
@@ -127,7 +132,7 @@ func (b *builder) mcpRouter(cfg types.BlockConfig) (core.MessageProcessor, error
 	if err != nil {
 		return nil, err
 	}
-	resources, err := buildMCPResources(cfg.Resources)
+	resources, templates, err := buildMCPResources(cfg.Resources)
 	if err != nil {
 		return nil, err
 	}
@@ -149,39 +154,73 @@ func (b *builder) mcpRouter(cfg types.BlockConfig) (core.MessageProcessor, error
 		tools:      tools,
 		branches:   branches,
 		resources:  resources,
+		templates:  templates,
 		prompts:    prompts,
 		registry:   expr.NewTemplateRegistry(b.deps.Resources),
 		env:        expr.EnvActivation(b.deps.Env),
 	}, nil
 }
 
-// buildMCPResources validates the resource configs and builds the advertised set,
-// rejecting duplicates and missing fields and defaulting the mime type.
-func buildMCPResources(configs []types.MCPResourceConfig) ([]mcpResource, error) {
-	resources := make([]mcpResource, 0, len(configs))
+// buildMCPResources validates the resource configs and splits them into the fixed
+// resources and the templated ones, which are advertised on different methods.
+func buildMCPResources(configs []types.MCPResourceConfig) (fixed, templated []mcpResource, err error) {
 	seen := make(map[string]bool, len(configs))
 	for i := range configs {
-		c := configs[i]
-		switch {
-		case c.URI == "":
-			return nil, fmt.Errorf("mcp-router resource %d requires a uri", i)
-		case c.Name == "":
-			return nil, fmt.Errorf("mcp-router resource %q requires a name", c.URI)
-		case c.Resource == "":
-			return nil, fmt.Errorf("mcp-router resource %q requires a resource", c.URI)
-		case seen[c.URI]:
-			return nil, fmt.Errorf("mcp-router resource uri %q is defined more than once", c.URI)
+		res, key, err := buildMCPResource(i, configs[i])
+		if err != nil {
+			return nil, nil, err
 		}
-		seen[c.URI] = true
-		mimeType := c.MimeType
-		if mimeType == "" {
-			mimeType = "text/plain"
+		if seen[key] {
+			return nil, nil, fmt.Errorf("mcp-router resource %q is defined more than once", key)
 		}
-		resources = append(resources, mcpResource{
-			uri: c.URI, name: c.Name, description: c.Description, mimeType: mimeType, resource: c.Resource,
-		})
+		seen[key] = true
+		if res.template != nil {
+			templated = append(templated, res)
+			continue
+		}
+		fixed = append(fixed, res)
 	}
-	return resources, nil
+	return fixed, templated, nil
+}
+
+// buildMCPResource validates one resource config and returns it alongside the key
+// it is deduplicated by — its uri or its uriTemplate, whichever it declared.
+func buildMCPResource(i int, c types.MCPResourceConfig) (mcpResource, string, error) {
+	switch {
+	case c.URI == "" && c.URITemplate == "":
+		return mcpResource{}, "", fmt.Errorf("mcp-router resource %d requires a uri or a uriTemplate", i)
+	case c.URI != "" && c.URITemplate != "":
+		return mcpResource{}, "", fmt.Errorf(
+			"mcp-router resource %q declares both a uri and a uriTemplate: it is either one fixed "+
+				"document or a family of them", c.URI)
+	}
+
+	key := c.URI
+	if key == "" {
+		key = c.URITemplate
+	}
+	switch {
+	case c.Name == "":
+		return mcpResource{}, "", fmt.Errorf("mcp-router resource %q requires a name", key)
+	case c.Resource == "":
+		return mcpResource{}, "", fmt.Errorf("mcp-router resource %q requires a resource", key)
+	}
+
+	res := mcpResource{
+		uri: c.URI, name: c.Name, description: c.Description,
+		mimeType: c.MimeType, resource: c.Resource,
+	}
+	if res.mimeType == "" {
+		res.mimeType = "text/plain"
+	}
+	if c.URITemplate != "" {
+		tpl, err := parseURITemplate(c.URITemplate)
+		if err != nil {
+			return mcpResource{}, "", fmt.Errorf("mcp-router resource %q: %w", c.Name, err)
+		}
+		res.template = &tpl
+	}
+	return res, key, nil
 }
 
 // buildMCPPrompts validates the prompt configs and builds the advertised set,
@@ -246,12 +285,14 @@ func (m *mcpRouter) dispatch(ctx context.Context, req jsonrpcRequest, msg *types
 		return m.callTool(ctx, req, msg)
 	case "resources/list":
 		return okResponse(req.ID, map[string]any{"resources": m.resourceList()})
+	case "resources/templates/list":
+		return okResponse(req.ID, map[string]any{"resourceTemplates": m.resourceTemplateList()})
 	case "resources/read":
 		return m.readResource(ctx, req, msg)
 	case "prompts/list":
 		return okResponse(req.ID, map[string]any{"prompts": m.promptList()})
 	case "prompts/get":
-		return m.getPrompt(ctx, req)
+		return m.getPrompt(ctx, req, msg)
 	default:
 		return errorResponse(req.ID, jsonrpcMethodNotFound, fmt.Sprintf("method %q not found", req.Method))
 	}
@@ -310,7 +351,9 @@ func (m *mcpRouter) capabilities() map[string]any {
 	if len(m.tools) > 0 {
 		caps["tools"] = map[string]any{}
 	}
-	if len(m.resources) > 0 {
+	// Templated resources count: a router with only templates still answers
+	// resources/list (empty), resources/templates/list, and resources/read.
+	if len(m.resources) > 0 || len(m.templates) > 0 {
 		caps["resources"] = map[string]any{}
 	}
 	if len(m.prompts) > 0 {
@@ -367,7 +410,7 @@ func toolCallResult(text string, isError bool) map[string]any {
 func (m *mcpRouter) resourceList() []map[string]any {
 	out := make([]map[string]any, 0, len(m.resources))
 	for _, r := range m.resources {
-		entry := map[string]any{"uri": r.uri, mcpKeyName: r.name, "mimeType": r.mimeType}
+		entry := map[string]any{"uri": r.uri, mcpKeyName: r.name, mcpKeyMimeType: r.mimeType}
 		if r.description != "" {
 			entry["description"] = r.description
 		}
@@ -376,7 +419,23 @@ func (m *mcpRouter) resourceList() []map[string]any {
 	return out
 }
 
-// readResource renders the named resource's template and returns its contents.
+// resourceTemplateList advertises the templated resources. They are deliberately
+// absent from resourceList: a template is not a document a client can read, it is
+// a shape a client fills in, and the spec gives each its own method for exactly
+// that reason.
+func (m *mcpRouter) resourceTemplateList() []map[string]any {
+	out := make([]map[string]any, 0, len(m.templates))
+	for _, r := range m.templates {
+		entry := map[string]any{"uriTemplate": r.template.raw, mcpKeyName: r.name, mcpKeyMimeType: r.mimeType}
+		if r.description != "" {
+			entry["description"] = r.description
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
+// readResource renders the resource the uri names and returns its contents.
 func (m *mcpRouter) readResource(ctx context.Context, req jsonrpcRequest, msg *types.Message) jsonrpcResponse {
 	var params struct {
 		URI string `json:"uri"`
@@ -384,17 +443,66 @@ func (m *mcpRouter) readResource(ctx context.Context, req jsonrpcRequest, msg *t
 	if err := json.Unmarshal(req.Params, &params); err != nil || params.URI == "" {
 		return errorResponse(req.ID, jsonrpcInvalidParams, "resources/read requires a uri")
 	}
-	res, ok := m.findResource(params.URI)
+	res, values, ok := m.matchResource(params.URI)
 	if !ok {
 		return errorResponse(req.ID, jsonrpcInvalidParams, fmt.Sprintf("unknown resource %q", params.URI))
 	}
-	text, err := m.render(ctx, res.resource, msg)
+	text, err := m.render(ctx, res.resource, m.resourceMessage(msg, values))
 	if err != nil {
-		return errorResponse(req.ID, jsonrpcInternalError, fmt.Sprintf("read resource %q: %v", res.uri, err))
+		return errorResponse(req.ID, jsonrpcInternalError, fmt.Sprintf("read resource %q: %v", params.URI, err))
 	}
+	// The concrete uri the client asked for, not the template it matched: the
+	// contents have to be addressable by what was read.
 	return okResponse(req.ID, map[string]any{
-		"contents": []map[string]any{{"uri": res.uri, "mimeType": res.mimeType, mcpKeyText: text}},
+		"contents": []map[string]any{{"uri": params.URI, mcpKeyMimeType: res.mimeType, mcpKeyText: text}},
 	})
+}
+
+// matchResource finds the resource a concrete uri names, and what its template
+// variables took if it matched one.
+//
+// Fixed uris are tried first — they are exact, cheap and unambiguous — and only
+// then the templates, in declaration order, first match winning. That order is
+// the contract: a fixed resource always shadows a template that would also match
+// it, so an author can carve one special case out of a family.
+func (m *mcpRouter) matchResource(uri string) (mcpResource, map[string]any, bool) {
+	if res, ok := m.findResource(uri); ok {
+		return res, nil, true
+	}
+	for _, res := range m.templates {
+		if values, ok := res.template.match(uri); ok {
+			return res, values, true
+		}
+	}
+	return mcpResource{}, nil, false
+}
+
+// resourceMessage is the message a resource's template renders against: the
+// request's own variables, with the values a uri template extracted as the body.
+//
+// The variables are the half that is easy to overlook and the half that matters.
+// A jwt-validate in front of the router leaves the caller's claims in vars.jwt,
+// and a resource that renders per-caller data needs them — a body-only message
+// would make the router's own front door invisible to the thing it protects.
+//
+// A resource with no template variables renders against the request message
+// untouched, which is what it has always done.
+func (m *mcpRouter) resourceMessage(msg *types.Message, values map[string]any) *types.Message {
+	if len(values) == 0 {
+		return msg
+	}
+	// Carrying the variables over rather than cloning is the same trade the agent
+	// events path makes: the body is being replaced anyway, so deep-copying it
+	// first would be work thrown away.
+	out, err := types.NewMessage(msg.CorrelationID)
+	if err != nil {
+		return msg
+	}
+	for name, v := range msg.Variables {
+		out.Variables.Set(name, v)
+	}
+	out.Body = values
+	return out
 }
 
 // promptList advertises the configured prompts and their argument metadata.
@@ -424,7 +532,7 @@ func (m *mcpRouter) promptList() []map[string]any {
 // getPrompt renders the named prompt's template, exposing the supplied arguments
 // to the template as the message body (body.<arg>), and returns it as a user
 // message.
-func (m *mcpRouter) getPrompt(ctx context.Context, req jsonrpcRequest) jsonrpcResponse {
+func (m *mcpRouter) getPrompt(ctx context.Context, req jsonrpcRequest, msg *types.Message) jsonrpcResponse {
 	var params struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
@@ -436,9 +544,16 @@ func (m *mcpRouter) getPrompt(ctx context.Context, req jsonrpcRequest) jsonrpcRe
 	if !ok {
 		return errorResponse(req.ID, jsonrpcInvalidParams, fmt.Sprintf("unknown prompt %q", params.Name))
 	}
-	argMsg, err := types.NewMessage("")
+	// A fresh message, so the body is the arguments rather than the JSON-RPC
+	// envelope — but carrying the request's variables, so a prompt template can
+	// read what a jwt-validate in front of the router left behind, exactly as a
+	// resource's template can.
+	argMsg, err := types.NewMessage(msg.CorrelationID)
 	if err != nil {
 		return errorResponse(req.ID, jsonrpcInternalError, err.Error())
+	}
+	for name, v := range msg.Variables {
+		argMsg.Variables.Set(name, v)
 	}
 	if len(params.Arguments) > 0 {
 		if err := argMsg.SetBodyJSON(params.Arguments); err != nil {
