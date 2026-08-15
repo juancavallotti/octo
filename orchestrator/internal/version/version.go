@@ -12,4 +12,4 @@
 // why the annotation appears more than once in the tree.
 package version
 
-const Version = "0.8.1" // x-release-please-version
+const Version = "0.8.2" // x-release-please-version

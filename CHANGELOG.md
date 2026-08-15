@@ -1,5 +1,49 @@
 # Changelog
 
+## [0.8.2](https://github.com/juancavallotti/octo/compare/v0.8.1...v0.8.2) (2026-08-15)
+
+
+### Features
+
+* **cel:** add hmac, hex, and constant-time compare functions ([6818839](https://github.com/juancavallotti/octo/commit/6818839de164f802730723b8c06b9a7c4d72d124))
+* **engine:** add a cli-run block that runs a local program ([0298e5b](https://github.com/juancavallotti/octo/commit/0298e5bb4a0ab326eebae89e230f2aa971bc1c9b))
+* **engine:** resolve cli-run programs through $PATH and make allow optional ([b5ab18c](https://github.com/juancavallotti/octo/commit/b5ab18ce08765fb88d558f7c84885f0befae09bb))
+* MCP protocol gaps, webhook-signature CEL functions, and a cli-run block ([5a9c838](https://github.com/juancavallotti/octo/commit/5a9c83848f30cdb623d9709b08dc9d326fa459ed))
+* **mcp:** advertise tool titles, annotations, and output schemas ([8bddc43](https://github.com/juancavallotti/octo/commit/8bddc43e52eb254da192e4d7ceeb7aa32c7efd9e))
+* **mcp:** negotiate the protocol version and advertise honest capabilities ([bc51ec6](https://github.com/juancavallotti/octo/commit/bc51ec6716e9bd66ada4819c6242ada3a02f4adf))
+* **mcp:** serve resources/templates/list and templated resource reads ([17c25ca](https://github.com/juancavallotti/octo/commit/17c25ca6074955a6756e3dbda18242dfa2a309c6))
+* **platform:** add a Running apps bucket to the folder tree ([e7daf9e](https://github.com/juancavallotti/octo/commit/e7daf9e56c365cae153853662a42b4383624fd7c))
+* **platform:** add rollout and pod logs to the deployments page ([b4c5503](https://github.com/juancavallotti/octo/commit/b4c5503beda72a4fa50eed6410294da077077c34))
+* **platform:** put icons on the queue stat cards ([7771e2f](https://github.com/juancavallotti/octo/commit/7771e2f9d79b06ef4b7a60cc034ccae923d17123))
+
+
+### Bug Fixes
+
+* **editor:** register the Terminal icon so cli-run is not a generic box ([6489546](https://github.com/juancavallotti/octo/commit/648954610e7409890713ccdc3de5c8082c780217))
+* **engine:** a cli-run events path observes the output, it does not eat it ([94b9991](https://github.com/juancavallotti/octo/commit/94b99918e19ab0bb447dc3530818e3b9b6e063e4))
+* **engine:** a hung-up caller actually stops the command, and 14 review fixes ([761ebd5](https://github.com/juancavallotti/octo/commit/761ebd52759ff0d62cd63564a266984ec6be6532))
+* **engine:** fail at build for a program the allow list can never permit ([af0d02a](https://github.com/juancavallotti/octo/commit/af0d02a4efc8460916577a85a6e8898fcfe6dceb))
+* **orchestrator:** tag the agent install with the platform version ([74af7d2](https://github.com/juancavallotti/octo/commit/74af7d24befa48ad63d317a59a7a442e80c7bfee))
+* **platform:** a batch of PaaS UX fixes across deployments, folders and queues ([5d45515](https://github.com/juancavallotti/octo/commit/5d4551591af6c35db1cd58423379e1605d92b5ce))
+* **platform:** give a deployment card's tag and tracing pills their own row ([05fe0c3](https://github.com/juancavallotti/octo/commit/05fe0c3461b196020a010b3669ad92866c90c8d4))
+* **platform:** give each queue counter one place on the page ([cec2ea7](https://github.com/juancavallotti/octo/commit/cec2ea75df727b3923759f4947aaa322ca65e1e4))
+* **platform:** ignore rollout tags that arrive after the dialog moved on ([ae880cb](https://github.com/juancavallotti/octo/commit/ae880cb23578a5aa76c9501b51d9ff8021a1f0fc))
+* **platform:** stop attributing connection-wide NATS counters to a subject ([20c8d97](https://github.com/juancavallotti/octo/commit/20c8d97f485fce37633685ea867c1a9d688643b6))
+* **terraform:** the release plans with a digest-pinned values file ([066b7b8](https://github.com/juancavallotti/octo/commit/066b7b8a97da13b32440aebb503b58bf967d8b13))
+* **terraform:** the release plans with a digest-pinned values file ([ced8d1c](https://github.com/juancavallotti/octo/commit/ced8d1c46d1eea1f928ddef6b942dadc1a8262b2))
+
+
+### Refactoring
+
+* **engine:** make the events emitter reusable beyond ai-agent ([3f706f9](https://github.com/juancavallotti/octo/commit/3f706f91ebe398953ce7f820c1726cee62fb316d))
+
+
+### Documentation
+
+* **editor:** say where the server-safe helpers live ([8f99558](https://github.com/juancavallotti/octo/commit/8f995583b781ac1d6286aa6da9fd14623cdc5a91))
+* **editor:** say where the server-safe helpers live ([34bc67a](https://github.com/juancavallotti/octo/commit/34bc67a366b4c0de558b68ab9864a57d4d9d387b))
+* **guides:** add guides for verifying webhooks and running commands ([931853c](https://github.com/juancavallotti/octo/commit/931853c50bfcf46b0c75411d756a2e66670773f7))
+
 ## [0.8.1](https://github.com/juancavallotti/octo/compare/v0.8.0...v0.8.1) (2026-08-12)
 
 
