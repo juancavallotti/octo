@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/core/expr"
@@ -93,6 +94,16 @@ type mcpResource struct {
 	resource    string
 }
 
+// mcpToolMeta is the MCP-only metadata a tool declared: display title, behavior
+// hints, and the schema of what it returns. It is keyed by tool name beside the
+// core.LLMTool list rather than folded into it, so the LLM abstraction stays
+// about LLM calls.
+type mcpToolMeta struct {
+	title        string
+	annotations  map[string]any
+	outputSchema json.RawMessage
+}
+
 // mcpPrompt is one prompt the router advertises and renders on prompts/get.
 type mcpPrompt struct {
 	name        string
@@ -111,6 +122,7 @@ type mcpRouter struct {
 	serverName string
 	tools      []core.LLMTool
 	branches   map[string]*Flow
+	toolMeta   map[string]mcpToolMeta
 	resources  []mcpResource
 	templates  []mcpResource
 	prompts    []mcpPrompt
@@ -129,6 +141,10 @@ func (b *builder) mcpRouter(cfg types.BlockConfig) (core.MessageProcessor, error
 	}
 
 	branches, tools, err := b.agentTools(blockKindMCPRouter, cfg.Tools)
+	if err != nil {
+		return nil, err
+	}
+	toolMeta, err := buildMCPToolMeta(cfg.Tools)
 	if err != nil {
 		return nil, err
 	}
@@ -153,6 +169,7 @@ func (b *builder) mcpRouter(cfg types.BlockConfig) (core.MessageProcessor, error
 		serverName: serverName,
 		tools:      tools,
 		branches:   branches,
+		toolMeta:   toolMeta,
 		resources:  resources,
 		templates:  templates,
 		prompts:    prompts,
@@ -362,17 +379,75 @@ func (m *mcpRouter) capabilities() map[string]any {
 	return caps
 }
 
-// toolList advertises the tool flows with their JSON-Schema input.
+// toolList advertises the tool flows with their JSON-Schema input, plus whatever
+// MCP metadata each declared.
 func (m *mcpRouter) toolList() []map[string]any {
 	tools := make([]map[string]any, 0, len(m.tools))
 	for _, t := range m.tools {
-		tools = append(tools, map[string]any{
+		entry := map[string]any{
 			mcpKeyName:    t.Name,
 			"description": t.Description,
 			"inputSchema": t.InputSchema,
-		})
+		}
+		meta := m.toolMeta[t.Name]
+		if meta.title != "" {
+			entry["title"] = meta.title
+		}
+		if len(meta.annotations) > 0 {
+			entry["annotations"] = meta.annotations
+		}
+		if meta.outputSchema != nil {
+			entry["outputSchema"] = meta.outputSchema
+		}
+		tools = append(tools, entry)
 	}
 	return tools
+}
+
+// buildMCPToolMeta collects the router-only tool metadata, keyed by tool name.
+//
+// It is held here rather than on core.LLMTool because that type is the LLM
+// abstraction the provider connectors speak: an output schema and a
+// destructiveHint mean nothing to a model call, and widening it would push MCP's
+// vocabulary onto every caller of it.
+func buildMCPToolMeta(configs []types.ToolConfig) (map[string]mcpToolMeta, error) {
+	metas := make(map[string]mcpToolMeta, len(configs))
+	for i := range configs {
+		c := configs[i]
+		meta := mcpToolMeta{title: c.Title, annotations: toolAnnotations(c.Annotations)}
+		if schema := strings.TrimSpace(c.OutputSchema); schema != "" {
+			if !json.Valid([]byte(schema)) {
+				return nil, fmt.Errorf("mcp-router tool %q: outputSchema is not valid JSON", c.Name)
+			}
+			meta.outputSchema = json.RawMessage(schema)
+		}
+		metas[c.Name] = meta
+	}
+	return metas, nil
+}
+
+// toolAnnotations renders the declared hints, leaving out the ones the author did
+// not state. Omitting an unstated hint matters: the protocol's defaults differ
+// per hint, so writing them all out would assert things nobody claimed.
+func toolAnnotations(a *types.ToolAnnotations) map[string]any {
+	if a == nil {
+		return nil
+	}
+	out := make(map[string]any)
+	for key, hint := range map[string]*bool{
+		"readOnlyHint":    a.ReadOnlyHint,
+		"destructiveHint": a.DestructiveHint,
+		"idempotentHint":  a.IdempotentHint,
+		"openWorldHint":   a.OpenWorldHint,
+	} {
+		if hint != nil {
+			out[key] = *hint
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // callTool routes a tools/call to the named flow branch: the arguments become the
@@ -395,7 +470,33 @@ func (m *mcpRouter) callTool(ctx context.Context, req jsonrpcRequest, msg *types
 	if errMsg != "" {
 		return okResponse(req.ID, toolCallResult(errMsg, true))
 	}
-	return okResponse(req.ID, toolCallResult(content, false))
+	result := toolCallResult(content, false)
+	m.addStructuredContent(result, params.Name, content)
+	return okResponse(req.ID, result)
+}
+
+// addStructuredContent attaches the branch's result as data, for a tool that
+// declared an output schema.
+//
+// The text block stays either way: the spec requires a tool returning structured
+// content to also serialize it into a TextContent block, so a client that does
+// not read structuredContent still gets the answer.
+//
+// Content that does not parse as a JSON object is left alone rather than
+// reported as an error. The declaration is a promise about the branch, and
+// failing the call at the protocol level would turn a mismatched promise into an
+// outage for a tool that otherwise answered.
+func (m *mcpRouter) addStructuredContent(result map[string]any, tool, content string) {
+	if m.toolMeta[tool].outputSchema == nil {
+		return
+	}
+	var structured map[string]any
+	if err := json.Unmarshal([]byte(content), &structured); err != nil {
+		slog.Debug("mcp-router tool declares an outputSchema but did not return a JSON object",
+			"tool", tool, "error", err)
+		return
+	}
+	result["structuredContent"] = structured
 }
 
 // toolCallResult wraps text as an MCP tool result content block.

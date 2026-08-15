@@ -445,3 +445,109 @@ func TestMCPRouterBuildValidation(t *testing.T) {
 		t.Error("expected error with a duplicate uriTemplate")
 	}
 }
+
+// boolPtr is how a test states a hint, since "unset" and "false" are different
+// answers in ToolAnnotations.
+func boolPtr(b bool) *bool { return &b }
+
+// annotatedRouterConfig gives the tool the full MCP metadata set.
+func annotatedRouterConfig() types.BlockConfig {
+	cfg := mcpRouterConfig()
+	cfg.Tools[0].Title = "Echo a result"
+	cfg.Tools[0].Annotations = &types.ToolAnnotations{
+		ReadOnlyHint:  boolPtr(true),
+		OpenWorldHint: boolPtr(false),
+	}
+	cfg.Tools[0].OutputSchema = `{"type":"object","properties":{"echoed":{"type":"boolean"}}}`
+	return cfg
+}
+
+func TestMCPRouterAdvertisesToolMetadata(t *testing.T) {
+	proc := mustBuildAI(t, agentRegistry(&[]any{}), depsRes(mcpResources()), annotatedRouterConfig())
+	list := resultOf(t, mcpCall(t, proc, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
+	tool := list["tools"].([]any)[0].(map[string]any)
+
+	if tool["title"] != "Echo a result" {
+		t.Errorf("title = %v", tool["title"])
+	}
+	annotations, ok := tool["annotations"].(map[string]any)
+	if !ok {
+		t.Fatalf("tool has no annotations: %v", tool)
+	}
+	if annotations["readOnlyHint"] != true || annotations["openWorldHint"] != false {
+		t.Errorf("annotations = %v", annotations)
+	}
+	// A hint nobody stated must not be written out: the protocol's defaults differ
+	// per hint, so asserting one would claim something the author did not.
+	for _, key := range []string{"destructiveHint", "idempotentHint"} {
+		if _, ok := annotations[key]; ok {
+			t.Errorf("annotations should omit the unstated %q: %v", key, annotations)
+		}
+	}
+	if _, ok := tool["outputSchema"]; !ok {
+		t.Errorf("tool should advertise its outputSchema: %v", tool)
+	}
+}
+
+// TestMCPRouterOmitsUndeclaredToolMetadata keeps the wire shape clean for the
+// common tool that declares none of it.
+func TestMCPRouterOmitsUndeclaredToolMetadata(t *testing.T) {
+	proc := mustBuildAI(t, agentRegistry(&[]any{}), depsRes(mcpResources()), mcpRouterConfig())
+	list := resultOf(t, mcpCall(t, proc, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
+	tool := list["tools"].([]any)[0].(map[string]any)
+	for _, key := range []string{"title", "annotations", "outputSchema"} {
+		if _, ok := tool[key]; ok {
+			t.Errorf("tool should omit undeclared %q: %v", key, tool)
+		}
+	}
+}
+
+func TestMCPRouterReturnsStructuredContent(t *testing.T) {
+	proc := mustBuildAI(t, agentRegistry(&[]any{}), depsRes(mcpResources()), annotatedRouterConfig())
+	result := resultOf(t, mcpCall(t, proc,
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"echo","arguments":{}}}`))
+
+	structured, ok := result["structuredContent"].(map[string]any)
+	if !ok {
+		t.Fatalf("a tool with an outputSchema should return structuredContent: %v", result)
+	}
+	if structured["echoed"] != true {
+		t.Errorf("structuredContent = %v", structured)
+	}
+	// The text block stays: the spec requires the serialized JSON to remain there
+	// for a client that does not read structuredContent.
+	content := result["content"].([]any)[0].(map[string]any)
+	if !strings.Contains(content["text"].(string), "echoed") {
+		t.Errorf("the text content block should still carry the result: %v", content)
+	}
+}
+
+// TestMCPRouterOmitsStructuredContentWithoutASchema pins that the field is opt-in.
+func TestMCPRouterOmitsStructuredContentWithoutASchema(t *testing.T) {
+	proc := mustBuildAI(t, agentRegistry(&[]any{}), depsRes(mcpResources()), mcpRouterConfig())
+	result := resultOf(t, mcpCall(t, proc,
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"echo","arguments":{}}}`))
+	if _, ok := result["structuredContent"]; ok {
+		t.Errorf("a tool with no outputSchema should not return structuredContent: %v", result)
+	}
+}
+
+// TestAIAgentRejectsMCPToolMetadata: an LLM tool call has no protocol carrying
+// these, so accepting them would be config that silently does nothing.
+func TestAIAgentRejectsMCPToolMetadata(t *testing.T) {
+	cases := map[string]func(*types.ToolConfig){
+		"title":        func(c *types.ToolConfig) { c.Title = "Echo" },
+		"annotations":  func(c *types.ToolConfig) { c.Annotations = &types.ToolAnnotations{} },
+		"outputSchema": func(c *types.ToolConfig) { c.OutputSchema = `{"type":"object"}` },
+	}
+	for field, set := range cases {
+		t.Run(field, func(t *testing.T) {
+			tool := toolBranch("echo", "echoes", types.Settings{"result": `{"ok":true}`})
+			set(&tool)
+			b := &builder{reg: agentRegistry(&[]any{}), pool: pool.New(0, 0), deps: depsRes(mcpResources())}
+			if _, _, err := b.agentTools("ai-agent", []types.ToolConfig{tool}); err == nil {
+				t.Errorf("ai-agent should reject the mcp-router-only %q", field)
+			}
+		})
+	}
+}

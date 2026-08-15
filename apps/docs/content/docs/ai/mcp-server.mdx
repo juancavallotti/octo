@@ -139,6 +139,40 @@ A branch failure — or an unknown tool name — comes back as an `isError` tool
 result, an application-level error the model can see and recover from, not a
 protocol error.
 
+### Tool metadata
+
+Beyond `name`, `description` and `inputSchema`, a tool may declare three pieces
+of MCP metadata. All three are `mcp-router` only — an `ai-agent` **rejects**
+them when the flow is built, because an LLM tool call has no protocol carrying
+them and accepting one would be configuration that silently does nothing.
+
+```yaml
+tools:
+  - name: forecast
+    title: Weather forecast
+    description: Return a short weather forecast for a city.
+    annotations:
+      readOnlyHint: true
+      openWorldHint: true
+    outputSchema: |
+      { "type": "object", "properties": { "summary": { "type": "string" } } }
+```
+
+- **`title`** — a display name for people, where `name` stays the identifier
+  clients call by. Shown in consent prompts and tool pickers.
+- **`annotations`** — `readOnlyHint`, `destructiveHint`, `idempotentHint` and
+  `openWorldHint`, so a client can decide how much ceremony to put in front of a
+  call. A hint you leave out is not advertised at all: the protocol's defaults
+  differ per hint, so writing them all would assert things you did not claim.
+  They are advisory — the runtime does not check a tool branch against them, and
+  the protocol tells clients to treat them as untrusted.
+- **`outputSchema`** — the shape of what the branch returns. Declaring it makes
+  `tools/call` send the result as `structuredContent` as well as text, so a
+  client can consume it as data. The text block stays either way, because the
+  spec requires the serialized JSON to remain there for clients that do not read
+  `structuredContent`. A branch whose result is not a JSON object simply gets no
+  `structuredContent` — the call still succeeds.
+
 ### `resources[]`
 
 Documents the server advertises and serves on `resources/read`. Each entry

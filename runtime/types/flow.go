@@ -339,6 +339,46 @@ type ToolConfig struct {
 	Description string        `yaml:"description"`
 	InputSchema string        `yaml:"inputSchema,omitempty"`
 	Process     []BlockConfig `yaml:"process"`
+
+	// Title, Annotations and OutputSchema are MCP metadata, advertised by an
+	// "mcp-router" and rejected on an "ai-agent": an LLM tool call has no protocol
+	// carrying them, so accepting them there would be config that silently does
+	// nothing.
+
+	// Title is a display name for people, where Name is the identifier the client
+	// calls by. An MCP client shows this in a consent prompt or a tool picker.
+	Title string `yaml:"title,omitempty"`
+	// Annotations are hints about what calling this tool does, so a client can
+	// decide how much ceremony to put in front of it.
+	Annotations *ToolAnnotations `yaml:"annotations,omitempty"`
+	// OutputSchema is the JSON Schema of what the tool branch returns. Declaring it
+	// makes the router send the branch's result as structuredContent alongside the
+	// text block, so a client can consume it as data rather than re-parsing prose.
+	OutputSchema string `yaml:"outputSchema,omitempty"`
+}
+
+// ToolAnnotations are the MCP hints an "mcp-router" advertises about a tool.
+//
+// Every field is a pointer because "not stated" and "stated false" are different
+// answers and the protocol's defaults are not all the same — readOnlyHint and
+// idempotentHint default false, openWorldHint and destructiveHint default true.
+// A bool would silently assert the default for every hint an author left out.
+//
+// They are hints, not enforcement. The protocol says clients must treat them as
+// untrusted, and the runtime does not check a tool branch against them: a tool
+// annotated readOnly can still write, and it is the author's job not to.
+type ToolAnnotations struct {
+	// ReadOnlyHint says the tool does not modify anything.
+	ReadOnlyHint *bool `yaml:"readOnlyHint,omitempty"`
+	// DestructiveHint says an update it performs may be destructive rather than
+	// additive. Only meaningful when the tool is not read-only.
+	DestructiveHint *bool `yaml:"destructiveHint,omitempty"`
+	// IdempotentHint says calling it twice with the same arguments has no more
+	// effect than calling it once. Only meaningful when the tool is not read-only.
+	IdempotentHint *bool `yaml:"idempotentHint,omitempty"`
+	// OpenWorldHint says the tool touches something outside the server — the web, a
+	// third-party API — rather than a closed domain the server owns.
+	OpenWorldHint *bool `yaml:"openWorldHint,omitempty"`
 }
 
 // SkillConfig is one skill available to an "ai-agent": a Name and Description

@@ -57,11 +57,19 @@ cases:
         result:
           tools:
             - name: forecast
+              title: Weather forecast
               description: Return a short weather forecast for a city.
+              annotations: { readOnlyHint: true, openWorldHint: true }
               inputSchema:
                 type: object
                 required: [city]
                 properties: { city: { type: string } }
+              outputSchema:
+                type: object
+                required: [city, summary]
+                properties:
+                  city: { type: string }
+                  summary: { type: string }
     spies:
       mcp.weather-mcp[forecast].set-payload: { count: 0 }
 
@@ -83,6 +91,11 @@ cases:
           content:
             - type: text
               text: '{"city":"Paris","summary":"Sunny, 24C"}'
+          # The tool declares an outputSchema, so the same answer comes back as
+          # data too. The text block stays either way -- the spec requires the
+          # serialized JSON to remain there for clients that do not read
+          # structuredContent.
+          structuredContent: { city: Paris, summary: "Sunny, 24C" }
     spies:
       mcp.weather-mcp[forecast].set-payload:
         count: 1

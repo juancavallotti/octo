@@ -103,6 +103,9 @@ function toolToRuntime(flow: FlowDoc, resolve: ConnectorResolver): RuntimeTool {
     description: flow.description ?? "",
   };
   if (flow.inputSchema) out.inputSchema = flow.inputSchema;
+  if (flow.title) out.title = flow.title;
+  if (flow.annotations) out.annotations = flow.annotations;
+  if (flow.outputSchema) out.outputSchema = flow.outputSchema;
   return out;
 }
 

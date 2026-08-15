@@ -714,6 +714,9 @@ func (b *builder) agentTools(kind string, configs []types.ToolConfig) (map[strin
 		if _, dup := branches[tool.Name]; dup {
 			return nil, nil, fmt.Errorf("%s tool %q is defined more than once", kind, tool.Name)
 		}
+		if err := checkMCPToolFields(kind, tool); err != nil {
+			return nil, nil, err
+		}
 		schema, err := toolInputSchema(tool)
 		if err != nil {
 			return nil, nil, err
@@ -729,6 +732,30 @@ func (b *builder) agentTools(kind string, configs []types.ToolConfig) (map[strin
 		tools = append(tools, core.LLMTool{Name: tool.Name, Description: tool.Description, InputSchema: schema})
 	}
 	return branches, tools, nil
+}
+
+// checkMCPToolFields rejects the MCP-only tool metadata on any block but the
+// mcp-router.
+//
+// It is a hard error rather than a shrug because there is nowhere for the value
+// to go: an LLM tool call has no protocol carrying a title, an annotation or an
+// output schema, so accepting one on an ai-agent would be configuration that
+// looks like it does something and does not.
+func checkMCPToolFields(kind string, tool types.ToolConfig) error {
+	if kind == blockKindMCPRouter {
+		return nil
+	}
+	switch {
+	case tool.Title != "":
+		return fmt.Errorf("%s tool %q: title is mcp-router metadata and has no effect here", kind, tool.Name)
+	case tool.Annotations != nil:
+		return fmt.Errorf(
+			"%s tool %q: annotations are mcp-router metadata and have no effect here", kind, tool.Name)
+	case tool.OutputSchema != "":
+		return fmt.Errorf(
+			"%s tool %q: outputSchema is mcp-router metadata and has no effect here", kind, tool.Name)
+	}
+	return nil
 }
 
 // agentSkills builds the agent's skill set, validating names, descriptions, and

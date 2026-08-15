@@ -155,6 +155,9 @@ function toolFromRuntime(
     description: tool.description ?? "",
   };
   if (tool.inputSchema) out.inputSchema = tool.inputSchema;
+  if (tool.title) out.title = tool.title;
+  if (tool.annotations) out.annotations = tool.annotations;
+  if (tool.outputSchema) out.outputSchema = tool.outputSchema;
   return out;
 }
 

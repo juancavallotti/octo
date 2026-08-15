@@ -49,7 +49,7 @@ export default function SlotListEditor({
     });
   const setMeta = (
     flow: FlowDoc,
-    metaField: "when" | "description" | "inputSchema",
+    metaField: "when" | "description" | "inputSchema" | "outputSchema",
     value: string,
   ) =>
     dispatch({
@@ -116,14 +116,29 @@ export default function SlotListEditor({
             </>
           )}
           {field.type === "tool-list" && (
-            <textarea
-              rows={3}
-              aria-label="tool input schema"
-              value={flow.inputSchema ?? ""}
-              placeholder="Input JSON Schema (optional)"
-              onChange={(e) => setMeta(flow, "inputSchema", e.target.value)}
-              className={`${INPUT} resize-y font-mono`}
-            />
+            <>
+              <textarea
+                rows={3}
+                aria-label="tool input schema"
+                value={flow.inputSchema ?? ""}
+                placeholder="Input JSON Schema (optional)"
+                onChange={(e) => setMeta(flow, "inputSchema", e.target.value)}
+                className={`${INPUT} resize-y font-mono`}
+              />
+              {/*
+                MCP only: declaring it makes an mcp-router send the tool's result
+                as structuredContent beside the text block. An ai-agent rejects
+                it, since an LLM tool call has nowhere to carry it.
+              */}
+              <textarea
+                rows={3}
+                aria-label="tool output schema"
+                value={flow.outputSchema ?? ""}
+                placeholder="Output JSON Schema (mcp-router only, optional)"
+                onChange={(e) => setMeta(flow, "outputSchema", e.target.value)}
+                className={`${INPUT} resize-y font-mono`}
+              />
+            </>
           )}
         </div>
       ))}

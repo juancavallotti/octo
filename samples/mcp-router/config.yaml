@@ -56,11 +56,30 @@ flows:
         tools:
           - name: forecast
             description: Return a short weather forecast for a city.
+            # Display name for people; `name` stays the identifier clients call by.
+            title: Weather forecast
+            # Hints, so a client knows how much ceremony to put in front of a call.
+            # They are advisory — the runtime does not enforce them, and the
+            # protocol tells clients to treat them as untrusted.
+            annotations:
+              readOnlyHint: true
+              openWorldHint: true
             inputSchema: |
               {
                 "type": "object",
                 "required": ["city"],
                 "properties": { "city": { "type": "string" } }
+              }
+            # Declaring the shape of the answer makes the router return it as
+            # structuredContent as well as text, so a client can use it as data.
+            outputSchema: |
+              {
+                "type": "object",
+                "required": ["city", "summary"],
+                "properties": {
+                  "city": { "type": "string" },
+                  "summary": { "type": "string" }
+                }
               }
             process:
               # A real tool would call a weather API; here we echo a fixed
