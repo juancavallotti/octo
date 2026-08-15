@@ -1,16 +1,20 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Copy, ExternalLink } from "lucide-react";
+import { Check, Copy, ExternalLink, Tag, Waypoints } from "lucide-react";
 import type { DeploymentStatus } from "@/app/model/orchestrator";
 import { bareHost } from "./podStats";
 
 /**
  * The presentational pieces a deployment row is assembled from: its status badge,
- * a copy-to-clipboard button, and a labelled address line.
+ * the version and tracing pills, a copy-to-clipboard button, and a labelled
+ * address line.
  *
  * None of them knows what a deployment is — they take a status, a string, a
- * label — which is why they sit apart from the row that arranges them.
+ * label — which is why they sit apart from the row that arranges them. The two
+ * cards that show a deployment (in the integration, and on the deployments page)
+ * both wear the pills, and a pill that read differently in the two places would
+ * be two facts about one deployment.
  */
 
 const STATUS_STYLES: Record<DeploymentStatus, string> = {
@@ -27,6 +31,55 @@ export function StatusBadge({ status }: { status: DeploymentStatus }) {
     >
       {status}
     </span>
+  );
+}
+
+/** The version tag a deployment was cut from. */
+export function VersionPill({ tag }: { tag: string }) {
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-full bg-sky-500/15 px-2 py-0.5 text-xs font-medium text-sky-600 dark:text-sky-400"
+      title={`Version ${tag}`}
+    >
+      <Tag size={10} />
+      {tag}
+    </span>
+  );
+}
+
+/** Shown only when tracing is on — its absence is what "off" looks like. */
+export function TracedPill() {
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-full bg-violet-500/15 px-2 py-0.5 text-xs font-medium text-violet-600 dark:text-violet-400"
+      title="Tracing is on for this deployment — every flow, block and model call is recorded"
+    >
+      <Waypoints size={10} />
+      Traced
+    </span>
+  );
+}
+
+/**
+ * The row of pills describing what a deployment is running: its version and
+ * whether it is traced. Renders nothing when it has neither, so a card with
+ * nothing to say does not grow an empty line.
+ */
+export function DeploymentPills({
+  tag,
+  tracing,
+  className = "",
+}: {
+  tag?: string;
+  tracing?: boolean;
+  className?: string;
+}) {
+  if (!tag && !tracing) return null;
+  return (
+    <div className={`flex flex-wrap items-center gap-1.5 ${className}`}>
+      {tag && <VersionPill tag={tag} />}
+      {tracing && <TracedPill />}
+    </div>
   );
 }
 
@@ -48,7 +101,11 @@ export function CopyButton({ value }: { value: string }) {
       }}
       className="rounded p-0.5 text-zinc-400 transition-colors hover:bg-zinc-500/10 hover:text-zinc-600 dark:hover:text-zinc-300"
     >
-      {copied ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
+      {copied ? (
+        <Check size={12} className="text-emerald-500" />
+      ) : (
+        <Copy size={12} />
+      )}
     </button>
   );
 }
