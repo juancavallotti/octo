@@ -48,12 +48,13 @@ export interface QueueConnection {
 /**
  * One connection's consumption of one destination.
  *
- * NATS reports at two levels and only one of them is per-subject: a connection's
- * counters (`connection` below) cover every subject that client touches, while
- * `msgs` is the subscription's own. A client subscribed to two subjects therefore
- * carries the *same* connection totals under both, which is why they are kept
- * apart here rather than flattened into one row of numbers that would read as
- * though they described the subject.
+ * Only what is true of *this subject*. NATS reports at two levels and only one of
+ * them is per-subject: `msgs` is the subscription's own, while a connection's
+ * counters cover every subject that client touches. The latter live on
+ * QueueConnection and are listed once each, because a client subscribed to two
+ * subjects has one set of them, not two — repeating them under every subject was
+ * how two destinations came to show identical traffic. `cid` is what ties a row
+ * here to the connection it belongs to.
  */
 export interface QueueSubscriber {
   cid: number;
@@ -65,8 +66,6 @@ export interface QueueSubscriber {
   subscriptions: number;
   /** Messages delivered to them — the only per-subject counter NATS reports. */
   msgs: number;
-  /** The connection's own totals, across every subject it touches — not this one. */
-  connection: QueueConnection;
 }
 
 /**
@@ -96,11 +95,18 @@ export interface QueueDestination {
 }
 
 /**
- * A single monitoring snapshot: broker totals and the queue destinations clients
- * consume from (each carrying its consuming connections).
+ * A single monitoring snapshot, at the three levels the broker reports and in the
+ * order they narrow: the whole server, then each open client, then each subject.
+ *
+ * They are separate fields rather than one merged shape because every counter
+ * belongs to exactly one of the three, and a number shown at the wrong level is
+ * read as disagreeing with the level above it — a client's `outMsgs` sitting under
+ * a subject looks like the server's `outMsgs` failing to add up.
  */
 export interface QueueStats {
   server: QueueServerStats;
+  /** Every open client connection, once each, with its own totals. */
+  connections: QueueConnection[];
   destinations: QueueDestination[];
 }
 

@@ -116,11 +116,10 @@ function toConnections(c: Connz): QueueConnection[] {
  * Internal subjects (reply inboxes, system) are dropped — they aren't queues.
  * `connections` indexes the full connection objects by cid.
  *
- * A subscriber's own counters are summed from the subscriptions that client holds
- * *on this subject*; its connection is carried alongside rather than merged in,
- * because those totals span every subject the client touches. Attaching them to a
- * subject was how two destinations consumed by one client came to report the same
- * numbers.
+ * A subscriber carries only what is true of this subject — the subscriptions that
+ * client holds on it and the messages they were delivered. Its connection-wide
+ * totals stay on the connection, listed once each: attaching them to a subject was
+ * how two destinations consumed by one client came to report the same numbers.
  */
 function toDestinations(
   c: Connz,
@@ -162,7 +161,6 @@ function toDestinations(
           queue: sub.qgroup ?? null,
           subscriptions: 0,
           msgs: 0,
-          connection: full,
         };
         perCid.set(conn.cid, row);
         dest.subscribers.push(row);
@@ -198,6 +196,7 @@ export async function getQueueStats(): Promise<ActionResult<QueueStats>> {
     ok: true,
     data: {
       server: toServer(varz.data),
+      connections,
       destinations: toDestinations(connz.data, connections),
     },
   };

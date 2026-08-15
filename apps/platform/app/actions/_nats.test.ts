@@ -18,6 +18,7 @@ vi.mock("@octo/http", () => ({
 }));
 
 import { getQueueStats } from "./_nats";
+import type { QueueConnection } from "@/app/model/queues";
 
 const BASE = "http://nats:8222";
 
@@ -29,14 +30,19 @@ const VARZ = {
   connections: 1,
   total_connections: 36,
   in_msgs: 18843,
-  out_msgs: 9119,
+  out_msgs: 7472,
   in_bytes: 0,
   out_bytes: 0,
   slow_consumers: 0,
   subscriptions: 62,
 };
 
-/** One client, two subjects — the shape the identical-numbers bug showed up on. */
+/**
+ * One consumer on two subjects — the shape the identical-numbers bug showed up
+ * on — beside the publisher whose traffic it is consuming. The publisher is the
+ * half that was never on screen, and the reason a consumer reading zero published
+ * looked like it disagreed with the server's 18,843 in.
+ */
 const CONNZ = {
   connections: [
     {
@@ -54,6 +60,17 @@ const CONNZ = {
         // Reply inboxes are not destinations anyone consumes.
         { subject: "_INBOX.abc", msgs: 3 },
       ],
+    },
+    {
+      cid: 27,
+      name: "octo-runtime",
+      subscriptions: 0,
+      pending_bytes: 0,
+      in_msgs: 18843,
+      out_msgs: 0,
+      in_bytes: 15_728_640,
+      out_bytes: 0,
+      subscriptions_list_detail: [],
     },
   ],
 };
@@ -92,16 +109,50 @@ describe("the queue rollup", () => {
     expect(logs.subscribers[0].msgs).not.toBe(traces.subscribers[0].msgs);
   });
 
-  it("keeps the connection's own totals whole, and marked as the connection's", async () => {
+  it("keeps connection totals off the destinations entirely", async () => {
     const res = await getQueueStats();
     if (!res.ok) throw new Error(res.error);
 
-    // Identical under both subjects — which is correct, and only legible because
-    // it hangs off `connection` rather than off the destination.
+    // A subscriber carries what is true of this subject and nothing wider. The
+    // fields that would repeat across subjects live on the connection instead.
     for (const dest of res.data.destinations) {
-      expect(dest.subscribers[0].connection.outMsgs).toBe(7472);
-      expect(dest.subscribers[0].connection.subscriptions).toBe(2);
+      expect(Object.keys(dest.subscribers[0]).sort()).toEqual([
+        "cid",
+        "msgs",
+        "name",
+        "queue",
+        "subscriptions",
+      ]);
     }
+  });
+
+  it("lists every open connection once, with its own totals", async () => {
+    const res = await getQueueStats();
+    if (!res.ok) throw new Error(res.error);
+
+    expect(res.data.connections.map((c) => c.cid)).toEqual([26, 27]);
+    // The publisher is here even though it consumes nothing, which is what makes
+    // the headline counters add up rather than merely look wrong.
+    const publisher = res.data.connections.find((c) => c.cid === 27)!;
+    expect(publisher.inMsgs).toBe(18843);
+  });
+
+  // The comparison that read as a contradiction on screen: a consumer showing no
+  // messages in against a server showing 18,843. Both are right — a connection's
+  // counters are the broker's side, so a pure consumer publishes nothing — and it
+  // only reads that way while the publisher is missing from the page. Pinned on
+  // this fixture rather than as a law: a live server's /varz also counts system
+  // account traffic that /connz does not list, so the two need not sum exactly.
+  it("carries both sides of the traffic through untouched", async () => {
+    const res = await getQueueStats();
+    if (!res.ok) throw new Error(res.error);
+
+    const connections = res.data.connections;
+    const sum = (pick: (c: QueueConnection) => number) =>
+      connections.reduce((total, c) => total + pick(c), 0);
+
+    expect(sum((c) => c.inMsgs)).toBe(18843);
+    expect(sum((c) => c.outMsgs)).toBe(7472);
   });
 
   it("counts a connection once per destination, however many subs it holds", async () => {

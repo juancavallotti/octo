@@ -1,7 +1,7 @@
 "use client";
 
 import type { LucideIcon } from "lucide-react";
-import type { QueueSubscriber } from "@/app/model/queues";
+import type { QueueConnection, QueueSubscriber } from "@/app/model/queues";
 
 /** Group digits for readability; counts and byte values can run large. */
 export function num(n: number): string {
@@ -61,53 +61,38 @@ export function Stat({
   );
 }
 
+const TH = "px-3 py-2 font-medium";
+const THR = `${TH} text-right`;
+const TD = "px-3 py-2 text-right tabular-nums";
+const HEAD =
+  "border-b border-black/10 text-left text-xs uppercase tracking-wide text-zinc-400 dark:border-white/10";
+
 /**
- * The clients consuming one destination.
+ * The clients consuming one destination, and only what is true of this subject:
+ * which connection, in which queue group, and how many messages its subscriptions
+ * here were delivered.
  *
- * Split into two column groups, because the broker reports at two levels and only
- * the first is about this subject: a subscription's messages are its own, while a
- * connection's counters cover every subject that client touches. One client
- * subscribed to two subjects shows identical connection totals under both — true,
- * and misread as a bug for as long as the two sat under one header.
+ * Deliberately not the connections' own totals. Those cover every subject a client
+ * touches, so one client subscribed to two subjects shows the same set under
+ * both — true, and unreadable as anything but a bug next to a per-subject message
+ * count that differs. They are listed once each in ConnectionsTable; the CID is
+ * what joins the two.
  */
 export function SubscribersTable({
   subscribers,
 }: {
   subscribers: QueueSubscriber[];
 }) {
-  const th = "px-3 py-2 font-medium";
-  const thr = `${th} text-right`;
-  const td = "px-3 py-2 text-right tabular-nums";
   return (
     <div className="overflow-x-auto rounded-xl border border-black/10 dark:border-white/10">
       <table className="w-full text-sm">
-        <thead className="text-xs uppercase tracking-wide text-zinc-400">
-          <tr className="border-b border-black/5 text-left dark:border-white/5">
-            <th className={th} colSpan={4}>
-              On this destination
-            </th>
-            <th
-              className={`${th} border-l border-black/10 dark:border-white/10`}
-              colSpan={5}
-              title="Counters for the whole client connection, across every subject it consumes — not just this one"
-            >
-              Connection totals (all subjects)
-            </th>
-          </tr>
-          <tr className="border-b border-black/10 text-left dark:border-white/10">
-            <th className={th}>CID</th>
-            <th className={th}>Name</th>
-            <th className={th}>Queue group</th>
-            <th className={thr}>Msgs</th>
-            <th
-              className={`${thr} border-l border-black/10 dark:border-white/10`}
-            >
-              Subs
-            </th>
-            <th className={thr}>Pending</th>
-            <th className={thr}>Msgs in</th>
-            <th className={thr}>Msgs out</th>
-            <th className={thr}>Data out</th>
+        <thead>
+          <tr className={HEAD}>
+            <th className={TH}>CID</th>
+            <th className={TH}>Name</th>
+            <th className={TH}>Queue group</th>
+            <th className={THR}>Subs</th>
+            <th className={THR}>Msgs</th>
           </tr>
         </thead>
         <tbody>
@@ -123,29 +108,81 @@ export function SubscribersTable({
               <td className="max-w-xs truncate px-3 py-2" title={s.queue ?? ""}>
                 {s.queue ?? <span className="text-zinc-400">—</span>}
               </td>
-              <td
-                className={td}
-                title={`over ${num(s.subscriptions)} subscription(s)`}
-              >
-                {num(s.msgs)}
+              <td className={TD}>{num(s.subscriptions)}</td>
+              <td className={TD}>{num(s.msgs)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/**
+ * Every open client connection, once each, with the counters that belong to a
+ * connection rather than to a subject.
+ *
+ * Published and Delivered, not "in" and "out". NATS reports a connection's
+ * counters from the broker's side — `in_msgs` is what the client sent *to* it —
+ * so a pure consumer reads zero in while the server's Messages in runs high, and
+ * the two look like they disagree. Named for what the client did, and shown
+ * beside the connection that published the traffic, they stop reading as a
+ * contradiction: this client took 45, that one sent 55.
+ */
+export function ConnectionsTable({
+  connections,
+}: {
+  connections: QueueConnection[];
+}) {
+  const group = "border-l border-black/10 dark:border-white/10";
+  return (
+    <div className="overflow-x-auto rounded-xl border border-black/10 dark:border-white/10">
+      <table className="w-full text-sm">
+        <thead className="text-xs uppercase tracking-wide text-zinc-400">
+          <tr className="border-b border-black/5 text-left dark:border-white/5">
+            <th className={TH} colSpan={4} />
+            <th
+              className={`${TH} ${group}`}
+              colSpan={2}
+              title="What this client sent to the broker. Across all connections this is the server's Messages in."
+            >
+              Published
+            </th>
+            <th
+              className={`${TH} ${group}`}
+              colSpan={2}
+              title="What the broker delivered to this client. Across all connections this is the server's Messages out."
+            >
+              Delivered
+            </th>
+          </tr>
+          <tr className={HEAD}>
+            <th className={TH}>CID</th>
+            <th className={TH}>Name</th>
+            <th className={THR}>Subs</th>
+            <th className={THR}>Pending</th>
+            <th className={`${THR} ${group}`}>Msgs</th>
+            <th className={THR}>Data</th>
+            <th className={`${THR} ${group}`}>Msgs</th>
+            <th className={THR}>Data</th>
+          </tr>
+        </thead>
+        <tbody>
+          {connections.map((c) => (
+            <tr
+              key={c.cid}
+              className="border-b border-black/5 last:border-0 dark:border-white/5"
+            >
+              <td className="px-3 py-2 tabular-nums text-zinc-500">{c.cid}</td>
+              <td className="max-w-xs truncate px-3 py-2" title={c.name}>
+                {c.name || <span className="text-zinc-400">—</span>}
               </td>
-              <td
-                className={`${td} border-l border-black/10 text-zinc-500 dark:border-white/10`}
-              >
-                {num(s.connection.subscriptions)}
-              </td>
-              <td className={`${td} text-zinc-500`}>
-                {bytes(s.connection.pending)}
-              </td>
-              <td className={`${td} text-zinc-500`}>
-                {num(s.connection.inMsgs)}
-              </td>
-              <td className={`${td} text-zinc-500`}>
-                {num(s.connection.outMsgs)}
-              </td>
-              <td className={`${td} text-zinc-500`}>
-                {bytes(s.connection.outBytes)}
-              </td>
+              <td className={TD}>{num(c.subscriptions)}</td>
+              <td className={TD}>{bytes(c.pending)}</td>
+              <td className={`${TD} ${group}`}>{num(c.inMsgs)}</td>
+              <td className={TD}>{bytes(c.inBytes)}</td>
+              <td className={`${TD} ${group}`}>{num(c.outMsgs)}</td>
+              <td className={TD}>{bytes(c.outBytes)}</td>
             </tr>
           ))}
         </tbody>
