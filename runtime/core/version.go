@@ -12,4 +12,4 @@ package core
 // extra-files updater in release-please-config.json; the trailing annotation
 // marks the line it rewrites. The CLIs carry their own marked copies of the same
 // literal, which is why the annotation appears more than once in the tree.
-const Version = "0.8.1" // x-release-please-version
+const Version = "0.8.2" // x-release-please-version
