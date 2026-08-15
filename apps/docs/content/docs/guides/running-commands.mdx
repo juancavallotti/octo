@@ -1,0 +1,176 @@
+---
+title: "Running Commands"
+description: "Run a local program from a flow, stream its output, and hand a model a safe toolbox."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Sometimes the thing you need is already a command-line tool. The
+[`cli-run`](/reference/blocks/integration#cli-run) block runs one, watches its
+output a line at a time while it is still running, and carries on with how it
+ended.
+
+Three samples build this up:
+[`cli-run.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/cli-run.yaml),
+[`cli-sse.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/cli-sse.yaml),
+and [`cli-agent.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/cli-agent.yaml).
+
+## The simplest run
+
+```yaml
+- type: cli-run
+  name: build
+  program: '"/usr/bin/go"'
+  args: '["build", "./..."]'
+  workDir: /src
+  env: [PATH, HOME]
+  timeout: 5m
+```
+
+The chain carries on with `{exitCode, stdout, stderr, lines}`. A non-zero exit
+errors the block by default so the [error path](/reference/flow-file#error) sees
+it; `onExit: continue` leaves the decision to a later block.
+
+`program` is a CEL expression, which is why a constant is written
+`'"/usr/bin/go"'` — quoted twice, once for YAML and once for CEL. That looks
+fussy for a fixed command and pays for itself in the last section.
+
+## Watching the output
+
+Add an `events` path and it runs once per output line, and once when the command
+exits:
+
+```yaml
+  emit: [stdout, stderr]
+  events:
+    process:
+      - type: log
+        name: line
+        settings:
+          message: body.text
+```
+
+Each event's body is `{type, text, index}`, where `type` is `stdout` or
+`stderr`. The final one is `{type: "exit", exitCode, lines}`.
+
+The exit event **always** fires, even for a command that printed nothing. That
+is why it is its own event rather than a flag on the last line: a silent command
+would otherwise never report how it ended.
+
+<Callout>
+  The path is an observer — its result is discarded. It reports on the run
+  without taking part in it, so a broken sink is a log line rather than a failed
+  message.
+</Callout>
+
+## Streaming to an HTTP caller
+
+Point that path at an [`sse-event`](/reference/connectors/http) behind an SSE
+route and the caller sees output as it happens:
+
+```yaml
+source:
+  connector: api
+  type: http
+  settings:
+    path: /build
+    sse:
+      enabled: true
+      maxDuration: 5m
+      finalEvent: true
+      finalEventName: done
+process:
+  - type: cli-run
+    name: build
+    program: '"/usr/bin/go"'
+    args: '["build", "./..."]'
+    emit: [stdout, stderr]
+    events:
+      process:
+        - type: sse-event
+          name: line
+          settings:
+            event: line
+            data: '{"stream": body.type, "text": body.text}'
+            ifClosed: stop
+```
+
+Nothing there names the stream, and nothing has to: the route stamps its address
+into `vars.sseStream`, and an event message carries the parent's variables. The
+same block works behind any route.
+
+`cli-run` **blocks** until the command exits, and that is what makes this work at
+all — the request stays open for the whole run, so the stream is still there when
+the lines arrive.
+
+<Callout>
+  Backpressure is free. The events path runs between reads of the process's
+  pipes, so a slow client blocks the child on write instead of letting its
+  output pile up in memory. And with `ifClosed: stop`, a caller that hangs up
+  stops the command rather than leaving it producing output nobody will read.
+</Callout>
+
+Set the command's own `timeout` below the route's `maxDuration`, so the command
+is what gives up first and the caller learns why.
+
+## Giving a model a toolbox
+
+`program` being an expression means the command can come from the message — so
+an [`ai-agent`](/reference/blocks/ai) tool branch can offer a model a set of
+commands and let it choose. That is when `allow` earns its keep: it is checked on
+**every message**, before anything is spawned.
+
+```yaml
+- type: cli-run
+  name: run
+  program: vars.program
+  args: vars.args
+  allow: [/bin/ls, /bin/df, /bin/date]
+  env: [PATH]
+  workDir: /tmp
+  onExit: continue
+```
+
+Have the flow map a command *name* to a path, rather than letting the model
+supply one:
+
+```yaml
+- type: multi-transform
+  name: resolve
+  settings:
+    transforms:
+      - setVar: program
+        value: >
+          body.command == "list-files" ? "/bin/ls" :
+          body.command == "disk-usage" ? "/bin/df" : ""
+```
+
+A name outside the list resolves to `""`, which the allow list refuses. Put that
+mapping in its own sourceless flow and you can test the whole boundary with no
+model and no API key — `samples/cli-agent_test.yaml` does.
+
+## What keeps this safe
+
+**The allow list is the boundary.** Absolute paths only: a bare name would be
+resolved through `$PATH` at exec time, letting the environment decide what
+actually runs. Every entry is checked at build time to be a real, executable
+file, so a typo fails at startup. Matching is exact — `/bin/../bin/sh` does not
+match `/bin/sh`.
+
+**No shell is ever involved.** Arguments are passed as argv, so a semicolon, a
+pipe or a `$(…)` in a model-supplied argument is just bytes to the callee. The
+injection class that command-running usually falls to is closed by construction
+rather than by escaping.
+
+**The child inherits nothing.** It sees exactly the variables named in `env` and
+no others, so a command cannot read an API key the integration holds.
+
+**Interpreters are refused** unless `allowInterpreters: true`. An interpreter's
+arguments *are* a program, so allowing `sh` or `python` allows everything.
+
+<Callout type="warn">
+  The interpreter check is a guardrail against an easy mistake, not a sandbox.
+  The list can never be complete — `git` runs a pager, `tar` has `--to-command`,
+  `find` has `-exec` — so write the allow list as narrowly as the job allows and
+  treat everything on it as something the caller can run.
+</Callout>

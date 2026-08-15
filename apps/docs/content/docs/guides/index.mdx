@@ -4,7 +4,7 @@ description: "Task-oriented guides built from runnable samples."
 ---
 
 import { Cards, Card } from 'fumadocs-ui/components/card';
-import { Bug, Clock, Database, FileCode, FileText, FlaskConical, Globe, HardDrive, Leaf, MessageSquare, Puzzle, Radio, Send, ShieldCheck, Shuffle, Sparkles, Wand, Waypoints } from 'lucide-react';
+import { Bug, Clock, Database, FileCode, FileText, FlaskConical, Globe, HardDrive, KeyRound, Leaf, MessageSquare, Puzzle, Radio, Send, ShieldCheck, Shuffle, Sparkles, Terminal, Wand, Waypoints } from 'lucide-react';
 
 Every guide in this section is built from a runnable sample in the repository's
 [`samples/`](https://github.com/juancavallotti/octo/tree/main/samples) directory.
@@ -37,6 +37,9 @@ zero setup beyond the `octo` binary.
   </Card>
   <Card icon={<ShieldCheck />} href="/guides/validation-and-auth" title="Validation and Auth">
     Validate input with CEL rules and protect endpoints with JWT.
+  </Card>
+  <Card icon={<KeyRound />} href="/guides/verifying-webhooks" title="Verifying Webhooks">
+    Authenticate a signed webhook from any provider with HMAC in CEL.
   </Card>
   <Card icon={<Bug />} href="/guides/debugging-flows" title="Debugging a Flow">
     Stop at any block and inspect the message — or learn the block was never reached.
@@ -84,6 +87,9 @@ zero setup beyond the `octo` binary.
   </Card>
   <Card icon={<FileText />} href="/guides/notion-sync" title="Work with Notion">
     Handle Notion webhooks, query data sources, and render pages as Markdown.
+  </Card>
+  <Card icon={<Terminal />} href="/guides/running-commands" title="Running Commands">
+    Run a local program, stream its output, and hand a model a safe toolbox.
   </Card>
 </Cards>
 

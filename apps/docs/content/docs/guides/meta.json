@@ -9,6 +9,7 @@
     "transforming-data",
     "splitting-and-aggregating",
     "validation-and-auth",
+    "verifying-webhooks",
     "composing-flows",
     "debugging-flows",
     "[Testing](/testing)",
@@ -17,6 +18,7 @@
     "serving-html",
     "slack-bot",
     "notion-sync",
+    "running-commands",
     "ai-web-app",
     "rag-pipeline"
   ],
