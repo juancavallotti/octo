@@ -602,10 +602,21 @@ func (s *Service) publishBundle(ctx context.Context, cur stored, digest string) 
 	// version already published. A suffix past that is not expected — it means both
 	// names are held by other content — but a loop that cannot fail beats a publish
 	// that silently reuses the wrong snapshot, which is the bug this replaced.
+	// ErrTagExists is tolerated rather than returned, because the check above and
+	// the write below are not one atomic step: an operator cutting a version by hand
+	// in between takes a tag this loop just read as free. Skipping to the next
+	// candidate costs nothing and turns a lost race into a version with a different
+	// name, where returning would fail an install for a reason that had already
+	// stopped being true.
 	for _, tag := range candidateTags(digest) {
-		if !taken[tag] {
-			return s.snapshots.Create(ctx, cur.IntegrationID, tag)
+		if taken[tag] {
+			continue
 		}
+		snap, err := s.snapshots.Create(ctx, cur.IntegrationID, tag)
+		if errors.Is(err, snapshot.ErrTagExists) {
+			continue
+		}
+		return snap, err
 	}
 	return snapshot.Snapshot{}, fmt.Errorf(
 		"publish the agent: every candidate tag for %s is held by different content", agentapp.Tag())

@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -247,6 +248,14 @@ func agenticRunnerResources() (corev1.ResourceRequirements, error) {
 	var res corev1.ResourceRequirements
 	if err := dec.Decode(&res); err != nil {
 		return corev1.ResourceRequirements{}, fmt.Errorf("parse AGENTIC_RUNNER_RESOURCES: %w", err)
+	}
+	// A Decoder reads one value and stops, where Unmarshal refused anything after
+	// it — so moving to a Decoder for DisallowUnknownFields quietly gave up the
+	// check that a truncated or double-pasted value is rejected. Insisting on EOF
+	// keeps both.
+	if err := dec.Decode(new(any)); !errors.Is(err, io.EOF) {
+		return corev1.ResourceRequirements{}, fmt.Errorf(
+			"parse AGENTIC_RUNNER_RESOURCES: unexpected data after the resources object")
 	}
 	return res, nil
 }

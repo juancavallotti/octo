@@ -260,6 +260,33 @@ func TestAgenticRunnerResources(t *testing.T) {
 		}
 	})
 
+	// A Decoder reads one value and stops where Unmarshal refused anything after it,
+	// so this is what keeps DisallowUnknownFields from costing the trailing-data
+	// check — a double-pasted or truncated value must not decode as its first half.
+	t.Run("trailing data is fatal", func(t *testing.T) {
+		for _, raw := range []string{
+			`{"requests":{"cpu":"200m"}} and then garbage`,
+			`{"requests":{"cpu":"200m"}}{"limits":{"cpu":"1"}}`,
+		} {
+			t.Setenv("AGENTIC_RUNNER_RESOURCES", raw)
+			if _, err := agenticRunnerResources(); err == nil {
+				t.Errorf("accepted %q", raw)
+			}
+		}
+	})
+
+	// Whitespace after the object is not trailing data.
+	t.Run("surrounding whitespace is fine", func(t *testing.T) {
+		t.Setenv("AGENTIC_RUNNER_RESOURCES", "  {\"limits\":{\"cpu\":\"1\"}}\n")
+		got, err := agenticRunnerResources()
+		if err != nil {
+			t.Fatalf("unexpected err: %v", err)
+		}
+		if q := got.Limits.Cpu().String(); q != "1" {
+			t.Errorf("cpu limit = %s, want 1", q)
+		}
+	})
+
 	t.Run("malformed is fatal", func(t *testing.T) {
 		t.Setenv("AGENTIC_RUNNER_RESOURCES", "{not json")
 		if _, err := agenticRunnerResources(); err == nil {

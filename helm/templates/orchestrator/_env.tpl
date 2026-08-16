@@ -6,21 +6,30 @@
   value: {{ .Release.Namespace | quote }}
 - name: RUNTIME_IMAGE
   value: {{ include "octo-common.image" (dict "root" . "component" "runtime") | quote }}
-{{- /* The agentic runner, for a deployment that asks for `runner: agentic`. Always
-       emitted, because the image always ships with the release — but the orchestrator
-       reads its absence as "this runner is not available on this install" and refuses
-       such a deploy naming this value, rather than falling back to the image above and
-       leaving every command in the flow to fail with "not found". */}}
+{{- /* The agentic runner, for a deployment that asks for `runner: agentic`. Emitted
+       with the release's image by default, since that image always ships — and NOT
+       emitted at all when the repository is cleared, which is how an operator turns
+       the runner off.
+
+       Guarded on the repository rather than on the rendered reference, because
+       octo-common.image renders one regardless: an empty repository yields ":tag",
+       which is not the empty string the orchestrator reads as "no such runner here".
+       Left ungated, clearing the repository would advertise a runner and land every
+       agentic deploy in ImagePullBackOff on an image literally called ":tag", instead
+       of refusing it with this value named. */}}
+{{- $agentic := .Values.agenticrunner | default dict }}
+{{- if or (get ($agentic.image | default dict) "repository") $agentic.repository }}
 - name: AGENTIC_RUNNER_IMAGE
   value: {{ include "octo-common.image" (dict "root" . "component" "agenticrunner") | quote }}
 - name: AGENTIC_RUNNER_WORKSPACE_SIZE
-  value: {{ .Values.agenticrunner.workspaceSize | quote }}
-{{- with .Values.agenticrunner.resources }}
+  value: {{ $agentic.workspaceSize | quote }}
+{{- with $agentic.resources }}
 {{- /* JSON, the way INGRESS_ANNOTATIONS already travels: the orchestrator unmarshals
        it straight into a container's resources block, so the values file writes the
        ordinary requests/limits shape and nothing has to be flattened into env vars. */}}
 - name: AGENTIC_RUNNER_RESOURCES
   value: {{ toJson . | quote }}
+{{- end }}
 {{- end }}
 # Runtime-services env the orchestrator injects into every deployed runtime
 # pod: the backend module, the in-cluster KV URL (this orchestrator), and the

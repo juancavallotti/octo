@@ -780,9 +780,10 @@ adopt. Destroying storage is the infrastructure layer's job.
 
 ### Agentic runner
 
-The image the orchestrator deploys for an integration whose deployment asked for
-`runner: agentic` — the one that carries a shell, `curl`, `jq`, the standalone
-`octo` CLI, `dolphin` and a scratch workspace. The
+Configure the image the orchestrator deploys for an integration whose deployment
+asked for `runner: agentic` — the one carrying a shell, `curl`, `jq`, the
+standalone `octo` CLI, `dolphin` and a scratch workspace. Leave these at their
+defaults unless you are turning the runner off or sizing its pod. The
 [platform agent](/platform/agent) requires it; see
 [octo-agenticrunner](/deploy/docker-images#octo-agenticrunner) for what is in it.
 
@@ -792,25 +793,25 @@ The image the orchestrator deploys for an integration whose deployment asked for
 | `agenticrunner.workspaceSize` | `100Mi` | Cap on the `/workspace` `emptyDir`. A cap, not an allocation — the volume costs nothing until it is written to. |
 | `agenticrunner.resources` | `{}` | Requests and limits for the container, as an ordinary resources block. Passed to the orchestrator as JSON, because integration pods are created by it at deploy time rather than rendered by this chart — the same reason `runtime.imagePullSecrets` needs saying separately. |
 
-Setting the image to empty does not degrade the runner, it removes it: the
-orchestrator refuses an agentic deploy naming this value rather than serving the
-distroless image and leaving every command in the flow to fail with *not found*.
-Installing the agent on such a cluster is blocked up front, with the reason
-shown, rather than producing a crash-looping pod.
+**To turn the runner off**, clear `agenticrunner.repository`. That removes it
+rather than degrading it: the orchestrator then refuses an agentic deploy naming
+this value instead of serving the distroless image and leaving every command in
+the flow to fail with *not found*, and installing the agent is blocked up front
+with the reason shown rather than producing a crash-looping pod.
 
-Two things worth knowing before granting it.
+Two things to weigh before you grant it.
 
-**It is privileged, not merely bigger.** A pod holding a shell and a runtime it
-can point at a definition it wrote a moment ago is a general execution
-environment, so the boundary it offers is the pod rather than any allow list
-inside it. Everything that pod holds — including secrets bound to its
-environment — and everything it can reach on the network is reachable by
-anything it runs. It is a per-deployment choice for exactly that reason.
+**Treat the pod as the boundary.** This runner is privileged, not merely bigger:
+a pod holding a shell and a runtime it can point at a definition it wrote a
+moment ago is a general execution environment, so no allow list inside the flow
+contains it. Assume everything that pod holds — including secrets bound to its
+environment — and everything it can reach on the network is reachable by anything
+it runs, and grant it per deployment on that basis.
 
 **Set `resources` where a pod's appetite matters.** No integration pod carries
 requests or limits by default, and this is the one workload whose purpose is
-running other programs. GKE Autopilot requires them; elsewhere they are how this
-pod's CPU stops being the node's problem.
+running other programs. Set them on GKE Autopilot, which requires them, and
+anywhere this pod's CPU should not become the node's problem.
 
 ### Dev runs
 
