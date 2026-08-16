@@ -155,6 +155,14 @@ body may hold — YAML integers become numbers and YAML timestamps become RFC 33
 strings. A document YAML can express but JSON cannot, such as a non-string
 mapping key, is an evaluation error rather than a body with a foreign type in it.
 
+<Callout type="warn">
+  A JSON number is a binary double, so an integer above 2^53 does not survive
+  exactly — `id: 9007199254740993` reads back as `9007199254740992`. This is the
+  body contract rather than anything YAML-specific (`fromJson` does the same), but
+  YAML config files carry large ids more often. Quote such a value in the source
+  document to keep it a string.
+</Callout>
+
 ```bash
 bin/octo eval --expr 'fromYaml("a: 1\nb: [x, y]")'
 # {"ok":true,"result":{"a":1,"b":["x","y"]}}
@@ -168,10 +176,17 @@ toEnv(dyn) -> string
 
 Renders a flat object as `.env` file content. Keys are sorted, so the output is
 deterministic, and a value is quoted only when writing it bare would not read
-back the same — when it is empty, holds whitespace or a `#`, or contains a quote.
+back the same — when it is empty, holds whitespace or a `#`, or contains a quote,
+a backslash, or a line break.
 
-An env file is flat, so a nested object or a list value is an evaluation error
-naming the offending key rather than something that would not parse back.
+A value may hold anything, line breaks included: every character that carries
+structure is escaped, so one variable is always one physical line and a value can
+never introduce a second assignment. Feed it untrusted data safely.
+
+Two things are errors rather than silent corruption. An env file is flat, so a
+nested object or list value is refused, naming the key. And a name has no quoted
+form to hide in, so a name that is empty or contains `=`, whitespace, `#`, or a
+quote is refused too.
 
 ```bash
 bin/octo eval --expr 'toEnv({"B": "two words", "A": "1"})'
