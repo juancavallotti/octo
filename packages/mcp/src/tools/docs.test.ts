@@ -169,6 +169,25 @@ describe("getCelFunctions tool", () => {
     );
   });
 
+  it("serves the text-format conversion functions", async () => {
+    // Same hand-maintained table, same failure mode: these pair with the file
+    // connector's raw-content payloads, so an author reading a YAML or .env file
+    // needs them to show up in the catalogue to know they exist.
+    const client = await connect();
+    const result = await client.callTool({
+      name: "getCelFunctions",
+      arguments: { library: "octo" },
+    });
+    const names = (
+      JSON.parse((result.content as { text: string }[])[0].text) as {
+        functions: { name: string }[];
+      }
+    ).functions.map((f) => f.name);
+    expect(names).toEqual(
+      expect.arrayContaining(["toYaml", "fromYaml", "toEnv", "fromEnv"]),
+    );
+  });
+
   // cel-go declares reverse on both string and list, so neither library may look
   // like it lacks one, and a lookup by name has to answer with both.
   it("carries reverse under both the strings and lists libraries", async () => {

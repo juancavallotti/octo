@@ -10,6 +10,8 @@
  *   - variables: runtime/core/expr/message.go (MessageVars)
  *   - toJson/fromJson: runtime/core/expr/json.go
  *   - toFormData/fromFormData: runtime/core/expr/formdata.go
+ *   - toYaml/fromYaml: runtime/core/expr/yaml.go
+ *   - toEnv/fromEnv: runtime/core/expr/env.go
  *   - templateResource: runtime/core/expr/template.go
  *   - hmacSha256/hmacSha1/hexEncode/secureCompare: runtime/core/expr/crypto.go
  *   - the cel-go extension libraries and their pinned versions, which decide
@@ -93,7 +95,7 @@ export const CEL_VARIABLES: CelVariable[] = [
 
 /**
  * Every function available on top of the CEL standard library: the runtime's own
- * nine, then the cel-go extension libraries it enables. Receiver-style entries are
+ * thirteen, then the cel-go extension libraries it enables. Receiver-style entries are
  * named bare (`upperAscii`) with the receiver shown in the signature; namespaced
  * entries carry their namespace (`math.round`).
  */
@@ -128,6 +130,38 @@ export const CEL_FUNCTIONS: CelFunction[] = [
     summary:
       "Parse an application/x-www-form-urlencoded string into an object (repeated keys become a list) — e.g. decode a raw form POST body.",
     example: `fromFormData(body.rawData)`,
+  },
+  {
+    name: "toYaml",
+    library: "octo",
+    signature: "toYaml(dyn) -> string",
+    summary:
+      "Render any value as a YAML document. Strings that would read back as another type (y, no, 1.0) are quoted, so the round-trip is lossless.",
+    example: `toYaml(body)`,
+  },
+  {
+    name: "fromYaml",
+    library: "octo",
+    signature: "fromYaml(string) -> dyn",
+    summary:
+      "Parse a YAML document into a decoded value, normalized to JSON-native shapes (integers become numbers, timestamps become RFC 3339 strings) — e.g. parse a YAML file read as raw text.",
+    example: `fromYaml(body.rawData)`,
+  },
+  {
+    name: "toEnv",
+    library: "octo",
+    signature: "toEnv(dyn) -> string",
+    summary:
+      "Render a flat object as .env file content, keys sorted and values quoted when needed. A nested object or list is an error — an env file is flat.",
+    example: `toEnv({"DB_HOST": "localhost", "PORT": 5432})`,
+  },
+  {
+    name: "fromEnv",
+    library: "octo",
+    signature: "fromEnv(string) -> dyn",
+    summary:
+      "Parse .env file content into an object. Comments, a leading 'export', and quoted values are handled; every value is a string.",
+    example: `fromEnv(body.rawData)`,
   },
   {
     name: "templateResource",
