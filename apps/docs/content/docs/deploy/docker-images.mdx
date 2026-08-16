@@ -7,7 +7,7 @@ import { Callout } from 'fumadocs-ui/components/callout';
 import { DynamicCodeBlock } from 'fumadocs-ui/components/dynamic-codeblock';
 import { OCTO_VERSION } from '@/lib/version';
 
-Octo builds its images from six Dockerfiles. Five produce the **platform
+Octo builds its images from seven Dockerfiles. Six produce the **platform
 images**, published to public Docker Hub under a `-paas` suffix
 (`juancavallotti/octo-platform-paas`, …) and, in the reference deployment, also
 to Artifact Registry. Two more are **public images** for use without a cluster:
@@ -18,29 +18,33 @@ chart needs no registry of your own — see [Helm chart](#helm-charts) below.
 
 | Image | Dockerfile | Build context | Role |
 |---|---|---|---|
-| `octo-runtime` | `runtime/Dockerfile` | `./runtime` | Runs deployed integrations (one pod set per integration) |
+| `octo-runtime` | `runtime/Dockerfile` | Repo root | Runs deployed integrations (one pod set per integration) |
+| `octo-agenticrunner` | `runtime/Dockerfile.agentic` | Repo root | Runs a deployment that asked for the agentic runner — adds a shell, curl, jq, the standalone CLI and dolphin |
 | `octo-platform` | `apps/platform/Dockerfile` | Repo root | Editor UI (Next.js) with the `octo` runtime binary bundled |
 | `octo-orchestrator` | `orchestrator/Dockerfile` | `./orchestrator` | Deploys and manages integrations via the Kubernetes API |
 | `octo-logs` | `logs/Dockerfile` | `./logs` | Log aggregator: NATS `internal.logs` → Postgres + query API |
 | `octo-schema` | `sql/Dockerfile` | `./sql` | Applies `sql/schema.sql` as an install/upgrade Job |
 | `juancavallotti/octo` | `apps/standalone/Dockerfile` | Repo root | Public standalone editor ("try Octo"), no cluster needed |
-| `juancavallotti/octo-runtime` | `runtime/Dockerfile` | `./runtime` | Public runtime alone: run integrations from Docker, no cluster |
+| `juancavallotti/octo-runtime` | `runtime/Dockerfile` | Repo root | Public runtime alone: run integrations from Docker, no cluster |
 
-The last two rows share a Dockerfile with the cluster's `octo-runtime` but not
-a binary: the public image is the default build, the cluster image is built
-with `-tags k8s`. See [octo-runtime](#octo-runtime) below.
+Every image that contains a Go binary builds from the **repo root**, because the
+Go module is rooted there and a narrower context cannot reach `runtime/`.
+
+The last row shares a Dockerfile with the cluster's `octo-runtime` but not a
+binary: the public image is the default build, the cluster image is built with
+`-tags k8s`. See [octo-runtime](#octo-runtime) below.
 
 ## Where they are built
 
-The same five platform images are built in three places, always from the same
+The same six platform images are built in three places, always from the same
 Dockerfiles and contexts:
 
 - **Locally for k3d** — `task cluster:images` builds them tagged `:dev` and
   loads them into the cluster with `k3d image import` (no registry). See
   [Local cluster](/deploy/local-k3d).
 - **Locally for a registry** — `task images:push IMAGE_BASE=… TAG=…` builds
-  and pushes all five to `IMAGE_BASE/<name>:<TAG>`.
-- **Cloud Build on version tags** — `cloudbuild.yaml` builds all five, tags
+  and pushes all six to `IMAGE_BASE/<name>:<TAG>`.
+- **Cloud Build on version tags** — `cloudbuild.yaml` builds all six, tags
   each with both the git tag and `latest`, pushes them to Artifact Registry,
   and packages and pushes both Helm charts as OCI artifacts. See
   [Releases and upgrades](/deploy/releases-and-upgrades).
@@ -96,6 +100,7 @@ apply a restricted security context:
 |---|---|
 | `octo-platform-paas` | `1000` (`node`) |
 | `octo-orchestrator-paas`, `octo-logs-paas`, `octo-runtime-paas`, `octo-devruntime-paas`, `octo-devsidecar-paas` | `65532` (distroless `nonroot`) |
+| `octo-agenticrunner-paas` | `65532` — the same uid deliberately, so a file written by one runner is readable by the other |
 | `octo-schema-paas` | `70` (`postgres`) |
 
 The Go services write nothing to disk, so they also tolerate
@@ -145,6 +150,54 @@ docker run -p 8080:8080 -v "$PWD:/etc/octo/integrations" juancavallotti/octo-run
 
 See [Running flows locally](/runtime/running-locally#run-it-from-docker) for
 ports, environment, and one-shot `invoke`.
+
+### octo-agenticrunner
+
+The runner a deployment gets when it asks for `runner: agentic`, instead of
+`octo-runtime` above. See [the platform agent](/platform/agent) for the
+deployment that uses it.
+
+It exists because the distroless image is not merely minimal for some
+integrations, it is *empty of the programs they name*. A flow with a
+[`cli-run`](/reference/blocks/integration) block in an image with no local
+programs cannot run anything, and a [`file`](/reference/connectors/file)
+connector needs somewhere writable to point at.
+
+So this image carries three binaries rather than one:
+
+| Path | Build | Why |
+|---|---|---|
+| `/usr/local/bin/octo` | `-tags k8s` | The pod's own entrypoint — the same cluster runtime `octo-runtime` ships |
+| `/opt/octo/bin/octo` | default | The **standalone** CLI the flow invokes. It has to be a second binary: the two providers are mutually exclusive build tags, and the k8s build exits without a services module, so it cannot double as a CLI |
+| `/opt/octo/bin/dolphin` | default | The test runner, driving the binary beside it |
+
+plus `curl`, `jq`, GNU `find` and a workspace at `/workspace`, on `alpine`. All
+three binaries come from one build stage, so the runtime running the flow, the
+runtime that flow invokes, and the dolphin driving it are three views of one
+commit — a skew there would have an agent testing against a runtime that is not
+the one the platform would deploy.
+
+`/opt/octo/bin` is deliberately **not** on `PATH`, so a bare `octo` is
+unambiguously the cluster build; the image sets `OCTO_PATH` instead, which is how
+dolphin finds the standalone one. `ENTRYPOINT`, `CMD`, config path and uid are
+identical to `octo-runtime`, so the orchestrator swaps one image string and
+changes nothing else about the pod.
+
+The chart hands the reference to the orchestrator as `AGENTIC_RUNNER_IMAGE`.
+Unlike `RUNTIME_IMAGE` it has no default: an installation that does not configure
+it does not have this runner, and a deployment asking for one is refused with the
+setting named rather than served the distroless image and left to fail with
+*not found* on its first command.
+
+<Callout type="warn">
+  Treat this runner as **privileged**, not merely larger. A pod holding a shell
+  and a runtime it can point at a definition it wrote a moment ago is a general
+  execution environment — so the boundary it offers is the pod, not the
+  `cli-run` allow list inside it. Everything that pod holds, including any secret
+  bound to its environment, and everything it can reach on the network, is
+  reachable by anything it runs. Grant it per deployment, and not to an
+  integration whose definition comes from somewhere you do not trust.
+</Callout>
 
 ### octo-devsidecar
 
