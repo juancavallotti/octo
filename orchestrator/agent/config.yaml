@@ -14,6 +14,14 @@ service:
 #
 #   export LLM_CONNECTOR_TYPE=llm-anthropic LLM_API_KEY=sk-ant-... \
 #          LLM_MODEL=claude-sonnet-4-6 ORCHESTRATOR_URL=http://localhost:8090
+#   # He runs on the agentic runner in a cluster, so his workspace and the programs
+#   # he drives are at that image's paths. Point them at yours — all six are
+#   # required locally, because an allow list is resolved when the flow is built and
+#   # an entry that resolves to nothing fails the build rather than the first call.
+#   export AGENT_WORKSPACE=$(mktemp -d) \
+#          AGENT_OCTO_BIN=$PWD/bin/octo AGENT_DOLPHIN_BIN=$PWD/bin/dolphin \
+#          AGENT_CURL_BIN=$(command -v curl) AGENT_FIND_BIN=$(command -v find) \
+#          AGENT_JQ_BIN=$(command -v jq)
 #   bin/octo run --config orchestrator/agent
 #   curl -N -X POST localhost:8080/chat \
 #     -d '{"threadId":"t1","message":"list my integrations"}'
@@ -68,6 +76,48 @@ env:
     default: "500000"
   - name: AGENT_MAX_ITERATIONS
     default: "24"
+
+  # Where his workspace is, and where the programs he runs live.
+  #
+  # These are variables and not literals, and that is load-bearing rather than
+  # tidy. A `cli-run` allow list is resolved when the flow is BUILT — every entry
+  # goes through the same PATH lookup the program will, and an entry that resolves
+  # to nothing fails the build (buildAllowList, runtime/core/internal/engine/cli.go).
+  # So a literal /opt/octo/bin/dolphin here would make this whole app fail to load
+  # anywhere that path does not exist: on a laptop, in the dolphin suite beside this
+  # file, and on any install without the agentic runner. Wrapping the blocks in an
+  # `if` would not help — the builder builds both branches.
+  #
+  # The defaults are the agentic runner's layout, which is the only image the
+  # installer deploys him on. Everywhere else, override them; see the header above.
+  - name: AGENT_WORKSPACE
+    default: /workspace
+  # The STANDALONE octo, deliberately not the /usr/local/bin/octo that is this pod's
+  # own entrypoint. That one is the k8s build and exits without a runtime-services
+  # module, so it cannot run a flow on its own.
+  - name: AGENT_OCTO_BIN
+    default: /opt/octo/bin/octo
+  - name: AGENT_DOLPHIN_BIN
+    default: /opt/octo/bin/dolphin
+  - name: AGENT_CURL_BIN
+    default: /usr/bin/curl
+  - name: AGENT_FIND_BIN
+    default: /usr/bin/find
+  - name: AGENT_JQ_BIN
+    default: /usr/bin/jq
+
+  # How long any one command may run. A command holds a flow worker while it runs,
+  # so cli-run has no unbounded option at all — which is why `octo run` is not
+  # something this agent does: he invokes a flow once and runs a suite, both of
+  # which end. Longer than cli-run's own 30s default because a cold `octo invoke`
+  # starts every connector the definition declares before it runs anything.
+  - name: AGENT_CLI_TIMEOUT
+    default: 120s
+  # curl's own --max-time, in seconds. Comfortably inside AGENT_CLI_TIMEOUT so a
+  # slow endpoint is reported by curl, with a status line, rather than killed by the
+  # block with nothing to show for it.
+  - name: AGENT_HTTP_MAX_TIME
+    default: "20"
 
   - name: HTTP_HOST
     default: 0.0.0.0
@@ -125,6 +175,25 @@ connectors:
       # deployment was never granted should come back while someone is still reading
       # the answer, not sixty seconds later.
       timeout: 20s
+
+  # His workspace: somewhere to draft a definition, write a test suite beside it,
+  # and read back what a run produced.
+  #
+  # The root is a real boundary, and the only one in this file that is. Paths
+  # resolve through os.OpenRoot, so containment is the kernel's answer about the
+  # path actually walked rather than a string comparison — a symlink inside the
+  # workspace cannot name a file outside it — and an absolute path is refused
+  # outright instead of being folded back under the root. Contrast the `allow`
+  # lists below, which are a guardrail and not a boundary; see run_command.
+  #
+  # It is scratch. The volume is an emptyDir that dies with the pod, so anything
+  # worth keeping goes back through octo_api, and what he remembers about a person
+  # is already the KV store.
+  - name: workspace
+    type: file
+    settings:
+      root: ${AGENT_WORKSPACE}
+      createDirs: true
 
 flows:
   - name: chat
@@ -305,6 +374,34 @@ flows:
           tools answer that the observability API was not granted, say so plainly
           rather than reporting that you found nothing — those two answers look
           identical to whoever asked, and only one of them is true.
+
+
+          You have a workspace and the tools to use it, which means you can try a fix
+          rather than describe one. The loop: write_workspace_file the definition and
+          a _test.yaml suite beside it, run_flow_tests, read the report, fix, run them
+          again — and invoke_flow when you want to see what one flow actually returns.
+          Prefer proving a definition that way over asserting it is right, especially
+          before you save one through octo_api. check_expression settles a CEL
+          question in one call; use it instead of reasoning about an expression.
+
+
+          Two things about that workspace to keep straight. It is scratch — an empty
+          directory that dies with your pod — so anything worth keeping goes back
+          through octo_api, and you should not promise otherwise. And a flow you
+          invoke there runs standalone: in-process KV and queues, no cluster
+          resources, no connectors reaching anything you have not given it. It proves
+          the shape of a definition and the logic in it, never what the deployment
+          would see. Say which of the two you have shown someone.
+
+
+          http_fetch is for any other address — checking whether an endpoint is up,
+          what a deployed integration answers, what an upstream really returns.
+          Use octo_api for the orchestrator rather than fetching it: that one is
+          authenticated and bounded, and this is neither.
+
+
+          Commands are bounded, so a long-running thing is not available to you: run
+          a flow once, run a suite, and read the result. There is no `octo run`.
 
 
           After you change an integration through the API, call refresh_platform_ui
@@ -521,6 +618,352 @@ flows:
                       name: not-granted
                       settings:
                         value: '{"error": "This installation has not granted this deployment the observability API, so stored logs and traces cannot be read. Say so \u2014 it does not mean there are none."}'
+
+          # ---------------------------------------------------------------- workspace
+          #
+          # Everything below is the difference between an agent that can describe a
+          # fix and one that can try it. He drafts a definition into his workspace,
+          # invokes it, runs its suite, reads the envelope, and does it again — the
+          # loop a person gets at a terminal, in the cluster where the problem is.
+          #
+          # The design rule they all follow: THE MODEL SUPPLIES DATA, THE FLOW
+          # SUPPLIES ARGV. No string the model chose ever lands where it could be
+          # read as a flag. That is what makes each one predictable; it is not what
+          # makes the pod safe — see run_command for what does.
+
+          - name: read_workspace_file
+            description: >
+              Read a file from your workspace. The path is relative to the workspace
+              root; a path that leaves it is refused. Use this to read back something
+              you wrote, or a report a command produced.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["path"],
+                "properties": {
+                  "path": { "type": "string", "description": "Workspace-relative path, e.g. demo/config.yaml" }
+                }
+              }
+            process:
+              - type: file-read
+                settings:
+                  connector: workspace
+                  path: body.path
+                  resultVar: contents
+              - type: set-payload
+                settings:
+                  value: '{"path": body.path, "content": vars.contents}'
+
+          - name: write_workspace_file
+            description: >
+              Write a file into your workspace, creating parent directories as
+              needed. The path is relative to the workspace root. This is where a
+              definition you are drafting goes, and the test suite beside it — put a
+              flow in `<dir>/config.yaml` and its suite in `<dir>/config_test.yaml`,
+              which is the pairing dolphin looks for. The workspace is scratch and
+              dies with the pod, so save anything worth keeping through octo_api.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["path", "content"],
+                "properties": {
+                  "path":    { "type": "string", "description": "Workspace-relative path, e.g. demo/config.yaml" },
+                  "content": { "type": "string", "description": "The file's full contents." }
+                }
+              }
+            process:
+              - type: file-write
+                settings:
+                  connector: workspace
+                  path: body.path
+                  content: body.content
+                  resultVar: receipt
+              - type: set-payload
+                settings:
+                  value: 'vars.receipt'
+
+          - name: list_workspace
+            description: >
+              List everything in your workspace. Takes no arguments — it returns the
+              whole tree, which is small.
+            inputSchema: |
+              { "type": "object", "properties": {} }
+            process:
+              # No argument, and that is the design rather than a simplification. A
+              # model-chosen sub-path here would be checked lexically for ".." — a
+              # weaker guarantee than the file connector's kernel-enforced root, in
+              # the one tool that does not need it, since a 100Mi tree comes back
+              # whole in a single cheap call. Constant argv also puts find's -exec
+              # out of reach by construction rather than by an allow list.
+              - type: cli-run
+                name: find-workspace
+                program: env.AGENT_FIND_BIN
+                args: '[".", "-maxdepth", "4", "-not", "-path", "*/.*"]'
+                allow: ["${AGENT_FIND_BIN}"]
+                env: [PATH]
+                workDir: ${AGENT_WORKSPACE}
+                timeout: ${AGENT_CLI_TIMEOUT}
+                onExit: continue
+
+          - name: invoke_flow
+            description: >
+              Run one flow from a definition in your workspace, once, and return what
+              it produced. `dir` is a single workspace directory name holding the
+              .yaml files; `flow` is the flow's name; `data` is the request body.
+
+              The answer is an outcome envelope — {"result":…} if the flow completed,
+              {"dropped":true} if a filter dropped the message, {"error":"…"} if it
+              failed. A flow that fails is an answer, not a failure of this tool.
+
+              Sources are NOT started, so nothing populates the message for you: pass
+              in the body a source would have. And it runs under the STANDALONE
+              services provider — in-process KV and queues, no cluster resources — so
+              an object-read that is empty here says nothing about the deployment.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["dir", "flow"],
+                "properties": {
+                  "dir":  { "type": "string", "description": "Workspace directory holding the definition, e.g. demo. No slashes." },
+                  "flow": { "type": "string", "description": "Name of the flow to invoke." },
+                  "data": { "type": "object", "description": "JSON request body for the flow." }
+                }
+              }
+            process:
+              - type: if
+                name: safe-dir
+                condition: 'body.dir.matches("^[A-Za-z0-9.][A-Za-z0-9._-]{0,63}$")'
+                then:
+                  process:
+                    - type: cli-run
+                      name: octo-invoke
+                      program: env.AGENT_OCTO_BIN
+                      # --envelope is the whole reason this is usable by a model: a
+                      # plain invoke says "completed", "dropped" and "failed" three
+                      # different ways — a body, nothing at all, and a log line — and
+                      # only the first is on stdout. --envelope says all three in one
+                      # JSON object and exits 0 for a flow that failed.
+                      args: >-
+                        ["invoke", "--config", body.dir, "--flow", body.flow, "--envelope",
+                         "--data", toJson(has(body.data) ? body.data : {})]
+                      allow: ["${AGENT_OCTO_BIN}"]
+                      env: [PATH, HOME]
+                      workDir: ${AGENT_WORKSPACE}
+                      timeout: ${AGENT_CLI_TIMEOUT}
+                      onExit: continue
+                else:
+                  process:
+                    - type: set-payload
+                      name: bad-dir
+                      settings:
+                        value: >-
+                          {"error": "dir must be a single workspace directory name — no slashes, no
+                          '..'. Write the definition into a directory first, then pass its name."}
+
+          - name: run_flow_tests
+            description: >
+              Run the dolphin suite for the definitions in a workspace directory.
+              dolphin pairs each `x.yaml` with the `x_test.yaml` beside it, so write
+              both and pass the directory.
+
+              Exit 0 means every case passed. Exit 1 means the FLOWS are wrong — that
+              is the answer you asked for, so read the report and fix the definition.
+              Exit 2 means the suite or the runner is wrong, which is a different
+              problem: a malformed _test.yaml, or a binary that will not run.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["dir"],
+                "properties": {
+                  "dir": { "type": "string", "description": "Workspace directory holding the definitions and their suites. No slashes." }
+                }
+              }
+            process:
+              - type: if
+                name: safe-dir
+                condition: 'body.dir.matches("^[A-Za-z0-9.][A-Za-z0-9._-]{0,63}$")'
+                then:
+                  process:
+                    - type: cli-run
+                      name: dolphin-test
+                      program: env.AGENT_DOLPHIN_BIN
+                      args: '["test", body.dir]'
+                      allow: ["${AGENT_DOLPHIN_BIN}"]
+                      # OCTO_PATH is what makes dolphin drive the standalone octo
+                      # rather than this pod's own k8s entrypoint, which exits without
+                      # a runtime-services module. The image sets the variable; this
+                      # list is what lets it through, because cli-run hands a child
+                      # only the variables named here. Both halves are required and
+                      # neither is sufficient — drop it and every suite exits 2.
+                      env: [PATH, HOME, OCTO_PATH]
+                      workDir: ${AGENT_WORKSPACE}
+                      timeout: ${AGENT_CLI_TIMEOUT}
+                      onExit: continue
+                    # The exit code in words, because 0/1/2 mean three different things
+                    # here and only one of them is "something went wrong". Left as a
+                    # bare number, a model reads any non-zero as a broken tool and
+                    # apologises instead of fixing the flow it was asked to fix.
+                    - type: set-payload
+                      name: verdict
+                      settings:
+                        value: >-
+                          {
+                            "verdict": body.exitCode == 0 ? "passed"
+                              : body.exitCode == 1 ? "the flows are wrong: cases failed"
+                              : "the suite or the runner is wrong, not the flows",
+                            "exitCode": body.exitCode,
+                            "report": body.stdout,
+                            "stderr": body.stderr
+                          }
+                else:
+                  process:
+                    - type: set-payload
+                      name: bad-dir
+                      settings:
+                        value: >-
+                          {"error": "dir must be a single workspace directory name — no slashes, no '..'."}
+
+          - name: check_expression
+            description: >
+              Evaluate one CEL expression against a message body and return the
+              result. Use it to prove an expression before you put it in a definition
+              — the expressions skill says to, and this is how.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["expr"],
+                "properties": {
+                  "expr": { "type": "string", "description": "The CEL expression, e.g. body.items.size() > 0" },
+                  "data": { "type": "object", "description": "The message body to evaluate it against." }
+                }
+              }
+            process:
+              - type: cli-run
+                name: octo-eval
+                program: env.AGENT_OCTO_BIN
+                args: >-
+                  ["eval", "--expr", body.expr,
+                   "--data", toJson(has(body.data) ? body.data : {})]
+                allow: ["${AGENT_OCTO_BIN}"]
+                env: [PATH, HOME]
+                workDir: ${AGENT_WORKSPACE}
+                timeout: ${AGENT_CLI_TIMEOUT}
+                onExit: continue
+
+          - name: http_fetch
+            description: >
+              Make an HTTP request to any address this pod can reach, and return the
+              response with its status. For checking whether an endpoint is up, what
+              a deployed integration answers, or what an upstream actually returns.
+
+              http:// and https:// only. To call the orchestrator's own API use
+              octo_api instead — it is authenticated and bounded, and this is not.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["url"],
+                "properties": {
+                  "url":     { "type": "string", "description": "Full http:// or https:// URL." },
+                  "method":  { "type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"] },
+                  "headers": { "type": "object", "description": "Request headers, as a flat name→value object." },
+                  "body":    { "type": "string", "description": "Raw request body, already serialized." }
+                }
+              }
+            process:
+              # The scheme check runs before anything is spawned, and it is doing more
+              # work than it looks like. curl reads file:// and would happily hand back
+              # /proc/1/environ — which is this runtime's own environment, including
+              # LLM_API_KEY. A value that must start with "http" also cannot start
+              # with "-", so the same one assertion closes -o, -T, -K and @file: every
+              # other argv element below is written by this flow, not by the model.
+              - type: if
+                name: http-scheme-only
+                condition: 'body.url.matches("^https?://")'
+                then:
+                  process:
+                    - type: cli-run
+                      name: curl
+                      program: env.AGENT_CURL_BIN
+                      # --proto is belt to that brace: even a URL that satisfied the
+                      # check above cannot redirect its way onto another scheme.
+                      # No -L, so a redirect comes back as a 3xx for the model to
+                      # follow deliberately rather than silently.
+                      args: >-
+                        ["-sS", "--proto", "=http,https", "--proto-redir", "=http,https",
+                         "--max-time", env.AGENT_HTTP_MAX_TIME, "--max-filesize", "1048576",
+                         "-w", "\n---\nHTTP %{http_code} %{content_type} %{size_download}b\n",
+                         "-X", (has(body.method) && body.method != "" ? body.method : "GET")]
+                        + (has(body.headers) ? body.headers.map(k, ["-H", k + ": " + body.headers[k]]).flatten() : [])
+                        + (has(body.body) && body.body != "" ? ["--data-raw", body.body] : [])
+                        + [body.url]
+                      allow: ["${AGENT_CURL_BIN}"]
+                      # PATH and no HOME, deliberately: curl reads $HOME/.curlrc, and
+                      # with HOME unset there is no file for it to read.
+                      env: [PATH]
+                      timeout: ${AGENT_CLI_TIMEOUT}
+                      onExit: continue
+                else:
+                  process:
+                    - type: set-payload
+                      name: bad-scheme
+                      settings:
+                        value: '{"error": "url must start with http:// or https://."}'
+
+          - name: run_command
+            description: >
+              Run one of your own programs directly, when the tools above do not fit
+              the shape of what you need — a flag they do not expose, or a
+              subcommand they do not wrap. Programs available: octo, dolphin, curl,
+              find and jq. Arguments are passed as argv, so there is no shell: a
+              pipe or a semicolon is a literal character, not an operator.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["program"],
+                "properties": {
+                  "program": { "type": "string", "enum": ["octo", "dolphin", "curl", "find", "jq"] },
+                  "args":    { "type": "array", "items": { "type": "string" }, "description": "Arguments, as argv." },
+                  "stdin":   { "type": "string", "description": "Written to the process's standard input." }
+                }
+              }
+            process:
+              # BE HONEST ABOUT WHAT THIS LIST IS. It is a guardrail, not a boundary.
+              # `octo` is on it, and `octo invoke` runs whatever definition it is
+              # pointed at — including one written into the workspace a moment
+              # earlier, with a `cli-run` block carrying no allow list at all. So
+              # anything reachable from this pod is reachable from this tool, and the
+              # list buys predictability and a readable trace rather than containment.
+              #
+              # The boundary is the POD. What it holds is its own environment and
+              # nothing else's, and it carries only the runtime ServiceAccount. That
+              # is why the agentic runner is an operator's per-deployment choice and
+              # why it must not be granted to an integration whose definition came
+              # from somewhere untrusted.
+              #
+              # allowInterpreters stays false. Not because it would widen what he can
+              # reach — it would not, given the above — but because an interpreter on
+              # the list makes every trace unreadable: "sh -c ..." says nothing about
+              # what ran.
+              - type: cli-run
+                name: run-program
+                program: >-
+                  body.program == "octo" ? env.AGENT_OCTO_BIN
+                    : body.program == "dolphin" ? env.AGENT_DOLPHIN_BIN
+                    : body.program == "curl" ? env.AGENT_CURL_BIN
+                    : body.program == "find" ? env.AGENT_FIND_BIN
+                    : env.AGENT_JQ_BIN
+                args: 'has(body.args) ? body.args : []'
+                stdin: 'has(body.stdin) ? body.stdin : ""'
+                allow:
+                  - ${AGENT_OCTO_BIN}
+                  - ${AGENT_DOLPHIN_BIN}
+                  - ${AGENT_CURL_BIN}
+                  - ${AGENT_FIND_BIN}
+                  - ${AGENT_JQ_BIN}
+                env: [PATH, HOME, OCTO_PATH]
+                workDir: ${AGENT_WORKSPACE}
+                timeout: ${AGENT_CLI_TIMEOUT}
+                onExit: continue
 
           - name: refresh_platform_ui
             description: >
