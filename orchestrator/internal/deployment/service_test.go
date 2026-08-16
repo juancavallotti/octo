@@ -149,6 +149,10 @@ type fakeKube struct {
 	internalDeleted bool
 	gotInternalSlug string
 	externalEnabled bool
+	// runnersDisabled names the runners this fake installation does NOT configure.
+	// Empty means every runner is available, which is what the real client reports
+	// for a chart that carries all the images — so the common case needs no setup.
+	runnersDisabled map[kube.Runner]bool
 	podLogsCalled   bool
 	podLogsPod      string
 	podLogsErr      error
@@ -218,6 +222,8 @@ func (f *fakeKube) SecretKeyExists(_ context.Context, name string) (bool, error)
 }
 
 func (f *fakeKube) ExternalEnabled() bool { return f.externalEnabled }
+
+func (f *fakeKube) RunnerEnabled(r kube.Runner) bool { return !f.runnersDisabled[r] }
 
 func (f *fakeKube) ExternalURL(subdomain string) string {
 	if !f.externalEnabled || subdomain == "" {

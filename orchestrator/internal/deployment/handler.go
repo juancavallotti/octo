@@ -433,6 +433,10 @@ func (h *Handler) writeError(w http.ResponseWriter, err error) {
 		httpx.WriteError(w, http.StatusServiceUnavailable, "deployments are not available")
 	case errors.Is(err, ErrExternalUnavailable):
 		httpx.WriteError(w, http.StatusBadRequest, "external endpoints are not configured")
+	case errors.Is(err, ErrRunnerUnavailable):
+		httpx.WriteError(w, http.StatusBadRequest, "the requested runner is not configured on this installation")
+	case errors.Is(err, ErrInvalidRunner):
+		httpx.WriteError(w, http.StatusBadRequest, "unknown runner")
 	case errors.Is(err, ErrInvalidSubdomain):
 		httpx.WriteError(w, http.StatusBadRequest, "invalid external subdomain")
 	case errors.Is(err, ErrInvalidSlug):

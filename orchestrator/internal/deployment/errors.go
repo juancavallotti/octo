@@ -16,6 +16,15 @@ var (
 	// ErrExternalUnavailable is returned when an external endpoint is requested
 	// but no base domain is configured on the orchestrator.
 	ErrExternalUnavailable = errors.New("external endpoints unavailable: no base domain configured")
+	// ErrRunnerUnavailable is returned when a deployment asks for a runner this
+	// installation does not configure — in practice the agentic one, on a chart
+	// that names no image for it. Refusing is the point: falling back to the
+	// standard runner would produce a healthy pod whose every command fails with
+	// "not found", which reads as a broken flow rather than a missing setting.
+	ErrRunnerUnavailable = errors.New("requested runner is not configured on this installation")
+	// ErrInvalidRunner is returned when a deployment names a runner that does not
+	// exist at all (a typo, rather than one that is merely unconfigured).
+	ErrInvalidRunner = errors.New("unknown runner")
 	// ErrInvalidSubdomain is returned when a requested external subdomain has no
 	// usable DNS-1123 form.
 	ErrInvalidSubdomain = errors.New("invalid external subdomain")
