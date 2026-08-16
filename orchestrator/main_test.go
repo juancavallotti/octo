@@ -213,3 +213,47 @@ func TestKubeConfigRejectsUnusableSettings(t *testing.T) {
 		}
 	})
 }
+
+// TestAgenticRunnerResources pins the shape the chart emits against the shape the
+// orchestrator reads. They are the same shape by construction — the values file
+// writes an ordinary requests/limits block and the template `toJson`s it — and
+// this is what catches the two ways that stops being true: a rename on either
+// side, and a values file whose quantities are numbers rather than strings.
+func TestAgenticRunnerResources(t *testing.T) {
+	t.Run("unset is no resources", func(t *testing.T) {
+		t.Setenv("AGENTIC_RUNNER_RESOURCES", "")
+		got, err := agenticRunnerResources()
+		if err != nil {
+			t.Fatalf("unexpected err: %v", err)
+		}
+		if len(got.Requests) != 0 || len(got.Limits) != 0 {
+			t.Errorf("got %+v, want none", got)
+		}
+	})
+
+	t.Run("the chart's json", func(t *testing.T) {
+		t.Setenv("AGENTIC_RUNNER_RESOURCES",
+			`{"requests":{"cpu":"200m","memory":"256Mi"},"limits":{"cpu":"1","memory":"1Gi"}}`)
+		got, err := agenticRunnerResources()
+		if err != nil {
+			t.Fatalf("unexpected err: %v", err)
+		}
+		if q := got.Requests.Memory().String(); q != "256Mi" {
+			t.Errorf("memory request = %s, want 256Mi", q)
+		}
+		if q := got.Limits.Cpu().String(); q != "1" {
+			t.Errorf("cpu limit = %s, want 1", q)
+		}
+	})
+
+	// Malformed is a startup error rather than a silent none, following
+	// INGRESS_ANNOTATIONS: a resources block that failed to parse would otherwise
+	// schedule the one workload whose whole purpose is running other programs with
+	// no bound on what it may consume.
+	t.Run("malformed is fatal", func(t *testing.T) {
+		t.Setenv("AGENTIC_RUNNER_RESOURCES", "{not json")
+		if _, err := agenticRunnerResources(); err == nil {
+			t.Error("accepted malformed JSON")
+		}
+	})
+}

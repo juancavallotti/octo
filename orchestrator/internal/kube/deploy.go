@@ -22,6 +22,15 @@ const (
 	configMountPath = "/etc/octo/integrations"
 	// configFileName is the single key/file written into the ConfigMap.
 	configFileName = "integration.yaml"
+
+	// workspaceVolume is the scratch volume the agentic runner writes in, and
+	// workspaceMountPath is where it lands. The path matches the directory the
+	// agentic image creates and owns, so a pod given no volume still finds a
+	// writable directory there — the `file` connector stats its root when it
+	// starts, and a missing one fails the whole deployment rather than the first
+	// message that reached for a file.
+	workspaceVolume    = "workspace"
+	workspaceMountPath = "/workspace"
 	// runtimePort is the default port the Service/Ingress target when a deployment
 	// declares no HTTP_PORT (Spec.Port == 0). An integration that declares
 	// HTTP_PORT overrides it; the Service simply has no endpoints if the runtime
@@ -102,7 +111,16 @@ type Spec struct {
 	// a deployment calls that API lives on the deployment record for a future access
 	// model to read.
 	ObservabilityAPI bool
+	// Runner selects the image these pods run. The zero value is RunnerStandard, so
+	// a deployment written before runners existed keeps exactly the pod it had.
+	Runner Runner
 }
+
+// agentic reports whether this deployment runs the agentic runner, which is the
+// one condition that changes the pod's shape: a different image, a writable
+// workspace, and resource requests. Everything else is identical — a runner
+// decides which image runs the flow, not a second way to deploy one.
+func (s Spec) agentic() bool { return s.Runner == RunnerAgentic }
 
 // port returns the resolved runtime port, defaulting to runtimePort when unset.
 func (s Spec) port() int32 {
@@ -328,30 +346,95 @@ func (c *Client) deployment(name string, labels map[string]string, spec Spec) *a
 					ImagePullSecrets: c.pullSecretRefs(),
 					Containers: []corev1.Container{{
 						Name:            "runtime",
-						Image:           c.runtimeImage,
+						Image:           c.runnerImage(spec.Runner),
 						ImagePullPolicy: corev1.PullIfNotPresent,
 						Env:             c.podEnv(spec),
 						Ports:           ports,
 						LivenessProbe:   livenessProbe(),
 						ReadinessProbe:  readinessProbe(),
-						VolumeMounts: []corev1.VolumeMount{{
-							Name:      "integration",
-							MountPath: configMountPath,
-							ReadOnly:  true,
-						}},
+						// Empty for every runner but the agentic one, which is the only
+						// deployment this orchestrator sizes. See Client.agenticResources.
+						Resources:    c.containerResources(spec),
+						VolumeMounts: c.volumeMounts(spec),
 					}},
-					Volumes: []corev1.Volume{{
-						Name: "integration",
-						VolumeSource: corev1.VolumeSource{
-							ConfigMap: &corev1.ConfigMapVolumeSource{
-								LocalObjectReference: corev1.LocalObjectReference{Name: name},
-							},
-						},
-					}},
+					Volumes: c.volumes(name, spec),
 				},
 			},
 		},
 	}
+}
+
+// containerResources sizes the runtime container: the configured requests and
+// limits for the agentic runner, and nothing at all for every other deployment.
+//
+// Nothing at all is not an oversight, it is the status quo — no integration pod
+// has ever carried resources — and changing that for every deployment at once
+// would silently reschedule an entire installation. The agentic runner is
+// different because it is the one whose whole purpose is to run other programs,
+// which is exactly the workload an unbounded container is dangerous for.
+func (c *Client) containerResources(spec Spec) corev1.ResourceRequirements {
+	if !spec.agentic() {
+		return corev1.ResourceRequirements{}
+	}
+	return c.agenticResources
+}
+
+// volumeMounts is the container's mounts: the integration ConfigMap always, and
+// the workspace on the agentic runner.
+//
+// The ConfigMap is read-only and the workspace is not, which is the whole
+// difference between them. One is the definition the platform handed this pod;
+// the other is the pod's own scratch space, and a read-only mount of it would be
+// a lie about who owns the directory — the same reasoning devrun.go gives for
+// its own workspace.
+func (c *Client) volumeMounts(spec Spec) []corev1.VolumeMount {
+	mounts := []corev1.VolumeMount{{
+		Name:      "integration",
+		MountPath: configMountPath,
+		ReadOnly:  true,
+	}}
+	if spec.agentic() {
+		mounts = append(mounts, corev1.VolumeMount{
+			Name:      workspaceVolume,
+			MountPath: workspaceMountPath,
+		})
+	}
+	return mounts
+}
+
+// volumes backs those mounts: the per-deployment ConfigMap, and — on the agentic
+// runner — an emptyDir for the workspace.
+//
+// emptyDir and not a PersistentVolumeClaim, for the reason devrun.go gives about
+// its own workspace: nothing of durable value lives there. What the agent is
+// asked to keep goes back through the orchestrator API, and its memory is already
+// the KV store, so a volume that outlived the pod would only be a stale copy of
+// something with a better home. It also keeps this a workload like any other — a
+// ReadWriteOnce claim would force strategy: Recreate and a single replica, and
+// would need a claim lifecycle on every deploy, rollout and delete.
+//
+// SizeLimit is what makes it safe to hand a shell: without it the workspace is
+// bounded only by the node's disk, and one runaway command evicts every pod on
+// the node rather than only this one.
+func (c *Client) volumes(name string, spec Spec) []corev1.Volume {
+	volumes := []corev1.Volume{{
+		Name: "integration",
+		VolumeSource: corev1.VolumeSource{
+			ConfigMap: &corev1.ConfigMapVolumeSource{
+				LocalObjectReference: corev1.LocalObjectReference{Name: name},
+			},
+		},
+	}}
+	if spec.agentic() {
+		size := c.workspaceSize
+		volumes = append(volumes, corev1.Volume{
+			Name: workspaceVolume,
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{SizeLimit: &size},
+			},
+		})
+	}
+	return volumes
 }
 
 // pullSecretRefs converts the configured Secret names into the reference list a
