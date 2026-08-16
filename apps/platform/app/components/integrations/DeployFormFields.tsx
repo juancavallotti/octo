@@ -8,11 +8,11 @@ import SlugField from "./SlugField";
 import DeployEnvFields, { type EnvBinding } from "./DeployEnvFields";
 import Field from "./Field";
 import TracingToggle from "./TracingToggle";
-import PlatformAccessFields from "./PlatformAccessFields";
+import AdvancedDeployFields from "./AdvancedDeployFields";
 
 /**
- * The deploy dialog's scrolling body: version, scale, address, tracing, env and
- * the platform-access grants.
+ * The deploy dialog's scrolling body: version, scale, address, tracing, env, and
+ * the advanced settings (the platform-access grants and the runner).
  *
  * Every one of these fields is already its own component — SlugField,
  * ReplicaStepper, TracingToggle, DeployEnvFields — and this is the container that
@@ -40,6 +40,8 @@ export default function DeployFormFields({
   onOrchestratorApi,
   observabilityApi,
   onObservabilityApi,
+  runner,
+  onRunner,
   envVars,
   bindings,
   secretNames,
@@ -74,6 +76,9 @@ export default function DeployFormFields({
   onOrchestratorApi: (on: boolean) => void;
   observabilityApi: boolean;
   onObservabilityApi: (on: boolean) => void;
+  /** Which runner image the pods run: "" (the default) or "agentic". */
+  runner: string;
+  onRunner: (runner: string) => void;
   envVars: DeployEnvVar[];
   bindings: Record<string, EnvBinding>;
   secretNames: string[];
@@ -197,12 +202,14 @@ export default function DeployFormFields({
 
       {/* Last, and collapsed: almost no integration needs either grant, and the
           ones that do are written for it. */}
-      <PlatformAccessFields
+      <AdvancedDeployFields
         busy={busy}
         orchestratorApi={orchestratorApi}
         onOrchestratorApi={onOrchestratorApi}
         observabilityApi={observabilityApi}
         onObservabilityApi={onObservabilityApi}
+        runner={runner}
+        onRunner={onRunner}
       />
 
       {error && <p className="text-sm text-red-500">{error}</p>}
