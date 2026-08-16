@@ -809,8 +809,8 @@ flows:
                         value: >-
                           {
                             "verdict": body.exitCode == 0 ? "passed"
-                              : body.exitCode == 1 ? "the flows are wrong: cases failed"
-                              : "the suite or the runner is wrong, not the flows",
+                              : body.exitCode == 1 ? "the flows are wrong: cases failed — read the report and fix the definition"
+                              : "the SUITE did not parse, so no flow ran and nothing here is about your flows. Load the testing skill and check the suite's shape against it before editing again — guessing at the schema is how this repeats.",
                             "exitCode": body.exitCode,
                             "report": body.stdout,
                             "stderr": body.stderr
