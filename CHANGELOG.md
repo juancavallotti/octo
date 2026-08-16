@@ -1,5 +1,47 @@
 # Changelog
 
+## [0.8.3](https://github.com/juancavallotti/octo/compare/v0.8.2...v0.8.3) (2026-08-16)
+
+
+### Features
+
+* **agent:** give dr. octo a workspace, commands and an http tool ([6025c42](https://github.com/juancavallotti/octo/commit/6025c42957ec1d299169ecdfa0e83c87fb494d5e))
+* **agent:** install dr. octo on the agentic runner ([822eb8d](https://github.com/juancavallotti/octo/commit/822eb8db52cf20f0086f7666911903ab67dbe98e))
+* an agentic runner image, and Dr. Octo on it ([2cc22d2](https://github.com/juancavallotti/octo/commit/2cc22d2f4649f26f739db32e473c52ee5f99adb0))
+* **connectors:** add a file connector with file-read and file-write ([c1e6d69](https://github.com/juancavallotti/octo/commit/c1e6d69fec1e9eece2e001adab34e05e53ca2048))
+* **deployments:** let a deployment request the agentic runner ([b9ae7c6](https://github.com/juancavallotti/octo/commit/b9ae7c61715d766a2f014343d378bb3cd7609b4b))
+* **expr:** add fromYaml, toYaml, fromEnv and toEnv CEL functions ([a862cab](https://github.com/juancavallotti/octo/commit/a862cabee98b78881ca65188cd904989261746cd))
+* **helm:** configure the agentic runner image and its workspace ([cd0ed6c](https://github.com/juancavallotti/octo/commit/cd0ed6cd1a29a5d1cb44d79be8e2399159144850))
+* **orchestrator:** select a runner image per deployment ([28b9403](https://github.com/juancavallotti/octo/commit/28b9403b8306ad573ba7731e60dfebe8d162cdd1))
+* **platform:** let the deploy form pick a runner ([cb5d6e0](https://github.com/juancavallotti/octo/commit/cb5d6e074cdef7184ddecffe880fb484a9e57148))
+* **runtime:** add an agentic runner image ([f5c9dbc](https://github.com/juancavallotti/octo/commit/f5c9dbca606c31552ebaab9381d6ccc608725753))
+
+
+### Bug Fixes
+
+* address the coderabbit review ([8a12066](https://github.com/juancavallotti/octo/commit/8a1206698ef6c2cb85096aad739f0aa4ad031133))
+* address the coderabbit review on the PR ([7d874c6](https://github.com/juancavallotti/octo/commit/7d874c64fae7bd6b4593e56182e1229084f5d904))
+* **agent:** make the installer survive its own record going stale ([bc9947a](https://github.com/juancavallotti/octo/commit/bc9947a3136ec32e9fb4cc014cb9ce09cfb4c025))
+* **agent:** teach dr. octo the mock schema the runner actually accepts ([071441d](https://github.com/juancavallotti/octo/commit/071441d06c14d1ce93ee333e8a789405ad912b8e))
+* **deployments:** let a rollout state the runner instead of inheriting it ([4bb2e5c](https://github.com/juancavallotti/octo/commit/4bb2e5c3f286e9130119c1be559b493819fac4d2))
+* **dotenv:** quote values Parse would trim as Unicode whitespace ([3cf0ce8](https://github.com/juancavallotti/octo/commit/3cf0ce8796f8c7018e6713be655a1392c419e968))
+* **dotenv:** stop a formatted value from injecting an assignment ([bb63aaf](https://github.com/juancavallotti/octo/commit/bb63aaf4fd6d8e0b93e9fdc27fa82784bf8332dc))
+* **platform:** classify the file blocks as io work ([b7edeb0](https://github.com/juancavallotti/octo/commit/b7edeb0a3589c583387298c04c6c48f57c695836))
+* **types:** leave raw-content mode when the body is replaced ([44a35c2](https://github.com/juancavallotti/octo/commit/44a35c22dc917a34e6d2d99dfa761e1631ea42bb))
+* **types:** leave raw-content mode when the body is replaced ([26bd8b9](https://github.com/juancavallotti/octo/commit/26bd8b9c059f069cfad6d1371cfe78d9df8fa4af))
+
+
+### Documentation
+
+* **agent:** teach the skills about the file connector and its blocks ([423cc3a](https://github.com/juancavallotti/octo/commit/423cc3a5603b7c519c44fab3d027468d1be4629a))
+* **cel:** note the number precision and env writing limits ([36312bd](https://github.com/juancavallotti/octo/commit/36312bd296ed971816c74e34c09c599f50c229ef))
+* **cel:** sync the CEL catalogues with the runtime ([2765560](https://github.com/juancavallotti/octo/commit/2765560c19e0a79a799a53fb8524c779536a8c04))
+* **concepts:** list file-read among the raw-content producers ([f37b637](https://github.com/juancavallotti/octo/commit/f37b637885ea69531fbaebf552e3bf61e93e33d0))
+* **connectors:** document the file connector ([b3d1c1c](https://github.com/juancavallotti/octo/commit/b3d1c1cd1cfa7a6b81eeb84c755481025531b476))
+* document the agentic runner ([8fe25f2](https://github.com/juancavallotti/octo/commit/8fe25f240a0988e0b0e8b7a4d8162cf62195da1e))
+* **samples:** add a text-formats sample ([e10ee2c](https://github.com/juancavallotti/octo/commit/e10ee2c30ef512a49f5a11c9adddfe5d11cacde4))
+* **samples:** add the file-io sample and its guide ([528a3b5](https://github.com/juancavallotti/octo/commit/528a3b5e0761c22e0887464d5715190ec731f908))
+
 ## [0.8.2](https://github.com/juancavallotti/octo/compare/v0.8.1...v0.8.2) (2026-08-15)
 
 
