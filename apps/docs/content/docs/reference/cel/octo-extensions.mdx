@@ -179,14 +179,15 @@ deterministic, and a value is quoted only when writing it bare would not read
 back the same — when it is empty, holds whitespace or a `#`, or contains a quote,
 a backslash, or a line break.
 
-A value may hold anything, line breaks included: every character that carries
+Values are scalars — a string, number or boolean, with null rendering empty. A
+scalar may hold any *characters*, line breaks included: every one that carries
 structure is escaped, so one variable is always one physical line and a value can
-never introduce a second assignment. Feed it untrusted data safely.
+never introduce a second assignment. Feed it untrusted text safely.
 
 Two things are errors rather than silent corruption. An env file is flat, so a
 nested object or list value is refused, naming the key. And a name has no quoted
-form to hide in, so a name that is empty or contains `=`, whitespace, `#`, or a
-quote is refused too.
+form to hide in, so a name that is empty, contains `=`, `#`, or a quote, or
+starts or ends with whitespace is refused too.
 
 ```bash
 bin/octo eval --expr 'toEnv({"B": "two words", "A": "1"})'

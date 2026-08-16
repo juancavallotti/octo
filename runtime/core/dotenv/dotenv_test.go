@@ -107,6 +107,17 @@ func TestFormatParseRoundTrip(t *testing.T) {
 		{name: "leading and trailing space", values: map[string]string{"A": "  padded  "}},
 		{name: "looks like a comment", values: map[string]string{"A": "# not a comment"}},
 		{name: "looks like an export", values: map[string]string{"A": "export B=2"}},
+		// Parse trims with strings.TrimSpace, which is Unicode whitespace — wider
+		// than the ASCII set needsQuoting lists. A value edged with a no-break
+		// space, or any of the other Unicode spaces, has to be quoted or Parse
+		// eats it.
+		{name: "trailing no-break space", values: map[string]string{"A": "value\u00a0"}},
+		{name: "leading no-break space", values: map[string]string{"A": "\u00a0value"}},
+		{name: "no-break space alone", values: map[string]string{"A": "\u00a0"}},
+		{name: "ideographic space", values: map[string]string{"A": "value\u3000"}},
+		{name: "next line control", values: map[string]string{"A": "value\u0085"}},
+		{name: "vertical tab", values: map[string]string{"A": "value\v"}},
+		{name: "interior no-break space is not at an edge", values: map[string]string{"A": "a\u00a0b"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -166,6 +177,11 @@ func TestFormatRejectsUnwritableKeys(t *testing.T) {
 		{name: "newline", key: "A\nB", wantErr: `contains '\n'`},
 		{name: "comment marker", key: "#A", wantErr: `contains '#'`},
 		{name: "quote", key: `A"B`, wantErr: `contains '"'`},
+		// A name has no quoted form, so Unicode whitespace at an edge — which
+		// Parse trims — can only be refused.
+		{name: "trailing no-break space", key: "A\u00a0", wantErr: "starts or ends with whitespace"},
+		{name: "leading no-break space", key: "\u00a0A", wantErr: "starts or ends with whitespace"},
+		{name: "ideographic space", key: "A\u3000", wantErr: "starts or ends with whitespace"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

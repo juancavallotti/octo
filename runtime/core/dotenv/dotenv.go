@@ -15,6 +15,10 @@ import (
 // were written bare: whitespace and the comment marker end (or hide) the value,
 // a quote character at the edges would be stripped as a wrapper, and a backslash
 // would be read as an escape.
+//
+// It is not the whole test. Parse trims with strings.TrimSpace, which is Unicode
+// whitespace, so this ASCII set alone would write a value ending in a no-break
+// space bare and let Parse eat it. quote checks the trim as well.
 const needsQuoting = " \t\n\r#\"'\\"
 
 // invalidInKey are the characters a name may not contain, because each one would
@@ -22,6 +26,9 @@ const needsQuoting = " \t\n\r#\"'\\"
 // written: '=' moves where the name ends, whitespace makes a name Parse trims
 // differently (and lets a name end in "export "), '#' can comment the line out,
 // and a quote or newline breaks the line's shape outright.
+//
+// As with needsQuoting this covers the ASCII cases; checkKey tests the Unicode
+// trim separately, and a name has no quoted form to survive one in.
 const invalidInKey = "= \t\n\r#\"'"
 
 // Parse parses the contents of a .env file into a name->value map. Each
@@ -100,6 +107,12 @@ func checkKey(key string) error {
 	if i := strings.IndexAny(key, invalidInKey); i >= 0 {
 		return fmt.Errorf("variable name %q contains %q", key, key[i])
 	}
+	// Parse trims the name with strings.TrimSpace, which is Unicode whitespace and
+	// wider than invalidInKey's ASCII set. A name that trims to something else
+	// would come back as that something else.
+	if strings.TrimSpace(key) != key {
+		return fmt.Errorf("variable name %q starts or ends with whitespace", key)
+	}
 	return nil
 }
 
@@ -109,7 +122,7 @@ func checkKey(key string) error {
 // entry, so a literal newline in a value would turn the rest of it into further
 // assignments.
 func quote(value string) string {
-	if value != "" && !strings.ContainsAny(value, needsQuoting) {
+	if value != "" && !strings.ContainsAny(value, needsQuoting) && strings.TrimSpace(value) == value {
 		return value
 	}
 	return `"` + valueEscaper.Replace(value) + `"`

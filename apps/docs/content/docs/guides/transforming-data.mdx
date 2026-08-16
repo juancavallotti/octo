@@ -232,9 +232,10 @@ still wants the `foreach` above).
 
 When a payload arrives as text — a YAML config, a `.env` file, a form body —
 parse it with one expression instead of reaching for a block. Each format has a
-parser and a renderer, so the conversion is a `set-payload`:
-`fromJson`/`toJson`, `fromFormData`/`toFormData`, `fromYaml`/`toYaml`, and
-`fromEnv`/`toEnv`.
+parser and a renderer: `fromJson`/`toJson`, `fromFormData`/`toFormData`,
+`fromYaml`/`toYaml`, and `fromEnv`/`toEnv`. Put the call in `set-payload` when the
+result becomes the body, or in `set-variable` when you want to keep the body and
+hold the rendered text for a later block.
 
 Parse on the way in, work with an ordinary body, and render on the way out — as
 [`samples/text-formats.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/text-formats.yaml)
