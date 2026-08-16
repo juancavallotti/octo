@@ -54,6 +54,7 @@ type (
 		Rollout(ctx context.Context, id, snapshotID string, env map[string]deployment.EnvBinding, tracing *bool) (deployment.Deployment, error)
 		Get(ctx context.Context, id string) (deployment.Deployment, error)
 		Undeploy(ctx context.Context, id string) error
+		RunnerAvailable(runner string) bool
 	}
 
 	secrets interface {
@@ -232,6 +233,14 @@ func (s *Service) blocked(ctx context.Context) string {
 		// A key is stored and this orchestrator cannot decrypt it, so the install
 		// would fail at the point it reads it.
 		return BlockedEncryption
+	}
+	// He is not merely nicer on the agentic runner, he requires it. His definition
+	// names the standalone octo, dolphin and curl in `cli-run` allow lists, and an
+	// allow-list entry is resolved when the flow is BUILT — so on any other image
+	// the config does not load at all and the pod crash-loops. Reporting it here
+	// turns that into a sentence on the admin page before anyone presses Install.
+	if !s.deployments.RunnerAvailable(agenticRunner) {
+		return BlockedAgenticRunner
 	}
 	return ""
 }
@@ -424,10 +433,17 @@ func (s *Service) install(ctx context.Context, cur stored, actorID string) (stor
 	// nothing today and is the declaration a future access model reads — an agent
 	// that drives the whole API is precisely the deployment that should carry it.
 	dep, err := s.deployments.Deploy(ctx, next.IntegrationID, deployment.Settings{
-		Replicas:         1,
-		SnapshotID:       snap.ID,
-		Tracing:          next.Tracing,
-		Env:              bindings,
+		Replicas:   1,
+		SnapshotID: snap.ID,
+		Tracing:    next.Tracing,
+		Env:        bindings,
+		// The runner he needs, asked for the same way any integration asks. It is not
+		// a size preference: his tools run the standalone octo, dolphin and curl, and
+		// none of those exist in the distroless image every other deployment uses —
+		// his flow would not even load there, because a `cli-run` allow list is
+		// resolved when the flow is built. blocked() refuses the install up front
+		// when this installation has no such image, so reaching here means it does.
+		Runner:           agenticRunner,
 		OrchestratorAPI:  true,
 		ObservabilityAPI: true,
 	})

@@ -168,6 +168,17 @@ type fakeDeployments struct {
 	status    string
 	reason    string
 	getErr    error
+	// noAgenticRunner makes this fake installation one whose chart configures no
+	// agentic runner image. Off by default, so every existing test describes the
+	// ordinary install where Dr. Octo has the image he needs.
+	noAgenticRunner bool
+}
+
+func (f *fakeDeployments) RunnerAvailable(runner string) bool {
+	if runner == "agentic" {
+		return !f.noAgenticRunner
+	}
+	return true
 }
 
 func (f *fakeDeployments) Deploy(_ context.Context, integrationID string, s deployment.Settings) (deployment.Deployment, error) {
@@ -559,6 +570,38 @@ func TestInstallAsksForThePlatformAccessGrants(t *testing.T) {
 	}
 	if !got.OrchestratorAPI {
 		t.Error("want the orchestrator grant declared; he drives that API on every turn")
+	}
+}
+
+// TestInstallAsksForTheAgenticRunner — he does not merely prefer it. His tools run
+// the standalone octo, dolphin and curl, and none of those exist in the distroless
+// image every other deployment uses.
+func TestInstallAsksForTheAgenticRunner(t *testing.T) {
+	h := newHarness(t, true)
+
+	if _, err := h.svc.Install(context.Background(), ""); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if got := h.deployments.deployed[0].Runner; got != "agentic" {
+		t.Errorf("runner = %q, want %q", got, "agentic")
+	}
+}
+
+// TestStatusIsBlockedWithoutTheAgenticRunner — an install on a chart that carries
+// no agentic image would not produce a degraded agent, it would produce a
+// crash-looping one: an allow-list entry is resolved when the flow is built, so his
+// config does not load at all where the binaries are missing. Saying so on the
+// status page is the difference between a sentence and a postmortem.
+func TestStatusIsBlockedWithoutTheAgenticRunner(t *testing.T) {
+	h := newHarness(t, true)
+	h.deployments.noAgenticRunner = true
+
+	st, err := h.svc.Status(context.Background())
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if st.Blocked != BlockedAgenticRunner {
+		t.Errorf("blocked = %q, want %q", st.Blocked, BlockedAgenticRunner)
 	}
 }
 

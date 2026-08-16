@@ -40,7 +40,18 @@ const (
 	BlockedEncryption = "encryption"
 	// BlockedLLMKey — no LLM provider key is stored.
 	BlockedLLMKey = "llm_key"
+	// BlockedAgenticRunner — this installation configures no agentic runner image,
+	// which Dr. Octo does not merely prefer but requires: his `cli-run` allow lists
+	// name the standalone octo, dolphin and curl, and an allow-list entry is
+	// resolved when the flow is built. On any other image his config does not load.
+	BlockedAgenticRunner = "agentic_runner"
 )
+
+// agenticRunner is the runner the agent is installed on, as the deployment
+// settings spell it. A string and not deployment's own constant because the
+// settings field is a string: what travels is the JSON value, and naming it here
+// keeps the two mentions below from drifting apart.
+const agenticRunner = "agentic"
 
 // llmKeySecret is the platform secret the agent's provider key is written to. The
 // deployment binds LLM_API_KEY to it by name, so the key itself never enters a
