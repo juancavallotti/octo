@@ -13,8 +13,16 @@ import (
 
 // needsQuoting are the characters that would change how Parse reads a value if it
 // were written bare: whitespace and the comment marker end (or hide) the value,
-// and a quote character at the edges would be stripped as a wrapper.
-const needsQuoting = " \t\n\r#\"'"
+// a quote character at the edges would be stripped as a wrapper, and a backslash
+// would be read as an escape.
+const needsQuoting = " \t\n\r#\"'\\"
+
+// invalidInKey are the characters a name may not contain, because each one would
+// make Parse read the line as something other than the assignment that was
+// written: '=' moves where the name ends, whitespace makes a name Parse trims
+// differently (and lets a name end in "export "), '#' can comment the line out,
+// and a quote or newline breaks the line's shape outright.
+const invalidInKey = "= \t\n\r#\"'"
 
 // Parse parses the contents of a .env file into a name->value map. Each
 // non-blank line is a KEY=VALUE assignment; blank lines and lines beginning with
@@ -51,12 +59,19 @@ func Parse(data []byte) (map[string]string, error) {
 // Parse: Parse(Format(m)) returns m. Keys are sorted so the output is
 // deterministic, and a value is wrapped in double quotes only when writing it
 // bare would not read back the same — when it is empty, holds whitespace or a
-// '#', or starts and ends with a quote character.
+// '#', or contains a quote or backslash.
+//
+// A value may hold anything, including newlines: every character Parse treats as
+// structure is escaped rather than written literally, so one entry is always one
+// physical line and a value can never introduce another assignment. A name is
+// more constrained, because nothing can escape it — Format returns an error
+// naming the offending key rather than writing a file that reads back as
+// something else.
 //
 // It lives here rather than beside its callers for the reason the package exists:
 // one set of quoting rules, written down once, so a file this tree produces is a
 // file this tree can read.
-func Format(values map[string]string) []byte {
+func Format(values map[string]string) ([]byte, error) {
 	keys := make([]string, 0, len(values))
 	for key := range values {
 		keys = append(keys, key)
@@ -65,24 +80,52 @@ func Format(values map[string]string) []byte {
 
 	var buf bytes.Buffer
 	for _, key := range keys {
+		if err := checkKey(key); err != nil {
+			return nil, err
+		}
 		buf.WriteString(key)
 		buf.WriteByte('=')
 		buf.WriteString(quote(values[key]))
 		buf.WriteByte('\n')
 	}
-	return buf.Bytes()
+	return buf.Bytes(), nil
+}
+
+// checkKey rejects a name Parse would not read back as itself. Unlike a value, a
+// name has no quoted form to hide in.
+func checkKey(key string) error {
+	if key == "" {
+		return fmt.Errorf("variable name is empty")
+	}
+	if i := strings.IndexAny(key, invalidInKey); i >= 0 {
+		return fmt.Errorf("variable name %q contains %q", key, key[i])
+	}
+	return nil
 }
 
 // quote wraps a value in double quotes when writing it bare would not survive a
-// round-trip through Parse, escaping the backslash and quote characters that
-// unquote would otherwise consume.
+// round-trip through Parse, escaping every character that carries meaning inside
+// the quotes. The line breaks matter most: Parse reads one physical line per
+// entry, so a literal newline in a value would turn the rest of it into further
+// assignments.
 func quote(value string) string {
-	if value != "" && !strings.ContainsAny(value, needsQuoting) && !strings.Contains(value, `\`) {
+	if value != "" && !strings.ContainsAny(value, needsQuoting) {
 		return value
 	}
-	escaped := strings.ReplaceAll(value, `\`, `\\`)
-	return `"` + strings.ReplaceAll(escaped, `"`, `\"`) + `"`
+	return `"` + valueEscaper.Replace(value) + `"`
 }
+
+// valueEscaper writes the escapes unescape resolves. Backslash goes first so the
+// escapes introduced after it are not escaped a second time — Replacer scans the
+// input once and never rewrites its own output, which is why this is one Replacer
+// rather than a chain of ReplaceAll calls.
+var valueEscaper = strings.NewReplacer(
+	`\`, `\\`,
+	`"`, `\"`,
+	"\n", `\n`,
+	"\r", `\r`,
+	"\t", `\t`,
+)
 
 // unquote strips a single pair of matching surrounding single or double quotes.
 // Inside double quotes a backslash escapes the following character, so a value
@@ -106,9 +149,10 @@ func unquote(value string) string {
 	return unescape(inner)
 }
 
-// unescape resolves backslash escapes in a double-quoted value. A backslash
-// before any character yields that character, so both \" and \\ round-trip what
-// quote wrote; a trailing lone backslash is kept as itself.
+// unescape resolves backslash escapes in a double-quoted value, the inverse of
+// what quote writes. \n, \r and \t produce their control character, so a value
+// may span lines while its entry stays on one; any other escaped character
+// yields itself, which covers \" and \\ and leaves a stray backslash harmless.
 func unescape(value string) string {
 	if !strings.Contains(value, `\`) {
 		return value
@@ -116,12 +160,21 @@ func unescape(value string) string {
 	var buf strings.Builder
 	buf.Grow(len(value))
 	for i := 0; i < len(value); i++ {
-		if value[i] == '\\' && i+1 < len(value) {
-			i++
+		if value[i] != '\\' || i+1 >= len(value) {
 			buf.WriteByte(value[i])
 			continue
 		}
-		buf.WriteByte(value[i])
+		i++
+		switch value[i] {
+		case 'n':
+			buf.WriteByte('\n')
+		case 'r':
+			buf.WriteByte('\r')
+		case 't':
+			buf.WriteByte('\t')
+		default:
+			buf.WriteByte(value[i])
+		}
 	}
 	return buf.String()
 }

@@ -63,7 +63,11 @@ func toEnvBinding(val ref.Val) ref.Val {
 	if err != nil {
 		return types.NewErr("toEnv: %v", err)
 	}
-	return types.String(dotenv.Format(values))
+	rendered, err := dotenv.Format(values)
+	if err != nil {
+		return types.NewErr("toEnv: %v", err)
+	}
+	return types.String(rendered)
 }
 
 // envScalars renders every field as its env value, rejecting the composites an

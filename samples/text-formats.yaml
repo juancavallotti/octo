@@ -21,6 +21,11 @@ service:
 #    key, say) is an error rather than a body with a foreign type in it.
 #  - fromEnv values are always strings. An env file carries no types, so compare
 #    with body.PORT == "8080" or convert with int(body.PORT).
+#
+# toEnv is safe to point at data you did not author: a value carrying a newline
+# is escaped rather than written literally, so it stays one physical line and
+# cannot introduce a second variable into the file. A *name* has no quoted form
+# to hide in, so a name containing '=', whitespace or '#' is an error instead.
 
 flows:
   - name: render-config

@@ -83,6 +83,49 @@ func TestEnvRoundTrip(t *testing.T) {
 	}
 }
 
+// TestToEnvValueCannotInjectAnAssignment guards the case where the object being
+// rendered came from somewhere untrusted: a value carrying a newline must not be
+// able to smuggle a second variable into the file it is written to.
+func TestToEnvValueCannotInjectAnAssignment(t *testing.T) {
+	prog, err := CompileMessage(nil, `fromEnv(toEnv(body))`)
+	if err != nil {
+		t.Fatalf("CompileMessage: %v", err)
+	}
+	const hostile = "x\nINJECTED=1\n#"
+	out, err := prog.Eval(messageActivation(map[string]any{"A": hostile}))
+	if err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	want := map[string]any{"A": hostile}
+	if !reflect.DeepEqual(out, want) {
+		t.Errorf("round-trip = %#v, want %#v", out, want)
+	}
+}
+
+// TestToEnvRejectsUnwritableKeys covers the half a value's quoting cannot save: a
+// name has no escaped form, so an object keyed by one is an error.
+func TestToEnvRejectsUnwritableKeys(t *testing.T) {
+	tests := []struct {
+		name string
+		body any
+	}{
+		{name: "equals sign", body: map[string]any{"A=B": "v"}},
+		{name: "space", body: map[string]any{"A B": "v"}},
+		{name: "empty name", body: map[string]any{"": "v"}},
+	}
+	prog, err := CompileMessage(nil, `toEnv(body)`)
+	if err != nil {
+		t.Fatalf("CompileMessage: %v", err)
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := prog.Eval(messageActivation(tc.body)); err == nil {
+				t.Fatal("expected an evaluation error")
+			}
+		})
+	}
+}
+
 func TestToEnvRejectsComposites(t *testing.T) {
 	tests := []struct {
 		name string

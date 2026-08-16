@@ -57,14 +57,17 @@ func TestParseUnescapesDoubleQuotedValues(t *testing.T) {
 }
 
 func TestFormat(t *testing.T) {
-	got := string(Format(map[string]string{
+	got, err := Format(map[string]string{
 		"ZULU":   "last",
 		"ALPHA":  "first",
 		"SPACED": "two words",
 		"EMPTY":  "",
 		"HASH":   "a#b",
 		"QUOTE":  `say "hi"`,
-	}))
+	})
+	if err != nil {
+		t.Fatalf("Format: %v", err)
+	}
 	// Keys are sorted, and only the values that need it are quoted.
 	want := "ALPHA=first\n" +
 		"EMPTY=\"\"\n" +
@@ -72,7 +75,7 @@ func TestFormat(t *testing.T) {
 		"QUOTE=\"say \\\"hi\\\"\"\n" +
 		"SPACED=\"two words\"\n" +
 		"ZULU=last\n"
-	if got != want {
+	if string(got) != want {
 		t.Errorf("Format =\n%q\nwant\n%q", got, want)
 	}
 }
@@ -95,15 +98,80 @@ func TestFormatParseRoundTrip(t *testing.T) {
 		{name: "wrapped in quotes", values: map[string]string{"A": `"wrapped"`}},
 		{name: "equals sign", values: map[string]string{"A": "k=v"}},
 		{name: "empty map", values: map[string]string{}},
+		{name: "newline", values: map[string]string{"A": "line one\nline two"}},
+		{name: "carriage return", values: map[string]string{"A": "a\r\nb"}},
+		{name: "multi-line certificate", values: map[string]string{
+			"KEY": "-----BEGIN KEY-----\nabc\ndef\n-----END KEY-----\n",
+		}},
+		{name: "escape sequences as text", values: map[string]string{"A": `not \n a newline`}},
+		{name: "leading and trailing space", values: map[string]string{"A": "  padded  "}},
+		{name: "looks like a comment", values: map[string]string{"A": "# not a comment"}},
+		{name: "looks like an export", values: map[string]string{"A": "export B=2"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := Parse(Format(tc.values))
+			data, err := Format(tc.values)
+			if err != nil {
+				t.Fatalf("Format: %v", err)
+			}
+			got, err := Parse(data)
 			if err != nil {
 				t.Fatalf("Parse(Format(...)): %v", err)
 			}
 			if !reflect.DeepEqual(got, tc.values) {
 				t.Errorf("round-trip = %#v, want %#v", got, tc.values)
+			}
+		})
+	}
+}
+
+// TestFormatValueCannotInjectAnAssignment is the security half of the round-trip
+// contract. Parse reads one physical line per entry, so a value carrying a
+// newline must not be able to smuggle a second variable into the file — the
+// classic injection when untrusted data reaches a config writer.
+func TestFormatValueCannotInjectAnAssignment(t *testing.T) {
+	const hostile = "x\nINJECTED=1\n#"
+	data, err := Format(map[string]string{"A": hostile})
+	if err != nil {
+		t.Fatalf("Format: %v", err)
+	}
+	if lines := strings.Count(string(data), "\n"); lines != 1 {
+		t.Errorf("Format wrote %d lines, want 1: %q", lines, data)
+	}
+	got, err := Parse(data)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if _, ok := got["INJECTED"]; ok {
+		t.Errorf("a value introduced a second variable: %#v", got)
+	}
+	if got["A"] != hostile {
+		t.Errorf("A = %q, want %q", got["A"], hostile)
+	}
+}
+
+// TestFormatRejectsUnwritableKeys covers the half that cannot be escaped: a name
+// has no quoted form, so a name Parse would read as something else is refused
+// rather than written.
+func TestFormatRejectsUnwritableKeys(t *testing.T) {
+	tests := []struct {
+		name    string
+		key     string
+		wantErr string
+	}{
+		{name: "empty", key: "", wantErr: "is empty"},
+		{name: "equals sign", key: "A=B", wantErr: `contains '='`},
+		{name: "space", key: "A B", wantErr: `contains ' '`},
+		{name: "trailing export prefix", key: "export A", wantErr: `contains ' '`},
+		{name: "newline", key: "A\nB", wantErr: `contains '\n'`},
+		{name: "comment marker", key: "#A", wantErr: `contains '#'`},
+		{name: "quote", key: `A"B`, wantErr: `contains '"'`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Format(map[string]string{tc.key: "v"})
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("err = %v, want containing %q", err, tc.wantErr)
 			}
 		})
 	}

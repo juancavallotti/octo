@@ -40,6 +40,24 @@ cases:
         - 'body.envFile.split("\n")[0].startsWith("DB_HOST=")'
         - 'fromEnv(body.envFile).SERVICE_NAME == "billing"'
 
+  # A hostile DB_HOST cannot smuggle an extra variable into the rendered file:
+  # toEnv escapes the line breaks, so the entry stays one physical line and
+  # fromEnv reads back exactly what went in.
+  - name: a value carrying newlines cannot inject another variable
+    input:
+      data:
+        yaml: |
+          name: billing
+          replicas: 1
+          env:
+            DB_HOST: "db.internal\nINJECTED=1\n#"
+            DEBUG: false
+    expect:
+      that:
+        - 'body.dbHost == "db.internal\nINJECTED=1\n#"'
+        - '!(("INJECTED" in fromEnv(body.envFile)))'
+        - 'size(body.envFile.split("\n")) == 6'
+
   - name: a value needing quotes survives the env round trip
     input:
       data:
