@@ -6,6 +6,22 @@
   value: {{ .Release.Namespace | quote }}
 - name: RUNTIME_IMAGE
   value: {{ include "octo-common.image" (dict "root" . "component" "runtime") | quote }}
+{{- /* The agentic runner, for a deployment that asks for `runner: agentic`. Always
+       emitted, because the image always ships with the release — but the orchestrator
+       reads its absence as "this runner is not available on this install" and refuses
+       such a deploy naming this value, rather than falling back to the image above and
+       leaving every command in the flow to fail with "not found". */}}
+- name: AGENTIC_RUNNER_IMAGE
+  value: {{ include "octo-common.image" (dict "root" . "component" "agenticrunner") | quote }}
+- name: AGENTIC_RUNNER_WORKSPACE_SIZE
+  value: {{ .Values.agenticrunner.workspaceSize | quote }}
+{{- with .Values.agenticrunner.resources }}
+{{- /* JSON, the way INGRESS_ANNOTATIONS already travels: the orchestrator unmarshals
+       it straight into a container's resources block, so the values file writes the
+       ordinary requests/limits shape and nothing has to be flattened into env vars. */}}
+- name: AGENTIC_RUNNER_RESOURCES
+  value: {{ toJson . | quote }}
+{{- end }}
 # Runtime-services env the orchestrator injects into every deployed runtime
 # pod: the backend module, the in-cluster KV URL (this orchestrator), and the
 # ServiceAccount granting leases RBAC. ORCHESTRATOR_URL being set is what

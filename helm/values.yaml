@@ -342,6 +342,52 @@ devruntime:
   repository: octo-devruntime-paas
   image: {}
 
+# The agentic runner: the image a deployment runs when it asks for
+# `runner: agentic`, instead of runtime.repository above.
+#
+# It carries the same k8s runtime as that image, plus the things a flow needs when it
+# runs local programs rather than serving requests: a shell, curl, jq, the STANDALONE
+# octo CLI and dolphin, and a scratch workspace at /workspace. The standard runtime
+# image is distroless — one static binary, no shell, nothing writable — which is right
+# for the integrations that serve a webhook and leaves a `cli-run` block with nothing
+# to run. Dr. Octo is the first deployment to ask for this one; it is what lets him
+# write a definition, invoke it, and run its test suite in his own pod.
+#
+# Leaving this unset does not degrade the runner, it removes it: the orchestrator
+# refuses an agentic deploy naming this value, rather than serving the distroless image
+# and leaving every command to fail with "not found".
+#
+# TREAT IT AS PRIVILEGED, not merely larger. A pod holding a shell and a runtime it can
+# point at a definition it just wrote is a general execution environment, so the
+# boundary it offers is the pod — not the `cli-run` allow list inside it. What that pod
+# holds (its own env, including any secret bound to it) and what it can reach on the
+# network are reachable by anything it runs. Do not grant it to an integration whose
+# definition comes from somewhere you do not trust.
+agenticrunner:
+  repository: octo-agenticrunner-paas
+  image: {}
+  # Cap on the /workspace emptyDir. A cap, not an allocation: the volume costs nothing
+  # until it is written to. Without one the workspace is bounded only by the node's
+  # disk, so a runaway command evicts every pod on the node rather than only this one.
+  workspaceSize: 100Mi
+  # CPU/memory requests and limits for the agentic runner's container, passed to the
+  # orchestrator as JSON. Unlike defaults.resources above this cannot go through the
+  # chart's own layering: integration pods are created by the orchestrator at deploy
+  # time and not rendered here — the same reason runtime.imagePullSecrets needs saying
+  # separately.
+  #
+  # Empty means none, which is what every integration pod carries today. Set them on a
+  # cluster that requires resources (GKE Autopilot does) or where this pod's appetite
+  # for CPU should not be the node's problem — it is the one workload whose purpose is
+  # running other programs.
+  resources: {}
+    # requests:
+    #   cpu: 200m
+    #   memory: 256Mi
+    # limits:
+    #   cpu: "1"
+    #   memory: 1Gi
+
 # Deployment-scoped KV store the orchestrator serves for the runtime. encryptionKey
 # is a base64-encoded 32-byte (AES-256) key used to encrypt values in secret
 # namespaces (*_secrets) at rest; plain namespaces are stored as-is (no crypto cost).
