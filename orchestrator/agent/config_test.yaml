@@ -40,6 +40,29 @@ env:
   LLM_API_KEY: sk-ant-not-a-real-key
   LLM_MODEL: claude-sonnet-4-6
   ORCHESTRATOR_URL: http://127.0.0.1:9
+  # The workspace and the programs, pointed at this machine rather than at the
+  # agentic runner's layout. Both halves matter and for different reasons.
+  #
+  # The workspace has to EXIST: the file connector stats its root when it starts,
+  # and an invoke starts connectors, so a missing directory fails every case here
+  # rather than the first one that touched a file. /tmp is the one directory both
+  # a laptop and the CI runner agree on.
+  #
+  # The binaries have to RESOLVE: a cli-run allow list is checked when the flow is
+  # built, and an entry that resolves to nothing fails the build. That is the whole
+  # reason the definition names them through variables — see the env block there —
+  # and this is the suite that would catch it going back to literals.
+  #
+  # /bin/echo for all five, and not /bin/sh: cli-run refuses an interpreter on an
+  # allow list, which is a guard worth keeping rather than working around with
+  # allowInterpreters. Nothing here ever runs them — a mocked agent takes its tool
+  # sub-flows with it — so all these need to be is present and not a shell.
+  AGENT_WORKSPACE: /tmp
+  AGENT_OCTO_BIN: /bin/echo
+  AGENT_DOLPHIN_BIN: /bin/echo
+  AGENT_CURL_BIN: /bin/echo
+  AGENT_FIND_BIN: /bin/echo
+  AGENT_JQ_BIN: /bin/echo
 
 inputs:
   a question:

@@ -16,7 +16,9 @@ import (
 	"context"
 	"fmt"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/client-go/kubernetes"
 	appslisters "k8s.io/client-go/listers/apps/v1"
 	corelisters "k8s.io/client-go/listers/core/v1"
@@ -29,6 +31,12 @@ const (
 	labelDeploymentID  = "octo.dev/deployment-id"
 	labelIntegrationID = "octo.dev/integration-id"
 	managedByValue     = "orchestrator"
+
+	// defaultWorkspaceSize caps the agentic runner's /workspace when the chart
+	// names no size. Small on purpose: the workspace is scratch — a definition
+	// being drafted, a test suite, a report — and a bound that a runaway command
+	// hits quickly is more useful than one it takes an hour to reach.
+	defaultWorkspaceSize = "100Mi"
 )
 
 // RuntimeServices configures the runtime-services environment the orchestrator
@@ -57,6 +65,21 @@ type Client struct {
 	// k8s services provider, so it cannot run without the orchestrator, the cluster
 	// queues and the log aggregator — none of which a dev run should be wired to.
 	devRuntimeImage string
+	// agenticRunnerImage is the runner a deployment gets when it asks for
+	// RunnerAgentic: the same k8s runtime as runtimeImage, on a base that also
+	// carries a shell, curl, jq, the standalone octo CLI and dolphin. Empty means
+	// the runner is not configured on this install, and an agentic deploy is
+	// refused rather than quietly served the distroless image — see RunnerEnabled.
+	agenticRunnerImage string
+	// agenticResources sizes the agentic runner's container. Only that runner's,
+	// deliberately: giving every integration pod requests and limits from one
+	// cluster-wide setting would change the scheduling of every deployment that
+	// already exists, which is its own feature and not this one.
+	agenticResources corev1.ResourceRequirements
+	// workspaceSize caps the agentic runner's /workspace emptyDir. A cap and not an
+	// allocation: the volume costs nothing until it is written to, and the limit is
+	// what stops a runaway command filling the node's disk.
+	workspaceSize resource.Quantity
 	// sidecarImage runs beside that runtime in a dev-run pod and owns its workspace.
 	sidecarImage string
 	// sidecarPort is where that sidecar serves its command API.
@@ -89,6 +112,46 @@ type Client struct {
 
 // corelisterDeployments aliases the namespaced Deployment lister for brevity.
 type corelisterDeployments = appslisters.DeploymentNamespaceLister
+
+// Runner names the image a deployment's pods run.
+//
+// There are two because an integration's needs genuinely differ in kind, not in
+// degree. Almost every one wants the smallest possible thing that can run a flow,
+// and gets it: a distroless image with one static binary, no shell and nothing
+// writable. A few are built to *drive* the platform rather than serve it — they
+// run local commands, invoke flows, or execute a test suite — and for those the
+// distroless image is not merely minimal, it is empty of the programs the flow
+// names. Handing every deployment the larger image to spare those few would be
+// the wrong trade in exactly the place it matters most.
+type Runner string
+
+const (
+	// RunnerStandard is the generic octo-runtime image every integration gets:
+	// distroless, one binary, nothing else. The zero value, deliberately.
+	RunnerStandard Runner = "standard"
+	// RunnerAgentic is the heavier image that also carries a shell, curl, jq, the
+	// standalone octo CLI and dolphin — for a deployment whose flows run local
+	// commands or test other flows. Dr. Octo is the first of them.
+	RunnerAgentic Runner = "agentic"
+)
+
+// ParseRunner converts a configured value into a Runner. Empty means the default.
+// An unrecognised value is an error rather than a fallback, for the same reason
+// ParseEndpointAPI refuses one: `runner: "agentik"` silently deploying the
+// distroless image would produce a pod whose every command fails with "not
+// found", and nothing anywhere would call that a configuration mistake.
+func ParseRunner(s string) (Runner, error) {
+	switch Runner(s) {
+	case "":
+		return RunnerStandard, nil
+	case RunnerStandard:
+		return RunnerStandard, nil
+	case RunnerAgentic:
+		return RunnerAgentic, nil
+	default:
+		return "", fmt.Errorf("kube: unknown runner %q (want %q or %q)", s, RunnerStandard, RunnerAgentic)
+	}
+}
 
 // EndpointAPI names the Kubernetes API used to publish per-integration external
 // endpoints. These are the only two APIs Kubernetes has for the job.
@@ -156,21 +219,29 @@ type GatewayRef struct {
 // is ignored rather than rejected, because a values file that carries both is a
 // cluster in the middle of moving between them.
 type Config struct {
-	Namespace         string
-	RuntimeImage      string
-	DevRuntimeImage   string
-	SidecarImage      string
-	SidecarPort       int32
-	OrchestratorURL   string
-	BaseDomain        string
-	EndpointAPI       EndpointAPI
-	ClusterIssuer     string
-	WildcardTLSSecret string
-	IngressClass      string
-	ExtraAnnotations  map[string]string
-	Gateway           GatewayRef
-	ImagePullSecrets  []string
-	RuntimeServices   RuntimeServices
+	Namespace    string
+	RuntimeImage string
+	// AgenticRunnerImage is the RunnerAgentic image; "" disables that runner.
+	AgenticRunnerImage string
+	// AgenticRunnerResources sizes its container; the zero value sets none, which
+	// is what every deployment gets today.
+	AgenticRunnerResources corev1.ResourceRequirements
+	// AgenticRunnerWorkspaceSize caps its /workspace volume; "" applies
+	// defaultWorkspaceSize.
+	AgenticRunnerWorkspaceSize string
+	DevRuntimeImage            string
+	SidecarImage               string
+	SidecarPort                int32
+	OrchestratorURL            string
+	BaseDomain                 string
+	EndpointAPI                EndpointAPI
+	ClusterIssuer              string
+	WildcardTLSSecret          string
+	IngressClass               string
+	ExtraAnnotations           map[string]string
+	Gateway                    GatewayRef
+	ImagePullSecrets           []string
+	RuntimeServices            RuntimeServices
 }
 
 // Validate reports configuration that cannot work, before anything is built from
@@ -191,6 +262,17 @@ func (c Config) Validate() error {
 	}
 	if c.EndpointAPI == EndpointAPIGateway && c.BaseDomain != "" && c.Gateway.Name == "" {
 		return fmt.Errorf("kube: gateway endpoints need a Gateway to attach to: set the gateway name")
+	}
+	if s := c.AgenticRunnerWorkspaceSize; s != "" {
+		q, err := resource.ParseQuantity(s)
+		if err != nil {
+			return fmt.Errorf("kube: agentic runner workspace size %q is not a quantity (e.g. 100Mi): %w", s, err)
+		}
+		if q.Sign() <= 0 {
+			return fmt.Errorf(
+				"kube: agentic runner workspace size %q must be positive — kubelet reads a zero "+
+					"limit as no limit, which is the unbounded workspace this setting prevents", s)
+		}
 	}
 	return nil
 }
@@ -222,16 +304,19 @@ func New(cfg Config) (*Client, error) {
 // becomes a Client, so the two paths cannot drift.
 func newClient(cfg Config, cs kubernetes.Interface, gwcs gatewayclient.Interface) *Client {
 	c := &Client{
-		clientset:        cs,
-		namespace:        cfg.Namespace,
-		runtimeImage:     cfg.RuntimeImage,
-		devRuntimeImage:  cfg.DevRuntimeImage,
-		sidecarImage:     cfg.SidecarImage,
-		sidecarPort:      cfg.SidecarPort,
-		orchestratorURL:  cfg.OrchestratorURL,
-		baseDomain:       cfg.BaseDomain,
-		imagePullSecrets: cfg.ImagePullSecrets,
-		runtimeServices:  cfg.RuntimeServices,
+		clientset:          cs,
+		namespace:          cfg.Namespace,
+		runtimeImage:       cfg.RuntimeImage,
+		agenticRunnerImage: cfg.AgenticRunnerImage,
+		agenticResources:   cfg.AgenticRunnerResources,
+		workspaceSize:      parseWorkspaceSize(cfg.AgenticRunnerWorkspaceSize),
+		devRuntimeImage:    cfg.DevRuntimeImage,
+		sidecarImage:       cfg.SidecarImage,
+		sidecarPort:        cfg.SidecarPort,
+		orchestratorURL:    cfg.OrchestratorURL,
+		baseDomain:         cfg.BaseDomain,
+		imagePullSecrets:   cfg.ImagePullSecrets,
+		runtimeServices:    cfg.RuntimeServices,
 	}
 	if c.sidecarPort == 0 {
 		c.sidecarPort = defaultSidecarPort
@@ -285,6 +370,55 @@ func (c *Client) ExternalEnabled() bool { return c.baseDomain != "" }
 // different CrashLoopBackOffs into one startup log line.
 func (c *Client) DevRunsEnabled() bool {
 	return c.devRuntimeImage != "" && c.sidecarImage != "" && c.orchestratorURL != ""
+}
+
+// RunnerEnabled reports whether a runner can be deployed on this install.
+//
+// The standard runner always can — it is the image the orchestrator has always
+// used. The agentic one needs a chart that configures it, and a deployment that
+// asks for one it cannot have is refused up front with the setting named. The
+// alternative, falling back to the standard image, is the failure this exists to
+// prevent: the pod comes up healthy, and then every command the flow runs fails
+// with "not found" — a symptom that points at the flow rather than at the chart.
+func (c *Client) RunnerEnabled(r Runner) bool {
+	if r == RunnerAgentic {
+		return c.agenticRunnerImage != ""
+	}
+	return true
+}
+
+// runnerImage is the image a spec's runner runs. Callers reach it only after
+// RunnerEnabled has said yes, so an unconfigured agentic runner cannot arrive
+// here; falling through to the standard image is the safe answer for the zero
+// value and for a Runner that somehow bypassed ParseRunner.
+func (c *Client) runnerImage(r Runner) string {
+	if r == RunnerAgentic && c.agenticRunnerImage != "" {
+		return c.agenticRunnerImage
+	}
+	return c.runtimeImage
+}
+
+// parseWorkspaceSize turns the configured workspace cap into a Quantity, falling
+// back to the default when it is unset or unparseable.
+//
+// Unparseable falls back rather than failing, which is the opposite of how this
+// package treats an unknown endpoint API or runner — and for a reason worth
+// stating. Those name a thing that either exists or does not, so a typo means the
+// operator asked for something impossible. This is a bound on scratch space: a
+// mistyped one still wants a bound, and the default is a better answer than
+// refusing to start the orchestrator over the size of a temp directory. Config
+// .Validate reports it, so the mistake is still said out loud.
+func parseWorkspaceSize(s string) resource.Quantity {
+	if s != "" {
+		// Positive, not merely parseable. "0" is a valid Quantity and kubelet reads a
+		// zero SizeLimit as NO limit, so a chart that set it would silently get the
+		// unbounded workspace this field exists to prevent — the one where a runaway
+		// command fills the node's disk and evicts every pod on it, not just this one.
+		if q, err := resource.ParseQuantity(s); err == nil && q.Sign() > 0 {
+			return q
+		}
+	}
+	return resource.MustParse(defaultWorkspaceSize)
 }
 
 // ExternalHost is the fully-qualified host for an external subdomain, or "" when

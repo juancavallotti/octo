@@ -52,9 +52,11 @@ IngressClass, add `--set ingress.className=<yours>` as well — see
 | Runtime RBAC | ServiceAccount + Role | – | Lease permissions for integration pods (leader election) |
 | Dev-run key | Secret | – | HMAC key for dev-run identity and hostnames. Only when `orchestrator.devRuns.enabled=true` |
 
-Three images are not chart workloads. `octo-runtime` is passed to the
+Four images are not chart workloads. `octo-runtime` is passed to the
 orchestrator as `RUNTIME_IMAGE`, and the orchestrator deploys one pod set per
-integration from it at runtime; `octo-devruntime` and `octo-devsidecar` are the
+integration from it at runtime; `octo-agenticrunner` is the alternative it
+deploys for an integration that asked for the agentic runner
+(see [Agentic runner](#agentic-runner)); `octo-devruntime` and `octo-devsidecar` are the
 two containers of a *dev run* (see [Dev runs](#dev-runs)), created the same way. The schema Job is annotated
 `helm.sh/hook: post-install,post-upgrade` with the `before-hook-creation` delete
 policy, so it re-runs (idempotently) on every upgrade.
@@ -145,7 +147,7 @@ ones that matter most:
 | `<component>.image.digest` | – | Pin by digest. **Wins over any tag.** |
 
 Components are `platform`, `orchestrator`, `logs`, `schema`, `runtime`,
-`devsidecar` and `devruntime`.
+`agenticrunner`, `devsidecar` and `devruntime`.
 `postgres` and `nats` also take `image.*`, but deliberately do **not** inherit
 `image.registry` — that host holds the `octo-*` images only. Point their own
 `image.registry` at a mirror for clusters that cannot reach Docker Hub.
@@ -775,6 +777,41 @@ adopt. Destroying storage is the infrastructure layer's job.
 | `auth.secret` | `""` | Auth.js session secret (`AUTH_SECRET`). |
 | `auth.writeRoles` / `.rolesClaim` | `""` | Roles allowed to mutate, and the ID-token claim carrying them. |
 | `orchestrator.devRuns.hashSecret` | `""` | **Required when dev runs are on.** Keys the derivation of every dev run's identity and hostname — see [Dev runs](#dev-runs), which explains why the chart will not generate one. |
+
+### Agentic runner
+
+Configure the image the orchestrator deploys for an integration whose deployment
+asked for `runner: agentic` — the one carrying a shell, `curl`, `jq`, the
+standalone `octo` CLI, `dolphin` and a scratch workspace. Leave these at their
+defaults unless you are turning the runner off or sizing its pod. The
+[platform agent](/platform/agent) requires it; see
+[octo-agenticrunner](/deploy/docker-images#octo-agenticrunner) for what is in it.
+
+| Key | Default | Purpose |
+|---|---|---|
+| `agenticrunner.repository` | `octo-agenticrunner-paas` | The image. Follows the same registry/tag/digest layering as every other component. |
+| `agenticrunner.workspaceSize` | `100Mi` | Cap on the `/workspace` `emptyDir`. A cap, not an allocation — the volume costs nothing until it is written to. |
+| `agenticrunner.resources` | `{}` | Requests and limits for the container, as an ordinary resources block. Passed to the orchestrator as JSON, because integration pods are created by it at deploy time rather than rendered by this chart — the same reason `runtime.imagePullSecrets` needs saying separately. |
+
+**To turn the runner off**, clear `agenticrunner.repository`. That removes it
+rather than degrading it: the orchestrator then refuses an agentic deploy naming
+this value instead of serving the distroless image and leaving every command in
+the flow to fail with *not found*, and installing the agent is blocked up front
+with the reason shown rather than producing a crash-looping pod.
+
+Two things to weigh before you grant it.
+
+**Treat the pod as the boundary.** This runner is privileged, not merely bigger:
+a pod holding a shell and a runtime it can point at a definition it wrote a
+moment ago is a general execution environment, so no allow list inside the flow
+contains it. Assume everything that pod holds — including secrets bound to its
+environment — and everything it can reach on the network is reachable by anything
+it runs, and grant it per deployment on that basis.
+
+**Set `resources` where a pod's appetite matters.** No integration pod carries
+requests or limits by default, and this is the one workload whose purpose is
+running other programs. Set them on GKE Autopilot, which requires them, and
+anywhere this pod's CPU should not become the node's problem.
 
 ### Dev runs
 

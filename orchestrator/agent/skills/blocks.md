@@ -59,6 +59,8 @@ put everything under `settings`.
 | `object-write` | Write an object under a key. |
 | `object-delete` | Delete by key. |
 | `invalidate-cache` | Evict a `cache-scope` entry by key. |
+| `file-read` | `connector`, `path` (CEL), `encoding` (`text`\|`base64`), `contentType`, `resultVar`. Reads a file under the connector's root; a path that leaves the root, or an absolute one, is refused. |
+| `file-write` | `connector`, `path` (CEL), `content` (CEL; empty writes the body), `encoding`, `resultVar` → `{path, bytes}`. Creates parent directories when the connector sets `createDirs`. Passes the message through. |
 | `sql` | `connector`, the statement, and parameters — against a `database` connector. |
 
 ## AI (leaves)

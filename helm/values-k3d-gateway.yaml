@@ -93,6 +93,9 @@ devsidecar:
 devruntime:
   repository: octo-devruntime
 
+agenticrunner:
+  repository: octo-agenticrunner
+
 # Gateway API routing. The chart creates the Gateway (create: true) because octo
 # is the only thing behind Traefik on this laptop cluster; its listeners are
 # derived from ingress.host (the editor) and orchestrator.baseDomain (the

@@ -57,6 +57,9 @@ devsidecar:
 devruntime:
   repository: octo-devruntime
 
+agenticrunner:
+  repository: octo-agenticrunner
+
 # kind ships no ingress controller at all. The NodePorts above are mapped to the
 # host by deploy/kind/cluster.yaml's extraPortMappings.
 ingress:

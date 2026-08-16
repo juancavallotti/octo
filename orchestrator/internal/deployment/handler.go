@@ -389,7 +389,9 @@ func (h *Handler) rollout(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	d, err := h.svc.Rollout(ctx, r.PathValue("id"), req.SnapshotID, req.Env, req.Tracing)
+	// nil: a rollout over the API is a version bump, and the runner is a property of
+	// the workload rather than of the version being shipped. Changing it is a redeploy.
+	d, err := h.svc.Rollout(ctx, r.PathValue("id"), req.SnapshotID, req.Env, req.Tracing, nil)
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -433,6 +435,10 @@ func (h *Handler) writeError(w http.ResponseWriter, err error) {
 		httpx.WriteError(w, http.StatusServiceUnavailable, "deployments are not available")
 	case errors.Is(err, ErrExternalUnavailable):
 		httpx.WriteError(w, http.StatusBadRequest, "external endpoints are not configured")
+	case errors.Is(err, ErrRunnerUnavailable):
+		httpx.WriteError(w, http.StatusBadRequest, "the requested runner is not configured on this installation")
+	case errors.Is(err, ErrInvalidRunner):
+		httpx.WriteError(w, http.StatusBadRequest, "unknown runner")
 	case errors.Is(err, ErrInvalidSubdomain):
 		httpx.WriteError(w, http.StatusBadRequest, "invalid external subdomain")
 	case errors.Is(err, ErrInvalidSlug):

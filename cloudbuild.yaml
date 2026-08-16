@@ -1,4 +1,4 @@
-# Cloud Build pipeline: build the seven octo images and the OCI Helm chart, push
+# Cloud Build pipeline: build the eight octo images and the OCI Helm chart, push
 # everything to Artifact Registry, then (optionally) roll the cluster by applying the
 # Terraform release root. Provisioned and triggered by deploy/terraform/infra
 # (enable_cloudbuild=true); the trigger supplies _IMAGE_BASE/_REGION, maps _TAG to the
@@ -56,18 +56,24 @@ steps:
   - id: build-devruntime
     name: gcr.io/cloud-builders/docker
     args: ["build", "--build-arg", "GOTAGS=", "-t", "${_IMAGE_BASE}/octo-devruntime-paas:${_TAG}", "-t", "${_IMAGE_BASE}/octo-devruntime-paas:latest", "-f", "runtime/Dockerfile", "."]
+  # The agentic runner: the image a deployment runs when it asks for
+  # `runner: agentic`. Its own Dockerfile, because it carries three binaries on a
+  # base with a shell — a build arg could not express that.
+  - id: build-agenticrunner
+    name: gcr.io/cloud-builders/docker
+    args: ["build", "-t", "${_IMAGE_BASE}/octo-agenticrunner-paas:${_TAG}", "-t", "${_IMAGE_BASE}/octo-agenticrunner-paas:latest", "-f", "runtime/Dockerfile.agentic", "."]
 
   # Push the images explicitly (not via the trailing `images:` block) so they are in
   # the registry *before* the deploy step's octo-pull reads them by tag.
   - id: push-images
     name: gcr.io/cloud-builders/docker
     entrypoint: bash
-    waitFor: ["build-platform", "build-orchestrator", "build-logs", "build-schema", "build-runtime", "build-devsidecar", "build-devruntime"]
+    waitFor: ["build-platform", "build-orchestrator", "build-logs", "build-schema", "build-runtime", "build-devsidecar", "build-devruntime", "build-agenticrunner"]
     args:
       - -c
       - |
         set -e
-        for img in octo-platform-paas octo-orchestrator-paas octo-logs-paas octo-schema-paas octo-runtime-paas octo-devsidecar-paas octo-devruntime-paas; do
+        for img in octo-platform-paas octo-orchestrator-paas octo-logs-paas octo-schema-paas octo-runtime-paas octo-devsidecar-paas octo-devruntime-paas octo-agenticrunner-paas; do
           for t in "${_TAG}" latest; do
             docker push "${_IMAGE_BASE}/$img:$t"
           done
@@ -94,7 +100,7 @@ steps:
           echo "image:"
           echo "  registry: ${_IMAGE_BASE}"
           echo "  pullPolicy: IfNotPresent"
-          for c in platform orchestrator logs schema runtime devsidecar devruntime; do
+          for c in platform orchestrator logs schema runtime devsidecar devruntime agenticrunner; do
             repo="octo-$${c}-paas"
             # RepoDigests can carry entries for more than one repository, so match
             # this image's rather than trusting the first element.

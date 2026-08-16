@@ -176,6 +176,14 @@ jobs:
           - image: octo-devsidecar-paas
             context: ./sidecars
             dockerfile: sidecars/dev/Dockerfile
+          # The agentic runner. Unlike octo-devruntime-paas below it IS built here:
+          # it is a genuinely distinct image — its own Dockerfile, its own base, and
+          # three binaries rather than one — so there is no single build for it to be
+          # tagged off.
+          - image: octo-agenticrunner-paas
+            # The repo root is the build context: the Go module is rooted there.
+            context: .
+            dockerfile: runtime/Dockerfile.agentic
           # NOTE: octo-devruntime-paas is NOT built here. It is byte-for-byte the
           # standalone runtime (GOTAGS=""), so publish-runtime tags it from that one
           # build to guarantee an identical digest — building it again here would not.

@@ -87,6 +87,25 @@ That is deliberate rather than a placeholder. Access control over the orchestrat
 
 Both grants are stored on the deployment and, like tracing, are carried through a rollout that does not mention them — so a plain version bump never quietly revokes access an integration depends on.
 
+## Runners
+
+A **runner** is which image a deployment's pods run. There are two, and the choice is per deployment.
+
+| Runner | Image | For |
+| --- | --- | --- |
+| `standard` (the default) | [`octo-runtime`](/deploy/docker-images#octo-runtime) — distroless, one static binary, no shell, nothing writable | Every integration that serves requests, consumes a queue, or runs on a schedule |
+| `agentic` | [`octo-agenticrunner`](/deploy/docker-images#octo-agenticrunner) — adds a shell, `curl`, `jq`, the standalone `octo` CLI, `dolphin`, and a writable `/workspace` | An integration built to *drive* the platform: one whose flows run local commands, invoke other flows, or execute a test suite |
+
+The distinction exists because the minimal image is not merely small for the second kind, it is empty of the programs those flows name. A [`cli-run`](/reference/blocks/integration) block in an image with no local programs cannot run anything, and a [`file`](/reference/connectors/file) connector needs somewhere writable to point at. The [platform agent](/platform/agent) is the first deployment to need it.
+
+The agentic runner also gets a `/workspace` volume — an `emptyDir` capped by the chart, so it is scratch that dies with the pod — and whatever CPU and memory limits the chart sets for it. Nothing else about the workload changes: same probes, same ConfigMap, same Services, same rollout.
+
+<Callout type="warn">
+**The agentic runner is privileged, not merely bigger.** A pod holding a shell and a runtime it can point at a definition it wrote a moment ago is a general execution environment, so the boundary it offers is the pod — not any allow list inside the flow. Everything that pod holds, including secrets bound to its environment, and everything it can reach on the network, is reachable by anything it runs. Grant it to integrations whose definitions you control.
+</Callout>
+
+An installation whose chart does not configure the agentic image does not have that runner, and a deploy asking for it is **refused** with the setting named. It is not quietly downgraded: the standard image would produce a healthy pod whose every command fails with *not found*, which reads as a broken flow rather than a missing chart value. Like the grants above, the runner is stored on the deployment and carried through a rollout that does not mention it.
+
 ## Status
 
 Deployment status is computed live from the cluster through Kubernetes informers, so reads are cheap and updates are push-based:

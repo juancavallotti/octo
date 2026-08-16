@@ -54,6 +54,7 @@ troubleshooting). For local development on k3d instead, see
 | Postgres | stock `postgres:16-alpine` | 5432 | ClusterIP (headless) |
 | Schema applier (Helm hook job) | `octo-schema` | – | runs once per install/upgrade |
 | Integration runtime (one pod set per deployment) | `octo-runtime` | 8080 | ClusterIP, optional Ingress |
+| Agentic runner (per deployment, when it asks for one) | `octo-agenticrunner` | 8080 | ClusterIP, optional Ingress |
 
 **Who owns what:**
 
@@ -145,7 +146,7 @@ chart must be published before (or as part of) a deploy.
 
 **Automated (recommended):** push a version tag — release-please publishes
 `vX.Y.Z`. The Cloud Build trigger runs [cloudbuild.yaml](../cloudbuild.yaml),
-building all five images and the chart and pushing them to Artifact Registry,
+building all eight images and the chart and pushing them to Artifact Registry,
 tagged with both the git tag and `latest`.
 
 **Manual:** with `IMAGE_BASE` from `terraform output image_base`:
@@ -301,6 +302,9 @@ authenticated BFF (no separate token).
 | `DATABASE_URL` | Postgres DSN |
 | `KUBE_NAMESPACE` | namespace for integration workloads (`octo-dev`) |
 | `RUNTIME_IMAGE` | image deployed per integration (`{image_base}/octo-runtime:{tag}`) |
+| `AGENTIC_RUNNER_IMAGE` | image deployed for a `runner: agentic` deployment; empty removes that runner rather than degrading it (the deploy is refused) |
+| `AGENTIC_RUNNER_WORKSPACE_SIZE` | cap on that runner's `/workspace` emptyDir (`100Mi`) |
+| `AGENTIC_RUNNER_RESOURCES` | its container's requests/limits, as a JSON resources block; empty sets none |
 | `BASE_DOMAIN` | parent domain for external endpoints; empty disables them |
 | `CLUSTER_ISSUER` | cert-manager issuer for external TLS (`letsencrypt-prod`) |
 

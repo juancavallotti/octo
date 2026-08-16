@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -40,6 +41,7 @@ import (
 	"github.com/juancavallotti/octo/orchestrator/internal/secret"
 	"github.com/juancavallotti/octo/orchestrator/internal/snapshot"
 	"github.com/juancavallotti/octo/orchestrator/internal/user"
+	corev1 "k8s.io/api/core/v1"
 )
 
 const (
@@ -153,10 +155,22 @@ func kubeConfig() (kube.Config, error) {
 	if err != nil {
 		return kube.Config{}, err
 	}
+	agenticResources, err := agenticRunnerResources()
+	if err != nil {
+		return kube.Config{}, err
+	}
 	namespace := envOr("KUBE_NAMESPACE", defaultNamespace)
 	cfg := kube.Config{
 		Namespace:    namespace,
 		RuntimeImage: envOr("RUNTIME_IMAGE", defaultRuntimeImage),
+		// The agentic runner. Unset — with no default, unlike RUNTIME_IMAGE above —
+		// because an unconfigured runner has to be *refused*, and a default would make
+		// that impossible to detect: an agentic deploy would create pods from an image
+		// that was never published, and the failure would arrive as ImagePullBackOff
+		// rather than as a message naming the chart value. kube.RunnerEnabled reads it.
+		AgenticRunnerImage:         os.Getenv("AGENTIC_RUNNER_IMAGE"),
+		AgenticRunnerResources:     agenticResources,
+		AgenticRunnerWorkspaceSize: os.Getenv("AGENTIC_RUNNER_WORKSPACE_SIZE"),
 		// The dev-run images and this orchestrator's own in-cluster address. All three
 		// are unset on an install with dev runs off, which is a coherent state rather
 		// than a broken one: kube.DevRunsEnabled reads them together, because each one's
@@ -209,6 +223,41 @@ func ingressAnnotationsConfig() (map[string]string, error) {
 		return nil, fmt.Errorf("parse INGRESS_ANNOTATIONS: %w", err)
 	}
 	return ann, nil
+}
+
+// agenticRunnerResources parses AGENTIC_RUNNER_RESOURCES, a JSON object shaped
+// like a container's resources block:
+//
+//	{"requests":{"cpu":"200m","memory":"256Mi"},"limits":{"cpu":"1","memory":"1Gi"}}
+//
+// Unset means none, which is what every integration pod carries today. Malformed
+// JSON is a startup error rather than a silently-ignored one, following
+// INGRESS_ANNOTATIONS above: a resources block that failed to parse would
+// otherwise schedule the one workload whose whole purpose is running other
+// programs with no bound on what it may consume.
+func agenticRunnerResources() (corev1.ResourceRequirements, error) {
+	raw := os.Getenv("AGENTIC_RUNNER_RESOURCES")
+	if raw == "" {
+		return corev1.ResourceRequirements{}, nil
+	}
+	// Strict, so a misspelled key is refused rather than dropped. "request" instead
+	// of "requests" parses cleanly under the default decoder and yields no resources
+	// at all — a values file that looks like it sized the pod and did not.
+	dec := json.NewDecoder(strings.NewReader(raw))
+	dec.DisallowUnknownFields()
+	var res corev1.ResourceRequirements
+	if err := dec.Decode(&res); err != nil {
+		return corev1.ResourceRequirements{}, fmt.Errorf("parse AGENTIC_RUNNER_RESOURCES: %w", err)
+	}
+	// A Decoder reads one value and stops, where Unmarshal refused anything after
+	// it — so moving to a Decoder for DisallowUnknownFields quietly gave up the
+	// check that a truncated or double-pasted value is rejected. Insisting on EOF
+	// keeps both.
+	if err := dec.Decode(new(any)); !errors.Is(err, io.EOF) {
+		return corev1.ResourceRequirements{}, fmt.Errorf(
+			"parse AGENTIC_RUNNER_RESOURCES: unexpected data after the resources object")
+	}
+	return res, nil
 }
 
 // imagePullSecretsConfig parses RUNTIME_IMAGE_PULL_SECRETS, a comma-separated

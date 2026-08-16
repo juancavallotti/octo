@@ -19,7 +19,8 @@ inputs:                   # named messages the cases share
     vars: { x-api-key: dev-key }
 mocks:                    # stand-ins for EVERY case, keyed by block address
   submit-order.charge:
-    body: { status: "ok" }
+    default:              # see "mocks" below — a mock is cases/default, never a bare body
+      body: { status: "ok" }
 cases:                    # required, at least one
   - name: a small order is accepted
     input: small
@@ -29,6 +30,44 @@ cases:                    # required, at least one
 
 A file-level `mocks:` is where "no test in this file ever reaches the payment API" is
 said once.
+
+## mocks
+
+A mock replaces one addressed block. It holds `cases` tried in order, and an optional
+`default` — and **nothing else**. There is no bare `body:` under the address, and no
+`response:`/`statusCode:`: the parser is strict, so anything else fails the whole file
+with `field ... not found in type core.MockSpec` before a single case runs.
+
+```yaml
+mocks:
+  submit-order.charge:
+    cases:
+      - when: 'body.amount > 100'   # CEL over the message the block RECEIVED
+        error: card declined         # this crossing fails the block
+      - when: 'true'                 # a catch-all, if you want one
+        body: { status: captured }
+  submit-order.lookup:
+    default:                         # no dispatch needed: one canned answer
+      body: { tier: vip }
+```
+
+A case is one of three outcomes — it returns a message, it fails, or it filters
+the message out — so it sets `body`, `error` or `drop`, never two of them. `vars`
+is not a fourth outcome: it rides along with `body`.
+
+| Field | Meaning |
+| --- | --- |
+| `body` | The message body the block returns. A literal, never an expression. |
+| `vars` | Set alongside `body`, for a block that reports through a variable (an HTTP call setting `vars.statusCode`). Rejected without `body` — it would be a case that says nothing about what the block returned. |
+| `error` | The block fails with this message — how an error path is tested. |
+| `drop` | The block filters the message out. |
+
+`when` is the only expression a mock carries, and it reads the message the block was
+*given*, not what it returned.
+
+**A message matching no case fails the block.** That is not "fall through to the real
+block" — the mock replaced it, so a hole in the mock is an error rather than a silent
+call to the payment API. Add a `default`, or a trailing `when: 'true'`.
 
 ## Sources do not run
 

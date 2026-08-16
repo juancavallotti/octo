@@ -183,6 +183,10 @@
                         "description": "Replicas is the desired runtime replica count; \u003c1 is normalized to 1. The\nper-deployment Service load-balances across them for internal callers.",
                         "type": "integer"
                     },
+                    "runner": {
+                        "description": "Runner selects the image this deployment's pods run. Empty and \"standard\"\nare the generic octo-runtime: distroless, one static binary, no shell and\nnothing writable, which is what almost every integration wants.\n\n\"agentic\" is the heavier runner, which additionally carries a shell, curl,\njq, the standalone octo CLI, dolphin and a scratch workspace at /workspace.\nIt is for an integration built to drive the platform rather than serve it —\none whose flows run local commands, invoke other flows, or execute a test\nsuite. Dr. Octo is the first, and the reason it exists.\n\nTreat it as a privileged choice rather than a bigger one. A pod with a shell\nand a runtime it can point at a definition it just wrote is a general\nexecution environment, so the boundary it offers is the pod — not the\n`cli-run` allow list inside it. Do not grant it to an integration whose\ndefinition comes from somewhere you do not trust.",
+                        "type": "string"
+                    },
                     "slug": {
                         "description": "Slug is the user-chosen internal address label for a networked deployment\n(the internal Service is octo-int-{slug}). It must be unique across\ndeployments; empty asks the orchestrator to allocate a free one. Ignored for\nintegrations with no HTTP source. Input only — the resolved slug lives in\nMetadata.",
                         "type": "string"

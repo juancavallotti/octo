@@ -70,6 +70,7 @@ type kubeClient interface {
 	InternalURL(slug string, port int) string
 	DeleteInternalService(ctx context.Context, slug string) error
 	ExternalEnabled() bool
+	RunnerEnabled(runner kube.Runner) bool
 	ExternalURL(subdomain string) string
 	SecretKeyExists(ctx context.Context, name string) (bool, error)
 }
@@ -125,6 +126,45 @@ func NewService(repo repository, integrations integrationStore, kube kubeClient,
 		opt(s)
 	}
 	return s
+}
+
+// resolveRunner turns a settings value into the runner the workload will use,
+// refusing both a name that does not exist and one this installation cannot
+// serve.
+//
+// The two are separate errors because they are separate mistakes with separate
+// fixes: an unknown name is a typo in the request, and an unconfigured runner is
+// a chart that does not carry the image. Collapsing them into one message would
+// send whoever hit it to the wrong place.
+func (s *Service) resolveRunner(name string) (kube.Runner, error) {
+	runner, err := kube.ParseRunner(name)
+	if err != nil {
+		return "", fmt.Errorf("%w: %q", ErrInvalidRunner, name)
+	}
+	if !s.kube.RunnerEnabled(runner) {
+		return "", fmt.Errorf("%w: %q", ErrRunnerUnavailable, runner)
+	}
+	return runner, nil
+}
+
+// RunnerAvailable reports whether a deployment could ask for this runner and be
+// served. It takes the settings spelling — the string a Settings carries — so a
+// caller deciding whether to offer the choice asks the same question in the same
+// words the deploy will be made in. An unknown name is not available, which is
+// the honest answer to "could I deploy this".
+//
+// It exists for the callers that need to say so *before* deploying: the agent
+// installer refuses an install it knows would crash-loop, and the deploy form can
+// grey out a runner this installation does not carry.
+func (s *Service) RunnerAvailable(name string) bool {
+	if s.kube == nil {
+		return false
+	}
+	runner, err := kube.ParseRunner(name)
+	if err != nil {
+		return false
+	}
+	return s.kube.RunnerEnabled(runner)
 }
 
 // Deploy creates a deployment of integrationID with the given settings: it
@@ -241,6 +281,11 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 		}
 	}
 
+	runner, err := s.resolveRunner(settings.Runner)
+	if err != nil {
+		return Deployment{}, err
+	}
+
 	persisted := Settings{Replicas: replicas}
 	if external {
 		persisted.Expose = ExposeExternal
@@ -255,6 +300,13 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 	// model reads to decide whether a call was ever meant to be allowed.
 	persisted.OrchestratorAPI = settings.OrchestratorAPI
 	persisted.ObservabilityAPI = settings.ObservabilityAPI
+	// The runner is persisted for a reason worth naming, because this literal is a
+	// field-by-field copy rather than a re-marshal of the request: a rollout reads
+	// the stored row, so a runner that is not written here reaches the cluster on
+	// the first deploy and is silently demoted to the standard image on the first
+	// rollout — which for an agentic deployment means every one of its commands
+	// stops working after an upgrade nobody connected to it.
+	persisted.Runner = settings.Runner
 	persisted.SnapshotID = snapID
 	settingsJSON, err := json.Marshal(persisted)
 	if err != nil {
@@ -293,6 +345,7 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 		Subdomain:        subdomain,
 		Tracing:          settings.Tracing,
 		ObservabilityAPI: settings.ObservabilityAPI,
+		Runner:           runner,
 	}
 	if err := s.kube.Apply(ctx, spec); err != nil {
 		// Roll back: remove any partially created resources and the row so the
@@ -653,7 +706,9 @@ func (s *Service) Scale(ctx context.Context, id string, replicas int) (Deploymen
 // A tag that changes the integration's HTTP source (networked vs not) would
 // change the Service/Ingress topology, which a rolling update cannot express, so it
 // is rejected — undeploy and redeploy instead.
-func (s *Service) Rollout(ctx context.Context, id, snapshotID string, env map[string]EnvBinding, tracing *bool) (Deployment, error) {
+func (s *Service) Rollout(
+	ctx context.Context, id, snapshotID string, env map[string]EnvBinding, tracing *bool, runner *string,
+) (Deployment, error) {
 	if s.kube == nil {
 		return Deployment{}, ErrUnavailable
 	}
@@ -686,6 +741,17 @@ func (s *Service) Rollout(ctx context.Context, id, snapshotID string, env map[st
 	// parses flags, so the change only reaches it by replacing the pods.
 	if tracing != nil {
 		settings.Tracing = *tracing
+	}
+
+	// Same convention again, and it is what makes upgrading an existing deployment
+	// onto a runner-aware release work at all. A rollout normally leaves the
+	// workload's shape alone — but a deployment created before runners existed has
+	// no runner stored, so rolling a definition onto it that NEEDS one would deploy
+	// the distroless image and crash-loop on a definition it cannot even build.
+	// Passing a runner is how a caller that knows better says so; nil is still the
+	// ordinary version bump that changes nothing.
+	if runner != nil {
+		settings.Runner = *runner
 	}
 
 	// The runtime port/env come from the new frozen definition. A networked
@@ -722,6 +788,15 @@ func (s *Service) Rollout(ctx context.Context, id, snapshotID string, env map[st
 		replicas = 1
 	}
 
+	// Resolved from the settings, which the caller may just have replaced above.
+	// Resolving rather than trusting is what catches an install that has since
+	// dropped the agentic image: better to refuse the rollout than to replace a
+	// working agentic pod with a distroless one whose every command fails.
+	resolvedRunner, err := s.resolveRunner(settings.Runner)
+	if err != nil {
+		return Deployment{}, err
+	}
+
 	// Same id/slug/exposure as the existing deployment, so its address and Services
 	// are untouched; only the mounted definition (and any env/port it implies)
 	// changes. NOTE: a tag that changes HTTP_PORT updates the container port but not
@@ -743,6 +818,7 @@ func (s *Service) Rollout(ctx context.Context, id, snapshotID string, env map[st
 		Subdomain:        settings.Subdomain,
 		Tracing:          settings.Tracing,
 		ObservabilityAPI: settings.ObservabilityAPI,
+		Runner:           resolvedRunner,
 	}
 	if err := s.kube.Rollout(ctx, spec); err != nil {
 		return Deployment{}, err

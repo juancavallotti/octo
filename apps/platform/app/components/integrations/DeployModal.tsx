@@ -33,6 +33,7 @@ export interface DeploySubmit {
   tracing?: boolean;
   orchestratorApi?: boolean;
   observabilityApi?: boolean;
+  runner?: string;
 }
 
 export default function DeployModal({
@@ -66,6 +67,10 @@ export default function DeployModal({
   // installation is the exception, and the default should be the rule.
   const [orchestratorApi, setOrchestratorApi] = useState(false);
   const [observabilityApi, setObservabilityApi] = useState(false);
+  // Which image the pods run. Empty is the distroless default every integration
+  // has always had; "agentic" is the privileged one, so it is opt-in like the
+  // grants above and for a stronger reason.
+  const [runner, setRunner] = useState("");
   // A tag reads its frozen definition, Current the live working copy. The
   // suggestion prefills the slug box on load, but not on the failure fallback —
   // see useDeployOptions.
@@ -120,6 +125,7 @@ export default function DeployModal({
       ...(tracing ? { tracing: true } : {}),
       ...(orchestratorApi ? { orchestratorApi: true } : {}),
       ...(observabilityApi ? { observabilityApi: true } : {}),
+      ...(runner ? { runner } : {}),
     });
   };
 
@@ -172,6 +178,8 @@ export default function DeployModal({
           onOrchestratorApi={setOrchestratorApi}
           observabilityApi={observabilityApi}
           onObservabilityApi={setObservabilityApi}
+          runner={runner}
+          onRunner={setRunner}
           envVars={envVars}
           bindings={bindings}
           secretNames={secretNames}

@@ -72,6 +72,9 @@ devsidecar:
 devruntime:
   repository: octo-devruntime
 
+agenticrunner:
+  repository: octo-agenticrunner
+
 # The editor is on a NodePort, not behind an Ingress. k3s ships Traefik, but
 # there is no DNS name or certificate to attach locally.
 ingress:

@@ -85,6 +85,9 @@ devsidecar:
 devruntime:
   repository: octo-devruntime
 
+agenticrunner:
+  repository: octo-agenticrunner
+
 # Traefik ingress for the editor, terminating TLS with the pre-created mkcert
 # Secret (mode "secret" = reference an existing Secret; the chart issues nothing).
 # Required because .dev is HSTS-preloaded, so a browser refuses plain HTTP and

@@ -51,9 +51,13 @@ type (
 	// every method that needs it checks first rather than assuming.
 	deployer interface {
 		Deploy(ctx context.Context, integrationID string, settings deployment.Settings) (deployment.Deployment, error)
-		Rollout(ctx context.Context, id, snapshotID string, env map[string]deployment.EnvBinding, tracing *bool) (deployment.Deployment, error)
+		Rollout(
+			ctx context.Context, id, snapshotID string,
+			env map[string]deployment.EnvBinding, tracing *bool, runner *string,
+		) (deployment.Deployment, error)
 		Get(ctx context.Context, id string) (deployment.Deployment, error)
 		Undeploy(ctx context.Context, id string) error
+		RunnerAvailable(runner string) bool
 	}
 
 	secrets interface {
@@ -233,6 +237,14 @@ func (s *Service) blocked(ctx context.Context) string {
 		// would fail at the point it reads it.
 		return BlockedEncryption
 	}
+	// He is not merely nicer on the agentic runner, he requires it. His definition
+	// names the standalone octo, dolphin and curl in `cli-run` allow lists, and an
+	// allow-list entry is resolved when the flow is BUILT — so on any other image
+	// the config does not load at all and the pod crash-loops. Reporting it here
+	// turns that into a sentence on the admin page before anyone presses Install.
+	if !s.deployments.RunnerAvailable(agenticRunner) {
+		return BlockedAgenticRunner
+	}
 	return ""
 }
 
@@ -317,7 +329,28 @@ func (s *Service) Install(ctx context.Context, actorID string) (Status, error) {
 // time. Everything after this can fail and be retried.
 func (s *Service) ensureIntegration(ctx context.Context, cur stored, actorID string) (stored, error) {
 	if cur.IntegrationID != "" {
-		return cur, nil
+		_, err := s.integrations.Get(ctx, cur.IntegrationID)
+		switch {
+		case err == nil:
+			return cur, nil
+		case !errors.Is(err, integration.ErrNotFound):
+			return cur, err
+		}
+		// The record points at an integration that no longer exists — deleted from
+		// the integrations page, or a purge that failed after removing it and left
+		// the record behind. Every later Install then failed on a missing
+		// integration, and every later purge failed trying to delete it again, so
+		// the install was unrecoverable through the UI that created it.
+		//
+		// Recreating is what the operator asked for. The snapshot and digest go with
+		// the id: they describe versions of an integration that is gone, and keeping
+		// them would have the next publish reference a row that no longer exists.
+		slog.Warn("agent install: the recorded integration is gone, creating it again",
+			"integrationId", cur.IntegrationID)
+		cur.IntegrationID = ""
+		cur.SnapshotID = ""
+		cur.InstalledTag = ""
+		cur.InstalledDigest = ""
 	}
 	definition, err := agentapp.Definition()
 	if err != nil {
@@ -424,10 +457,17 @@ func (s *Service) install(ctx context.Context, cur stored, actorID string) (stor
 	// nothing today and is the declaration a future access model reads — an agent
 	// that drives the whole API is precisely the deployment that should carry it.
 	dep, err := s.deployments.Deploy(ctx, next.IntegrationID, deployment.Settings{
-		Replicas:         1,
-		SnapshotID:       snap.ID,
-		Tracing:          next.Tracing,
-		Env:              bindings,
+		Replicas:   1,
+		SnapshotID: snap.ID,
+		Tracing:    next.Tracing,
+		Env:        bindings,
+		// The runner he needs, asked for the same way any integration asks. It is not
+		// a size preference: his tools run the standalone octo, dolphin and curl, and
+		// none of those exist in the distroless image every other deployment uses —
+		// his flow would not even load there, because a `cli-run` allow list is
+		// resolved when the flow is built. blocked() refuses the install up front
+		// when this installation has no such image, so reaching here means it does.
+		Runner:           agenticRunner,
 		OrchestratorAPI:  true,
 		ObservabilityAPI: true,
 	})
@@ -520,34 +560,76 @@ func (s *Service) syncResources(ctx context.Context, integrationID string) error
 // nothing. So the release's tag is used only when this bundle is provably the one
 // behind it, and anything else is published beside it under a build tag.
 //
-// "Provably" is the settings row, not the snapshot. A snapshot freezes the
-// definition *and* the skills, and the digest covers both, so no field of a
-// snapshot answers "is this that bundle?" on its own — only the digest recorded
-// beside the snapshot id when it was published does.
+// "Provably" used to mean the settings row rather than the snapshot, and that was
+// wrong in a way that wedged installations. The row records the digest of the
+// BUNDLE, while what gets published is a snapshot of the LIVE definition — and on
+// an install that adopted an existing integration those are different documents.
+// Once they disagreed, this function's shortcut kept returning the stale snapshot,
+// so every later roll-out republished the definition and then deployed the old one:
+// a no-op that reported success, and one that uninstall/reinstall could not clear
+// because an install must not overwrite a definition either.
+//
+// So reuse is decided on CONTENT. A snapshot of exactly the definition about to be
+// published is that publication, whatever it is tagged and whatever the row
+// remembers; anything else gets a new one. The digest is still what names the tag,
+// and the row is still what "update available" reads — it is simply no longer
+// trusted to answer a question the data can answer itself.
 func (s *Service) publishBundle(ctx context.Context, cur stored, digest string) (snapshot.Snapshot, error) {
+	// What Create will actually freeze: the integration as it stands now. A roll-out
+	// has just republished the bundle over it, so this is the bundle; an install has
+	// not, so it may be someone's edits — and either way it is what the deployment
+	// would run.
+	it, err := s.integrations.Get(ctx, cur.IntegrationID)
+	if err != nil {
+		return snapshot.Snapshot{}, err
+	}
 	existing, err := s.snapshots.ListByIntegration(ctx, cur.IntegrationID)
 	if err != nil {
 		return snapshot.Snapshot{}, err
 	}
 
-	published := cur.InstalledDigest == digest && cur.SnapshotID != ""
-	tag := agentapp.Tag()
-	taken := false
+	taken := make(map[string]bool, len(existing))
 	for _, snap := range existing {
-		if published && snap.ID == cur.SnapshotID {
+		if snap.Definition == it.Definition {
 			return snap, nil
 		}
-		if snap.Tag == tag {
-			taken = true
+		taken[snap.Tag] = true
+	}
+
+	// Nothing published holds this definition, so it needs a version of its own
+	// under the first free tag. The release's tag first; then one derived from the
+	// digest, for a build made between releases that carries changed content under a
+	// version already published. A suffix past that is not expected — it means both
+	// names are held by other content — but a loop that cannot fail beats a publish
+	// that silently reuses the wrong snapshot, which is the bug this replaced.
+	// ErrTagExists is tolerated rather than returned, because the check above and
+	// the write below are not one atomic step: an operator cutting a version by hand
+	// in between takes a tag this loop just read as free. Skipping to the next
+	// candidate costs nothing and turns a lost race into a version with a different
+	// name, where returning would fail an install for a reason that had already
+	// stopped being true.
+	for _, tag := range candidateTags(digest) {
+		if taken[tag] {
+			continue
 		}
+		snap, err := s.snapshots.Create(ctx, cur.IntegrationID, tag)
+		if errors.Is(err, snapshot.ErrTagExists) {
+			continue
+		}
+		return snap, err
 	}
-	if taken {
-		// The release has published a version already, from a bundle this cannot
-		// show is the one in hand. A second version beside it is a redundant row at
-		// worst; reusing it would be a silent no-op.
-		tag = agentapp.BuildTag(digest)
+	return snapshot.Snapshot{}, fmt.Errorf(
+		"publish the agent: every candidate tag for %s is held by different content", agentapp.Tag())
+}
+
+// candidateTags is the order tags are tried in when publishing a bundle that no
+// existing version holds.
+func candidateTags(digest string) []string {
+	tags := []string{agentapp.Tag(), agentapp.BuildTag(digest)}
+	for n := 2; n <= 9; n++ {
+		tags = append(tags, fmt.Sprintf("%s-%d", agentapp.BuildTag(digest), n))
 	}
-	return s.ensureTag(ctx, cur.IntegrationID, tag)
+	return tags
 }
 
 func (s *Service) ensureTag(ctx context.Context, integrationID, tag string) (snapshot.Snapshot, error) {
@@ -746,7 +828,13 @@ func (s *Service) rollout(ctx context.Context, cur stored, actorID string) (stor
 	// The env is re-resolved and passed explicitly, so a roll-out also picks up a
 	// provider or model changed in the LLM settings since the install. Tracing is
 	// nil: it is the deployment's own setting and SetTracing is what changes it.
-	dep, err := s.deployments.Rollout(ctx, cur.DeploymentID, snap.ID, bindings, nil)
+	// The runner is stated rather than inherited, and this is the line that carries
+	// an existing installation across the release that introduced it: his deployment
+	// predates runners, so the stored row says nothing, and the bundle being rolled
+	// out cannot run anywhere else. Left to preserve, the roll-out would replace a
+	// working agent with a crash-looping one.
+	runner := agenticRunner
+	dep, err := s.deployments.Rollout(ctx, cur.DeploymentID, snap.ID, bindings, nil, &runner)
 	if err != nil {
 		return cur, err
 	}
@@ -782,7 +870,7 @@ func (s *Service) SetTracing(ctx context.Context, on bool) (Status, error) {
 		if cur.DeploymentID == "" {
 			return cur, ErrNotDeployed
 		}
-		if _, err := s.deployments.Rollout(ctx, cur.DeploymentID, cur.SnapshotID, nil, &on); err != nil {
+		if _, err := s.deployments.Rollout(ctx, cur.DeploymentID, cur.SnapshotID, nil, &on, nil); err != nil {
 			return cur, err
 		}
 		next := cur
@@ -820,7 +908,12 @@ func (s *Service) Uninstall(ctx context.Context, purge bool) error {
 		}
 
 		if purge {
-			if err := s.integrations.Delete(ctx, cur.IntegrationID); err != nil {
+			// Already gone is the outcome this asks for, not a failure. Treating it as
+			// one is what left a half-purged install stuck: the integration was
+			// deleted, the record survived, and every retry failed on the same
+			// missing row it was trying to forget.
+			if err := s.integrations.Delete(ctx, cur.IntegrationID); err != nil &&
+				!errors.Is(err, integration.ErrNotFound) {
 				return cur, err
 			}
 			// The credential is the part that most needs to go. Left behind it is a

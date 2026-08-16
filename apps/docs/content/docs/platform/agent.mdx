@@ -102,6 +102,35 @@ Press **Remove** to undeploy him. The integration is **kept**, so any changes yo
 
 To delete the integration as well, call the API with `?purge=1`. That also removes his skill resources and the cluster secret holding the provider key. It is the irreversible half, which is why it is deliberately not a button.
 
+## His workspace
+
+Dr. Octo can try a fix rather than describe one. He runs on the
+[agentic runner](/deploy/docker-images#octo-agenticrunner) — a heavier image than
+the one your integrations get, carrying a shell, `curl`, `jq`, the standalone
+`octo` CLI, `dolphin`, and a scratch directory at `/workspace`.
+
+That gives him a loop instead of an opinion: write a definition and a
+`_test.yaml` suite beside it, run the suite, read the failures, fix, run it
+again — and invoke a single flow when he wants to see what it actually returns.
+Ask him to write a flow and he can hand you one he has watched pass.
+
+Three things to expect from it:
+
+- **The workspace is scratch.** It is an `emptyDir` that dies with his pod, capped at
+  100Mi. Anything worth keeping he saves back through the API as a real
+  integration; nothing in there survives a restart, and he will tell you so.
+- **A flow he invokes runs standalone.** In-process queues, in-memory KV, no
+  cluster resources, no connectors reaching anything he was not given. It proves
+  the shape of a definition and the logic in it — never what your deployment
+  would see. He is told to say which of the two he has shown you.
+- **Commands are bounded.** Each one is killed after two minutes, so there is no
+  `octo run` and nothing long-lived. He invokes once, or runs a suite.
+
+He is deployed on that runner automatically. On an installation whose chart does
+not configure it, **Install** is blocked with the reason shown rather than
+producing a pod that crash-loops — he does not merely prefer the image, his
+definition does not load without it.
+
 ## Restrict what he can do
 
 Because he is an integration you can edit, set the limit on what he may do in his own definition rather than with a flag on the orchestrator. Open him in the editor, find the `octo_api` tool — a [`rest-dynamic`](/reference/connectors/http) block — and add either setting:
@@ -123,8 +152,20 @@ You do not need to defend the host: the connector's `baseURL` is a boundary he c
 
 His `logs_api` tool is a second, independent boundary — a different connector with a different `baseURL` — so narrowing one does nothing to the other. It already ships with `allowMethods: [GET]`, which costs nothing there because the observability API serves no other method. To take stored logs and traces away from him entirely, untick the observability grant and roll out; that removes the address rather than the tool, and he will say so when asked.
 
+### The command tools are a different kind of thing
+
+Everything above narrows an *address*. The [workspace](#his-workspace) tools do not have one, and it is worth being exact about what that means.
+
+**Deleting a tool is the control that works.** `http_fetch`, `run_command`, `invoke_flow` and the rest are blocks in a definition you can edit, exactly like `octo_api`. Remove the block, save, roll out, and the capability is gone. That is the honest lever, and it is the one to reach for.
+
+**The `allow` list on those blocks is a guardrail, not a boundary.** It names the five programs he may run, which keeps the ordinary path predictable and his traces readable. It does not contain him: `octo` is on that list, and `octo invoke` runs whatever definition it is pointed at — including one written into his workspace a moment earlier. Anything reachable from that pod is reachable from that tool.
+
+**So the boundary is the pod.** What it holds is its own environment, which for him means his provider key, and it carries only the runtime ServiceAccount — no cluster credentials beyond leases. That is the blast radius, and it is why the agentic runner is a per-deployment choice rather than something every integration gets.
+
+**`http_fetch` is the genuinely new reach.** Before it, his outbound access was two `baseURL`s and his model provider. Now it is anything his pod can route to — other integrations' internal Services, and on a cloud node the instance metadata endpoint. He is restricted to `http` and `https`, which is what stops `file://` reading his own pod, but nothing in his definition restricts *hosts*. If that matters on your cluster, a NetworkPolicy on his deployment is the control; his definition is not.
+
 <Callout>
-Bear in mind that he reads integration definitions, resource contents, pod logs and — with the observability grant — stored log messages and captured request bodies from every deployment. All of that is text other people wrote, which makes prompt injection a real consideration: a malicious string in a flow definition, or in a log line an integration was made to emit, is an instruction he may see. Narrow `allowMethods` to bound what such an instruction could achieve, untick the observability grant if you would rather he did not read that surface at all, and leave tracing on — it is on by default precisely so that "was he told to do that" is answerable after the fact rather than only from the run you happened to be watching.
+Bear in mind that he reads integration definitions, resource contents, pod logs and — with the observability grant — stored log messages and captured request bodies from every deployment. All of that is text other people wrote, which makes prompt injection a real consideration: a malicious string in a flow definition, or in a log line an integration was made to emit, is an instruction he may see. Narrow `allowMethods` to bound what such an instruction could achieve, delete the command tools if the loop above is not worth that reach on your installation, untick the observability grant if you would rather he did not read that surface at all, and leave tracing on — it is on by default precisely so that "was he told to do that" is answerable after the fact rather than only from the run you happened to be watching.
 </Callout>
 
 ## What he is made of
@@ -141,6 +182,12 @@ Read this before you change him. The whole file is in the editor.
 | `logs_api` | Queries stored logs and traces. Read-only — `allowMethods: [GET]` from the start, because every route it serves is a GET |
 | `refresh_platform_ui` | Publishes to the platform's [event bus](/platform/event-bus) so an editor with that integration open offers to reload |
 | `navigate_to` | Moves your browser to a page, when the answer to a question is a page |
+| `read_workspace_file`, `write_workspace_file`, `list_workspace` | His [workspace](#his-workspace) — where a definition he is drafting goes |
+| `invoke_flow` | Runs one flow from the workspace, once, and reads back its outcome envelope |
+| `run_flow_tests` | Runs the [dolphin](/testing) suite for a workspace directory |
+| `check_expression` | Evaluates one [CEL](/reference/cel) expression, so he can prove one rather than assert it |
+| `http_fetch` | Fetches any `http(s)` URL this pod can reach |
+| `run_command` | Runs `octo`, `dolphin`, `curl`, `find` or `jq` directly, for the case the tools above do not fit |
 | `recall_facts`, `remember_fact`, `forget_fact` | What he remembers about you between conversations |
 | Skills | Six documents on flow files, blocks, connectors, expressions, testing and the platform, loaded on demand rather than sitting in every prompt |
 
@@ -169,8 +216,26 @@ export LLM_MODEL=claude-sonnet-4-6
 export ORCHESTRATOR_URL=http://localhost:8090
 # Optional. Without it his logs tools answer that the access was not granted.
 export LOGS_URL=http://localhost:8091
+
+# Required. His workspace and the five programs he drives default to the agentic
+# runner's paths, which do not exist here. These are not optional the way
+# LOGS_URL is: a cli-run allow list is resolved when the flow is BUILT, so an
+# entry pointing at a file that is not there fails the whole config on load
+# rather than the first call that would have used it.
+export AGENT_WORKSPACE=$(mktemp -d)
+export AGENT_OCTO_BIN=$PWD/bin/octo
+export AGENT_DOLPHIN_BIN=$PWD/bin/dolphin
+export AGENT_CURL_BIN=$(command -v curl)
+export AGENT_FIND_BIN=$(command -v find)
+export AGENT_JQ_BIN=$(command -v jq)
+
 bin/octo run --config orchestrator/agent
 ```
+
+That build-time resolution is also why his definition names every program through
+a variable rather than writing the path in the `allow` list. Change one to a
+literal and he stops loading anywhere but the cluster — including in the
+[dolphin suite](/testing) that ships beside him.
 
 ```bash
 curl -N -X POST localhost:8080/chat \

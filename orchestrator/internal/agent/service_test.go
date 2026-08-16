@@ -140,11 +140,27 @@ func (f *fakeResources) ListByIntegration(context.Context, string) ([]resource.R
 type fakeSnapshots struct {
 	items   []snapshot.Snapshot
 	creates int
+	// integrations is where a snapshot's frozen definition comes from, because that
+	// is what the real Create does: it freezes the integration as it stands. Without
+	// it every snapshot here would hold an empty definition, and the installer's
+	// "has this content already been published?" check — the one that decides
+	// whether a roll-out publishes anything at all — could not be exercised.
+	integrations *fakeIntegrations
 }
 
-func (f *fakeSnapshots) Create(_ context.Context, integrationID, tag string) (snapshot.Snapshot, error) {
+func (f *fakeSnapshots) Create(ctx context.Context, integrationID, tag string) (snapshot.Snapshot, error) {
 	f.creates++
-	snap := snapshot.Snapshot{ID: "snap-" + tag, IntegrationID: integrationID, Tag: tag}
+	var definition string
+	if f.integrations != nil {
+		it, err := f.integrations.Get(ctx, integrationID)
+		if err != nil {
+			return snapshot.Snapshot{}, err
+		}
+		definition = it.Definition
+	}
+	snap := snapshot.Snapshot{
+		ID: "snap-" + tag, IntegrationID: integrationID, Tag: tag, Definition: definition,
+	}
 	f.items = append(f.items, snap)
 	return snap, nil
 }
@@ -159,6 +175,7 @@ type rolloutCall struct {
 	snapshotID   string
 	env          map[string]deployment.EnvBinding
 	tracing      *bool
+	runner       *string
 }
 
 type fakeDeployments struct {
@@ -168,6 +185,17 @@ type fakeDeployments struct {
 	status    string
 	reason    string
 	getErr    error
+	// noAgenticRunner makes this fake installation one whose chart configures no
+	// agentic runner image. Off by default, so every existing test describes the
+	// ordinary install where Dr. Octo has the image he needs.
+	noAgenticRunner bool
+}
+
+func (f *fakeDeployments) RunnerAvailable(runner string) bool {
+	if runner == "agentic" {
+		return !f.noAgenticRunner
+	}
+	return true
 }
 
 func (f *fakeDeployments) Deploy(_ context.Context, integrationID string, s deployment.Settings) (deployment.Deployment, error) {
@@ -179,9 +207,10 @@ func (f *fakeDeployments) Deploy(_ context.Context, integrationID string, s depl
 }
 
 func (f *fakeDeployments) Rollout(
-	_ context.Context, id, snapshotID string, env map[string]deployment.EnvBinding, tracing *bool,
+	_ context.Context, id, snapshotID string,
+	env map[string]deployment.EnvBinding, tracing *bool, runner *string,
 ) (deployment.Deployment, error) {
-	f.rollouts = append(f.rollouts, rolloutCall{id, snapshotID, env, tracing})
+	f.rollouts = append(f.rollouts, rolloutCall{id, snapshotID, env, tracing, runner})
 	meta, _ := json.Marshal(deployment.Metadata{InternalURL: "http://octo-int-dr-octo.octo:8080"})
 	return deployment.Deployment{ID: id, Metadata: meta}, nil
 }
@@ -276,11 +305,12 @@ type harness struct {
 // false — which is how the "local go run" case is exercised.
 func newHarness(t *testing.T, withCluster bool) *harness {
 	t.Helper()
+	integrations := newFakeIntegrations()
 	h := &harness{
 		repo:         &fakeRepo{},
-		integrations: newFakeIntegrations(),
+		integrations: integrations,
 		resources:    newFakeResources(),
-		snapshots:    &fakeSnapshots{},
+		snapshots:    &fakeSnapshots{integrations: integrations},
 		deployments:  &fakeDeployments{},
 		secrets:      &fakeSecrets{},
 		credentials: &fakeCredentials{creds: llm.Credentials{
@@ -471,9 +501,19 @@ func TestInstallPublishesBesideAReleaseTagHoldingAnotherBundle(t *testing.T) {
 	released := h.repo.row.SnapshotID
 	before := len(h.snapshots.items)
 
-	// Stand in for a binary built after that install with the bundle changed: the
-	// release's tag is there, published by something that is not the bundle in hand.
-	h.repo.row.InstalledDigest = "a-different-bundle"
+	// Stand in for a release tag published by a DIFFERENT bundle: the tag is there,
+	// and what it froze is not what is about to be published.
+	//
+	// Stated as content rather than as a digest on the settings row, because content
+	// is what the installer compares. The row records which bundle was *installed*,
+	// while a snapshot holds whatever the definition was when it was taken — on an
+	// install that adopted an existing integration those differ, and trusting the row
+	// is what used to wedge every later roll-out into a silent no-op.
+	for i := range h.snapshots.items {
+		if h.snapshots.items[i].ID == released {
+			h.snapshots.items[i].Definition = "service:\n  name: not-the-bundle\n"
+		}
+	}
 
 	got, err := h.svc.Install(ctx, "user-1")
 	if err != nil {
@@ -559,6 +599,88 @@ func TestInstallAsksForThePlatformAccessGrants(t *testing.T) {
 	}
 	if !got.OrchestratorAPI {
 		t.Error("want the orchestrator grant declared; he drives that API on every turn")
+	}
+}
+
+// TestInstallAsksForTheAgenticRunner — he does not merely prefer it. His tools run
+// the standalone octo, dolphin and curl, and none of those exist in the distroless
+// image every other deployment uses.
+func TestInstallAsksForTheAgenticRunner(t *testing.T) {
+	h := newHarness(t, true)
+
+	if _, err := h.svc.Install(context.Background(), ""); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if got := h.deployments.deployed[0].Runner; got != "agentic" {
+		t.Errorf("runner = %q, want %q", got, "agentic")
+	}
+}
+
+// TestStatusIsBlockedWithoutTheAgenticRunner — an install on a chart that carries
+// no agentic image would not produce a degraded agent, it would produce a
+// crash-looping one: an allow-list entry is resolved when the flow is built, so his
+// config does not load at all where the binaries are missing. Saying so on the
+// status page is the difference between a sentence and a postmortem.
+func TestStatusIsBlockedWithoutTheAgenticRunner(t *testing.T) {
+	h := newHarness(t, true)
+	h.deployments.noAgenticRunner = true
+
+	st, err := h.svc.Status(context.Background())
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if st.Blocked != BlockedAgenticRunner {
+		t.Errorf("blocked = %q, want %q", st.Blocked, BlockedAgenticRunner)
+	}
+}
+
+// TestRolloutRepublishesWhenTheRecordedDigestLies is the regression for a bug that
+// wedged a real installation, and the reason snapshot reuse is decided on content.
+//
+// The settings row records the digest of the BUNDLE, while what gets published is a
+// snapshot of the LIVE definition — and on an install that adopted an existing
+// integration those are different documents. The row then claims the bundle is
+// published when the snapshot holds something else entirely. Left trusting the row,
+// every subsequent roll-out republished the definition, reused the stale snapshot,
+// and reported success while deploying the old bytes — a no-op no amount of
+// reinstalling could clear, since an install must not overwrite a definition either.
+func TestRolloutRepublishesWhenTheRecordedDigestLies(t *testing.T) {
+	h := newHarness(t, true)
+	ctx := context.Background()
+
+	if _, err := h.svc.Install(ctx, "user-1"); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	// The wedge: the row says the bundle in hand is what is published, and the
+	// snapshot it points at holds a different definition.
+	stale := h.repo.row.SnapshotID
+	for i := range h.snapshots.items {
+		if h.snapshots.items[i].ID == stale {
+			h.snapshots.items[i].Definition = "service:\n  name: stale\n"
+		}
+	}
+	before := len(h.snapshots.items)
+
+	if _, err := h.svc.Rollout(ctx, "user-1"); err != nil {
+		t.Fatalf("Rollout: %v", err)
+	}
+
+	if h.repo.row.SnapshotID == stale {
+		t.Error("rolled out the stale snapshot again: the roll-out was a silent no-op")
+	}
+	if len(h.snapshots.items) <= before {
+		t.Errorf("snapshots = %d, want one published for the bundle", len(h.snapshots.items))
+	}
+	// And what it deployed is the definition the bundle actually carries.
+	definition, err := agentapp.Definition()
+	if err != nil {
+		t.Fatalf("Definition: %v", err)
+	}
+	for _, snap := range h.snapshots.items {
+		if snap.ID == h.repo.row.SnapshotID && snap.Definition != definition {
+			t.Error("the published snapshot does not hold the bundle's definition")
+		}
 	}
 }
 

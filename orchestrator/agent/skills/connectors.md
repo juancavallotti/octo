@@ -12,6 +12,7 @@ does not exist.
 | `queue` | Platform Queue | yes — queue subscription | `queue-dispatch` |
 | `events` | Platform Events | yes — event subscription | `publish-event` |
 | `logger` | Logger | no | `log` |
+| `file` | File | no | `file-read`, `file-write` |
 | `mongodb` | MongoDB | no | `mongodb-*` |
 | `pinecone` | Pinecone | no | `pinecone-*` |
 | `notion` | Notion | no | `notion-*` |
@@ -97,6 +98,25 @@ belong in `auth`, not in a block's headers.
     driver: postgres            # or sqlite, mysql
     dsn: ${DATABASE_URL}
 ```
+
+## file
+
+```yaml
+- name: workspace
+  type: file
+  settings:
+    root: /workspace            # required; no default, and it must exist at startup
+    createDirs: false           # create missing parent directories when writing
+```
+
+The root is the boundary, and it is enforced by the kernel rather than by string
+matching: paths resolve through `os.OpenRoot`, so a symlink inside the root cannot
+name a file outside it. An absolute path is refused outright rather than folded back
+under the root, because `<root>/etc/passwd` is contained but is not the file that was
+named. Files are created 0600, directories 0700.
+
+A missing root fails the deployment at startup, not the first message — so a `file`
+connector is a claim that the directory is there.
 
 ## cron
 
