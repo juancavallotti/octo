@@ -37,7 +37,7 @@ body.
 
 ## Producing raw content
 
-Five blocks and connectors put a message into raw mode:
+Six blocks and connectors put a message into raw mode:
 
 | Producer | How |
 | --- | --- |
@@ -45,6 +45,7 @@ Five blocks and connectors put a message into raw mode:
 | [`set-payload`](/reference/blocks/data) | Set `rawBody: true` and a `contentType`; the `value` **must evaluate to a string**, which becomes `rawData`. |
 | [`rest`](/reference/connectors/http) | A non-JSON HTTP-client response folds to raw content automatically, carrying the upstream `Content-Type`. |
 | [`notion-page-to-markdown`](/reference/connectors/notion) | Emits the page as `text/markdown` raw content. |
+| [`file-read`](/reference/connectors/file) | Reads a file as raw content, typed from its extension. Leave `resultVar` empty. |
 | HTTP source (`rawBody: true`) | Inbound: the request enters the flow as raw content instead of being parsed as JSON (see below). |
 
 ### From a template
