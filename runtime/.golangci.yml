@@ -149,6 +149,8 @@ linters:
         linters: [gochecknoinits]
       - path: ^connectors/events/events\.go$
         linters: [gochecknoinits]
+      - path: ^connectors/file/file\.go$
+        linters: [gochecknoinits]
       - path: ^connectors/http/http\.go$
         linters: [gochecknoinits]
       - path: ^connectors/httpclient/httpclient\.go$
