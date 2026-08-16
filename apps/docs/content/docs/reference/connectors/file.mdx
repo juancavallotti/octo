@@ -1,0 +1,122 @@
+---
+title: "File"
+description: "Read and write files under a directory the connector owns."
+octo_types:
+  - file
+  - file-read
+  - file-write
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The `file` connector owns a directory, and the `file-read` and `file-write` blocks reach files inside it. Both take their path from a CEL expression, so a flow decides per message which file to touch — which is what lets you expose one as a tool an agent calls with a file name.
+
+## `file` connector
+
+The connector owns its root: every path a block resolves is relative to that directory, and a path that leaves it is refused. Declare the root explicitly — there is no default, because where a flow may read and write is the one thing worth stating out loud, and inheriting the process working directory would make it depend on how the runtime was launched.
+
+**Provides a source:** no — it is a service connector. **Blocks that bind to it:** `file-read`, `file-write`.
+
+### Settings
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `root` | string | Yes | — | Directory every path is resolved under. A path that escapes it is refused. |
+| `createDirs` | boolean | No | `false` | Create missing parent directories when writing. |
+
+A missing root, or one that names a file rather than a directory, fails at startup rather than on the first message.
+
+Prefer an absolute path. A relative one is resolved against the runtime's working directory, so the same config reads a different directory depending on where you launched it from — which is rarely what you want once the flow leaves your machine. Supply it through an environment variable, as the sample below does, and the deployment decides.
+
+<Callout type="warn">
+  Point `root` at a directory that holds only what the flow should reach. Both blocks take their path from an expression, and that expression frequently reads from the message — so whoever calls the flow chooses the file. The root is the boundary that makes that safe.
+</Callout>
+
+### How paths are confined
+
+Two checks run on every path, because neither answers the whole question:
+
+- A **lexical check** rejects a path that resolves outside the root, so `../secret` never reaches the filesystem. A `..` that stays inside is folded away rather than refused.
+- The read or write itself goes through **`os.Root`**, which resolves each component against the opened root directory and refuses the ones that leave. This is what catches `link/secret`, where `link` is a symlink pointing elsewhere: that path is inside the root as a string and outside it on disk, so only the kernel can answer it.
+
+An absolute path is refused rather than resolved under the root, as is an empty one. Refusing it is the honest answer: quietly reading `<root>/etc/passwd` when the flow asked for `/etc/passwd` would be contained but would not be the file it named.
+
+## `file-read` block
+
+**File Read** — reads a file and puts its contents on the message as [raw content](/concepts/raw-content), so a non-JSON file survives without being forced through a JSON decode.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `connector` | string | Yes | — | Name of the `file` connector whose root the path is resolved under. |
+| `path` | expression | Yes | — | CEL expression for the path to read, relative to the root. |
+| `encoding` | enum: `text` \| `base64` | No | `text` | How the file's bytes are carried. |
+| `contentType` | string | No | from the extension | MIME type recorded on the raw body. |
+| `resultVar` | string | No | — | Variable to store the contents in. Empty replaces the body. |
+
+With no `resultVar` the message enters raw-content mode and the body becomes `{contentType, rawData}` — parse it with `fromYaml(body.rawData)`, `fromJson(body.rawData)`, or leave it as text. With `resultVar` set the contents go into that variable and the body is untouched, which is what you want when the file is one input among several.
+
+`contentType` defaults to the type the extension names. The common text formats (`.yaml`, `.yml`, `.json`, `.csv`, `.tsv`, `.md`, `.toml`, `.env`, `.txt`) resolve the same way everywhere; anything else falls back to the host's MIME table and then to `application/octet-stream`.
+
+## `file-write` block
+
+**File Write** — writes a file and passes the message through unchanged, so a write can sit mid-flow the way a `log` block does.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `connector` | string | Yes | — | Name of the `file` connector whose root the path is resolved under. |
+| `path` | expression | Yes | — | CEL expression for the path to write, relative to the root. |
+| `content` | expression | No | the message body | CEL expression for the contents. |
+| `encoding` | enum: `text` \| `base64` | No | `text` | How to read the contents before writing. |
+| `resultVar` | string | No | — | Variable to store a `{path, bytes}` receipt in. |
+
+With no `content` expression the message body is written: its raw content as-is when the message carries some, otherwise its JSON encoding. Writing an existing file replaces it. Writing into a directory that does not exist is an error unless the connector sets `createDirs`, so a typo in a path does not quietly build a tree nobody asked for.
+
+Files are created mode `0600`, and directories `0700`.
+
+## Binary files
+
+Set `encoding: base64` on both blocks to move a binary file through a flow. `file-read` then base64-encodes the bytes into `rawData` and `file-write` decodes them before writing, so a file survives the round trip byte for byte.
+
+<Callout type="warn">
+  `rawData` is a UTF-8 string, so `encoding: text` is only safe for text. Bytes that are not valid UTF-8 survive within one process but are replaced with U+FFFD the first time the message crosses a JSON boundary — a queue hop, `invoke`, or a trace. The corruption is silent, so choose `base64` whenever the file might not be text.
+
+  What `base64` does not give you is serving a binary file straight from the http source, which writes `rawData` verbatim. Decode it in the flow, or keep the bytes in the [object store](/reference/blocks/storage) and pass a reference.
+</Callout>
+
+## Example
+
+From `samples/file-io/config.yaml` — reading a YAML config, reshaping it, and writing an env file back out:
+
+```yaml
+connectors:
+  - name: workspace
+    type: file
+    settings:
+      root: ${FILE_ROOT}
+      createDirs: true
+
+flows:
+  - name: render-config
+    process:
+      # The path comes from the message, so a caller chooses the file.
+      - type: file-read
+        settings:
+          connector: workspace
+          path: body.source
+
+      # The body is now {contentType, rawData}; fromYaml makes it structured.
+      - type: set-payload
+        settings:
+          value: fromYaml(body.rawData)
+
+      - type: file-write
+        settings:
+          connector: workspace
+          path: '"out/" + body.name + ".env"'
+          content: 'toEnv({"SERVICE_NAME": body.name, "REPLICAS": body.replicas})'
+          resultVar: written
+```
+
+<Callout type="info">
+  Pair `file-read` with [`fromYaml`, `fromJson` or `fromEnv`](/reference/cel/octo-extensions) to parse what you read, and `file-write` with their `to*` counterparts to render what you write. The blocks move bytes; the expressions give them shape.
+</Callout>
