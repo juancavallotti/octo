@@ -798,7 +798,7 @@ func (a *aggregate) release(ctx context.Context, state *groupState, reason strin
 	if err != nil {
 		return err
 	}
-	out.Body = state.Acc
+	out.SetBody(state.Acc)
 	out.SetTraceID(state.TraceID)
 	out.Variables.Set(varAggregateKey, state.Key)
 	out.Variables.Set(varAggregateCount, state.Count)

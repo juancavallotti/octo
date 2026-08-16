@@ -609,7 +609,7 @@ func (m *mcpRouter) resourceMessage(msg *types.Message, values map[string]any) (
 	for name, v := range msg.Variables {
 		out.Variables.Set(name, v)
 	}
-	out.Body = values
+	out.SetBody(values)
 	return out, nil
 }
 

@@ -233,7 +233,7 @@ func (p *objectRead) Process(ctx context.Context, msg *types.Message) (*types.Me
 func (p *objectRead) miss(msg *types.Message, key string, activation map[string]any) (*types.Message, error) {
 	if p.defaultProg == nil {
 		if p.as == "" {
-			msg.Body = nil
+			msg.SetBody(nil)
 		}
 		return msg, nil
 	}
@@ -252,7 +252,7 @@ func (p *objectRead) fold(msg *types.Message, value any) {
 		msg.Variables.Set(p.as, value)
 		return
 	}
-	msg.Body = value
+	msg.SetBody(value)
 }
 
 // objectDeleteSettings configures the object-delete block.

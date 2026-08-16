@@ -100,7 +100,7 @@ func (p *templateResourceBlock) Process(ctx context.Context, msg *types.Message)
 	case p.rawBody:
 		msg.SetRawBody(p.contentType, rendered)
 	default:
-		msg.Body = rendered
+		msg.SetBody(rendered)
 	}
 	return msg, nil
 }

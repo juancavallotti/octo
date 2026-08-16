@@ -110,7 +110,7 @@ func (p *setPayload) Process(_ context.Context, msg *types.Message) (*types.Mess
 		msg.SetRawBody(p.contentType, data)
 		return msg, nil
 	}
-	msg.Body = value
+	msg.SetBody(value)
 	return msg, nil
 }
 

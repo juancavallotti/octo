@@ -116,7 +116,10 @@ func (d *dispatch) Process(ctx context.Context, msg *types.Message) (*types.Mess
 	if err != nil {
 		return nil, fmt.Errorf("queue-dispatch request to %q: %w", subject, err)
 	}
-	msg.Body = reply.Body
+	// The reply's body replaces this one, raw-content mode included — see the
+	// same fold in the flow-ref block.
+	msg.SetBody(reply.Body)
+	msg.RawContent = reply.RawContent
 	for k, v := range reply.Variables {
 		msg.Variables.Set(k, v)
 	}

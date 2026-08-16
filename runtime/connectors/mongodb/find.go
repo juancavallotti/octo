@@ -236,7 +236,7 @@ func deliverMiss(msg *types.Message, resultVar string) {
 		msg.Variables.Set(resultVar, nil)
 		return
 	}
-	msg.Body = nil
+	msg.SetBody(nil)
 }
 
 // evalSort evaluates a sort expression to the ordered bson.D the driver takes.

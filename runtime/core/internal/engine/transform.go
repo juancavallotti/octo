@@ -130,7 +130,7 @@ func (p *multiTransform) Process(_ context.Context, msg *types.Message) (*types.
 			return nil, fmt.Errorf("multi-transform step %d: %w", i, err)
 		}
 		if step.setVar == "" {
-			msg.Body = value
+			msg.SetBody(value)
 			continue
 		}
 		msg.Variables.Set(step.setVar, value)

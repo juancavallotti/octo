@@ -346,14 +346,35 @@ func (m *Message) shallow() *Message {
 	return &out
 }
 
+// SetBody replaces Body with an ordinary JSON-native value, leaving raw-content
+// mode if the message was in it. It is how a stage replaces the body: assigning
+// the field directly sets the payload without retracting the claim RawContent
+// makes about it, and a message whose body is no longer {contentType, rawData}
+// while RawContent still says it is has a flag that lies about it.
+//
+// Nothing downstream is fooled — RawBody re-checks the shape, so a raw-aware sink
+// falls back to JSON either way — but the flag is serialized (the invoke
+// envelope, the queue's Octo-Raw-Content header, a trace record), and a message
+// that reports raw content while carrying an object is a thing someone has to
+// stop and work out.
+//
+// Direct assignment is left for the two places that own the flag themselves:
+// SetRawBody, which sets both, and a decoder restoring a message whose
+// RawContent arrived with it.
+func (m *Message) SetBody(value any) {
+	m.Body = value
+	m.RawContent = false
+}
+
 // SetBodyJSON decodes raw JSON into Body. Per encoding/json rules numbers
-// become float64, objects map[string]any and arrays []any.
+// become float64, objects map[string]any and arrays []any. Like SetBody, it
+// leaves raw-content mode: what it decoded is a JSON body by definition.
 func (m *Message) SetBodyJSON(raw []byte) error {
 	var decoded any
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		return fmt.Errorf("decode body: %w", err)
 	}
-	m.Body = decoded
+	m.SetBody(decoded)
 	return nil
 }
 

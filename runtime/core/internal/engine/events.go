@@ -95,7 +95,7 @@ func (e *emitter) message(parent *types.Message, kind string, fields map[string]
 	for name, v := range fields {
 		body[name] = v
 	}
-	msg.Body = body
+	msg.SetBody(body)
 	return msg, nil
 }
 

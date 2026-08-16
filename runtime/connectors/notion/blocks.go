@@ -101,7 +101,7 @@ func (p *retrieveBlocksProcessor) Process(ctx context.Context, msg *types.Messag
 		msg.Variables.Set(p.resultVar, out)
 		return msg, nil
 	}
-	msg.Body = out
+	msg.SetBody(out)
 	return msg, nil
 }
 

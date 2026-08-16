@@ -285,7 +285,7 @@ func (c *cliRun) Process(ctx context.Context, msg *types.Message) (*types.Messag
 		// managed to produce and stop the chain, rather than routing a hung-up
 		// caller into the flow's error path.
 		if result != nil {
-			msg.Body = cliResultBody(result)
+			msg.SetBody(cliResultBody(result))
 		}
 		msg.RequestStop()
 		return msg, nil
@@ -295,7 +295,7 @@ func (c *cliRun) Process(ctx context.Context, msg *types.Message) (*types.Messag
 	}
 
 	c.emitExit(ctx, msg, result)
-	msg.Body = cliResultBody(result)
+	msg.SetBody(cliResultBody(result))
 	if c.onExit == onExitFail && result.exitCode != 0 {
 		return nil, fmt.Errorf("cli-run %s: %q exited %d",
 			blockLabel(blockKindCLIRun, c.name), program, result.exitCode)

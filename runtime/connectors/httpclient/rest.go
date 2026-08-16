@@ -342,7 +342,7 @@ func (p *processor) applyHeaders(req *http.Request, activation map[string]any) e
 // response's Content-Type otherwise, or null for an empty body.
 func foldResponse(msg *types.Message, body []byte, contentType string) error {
 	if len(bytes.TrimSpace(body)) == 0 {
-		msg.Body = nil
+		msg.SetBody(nil)
 		return nil
 	}
 	if json.Valid(body) {

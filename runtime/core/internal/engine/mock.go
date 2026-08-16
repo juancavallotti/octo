@@ -85,7 +85,7 @@ func (o *mockOutcome) apply(msg *types.Message) (*types.Message, error) {
 	if err := json.Unmarshal(o.body, &body); err != nil {
 		return nil, fmt.Errorf("mock body: %w", err)
 	}
-	msg.Body = body
+	msg.SetBody(body)
 
 	if len(o.vars) > 0 {
 		var vars map[string]any
