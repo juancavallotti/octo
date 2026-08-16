@@ -1,0 +1,113 @@
+# Agentic runner image (octo-agenticrunner).
+#
+# The runtime image an integration runs when its deployment asks for
+# `runner: agentic` — today that is Dr. Octo, and the reason he needs it is that
+# the capabilities he was given have nowhere to land in the ordinary one.
+#
+# `octo-runtime` is gcr.io/distroless/static-debian12: one static binary, no
+# shell, no curl, no test runner, nothing writable. That is exactly right for an
+# integration that serves a webhook, and it makes the `cli-run` block and the
+# `file` connector inert — a block that runs a local program, in an image with no
+# local programs. This image is the other end of that trade: a real userland, the
+# standalone octo CLI, dolphin, and a workspace to write in.
+#
+# It is a separate Dockerfile rather than another `--build-arg GOTAGS=` arm of
+# runtime/Dockerfile because it is a different image and not a different flag: a
+# different final stage, a different base, and three binaries where that one has
+# one. Two files that share a name and agree on nothing would be the worse lie.
+#
+# Build context is the repo ROOT (the Go module is rooted there), e.g.:
+#   docker build -t octo-agenticrunner:dev -f runtime/Dockerfile.agentic .
+
+# --- Stage 1: build all three binaries from one source tree --------------------
+#
+# One stage, one COPY, one commit. The k8s octo that runs the flow, the standalone
+# octo that flow invokes, and the dolphin driving it are three views of the same
+# module at the same revision — which is the guarantee apps/standalone/Dockerfile
+# already states for its octo/dolphin pair, and it matters more here: a skewed
+# pair would have the agent testing a flow against a runtime that is not the one
+# the platform would run it on.
+FROM golang:1.25-alpine AS build
+RUN apk add --no-cache git
+WORKDIR /src
+# The module manifest lives at the repo root; every Go package lives under runtime/.
+COPY go.mod go.sum ./
+COPY runtime/ ./runtime/
+
+# The cluster runtime: Lease-based leader election, the orchestrator KV store,
+# NATS queues and log shipping. This is the pod's own entrypoint.
+# -s -w strip the symbol table and DWARF debug info for a leaner binary.
+RUN CGO_ENABLED=0 go build \
+    -tags k8s \
+    -ldflags "-s -w -X main.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    -o /out/octo-k8s ./runtime/octo
+
+# The standalone runtime — the build with no tags, which is what `octo` gives you
+# on a laptop. It has to be a second binary and cannot be the one above:
+# providers_k8s.go and providers_standalone.go are mutually exclusive build tags,
+# and the k8s build EXITS without RUNTIME_SERVICES_MODULE set, so it cannot double
+# as a CLI. This is the one the agent invokes and the one dolphin drives.
+RUN CGO_ENABLED=0 go build \
+    -ldflags "-s -w -X main.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    -o /out/octo-standalone ./runtime/octo
+
+# dolphin, the test runner. Standalone too — it drives the binary beside it.
+RUN CGO_ENABLED=0 go build \
+    -ldflags "-s -w -X main.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    -o /out/dolphin ./runtime/dolphin
+
+# --- Stage 2: a userland an agent can actually use -----------------------------
+FROM alpine:3.22
+
+# ca-certificates so curl and the runtime can verify TLS, tzdata so the cron
+# connector can resolve a named zone, curl and jq because troubleshooting an
+# integration is mostly fetching something and reading the JSON back.
+#
+# findutils replaces busybox's find with GNU find at the same path. Busybox is not
+# a security problem here — resolveProgram deliberately does not follow symlinks,
+# so an allow list naming find does not also admit sh — it is a usability one: this
+# image is driven by a language model, and busybox's reduced flag surface turns a
+# reasonable `-printf` into a confusing failure.
+RUN apk add --no-cache ca-certificates curl jq tzdata findutils
+
+# uid 65532, the same "nonroot" the distroless images use — so a workspace written
+# by one runner is readable by the other, and every octo image answers the "who
+# owns this file" question with one number.
+RUN addgroup -g 65532 -S nonroot \
+    && adduser -u 65532 -S -G nonroot -h /home/nonroot nonroot
+
+# The cluster runtime goes on PATH under its ordinary name; the other two do not.
+# That is deliberate: with /opt/octo/bin off PATH, a bare `octo` is unambiguously
+# the k8s build, and every allow-list entry and program expression in a flow is an
+# absolute path — so PATH ordering can never decide which binary runs.
+COPY --from=build /out/octo-k8s /usr/local/bin/octo
+COPY --from=build /out/octo-standalone /opt/octo/bin/octo
+COPY --from=build /out/dolphin /opt/octo/bin/dolphin
+
+# What makes dolphin drive the standalone octo rather than this pod's entrypoint.
+# $OCTO_PATH is an override and not a hint — dolphin fails rather than falling
+# through when it is set and wrong (runtime/dolphin/octobin.go) — which is what
+# turns a broken image into a clear error instead of a suite run against the wrong
+# binary.
+#
+# NOTE, because this is the easy half to get wrong: setting it here puts it in the
+# RUNTIME's environment, and a `cli-run` block passes its child only the variables
+# it names. The flow must declare `env: [PATH, HOME, OCTO_PATH]` as well. Both
+# halves are required and neither is sufficient.
+ENV OCTO_PATH=/opt/octo/bin/octo
+ENV HOME=/home/nonroot
+
+# The mount point for the deployment's workspace volume. Created and owned here so
+# the directory exists even on a pod that was given no volume — the `file`
+# connector stats its root when it starts, and a missing directory would fail the
+# whole deployment rather than the first message that reached for a file.
+RUN mkdir -p /workspace && chown 65532:65532 /workspace
+
+USER 65532:65532
+
+# Identical to runtime/Dockerfile, and that is the point: the orchestrator swaps
+# one image string and changes nothing else about how the pod starts — same
+# config path, same probes, same user.
+ENTRYPOINT ["/usr/local/bin/octo"]
+# Load every integration YAML mounted into this directory.
+CMD ["run", "--config", "/etc/octo/integrations"]
