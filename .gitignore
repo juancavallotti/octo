@@ -16,6 +16,9 @@ dist/
 /sidecars/dev/dev
 # DevSpace's local state/cache dir.
 /.devspace/
+# What the file-io sample writes into its own workspace when it runs. The input
+# it reads (workspace/service.yaml) is committed; its output is not.
+/samples/file-io/workspace/out/
 *.log
 *.tmp
 *.swp

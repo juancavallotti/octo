@@ -13,7 +13,10 @@
  *   - variables:                 runtime/core/expr/message.go (MessageVars)
  *   - toJson / fromJson:         runtime/core/expr/json.go
  *   - toFormData / fromFormData: runtime/core/expr/formdata.go
+ *   - toYaml / fromYaml:         runtime/core/expr/yaml.go
+ *   - toEnv / fromEnv:           runtime/core/expr/env.go
  *   - templateResource:          runtime/core/expr/template.go
+ *   - hmacSha256 / hmacSha1 / hexEncode / secureCompare: runtime/core/expr/crypto.go
  *   - EXT_METHODS / EXT_NAMESPACES: runtime/core/expr/stdext.go, which pins the
  *     version of each cel-go library and therefore which functions exist.
  * The CEL_BUILTINS entries are standard CEL and change only with the CEL spec
@@ -127,12 +130,77 @@ export const OCTO_FUNCTIONS: CelEntry[] = [
     example: "fromFormData(body.rawData)",
   },
   {
+    name: "toYaml",
+    kind: "function",
+    signature: "toYaml(dyn) -> string",
+    summary:
+      "Render any value as a YAML document. Strings that would read back as another type (y, no, 1.0) are quoted, so the round-trip is lossless.",
+    example: "toYaml(body)",
+  },
+  {
+    name: "fromYaml",
+    kind: "function",
+    signature: "fromYaml(string) -> dyn",
+    summary:
+      "Parse a YAML document into a decoded value, normalized to JSON-native shapes (integers become numbers, timestamps become RFC 3339 strings) — e.g. parse a YAML file read as raw text.",
+    example: "fromYaml(body.rawData)",
+  },
+  {
+    name: "toEnv",
+    kind: "function",
+    signature: "toEnv(dyn) -> string",
+    summary:
+      "Render a flat object as .env file content, keys sorted and values quoted when needed. A nested object or list is an error — an env file is flat.",
+    example: 'toEnv({"DB_HOST": "localhost", "PORT": 5432})',
+  },
+  {
+    name: "fromEnv",
+    kind: "function",
+    signature: "fromEnv(string) -> dyn",
+    summary:
+      "Parse .env file content into an object. Comments, a leading 'export', and quoted values are handled; every value is a string.",
+    example: "fromEnv(body.rawData)",
+  },
+  {
     name: "templateResource",
     kind: "function",
     signature: "templateResource(string) -> string",
     summary:
       "Render a template resource (by id) against the current message; the template sees the in-scope variables via {{ env.NAME }} / {{ body.* }}. (Not available in the standalone CEL tester.)",
     example: 'templateResource("welcome-email")',
+  },
+  {
+    name: "hmacSha256",
+    kind: "function",
+    signature: "hmacSha256(dyn, dyn) -> bytes",
+    summary:
+      "The HMAC-SHA256 of a payload under a key, as raw bytes. Both arguments take a string or bytes; render the digest with hexEncode or base64.encode.",
+    example: "hexEncode(hmacSha256(env.WEBHOOK_SECRET, vars.rawBody))",
+  },
+  {
+    name: "hmacSha1",
+    kind: "function",
+    signature: "hmacSha1(dyn, dyn) -> bytes",
+    summary:
+      "The same as hmacSha256 with SHA-1, for legacy schemes that still sign with it (Twilio, GitHub's older X-Hub-Signature). Do not choose it for anything new.",
+    example: "hexEncode(hmacSha1(env.WEBHOOK_SECRET, vars.rawBody))",
+  },
+  {
+    name: "hexEncode",
+    kind: "function",
+    signature: "hexEncode(dyn) -> string",
+    summary:
+      "Render bytes as lowercase hex, the form most providers put in their signature header. For base64 schemes use base64.encode instead.",
+    example: "hexEncode(hmacSha256(env.SECRET, vars.rawBody))",
+  },
+  {
+    name: "secureCompare",
+    kind: "function",
+    signature: "secureCompare(dyn, dyn) -> bool",
+    summary:
+      "Compare two values without a content-dependent early return. Always use this for signatures — CEL's == leaks how many bytes matched via timing.",
+    example:
+      'secureCompare(vars["X-Hub-Signature-256"], "sha256=" + hexEncode(hmacSha256(env.SECRET, vars.rawBody)))',
   },
 ];
 

@@ -463,6 +463,50 @@ func TestRawBody(t *testing.T) {
 	})
 }
 
+// TestSetBodyLeavesRawContent pins the invariant the setter exists for. Nothing
+// downstream is fooled by a stale flag — RawBody re-checks the shape — but the
+// flag is serialized into the invoke envelope, the queue's Octo-Raw-Content
+// header and trace records, so a message reporting raw content while carrying an
+// object is a thing someone has to stop and work out.
+func TestSetBodyLeavesRawContent(t *testing.T) {
+	t.Run("SetBody", func(t *testing.T) {
+		msg := &Message{}
+		msg.SetRawBody("text/html", "<h1>hi</h1>")
+
+		msg.SetBody(map[string]any{"parsed": true})
+		if msg.RawContent {
+			t.Error("RawContent still set after SetBody replaced the raw body")
+		}
+		if _, _, ok := msg.RawBody(); ok {
+			t.Error("RawBody ok = true after the body was replaced")
+		}
+	})
+
+	t.Run("SetBodyJSON", func(t *testing.T) {
+		msg := &Message{}
+		msg.SetRawBody("application/json", `{"a":1}`)
+
+		if err := msg.SetBodyJSON([]byte(`{"a":1}`)); err != nil {
+			t.Fatalf("SetBodyJSON: %v", err)
+		}
+		if msg.RawContent {
+			t.Error("RawContent still set after SetBodyJSON decoded a JSON body")
+		}
+	})
+
+	t.Run("a failed decode leaves the message alone", func(t *testing.T) {
+		msg := &Message{}
+		msg.SetRawBody("text/html", "<h1>hi</h1>")
+
+		if err := msg.SetBodyJSON([]byte("{not json")); err == nil {
+			t.Fatal("expected a decode error")
+		}
+		if _, _, ok := msg.RawBody(); !ok {
+			t.Error("a failed decode dropped raw-content mode")
+		}
+	})
+}
+
 func TestVariablesTypedAccessors(t *testing.T) {
 	t.Run("native int via Set", func(t *testing.T) {
 		var v Variables

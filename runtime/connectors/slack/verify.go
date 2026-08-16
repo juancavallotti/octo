@@ -113,11 +113,9 @@ func (p *verifyProcessor) Process(_ context.Context, msg *types.Message) (*types
 	// the Slack payload. Parse the verified bytes into Body (best-effort: Slack
 	// slash commands are form-encoded, not JSON) so the challenge branch below and
 	// downstream body.* access work the same as with rawBodyVar. SetBodyJSON leaves
-	// RawContent set, so clear it to make this a normal JSON message.
+	// raw-content mode on the way, which is what makes this a normal JSON message.
 	if _, _, ok := msg.RawBody(); ok {
-		if err := msg.SetBodyJSON(raw); err == nil {
-			msg.RawContent = false
-		}
+		_ = msg.SetBodyJSON(raw)
 	}
 
 	if body, ok := msg.Body.(map[string]any); ok {

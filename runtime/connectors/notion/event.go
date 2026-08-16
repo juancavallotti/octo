@@ -85,7 +85,7 @@ func (p *eventProcessor) Process(_ context.Context, msg *types.Message) (*types.
 			return nil, nil
 		}
 	}
-	msg.Body = normalized
+	msg.SetBody(normalized)
 
 	if p.filter != nil {
 		keep, err := p.evalFilter(msg)

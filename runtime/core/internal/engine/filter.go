@@ -40,7 +40,7 @@ func applyReject(
 		msg = out
 	} else {
 		msg.Variables.Set(httpStatusVar, defaultStatus)
-		msg.Body = defaultBody
+		msg.SetBody(defaultBody)
 	}
 	msg.RequestStop()
 	return msg, nil

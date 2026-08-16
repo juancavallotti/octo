@@ -259,7 +259,7 @@ func elementMessage(parent *types.Message, value any) (*types.Message, error) {
 	if err != nil {
 		return nil, err
 	}
-	elem.Body = value
+	elem.SetBody(value)
 	elem = elem.Clone()
 
 	for name, v := range parent.Variables {

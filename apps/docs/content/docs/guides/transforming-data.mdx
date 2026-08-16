@@ -228,6 +228,45 @@ strings, lists, encoders, math, two-variable comprehensions, sets, and regex —
 and for what is deliberately left out (there is no `sum`, so totalling a list
 still wants the `foreach` above).
 
+## Convert between text formats
+
+When a payload arrives as text — a YAML config, a `.env` file, a form body —
+parse it with one expression instead of reaching for a block. Each format has a
+parser and a renderer: `fromJson`/`toJson`, `fromFormData`/`toFormData`,
+`fromYaml`/`toYaml`, and `fromEnv`/`toEnv`. Put the call in `set-payload` when the
+result becomes the body, or in `set-variable` when you want to keep the body and
+hold the rendered text for a later block.
+
+Parse on the way in, work with an ordinary body, and render on the way out — as
+[`samples/text-formats.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/text-formats.yaml)
+does, reading a YAML service config and emitting its deployment settings as
+`.env` content:
+
+```yaml
+- type: set-payload
+  name: parse-yaml
+  settings:
+    value: "fromYaml(body.yaml)"
+
+- type: set-variable
+  name: render-env
+  settings:
+    name: envFile
+    value: 'toEnv({"SERVICE_NAME": body.name, "REPLICAS": body.replicas})'
+```
+
+```bash
+bin/octo invoke --config samples/text-formats.yaml --flow render-config \
+  --data '{"yaml": "name: billing\nreplicas: 3\nenv:\n  DB_HOST: db.internal\n  DEBUG: false\n"}'
+```
+
+Expect two things when you write against the parsed body. Treat a YAML integer as
+a number — `fromYaml` normalizes to the JSON-native shapes a body may hold, so a
+YAML timestamp arrives as its RFC 3339 string too. And compare `fromEnv` values
+as strings, with `body.PORT == "8080"`, or convert them with `int(body.PORT)`,
+since an env file carries no types. See
+[Octo Extensions](/reference/cel/octo-extensions) for the full set.
+
 ## CEL patterns worth stealing
 
 ```yaml

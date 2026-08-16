@@ -147,7 +147,7 @@ func (m *mapping) Process(ctx context.Context, msg *types.Message) (*types.Messa
 		}
 	}
 
-	msg.Body = decoded
+	msg.SetBody(decoded)
 	if len(m.outputSchema) > 0 {
 		msg.BodySchema = m.outputSchema
 	}

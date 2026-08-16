@@ -67,7 +67,7 @@ func deliver(msg *types.Message, resultVar string, result any) *types.Message {
 		msg.Variables.Set(resultVar, result)
 		return msg
 	}
-	msg.Body = result
+	msg.SetBody(result)
 	return msg
 }
 

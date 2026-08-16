@@ -25,7 +25,15 @@ A **source payload** expression runs before any message exists, so it sees only
 | `fromJson` | `fromJson(string) -> dyn` | Parse a JSON string into a value. |
 | `toFormData` | `toFormData(map) -> string` | URL-encoded form body. |
 | `fromFormData` | `fromFormData(string) -> map` | Parse one. |
+| `toYaml` | `toYaml(dyn) -> string` | Render a value as a YAML document. Ambiguous strings (`y`, `no`, `1.0`) are quoted for you. |
+| `fromYaml` | `fromYaml(string) -> dyn` | Parse a YAML document, normalized to JSON-native shapes (ints become numbers, timestamps become RFC 3339 strings). |
+| `toEnv` | `toEnv(map) -> string` | Render a flat map as `.env` content, keys sorted. A nested value is an error. |
+| `fromEnv` | `fromEnv(string) -> map` | Parse `.env` content. Every value is a string. |
 | `templateResource` | `templateResource(name) -> string` | Render a declared template resource against the current message. |
+| `hmacSha256` | `hmacSha256(dyn, dyn) -> bytes` | HMAC-SHA256 of a payload under a key. Render with `hexEncode` or `base64.encode`. |
+| `hmacSha1` | `hmacSha1(dyn, dyn) -> bytes` | The same with SHA-1, for legacy schemes only. |
+| `hexEncode` | `hexEncode(dyn) -> string` | Render bytes as lowercase hex. |
+| `secureCompare` | `secureCompare(dyn, dyn) -> bool` | Constant-time compare. Always use it for signatures — `==` leaks the match length via timing. |
 
 ## Standard libraries available
 

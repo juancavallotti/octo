@@ -85,7 +85,12 @@ func (f *flowRef) Process(ctx context.Context, msg *types.Message) (*types.Messa
 		return msg, nil
 	}
 
-	msg.Body = result.Body
+	// The called flow's answer replaces this body, raw-content mode included:
+	// whether it answered with typed bytes or with JSON is its answer to carry,
+	// and taking the body without the flag would strip the type off a flow that
+	// returned HTML.
+	msg.SetBody(result.Body)
+	msg.RawContent = result.RawContent
 	for k, v := range result.Variables {
 		msg.Variables.Set(k, v)
 	}

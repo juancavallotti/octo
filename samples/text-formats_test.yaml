@@ -1,0 +1,76 @@
+# Covers the four text-format conversion functions end to end. The `that:`
+# assertions compile through the same CEL seam the flow does, so they exercise
+# the functions a second time from the assertion side.
+flow: render-config
+
+inputs:
+  billing:
+    data:
+      yaml: |
+        name: billing
+        replicas: 3
+        env:
+          DB_HOST: db.internal
+          DEBUG: false
+
+cases:
+  - name: it parses YAML, renders an env file, and reads it back
+    input: billing
+    expect:
+      body:
+        service: billing
+        dbHost: db.internal
+        # Every fromEnv value is a string, including the one that started as a
+        # YAML integer and went through arithmetic.
+        maxSurge: "6"
+        envFile: |
+          DB_HOST=db.internal
+          DEBUG=false
+          MAX_SURGE=6
+          REPLICAS=3
+          SERVICE_NAME=billing
+        yaml: |
+          name: billing
+          replicas: 3
+      that:
+        # fromYaml normalized the YAML integer to a JSON number, so it compares
+        # as one rather than as a string.
+        - "fromYaml(body.yaml).replicas == 3"
+        # toEnv sorts its keys, so the rendering is deterministic.
+        - 'body.envFile.split("\n")[0].startsWith("DB_HOST=")'
+        - 'fromEnv(body.envFile).SERVICE_NAME == "billing"'
+
+  # A hostile DB_HOST cannot smuggle an extra variable into the rendered file:
+  # toEnv escapes the line breaks, so the entry stays one physical line and
+  # fromEnv reads back exactly what went in.
+  - name: a value carrying newlines cannot inject another variable
+    input:
+      data:
+        yaml: |
+          name: billing
+          replicas: 1
+          env:
+            DB_HOST: "db.internal\nINJECTED=1\n#"
+            DEBUG: false
+    expect:
+      that:
+        - 'body.dbHost == "db.internal\nINJECTED=1\n#"'
+        - '!(("INJECTED" in fromEnv(body.envFile)))'
+        - 'size(body.envFile.split("\n")) == 6'
+
+  - name: a value needing quotes survives the env round trip
+    input:
+      data:
+        yaml: |
+          name: two words
+          replicas: 1
+          env:
+            DB_HOST: "host with spaces"
+            DEBUG: true
+    expect:
+      that:
+        # toEnv quoted both values because writing them bare would not read back
+        # the same, and fromEnv unquoted them again.
+        - 'body.dbHost == "host with spaces"'
+        - 'body.envFile.contains("DB_HOST=\"host with spaces\"")'
+        - 'fromEnv(body.envFile).SERVICE_NAME == "two words"'

@@ -47,6 +47,10 @@ export const BLOCK_CLASSES: Record<string, WorkClass> = {
   "object-read": "io",
   "object-write": "io",
   "object-delete": "io",
+  // A local disk read or write is still a wait on something outside the process,
+  // and a slow one is the filesystem's doing rather than the flow's.
+  "file-read": "io",
+  "file-write": "io",
   // The KV store is an HTTP round trip to the orchestrator, so evicting an entry
   // and wiping a thread are both network waits rather than local bookkeeping.
   "invalidate-cache": "io",

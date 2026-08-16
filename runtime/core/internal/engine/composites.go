@@ -204,7 +204,7 @@ func (e *enrichScope) Process(ctx context.Context, msg *types.Message) (*types.M
 		if evalErr != nil {
 			return nil, fmt.Errorf("enrich setBody: %w", evalErr)
 		}
-		msg.Body = value
+		msg.SetBody(value)
 	}
 	for name, program := range e.setVars {
 		value, evalErr := program.Eval(activation)
@@ -330,7 +330,7 @@ func (f *foreachBlock) mapItems(ctx context.Context, msg *types.Message, items [
 		}
 	}
 
-	msg.Body = mapped
+	msg.SetBody(mapped)
 	if stopped {
 		msg.RequestStop()
 	}

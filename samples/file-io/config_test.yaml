@@ -1,0 +1,59 @@
+# Exercises the file connector end to end against the committed workspace/
+# fixture. The flow reads its own output back, so these assertions see what
+# actually landed on disk rather than what the write block reported.
+flow: render-config
+
+# A relative root resolves against the working directory, and the suite runs from
+# runtime/ (task runtime:test:samples) while the config's own default is written
+# for a run from the repo root, as the sample's instructions show. Point it at the
+# same directory from here. An absolute FILE_ROOT would need no override at all.
+env:
+  FILE_ROOT: ../samples/file-io/workspace
+
+inputs:
+  service:
+    data:
+      source: service.yaml
+
+cases:
+  - name: it reads a YAML config and writes the env file back
+    input: service
+    expect:
+      body:
+        service: billing
+        wrote: out/billing.env
+        # The five sorted KEY=value lines below, newline-terminated.
+        bytes: 79
+        settings:
+          SERVICE_NAME: billing
+          # Every fromEnv value is a string, including the one that arrived as a
+          # YAML integer and went through arithmetic.
+          REPLICAS: "3"
+          MAX_SURGE: "6"
+          DB_HOST: db.internal
+          LOG_LEVEL: info
+      that:
+        # The receipt counts the bytes that were written, and the file read back
+        # is the same length — so nothing was truncated on the way out.
+        - "vars.written.bytes == size(vars.reread)"
+        - 'vars.written.path == "out/billing.env"'
+        # toEnv sorts its keys, so the file's shape is deterministic.
+        - 'vars.reread.startsWith("DB_HOST=db.internal\n")'
+
+  # The path is an expression, so it is the caller who names the file — which is
+  # the whole point for an agent tool, and the reason the root exists. A path
+  # trying to climb out of the root fails the message instead of reading the
+  # host's files.
+  - name: a path escaping the connector root is refused
+    input:
+      data:
+        source: ../../../etc/passwd
+    expect:
+      error: "escapes the connector root"
+
+  - name: a missing file fails the message
+    input:
+      data:
+        source: absent.yaml
+    expect:
+      error: "file-read"

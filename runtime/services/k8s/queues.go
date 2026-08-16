@@ -243,6 +243,9 @@ func decodeMsg(m *nats.Msg) (types.Message, error) {
 		if err := json.Unmarshal(m.Data, &body); err != nil {
 			return types.Message{}, fmt.Errorf("queues: decode body: %w", err)
 		}
+		// Assigned rather than SetBody: RawContent came off the header above and
+		// describes this very body, so clearing it here would drop raw-content mode
+		// at the process boundary.
 		out.Body = body
 	}
 	for key, values := range m.Header {

@@ -52,7 +52,7 @@ source:
 
 ## Functions
 
-Octo registers nine functions of its own. They are available in every message
+Octo registers thirteen functions of its own. They are available in every message
 expression, in every source payload, and inside a template's `{{ }}` spans —
 the three environments expose the same set, as do the [extension
 libraries](/reference/cel/libraries).
@@ -122,6 +122,96 @@ bin/octo eval --expr 'fromFormData("q=hello+world&page=2&tags=a&tags=b")'
 
 Note that parsed form values are always strings — compare with
 `int(body.page) > 1` or `body.page == "2"`.
+
+### toYaml
+
+```
+toYaml(dyn) -> string
+```
+
+Renders any value as a YAML document. Use it to write a config file, or to hand
+a structure to a tool that reads YAML.
+
+Strings that would read back as a different type are quoted for you, so what
+`toYaml` writes is what `fromYaml` returns. Under YAML 1.1 a bare `y`, `no` or
+`1.0` is a boolean or a number, not the string you put in.
+
+```bash
+bin/octo eval --expr 'toYaml({"a": 1, "b": ["x", "y"]})'
+# {"ok":true,"result":"a: 1\nb:\n    - x\n    - \"y\"\n"}
+```
+
+### fromYaml
+
+```
+fromYaml(string) -> dyn
+```
+
+Parses a YAML document into a decoded value. The typical use is a YAML file read
+into the flow as raw content: `fromYaml(body.rawData)`.
+
+The result is normalized to the [JSON-native shapes](#behavior-notes) a message
+body may hold — YAML integers become numbers and YAML timestamps become RFC 3339
+strings. A document YAML can express but JSON cannot, such as a non-string
+mapping key, is an evaluation error rather than a body with a foreign type in it.
+
+<Callout type="warn">
+  A JSON number is a binary double, so an integer above 2^53 does not survive
+  exactly — `id: 9007199254740993` reads back as `9007199254740992`. This is the
+  body contract rather than anything YAML-specific (`fromJson` does the same), but
+  YAML config files carry large ids more often. Quote such a value in the source
+  document to keep it a string.
+</Callout>
+
+```bash
+bin/octo eval --expr 'fromYaml("a: 1\nb: [x, y]")'
+# {"ok":true,"result":{"a":1,"b":["x","y"]}}
+```
+
+### toEnv
+
+```
+toEnv(dyn) -> string
+```
+
+Renders a flat object as `.env` file content. Keys are sorted, so the output is
+deterministic, and a value is quoted only when writing it bare would not read
+back the same — when it is empty, holds whitespace or a `#`, or contains a quote,
+a backslash, or a line break.
+
+Values are scalars — a string, number or boolean, with null rendering empty. A
+scalar may hold any *characters*, line breaks included: every one that carries
+structure is escaped, so one variable is always one physical line and a value can
+never introduce a second assignment. Feed it untrusted text safely.
+
+Two things are errors rather than silent corruption. An env file is flat, so a
+nested object or list value is refused, naming the key. And a name has no quoted
+form to hide in, so a name that is empty, contains `=`, `#`, or a quote, or
+starts or ends with whitespace is refused too.
+
+```bash
+bin/octo eval --expr 'toEnv({"B": "two words", "A": "1"})'
+# {"ok":true,"result":"A=1\nB=\"two words\"\n"}
+```
+
+### fromEnv
+
+```
+fromEnv(string) -> dyn
+```
+
+Parses `.env` file content into an object. Blank lines and `#` comments are
+skipped, a leading `export ` is dropped, and quoted values are unquoted — the
+same rules the runtime uses for the `.env` files it loads at startup, because it
+is the same parser.
+
+Every value is a string, since an env file carries no types. Compare with
+`body.PORT == "8080"` or convert with `int(body.PORT)`.
+
+```bash
+bin/octo eval --expr 'fromEnv("export A=1\n# note\nB=\"two words\"")'
+# {"ok":true,"result":{"A":"1","B":"two words"}}
+```
 
 ### templateResource
 

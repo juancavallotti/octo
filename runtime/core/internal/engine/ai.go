@@ -1178,9 +1178,9 @@ func foldResult(msg *types.Message, text string) *types.Message {
 	}
 	var decoded any
 	if json.Unmarshal([]byte(trimmed), &decoded) == nil {
-		msg.Body = decoded
+		msg.SetBody(decoded)
 	} else {
-		msg.Body = text
+		msg.SetBody(text)
 	}
 	return msg
 }

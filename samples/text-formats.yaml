@@ -1,0 +1,76 @@
+service:
+  name: text-formats
+
+# Demonstrates Octo's text-format conversion functions: toYaml/fromYaml and
+# toEnv/fromEnv, alongside the toJson/fromJson pair they follow. Each one bridges
+# between a text payload and the JSON-native body every block already understands,
+# so a flow that reads a config file — or writes one — needs no parsing block.
+#
+# The flow takes a service config as YAML text, parses it, reshapes it, and emits
+# the deployment settings as .env content ready to write out.
+#
+#   octo invoke --config samples/text-formats.yaml --flow render-config \
+#     --data '{"yaml": "name: billing\nreplicas: 3\nenv:\n  DB_HOST: db.internal\n  DEBUG: false\n"}'
+#
+# Two things about these functions are worth knowing before you reach for them:
+#
+#  - fromYaml normalizes to JSON-native shapes. YAML is the wider language — it
+#    decodes integers as ints and timestamps as dates, neither of which a message
+#    body may hold — so a YAML integer arrives as a number and a YAML timestamp as
+#    its RFC 3339 string. A document JSON cannot represent (a non-string mapping
+#    key, say) is an error rather than a body with a foreign type in it.
+#  - fromEnv values are always strings. An env file carries no types, so compare
+#    with body.PORT == "8080" or convert with int(body.PORT).
+#
+# toEnv is safe to point at data you did not author: a value carrying a newline
+# is escaped rather than written literally, so it stays one physical line and
+# cannot introduce a second variable into the file. A *name* has no quoted form
+# to hide in, so a name containing '=', whitespace or '#' is an error instead.
+
+flows:
+  - name: render-config
+    process:
+      # fromYaml turns the YAML text into an ordinary body. Everything downstream
+      # is normal CEL against normal JSON shapes — no YAML awareness required.
+      - type: set-payload
+        name: parse-yaml
+        settings:
+          value: "fromYaml(body.yaml)"
+
+      - type: multi-transform
+        name: derive-settings
+        settings:
+          transforms:
+            # replicas came in as a YAML integer and is a JSON number here, so it
+            # does arithmetic — against another double, since CEL has no
+            # double * int overload. toEnv stringifies it on the way out.
+            - setVar: maxSurge
+              value: "body.replicas * 2.0"
+
+            # toEnv renders a flat map as .env content: keys sorted, values quoted
+            # only when writing them bare would not read back the same. A nested
+            # value would be an error — an env file is flat.
+            - setVar: envFile
+              value: |
+                toEnv({
+                  "SERVICE_NAME": body.name,
+                  "REPLICAS": body.replicas,
+                  "MAX_SURGE": vars.maxSurge,
+                  "DB_HOST": body.env.DB_HOST,
+                  "DEBUG": body.env.DEBUG
+                })
+
+            # And back again: fromEnv parses what toEnv wrote, which is the round
+            # trip that makes these safe to write a file with. Every value it
+            # returns is a string.
+            - setVar: parsedBack
+              value: "fromEnv(vars.envFile)"
+
+            - setBody: |
+                {
+                  "service": body.name,
+                  "envFile": vars.envFile,
+                  "dbHost": vars.parsedBack.DB_HOST,
+                  "maxSurge": vars.parsedBack.MAX_SURGE,
+                  "yaml": toYaml({"name": body.name, "replicas": body.replicas})
+                }

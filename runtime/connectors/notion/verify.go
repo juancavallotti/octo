@@ -110,11 +110,10 @@ func (p *verifyProcessor) Process(_ context.Context, msg *types.Message) (*types
 	// In native raw-content mode Body is the {contentType, rawData} envelope, not
 	// the Notion payload. Parse the verified bytes into Body so the handshake branch
 	// below and downstream body.* access work the same as with rawBodyVar.
-	// SetBodyJSON leaves RawContent set, so clear it to make this a normal message.
+	// SetBodyJSON leaves raw-content mode on the way, which is what makes this a
+	// normal JSON message.
 	if _, _, ok := msg.RawBody(); ok {
-		if err := msg.SetBodyJSON(raw); err == nil {
-			msg.RawContent = false
-		}
+		_ = msg.SetBodyJSON(raw)
 	}
 
 	if body, ok := msg.Body.(map[string]any); ok {

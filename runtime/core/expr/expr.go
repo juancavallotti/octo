@@ -26,6 +26,8 @@ import (
 func init() {
 	registerFormDataExtension()
 	registerJSONExtension()
+	registerYAMLExtension()
+	registerEnvExtension()
 	registerCryptoExtension()
 	registerTemplateResourceExtension()
 	registerStandardExtensions()

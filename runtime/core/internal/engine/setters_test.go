@@ -76,6 +76,33 @@ func TestSetPayloadRawBody(t *testing.T) {
 	}
 }
 
+// TestSetPayloadLeavesRawContent covers the shape a raw-content flow actually
+// takes: a source or a read block puts the message into raw mode, and the next
+// set-payload parses it back into an object. Replacing the body has to retract
+// the claim RawContent makes about it, or the message reports raw content while
+// carrying a map — visible in the invoke envelope and on the queue header.
+func TestSetPayloadLeavesRawContent(t *testing.T) {
+	proc, err := newSetPayload(types.Settings{"value": `fromJson(body.rawData)`}, core.BlockDeps{})
+	if err != nil {
+		t.Fatalf("newSetPayload: %v", err)
+	}
+
+	msg := mustMessage(t)
+	msg.SetRawBody("application/json", `{"name":"Ada"}`)
+
+	out, err := proc.Process(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	if out.RawContent {
+		t.Error("RawContent still set after set-payload replaced the raw body")
+	}
+	body, ok := out.Body.(map[string]any)
+	if !ok || body["name"] != "Ada" {
+		t.Errorf("body = %#v, want the parsed object", out.Body)
+	}
+}
+
 func TestSetPayloadRawBodyRejectsNonString(t *testing.T) {
 	proc, err := newSetPayload(
 		types.Settings{"value": `{"k":"v"}`, "rawBody": true, "contentType": "text/plain"},

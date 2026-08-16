@@ -1,0 +1,104 @@
+service:
+  name: file-io
+
+# Reads a file, reshapes it, and writes a different one back out — the whole
+# round trip the file connector exists for.
+#
+# The path on both blocks is a CEL expression, not a fixed string, so the caller
+# decides which file to touch. That is what makes a flow like this usable as a
+# tool an agent calls: it is handed a file name at call time. It is also why the
+# connector owns a root — every path resolves under it, and one that tries to
+# leave (../../etc/passwd, or a symlink pointing out) is refused.
+#
+# Try it:
+#   bin/octo invoke --config samples/file-io/config.yaml --flow render-config \
+#     --data '{"source": "service.yaml"}'
+#   cat samples/file-io/workspace/out/billing.env
+#
+# The flow reads workspace/service.yaml, parses it with fromYaml, renders the
+# deployment settings with toEnv, writes them to workspace/out/<name>.env, and
+# then reads that file back so the result proves the round trip rather than
+# claiming it.
+
+env:
+  # Where the connector may read and write. Relative paths resolve against the
+  # working directory, so run octo from the repo root as the commands above do.
+  - name: FILE_ROOT
+    default: samples/file-io/workspace
+
+connectors:
+  - name: workspace
+    type: file
+    settings:
+      root: ${FILE_ROOT}
+      # out/ does not exist until the first run, so let the write create it.
+      createDirs: true
+
+flows:
+  - name: render-config
+    process:
+      # 1) READ. The path comes from the message, so the caller chooses the file.
+      #    With no resultVar the body becomes the raw-content envelope
+      #    {contentType, rawData} — contentType is application/yaml here, taken
+      #    from the extension.
+      - type: file-read
+        name: read-source
+        settings:
+          connector: workspace
+          path: body.source
+
+      # 2) PARSE. fromYaml turns the raw text into an ordinary body. Note that
+      #    replicas arrives as a JSON number, so it does arithmetic later.
+      - type: set-payload
+        name: parse-source
+        settings:
+          value: fromYaml(body.rawData)
+
+      - type: multi-transform
+        name: derive-settings
+        settings:
+          transforms:
+            - setVar: target
+              value: '"out/" + body.name + ".env"'
+            # toEnv escapes whatever it is given, so a value carrying a newline
+            # cannot introduce a second variable into the file it writes.
+            - setVar: envFile
+              value: |
+                toEnv({
+                  "SERVICE_NAME": body.name,
+                  "REPLICAS": body.replicas,
+                  "MAX_SURGE": body.replicas * 2.0,
+                  "DB_HOST": body.env.DB_HOST,
+                  "LOG_LEVEL": body.env.LOG_LEVEL
+                })
+
+      # 3) WRITE. The block passes the message through unchanged, so the body is
+      #    still the parsed config afterwards; the receipt lands in a variable.
+      - type: file-write
+        name: write-env
+        settings:
+          connector: workspace
+          path: vars.target
+          content: vars.envFile
+          resultVar: written
+
+      # 4) READ IT BACK, into a variable this time so the body survives. Reading
+      #    what was just written is what makes the result evidence of the round
+      #    trip rather than a claim about it.
+      - type: file-read
+        name: read-back
+        settings:
+          connector: workspace
+          path: vars.target
+          resultVar: reread
+
+      - type: set-payload
+        name: summarize
+        settings:
+          value: |
+            {
+              "service": body.name,
+              "wrote": vars.written.path,
+              "bytes": vars.written.bytes,
+              "settings": fromEnv(vars.reread)
+            }

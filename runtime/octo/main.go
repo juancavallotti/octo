@@ -10,6 +10,7 @@ import (
 	_ "github.com/juancavallotti/octo/runtime/connectors/cron"
 	_ "github.com/juancavallotti/octo/runtime/connectors/database" // registers the "database" connector and "sql" block
 	_ "github.com/juancavallotti/octo/runtime/connectors/events"   // registers the "events" connector + source and the "publish-event" block
+	_ "github.com/juancavallotti/octo/runtime/connectors/file"     // registers the "file" connector and the "file-read"/"file-write" blocks
 	_ "github.com/juancavallotti/octo/runtime/connectors/http"
 	_ "github.com/juancavallotti/octo/runtime/connectors/httpclient"    // registers the "http-client" connector and "rest" block
 	_ "github.com/juancavallotti/octo/runtime/connectors/llm/anthropic" // registers the "llm-anthropic" connector
