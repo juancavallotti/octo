@@ -231,17 +231,17 @@ type Config struct {
 	AgenticRunnerWorkspaceSize string
 	DevRuntimeImage            string
 	SidecarImage               string
-	SidecarPort       int32
-	OrchestratorURL   string
-	BaseDomain        string
-	EndpointAPI       EndpointAPI
-	ClusterIssuer     string
-	WildcardTLSSecret string
-	IngressClass      string
-	ExtraAnnotations  map[string]string
-	Gateway           GatewayRef
-	ImagePullSecrets  []string
-	RuntimeServices   RuntimeServices
+	SidecarPort                int32
+	OrchestratorURL            string
+	BaseDomain                 string
+	EndpointAPI                EndpointAPI
+	ClusterIssuer              string
+	WildcardTLSSecret          string
+	IngressClass               string
+	ExtraAnnotations           map[string]string
+	Gateway                    GatewayRef
+	ImagePullSecrets           []string
+	RuntimeServices            RuntimeServices
 }
 
 // Validate reports configuration that cannot work, before anything is built from
@@ -264,8 +264,14 @@ func (c Config) Validate() error {
 		return fmt.Errorf("kube: gateway endpoints need a Gateway to attach to: set the gateway name")
 	}
 	if s := c.AgenticRunnerWorkspaceSize; s != "" {
-		if _, err := resource.ParseQuantity(s); err != nil {
+		q, err := resource.ParseQuantity(s)
+		if err != nil {
 			return fmt.Errorf("kube: agentic runner workspace size %q is not a quantity (e.g. 100Mi): %w", s, err)
+		}
+		if q.Sign() <= 0 {
+			return fmt.Errorf(
+				"kube: agentic runner workspace size %q must be positive — kubelet reads a zero "+
+					"limit as no limit, which is the unbounded workspace this setting prevents", s)
 		}
 	}
 	return nil
@@ -404,7 +410,11 @@ func (c *Client) runnerImage(r Runner) string {
 // .Validate reports it, so the mistake is still said out loud.
 func parseWorkspaceSize(s string) resource.Quantity {
 	if s != "" {
-		if q, err := resource.ParseQuantity(s); err == nil {
+		// Positive, not merely parseable. "0" is a valid Quantity and kubelet reads a
+		// zero SizeLimit as NO limit, so a chart that set it would silently get the
+		// unbounded workspace this field exists to prevent — the one where a runaway
+		// command fills the node's disk and evicts every pod on it, not just this one.
+		if q, err := resource.ParseQuantity(s); err == nil && q.Sign() > 0 {
 			return q
 		}
 	}

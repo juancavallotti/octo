@@ -239,8 +239,13 @@ func agenticRunnerResources() (corev1.ResourceRequirements, error) {
 	if raw == "" {
 		return corev1.ResourceRequirements{}, nil
 	}
+	// Strict, so a misspelled key is refused rather than dropped. "request" instead
+	// of "requests" parses cleanly under the default decoder and yields no resources
+	// at all — a values file that looks like it sized the pod and did not.
+	dec := json.NewDecoder(strings.NewReader(raw))
+	dec.DisallowUnknownFields()
 	var res corev1.ResourceRequirements
-	if err := json.Unmarshal([]byte(raw), &res); err != nil {
+	if err := dec.Decode(&res); err != nil {
 		return corev1.ResourceRequirements{}, fmt.Errorf("parse AGENTIC_RUNNER_RESOURCES: %w", err)
 	}
 	return res, nil

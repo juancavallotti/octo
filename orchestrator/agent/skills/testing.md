@@ -51,12 +51,14 @@ mocks:
       body: { tier: vip }
 ```
 
-Each case sets exactly one of:
+A case is one of three outcomes — it returns a message, it fails, or it filters
+the message out — so it sets `body`, `error` or `drop`, never two of them. `vars`
+is not a fourth outcome: it rides along with `body`.
 
 | Field | Meaning |
 | --- | --- |
 | `body` | The message body the block returns. A literal, never an expression. |
-| `vars` | Set alongside `body`, for a block that reports through a variable (an HTTP call setting `vars.statusCode`). Not valid without `body`. |
+| `vars` | Set alongside `body`, for a block that reports through a variable (an HTTP call setting `vars.statusCode`). Rejected without `body` — it would be a case that says nothing about what the block returned. |
 | `error` | The block fails with this message — how an error path is tested. |
 | `drop` | The block filters the message out. |
 

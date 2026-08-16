@@ -203,6 +203,24 @@ func TestWorkspaceSizeFallsBackToTheDefault(t *testing.T) {
 	}
 }
 
+// TestWorkspaceSizeRejectsANonPositiveCap is the one that matters most here.
+// "0" and "-1" are perfectly valid Quantities, and kubelet reads a zero SizeLimit
+// as NO limit — so accepting one would silently produce the unbounded workspace
+// the cap exists to prevent, on the single workload whose purpose is running other
+// programs.
+func TestWorkspaceSizeRejectsANonPositiveCap(t *testing.T) {
+	for _, in := range []string{"0", "-1", "-100Mi"} {
+		cfg := agenticConfig()
+		cfg.AgenticRunnerWorkspaceSize = in
+		if err := cfg.Validate(); err == nil {
+			t.Errorf("Validate accepted a workspace size of %q", in)
+		}
+		if got := testClientFor(cfg).workspaceSize.String(); got != defaultWorkspaceSize {
+			t.Errorf("workspaceSize for %q = %s, want the default %s", in, got, defaultWorkspaceSize)
+		}
+	}
+}
+
 // TestValidateRejectsAnUnparseableWorkspaceSize — the size still falls back at
 // runtime, but the operator is told they mistyped it rather than left wondering
 // why their 5Gi workspace is 100Mi.

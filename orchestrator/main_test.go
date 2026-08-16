@@ -250,6 +250,16 @@ func TestAgenticRunnerResources(t *testing.T) {
 	// INGRESS_ANNOTATIONS: a resources block that failed to parse would otherwise
 	// schedule the one workload whose whole purpose is running other programs with
 	// no bound on what it may consume.
+	// A misspelled key parses cleanly under the default decoder and yields no
+	// resources at all — a values file that reads as though it sized the pod and did
+	// not. Strict decoding turns that into a startup error naming the field.
+	t.Run("a misspelled field is fatal", func(t *testing.T) {
+		t.Setenv("AGENTIC_RUNNER_RESOURCES", `{"request":{"cpu":"200m"}}`)
+		if _, err := agenticRunnerResources(); err == nil {
+			t.Error("accepted \"request\" for \"requests\"")
+		}
+	})
+
 	t.Run("malformed is fatal", func(t *testing.T) {
 		t.Setenv("AGENTIC_RUNNER_RESOURCES", "{not json")
 		if _, err := agenticRunnerResources(); err == nil {
