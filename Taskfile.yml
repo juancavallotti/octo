@@ -52,7 +52,7 @@ env:
 # the target of a deploy/purge/dev command.
 vars:
   KCTX: k3d-octo
-  # The seven images the orchestrator and the chart expect to find already in the
+  # The eight images the orchestrator and the chart expect to find already in the
   # node's containerd. Declared once because three tasks need the same list, and a
   # list that drifts between them is how a cluster ends up holding a subset of it.
   # Nothing pulls these: they exist only in the local docker daemon, so an image
@@ -60,6 +60,7 @@ vars:
   CLUSTER_IMAGES: >-
     octo-platform:dev octo-orchestrator:dev octo-logs:dev octo-schema:dev
     octo-runtime:dev octo-devsidecar:dev octo-devruntime:dev
+    octo-agenticrunner:dev
 
 tasks:
   fmt:
@@ -204,7 +205,7 @@ tasks:
         echo "✓ docker, k3d, devspace present"
 
   cluster:images:
-    desc: Build the platform/orchestrator/logs/schema/runtime/devsidecar/devruntime images and load them into the k3d 'octo' cluster
+    desc: Build the platform/orchestrator/logs/schema/runtime/devsidecar/devruntime/agenticrunner images and load them into the k3d 'octo' cluster
     cmds:
       # Platform build context is the repo ROOT so its Dockerfile can reach both
       # runtime/ (to build octo) and the pnpm workspace (apps/platform).
@@ -221,6 +222,10 @@ tasks:
       # and the k8s build has no standalone provider to fall back to.
       - docker build -t octo-devsidecar:dev -f sidecars/dev/Dockerfile ./sidecars
       - docker build --build-arg GOTAGS= -t octo-devruntime:dev -f runtime/Dockerfile .
+      # The agentic runner: the image a deployment runs when it asks for
+      # `runner: agentic`. Its own Dockerfile rather than a GOTAGS arm of the one
+      # above, because it carries three binaries on a base with a shell.
+      - docker build -t octo-agenticrunner:dev -f runtime/Dockerfile.agentic .
       # Load the images straight into the cluster's containerd (no registry needed).
       - k3d image import {{.CLUSTER_IMAGES}} -c octo
       # Then prove they landed, and are still there. A gap never surfaces here: it
@@ -249,7 +254,7 @@ tasks:
           printf '%s\n' "$have" | grep -qx "docker.io/library/$img" || missing="$missing $img"
         done
         if [ -z "$missing" ]; then
-          echo "✓ all seven images present in cluster 'octo'"
+          echo "✓ all eight images present in cluster 'octo'"
           exit 0
         fi
         echo "✖ cluster 'octo' is missing:$missing" >&2
@@ -276,7 +281,7 @@ tasks:
         exit 1
 
   cluster:images:kind:
-    desc: Build the seven images and load them into a kind 'octo' cluster
+    desc: Build the eight images and load them into a kind 'octo' cluster
     cmds:
       - docker build -t octo-platform:dev -f apps/platform/Dockerfile .
       - docker build -t octo-orchestrator:dev -f orchestrator/Dockerfile ./orchestrator
@@ -285,6 +290,7 @@ tasks:
       - docker build -t octo-runtime:dev -f runtime/Dockerfile .
       - docker build -t octo-devsidecar:dev -f sidecars/dev/Dockerfile ./sidecars
       - docker build --build-arg GOTAGS= -t octo-devruntime:dev -f runtime/Dockerfile .
+      - docker build -t octo-agenticrunner:dev -f runtime/Dockerfile.agentic .
       # No verify step to match cluster:images: that check reads the k3d node's
       # containerd, and a kind node is a different name and a different runtime.
       - kind load docker-image --name octo {{.CLUSTER_IMAGES}}
@@ -395,7 +401,7 @@ tasks:
   # (IMAGE_BASE/octo-platform-paas:TAG ...) and the OCI chart under IMAGE_BASE/octo.
 
   images:push:
-    desc: 'Build the seven octo images and push them to Artifact Registry (set IMAGE_BASE and TAG; run `gcloud auth configure-docker <region>-docker.pkg.dev` first)'
+    desc: 'Build the eight octo images and push them to Artifact Registry (set IMAGE_BASE and TAG; run `gcloud auth configure-docker <region>-docker.pkg.dev` first)'
     requires:
       vars: [IMAGE_BASE, TAG]
     cmds:
@@ -409,6 +415,8 @@ tasks:
       - docker build -t {{.IMAGE_BASE}}/octo-devsidecar-paas:{{.TAG}} -f sidecars/dev/Dockerfile ./sidecars
       # GOTAGS= (empty) is the standalone build; the k8s one is octo-runtime-paas above.
       - docker build --build-arg GOTAGS= -t {{.IMAGE_BASE}}/octo-devruntime-paas:{{.TAG}} -f runtime/Dockerfile .
+      # The agentic runner has its own Dockerfile, not a GOTAGS arm of the one above.
+      - docker build -t {{.IMAGE_BASE}}/octo-agenticrunner-paas:{{.TAG}} -f runtime/Dockerfile.agentic .
       - docker push {{.IMAGE_BASE}}/octo-platform-paas:{{.TAG}}
       - docker push {{.IMAGE_BASE}}/octo-orchestrator-paas:{{.TAG}}
       - docker push {{.IMAGE_BASE}}/octo-logs-paas:{{.TAG}}
@@ -416,9 +424,10 @@ tasks:
       - docker push {{.IMAGE_BASE}}/octo-runtime-paas:{{.TAG}}
       - docker push {{.IMAGE_BASE}}/octo-devsidecar-paas:{{.TAG}}
       - docker push {{.IMAGE_BASE}}/octo-devruntime-paas:{{.TAG}}
+      - docker push {{.IMAGE_BASE}}/octo-agenticrunner-paas:{{.TAG}}
 
   images:ttl:
-    desc: 'Build the seven octo images from the working tree and push them to ttl.sh for cluster testing (optional PREFIX, TTL)'
+    desc: 'Build the eight octo images from the working tree and push them to ttl.sh for cluster testing (optional PREFIX, TTL)'
     vars:
       # ttl.sh's tag IS the image's lifetime, and 24h is its maximum.
       TTL: '{{.TTL | default "12h"}}'
@@ -460,6 +469,9 @@ tasks:
         # empty one is the standalone build a dev run executes.
         build octo-runtime-paas      runtime/Dockerfile       .           "--build-arg GOTAGS=k8s"
         build octo-devruntime-paas   runtime/Dockerfile       .           "--build-arg GOTAGS="
+        # The agentic runner, from its own Dockerfile: three binaries on a base with
+        # a shell, for a deployment that asks for `runner: agentic`.
+        build octo-agenticrunner-paas runtime/Dockerfile.agentic .          ""
 
         mkdir -p dist
         {
@@ -525,7 +537,7 @@ tasks:
       - 'echo "✓ deleted {{.REGION}}-docker.pkg.dev/{{.PROJECT}}/{{.REPO}}"'
 
   images:ar:
-    desc: 'Build the seven octo images from the working tree and push them to the public Artifact Registry repo (optional TAG, PROJECT, REGION, REPO)'
+    desc: 'Build the eight octo images from the working tree and push them to the public Artifact Registry repo (optional TAG, PROJECT, REGION, REPO)'
     vars:
       TAG: '{{.TAG | default "test"}}'
       PROJECT: '{{.PROJECT | default "juancavallotti"}}'
@@ -564,6 +576,9 @@ tasks:
         # empty one is the standalone build a dev run executes.
         build octo-runtime-paas      runtime/Dockerfile       .           "--build-arg GOTAGS=k8s"
         build octo-devruntime-paas   runtime/Dockerfile       .           "--build-arg GOTAGS="
+        # The agentic runner, from its own Dockerfile: three binaries on a base with
+        # a shell, for a deployment that asks for `runner: agentic`.
+        build octo-agenticrunner-paas runtime/Dockerfile.agentic .          ""
 
         mkdir -p dist
         {
@@ -847,7 +862,7 @@ tasks:
           echo "image:"
           echo "  registry: {{.IMAGE_BASE}}"
           echo "  pullPolicy: IfNotPresent"
-          for c in platform orchestrator logs schema runtime devsidecar devruntime; do
+          for c in platform orchestrator logs schema runtime devsidecar devruntime agenticrunner; do
             repo="octo-${c}-paas"
             ref="{{.IMAGE_BASE}}/${repo}:{{.TAG}}"
             digest="$(docker buildx imagetools inspect "$ref" | awk '/^Digest:/ {print $2; exit}')"
