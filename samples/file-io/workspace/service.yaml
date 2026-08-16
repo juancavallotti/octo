@@ -1,0 +1,6 @@
+# The input the sample reads. A service config as you would keep it in a repo.
+name: billing
+replicas: 3
+env:
+  DB_HOST: db.internal
+  LOG_LEVEL: info

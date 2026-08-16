@@ -1,0 +1,122 @@
+---
+title: "Reading and Writing Files"
+description: "Read a file into a flow and write one back out, confined to a directory you name."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Use the [`file` connector](/reference/connectors/file) when a flow needs the local filesystem — reading a config or a report, writing a rendered artifact. The connector owns a directory, and the `file-read` and `file-write` blocks work inside it.
+
+This guide builds [`samples/file-io`](https://github.com/juancavallotti/octo/tree/main/samples/file-io), which reads a YAML service config, reshapes it, and writes the deployment settings out as a `.env` file.
+
+## Declare the root
+
+Start with the connector. Give it the directory the flow is allowed to touch:
+
+```yaml
+env:
+  - name: FILE_ROOT
+    default: samples/file-io/workspace
+
+connectors:
+  - name: workspace
+    type: file
+    settings:
+      root: ${FILE_ROOT}
+      createDirs: true
+```
+
+There is no default root, so say where the flow may read and write. Every path the blocks resolve is relative to it, and a path that tries to leave — `../../etc/passwd`, or a symlink pointing outside — is refused. Set `createDirs` when the flow writes into subdirectories that may not exist yet.
+
+A root that is missing, or names a file rather than a directory, fails at startup rather than on the first message.
+
+## Read a file
+
+Point `file-read` at a path. Write the path as an expression, so the flow chooses the file per message:
+
+```yaml
+- type: file-read
+  name: read-source
+  settings:
+    connector: workspace
+    path: body.source
+```
+
+The body is now the [raw-content](/concepts/raw-content) envelope `{contentType, rawData}` — the file's bytes with the MIME type its extension names. Nothing has been parsed yet, which is what lets the same block read YAML, CSV, Markdown or anything else.
+
+Parse it with the matching CEL function:
+
+```yaml
+- type: set-payload
+  name: parse-source
+  settings:
+    value: fromYaml(body.rawData)
+```
+
+Reach for `fromJson`, `fromEnv` or `fromFormData` the same way — see [Octo Extensions](/reference/cel/octo-extensions). Set `resultVar` instead when the file is one input among several and you want the body left alone.
+
+## Write one back
+
+Render the contents with a `to*` function and hand them to `file-write`:
+
+```yaml
+- type: file-write
+  name: write-env
+  settings:
+    connector: workspace
+    path: '"out/" + body.name + ".env"'
+    content: 'toEnv({"SERVICE_NAME": body.name, "REPLICAS": body.replicas})'
+    resultVar: written
+```
+
+The block passes the message through unchanged, so the body is still the parsed config afterwards and the `{path, bytes}` receipt lands in `vars.written`. Omit `content` to write the body itself: its raw content as-is, or its JSON encoding.
+
+Run it:
+
+```bash
+bin/octo invoke --config samples/file-io/config.yaml --flow render-config \
+  --data '{"source": "service.yaml"}'
+```
+
+## Hand it to an agent
+
+Because the path is an expression rather than a fixed string, a flow like this is a tool an agent can call with a file name it picked. That is also why the root matters: the caller chooses the path, and the root is what keeps that choice inside a directory you named.
+
+Reference the flow from an [`ai-agent`](/reference/blocks/ai) tool list and the model gets a file reader whose reach you control.
+
+<Callout type="warn">
+  Point `root` at a directory holding only what the flow should reach, and treat an incoming path as untrusted. The connector refuses escapes, but it cannot know that a file *inside* the root was one you meant to expose.
+</Callout>
+
+## Move a binary file
+
+Set `encoding: base64` on both blocks. `file-read` base64-encodes the bytes and `file-write` decodes them, so the file survives byte for byte:
+
+```yaml
+- type: file-read
+  settings:
+    connector: workspace
+    path: body.source
+    encoding: base64
+```
+
+Use it whenever the file might not be text. `rawData` is a UTF-8 string, so with `encoding: text` bytes that are not valid UTF-8 survive within one process but are silently replaced the first time the message crosses a JSON boundary — a queue hop, `invoke`, or a trace.
+
+## Test it
+
+The sample reads its own output back, so its assertions see what actually reached the disk:
+
+```yaml
+- type: file-read
+  name: read-back
+  settings:
+    connector: workspace
+    path: vars.target
+    resultVar: reread
+```
+
+```bash
+bin/dolphin test samples/file-io/config_test.yaml
+```
+
+Its suite also covers the two failures worth pinning: a path escaping the root, and a file that is not there. Both fail the message, so a flow's [error path](/reference/flow-file#error) can handle them.

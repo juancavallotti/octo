@@ -15,6 +15,7 @@
     "[Testing](/testing)",
     "events-and-queues",
     "object-storage-and-caching",
+    "reading-and-writing-files",
     "serving-html",
     "slack-bot",
     "notion-sync",

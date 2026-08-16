@@ -4,7 +4,7 @@ description: "Task-oriented guides built from runnable samples."
 ---
 
 import { Cards, Card } from 'fumadocs-ui/components/card';
-import { Bug, Clock, Database, FileCode, FileText, FlaskConical, Globe, HardDrive, KeyRound, Leaf, MessageSquare, Puzzle, Radio, Send, ShieldCheck, Shuffle, Sparkles, Terminal, Wand, Waypoints } from 'lucide-react';
+import { Bug, Clock, Database, FileCode, FileText, FlaskConical, FolderOpen, Globe, HardDrive, KeyRound, Leaf, MessageSquare, Puzzle, Radio, Send, ShieldCheck, Shuffle, Sparkles, Terminal, Wand, Waypoints } from 'lucide-react';
 
 Every guide in this section is built from a runnable sample in the repository's
 [`samples/`](https://github.com/juancavallotti/octo/tree/main/samples) directory.
@@ -68,6 +68,9 @@ zero setup beyond the `octo` binary.
 <Cards>
   <Card icon={<HardDrive />} href="/guides/object-storage-and-caching" title="Object Storage and Caching">
     Persist state in the object store and memoize with cache scopes.
+  </Card>
+  <Card icon={<FolderOpen />} href="/guides/reading-and-writing-files" title="Reading and Writing Files">
+    Read and write files under a directory you name, with a path the caller picks.
   </Card>
 </Cards>
 
