@@ -706,7 +706,9 @@ func (s *Service) Scale(ctx context.Context, id string, replicas int) (Deploymen
 // A tag that changes the integration's HTTP source (networked vs not) would
 // change the Service/Ingress topology, which a rolling update cannot express, so it
 // is rejected — undeploy and redeploy instead.
-func (s *Service) Rollout(ctx context.Context, id, snapshotID string, env map[string]EnvBinding, tracing *bool) (Deployment, error) {
+func (s *Service) Rollout(
+	ctx context.Context, id, snapshotID string, env map[string]EnvBinding, tracing *bool, runner *string,
+) (Deployment, error) {
 	if s.kube == nil {
 		return Deployment{}, ErrUnavailable
 	}
@@ -739,6 +741,17 @@ func (s *Service) Rollout(ctx context.Context, id, snapshotID string, env map[st
 	// parses flags, so the change only reaches it by replacing the pods.
 	if tracing != nil {
 		settings.Tracing = *tracing
+	}
+
+	// Same convention again, and it is what makes upgrading an existing deployment
+	// onto a runner-aware release work at all. A rollout normally leaves the
+	// workload's shape alone — but a deployment created before runners existed has
+	// no runner stored, so rolling a definition onto it that NEEDS one would deploy
+	// the distroless image and crash-loop on a definition it cannot even build.
+	// Passing a runner is how a caller that knows better says so; nil is still the
+	// ordinary version bump that changes nothing.
+	if runner != nil {
+		settings.Runner = *runner
 	}
 
 	// The runtime port/env come from the new frozen definition. A networked
@@ -775,12 +788,11 @@ func (s *Service) Rollout(ctx context.Context, id, snapshotID string, env map[st
 		replicas = 1
 	}
 
-	// The runner comes from the stored row, not from this call: a rollout replaces
-	// the version, never the shape of the workload. Resolving it again here is what
-	// catches an install that has since dropped the agentic image — better to refuse
-	// the rollout than to replace a working agentic pod with a distroless one whose
-	// every command fails.
-	runner, err := s.resolveRunner(settings.Runner)
+	// Resolved from the settings, which the caller may just have replaced above.
+	// Resolving rather than trusting is what catches an install that has since
+	// dropped the agentic image: better to refuse the rollout than to replace a
+	// working agentic pod with a distroless one whose every command fails.
+	resolvedRunner, err := s.resolveRunner(settings.Runner)
 	if err != nil {
 		return Deployment{}, err
 	}
@@ -806,7 +818,7 @@ func (s *Service) Rollout(ctx context.Context, id, snapshotID string, env map[st
 		Subdomain:        settings.Subdomain,
 		Tracing:          settings.Tracing,
 		ObservabilityAPI: settings.ObservabilityAPI,
-		Runner:           runner,
+		Runner:           resolvedRunner,
 	}
 	if err := s.kube.Rollout(ctx, spec); err != nil {
 		return Deployment{}, err

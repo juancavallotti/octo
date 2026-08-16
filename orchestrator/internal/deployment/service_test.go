@@ -1073,7 +1073,7 @@ func TestRolloutShipsNewDefinitionAndRecordsTag(t *testing.T) {
 	kc := &fakeKube{status: kube.StatusRunning}
 	svc := NewService(repo, &fakeIntegrations{}, kc, WithSnapshots(snaps))
 
-	if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil, nil); err != nil {
+	if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil, nil, nil); err != nil {
 		t.Fatalf("Rollout: %v", err)
 	}
 	if !kc.rolledOut {
@@ -1105,7 +1105,7 @@ func TestRolloutRejectsTopologyChange(t *testing.T) {
 	snaps := &fakeSnapshots{ret: snapshot.Snapshot{ID: "snap-2", IntegrationID: "int-1", Definition: "service:\n  name: plain\n"}}
 	svc := NewService(repo, &fakeIntegrations{}, &fakeKube{}, WithSnapshots(snaps))
 
-	if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil, nil); !errors.Is(err, ErrRolloutTopologyChange) {
+	if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil, nil, nil); !errors.Is(err, ErrRolloutTopologyChange) {
 		t.Errorf("got %v, want ErrRolloutTopologyChange", err)
 	}
 }
@@ -1115,7 +1115,7 @@ func TestRolloutRejectsSnapshotFromAnotherIntegration(t *testing.T) {
 	snaps := &fakeSnapshots{ret: snapshot.Snapshot{ID: "snap-2", IntegrationID: "other", Definition: exposableDef}}
 	svc := NewService(repo, &fakeIntegrations{}, &fakeKube{}, WithSnapshots(snaps))
 
-	if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil, nil); !errors.Is(err, ErrSnapshotMismatch) {
+	if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil, nil, nil); !errors.Is(err, ErrSnapshotMismatch) {
 		t.Errorf("got %v, want ErrSnapshotMismatch", err)
 	}
 }
@@ -1156,7 +1156,7 @@ func TestRolloutFailsWhenItCannotRecordTheChange(t *testing.T) {
 			kc := &fakeKube{status: kube.StatusRunning}
 			svc := NewService(repo, &fakeIntegrations{}, kc, WithSnapshots(snaps))
 
-			_, err := svc.Rollout(context.Background(), "dep-1", "snap-2", tc.env, tc.tracing)
+			_, err := svc.Rollout(context.Background(), "dep-1", "snap-2", tc.env, tc.tracing, nil)
 			if err == nil {
 				t.Fatal("Rollout reported success after failing to record the deployment")
 			}
@@ -1191,7 +1191,7 @@ func TestRolloutRecordsMetadataAndSettingsTogether(t *testing.T) {
 
 	env := map[string]EnvBinding{"API_URL": {Value: "https://new"}}
 	on := true
-	dep, err := svc.Rollout(context.Background(), "dep-1", "snap-2", env, &on)
+	dep, err := svc.Rollout(context.Background(), "dep-1", "snap-2", env, &on, nil)
 	if err != nil {
 		t.Fatalf("Rollout: %v", err)
 	}
@@ -1255,7 +1255,7 @@ func TestRolloutSetsTracingWhenProvided(t *testing.T) {
 	svc := NewService(repo, &fakeIntegrations{}, kc, WithSnapshots(snaps))
 
 	on := true
-	if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil, &on); err != nil {
+	if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil, &on, nil); err != nil {
 		t.Fatalf("Rollout: %v", err)
 	}
 	if !kc.gotSpec.Tracing {
@@ -1281,7 +1281,7 @@ func TestRolloutTracingNilPreservesOffAndOn(t *testing.T) {
 		kc := &fakeKube{status: kube.StatusRunning}
 		svc := NewService(repo, &fakeIntegrations{}, kc, WithSnapshots(snaps))
 
-		if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil, nil); err != nil {
+		if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil, nil, nil); err != nil {
 			t.Fatalf("Rollout(stored=%v): %v", stored, err)
 		}
 		if kc.gotSpec.Tracing != stored {
@@ -1306,7 +1306,7 @@ func TestRolloutReplacesEnvWhenProvided(t *testing.T) {
 	svc := NewService(repo, &fakeIntegrations{}, kc, WithSnapshots(snaps))
 
 	env := map[string]EnvBinding{"NEW": {Value: "n"}}
-	if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2", env, nil); err != nil {
+	if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2", env, nil, nil); err != nil {
 		t.Fatalf("Rollout: %v", err)
 	}
 	if kc.gotSpec.Env["NEW"] != "n" {
@@ -1336,7 +1336,7 @@ func TestRolloutPreservesEnvWhenNil(t *testing.T) {
 	kc := &fakeKube{status: kube.StatusRunning}
 	svc := NewService(repo, &fakeIntegrations{}, kc, WithSnapshots(snaps))
 
-	if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil, nil); err != nil {
+	if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil, nil, nil); err != nil {
 		t.Fatalf("Rollout: %v", err)
 	}
 	if kc.gotSpec.Env["KEEP"] != "k" {
@@ -1361,7 +1361,7 @@ func TestRolloutRejectsMissingRequiredEnv(t *testing.T) {
 	kc := &fakeKube{status: kube.StatusRunning}
 	svc := NewService(repo, &fakeIntegrations{}, kc, WithSnapshots(snaps))
 
-	_, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil, nil)
+	_, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil, nil, nil)
 	if !errors.Is(err, ErrMissingRequiredEnv) {
 		t.Fatalf("got %v, want ErrMissingRequiredEnv", err)
 	}
@@ -1389,7 +1389,7 @@ func TestRolloutRequiredEnvSatisfiedByFrozenEnvFile(t *testing.T) {
 	kc := &fakeKube{status: kube.StatusRunning}
 	svc := NewService(repo, &fakeIntegrations{}, kc, WithSnapshots(snaps))
 
-	if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil, nil); err != nil {
+	if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil, nil, nil); err != nil {
 		t.Fatalf("Rollout: %v", err)
 	}
 	if !kc.rolledOut {

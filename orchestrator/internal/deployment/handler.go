@@ -389,7 +389,9 @@ func (h *Handler) rollout(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	d, err := h.svc.Rollout(ctx, r.PathValue("id"), req.SnapshotID, req.Env, req.Tracing)
+	// nil: a rollout over the API is a version bump, and the runner is a property of
+	// the workload rather than of the version being shipped. Changing it is a redeploy.
+	d, err := h.svc.Rollout(ctx, r.PathValue("id"), req.SnapshotID, req.Env, req.Tracing, nil)
 	if err != nil {
 		h.writeError(w, err)
 		return

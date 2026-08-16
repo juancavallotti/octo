@@ -105,7 +105,7 @@ func TestRolloutPreservesTheRunner(t *testing.T) {
 	kc := &fakeKube{status: kube.StatusRunning}
 	svc := NewService(repo, &fakeIntegrations{}, kc, WithSnapshots(snaps))
 
-	if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil, nil); err != nil {
+	if _, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil, nil, nil); err != nil {
 		t.Fatalf("Rollout: %v", err)
 	}
 	if kc.gotSpec.Runner != kube.RunnerAgentic {
@@ -133,7 +133,7 @@ func TestRolloutRefusesARunnerTheInstallLost(t *testing.T) {
 	}
 	svc := NewService(repo, &fakeIntegrations{}, kc, WithSnapshots(snaps))
 
-	_, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil, nil)
+	_, err := svc.Rollout(context.Background(), "dep-1", "snap-2", nil, nil, nil)
 	if !errors.Is(err, ErrRunnerUnavailable) {
 		t.Errorf("got %v, want ErrRunnerUnavailable", err)
 	}
