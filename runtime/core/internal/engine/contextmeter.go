@@ -84,17 +84,23 @@ func (m *contextMeter) observe(est, measured int) {
 	if m.havePrev && est != m.prevEst {
 		m.scale = clampScale(float64(measured-m.prevMeasured) / float64(est-m.prevEst))
 	}
-	// Never negative: an overhead below zero is the fit telling us the model read
-	// less than the conversation alone, which cannot be true and would understate
-	// every prediction after it.
-	m.overhead = max(0, measured-int(math.Round(m.scale*float64(est))))
+	// A signed residual, not a clamped one. It is usually the system prompt and
+	// tool schemas, but it can legitimately come out negative: estimateTokens
+	// counts an encrypted reasoning blob by its bytes, which is far more than the
+	// tokens it actually costs, so a transcript carrying one estimates larger than
+	// the prompt the provider read. Clamping that to zero would lose the
+	// correction and over-predict every turn after it.
+	m.overhead = measured - m.sizeOf(est)
 	m.prevEst, m.prevMeasured, m.havePrev = est, measured, true
 	m.last = measured
 }
 
 // predict is the whole prompt a request carrying messages of this estimate would
 // be: the conversation at the fitted rate, plus the run's constant overhead.
-func (m *contextMeter) predict(est int) int { return m.overhead + m.sizeOf(est) }
+//
+// Floored at zero, which is only reachable through a negative residual (see
+// observe) on a transcript much smaller than the one that was measured.
+func (m *contextMeter) predict(est int) int { return max(0, m.overhead+m.sizeOf(est)) }
 
 // sizeOf is the conversation's own contribution, with the overhead left out. It
 // is what gets stored with a transcript, since the next run's system prompt and

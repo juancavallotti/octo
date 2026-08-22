@@ -280,10 +280,11 @@ The `claude` connector is an `llm-anthropic` connector configured with
 `model: claude-haiku-4-5` and `maxTokens: 1200` — a small, fast model is
 plenty for a chat assistant whose heavy lifting happens in tools.
 
-The memory settings give each thread a persistent transcript, budgeted to
-6,000 tokens and **summarized** (rather than pruned) when it overflows, so
-long conversations keep their gist. See [Agent Memory](/ai/agent-memory) for
-the mechanics.
+The memory settings give each thread a persistent transcript. The 12,000-token
+budget covers the agent's whole prompt — system instructions, tool schemas and
+conversation — and the transcript is **summarized** (rather than pruned) when it
+would overflow, so long conversations keep their gist. See
+[Agent Memory](/ai/agent-memory) for the mechanics.
 
 The prompt encodes three production lessons:
 

@@ -78,6 +78,23 @@ func TestContextMeterFitsScaleAndOverhead(t *testing.T) {
 			want:         1400,
 		},
 		{
+			// The estimate can over-count: it sizes an encrypted reasoning blob by its
+			// bytes, which is far more than the tokens it costs. The fit has to take
+			// that correction rather than clamp it away, or every later turn is
+			// over-predicted and the agent compacts a conversation with room to spare.
+			name:         "a measurement below the estimate is still reproduced",
+			observations: []observation{{est: 400, measured: 200}},
+			predictEst:   400,
+			want:         200,
+		},
+		{
+			// And the floor holds when the correction outweighs what is left.
+			name:         "a negative residual cannot predict below zero",
+			observations: []observation{{est: 400, measured: 200}},
+			predictEst:   50,
+			want:         0,
+		},
+		{
 			// A stored transcript carries the rate its own run measured, so the first
 			// turn back starts from real tokens rather than from chars/4.
 			name:       "a seed sets the rate before any turn",
@@ -112,6 +129,9 @@ func TestContextMeterReproducesTheLastMeasurement(t *testing.T) {
 		{{est: 400, measured: 1800}, {est: 600, measured: 2200}},
 		{{est: 100, measured: 200}, {est: 200, measured: 9999}},
 		{{est: 600, measured: 2200}, {est: 600, measured: 2300}},
+		// The estimate over-counting, which a clamped residual could not reproduce.
+		{{est: 400, measured: 200}},
+		{{est: 800, measured: 300}, {est: 400, measured: 200}},
 	} {
 		m := newContextMeter()
 		for _, o := range obs {
