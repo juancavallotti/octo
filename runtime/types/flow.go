@@ -167,8 +167,15 @@ type BlockConfig struct {
 	// CEL expression resolved to the thread id whose transcript is loaded before
 	// the run and saved after. Empty disables memory.
 	MemoryThreadID string `yaml:"memoryThreadId,omitempty"`
-	// MemoryMaxTokens is the estimated-token budget for an "ai-agent"'s stored
-	// transcript; it is compacted when it exceeds this. Default applied by the builder.
+	// ContextMaxTokens is an "ai-agent"'s token budget for its whole prompt —
+	// system instructions, tool schemas and conversation together — measured from
+	// what the provider reports it read. The transcript is compacted when the
+	// prompt would exceed it. Default applied by the builder.
+	ContextMaxTokens int `yaml:"contextMaxTokens,omitempty"`
+	// MemoryMaxTokens is the name ContextMaxTokens replaced, kept only so a flow
+	// still using it fails to build instead of silently losing its budget: flow
+	// YAML is decoded permissively, so an unknown key is dropped without a word.
+	// Remove it, and its rejection in the ai-agent builder, after a release.
 	MemoryMaxTokens int `yaml:"memoryMaxTokens,omitempty"`
 	// MemoryCompaction is how an "ai-agent" shrinks memory over budget: "prune"
 	// (drop oldest, the default) or "summarize" (fold the oldest turns into a summary).

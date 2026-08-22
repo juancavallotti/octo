@@ -27,6 +27,11 @@ const (
 	eventToolResult = "tool_result"
 	// eventTurnEnd is a finished model turn, with its stop reason and usage.
 	eventTurnEnd = "turn_end"
+	// eventCompaction is the agent shrinking its own conversation to stay inside
+	// its token budget. It is the one event describing something the agent did to
+	// itself rather than to the model or a tool, and without it a conversation
+	// losing its early turns is invisible.
+	eventCompaction = "compaction"
 	// eventGuardrail is the agent giving up and taking the guardrail.
 	eventGuardrail = "guardrail"
 	// eventDone is the agent finishing with an answer.
@@ -48,7 +53,7 @@ const (
 var agentEventKinds = map[string]bool{
 	eventTurnStart: true, eventText: true, eventThinking: true, eventToolInput: true,
 	eventCustom: true, eventToolCall: true, eventToolResult: true, eventTurnEnd: true,
-	eventGuardrail: true, eventDone: true, eventError: true,
+	eventCompaction: true, eventGuardrail: true, eventDone: true, eventError: true,
 }
 
 // deltaKinds maps the provider's canonical stream vocabulary onto agent event

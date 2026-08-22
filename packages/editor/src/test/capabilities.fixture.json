@@ -714,12 +714,12 @@
           "description": "CEL expression for the conversation thread id. When set, the agent loads the thread's prior transcript before its run and saves it after; empty disables memory."
         },
         {
-          "name": "memoryMaxTokens",
-          "label": "Memory max tokens",
+          "name": "contextMaxTokens",
+          "label": "Context max tokens",
           "type": "number",
           "required": false,
-          "default": 8000,
-          "description": "Estimated-token budget for the stored transcript; it is compacted when it exceeds this."
+          "default": 16000,
+          "description": "Token budget for the whole prompt \u2014 system instructions, tool schemas and conversation together \u2014 measured from what the provider reports it read. The transcript is compacted when the prompt would exceed it. Applies with or without memory: a run can talk itself past the model's window on its own."
         },
         {
           "name": "memoryCompaction",

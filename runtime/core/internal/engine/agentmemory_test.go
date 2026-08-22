@@ -147,7 +147,7 @@ func TestPruneMemoryFitsBudget(t *testing.T) {
 		{Role: core.LLMRoleAssistant, Text: strings.Repeat("b", 400)},
 		{Role: core.LLMRoleUser, Text: "tiny"},
 	}
-	out := pruneMemory(msgs, 50)
+	out := pruneMemory(msgs, 50, newContextMeter())
 	if len(out) == 0 {
 		t.Fatal("prune dropped everything")
 	}
@@ -169,7 +169,7 @@ func TestSummarizeMemoryFoldsOldTurns(t *testing.T) {
 		{Role: core.LLMRoleUser, Text: "tiny"},
 	}
 	fake := &scriptedLLM{responses: []*core.LLMResponse{endTurnResp("SUMMARY")}}
-	out := summarizeMemory(context.Background(), bareCaller(fake), mustMessage(t), msgs, 50)
+	out := summarizeMemory(context.Background(), bareCaller(fake), mustMessage(t), msgs, 50, newContextMeter())
 	if len(out) >= len(msgs) {
 		t.Errorf("summarize did not shrink the transcript: %d messages", len(out))
 	}
@@ -183,10 +183,11 @@ func TestSummarizeMemoryFoldsOldTurns(t *testing.T) {
 // either to decide there is nothing to do.
 func TestCompactMemoryNoopUnderBudget(t *testing.T) {
 	msgs := []core.LLMMessage{{Role: core.LLMRoleUser, Text: "small"}}
-	if out := compactMemory(context.Background(), nil, nil, msgs, 100000, memoryCompactPrune); len(out) != len(msgs) {
+	meter := newContextMeter()
+	if out := compactMemory(context.Background(), nil, nil, msgs, 100000, memoryCompactPrune, meter); len(out) != len(msgs) {
 		t.Errorf("compact changed a transcript already under budget: %+v", out)
 	}
-	if out := compactMemory(context.Background(), nil, nil, msgs, 0, memoryCompactPrune); len(out) != len(msgs) {
+	if out := compactMemory(context.Background(), nil, nil, msgs, 0, memoryCompactPrune, meter); len(out) != len(msgs) {
 		t.Errorf("compact with a zero budget should be a no-op: %+v", out)
 	}
 }
@@ -247,5 +248,98 @@ func TestDecodeMemoryRejectsGarbage(t *testing.T) {
 		if _, err := decodeMemory([]byte(raw)); err == nil {
 			t.Errorf("decodeMemory(%q) succeeded, want a decode error", raw)
 		}
+	}
+}
+
+// The size a run measured is carried into storage, so the next run on the thread
+// starts from the provider's own count instead of re-deriving one from
+// characters. It stores the conversation's own contribution, not the whole
+// prompt: the next run supplies its own system prompt and tools.
+func TestAgentStoresTheMeasuredSize(t *testing.T) {
+	ctx, _ := withFakeServices(context.Background())
+	cfg := memoryAgentConfig(`"t1"`)
+	cfg.ContextMaxTokens = 100000
+
+	var seen []any
+	fake := &scriptedLLM{responses: []*core.LLMResponse{
+		withUsage(endTurnResp(strings.Repeat("a", 400)),
+			&core.LLMUsage{PromptTokens: 50000, OutputTokens: 4}),
+	}}
+	if _, err := mustBuildAI(t, agentRegistry(&seen), depsLLM(fake), cfg).
+		Process(ctx, aiMessage(t)); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+
+	stored, err := loadMemory(ctx, "t1")
+	if err != nil {
+		t.Fatalf("loadMemory: %v", err)
+	}
+	if stored.Tokens == 0 || stored.Tokens >= 50000 {
+		t.Errorf("stored tokens = %d, want the conversation's own size, not the whole prompt", stored.Tokens)
+	}
+	if len(stored.Messages) == 0 {
+		t.Error("transcript was not stored")
+	}
+}
+
+// A budget with no room for even one exchange must not throw the conversation
+// away. The most recent exchange is kept over budget, and compactMemory logs
+// that it does not fit — the fix is the configuration, not the transcript.
+func TestPruneMemoryKeepsTheLastExchangeRatherThanNothing(t *testing.T) {
+	msgs := []core.LLMMessage{
+		{Role: core.LLMRoleUser, Text: strings.Repeat("a", 400)},
+		{Role: core.LLMRoleAssistant, Text: strings.Repeat("b", 400)},
+	}
+	meter := newContextMeter()
+	meter.observe(estimateTokens(msgs), 90000) // an overhead nothing can fit under
+
+	out := pruneMemory(msgs, 10, meter)
+	if len(out) == 0 {
+		t.Fatal("prune discarded the whole conversation")
+	}
+	if out[0].Role != core.LLMRoleUser {
+		t.Errorf("transcript starts on %s, want a user turn", out[0].Role)
+	}
+}
+
+// A provider that reports no usage leaves the agent exactly where it started: on
+// the chars/4 estimate, with an unfitted meter that passes it straight through.
+// Degrading to zero would read as "the context is empty" and compact nothing,
+// ever.
+func TestUnfittedMeterCompactsOnTheEstimateAlone(t *testing.T) {
+	msgs := []core.LLMMessage{
+		{Role: core.LLMRoleUser, Text: strings.Repeat("a", 400)},
+		{Role: core.LLMRoleAssistant, Text: strings.Repeat("b", 400)},
+		{Role: core.LLMRoleUser, Text: "tiny"},
+	}
+	meter := newContextMeter() // nothing observed: predict is the estimate itself
+	if got := meter.predict(estimateTokens(msgs)); got != estimateTokens(msgs) {
+		t.Fatalf("unfitted predict = %d, want the raw estimate %d", got, estimateTokens(msgs))
+	}
+
+	out := pruneMemory(msgs, 50, meter)
+	if len(out) >= len(msgs) {
+		t.Errorf("the estimate alone did not compact: %d messages", len(out))
+	}
+	if estimateTokens(out) > 50 {
+		t.Errorf("pruned transcript still over budget: %d tokens", estimateTokens(out))
+	}
+	if out[0].Role != core.LLMRoleUser {
+		t.Errorf("transcript starts on %s, want a user turn", out[0].Role)
+	}
+}
+
+// Flow YAML is decoded permissively, so a renamed key that nothing rejects is a
+// budget silently reverting to the default. The build has to say so.
+func TestAgentRejectsTheOldMemoryMaxTokensKey(t *testing.T) {
+	cfg := memoryAgentConfig(`"t1"`)
+	cfg.MemoryMaxTokens = 4000
+
+	_, err := (&builder{reg: testRegistry(), deps: depsLLM(&scriptedLLM{})}).block(cfg)
+	if err == nil {
+		t.Fatal("expected an error for the old memoryMaxTokens key")
+	}
+	if !strings.Contains(err.Error(), "contextMaxTokens") {
+		t.Errorf("error = %q, want it to name the replacement", err)
 	}
 }

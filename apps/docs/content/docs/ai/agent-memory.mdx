@@ -36,7 +36,7 @@ flows:
         connector: claude
         # Per-thread memory: load/save this thread's transcript around the run.
         memoryThreadId: body.threadId
-        memoryMaxTokens: 4000
+        contextMaxTokens: 8000
         memoryCompaction: summarize
         prompt: >
           You are a helpful assistant in an ongoing conversation. Use the prior
@@ -78,10 +78,23 @@ Transcripts are stored in the runtime KV store under a dedicated
 
 ### Token budget and compaction
 
-`memoryMaxTokens` (default `8000`) caps the stored transcript, using a
-chars/4 estimate — there is no tokenizer in the runtime. When the transcript
-grows past the budget, it is compacted with the `memoryCompaction` strategy
-before saving:
+`contextMaxTokens` (default `16000`) caps the agent's **whole prompt** —
+system instructions, tool schemas and conversation together — not the stored
+transcript alone. The figure comes from the provider: every turn reports how
+many tokens it actually read, so the budget is measured rather than guessed,
+and it is directly comparable to the model's context window.
+
+The runtime still has no tokenizer, and it does not need one. The measured
+total says exactly how big the prompt is; a chars/4 estimate is used only to
+apportion that total across messages when deciding where to cut, and its
+ratio is fitted against the provider's own numbers as the run goes. A
+provider that reports no usage falls back to the estimate alone.
+
+The budget applies **with or without memory**: an agent can talk itself past
+the model's window inside a single run, over enough tool calls. When the
+prompt would exceed the budget, the transcript is compacted with the
+`memoryCompaction` strategy — before the turn that would have overflowed, and
+again before saving:
 
 - **`prune`** (default) — drop the oldest turns until the transcript fits.
   Cheap and deterministic; old context is simply gone.
@@ -90,10 +103,20 @@ before saving:
   message, preserving facts and decisions. Falls back to pruning if the
   summary cannot be produced.
 
+Compaction emits a `compaction` event carrying `strategy`, `before`, `after`
+and `dropped`, so an [events path](/ai/agents) can show a conversation losing
+its early turns instead of it happening silently.
+
 <Callout type="info">
 Saving memory is best-effort: a failed save is logged and does not fail the
 flow. Memory is also persisted when the agent takes its guardrail path, so a
 refused turn still stays in the conversation.
+</Callout>
+
+<Callout type="warn">
+A budget too small to hold even one exchange cannot be satisfied — compaction
+will not discard the conversation to meet it. It keeps the most recent
+exchange, logs that the result does not fit, and leaves the fix to you.
 </Callout>
 
 ### Clearing a thread

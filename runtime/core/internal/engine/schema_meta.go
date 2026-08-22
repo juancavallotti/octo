@@ -329,9 +329,12 @@ type aiAgentMeta struct {
 	// thread's prior transcript before its run and saves it after; empty disables
 	// memory.
 	MemoryThreadID string `json:"memoryThreadId" octo:"label=Memory thread ID,type=cel"`
-	// Estimated-token budget for the stored transcript; it is compacted when it
-	// exceeds this.
-	MemoryMaxTokens int `json:"memoryMaxTokens" octo:"label=Memory max tokens,default=8000"`
+	// Token budget for the whole prompt — system instructions, tool schemas and
+	// conversation together — measured from what the provider reports it read. The
+	// transcript is compacted when the prompt would exceed it. Applies with or
+	// without memory: a run can talk itself past the model's window on its own.
+	//nolint:lll // the tag carries a label and a default and is longer than 120 cols
+	ContextMaxTokens int `json:"contextMaxTokens" octo:"label=Context max tokens,default=16000"`
 	// How to shrink memory over budget: prune drops the oldest turns; summarize
 	// folds them into a running summary.
 	//nolint:lll // the enum tag (options + default) is inherently longer than 120 cols

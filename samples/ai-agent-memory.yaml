@@ -4,7 +4,7 @@ service:
 # Demonstrates per-thread memory on the ai-agent: with a memoryThreadId set, the
 # agent loads the thread's prior transcript before its run and saves it after, so
 # a conversation persists across invocations. The thread id is a CEL expression
-# (here body.threadId), the transcript is compacted to memoryMaxTokens using the
+# (here body.threadId), the transcript is compacted to contextMaxTokens using the
 # chosen strategy, and the clear-agent-memory block wipes a thread.
 #
 #   export ANTHROPIC_API_KEY=sk-ant-...
@@ -36,7 +36,7 @@ flows:
         connector: claude
         # Per-thread memory: load/save this thread's transcript around the run.
         memoryThreadId: body.threadId
-        memoryMaxTokens: 4000
+        contextMaxTokens: 8000
         memoryCompaction: summarize
         prompt: >
           You are a helpful assistant in an ongoing conversation. Use the prior

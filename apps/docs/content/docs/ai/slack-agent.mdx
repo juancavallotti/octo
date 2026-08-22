@@ -272,7 +272,7 @@ The center of the integration — prompt, memory, tools, skills:
           storage, or Slack internals unless the user explicitly asks about
           them.
         memoryThreadId: body.threadId
-        memoryMaxTokens: 6000
+        contextMaxTokens: 12000
         memoryCompaction: summarize
 ```
 
@@ -593,7 +593,7 @@ The skeleton transfers to almost any chat-surface agent:
   is; skills say how to use each capability, loaded only when needed.
 - **Never let the model pick storage keys.** Compute identity-bearing values
   (like `userFactsKey`) in the flow from the verified event.
-- **Budget memory deliberately** — `memoryMaxTokens` plus `summarize`
+- **Budget memory deliberately** — `contextMaxTokens` plus `summarize`
   compaction keeps cost flat while retaining the gist of long threads.
 
 The full YAML on this page is production-quotable; declare the env vars
