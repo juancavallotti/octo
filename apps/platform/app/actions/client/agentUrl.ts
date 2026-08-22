@@ -1,11 +1,16 @@
 /**
- * Where the agent is, for the two routes that need to reach it.
+ * Where the agent is, for everything that has to reach him.
  *
  * The address is not configuration: it is the in-cluster Service of whatever
  * deployment the install produced, which the orchestrator reports as part of the
  * agent's status. So it is looked up, and because it changes only when someone
  * installs, removes or redeploys the agent, it is cached briefly rather than
  * fetched on every message.
+ *
+ * It lives in the client layer rather than beside the routes because it is a
+ * client-layer concern — a base URL, resolved — and because it now has three
+ * callers rather than two: the chat proxy, the status probe, and the server
+ * actions that read a person's past conversations.
  */
 
 /** How long a resolved address is trusted. Short enough that an uninstall is noticed. */
