@@ -105,9 +105,12 @@ So the shape is: get a lock from somewhere else, keep the transport where it is.
 
 ### The lock: a Kubernetes Lease
 
-The k8s services module already holds a `coordinationv1` client and the RBAC for
-it — `runtime/services/k8s/leaderelection.go` uses Leases today — so this needs
-**no new infrastructure at all**, and no JetStream. A fail-fast `Create` on a
+**This part is now built**: `core.Leases` (`runtime/core/lease.go`) is an
+accessor on `core.RuntimeServices`, implemented in both modules.
+
+The k8s services module already held a `coordinationv1` client and the RBAC for
+it — `runtime/services/k8s/leaderelection.go` uses Leases too — so it needed **no
+new infrastructure at all**, and no JetStream. A fail-fast `Create` on a
 per-conversation Lease is an exact claim: it succeeds or it conflicts, with no
 ambiguity and no waiting. The lease duration handles a holder that dies, and the
 owner renews while it runs.
@@ -119,8 +122,8 @@ conversations and uncomfortable at thousands — the ceiling is real, but it is 
 ceiling rather than a wall, and it is reached long after the point where any of
 this matters.
 
-Note that `core.LeaderElection.Acquire` as it exists is **not** the primitive,
-even though it is built on the same object. It starts a background campaign and
+Note that `core.LeaderElection.Acquire` is **not** the primitive, even though it
+is built on the same object. It starts a background campaign and
 returns a handle whose `IsLeader` converges later, so a false reading means "not
 yet" rather than "somebody else has it" — the exact distinction a claim needs.
 Its 15-second lease and 2-second retry are sized for one long-lived election per
@@ -161,12 +164,18 @@ stop(id string) bool
 release(id string, mine *agentRun)
 ```
 
-A cluster-wide implementation implements the same three. Per
-[extension-points.md](extension-points.md), this is an **optional side interface
-the caller type-asserts** — the `core.LogShipper` shape — and not a widening of
-`core.RuntimeServices`: the standalone module cannot have a distributed claim and
-does not need one, which is exactly the test that page prescribes. The engine
-keeps the map as its default and asks the services module for a better one.
+A cluster-wide implementation implements the same three, over `core.Leases` for
+the claim and `core.Queues` for the delivery.
+
+An earlier draft of this page called for an **optional side interface the caller
+type-asserts** — the `core.LogShipper` shape — on the grounds that the standalone
+module cannot have a distributed claim. That reasoning was about the wrong thing.
+A fail-fast lease is not a distributed claim: exclusivity is only ever asked of
+the processes that could compete for a name, and in one process a map under a
+mutex is the complete and exact implementation rather than a stand-in for a real
+one. So it is an accessor, like `Queues()` and `KV()` — there is no module that
+lacks it, and nothing for a caller to type-assert. See the worked example in
+[extension-points.md](extension-points.md).
 
 Nothing in a flow changes either way. `memoryThreadId` and `stopWhen` mean the same
 thing whichever implementation is underneath.
