@@ -14,6 +14,8 @@ service:
 #   curl -s -X POST localhost:8080/submit \
 #     -H 'Content-Type: application/x-www-form-urlencoded' \
 #     -d 'name=Ann&city=Berlin'
+#   # 3) Upload a file; the source decodes the multipart parts by name:
+#   curl -s -F 'name=Ann' -F 'avatar=@/etc/hosts;type=text/plain' localhost:8080/upload
 
 env:
   - name: HTTP_HOST
@@ -66,3 +68,34 @@ flows:
       - type: set-payload
         settings:
           value: 'fromFormData(body.rawData)'
+
+  # 3) MULTIPART. Nothing here opts in: the source decodes a multipart/form-data
+  #    request because that is what the request says it is, and puts the parts on
+  #    body.parts. contentType and rawData are untouched underneath, so a flow
+  #    that needed the exact bytes could still have them.
+  #
+  #    Each part carries its own contentType — which is how you tell an uploaded
+  #    PNG from an uploaded CSV — plus its filename, and a size that is always the
+  #    decoded byte length. A part with a filename is base64; a plain field is
+  #    text.
+  - name: upload
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /upload
+        methods: [POST]
+        maxBodyBytes: 10485760    # 10 MiB; the 1 MiB default is small for uploads
+    process:
+      - type: set-payload
+        settings:
+          value: |
+            {
+              "name": body.parts.name.data,
+              "file": {
+                "filename":    body.parts.avatar.filename,
+                "contentType": body.parts.avatar.contentType,
+                "encoding":    body.parts.avatar.encoding,
+                "size":        body.parts.avatar.size
+              }
+            }

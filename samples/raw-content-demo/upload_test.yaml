@@ -1,0 +1,77 @@
+# Tests the MULTIPART half of raw content (the sample's flow 3, `upload`): the
+# http source decodes a multipart/form-data request into body.parts, addressable
+# by part name, with each part carrying its own filename and content type.
+#
+# A dolphin suite tests one flow; `page` is covered by config_test.yaml and
+# `submit` by submit_test.yaml, both beside this file.
+#
+# The source does not run under invoke, so each case seeds the raw-content
+# envelope the source would have produced — here including the `parts` key the
+# source decodes onto it.
+flow: upload
+
+cases:
+  # The shape a flow author actually writes against: reach a field by name, and
+  # read an upload's own metadata rather than the request's.
+  - name: parts are addressable by name
+    input:
+      data:
+        contentType: multipart/form-data; boundary=b
+        rawData: "--b--\r\n"
+        parts:
+          name:
+            name: name
+            filename: ""
+            contentType: ""
+            encoding: text
+            size: 3
+            data: Ann
+          avatar:
+            name: avatar
+            filename: photo.png
+            contentType: image/png
+            encoding: base64
+            size: 12345
+            data: iVBORw0K
+    expect:
+      body:
+        name: Ann
+        file:
+          filename: photo.png
+          contentType: image/png
+          encoding: base64
+          size: 12345
+
+  # A part's contentType is its own, not the request's. This is the whole reason
+  # it is promoted to a key: multipart/form-data on the outside says nothing about
+  # what any one part holds.
+  - name: a part reports its own content type
+    input:
+      data:
+        contentType: multipart/form-data; boundary=b
+        rawData: "--b--\r\n"
+        parts:
+          name: { name: name, filename: "", contentType: "", encoding: text, size: 2, data: Jo }
+          avatar:
+            name: avatar
+            filename: report.csv
+            contentType: text/csv
+            encoding: base64
+            size: 7
+            data: YSxiCjEsMg==
+    expect:
+      body:
+        name: Jo
+        file:
+          filename: report.csv
+          contentType: text/csv
+          encoding: base64
+          size: 7
+
+  # The flow reads body.parts. A request that was not multipart has none, and must
+  # fail rather than quietly answering with nulls.
+  - name: a body with no parts fails the flow
+    input:
+      data: { name: Ann }
+    expect:
+      error: 'no such key: parts'
