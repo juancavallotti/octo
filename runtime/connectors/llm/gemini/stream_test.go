@@ -165,7 +165,7 @@ func TestStreamUsageIsLatchedNotSummed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stream: %v", err)
 	}
-	want := core.LLMUsage{InputTokens: 5, OutputTokens: 3}
+	want := core.LLMUsage{InputTokens: 5, OutputTokens: 3, PromptTokens: 5}
 	if resp.Usage == nil || *resp.Usage != want {
 		t.Errorf("usage = %+v, want %+v — the last snapshot wins, counts are not added up", resp.Usage, want)
 	}

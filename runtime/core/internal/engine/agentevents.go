@@ -100,6 +100,7 @@ func usageFields(usage *core.LLMUsage) map[string]any {
 		"thinkingTokens":   usage.ThinkingTokens,
 		"cachedTokens":     usage.CachedTokens,
 		"cacheWriteTokens": usage.CacheWriteTokens,
+		"promptTokens":     usage.PromptTokens,
 	}
 	// Present only when a provider reported one. Writing it unconditionally would
 	// put a zero beside every Anthropic, OpenAI and Gemini turn, and a cost of

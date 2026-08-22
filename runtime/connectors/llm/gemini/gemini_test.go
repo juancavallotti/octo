@@ -401,7 +401,10 @@ func TestTranslateResponseKeepsThoughtsOutOfText(t *testing.T) {
 	if got := out.Raw.Thinking[0]; got.Text != "the user is asking about a balance" || got.Signature != "sig-1" {
 		t.Errorf("thinking[0] = %+v, want the thought text and its signature", got)
 	}
-	want := core.LLMUsage{InputTokens: 10, OutputTokens: 12, ThinkingTokens: 7, CachedTokens: 3}
+	want := core.LLMUsage{
+		InputTokens: 10, OutputTokens: 12, ThinkingTokens: 7, CachedTokens: 3,
+		PromptTokens: 10,
+	}
 	if out.Usage == nil || *out.Usage != want {
 		t.Errorf("usage = %+v, want %+v (thoughts added into OutputTokens)", out.Usage, want)
 	}
@@ -479,6 +482,21 @@ func TestTranslateUsageEmptyIsNil(t *testing.T) {
 	got := translateUsage(&genai.GenerateContentResponseUsageMetadata{ThoughtsTokenCount: 12})
 	if got == nil || got.ThinkingTokens != 12 || got.OutputTokens != 12 {
 		t.Errorf("thoughts-only metadata = %+v, want it reported with output inclusive", got)
+	}
+	// promptTokenCount is the whole prompt, cached content included, so PromptTokens
+	// equals it rather than summing the way the output side has to.
+	full := translateUsage(&genai.GenerateContentResponseUsageMetadata{
+		PromptTokenCount:        100,
+		CandidatesTokenCount:    40,
+		ThoughtsTokenCount:      25,
+		CachedContentTokenCount: 30,
+	})
+	want := core.LLMUsage{
+		InputTokens: 100, OutputTokens: 65, ThinkingTokens: 25, CachedTokens: 30,
+		PromptTokens: 100,
+	}
+	if full == nil || *full != want {
+		t.Errorf("usage = %+v, want %+v", full, want)
 	}
 }
 

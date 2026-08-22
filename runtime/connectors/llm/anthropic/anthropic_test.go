@@ -146,9 +146,18 @@ func TestTranslateUsage(t *testing.T) {
 	want := core.LLMUsage{
 		InputTokens: 100, OutputTokens: 40, ThinkingTokens: 25,
 		CachedTokens: 30, CacheWriteTokens: 4096,
+		// The whole prompt the model read: the uncached remainder plus both cache
+		// halves. This is the one connector where that is a sum, which is the whole
+		// reason PromptTokens exists as a field rather than as caller arithmetic.
+		PromptTokens: 4226,
 	}
 	if got == nil || *got != want {
 		t.Errorf("usage = %+v, want %+v", got, want)
+	}
+	// A prompt served entirely from cache still had a size, and InputTokens alone
+	// would report it as nothing.
+	if got := translateUsage(sdk.Usage{CacheReadInputTokens: 30}); got == nil || got.PromptTokens != 30 {
+		t.Errorf("fully cached prompt = %+v, want promptTokens 30", got)
 	}
 }
 

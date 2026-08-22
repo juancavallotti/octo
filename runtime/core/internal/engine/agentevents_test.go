@@ -396,7 +396,7 @@ func TestUsageFieldsCarriesAReportedCostOnlyWhenThereIsOne(t *testing.T) {
 func TestUsageFieldsKeepsTheTokenCounts(t *testing.T) {
 	got := usageFields(&core.LLMUsage{
 		InputTokens: 100, OutputTokens: 30, ThinkingTokens: 12,
-		CachedTokens: 80, CacheWriteTokens: 5,
+		CachedTokens: 80, CacheWriteTokens: 5, PromptTokens: 185,
 	})
 	want := map[string]any{
 		"inputTokens":      100,
@@ -404,6 +404,7 @@ func TestUsageFieldsKeepsTheTokenCounts(t *testing.T) {
 		"thinkingTokens":   12,
 		"cachedTokens":     80,
 		"cacheWriteTokens": 5,
+		"promptTokens":     185,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("usageFields() = %+v, want %+v", got, want)
