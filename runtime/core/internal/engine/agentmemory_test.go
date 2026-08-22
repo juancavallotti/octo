@@ -178,6 +178,34 @@ func TestSummarizeMemoryFoldsOldTurns(t *testing.T) {
 	}
 }
 
+// The overhead is the system prompt and the tool schemas: constant, and paid
+// whatever the transcript is. Charging it to the tail and then asking whether the
+// tail fits *half* the budget prices every turn out at once — the loop runs to the
+// end, the summary replaces the whole conversation, and the turn the person is
+// waiting on goes into it. A big tool set with a modest contextMaxTokens is all it
+// takes, which is a configuration, not a bug in the conversation.
+func TestSummarizeMemoryKeepsATailWhenTheOverheadIsLarge(t *testing.T) {
+	msgs := []core.LLMMessage{
+		{Role: core.LLMRoleUser, Text: strings.Repeat("a", 400)},
+		{Role: core.LLMRoleAssistant, Text: strings.Repeat("b", 400)},
+		{Role: core.LLMRoleUser, Text: "the latest thing anybody said"},
+	}
+	meter := newContextMeter()
+	// Measured at more than half the budget below, and on its own.
+	meter.seed(0, 0)
+	meter.observe(estimateTokens(msgs), estimateTokens(msgs)+400)
+
+	fake := &scriptedLLM{responses: []*core.LLMResponse{endTurnResp("SUMMARY")}}
+	out := summarizeMemory(context.Background(), bareCaller(fake), mustMessage(t), msgs, 500, meter)
+
+	if len(out) < 2 {
+		t.Fatalf("the summary replaced the whole conversation: %d messages", len(out))
+	}
+	if last := out[len(out)-1]; !strings.Contains(last.Text, "the latest thing") {
+		t.Errorf("the most recent turn was folded into the summary: last is %q", last.Text)
+	}
+}
+
 // TestCompactMemoryNoopUnderBudget also pins that the prune path reaches neither
 // the model nor the message: both are nil here, and compacting must not touch
 // either to decide there is nothing to do.

@@ -151,6 +151,53 @@ func TestFitContextWaitsForAMeasurement(t *testing.T) {
 	}
 }
 
+// The one path that used to open a compaction and never close it. A conversation
+// whose two protected ends are the whole of it — an opening user turn and the tool
+// exchange in progress — has no middle to give back, and said so by returning. The
+// start had already been announced, so a panel bracketing the pair sat on
+// "shortening the conversation" for the rest of the run.
+func TestCompactionClosesWhenThereIsNoMiddleToRemove(t *testing.T) {
+	ctx, _ := withFakeServices(context.Background())
+	var seen []any
+	var events []map[string]any
+
+	reg := agentRegistry(&seen)
+	reg.MustRegister("collect", func(types.Settings, core.BlockDeps) (core.MessageProcessor, error) {
+		return processorFunc(func(_ context.Context, m *types.Message) (*types.Message, error) {
+			if body, ok := m.Body.(map[string]any); ok {
+				events = append(events, body)
+			}
+			return m, nil
+		}), nil
+	})
+
+	// A budget one turn cannot fit, so the fit runs at the top of iteration 1 —
+	// when the conversation is exactly [user, assistant(tool call), tool results]
+	// and every one of the three is protected.
+	cfg := compactingAgentConfig(10)
+	cfg.Events = &types.FlowConfig{Process: []types.BlockConfig{{Type: "collect"}}}
+	fake := &scriptedLLM{responses: []*core.LLMResponse{
+		withUsage(toolCallResp("lookup", `{"q":"`+strings.Repeat("a", 400)+`"}`),
+			&core.LLMUsage{PromptTokens: 5000, OutputTokens: 10}),
+		withUsage(endTurnResp("done"), &core.LLMUsage{PromptTokens: 5000, OutputTokens: 5}),
+	}}
+	if _, err := mustBuildAI(t, reg, depsLLM(fake), cfg).Process(ctx, aiMessage(t)); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+
+	if eventOfType(events, eventCompactionStart) == nil {
+		t.Fatalf("no compaction was attempted, so this pins nothing: got %v", typesOf(events))
+	}
+	end := eventOfType(events, eventCompactionEnd)
+	if end == nil {
+		t.Fatalf("compaction was opened and never closed: got %v", typesOf(events))
+	}
+	// Closed with what it found rather than with a claim: nothing was removed.
+	if got := end["dropped"]; got != 0 {
+		t.Errorf("compaction_end says it dropped %v, want 0", got)
+	}
+}
+
 // Compaction is bracketed the way a turn is, because with the summarize strategy
 // it makes a model call and can take seconds. An after-the-fact event alone shows
 // a progress UI a stall it cannot explain.

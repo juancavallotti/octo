@@ -48,7 +48,12 @@ func (a *aiAgent) fitContext(
 		head, opening = messages[1:keep], 1
 	}
 	if len(head) == 0 {
-		return messages // nothing between the two ends to give back
+		// Nothing between the two ends to give back — but the start has already
+		// been announced, and a compaction with no end is a panel left saying he
+		// is shortening the conversation for the rest of the run. Closed with what
+		// it found: the same size, nothing dropped.
+		a.endCompaction(ctx, trace, msg, iter, before, before, 0)
+		return messages
 	}
 
 	fixed := meter.sizeOf(estimateTokens(messages[:opening])) +

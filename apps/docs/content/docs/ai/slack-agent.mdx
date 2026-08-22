@@ -594,8 +594,9 @@ The skeleton transfers to almost any chat-surface agent:
   is; skills say how to use each capability, loaded only when needed.
 - **Never let the model pick storage keys.** Compute identity-bearing values
   (like `userFactsKey`) in the flow from the verified event.
-- **Budget memory deliberately** — `contextMaxTokens` plus `summarize`
-  compaction keeps cost flat while retaining the gist of long threads.
+- **Budget memory deliberately** — `contextMaxTokens` caps the size of the
+  prompt, not the bill. `summarize` compaction keeps the gist of a long thread
+  rather than its opening turns, and buys that with a model call of its own.
 
 The full YAML on this page is production-quotable; declare the env vars
 (`SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, `ANTHROPIC_API_KEY`, and

@@ -266,9 +266,15 @@ func summarizeMemory(
 	ctx context.Context, caller *llmCaller, msg *types.Message,
 	transcript []core.LLMMessage, maxTokens int, meter *contextMeter,
 ) []core.LLMMessage {
-	keepBudget := maxTokens / 2
+	// Half of what is left for the conversation, and the conversation's own size
+	// against it. predict adds the run's constant overhead — the system prompt and
+	// the tool schemas — to every candidate tail, so charging that to the tail and
+	// then halving the budget prices the turns out at once: an overhead at or over
+	// half the budget makes every tail too big, the loop runs to the end, and the
+	// summary replaces the whole transcript including the turn just taken.
+	keepBudget := max(0, maxTokens-meter.overhead) / 2
 	cut := 0
-	for cut < len(transcript) && meter.predict(estimateTokens(transcript[cut:])) > keepBudget {
+	for cut < len(transcript) && meter.sizeOf(estimateTokens(transcript[cut:])) > keepBudget {
 		cut++
 	}
 	// Do not let the kept tail start with an orphaned tool turn.
