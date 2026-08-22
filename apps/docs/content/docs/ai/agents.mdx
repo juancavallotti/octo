@@ -117,6 +117,7 @@ different arguments, try another tool, or give up and take the guardrail.
 | `default` | No | The fallback flow, run on refusal or when `maxIterations` is exhausted. |
 | `skills` | No | Lazy-loaded instruction documents — see [Skills and Tools](/ai/agent-skills-and-tools). |
 | `memoryThreadId` and friends | No | Per-thread conversation memory — see [Agent Memory](/ai/agent-memory). |
+| `signalId` and `stopWhen` | No | Let a later message join, or stop, a run already in flight — see [Steering a Running Agent](/ai/agent-signals). |
 
 ## Guardrail and the default path
 
@@ -150,6 +151,7 @@ fence, the block strips it before parsing.
 ## Next steps
 
 - Give the agent [memory across invocations](/ai/agent-memory).
+- Let another flow [steer or stop a run in flight](/ai/agent-signals).
 - Structure larger agents with [skills and reusable flow-backed tools](/ai/agent-skills-and-tools).
 - See a production agent end to end in the [Slack agent capstone](/ai/slack-agent).
 - Full field tables: [AI Blocks reference](/reference/blocks/ai).

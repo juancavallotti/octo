@@ -1,0 +1,137 @@
+---
+title: "Steering a Running Agent"
+description: "Adding to an agent run in flight, and stopping one."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+An `ai-agent` run is otherwise a closed loop: a request goes in, an answer
+comes out, and nothing in between can change its mind or end it early. That
+is right for a transformation and wrong for a conversation, where a person
+changes what they wanted — or stops wanting it — while the agent is still
+working.
+
+Set `signalId` and the run identifies itself for as long as it is in flight.
+The same block then handles all three cases, with no branching in the flow.
+
+## One block, three outcomes
+
+```yaml
+      - type: ai-agent
+        name: assistant
+        connector: claude
+        signalId: vars.sub + ":" + body.threadId
+        stopWhen: '"X-Agent-Stop" in vars && vars["X-Agent-Stop"] != ""'
+        memoryThreadId: body.threadId
+        input: body.message
+        stream: true
+        # ...
+```
+
+| The request | What happens |
+|---|---|
+| **A first message** | Nothing is running, so this invocation claims the id and runs the agent. |
+| **A follow-up** | A run is going, so the message is handed to it and this flow **stops** with an empty body. No second run, no second stream, no second answer to a person already reading the first. |
+| **A stop** | `stopWhen` holds, so the run in flight is ended and this flow stops with an empty body. |
+
+There is no separate block and no message in flight. The lookup and the
+handover happen under one lock, so "somebody took this" is a fact rather than
+a hopeful timeout.
+
+The injected text is the agent's own `input` expression, evaluated against
+the new message — the same expression that states a run's opening turn. A
+follow-up is just the next thing the person said.
+
+## Where a handed-over message lands
+
+It arrives as an ordinary **user turn**, at the top of the run's next
+iteration. That is the only safe seam: every provider requires a tool turn to
+follow immediately after the assistant turn that requested it, so nothing can
+be slipped between them.
+
+If it arrives while the agent is producing what would have been its final
+answer, the run **takes another turn** rather than dropping it — it was
+accepted, and the invocation that handed it over stopped its own flow on the
+strength of that. Which is also what makes a follow-up typed mid-answer
+behave the way it does in any chat.
+
+## Stopping a run
+
+`stopWhen` is a boolean CEL condition over the message — a header, a body
+field, whatever the caller can send. Nothing about it is special to the
+runtime; the expression is what gives it meaning.
+
+When it holds, the run in flight is ended: the model call is **cancelled**
+rather than paid for in full, the agent saves its memory, and both flows stop.
+
+Memory is still saved on the way out, and always by **pruning** rather than
+summarizing, whatever the agent configured: summarizing costs a real model
+call, and buying one to tidy up work somebody just cancelled is the wrong
+instinct.
+
+A stop that finds nothing running is a **no-op that answers**, so a client can
+send one blind without knowing whether the run is still going.
+
+## When the caller hangs up
+
+A closed connection ends a run through the same machinery. An
+[`sse-event`](/reference/connectors/http) with `ifClosed: stop` in the
+agent's events path returns a stop, and that stop cancels the model call in
+flight instead of waiting for it.
+
+<Callout type="warn">
+How quickly a disconnect is noticed depends on `stream`. With `stream: true`
+the events path fires per token, so a closed connection is caught within a
+token. Without it, nothing is emitted between `turn_start` and `turn_end`, so
+the disconnect is only noticed at the next turn boundary — and that turn is
+paid for. Stream any agent whose caller can walk away.
+</Callout>
+
+## Choosing a signal id
+
+`signalId` is a CEL expression, so its granularity is yours. It is
+deliberately **not** defaulted from `memoryThreadId`: memory is scoped to a
+conversation, while steering is scoped to whoever is allowed to interrupt it
+— usually a conversation **and** a person.
+
+A JWT subject arrives as an ordinary message variable, so
+`vars.sub + ":" + body.threadId` says "this person, in this conversation".
+
+<Callout type="warn">
+**Whatever the id is derived from is exactly who can reach the run.** Build it
+from an identity the caller cannot choose — `vars.sub`, the verified subject of
+a token a [`jwt-validate`](/reference/connectors/http) block checked — not from
+a field of the request body. An id built from `body.userId` lets anyone who can
+guess a pair steer or stop someone else's run.
+</Callout>
+
+## One replica at a time
+
+The registry of runs in flight is **per process**, as the http connector's
+registry of open SSE streams is. Across replicas, a follow-up that lands
+somewhere else finds nothing and starts its own run.
+
+The conversation is not lost when that happens — memory lives in the shared
+object store, so the second run has the whole thread. The costs are a second
+answer on a second stream, a stop that stops nothing, and two runs saving the
+same thread where the later save wins.
+
+The straightforward fix is at the router rather than in the runtime: **session
+affinity** on the ingress, keyed on the same thread the `signalId` is, puts
+every message of a conversation on the replica already working on it.
+
+## Watching it happen
+
+`signal` is an agent [event](/reference/blocks/ai#ai-agent) like any other,
+carrying `signal` and the `text` that was handed over. Put it in `emit` and a
+progress UI shows the follow-up arriving in the same stream as the answer.
+
+## Try it
+
+[`samples/ai-agent-steering.yaml`](https://github.com/juancavallotti/octo/tree/main/samples/ai-agent-steering.yaml)
+is the whole pattern, runnable, in two terminals.
+
+## Next steps
+
+- [Agent Memory](/ai/agent-memory) — what a stopped run keeps.
+- [AI Blocks reference](/reference/blocks/ai#ai-agent) — full field tables.

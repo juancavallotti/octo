@@ -4,6 +4,7 @@
     "agents",
     "agent-memory",
     "agent-skills-and-tools",
+    "agent-signals",
     "ai-router",
     "ai-mapping",
     "ai-retry",
