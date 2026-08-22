@@ -81,7 +81,17 @@ Two arithmetic rules the numbers obey, and neither is guessable from the figures
 
 The runtime reports tokens and never money — it deliberately knows no rate card. Pricing is the aggregator's job, and it happens **once, at ingest**. The cost is stored frozen alongside the id of the rate that produced it, so a price change next month cannot restate what last month cost.
 
-Rates come from a published catalogue (Helicone's, by default) and are kept as **history** in `llm_prices`: a changed price closes the old row and opens a new one, an unchanged price is a no-op, and a model that disappears from the feed is left open rather than closed — a missing catalogue entry must not retroactively unprice stored history. Every refresh, successful or not, is recorded in `llm_price_syncs`.
+Rates come from **two published catalogues**, consulted in order. OpenRouter's model list leads: it is priced per model by the platform that sells them and turns over daily. Helicone's follows, because it carries the patterns OpenRouter never publishes — Bedrock, Azure, vendor-hosted ids. A call is priced by the first card that has a rate for its model, so a model *either* card knows is priced and only one *neither* knows is not.
+
+The fallthrough is narrow on purpose. Only "this card has never heard of this model" moves to the next one; a partial pricing is a real cost from a real rate and stays, and a call whose provider reported no tokens is not a question a second card can answer differently.
+
+Each card is stored and diffed under its own `source`, so the two never restate each other, and both are kept as **history** in `llm_prices`: a changed price closes the old row and opens a new one, an unchanged price is a no-op, and a model that disappears from the feed is left open rather than closed — a missing catalogue entry must not retroactively unprice stored history. Every refresh of every source, successful or not, is recorded in `llm_price_syncs`.
+
+<Callout type="info">
+Neither feed needs an API key. OpenRouter's model list is public — it is what a caller consults before deciding to buy anything — so pricing from it costs no credential and no chart secret.
+</Callout>
+
+One OpenRouter entry prices a model **twice over**: once under its full routed id (`anthropic/claude-sonnet-4.5`), and once as a prefix of the vendor's own id (`claude-sonnet-4-5-20250929`), because those are different namespaces for the same model. A model the feed prices as variable — the auto-router publishes `-1` for every field — is refused rather than stored at zero, since a zero rate would report every call it matched as free.
 
 The card is loaded from the database **before** anything is consumed and refreshed in the background afterwards. A service that waited on the catalogue would price nothing while the feed was slow, and nothing at all for as long as it was down.
 
@@ -135,10 +145,14 @@ The aggregator needs `DATABASE_URL` and `NATS_URL`; without either it still serv
 
 | Variable | Helm value | Default |
 | --- | --- | --- |
+| `LLM_PRICES_SOURCES` | `logs.prices.sources` | `openrouter,helicone` |
 | `LLM_PRICES_URL` | `logs.prices.url` | Helicone's public catalogue |
+| `LLM_PRICES_OPENROUTER_URL` | `logs.prices.openrouterUrl` | OpenRouter's public model list |
 | `LLM_PRICES_REFRESH` | `logs.prices.refreshInterval` | `12h` |
 
-Point the URL at a mirror for a cluster without egress. A cluster that can reach neither still serves whatever rates are already stored and records the failure in `llm_price_syncs`.
+`LLM_PRICES_SOURCES` is a comma-separated list in preference order; name one source to use only it. An unknown name is warned about and skipped rather than fatal, and a value naming nothing usable falls back to the default — pricing nothing at all is never what was meant.
+
+Point either URL at a mirror for a cluster without egress. A cluster that can reach neither still serves whatever rates are already stored and records the failure in `llm_price_syncs`.
 
 ## Retention
 

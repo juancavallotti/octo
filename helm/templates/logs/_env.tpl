@@ -9,12 +9,24 @@
 - name: NATS_URL
   value: {{ include "octo.nats.url" . | quote }}
 {{- end }}
+{{- with .Values.logs.prices.sources }}
+# Which rate cards price traced model calls, most preferred first. Unset uses
+# openrouter then helicone, so a model either card knows is priced and only one
+# neither knows is not.
+- name: LLM_PRICES_SOURCES
+  value: {{ . | quote }}
+{{- end }}
 {{- with .Values.logs.prices.url }}
-# Rate card for pricing traced model calls. Unset uses the service's own default
-# (Helicone's public catalogue); point it at a mirror for a cluster with no
-# egress, and note that a cluster which can reach neither still serves whatever
-# prices are already in the database.
+# Helicone's rate card. Unset uses the service's own default (Helicone's public
+# catalogue); point it at a mirror for a cluster with no egress, and note that a
+# cluster which can reach neither still serves whatever prices are already in
+# the database.
 - name: LLM_PRICES_URL
+  value: {{ . | quote }}
+{{- end }}
+{{- with .Values.logs.prices.openrouterUrl }}
+# OpenRouter's published model list, on the same terms. It needs no API key.
+- name: LLM_PRICES_OPENROUTER_URL
   value: {{ . | quote }}
 {{- end }}
 {{- with .Values.logs.prices.refreshInterval }}
