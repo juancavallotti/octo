@@ -71,6 +71,20 @@ Some work must happen once per cluster, not once per replica — a scheduled tic
 - **Under the hood**, leadership in the cluster is a Kubernetes `coordination/v1` Lease per key, scoped to the deployment. If the leader pod dies, the lease lapses and another replica takes over.
 - **Standalone**, the single process is always the leader.
 
+## Owning one thing at a time: leases
+
+Leader election answers "who runs this schedule?" and keeps answering it for the life of the process. A different question — "does somebody else already own *this* name, right now?" — has a different answer, because a caller asking it has a message in its hand and needs to know whether to do something else with it.
+
+A **lease** is that answer. It is refused immediately rather than waited on, it expires so a holder that dies does not own a name forever, and its holder renews while it works.
+
+- **The one thing using it today is [`ai-agent`](/ai/agent-signals)**, which claims a conversation for the length of a run so a follow-up landing on another replica reaches the run already working on it rather than starting a second one.
+- **Under the hood**, a claim is a Kubernetes `coordination/v1` Lease per name, scoped to the deployment — the same object leader election uses, under a different name prefix so the two can never collide.
+- **Standalone**, it is a map under a mutex. That is not a reduced version of the cluster one: exclusivity is only ever asked of the processes that could compete for a name, and in one process a mutex settles it exactly.
+
+<Callout>
+The distinction matters when you read `IsLeader`. A campaign that has not won yet reports `false`, and so does one that lost — which is fine for "should I fire this tick?" and useless for "should I hand this message over or answer it myself?"
+</Callout>
+
 ## HTTP load balancing
 
 The runtime does not load-balance HTTP itself. An `http` source binds a server in every replica, and the platform's Kubernetes Service in front of the pods distributes requests across them — fine for stateless request/reply. For work that must be processed once with backpressure, hand it off to a queue from the HTTP flow (`queue-dispatch`) instead of doing it inline.
@@ -83,6 +97,7 @@ The runtime does not load-balance HTTP itself. An `http` source binds a server i
 | Topics | In-process fan-out | NATS subscriptions, `octo.<id>.t.<subject>` |
 | KV / object store | In-memory, per process | Orchestrator HTTP KV, deployment-scoped, versioned |
 | Leader election | Always leader | Kubernetes Lease per key |
+| Leases | Map under a mutex | Kubernetes Lease per name, `octo-claim-<id>-<hash>` |
 | Log shipping | None (stderr only) | NATS to the central log sink |
 
 The build tag selects the module ([Runtime Architecture](/runtime)); the orchestrator sets the environment (`OCTO_DEPLOYMENT_ID`, `NATS_URL`, `ORCHESTRATOR_URL`, pod identity) that the k8s module requires at startup.

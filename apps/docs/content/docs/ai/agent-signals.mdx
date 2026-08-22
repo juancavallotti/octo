@@ -118,51 +118,70 @@ caller cannot choose: `vars.sub`, the verified subject of a token a
 of the request body.
 </Callout>
 
-## Known limits
+## Across replicas
 
-The registry of runs in flight is **per process**, as the http connector's
-registry of open SSE streams is. Across replicas, a message that lands
-somewhere else finds nothing and starts its own run.
+A conversation is claimed for the whole deployment, not just for the process
+holding it. A message that lands on another replica does not start a second run:
+the claim tells it who owns the conversation, and the message is delivered
+there.
 
-The conversation is not lost when that happens — memory lives in the shared
-object store, so the second run has the whole thread. What goes wrong is that
-two runs exist where there should be one:
+Two runtime services do the work, and neither is new. The claim is a
+[lease](/runtime/clustering#owning-one-thing-at-a-time-leases) — exclusive, expiring, and refused immediately rather
+than waited on, so a caller learns at once that somebody else owns the
+conversation. The delivery is an internal queue, whose reply is what makes
+"somebody took this" a fact rather than a hopeful timeout. On Kubernetes that is
+a coordination Lease and core NATS; there is nothing to enable and no persistence
+to configure.
 
-- a follow-up gets **its own answer on its own stream**, and both are billed;
-- a **stop stops nothing and reports success**, while the run it meant to end
-  carries on to completion;
-- both runs save the thread at the end, and the **later save wins entirely** —
-  the other's turns are gone.
-
-<Callout type="warn">
-The stop is the one to plan around, because it is the only one that looks like
-success. The others are visible to whoever is reading.
+<Callout>
+The stop is what this is for. Before it, a stop landing on the wrong replica
+stopped nothing **and reported success** — the only failure here that is
+indistinguishable from the thing working.
 </Callout>
 
-The straightforward fix is at the router rather than in the runtime: **session
-affinity** on the ingress, keyed on the same thread `memoryThreadId` is, puts
-every message of a conversation on the replica already working on it. It also
-fixes something a cluster-wide claim could not — a client that reconnects lands
-back on the replica holding its stream.
+Three consequences worth knowing:
 
-Two limits apply on a single replica too:
+- **A run that loses its claim stops.** If a replica cannot renew its lease,
+  another replica now owns the conversation and will save it; carrying on would
+  be two runs writing one transcript, where the later save wins entirely.
+- **A run may hold its conversation for fifteen minutes.** A wedged tool branch
+  would otherwise keep the conversation claimed for the whole deployment. At the
+  limit the run is stopped exactly as `stopWhen` stops it, so the transcript is
+  pruned and saved and the next message picks up cleanly. An agent with no
+  `memoryThreadId` claims nothing and is not timed.
+- **Delivery is at most once.** A message published between a replica's death
+  and its lease expiring is lost — bounded by the lease, and the same window in
+  which the run itself was already gone.
 
-- a **wedged run holds its id**. A tool branch with no timeout keeps the
-  conversation claimed, and every follow-up is handed to something that will
-  never answer. There is no maximum run age yet.
-- **follow-ups accepted near the iteration cap can be dropped**. They were
-  accepted, and their senders' flows stopped, and if `maxIterations` is reached
-  before the run gets to them the guardrail path runs instead.
+## Known limits
 
-For the design work behind all of this — what a distributed claim would and
-would not fix, and what it would cost — see
+**A client that reconnects cannot rejoin its run.** The claim decides who owns a
+conversation; it does not move a stream. A browser that reconnects to another
+replica is told the conversation is owned and receives nothing, because the
+run's events are going to the replica it left. **Session affinity** on the
+ingress, keyed on the same thread `memoryThreadId` is, is the answer — and it
+costs no code.
+
+**A message accepted at the iteration cap is not answered.** It is reported
+instead: an `unanswered` signal event carrying its text, so a progress UI can
+say what went unanswered rather than leaving the person to notice their question
+never came back. Raise `maxIterations` if it happens often.
+
+For the design work behind all of this — what the claim fixes, what it does not,
+and what each primitive costs — see
 [`docs/distributed-agent-runs.md`](https://github.com/juancavallotti/octo/blob/main/docs/distributed-agent-runs.md).
 
 ## Watching it happen
 
 `signal` is an agent [event](/reference/blocks/ai#ai-agent) like any other,
-carrying `signal` and the `text` that was handed over. Put it in `emit` and a
-progress UI shows the follow-up arriving in the same stream as the answer.
+carrying `signal` and the `text` it concerns. Put it in `emit` and a progress UI
+shows the follow-up arriving in the same stream as the answer.
+
+| `signal` | Means |
+| --- | --- |
+| `context` | A message was handed to the run and folded into the conversation. |
+| `stop` | The run was asked to end. |
+| `unanswered` | A message the run accepted and never got a turn to answer. |
 
 ## Try it
 

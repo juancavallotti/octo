@@ -853,15 +853,21 @@ func (a *aiAgent) Process(ctx context.Context, msg *types.Message) (*types.Messa
 	// Which conversation is this, and is this invocation meant to reach a run
 	// rather than be one? Both of the latter answers end the flow here, and
 	// neither calls a model.
-	claim, taken, err := a.joinOrClaim(msg, cancel)
+	claim, taken, err := a.joinOrClaim(ctx, msg, cancel)
 	if err != nil {
 		return nil, err
 	}
 	if taken != nil {
 		return taken, nil
 	}
+	// Unwound in this order: the run stops accepting, then the claim is given
+	// back, then the local entry goes. Releasing the claim while the run could
+	// still take a message would let another replica start on a conversation this
+	// one has not finished with.
 	defer liveRuns.release(claim.key, claim.run)
+	defer claim.held.close()
 	defer claim.run.close()
+	defer claim.bound()
 	run, threadID := claim.run, claim.threadID
 
 	messages, meter, err := a.initConversation(ctx, msg, threadID)
@@ -921,8 +927,30 @@ func (a *aiAgent) Process(ctx context.Context, msg *types.Message) (*types.Messa
 		}
 	}
 
+	return a.outOfTurns(ctx, runCtx, saveCtx, threadID, current, messages, meter, run)
+}
+
+// outOfTurns ends a run that spent its whole iteration budget without reaching an
+// answer, and hands the message to the guardrail.
+//
+// Anything handed to the run and never answered is reported on the way past. It
+// was accepted, and the invocation that sent it has already stopped its own flow
+// on the strength of that, so dropping it silently would lose a message between
+// two flows that each believed the other had it.
+//
+// The guardrail runs on the flow's context rather than the run's, unlike the
+// refusal path above. The run's context is what a stop cancels, and this is not a
+// stop: a run that has been stopped never reaches here — it halts where the stop
+// was noticed. What reaches here is a run that worked to its limit and owes its
+// caller an answer, and the guardrail is that answer.
+func (a *aiAgent) outOfTurns(
+	ctx, runCtx, saveCtx context.Context, threadID string,
+	current *types.Message, messages []core.LLMMessage, meter *contextMeter, run *agentRun,
+) (*types.Message, error) {
+	last := a.maxIterations - 1
+	a.reportUnanswered(runCtx, current, run, last)
 	a.persistMemory(saveCtx, current, threadID, messages, meter, a.memoryCompaction)
-	return a.fallback(ctx, current, a.maxIterations-1, "exceeded max iterations")
+	return a.fallback(ctx, current, last, "exceeded max iterations")
 }
 
 // tryFinish ends the run with its answer, or returns nil to say it may not end

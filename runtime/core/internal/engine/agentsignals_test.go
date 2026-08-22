@@ -37,6 +37,28 @@ func reentrantRegistry(seen *[]any, hook func()) *core.BlockRegistry {
 	return reg
 }
 
+// claimContext is a context carrying services the claim path can use. The fake
+// leases grant every claim, so these tests exercise the local map and the
+// handover exactly as they did before the claim became cluster-wide.
+func claimContext() context.Context {
+	ctx, _ := withFakeServices(context.Background())
+	return ctx
+}
+
+// claim runs one registry claim and fails the test on an error, so the tests
+// below read as the two-outcome decision they are about.
+func claim(t *testing.T, r *runRegistry, text string, run *agentRun) bool {
+	t.Helper()
+	_, handedOff, err := r.offerOrClaim(claimContext(), thread, text, run)
+	if err != nil {
+		t.Fatalf("offerOrClaim(%q): %v", thread, err)
+	}
+	return handedOff
+}
+
+// thread is the one claim key the registry tests use.
+const thread = "t1"
+
 // steerMessage is a request carrying a follow-up for an ongoing conversation.
 func steerMessage(t *testing.T, text string) *types.Message {
 	t.Helper()
@@ -259,7 +281,7 @@ func TestRegistryHandoverIsAllOrNothing(t *testing.T) {
 	r := &runRegistry{runs: map[string]*agentRun{}}
 	first := &agentRun{}
 
-	if handed := r.offerOrClaim("t1", "hello", first); handed {
+	if handed := claim(t, r, "hello", first); handed {
 		t.Fatal("the first run was handed to itself")
 	}
 	if r.runs["t1"] != first {
@@ -267,7 +289,7 @@ func TestRegistryHandoverIsAllOrNothing(t *testing.T) {
 	}
 
 	second := &agentRun{}
-	if handed := r.offerOrClaim("t1", "follow-up", second); !handed {
+	if handed := claim(t, r, "follow-up", second); !handed {
 		t.Error("a live run refused a message")
 	}
 	if r.runs["t1"] != first {
@@ -280,7 +302,7 @@ func TestRegistryHandoverIsAllOrNothing(t *testing.T) {
 	// Once the first is done, the next request takes the id rather than handing to
 	// something that will never read it.
 	first.close()
-	if handed := r.offerOrClaim("t1", "later", second); handed {
+	if handed := claim(t, r, "later", second); handed {
 		t.Error("a finished run accepted a message")
 	}
 	if r.runs["t1"] != second {
@@ -293,9 +315,9 @@ func TestRegistryHandoverIsAllOrNothing(t *testing.T) {
 func TestRegistryReleaseLeavesASuccessorAlone(t *testing.T) {
 	r := &runRegistry{runs: map[string]*agentRun{}}
 	first, second := &agentRun{}, &agentRun{}
-	r.offerOrClaim("t1", "a", first)
+	claim(t, r, "a", first)
 	first.close()
-	r.offerOrClaim("t1", "b", second)
+	claim(t, r, "b", second)
 
 	r.release("t1", first)
 	if r.runs["t1"] != second {
@@ -352,9 +374,9 @@ func TestBlankTextIsTakenButNotInjected(t *testing.T) {
 func TestBlankTextDoesNotEvictALiveRun(t *testing.T) {
 	r := &runRegistry{runs: map[string]*agentRun{}}
 	first, second := &agentRun{}, &agentRun{}
-	r.offerOrClaim("t1", "hello", first)
+	claim(t, r, "hello", first)
 
-	if handed := r.offerOrClaim("t1", "   ", second); !handed {
+	if handed := claim(t, r, "   ", second); !handed {
 		t.Error("an empty message was not handed to the live run, so a rival would start")
 	}
 	if r.runs["t1"] != first {
@@ -434,4 +456,80 @@ func TestTwoAgentsSharingAThreadExpressionDoNotCollide(t *testing.T) {
 			t.Errorf("another agent's message reached this conversation: %+v", call.Messages)
 		}
 	}
+}
+
+// A message accepted with no turn left to answer it in must not vanish. The
+// invocation that sent it already stopped its own flow on the strength of this
+// run taking it, so silence here is a message lost between two flows that each
+// believed the other had it.
+func TestAMessageAcceptedAtTheIterationCapIsReported(t *testing.T) {
+	ctx, _ := withFakeServices(context.Background())
+	var seen []any
+	var events []map[string]any
+
+	cfg := steerableAgentConfig()
+	cfg.MaxIterations = 2
+	path := eventsPath(nil)
+	cfg.Events = &path
+	cfg.Emit = []string{eventSignal}
+	// The cap has to be reachable, so the run needs somewhere to land.
+	cfg.Default = &types.FlowConfig{
+		Process: []types.BlockConfig{{Type: "record", Settings: types.Settings{"tag": "gave-up"}}},
+	}
+
+	// Never finishes, so the run reaches its cap rather than answering.
+	fake := &scriptedLLM{repeat: toolCallResp("lookup", `{"q":"x"}`)}
+
+	var block core.MessageProcessor
+	calls := 0
+	reg := eventsRecordingRegistry(&seen, &events, func() {
+		calls++
+		// On the last iteration, so there is no turn left to inject into.
+		if calls != cfg.MaxIterations {
+			return
+		}
+		out, err := block.Process(ctx, steerMessage(t, "too late"))
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		if out == nil || !out.StopRequested() {
+			t.Error("the late message was not accepted, so nothing was owed to it")
+		}
+	})
+	block = mustBuildAI(t, reg, depsLLM(fake), cfg)
+
+	if _, err := block.Process(ctx, steerMessage(t, "research pricing")); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if !reportedSignal(events, signalUnanswered, "too late") {
+		t.Errorf("the accepted message was dropped without a word: events = %+v", events)
+	}
+}
+
+// reportedSignal reports whether a signal event of this kind carried text.
+func reportedSignal(events []map[string]any, signal, text string) bool {
+	for _, e := range events {
+		if e["type"] == eventSignal && e[fieldSignal] == signal && e[fieldText] == text {
+			return true
+		}
+	}
+	return false
+}
+
+// eventsRecordingRegistry is reentrantRegistry with the events path's recorder
+// alongside it, so one test can both interrupt a run and read what it reported.
+func eventsRecordingRegistry(
+	seen *[]any, events *[]map[string]any, hook func(),
+) *core.BlockRegistry {
+	reg := reentrantRegistry(seen, hook)
+	reg.MustRegister("record-event", func(types.Settings, core.BlockDeps) (core.MessageProcessor, error) {
+		return processorFunc(func(_ context.Context, msg *types.Message) (*types.Message, error) {
+			body, _ := msg.Body.(map[string]any)
+			*events = append(*events, body)
+			return msg, nil
+		}), nil
+	})
+	return reg
 }
