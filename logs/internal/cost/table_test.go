@@ -1,6 +1,7 @@
 package cost
 
 import (
+	"math"
 	"math/rand/v2"
 	"testing"
 )
@@ -188,6 +189,31 @@ func TestTableSkipsUnusableEntries(t *testing.T) {
 			rate:  Rate{ID: "regex", Provider: "OPENAI", Pattern: "gpt-4o", Operator: "regex", InputPer1M: 99},
 			probe: "gpt-4o",
 		},
+		{
+			// A credit recorded as a cost nets silently against real charges in
+			// every total built on it -- the same reason reportedCost refuses a
+			// negative figure a provider reports.
+			name:  "a negative input rate is never admitted",
+			rate:  Rate{ID: "credit", Provider: "OPENAI", Pattern: "gpt-4o", Operator: OpEquals, InputPer1M: -2.5},
+			probe: "gpt-4o",
+		},
+		{
+			name:  "a negative output rate is never admitted",
+			rate:  Rate{ID: "credit-out", Provider: "OPENAI", Pattern: "gpt-4o", Operator: OpEquals, OutputPer1M: -10},
+			probe: "gpt-4o",
+		},
+		{
+			// It multiplies through into cost_usd, where one poisoned row makes
+			// every SUM over it meaningless and nothing in the record says so.
+			name:  "a NaN rate is never admitted",
+			rate:  Rate{ID: "nan", Provider: "OPENAI", Pattern: "gpt-4o", Operator: OpEquals, InputPer1M: math.NaN()},
+			probe: "gpt-4o",
+		},
+		{
+			name:  "an infinite rate is never admitted",
+			rate:  Rate{ID: "inf", Provider: "OPENAI", Pattern: "gpt-4o", Operator: OpEquals, OutputPer1M: math.Inf(1)},
+			probe: "gpt-4o",
+		},
 	}
 
 	for _, tc := range cases {
@@ -241,5 +267,47 @@ func TestUnmatchedLookupReturnsNoRates(t *testing.T) {
 	}
 	if got.InputPer1M != 0 || got.OutputPer1M != 0 || got.Provider != "" || got.ID != "" {
 		t.Fatalf("an unknown model returned %+v, want the zero Rate", got)
+	}
+}
+
+// The guard belongs to the type rather than to a feed, so it holds for a rate
+// arriving from any source. Helicone publishes its figures as plain JSON numbers
+// straight onto the rate, with no conversion step to check them.
+func TestReduceCountsARateThatIsNotPriced(t *testing.T) {
+	got := reduce([]catalogueRow{
+		{Provider: "OPENAI", Model: "gpt-4o", Operator: OpEquals, InputPer1M: 2.5, OutputPer1M: 10},
+		{Provider: "OPENAI", Model: "gpt-4o-mini", Operator: OpEquals, InputPer1M: -0.2, OutputPer1M: 0.6},
+	})
+
+	if len(got.Rates) != 1 || got.Rates[0].Pattern != "gpt-4o" {
+		t.Fatalf("rates = %+v, want only the priced one", got.Rates)
+	}
+	// Counted rather than dropped quietly, so a feed that starts publishing
+	// nonsense is visible in llm_price_syncs rather than as a card that got
+	// smaller for no stated reason.
+	if got.Unusable != 1 {
+		t.Errorf("unusable = %d, want 1", got.Unusable)
+	}
+}
+
+func TestUsablePrice(t *testing.T) {
+	tests := []struct {
+		name  string
+		price float64
+		want  bool
+	}{
+		{name: "an ordinary rate", price: 2.5, want: true},
+		{name: "free is a price", price: 0, want: true},
+		{name: "a credit is not", price: -2.5, want: false},
+		{name: "NaN is not", price: math.NaN(), want: false},
+		{name: "infinity is not", price: math.Inf(1), want: false},
+		{name: "negative infinity is not", price: math.Inf(-1), want: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := usablePrice(tc.price); got != tc.want {
+				t.Errorf("usablePrice(%v) = %v, want %v", tc.price, got, tc.want)
+			}
+		})
 	}
 }

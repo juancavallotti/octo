@@ -94,7 +94,44 @@
     {
       "id": "",
       "name": "No id at all",
-      "pricing": { "prompt": "0.1", "completion": "0.2" }
+      "pricing": {
+        "prompt": "0.1",
+        "completion": "0.2"
+      }
+    },
+    {
+      "id": "badvendor/negative-price",
+      "name": "A price below zero, which a rate cannot be",
+      "pricing": {
+        "prompt": "-0.5",
+        "completion": "-1e-9"
+      }
+    },
+    {
+      "id": "badvendor/not-a-number",
+      "name": "NaN, which survives a zero-guard and poisons every SUM",
+      "pricing": {
+        "prompt": "NaN",
+        "completion": "NaN"
+      }
+    },
+    {
+      "id": "badvendor/infinite-price",
+      "name": "Infinity, published or reached by scaling",
+      "pricing": {
+        "prompt": "Inf",
+        "completion": "1e303"
+      }
+    },
+    {
+      "id": "badvendor/negative-cache-half",
+      "name": "Priceable, but one cache half is not a price",
+      "pricing": {
+        "prompt": "0.000001",
+        "completion": "0.000002",
+        "input_cache_read": "-0.5",
+        "input_cache_write": "NaN"
+      }
     }
   ]
 }

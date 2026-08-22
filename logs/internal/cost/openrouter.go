@@ -37,11 +37,6 @@ const (
 	// Rate.usable exists to prevent for an empty pattern — just further along the
 	// same axis.
 	minSlugLength = 4
-
-	// unpricedRate is what OpenRouter publishes for a model whose price is
-	// variable or negotiated. It means "not a number", so it is read as an absent
-	// rate rather than as free.
-	unpricedRate = -1
 )
 
 // OpenRouterCatalogue reads OpenRouter's published model list over HTTP.
@@ -229,28 +224,46 @@ func bareSlugs(id string) []string {
 }
 
 // perMillion converts a published per-token price to the per-million figure every
-// rate in this package is quoted in. An unparseable or unpriced entry reads as
-// zero, which prices nothing rather than pricing wrongly.
+// rate in this package is quoted in. Anything that is not a price reads as zero,
+// which prices nothing rather than pricing wrongly.
+//
+// The check is on the CONVERTED figure rather than the parsed one, and that is
+// not tidiness: it subsumes the parsed check, and it also catches the one case
+// the parsed check cannot see — a value large but finite on its own that
+// overflows to infinity once scaled by a million. The feed's "-1" for variable
+// pricing needs no case of its own; it is simply not a non-negative number.
 func perMillion(raw string) float64 {
 	value, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
-	if err != nil || value <= unpricedRate {
+	if err != nil {
 		return 0
 	}
-	return value * tokensPerUnit
+	per1M := value * tokensPerUnit
+	if !usablePrice(per1M) {
+		return 0
+	}
+	return per1M
 }
 
 // optionalPerMillion is perMillion for the two cache halves, which are absent
 // rather than zero when a model publishes no cache price. Nil is a different
 // fact from a rate of zero and decides whether cached tokens can be priced at
 // all, so an absent field stays absent all the way to the rate.
+//
+// A published figure that is not a price is treated as an absent one, which is
+// what keeps a model with one bad cache half priceable: it falls back to the
+// input rate and reports priced_partial, the same answer a model that published
+// no cache rate at all gets.
 func optionalPerMillion(raw string) *float64 {
 	if strings.TrimSpace(raw) == "" {
 		return nil
 	}
 	value, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
-	if err != nil || value <= unpricedRate {
+	if err != nil {
 		return nil
 	}
-	converted := value * tokensPerUnit
-	return &converted
+	per1M := value * tokensPerUnit
+	if !usablePrice(per1M) {
+		return nil
+	}
+	return &per1M
 }

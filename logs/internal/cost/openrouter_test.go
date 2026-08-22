@@ -3,6 +3,7 @@ package cost
 import (
 	"context"
 	"errors"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -49,17 +50,18 @@ func rateFor(t *testing.T, fetched Fetched, model string) Rate {
 func TestOpenRouterFetch(t *testing.T) {
 	got := fetchOpenRouter(t)
 
-	// Ten published models: three cannot become a rate at all (no id, no vendor
-	// prefix, priced at nothing), and the thinking variant's two bare-slug rows
-	// duplicate the base model's.
-	if got.Unusable != 3 {
-		t.Errorf("unusable = %d, want 3", got.Unusable)
+	// Fourteen published models. Six cannot become a rate at all: no id, no
+	// vendor prefix, priced at nothing, and three whose published figures are not
+	// prices. The thinking variant's two bare-slug rows duplicate the base
+	// model's.
+	if got.Unusable != 6 {
+		t.Errorf("unusable = %d, want 6", got.Unusable)
 	}
 	if got.Duplicates != 2 {
 		t.Errorf("duplicates = %d, want 2", got.Duplicates)
 	}
-	if len(got.Rates) != 14 {
-		t.Errorf("rates = %d, want 14", len(got.Rates))
+	if len(got.Rates) != 16 {
+		t.Errorf("rates = %d, want 16", len(got.Rates))
 	}
 }
 
@@ -251,5 +253,94 @@ func TestNewOpenRouterCatalogueDefaults(t *testing.T) {
 func TestOpenRouterSourceIsDistinct(t *testing.T) {
 	if SourceOpenRouter == SourceHelicone {
 		t.Error("the two sources must be distinguishable on a stored row")
+	}
+}
+
+// A published figure that is not a price must never reach the card. A negative
+// rate nets against real charges in every total built on it, and a NaN or an
+// infinity multiplies through into cost_usd, where one poisoned row makes every
+// SUM over it meaningless without anything in the record saying so.
+func TestOpenRouterRefusesFiguresThatAreNotPrices(t *testing.T) {
+	fetched := fetchOpenRouter(t)
+
+	for _, rate := range fetched.Rates {
+		switch {
+		case math.IsNaN(rate.InputPer1M) || math.IsNaN(rate.OutputPer1M):
+			t.Errorf("a NaN rate was admitted: %+v", rate)
+		case math.IsInf(rate.InputPer1M, 0) || math.IsInf(rate.OutputPer1M, 0):
+			t.Errorf("an infinite rate was admitted: %+v", rate)
+		case rate.InputPer1M < 0 || rate.OutputPer1M < 0:
+			t.Errorf("a negative rate was admitted: %+v", rate)
+		}
+	}
+
+	// And the models carrying them are refused outright rather than admitted at
+	// a rate of zero, which would report every call they matched as free.
+	table := NewTable(fetched.Rates)
+	for _, model := range []string{
+		"badvendor/negative-price", "badvendor/not-a-number", "badvendor/infinite-price",
+	} {
+		if _, found := table.Rate(model); found {
+			t.Errorf("%q was priced though its published figures are not prices", model)
+		}
+	}
+}
+
+// A model whose cache halves are unusable is still priceable: the halves go
+// absent, so the call falls back to the input rate and reports priced_partial --
+// the same answer a model publishing no cache rate at all gets. Refusing the
+// whole model would lose it over the half that was fine.
+func TestOpenRouterKeepsAModelWhoseCacheHalfIsNotAPrice(t *testing.T) {
+	rate := rateFor(t, fetchOpenRouter(t), "badvendor/negative-cache-half")
+
+	if rate.InputPer1M != 1 || rate.OutputPer1M != 2 {
+		t.Errorf("rates = %v/%v per 1M, want the published 1/2", rate.InputPer1M, rate.OutputPer1M)
+	}
+	if rate.CacheReadPer1M != nil || rate.CacheWritePer1M != nil {
+		t.Errorf("cache rates = %v/%v, want both absent rather than nonsense",
+			rate.CacheReadPer1M, rate.CacheWritePer1M)
+	}
+}
+
+// The conversion itself, at the boundaries the feed can actually produce.
+func TestPerMillionRefusesWhatIsNotAPrice(t *testing.T) {
+	tests := []struct {
+		raw  string
+		want float64
+	}{
+		{raw: "0.000003", want: 3},
+		{raw: "0.0000003", want: 0.3},
+		{raw: "0", want: 0},
+		// The feed's own sentinel for a variable price needs no case of its own.
+		{raw: "-1", want: 0},
+		{raw: "-0.5", want: 0},
+		{raw: "-1e-9", want: 0},
+		{raw: "NaN", want: 0},
+		{raw: "Inf", want: 0},
+		{raw: "-Inf", want: 0},
+		// Finite on its own, infinite once scaled by a million -- the case only a
+		// check on the converted figure can see.
+		{raw: "1e303", want: 0},
+		{raw: "not a number at all", want: 0},
+		{raw: "", want: 0},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.raw, func(t *testing.T) {
+			if got := perMillion(tc.raw); got != tc.want {
+				t.Errorf("perMillion(%q) = %v, want %v", tc.raw, got, tc.want)
+			}
+			// The optional form answers the same question with nil for "no".
+			optional := optionalPerMillion(tc.raw)
+			if tc.want == 0 && tc.raw != "0" {
+				if optional != nil {
+					t.Errorf("optionalPerMillion(%q) = %v, want nil", tc.raw, *optional)
+				}
+				return
+			}
+			if optional == nil || *optional != tc.want {
+				t.Errorf("optionalPerMillion(%q) = %v, want %v", tc.raw, optional, tc.want)
+			}
+		})
 	}
 }
