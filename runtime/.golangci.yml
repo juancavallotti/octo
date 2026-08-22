@@ -161,6 +161,8 @@ linters:
         linters: [gochecknoinits]
       - path: ^connectors/llm/openai/openai\.go$
         linters: [gochecknoinits]
+      - path: ^connectors/llm/openrouter/openrouter\.go$
+        linters: [gochecknoinits]
       - path: ^connectors/logger/logger\.go$
         linters: [gochecknoinits]
       - path: ^connectors/mongodb/mongodb\.go$
