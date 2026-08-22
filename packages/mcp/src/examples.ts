@@ -984,7 +984,7 @@ const AI_AGENT_MEMORY: Example = {
   slug: "ai-agent-memory",
   title: "ai-agent-memory — a stateful agent with per-thread memory",
   summary:
-    "An ai-agent with memoryThreadId loads a thread's prior transcript before its run and saves it after, so conversations persist across invocations; memoryMaxTokens + memoryCompaction (prune|summarize) bound it. The clear-agent-memory block wipes a thread. Needs ANTHROPIC_API_KEY. The agent's fields (connector/prompt/tools/memory*) sit at the block top level.",
+    "An ai-agent with memoryThreadId loads a thread's prior transcript before its run and saves it after, so conversations persist across invocations; contextMaxTokens + memoryCompaction (prune|summarize) bound it. The clear-agent-memory block wipes a thread. Needs ANTHROPIC_API_KEY. The agent's fields (connector/prompt/tools/memory*) sit at the block top level.",
   blocks: ["ai-agent", "clear-agent-memory", "set-variable", "set-payload"],
   definition: `service:
   name: ai-agent-memory
@@ -1006,7 +1006,7 @@ flows:
         name: assistant
         connector: claude
         memoryThreadId: body.threadId   # CEL: the conversation thread id
-        memoryMaxTokens: 4000
+        contextMaxTokens: 8000
         memoryCompaction: summarize
         prompt: >
           You are a helpful assistant in an ongoing conversation. Use the prior

@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 
@@ -206,4 +207,66 @@ func (f *failingLLM) Stop(context.Context) error                         { retur
 
 func (f *failingLLM) Complete(context.Context, core.LLMRequest) (*core.LLMResponse, error) {
 	return nil, f.err
+}
+
+// ofKind returns the collected records of one kind.
+func (c *turnCollector) ofKind(kind types.TraceKind) []types.TraceEvent {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var out []types.TraceEvent
+	for _, record := range c.records {
+		if record.Kind == kind {
+			out = append(out, record)
+		}
+	}
+	return out
+}
+
+// Pruning calls no model and costs nothing, so it produces no llm.turn — and
+// without a record of its own it would leave no trace at all. When an agent has
+// forgotten something, when it forgot is the first thing anyone needs, and it is
+// exactly the thing a cost-shaped trace would not show.
+func TestPruningCompactionIsTracedEvenThoughItCostsNothing(t *testing.T) {
+	c := tracingAgent(t)
+	ctx, _ := withFakeServices(context.Background())
+
+	args := func(n int) string { return `{"q":"` + strings.Repeat("a", n) + `"}` }
+	fake := &scriptedLLM{responses: []*core.LLMResponse{
+		withUsage(toolCallResp("lookup", args(200)), &core.LLMUsage{PromptTokens: 200, OutputTokens: 10}),
+		withUsage(toolCallResp("lookup", args(240)), &core.LLMUsage{PromptTokens: 400, OutputTokens: 10}),
+		withUsage(toolCallResp("lookup", args(280)), &core.LLMUsage{PromptTokens: 5000, OutputTokens: 10}),
+		withUsage(endTurnResp("done"), &core.LLMUsage{PromptTokens: 900, OutputTokens: 5}),
+	}}
+	var seen []any
+	if _, err := mustBuildAI(t, agentRegistry(&seen), depsLLM(fake), compactingAgentConfig(1000)).
+		Process(ctx, aiMessage(t)); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+
+	records := c.ofKind(types.TraceAgentCompaction)
+	if len(records) != 1 {
+		t.Fatalf("agent.compaction records = %d, want 1", len(records))
+	}
+	record := records[0]
+	if record.BlockType != blockKindAIAgent || record.Attrs[attrBlock] != "worker" {
+		t.Errorf("record landed at %q/%v, want the agent that compacted",
+			record.BlockType, record.Attrs[attrBlock])
+	}
+	// The reading and the budget it was measured against, so a reader does not have
+	// to go and find the block's configuration to interpret the number.
+	for _, attr := range []string{"strategy", "before", "after", "dropped", "contextMaxTokens"} {
+		if _, ok := record.Attrs[attr]; !ok {
+			t.Errorf("record carried no %q: %+v", attr, record.Attrs)
+		}
+	}
+	if record.Attrs["strategy"] != memoryCompactPrune {
+		t.Errorf("strategy = %v, want %q", record.Attrs["strategy"], memoryCompactPrune)
+	}
+	// It is not a turn, and must not be counted as one: pricing it as a model call
+	// would invent a charge for work that made no request.
+	for _, turn := range c.turns() {
+		if turn.Attrs[attrPurpose] == purposeMemory {
+			t.Error("a pruning compaction was recorded as a model turn")
+		}
+	}
 }

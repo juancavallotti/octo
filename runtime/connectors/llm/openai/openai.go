@@ -620,6 +620,9 @@ func translateUsage(u responses.ResponseUsage) *core.LLMUsage {
 		OutputTokens:   int(u.OutputTokens),
 		ThinkingTokens: int(u.OutputTokensDetails.ReasoningTokens),
 		CachedTokens:   int(u.InputTokensDetails.CachedTokens),
+		// InputTokens is already the whole prompt — cached reads are a breakdown of
+		// it, not a figure beside it — so the two are the same here.
+		PromptTokens: int(u.InputTokens),
 	}
 }
 

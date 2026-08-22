@@ -512,10 +512,14 @@ type aiAgent struct {
 	// Conversation memory (optional). When memoryThreadID is nil, memory is
 	// disabled and the agent is stateless across invocations. When set, the agent
 	// loads the thread's transcript before its run and saves the accumulated
-	// transcript after, compacting it to memoryMaxTokens with memoryCompaction.
+	// transcript after.
 	memoryThreadID   *expr.Program
-	memoryMaxTokens  int
 	memoryCompaction string
+	// contextMaxTokens budgets the whole prompt — system instructions, tool
+	// schemas and conversation — against what the provider reports it read. It
+	// applies whether or not memory is on: a stateless agent can still talk itself
+	// past the model's window inside one run.
+	contextMaxTokens int
 	env              map[string]any
 	// events is the observer path, nil when the block declares none. streaming says
 	// the block asked to report its output as it arrives, which the builder only
@@ -538,9 +542,17 @@ func validateAgentConfig(cfg types.BlockConfig) error {
 		return fmt.Errorf("ai-agent answer must be %q or %q, got %q",
 			answerJSON, answerText, cfg.Answer)
 	}
+	// Named before allowSlots gets to it, because "must not declare it" is not the
+	// useful half of the sentence: the budget now covers the system prompt and the
+	// tool schemas as well as the transcript, which is why it was renamed.
+	if cfg.MemoryMaxTokens != 0 {
+		return errors.New(
+			"ai-agent memoryMaxTokens is now contextMaxTokens, and budgets the whole " +
+				"prompt (system, tools and conversation) rather than the stored transcript alone")
+	}
 	return allowSlots(cfg, blockKindAIAgent,
 		"tools", "skills", "default", "connector", "prompt", "guardrail", "input", "answer",
-		"maxIterations", "memoryThreadId", "memoryMaxTokens", "memoryCompaction",
+		"maxIterations", "memoryThreadId", "contextMaxTokens", "memoryCompaction",
 		"events", "emit", "stream")
 }
 
@@ -630,24 +642,18 @@ func (b *builder) configureAgentInput(block *aiAgent, cfg types.BlockConfig) err
 	return nil
 }
 
-// configureAgentMemory wires optional per-thread memory onto the agent, compiling
-// the thread-id expression and applying defaults. A block without a memoryThreadId
-// is left memory-disabled.
+// configureAgentMemory wires the agent's context budget and its optional
+// per-thread memory, compiling the thread-id expression and applying defaults. A
+// block without a memoryThreadId is left memory-disabled — but still budgeted,
+// since a single run can outgrow the model's window on its own.
 func (b *builder) configureAgentMemory(block *aiAgent, cfg types.BlockConfig) error {
-	if cfg.MemoryThreadID == "" {
-		return nil
+	// The budget is set first and unconditionally: it bounds the prompt of every
+	// run, and an agent with no memory can still talk itself past the model's
+	// window over enough tool calls in one loop.
+	block.contextMaxTokens = cfg.ContextMaxTokens
+	if block.contextMaxTokens <= 0 {
+		block.contextMaxTokens = defaultContextMaxTokens
 	}
-	threadID, err := expr.CompileMessage(b.deps.Resources, cfg.MemoryThreadID)
-	if err != nil {
-		return err
-	}
-	block.memoryThreadID = threadID
-
-	block.memoryMaxTokens = cfg.MemoryMaxTokens
-	if block.memoryMaxTokens <= 0 {
-		block.memoryMaxTokens = defaultMemoryMaxTokens
-	}
-
 	compaction := cfg.MemoryCompaction
 	if compaction == "" {
 		compaction = memoryCompactPrune
@@ -657,6 +663,15 @@ func (b *builder) configureAgentMemory(block *aiAgent, cfg types.BlockConfig) er
 			memoryCompactPrune, memoryCompactSummarize, compaction)
 	}
 	block.memoryCompaction = compaction
+
+	if cfg.MemoryThreadID == "" {
+		return nil
+	}
+	threadID, err := expr.CompileMessage(b.deps.Resources, cfg.MemoryThreadID)
+	if err != nil {
+		return err
+	}
+	block.memoryThreadID = threadID
 	return nil
 }
 
@@ -820,32 +835,40 @@ func loadSkillTool(skills []agentSkill) core.LLMTool {
 // the shared message so variables accumulate; the final assistant text is folded
 // into the body as the result.
 func (a *aiAgent) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
-	threadID, messages, err := a.initConversation(ctx, msg)
+	threadID, messages, meter, err := a.initConversation(ctx, msg)
 	if err != nil {
 		return nil, err
 	}
 
 	current := msg
 	for iter := 0; iter < a.maxIterations; iter++ {
+		messages = a.fitContext(ctx, current, messages, iter, meter)
+		// What was sent, paired below with what the provider says it read. The two
+		// together are what let the meter separate the run's fixed overhead from the
+		// conversation that varies.
+		sent := estimateTokens(messages)
 		resp, callErr := a.callModel(ctx, iter, current, messages)
 		if callErr != nil {
 			if errors.Is(callErr, errEventStop) {
 				return a.halt(ctx, threadID, stoppedTranscript(messages, resp), current, iter,
-					"the events path stopped the run")
+					"the events path stopped the run", meter)
 			}
 			return nil, fmt.Errorf("ai-agent: %w", callErr)
+		}
+		if resp.Usage != nil {
+			meter.observe(sent, resp.Usage.PromptTokens)
 		}
 		messages = append(messages, resp.Raw)
 
 		if resp.StopReason == core.LLMStopRefusal {
-			a.persistMemory(ctx, current, threadID, messages)
+			a.persistMemory(ctx, current, threadID, messages, meter)
 			return a.fallback(ctx, current, iter, "model refused")
 		}
 		if len(resp.ToolCalls) == 0 {
 			slog.Info("ai-agent finished", "block", a.name, "iterations", iter+1)
 			out := foldResult(current, resp.Text)
 			a.report(ctx, out, iter, eventDone, map[string]any{fieldText: resp.Text})
-			a.persistMemory(ctx, current, threadID, messages)
+			a.persistMemory(ctx, current, threadID, messages, meter)
 			return out, nil
 		}
 
@@ -857,11 +880,11 @@ func (a *aiAgent) Process(ctx context.Context, msg *types.Message) (*types.Messa
 		// runs on the shared message so its flag is already there; the events path
 		// runs on its own, so its stop has to be carried over.
 		if stopped || current.StopRequested() {
-			return a.halt(ctx, threadID, messages, current, iter, "a tool branch stopped the run")
+			return a.halt(ctx, threadID, messages, current, iter, "a tool branch stopped the run", meter)
 		}
 	}
 
-	a.persistMemory(ctx, current, threadID, messages)
+	a.persistMemory(ctx, current, threadID, messages, meter)
 	return a.fallback(ctx, current, a.maxIterations-1, "exceeded max iterations")
 }
 
@@ -889,7 +912,7 @@ func (a *aiAgent) callModel(
 		return nil, err
 	}
 	logModelResp(blockKindAIAgent, a.name, resp)
-	if a.report(ctx, current, iter, eventTurnEnd, turnEndFields(resp)) {
+	if a.report(ctx, current, iter, eventTurnEnd, turnEndFields(resp, a.contextMaxTokens)) {
 		// The response goes back with the stop: the turn finished and was billed, so
 		// the caller decides whether it belongs in memory. The earlier stops have no
 		// turn to hand over.
@@ -977,30 +1000,39 @@ func (a *aiAgent) report(
 // flag is on it — the events path sets it on its own message, not this one.
 func (a *aiAgent) halt(
 	ctx context.Context, threadID string, messages []core.LLMMessage,
-	current *types.Message, iter int, reason string,
+	current *types.Message, iter int, reason string, meter *contextMeter,
 ) (*types.Message, error) {
 	slog.Info("ai-agent stopped", "block", a.name, "iterations", iter+1, "reason", reason)
 	current.RequestStop()
-	a.persistMemory(ctx, current, threadID, messages)
+	a.persistMemory(ctx, current, threadID, messages, meter)
 	return current, nil
 }
 
 // initConversation seeds the LLM message list with the opening user turn,
 // prepending the thread's prior transcript when memory is enabled. It returns the
-// resolved thread id (empty when memory is disabled).
-func (a *aiAgent) initConversation(ctx context.Context, msg *types.Message) (string, []core.LLMMessage, error) {
+// resolved thread id (empty when memory is disabled) and a context meter carrying
+// whatever the last run measured for that transcript.
+func (a *aiAgent) initConversation(
+	ctx context.Context, msg *types.Message,
+) (threadID string, messages []core.LLMMessage, meter *contextMeter, err error) {
 	opening, err := a.openingTurn(msg)
 	if err != nil {
-		return "", nil, err
+		return "", nil, nil, err
 	}
-	threadID, history, err := a.loadHistory(ctx, msg)
+	threadID, stored, err := a.loadHistory(ctx, msg)
 	if err != nil {
-		return "", nil, err
+		return "", nil, nil, err
 	}
-	messages := make([]core.LLMMessage, 0, len(history)+1)
-	messages = append(messages, history...)
+	messages = make([]core.LLMMessage, 0, len(stored.Messages)+1)
+	messages = append(messages, stored.Messages...)
 	messages = append(messages, core.LLMMessage{Role: core.LLMRoleUser, Text: opening})
-	return threadID, messages, nil
+
+	// The stored size was measured by the run that saved it, so seeding from it
+	// gives the first turn back a rate learned from real tokens. It is a rate, not
+	// an answer: the first measured turn of this run replaces it.
+	meter = newContextMeter()
+	meter.seed(estimateTokens(stored.Messages), stored.Tokens)
+	return threadID, messages, meter, nil
 }
 
 // openingTurn is the text of the agent's first user message.
@@ -1032,35 +1064,39 @@ func (a *aiAgent) openingTurn(msg *types.Message) (string, error) {
 	return text, nil
 }
 
-// loadHistory resolves the memory thread id and loads its prior transcript when
+// loadHistory resolves the memory thread id and loads its stored state when
 // memory is enabled. It returns the resolved thread id (empty when disabled) and
-// the prior messages (nil when disabled or the thread is new).
-func (a *aiAgent) loadHistory(ctx context.Context, msg *types.Message) (string, []core.LLMMessage, error) {
+// the stored envelope (zero when disabled or the thread is new).
+func (a *aiAgent) loadHistory(ctx context.Context, msg *types.Message) (string, memoryEnvelope, error) {
 	if a.memoryThreadID == nil {
-		return "", nil, nil
+		return "", memoryEnvelope{}, nil
 	}
 	threadID, err := a.memoryThreadID.EvalString(expr.MessageActivation(msg, a.env))
 	if err != nil {
-		return "", nil, fmt.Errorf("ai-agent memory threadId: %w", err)
+		return "", memoryEnvelope{}, fmt.Errorf("ai-agent memory threadId: %w", err)
 	}
-	history, err := loadMemory(ctx, threadID)
+	stored, err := loadMemory(ctx, threadID)
 	if err != nil {
-		return "", nil, fmt.Errorf("ai-agent load memory: %w", err)
+		return "", memoryEnvelope{}, fmt.Errorf("ai-agent load memory: %w", err)
 	}
-	return threadID, history, nil
+	return threadID, stored, nil
 }
 
 // persistMemory saves the accumulated transcript for the thread (best-effort,
 // compacted to the budget). It is a no-op when memory is disabled; a save failure
 // is logged rather than failing the flow.
 func (a *aiAgent) persistMemory(
-	ctx context.Context, msg *types.Message, threadID string, transcript []core.LLMMessage,
+	ctx context.Context, msg *types.Message, threadID string,
+	transcript []core.LLMMessage, meter *contextMeter,
 ) {
 	if a.memoryThreadID == nil {
 		return
 	}
-	compacted := compactMemory(ctx, a.caller, msg, transcript, a.memoryMaxTokens, a.memoryCompaction)
-	if err := saveMemory(ctx, threadID, compacted); err != nil {
+	compacted := compactMemory(ctx, a.caller, msg, transcript, a.contextMaxTokens, a.memoryCompaction, meter)
+	// The size stored is the conversation's own, without this run's overhead: the
+	// next run's system prompt and tool set are not necessarily this one's.
+	env := memoryEnvelope{Messages: compacted, Tokens: meter.sizeOfMessages(compacted)}
+	if err := saveMemory(ctx, threadID, env); err != nil {
 		slog.Warn("ai-agent failed to save memory", "block", a.name, "thread", threadID, "error", err)
 	}
 }

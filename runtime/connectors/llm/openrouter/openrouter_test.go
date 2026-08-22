@@ -299,6 +299,11 @@ func TestTranslateUsage(t *testing.T) {
 	if got.InputTokens != 100 || got.OutputTokens != 30 || got.ThinkingTokens != 12 {
 		t.Errorf("tokens = %+v", got)
 	}
+	// Which is also why PromptTokens equals InputTokens here rather than summing
+	// the cache halves in, as the Anthropic connector has to.
+	if got.PromptTokens != 100 {
+		t.Errorf("promptTokens = %d, want 100", got.PromptTokens)
+	}
 	if got.CachedTokens != 80 || got.CacheWriteTokens != 5 {
 		t.Errorf("cache tokens = %+v", got)
 	}

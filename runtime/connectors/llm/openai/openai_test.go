@@ -415,8 +415,12 @@ func TestTranslateUsage(t *testing.T) {
 		OutputTokensDetails: responses.ResponseUsageOutputTokensDetails{ReasoningTokens: 25},
 		InputTokensDetails:  responses.ResponseUsageInputTokensDetails{CachedTokens: 30},
 	})
-	// OutputTokens already counts reasoning, so it passes through.
-	want := core.LLMUsage{InputTokens: 100, OutputTokens: 40, ThinkingTokens: 25, CachedTokens: 30}
+	// OutputTokens already counts reasoning, so it passes through — and InputTokens
+	// already counts the cached reads, so PromptTokens equals it rather than summing.
+	want := core.LLMUsage{
+		InputTokens: 100, OutputTokens: 40, ThinkingTokens: 25, CachedTokens: 30,
+		PromptTokens: 100,
+	}
 	if got == nil || *got != want {
 		t.Errorf("usage = %+v, want %+v", got, want)
 	}

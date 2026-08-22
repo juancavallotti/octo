@@ -625,6 +625,9 @@ func translateUsage(u *genai.GenerateContentResponseUsageMetadata) *core.LLMUsag
 		OutputTokens:   int(u.CandidatesTokenCount + u.ThoughtsTokenCount),
 		ThinkingTokens: int(u.ThoughtsTokenCount),
 		CachedTokens:   int(u.CachedContentTokenCount),
+		// promptTokenCount is the whole prompt, cached content included, so the two
+		// are the same here — unlike the output side, which needed the sum above.
+		PromptTokens: int(u.PromptTokenCount),
 	}
 }
 

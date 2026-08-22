@@ -296,7 +296,7 @@ flows:
         # is the orchestrator's own — so a conversation survives a pod restart with
         # nothing written for it here.
         memoryThreadId: vars.threadKey
-        memoryMaxTokens: ${AGENT_MEMORY_TOKENS}
+        contextMaxTokens: ${AGENT_MEMORY_TOKENS}
         memoryCompaction: summarize
 
         # A type left out of this list is never *built* — no event message, no

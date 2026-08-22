@@ -246,6 +246,24 @@ type LLMUsage struct {
 	CachedTokens     int
 	CacheWriteTokens int
 
+	// PromptTokens is every token the provider read for this turn — the system
+	// prompt, the tool schemas and the whole conversation — counting the ones it
+	// served from cache and the ones it wrote to it. It is the only portable
+	// measure of how full a context is, and no sum over the fields above
+	// reconstructs it: Anthropic reports InputTokens as the uncached remainder,
+	// while OpenAI, Gemini and OpenRouter report cached reads as a subset of
+	// theirs, so the same arithmetic means two different things on two providers.
+	//
+	// The connectors normalize it, as they already do for OutputTokens and
+	// thinking, so a caller never has to know which provider answered. It is
+	// always >= InputTokens, and equal to it everywhere but Anthropic.
+	//
+	// The billing fields are deliberately left alone rather than redefined: they
+	// are priced at three different rates downstream, and they are written into
+	// trace records that are already stored. Adding a figure is honest; changing
+	// what a stored one means is not.
+	PromptTokens int
+
 	// ReportedCostUSD is what the provider says it charged for this turn, and is
 	// nil for every provider that reports no such figure — which is all of them
 	// but OpenRouter, whose response carries the amount it billed.

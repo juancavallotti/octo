@@ -288,7 +288,7 @@ func TestMemoryCompactionIsBilledToTheAgentButNotItsTurns(t *testing.T) {
 	cfg.Name = "chat"
 	cfg.MemoryCompaction = memoryCompactSummarize
 	// Small enough that one answer overruns it, so compaction runs on the first pass.
-	cfg.MemoryMaxTokens = 10
+	cfg.ContextMaxTokens = 10
 
 	var seen []any
 	fake := &scriptedLLM{responses: []*core.LLMResponse{

@@ -27,6 +27,17 @@ const (
 	eventToolResult = "tool_result"
 	// eventTurnEnd is a finished model turn, with its stop reason and usage.
 	eventTurnEnd = "turn_end"
+	// eventCompactionStart and eventCompactionEnd bracket the agent shrinking its
+	// own conversation to stay inside its token budget. They are the one pair
+	// describing something the agent did to itself rather than to the model or a
+	// tool, and without them a conversation losing its early turns is invisible.
+	//
+	// Bracketed rather than reported once, for the same reason turns are: the
+	// summarize strategy makes a model call, so compaction can take seconds, and a
+	// progress UI with only an after-the-fact event shows a stall it cannot
+	// explain.
+	eventCompactionStart = "compaction_start"
+	eventCompactionEnd   = "compaction_end"
 	// eventGuardrail is the agent giving up and taking the guardrail.
 	eventGuardrail = "guardrail"
 	// eventDone is the agent finishing with an answer.
@@ -48,6 +59,7 @@ const (
 var agentEventKinds = map[string]bool{
 	eventTurnStart: true, eventText: true, eventThinking: true, eventToolInput: true,
 	eventCustom: true, eventToolCall: true, eventToolResult: true, eventTurnEnd: true,
+	eventCompactionStart: true, eventCompactionEnd: true,
 	eventGuardrail: true, eventDone: true, eventError: true,
 }
 
@@ -81,13 +93,37 @@ func deltaFields(ev core.LLMStreamEvent) map[string]any {
 	return fields
 }
 
-// turnEndFields describes a finished model turn.
-func turnEndFields(resp *core.LLMResponse) map[string]any {
+// turnEndFields describes a finished model turn, including how full the context
+// now is against what it is allowed to be.
+//
+// The gauge is exact rather than estimated, and it is the whole of what the turn
+// leaves behind: the prompt the provider read, plus the reply it produced, which
+// is now part of the conversation the next turn will send. maxTokens is zero for
+// a block with no budget, and the gauge is then left off entirely — half a gauge
+// is worse than none.
+func turnEndFields(resp *core.LLMResponse, maxTokens int) map[string]any {
 	fields := map[string]any{fieldText: resp.Text, "stopReason": string(resp.StopReason)}
-	if resp.Usage != nil {
-		fields["usage"] = usageFields(resp.Usage)
+	if resp.Usage == nil {
+		return fields
+	}
+	fields["usage"] = usageFields(resp.Usage)
+	if maxTokens > 0 {
+		for name, value := range contextFields(resp.Usage.PromptTokens+resp.Usage.OutputTokens, maxTokens) {
+			fields[name] = value
+		}
 	}
 	return fields
+}
+
+// contextFields is how full the context is and how full it may get.
+//
+// Both numbers, always together: "used" on its own is unreadable, because the
+// budget is per block and a reader has no other way to know whether 12,000 is
+// comfortable or one turn from being compacted. It rides on every turn_end as
+// well as the compaction pair, so a progress UI can show the gauge filling
+// rather than only the moment it overflowed.
+func contextFields(used, budget int) map[string]any {
+	return map[string]any{"contextTokens": used, "contextMaxTokens": budget}
 }
 
 // usageFields projects a turn's token accounting. It is shared by the events path
@@ -100,6 +136,7 @@ func usageFields(usage *core.LLMUsage) map[string]any {
 		"thinkingTokens":   usage.ThinkingTokens,
 		"cachedTokens":     usage.CachedTokens,
 		"cacheWriteTokens": usage.CacheWriteTokens,
+		"promptTokens":     usage.PromptTokens,
 	}
 	// Present only when a provider reported one. Writing it unconditionally would
 	// put a zero beside every Anthropic, OpenAI and Gemini turn, and a cost of

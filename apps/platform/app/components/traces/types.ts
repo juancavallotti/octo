@@ -20,6 +20,7 @@ export const SPAN_KINDS = new Set([
   "flow.failed",
   "llm.turn",
   "llm.embed",
+  "agent.compaction",
   "source.respond",
 ]);
 
@@ -30,8 +31,29 @@ export const FLOW_TERMINALS = new Set([
   "flow.failed",
 ]);
 
-/** One model call. These sit *at* their block's address rather than under it. */
+/** One model call. Used for cost, and classified by kind rather than by block. */
 export const MODEL_KINDS = new Set(["llm.turn", "llm.embed"]);
+
+/**
+ * The kinds a block stamps with its *own* address rather than one below it, so
+ * the block at exactly that path is their host rather than an enclosing one.
+ *
+ * Model calls are the obvious members. `agent.compaction` is the other: an agent
+ * shrinking its own conversation is work it did at its own address, and walking
+ * for an *enclosing* block would hang it off whatever composite the agent sits
+ * in — drawn as the agent's sibling, billed to the branch instead of to the
+ * block that did it.
+ *
+ * A summarize compaction and the model call it makes therefore land as siblings
+ * under the agent, both at its address. They are not double counted: only a
+ * block.post-invoke can host a span, so the compaction has no children, and a
+ * childless span is classified by its block — an ai-agent, which is control.
+ * The call's own time is billed once, as the model call it is.
+ */
+export const SELF_ADDRESSED_KINDS = new Set([
+  ...MODEL_KINDS,
+  "agent.compaction",
+]);
 
 /**
  * The key identifying one block's invocations: which message, and where.

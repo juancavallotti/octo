@@ -272,7 +272,7 @@ The center of the integration — prompt, memory, tools, skills:
           storage, or Slack internals unless the user explicitly asks about
           them.
         memoryThreadId: body.threadId
-        memoryMaxTokens: 6000
+        contextMaxTokens: 12000
         memoryCompaction: summarize
 ```
 
@@ -280,10 +280,11 @@ The `claude` connector is an `llm-anthropic` connector configured with
 `model: claude-haiku-4-5` and `maxTokens: 1200` — a small, fast model is
 plenty for a chat assistant whose heavy lifting happens in tools.
 
-The memory settings give each thread a persistent transcript, budgeted to
-6,000 tokens and **summarized** (rather than pruned) when it overflows, so
-long conversations keep their gist. See [Agent Memory](/ai/agent-memory) for
-the mechanics.
+The memory settings give each thread a persistent transcript. The 12,000-token
+budget covers the agent's whole prompt — system instructions, tool schemas and
+conversation — and the transcript is **summarized** (rather than pruned) when it
+would overflow, so long conversations keep their gist. See
+[Agent Memory](/ai/agent-memory) for the mechanics.
 
 The prompt encodes three production lessons:
 
@@ -593,8 +594,9 @@ The skeleton transfers to almost any chat-surface agent:
   is; skills say how to use each capability, loaded only when needed.
 - **Never let the model pick storage keys.** Compute identity-bearing values
   (like `userFactsKey`) in the flow from the verified event.
-- **Budget memory deliberately** — `memoryMaxTokens` plus `summarize`
-  compaction keeps cost flat while retaining the gist of long threads.
+- **Budget memory deliberately** — `contextMaxTokens` caps the size of the
+  prompt, not the bill. `summarize` compaction keeps the gist of a long thread
+  rather than its opening turns, and buys that with a model call of its own.
 
 The full YAML on this page is production-quotable; declare the env vars
 (`SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, `ANTHROPIC_API_KEY`, and

@@ -133,6 +133,13 @@ func translateUsage(u sdk.CompletionUsage) *core.LLMUsage {
 		OutputTokens:   int(u.CompletionTokens),
 		ThinkingTokens: int(u.CompletionTokensDetails.ReasoningTokens),
 		CachedTokens:   int(u.PromptTokensDetails.CachedTokens),
+		// The OpenAI-compatible convention above makes these the same figure.
+		// Whether an Anthropic-backed model additionally folds cache *creation*
+		// into promptTokens is undocumented; if it does not, this under-reports a
+		// cache-writing turn by the write count. Both consumers of the figure treat
+		// it as a budget signal, so the error is tolerable where a billing one
+		// would not be.
+		PromptTokens: int(u.PromptTokens),
 	}
 
 	// Only some upstreams charge for cache creation, and only those report it.

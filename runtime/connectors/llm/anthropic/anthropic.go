@@ -520,6 +520,10 @@ func translateUsage(u sdk.Usage) *core.LLMUsage {
 		ThinkingTokens:   int(u.OutputTokensDetails.ThinkingTokens),
 		CachedTokens:     int(u.CacheReadInputTokens),
 		CacheWriteTokens: int(u.CacheCreationInputTokens),
+		// The whole prompt, which here is a sum rather than a field: Anthropic is
+		// the one provider that reports the three parts separately, so this is the
+		// only connector where PromptTokens differs from InputTokens.
+		PromptTokens: int(u.InputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens),
 	}
 }
 
