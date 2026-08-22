@@ -102,12 +102,22 @@ func saveMemory(ctx context.Context, threadID string, msgs []core.LLMMessage) er
 }
 
 // estimateTokens approximates the token size of a transcript with a chars/4
-// heuristic (there is no tokenizer in the runtime). It counts message text plus
-// tool-call arguments and tool-result content.
+// heuristic (there is no tokenizer in the runtime). It counts message text, tool
+// call arguments, tool-result content, and reasoning blocks.
+//
+// Reasoning is counted because it is sent: a tool loop carries thinking blocks
+// back untouched, so a transcript that leaves them out of its own accounting
+// under-reports itself by however much the model thought. The encrypted halves
+// are counted by their bytes, which is the wrong ratio for a blob but a better
+// answer than zero — and the contextMeter's fitted scale absorbs the difference,
+// since it only ever needs this to be proportional.
 func estimateTokens(msgs []core.LLMMessage) int {
 	chars := 0
 	for i := range msgs {
 		chars += len(msgs[i].Text)
+		for _, t := range msgs[i].Thinking {
+			chars += len(t.Text) + len(t.Redacted)
+		}
 		for _, c := range msgs[i].ToolCalls {
 			chars += len(c.Input)
 		}
