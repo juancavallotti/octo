@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -44,7 +45,7 @@ func TestAIAgentMemoryRoundTrips(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadMemory: %v", err)
 	}
-	if !hasAssistantText(stored, "first-answer") {
+	if !hasAssistantText(stored.Messages, "first-answer") {
 		t.Fatalf("thread t1 did not persist the first answer: %+v", stored)
 	}
 
@@ -109,7 +110,8 @@ func TestAIAgentMemoryRejectsBadCompaction(t *testing.T) {
 
 func TestClearAgentMemory(t *testing.T) {
 	ctx, _ := withFakeServices(context.Background())
-	if err := saveMemory(ctx, "t1", []core.LLMMessage{{Role: core.LLMRoleUser, Text: "hi"}}); err != nil {
+	seed := memoryEnvelope{Messages: []core.LLMMessage{{Role: core.LLMRoleUser, Text: "hi"}}}
+	if err := saveMemory(ctx, "t1", seed); err != nil {
 		t.Fatalf("seed memory: %v", err)
 	}
 
@@ -120,7 +122,7 @@ func TestClearAgentMemory(t *testing.T) {
 	if _, err := clearBlock.Process(ctx, mustMessage(t)); err != nil {
 		t.Fatalf("clear Process: %v", err)
 	}
-	if got, _ := loadMemory(ctx, "t1"); got != nil {
+	if got, _ := loadMemory(ctx, "t1"); got.Messages != nil {
 		t.Errorf("memory not cleared: %+v", got)
 	}
 	// Idempotent: clearing a missing thread is not an error.
@@ -186,5 +188,64 @@ func TestCompactMemoryNoopUnderBudget(t *testing.T) {
 	}
 	if out := compactMemory(context.Background(), nil, nil, msgs, 0, memoryCompactPrune); len(out) != len(msgs) {
 		t.Errorf("compact with a zero budget should be a no-op: %+v", out)
+	}
+}
+
+// The stored form carries the measured size beside the transcript, so a resumed
+// conversation starts from the provider's own count instead of re-guessing it.
+func TestMemoryEnvelopeRoundTrips(t *testing.T) {
+	ctx, _ := withFakeServices(context.Background())
+	want := memoryEnvelope{
+		Tokens:   4242,
+		Messages: []core.LLMMessage{{Role: core.LLMRoleUser, Text: "hi"}},
+	}
+	if err := saveMemory(ctx, "t1", want); err != nil {
+		t.Fatalf("saveMemory: %v", err)
+	}
+	got, err := loadMemory(ctx, "t1")
+	if err != nil {
+		t.Fatalf("loadMemory: %v", err)
+	}
+	if got.Tokens != want.Tokens || len(got.Messages) != 1 || got.Messages[0].Text != "hi" {
+		t.Errorf("envelope = %+v, want %+v", got, want)
+	}
+	if got.Version != memoryVersion {
+		t.Errorf("version = %d, want %d — saveMemory stamps it, callers do not", got.Version, memoryVersion)
+	}
+}
+
+// Every thread written before the envelope existed holds a bare transcript
+// array. It has to keep loading, with no measured size, rather than failing to
+// decode and taking a live conversation with it.
+func TestLoadMemoryAcceptsALegacyBareArray(t *testing.T) {
+	ctx, kv := withFakeServices(context.Background())
+	legacy, err := json.Marshal([]core.LLMMessage{
+		{Role: core.LLMRoleUser, Text: "older"},
+		{Role: core.LLMRoleAssistant, Text: "answer"},
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if _, err := kv.Set(ctx, core.NamespaceUser, memoryKey("t1"), legacy, 0); err != nil {
+		t.Fatalf("seed legacy memory: %v", err)
+	}
+
+	got, err := loadMemory(ctx, "t1")
+	if err != nil {
+		t.Fatalf("loadMemory: %v", err)
+	}
+	if len(got.Messages) != 2 || !hasAssistantText(got.Messages, "answer") {
+		t.Errorf("legacy transcript = %+v, want both messages", got.Messages)
+	}
+	if got.Tokens != 0 {
+		t.Errorf("tokens = %d, want 0 — a legacy transcript was never measured", got.Tokens)
+	}
+}
+
+func TestDecodeMemoryRejectsGarbage(t *testing.T) {
+	for _, raw := range []string{"not json", "[{", "{\"messages\":"} {
+		if _, err := decodeMemory([]byte(raw)); err == nil {
+			t.Errorf("decodeMemory(%q) succeeded, want a decode error", raw)
+		}
 	}
 }

@@ -7,6 +7,7 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -58,28 +59,67 @@ func registerClearAgentMemory() {
 // memoryKey returns the KV key for a thread's stored transcript.
 func memoryKey(threadID string) string { return memoryKeyPrefix + threadID }
 
-// loadMemory reads the stored transcript for a thread. A missing thread yields a
-// nil transcript (a fresh conversation).
-func loadMemory(ctx context.Context, threadID string) ([]core.LLMMessage, error) {
+// memoryVersion is the stored envelope's shape. It exists so a future change to
+// the stored form can be told apart from this one without guessing.
+const memoryVersion = 1
+
+// memoryEnvelope is a thread's stored state: the transcript, and the size the
+// provider measured for it.
+//
+// Tokens is the conversation's own contribution — what contextMeter.sizeOf
+// reports, with the run's overhead left out. Storing the raw prompt size would
+// bake in a system prompt and a tool set that the next run may not have. Zero
+// means "not measured", which is what a transcript written before this envelope
+// existed reports, and what a provider that accounts for nothing leaves behind.
+type memoryEnvelope struct {
+	Version  int               `json:"v"`
+	Tokens   int               `json:"tokens"`
+	Messages []core.LLMMessage `json:"messages"`
+}
+
+// loadMemory reads the stored state for a thread. A missing thread yields the
+// zero envelope (a fresh conversation).
+func loadMemory(ctx context.Context, threadID string) (memoryEnvelope, error) {
 	kv := core.RuntimeServicesFromContext(ctx).KV()
 	entry, ok, err := kv.Get(ctx, core.NamespaceUser, memoryKey(threadID))
 	if err != nil {
-		return nil, err
+		return memoryEnvelope{}, err
 	}
 	if !ok {
-		return nil, nil
+		return memoryEnvelope{}, nil
 	}
-	var msgs []core.LLMMessage
-	if err := json.Unmarshal(entry.Value, &msgs); err != nil {
-		return nil, fmt.Errorf("decode memory: %w", err)
-	}
-	return msgs, nil
+	return decodeMemory(entry.Value)
 }
 
-// saveMemory persists the transcript for a thread using optimistic concurrency,
-// re-reading the current version and retrying on a conflict (as object-write does).
-func saveMemory(ctx context.Context, threadID string, msgs []core.LLMMessage) error {
-	encoded, err := json.Marshal(msgs)
+// decodeMemory reads either stored form.
+//
+// A payload that opens with '[' is a bare transcript array, which is what every
+// thread written before the envelope existed holds. It loads with no measured
+// size, so the first turn of the next run re-establishes one.
+//
+// This is a read-side tolerance for data already on disk, not a second code
+// path: there is one writer and one stored form from here on. Delete the sniff
+// once no deployment can still be holding a pre-envelope transcript.
+func decodeMemory(raw []byte) (memoryEnvelope, error) {
+	if trimmed := bytes.TrimLeft(raw, " \t\r\n"); len(trimmed) > 0 && trimmed[0] == '[' {
+		var msgs []core.LLMMessage
+		if err := json.Unmarshal(raw, &msgs); err != nil {
+			return memoryEnvelope{}, fmt.Errorf("decode memory: %w", err)
+		}
+		return memoryEnvelope{Version: memoryVersion, Messages: msgs}, nil
+	}
+	var env memoryEnvelope
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return memoryEnvelope{}, fmt.Errorf("decode memory: %w", err)
+	}
+	return env, nil
+}
+
+// saveMemory persists a thread's state using optimistic concurrency, re-reading
+// the current version and retrying on a conflict (as object-write does).
+func saveMemory(ctx context.Context, threadID string, env memoryEnvelope) error {
+	env.Version = memoryVersion
+	encoded, err := json.Marshal(env)
 	if err != nil {
 		return fmt.Errorf("encode memory: %w", err)
 	}

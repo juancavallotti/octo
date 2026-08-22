@@ -820,7 +820,7 @@ func loadSkillTool(skills []agentSkill) core.LLMTool {
 // the shared message so variables accumulate; the final assistant text is folded
 // into the body as the result.
 func (a *aiAgent) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
-	threadID, messages, err := a.initConversation(ctx, msg)
+	threadID, messages, _, err := a.initConversation(ctx, msg)
 	if err != nil {
 		return nil, err
 	}
@@ -987,20 +987,23 @@ func (a *aiAgent) halt(
 
 // initConversation seeds the LLM message list with the opening user turn,
 // prepending the thread's prior transcript when memory is enabled. It returns the
-// resolved thread id (empty when memory is disabled).
-func (a *aiAgent) initConversation(ctx context.Context, msg *types.Message) (string, []core.LLMMessage, error) {
+// resolved thread id (empty when memory is disabled) and the size the last run
+// measured for that transcript (zero when there is none to carry over).
+func (a *aiAgent) initConversation(
+	ctx context.Context, msg *types.Message,
+) (threadID string, messages []core.LLMMessage, storedTokens int, err error) {
 	opening, err := a.openingTurn(msg)
 	if err != nil {
-		return "", nil, err
+		return "", nil, 0, err
 	}
-	threadID, history, err := a.loadHistory(ctx, msg)
+	threadID, stored, err := a.loadHistory(ctx, msg)
 	if err != nil {
-		return "", nil, err
+		return "", nil, 0, err
 	}
-	messages := make([]core.LLMMessage, 0, len(history)+1)
-	messages = append(messages, history...)
+	messages = make([]core.LLMMessage, 0, len(stored.Messages)+1)
+	messages = append(messages, stored.Messages...)
 	messages = append(messages, core.LLMMessage{Role: core.LLMRoleUser, Text: opening})
-	return threadID, messages, nil
+	return threadID, messages, stored.Tokens, nil
 }
 
 // openingTurn is the text of the agent's first user message.
@@ -1032,22 +1035,22 @@ func (a *aiAgent) openingTurn(msg *types.Message) (string, error) {
 	return text, nil
 }
 
-// loadHistory resolves the memory thread id and loads its prior transcript when
+// loadHistory resolves the memory thread id and loads its stored state when
 // memory is enabled. It returns the resolved thread id (empty when disabled) and
-// the prior messages (nil when disabled or the thread is new).
-func (a *aiAgent) loadHistory(ctx context.Context, msg *types.Message) (string, []core.LLMMessage, error) {
+// the stored envelope (zero when disabled or the thread is new).
+func (a *aiAgent) loadHistory(ctx context.Context, msg *types.Message) (string, memoryEnvelope, error) {
 	if a.memoryThreadID == nil {
-		return "", nil, nil
+		return "", memoryEnvelope{}, nil
 	}
 	threadID, err := a.memoryThreadID.EvalString(expr.MessageActivation(msg, a.env))
 	if err != nil {
-		return "", nil, fmt.Errorf("ai-agent memory threadId: %w", err)
+		return "", memoryEnvelope{}, fmt.Errorf("ai-agent memory threadId: %w", err)
 	}
-	history, err := loadMemory(ctx, threadID)
+	stored, err := loadMemory(ctx, threadID)
 	if err != nil {
-		return "", nil, fmt.Errorf("ai-agent load memory: %w", err)
+		return "", memoryEnvelope{}, fmt.Errorf("ai-agent load memory: %w", err)
 	}
-	return threadID, history, nil
+	return threadID, stored, nil
 }
 
 // persistMemory saves the accumulated transcript for the thread (best-effort,
@@ -1060,7 +1063,8 @@ func (a *aiAgent) persistMemory(
 		return
 	}
 	compacted := compactMemory(ctx, a.caller, msg, transcript, a.memoryMaxTokens, a.memoryCompaction)
-	if err := saveMemory(ctx, threadID, compacted); err != nil {
+	env := memoryEnvelope{Messages: compacted}
+	if err := saveMemory(ctx, threadID, env); err != nil {
 		slog.Warn("ai-agent failed to save memory", "block", a.name, "thread", threadID, "error", err)
 	}
 }
