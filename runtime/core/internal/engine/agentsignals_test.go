@@ -37,6 +37,28 @@ func reentrantRegistry(seen *[]any, hook func()) *core.BlockRegistry {
 	return reg
 }
 
+// claimContext is a context carrying services the claim path can use. The fake
+// leases grant every claim, so these tests exercise the local map and the
+// handover exactly as they did before the claim became cluster-wide.
+func claimContext() context.Context {
+	ctx, _ := withFakeServices(context.Background())
+	return ctx
+}
+
+// claim runs one registry claim and fails the test on an error, so the tests
+// below read as the two-outcome decision they are about.
+func claim(t *testing.T, r *runRegistry, text string, run *agentRun) bool {
+	t.Helper()
+	_, handedOff, err := r.offerOrClaim(claimContext(), thread, text, run)
+	if err != nil {
+		t.Fatalf("offerOrClaim(%q): %v", thread, err)
+	}
+	return handedOff
+}
+
+// thread is the one claim key the registry tests use.
+const thread = "t1"
+
 // steerMessage is a request carrying a follow-up for an ongoing conversation.
 func steerMessage(t *testing.T, text string) *types.Message {
 	t.Helper()
@@ -259,7 +281,7 @@ func TestRegistryHandoverIsAllOrNothing(t *testing.T) {
 	r := &runRegistry{runs: map[string]*agentRun{}}
 	first := &agentRun{}
 
-	if handed := r.offerOrClaim("t1", "hello", first); handed {
+	if handed := claim(t, r, "hello", first); handed {
 		t.Fatal("the first run was handed to itself")
 	}
 	if r.runs["t1"] != first {
@@ -267,7 +289,7 @@ func TestRegistryHandoverIsAllOrNothing(t *testing.T) {
 	}
 
 	second := &agentRun{}
-	if handed := r.offerOrClaim("t1", "follow-up", second); !handed {
+	if handed := claim(t, r, "follow-up", second); !handed {
 		t.Error("a live run refused a message")
 	}
 	if r.runs["t1"] != first {
@@ -280,7 +302,7 @@ func TestRegistryHandoverIsAllOrNothing(t *testing.T) {
 	// Once the first is done, the next request takes the id rather than handing to
 	// something that will never read it.
 	first.close()
-	if handed := r.offerOrClaim("t1", "later", second); handed {
+	if handed := claim(t, r, "later", second); handed {
 		t.Error("a finished run accepted a message")
 	}
 	if r.runs["t1"] != second {
@@ -293,9 +315,9 @@ func TestRegistryHandoverIsAllOrNothing(t *testing.T) {
 func TestRegistryReleaseLeavesASuccessorAlone(t *testing.T) {
 	r := &runRegistry{runs: map[string]*agentRun{}}
 	first, second := &agentRun{}, &agentRun{}
-	r.offerOrClaim("t1", "a", first)
+	claim(t, r, "a", first)
 	first.close()
-	r.offerOrClaim("t1", "b", second)
+	claim(t, r, "b", second)
 
 	r.release("t1", first)
 	if r.runs["t1"] != second {
@@ -352,9 +374,9 @@ func TestBlankTextIsTakenButNotInjected(t *testing.T) {
 func TestBlankTextDoesNotEvictALiveRun(t *testing.T) {
 	r := &runRegistry{runs: map[string]*agentRun{}}
 	first, second := &agentRun{}, &agentRun{}
-	r.offerOrClaim("t1", "hello", first)
+	claim(t, r, "hello", first)
 
-	if handed := r.offerOrClaim("t1", "   ", second); !handed {
+	if handed := claim(t, r, "   ", second); !handed {
 		t.Error("an empty message was not handed to the live run, so a rival would start")
 	}
 	if r.runs["t1"] != first {

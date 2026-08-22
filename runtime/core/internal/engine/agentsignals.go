@@ -12,10 +12,11 @@
 // message in flight: the lookup and the handover happen under one lock, so
 // "somebody took this" is a fact rather than a hopeful timeout.
 //
-// The registry is per process. So is the http connector's registry of open SSE
-// streams (runtime/connectors/http/sse.go), for the same reason and with the
-// same consequence: across replicas a second request that lands elsewhere finds
-// nothing and starts its own run.
+// The map is per process, and a deployment is not. So the map is the fast path
+// rather than the answer: when it misses, the conversation is claimed
+// cluster-wide and the message is delivered to whichever replica holds it. That
+// part lives in agentclaim.go; this file is the mechanics of a run and the lock
+// that makes a handover atomic.
 package engine
 
 import (
@@ -25,6 +26,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/core/expr"
@@ -40,7 +42,7 @@ const (
 	signalStop    = "stop"
 )
 
-// liveRuns is the process's ai-agent runs currently in flight, by signal id.
+// liveRuns is the process's ai-agent runs currently in flight, by claim key.
 //
 // Package-level because a run and the invocation looking for it are different
 // messages on different goroutines with nothing else in common — the same reason
@@ -49,55 +51,140 @@ const (
 // nowhere else for this to live.
 var liveRuns = &runRegistry{runs: make(map[string]*agentRun)}
 
-// runRegistry is the map, and the lock that makes a handover atomic.
+// claimAttempts bounds how many times an invocation will re-try the claim when
+// the holder answers that it has finished.
 //
-// Every operation resolves inside the lock, so there is no window between
-// finding a run and handing it something. That is the whole reason this is a
-// registry rather than a queue: a request/reply round trip can only report that
-// nobody answered *in time*, which is not the same fact and cannot be acted on
-// the same way.
+// That answer means the name is about to be free but is not yet: the run has
+// stopped accepting and has not released its lease. Retrying costs a moment;
+// giving up would drop a message the person is waiting on. Three is enough for
+// a release that is already under way and few enough to fail loudly if it is not.
+const claimAttempts = 3
+
+// claimRetryDelay is the pause between those attempts, sized to a lease release
+// rather than to a network — the holder is finishing, not unreachable.
+const claimRetryDelay = 100 * time.Millisecond
+
+// runRegistry is the map, and the lock that makes a local handover atomic.
+//
+// A local lookup and offer resolve inside the lock, so there is no window
+// between finding a run and handing it something: a caller that found a run,
+// released the lock, and then offered could be handing work to a run that
+// finished in between — losing the message and stopping the caller's flow on the
+// strength of having placed it.
+//
+// A run that reaches this map always holds the cluster claim, which is what lets
+// the map be checked first and the claim only on a miss.
 type runRegistry struct {
 	mu   sync.Mutex
 	runs map[string]*agentRun
 }
 
-// offerOrClaim hands text to the run already working on id, or registers mine
-// and reports that the caller should run it.
+// offerOrClaim hands text to whoever is working on key — in this process or on
+// another replica — or claims the conversation for mine and reports that the
+// caller should run it.
 //
-// One method rather than a lookup and a send, because the two must not be
-// separable: a caller that found a run, released the lock, and then offered
-// could be handing work to a run that finished in between — losing the message
-// and stopping the caller's flow on the strength of having placed it.
-func (r *runRegistry) offerOrClaim(id, text string, mine *agentRun) (handedOff bool) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if existing, ok := r.runs[id]; ok && existing.offer(text) {
-		return true
+// held is non-nil exactly when the caller claimed the conversation, and is what
+// it gives back when the run ends.
+func (r *runRegistry) offerOrClaim(
+	ctx context.Context, key, text string, mine *agentRun,
+) (held *heldClaim, handedOff bool, err error) {
+	if r.offerLocal(key, text) {
+		return nil, true, nil
 	}
-	// Either nothing was running, or what was there has finished and has not yet
-	// cleaned up. Take the id.
-	r.runs[id] = mine
-	return false
+	for attempt := range claimAttempts {
+		held, ok, claimErr := claimAcross(ctx, key, mine)
+		if claimErr != nil {
+			return nil, false, claimErr
+		}
+		if ok {
+			r.take(key, mine)
+			return held, false, nil
+		}
+
+		accepted, deliverErr := deliver(ctx, key, signalContext, text)
+		switch {
+		case deliverErr == nil && accepted:
+			return nil, true, nil
+		case deliverErr != nil && !errors.Is(deliverErr, errNobodyHome):
+			return nil, false, deliverErr
+		}
+		// Either nobody was behind the claim or the holder has finished with the
+		// conversation. Both mean the name is on its way to being free.
+		if err := pause(ctx, attempt); err != nil {
+			return nil, false, err
+		}
+	}
+	return nil, false, fmt.Errorf(
+		"the conversation is claimed by a run that has stopped accepting and has not released it")
 }
 
-// stop asks the run working on id to end, and reports whether one was there.
-func (r *runRegistry) stop(id string) bool {
+// offerLocal hands text to a run this process is already working on.
+func (r *runRegistry) offerLocal(key, text string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	existing, ok := r.runs[id]
+	existing, ok := r.runs[key]
+	return ok && existing.offer(text)
+}
+
+// take records mine as this process's run for key. It is called only once the
+// cluster claim is held, which is what makes overwriting whatever was there
+// safe: anything still in the map under this key belongs to a run that has
+// released its claim and not yet cleaned up.
+func (r *runRegistry) take(key string, mine *agentRun) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.runs[key] = mine
+}
+
+// stop asks whoever is working on key to end, and reports whether one was there.
+//
+// Not finding a run is an answer rather than a failure — a stop can be sent by a
+// client that cannot know whether one is still going — so an unreachable holder
+// reports false rather than erroring.
+func (r *runRegistry) stop(ctx context.Context, key string) bool {
+	if r.stopLocal(key) {
+		return true
+	}
+	accepted, err := deliver(ctx, key, signalStop, "")
+	if err != nil {
+		return false
+	}
+	return accepted
+}
+
+// stopLocal asks a run in this process to end.
+func (r *runRegistry) stopLocal(key string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	existing, ok := r.runs[key]
 	return ok && existing.requestStop()
 }
 
-// release removes a run, leaving alone an id another run has already taken over
+// release removes a run, leaving alone a key another run has already taken over
 // — and doing nothing for an unreachable run, which never claimed one.
-func (r *runRegistry) release(id string, mine *agentRun) {
-	if id == "" {
+func (r *runRegistry) release(key string, mine *agentRun) {
+	if key == "" {
 		return
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.runs[id] == mine {
-		delete(r.runs, id)
+	if r.runs[key] == mine {
+		delete(r.runs, key)
+	}
+}
+
+// pause waits between claim attempts, and gives up if the caller has.
+func pause(ctx context.Context, attempt int) error {
+	if attempt == claimAttempts-1 {
+		return nil // nothing follows the last attempt
+	}
+	timer := time.NewTimer(claimRetryDelay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("waiting for the conversation's claim: %w", ctx.Err())
 	}
 }
 
@@ -281,7 +368,7 @@ const stoppedBody = "{}"
 //
 // taken is non-nil exactly when the flow should stop here.
 func (a *aiAgent) joinOrClaim(
-	msg *types.Message, cancel func(),
+	ctx context.Context, msg *types.Message, cancel func(),
 ) (c runClaim, taken *types.Message, err error) {
 	c.run = &agentRun{cancel: cancel}
 	if c.threadID, err = a.resolveThread(msg); err != nil {
@@ -292,8 +379,8 @@ func (a *aiAgent) joinOrClaim(
 	if c.threadID == "" {
 		return c, nil, nil
 	}
-	// The registry is one map for the whole process, so the block's own address
-	// goes in the key beside the thread the flow computed.
+	// The claim is shared by every agent on the deployment, so the block's own
+	// address goes in the key beside the thread the flow computed.
 	//
 	// Without it, two agents whose thread expressions happen to agree — and
 	// body.threadId is the easy way for that to happen — would hand each other
@@ -311,7 +398,8 @@ func (a *aiAgent) joinOrClaim(
 		if stop {
 			// Idempotent: stopping a run that is not there is not an error, so a stop
 			// can be sent blind by a client that cannot know whether one is still going.
-			slog.Info("ai-agent stop requested", "block", a.name, "stopped", liveRuns.stop(c.key))
+			slog.Info("ai-agent stop requested",
+				"block", a.name, "stopped", liveRuns.stop(ctx, c.key))
 			return c, stopFlow(msg), nil
 		}
 	}
@@ -320,12 +408,42 @@ func (a *aiAgent) joinOrClaim(
 	if err != nil {
 		return c, nil, err
 	}
-	if liveRuns.offerOrClaim(c.key, text, c.run) {
+	held, handedOff, err := liveRuns.offerOrClaim(ctx, c.key, text, c.run)
+	if err != nil {
+		return c, nil, err
+	}
+	if handedOff {
 		slog.Info("ai-agent handed a message to the run already in flight",
 			"block", a.name, "thread", c.threadID)
 		return c, stopFlow(msg), nil
 	}
+	c.held = held
+	watchClaim(held, c.run, a.name, c.threadID)
 	return c, nil, nil
+}
+
+// watchClaim ends the run if it loses the conversation.
+//
+// Losing a claim means another replica now owns the conversation and will save
+// it, so carrying on would be two runs writing one transcript — the case where
+// the later save wins entirely and the other run's turns are gone. It is
+// therefore a stop, and takes the stop path: the model call in flight is
+// abandoned rather than paid for, and the transcript is pruned rather than
+// summarized on the way out.
+//
+// The goroutine exits when the lease is closed, which the run does on its way
+// out — by which time it is already marked done, so the stop below is a no-op.
+func watchClaim(held *heldClaim, run *agentRun, block, thread string) {
+	if held == nil || held.lease == nil {
+		return
+	}
+	go func() {
+		<-held.lease.Done()
+		if run.requestStop() {
+			slog.Warn("ai-agent lost the claim on its conversation and stopped",
+				"block", block, "thread", thread)
+		}
+	}()
 }
 
 // runClaim is what one invocation established before its first turn: which
@@ -338,6 +456,9 @@ type runClaim struct {
 	threadID string
 	key      string
 	run      *agentRun
+	// held is the cluster-wide claim, and is nil for an invocation that took
+	// none — a stateless agent, or one that handed its message to somebody else.
+	held *heldClaim
 }
 
 // stopFlow ends the invocation with an empty body: whatever the answer is, it is

@@ -853,14 +853,19 @@ func (a *aiAgent) Process(ctx context.Context, msg *types.Message) (*types.Messa
 	// Which conversation is this, and is this invocation meant to reach a run
 	// rather than be one? Both of the latter answers end the flow here, and
 	// neither calls a model.
-	claim, taken, err := a.joinOrClaim(msg, cancel)
+	claim, taken, err := a.joinOrClaim(ctx, msg, cancel)
 	if err != nil {
 		return nil, err
 	}
 	if taken != nil {
 		return taken, nil
 	}
+	// Unwound in this order: the run stops accepting, then the claim is given
+	// back, then the local entry goes. Releasing the claim while the run could
+	// still take a message would let another replica start on a conversation this
+	// one has not finished with.
 	defer liveRuns.release(claim.key, claim.run)
+	defer claim.held.close()
 	defer claim.run.close()
 	run, threadID := claim.run, claim.threadID
 
