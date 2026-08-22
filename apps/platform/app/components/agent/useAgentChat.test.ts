@@ -247,10 +247,10 @@ describe("useAgentChat", () => {
       result.current.turns.filter((t) => t.role === "user").map((t) => t.delivery),
     ).toEqual([undefined, "taken"]);
 
-    // And the acknowledgement went to the message rather than into the middle of
-    // the answer, where it would repeat text already on screen just above.
-    const agent = result.current.turns.find((t) => t.role === "agent")!;
-    expect(agent.segments.map((s) => s.kind)).toEqual(["text"]);
+    // And it took its place in the conversation rather than staying at the bottom:
+    // the run's turn is closed above it and a fresh one opened underneath, so what
+    // he does about the message renders under the message.
+    expect(result.current.turns.map((t) => t.role)).toEqual(["user", "agent", "user", "agent"]);
   });
 
   // The run this joins already holds the page and the route catalogue from its
@@ -325,9 +325,10 @@ describe("useAgentChat", () => {
   });
 
   // Somebody else's message — a second tab on the same conversation, or this one
-  // reloaded mid-run. There is no bubble of ours to mark, and the answer changing
+  // reloaded mid-run. It really did join the conversation and really did shape
+  // what follows, so it is written in rather than dropped: the answer changing
   // direction with nothing said would be the reply going strange for no reason.
-  it("shows a message this window never sent in the transcript instead", async () => {
+  it("writes in a message this window never sent", async () => {
     fetchMock.mockResolvedValue(
       sseResponse(
         frames(
@@ -341,8 +342,12 @@ describe("useAgentChat", () => {
     act(() => result.current.send("first"));
 
     await waitFor(() => expect(result.current.busy).toBe(false));
-    const agent = result.current.turns.find((t) => t.role === "agent")!;
-    expect(agent.segments.map((s) => s.kind)).toEqual(["text", "signal"]);
+    expect(result.current.turns.map((t) => [t.role, answerOf(t)])).toEqual([
+      ["user", "first"],
+      ["agent", "ok"],
+      ["user", "from the other tab"],
+      ["agent", ""],
+    ]);
   });
 
   // A steer that lands after a stop finds no run to join, so the runtime claims

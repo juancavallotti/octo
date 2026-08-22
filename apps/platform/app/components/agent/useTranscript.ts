@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react";
 import type { AgentEvent } from "./frames";
-import { acknowledge, answerOf, reduce, settle, type Turn } from "./turns";
+import { acknowledge, answerOf, reduce, settle, takeIn, type Turn } from "./turns";
 
 /**
  * The transcript, and every way a frame changes it.
@@ -25,6 +25,8 @@ export interface Transcript {
   apply: (turnId: string, event: AgentEvent) => void;
   /** Fold a frame that is about a message rather than about the answer. */
   applySignal: (turnId: string, event: Extract<AgentEvent, { type: "signal" }>) => void;
+  /** Write a message the run has read into the conversation, and open a turn under it. */
+  takeMessage: (currentId: string, openedId: string, text: string) => void;
   /** Take the closing frame's answer, but only when nothing streamed. */
   setFinalAnswer: (turnId: string, answer: string) => void;
   /** Say what became of a message that was handed to a run. */
@@ -70,6 +72,10 @@ export function useTranscript(): Transcript {
     [],
   );
 
+  const takeMessage = useCallback((currentId: string, openedId: string, text: string) => {
+    setTurns((current) => takeIn(current, currentId, openedId, text));
+  }, []);
+
   const setFinalAnswer = useCallback((turnId: string, answer: string) => {
     setTurns((current) =>
       current.map((turn) =>
@@ -105,6 +111,7 @@ export function useTranscript(): Transcript {
     settlePending: useCallback(() => setTurns(settle), []),
     apply,
     applySignal,
+    takeMessage,
     setFinalAnswer,
     setDelivery,
     noteTurn,

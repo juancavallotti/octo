@@ -1,15 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  parseAgentEvent,
-  parseFinalAnswer,
-  parseNavigateEvent,
-  parseSSE,
-  type NavigateEvent,
-} from "./events";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type NavigateEvent } from "./events";
+import { readRun, type RunSink, type RunTarget } from "./readRun";
 import { ROUTE_CATALOGUE } from "./routes";
-import { HANDED_OVER_NOTE, newTurn, type Turn } from "./turns";
+import { newTurn, type Turn } from "./turns";
 import { useTranscript } from "./useTranscript";
 import { randomId, readThreadId, threadKey } from "./thread";
 
@@ -51,6 +46,7 @@ export function useAgentChat(
     append,
     apply,
     applySignal,
+    takeMessage,
     setFinalAnswer,
     setDelivery,
     noteTurn,
@@ -73,6 +69,13 @@ export function useAgentChat(
   useEffect(() => {
     navigate.current = onNavigate;
   }, [onNavigate]);
+
+  // The transcript's mutators, as the reader wants them. Memoized so a run holds
+  // one sink for its whole life rather than a new one per render.
+  const sink = useMemo<RunSink>(
+    () => ({ apply, applySignal, takeMessage, setFinalAnswer, noteTurn }),
+    [apply, applySignal, noteTurn, setFinalAnswer, takeMessage],
+  );
 
   /**
    * Cancel every steer in flight.
@@ -174,9 +177,12 @@ export function useAgentChat(
       setBusy(true);
       setError(null);
 
-      const agentTurnId = randomId();
+      // The turn the run is writing, which is not fixed: a message read mid-answer
+      // closes it and opens another. Held in an object so the reader can move it
+      // and the finally below still ends the right one.
+      const target: RunTarget = { turn: randomId() };
       append(newTurn(randomId(), "user", text), {
-        ...newTurn(agentTurnId, "agent"),
+        ...newTurn(target.turn, "agent"),
         streaming: true,
       });
 
@@ -201,41 +207,7 @@ export function useAgentChat(
             );
           }
 
-          // What this stream actually delivered. Zero is not an empty answer: it
-          // is the runtime saying somebody else owns this conversation — see below.
-          let applied = 0;
-          for await (const frame of parseSSE(res.body)) {
-            if (frame.event === "navigate") {
-              const target = parseNavigateEvent(frame.data);
-              if (target) navigate.current(target);
-              continue;
-            }
-            // The route's closing frame carries the flow's result body. Usually
-            // that repeats what already streamed, so it is dropped — but when the
-            // guardrail answered, nothing streamed and this is the only place the
-            // reply exists.
-            if (frame.event === "answer") {
-              const answer = parseFinalAnswer(frame.data);
-              if (answer) {
-                setFinalAnswer(agentTurnId, answer);
-                applied++;
-              }
-              continue;
-            }
-            const event = parseAgentEvent(frame.data);
-            if (!event) continue;
-            applied++;
-            if (event.type === "signal") {
-              applySignal(agentTurnId, event);
-              continue;
-            }
-            apply(agentTurnId, event);
-          }
-
-          // Nothing arrived at all, which is the runtime saying somebody else owns
-          // this conversation. Left alone it is a blank turn with no explanation,
-          // which reads as a message that vanished.
-          if (applied === 0) noteTurn(agentTurnId, HANDED_OVER_NOTE);
+          await readRun(res.body, target, sink, (to) => navigate.current(to), randomId);
         } catch (e) {
           // Aborting is how stopping and closing the panel both work; it is not a
           // failure to report.
@@ -252,11 +224,11 @@ export function useAgentChat(
           }
           // Only this run's leavings are settled. A newer run is already on the
           // stream, and anything still waiting may be waiting on that one.
-          endTurn(agentTurnId, mine);
+          endTurn(target.turn, mine);
         }
       })();
     },
-    [append, apply, applySignal, busy, endTurn, noteTurn, page, setFinalAnswer, steer, userKey],
+    [append, busy, endTurn, page, sink, steer, userKey],
   );
 
   /**

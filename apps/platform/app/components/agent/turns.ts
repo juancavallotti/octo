@@ -119,40 +119,80 @@ export function answerOf(turn: Turn): string {
 }
 
 /**
- * Mark the message a signal is acknowledging, or report that none of ours is.
+ * Fold a message the run has just read into the transcript, where it happened.
  *
- * A signal names what the run did with something posted to it from outside, and
- * the thing it is about is the message, not the answer — so it belongs on that
- * bubble rather than as a line in the middle of the reply, where it repeats text
- * the reader can already see two inches above.
+ * A steered message is held at the bottom of the panel while it waits, because
+ * until the run reads it, it is not part of the conversation. The moment it is,
+ * it belongs in the middle of one: after everything the run had done when it
+ * arrived, and before everything the run does because of it. So the agent's turn
+ * is closed here and a new one opened underneath — which is what puts the
+ * reasoning and the tool calls that answer this message under this message,
+ * rather than appending them to the answer it interrupted.
  *
  * Matched on the text because that is all the two ends share: the message was
- * handed over through the runtime, not through this window, and it comes back with
- * no id of ours on it. The oldest match wins, which is the order the run injects
- * them in.
+ * handed over through the runtime, and it comes back with no id of ours on it.
+ * The oldest match wins, which is the order the run injects them in.
  *
- * Null means this window did not send it — another tab did, or the panel was
- * reloaded mid-run — and the caller then falls back to showing it in the
- * transcript, which is the only place a message somebody else sent can appear.
+ * A message that matches nothing is one this window never sent — a second tab, or
+ * this one after a reload — and it is written in rather than dropped. It really
+ * did join the conversation and really did shape what follows, and a reply that
+ * changes direction with nothing to show for it reads as a model going strange.
+ *
+ * @param currentId the agent turn the run is writing; it is closed
+ * @param openedId  the agent turn the run continues in
+ */
+export function takeIn(turns: Turn[], currentId: string, openedId: string, text: string): Turn[] {
+  const said = text.trim();
+  const at = turns.findIndex((turn) => turn.id === currentId);
+  // The run's own turn is always there — the caller made it. Nothing sane to do
+  // if it is not, so the message goes at the end and nothing is reordered.
+  const head = at < 0 ? turns : turns.slice(0, at);
+  const tail = at < 0 ? [] : turns.slice(at + 1);
+  const closing = at < 0 ? undefined : turns[at];
+
+  const waiting = tail.findIndex(
+    (turn) => turn.role === "user" && turn.delivery === "pending" && answerOf(turn).trim() === said,
+  );
+  const read: Turn =
+    waiting >= 0
+      ? { ...tail[waiting], delivery: "taken" }
+      : { ...newTurn(`${openedId}:said`, "user", said), delivery: "taken" };
+
+  return [
+    ...head,
+    // An agent turn with nothing in it is dropped rather than closed: two messages
+    // read in the same iteration would otherwise leave an empty turn between them.
+    ...(closing && hasContent(closing) ? [{ ...closing, streaming: false }] : []),
+    read,
+    // The gauge rides across. It is a property of the conversation, not of the
+    // turn, and blanking it until the next model turn reports would read as the
+    // context having been lost along with the turn.
+    { ...newTurn(openedId, "agent"), streaming: true, context: closing?.context },
+    ...tail.filter((_, i) => i !== waiting),
+  ];
+}
+
+/** Whether a turn has anything to show. */
+function hasContent(turn: Turn): boolean {
+  return turn.segments.length > 0 || Boolean(turn.note);
+}
+
+/**
+ * Mark a message the run took responsibility for and never answered.
+ *
+ * Null means this window did not send it, and the caller falls back to saying so
+ * in the transcript — unlike a message that was read, there is no conversation
+ * position to give one that was not.
  */
 export function acknowledge(turns: Turn[], signal: string, text: string): Turn[] | null {
-  const outcome = DELIVERY_OF[signal];
   const said = text.trim();
-  if (!outcome || !said) return null;
+  if (signal !== "unanswered" || !said) return null;
   const i = turns.findIndex(
     (turn) => turn.role === "user" && turn.delivery === "pending" && answerOf(turn).trim() === said,
   );
   if (i < 0) return null;
-  return turns.with(i, { ...turns[i], delivery: outcome });
+  return turns.with(i, { ...turns[i], delivery: "missed" });
 }
-
-/** The run's two verdicts on a message it was handed. */
-const DELIVERY_OF: Record<string, Delivery | undefined> = {
-  // Folded into the conversation, and from here on it shapes the answer.
-  context: "taken",
-  // Accepted, and the run ran out of turns before reaching it.
-  unanswered: "missed",
-};
 
 /**
  * Settle whatever is still waiting once the run has ended.

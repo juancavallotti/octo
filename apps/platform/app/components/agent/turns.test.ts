@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { acknowledge, answerOf, newTurn, reduce, settle, type Segment, type Turn } from "./turns";
+import { acknowledge, answerOf, newTurn, reduce, settle, takeIn, type Segment, type Turn } from "./turns";
 import type { AgentEvent } from "./frames";
 
 /** Fold a run's worth of frames into one turn. */
@@ -102,11 +102,13 @@ describe("reduce", () => {
     expect(turn.segments).toEqual([]);
   });
 
-  it("records a message handed to the run mid-answer", () => {
+  // Only the unanswered kind reaches the fold now: one he read is written into the
+  // conversation where he read it, which is takeIn's job rather than this one's.
+  it("records a message he accepted and never reached", () => {
     const turn = run(text("looking"), {
       type: "signal",
       iteration: 2,
-      signal: "context",
+      signal: "unanswered",
       text: "actually, focus on pricing",
     });
 
@@ -143,16 +145,79 @@ describe("reduce", () => {
  * carried it with nothing, so this state — and the frame that clears it — is the
  * only thing standing between the reader and a bubble they cannot tell was read.
  */
+describe("takeIn", () => {
+  /** Mid-run: the agent has said something, and a steered message is waiting. */
+  const running = (said: string): Turn[] => [
+    newTurn("u0", "user", "how many integrations"),
+    { ...newTurn("a1", "agent"), segments: [{ kind: "text", iter: 1, text: "Looking…" }], streaming: true },
+    { ...newTurn("u1", "user", said), delivery: "pending" },
+  ];
+
+  const shapeOf = (turns: Turn[]) => turns.map((t) => `${t.role}:${t.id}`);
+
+  // The whole point. What the run does next is done *because* of this message, so
+  // it belongs under it — a new stretch of reasoning and its tools, not more
+  // segments appended to the answer the message interrupted.
+  it("puts the message between what came before it and what comes after", () => {
+    const turns = takeIn(running("and the logs?"), "a1", "a2", "and the logs?");
+
+    expect(shapeOf(turns)).toEqual(["user:u0", "agent:a1", "user:u1", "agent:a2"]);
+    expect(turns[3].streaming).toBe(true);
+    expect(turns[1].streaming).toBe(false);
+  });
+
+  it("marks the message read where it now sits", () => {
+    const turns = takeIn(running("and the logs?"), "a1", "a2", "and the logs?");
+
+    expect(turns[2].delivery).toBe("taken");
+  });
+
+  // The gauge describes the conversation, not the turn. Dropping it until the next
+  // model turn reports would read as the context having been lost with the turn.
+  it("carries the context gauge into the turn it opens", () => {
+    const before = running("and the logs?");
+    before[1] = { ...before[1], context: { used: 900, max: 16000 } };
+
+    expect(takeIn(before, "a1", "a2", "and the logs?")[3].context).toEqual({ used: 900, max: 16000 });
+  });
+
+  // Two messages read in the same iteration arrive as two frames back to back.
+  // Closing a turn that never got to say anything would leave a gap between them.
+  it("drops the turn it closes when nothing was said in it", () => {
+    const first = takeIn(running("and the logs?"), "a1", "a2", "and the logs?");
+    const second = takeIn([...first, { ...newTurn("u2", "user", "and traces?"), delivery: "pending" }],
+      "a2", "a3", "and traces?");
+
+    expect(shapeOf(second)).toEqual(["user:u0", "agent:a1", "user:u1", "user:u2", "agent:a3"]);
+  });
+
+  // A second tab, or this one after a reload. It really did join the conversation
+  // and really did shape what follows, so a reply that changes direction with
+  // nothing to show for it would read as a model going strange.
+  it("writes in a message this window never sent", () => {
+    const turns = takeIn(running("mine"), "a1", "a2", "from the other tab");
+
+    expect(turns.map((t) => [t.role, answerOf(t)])).toEqual([
+      ["user", "how many integrations"],
+      ["agent", "Looking…"],
+      ["user", "from the other tab"],
+      ["agent", ""],
+      ["user", "mine"],
+    ]);
+    // And the one still waiting is left waiting.
+    expect(turns[4].delivery).toBe("pending");
+  });
+});
+
+/**
+ * A message the run took responsibility for and never answered. Unlike one that
+ * was read, there is no position in the conversation to give it — nothing followed
+ * from it — so it is only marked.
+ */
 describe("acknowledge", () => {
   const waiting = (id: string, said: string): Turn => ({
     ...newTurn(id, "user", said),
     delivery: "pending",
-  });
-
-  it("marks the message the run says it folded in", () => {
-    const turns = acknowledge([waiting("u1", "and the logs?")], "context", "and the logs?");
-
-    expect(turns?.[0].delivery).toBe("taken");
   });
 
   it("marks one he accepted and never reached", () => {
@@ -161,29 +226,14 @@ describe("acknowledge", () => {
     expect(turns?.[0].delivery).toBe("missed");
   });
 
-  // The oldest, because that is the order the run injects them in — marking the
-  // later one would leave the earlier waiting forever behind a message it was
-  // sent before.
-  it("takes the oldest of two identical messages", () => {
-    const turns = acknowledge(
-      [waiting("u1", "again"), waiting("u2", "again")],
-      "context",
-      "again",
-    );
-
-    expect(turns?.map((t) => t.delivery)).toEqual(["taken", "pending"]);
-  });
-
   it("leaves a message already accounted for alone", () => {
     const settled: Turn = { ...newTurn("u1", "user", "and the logs?"), delivery: "taken" };
 
-    expect(acknowledge([settled], "context", "and the logs?")).toBeNull();
+    expect(acknowledge([settled], "unanswered", "and the logs?")).toBeNull();
   });
 
-  // Null is what sends it to the transcript instead, which is the only place a
-  // message another tab sent can appear at all.
   it("reports no match for a message this window never sent", () => {
-    expect(acknowledge([waiting("u1", "mine")], "context", "somebody else's")).toBeNull();
+    expect(acknowledge([waiting("u1", "mine")], "unanswered", "somebody else's")).toBeNull();
   });
 
   it("ignores a signal that says nothing about delivery", () => {
