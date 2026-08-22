@@ -347,3 +347,28 @@ func (brokenQueues) Subscribe(
 ) (core.Subscription, error) {
 	return nil, errNoSubscriber
 }
+
+// A run that wedges must not own its conversation until the process restarts.
+// With a cluster-wide claim that would take the conversation out of service for
+// the whole deployment rather than for one replica.
+func TestARunThatHoldsItsConversationTooLongIsStopped(t *testing.T) {
+	run := &agentRun{}
+	boundRunAge(run, "worker", "t1", time.Millisecond)
+
+	waitUntil(t, run.stopRequested, "a wedged run to be stopped by its age bound")
+}
+
+// The bound is cancelled by an ordinary ending, so a run that answered is not
+// stopped after the fact — which would mark a finished conversation as one
+// somebody interrupted.
+func TestTheAgeBoundIsCancelledWhenARunEndsNormally(t *testing.T) {
+	run := &agentRun{}
+	cancel := boundRunAge(run, "worker", "t1", time.Hour)
+
+	if !cancel() {
+		t.Fatal("the age bound had already fired on an hour-long limit")
+	}
+	if run.stopRequested() {
+		t.Error("the run was stopped by a bound that was cancelled")
+	}
+}

@@ -867,6 +867,7 @@ func (a *aiAgent) Process(ctx context.Context, msg *types.Message) (*types.Messa
 	defer liveRuns.release(claim.key, claim.run)
 	defer claim.held.close()
 	defer claim.run.close()
+	defer claim.bound()
 	run, threadID := claim.run, claim.threadID
 
 	messages, meter, err := a.initConversation(ctx, msg, threadID)

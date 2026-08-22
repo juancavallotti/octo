@@ -371,6 +371,7 @@ func (a *aiAgent) joinOrClaim(
 	ctx context.Context, msg *types.Message, cancel func(),
 ) (c runClaim, taken *types.Message, err error) {
 	c.run = &agentRun{cancel: cancel}
+	c.bound = noBound
 	if c.threadID, err = a.resolveThread(msg); err != nil {
 		return c, nil, err
 	}
@@ -418,8 +419,40 @@ func (a *aiAgent) joinOrClaim(
 		return c, stopFlow(msg), nil
 	}
 	c.held = held
+	c.bound = boundRunAge(c.run, a.name, c.threadID, maxRunAge)
 	watchClaim(held, c.run, a.name, c.threadID)
 	return c, nil, nil
+}
+
+// maxRunAge is the longest a run may hold the conversation it claimed.
+//
+// Without it a run that wedges — a tool branch with no timeout of its own — owns
+// its conversation until the process restarts, and every follow-up is handed to
+// something that will never answer. A cluster-wide claim makes that worse rather
+// than better: the conversation is then out of service for the whole deployment
+// instead of for one replica.
+//
+// It bounds a conversation, not an agent. A run with no memoryThreadId claims
+// nothing and is not timed, so a genuinely long batch run is unaffected; fifteen
+// minutes is far past any interactive turn and short enough that a wedged
+// conversation comes back on its own.
+const maxRunAge = 15 * time.Minute
+
+// boundRunAge stops the run once it has held its conversation too long, and
+// returns the function that cancels the bound when it ends normally.
+//
+// It is a stop rather than a failure on purpose: the run takes the path a stop
+// already takes, so the model call in flight is abandoned, the transcript is
+// pruned rather than summarized, and the claim is given back — leaving the
+// conversation in a state the next message can pick up.
+func boundRunAge(run *agentRun, block, thread string, limit time.Duration) func() bool {
+	timer := time.AfterFunc(limit, func() {
+		if run.requestStop() {
+			slog.Warn("ai-agent stopped a run that held its conversation too long",
+				"block", block, "thread", thread, "limit", limit)
+		}
+	})
+	return timer.Stop
 }
 
 // watchClaim ends the run if it loses the conversation.
@@ -459,7 +492,14 @@ type runClaim struct {
 	// held is the cluster-wide claim, and is nil for an invocation that took
 	// none — a stateless agent, or one that handed its message to somebody else.
 	held *heldClaim
+	// bound cancels the maximum-age timer. It is never nil: an invocation that
+	// claimed nothing gets one that does nothing, so the caller can defer it
+	// without asking whether there is anything to cancel.
+	bound func() bool
 }
+
+// noBound is the age bound of an invocation that claimed no conversation.
+func noBound() bool { return false }
 
 // stopFlow ends the invocation with an empty body: whatever the answer is, it is
 // going to whoever is reading the run this message reached.
