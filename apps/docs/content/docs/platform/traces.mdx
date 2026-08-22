@@ -62,6 +62,21 @@ Every record carries the `app_name` and `app_version` stamped by the pod that em
 
 A trace id rides on the message and survives a queue or topic hop, so a flow that dispatches to another integration keeps the same trace. `deployment_id` on the summary is the deployment that *entered* the trace; `deployment_ids` accumulates every deployment that contributed records.
 
+## Reading tokens
+
+Every model call reports five counts, and three of them are shown wherever a trace is.
+
+A **trace list row** carries the model-call count and the split beside it — `12.4k in · 830 out` — because which side a trace spends its tokens on is what decides whether it is worth opening. A trace that is nearly all input is a prompt problem; one that is nearly all output is a generation problem.
+
+The **detail panel** shows the total and the same split under it, plus cache reads when there were any. The split used to live in a tooltip, which meant it did not exist on a touch device and was not read out by a screen reader.
+
+Open a model-call record for the rest: thinking tokens, cache reads and cache writes, per call.
+
+Two arithmetic rules the numbers obey, and neither is guessable from the figures:
+
+- **`output` already includes thinking tokens.** Adding them bills reasoning twice. The panel says so on hover, and the record inspector says "N of it thinking" rather than listing thinking as a peer of output.
+- **cache reads and cache writes are counted apart**, because they bill in opposite directions from ordinary input — a read below it, a write above it. One number for both would explain neither.
+
 ## Pricing model calls
 
 The runtime reports tokens and never money — it deliberately knows no rate card. Pricing is the aggregator's job, and it happens **once, at ingest**. The cost is stored frozen alongside the id of the rate that produced it, so a price change next month cannot restate what last month cost.

@@ -105,8 +105,32 @@ describe("TraceSummaryPanel", () => {
     render(<TraceSummaryPanel summary={SUMMARY} waterfall={sequential()} />);
     expect(screen.getByText("24")).toBeInTheDocument(); // records rolled up
     expect(screen.getByText("2")).toBeInTheDocument(); // model calls
-    expect(screen.getByText("2060")).toBeInTheDocument(); // 1800 in + 260 out
+    expect(screen.getByText("2,060")).toBeInTheDocument(); // 1800 in + 260 out
     expect(screen.getByText("$0.0094")).toBeInTheDocument();
+  });
+
+  // The decomposition used to live in a `title`, which is to say it was invisible
+  // on a touch device and absent from a screen reader. It is on the page now, so
+  // the test reads what is rendered rather than an attribute.
+  it("shows the input/output split without hovering anything", () => {
+    render(<TraceSummaryPanel summary={SUMMARY} waterfall={sequential()} />);
+    expect(screen.getByText(/1,800 in · 260 out/)).toBeInTheDocument();
+  });
+
+  it("names cache reads in the split only when there were some", () => {
+    const { unmount } = render(
+      <TraceSummaryPanel summary={SUMMARY} waterfall={sequential()} />,
+    );
+    expect(screen.queryByText(/cached/)).not.toBeInTheDocument();
+    unmount();
+
+    render(
+      <TraceSummaryPanel
+        summary={{ ...SUMMARY, cachedTokens: 1_200 }}
+        waterfall={sequential()}
+      />,
+    );
+    expect(screen.getByText(/1,200 cached/)).toBeInTheDocument();
   });
 
   it("marks a partly priced trace as a lower bound", () => {

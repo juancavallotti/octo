@@ -34,6 +34,22 @@ function trim(value: number): string {
 }
 
 /**
+ * A token count, at a scale a reader can compare at a glance.
+ *
+ * Counts here run from a handful to millions, and the interesting comparison is
+ * almost always between two of them — input against output, this trace against
+ * the last. Grouping separators make that comparison work at four figures;
+ * beyond that the leading digits are the whole of what a reader takes in, so the
+ * tail is dropped rather than rendered.
+ */
+export function formatTokens(count: number): string {
+  if (!Number.isFinite(count) || count < 0) return "—";
+  if (count < 10_000) return count.toLocaleString("en-US");
+  if (count < 1_000_000) return `${trim(count / 1_000)}k`;
+  return `${trim(count / 1_000_000)}M`;
+}
+
+/**
  * A dollar amount, with enough decimals to stay non-zero.
  *
  * A charge too small to show at the usual scale is rendered as `<$0.0001` rather

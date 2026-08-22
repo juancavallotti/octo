@@ -127,7 +127,7 @@ describe("RecordInspector", () => {
       },
     });
     await waitFor(() =>
-      expect(screen.getByText(/128 cache reads · 4096 cache writes/)).toBeInTheDocument(),
+      expect(screen.getByText(/128 cache reads · 4,096 cache writes/)).toBeInTheDocument(),
     );
   });
 

@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { describeCost, formatAge, formatCost, formatDuration, formatWindow } from "./format";
+import {
+  describeCost,
+  formatAge,
+  formatCost,
+  formatDuration,
+  formatTokens,
+  formatWindow,
+} from "./format";
 
 describe("formatDuration", () => {
   it("keeps a fast block visible instead of rounding it to nothing", () => {
@@ -18,6 +25,28 @@ describe("formatDuration", () => {
   it("says nothing rather than something wrong for a non-duration", () => {
     expect(formatDuration(-1)).toBe("—");
     expect(formatDuration(Number.NaN)).toBe("—");
+  });
+});
+
+describe("formatTokens", () => {
+  it("groups a four-figure count rather than abbreviating it", () => {
+    // The comparison a reader makes is between two counts, and at four figures
+    // the digits are still the fastest way to make it.
+    expect(formatTokens(0)).toBe("0");
+    expect(formatTokens(842)).toBe("842");
+    expect(formatTokens(1_800)).toBe("1,800");
+    expect(formatTokens(9_999)).toBe("9,999");
+  });
+
+  it("abbreviates once the tail stops carrying meaning", () => {
+    expect(formatTokens(10_000)).toBe("10k");
+    expect(formatTokens(128_400)).toBe("128k");
+    expect(formatTokens(2_450_000)).toBe("2.45M");
+  });
+
+  it("says nothing rather than something wrong for a non-count", () => {
+    expect(formatTokens(-1)).toBe("—");
+    expect(formatTokens(Number.NaN)).toBe("—");
   });
 });
 
