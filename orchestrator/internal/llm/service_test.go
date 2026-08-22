@@ -307,3 +307,64 @@ func TestUpdateStoresASuppliedKeyWhenTheProviderChanges(t *testing.T) {
 		t.Errorf("settings = %+v, want the newly supplied key stored", got)
 	}
 }
+
+// The rule is about the provider changing, not about which providers they are:
+// an OpenRouter key handed to llm-anthropic fails on Dr. Octo's first model call,
+// a long way from the page that caused it, exactly as the reverse does.
+func TestUpdateClearsTheKeySwitchingToAndFromOpenRouter(t *testing.T) {
+	tests := []struct {
+		name   string
+		from   string
+		stored string
+		to     string
+		model  string
+	}{
+		{
+			name: "to openrouter", from: ProviderAnthropic, stored: "sk-ant-storedkey123",
+			to: ProviderOpenRouter, model: "anthropic/claude-sonnet-4.5",
+		},
+		{
+			name: "from openrouter", from: ProviderOpenRouter, stored: "sk-or-v1-storedkey123",
+			to: ProviderAnthropic, model: "claude-sonnet-4-6",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, repo := newService(t, tc.stored)
+			repo.row.Provider = tc.from
+
+			got, err := svc.Update(context.Background(), Update{Provider: tc.to, Model: tc.model})
+			if err != nil {
+				t.Fatalf("Update: %v", err)
+			}
+			if got.Configured || got.Last4 != "" {
+				t.Errorf("settings = %+v, want the key cleared with the provider", got)
+			}
+			if len(repo.row.APIKey.Ciphertext) != 0 {
+				t.Error("want the stored ciphertext removed, not merely hidden")
+			}
+		})
+	}
+}
+
+// The set the handler validates against and the set Providers() publishes are the
+// same set. A consumer that has to cover every provider — the agent's connector
+// mapping — reads the second, so the two drifting apart would silently leave a
+// provider a user can save but the agent cannot deploy.
+func TestProvidersPublishesTheValidatedSet(t *testing.T) {
+	published := Providers()
+	if len(published) != len(providers) {
+		t.Fatalf("Providers() = %v, want the validated set %v", published, providers)
+	}
+	for _, p := range published {
+		if !validProvider(p) {
+			t.Errorf("Providers() names %q, which validateUpdate would reject", p)
+		}
+	}
+	// A copy, so a caller cannot reach in and change what a save is checked against.
+	published[0] = "MUTATED"
+	if providers[0] == "MUTATED" {
+		t.Error("Providers() handed out the backing array")
+	}
+}

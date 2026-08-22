@@ -109,7 +109,7 @@ func TestHandlerUpdateInvalidProviderNamesTheOptions(t *testing.T) {
 	if status != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", status)
 	}
-	for _, want := range []string{"ANTHROPIC", "OPENAI", "GOOGLE"} {
+	for _, want := range providers {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body = %s, want it to name %s", body, want)
 		}

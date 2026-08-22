@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"slices"
 	"strings"
 	"time"
 
@@ -14,11 +15,12 @@ const (
 	// The providers the runtime can talk to. These mirror core.ProviderAnthropic and
 	// friends in runtime/core/llm.go, which is the source of truth — but the runtime
 	// is a separate Go module and the orchestrator does not depend on it. Taking on
-	// that dependency to share three string constants would be the wrong trade; if a
-	// fourth provider appears there, it is added here too.
-	ProviderAnthropic = "ANTHROPIC"
-	ProviderOpenAI    = "OPENAI"
-	ProviderGoogle    = "GOOGLE"
+	// that dependency to share four string constants would be the wrong trade; if a
+	// fifth provider appears there, it is added here too.
+	ProviderAnthropic  = "ANTHROPIC"
+	ProviderOpenAI     = "OPENAI"
+	ProviderGoogle     = "GOOGLE"
+	ProviderOpenRouter = "OPENROUTER"
 
 	// maxModelLen bounds the model identifier.
 	maxModelLen = 200
@@ -31,7 +33,18 @@ const (
 )
 
 // providers is the closed set a stored provider must belong to.
-var providers = []string{ProviderAnthropic, ProviderOpenAI, ProviderGoogle}
+var providers = []string{ProviderAnthropic, ProviderOpenAI, ProviderGoogle, ProviderOpenRouter}
+
+// Providers returns the closed set of providers a save may name.
+//
+// It is exported so a consumer that has to handle every one of them — the agent's
+// provider-to-connector mapping, and the test that checks the mapping is total —
+// can enumerate the set rather than restate it. A restated list is a list that
+// silently stops being complete the next time a provider is added, which is
+// exactly the failure that mapping cannot afford.
+func Providers() []string {
+	return slices.Clone(providers)
+}
 
 // stored is the jsonb shape in site_settings.value. Unexported: nothing outside this
 // package sees the ciphertext.
