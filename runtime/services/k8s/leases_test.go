@@ -20,6 +20,9 @@ const (
 	testNamespace = "octo-test"
 	testIdentity  = "runtime-0"
 	testDeploy    = "dep-1"
+	// testClaim is the name every test here claims. One name is enough: what
+	// varies between them is the state of the object, not which object it is.
+	testClaim = "orders"
 )
 
 // fixedClock is a hand-wound clock, so a claim can be aged past its deadline
@@ -38,13 +41,13 @@ func newTestLeases(t *testing.T, clock *fixedClock, objects ...runtime.Object) (
 	return newLeases(client.CoordinationV1(), testNamespace, testIdentity, testDeploy, clock.now), client
 }
 
-// storedClaim reads back the object a claim on name wrote.
-func storedClaim(t *testing.T, client *fake.Clientset, name string) *coordv1.Lease {
+// storedClaim reads back the object testClaim wrote.
+func storedClaim(t *testing.T, client *fake.Clientset) *coordv1.Lease {
 	t.Helper()
 	record, err := client.CoordinationV1().Leases(testNamespace).
-		Get(context.Background(), claimName(testDeploy, name), metav1.GetOptions{})
+		Get(context.Background(), claimName(testDeploy, testClaim), metav1.GetOptions{})
 	if err != nil {
-		t.Fatalf("reading back the claim on %q: %v", name, err)
+		t.Fatalf("reading back the claim on %q: %v", testClaim, err)
 	}
 	return record
 }
@@ -53,13 +56,13 @@ func TestClaimAcquireWritesTheHolderAndDuration(t *testing.T) {
 	clock := newFixedClock()
 	l, client := newTestLeases(t, clock)
 
-	lease, ok, err := l.Acquire(context.Background(), "orders", core.WithLeaseTTL(time.Minute))
+	lease, ok, err := l.Acquire(context.Background(), testClaim, core.WithLeaseTTL(time.Minute))
 	if err != nil || !ok {
 		t.Fatalf("Acquire() = (ok %v, err %v), want granted", ok, err)
 	}
 	defer func() { _ = lease.Close() }()
 
-	record := storedClaim(t, client, "orders")
+	record := storedClaim(t, client)
 	if got := holderOf(record); got != testIdentity {
 		t.Errorf("holderIdentity = %q, want %q", got, testIdentity)
 	}
@@ -73,17 +76,54 @@ func TestClaimAcquireWritesTheHolderAndDuration(t *testing.T) {
 
 // A live holder is refused, and refused as a decision rather than as an error —
 // the caller has a different path to take and needs to know which one.
+// A coordination Lease has no unit finer than a second, so a duration that does
+// not divide evenly has to round UP. Rounding down would publish a deadline
+// earlier than the one the holder renews against, and a challenger reading the
+// object would find the claim expired while its owner still believed it held.
+func TestClaimDurationRoundsUpToWholeSeconds(t *testing.T) {
+	tests := []struct {
+		name string
+		ttl  time.Duration
+		want int32
+	}{
+		{name: "exact", ttl: 2 * time.Second, want: 2},
+		{name: "fractional rounds up", ttl: 1500 * time.Millisecond, want: 2},
+		// core.NewLeaseConfig raises anything shorter to core.MinLeaseTTL, so the
+		// duration written can never be zero — which would read as expired the
+		// instant it was written.
+		{name: "sub-second is raised, never zero", ttl: 30 * time.Millisecond, want: 1},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			l, client := newTestLeases(t, newFixedClock())
+			lease, ok, err := l.Acquire(context.Background(), testClaim, core.WithLeaseTTL(tc.ttl))
+			if err != nil || !ok {
+				t.Fatalf("Acquire() = (ok %v, err %v), want granted", ok, err)
+			}
+			defer func() { _ = lease.Close() }()
+
+			got := storedClaim(t, client).Spec.LeaseDurationSeconds
+			if got == nil {
+				t.Fatalf("leaseDurationSeconds for a %v ttl is unset, want %d", tc.ttl, tc.want)
+			}
+			if *got != tc.want {
+				t.Errorf("leaseDurationSeconds for a %v ttl = %d, want %d", tc.ttl, *got, tc.want)
+			}
+		})
+	}
+}
+
 func TestClaimRefusesALiveHolder(t *testing.T) {
 	clock := newFixedClock()
 	l, _ := newTestLeases(t, clock)
 
-	first, ok, err := l.Acquire(context.Background(), "orders", core.WithLeaseTTL(time.Minute))
+	first, ok, err := l.Acquire(context.Background(), testClaim, core.WithLeaseTTL(time.Minute))
 	if err != nil || !ok {
 		t.Fatalf("first Acquire() = (ok %v, err %v), want granted", ok, err)
 	}
 	defer func() { _ = first.Close() }()
 
-	second, ok, err := l.Acquire(context.Background(), "orders", core.WithLeaseTTL(time.Minute))
+	second, ok, err := l.Acquire(context.Background(), testClaim, core.WithLeaseTTL(time.Minute))
 	if err != nil {
 		t.Fatalf("Acquire on a held name error = %v, want nil", err)
 	}
@@ -102,20 +142,20 @@ func TestClaimTakesOverAnExpiredHolder(t *testing.T) {
 	clock := newFixedClock()
 	l, client := newTestLeases(t, clock)
 
-	stale, ok, _ := l.Acquire(context.Background(), "orders", core.WithLeaseTTL(time.Minute))
+	stale, ok, _ := l.Acquire(context.Background(), testClaim, core.WithLeaseTTL(time.Minute))
 	if !ok {
 		t.Fatal("first Acquire was refused")
 	}
 	_ = stale
 	clock.at = clock.at.Add(2 * time.Minute)
 
-	successor, ok, err := l.Acquire(context.Background(), "orders", core.WithLeaseTTL(time.Minute))
+	successor, ok, err := l.Acquire(context.Background(), testClaim, core.WithLeaseTTL(time.Minute))
 	if err != nil || !ok {
 		t.Fatalf("Acquire on an expired claim = (ok %v, err %v), want granted", ok, err)
 	}
 	defer func() { _ = successor.Close() }()
 
-	if got := storedClaim(t, client, "orders").Spec.RenewTime; got == nil || !got.Time.Equal(clock.now()) {
+	if got := storedClaim(t, client).Spec.RenewTime; got == nil || !got.Time.Equal(clock.now()) {
 		t.Errorf("renewTime after takeover = %v, want %v", got, clock.now())
 	}
 }
@@ -126,11 +166,11 @@ func TestClaimTreatsARecordWithNoRenewTimeAsExpired(t *testing.T) {
 	clock := newFixedClock()
 	other := "someone-else"
 	l, _ := newTestLeases(t, clock, &coordv1.Lease{
-		ObjectMeta: metav1.ObjectMeta{Name: claimName(testDeploy, "orders"), Namespace: testNamespace},
+		ObjectMeta: metav1.ObjectMeta{Name: claimName(testDeploy, testClaim), Namespace: testNamespace},
 		Spec:       coordv1.LeaseSpec{HolderIdentity: &other},
 	})
 
-	lease, ok, err := l.Acquire(context.Background(), "orders")
+	lease, ok, err := l.Acquire(context.Background(), testClaim)
 	if err != nil || !ok {
 		t.Fatalf("Acquire on a claim with no renewTime = (ok %v, err %v), want granted", ok, err)
 	}
@@ -146,7 +186,7 @@ func TestClaimLosingTheRaceForAnExpiredHolderIsARefusal(t *testing.T) {
 	stamp := metav1.NewMicroTime(clock.now().Add(-time.Hour))
 	seconds := int32(60)
 	l, client := newTestLeases(t, clock, &coordv1.Lease{
-		ObjectMeta: metav1.ObjectMeta{Name: claimName(testDeploy, "orders"), Namespace: testNamespace},
+		ObjectMeta: metav1.ObjectMeta{Name: claimName(testDeploy, testClaim), Namespace: testNamespace},
 		Spec: coordv1.LeaseSpec{
 			HolderIdentity: &other, RenewTime: &stamp, LeaseDurationSeconds: &seconds,
 		},
@@ -155,10 +195,10 @@ func TestClaimLosingTheRaceForAnExpiredHolderIsARefusal(t *testing.T) {
 		func(k8stesting.Action) (bool, runtime.Object, error) {
 			return true, nil, apierrors.NewConflict(
 				schema.GroupResource{Group: "coordination.k8s.io", Resource: "leases"},
-				claimName(testDeploy, "orders"), errClaimTakenOver)
+				claimName(testDeploy, testClaim), errClaimTakenOver)
 		})
 
-	lease, ok, err := l.Acquire(context.Background(), "orders")
+	lease, ok, err := l.Acquire(context.Background(), testClaim)
 	if err != nil {
 		t.Fatalf("Acquire losing a takeover race error = %v, want nil: another replica winning is not a failure", err)
 	}
@@ -179,7 +219,7 @@ func TestClaimReportsAnUndecidableCreate(t *testing.T) {
 			return true, nil, apierrors.NewInternalError(errClaimTakenOver)
 		})
 
-	if _, ok, err := l.Acquire(context.Background(), "orders"); err == nil || ok {
+	if _, ok, err := l.Acquire(context.Background(), testClaim); err == nil || ok {
 		t.Errorf("Acquire against a failing API server = (ok %v, err %v), want an error", ok, err)
 	}
 }
@@ -187,7 +227,7 @@ func TestClaimReportsAnUndecidableCreate(t *testing.T) {
 func TestClaimCloseDeletesTheObjectAndIsIdempotent(t *testing.T) {
 	l, client := newTestLeases(t, newFixedClock())
 
-	lease, ok, _ := l.Acquire(context.Background(), "orders")
+	lease, ok, _ := l.Acquire(context.Background(), testClaim)
 	if !ok {
 		t.Fatal("Acquire was refused")
 	}
@@ -198,7 +238,7 @@ func TestClaimCloseDeletesTheObjectAndIsIdempotent(t *testing.T) {
 	}
 
 	_, err := client.CoordinationV1().Leases(testNamespace).
-		Get(context.Background(), claimName(testDeploy, "orders"), metav1.GetOptions{})
+		Get(context.Background(), claimName(testDeploy, testClaim), metav1.GetOptions{})
 	if !apierrors.IsNotFound(err) {
 		t.Errorf("the claim's object still exists after Close: err = %v, want NotFound", err)
 	}
@@ -213,15 +253,17 @@ func TestClaimCloseDeletesTheObjectAndIsIdempotent(t *testing.T) {
 // under that claim rests on still owning it.
 func TestClaimDoneClosesWhenTheObjectNamesSomeoneElse(t *testing.T) {
 	l, client := newTestLeases(t, newFixedClock())
-	const ttl = 30 * time.Millisecond
 
-	lease, ok, _ := l.Acquire(context.Background(), "orders", core.WithLeaseTTL(ttl))
+	// The shortest TTL any module honours, so the first renewal — and with it the
+	// discovery that the object names somebody else — is due in a third of a
+	// second rather than at the default's ten.
+	lease, ok, _ := l.Acquire(context.Background(), testClaim, core.WithLeaseTTL(core.MinLeaseTTL))
 	if !ok {
 		t.Fatal("Acquire was refused")
 	}
 	defer func() { _ = lease.Close() }()
 
-	record := storedClaim(t, client, "orders")
+	record := storedClaim(t, client)
 	other := "someone-else"
 	record.Spec.HolderIdentity = &other
 	if _, err := client.CoordinationV1().Leases(testNamespace).

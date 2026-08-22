@@ -18,6 +18,16 @@ func TestNewLeaseConfig(t *testing.T) {
 		// is never what an author meant by leaving it out.
 		{name: "zero falls back", opts: []LeaseOption{WithLeaseTTL(0)}, want: DefaultLeaseTTL},
 		{name: "negative falls back", opts: []LeaseOption{WithLeaseTTL(-time.Second)}, want: DefaultLeaseTTL},
+		// Not the default: a short TTL was asked for deliberately, so it takes the
+		// smallest thing every module can honour rather than jumping to thirty
+		// seconds. Below a second the k8s module's object would round to zero and
+		// read as expired the instant it was written.
+		{
+			name: "a sub-second ttl is raised to the minimum",
+			opts: []LeaseOption{WithLeaseTTL(30 * time.Millisecond)},
+			want: MinLeaseTTL,
+		},
+		{name: "the minimum itself is kept", opts: []LeaseOption{WithLeaseTTL(MinLeaseTTL)}, want: MinLeaseTTL},
 		{
 			name: "the last option wins",
 			opts: []LeaseOption{WithLeaseTTL(time.Minute), WithLeaseTTL(2 * time.Minute)},
@@ -52,8 +62,19 @@ func TestNoopLeasesGrantEveryClaim(t *testing.T) {
 		t.Error("Done() closed on a claim nothing can take away")
 	default:
 	}
-	if err := first.Close(); err != nil {
-		t.Errorf("Close() error = %v, want nil", err)
+
+	// Nothing will ever take this claim, but releasing it still has to close Done
+	// — a holder gating on it would otherwise block forever on a claim it released
+	// itself, and that holder is written against the interface, not this module.
+	for i := range 2 {
+		if err := first.Close(); err != nil {
+			t.Errorf("Close() #%d error = %v, want nil", i+1, err)
+		}
+	}
+	select {
+	case <-first.Done():
+	default:
+		t.Error("Done() is open after Close, want closed")
 	}
 }
 

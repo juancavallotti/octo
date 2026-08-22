@@ -108,9 +108,11 @@ So the shape is: get a lock from somewhere else, keep the transport where it is.
 **This part is now built**: `core.Leases` (`runtime/core/lease.go`) is an
 accessor on `core.RuntimeServices`, implemented in both modules.
 
-The k8s services module already held a `coordinationv1` client and the RBAC for
-it — `runtime/services/k8s/leaderelection.go` uses Leases too — so it needed **no
-new infrastructure at all**, and no JetStream. A fail-fast `Create` on a
+The k8s services module already held a `coordinationv1` client and most of the
+RBAC for it — `runtime/services/k8s/leaderelection.go` uses Leases too — so it
+needed **no new infrastructure**, and no JetStream. The one chart change is the
+`delete` verb, since a claim is released by deleting its object rather than by
+letting it lapse. A fail-fast `Create` on a
 per-conversation Lease is an exact claim: it succeeds or it conflicts, with no
 ambiguity and no waiting. The lease duration handles a holder that dies, and the
 owner renews while it runs.

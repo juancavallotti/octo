@@ -120,6 +120,9 @@ func (h *heldLease) loseLocked() {
 // renew pushes the deadline out for as long as the claim is held, so a holder
 // that is merely slow is not displaced by a challenger. It exits when the claim
 // goes, which is what stops the goroutine on Close.
+//
+// The interval is positive because core.NewLeaseConfig floors the TTL at
+// core.MinLeaseTTL, which a ticker requires — it panics on anything else.
 func (h *heldLease) renew(every time.Duration) {
 	ticker := time.NewTicker(every)
 	defer ticker.Stop()

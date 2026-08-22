@@ -157,19 +157,25 @@ func TestLeaseCloseDoesNotEvictASuccessor(t *testing.T) {
 	}
 }
 
-// Renewal is what keeps a slow holder from being displaced by a challenger, so
-// this one runs on the real clock and waits out several TTLs.
+// Renewal is what keeps a slow holder from being displaced by a challenger, and
+// it is the one behaviour here that cannot be tested on a wound clock — the
+// renewal goroutine runs on a real ticker. So this one waits, at the shortest TTL
+// any module honours, and waits comfortably past it: the claim would have expired
+// at one second, the assertion is at 1.6, and three renewals are due in between.
 func TestLeaseRenewalHoldsANamePastItsTTL(t *testing.T) {
+	if testing.Short() {
+		t.Skip("waits out a real lease TTL")
+	}
 	l := newLeases(time.Now)
-	const ttl = 30 * time.Millisecond
+	ttl := core.MinLeaseTTL
 
 	held := acquire(t, l, "orders", core.WithLeaseTTL(ttl))
 	defer func() { _ = held.Close() }()
 
-	time.Sleep(4 * ttl)
+	time.Sleep(ttl + ttl*3/5)
 
 	if _, ok, err := l.Acquire(context.Background(), "orders"); err != nil || ok {
-		t.Errorf("Acquire after %v = (ok %v, err %v), want refused: the holder has been renewing", 4*ttl, ok, err)
+		t.Errorf("Acquire past the TTL = (ok %v, err %v), want refused: the holder has been renewing", ok, err)
 	}
 	select {
 	case <-held.Done():

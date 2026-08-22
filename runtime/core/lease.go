@@ -8,6 +8,7 @@ package core
 
 import (
 	"context"
+	"sync"
 	"time"
 )
 
@@ -19,6 +20,17 @@ import (
 // longer than any single renewal round trip and short enough that a dead holder
 // is not remembered for long.
 const DefaultLeaseTTL = 30 * time.Second
+
+// MinLeaseTTL is the shortest claim any module honours.
+//
+// A coordination Lease measures its duration in whole seconds, so the k8s module
+// cannot express anything shorter — a sub-second TTL there would round to zero
+// and read as expired the instant it was written, handing the name to the next
+// caller. Raising it here rather than in that module keeps the two agreeing about
+// what a caller asked for, which is the whole point of resolving options in one
+// place. It also keeps the renewal interval (a third of the TTL) positive, which
+// a ticker requires.
+const MinLeaseTTL = time.Second
 
 // Lease is a claim on a name, held until it is released or its holder stops
 // renewing.
@@ -81,20 +93,30 @@ type LeaseConfig struct {
 }
 
 // WithLeaseTTL sets how long a claim outlives its holder's last renewal. A value
-// <= 0 is ignored (the default applies).
+// <= 0 is ignored (the default applies), and anything below MinLeaseTTL is raised
+// to it.
 func WithLeaseTTL(d time.Duration) LeaseOption {
 	return func(c *LeaseConfig) { c.TTL = d }
 }
 
 // NewLeaseConfig resolves opts into a LeaseConfig, applying DefaultLeaseTTL when no
-// positive value was set. Modules call it to read the effective settings.
+// positive value was set and MinLeaseTTL when the value is too short to honour.
+// Modules call it to read the effective settings, and may rely on the result being
+// at least MinLeaseTTL.
+//
+// The two clamps mean different things and so are not one branch: a
+// non-positive TTL is an option that was never really set, and takes the default;
+// a short one was set deliberately and takes the smallest thing that works.
 func NewLeaseConfig(opts ...LeaseOption) LeaseConfig {
 	cfg := LeaseConfig{TTL: DefaultLeaseTTL}
 	for _, opt := range opts {
 		opt(&cfg)
 	}
-	if cfg.TTL <= 0 {
+	switch {
+	case cfg.TTL <= 0:
 		cfg.TTL = DefaultLeaseTTL
+	case cfg.TTL < MinLeaseTTL:
+		cfg.TTL = MinLeaseTTL
 	}
 	return cfg
 }
@@ -117,13 +139,24 @@ type noopLeases struct{}
 
 //nolint:ireturn // satisfies the Leases interface
 func (noopLeases) Acquire(context.Context, string, ...LeaseOption) (Lease, bool, error) {
-	return grantedLease{}, true, nil
+	return &grantedLease{done: make(chan struct{})}, true, nil
 }
 
-// grantedLease is a claim that is never lost and never has to be released.
-type grantedLease struct{}
+// grantedLease is a claim nothing can take away, held until it is released.
+//
+// It still carries a real channel rather than a nil one. Nothing will ever close
+// it on this lease's behalf, but Close must — a holder gating on Done would
+// otherwise block forever on a claim it released itself, which is the contract
+// Lease states and the shape a caller writes against whichever module answered.
+type grantedLease struct {
+	done chan struct{}
+	once sync.Once
+}
 
-// Done never closes: nothing can take this claim away.
-func (grantedLease) Done() <-chan struct{} { return nil }
+// Done is closed by Close, and by nothing else.
+func (l *grantedLease) Done() <-chan struct{} { return l.done }
 
-func (grantedLease) Close() error { return nil }
+func (l *grantedLease) Close() error {
+	l.once.Do(func() { close(l.done) })
+	return nil
+}

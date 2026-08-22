@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"sync"
 	"time"
 
@@ -139,14 +140,27 @@ func (l *leases) expired(record *coordv1.Lease) bool {
 }
 
 // spec is the object this replica writes when it claims a name.
+//
+// The duration rounds UP to whole seconds, because a coordination Lease has no
+// finer unit and rounding down would publish a deadline earlier than the one the
+// holder is renewing against — a challenger reading the object would find the
+// claim expired while its owner still believed it held. core.NewLeaseConfig
+// guarantees at least core.MinLeaseTTL, so this never rounds to zero.
 func (l *leases) spec(object string, ttl time.Duration) *coordv1.Lease {
 	stamp := metav1.NewMicroTime(l.now())
-	seconds := int32(ttl.Seconds())
+	// Capped as well as rounded: the field is an int32, and a caller passing a TTL
+	// of more than sixty-eight years would otherwise wrap into a negative duration
+	// — an absurd input, but one whose failure mode is a claim that never expires.
+	seconds := int64((ttl + time.Second - 1) / time.Second)
+	if seconds > math.MaxInt32 {
+		seconds = math.MaxInt32
+	}
+	duration := int32(seconds)
 	return &coordv1.Lease{
 		ObjectMeta: metav1.ObjectMeta{Name: object, Namespace: l.namespace},
 		Spec: coordv1.LeaseSpec{
 			HolderIdentity:       &l.identity,
-			LeaseDurationSeconds: &seconds,
+			LeaseDurationSeconds: &duration,
 			AcquireTime:          &stamp,
 			RenewTime:            &stamp,
 		},
@@ -222,6 +236,9 @@ const releaseTimeout = 5 * time.Second
 // renew pushes the claim's deadline out for as long as it is held. Losing it is
 // not an error to report anywhere: it is reported by closing Done, which is what
 // the holder is gating its work on.
+//
+// The interval is positive because core.NewLeaseConfig floors the TTL at
+// core.MinLeaseTTL, which a ticker requires — it panics on anything else.
 func (h *heldLease) renew(ctx context.Context, ttl time.Duration) {
 	ticker := time.NewTicker(ttl / renewDivisor)
 	defer ticker.Stop()
