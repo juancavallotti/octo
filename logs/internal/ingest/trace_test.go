@@ -345,3 +345,56 @@ func TestParseTraceRecordClampsAnOverflowingSequence(t *testing.T) {
 		t.Fatalf("seq = %d, want it clamped rather than wrapped negative", got.Seq)
 	}
 }
+
+// A turn through OpenRouter, whose response carries what it charged.
+const wireLLMTurnReportedCost = `{"seq":16,"kind":"llm.turn","traceId":"t1",` +
+	`"at":"2026-08-09T12:00:00.5Z","durationNs":900000000,` +
+	`"attrs":{"connector":"router","provider":"OPENROUTER","model":"anthropic/claude-sonnet-4.5",` +
+	`"usage":{"inputTokens":1200,"outputTokens":340,"thinkingTokens":0,"cachedTokens":800,` +
+	`"cacheWriteTokens":0,"reportedCostUSD":0.00423}},` +
+	`"deploymentId":"11111111-1111-1111-1111-111111111111","appName":"orders","appVersion":"v3"}`
+
+// A provider that says what it charged is relayed rather than re-derived, and it
+// reaches the priced call intact.
+func TestParseTraceRecordCarriesAReportedCost(t *testing.T) {
+	got := mustParse(t, wireLLMTurnReportedCost)
+
+	if got.Usage == nil {
+		t.Fatal("usage decoded as nil")
+	}
+	if got.Usage.ReportedCostUSD == nil {
+		t.Fatal("the reported cost was dropped on the way in")
+	}
+	if *got.Usage.ReportedCostUSD != 0.00423 {
+		t.Errorf("reported cost = %v, want 0.00423", *got.Usage.ReportedCostUSD)
+	}
+	// The counts beside it are untouched.
+	if got.Usage.InputTokens != 1200 || got.Usage.OutputTokens != 340 || got.Usage.CachedTokens != 800 {
+		t.Errorf("token counts = %+v", *got.Usage)
+	}
+
+	call, isCall := got.ModelCall()
+	if !isCall {
+		t.Fatal("an llm.turn was not offered for pricing")
+	}
+	if call.Usage == nil || call.Usage.ReportedCostUSD == nil {
+		t.Fatal("the priced call lost the reported cost")
+	}
+	if call.Provider != "OPENROUTER" {
+		t.Errorf("provider = %q, want OPENROUTER", call.Provider)
+	}
+}
+
+// The three connectors that report no cost are unchanged: absent stays absent,
+// so nothing downstream can read "not reported" as "charged nothing".
+func TestParseTraceRecordLeavesAnAbsentCostAbsent(t *testing.T) {
+	got := mustParse(t, wireLLMTurn)
+
+	if got.Usage == nil {
+		t.Fatal("usage decoded as nil")
+	}
+	if got.Usage.ReportedCostUSD != nil {
+		t.Errorf("reported cost = %v, want nil for a provider that reports none",
+			*got.Usage.ReportedCostUSD)
+	}
+}

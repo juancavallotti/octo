@@ -24,6 +24,11 @@ const (
 	// StatusNoUsage is a call whose provider reported no token usage at all.
 	// There is nothing to price, which is different from pricing it at nothing.
 	StatusNoUsage Status = "no_usage"
+	// StatusReported is a cost the provider itself reported for the call. It is
+	// not an estimate and no rate produced it: it is what was charged, including
+	// the per-request and per-image portions a token count cannot reconstruct.
+	// It is the most certain of these statuses, not the least.
+	StatusReported Status = "reported"
 )
 
 // anthropicProvider is the one vendor whose reported input count EXCLUDES the
@@ -54,6 +59,11 @@ type Usage struct {
 	// prompt cache, which bill above the input rate (Anthropic charges roughly
 	// 1.25x). Only Anthropic reports one.
 	CacheWriteTokens int
+
+	// ReportedCostUSD is what the provider said it charged, and is nil for every
+	// provider that says nothing — which is all of them but OpenRouter. Nil and
+	// zero are different facts here as everywhere else in this struct.
+	ReportedCostUSD *float64
 }
 
 // Call is one model call as a trace record reports it.
@@ -97,7 +107,7 @@ type Priced struct {
 // second return must be stored as NULL, never as zero.
 func (p Priced) CostUSD() (float64, bool) {
 	switch p.Status {
-	case StatusPriced, StatusPricedPartial:
+	case StatusPriced, StatusPricedPartial, StatusReported:
 		return p.cost, true
 	default:
 		return 0, false
@@ -219,4 +229,26 @@ func nonNegative(n int) int {
 		return 0
 	}
 	return n
+}
+
+// reportedCost renders a cost the provider reported, and whether there was one.
+//
+// It needs no rate and consults no card, which is why it lives beside the
+// arithmetic rather than inside Table.Price: a Table is the rate card and the
+// arithmetic over it, and this is neither. PriceID is empty because no stored
+// rate produced the number, and Provider comes from the call, since there is no
+// matched rate to take it from.
+//
+// A negative figure is refused rather than stored: a provider reporting one is
+// reporting something this accounting cannot mean, and a credit recorded as a
+// cost would net against real charges in every total built on it.
+func reportedCost(call Call) (Priced, bool) {
+	if call.Usage == nil || call.Usage.ReportedCostUSD == nil {
+		return Priced{}, false
+	}
+	amount := *call.Usage.ReportedCostUSD
+	if amount < 0 {
+		return Priced{}, false
+	}
+	return Priced{Status: StatusReported, Provider: call.Provider, cost: amount}, true
 }

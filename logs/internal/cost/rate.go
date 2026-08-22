@@ -1,9 +1,14 @@
 // Package cost prices the model calls a runtime reports.
 //
 // A trace record for an llm.turn or llm.embed carries the model that served the
-// call and the tokens the provider charged, but never any money: the runtime
-// deliberately knows no rate card, so pricing is the consumer's job. This package
-// is that rate card and the arithmetic over it.
+// call and the tokens the provider charged: the runtime deliberately knows no
+// rate card, so pricing is the consumer's job. This package is that rate card
+// and the arithmetic over it.
+//
+// One record in ten thousand carries money anyway, and it is not an exception to
+// that rule. Some providers report what they charged — OpenRouter does — and the
+// runtime relays the figure without computing it. Such a call is priced by
+// reportedCost in price.go and never reaches a table here at all.
 //
 // The rate card is keyed by patterns rather than model ids, because that is how
 // the upstream catalogues publish it: `claude-3-5-sonnet-20241022` under equals

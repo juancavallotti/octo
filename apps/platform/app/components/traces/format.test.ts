@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   describeCost,
+  describeCostStatus,
   formatAge,
   formatCost,
   formatDuration,
@@ -124,5 +125,20 @@ describe("formatWindow", () => {
   it("says nothing for a window that is not one", () => {
     expect(formatWindow("2026-08-09T12:00:00Z", "2026-08-09T12:00:00Z")).toBe("");
     expect(formatWindow("nope", "also nope")).toBe("");
+  });
+});
+
+describe("describeCostStatus", () => {
+  it("says a reported cost is the charge rather than an estimate", () => {
+    // The one status where the number is more certain than `priced`, not less.
+    expect(describeCostStatus("reported")).toMatch(/not an estimate from a rate card/);
+  });
+
+  it("never describes an unpriced call as free", () => {
+    expect(describeCostStatus("unpriced_model")).toMatch(/not the same as it being free/);
+  });
+
+  it("says nothing for a record that is not a model call", () => {
+    expect(describeCostStatus("")).toBe("");
   });
 });

@@ -109,6 +109,12 @@ export function describeCost(
  */
 export function describeCostStatus(status: CostStatus): string {
   switch (status) {
+    case "reported":
+      return (
+        "What the provider charged for this call, as the provider reported it — " +
+        "not an estimate from a rate card. It includes any per-request or " +
+        "per-image charge a token count cannot reconstruct."
+      );
     case "priced":
       return "Priced from the published rate for this model.";
     case "priced_partial":

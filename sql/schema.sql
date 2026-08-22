@@ -348,7 +348,14 @@ CREATE TABLE IF NOT EXISTS traces (
     --                    cache WRITE costs more, so the fallback under-states it.
     --   unpriced_model — the model is not in the rate card; cost is unknown, NOT zero
     --   no_usage       — the provider reported no usage; there is nothing to price
-    -- price_id is the audit trail: which llm_prices row produced cost_usd.
+    --   reported       — the provider itself said what it charged. No rate produced
+    --                    it and price_id is NULL: it is not an estimate but the
+    --                    actual charge, including per-request and per-image
+    --                    portions a token count cannot reconstruct. The most
+    --                    certain of these statuses, not the least.
+    -- price_id is the audit trail: which llm_prices row produced cost_usd. It is
+    -- NULL for a reported cost, which is the one case where a known cost has no
+    -- rate behind it.
     model           varchar NOT NULL DEFAULT '',
     provider        varchar NOT NULL DEFAULT '',
     input_tokens    integer,

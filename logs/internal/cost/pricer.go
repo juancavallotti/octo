@@ -26,6 +26,10 @@ func NewPricer(sources ...*Refresher) *Pricer {
 // Price prices one call. It is the whole of what the ingest path needs from this
 // package.
 //
+// A cost the provider reported outranks every card, because it is not an
+// estimate: it is what was charged, including the per-request and per-image
+// portions no token count can reconstruct. Nothing is consulted after it.
+//
 // Only StatusUnpricedModel falls through to the next card — that status means
 // "this card has never heard of this model", which is exactly the question the
 // next card might answer. StatusNoUsage does not: a provider that reported no
@@ -38,6 +42,9 @@ func NewPricer(sources ...*Refresher) *Pricer {
 // service that has not loaded a card yet must report. Every Table already
 // degrades that way; this keeps the property.
 func (p *Pricer) Price(call Call) Priced {
+	if reported, ok := reportedCost(call); ok {
+		return reported
+	}
 	// Answered before any card is consulted, and answered the same way when there
 	// are none: whether a provider reported tokens is a fact about the call, not
 	// about what anyone knows how to price.
