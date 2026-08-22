@@ -126,6 +126,73 @@ describe("buildWaterfall", () => {
     expect(call.kind).toBe("llm.turn");
   });
 
+  it("hangs a compaction off the agent that did it, beside its summarize turn", () => {
+    // An agent.compaction is stamped with the agent's own address, like a model
+    // call, because compacting is work the agent did to itself. Walking for an
+    // enclosing block instead would hang it off the composite the agent sits in,
+    // billing it to the branch rather than to the block that did it.
+    //
+    // The summarize strategy's model call lands beside it, at the same address.
+    // Neither is double counted: only a block.post-invoke can host a span, so the
+    // compaction has no children, and a childless span is classified by its block
+    // — an ai-agent, which is control — while the call is billed once as a call.
+    const trace = records(
+      {
+        kind: "llm.turn",
+        start: 30_000,
+        duration: 300_000,
+        path: "orders.agent",
+        blockType: "ai-agent",
+        attrs: { model: "claude-sonnet-4", purpose: "memory-compaction" },
+      },
+      {
+        kind: "agent.compaction",
+        start: 20_000,
+        duration: 350_000,
+        path: "orders.agent",
+        blockType: "ai-agent",
+        attrs: { strategy: "summarize", before: 20_000, after: 8_000, dropped: 6 },
+      },
+      { kind: "block.post-invoke", start: 15_000, duration: 500_000, path: "orders.agent" },
+      { kind: "flow.completed", start: 0, duration: 700_000, flow: "orders" },
+    );
+
+    const { roots } = buildWaterfall(trace);
+    expect(outline(roots)).toEqual([
+      "orders",
+      "  agent",
+      "    agent",
+      "    agent",
+    ]);
+
+    const spans = find(roots, "agent")!.children.map((c) => c.kind);
+    expect(spans.sort()).toEqual(["agent.compaction", "llm.turn"]);
+  });
+
+  it("shows a pruning compaction even though it made no model call", () => {
+    // Pruning calls nothing and costs nothing, so it produces no llm.turn — and
+    // without a span of its own it would be invisible. When an agent has
+    // forgotten something, when it forgot is the first thing anyone needs.
+    const trace = records(
+      {
+        kind: "agent.compaction",
+        start: 20_000,
+        duration: 900,
+        path: "orders.agent",
+        blockType: "ai-agent",
+        attrs: { strategy: "prune", before: 20_000, after: 9_000, dropped: 4 },
+      },
+      { kind: "block.post-invoke", start: 15_000, duration: 500_000, path: "orders.agent" },
+      { kind: "flow.completed", start: 0, duration: 700_000, flow: "orders" },
+    );
+
+    expect(outline(buildWaterfall(trace).roots)).toEqual([
+      "orders",
+      "  agent",
+      "    agent",
+    ]);
+  });
+
   it("hangs a flow-ref's sub-invocation off the block that called it", () => {
     // The sub-flow roots at its own name and carries a fresh event id, so its
     // address shares nothing with the caller's. Only the clock joins them.

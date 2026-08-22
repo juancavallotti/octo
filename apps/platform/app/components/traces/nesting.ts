@@ -15,7 +15,7 @@
 
 import { ancestorPaths } from "./blockPath";
 import { contains, packLanes } from "./timeSpans";
-import { addressKey, MODEL_KINDS, type WaterfallNode } from "./types";
+import { addressKey, SELF_ADDRESSED_KINDS, type WaterfallNode } from "./types";
 
 /**
  * Link every node to its parent, returning the roots. Fills `children`, `depth`
@@ -62,11 +62,12 @@ function trieParent(
   blocks: Map<string, WaterfallNode[]>,
 ): WaterfallNode | undefined {
   if (node.path === "") return undefined;
-  // A model call is stamped with its block's own address rather than one below
-  // it, so the block at exactly this path is its host. Every other span looks
-  // for an enclosing address, deepest first.
+  // A model call, or an agent compacting its own context, is stamped with its
+  // block's own address rather than one below it, so the block at exactly this
+  // path is its host. Every other span looks for an enclosing address, deepest
+  // first.
   const ancestors = ancestorPaths(node.path).reverse();
-  const candidates = MODEL_KINDS.has(node.kind)
+  const candidates = SELF_ADDRESSED_KINDS.has(node.kind)
     ? [node.path, ...ancestors]
     : ancestors;
 
