@@ -120,7 +120,7 @@ export const CEL_FUNCTIONS: CelFunction[] = [
     library: "octo",
     signature: "toFormData(dyn) -> string",
     summary:
-      "Encode an object as an application/x-www-form-urlencoded string (array fields emit repeated keys). Only urlencoded, not multipart.",
+      "Encode an object as an application/x-www-form-urlencoded string (array fields emit repeated keys). For multipart/form-data use toMultipart.",
     example: `toFormData({"q": "hello", "page": 2})`,
   },
   {
@@ -130,6 +130,38 @@ export const CEL_FUNCTIONS: CelFunction[] = [
     summary:
       "Parse an application/x-www-form-urlencoded string into an object (repeated keys become a list) — e.g. decode a raw form POST body.",
     example: `fromFormData(body.rawData)`,
+  },
+  {
+    name: "multipart",
+    library: "octo",
+    signature: "multipart() -> dyn",
+    summary:
+      "Start an empty multipart parts map, to build up with addPart.",
+    example: `multipart().addPart("caption", body.caption)`,
+  },
+  {
+    name: "addPart",
+    library: "octo",
+    signature: "<parts>.addPart(string, dyn) -> dyn",
+    summary:
+      "Return a new parts map with one part added; never modifies the map it is called on. A scalar is a text field; an object may set data, encoding, filename and contentType.",
+    example: `multipart().addPart("avatar", body.parts.avatar)`,
+  },
+  {
+    name: "fromMultipart",
+    library: "octo",
+    signature: "fromMultipart(dyn) -> dyn  |  fromMultipart(string, string) -> dyn",
+    summary:
+      "Decode a multipart/form-data payload into the parts map (name to part; a repeated name becomes a list). The http source does this automatically into body.parts, so use it for multipart arriving off a queue, a file, or a rest response.",
+    example: `fromMultipart(body).avatar.filename`,
+  },
+  {
+    name: "toMultipart",
+    library: "octo",
+    signature: "toMultipart(dyn) -> string  |  toMultipart(dyn, string) -> string",
+    summary:
+      "Render a parts map as a multipart/form-data body, part names sorted. The rest block does this itself via bodyType: multipart; use this for other sinks. The boundary defaults to octo-multipart.",
+    example: `toMultipart(body.parts)`,
   },
   {
     name: "toYaml",

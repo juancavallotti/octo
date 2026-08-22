@@ -25,6 +25,10 @@ A **source payload** expression runs before any message exists, so it sees only
 | `fromJson` | `fromJson(string) -> dyn` | Parse a JSON string into a value. |
 | `toFormData` | `toFormData(map) -> string` | URL-encoded form body. |
 | `fromFormData` | `fromFormData(string) -> map` | Parse one. |
+| `multipart` | `multipart() -> map` | Start an empty multipart parts map. |
+| `addPart` | `parts.addPart(string, dyn) -> map` | Return a new parts map with one part added; never modifies its receiver. A scalar is a text field; an object may set `data`, `encoding`, `filename`, `contentType`. |
+| `fromMultipart` | `fromMultipart(body) -> map`, or `fromMultipart(rawData, contentType) -> map` | Decode a multipart payload into parts by name. The two-argument form is for a payload whose content type is not on the body — carried in a variable, say. The http source already does this into `body.parts`; use this for multipart off a queue, a file, or a `rest` response. |
+| `toMultipart` | `toMultipart(map[, boundary]) -> string` | Render a parts map as a multipart body. The `rest` block does this itself with `bodyType: multipart`. |
 | `toYaml` | `toYaml(dyn) -> string` | Render a value as a YAML document. Ambiguous strings (`y`, `no`, `1.0`) are quoted for you. |
 | `fromYaml` | `fromYaml(string) -> dyn` | Parse a YAML document, normalized to JSON-native shapes (ints become numbers, timestamps become RFC 3339 strings). |
 | `toEnv` | `toEnv(map) -> string` | Render a flat map as `.env` content, keys sorted. A nested value is an error. |
