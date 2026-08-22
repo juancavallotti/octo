@@ -202,6 +202,12 @@ flows:
       type: http
       settings:
         path: /chat
+        methods: [POST]
+        # How a second request ends the run this one started. The header is the
+        # whole signal: the agent's stopWhen below only has to notice it is there.
+        # It travels as a header rather than in the body so a stop and a follow-up
+        # are the same request shape, and the panel sends one or the other.
+        headers: [X-Agent-Stop]
         # On an SSE route this bounds the wait for the FIRST frame only. An agent
         # takes a moment to produce its first token.
         timeout: 60s
@@ -232,12 +238,25 @@ flows:
               ? body.user.id : "anonymous"
 
       - type: set-variable
+        name: thread-id
+        settings:
+          name: threadId
+          value: 'has(body.threadId) && body.threadId != "" ? body.threadId : "default"'
+
+      - type: set-variable
         name: thread-key
         settings:
           name: threadKey
-          value: >-
-            vars.userKey + "/" +
-            (has(body.threadId) && body.threadId != "" ? body.threadId : "default")
+          value: vars.userKey + "/" + vars.threadId
+
+      # The question, kept before the agent replaces the body with its answer. The
+      # conversation record needs both halves and can only see one of them at a
+      # time.
+      - type: set-variable
+        name: keep-question
+        settings:
+          name: question
+          value: 'has(body.message) ? body.message : ""'
 
       # The agent's input, stated rather than inherited. Everything in the body
       # reaches the model, so the body is narrowed to what the model is actually for:
@@ -299,6 +318,16 @@ flows:
         contextMaxTokens: ${AGENT_MEMORY_TOKENS}
         memoryCompaction: summarize
 
+        # What ends a run already in flight. A second request carrying the header
+        # stops the first and returns nothing of its own — the answer, or the lack
+        # of one, is going to whoever is reading the stream that run opened.
+        #
+        # This is not the same as the panel closing. A shut tab is caught by
+        # ifClosed below, which only reaches a run whose stream this connection
+        # holds; a stop travels by conversation, so it works from another tab, and
+        # from another replica.
+        stopWhen: '"X-Agent-Stop" in vars && vars["X-Agent-Stop"] != ""'
+
         # A type left out of this list is never *built* — no event message, no
         # sub-flow run. On a token stream that is a real lever rather than a filter,
         # which is why the turn boundaries are absent: nothing in the panel reads
@@ -310,7 +339,15 @@ flows:
         # streamed by the provider and dropped here. The panel showed nothing for
         # five seconds and then the whole answer at once, which reads as a freeze
         # rather than as a model that is working.
-        emit: [thinking, text, tool_call, tool_result, done, error, guardrail]
+        # turn_end carries the exact context gauge — what the provider read plus
+        # what it produced, against the budget above — so the panel can show a
+        # conversation filling up rather than only the moment it overflowed. The
+        # compaction pair brackets a summarize, which is a real model call and can
+        # take seconds: without them a conversation losing its early turns looks
+        # like a freeze. signal is a message handed to the run mid-answer, or one
+        # it never got to.
+        emit: [thinking, text, tool_call, tool_result, turn_end,
+               compaction_start, compaction_end, signal, done, error, guardrail]
         events:
           process:
             # No configuration: the emitter copies the agent's variables onto every
@@ -1195,3 +1232,260 @@ flows:
                   {"answer": "That one is outside my remit. I am Dr. Octo — I run
                   this Octo platform, and my schemes extend to integrations,
                   deployments and the flows you are building. Ask me about those."}
+
+      # ------------------------------------------------------------ the record
+      #
+      # A wire-tap. The exchange goes onto a queue and this flow returns; the
+      # conversation record is written by the flow below, on a worker nobody is
+      # waiting on. That separation is the point: naming a conversation takes a
+      # model call, and a person watching their answer finish should not be
+      # watching it be filed as well.
+      #
+      # It is a record and not the agent's memory. Memory is compacted — summarize
+      # replaces the early turns with a summary of them — so what the engine stores
+      # is the model's working set, not the conversation a person had. Only one of
+      # those can be read back to them.
+      #
+      # fork gives the branch its own clone, so the payload it builds for the queue
+      # never reaches the body this flow returns — which is the answer, and which
+      # the SSE route sends as its closing frame. handle-errors keeps a broker that
+      # is having a bad day from failing a chat that already succeeded: the answer
+      # has streamed by the time this runs, and an error here would put a failure
+      # on the stream after it.
+      - type: handle-errors
+        name: record-exchange
+        process:
+          - type: fork
+            name: tap
+            branches:
+              - name: record
+                process:
+                  # The answer is usually the prose `answer: text` asked for, and
+                  # is not always: the agent decodes a final answer that happens to
+                  # parse as JSON whatever the format setting says, so an answer of
+                  # "42", or one the model fenced, arrives here as a number or a
+                  # map. Rendering it back is what keeps a record of it either way —
+                  # string() would simply fail on the second kind, and the whole
+                  # exchange would go unrecorded.
+                  - type: set-payload
+                    name: build-record
+                    settings:
+                      value: >-
+                        {"userKey": vars.userKey, "threadId": vars.threadId,
+                         "question": vars.question,
+                         "answer": type(body) == string ? body : toJson(body)}
+                  - type: queue-dispatch
+                    name: send-record
+                    settings:
+                      subject: '"conversation-log"'
+        error:
+          - type: log
+            name: record-failed
+            settings:
+              level: warn
+              message: '"could not record the conversation: " + vars.error.message'
+
+  # ============================================================ the record ====
+  #
+  # What a person can come back to. Two objects per user, and neither is the
+  # agent's memory:
+  #
+  #   agent-chat/{userKey}/{threadId}   the conversation as it was had
+  #   agent-threads/{userKey}           one row per conversation, for the list
+  #
+  # The index exists because core.KV has get, set and delete but no list — the
+  # same reason facts live in one object — and because a listing could not carry
+  # a title even if it did. Its rows are what the panel renders before anyone
+  # opens anything.
+  #
+  # Both keys are built from the userKey the chat route authenticated, so a
+  # guessed thread id names a conversation that does not exist. The queue message
+  # carries that key rather than re-deriving it, and nothing outside this
+  # deployment can put a message on the subject.
+  - name: record-conversation
+    source:
+      type: queue                        # implicit connector — no instance needed
+      settings:
+        subject: conversation-log
+        listeners: 4
+    process:
+      # The body is about to be replaced by the title call, so what the keys are
+      # built from is taken out of it first.
+      - type: set-variable
+        name: hold-user
+        settings:
+          name: userKey
+          value: body.userKey
+      - type: set-variable
+        name: hold-thread
+        settings:
+          name: threadId
+          value: body.threadId
+      - type: set-variable
+        name: hold-exchange
+        settings:
+          name: exchange
+          value: '{"question": body.question, "answer": body.answer}'
+
+      - type: object-read
+        name: read-record
+        settings:
+          key: '"agent-chat/" + vars.userKey + "/" + vars.threadId'
+          as: record
+          # Whether the object was there is what "this conversation is new" means,
+          # and it is the only thing that decides whether a model is asked for a
+          # title. Everything after the first exchange keeps the one it has.
+          existsVar: recordExists
+          default: '{"title": "", "turns": []}'
+
+      - type: set-variable
+        name: append-turns
+        settings:
+          name: turns
+          value: >-
+            vars.record.turns
+              + [{"role": "user", "text": vars.exchange.question},
+                 {"role": "agent", "text": vars.exchange.answer}]
+
+      # Capped oldest-first, like facts and for the same reason: nothing else
+      # bounds this, it is read back in full on every exchange, and a value that
+      # grows without limit eventually will not write. Two hundred turns is a very
+      # long conversation and a very small object.
+      - type: set-variable
+        name: cap-turns
+        settings:
+          name: turns
+          value: >-
+            size(vars.turns) > 200
+              ? vars.turns.slice(size(vars.turns) - 200, size(vars.turns))
+              : vars.turns
+
+      - type: if
+        name: name-it
+        condition: '!vars.recordExists'
+        then:
+          process:
+            # A name a person recognises in a list, which is worth one small model
+            # call at the start of a conversation and nothing thereafter. It runs
+            # here rather than in the chat flow precisely because it is a model
+            # call: nobody is waiting on this worker.
+            - type: set-payload
+              name: title-input
+              settings:
+                value: '{"question": vars.exchange.question, "answer": vars.exchange.answer}'
+            - type: ai-mapping
+              name: write-title
+              settings:
+                connector: llm
+                prompt: >
+                  Name this conversation the way a person would name it in a list of
+                  their past conversations. Five words at most, no quotes, no
+                  trailing period, no "conversation about". Describe what was asked,
+                  not what was answered. Use the question's own language.
+                outputExample: '{"title": "Deploying the orders integration"}'
+                outputSchema: |
+                  {"type": "object", "required": ["title"],
+                   "properties": {"title": {"type": "string", "maxLength": 80}}}
+                maxTokens: 100
+            - type: set-variable
+              settings:
+                name: title
+                value: body.title
+        else:
+          process:
+            - type: set-variable
+              settings:
+                name: title
+                value: vars.record.title
+
+      - type: object-write
+        name: write-record
+        settings:
+          key: '"agent-chat/" + vars.userKey + "/" + vars.threadId'
+          value: '{"title": vars.title, "turns": vars.turns}'
+
+      # The index carries the moment as well as the name. The object store records
+      # when a value was last written, but only the route that lists every key in
+      # the namespace can read it, and that route cannot return a title — so the
+      # row that has the title carries the timestamp too.
+      - type: object-read
+        name: read-index
+        settings:
+          key: '"agent-threads/" + vars.userKey'
+          as: index
+          default: '{"items": []}'
+      # Filter-then-append is what makes this an upsert: a conversation already in
+      # the list moves to the end with a fresh timestamp rather than appearing
+      # twice.
+      - type: set-variable
+        name: merge-index
+        settings:
+          name: rows
+          value: >-
+            vars.index.items.filter(i, i.id != vars.threadId)
+              + [{"id": vars.threadId, "title": vars.title, "updatedAt": string(now)}]
+      - type: object-write
+        name: write-index
+        settings:
+          key: '"agent-threads/" + vars.userKey'
+          value: >-
+            {"items": size(vars.rows) > 200
+              ? vars.rows.slice(size(vars.rows) - 200, size(vars.rows))
+              : vars.rows}
+
+  # A user's past conversations, most recently written last — the panel sorts. The
+  # user block is written server-side by the chat route, exactly as it is for /chat,
+  # so this reads one person's list and cannot be asked for anyone else's.
+  - name: list-conversations
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /conversations
+        methods: [POST]
+        timeout: 10s
+    process:
+      - type: set-variable
+        name: user-key
+        settings:
+          name: userKey
+          value: >-
+            has(body.user) && has(body.user.id) && body.user.id != ""
+              ? body.user.id : "anonymous"
+      - type: object-read
+        name: read-index
+        settings:
+          key: '"agent-threads/" + vars.userKey'
+          as: index
+          default: '{"items": []}'
+      - type: set-payload
+        settings:
+          value: '{"items": vars.index.items}'
+
+  # One past conversation, as it was had. Not the agent's memory: that is
+  # compacted, so its early turns have been replaced by a summary of them.
+  - name: read-conversation
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /conversations/{threadId}
+        methods: [POST]
+        timeout: 10s
+    process:
+      - type: set-variable
+        name: user-key
+        settings:
+          name: userKey
+          value: >-
+            has(body.user) && has(body.user.id) && body.user.id != ""
+              ? body.user.id : "anonymous"
+      - type: object-read
+        name: read-record
+        settings:
+          key: '"agent-chat/" + vars.userKey + "/" + vars.threadId'
+          as: record
+          default: '{"title": "", "turns": []}'
+      - type: set-payload
+        settings:
+          value: '{"threadId": vars.threadId, "title": vars.record.title, "turns": vars.record.turns}'
