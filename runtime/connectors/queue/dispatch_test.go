@@ -55,6 +55,9 @@ type fakeServices struct{ q core.Queues }
 func (f fakeServices) LeaderElection() core.LeaderElection { return nil }
 
 //nolint:ireturn // satisfies the RuntimeServices interface
+func (f fakeServices) Leases() core.Leases { return core.NoopLeases() }
+
+//nolint:ireturn // satisfies the RuntimeServices interface
 func (f fakeServices) KV() core.KV { return nil }
 
 //nolint:ireturn // satisfies the RuntimeServices interface

@@ -151,6 +151,13 @@ func secretNamespace(namespace string) string {
 type RuntimeServices interface {
 	//nolint:ireturn // returns the LeaderElection interface a connector depends on
 	LeaderElection() LeaderElection
+	// Leases returns the module's fail-fast claims on a name. It is an accessor
+	// rather than an optional side interface because every module has one: a map
+	// under a mutex in the standalone module, a coordination Lease object in the
+	// k8s one. See the Leases doc comment for why this is not LeaderElection.
+	//
+	//nolint:ireturn // returns the Leases interface a caller depends on
+	Leases() Leases
 	//nolint:ireturn // returns the KV interface a connector depends on
 	KV() KV
 	//nolint:ireturn // returns the SecretStore interface a connector depends on
@@ -180,6 +187,9 @@ type noopRuntimeServices struct{}
 
 //nolint:ireturn // satisfies the RuntimeServices interface
 func (noopRuntimeServices) LeaderElection() LeaderElection { return noopLeaderElection{} }
+
+//nolint:ireturn // satisfies the RuntimeServices interface
+func (noopRuntimeServices) Leases() Leases { return noopLeases{} }
 
 //nolint:ireturn // satisfies the RuntimeServices interface
 func (noopRuntimeServices) KV() KV { return noopKV{} }

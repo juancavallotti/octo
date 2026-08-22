@@ -67,6 +67,9 @@ type fakeServices struct{ topics *fakeTopics }
 func (f fakeServices) LeaderElection() core.LeaderElection { return core.NoopLeaderElection() }
 
 //nolint:ireturn // satisfies core.RuntimeServices
+func (f fakeServices) Leases() core.Leases { return core.NoopLeases() }
+
+//nolint:ireturn // satisfies core.RuntimeServices
 func (f fakeServices) KV() core.KV { return core.NoopRuntimeServices().KV() }
 
 //nolint:ireturn // satisfies core.RuntimeServices

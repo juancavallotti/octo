@@ -18,6 +18,9 @@ type fakeServices struct{ leader bool }
 func (f fakeServices) LeaderElection() core.LeaderElection { return fakeLeaderElection(f) }
 
 //nolint:ireturn // implements core.RuntimeServices
+func (fakeServices) Leases() core.Leases { return core.NoopLeases() }
+
+//nolint:ireturn // satisfies the RuntimeServices interface
 func (fakeServices) KV() core.KV { return nil }
 
 //nolint:ireturn // implements core.RuntimeServices
