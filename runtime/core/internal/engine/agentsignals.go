@@ -123,9 +123,21 @@ type agentRun struct {
 	cancel func()
 }
 
-// offer adds a message for the run to answer, and reports whether it took it.
+// offer hands a message to the run and reports whether it took responsibility
+// for it.
+//
+// The answer is about the run's liveness, not about the message: a live run
+// takes responsibility for anything on its conversation, and false means only
+// "this run is over, go and start your own". Reporting false for a message a
+// live run had nothing to do with would evict it from the registry and let a
+// rival start on the same thread — the exact thing the claim exists to stop.
+//
+// Blank text is such a message. It is not appended, because a pending entry with
+// nothing in it would block the run from finishing and then inject nothing,
+// buying a billed turn to say nothing. But the run still has the conversation,
+// so the invocation that sent it still stops.
 func (a *agentRun) offer(text string) bool {
-	if a == nil || strings.TrimSpace(text) == "" {
+	if a == nil {
 		return false
 	}
 	a.mu.Lock()
@@ -133,7 +145,9 @@ func (a *agentRun) offer(text string) bool {
 	if a.done {
 		return false // over; the caller should run it itself
 	}
-	a.pending = append(a.pending, text)
+	if trimmed := strings.TrimSpace(text); trimmed != "" {
+		a.pending = append(a.pending, trimmed)
+	}
 	return true
 }
 

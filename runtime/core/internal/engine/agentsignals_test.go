@@ -326,17 +326,42 @@ func TestARunCannotFinishHoldingAMessage(t *testing.T) {
 	}
 }
 
-// Blank text is not a message. Accepting one would block the run from finishing
-// and then inject nothing, buying a billed turn to say nothing.
-func TestARunRefusesBlankText(t *testing.T) {
+// Blank text is not a message, but the run still has the conversation.
+//
+// Appending it would block the run from finishing and then inject nothing,
+// buying a billed turn to say nothing. Reporting that the run did not take it
+// would be worse: the registry would evict a live run and let a rival start on
+// the same thread, which is the exact thing the claim exists to stop.
+func TestBlankTextIsTakenButNotInjected(t *testing.T) {
 	run := &agentRun{}
 	for _, text := range []string{"", "   ", "\t\n"} {
-		if run.offer(text) {
-			t.Errorf("a run accepted blank text %q", text)
+		if !run.offer(text) {
+			t.Errorf("a live run disowned its conversation over blank text %q", text)
 		}
+	}
+	if got := run.take(); len(got) != 0 {
+		t.Errorf("blank text was queued for injection: %+v", got)
 	}
 	if !run.finish() {
 		t.Error("blank text blocked the run from finishing")
+	}
+}
+
+// The registry must not swap a live run out because the message offered to it
+// was empty. Only a finished run gives up its conversation.
+func TestBlankTextDoesNotEvictALiveRun(t *testing.T) {
+	r := &runRegistry{runs: map[string]*agentRun{}}
+	first, second := &agentRun{}, &agentRun{}
+	r.offerOrClaim("t1", "hello", first)
+
+	if handed := r.offerOrClaim("t1", "   ", second); !handed {
+		t.Error("an empty message was not handed to the live run, so a rival would start")
+	}
+	if r.runs["t1"] != first {
+		t.Error("an empty message evicted a live run from its own conversation")
+	}
+	if got := first.take(); len(got) != 0 {
+		t.Errorf("the empty message was queued anyway: %+v", got)
 	}
 }
 
