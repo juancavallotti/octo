@@ -54,13 +54,25 @@ Type a question and the answer streams back a word at a time. Expect three thing
 - **Tool chips.** Each API call he makes appears as a chip while it runs. Watch them to see what he actually did rather than what he says he did.
 - **Navigation.** When the answer to your question is a page, he takes you there and says why. He can only reach pages inside the platform — the panel refuses any other destination, whatever his definition has been changed to say.
 
-Press **Stop** to end a run in progress, or close the panel: both abort the request, which ends the agent's run rather than leaving a model generating for nobody. Press **New conversation** to start fresh — that drops the thread, and with it what he remembers of it.
+Press **Stop** to end a run in progress, or close the panel. Closing aborts the request, which ends the run — the runtime sees the connection go and stops rather than leaving a model generating for nobody. **Stop** does something slightly different and stronger: it sends a stop for the *conversation*, so it ends the run wherever it is running, including on a replica this browser never spoke to.
+
+You can also type while he is working. A message sent mid-answer is handed to the run already in flight rather than starting a second one, so he takes it into account on his next turn instead of answering you twice on two streams.
+
+Press **New conversation** to start fresh — that drops the thread, and with it what he remembers of it. The conversation itself is kept, and you can come back to it: past conversations are listed by name in the panel.
 
 He knows which page you are on, so ask about "this integration" or "this deployment" and expect him to know what you mean.
 
 <Callout>
 Conversations are scoped to you. The panel sends a thread id, but he keys his memory on the signed-in user *and* that thread, and the identity comes from your session on the server rather than from the browser — so a thread id belonging to someone else names a conversation that does not exist.
 </Callout>
+
+### Coming back to one
+
+Every exchange is recorded as it happened, under a name he writes for the conversation on its first message. The panel lists them; opening one replays it and continues the thread.
+
+That record is deliberately **not** his memory. Memory is compacted — a long conversation has its early turns replaced by a summary of them, which is what keeps the model's context affordable — so it is the working set rather than the conversation you had. Only one of the two can be read back to you, and it is this one.
+
+The record is written from a wire-tap: the exchange goes onto an internal queue and the answer returns, so naming a conversation (which is a small model call, once per conversation) never delays a reply. Both the list and the transcripts are keyed on the signed-in user, exactly as memory is.
 
 ## Update him
 
@@ -175,7 +187,9 @@ Read this before you change him. The whole file is in the editor.
 | Piece | What it does |
 | --- | --- |
 | `chat` flow | An HTTP source on `/chat` with [server-sent events](/reference/connectors/http) enabled, so answers stream a token at a time |
-| `ai-agent` block | Streaming, with memory keyed to the signed-in user and the conversation, a 500k-token window and summarising compaction |
+| `ai-agent` block | Streaming, with memory keyed to the signed-in user and the conversation, a 500k-token window and summarising compaction. `stopWhen` reads the `X-Agent-Stop` header, which is how the panel's Stop reaches a run [it is not connected to](/ai/agent-signals) |
+| `record-conversation` flow | Consumes the wire-tap: appends the exchange to the conversation's record and, on the first message only, asks the model for a name for it |
+| `list-conversations`, `read-conversation` flows | The two read endpoints the panel lists and replays past conversations from |
 | `list_api_operations`, `read_api_docs` | Read the orchestrator's own [API description](/platform/api-reference) — the cheap index first, then one tag's detail |
 | `octo_api` | Calls the API, with the method and path decided per call |
 | `list_logs_operations`, `read_logs_docs` | The same two, against the [observability API](/platform/logs-api-reference) |
