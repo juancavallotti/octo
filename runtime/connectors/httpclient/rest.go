@@ -54,11 +54,51 @@ type restSettings struct {
 	Headers map[string]string `json:"headers" octo:"label=Headers"`
 	// CEL expression for the request body.
 	Body string `json:"body" octo:"label=Body,type=cel"`
+	// How the body is sent. raw sends the evaluated body as-is: a string verbatim,
+	// anything else JSON-encoded. multipart treats it as a parts map -- what
+	// body.parts holds and multipart()/addPart() build -- and renders a
+	// multipart/form-data body, naming its own boundary in the Content-Type header.
+	BodyType string `json:"bodyType" octo:"label=Body type,type=enum,enum=raw|multipart,default=raw"`
 	// Turn a 400+ status into a flow error.
 	FailOnError *bool `json:"failOnError" octo:"label=Fail on error,default=true"`
 	// Variable to store the response status code in.
 	StatusVar string `json:"statusVar" octo:"label=Status variable,default=statusCode"`
 }
+
+// How a rendered body goes on the wire. raw is what rest has always done; the
+// block owns the boundary for multipart, which is why it also owns the header.
+const (
+	bodyTypeRaw       = "raw"
+	bodyTypeMultipart = "multipart"
+)
+
+// resolveBodyType defaults and validates the body type, so a typo fails at
+// startup rather than sending a body in a shape nobody asked for.
+func resolveBodyType(configured string) (string, error) {
+	switch configured {
+	case "":
+		return bodyTypeRaw, nil
+	case bodyTypeRaw, bodyTypeMultipart:
+		return configured, nil
+	default:
+		return "", fmt.Errorf("bodyType %q is not one of %s/%s",
+			configured, bodyTypeRaw, bodyTypeMultipart)
+	}
+}
+
+// requestBody is a rendered body together with the content type it implies.
+//
+// The two travel together because for multipart they are one artifact: the header
+// names the boundary the body is delimited by, and separating them is how a
+// boundary ends up declared in one place and used in another. An empty
+// contentType means the body does not care and the usual default applies.
+type requestBody struct {
+	reader      io.Reader
+	contentType string
+}
+
+// present reports whether a body was produced at all.
+func (b requestBody) present() bool { return b.reader != nil }
 
 // processor builds and runs the request, then folds the response into the body.
 type processor struct {
@@ -68,6 +108,7 @@ type processor struct {
 	query       map[string]*expr.Program
 	headers     map[string]*expr.Program
 	body        *expr.Program
+	bodyType    string
 	failOnError bool
 	statusVar   string
 	env         map[string]any
@@ -105,6 +146,11 @@ func newREST(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor, er
 		}
 	}
 
+	bodyType, err := resolveBodyType(cfg.BodyType)
+	if err != nil {
+		return nil, err
+	}
+
 	method := strings.ToUpper(strings.TrimSpace(cfg.Method))
 	if method == "" {
 		method = http.MethodGet
@@ -125,6 +171,7 @@ func newREST(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor, er
 		query:       query,
 		headers:     headers,
 		body:        body,
+		bodyType:    bodyType,
 		failOnError: failOnError,
 		statusVar:   statusVar,
 		env:         expr.EnvActivation(deps.Env),
@@ -176,25 +223,39 @@ func (p *processor) Process(ctx context.Context, msg *types.Message) (*types.Mes
 	if err != nil {
 		return nil, err
 	}
-	bodyReader, hasBody, err := p.buildBody(activation)
+	body, err := p.buildBody(activation)
 	if err != nil {
 		return nil, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, p.method, target, bodyReader)
+	req, err := http.NewRequestWithContext(ctx, p.method, target, body.reader)
 	if err != nil {
 		return nil, fmt.Errorf("rest build request: %w", err)
 	}
 	if err := p.applyHeaders(req, activation); err != nil {
 		return nil, err
 	}
-	if hasBody && req.Header.Get("Content-Type") == "" {
-		req.Header.Set("Content-Type", "application/json")
-	}
+	applyBodyContentType(req, body)
 
 	return exchange(p.conn, req, target, msg, responseOptions{
 		block: "rest", statusVar: p.statusVar, failOnError: p.failOnError,
 	})
+}
+
+// applyBodyContentType names the body's content type on the request.
+//
+// A multipart body wins over a configured header rather than deferring to it: the
+// boundary is generated here, so a header written by hand cannot describe this
+// body, and honouring it would produce a request no server can parse. Otherwise
+// an explicit header stands and JSON is the default.
+func applyBodyContentType(req *http.Request, body requestBody) {
+	if body.contentType != "" {
+		req.Header.Set("Content-Type", body.contentType)
+		return
+	}
+	if body.present() && req.Header.Get("Content-Type") == "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
 }
 
 // responseOptions is what a block wants done with the response it gets back.
@@ -284,30 +345,53 @@ func (p *processor) buildURL(activation map[string]any) (string, error) {
 	return p.path + sep + values.Encode(), nil
 }
 
-// buildBody renders the body expression, returning a reader and whether a body
-// was produced. A string result is sent verbatim; any other value is JSON-encoded.
-func (p *processor) buildBody(activation map[string]any) (io.Reader, bool, error) {
-	return buildBodyFrom(p.body, activation, "rest")
+// buildBody renders the body expression.
+func (p *processor) buildBody(activation map[string]any) (requestBody, error) {
+	return buildBodyFrom(p.body, activation, "rest", p.bodyType)
 }
 
 // buildBodyFrom is the body rendering shared by rest and rest-dynamic. block names
 // the caller so an error says which one it came from.
-func buildBodyFrom(program *expr.Program, activation map[string]any, block string) (io.Reader, bool, error) {
+//
+// In raw mode a string result is sent verbatim and any other value is
+// JSON-encoded. In multipart mode the result is a parts map, rendered with a
+// freshly generated boundary that the returned content type names.
+func buildBodyFrom(
+	program *expr.Program, activation map[string]any, block, bodyType string,
+) (requestBody, error) {
 	if program == nil {
-		return nil, false, nil
+		return requestBody{}, nil
 	}
 	value, err := program.Eval(activation)
 	if err != nil {
-		return nil, false, fmt.Errorf("%s body: %w", block, err)
+		return requestBody{}, fmt.Errorf("%s body: %w", block, err)
+	}
+	if bodyType == bodyTypeMultipart {
+		return multipartBody(value, block)
 	}
 	if s, ok := value.(string); ok {
-		return strings.NewReader(s), true, nil
+		return requestBody{reader: strings.NewReader(s)}, nil
 	}
 	raw, err := json.Marshal(value)
 	if err != nil {
-		return nil, false, fmt.Errorf("%s encode body: %w", block, err)
+		return requestBody{}, fmt.Errorf("%s encode body: %w", block, err)
 	}
-	return bytes.NewReader(raw), true, nil
+	return requestBody{reader: bytes.NewReader(raw)}, nil
+}
+
+// multipartBody renders an evaluated parts map as a multipart request.
+func multipartBody(value any, block string) (requestBody, error) {
+	parts, ok := value.(map[string]any)
+	if !ok {
+		return requestBody{}, fmt.Errorf(
+			"%s body: bodyType multipart expects a parts map (body.parts, or multipart() with addPart), got %T",
+			block, value)
+	}
+	body, contentType, err := expr.EncodeMultipartRequest(parts)
+	if err != nil {
+		return requestBody{}, fmt.Errorf("%s body: %w", block, err)
+	}
+	return requestBody{reader: strings.NewReader(body), contentType: contentType}, nil
 }
 
 // renderValue turns one evaluated value into the string that goes on the wire,

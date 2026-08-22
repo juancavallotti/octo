@@ -6,7 +6,9 @@ package expr
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -232,6 +234,39 @@ func EncodeMultipart(parts map[string]any, boundary string) (string, error) {
 		return "", fmt.Errorf("close multipart writer: %w", err)
 	}
 	return buf.String(), nil
+}
+
+// boundaryBytes is how much randomness a generated boundary carries. It matches
+// what mime/multipart uses for its own default boundary.
+const boundaryBytes = 30
+
+// EncodeMultipartRequest renders a parts map with a freshly generated boundary and
+// returns the body together with the Content-Type naming that boundary.
+//
+// The pair is returned together on purpose: a multipart body and the header that
+// describes it are one artifact, and the failure mode of separating them is a
+// boundary named in one place and used in another. A sender that owns its own
+// header should call this rather than EncodeMultipart.
+func EncodeMultipartRequest(parts map[string]any) (body, contentType string, err error) {
+	boundary, err := randomBoundary()
+	if err != nil {
+		return "", "", err
+	}
+	body, err = EncodeMultipart(parts, boundary)
+	if err != nil {
+		return "", "", err
+	}
+	return body, multipartMediaType + "; boundary=" + boundary, nil
+}
+
+// randomBoundary returns a fresh delimiter. It is random per request so a body
+// can never collide with a boundary an attacker knew in advance.
+func randomBoundary() (string, error) {
+	buf := make([]byte, boundaryBytes)
+	if _, err := rand.Read(buf); err != nil {
+		return "", fmt.Errorf("generate multipart boundary: %w", err)
+	}
+	return hex.EncodeToString(buf), nil
 }
 
 // partList normalizes one map entry to the parts stored under it, so a repeated
