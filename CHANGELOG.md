@@ -1,5 +1,87 @@
 # Changelog
 
+## [0.8.4](https://github.com/juancavallotti/octo/compare/v0.8.3...v0.8.4) (2026-08-22)
+
+
+### Features
+
+* **agent:** Dr. Octo can be stopped, steered, and returned to ([6a03470](https://github.com/juancavallotti/octo/commit/6a03470ec3b16ee610f98451bf9efbc59a3b89d8))
+* **agent:** Dr. Octo can be stopped, steered, and returned to ([7ca7d6b](https://github.com/juancavallotti/octo/commit/7ca7d6b7e853169b6864bef5438e09cefd28fc1e))
+* **connectors:** add an llm-openrouter connector ([b58b509](https://github.com/juancavallotti/octo/commit/b58b5098accdabdf72f6fcf94a47bc837ae0cad8))
+* **core:** a lease a caller can fail to take ([4822226](https://github.com/juancavallotti/octo/commit/482222660c936f1ee5205e09f4f8340d9df84d40))
+* **core:** a lease a caller can fail to take ([f992d53](https://github.com/juancavallotti/octo/commit/f992d538c3b1c79e276de7c8453b00892ae60478))
+* **core:** carry a provider-reported call cost on llm usage ([1de97e8](https://github.com/juancavallotti/octo/commit/1de97e87f9828210d04196b241ad7664523009b8))
+* **core:** every module carries leases ([93d8f58](https://github.com/juancavallotti/octo/commit/93d8f58af1ddef454651f50b33fb731894ff2710))
+* **core:** report the tokens a provider actually read ([6c66a54](https://github.com/juancavallotti/octo/commit/6c66a5433ef4cbf66882caae77b0faf2d3906c45))
+* **engine:** budget an agent's whole context from measured usage ([c1b149d](https://github.com/juancavallotti/octo/commit/c1b149d4f5be756fe0f382db1367c691c6b7edf4))
+* **engine:** calibrate transcript sizes against the measured prompt ([4b9dfde](https://github.com/juancavallotti/octo/commit/4b9dfde2a809726739ebac82fb636ee563c3d4d9))
+* **engine:** claim an agent run across the cluster ([06a1172](https://github.com/juancavallotti/octo/commit/06a1172aa429fdf12246bab2ce6eb7e5343e89bd))
+* **engine:** claim an agent run across the cluster ([d5de50c](https://github.com/juancavallotti/octo/commit/d5de50c3d07dea17191045d02454bad0db63d9b5))
+* **engine:** let a later message join or stop a run in flight ([58e3e44](https://github.com/juancavallotti/octo/commit/58e3e443755ffcb51720a8258dcfff9db4ceddb6))
+* **engine:** let a later message join or stop an agent run in flight ([86bdec8](https://github.com/juancavallotti/octo/commit/86bdec8d1a9a2c4ab64afbae2e3e73731fb90988))
+* **engine:** measure an agent's context instead of guessing it ([4509138](https://github.com/juancavallotti/octo/commit/45091389d128c357cf6e50126c08cdb710f8cd66))
+* **engine:** report what compaction did, and how full the context is ([c60f6dc](https://github.com/juancavallotti/octo/commit/c60f6dc15b9f73e1ec9d90de4a7a7f6117144a43))
+* **http:** let a route say which methods it answers ([02dfa62](https://github.com/juancavallotti/octo/commit/02dfa625424d9bfe1b6a887abcaa74e71bd2146d))
+* **logs:** price from an ordered list of rate cards ([8e1acac](https://github.com/juancavallotti/octo/commit/8e1acace4756ea790044f4e3f23ae1460680f545))
+* **logs:** read model prices from openrouter's catalogue ([2c8de63](https://github.com/juancavallotti/octo/commit/2c8de63d7cea08c1ca758c26dcf53b2e721d8993))
+* **logs:** store the cost a provider reports for a call ([a3be7f0](https://github.com/juancavallotti/octo/commit/a3be7f0288d1a9d68c915ae0b9fc4f618855ad06))
+* **orchestrator:** accept openrouter as a site llm provider ([dec0a6b](https://github.com/juancavallotti/octo/commit/dec0a6be9dc917e596cbffde29eeea33281810b2))
+* **platform:** a drawer that shows what Dr. Octo is doing ([08a6689](https://github.com/juancavallotti/octo/commit/08a668914a8e45aa71ed95624f3688a4a2443206))
+* **platform:** a drawer you can read, and a scroll that lets you ([d273008](https://github.com/juancavallotti/octo/commit/d27300868526a71f95c81b7474b587723eeb774a))
+* **platform:** a message he reads takes its place in the conversation ([61acecb](https://github.com/juancavallotti/octo/commit/61acecb046b9e8020904df01fd34e6a63a01963b))
+* **platform:** offer openrouter in the admin llm form ([0b1701c](https://github.com/juancavallotti/octo/commit/0b1701cec306e0d5551c8b3d86eea2886c858940))
+* **platform:** read a person's past conversations with Dr. Octo ([fe869be](https://github.com/juancavallotti/octo/commit/fe869be56916d9ea6284fb5f80fdc7baf2b6dfda))
+* **platform:** read the four frames the panel was throwing away ([153939f](https://github.com/juancavallotti/octo/commit/153939fd851400300af5c619172d2f5e3aea4286))
+* **platform:** say what became of a message sent mid-answer ([af030c1](https://github.com/juancavallotti/octo/commit/af030c103a1c2d1fcd850bc122b65f0d2104efcd))
+* **platform:** show agent compaction in the trace waterfall ([325b658](https://github.com/juancavallotti/octo/commit/325b6586fd3c457cced53e4cdb711961e859fbfb))
+* **platform:** show the input/output token split on a trace ([464ee7c](https://github.com/juancavallotti/octo/commit/464ee7c3ace2b899f4eecb9253c4e81eae544fc6))
+* **platform:** show the token split, and report what calls actually cost ([caf08ac](https://github.com/juancavallotti/octo/commit/caf08acdd94890d8ced5caab3aab18910b7c0d3c))
+* **platform:** Stop says so, rather than only hanging up ([b22f0bd](https://github.com/juancavallotti/octo/commit/b22f0bd1b3671836d7f61d3f9cc454a260528b8c))
+* **platform:** type while he works, and come back to what was said ([abd41e4](https://github.com/juancavallotti/octo/commit/abd41e43013a09e5c92e98e874ab3c7f25bf801f))
+* **runtime:** ship the openrouter connector in the octo binary ([49f8f60](https://github.com/juancavallotti/octo/commit/49f8f60685c92e37685e158479d84a993d90758e))
+* **services:** a fail-fast lease on a Kubernetes Lease object ([4934f23](https://github.com/juancavallotti/octo/commit/4934f23419c1cdde5cb68181e3ab13610ae618e9))
+* **services:** an in-process lease for the standalone module ([3d02ba6](https://github.com/juancavallotti/octo/commit/3d02ba6b8f2ec07f4f7b430dc12b9fe986cb8129))
+
+
+### Bug Fixes
+
+* **agent:** a follow-up does not repeat what the run already knows ([dcdc062](https://github.com/juancavallotti/octo/commit/dcdc0625ce8c650d9dd23038d9db00d205a6732c))
+* **agent:** a name that could not be written must not cost the record ([5cd5058](https://github.com/juancavallotti/octo/commit/5cd5058ba1d42a024d4851b06dc7ad1b3af04e36))
+* **connectors:** give llm-openrouter the embeddings it actually has ([7edf767](https://github.com/juancavallotti/octo/commit/7edf7670e005761296fca632e36f6cb02109c51d))
+* **engine:** a compaction that finds nothing must still say it finished ([9070d17](https://github.com/juancavallotti/octo/commit/9070d17dcba300a19a365065d854f6f9a61ffa52))
+* **engine:** bound how long a run may hold its conversation ([19d20e0](https://github.com/juancavallotti/octo/commit/19d20e0455f28b8ea6e04be445c264014555538b))
+* **engine:** do not let an empty message evict a live run ([3591bbb](https://github.com/juancavallotti/octo/commit/3591bbbc96510c7eb744eda2265591cafe0ae26e))
+* **engine:** let the context meter take a negative residual ([038a784](https://github.com/juancavallotti/octo/commit/038a7849a9d65ad21b2c5376acced5427260778e))
+* **engine:** say so when a run never answered what it accepted ([72f8048](https://github.com/juancavallotti/octo/commit/72f80482b5aa155b2c4b7e6348679ae2a9ff3913))
+* **engine:** scope a run's claim to the block that made it ([f272953](https://github.com/juancavallotti/octo/commit/f27295382730e39925411c8a66f442e163b28799))
+* **logs:** refuse a catalogue price that is not a price ([2a963b5](https://github.com/juancavallotti/octo/commit/2a963b5aa3452349d3f84ea5d8a18f73aa6b1323))
+* **platform:** a request body that is not an object is a bad request ([1908927](https://github.com/juancavallotti/octo/commit/190892788cb019321161f1458ddbbeecdf4fbcee))
+* **platform:** pick a unit from the figure that will be shown ([0970076](https://github.com/juancavallotti/octo/commit/097007644e839771e251bc83d0fcf81648233fee))
+* **platform:** the reasoning box was scrolling the whole transcript ([131e324](https://github.com/juancavallotti/octo/commit/131e3246b5118acd3b6ffa47633a8b0d6fb3501c))
+* **platform:** the status strip lost the run when you typed at it ([9bf9324](https://github.com/juancavallotti/octo/commit/9bf9324450a6ccaa7ec6bf67a8309a9bf8b9deda))
+* **services:** a sub-second lease was expired the moment it was written ([2238938](https://github.com/juancavallotti/octo/commit/2238938d691f1bf3c660ad9ed7303a17bbfe6d62))
+
+
+### Refactoring
+
+* **engine:** claim a run on the conversation it already has ([bc1b5e3](https://github.com/juancavallotti/octo/commit/bc1b5e3f1ecc07b7d04bc0de9c22a3a857456212))
+* **engine:** store agent memory in an envelope with its size ([02d117a](https://github.com/juancavallotti/octo/commit/02d117a65f750ac05c10a05bab5f6312bf619d9b))
+* **platform:** a turn is an ordered log, not three buckets ([b8297c4](https://github.com/juancavallotti/octo/commit/b8297c463d95d0dadb8aa30ff4bd835e7843b950))
+
+
+### Documentation
+
+* a lease is not an election ([2199379](https://github.com/juancavallotti/octo/commit/21993796906ffa08a958f8fe2c09ac7877e68b5c))
+* **ai:** document steering a running agent ([fb78b4c](https://github.com/juancavallotti/octo/commit/fb78b4c4adc945b2cb5dc2a2f1b06bfa32cbe61c))
+* **ai:** the claim is cluster-wide now ([28896cf](https://github.com/juancavallotti/octo/commit/28896cf8dd888e404b301c11d6796a7822a1b4fb))
+* **connectors:** document the openrouter llm provider ([a043139](https://github.com/juancavallotti/octo/commit/a043139f08c3ce1801438a5d269da09d11e9420e))
+* **platform:** document the openrouter engine option ([32b8674](https://github.com/juancavallotti/octo/commit/32b8674e2d76cf2fd8234b496d8f725056667cdf))
+* **platform:** Dr. Octo keeps a record you can come back to ([bb4f111](https://github.com/juancavallotti/octo/commit/bb4f1116edadf59e64fc173fe9702cd77b45a172))
+* **platform:** what the drawer shows, and what a replay is ([2cac385](https://github.com/juancavallotti/octo/commit/2cac3855e3dc9bfc743add544e57aa23cb0d9221))
+* **platform:** what the reasoning panel does while he is working ([95cdad5](https://github.com/juancavallotti/octo/commit/95cdad5b2b213e648045e1ce7e21b6aac8ca1269))
+* say why the guardrail runs on the flow's context ([111289b](https://github.com/juancavallotti/octo/commit/111289b44e7689d96446185e4ac7aa4546d1595b))
+* think through distributed agent runs before building for them ([6140d61](https://github.com/juancavallotti/octo/commit/6140d61455da6b137994df64be995d5beb78bdea))
+
 ## [0.8.3](https://github.com/juancavallotti/octo/compare/v0.8.2...v0.8.3) (2026-08-16)
 
 
