@@ -457,3 +457,79 @@ func TestTwoAgentsSharingAThreadExpressionDoNotCollide(t *testing.T) {
 		}
 	}
 }
+
+// A message accepted with no turn left to answer it in must not vanish. The
+// invocation that sent it already stopped its own flow on the strength of this
+// run taking it, so silence here is a message lost between two flows that each
+// believed the other had it.
+func TestAMessageAcceptedAtTheIterationCapIsReported(t *testing.T) {
+	ctx, _ := withFakeServices(context.Background())
+	var seen []any
+	var events []map[string]any
+
+	cfg := steerableAgentConfig()
+	cfg.MaxIterations = 2
+	path := eventsPath(nil)
+	cfg.Events = &path
+	cfg.Emit = []string{eventSignal}
+	// The cap has to be reachable, so the run needs somewhere to land.
+	cfg.Default = &types.FlowConfig{
+		Process: []types.BlockConfig{{Type: "record", Settings: types.Settings{"tag": "gave-up"}}},
+	}
+
+	// Never finishes, so the run reaches its cap rather than answering.
+	fake := &scriptedLLM{repeat: toolCallResp("lookup", `{"q":"x"}`)}
+
+	var block core.MessageProcessor
+	calls := 0
+	reg := eventsRecordingRegistry(&seen, &events, func() {
+		calls++
+		// On the last iteration, so there is no turn left to inject into.
+		if calls != cfg.MaxIterations {
+			return
+		}
+		out, err := block.Process(ctx, steerMessage(t, "too late"))
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		if out == nil || !out.StopRequested() {
+			t.Error("the late message was not accepted, so nothing was owed to it")
+		}
+	})
+	block = mustBuildAI(t, reg, depsLLM(fake), cfg)
+
+	if _, err := block.Process(ctx, steerMessage(t, "research pricing")); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if !reportedSignal(events, signalUnanswered, "too late") {
+		t.Errorf("the accepted message was dropped without a word: events = %+v", events)
+	}
+}
+
+// reportedSignal reports whether a signal event of this kind carried text.
+func reportedSignal(events []map[string]any, signal, text string) bool {
+	for _, e := range events {
+		if e["type"] == eventSignal && e[fieldSignal] == signal && e[fieldText] == text {
+			return true
+		}
+	}
+	return false
+}
+
+// eventsRecordingRegistry is reentrantRegistry with the events path's recorder
+// alongside it, so one test can both interrupt a run and read what it reported.
+func eventsRecordingRegistry(
+	seen *[]any, events *[]map[string]any, hook func(),
+) *core.BlockRegistry {
+	reg := reentrantRegistry(seen, hook)
+	reg.MustRegister("record-event", func(types.Settings, core.BlockDeps) (core.MessageProcessor, error) {
+		return processorFunc(func(_ context.Context, msg *types.Message) (*types.Message, error) {
+			body, _ := msg.Body.(map[string]any)
+			*events = append(*events, body)
+			return msg, nil
+		}), nil
+	})
+	return reg
+}

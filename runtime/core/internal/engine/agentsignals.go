@@ -40,6 +40,12 @@ const (
 	fieldSignal   = "signal"
 	signalContext = "context"
 	signalStop    = "stop"
+	// signalUnanswered is a message the run took responsibility for and never got
+	// a turn to answer. It is reported rather than dropped: the invocation that
+	// sent it already stopped its own flow on the strength of the run accepting
+	// it, so silence here is a message that vanished between two flows that both
+	// believed the other had it.
+	signalUnanswered = "unanswered"
 )
 
 // liveRuns is the process's ai-agent runs currently in flight, by claim key.
@@ -326,6 +332,25 @@ func (a *aiAgent) injectPending(
 		a.report(ctx, msg, iter, eventSignal, map[string]any{fieldSignal: signalContext, fieldText: text})
 	}
 	return messages
+}
+
+// reportUnanswered closes the run's acceptance and says what it never got to.
+//
+// It runs where a run gives up rather than finishes — the iteration cap — where
+// there is no turn left to inject into and the guardrail is about to answer for
+// everything. Closing first is what makes the drain complete: a message accepted
+// between the last turn and this line would otherwise be taken and then thrown
+// away by the deferred close.
+func (a *aiAgent) reportUnanswered(
+	ctx context.Context, msg *types.Message, run *agentRun, iter int,
+) {
+	run.close()
+	for _, text := range run.take() {
+		slog.Warn("ai-agent never answered a message handed to it mid-run",
+			"block", a.name, "reason", "exceeded max iterations")
+		a.report(ctx, msg, iter, eventSignal,
+			map[string]any{fieldSignal: signalUnanswered, fieldText: text})
+	}
 }
 
 // configureAgentSignals compiles the condition that ends a run, and records the

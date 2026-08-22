@@ -927,8 +927,24 @@ func (a *aiAgent) Process(ctx context.Context, msg *types.Message) (*types.Messa
 		}
 	}
 
+	return a.outOfTurns(ctx, runCtx, saveCtx, threadID, current, messages, meter, run)
+}
+
+// outOfTurns ends a run that spent its whole iteration budget without reaching an
+// answer, and hands the message to the guardrail.
+//
+// Anything handed to the run and never answered is reported on the way past. It
+// was accepted, and the invocation that sent it has already stopped its own flow
+// on the strength of that, so dropping it silently would lose a message between
+// two flows that each believed the other had it.
+func (a *aiAgent) outOfTurns(
+	ctx, runCtx, saveCtx context.Context, threadID string,
+	current *types.Message, messages []core.LLMMessage, meter *contextMeter, run *agentRun,
+) (*types.Message, error) {
+	last := a.maxIterations - 1
+	a.reportUnanswered(runCtx, current, run, last)
 	a.persistMemory(saveCtx, current, threadID, messages, meter, a.memoryCompaction)
-	return a.fallback(ctx, current, a.maxIterations-1, "exceeded max iterations")
+	return a.fallback(ctx, current, last, "exceeded max iterations")
 }
 
 // tryFinish ends the run with its answer, or returns nil to say it may not end
