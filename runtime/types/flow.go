@@ -167,6 +167,12 @@ type BlockConfig struct {
 	// CEL expression resolved to the thread id whose transcript is loaded before
 	// the run and saved after. Empty disables memory.
 	MemoryThreadID string `yaml:"memoryThreadId,omitempty"`
+	// StopWhen is a boolean CEL condition that ends the run already working on this
+	// message's conversation instead of starting one — a header, a body field,
+	// whatever the caller uses to say "stop". It is meaningless without
+	// MemoryThreadID, since that is what names the conversation. Empty offers no
+	// way to stop a run.
+	StopWhen string `yaml:"stopWhen,omitempty"`
 	// ContextMaxTokens is an "ai-agent"'s token budget for its whole prompt —
 	// system instructions, tool schemas and conversation together — measured from
 	// what the provider reports it read. The transcript is compacted when the

@@ -95,6 +95,16 @@ func (m *contextMeter) observe(est, measured int) {
 	m.last = measured
 }
 
+// observeResponse records what a finished turn read, ignoring a provider that
+// accounted for nothing. It is the meter's own business whether a response
+// carries usage, so the loop does not have to ask.
+func (m *contextMeter) observeResponse(est int, resp *core.LLMResponse) {
+	if resp == nil || resp.Usage == nil {
+		return
+	}
+	m.observe(est, resp.Usage.PromptTokens)
+}
+
 // predict is the whole prompt a request carrying messages of this estimate would
 // be: the conversation at the fitted rate, plus the run's constant overhead.
 //

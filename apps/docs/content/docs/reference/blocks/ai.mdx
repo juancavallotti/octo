@@ -29,7 +29,8 @@ Lets an LLM accomplish a task by calling flow branches as tools, one or more tim
 | `input` | `expression` (string) | No | — | The agent's opening user turn. Empty hands the model the whole input body as a JSON document to work from. |
 | `answer` | enum `json` \| `text` | No | `json` | The shape the model is told to reply in. `json` suits an agent whose answer is the next block's body; `text` leaves the format to your `prompt`. |
 | `maxIterations` | int | No | `8` | Cap on tool-calling turns (one model call each) before falling back to the guardrail. |
-| `memoryThreadId` | `expression` (string) | No | — | Conversation thread id. When set, the agent loads the thread's prior transcript before the run and saves it after. Empty disables memory. |
+| `memoryThreadId` | `expression` (string) | No | — | Conversation thread id. When set, the agent loads the thread's prior transcript before the run and saves it after. Empty disables memory. It is also what a run is claimed on while it is in flight, so a later message on the same thread [joins it](/ai/agent-signals) rather than starting a rival — two runs on one thread would overwrite each other's memory. Claims are scoped to this block, so two agents whose expressions agree do not collide. |
+| `stopWhen` | `expression` (bool) | No | — | Ends the run already working on this message's conversation instead of starting one. Requires `memoryThreadId`, which is what names the conversation. A stop that finds nothing running is a no-op, so a client can send one blind. |
 | `contextMaxTokens` | int | No | `16000` | Token budget for the whole prompt — system, tools and conversation — measured from what the provider reports it read. The transcript is compacted when the prompt would exceed it, before the turn and again before saving. Applies with or without memory. |
 | `memoryCompaction` | enum `prune` \| `summarize` | No | `prune` | How memory over budget shrinks: `prune` drops the oldest turns; `summarize` folds them into a running summary (an extra model call). |
 | `tools` | list | Yes | — | Tool branches (below). At least one required. |
@@ -78,6 +79,7 @@ reach the caller with no configuration at all.
 | `turn_end` | A model turn finished | `text`, `stopReason`, `usage`, `contextTokens`, `contextMaxTokens` |
 | `compaction_start` | The agent is about to shrink its own conversation | `strategy`, `before`, `contextTokens`, `contextMaxTokens` |
 | `compaction_end` | It finished | the same, plus `after` and `dropped` |
+| `signal` | Something was posted to the run from outside it | `signal` (`context` or `stop`), `text` |
 | `guardrail` | The agent fell back to `default` | `reason` |
 | `done` | The agent finished with an answer | `text` |
 | `error` | A model call failed | `error` |

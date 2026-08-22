@@ -27,6 +27,10 @@ const (
 	eventToolResult = "tool_result"
 	// eventTurnEnd is a finished model turn, with its stop reason and usage.
 	eventTurnEnd = "turn_end"
+	// eventSignal is something posted to the run from outside it: context folded
+	// into the conversation, or a stop. It is the only event describing an
+	// instruction the agent did not derive from its own work.
+	eventSignal = "signal"
 	// eventCompactionStart and eventCompactionEnd bracket the agent shrinking its
 	// own conversation to stay inside its token budget. They are the one pair
 	// describing something the agent did to itself rather than to the model or a
@@ -59,7 +63,7 @@ const (
 var agentEventKinds = map[string]bool{
 	eventTurnStart: true, eventText: true, eventThinking: true, eventToolInput: true,
 	eventCustom: true, eventToolCall: true, eventToolResult: true, eventTurnEnd: true,
-	eventCompactionStart: true, eventCompactionEnd: true,
+	eventCompactionStart: true, eventCompactionEnd: true, eventSignal: true,
 	eventGuardrail: true, eventDone: true, eventError: true,
 }
 

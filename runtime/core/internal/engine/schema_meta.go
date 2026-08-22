@@ -329,6 +329,11 @@ type aiAgentMeta struct {
 	// thread's prior transcript before its run and saves it after; empty disables
 	// memory.
 	MemoryThreadID string `json:"memoryThreadId" octo:"label=Memory thread ID,type=cel"`
+	// Boolean CEL condition that ends the run already working on this message's
+	// conversation instead of starting one — a header, a body field, whatever the
+	// caller uses to say stop. Requires a memory thread ID, since that is what
+	// names the conversation.
+	StopWhen string `json:"stopWhen" octo:"label=Stop when,type=cel"`
 	// Token budget for the whole prompt — system instructions, tool schemas and
 	// conversation together — measured from what the provider reports it read. The
 	// transcript is compacted when the prompt would exceed it. Applies with or

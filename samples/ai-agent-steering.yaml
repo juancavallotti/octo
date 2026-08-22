@@ -1,0 +1,133 @@
+service:
+  name: ai-agent-steering
+
+# Steering an agent that is already running, instead of starting a second one.
+#
+# An ai-agent run is otherwise a closed loop: a request goes in, an answer comes out,
+# and nothing in between can change its mind or end it early. That is right for a
+# transformation and wrong for a conversation, where a person changes what they wanted
+# — or stops wanting it — while the agent is still working.
+#
+# A run claims its conversation — the memoryThreadId it already has — for as long as
+# it is in flight. No extra identifier: the thread is what must not have two runs at
+# once, since two would also overwrite each other's memory. The SAME BLOCK then handles
+# all three cases, with no branching in the flow:
+#
+#   a first message      nothing is running, so this invocation runs the agent
+#   a follow-up          a run is going, so the message is handed to it and this
+#                        flow stops — no second run, no second stream, no second
+#                        answer to a person who is already reading the first
+#   a stop               stopWhen holds, so the run in flight is ended and this
+#                        flow stops with an empty body
+#
+# The stop is whatever the caller can send. Here it is an HTTP header, declared on the
+# source as a variable and read by a CEL expression — nothing about it is special.
+#
+# READ THIS BEFORE COPYING THE THREAD ID. Here it is built from body.userId, which this
+# route takes on trust because the sample has no authentication — so anyone who can
+# guess a pair can read, steer or stop someone else's conversation. Build it from an
+# identity the caller cannot choose: put a jwt-validate block in front of the route and
+# use vars.sub, the verified subject of the token. Whatever the thread id is derived
+# from is exactly who can reach the conversation.
+#
+# Declares HTTP_PORT, so run_integration returns a test URL. Use curl -N so it does not
+# buffer, and two terminals:
+#   curl -N -X POST <testUrl>chat -d '{"userId":"u1","threadId":"t1","message":"research pricing slowly"}'
+#   curl    -X POST <testUrl>chat -d '{"userId":"u1","threadId":"t1","message":"actually, just EU"}'
+# The second returns {} without opening a stream, and the follow-up shows up in the
+# FIRST terminal's frames. To end the run:
+#   curl -X POST <testUrl>chat -H 'X-Agent-Stop: 1' -d '{"userId":"u1","threadId":"t1"}'
+
+env:
+  - name: ANTHROPIC_API_KEY
+    required: true
+  - name: HTTP_HOST
+    default: 0.0.0.0
+  - name: HTTP_PORT
+    default: "8080"
+
+connectors:
+  - name: claude
+    type: llm-anthropic
+    settings:
+      apiKey: ${ANTHROPIC_API_KEY}
+      maxTokens: 2048
+
+  - name: api
+    type: http
+    settings:
+      host: ${HTTP_HOST}
+      port: ${HTTP_PORT}
+
+flows:
+  - name: chat
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /chat
+        methods: [POST]
+        timeout: 60s
+        # The stop is an ordinary request header, lifted onto the message as a
+        # variable. Nothing in the runtime knows this header exists; the agent's
+        # stopWhen expression below is the only thing that gives it meaning.
+        headers: [X-Agent-Stop]
+        sse:
+          enabled: true
+          finalEvent: true
+          finalEventName: answer
+          heartbeat: 15s
+          maxDuration: 5m
+    process:
+      - type: ai-agent
+        name: assistant
+        connector: claude
+        # The conversation. It is both where the transcript is stored and what a run
+        # is claimed on, because they are the same fact: two runs on one thread would
+        # overwrite each other's memory.
+        memoryThreadId: body.userId + ":" + body.threadId
+        # How a caller ends the run in flight. A stop that finds nothing running is a
+        # no-op, so a client can send one blind.
+        stopWhen: '"X-Agent-Stop" in vars && vars["X-Agent-Stop"] != ""'
+        stream: true
+        # "signal" is in the emit list so the caller SEES a follow-up arrive, in the
+        # same stream as the answer.
+        emit: [text, tool_call, tool_result, signal, done]
+        events:
+          process:
+            # A caller hanging up is ordinary, and ifClosed: stop turns it into a stop
+            # that ends the agent — which now cancels the model call in flight rather
+            # than waiting for it.
+            - type: sse-event
+              settings:
+                event: agent
+                ifClosed: stop
+        prompt: >
+          Answer the user's question about their orders. Look an order up before
+          answering. Reply in plain text a person will read.
+        answer: text
+        # The opening turn, and — for a message handed to a run already going — the
+        # text that gets injected. One expression, both jobs.
+        input: body.message
+        guardrail: >
+          If you cannot answer from the order data, take the default path.
+        tools:
+          - name: lookup_order
+            description: Look up an order by its id.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["orderId"],
+                "properties": { "orderId": { "type": "string" } }
+              }
+            process:
+              # A real tool would call an API; this echoes a fixed order so the sample
+              # runs with no external dependencies.
+              - type: set-payload
+                settings:
+                  value: '{"status": "shipped", "carrier": "UPS", "eta": "2026-09-01"}'
+        default:
+          process:
+            - type: set-payload
+              settings:
+                value: '{"answer": "could not answer from the order data"}'

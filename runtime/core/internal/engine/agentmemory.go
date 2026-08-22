@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/core/expr"
@@ -36,6 +37,11 @@ const (
 // tools. Holding the old number against the wider meaning would have quietly
 // halved every existing conversation's memory.
 const defaultContextMaxTokens = 16000
+
+// memorySaveTimeout bounds saving a transcript. It is generous because the save
+// path may summarize, which is a real model call; it exists to stop a wedged
+// store holding a flow worker forever, not to keep the save quick.
+const memorySaveTimeout = 2 * time.Minute
 
 // memoryKeyPrefix namespaces agent-memory objects in the user KV namespace so
 // they never collide with object-read/write keys.

@@ -140,6 +140,26 @@ func mustBuildAI(t *testing.T, reg *core.BlockRegistry, deps core.BlockDeps, cfg
 	return block.Processor
 }
 
+// mustBuildAIAt is mustBuildAI for a block at a given address, which is what
+// distinguishes one agent's claims from another's in the run registry.
+//
+//nolint:ireturn // builders intentionally return the MessageProcessor interface
+func mustBuildAIAt(
+	t *testing.T, reg *core.BlockRegistry, deps core.BlockDeps, cfg types.BlockConfig, path string,
+) core.MessageProcessor {
+	t.Helper()
+	// The address is minted by the builder from its own position, not taken from
+	// deps — so a test that wants two blocks at two addresses positions the
+	// builders rather than filling in deps.Address, which processor() overwrites.
+	block, err := (&builder{
+		reg: reg, pool: pool.New(0, 0), deps: deps, flowName: "orders", path: path,
+	}).block(cfg)
+	if err != nil {
+		t.Fatalf("build %s: %v", cfg.Type, err)
+	}
+	return block.Processor
+}
+
 func aiMessage(t *testing.T) *types.Message {
 	t.Helper()
 	msg, err := types.NewMessage("")

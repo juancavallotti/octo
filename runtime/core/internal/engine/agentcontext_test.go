@@ -206,6 +206,9 @@ func TestCompactionIsBracketedAndCarriesTheGauge(t *testing.T) {
 	var seen []any
 	var events []map[string]any
 
+	// No synchronization around events: the emitter runs its sub-flow inline on
+	// the flow's own goroutine (see emitter.send), and this agent does not stream,
+	// so every event is produced and collected before Process returns.
 	reg := agentRegistry(&seen)
 	reg.MustRegister("collect", func(types.Settings, core.BlockDeps) (core.MessageProcessor, error) {
 		return processorFunc(func(_ context.Context, m *types.Message) (*types.Message, error) {

@@ -1,0 +1,51 @@
+flow: chat
+
+# HONEST LIMITS. The claim this sample exists for — that a follow-up is handed to the
+# run already in flight and does not start a second one — needs two things at once that
+# no single-invocation case can have: a run actually going, and a second request
+# arriving while it is. A dolphin case is one invocation.
+#
+# So the handover is verified by hand, in two terminals:
+#   curl -N -X POST <testUrl>chat -d '{"userId":"u1","threadId":"t1","message":"research pricing slowly"}'
+#   curl    -X POST <testUrl>chat -d '{"userId":"u1","threadId":"t1","message":"actually, just EU"}'
+# The second returns {} without opening a stream; the follow-up shows up as a frame in
+# the first terminal. It is covered by the runtime's own tests, which can be re-entrant
+# where a flow invocation cannot.
+#
+# What IS pinned here is the half that decides whether the pattern is safe to put in a
+# flow at all: with NOTHING in flight, a request is not swallowed. It runs the agent.
+# A block that reported a handover it never made would silently eat the first message
+# of every conversation.
+
+cases:
+  # Nothing is running, so this request runs the agent — which is what falling all the
+  # way through to the model proves. The model is deliberately UNREACHABLE: the
+  # Anthropic SDK honours ANTHROPIC_BASE_URL, and 127.0.0.1:9 (discard) refuses the
+  # connection offline, in milliseconds. No network, no cost, same outcome every run.
+  - name: a first message runs the agent rather than being handed to nothing
+    input:
+      data: { userId: u1, threadId: t1, message: research pricing }
+    env:
+      ANTHROPIC_BASE_URL: http://127.0.0.1:9
+    expect:
+      error: 'llm-anthropic stream: Post "http://127.0.0.1:9/v1/messages"'
+
+  # A stop is sent blind — a client cannot know whether the run it is ending is still
+  # going — so stopping nothing is a no-op that answers, not an error. The agent is
+  # never called: no model, no cost, and the empty body says the answer (if there was
+  # a run) is going to whoever is reading it.
+  - name: a stop that finds nothing running answers instead of failing
+    input:
+      data: { userId: u1, threadId: t1 }
+      vars: { X-Agent-Stop: "1" }
+    expect:
+      body: {}
+
+  # memoryThreadId is CEL over the message, not a constant — which is what lets one
+  # flow serve every conversation. A request it cannot be built from fails rather than
+  # joining some default conversation every other caller shares.
+  - name: the conversation is read from the request, so one without an identity fails
+    input:
+      data: { userId: u1, message: research pricing } # no threadId
+    expect:
+      error: 'ai-agent memory threadId'
