@@ -38,15 +38,22 @@ This single target:
    `/var/lib/octo-data` in the node — the fixed path the chart's static
    PersistentVolume binds, so the database lives at `./data/pgdata` and outlives
    the cluster. See [Database persistence](#database-persistence).
-3. Builds the five images locally (`task cluster:images`): `octo-platform`,
-   `octo-orchestrator`, `octo-logs`, `octo-schema`, and `octo-runtime`, all
-   tagged `:dev`, and loads them straight into the cluster's containerd with
+3. Cross-compiles every Go binary the images need for the node's architecture
+   into `dist/bin/linux_<arch>/` (`task bins:linux`), on the host, where the Go
+   build cache persists between runs.
+4. Builds the eight images locally (`task cluster:images`): `octo-platform`,
+   `octo-orchestrator`, `octo-logs`, `octo-schema`, `octo-runtime`,
+   `octo-devsidecar`, `octo-devruntime` and `octo-agenticrunner`, all tagged
+   `:dev`, copying in the binaries from the step above rather than compiling
+   them again per image — see
+   [Where the Go binaries come from](/deploy/docker-images#where-the-go-binaries-come-from).
+   They are then loaded straight into the cluster's containerd with
    `k3d image import` — no registry needed.
-4. Installs the Helm chart via `devspace deploy`, using
+5. Installs the Helm chart via `devspace deploy`, using
    `helm/values-k3d.yaml` for the local shape: no registry, `:dev` images,
    NodePorts instead of an Ingress, and SSO off. The schema Job runs as a
    Helm hook on every install and upgrade.
-5. Restarts the platform and orchestrator Deployments so they pick up freshly
+6. Restarts the platform and orchestrator Deployments so they pick up freshly
    imported images (the `:dev` tag never changes between runs).
 
 The target is idempotent — re-run it after code changes to rebuild the images

@@ -37,7 +37,8 @@ binary: the public image is the default build, the cluster image is built with
 ## Where they are built
 
 The same six platform images are built in three places, always from the same
-Dockerfiles and contexts:
+Dockerfiles and contexts (they differ only in where the Go binaries come from —
+see [Where the Go binaries come from](#where-the-go-binaries-come-from)):
 
 - **Locally for k3d** — `task cluster:images` builds them tagged `:dev` and
   loads them into the cluster with `k3d image import` (no registry). See
@@ -54,6 +55,46 @@ The public images — both the `-paas` platform set and the two cluster-less one
 (`.github/workflows/release.yml`) on every version tag, as multi-arch builds
 (`linux/amd64` and `linux/arm64`) tagged with the release version and `latest`,
 and pushed to public Docker Hub.
+
+### Where the Go binaries come from
+
+Every Dockerfile that carries a Go binary can get it two ways, chosen by the
+`BIN_SOURCE` build argument:
+
+- **`compile`** (the default) — the Dockerfile builds the binary itself, in a
+  `golang:1.25-alpine` stage. Nothing extra has to be passed, and the file works
+  on its own. This is what Cloud Build and the release workflow use, so a
+  published image is always built from source inside the image.
+- **`prebuilt`** — the binary is copied in from `dist/bin/linux_<arch>/`, filled
+  by `task bins:linux`. Used by every local target: `task cluster:images`,
+  `cluster:images:kind`, `cluster:images:dev`, `images:push`, `images:ttl` and
+  `images:ar`.
+
+`runtime/Dockerfile` is the one file where the choice also names a variant, since
+it builds both providers: `prebuilt-k8s` and `prebuilt-standalone` instead of a
+plain `prebuilt` (its `compile` arm still reads `GOTAGS`). One value rather than
+two arguments, so there is no way to ask for the k8s image and get the standalone
+binary.
+
+The reason is build time. Left to the Dockerfiles, one `task cluster:deploy` runs
+the Go compiler ten times across eight images — seven of them on the root module,
+for three distinct binaries — each in its own container starting from an empty
+build cache. `task bins:linux` compiles all six binaries once on the host, where
+the cache persists between runs; every binary is pure Go with `CGO_ENABLED=0`, so
+cross-compiling needs nothing but the Go toolchain.
+
+<Callout type="info">
+  The binaries reach the build through a **named build context**
+  (`--build-context prebuilt=dist/bin`), not a path inside the ordinary one.
+  Three of the images build with their own module directory as the context and
+  could not otherwise reach a repo-root `dist/` — and a named context is exempt
+  from the root `.dockerignore`, which excludes `dist/`.
+
+  `TARGETARCH` keys the directory, so the same `COPY` serves a native build and a
+  `--platform` one. That matters for `images:ttl` and `images:ar`, which build
+  `linux/amd64`: a compile inside those images would run the Go toolchain under
+  QEMU emulation.
+</Callout>
 
 ### Images are pinned by digest on the GCP path
 

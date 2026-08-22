@@ -19,25 +19,43 @@
 # Build context is the repo ROOT (the Go module is rooted there), e.g.:
 #   docker build -t octo-agenticrunner:dev -f runtime/Dockerfile.agentic .
 
-# --- Stage 1: build all three binaries from one source tree --------------------
+# BIN_SOURCE picks where the three binaries come from:
+#   compile   (default) build them here from source. What Cloud Build and
+#             release CI use, and what makes this file work on its own.
+#   prebuilt  copy them from the `prebuilt` named build context, which
+#             task bins:linux fills:
+#               task bins:linux
+#               docker build --build-arg BIN_SOURCE=prebuilt \
+#                 --build-context prebuilt=dist/bin \
+#                 -t octo-agenticrunner:dev -f runtime/Dockerfile.agentic .
+ARG BIN_SOURCE=compile
+
+# --- Binary source: build all three binaries from one source tree --------------
 #
 # One stage, one COPY, one commit. The k8s octo that runs the flow, the standalone
 # octo that flow invokes, and the dolphin driving it are three views of the same
 # module at the same revision — which is the guarantee apps/standalone/Dockerfile
 # already states for its octo/dolphin pair, and it matters more here: a skewed
 # pair would have the agent testing a flow against a runtime that is not the one
-# the platform would run it on.
-FROM golang:1.25-alpine AS build
+# the platform would run it on. The prebuilt arm below keeps that guarantee for
+# the same reason: task bins:linux builds all three from one tree in one pass.
+FROM golang:1.25-alpine AS bin-compile
 RUN apk add --no-cache git
 WORKDIR /src
 # The module manifest lives at the repo root; every Go package lives under runtime/.
 COPY go.mod go.sum ./
 COPY runtime/ ./runtime/
 
+# Three binaries off one cache: the mounts below are shared across all three RUNs,
+# so the second and third pay for their own packages and nothing else.
+#
 # The cluster runtime: Lease-based leader election, the orchestrator KV store,
 # NATS queues and log shipping. This is the pod's own entrypoint.
 # -s -w strip the symbol table and DWARF debug info for a leaner binary.
-RUN CGO_ENABLED=0 go build \
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    CGO_ENABLED=0 go build \
+    -trimpath \
     -tags k8s \
     -ldflags "-s -w -X main.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     -o /out/octo-k8s ./runtime/octo
@@ -47,16 +65,33 @@ RUN CGO_ENABLED=0 go build \
 # providers_k8s.go and providers_standalone.go are mutually exclusive build tags,
 # and the k8s build EXITS without RUNTIME_SERVICES_MODULE set, so it cannot double
 # as a CLI. This is the one the agent invokes and the one dolphin drives.
-RUN CGO_ENABLED=0 go build \
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    CGO_ENABLED=0 go build \
+    -trimpath \
     -ldflags "-s -w -X main.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     -o /out/octo-standalone ./runtime/octo
 
 # dolphin, the test runner. Standalone too — it drives the binary beside it.
-RUN CGO_ENABLED=0 go build \
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    CGO_ENABLED=0 go build \
+    -trimpath \
     -ldflags "-s -w -X main.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     -o /out/dolphin ./runtime/dolphin
 
-# --- Stage 2: a userland an agent can actually use -----------------------------
+# --- Binary source: copy the host-built binaries -------------------------------
+# TARGETARCH keys the directory so one form serves a native build and a
+# --platform/multi-arch one alike.
+FROM scratch AS bin-prebuilt
+ARG TARGETARCH
+COPY --from=prebuilt linux_${TARGETARCH}/octo-k8s /out/octo-k8s
+COPY --from=prebuilt linux_${TARGETARCH}/octo     /out/octo-standalone
+COPY --from=prebuilt linux_${TARGETARCH}/dolphin  /out/dolphin
+
+FROM bin-${BIN_SOURCE} AS bin
+
+# --- Final stage: a userland an agent can actually use -------------------------
 FROM alpine:3.22
 
 # ca-certificates so curl and the runtime can verify TLS, tzdata so the cron
@@ -80,9 +115,9 @@ RUN addgroup -g 65532 -S nonroot \
 # That is deliberate: with /opt/octo/bin off PATH, a bare `octo` is unambiguously
 # the k8s build, and every allow-list entry and program expression in a flow is an
 # absolute path — so PATH ordering can never decide which binary runs.
-COPY --from=build /out/octo-k8s /usr/local/bin/octo
-COPY --from=build /out/octo-standalone /opt/octo/bin/octo
-COPY --from=build /out/dolphin /opt/octo/bin/dolphin
+COPY --from=bin /out/octo-k8s /usr/local/bin/octo
+COPY --from=bin /out/octo-standalone /opt/octo/bin/octo
+COPY --from=bin /out/dolphin /opt/octo/bin/dolphin
 
 # What makes dolphin drive the standalone octo rather than this pod's entrypoint.
 # $OCTO_PATH is an override and not a hint — dolphin fails rather than falling

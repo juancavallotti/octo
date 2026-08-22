@@ -8,23 +8,54 @@
 # must be the repo ROOT so this Dockerfile can reach runtime/ (to build both CLIs)
 # and the pnpm workspace (apps/standalone + packages/*).
 
-# --- Stage 1: build the octo and dolphin binaries from the Go module ----------
-FROM golang:1.25-alpine AS runtime-build
+# BIN_SOURCE picks where the two Go binaries come from:
+#   compile   (default) build them here from source. What Cloud Build and
+#             release CI use, and what makes this file work on its own.
+#   prebuilt  copy them from the `prebuilt` named build context, which
+#             task bins:linux fills:
+#               task bins:linux
+#               docker build --build-arg BIN_SOURCE=prebuilt \
+#                 --build-context prebuilt=dist/bin \
+#                 -t juancavallotti/octo -f apps/standalone/Dockerfile .
+ARG BIN_SOURCE=compile
+
+# --- Stage 1: the octo and dolphin binaries -----------------------------------
+FROM golang:1.25-alpine AS bin-compile
 RUN apk add --no-cache git
 WORKDIR /src
 # The Go module is rooted at the repo root; all its packages live under runtime/.
 COPY go.mod go.sum ./
 COPY runtime/ ./runtime/
-# -s -w strip the symbol table and DWARF debug info for a leaner binary.
-RUN CGO_ENABLED=0 go build \
+# The cache mounts are what keep this arm bearable when it is taken: without them
+# every build recompiles the standard library and the whole dependency tree from
+# an empty GOCACHE. They are shared by both RUNs below, so dolphin pays only for
+# the packages octo did not already build.
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    CGO_ENABLED=0 go build \
+    -trimpath \
     -ldflags "-s -w -X main.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     -o /out/octo ./runtime/octo
 # dolphin, the test runner the Testing tab drives. Built in this stage so it comes
 # from the same module at the same commit as the octo above it — the two are one
 # release train, and a mismatched pair is the one skew this image cannot have.
-RUN CGO_ENABLED=0 go build \
+# The prebuilt arm below keeps that guarantee the same way: task bins:linux builds
+# the pair from one tree in one pass.
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    CGO_ENABLED=0 go build \
+    -trimpath \
     -ldflags "-s -w -X main.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     -o /out/dolphin ./runtime/dolphin
+
+# Or copy the host-built pair. TARGETARCH keys the directory so one form serves a
+# native build and a --platform/multi-arch one alike.
+FROM scratch AS bin-prebuilt
+ARG TARGETARCH
+COPY --from=prebuilt linux_${TARGETARCH}/octo    /out/octo
+COPY --from=prebuilt linux_${TARGETARCH}/dolphin /out/dolphin
+
+FROM bin-${BIN_SOURCE} AS bin
 
 # --- Stage 2: build the Next.js standalone app (standalone output) ------------
 FROM node:22-alpine AS app-build
@@ -64,8 +95,8 @@ COPY --from=app-build /app/apps/standalone/.next/standalone ./
 COPY --from=app-build /app/apps/standalone/.next/static ./apps/standalone/.next/static
 COPY --from=app-build /app/apps/standalone/public ./apps/standalone/public
 # The octo runtime the RUN feature spawns, and the dolphin the Testing tab does.
-COPY --from=runtime-build /out/octo /usr/local/bin/octo
-COPY --from=runtime-build /out/dolphin /usr/local/bin/dolphin
+COPY --from=bin /out/octo /usr/local/bin/octo
+COPY --from=bin /out/dolphin /usr/local/bin/dolphin
 
 # OCTO_RUN_DIR holds rendered run configs; /work is the (mountable) flow store.
 RUN mkdir -p /app/.octo-run /work
