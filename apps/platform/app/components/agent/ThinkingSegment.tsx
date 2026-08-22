@@ -12,11 +12,16 @@ import { Brain, ChevronDown, ChevronRight } from "lucide-react";
  * question and the answer, and a model that is working is indistinguishable from
  * one that has hung.
  *
- * Open while it streams, closed once the answer starts. That ordering is the whole
- * design: the reasoning is worth watching when it is the only thing happening, and
- * is clutter the moment there is an answer to read instead.
+ * Open while it streams, closed once something follows it. That ordering is the
+ * whole design: the reasoning is worth watching when it is the only thing
+ * happening, and is clutter the moment there is a tool call or an answer to read
+ * instead.
+ *
+ * One of these per stretch of reasoning rather than one per turn: an agent that
+ * thinks, calls a tool and thinks again did two separate pieces of thinking, and
+ * the second is about what the first turned up.
  */
-export default function ThinkingPanel({
+export default function ThinkingSegment({
   text,
   streaming,
   answered,
@@ -24,7 +29,7 @@ export default function ThinkingPanel({
   text: string;
   /** The run is still going. */
   streaming: boolean;
-  /** The answer has begun, so the reasoning is no longer the main event. */
+  /** Something came after this, so the reasoning is no longer the main event. */
   answered: boolean;
 }) {
   // Derived rather than synchronised: until someone touches it the panel simply
@@ -33,12 +38,19 @@ export default function ThinkingPanel({
   // arriving never collapses a panel somebody is reading.
   const [choice, setChoice] = useState<boolean | null>(null);
   const open = choice ?? !answered;
-  const tail = useRef<HTMLDivElement>(null);
+  const body = useRef<HTMLDivElement>(null);
 
-  // Follow the reasoning as it arrives, so the newest line is the visible one.
-  // Optional-called: this is a nicety, and not every environment implements it.
+  // Follow the reasoning as it arrives, so the newest line is the visible one —
+  // by scrolling this box and nothing else.
+  //
+  // It used to call scrollIntoView on a tail element, which scrolls the nearest
+  // scrollable *ancestor*: the transcript. So every token of reasoning dragged the
+  // whole conversation down, including when the reader had deliberately scrolled
+  // away from the bottom — quietly undoing the one thing the transcript's own
+  // scrolling is careful about.
   useEffect(() => {
-    if (open) tail.current?.scrollIntoView?.({ block: "nearest" });
+    const el = body.current;
+    if (open && el) el.scrollTop = el.scrollHeight;
   }, [text, open]);
 
   if (!text) return null;
@@ -67,11 +79,10 @@ export default function ThinkingPanel({
       </button>
 
       {open && (
-        <div className="max-h-40 overflow-y-auto px-2 pb-2">
+        <div ref={body} className="max-h-40 overflow-y-auto px-2 pb-2">
           <p className="text-[11px] leading-relaxed whitespace-pre-wrap text-zinc-500 dark:text-zinc-400">
             {text}
           </p>
-          <div ref={tail} />
         </div>
       )}
     </div>

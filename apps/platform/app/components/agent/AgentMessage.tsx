@@ -3,9 +3,12 @@
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { AlertTriangle } from "lucide-react";
-import type { Turn } from "./useAgentChat";
-import ThinkingPanel from "./ThinkingPanel";
-import ToolChip from "./ToolChip";
+import type { Segment, Turn } from "./turns";
+import ThinkingSegment from "./ThinkingSegment";
+import ToolsSegment from "./ToolsSegment";
+import CompactionNotice from "./CompactionNotice";
+import SignalNotice from "./SignalNotice";
+import UserMessage from "./UserMessage";
 
 /**
  * One turn in the transcript.
@@ -68,49 +71,25 @@ const COMPONENTS = {
 };
 
 export default function AgentMessage({ turn }: { turn: Turn }) {
-  if (turn.role === "user") {
-    return (
-      <div className="flex justify-end">
-        <div className="max-w-[85%] rounded-lg rounded-br-sm bg-sky-600 px-3 py-1.5 text-sm text-white">
-          {turn.text}
-        </div>
-      </div>
-    );
-  }
-
-  // The reasoning is the only thing on screen until the answer begins, so what
-  // counts as "answered" is the first token of it — not the end of the run.
-  const answered = turn.text.length > 0;
+  if (turn.role === "user") return <UserMessage turn={turn} />;
 
   return (
     <div className="flex flex-col gap-1.5">
-      {turn.thinking && (
-        <ThinkingPanel
-          text={turn.thinking}
+      {/* Rendered in the order they happened, which is the whole reason a turn is
+          a list. Index keys are safe here because segments are only ever appended
+          — nothing is inserted, removed or reordered. */}
+      {turn.segments.map((segment, i) => (
+        <SegmentView
+          key={i}
+          segment={segment}
           streaming={turn.streaming}
-          answered={answered || turn.tools.length > 0}
+          last={i === turn.segments.length - 1}
         />
-      )}
+      ))}
 
-      {turn.tools.length > 0 && (
-        <div className="flex flex-col gap-1">
-          {turn.tools.map((run) => (
-            <ToolChip key={run.id} run={run} />
-          ))}
-        </div>
-      )}
-
-      {turn.text && (
-        <div className="text-sm text-zinc-800 dark:text-zinc-100">
-          <Markdown remarkPlugins={[remarkGfm]} components={COMPONENTS}>
-            {turn.text}
-          </Markdown>
-        </div>
-      )}
-
-      {/* A caret while the answer is still arriving and no token has landed yet,
-          so the panel is never silent between sending and the first word. */}
-      {turn.streaming && !turn.text && !turn.thinking && turn.tools.length === 0 && (
+      {/* Nothing has arrived yet, so the panel is never silent between sending and
+          the first sign of work. */}
+      {turn.streaming && turn.segments.length === 0 && (
         <span className="inline-block h-3 w-1.5 animate-pulse rounded-sm bg-zinc-400" />
       )}
 
@@ -122,4 +101,43 @@ export default function AgentMessage({ turn }: { turn: Turn }) {
       )}
     </div>
   );
+}
+
+/** One segment, rendered as whatever it is. */
+function SegmentView({
+  segment,
+  streaming,
+  last,
+}: {
+  segment: Segment;
+  /** The run is still going. */
+  streaming: boolean;
+  /** Nothing has come after this one yet. */
+  last: boolean;
+}) {
+  switch (segment.kind) {
+    case "thinking":
+      // "Answered" is now positional rather than a property of the turn: reasoning
+      // is the main event only while nothing has followed it, which is exactly
+      // what being the last segment means.
+      return <ThinkingSegment text={segment.text} streaming={streaming} answered={!last} />;
+
+    case "tools":
+      return <ToolsSegment runs={segment.runs} />;
+
+    case "compaction":
+      return <CompactionNotice done={segment.done} dropped={segment.dropped} />;
+
+    case "signal":
+      return <SignalNotice signal={segment.signal} text={segment.text} />;
+
+    case "text":
+      return (
+        <div className="text-sm text-zinc-800 dark:text-zinc-100">
+          <Markdown remarkPlugins={[remarkGfm]} components={COMPONENTS}>
+            {segment.text}
+          </Markdown>
+        </div>
+      );
+  }
 }

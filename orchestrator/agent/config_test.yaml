@@ -74,6 +74,14 @@ inputs:
       routes:
         - { path: /platform/integrations, description: Every integration. }
         - { path: "/platform/i/{id}", description: One integration in the editor. }
+  # A message steered into a run already in flight. The panel sends the question
+  # alone: the run it joins already holds the page and the catalogue, and the
+  # runtime injects this body's rendered input into that conversation verbatim.
+  a follow-up:
+    data:
+      threadId: t-1
+      message: and the logs?
+      user: { id: u-1, name: Ada, email: ada@example.com }
   # The same thread id, asked by somebody else. The chat route injects the user
   # block server-side, so this is what a stolen thread id looks like by the time it
   # reaches the flow.
@@ -162,6 +170,26 @@ cases:
                 - '!has(body.user.email)'
                 - '!has(body.threadId)'
                 - 'body.user.name == "Ada"'
+
+  # What the agent's `input` expression branches on. A follow-up carrying the
+  # catalogue would be injected into the conversation as another 1.5KB of context
+  # it already has, and reported back on the `signal` event as a string the panel
+  # could never match to the message somebody typed.
+  - name: a follow-up reaches the agent with no route catalogue to repeat
+    input: a follow-up
+    mocks:
+      chat.dr-octo:
+        default:
+          body: { answer: ok }
+    spies:
+      chat.dr-octo:
+        count: 1
+        records:
+          - input:
+              that:
+                - 'body.message == "and the logs?"'
+                - 'size(body.routes) == 0'
+                - 'body.page == ""'
 
   # A thread id is supplied by the caller, so it cannot be the whole memory key: one
   # user passing another's would be handed their transcript. The key is the

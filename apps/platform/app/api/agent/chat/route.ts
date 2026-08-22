@@ -16,6 +16,11 @@ import { resolveAgentUrl, forgetAgentUrl, orchestratorUrl } from "@/app/actions/
  *
  * The differences from that proxy: it is a POST with a JSON body, the response is
  * `text/event-stream`, and the target is resolved rather than configured.
+ *
+ * It carries one instruction besides the message. `{stop: true}` becomes the
+ * header the agent's `stopWhen` reads, which ends the run on whichever replica is
+ * holding the conversation — not only the one this connection reached. Hanging up
+ * ends a run too, but only the run whose stream this connection holds.
  */
 export async function POST(req: Request) {
   // Authorization first, before anything that would describe this installation to
@@ -44,7 +49,15 @@ export async function POST(req: Request) {
 
   let body: Record<string, unknown>;
   try {
-    body = (await req.json()) as Record<string, unknown>;
+    const parsed: unknown = await req.json();
+    // An object, and specifically not the JSON literal `null` — which parses
+    // fine and is not an object, so reading a field off it throws and the caller
+    // gets a 500 for what is plainly a bad request. Arrays and scalars parse too
+    // and carry none of the fields below.
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      return Response.json({ error: "invalid request body" }, { status: 400 });
+    }
+    body = parsed as Record<string, unknown>;
   } catch {
     return Response.json({ error: "invalid request body" }, { status: 400 });
   }
@@ -60,11 +73,24 @@ export async function POST(req: Request) {
   // would let anyone read anyone's conversation by asking for it.
   const payload = { ...body, user };
 
+  // A stop travels as a header because that is what the agent's `stopWhen` reads,
+  // and it is set here rather than accepted from the browser for the same reason
+  // the identity is: what the client says is a request, and what reaches the agent
+  // is this route's decision.
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "text/event-stream",
+  };
+  // Strictly true. The panel sends a boolean, and reading anything truthy would
+  // let "false" or 0.0 end a run — a stop is the one instruction here that
+  // destroys work, so it takes the value it was specified with and no other.
+  if (body.stop === true) headers["X-Agent-Stop"] = "1";
+
   let upstream: Response;
   try {
     upstream = await fetch(`${agent.url}/chat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+      headers,
       body: JSON.stringify(payload),
       signal: req.signal,
       cache: "no-store",

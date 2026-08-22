@@ -6,12 +6,12 @@ import { Bot } from "lucide-react";
 
 /**
  * Loaded on demand, because this launcher sits in the layout every signed-in page
- * shares and the panel brings a Markdown renderer with it. Installing the agent is
+ * shares and the drawer brings a Markdown renderer with it. Installing the agent is
  * a deliberate act, so on most installations that is weight on every page for
  * something nobody can open — and even where he is installed, it is weight before
  * anybody asks him anything.
  */
-const AgentChatPanel = dynamic(() => import("./AgentChatPanel"), { ssr: false });
+const AgentDrawer = dynamic(() => import("./AgentDrawer"), { ssr: false });
 
 /**
  * The button that opens the chat, mounted in the signed-in shell so it is on every
@@ -21,7 +21,7 @@ const AgentChatPanel = dynamic(() => import("./AgentChatPanel"), { ssr: false })
  * which is most installations, since installing him is a deliberate act. A launcher
  * that opened onto an error would be worse than no launcher.
  *
- * The panel mounts on first open and then stays mounted, hidden when collapsed —
+ * The drawer mounts on first open and then stays mounted, hidden when collapsed —
  * so minimising it keeps the conversation and lets an answer in flight finish
  * arriving. Before that first open nothing of it exists, which is what keeps an
  * installation that never uses the agent from paying for it.
@@ -61,7 +61,7 @@ export default function AgentChatLauncher({ userKey }: { userKey: string }) {
           agent is never used pays for none of it. */}
       {opened && (
         <div className={open ? undefined : "hidden"}>
-          <AgentChatPanel userKey={userKey} onCollapse={() => setOpen(false)} />
+          <AgentDrawer userKey={userKey} onCollapse={() => setOpen(false)} />
         </div>
       )}
 

@@ -1,91 +1,34 @@
 /**
- * The frames the agent writes to the chat stream, and a parser for the wire format
- * they arrive in.
+ * Reading the wire: the SSE framing, and a parser per frame that trusts none of it.
  *
- * The shapes mirror the runtime's agent event vocabulary
- * (`runtime/core/internal/engine/agentevents.go`) — the agent's `events` path sends
- * each one straight to the caller's stream, so what the browser reads is the event
- * body with its `type` intact. Two frames do not come from there: `navigate`, which
- * the agent's own tool emits, and the route's closing `answer`.
+ * The shapes themselves live in `frames.ts` and are re-exported here, so nothing
+ * that imported this module has to know it was split.
  */
 
-/** One parsed server-sent event: its `event:` name and its `data:` payload. */
-export interface SSEFrame {
-  event: string;
-  data: string;
-}
+export type {
+  SSEFrame,
+  AgentEvent,
+  NavigateEvent,
+  TextEvent,
+  ThinkingEvent,
+  ToolCallEvent,
+  ToolResultEvent,
+  TurnEndEvent,
+  CompactionStartEvent,
+  CompactionEndEvent,
+  SignalEvent,
+  DoneEvent,
+  ErrorEvent,
+  GuardrailEvent,
+} from "./frames";
 
-/** A token of the answer as it is generated. */
-export interface TextEvent {
-  type: "text";
-  text: string;
-  index?: number;
-}
-
-/**
- * A token of the model's reasoning, before it commits to an answer.
- *
- * Usually most of what a run produces — on a reasoning model the thinking can be
- * an order of magnitude longer than the reply — so this is what fills the time
- * between the question and the first word of the answer.
- */
-export interface ThinkingEvent {
-  type: "thinking";
-  text: string;
-  index?: number;
-}
-
-/** The model asking for a tool, with its arguments complete. */
-export interface ToolCallEvent {
-  type: "tool_call";
-  tool: string;
-  toolCallId: string;
-  input?: unknown;
-}
-
-/** What the flow branch that ran a tool returned. */
-export interface ToolResultEvent {
-  type: "tool_result";
-  tool: string;
-  toolCallId: string;
-  output?: unknown;
-  isError?: boolean;
-}
-
-/** The agent finishing with an answer. */
-export interface DoneEvent {
-  type: "done";
-  text?: string;
-}
-
-/** A model call that failed. */
-export interface ErrorEvent {
-  type: "error";
-  error: string;
-}
-
-/** The agent declining the question and taking its guardrail. */
-export interface GuardrailEvent {
-  type: "guardrail";
-  reason?: string;
-}
-
-export type AgentEvent =
-  | TextEvent
-  | ThinkingEvent
-  | ToolCallEvent
-  | ToolResultEvent
-  | DoneEvent
-  | ErrorEvent
-  | GuardrailEvent;
-
-/** Where the agent wants to take the user, and why. */
-export interface NavigateEvent {
-  path: string;
-  reason?: string;
-}
+import type { AgentEvent, NavigateEvent, SSEFrame } from "./frames";
 
 const str = (v: unknown): v is string => typeof v === "string";
+
+/** A finite number, or undefined. NaN and Infinity would render as themselves. */
+const num = (v: unknown): number | undefined =>
+  typeof v === "number" && Number.isFinite(v) ? v : undefined;
 
 /**
  * Parse an agent frame, checking the fields the panel actually uses.
@@ -106,6 +49,7 @@ export function parseAgentEvent(data: string): AgentEvent | null {
   }
   if (!parsed || typeof parsed !== "object") return null;
   const frame = parsed as Record<string, unknown>;
+  const iteration = num(frame.iteration);
 
   switch (frame.type) {
     case "text":
@@ -113,14 +57,16 @@ export function parseAgentEvent(data: string): AgentEvent | null {
       if (!str(frame.text)) return null;
       return {
         type: frame.type,
+        iteration,
         text: frame.text,
-        index: typeof frame.index === "number" ? frame.index : undefined,
+        index: num(frame.index),
       };
 
     case "tool_call":
       if (!str(frame.tool) || !str(frame.toolCallId)) return null;
       return {
         type: "tool_call",
+        iteration,
         tool: frame.tool,
         toolCallId: frame.toolCallId,
         input: frame.input,
@@ -130,23 +76,57 @@ export function parseAgentEvent(data: string): AgentEvent | null {
       if (!str(frame.tool) || !str(frame.toolCallId)) return null;
       return {
         type: "tool_result",
+        iteration,
         tool: frame.tool,
         toolCallId: frame.toolCallId,
         output: frame.output,
         isError: Boolean(frame.isError),
       };
 
+    // Both numbers or neither: half a gauge is worse than none, because the
+    // budget is per block and nothing else on the wire says whether 12,000 is
+    // comfortable or one turn from being compacted.
+    case "turn_end": {
+      const used = num(frame.contextTokens);
+      const max = num(frame.contextMaxTokens);
+      if (used === undefined || max === undefined || max <= 0) return null;
+      return { type: "turn_end", iteration, contextTokens: used, contextMaxTokens: max };
+    }
+
+    case "compaction_start":
+      return {
+        type: "compaction_start",
+        iteration,
+        strategy: str(frame.strategy) ? frame.strategy : undefined,
+      };
+
+    case "compaction_end":
+      return { type: "compaction_end", iteration, dropped: num(frame.dropped) };
+
+    case "signal":
+      if (!str(frame.signal)) return null;
+      return {
+        type: "signal",
+        iteration,
+        signal: frame.signal,
+        text: str(frame.text) ? frame.text : undefined,
+      };
+
     // The only one whose text is optional: it repeats what streamed, and the
     // reducer takes it only when nothing did.
     case "done":
-      return { type: "done", text: str(frame.text) ? frame.text : undefined };
+      return { type: "done", iteration, text: str(frame.text) ? frame.text : undefined };
 
     case "error":
       if (!str(frame.error)) return null;
-      return { type: "error", error: frame.error };
+      return { type: "error", iteration, error: frame.error };
 
     case "guardrail":
-      return { type: "guardrail", reason: str(frame.reason) ? frame.reason : undefined };
+      return {
+        type: "guardrail",
+        iteration,
+        reason: str(frame.reason) ? frame.reason : undefined,
+      };
 
     default:
       // A kind this build has never heard of is a configuration somebody chose,

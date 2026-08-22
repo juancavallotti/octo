@@ -195,4 +195,61 @@ describe("parseNavigateEvent", () => {
     expect(parseNavigateEvent('{"path":42}')).toBeNull();
     expect(parseNavigateEvent("not json")).toBeNull();
   });
+
+  // Four kinds the panel used to drop on the floor. Three of them were already on
+  // the wire and describe things a reader can see happening — the context filling
+  // up, the conversation being shortened, a message arriving mid-answer — and the
+  // fourth is the one case where something somebody sent goes unanswered.
+  it("reads the context gauge off a finished turn", () => {
+    expect(
+      parseAgentEvent(
+        JSON.stringify({ type: "turn_end", iteration: 2, contextTokens: 1200, contextMaxTokens: 16000 }),
+      ),
+    ).toEqual({ type: "turn_end", iteration: 2, contextTokens: 1200, contextMaxTokens: 16000 });
+  });
+
+  // Half a gauge is worse than none: the budget is per block, and nothing else on
+  // the wire says whether 12,000 is comfortable or one turn from being compacted.
+  it("drops a gauge with no budget behind it", () => {
+    expect(parseAgentEvent(JSON.stringify({ type: "turn_end", contextTokens: 1200 }))).toBeNull();
+    expect(
+      parseAgentEvent(JSON.stringify({ type: "turn_end", contextTokens: 1200, contextMaxTokens: 0 })),
+    ).toBeNull();
+  });
+
+  it("reads the compaction pair", () => {
+    expect(
+      parseAgentEvent(JSON.stringify({ type: "compaction_start", iteration: 3, strategy: "summarize" })),
+    ).toEqual({ type: "compaction_start", iteration: 3, strategy: "summarize" });
+    expect(parseAgentEvent(JSON.stringify({ type: "compaction_end", dropped: 12 }))).toEqual({
+      type: "compaction_end",
+      iteration: undefined,
+      dropped: 12,
+    });
+  });
+
+  it("reads a signal, and refuses one that does not say what it is", () => {
+    expect(
+      parseAgentEvent(JSON.stringify({ type: "signal", signal: "context", text: "focus on pricing" })),
+    ).toEqual({ type: "signal", iteration: undefined, signal: "context", text: "focus on pricing" });
+    expect(parseAgentEvent(JSON.stringify({ type: "signal", text: "orphaned" }))).toBeNull();
+  });
+
+  // The turn counter is what separates two rounds of tool calls with nothing
+  // between them, so losing it silently would flatten a run's shape.
+  it("carries the iteration through", () => {
+    const event = parseAgentEvent(JSON.stringify({ type: "text", iteration: 4, text: "hi" }));
+    expect(event).toMatchObject({ iteration: 4 });
+  });
+
+  // NaN and Infinity survive neither JSON nor arithmetic, but a hand-built frame
+  // can carry a string where a number belongs — and "12" tokens rendered into a
+  // gauge is a gauge that lies.
+  it("ignores a count that is not a number", () => {
+    expect(
+      parseAgentEvent(
+        JSON.stringify({ type: "turn_end", contextTokens: "1200", contextMaxTokens: 16000 }),
+      ),
+    ).toBeNull();
+  });
 });
