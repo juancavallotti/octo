@@ -97,6 +97,13 @@ conversation, while steering is scoped to whoever is allowed to interrupt it
 A JWT subject arrives as an ordinary message variable, so
 `vars.sub + ":" + body.threadId` says "this person, in this conversation".
 
+The id is scoped to **this block**. Two agents whose expressions happen to
+agree — `body.threadId` is the easy way for that to happen — do not hand each
+other messages, so one flow's follow-up can never be answered by another
+flow's agent. It also means a run can only be joined or stopped through the
+block that started it: give a stop route the same agent block (as the sample
+does, with a header) rather than a second one.
+
 <Callout type="warn">
 **Whatever the id is derived from is exactly who can reach the run.** Build it
 from an identity the caller cannot choose — `vars.sub`, the verified subject of

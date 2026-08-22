@@ -230,6 +230,16 @@ func (a *aiAgent) injectPending(
 // configureAgentSignals compiles the expressions naming the run's id and the
 // condition that ends one. A block with neither is left unreachable.
 func (b *builder) configureAgentSignals(block *aiAgent, cfg types.BlockConfig) error {
+	// The registry is one map for the whole process, so the block's own address
+	// goes in the key beside the id the flow computes.
+	//
+	// Without it, two agents whose expressions happen to agree — `body.threadId`
+	// is the obvious one — would hand each other messages: a request meant for the
+	// support agent taken by the sales agent, and the caller's flow stopped on the
+	// strength of it. The id says which conversation; the address says which agent
+	// is having it, and only the second is something the runtime can know for
+	// itself.
+	block.runScope = b.deps.Address.Path
 	if strings.TrimSpace(cfg.SignalID) == "" {
 		if strings.TrimSpace(cfg.StopWhen) != "" {
 			return errors.New("ai-agent stopWhen requires a signalId naming the run to stop")
@@ -274,16 +284,18 @@ func (a *aiAgent) joinOrClaim(
 		return "", &agentRun{cancel: cancel}, nil, nil
 	}
 	activation := expr.MessageActivation(msg, a.env)
-	if id, err = a.signalID.EvalString(activation); err != nil {
+	resolved, err := a.signalID.EvalString(activation)
+	if err != nil {
 		return "", nil, nil, fmt.Errorf("ai-agent signalId: %w", err)
 	}
 	// An empty id would put every run whose expression came up empty on the same
 	// entry, where they would take each other's messages. Nothing to join is the
 	// safer reading of an expression that resolved to nothing.
-	if id == "" {
+	if resolved == "" {
 		slog.Warn("ai-agent signalId resolved to nothing; the run is unreachable", "block", a.name)
 		return "", &agentRun{cancel: cancel}, nil, nil
 	}
+	id = a.runScope + "\x00" + resolved
 
 	if a.stopWhen != nil {
 		stop, evalErr := evalCondition(a.stopWhen, msg, a.env)

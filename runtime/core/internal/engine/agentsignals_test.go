@@ -351,3 +351,66 @@ func containsUserText(msgs []core.LLMMessage, text string) bool {
 	}
 	return false
 }
+
+// Two agents whose signalId expressions agree — body.threadId is the obvious way
+// for that to happen by accident — must not hand each other messages. A request
+// meant for one agent being answered by another, with the caller's flow stopped
+// on the strength of it, is the kind of wrong that looks like a delivery.
+func TestTwoAgentsSharingAnIDExpressionDoNotCollide(t *testing.T) {
+	ctx, _ := withFakeServices(context.Background())
+	var seen []any
+	var otherOut *types.Message
+
+	cfg := steerableAgentConfig()
+	cfg.SignalID = "body.threadId"
+
+	// A second agent, identically keyed, standing in for another flow's.
+	otherFake := &scriptedLLM{repeat: endTurnResp("other answer")}
+	other := mustBuildAIAt(t, agentRegistry(&seen), depsLLM(otherFake), cfg, "orders.other")
+
+	fake := &scriptedLLM{responses: []*core.LLMResponse{
+		toolCallResp("lookup", `{"q":"x"}`),
+		endTurnResp("done"),
+	}}
+	reg := reentrantRegistry(&seen, func() {
+		msg, err := types.NewMessage("")
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		if err := msg.SetBodyJSON([]byte(`{"threadId":"t1","message":"for the other agent"}`)); err != nil {
+			t.Error(err)
+			return
+		}
+		otherOut, err = other.Process(ctx, msg)
+		if err != nil {
+			t.Error(err)
+		}
+	})
+	mine := mustBuildAIAt(t, reg, depsLLM(fake), cfg, "orders.mine")
+
+	msg, err := types.NewMessage("")
+	if err != nil {
+		t.Fatalf("new message: %v", err)
+	}
+	if err := msg.SetBodyJSON([]byte(`{"threadId":"t1","message":"for me"}`)); err != nil {
+		t.Fatalf("set body: %v", err)
+	}
+	if _, err := mine.Process(ctx, msg); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	// The other agent ran its own conversation rather than being swallowed.
+	if otherOut == nil || otherOut.StopRequested() {
+		t.Error("the second agent's request was handed to the first agent's run")
+	}
+	if len(otherFake.calls) == 0 {
+		t.Error("the second agent never called its model, so its request was taken")
+	}
+	// And nothing of the other agent's leaked into this one's conversation.
+	for _, call := range fake.calls {
+		if containsUserText(call.Messages, "for the other agent") {
+			t.Errorf("another agent's message reached this conversation: %+v", call.Messages)
+		}
+	}
+}

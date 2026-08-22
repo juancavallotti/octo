@@ -519,6 +519,9 @@ type aiAgent struct {
 	// resolving the same id hands its message over instead of starting a second
 	// run. Nil leaves the run unreachable. See agentsignals.go.
 	signalID *expr.Program
+	// runScope namespaces this block's claims in the process-wide registry, so two
+	// agents whose signalId expressions agree do not hand each other messages.
+	runScope string
 	// stopWhen is the condition that ends the run this invocation would otherwise
 	// have joined — a header, a field, whatever the flow puts it in. Nil when the
 	// block offers no way to stop a run.
