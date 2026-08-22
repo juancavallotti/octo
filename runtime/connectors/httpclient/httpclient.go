@@ -71,6 +71,7 @@ const (
 	authBearer = "bearer"
 	authBasic  = "basic"
 	authOAuth2 = "oauth2" // OAuth 2.0 client-credentials grant
+	authGCP    = "gcp"    // Google Cloud workload identity, via the metadata server
 )
 
 // connectorSettings is the client-wide configuration decoded from the
@@ -129,7 +130,7 @@ type poolSettings struct {
 // shown in the editor only for their scheme (showIf).
 type authSettings struct {
 	// Authentication scheme.
-	Type string `json:"type" octo:"label=Type,type=enum,enum=bearer|basic|oauth2"`
+	Type string `json:"type" octo:"label=Type,type=enum,enum=bearer|basic|oauth2|gcp"`
 	// Token sent as 'Authorization: Bearer'.
 	Token string `json:"token" octo:"label=Bearer token,showIf=type=bearer"`
 	// Basic auth username.
@@ -145,6 +146,18 @@ type authSettings struct {
 	ClientSecret string `json:"clientSecret" octo:"label=Client secret,showIf=type=oauth2"`
 	// Requested OAuth2 scopes.
 	Scopes []string `json:"scopes" octo:"label=Scopes,showIf=type=oauth2"`
+
+	// Which token the GCP metadata server mints. identity is an OIDC token for
+	// calling another Cloud Run service or an IAP-protected endpoint; access is an
+	// OAuth token for calling Google APIs directly.
+	GCPToken string `json:"gcpToken" octo:"label=Token,type=enum,enum=identity|access,default=identity,showIf=type=gcp"`
+	// Audience for a GCP identity token. Defaults to the connector's base URL,
+	// which is what a Cloud Run service checks it against.
+	GCPAudience string `json:"gcpAudience" octo:"label=GCP audience,showIf=type=gcp"`
+	// Scopes for a GCP access token. Defaults to the service account's own scopes.
+	// On GCE the instance's configured scopes still bound what a token can carry,
+	// so naming a scope the instance does not have narrows nothing.
+	GCPScopes []string `json:"gcpScopes" octo:"label=GCP scopes,showIf=type=gcp"`
 }
 
 // cacheSettings configures the optional GET response cache.
@@ -167,9 +180,11 @@ type Connector struct {
 	// maxAttempts and maxBackoff bound 429 retry behavior (see Do).
 	maxAttempts int
 	maxBackoff  time.Duration
-	// tokenSource is non-nil only for oauth2 auth; it mints and refreshes the
-	// bearer token applied to each request.
-	tokenSource *tokenSource
+	// tokens is non-nil for the schemes that mint a bearer token rather than
+	// carrying a static one — oauth2 and gcp. Which one is behind the interface
+	// does not matter here: both answer the same question, and authorize names the
+	// configured scheme in its errors rather than assuming.
+	tokens tokenMinter
 }
 
 // Start parses the settings, validates the base URL and auth, and builds the
@@ -209,20 +224,13 @@ func (c *Connector) Start(ctx context.Context, config types.ConnectorConfig) err
 
 	c.maxAttempts, c.maxBackoff = resolveRetry(set.Retry)
 
-	if set.Cache.Enabled {
-		ttl := time.Duration(set.Cache.TTL)
-		if ttl <= 0 {
-			ttl = defaultCacheTTL
-		}
-		maxEntries := set.Cache.MaxEntries
-		if maxEntries <= 0 {
-			maxEntries = defaultCacheMaxEntries
-		}
-		c.cache = newResponseCache(ttl, maxEntries)
-	}
+	c.cache = configureCache(set.Cache)
 
-	if set.Auth.Type == authOAuth2 {
+	switch set.Auth.Type {
+	case authOAuth2:
 		c.configureOAuth2(ctx, config.Name, set.Auth, timeout)
+	case authGCP:
+		c.configureGCP(set.Auth, base, timeout)
 	}
 
 	slog.Info("http client connector started",
@@ -232,6 +240,24 @@ func (c *Connector) Start(ctx context.Context, config types.ConnectorConfig) err
 		"cache", c.cache != nil,
 	)
 	return nil
+}
+
+// configureCache builds the response cache, or nil when it is disabled. It is
+// split out of Start only because Start sits at its complexity budget and this is
+// the piece carrying none of Start's own decisions.
+func configureCache(set cacheSettings) *responseCache {
+	if !set.Enabled {
+		return nil
+	}
+	ttl := time.Duration(set.TTL)
+	if ttl <= 0 {
+		ttl = defaultCacheTTL
+	}
+	maxEntries := set.MaxEntries
+	if maxEntries <= 0 {
+		maxEntries = defaultCacheMaxEntries
+	}
+	return newResponseCache(ttl, maxEntries)
 }
 
 // newPooledClient builds the outbound client with an explicit transport. The
@@ -355,7 +381,7 @@ func joinPath(base, ref string) string {
 // where the store is durable.
 func (c *Connector) configureOAuth2(ctx context.Context, name string, auth authSettings, timeout time.Duration) {
 	secrets := core.RuntimeServicesFromContext(ctx).Secrets()
-	c.tokenSource = newTokenSource(name, oauth2Config{
+	c.tokens = newTokenSource(name, oauth2Config{
 		tokenURL:     auth.TokenURL,
 		clientID:     auth.ClientID,
 		clientSecret: auth.ClientSecret,
@@ -363,18 +389,24 @@ func (c *Connector) configureOAuth2(ctx context.Context, name string, auth authS
 	}, httppool.NewClient(timeout), secrets)
 }
 
+// tokenMinter mints a bearer token for outbound requests. oauth2 and gcp each
+// implement it; the static schemes need nothing of the sort.
+type tokenMinter interface {
+	Token(ctx context.Context) (string, error)
+}
+
 // authorize applies authentication to the request unless it already carries an
-// Authorization header. For oauth2 it mints/refreshes a bearer token (which may
-// call the token endpoint and the secret store, hence the error); the static
-// schemes never fail.
+// Authorization header. A minting scheme fetches or refreshes a bearer token
+// (which may call a token endpoint, the metadata server, or the secret store,
+// hence the error); the static schemes never fail.
 func (c *Connector) authorize(req *http.Request) error {
 	if req.Header.Get("Authorization") != "" {
 		return nil
 	}
-	if c.tokenSource != nil {
-		token, err := c.tokenSource.Token(req.Context())
+	if c.tokens != nil {
+		token, err := c.tokens.Token(req.Context())
 		if err != nil {
-			return fmt.Errorf("http-client oauth2: %w", err)
+			return fmt.Errorf("http-client %s auth: %w", c.auth.Type, err)
 		}
 		req.Header.Set("Authorization", "Bearer "+token)
 		return nil
@@ -414,8 +446,14 @@ func validateAuth(a authSettings) error {
 		if a.ClientID == "" || a.ClientSecret == "" {
 			return fmt.Errorf("auth type %q requires a clientID and clientSecret", a.Type)
 		}
+	case authGCP:
+		// Nothing is required: the audience defaults to the base URL and the
+		// scopes to the service account's own. Only a misspelled token kind is an
+		// error, and it is one worth catching at startup rather than on the first
+		// request that reaches the metadata server.
+		return validateGCPToken(a)
 	default:
-		return fmt.Errorf("auth type %q is not one of bearer/basic/oauth2", a.Type)
+		return fmt.Errorf("auth type %q is not one of bearer/basic/oauth2/gcp", a.Type)
 	}
 	return nil
 }
