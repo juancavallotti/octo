@@ -46,13 +46,19 @@ Dr. Octo has full read **and write** access to the orchestrator API, deploying i
 
 ## Talk to him
 
-Once he is running, look for the round button in the bottom-right corner of any signed-in page. It appears only when he is deployed **and you hold the write roles** — he can write, so the panel requires what any other write requires. If you do not see it, check both.
+Once he is running, look for the round button in the bottom-right corner of any signed-in page. It appears only when he is deployed **and you hold the write roles** — he can write, so the drawer requires what any other write requires. If you do not see it, check both.
 
-Type a question and the answer streams back a word at a time. Expect three things in the panel that a plain chat box does not have:
+It opens as a full-height drawer down the right-hand side, over the page rather than pushing it — so when he takes you somewhere you can watch the page behind it change.
+
+Type a question and the answer streams back a word at a time. Expect five things in the drawer that a plain chat box does not have:
 
 - **Markdown.** He answers in it, so a flow definition arrives in a code block you can copy, and a comparison arrives as a table.
-- **Tool chips.** Each API call he makes appears as a chip while it runs. Watch them to see what he actually did rather than what he says he did.
-- **Navigation.** When the answer to your question is a page, he takes you there and says why. He can only reach pages inside the platform — the panel refuses any other destination, whatever his definition has been changed to say.
+- **His working, in order.** What he thought, what he called, what he thought about the answer, and then his reply — laid out in the sequence it happened. A run that looks something up and then changes its mind is legible as exactly that.
+- **A running commentary.** Above the message box, a line saying what he is doing right now: thinking, running a named tool, reading what came back, shortening the conversation. It stays put while you scroll.
+- **A context gauge.** Once a conversation is more than half way through his budget, the header shows how full it is. It is the warning that he is about to start forgetting the beginning.
+- **Navigation.** When the answer to your question is a page, he takes you there and says why. He can only reach pages inside the platform — the drawer refuses any other destination, whatever his definition has been changed to say.
+
+Scrolling up stops the view following the answer, so you can re-read something while he is still writing; a **Latest** button appears while it is off, and returning to the bottom turns it back on.
 
 Press **Stop** to end a run in progress, or close the panel. Closing aborts the request, which ends the run — the runtime sees the connection go and stops rather than leaving a model generating for nobody. **Stop** does something slightly different and stronger: it sends a stop for the *conversation*, so it ends the run wherever it is running, including on a replica this browser never spoke to.
 
@@ -68,7 +74,9 @@ Conversations are scoped to you. The panel sends a thread id, but he keys his me
 
 ### Coming back to one
 
-Every exchange is recorded as it happened, under a name he writes for the conversation on its first message. The panel lists them; opening one replays it and continues the thread.
+Every exchange is recorded as it happened, under a name he writes for the conversation on its first message. The history button in the drawer's header lists them; opening one replays it and continues the thread, so the next thing you say lands in the same conversation.
+
+What comes back is what was **said** — your messages and his answers. The reasoning and the tool calls belonged to the run and went with it.
 
 That record is deliberately **not** his memory. Memory is compacted — a long conversation has its early turns replaced by a summary of them, which is what keeps the model's context affordable — so it is the working set rather than the conversation you had. Only one of the two can be read back to you, and it is this one.
 
