@@ -2,7 +2,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { currentWriteUserId } from "@/app/actions/_auth";
-import { fetchAgentStatus } from "../resolve";
+import { fetchAgentStatus } from "@/app/actions/client/agentUrl";
 
 /**
  * GET /api/agent/status — whether the chat launcher should render at all.

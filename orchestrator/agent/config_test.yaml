@@ -82,6 +82,15 @@ inputs:
       threadId: t-1
       message: what were we discussing
       user: { id: u-2, name: Bob, email: bob@example.com }
+  # A stop, as the panel sends one: the same request shape as a message, with the
+  # header the route lists. It reaches the flow as a variable, which is why an
+  # invoke can seed it directly.
+  a stop:
+    vars: { X-Agent-Stop: "1" }
+    data:
+      threadId: t-1
+      message: ""
+      user: { id: u-1, name: Ada }
 
 cases:
   # Not mocked, so the agent is built and run for real — with the model UNREACHABLE.
@@ -205,3 +214,70 @@ cases:
           - input:
               that:
                 - 'size(body.routes) == 0'
+
+  # A stop ends the run this conversation already has and returns nothing of its
+  # own — the answer, or the lack of one, is going to whoever is reading the
+  # stream that run opened. No model is called: the whole point is to stop paying
+  # for one.
+  #
+  # Nothing is running here, so this is the idempotent case, which is the one a
+  # client cannot avoid: it cannot know whether a run is still going, so a stop
+  # for a run that has already finished must be a no-op rather than an error.
+  - name: a stop returns an empty body without calling the model
+    input: a stop
+    env:
+      ANTHROPIC_BASE_URL: http://127.0.0.1:9
+    expect:
+      body: {}
+    spies:
+      # And nothing is recorded. A stop carries no question and produces no
+      # answer, so a record of one would be a row in somebody's list of past
+      # conversations with nothing in it. The stop request's flow ends at the
+      # agent block — RequestStop short-circuits the chain — which is what makes
+      # this hold; the assertion is here because it holds by consequence rather
+      # than by construction.
+      chat.record-exchange: { count: 0 }
+
+  # The conversation record is written from a wire-tap, so what goes on the queue
+  # is both halves of the exchange — the question the agent never sees again once
+  # it answers, and the answer itself. Getting either wrong shows up as a list of
+  # conversations that cannot be replayed.
+  - name: the exchange is tapped whole, question and answer together
+    input: a question
+    mocks:
+      chat.dr-octo:
+        default:
+          body: You have three integrations.
+    expect:
+      # The tap must not disturb what the flow returns: the body here is the
+      # closing SSE frame, and a fork branch's clone is what keeps it that way.
+      body: You have three integrations.
+    spies:
+      chat.record-exchange[process].tap[record].send-record:
+        count: 1
+        records:
+          - input:
+              that:
+                - 'body.userKey == "u-1"'
+                - 'body.threadId == "t-1"'
+                - 'body.question == "list my integrations"'
+                - 'body.answer == "You have three integrations."'
+
+  # `answer: text` asks for prose and does not guarantee it: the agent decodes a
+  # final answer that happens to parse as JSON whatever the format says, so an
+  # answer of "42" or one the model fenced arrives as a number or a map. This is
+  # the case that caught it — the record was built with string(), which does not
+  # take a map, so the exchange went unrecorded and the only trace was a warning.
+  - name: an answer that parsed as JSON is still recorded
+    input: a question
+    mocks:
+      chat.dr-octo:
+        default:
+          body: { answer: You have three integrations. }
+    spies:
+      chat.record-exchange[process].tap[record].send-record:
+        count: 1
+        records:
+          - input:
+              that:
+                - 'body.answer == "{\"answer\":\"You have three integrations.\"}"'

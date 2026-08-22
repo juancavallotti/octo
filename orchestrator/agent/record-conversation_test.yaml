@@ -1,0 +1,92 @@
+flow: record-conversation
+
+# The conversation record — what a person can come back to, which is NOT the
+# agent's memory. Memory is compacted (summarize replaces the early turns with a
+# summary of them), so only this is the conversation that was actually had.
+#
+# HONEST LIMITS. An invoke is one process with an empty KV store, so every case
+# here is the FIRST exchange of a conversation. The second-and-later path — the
+# one where the title is kept rather than written, and the turns are appended to
+# what was there — cannot be reached without state that survives between runs.
+# What that path does is visible in the expressions and is exercised by hand:
+#
+#   bin/octo run --config orchestrator/agent
+#   curl -N -X POST localhost:8080/chat -d '{"threadId":"t1","message":"hello"}'
+#   curl -X POST localhost:8080/conversations -d '{}'
+#
+# What IS pinned is the expensive half: that naming a conversation costs exactly
+# one model call and only on the first exchange, and that both objects are shaped
+# the way the panel reads them.
+
+env:
+  LLM_CONNECTOR_TYPE: llm-anthropic
+  LLM_API_KEY: sk-ant-not-a-real-key
+  LLM_MODEL: claude-sonnet-4-6
+  ORCHESTRATOR_URL: http://127.0.0.1:9
+  AGENT_WORKSPACE: /tmp
+  AGENT_OCTO_BIN: /bin/echo
+  AGENT_DOLPHIN_BIN: /bin/echo
+  AGENT_CURL_BIN: /bin/echo
+  AGENT_FIND_BIN: /bin/echo
+  AGENT_JQ_BIN: /bin/echo
+
+# No case reaches a model. The title is the one model call this flow makes, and
+# mocking it here says so once.
+mocks:
+  record-conversation.name-it[then].name-or-fall-back[process].write-title:
+    default:
+      body: { title: Listing the integrations }
+
+inputs:
+  an exchange:
+    data:
+      userKey: u-1
+      threadId: t-1
+      question: list my integrations
+      answer: You have three.
+
+cases:
+  - name: a new conversation is named once, and the name is what the list shows
+    input: an exchange
+    expect:
+      that:
+        - 'vars.title == "Listing the integrations"'
+        # The title call is skipped for every exchange after the first, which is
+        # what recordExists decides. Its absence here is the whole reason the
+        # naming lives in this flow rather than in the chat one.
+        - "!vars.recordExists"
+
+  - name: both halves of the exchange are recorded, in the order they were said
+    input: an exchange
+    expect:
+      that:
+        - "size(vars.turns) == 2"
+        - 'vars.turns[0].role == "user"'
+        - 'vars.turns[0].text == "list my integrations"'
+        - 'vars.turns[1].role == "agent"'
+        - 'vars.turns[1].text == "You have three."'
+
+  - name: the index row carries the name and the moment, keyed by the thread
+    input: an exchange
+    expect:
+      that:
+        - "size(vars.rows) == 1"
+        - 'vars.rows[0].id == "t-1"'
+        - 'vars.rows[0].title == "Listing the integrations"'
+        - 'vars.rows[0].updatedAt != ""'
+
+  # The name is the nice half of this flow; the record is the point. A provider
+  # having a bad minute must not cost the exchange — before the fallback it did,
+  # and the only trace was a warning.
+  - name: a conversation is still recorded when it cannot be named
+    input: an exchange
+    mocks:
+      # Overrides the suite's mock: this is the failure the fallback is for.
+      record-conversation.name-it[then].name-or-fall-back[process].write-title:
+        default:
+          error: the model is having a bad minute
+    expect:
+      that:
+        - 'vars.title == "list my integrations"'
+        - "size(vars.turns) == 2"
+        - 'vars.rows[0].title == "list my integrations"'

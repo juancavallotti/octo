@@ -1,15 +1,32 @@
 /**
- * Where the agent is, for the two routes that need to reach it.
+ * Where the agent is, for everything that has to reach him.
  *
  * The address is not configuration: it is the in-cluster Service of whatever
  * deployment the install produced, which the orchestrator reports as part of the
  * agent's status. So it is looked up, and because it changes only when someone
  * installs, removes or redeploys the agent, it is cached briefly rather than
  * fetched on every message.
+ *
+ * It lives in the client layer rather than beside the routes because it is a
+ * client-layer concern — a base URL, resolved — and because it now has three
+ * callers rather than two: the chat proxy, the status probe, and the server
+ * actions that read a person's past conversations.
  */
 
 /** How long a resolved address is trusted. Short enough that an uninstall is noticed. */
 const TTL_MS = 30_000;
+
+/**
+ * How long the status lookup waits before giving up.
+ *
+ * fetch has no timeout of its own, and this call sits in front of everything that
+ * reaches the agent — the chat proxy, the status probe, the conversation list — so
+ * an orchestrator that accepts a connection and then says nothing would hold each
+ * of them open indefinitely. Five seconds is far longer than a request to a
+ * service in the same cluster takes and short enough to be a delay rather than a
+ * hang.
+ */
+const STATUS_TIMEOUT_MS = 5_000;
 
 interface Resolved {
   url: string;
@@ -41,7 +58,10 @@ export async function fetchAgentStatus(): Promise<AgentReachability | null> {
   const base = orchestratorUrl();
   if (!base) return null;
   try {
-    const res = await fetch(`${base}/settings/agent`, { cache: "no-store" });
+    const res = await fetch(`${base}/settings/agent`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(STATUS_TIMEOUT_MS),
+    });
     if (!res.ok) return null;
     return (await res.json()) as AgentReachability;
   } catch {

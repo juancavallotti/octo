@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 
 import { currentWriteUserId } from "@/app/actions/_auth";
 import { AuthError, ForbiddenError } from "@/app/auth/guard";
-import { resolveAgentUrl, forgetAgentUrl, orchestratorUrl } from "../resolve";
+import { resolveAgentUrl, forgetAgentUrl, orchestratorUrl } from "@/app/actions/client/agentUrl";
 
 /**
  * POST /api/agent/chat — the browser's end of a conversation with Dr. Octo.
