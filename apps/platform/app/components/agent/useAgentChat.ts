@@ -18,9 +18,15 @@ export interface AgentChat {
   turns: Turn[];
   busy: boolean;
   error: string | null;
+  /**
+   * Ask, or steer. A message sent while a run is in flight is handed to that run
+   * rather than starting a second one — see {@link steer}.
+   */
   send: (message: string) => void;
   stop: () => void;
   reset: () => void;
+  /** Replace the conversation with a stored one, and continue it. */
+  resume: (threadId: string, turns: Turn[]) => void;
 }
 
 /**
@@ -109,14 +115,50 @@ export function useAgentChat(
     );
   }, []);
 
+  /**
+   * Hand a message to the run already in flight.
+   *
+   * The runtime claims a conversation for the length of a run, so this request
+   * does not start a second one: the message is injected into the conversation the
+   * agent is having and its own flow stops with an empty body. The answer — and a
+   * `signal` frame confirming the message was taken — arrive on the stream that is
+   * already open, which is why nothing here reads a response.
+   *
+   * The user turn is appended locally rather than waited for. The run injects it at
+   * the top of its next iteration, which can be seconds away, and a chat that does
+   * not show what you just typed reads as one that dropped it.
+   */
+  const steer = useCallback(
+    (text: string) => {
+      setTurns((current) => [...current, newTurn(randomId(), "user", text)]);
+      void fetch("/api/agent/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ threadId: readThreadId(userKey), message: text, page, routes: ROUTE_CATALOGUE }),
+      }).catch(() => {
+        // Its own request, so its own failure — and not one to report over an
+        // answer that is still arriving. The run carries on without the steer.
+        setError("that message did not reach him");
+      });
+    },
+    [page, userKey],
+  );
+
   const send = useCallback(
     (message: string) => {
       const text = message.trim();
-      // The controller ref, not just `busy`: state is only true after React commits,
-      // so two sends in one tick would both pass a `busy` check, and the second
-      // would replace the controller the first is holding — leaving Stop unable to
-      // reach the stream that is actually running. The ref is set synchronously.
-      if (!text || busy || abort.current) return;
+      if (!text) return;
+      // A run is in flight, so this message joins it instead of starting a rival.
+      //
+      // The controller ref rather than `busy`: state is only true after React
+      // commits, so two sends in one tick would both read a stale `busy` and the
+      // second would replace the controller the first is holding — leaving Stop
+      // unable to reach the stream that is actually running. The ref is set
+      // synchronously.
+      if (busy || abort.current) {
+        steer(text);
+        return;
+      }
 
       const controller = new AbortController();
       abort.current = controller;
@@ -190,7 +232,7 @@ export function useAgentChat(
         }
       })();
     },
-    [apply, busy, page, setFinalAnswer, userKey],
+    [apply, busy, page, setFinalAnswer, steer, userKey],
   );
 
   /**
@@ -219,6 +261,23 @@ export function useAgentChat(
     setError(null);
   }, [userKey]);
 
-  return { turns, busy, error, send, stop, reset };
+  /**
+   * Pick up a stored conversation. The thread id goes to sessionStorage because
+   * that is what the next message is addressed to — resuming means continuing it,
+   * not reading it.
+   */
+  const resume = useCallback(
+    (threadId: string, stored: Turn[]) => {
+      abort.current?.abort();
+      abort.current = null;
+      setBusy(false);
+      sessionStorage.setItem(threadKey(userKey), threadId);
+      setTurns(stored);
+      setError(null);
+    },
+    [userKey],
+  );
+
+  return { turns, busy, error, send, stop, reset, resume };
 }
 

@@ -6,6 +6,7 @@ import { ArrowDown, MessageSquarePlus, X } from "lucide-react";
 import AgentMessage from "./AgentMessage";
 import ContextGauge from "./ContextGauge";
 import Composer from "./Composer";
+import ConversationList from "./ConversationList";
 import WorkingStatus from "./WorkingStatus";
 import { useAgentChat } from "./useAgentChat";
 import { useStickToBottom } from "./useStickToBottom";
@@ -62,6 +63,7 @@ export default function AgentDrawer({
         <span className="text-xs text-zinc-500">at your service</span>
         <div className="ml-auto flex items-center gap-2">
           {open?.context && <ContextGauge gauge={open.context} />}
+          <ConversationList onOpen={chat.resume} />
           <button
             type="button"
             onClick={chat.reset}

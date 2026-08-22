@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
 
 import { useAgentChat } from "./useAgentChat";
+import { newTurn } from "./turns";
 import type { ToolRun, Turn } from "./turns";
 
 /** A fetch response whose body streams the given SSE text as one chunk. */
@@ -177,7 +178,11 @@ describe("useAgentChat", () => {
   // a state-based guard. The second would replace the controller the first is
   // holding, and Stop would then reach a stream that had already finished while the
   // live one ran on.
-  it("starts only one run when send is called twice in the same tick", async () => {
+  // A message typed while he is working is handed to the run in flight rather than
+  // starting a rival — the runtime claims the conversation, so the second request
+  // is injected into it and stops with an empty body. Both messages are the
+  // person's, and both belong in the transcript.
+  it("hands a second message to the run in flight instead of starting a rival", async () => {
     fetchMock.mockResolvedValue(sseResponse(frames({ type: "text", text: "ok" })));
     const { result } = renderHook(() => useAgentChat("u-1", "/platform", () => {}));
 
@@ -187,8 +192,16 @@ describe("useAgentChat", () => {
     });
 
     await waitFor(() => expect(result.current.busy).toBe(false));
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(result.current.turns.filter((t) => t.role === "user")).toHaveLength(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(
+      result.current.turns.filter((t) => t.role === "user").map((t) => answerOf(t)),
+    ).toEqual(["first", "second"]);
+
+    // And it did not take the run's controller with it. Only the first request is
+    // a stream, so only the first is what Stop has to be able to reach — a steer
+    // that replaced the controller would leave Stop pointing at nothing.
+    const steer = fetchMock.mock.calls[1][1] as RequestInit;
+    expect(steer.signal).toBeUndefined();
   });
 
   // Stop releases the controller synchronously, so the next question is not refused
@@ -363,4 +376,31 @@ describe("useAgentChat", () => {
 
     expect(second).not.toBe(first);
   });
+
+  // Coming back to a conversation means continuing it, not reading it: the next
+  // message has to be addressed to the same thread, or he answers it with no idea
+  // what was said before.
+  it("resumes a stored conversation and addresses the next message to it", async () => {
+    fetchMock.mockResolvedValue(sseResponse(frames({ type: "text", text: "still here" })));
+    const { result } = renderHook(() => useAgentChat("u-1", "/platform", () => {}));
+
+    act(() =>
+      result.current.resume("t-old", [
+        newTurn("a", "user", "what did we decide"),
+        newTurn("b", "agent", "to deploy on Friday"),
+      ]),
+    );
+
+    expect(result.current.turns.map((t) => answerOf(t))).toEqual([
+      "what did we decide",
+      "to deploy on Friday",
+    ]);
+
+    act(() => result.current.send("and the logs?"));
+    await waitFor(() => expect(result.current.busy).toBe(false));
+
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.threadId).toBe("t-old");
+  });
+
 });
