@@ -42,6 +42,18 @@ const (
 	// would be wrong in a way the arithmetic would never reveal.
 	TraceLLMEmbed TraceKind = "llm.embed"
 
+	// TraceAgentCompaction records an ai-agent shrinking its own conversation to
+	// stay inside its context budget: which strategy, how big the prompt was
+	// before and after, and how many turns went.
+	//
+	// It is its own kind rather than an attribute on a turn because it is not a
+	// turn — pruning calls no model and costs nothing, so it would otherwise leave
+	// no trace at all, and the one thing anyone debugging a forgetful agent needs
+	// to see is exactly when it forgot. (Summarizing does call a model; that call
+	// is recorded separately as an llm.turn marked with its purpose, so the cost
+	// lands where cost is read and this record stays about the decision.)
+	TraceAgentCompaction TraceKind = "agent.compaction"
+
 	// TraceSourceReceive records a message admitted from an inbound request.
 	TraceSourceReceive TraceKind = "source.receive"
 	// TraceSourceRespond records the response a source eventually wrote for one,

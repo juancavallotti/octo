@@ -150,3 +150,85 @@ func TestFitContextWaitsForAMeasurement(t *testing.T) {
 		t.Errorf("fitContext compacted before any turn was measured: %d messages", len(got))
 	}
 }
+
+// Compaction is bracketed the way a turn is, because with the summarize strategy
+// it makes a model call and can take seconds. An after-the-fact event alone shows
+// a progress UI a stall it cannot explain.
+func TestCompactionIsBracketedAndCarriesTheGauge(t *testing.T) {
+	ctx, _ := withFakeServices(context.Background())
+	var seen []any
+	var events []map[string]any
+
+	reg := agentRegistry(&seen)
+	reg.MustRegister("collect", func(types.Settings, core.BlockDeps) (core.MessageProcessor, error) {
+		return processorFunc(func(_ context.Context, m *types.Message) (*types.Message, error) {
+			if body, ok := m.Body.(map[string]any); ok {
+				events = append(events, body)
+			}
+			return m, nil
+		}), nil
+	})
+
+	cfg := compactingAgentConfig(1000)
+	cfg.Events = &types.FlowConfig{Process: []types.BlockConfig{{Type: "collect"}}}
+	args := func(n int) string { return `{"q":"` + strings.Repeat("a", n) + `"}` }
+	fake := &scriptedLLM{responses: []*core.LLMResponse{
+		withUsage(toolCallResp("lookup", args(200)), &core.LLMUsage{PromptTokens: 200, OutputTokens: 10}),
+		withUsage(toolCallResp("lookup", args(240)), &core.LLMUsage{PromptTokens: 400, OutputTokens: 10}),
+		withUsage(toolCallResp("lookup", args(280)), &core.LLMUsage{PromptTokens: 5000, OutputTokens: 10}),
+		withUsage(endTurnResp("done"), &core.LLMUsage{PromptTokens: 900, OutputTokens: 5}),
+	}}
+	if _, err := mustBuildAI(t, reg, depsLLM(fake), cfg).Process(ctx, aiMessage(t)); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+
+	start, end := eventOfType(events, eventCompactionStart), eventOfType(events, eventCompactionEnd)
+	if start == nil || end == nil {
+		t.Fatalf("compaction was not bracketed: got %v", typesOf(events))
+	}
+	// The start event has to say what is about to happen and why, or it is only a
+	// spinner: without the budget beside the reading, "5576" says nothing.
+	for _, field := range []string{"strategy", "before", "contextTokens", "contextMaxTokens"} {
+		if _, ok := start[field]; !ok {
+			t.Errorf("compaction_start carried no %q: %+v", field, start)
+		}
+	}
+	if got := end["dropped"]; got == nil {
+		t.Errorf("compaction_end did not say what it achieved: %+v", end)
+	}
+	if start["contextMaxTokens"] != 1000 {
+		t.Errorf("contextMaxTokens = %v, want the configured 1000", start["contextMaxTokens"])
+	}
+
+	// And the gauge is on every turn, not only the one that overflowed, so a reader
+	// watches it fill instead of being told after the fact.
+	turnEnd := eventOfType(events, eventTurnEnd)
+	if turnEnd == nil {
+		t.Fatal("no turn_end event")
+	}
+	if turnEnd["contextMaxTokens"] != 1000 {
+		t.Errorf("turn_end carried no budget: %+v", turnEnd)
+	}
+	// Exact, not estimated: the prompt the provider read plus the reply it produced.
+	if turnEnd["contextTokens"] != 210 {
+		t.Errorf("contextTokens = %v, want 210 (200 prompt + 10 output)", turnEnd["contextTokens"])
+	}
+}
+
+// eventOfType returns the first event of a kind, or nil.
+func eventOfType(events []map[string]any, kind string) map[string]any {
+	for _, e := range events {
+		if e["type"] == kind {
+			return e
+		}
+	}
+	return nil
+}
+
+func typesOf(events []map[string]any) []any {
+	out := make([]any, 0, len(events))
+	for _, e := range events {
+		out = append(out, e["type"])
+	}
+	return out
+}

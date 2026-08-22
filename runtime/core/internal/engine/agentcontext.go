@@ -31,6 +31,11 @@ func (a *aiAgent) fitContext(
 	if before <= a.contextMaxTokens {
 		return messages
 	}
+	// Announced before the work, not after it. The summarize strategy makes a
+	// model call, so this can take seconds, and a reader with only an
+	// after-the-fact event sees an unexplained stall.
+	a.report(ctx, msg, iter, eventCompactionStart, compactionFields(a.memoryCompaction, before, a.contextMaxTokens))
+	trace := beginTrace()
 
 	// Two ends of the conversation are not the compactor's to touch. The trailing
 	// tool turn and the assistant turn that asked for it are one unit — providers
@@ -52,6 +57,7 @@ func (a *aiAgent) fitContext(
 	if budget <= 0 {
 		slog.Warn("ai-agent cannot fit its context: the current turn alone exceeds the budget",
 			"block", a.name, "tokens", before, "budget", a.contextMaxTokens)
+		a.endCompaction(ctx, trace, msg, iter, before, before, 0)
 		return messages
 	}
 
@@ -68,13 +74,45 @@ func (a *aiAgent) fitContext(
 	slog.Info("ai-agent compacted its context", "block", a.name,
 		"strategy", a.memoryCompaction, "before", before, "after", after,
 		"dropped", len(messages)-len(out))
-	a.report(ctx, msg, iter, eventCompaction, map[string]any{
-		"strategy": a.memoryCompaction,
-		"before":   before,
-		"after":    after,
-		"dropped":  len(messages) - len(out),
-	})
+	a.endCompaction(ctx, trace, msg, iter, before, after, len(messages)-len(out))
 	return out
+}
+
+// endCompaction reports a finished compaction to both observers: the events path,
+// for whoever is watching the run, and the trace, for whoever reads it afterwards.
+//
+// Pruning calls no model and costs nothing, so without a record of its own it
+// would leave no trace at all — and when an agent has forgotten something, when
+// it forgot is the first thing anyone needs. Summarizing does call a model, and
+// that call is recorded separately as its own turn, marked with its purpose, so
+// the cost lands where cost is read and this record stays about the decision.
+func (a *aiAgent) endCompaction(
+	ctx context.Context, trace callTrace, msg *types.Message, iter, before, after, dropped int,
+) {
+	fields := compactionFields(a.memoryCompaction, before, a.contextMaxTokens)
+	fields["after"] = after
+	fields["dropped"] = dropped
+	a.report(ctx, msg, iter, eventCompactionEnd, fields)
+
+	if !trace.on() {
+		return
+	}
+	record := a.caller.who.record(types.TraceAgentCompaction, msg, trace.started)
+	turnLabel{iteration: iter + 1}.apply(&record)
+	for name, value := range fields {
+		record.SetAttr(name, value)
+	}
+	trace.tracer.Publish(record)
+}
+
+// compactionFields is what both compaction events carry: which strategy, how full
+// the context was, and how full it was allowed to get. The end event adds what
+// the work achieved.
+func compactionFields(strategy string, before, budget int) map[string]any {
+	fields := contextFields(before, budget)
+	fields["strategy"] = strategy
+	fields["before"] = before
+	return fields
 }
 
 // protectedSuffix returns the index from which messages must be kept intact: the

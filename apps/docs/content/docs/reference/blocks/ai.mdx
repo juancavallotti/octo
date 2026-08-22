@@ -75,11 +75,14 @@ reach the caller with no configuration at all.
 | `custom` | A provider event with no canonical equivalent | `name`, `text`, `index` |
 | `tool_call` | The model asked for a tool, arguments complete | `tool`, `toolCallId`, `input` |
 | `tool_result` | The branch that ran it returned | `tool`, `toolCallId`, `output`, `isError` |
-| `turn_end` | A model turn finished | `text`, `stopReason`, `usage` |
-| `compaction` | The agent shrank its own conversation to stay in budget | `strategy`, `before`, `after`, `dropped` |
+| `turn_end` | A model turn finished | `text`, `stopReason`, `usage`, `contextTokens`, `contextMaxTokens` |
+| `compaction_start` | The agent is about to shrink its own conversation | `strategy`, `before`, `contextTokens`, `contextMaxTokens` |
+| `compaction_end` | It finished | the same, plus `after` and `dropped` |
 | `guardrail` | The agent fell back to `default` | `reason` |
 | `done` | The agent finished with an answer | `text` |
 | `error` | A model call failed | `error` |
+
+`contextTokens` and `contextMaxTokens` are the context gauge: how full the prompt is, and how full it is allowed to get. They ride on every `turn_end`, so a progress UI can show the context filling rather than only the moment it overflowed. On `turn_end` the reading is exact — the prompt the provider reported reading, plus the reply it produced — and it is omitted entirely for a turn the provider reported no usage for.
 
 `text`, `thinking`, `tool_input` and `custom` arrive **only with `stream: true`**;
 the rest are the agent's own and need no streaming. Not every provider produces

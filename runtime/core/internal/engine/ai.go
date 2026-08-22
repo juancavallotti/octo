@@ -912,7 +912,7 @@ func (a *aiAgent) callModel(
 		return nil, err
 	}
 	logModelResp(blockKindAIAgent, a.name, resp)
-	if a.report(ctx, current, iter, eventTurnEnd, turnEndFields(resp)) {
+	if a.report(ctx, current, iter, eventTurnEnd, turnEndFields(resp, a.contextMaxTokens)) {
 		// The response goes back with the stop: the turn finished and was billed, so
 		// the caller decides whether it belongs in memory. The earlier stops have no
 		// turn to hand over.

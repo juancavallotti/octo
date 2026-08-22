@@ -85,6 +85,7 @@ and the stream says so in band — see [Dropped records](#dropped-records).
 | `block.pre-invoke` | The message a block is about to receive. |
 | `block.post-invoke` | What it returned, with how long it took. |
 | `llm.turn` | One model turn of any AI block — an `ai-agent` iteration, an `ai-router` round, an `ai-retry` attempt, an `ai-mapping` call — with the model that served it and the token usage the provider reported. |
+| `agent.compaction` | An `ai-agent` shrinking its own conversation to stay inside its context budget, with `strategy`, `before`, `after`, `dropped` and `contextMaxTokens`. It is not a model turn: pruning calls no model and costs nothing, so it would otherwise leave no record at all. A `summarize` compaction's model call is recorded separately as an `llm.turn` marked `purpose: memory-compaction`. |
 | `llm.embed` | One embedding call of an `ai-embed` block, with the model, the batch size, and the tokens the provider charged. |
 | `source.receive` / `source.respond` | A message admitted from an inbound request, and the response eventually written for it. |
 | `source.emit` | A message a scheduled source produced, with no caller to answer. |

@@ -103,9 +103,26 @@ again before saving:
   message, preserving facts and decisions. Falls back to pruning if the
   summary cannot be produced.
 
-Compaction emits a `compaction` event carrying `strategy`, `before`, `after`
-and `dropped`, so an [events path](/ai/agents) can show a conversation losing
-its early turns instead of it happening silently.
+### Watching it happen
+
+Compaction is bracketed by `compaction_start` and `compaction_end` events, the
+way a model turn is. Both carry `strategy` and the context gauge
+(`contextTokens`, `contextMaxTokens`); the end event adds `after` and
+`dropped`. It is bracketed rather than reported once because the `summarize`
+strategy makes a model call, so compaction can take seconds — a progress UI
+with only an after-the-fact event would show a stall it cannot explain.
+
+The gauge also rides on every `turn_end`, so a UI can show the context filling
+rather than only the moment it overflowed. There the reading is exact: the
+prompt the provider reported reading, plus the reply it produced.
+
+Compaction also writes an **`agent.compaction` trace record**, carrying the
+same figures. It has its own kind because it is not a model turn: pruning calls
+no model and costs nothing, so it would otherwise leave no trace at all — and
+when an agent has forgotten something, when it forgot is the first thing anyone
+needs. Summarizing *does* call a model, and that call is recorded separately as
+an `llm.turn` marked `purpose: memory-compaction`, so the cost lands where cost
+is read and the compaction record stays about the decision.
 
 <Callout type="info">
 Saving memory is best-effort: a failed save is logged and does not fail the
