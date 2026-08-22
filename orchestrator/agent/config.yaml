@@ -305,11 +305,27 @@ flows:
         # Nothing downstream can repair that. The reply streams to the panel a token
         # at a time, so `{"`, `message`, `":"` are already rendered by the time the
         # finished answer could be unwrapped.
+        # The catalogue is sent once per run, not once per message. A message that
+        # joins a run already in flight is injected into the conversation it is
+        # joining — which already holds all of this from its opening turn — so
+        # repeating it buys nothing and costs 1.5KB of context per follow-up, plus
+        # a second announcement of a page the model was already told about.
+        #
+        # The panel is what decides: it omits the routes when it is steering rather
+        # than asking, and `agent-input` above normalizes the absence to an empty
+        # list. So the branch is on emptiness, not on presence.
+        #
+        # It matters beyond the tokens. The handover injects this string verbatim
+        # and reports it back on the `signal` event, which is how the panel marks
+        # the message as read — and a follow-up carrying the whole catalogue could
+        # never be matched to the bubble the person typed.
         input: >-
-          body.message +
-          "\n\n---\nContext, not part of the question. The user is on page " +
-          body.page + ". Pages you may navigate to, and who is asking:\n" +
-          toJson({"routes": body.routes, "user": body.user})
+          size(body.routes) > 0
+            ? body.message +
+              "\n\n---\nContext, not part of the question. The user is on page " +
+              body.page + ". Pages you may navigate to, and who is asking:\n" +
+              toJson({"routes": body.routes, "user": body.user})
+            : body.message
 
         # Memory rides the deployment's KV store, which under the k8s services module
         # is the orchestrator's own — so a conversation survives a pod restart with
