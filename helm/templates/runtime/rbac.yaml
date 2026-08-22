@@ -1,15 +1,22 @@
 {{- /* RBAC for deployed runtime pods. The orchestrator runs each integration as
        its own Deployment and sets the pod's serviceAccountName to this account;
-       the runtime's k8s services module uses it to run Lease-based leader
-       election so a connector (e.g. a cron schedule) fires on exactly one
-       replica. Scoped to the release namespace (namespaced Role), where the
-       orchestrator creates the Leases alongside the runtime pods. */}}
+       the runtime's k8s services module uses it for both of its coordination
+       Lease users — leader election, so a connector (e.g. a cron schedule) fires
+       on exactly one replica, and fail-fast claims, so a named unit of work has
+       one owner across the cluster. Scoped to the release namespace (namespaced
+       Role), where the orchestrator creates the Leases alongside the runtime
+       pods. */}}
 {{- define "octo.runtime.rules" -}}
 # Leader election: each replica creates/renews a coordination Lease and watches
 # the holder, so only the current holder acts.
+#
+# delete is for the other user, core.Leases: a claim is released by deleting its
+# object, so the name is free again immediately rather than at the end of a TTL
+# nobody is waiting out. Election has no use for it — it releases by letting its
+# own lease lapse.
 - apiGroups: ["coordination.k8s.io"]
   resources: ["leases"]
-  verbs: ["get", "list", "watch", "create", "update", "patch"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 {{- end }}
 {{- include "octo-common.rbac" (dict
       "root" $

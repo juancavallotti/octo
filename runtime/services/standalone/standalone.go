@@ -30,6 +30,7 @@ type Services struct {
 	kv        *store
 	q         *queues
 	t         *topics
+	leases    *leases
 	resources core.ResourceLoader
 	traces    core.TracePublisher
 }
@@ -56,6 +57,7 @@ func New(resourceRoot string, tracing core.TraceOptions) *Services {
 		kv:        newStore(),
 		q:         newQueues(),
 		t:         newTopics(),
+		leases:    newLeases(time.Now),
 		resources: newResourceLoader(resourceRoot),
 		traces:    traces,
 	}
@@ -66,6 +68,13 @@ func New(resourceRoot string, tracing core.TraceOptions) *Services {
 //
 //nolint:ireturn // satisfies core.RuntimeServices
 func (s *Services) LeaderElection() core.LeaderElection { return core.NoopLeaderElection() }
+
+// Leases returns the in-process claims. Unlike leader election above, this is a
+// real implementation rather than a grant-everything one: a single process still
+// has runs competing for the same name, and a mutex settles that exactly.
+//
+//nolint:ireturn // satisfies core.RuntimeServices
+func (s *Services) Leases() core.Leases { return s.leases }
 
 // KV returns the in-memory key/value store.
 //
@@ -98,10 +107,11 @@ func (s *Services) Resources() core.ResourceLoader { return s.resources }
 //nolint:ireturn // satisfies core.RuntimeServices
 func (s *Services) Traces() core.TracePublisher { return s.traces }
 
-// Close releases resources. The only one the standalone module holds is the
-// trace file, which is drained and closed here — so a graceful stop leaves a
-// complete file rather than one missing whatever was still queued.
+// Close releases resources: outstanding leases, so their renewal goroutines stop,
+// and the trace file, which is drained and closed here — so a graceful stop
+// leaves a complete file rather than one missing whatever was still queued.
 func (s *Services) Close() error {
+	s.leases.closeAll()
 	if closer, ok := s.traces.(interface{ Close() error }); ok {
 		return closer.Close()
 	}

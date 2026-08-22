@@ -87,8 +87,8 @@ package may implement either, or both.
 
 ### Provider facet
 
-Supplies `core.RuntimeServices`: leader election, KV, secrets, queues, topics,
-resources. Providers are **module-selected** — exactly one is active, chosen by
+Supplies `core.RuntimeServices`: leader election, leases, KV, secrets, queues,
+topics, resources. Providers are **module-selected** — exactly one is active, chosen by
 `RUNTIME_SERVICES_MODULE` — so registration is conditional by design:
 
 ```go
@@ -118,6 +118,16 @@ is whether the capability is universal or optional.
   to write, because there is no module that lacks it. Forcing one of these
   through a side interface buys nothing and costs every caller a type assertion
   that can never fail.
+
+`Leases()` is the case worth studying, because it is the one that looks optional
+and is not. A *distributed* claim is something the standalone module genuinely
+cannot have, and reading it that way argues for a side interface. But a
+**fail-fast lease** is not a distributed claim: exclusivity is only ever asked of
+the processes that could compete for a name, and in a single process a map under
+a mutex is the complete and exact answer rather than a degraded stand-in — the
+same relationship an in-process channel has to a NATS queue group. The test is
+about the capability as the caller asks for it, not about the machinery
+underneath.
 
 The test is not "is this new", it is "**could a module reasonably not have it?**"
 If yes, side interface. If no, accessor.
@@ -239,7 +249,7 @@ Does a flow author reference it by name in YAML?
 ├─ yes → connector (+ its blocks, sources, meta, and docs page)
 └─ no
    ├─ Does it supply platform capability the runtime already names
-   │  (KV, queues, leader election, resources)?      → services: provider facet
+   │  (KV, queues, leases, leader election, …)?      → services: provider facet
    ├─ Does it run for the life of the process with
    │  its own flags?                                  → services: hosted facet
    ├─ Does it only need to watch what flows do?       → EventBus / BlockEvents

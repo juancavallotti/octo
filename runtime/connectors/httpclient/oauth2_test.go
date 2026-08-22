@@ -78,6 +78,9 @@ type fakeServices struct{ kv *fakeKV }
 func (f fakeServices) LeaderElection() core.LeaderElection { return core.NoopLeaderElection() }
 
 //nolint:ireturn // satisfies the RuntimeServices interface
+func (f fakeServices) Leases() core.Leases { return core.NoopLeases() }
+
+//nolint:ireturn // satisfies the RuntimeServices interface
 func (f fakeServices) KV() core.KV { return f.kv }
 
 //nolint:ireturn // satisfies the RuntimeServices interface
