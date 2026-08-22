@@ -329,6 +329,15 @@ type aiAgentMeta struct {
 	// thread's prior transcript before its run and saves it after; empty disables
 	// memory.
 	MemoryThreadID string `json:"memoryThreadId" octo:"label=Memory thread ID,type=cel"`
+	// CEL expression identifying this run while it is in flight. A later message
+	// resolving the same id is handed to the run already working on it instead of
+	// starting a second one. Empty leaves the run unreachable. Usually a
+	// conversation and a person, e.g. vars.sub + ":" + body.threadId.
+	SignalID string `json:"signalId" octo:"label=Signal ID,type=cel"`
+	// Boolean CEL condition that ends the run working on the signal ID instead of
+	// starting one — a header, a body field, whatever the caller uses to say stop.
+	// Requires a signal ID, since there would otherwise be no run to name.
+	StopWhen string `json:"stopWhen" octo:"label=Stop when,type=cel"`
 	// Token budget for the whole prompt — system instructions, tool schemas and
 	// conversation together — measured from what the provider reports it read. The
 	// transcript is compacted when the prompt would exceed it. Applies with or

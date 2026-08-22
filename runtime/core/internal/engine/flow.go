@@ -514,10 +514,28 @@ func compositeSlots(cfg types.BlockConfig) []string {
 			slots = append(slots, name)
 		}
 	}
+	// The string-valued slots, which are all the same check, listed rather than
+	// repeated a line at a time — the list is what keeps this function readable as
+	// the config grows, and it is also what keeps it inside the length limit.
+	for _, slot := range []struct {
+		value, name string
+	}{
+		{cfg.Condition, "condition"},
+		{cfg.Connector, "connector"},
+		{cfg.Prompt, "prompt"},
+		{cfg.Guardrail, "guardrail"},
+		{cfg.Input, "input"},
+		{cfg.Answer, "answer"},
+		{cfg.MemoryThreadID, "memoryThreadId"},
+		{cfg.MemoryCompaction, "memoryCompaction"},
+		{cfg.SignalID, "signalId"},
+		{cfg.StopWhen, "stopWhen"},
+	} {
+		add(slot.value != "", slot.name)
+	}
 	add(len(cfg.Process) > 0, "process")
 	add(len(cfg.Error) > 0, "error")
 	add(len(cfg.Branches) > 0, "branches")
-	add(cfg.Condition != "", "condition")
 	add(cfg.Then != nil, "then")
 	add(cfg.Else != nil, "else")
 	add(len(cfg.Cases) > 0, "cases")
@@ -533,23 +551,16 @@ func compositeSlots(cfg types.BlockConfig) []string {
 	add(len(cfg.Rules) > 0, "rules")
 	add(cfg.OnReject != nil, "onReject")
 	add(cfg.RejectStatus != 0, "rejectStatus")
-	add(cfg.Connector != "", "connector")
-	add(cfg.Prompt != "", "prompt")
-	add(cfg.Guardrail != "", "guardrail")
 	add(len(cfg.Routes) > 0, "routes")
 	add(len(cfg.Tools) > 0, "tools")
 	add(len(cfg.Skills) > 0, "skills")
-	add(cfg.Input != "", "input")
-	add(cfg.Answer != "", "answer")
 	add(cfg.MaxIterations != 0, "maxIterations")
 	add(cfg.MaxAttempts != 0, "maxAttempts")
 	add(cfg.ServerName != "", "serverName")
 	add(len(cfg.Resources) > 0, "resources")
 	add(len(cfg.Prompts) > 0, "prompts")
-	add(cfg.MemoryThreadID != "", "memoryThreadId")
 	add(cfg.ContextMaxTokens != 0, "contextMaxTokens")
 	add(cfg.MemoryMaxTokens != 0, "memoryMaxTokens")
-	add(cfg.MemoryCompaction != "", "memoryCompaction")
 	add(cfg.Events != nil, "events")
 	add(len(cfg.Emit) > 0, "emit")
 	add(cfg.Stream, "stream")
