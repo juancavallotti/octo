@@ -3,14 +3,14 @@
 import { CornerDownRight, MessageSquareOff } from "lucide-react";
 
 /**
- * Something that reached the run from outside it.
+ * Something that reached the run from outside it, and from outside this window.
  *
- * Two of these matter to a reader. A `context` signal is a message they sent while
- * he was working — it was folded into the conversation and shaped what came next,
- * and without a line here the answer simply changes direction for no visible
- * reason. An `unanswered` one is a message he accepted and ran out of turns before
- * reaching, which is the one case where something a person sent goes unanswered,
- * and it must not be silent.
+ * A signal about a message this window sent is shown on that message instead — see
+ * UserMessage — because a line in the middle of the reply repeats text the reader
+ * can already see just above it. What is left here is the case where there is no
+ * such bubble to mark: a second tab on the same conversation, or this one reloaded
+ * mid-run. Then a message did arrive and change the answer, and with nothing said
+ * the reply simply changes direction for no visible reason.
  */
 export default function SignalNotice({ signal, text }: { signal: string; text?: string }) {
   if (signal === "unanswered") {

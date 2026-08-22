@@ -15,12 +15,10 @@ function withSegments(...segments: Segment[]): Turn {
 }
 
 describe("AgentMessage", () => {
-  it("renders a user turn as plain text, not as markdown", () => {
-    render(
-      <AgentMessage
-        turn={newTurn("u1", "user", "**not bold**")}
-      />,
-    );
+  // A user turn is UserMessage's job, tested there. This pins only that a turn
+  // gets routed to it rather than through the markdown renderer below.
+  it("sends a user turn to be rendered as plain text", () => {
+    render(<AgentMessage turn={newTurn("u1", "user", "**not bold**")} />);
 
     expect(screen.getByText("**not bold**")).toBeTruthy();
   });

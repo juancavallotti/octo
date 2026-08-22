@@ -6,11 +6,11 @@ import {
   parseFinalAnswer,
   parseNavigateEvent,
   parseSSE,
-  type AgentEvent,
   type NavigateEvent,
 } from "./events";
 import { ROUTE_CATALOGUE } from "./routes";
-import { answerOf, newTurn, reduce, type Turn } from "./turns";
+import { HANDED_OVER_NOTE, newTurn, type Turn } from "./turns";
+import { useTranscript } from "./useTranscript";
 import { randomId, readThreadId, threadKey } from "./thread";
 
 export type { Segment, ToolRun, Turn } from "./turns";
@@ -31,7 +31,8 @@ export interface AgentChat {
 }
 
 /**
- * A conversation with the agent: the transcript, and the reader loop that fills it.
+ * A conversation with the agent: the requests, and the reader loop that turns
+ * their frames into a transcript. The transcript itself lives in useTranscript.
  *
  * It owns the AbortController, which is the whole hang-up chain — aborting the
  * fetch aborts the proxy's upstream fetch, which closes the agent's stream, which
@@ -43,7 +44,20 @@ export function useAgentChat(
   page: string,
   onNavigate: (event: NavigateEvent) => void,
 ): AgentChat {
-  const [turns, setTurns] = useState<Turn[]>([]);
+  // Destructured rather than held whole: the hook returns a fresh object every
+  // render, so a callback closing over it would be rebuilt on every render too.
+  const {
+    turns,
+    append,
+    apply,
+    applySignal,
+    setFinalAnswer,
+    setDelivery,
+    noteTurn,
+    endTurn,
+    settlePending,
+    replace,
+  } = useTranscript();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abort = useRef<AbortController | null>(null);
@@ -81,24 +95,6 @@ export function useAgentChat(
     };
   }, []);
 
-  /** Apply one frame to the open agent turn. */
-  const apply = useCallback((turnId: string, event: AgentEvent) => {
-    setTurns((current) =>
-      current.map((turn) => (turn.id === turnId ? reduce(turn, event) : turn)),
-    );
-  }, []);
-
-  /** Take the closing frame's answer, but only when nothing streamed. */
-  const setFinalAnswer = useCallback((turnId: string, answer: string) => {
-    setTurns((current) =>
-      current.map((turn) =>
-        turn.id === turnId && !answerOf(turn)
-          ? { ...turn, segments: [...turn.segments, { kind: "text", iter: 0, text: answer }] }
-          : turn,
-      ),
-    );
-  }, []);
-
   /**
    * Hand a message to the run already in flight.
    *
@@ -114,7 +110,11 @@ export function useAgentChat(
    */
   const steer = useCallback(
     (text: string) => {
-      setTurns((current) => [...current, newTurn(randomId(), "user", text)]);
+      const turnId = randomId();
+      // Pending, not sent: the response to this request says nothing about what
+      // became of the message — see Delivery — so the bubble waits for the run to
+      // say it took it.
+      append({ ...newTurn(turnId, "user", text), delivery: "pending" });
 
       const controller = new AbortController();
       steers.current.add(controller);
@@ -123,12 +123,12 @@ export function useAgentChat(
           const res = await fetch("/api/agent/chat", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              threadId: readThreadId(userKey),
-              message: text,
-              page,
-              routes: ROUTE_CATALOGUE,
-            }),
+            // The question alone. The run this joins already holds the page and
+            // the route catalogue from its opening turn, and the runtime injects
+            // whatever arrives here into that conversation verbatim — so sending
+            // them again would add 1.5KB of duplicate context per follow-up and
+            // leave the acknowledgement carrying a string no bubble can match.
+            body: JSON.stringify({ threadId: readThreadId(userKey), message: text }),
             signal: controller.signal,
           });
           // The body is the empty one the runtime returns for a message it handed
@@ -140,13 +140,17 @@ export function useAgentChat(
           // An abort is a stop or a reset, not a failure — and reporting one over
           // an answer that is still arriving would be a failure the reader cannot
           // act on and did not cause.
-          if ((e as Error).name !== "AbortError") setError("that message did not reach him");
+          //
+          // A real failure is marked on the message rather than raised as a
+          // banner. It is one message that did not land, in a panel where others
+          // did, and a notice at the top of the drawer cannot say which.
+          if ((e as Error).name !== "AbortError") setDelivery(turnId, "missed");
         } finally {
           steers.current.delete(controller);
         }
       })();
     },
-    [page, userKey],
+    [append, setDelivery, userKey],
   );
 
   const send = useCallback(
@@ -171,11 +175,10 @@ export function useAgentChat(
       setError(null);
 
       const agentTurnId = randomId();
-      setTurns((current) => [
-        ...current,
-        newTurn(randomId(), "user", text),
-        { ...newTurn(agentTurnId, "agent"), streaming: true },
-      ]);
+      append(newTurn(randomId(), "user", text), {
+        ...newTurn(agentTurnId, "agent"),
+        streaming: true,
+      });
 
       void (async () => {
         try {
@@ -198,6 +201,9 @@ export function useAgentChat(
             );
           }
 
+          // What this stream actually delivered. Zero is not an empty answer: it
+          // is the runtime saying somebody else owns this conversation — see below.
+          let applied = 0;
           for await (const frame of parseSSE(res.body)) {
             if (frame.event === "navigate") {
               const target = parseNavigateEvent(frame.data);
@@ -210,12 +216,26 @@ export function useAgentChat(
             // reply exists.
             if (frame.event === "answer") {
               const answer = parseFinalAnswer(frame.data);
-              if (answer) setFinalAnswer(agentTurnId, answer);
+              if (answer) {
+                setFinalAnswer(agentTurnId, answer);
+                applied++;
+              }
               continue;
             }
             const event = parseAgentEvent(frame.data);
-            if (event) apply(agentTurnId, event);
+            if (!event) continue;
+            applied++;
+            if (event.type === "signal") {
+              applySignal(agentTurnId, event);
+              continue;
+            }
+            apply(agentTurnId, event);
           }
+
+          // Nothing arrived at all, which is the runtime saying somebody else owns
+          // this conversation. Left alone it is a blank turn with no explanation,
+          // which reads as a message that vanished.
+          if (applied === 0) noteTurn(agentTurnId, HANDED_OVER_NOTE);
         } catch (e) {
           // Aborting is how stopping and closing the panel both work; it is not a
           // failure to report.
@@ -225,19 +245,18 @@ export function useAgentChat(
           // unwinds a microtask after stop(), by which time a new question may
           // already be streaming — and clearing either the controller or busy then
           // would be this run switching off the next one's lights.
-          if (abort.current === controller) {
+          const mine = abort.current === controller;
+          if (mine) {
             abort.current = null;
             setBusy(false);
           }
-          setTurns((current) =>
-            current.map((turn) =>
-              turn.id === agentTurnId ? { ...turn, streaming: false } : turn,
-            ),
-          );
+          // Only this run's leavings are settled. A newer run is already on the
+          // stream, and anything still waiting may be waiting on that one.
+          endTurn(agentTurnId, mine);
         }
       })();
     },
-    [apply, busy, page, setFinalAnswer, steer, userKey],
+    [append, apply, applySignal, busy, endTurn, noteTurn, page, setFinalAnswer, steer, userKey],
   );
 
   /**
@@ -247,6 +266,12 @@ export function useAgentChat(
    */
   const stop = useCallback(() => {
     dropSteers();
+    // The reader's own settling does not cover this: by the time it unwinds the
+    // controller below has been released, so it no longer knows the run it is
+    // closing was the current one. Nothing is going to read a message that was
+    // waiting when the run was ended, and a spinner left turning would say the
+    // opposite.
+    settlePending();
     const controller = abort.current;
     if (!controller) return;
     controller.abort();
@@ -268,7 +293,7 @@ export function useAgentChat(
     })
       .then((res) => res.body?.cancel())
       .catch(() => {});
-  }, [dropSteers, userKey]);
+  }, [dropSteers, settlePending, userKey]);
 
   /**
    * Start a fresh conversation. The thread id goes too — the agent keys its memory
@@ -280,9 +305,9 @@ export function useAgentChat(
     abort.current = null;
     setBusy(false);
     sessionStorage.removeItem(threadKey(userKey));
-    setTurns([]);
+    replace([]);
     setError(null);
-  }, [dropSteers, userKey]);
+  }, [dropSteers, replace, userKey]);
 
   /**
    * Pick up a stored conversation. The thread id goes to sessionStorage because
@@ -296,10 +321,10 @@ export function useAgentChat(
       abort.current = null;
       setBusy(false);
       sessionStorage.setItem(threadKey(userKey), threadId);
-      setTurns(stored);
+      replace(stored);
       setError(null);
     },
-    [dropSteers, userKey],
+    [dropSteers, replace, userKey],
   );
 
   return { turns, busy, error, send, stop, reset, resume };

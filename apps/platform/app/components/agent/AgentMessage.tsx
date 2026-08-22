@@ -8,6 +8,7 @@ import ThinkingSegment from "./ThinkingSegment";
 import ToolsSegment from "./ToolsSegment";
 import CompactionNotice from "./CompactionNotice";
 import SignalNotice from "./SignalNotice";
+import UserMessage from "./UserMessage";
 
 /**
  * One turn in the transcript.
@@ -70,17 +71,7 @@ const COMPONENTS = {
 };
 
 export default function AgentMessage({ turn }: { turn: Turn }) {
-  if (turn.role === "user") {
-    return (
-      <div className="flex justify-end">
-        <div className="max-w-[85%] rounded-lg rounded-br-sm bg-sky-600 px-3 py-1.5 text-sm text-white">
-          {turn.segments.map((segment, i) =>
-            segment.kind === "text" ? <span key={i}>{segment.text}</span> : null,
-          )}
-        </div>
-      </div>
-    );
-  }
+  if (turn.role === "user") return <UserMessage turn={turn} />;
 
   return (
     <div className="flex flex-col gap-1.5">

@@ -48,11 +48,32 @@ export type Segment =
   | { kind: "compaction"; iter: number; strategy: string; done: boolean; dropped?: number }
   | { kind: "signal"; iter: number; signal: string; text?: string };
 
+/**
+ * What became of a message sent while he was already working.
+ *
+ * Such a message is not answered by the request that carried it: the runtime hands
+ * it to the run already in flight and stops the flow that brought it, so the POST
+ * comes back empty and immediately whether or not anything was done with it. It is
+ * folded into the conversation at the top of the run's next iteration, which can
+ * be a whole model call away — long enough that a message shown as sent reads as a
+ * message ignored.
+ *
+ * So it is shown as sent-but-not-yet-read until the run says otherwise, which it
+ * does: injecting one emits a `signal`, and that frame is the acknowledgement.
+ */
+export type Delivery = "pending" | "taken" | "missed";
+
 /** One turn in the transcript. A user turn carries only text. */
 export interface Turn {
   id: string;
   role: "user" | "agent";
   segments: Segment[];
+  /**
+   * Set only on a message handed to a run in progress. An ordinary question —
+   * one that started its own run — has no delivery to report: the answer
+   * streaming underneath it is the acknowledgement.
+   */
+  delivery?: Delivery;
   /** Set when the agent declined the question or the run failed. */
   note?: string;
   /** How full the context was at the last model turn, when one reported it. */
@@ -66,6 +87,18 @@ const GUARDRAIL_NOTES: Record<string, string> = {
   "exceeded max iterations":
     "He ran out of steps before finishing. Try narrowing the question, or raise AGENT_MAX_ITERATIONS on his deployment.",
 };
+
+/**
+ * Why an agent turn carries no answer: the conversation was already claimed.
+ *
+ * The runtime hands the message to the run that holds it and stops this flow with
+ * an empty body, so the stream carries nothing at all. It happens whenever the
+ * window could not know a run was in flight — a second tab, or this one after a
+ * reload while the old run still holds the claim.
+ */
+export const HANDED_OVER_NOTE =
+  "He was already working on this conversation, so your message joined that run " +
+  "rather than starting a new one. The answer is going to whoever is reading it.";
 
 /** A fresh turn, for the hook and for replaying a stored conversation. */
 export function newTurn(id: string, role: Turn["role"], text = ""): Turn {
@@ -83,6 +116,54 @@ export function answerOf(turn: Turn): string {
     .filter((s): s is Extract<Segment, { kind: "text" }> => s.kind === "text")
     .map((s) => s.text)
     .join("");
+}
+
+/**
+ * Mark the message a signal is acknowledging, or report that none of ours is.
+ *
+ * A signal names what the run did with something posted to it from outside, and
+ * the thing it is about is the message, not the answer — so it belongs on that
+ * bubble rather than as a line in the middle of the reply, where it repeats text
+ * the reader can already see two inches above.
+ *
+ * Matched on the text because that is all the two ends share: the message was
+ * handed over through the runtime, not through this window, and it comes back with
+ * no id of ours on it. The oldest match wins, which is the order the run injects
+ * them in.
+ *
+ * Null means this window did not send it — another tab did, or the panel was
+ * reloaded mid-run — and the caller then falls back to showing it in the
+ * transcript, which is the only place a message somebody else sent can appear.
+ */
+export function acknowledge(turns: Turn[], signal: string, text: string): Turn[] | null {
+  const outcome = DELIVERY_OF[signal];
+  const said = text.trim();
+  if (!outcome || !said) return null;
+  const i = turns.findIndex(
+    (turn) => turn.role === "user" && turn.delivery === "pending" && answerOf(turn).trim() === said,
+  );
+  if (i < 0) return null;
+  return turns.with(i, { ...turns[i], delivery: outcome });
+}
+
+/** The run's two verdicts on a message it was handed. */
+const DELIVERY_OF: Record<string, Delivery | undefined> = {
+  // Folded into the conversation, and from here on it shapes the answer.
+  context: "taken",
+  // Accepted, and the run ran out of turns before reaching it.
+  unanswered: "missed",
+};
+
+/**
+ * Settle whatever is still waiting once the run has ended.
+ *
+ * Nothing more is coming: an acknowledgement only arrives on the stream this run
+ * owns, so a message still pending when it closes was never taken — the run was
+ * stopped, or it failed, and either way the message is gone. Leaving it pending
+ * would be a spinner that never resolves.
+ */
+export function settle(turns: Turn[]): Turn[] {
+  return turns.map((turn) => (turn.delivery === "pending" ? { ...turn, delivery: "missed" } : turn));
 }
 
 /** Fold one frame into a turn. */

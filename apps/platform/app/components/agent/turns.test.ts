@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { answerOf, newTurn, reduce, type Segment, type Turn } from "./turns";
+import { acknowledge, answerOf, newTurn, reduce, settle, type Segment, type Turn } from "./turns";
 import type { AgentEvent } from "./frames";
 
 /** Fold a run's worth of frames into one turn. */
@@ -135,5 +135,72 @@ describe("reduce", () => {
   it("leaves the turn untouched by a gauge with no budget behind it", () => {
     const turn = run({ type: "turn_end", iteration: 1, contextTokens: 1200 });
     expect(turn.context).toBeUndefined();
+  });
+});
+
+/**
+ * A message sent while he was working. The runtime answers the request that
+ * carried it with nothing, so this state — and the frame that clears it — is the
+ * only thing standing between the reader and a bubble they cannot tell was read.
+ */
+describe("acknowledge", () => {
+  const waiting = (id: string, said: string): Turn => ({
+    ...newTurn(id, "user", said),
+    delivery: "pending",
+  });
+
+  it("marks the message the run says it folded in", () => {
+    const turns = acknowledge([waiting("u1", "and the logs?")], "context", "and the logs?");
+
+    expect(turns?.[0].delivery).toBe("taken");
+  });
+
+  it("marks one he accepted and never reached", () => {
+    const turns = acknowledge([waiting("u1", "and the logs?")], "unanswered", "and the logs?");
+
+    expect(turns?.[0].delivery).toBe("missed");
+  });
+
+  // The oldest, because that is the order the run injects them in — marking the
+  // later one would leave the earlier waiting forever behind a message it was
+  // sent before.
+  it("takes the oldest of two identical messages", () => {
+    const turns = acknowledge(
+      [waiting("u1", "again"), waiting("u2", "again")],
+      "context",
+      "again",
+    );
+
+    expect(turns?.map((t) => t.delivery)).toEqual(["taken", "pending"]);
+  });
+
+  it("leaves a message already accounted for alone", () => {
+    const settled: Turn = { ...newTurn("u1", "user", "and the logs?"), delivery: "taken" };
+
+    expect(acknowledge([settled], "context", "and the logs?")).toBeNull();
+  });
+
+  // Null is what sends it to the transcript instead, which is the only place a
+  // message another tab sent can appear at all.
+  it("reports no match for a message this window never sent", () => {
+    expect(acknowledge([waiting("u1", "mine")], "context", "somebody else's")).toBeNull();
+  });
+
+  it("ignores a signal that says nothing about delivery", () => {
+    expect(acknowledge([waiting("u1", "mine")], "stop", "mine")).toBeNull();
+  });
+});
+
+describe("settle", () => {
+  // Nothing more is coming: the acknowledgement only ever arrives on the stream
+  // the run owns, so a message still waiting when it closes was never taken.
+  it("gives up on whatever was still waiting when the run ended", () => {
+    const turns = settle([
+      { ...newTurn("u1", "user", "taken"), delivery: "taken" },
+      { ...newTurn("u2", "user", "waiting"), delivery: "pending" },
+      newTurn("u3", "user", "an ordinary question"),
+    ]);
+
+    expect(turns.map((t) => t.delivery)).toEqual(["taken", "missed", undefined]);
   });
 });

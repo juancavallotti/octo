@@ -17,6 +17,16 @@ function sseResponse(body: string): Response {
   return { ok: true, status: 200, body: stream } as unknown as Response;
 }
 
+/**
+ * What the runtime returns for a message it handed to the run already in flight:
+ * an empty body, immediately. Nothing about the message comes back this way — the
+ * acknowledgement arrives on the stream that is already open — and a steer sharing
+ * the run's Response would have it cancelling the very stream it is waiting on.
+ */
+function handedOver(): Response {
+  return { ok: true, status: 200, body: null } as unknown as Response;
+}
+
 /** Frames as the agent's events path writes them: one SSE event per agent event. */
 function frames(...events: unknown[]): string {
   return events.map((e) => `event: agent\ndata: ${JSON.stringify(e)}\n\n`).join("");
@@ -183,7 +193,9 @@ describe("useAgentChat", () => {
   // is injected into it and stops with an empty body. Both messages are the
   // person's, and both belong in the transcript.
   it("hands a second message to the run in flight instead of starting a rival", async () => {
-    fetchMock.mockResolvedValue(sseResponse(frames({ type: "text", text: "ok" })));
+    fetchMock
+      .mockResolvedValueOnce(sseResponse(frames({ type: "text", text: "ok" })))
+      .mockResolvedValue(handedOver());
     const { result } = renderHook(() => useAgentChat("u-1", "/platform", () => {}));
 
     act(() => {
@@ -206,6 +218,133 @@ describe("useAgentChat", () => {
     expect(steer.signal).not.toBe(run.signal);
   });
 
+  /**
+   * The request that carries a steered message answers nothing: the runtime hands
+   * it to the run in flight and stops the flow, so the POST comes back empty and
+   * immediately whether the message was folded in or thrown away. Until the run
+   * says which, the bubble must not claim it was read.
+   */
+  it("holds a steered message as unread until he says he took it", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        sseResponse(
+          frames(
+            { type: "text", text: "ok" },
+            { type: "signal", signal: "context", text: "second", iteration: 2 },
+          ),
+        ),
+      )
+      .mockResolvedValue(handedOver());
+    const { result } = renderHook(() => useAgentChat("u-1", "/platform", () => {}));
+
+    act(() => {
+      result.current.send("first");
+      result.current.send("second");
+    });
+
+    await waitFor(() => expect(result.current.busy).toBe(false));
+    expect(
+      result.current.turns.filter((t) => t.role === "user").map((t) => t.delivery),
+    ).toEqual([undefined, "taken"]);
+
+    // And the acknowledgement went to the message rather than into the middle of
+    // the answer, where it would repeat text already on screen just above.
+    const agent = result.current.turns.find((t) => t.role === "agent")!;
+    expect(agent.segments.map((s) => s.kind)).toEqual(["text"]);
+  });
+
+  // The run this joins already holds the page and the route catalogue from its
+  // opening turn, and the runtime injects whatever arrives here into that
+  // conversation verbatim. Sending them again duplicates 1.5KB of context per
+  // follow-up and leaves the acknowledgement carrying a string that no bubble the
+  // person typed could ever be matched to.
+  it("steers with the question alone, not the whole page context", async () => {
+    fetchMock
+      .mockResolvedValueOnce(sseResponse(frames({ type: "text", text: "ok" })))
+      .mockResolvedValue(handedOver());
+    const { result } = renderHook(() => useAgentChat("u-1", "/platform", () => {}));
+
+    act(() => {
+      result.current.send("first");
+      result.current.send("second");
+    });
+
+    await waitFor(() => expect(result.current.busy).toBe(false));
+    const asked = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    const steered = JSON.parse((fetchMock.mock.calls[1][1] as RequestInit).body as string);
+    expect(asked.routes.length).toBeGreaterThan(0);
+    expect(Object.keys(steered).sort()).toEqual(["message", "threadId"]);
+  });
+
+  /**
+   * A message can be handed over without this window ever knowing a run was in
+   * flight — a second tab, or this one after a reload while the old run still
+   * holds the claim. The runtime stops the flow with an empty body, so the stream
+   * carries nothing: no frames, no answer, and a turn that renders as a blank gap
+   * where an answer should be.
+   */
+  it("says so when the stream carried nothing because the run was already claimed", async () => {
+    fetchMock.mockResolvedValue(sseResponse(""));
+    const { result } = renderHook(() => useAgentChat("u-1", "/platform", () => {}));
+
+    act(() => result.current.send("what changed?"));
+
+    await waitFor(() => expect(result.current.busy).toBe(false));
+    const agent = result.current.turns.at(-1)!;
+    expect(agent.segments).toHaveLength(0);
+    expect(agent.note).toMatch(/already working on this conversation/);
+  });
+
+  // An answer that arrived is an answer, however little of it there was.
+  it("says nothing about a handover when the run answered", async () => {
+    fetchMock.mockResolvedValue(sseResponse(frames({ type: "text", text: "three." })));
+    const { result } = renderHook(() => useAgentChat("u-1", "/platform", () => {}));
+
+    act(() => result.current.send("how many"));
+
+    await waitFor(() => expect(result.current.busy).toBe(false));
+    expect(result.current.turns.at(-1)?.note).toBeUndefined();
+  });
+
+  // Nothing more is coming once the stream closes — a stop, or a failure, and
+  // either way the message is gone. A spinner that never resolves is worse than
+  // saying so.
+  it("gives up on a steered message the run ended without taking", async () => {
+    fetchMock
+      .mockResolvedValueOnce(sseResponse(frames({ type: "text", text: "ok" })))
+      .mockResolvedValue(handedOver());
+    const { result } = renderHook(() => useAgentChat("u-1", "/platform", () => {}));
+
+    act(() => {
+      result.current.send("first");
+      result.current.send("second");
+    });
+
+    await waitFor(() => expect(result.current.busy).toBe(false));
+    expect(result.current.turns.at(-1)?.delivery).toBe("missed");
+  });
+
+  // Somebody else's message — a second tab on the same conversation, or this one
+  // reloaded mid-run. There is no bubble of ours to mark, and the answer changing
+  // direction with nothing said would be the reply going strange for no reason.
+  it("shows a message this window never sent in the transcript instead", async () => {
+    fetchMock.mockResolvedValue(
+      sseResponse(
+        frames(
+          { type: "text", text: "ok" },
+          { type: "signal", signal: "context", text: "from the other tab", iteration: 2 },
+        ),
+      ),
+    );
+    const { result } = renderHook(() => useAgentChat("u-1", "/platform", () => {}));
+
+    act(() => result.current.send("first"));
+
+    await waitFor(() => expect(result.current.busy).toBe(false));
+    const agent = result.current.turns.find((t) => t.role === "agent")!;
+    expect(agent.segments.map((s) => s.kind)).toEqual(["text", "signal"]);
+  });
+
   // A steer that lands after a stop finds no run to join, so the runtime claims
   // the conversation and starts one — answering, at full price, a follow-up
   // somebody has just cancelled.
@@ -224,6 +363,26 @@ describe("useAgentChat", () => {
     act(() => result.current.stop());
 
     expect(signals[1]?.aborted).toBe(true);
+  });
+
+  // The reader's own settling cannot cover a stop: by the time it unwinds, the
+  // controller has been released and it no longer knows the run it is closing was
+  // the current one. A spinner left turning would say a message is still coming.
+  it("gives up on a steered message when the run is stopped", async () => {
+    fetchMock
+      .mockResolvedValueOnce(sseResponse(frames({ type: "text", text: "ok" })))
+      .mockResolvedValue(handedOver());
+    const { result } = renderHook(() => useAgentChat("u-1", "/platform", () => {}));
+
+    act(() => {
+      result.current.send("first");
+      result.current.send("second");
+    });
+    expect(result.current.turns.at(-1)?.delivery).toBe("pending");
+
+    act(() => result.current.stop());
+
+    expect(result.current.turns.at(-1)?.delivery).toBe("missed");
   });
 
   // Hanging up ends the run whose stream this connection holds. A stop addressed

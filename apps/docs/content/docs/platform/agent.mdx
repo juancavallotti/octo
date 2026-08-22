@@ -64,6 +64,10 @@ Press **Stop** to end a run in progress, or close the panel. Closing aborts the 
 
 You can also type while he is working. A message sent mid-answer is handed to the run already in flight rather than starting a second one, so he takes it into account on his next turn instead of answering you twice on two streams.
 
+Such a message is sent as the question alone — the run it joins already knows what page you are on and where it may take you, so a follow-up does not repeat any of it. It is shown as unread until he picks it up. Nothing comes back on the request that carries it — the answer is going to the stream you already have open — so a bubble that looked sent would look identical whether he folded it in or dropped it. It waits, and turns to **Read, and taken into account** when the run says it took it, which can be a whole model call later. If the run ends first, or he runs out of steps before reaching it, it says so and tells you to ask again: that is the one case where something you sent goes nowhere, and it is not allowed to be silent.
+
+If you reload the page, or have a second tab open, this window cannot tell that a run is already going. Sending a message then still reaches that run — the runtime knows even when the browser does not — but the answer goes to whoever is reading the run, not to you. The panel says so where the reply would have been, rather than leaving a blank turn.
+
 Press **New conversation** to start fresh — that drops the thread, and with it what he remembers of it. The conversation itself is kept, and you can come back to it: past conversations are listed by name in the panel.
 
 He knows which page you are on, so ask about "this integration" or "this deployment" and expect him to know what you mean.
