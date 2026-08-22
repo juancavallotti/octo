@@ -124,7 +124,7 @@ overriding `WEATHER_LAT` / `WEATHER_LON` (inline or in a `./.env` file).
 
 ## Add authentication
 
-Auth is configured once on the connector and applied to every request. Three
+Auth is configured once on the connector and applied to every request. Four
 schemes are supported.
 
 Bearer token:
@@ -160,6 +160,54 @@ caches it, and refreshes it automatically.
         scopes:
           - read
 ```
+
+Google Cloud workload identity, for a runtime deployed on Cloud Run, GCE, or
+GKE. The connector asks the instance metadata server for a token minted for the
+service account it runs as, so there is no secret to configure at all:
+
+```yaml
+      auth:
+        type: gcp                # audience defaults to baseURL
+```
+
+That covers calling another Cloud Run service. To call a Google API directly,
+ask for an access token and name the scopes:
+
+```yaml
+      auth:
+        type: gcp
+        gcpToken: access
+        gcpScopes:
+          - https://www.googleapis.com/auth/devstorage.read_only
+```
+
+See the [http-client reference](/reference/connectors/http#authentication-auth)
+for the full field list.
+
+### Switch auth off in local development
+
+`auth.type` is an ordinary setting, so it takes an `${ENV}` reference like any
+other — and an empty type means no auth. That is the intended way to run the
+same config in both places: no auth against a local stub, the real scheme in
+production.
+
+```yaml
+env:
+  - name: API_AUTH
+    default: ""                  # local: no auth
+connectors:
+  - name: orders
+    type: http-client
+    settings:
+      baseURL: ${ORDERS_URL}
+      auth:
+        type: ${API_AUTH}        # set API_AUTH=gcp in Cloud Run
+```
+
+This matters most for `gcp`, which can only work where a metadata server exists.
+Rather than a fallback credential path that behaves differently on a laptop than
+in production, the scheme is switched off by configuration and the difference
+stays visible in the environment.
 
 <Callout type="info">
 If a `rest` block sets an `Authorization` header itself, the connector leaves

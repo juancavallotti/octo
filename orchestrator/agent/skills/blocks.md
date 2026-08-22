@@ -42,8 +42,22 @@ put everything under `settings`.
 
 | Block | Key settings |
 | --- | --- |
-| `rest` | `connector`, `method`, `path` (both **static**), `query`/`headers` (maps of CEL), `body` (CEL), `failOnError`, `statusVar`. |
+| `rest` | `connector`, `method`, `path` (both **static**), `query`/`headers` (maps of CEL), `body` (CEL), `bodyType` (`raw`\|`multipart`), `failOnError`, `statusVar`. |
 | `rest-dynamic` | Same, but `method`, `path`, `query`, `headers`, `body` are **all** CEL, and `query`/`headers` are one expression evaluating to a whole map. Use when the endpoint itself is data. Also takes `allowMethods` and `pathPrefix`. |
+
+To send a file, set `bodyType: multipart` and let `body` evaluate to a parts map -- the same shape `body.parts` holds inbound, so forwarding an upload is `body: 'body.parts'`. Build one with `multipart()` and `.addPart(name, value)`; a scalar is a text field, an object may set `data`, `encoding`, `filename`, `contentType`. The block generates the boundary and sets `Content-Type` itself, so do **not** set that header:
+
+```yaml
+- type: rest
+  settings:
+    connector: upstream
+    method: POST
+    bodyType: multipart
+    body: |
+      multipart()
+        .addPart("caption", body.caption)
+        .addPart("avatar", body.parts.avatar)
+```
 | `flow-ref` | `flow`, `oneWay` — invoke another flow by name. |
 | `cli-run` | `program` (CEL, absolute path), `args` (CEL list), `allow` (absolute paths; required when `program` depends on the message), `env`, `workDir`, `timeout`, `onExit`, `events`/`emit` (stdout/stderr/exit). Runs a local program; no shell, argv only. |
 | `jwt-validate` | Filter: verify a bearer JWT against an OIDC provider; claims land in `vars.jwt`. |

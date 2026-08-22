@@ -343,7 +343,7 @@ The `http-client` connector (label: **HTTP Client**) owns a configured client fo
 
 | Setting | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `type` | enum: `bearer` \| `basic` \| `oauth2` | No | none | Authentication scheme. |
+| `type` | enum: `bearer` \| `basic` \| `oauth2` \| `gcp` | No | none | Authentication scheme. |
 | `token` | string | With `type: bearer` | — | Token sent as `Authorization: Bearer`. |
 | `username` | string | With `type: basic` | — | Basic auth username. |
 | `password` | string | No | — | Basic auth password. |
@@ -351,8 +351,41 @@ The `http-client` connector (label: **HTTP Client**) owns a configured client fo
 | `clientID` | string | With `type: oauth2` | — | OAuth2 client identifier. |
 | `clientSecret` | string | With `type: oauth2` | — | OAuth2 client secret. |
 | `scopes` | string[] | No | — | Requested OAuth2 scopes. |
+| `gcpToken` | enum: `identity` \| `access` | No | `identity` | Which token the GCP metadata server mints. |
+| `gcpAudience` | string | No | the connector's base URL (origin) | Audience for a GCP identity token. |
+| `gcpScopes` | string[] | No | the service account's own scopes | Scopes for a GCP access token. |
 
 For `oauth2`, the connector mints and refreshes a bearer token via the client-credentials grant and applies it to each request. A request that already carries an `Authorization` header is never overwritten.
+
+### GCP workload identity (`type: gcp`)
+
+For a runtime running on Cloud Run, GCE, or GKE, `type: gcp` authenticates as the
+service account the process runs as. The token comes from the instance metadata
+server, so nothing secret is configured and nothing is stored.
+
+Two kinds of token, for two different callees:
+
+- **`identity`** (the default) is an OIDC token stamped with an audience. It is
+  what one Cloud Run service presents to another, and what an IAP-protected
+  endpoint expects. `gcpAudience` defaults to the connector's `baseURL` — origin
+  only — which is what the receiving service validates against, so calling
+  another service usually needs no more than `type: gcp`.
+- **`access`** is an OAuth token carrying scopes, for calling a Google API
+  (Storage, Pub/Sub, BigQuery) directly. With no `gcpScopes` the metadata server
+  returns the service account's own, which on Cloud Run is `cloud-platform`.
+
+Tokens are cached until shortly before they expire and refreshed on demand.
+Nothing is written to the secret store: the metadata server is local and free,
+and a token minted for one instance's identity is not something to share between
+replicas.
+
+<Callout type="warn">
+  `type: gcp` only works where a metadata server exists. Off Google Cloud the
+  first request fails with an error saying so. Drive the scheme from an
+  environment variable — `type: ${API_AUTH}`, empty locally and `gcp` in
+  production — rather than expecting a local fallback; see
+  [Add authentication](/guides/call-external-apis#add-authentication).
+</Callout>
 
 ### Retry (`retry`)
 

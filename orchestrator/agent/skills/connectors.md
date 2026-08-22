@@ -46,6 +46,7 @@ source:
   type: http
   settings:
     path: /orders/{id}          # path params land in vars
+    methods: [GET, POST]        # omit to answer every method
     headers: [X-Request-Id]     # listed headers land in vars
     timeout: 30s
     maxBodyBytes: 1048576
@@ -62,8 +63,28 @@ The request maps in as: path params to `vars.<name>`, `vars.method`, `vars.query
 (a map), listed headers to `vars.<Header-Name>`, and the JSON body to `body`. Set
 `vars.httpStatus` to control the response code.
 
-There is **no `methods` setting** — a route accepts every method, and you filter
-with `vars.method` in a `condition`.
+Naming `methods` makes the router answer every other method with `405` before any
+flow runs; omitting it accepts all of them, and you filter with `vars.method` in a
+`condition`. Listing `GET` also answers `HEAD`.
+
+A **`multipart/form-data`** request is decoded automatically -- no setting, and
+`rawBody` does not disable it. Its parts land on `body.parts`, keyed by part name:
+
+```yaml
+value: |
+  {
+    "who":  body.parts.username.data,
+    "file": body.parts.avatar.filename,
+    "type": body.parts.avatar.contentType,   # each part has its OWN content type
+    "size": body.parts.avatar.size           # always the decoded byte length
+  }
+```
+
+A part with a `filename` has `encoding: base64` (read it with
+`base64.decode(part.data)`); a plain field is `text`. `contentType` and `rawData`
+are untouched underneath, so a signature over the raw body still verifies. Raise
+`maxBodyBytes` for uploads -- the 1 MiB default is small, and the body holds both
+the raw payload and the parts.
 
 With `sse.enabled`, the stream address lands in `vars.sseStream` and `sse-event`
 finds it with no configuration. Nothing is written until the first frame, so a
@@ -80,7 +101,7 @@ finds it with no configuration. Nothing is written until the first frame, so a
     headers: { X-App: octo }
     maxResponseBytes: 1048576
     auth:
-      type: bearer              # none | bearer | basic | oauth2
+      type: bearer              # none | bearer | basic | oauth2 | gcp
       token: ${API_TOKEN}
     retry: { maxAttempts: 3 }
     cache: { enabled: true, ttl: 60s }
@@ -88,6 +109,27 @@ finds it with no configuration. Nothing is written until the first frame, so a
 
 `baseURL` is a hard boundary: a block's path cannot change the host. Credentials
 belong in `auth`, not in a block's headers.
+
+**`type: gcp`** authenticates as the service account the runtime runs as, using
+the GCP metadata server -- no secret to configure. Use it for a runtime on Cloud
+Run, GCE, or GKE calling another Cloud Run service or a Google API:
+
+```yaml
+    auth:
+      type: gcp                 # identity token; audience defaults to baseURL
+```
+
+```yaml
+    auth:
+      type: gcp
+      gcpToken: access          # for calling Google APIs directly
+      gcpScopes: [https://www.googleapis.com/auth/devstorage.read_only]
+```
+
+It only works where a metadata server exists. Drive `type` from an env var --
+`type: ${API_AUTH}`, empty locally and `gcp` in production -- rather than
+expecting it to work on a laptop. An empty `type` means no auth, which makes this
+the general pattern for turning auth off in local development.
 
 ## database
 

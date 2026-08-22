@@ -1215,6 +1215,84 @@ flows:
 `,
 };
 
+const FILE_UPLOAD: Example = {
+  slug: "file-upload",
+  title: "file-upload — receive a multipart upload and forward it",
+  summary:
+    "A multipart/form-data request is decoded automatically (no setting, and rawBody does not disable it): its parts land on body.parts keyed by name, each with its own filename, contentType, encoding and decoded size. A file part is base64, a plain field is text. The second flow forwards an upload to another service with the rest block's bodyType: multipart, building the body with multipart()/addPart() — a decoded part is already the shape addPart takes. Declares HTTP_PORT, so run_integration returns a test URL: curl -F 'name=Ann' -F 'avatar=@photo.png' <testUrl>upload.",
+  blocks: ["http (source)", "set-payload", "rest", "http-client (connector)"],
+  definition: `service:
+  name: file-upload
+
+env:
+  - name: HTTP_HOST
+    default: 0.0.0.0
+  - name: HTTP_PORT
+    default: "8080"
+  - name: UPSTREAM_URL
+    default: https://api.example.com
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      host: \${HTTP_HOST}
+      port: \${HTTP_PORT}
+
+  - name: upstream
+    type: http-client
+    settings:
+      baseURL: \${UPSTREAM_URL}
+
+flows:
+  # Read an upload. Nothing opts in: the source decodes multipart because the
+  # request says it is multipart, and puts the parts on body.parts.
+  - name: upload
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /upload
+        methods: [POST]
+        maxBodyBytes: 10485760      # raise for uploads; the default is 1 MiB
+    process:
+      - type: set-payload
+        settings:
+          value: |
+            {
+              "name": body.parts.name.data,
+              "file": {
+                "filename":    body.parts.avatar.filename,
+                "contentType": body.parts.avatar.contentType,
+                "encoding":    body.parts.avatar.encoding,
+                "size":        body.parts.avatar.size
+              }
+            }
+
+  # Forward one. bodyType: multipart makes the block build the body and own the
+  # boundary, so never set Content-Type yourself here.
+  - name: relay
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /relay
+        methods: [POST]
+        maxBodyBytes: 10485760
+    process:
+      - type: rest
+        settings:
+          connector: upstream
+          method: POST
+          path: /v1/media
+          bodyType: multipart
+          body: |
+            multipart()
+              .addPart("source", "octo")
+              .addPart("avatar", body.parts.avatar)
+`,
+};
+
 export const EXAMPLES: Example[] = [
   HELLO_WORLD,
   BUILTINS,
@@ -1234,6 +1312,7 @@ export const EXAMPLES: Example[] = [
   AI_AGENT_SKILLS,
   MCP_ROUTER,
   RAW_CONTENT,
+  FILE_UPLOAD,
 ];
 
 /** The example whose slug matches, or undefined. */
