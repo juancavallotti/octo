@@ -26,7 +26,7 @@ export default function WorkingStatus({ turn }: { turn: Turn | undefined }) {
           ongoing" at a glance, and the width is the one thing here that does not
           need a number nobody has. */}
       <span className="h-0.5 w-8 shrink-0 overflow-hidden rounded-full bg-black/10 dark:bg-white/15">
-        <span className="block h-full w-1/2 animate-[agentSweep_1.2s_ease-in-out_infinite] rounded-full bg-sky-500" />
+        <span className="block h-full w-1/2 animate-[agent-sweep_1.2s_ease-in-out_infinite] rounded-full bg-sky-500" />
       </span>
       <span className="truncate">{label}</span>
     </div>

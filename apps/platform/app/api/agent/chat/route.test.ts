@@ -82,6 +82,21 @@ describe("POST /api/agent/chat", () => {
     expect(sentHeaders()["X-Agent-Stop"]).toBeUndefined();
   });
 
+  // `null` is valid JSON and is not an object, so reading a field off it throws
+  // and a plainly bad request comes back as a 500. Arrays and scalars parse too
+  // and carry none of the fields this route reads.
+  it.each([["null"], ["[]"], ['"text"'], ["7"], ["not json at all"]])(
+    "refuses a body that is not an object: %s",
+    async (raw) => {
+      const res = await POST(
+        new Request("http://platform.local/api/agent/chat", { method: "POST", body: raw }),
+      );
+
+      expect(res.status).toBe(400);
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
   // The agent keys its memory on the user id, so a forged block in the request
   // would be a way to read somebody else's conversation by asking for it.
   it("writes the signed-in identity over whatever the browser sent", async () => {

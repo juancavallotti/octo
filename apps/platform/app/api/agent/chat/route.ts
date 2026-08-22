@@ -49,7 +49,15 @@ export async function POST(req: Request) {
 
   let body: Record<string, unknown>;
   try {
-    body = (await req.json()) as Record<string, unknown>;
+    const parsed: unknown = await req.json();
+    // An object, and specifically not the JSON literal `null` — which parses
+    // fine and is not an object, so reading a field off it throws and the caller
+    // gets a 500 for what is plainly a bad request. Arrays and scalars parse too
+    // and carry none of the fields below.
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      return Response.json({ error: "invalid request body" }, { status: 400 });
+    }
+    body = parsed as Record<string, unknown>;
   } catch {
     return Response.json({ error: "invalid request body" }, { status: 400 });
   }

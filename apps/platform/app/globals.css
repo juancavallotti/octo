@@ -35,7 +35,7 @@ body {
  * length nobody knows. Here rather than inline because Tailwind's arbitrary
  * animation syntax can name a keyframe but cannot define one.
  */
-@keyframes agentSweep {
+@keyframes agent-sweep {
   0% { transform: translateX(-100%); }
   100% { transform: translateX(200%); }
 }
