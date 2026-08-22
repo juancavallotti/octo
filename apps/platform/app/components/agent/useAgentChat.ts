@@ -11,6 +11,7 @@ import {
 } from "./events";
 import { ROUTE_CATALOGUE } from "./routes";
 import { answerOf, newTurn, reduce, type Turn } from "./turns";
+import { randomId, readThreadId, threadKey } from "./thread";
 
 export type { Segment, ToolRun, Turn } from "./turns";
 
@@ -30,43 +31,6 @@ export interface AgentChat {
 }
 
 /**
- * A random id, without assuming a secure context.
- *
- * crypto.randomUUID exists only over HTTPS or on localhost, and a self-hosted
- * platform served over plain HTTP is an ordinary way to run this. There it is
- * undefined, and calling it threw synchronously out of send() — before the try —
- * which left busy true and a controller nothing would ever clear, wedging the
- * chat for the life of the page.
- *
- * These ids key React lists and name a conversation; the conversation is scoped
- * server-side by the authenticated user, so this is not a security boundary and
- * the fallbacks only need to not collide.
- */
-function randomId(): string {
-  const c = globalThis.crypto;
-  if (typeof c?.randomUUID === "function") return c.randomUUID();
-  if (typeof c?.getRandomValues === "function") {
-    const bytes = c.getRandomValues(new Uint8Array(16));
-    return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-  }
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
-}
-
-/** Mint a thread id, keyed per user so signing out cannot resume someone else's. */
-function threadKey(userKey: string): string {
-  return `octo.agent.thread.${userKey}`;
-}
-
-function readThreadId(userKey: string): string {
-  const key = threadKey(userKey);
-  const existing = sessionStorage.getItem(key);
-  if (existing) return existing;
-  const minted = randomId();
-  sessionStorage.setItem(key, minted);
-  return minted;
-}
-
-/**
  * A conversation with the agent: the transcript, and the reader loop that fills it.
  *
  * It owns the AbortController, which is the whole hang-up chain — aborting the
@@ -83,6 +47,9 @@ export function useAgentChat(
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abort = useRef<AbortController | null>(null);
+  // Steers in flight. They are not the run's request and must not share its
+  // controller, but they still have to be cancellable — see steer and dropSteers.
+  const steers = useRef(new Set<AbortController>());
 
   // Held in a ref so the reader loop is not rebuilt when the callback identity
   // changes, which for an inline arrow function is every render. Assigned in an
@@ -93,8 +60,25 @@ export function useAgentChat(
     navigate.current = onNavigate;
   }, [onNavigate]);
 
+  /**
+   * Cancel every steer in flight.
+   *
+   * Not tidiness. A steer that lands *after* a stop finds no run to join, so the
+   * runtime claims the conversation and starts one — answering a follow-up
+   * somebody has just cancelled, at full price. The same request landing after a
+   * reset would answer it into the conversation that was abandoned.
+   */
+  const dropSteers = useCallback(() => {
+    for (const controller of steers.current) controller.abort();
+    steers.current.clear();
+  }, []);
+
   useEffect(() => {
-    return () => abort.current?.abort();
+    const inFlight = steers.current;
+    return () => {
+      abort.current?.abort();
+      for (const controller of inFlight) controller.abort();
+    };
   }, []);
 
   /** Apply one frame to the open agent turn. */
@@ -131,15 +115,36 @@ export function useAgentChat(
   const steer = useCallback(
     (text: string) => {
       setTurns((current) => [...current, newTurn(randomId(), "user", text)]);
-      void fetch("/api/agent/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ threadId: readThreadId(userKey), message: text, page, routes: ROUTE_CATALOGUE }),
-      }).catch(() => {
-        // Its own request, so its own failure — and not one to report over an
-        // answer that is still arriving. The run carries on without the steer.
-        setError("that message did not reach him");
-      });
+
+      const controller = new AbortController();
+      steers.current.add(controller);
+      void (async () => {
+        try {
+          const res = await fetch("/api/agent/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              threadId: readThreadId(userKey),
+              message: text,
+              page,
+              routes: ROUTE_CATALOGUE,
+            }),
+            signal: controller.signal,
+          });
+          // The body is the empty one the runtime returns for a message it handed
+          // over. Nothing reads it, and cancelling releases the connection rather
+          // than leaving it open until the browser gets round to it.
+          await res.body?.cancel();
+          if (!res.ok) throw new Error(`the agent returned ${res.status}`);
+        } catch (e) {
+          // An abort is a stop or a reset, not a failure — and reporting one over
+          // an answer that is still arriving would be a failure the reader cannot
+          // act on and did not cause.
+          if ((e as Error).name !== "AbortError") setError("that message did not reach him");
+        } finally {
+          steers.current.delete(controller);
+        }
+      })();
     },
     [page, userKey],
   );
@@ -241,25 +246,27 @@ export function useAgentChat(
    * immediately after a stop would be refused by the guard above.
    */
   const stop = useCallback(() => {
+    dropSteers();
     const controller = abort.current;
     if (!controller) return;
     controller.abort();
     abort.current = null;
     setBusy(false);
-  }, []);
+  }, [dropSteers]);
 
   /**
    * Start a fresh conversation. The thread id goes too — the agent keys its memory
    * on it, so keeping it would carry the old transcript into the new conversation.
    */
   const reset = useCallback(() => {
+    dropSteers();
     abort.current?.abort();
     abort.current = null;
     setBusy(false);
     sessionStorage.removeItem(threadKey(userKey));
     setTurns([]);
     setError(null);
-  }, [userKey]);
+  }, [dropSteers, userKey]);
 
   /**
    * Pick up a stored conversation. The thread id goes to sessionStorage because
@@ -268,6 +275,7 @@ export function useAgentChat(
    */
   const resume = useCallback(
     (threadId: string, stored: Turn[]) => {
+      dropSteers();
       abort.current?.abort();
       abort.current = null;
       setBusy(false);
@@ -275,7 +283,7 @@ export function useAgentChat(
       setTurns(stored);
       setError(null);
     },
-    [userKey],
+    [dropSteers, userKey],
   );
 
   return { turns, busy, error, send, stop, reset, resume };

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 /**
  * A scroller that follows new content, and stops the moment you scroll away from
@@ -56,10 +56,22 @@ export function useStickToBottom(dep: unknown): StickToBottom {
     return () => el.removeEventListener("scroll", onScroll);
   }, [el]);
 
+  // Read through a ref rather than depending on it: scrolling is a response to
+  // new content, and taking `following` as a dependency would also scroll the
+  // moment it flips true — snapping the view down by the slack below when someone
+  // scrolled back to *near* the end, which they did not ask for.
+  // Mirrored in an effect rather than during render, as the callback ref in
+  // useAgentChat is: a render can be discarded, and this is what the next
+  // commit's scroll will read.
+  const followingRef = useRef(following);
   useEffect(() => {
-    if (!following) return;
-    el?.scrollTo({ top: el.scrollHeight });
-  }, [dep, el, following]);
+    followingRef.current = following;
+  }, [following]);
+
+  useEffect(() => {
+    if (!followingRef.current || !el) return;
+    el.scrollTo({ top: el.scrollHeight });
+  }, [dep, el]);
 
   return { ref: setEl, following, toBottom };
 }

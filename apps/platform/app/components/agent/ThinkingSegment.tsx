@@ -38,12 +38,19 @@ export default function ThinkingSegment({
   // arriving never collapses a panel somebody is reading.
   const [choice, setChoice] = useState<boolean | null>(null);
   const open = choice ?? !answered;
-  const tail = useRef<HTMLDivElement>(null);
+  const body = useRef<HTMLDivElement>(null);
 
-  // Follow the reasoning as it arrives, so the newest line is the visible one.
-  // Optional-called: this is a nicety, and not every environment implements it.
+  // Follow the reasoning as it arrives, so the newest line is the visible one —
+  // by scrolling this box and nothing else.
+  //
+  // It used to call scrollIntoView on a tail element, which scrolls the nearest
+  // scrollable *ancestor*: the transcript. So every token of reasoning dragged the
+  // whole conversation down, including when the reader had deliberately scrolled
+  // away from the bottom — quietly undoing the one thing the transcript's own
+  // scrolling is careful about.
   useEffect(() => {
-    if (open) tail.current?.scrollIntoView?.({ block: "nearest" });
+    const el = body.current;
+    if (open && el) el.scrollTop = el.scrollHeight;
   }, [text, open]);
 
   if (!text) return null;
@@ -72,11 +79,10 @@ export default function ThinkingSegment({
       </button>
 
       {open && (
-        <div className="max-h-40 overflow-y-auto px-2 pb-2">
+        <div ref={body} className="max-h-40 overflow-y-auto px-2 pb-2">
           <p className="text-[11px] leading-relaxed whitespace-pre-wrap text-zinc-500 dark:text-zinc-400">
             {text}
           </p>
-          <div ref={tail} />
         </div>
       )}
     </div>

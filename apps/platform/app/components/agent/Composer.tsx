@@ -39,7 +39,11 @@ export default function Composer({
         onKeyDown={(e) => {
           // Enter sends, shift+enter breaks the line — the convention every chat
           // input follows, and the one a multi-line paste needs.
-          if (e.key === "Enter" && !e.shiftKey) {
+          //
+          // Except mid-composition. An IME uses Enter to accept the candidate it
+          // is offering, so without this check anyone typing Japanese, Chinese or
+          // Korean sends a half-finished word every time they choose one.
+          if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault();
             onSubmit();
           }

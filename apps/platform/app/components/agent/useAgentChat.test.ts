@@ -200,8 +200,30 @@ describe("useAgentChat", () => {
     // And it did not take the run's controller with it. Only the first request is
     // a stream, so only the first is what Stop has to be able to reach — a steer
     // that replaced the controller would leave Stop pointing at nothing.
+    const run = fetchMock.mock.calls[0][1] as RequestInit;
     const steer = fetchMock.mock.calls[1][1] as RequestInit;
-    expect(steer.signal).toBeUndefined();
+    expect(steer.signal).toBeDefined();
+    expect(steer.signal).not.toBe(run.signal);
+  });
+
+  // A steer that lands after a stop finds no run to join, so the runtime claims
+  // the conversation and starts one — answering, at full price, a follow-up
+  // somebody has just cancelled.
+  it("cancels a steer in flight when the run is stopped", async () => {
+    const signals: (AbortSignal | undefined)[] = [];
+    fetchMock.mockImplementation((_url: string, init: RequestInit) => {
+      signals.push(init.signal ?? undefined);
+      return Promise.resolve(sseResponse(frames({ type: "text", text: "ok" })));
+    });
+    const { result } = renderHook(() => useAgentChat("u-1", "/platform", () => {}));
+
+    act(() => {
+      result.current.send("first");
+      result.current.send("second");
+    });
+    act(() => result.current.stop());
+
+    expect(signals[1]?.aborted).toBe(true);
   });
 
   // Stop releases the controller synchronously, so the next question is not refused

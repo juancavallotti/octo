@@ -106,7 +106,13 @@ function Rows({
   );
 }
 
-/** The date, short enough for a row. Falls back to the raw value rather than NaN. */
+/**
+ * The date, short enough for a row.
+ *
+ * A value that is not one shows nothing rather than "Invalid Date" — and rather
+ * than the raw string, which for the RFC 3339 stamp this is fed would be
+ * twenty-five characters in a column sized for six.
+ */
 function shortDate(value: string): string {
   const at = new Date(value);
   if (Number.isNaN(at.getTime())) return "";
