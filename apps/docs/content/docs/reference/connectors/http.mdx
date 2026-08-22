@@ -55,6 +55,7 @@ Each `http` source binds one route pattern to a flow. The request becomes the fl
 | Setting | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | `path` | string | Yes | — | Route pattern; `{name}` params become `vars.name`. |
+| `methods` | string[] | No | — (every method) | HTTP methods the route answers. Naming any means every other method gets a `405` from the router, before any flow runs. A name that is not an HTTP method fails at startup. |
 | `headers` | string[] | No | — | Request header names to copy into variables. |
 | `responseHeaders` | string[] | No | — | Response header names to propagate from message variables of the same name after the flow completes. `Content-Type` is managed by the source. |
 | `correlationIdHeader` | string | No | — | Header to source the correlation ID from. |

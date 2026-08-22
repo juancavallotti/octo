@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -435,4 +436,70 @@ func do(t *testing.T, req *http.Request) response {
 	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 	return response{status: resp.StatusCode, body: body, header: resp.Header}
+}
+
+// A route that names its methods answers only those. Before this existed the
+// setting was accepted and ignored — flow YAML decodes non-strictly — so two
+// samples advertised a restriction that did nothing.
+func TestSourceMethodsRestrictTheRoute(t *testing.T) {
+	c, base := startConnector(t, nil)
+	out := newSource(t, c, map[string]any{"path": "/orders", "methods": []string{"POST"}})
+	echoWorker(out, func(msg *types.Message) types.FlowEvent {
+		return types.FlowEvent{Kind: types.FlowEventCompleted, Result: msg}
+	})
+
+	if got := statusOf(t, http.MethodPost, base+"/orders", `{"id":1}`); got != http.StatusOK {
+		t.Errorf("POST status = %d, want %d", got, http.StatusOK)
+	}
+	if got := statusOf(t, http.MethodGet, base+"/orders", ""); got != http.StatusMethodNotAllowed {
+		t.Errorf("GET status = %d, want %d: the flow must not run for an unlisted method",
+			got, http.StatusMethodNotAllowed)
+	}
+}
+
+// statusOf makes one request and returns its status.
+func statusOf(t *testing.T, method, url, body string) int {
+	t.Helper()
+	req, err := http.NewRequestWithContext(context.Background(), method, url, strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("%s %s: %v", method, url, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("%s %s: %v", method, url, err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	return res.StatusCode
+}
+
+// A method that is not one gets a startup error rather than a route nothing can
+// ever match, which would be an endpoint that silently answers nothing.
+func TestSourceRejectsAMethodThatIsNotOne(t *testing.T) {
+	tests := []struct {
+		name    string
+		methods []string
+		wantErr bool
+	}{
+		{name: "none is every method"},
+		{name: "lowercase is accepted", methods: []string{"post"}},
+		{name: "repeated is not a duplicate route", methods: []string{"GET", "GET"}},
+		{name: "a typo fails", methods: []string{"PSOT"}, wantErr: true},
+		{name: "empty fails", methods: []string{""}, wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _ := startConnector(t, nil)
+			settings := map[string]any{"path": "/orders"}
+			if tc.methods != nil {
+				settings["methods"] = tc.methods
+			}
+			_, err := c.NewSource(
+				types.SourceConfig{Type: "http", Settings: settings},
+				make(chan *types.Message, 1), core.SourceDeps{})
+			if (err != nil) != tc.wantErr {
+				t.Errorf("building the source = %v, wantErr %v", err, tc.wantErr)
+			}
+		})
+	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -23,6 +24,11 @@ const defaultMaxBodyBytes int64 = 1 << 20 // 1 MiB
 type sourceSettings struct {
 	// Route pattern; {name} params become vars.name.
 	Path string `json:"path" octo:"label=Path,required"`
+	// HTTP methods the route answers. Empty answers every method, which is the
+	// default because a flow bound to one path usually is the whole endpoint.
+	// Naming any means every other method gets a 405 from the mux rather than
+	// running the flow.
+	Methods []string `json:"methods" octo:"label=Methods"`
 	// Request header names to copy into variables.
 	Headers []string `json:"headers" octo:"label=Headers"`
 	// Response header names to propagate from message variables of the same name
@@ -127,11 +133,54 @@ func (c *Connector) NewSource(
 		srcDone:       make(chan struct{}),
 	}
 
-	if err := c.registerRoute(pattern, s.handle); err != nil {
+	methods, err := routeMethods(set.Methods)
+	if err != nil {
 		return nil, err
 	}
-	slog.Info("http endpoint available", "pattern", pattern, "url", c.endpointURL(pattern))
+	for _, prefix := range methods {
+		if err := c.registerRoute(prefix+pattern, s.handle); err != nil {
+			return nil, err
+		}
+	}
+	slog.Info("http endpoint available",
+		"pattern", pattern, "methods", set.Methods, "url", c.endpointURL(pattern))
 	return s, nil
+}
+
+// knownMethods is the set a route may name. Closed rather than open because a
+// typo would otherwise register a pattern nothing can ever match — a route that
+// silently answers nothing, which is the failure this list exists to turn into a
+// startup error.
+var knownMethods = map[string]bool{
+	http.MethodGet: true, http.MethodHead: true, http.MethodPost: true,
+	http.MethodPut: true, http.MethodPatch: true, http.MethodDelete: true,
+	http.MethodOptions: true, http.MethodConnect: true, http.MethodTrace: true,
+}
+
+// routeMethods turns the configured methods into the prefixes a pattern is
+// registered under, which is how net/http's mux expresses a method: one entry per
+// method, and a single empty prefix when none were named.
+//
+// Registering "POST /x" alone is what makes a GET to /x a 405 rather than a run
+// of the flow — the mux answers it, so no handler and no flow is involved.
+func routeMethods(methods []string) ([]string, error) {
+	if len(methods) == 0 {
+		return []string{""}, nil
+	}
+	out := make([]string, 0, len(methods))
+	seen := make(map[string]bool, len(methods))
+	for _, method := range methods {
+		name := strings.ToUpper(strings.TrimSpace(method))
+		if !knownMethods[name] {
+			return nil, fmt.Errorf("http source method %q is not an HTTP method", method)
+		}
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, name+" ")
+	}
+	return out, nil
 }
 
 // Start triggers the connector's accept loop (once across all sources). All
