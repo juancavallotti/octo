@@ -62,6 +62,16 @@ vars:
     octo-runtime:dev octo-devsidecar:dev octo-devruntime:dev
     octo-agenticrunner:dev
 
+  # Every image task below copies host-built binaries in rather than compiling
+  # them, and this is the flag pair that says so. A NAMED build context, because
+  # three of the images build with their own module dir as the context and could
+  # not otherwise reach a repo-root dist/ — and because a named context is exempt
+  # from the root .dockerignore, which excludes dist/ from the ordinary one.
+  #
+  # BIN_SOURCE still has to be passed per image (the runtime one picks a variant
+  # with it); this var is only the half they all share.
+  PREBUILT_CTX: '--build-context prebuilt=dist/bin'
+
 tasks:
   fmt:
     desc: Format all Go modules
@@ -204,28 +214,97 @@ tasks:
         fi
         echo "✓ docker, k3d, devspace present"
 
+  bins:linux:
+    desc: 'Cross-compile every Linux binary the images copy, into dist/bin/linux_<arch> (optional GOARCH)'
+    # Once per architecture per invocation. `task cluster:dev` reaches this task
+    # twice — through cluster:deploy and again for the dev images — and both want
+    # the same binaries; a run that also builds for another GOARCH still gets its
+    # own pass, because the fingerprint includes the vars.
+    run: when_changed
+    vars:
+      HOST_GOARCH:
+        sh: go env GOARCH
+      ARCH: '{{.GOARCH | default .HOST_GOARCH}}'
+      OUT: '{{.ROOT_DIR}}/dist/bin/linux_{{.ARCH}}'
+    cmds:
+      # Why this exists: `task cluster:deploy` used to run the Go compiler ten
+      # times across eight docker builds — seven of them on the root module, for
+      # three distinct binaries — each starting from an empty GOCACHE inside its
+      # own container. Built here instead, they share the host's cache: the first
+      # run is one cold compile, every run after it is a handful of seconds.
+      #
+      # This is safe to do outside the image only because every binary is pure Go
+      # (sqlite is modernc, not cgo — see .goreleaser.yaml), so CGO_ENABLED=0 plus
+      # GOOS/GOARCH cross-compiles with nothing installed but the Go toolchain.
+      #
+      # Deliberately NOT the same outputs as `task build`: bin/ holds host-native
+      # binaries for local dev and the docs-drift check, these are linux/<arch>
+      # for the images. Same sources, different targets, so they cannot share a
+      # directory without one silently overwriting the other.
+      - |
+        set -e
+        out="{{.OUT}}"
+        mkdir -p "$out"
+        # Uncomment to compile with the same toolchain the images use
+        # (golang:1.25-alpine) instead of whatever `go` is on PATH. Go downloads
+        # and caches it once. Off by default so this matches `task build`.
+        # export GOTOOLCHAIN=go1.25.0
+        export CGO_ENABLED=0 GOOS=linux GOARCH="{{.ARCH}}"
+        # Stamp the build date the same way every Dockerfile and goreleaser does,
+        # so `octo --version` reads the same wherever the binary came from.
+        ld="-s -w -X main.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        cd "{{.ROOT_DIR}}"
+
+        # The root module, three ways. octo-k8s and octo are the same package with
+        # mutually exclusive build tags (providers_k8s.go / providers_standalone.go),
+        # which is why they are two files on disk and not one image argument.
+        echo "▶ octo            (standalone)"
+        go build -trimpath -ldflags "$ld" -o "$out/octo" ./runtime/octo
+        echo "▶ octo-k8s        (-tags k8s)"
+        go build -trimpath -tags k8s -ldflags "$ld" -o "$out/octo-k8s" ./runtime/octo
+        echo "▶ dolphin"
+        go build -trimpath -ldflags "$ld" -o "$out/dolphin" ./runtime/dolphin
+
+        # The three self-contained service modules. No ldflags, matching what
+        # their own Dockerfiles and Taskfiles already build with.
+        echo "▶ orchestrator"
+        (cd orchestrator && go build -trimpath -o "$out/orchestrator" .)
+        echo "▶ logs"
+        (cd logs && go build -trimpath -o "$out/logs" .)
+        echo "▶ dev-sidecar"
+        (cd sidecars && go build -trimpath -o "$out/dev-sidecar" ./dev)
+
+        echo "✓ linux/{{.ARCH}} binaries in dist/bin/linux_{{.ARCH}}"
+
   cluster:images:
     desc: Build the platform/orchestrator/logs/schema/runtime/devsidecar/devruntime/agenticrunner images and load them into the k3d 'octo' cluster
     cmds:
+      # Compile every Go binary once, on the host, for the node's architecture —
+      # then the eight builds below only copy them in. Left to the Dockerfiles,
+      # this list runs the Go compiler ten times from a cold cache; see bins:linux.
+      - task: bins:linux
       # Platform build context is the repo ROOT so its Dockerfile can reach both
       # runtime/ (to build octo) and the pnpm workspace (apps/platform).
-      - docker build -t octo-platform:dev -f apps/platform/Dockerfile .
-      - docker build -t octo-orchestrator:dev -f orchestrator/Dockerfile ./orchestrator
-      - docker build -t octo-logs:dev -f logs/Dockerfile ./logs
+      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-platform:dev -f apps/platform/Dockerfile .
+      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-orchestrator:dev -f orchestrator/Dockerfile ./orchestrator
+      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-logs:dev -f logs/Dockerfile ./logs
+      # No binary in this one — it is postgres:16-alpine plus schema.sql.
       - docker build -t octo-schema:dev -f sql/Dockerfile ./sql
       # Generic runtime image the orchestrator deploys per integration (build
       # context is the repo root, where the Go module is rooted).
-      - docker build -t octo-runtime:dev -f runtime/Dockerfile .
+      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt-k8s -t octo-runtime:dev -f runtime/Dockerfile .
       # The dev-run pair: the sidecar that owns a dev run's workspace, and the
       # STANDALONE runtime it runs beside. Standalone and not the image above, because
       # an editor Run must not ship logs to the aggregator or take cluster queues —
-      # and the k8s build has no standalone provider to fall back to.
-      - docker build -t octo-devsidecar:dev -f sidecars/dev/Dockerfile ./sidecars
-      - docker build --build-arg GOTAGS= -t octo-devruntime:dev -f runtime/Dockerfile .
+      # and the k8s build has no standalone provider to fall back to. That choice is
+      # BIN_SOURCE here rather than the GOTAGS it used to be: same distinction, made
+      # once at the host build, and see runtime/Dockerfile for why it is one knob.
+      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-devsidecar:dev -f sidecars/dev/Dockerfile ./sidecars
+      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt-standalone -t octo-devruntime:dev -f runtime/Dockerfile .
       # The agentic runner: the image a deployment runs when it asks for
       # `runner: agentic`. Its own Dockerfile rather than a GOTAGS arm of the one
       # above, because it carries three binaries on a base with a shell.
-      - docker build -t octo-agenticrunner:dev -f runtime/Dockerfile.agentic .
+      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-agenticrunner:dev -f runtime/Dockerfile.agentic .
       # Load the images straight into the cluster's containerd (no registry needed).
       - k3d image import {{.CLUSTER_IMAGES}} -c octo
       # Then prove they landed, and are still there. A gap never surfaces here: it
@@ -283,14 +362,16 @@ tasks:
   cluster:images:kind:
     desc: Build the eight images and load them into a kind 'octo' cluster
     cmds:
-      - docker build -t octo-platform:dev -f apps/platform/Dockerfile .
-      - docker build -t octo-orchestrator:dev -f orchestrator/Dockerfile ./orchestrator
-      - docker build -t octo-logs:dev -f logs/Dockerfile ./logs
+      # Same builds as cluster:images, including the host-side compile.
+      - task: bins:linux
+      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-platform:dev -f apps/platform/Dockerfile .
+      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-orchestrator:dev -f orchestrator/Dockerfile ./orchestrator
+      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-logs:dev -f logs/Dockerfile ./logs
       - docker build -t octo-schema:dev -f sql/Dockerfile ./sql
-      - docker build -t octo-runtime:dev -f runtime/Dockerfile .
-      - docker build -t octo-devsidecar:dev -f sidecars/dev/Dockerfile ./sidecars
-      - docker build --build-arg GOTAGS= -t octo-devruntime:dev -f runtime/Dockerfile .
-      - docker build -t octo-agenticrunner:dev -f runtime/Dockerfile.agentic .
+      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt-k8s -t octo-runtime:dev -f runtime/Dockerfile .
+      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-devsidecar:dev -f sidecars/dev/Dockerfile ./sidecars
+      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt-standalone -t octo-devruntime:dev -f runtime/Dockerfile .
+      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-agenticrunner:dev -f runtime/Dockerfile.agentic .
       # No verify step to match cluster:images: that check reads the k3d node's
       # containerd, and a kind node is a different name and a different runtime.
       - kind load docker-image --name octo {{.CLUSTER_IMAGES}}
@@ -298,7 +379,10 @@ tasks:
   cluster:images:dev:
     desc: Build + load the dev (hot-reload) images into the k3d 'octo' cluster
     cmds:
-      - docker build -t octo-platform-dev:dev -f apps/platform/Dockerfile.dev .
+      # Only the platform dev image carries binaries; the orchestrator and logs
+      # dev images run `go run` against synced source and compile nothing here.
+      - task: bins:linux
+      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-platform-dev:dev -f apps/platform/Dockerfile.dev .
       - docker build -t octo-orchestrator-dev:dev -f orchestrator/Dockerfile.dev ./orchestrator
       - docker build -t octo-logs-dev:dev -f logs/Dockerfile.dev ./logs
       - k3d image import octo-platform-dev:dev octo-orchestrator-dev:dev octo-logs-dev:dev -c octo
@@ -405,18 +489,22 @@ tasks:
     requires:
       vars: [IMAGE_BASE, TAG]
     cmds:
+      # NOTE: plain `docker build`, so these come out host-arch — unlike images:ttl
+      # and images:ar below, which force linux/amd64. The prebuild follows suit and
+      # targets the host arch too, so the binaries match the images they land in.
+      - task: bins:linux
       # Same build contexts as cluster:images; the platform context is the repo
       # root so its Dockerfile reaches both runtime/ and the pnpm workspace.
-      - docker build -t {{.IMAGE_BASE}}/octo-platform-paas:{{.TAG}} -f apps/platform/Dockerfile .
-      - docker build -t {{.IMAGE_BASE}}/octo-orchestrator-paas:{{.TAG}} -f orchestrator/Dockerfile ./orchestrator
-      - docker build -t {{.IMAGE_BASE}}/octo-logs-paas:{{.TAG}} -f logs/Dockerfile ./logs
+      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t {{.IMAGE_BASE}}/octo-platform-paas:{{.TAG}} -f apps/platform/Dockerfile .
+      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t {{.IMAGE_BASE}}/octo-orchestrator-paas:{{.TAG}} -f orchestrator/Dockerfile ./orchestrator
+      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t {{.IMAGE_BASE}}/octo-logs-paas:{{.TAG}} -f logs/Dockerfile ./logs
       - docker build -t {{.IMAGE_BASE}}/octo-schema-paas:{{.TAG}} -f sql/Dockerfile ./sql
-      - docker build -t {{.IMAGE_BASE}}/octo-runtime-paas:{{.TAG}} -f runtime/Dockerfile .
-      - docker build -t {{.IMAGE_BASE}}/octo-devsidecar-paas:{{.TAG}} -f sidecars/dev/Dockerfile ./sidecars
-      # GOTAGS= (empty) is the standalone build; the k8s one is octo-runtime-paas above.
-      - docker build --build-arg GOTAGS= -t {{.IMAGE_BASE}}/octo-devruntime-paas:{{.TAG}} -f runtime/Dockerfile .
-      # The agentic runner has its own Dockerfile, not a GOTAGS arm of the one above.
-      - docker build -t {{.IMAGE_BASE}}/octo-agenticrunner-paas:{{.TAG}} -f runtime/Dockerfile.agentic .
+      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt-k8s -t {{.IMAGE_BASE}}/octo-runtime-paas:{{.TAG}} -f runtime/Dockerfile .
+      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t {{.IMAGE_BASE}}/octo-devsidecar-paas:{{.TAG}} -f sidecars/dev/Dockerfile ./sidecars
+      # prebuilt-standalone is the untagged build; the k8s one is octo-runtime-paas above.
+      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt-standalone -t {{.IMAGE_BASE}}/octo-devruntime-paas:{{.TAG}} -f runtime/Dockerfile .
+      # The agentic runner has its own Dockerfile, not a BIN_SOURCE arm of the one above.
+      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t {{.IMAGE_BASE}}/octo-agenticrunner-paas:{{.TAG}} -f runtime/Dockerfile.agentic .
       - docker push {{.IMAGE_BASE}}/octo-platform-paas:{{.TAG}}
       - docker push {{.IMAGE_BASE}}/octo-orchestrator-paas:{{.TAG}}
       - docker push {{.IMAGE_BASE}}/octo-logs-paas:{{.TAG}}
@@ -433,6 +521,9 @@ tasks:
       TTL: '{{.TTL | default "12h"}}'
       PREFIX: '{{.PREFIX | default ""}}'
     cmds:
+      # linux/amd64, because that is what the images below are built --platform for.
+      - task: bins:linux
+        vars: { GOARCH: amd64 }
       # For testing a cluster against the CURRENT working tree. The published
       # images track releases, so any chart change made since the last one has no
       # matching image to run against; ttl.sh is an anonymous, unauthenticated
@@ -455,23 +546,32 @@ tasks:
         # Silicon produces arm64 images, and every pod on a GKE/EKS node then
         # CrashLoops with "exec format error". buildx pushes straight to the
         # registry, so nothing is loaded into the local daemon.
+        #
+        # $4 carries the image's BIN_SOURCE. The binaries themselves were
+        # cross-compiled for linux/amd64 by the bins:linux step above and are
+        # copied in from dist/bin — which matters most here of anywhere: this is
+        # a --platform build, so a compile inside the image would run the Go
+        # toolchain under QEMU emulation, minutes per binary. Passing no $4 (the
+        # schema image) leaves BIN_SOURCE at its compile default, which that
+        # image does not use anyway.
         build() {
           echo "→ $REGISTRY/$1:$TAG"
           docker buildx build --platform linux/amd64 --push \
+            --build-context prebuilt=dist/bin \
             -t "$REGISTRY/$1:$TAG" -f "$2" $4 "$3"
         }
-        build octo-platform-paas     apps/platform/Dockerfile .           ""
-        build octo-orchestrator-paas orchestrator/Dockerfile  ./orchestrator ""
-        build octo-logs-paas         logs/Dockerfile          ./logs      ""
+        build octo-platform-paas     apps/platform/Dockerfile .           "--build-arg BIN_SOURCE=prebuilt"
+        build octo-orchestrator-paas orchestrator/Dockerfile  ./orchestrator "--build-arg BIN_SOURCE=prebuilt"
+        build octo-logs-paas         logs/Dockerfile          ./logs      "--build-arg BIN_SOURCE=prebuilt"
         build octo-schema-paas       sql/Dockerfile           ./sql       ""
-        build octo-devsidecar-paas   sidecars/dev/Dockerfile  ./sidecars  ""
-        # The k8s build tag is what makes the runtime talk to the orchestrator; the
-        # empty one is the standalone build a dev run executes.
-        build octo-runtime-paas      runtime/Dockerfile       .           "--build-arg GOTAGS=k8s"
-        build octo-devruntime-paas   runtime/Dockerfile       .           "--build-arg GOTAGS="
+        build octo-devsidecar-paas   sidecars/dev/Dockerfile  ./sidecars  "--build-arg BIN_SOURCE=prebuilt"
+        # The k8s build is what makes the runtime talk to the orchestrator; the
+        # standalone one is what a dev run executes.
+        build octo-runtime-paas      runtime/Dockerfile       .           "--build-arg BIN_SOURCE=prebuilt-k8s"
+        build octo-devruntime-paas   runtime/Dockerfile       .           "--build-arg BIN_SOURCE=prebuilt-standalone"
         # The agentic runner, from its own Dockerfile: three binaries on a base with
         # a shell, for a deployment that asks for `runner: agentic`.
-        build octo-agenticrunner-paas runtime/Dockerfile.agentic .          ""
+        build octo-agenticrunner-paas runtime/Dockerfile.agentic .          "--build-arg BIN_SOURCE=prebuilt"
 
         mkdir -p dist
         {
@@ -544,6 +644,9 @@ tasks:
       REGION: '{{.REGION | default "us-west1"}}'
       REPO: '{{.REPO | default "octo-test"}}'
     cmds:
+      # linux/amd64, because that is what the images below are built --platform for.
+      - task: bins:linux
+        vars: { GOARCH: amd64 }
       # The same job as images:ttl, against a registry that can actually keep up.
       # ttl.sh needs no setup at all, which is why it is still here — but it mints
       # a fresh repository name per run, so every layer uploads in full every time
@@ -562,23 +665,32 @@ tasks:
         # Silicon produces arm64 images, and every pod on a GKE/EKS node then
         # CrashLoops with "exec format error". buildx pushes straight to the
         # registry, so nothing is loaded into the local daemon.
+        #
+        # $4 carries the image's BIN_SOURCE. The binaries themselves were
+        # cross-compiled for linux/amd64 by the bins:linux step above and are
+        # copied in from dist/bin — which matters most here of anywhere: this is
+        # a --platform build, so a compile inside the image would run the Go
+        # toolchain under QEMU emulation, minutes per binary. Passing no $4 (the
+        # schema image) leaves BIN_SOURCE at its compile default, which that
+        # image does not use anyway.
         build() {
           echo "→ $REGISTRY/$1:$TAG"
           docker buildx build --platform linux/amd64 --push \
+            --build-context prebuilt=dist/bin \
             -t "$REGISTRY/$1:$TAG" -f "$2" $4 "$3"
         }
-        build octo-platform-paas     apps/platform/Dockerfile .           ""
-        build octo-orchestrator-paas orchestrator/Dockerfile  ./orchestrator ""
-        build octo-logs-paas         logs/Dockerfile          ./logs      ""
+        build octo-platform-paas     apps/platform/Dockerfile .           "--build-arg BIN_SOURCE=prebuilt"
+        build octo-orchestrator-paas orchestrator/Dockerfile  ./orchestrator "--build-arg BIN_SOURCE=prebuilt"
+        build octo-logs-paas         logs/Dockerfile          ./logs      "--build-arg BIN_SOURCE=prebuilt"
         build octo-schema-paas       sql/Dockerfile           ./sql       ""
-        build octo-devsidecar-paas   sidecars/dev/Dockerfile  ./sidecars  ""
-        # The k8s build tag is what makes the runtime talk to the orchestrator; the
-        # empty one is the standalone build a dev run executes.
-        build octo-runtime-paas      runtime/Dockerfile       .           "--build-arg GOTAGS=k8s"
-        build octo-devruntime-paas   runtime/Dockerfile       .           "--build-arg GOTAGS="
+        build octo-devsidecar-paas   sidecars/dev/Dockerfile  ./sidecars  "--build-arg BIN_SOURCE=prebuilt"
+        # The k8s build is what makes the runtime talk to the orchestrator; the
+        # standalone one is what a dev run executes.
+        build octo-runtime-paas      runtime/Dockerfile       .           "--build-arg BIN_SOURCE=prebuilt-k8s"
+        build octo-devruntime-paas   runtime/Dockerfile       .           "--build-arg BIN_SOURCE=prebuilt-standalone"
         # The agentic runner, from its own Dockerfile: three binaries on a base with
         # a shell, for a deployment that asks for `runner: agentic`.
-        build octo-agenticrunner-paas runtime/Dockerfile.agentic .          ""
+        build octo-agenticrunner-paas runtime/Dockerfile.agentic .          "--build-arg BIN_SOURCE=prebuilt"
 
         mkdir -p dist
         {
