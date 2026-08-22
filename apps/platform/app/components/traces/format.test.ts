@@ -23,6 +23,18 @@ describe("formatDuration", () => {
     expect(formatDuration(95_000_000_000)).toBe("1m 35s");
   });
 
+  // Rounding can carry a figure across the boundary that chose its unit, and the
+  // unit has to be chosen from the figure that will actually be shown. Before
+  // this, 999,999ns rendered as "1000µs" — a quantity with a shorter name.
+  it("promotes a figure that rounds up into the next unit", () => {
+    expect(formatDuration(999_499)).toBe("999µs");
+    expect(formatDuration(999_999)).toBe("1ms");
+    expect(formatDuration(999_999_999)).toBe("1s");
+    // Seconds roll over at 60, not at 1000, so this is the same bug on a
+    // non-decimal boundary: it used to read "60s".
+    expect(formatDuration(59_999_999_999)).toBe("1m 0s");
+  });
+
   it("says nothing rather than something wrong for a non-duration", () => {
     expect(formatDuration(-1)).toBe("—");
     expect(formatDuration(Number.NaN)).toBe("—");
@@ -43,6 +55,16 @@ describe("formatTokens", () => {
     expect(formatTokens(10_000)).toBe("10k");
     expect(formatTokens(128_400)).toBe("128k");
     expect(formatTokens(2_450_000)).toBe("2.45M");
+  });
+
+  it("promotes a figure that rounds up into the next unit", () => {
+    expect(formatTokens(999_499)).toBe("999k");
+    // 999.5 thousands rounds to 1000, and "1000k" names a quantity the reader
+    // already has a shorter name for.
+    expect(formatTokens(999_500)).toBe("1M");
+    expect(formatTokens(999_999)).toBe("1M");
+    expect(formatTokens(1_000_000)).toBe("1M");
+    expect(formatTokens(999_999_999)).toBe("1B");
   });
 
   it("says nothing rather than something wrong for a non-count", () => {
@@ -66,6 +88,13 @@ describe("formatCost", () => {
   it("uses cents once there are cents", () => {
     expect(formatCost(1.239)).toBe("$1.24");
     expect(formatCost(0.5)).toBe("$0.5000");
+  });
+
+  // The same rule the units follow: which side of a dollar the figure falls on
+  // is decided after rounding. It used to read "$1.0000".
+  it("drops to cents for a fraction that rounds up to a dollar", () => {
+    expect(formatCost(0.99999)).toBe("$1.00");
+    expect(formatCost(0.99994)).toBe("$0.9999");
   });
 });
 
