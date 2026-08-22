@@ -109,7 +109,7 @@ different arguments, try another tool, or give up and take the guardrail.
 
 | Field | Required | Description |
 |---|---|---|
-| `connector` | Yes | Name of any configured LLM connector (`llm-anthropic`, `llm-openai`, `llm-gemini`). |
+| `connector` | Yes | Name of any configured LLM connector (`llm-anthropic`, `llm-openai`, `llm-gemini`, `llm-openrouter`). |
 | `prompt` | Yes | The task instruction. It is embedded in the agent's system prompt. |
 | `tools` | Yes | At least one tool. Each needs a `name`, a `description`, an optional `inputSchema` (JSON Schema; defaults to an open object), and a `process` chain. |
 | `maxIterations` | No | Cap on tool-calling turns; defaults to `8`. |

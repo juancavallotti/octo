@@ -31,7 +31,7 @@ Connectors serve flows in two ways, and some do both:
 | `logger` | The `log` block — structured log output. |
 | `slack` | Blocks to send messages, look up data, and verify inbound events. |
 | `notion` | Blocks to retrieve pages, query data sources, and verify webhooks. |
-| `llm-anthropic`, `llm-openai`, `llm-gemini` | The `ai-mapping` block and the AI composites (`ai-router`, `ai-agent`, `ai-retry`). |
+| `llm-anthropic`, `llm-openai`, `llm-gemini`, `llm-openrouter` | The `ai-mapping` block and the AI composites (`ai-router`, `ai-agent`, `ai-retry`). |
 
 `cron`, `queue`, and `events` need no per-instance settings, so a source can use them without a `connectors:` entry — the runtime starts a default instance on demand. See [implicit connectors](/concepts/flows#implicit-connectors).
 

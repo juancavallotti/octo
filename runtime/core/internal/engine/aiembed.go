@@ -29,7 +29,7 @@ func registerAIEmbed() {
 		Group:    groupAILLM,
 		Icon:     "ScatterChart",
 		Description: "Turn text into one or more embedding vectors via an OpenAI or Gemini connector, " +
-			"stored in a variable. Anthropic connectors are rejected: Anthropic has no embeddings API.",
+			"stored in a variable. A connector whose provider serves no embeddings API is rejected.",
 		Config: reflect.TypeFor[embedSettings](),
 	})
 }
@@ -40,7 +40,8 @@ const defaultEmbedResultVar = "embedding"
 // embedSettings is the ai-embed block's typed configuration.
 type embedSettings struct {
 	// Name of the LLM connector to use. Must support embeddings (llm-openai or
-	// llm-gemini); llm-anthropic is rejected at build time.
+	// llm-gemini); a connector whose provider serves no embeddings API is rejected
+	// at build time.
 	Connector string `json:"connector" octo:"label=Connector,required,ref=connector-category:llm"`
 	// CEL expression evaluated to either a string (embedded singly) or a list of
 	// strings (embedded as one batch call). The result shape decides whether
@@ -171,9 +172,9 @@ func toEmbedInputs(value any) (input []string, batch bool, err error) {
 
 // resolveEmbed binds a block to an LLM provider connector by name, asserting the
 // core.EmbedClient interface. Only llm-openai and llm-gemini implement it — an
-// llm-anthropic connector (or any non-embedding connector) fails this assertion,
-// which is how ai-embed rejects Anthropic at build time rather than special-casing
-// the provider name.
+// llm-anthropic or llm-openrouter connector (or any other non-embedding one)
+// fails this assertion, which is how ai-embed rejects them at build time rather
+// than special-casing provider names.
 //
 // It returns the caller rather than the client for the same reason resolveLLM
 // does: an embedding call is billed, and the record for it should not depend on a
@@ -192,7 +193,7 @@ func resolveEmbed(name string, deps core.BlockDeps) (*embedCaller, error) {
 	client, ok := connector.(core.EmbedClient)
 	if !ok {
 		return nil, fmt.Errorf(
-			"ai-embed block: connector %q does not support embeddings (Anthropic has no embeddings API); "+
+			"ai-embed block: connector %q does not support embeddings; "+
 				"use an llm-openai or llm-gemini connector", name)
 	}
 	return &embedCaller{client: client, who: newIdentity(blockTypeAIEmbed, name, providerOf(connector), deps)}, nil
