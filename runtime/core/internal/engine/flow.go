@@ -528,7 +528,6 @@ func compositeSlots(cfg types.BlockConfig) []string {
 		{cfg.Answer, "answer"},
 		{cfg.MemoryThreadID, "memoryThreadId"},
 		{cfg.MemoryCompaction, "memoryCompaction"},
-		{cfg.SignalID, "signalId"},
 		{cfg.StopWhen, "stopWhen"},
 	} {
 		add(slot.value != "", slot.name)

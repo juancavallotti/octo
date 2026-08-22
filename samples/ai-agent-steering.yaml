@@ -8,8 +8,10 @@ service:
 # transformation and wrong for a conversation, where a person changes what they wanted
 # — or stops wanting it — while the agent is still working.
 #
-# Set signalId and the run identifies itself for as long as it is in flight. Then the
-# SAME BLOCK handles all three cases, with no branching in the flow:
+# A run claims its conversation — the memoryThreadId it already has — for as long as
+# it is in flight. No extra identifier: the thread is what must not have two runs at
+# once, since two would also overwrite each other's memory. The SAME BLOCK then handles
+# all three cases, with no branching in the flow:
 #
 #   a first message      nothing is running, so this invocation runs the agent
 #   a follow-up          a run is going, so the message is handed to it and this
@@ -21,16 +23,12 @@ service:
 # The stop is whatever the caller can send. Here it is an HTTP header, declared on the
 # source as a variable and read by a CEL expression — nothing about it is special.
 #
-# The signal id is deliberately not the memory thread id. Memory is scoped to a
-# conversation; steering is scoped to whoever may interrupt it, which is a conversation
-# AND a person.
-#
-# READ THIS BEFORE COPYING THE ID. Here it is built from body.userId, which this route
-# takes on trust because the sample has no authentication — so anyone who can guess a
-# pair can steer or stop someone else's run. Build the id from an identity the caller
-# cannot choose: put a jwt-validate block in front of the route and use vars.sub, the
-# verified subject of the token. Whatever an id is derived from is exactly who can
-# reach the run.
+# READ THIS BEFORE COPYING THE THREAD ID. Here it is built from body.userId, which this
+# route takes on trust because the sample has no authentication — so anyone who can
+# guess a pair can read, steer or stop someone else's conversation. Build it from an
+# identity the caller cannot choose: put a jwt-validate block in front of the route and
+# use vars.sub, the verified subject of the token. Whatever the thread id is derived
+# from is exactly who can reach the conversation.
 #
 # Declares HTTP_PORT, so run_integration returns a test URL. Use curl -N so it does not
 # buffer, and two terminals:
@@ -84,12 +82,13 @@ flows:
       - type: ai-agent
         name: assistant
         connector: claude
-        # Who this run belongs to, for as long as it is in flight.
-        signalId: body.userId + ":" + body.threadId
-        # ...and how a caller ends it. A stop that finds nothing running is a no-op,
-        # so a client can send one blind.
+        # The conversation. It is both where the transcript is stored and what a run
+        # is claimed on, because they are the same fact: two runs on one thread would
+        # overwrite each other's memory.
+        memoryThreadId: body.userId + ":" + body.threadId
+        # How a caller ends the run in flight. A stop that finds nothing running is a
+        # no-op, so a client can send one blind.
         stopWhen: '"X-Agent-Stop" in vars && vars["X-Agent-Stop"] != ""'
-        memoryThreadId: body.threadId
         stream: true
         # "signal" is in the emit list so the caller SEES a follow-up arrive, in the
         # same stream as the answer.

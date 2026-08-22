@@ -117,7 +117,7 @@ different arguments, try another tool, or give up and take the guardrail.
 | `default` | No | The fallback flow, run on refusal or when `maxIterations` is exhausted. |
 | `skills` | No | Lazy-loaded instruction documents — see [Skills and Tools](/ai/agent-skills-and-tools). |
 | `memoryThreadId` and friends | No | Per-thread conversation memory — see [Agent Memory](/ai/agent-memory). |
-| `signalId` and `stopWhen` | No | Let a later message join, or stop, a run already in flight — see [Steering a Running Agent](/ai/agent-signals). |
+| `stopWhen` | No | Ends the run already working on this message's conversation instead of starting one — see [Steering a Running Agent](/ai/agent-signals). |
 
 ## Guardrail and the default path
 

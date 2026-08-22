@@ -41,11 +41,11 @@ cases:
     expect:
       body: {}
 
-  # signalId is CEL over the message, not a constant — which is what lets one flow
-  # serve every conversation. A request it cannot be built from fails rather than
-  # joining some default run every other caller shares.
-  - name: the run id is read from the request, so one without an identity fails
+  # memoryThreadId is CEL over the message, not a constant — which is what lets one
+  # flow serve every conversation. A request it cannot be built from fails rather than
+  # joining some default conversation every other caller shares.
+  - name: the conversation is read from the request, so one without an identity fails
     input:
       data: { userId: u1, message: research pricing } # no threadId
     expect:
-      error: 'ai-agent signalId'
+      error: 'ai-agent memory threadId'

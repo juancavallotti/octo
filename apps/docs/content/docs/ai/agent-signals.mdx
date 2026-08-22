@@ -11,8 +11,11 @@ is right for a transformation and wrong for a conversation, where a person
 changes what they wanted — or stops wanting it — while the agent is still
 working.
 
-Set `signalId` and the run identifies itself for as long as it is in flight.
-The same block then handles all three cases, with no branching in the flow.
+A run claims its conversation — the `memoryThreadId` it already has — for as
+long as it is in flight. There is no second identifier to configure: the
+thread is what must not have two runs at once, since two would also overwrite
+each other's memory. The same block then handles all three cases, with no
+branching in the flow.
 
 ## One block, three outcomes
 
@@ -20,9 +23,8 @@ The same block then handles all three cases, with no branching in the flow.
       - type: ai-agent
         name: assistant
         connector: claude
-        signalId: vars.sub + ":" + body.threadId
+        memoryThreadId: vars.sub + ":" + body.threadId
         stopWhen: '"X-Agent-Stop" in vars && vars["X-Agent-Stop"] != ""'
-        memoryThreadId: body.threadId
         input: body.message
         stream: true
         # ...
@@ -87,12 +89,13 @@ the disconnect is only noticed at the next turn boundary — and that turn is
 paid for. Stream any agent whose caller can walk away.
 </Callout>
 
-## Choosing a signal id
+## Choosing a thread id
 
-`signalId` is a CEL expression, so its granularity is yours. It is
-deliberately **not** defaulted from `memoryThreadId`: memory is scoped to a
-conversation, while steering is scoped to whoever is allowed to interrupt it
-— usually a conversation **and** a person.
+`memoryThreadId` is a CEL expression, so its granularity is yours — and it now
+decides two things at once: what the agent remembers, and what a later message
+can join. Those are the same question. A thread per user gives that user's
+conversation a memory and a run; a thread per channel gives the channel one,
+shared by everyone in it.
 
 A JWT subject arrives as an ordinary message variable, so
 `vars.sub + ":" + body.threadId` says "this person, in this conversation".
@@ -104,12 +107,15 @@ flow's agent. It also means a run can only be joined or stopped through the
 block that started it: give a stop route the same agent block (as the sample
 does, with a header) rather than a second one.
 
+An agent with no `memoryThreadId` is stateless, claims nothing, and cannot be
+joined or stopped — there is no conversation for a later message to be part of.
+
 <Callout type="warn">
-**Whatever the id is derived from is exactly who can reach the run.** Build it
-from an identity the caller cannot choose — `vars.sub`, the verified subject of
-a token a [`jwt-validate`](/reference/connectors/http) block checked — not from
-a field of the request body. An id built from `body.userId` lets anyone who can
-guess a pair steer or stop someone else's run.
+**Whatever the thread id is derived from is exactly who can reach the
+conversation** — read it, steer it, or stop it. Build it from an identity the
+caller cannot choose: `vars.sub`, the verified subject of a token a
+[`jwt-validate`](/reference/connectors/http) block checked, rather than a field
+of the request body.
 </Callout>
 
 ## Known limits
@@ -134,7 +140,7 @@ success. The others are visible to whoever is reading.
 </Callout>
 
 The straightforward fix is at the router rather than in the runtime: **session
-affinity** on the ingress, keyed on the same thread the `signalId` is, puts
+affinity** on the ingress, keyed on the same thread `memoryThreadId` is, puts
 every message of a conversation on the replica already working on it. It also
 fixes something a cluster-wide claim could not — a client that reconnects lands
 back on the replica holding its stream.

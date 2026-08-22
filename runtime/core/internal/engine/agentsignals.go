@@ -227,33 +227,22 @@ func (a *aiAgent) injectPending(
 	return messages
 }
 
-// configureAgentSignals compiles the expressions naming the run's id and the
-// condition that ends one. A block with neither is left unreachable.
+// configureAgentSignals compiles the condition that ends a run, and records the
+// address that scopes this block's claims.
+//
+// There is no identifier to configure: a run is claimed on the conversation it
+// belongs to, which memoryThreadId already names. Asking for a second expression
+// saying the same thing would be asking the author to keep two answers to one
+// question in step.
 func (b *builder) configureAgentSignals(block *aiAgent, cfg types.BlockConfig) error {
-	// The registry is one map for the whole process, so the block's own address
-	// goes in the key beside the id the flow computes.
-	//
-	// Without it, two agents whose expressions happen to agree — `body.threadId`
-	// is the obvious one — would hand each other messages: a request meant for the
-	// support agent taken by the sales agent, and the caller's flow stopped on the
-	// strength of it. The id says which conversation; the address says which agent
-	// is having it, and only the second is something the runtime can know for
-	// itself.
 	block.runScope = b.deps.Address.Path
-	if strings.TrimSpace(cfg.SignalID) == "" {
-		if strings.TrimSpace(cfg.StopWhen) != "" {
-			return errors.New("ai-agent stopWhen requires a signalId naming the run to stop")
-		}
-		return nil
-	}
-	id, err := expr.CompileMessage(b.deps.Resources, cfg.SignalID)
-	if err != nil {
-		return fmt.Errorf("ai-agent signalId: %w", err)
-	}
-	block.signalID = id
-
 	if strings.TrimSpace(cfg.StopWhen) == "" {
 		return nil
+	}
+	if cfg.MemoryThreadID == "" {
+		return errors.New(
+			"ai-agent stopWhen requires memoryThreadId: a run is stopped by the conversation " +
+				"it belongs to, and without one there is nothing to name")
 	}
 	stop, err := expr.CompileMessage(b.deps.Resources, cfg.StopWhen)
 	if err != nil {
@@ -263,67 +252,82 @@ func (b *builder) configureAgentSignals(block *aiAgent, cfg types.BlockConfig) e
 	return nil
 }
 
-// stoppedBody is what a flow that stopped a run returns. There is nothing to
-// say: the answer is going to whoever is reading the run that was stopped.
+// stoppedBody is what a flow that reached a run returns. There is nothing to
+// say: the answer is going to whoever is reading the run it reached.
 const stoppedBody = "{}"
 
 // joinOrClaim decides what this invocation is for before any model is called.
 //
-// Three outcomes. A block with no signalId is an ordinary run and claims
-// nothing. An invocation whose stop condition holds ends the run already working
-// on its id, and stops. Otherwise it offers its message to that run — and if one
-// took it, stops too, because the person who sent it is already reading that
-// run's output and a second run would answer them twice. Only when nothing was
-// there does it register itself and go on to do the work.
+// Three outcomes. A stateless agent claims nothing and every run of one is its
+// own. An invocation whose stop condition holds ends the run already working on
+// its conversation, and stops. Otherwise it offers its message to that run — and
+// if one took it, stops too, because the person who sent it is already reading
+// that run's output and a second run would answer them twice. Only when nothing
+// was there does it claim the conversation and go on to do the work.
 //
 // taken is non-nil exactly when the flow should stop here.
 func (a *aiAgent) joinOrClaim(
 	msg *types.Message, cancel func(),
-) (id string, run *agentRun, taken *types.Message, err error) {
-	if a.signalID == nil {
-		return "", &agentRun{cancel: cancel}, nil, nil
+) (c runClaim, taken *types.Message, err error) {
+	c.run = &agentRun{cancel: cancel}
+	if c.threadID, err = a.resolveThread(msg); err != nil {
+		return c, nil, err
 	}
-	activation := expr.MessageActivation(msg, a.env)
-	resolved, err := a.signalID.EvalString(activation)
-	if err != nil {
-		return "", nil, nil, fmt.Errorf("ai-agent signalId: %w", err)
+	// No thread is no conversation: a stateless agent has nothing another message
+	// could join, and every run of one is its own.
+	if c.threadID == "" {
+		return c, nil, nil
 	}
-	// An empty id would put every run whose expression came up empty on the same
-	// entry, where they would take each other's messages. Nothing to join is the
-	// safer reading of an expression that resolved to nothing.
-	if resolved == "" {
-		slog.Warn("ai-agent signalId resolved to nothing; the run is unreachable", "block", a.name)
-		return "", &agentRun{cancel: cancel}, nil, nil
-	}
-	id = a.runScope + "\x00" + resolved
+	// The registry is one map for the whole process, so the block's own address
+	// goes in the key beside the thread the flow computed.
+	//
+	// Without it, two agents whose thread expressions happen to agree — and
+	// body.threadId is the easy way for that to happen — would hand each other
+	// messages: a request meant for the support agent taken by the sales agent,
+	// and the caller's flow stopped on the strength of it. The thread says which
+	// conversation; the address says which agent is having it, and only the second
+	// is something the runtime can know for itself.
+	c.key = a.runScope + "\x00" + c.threadID
 
 	if a.stopWhen != nil {
 		stop, evalErr := evalCondition(a.stopWhen, msg, a.env)
 		if evalErr != nil {
-			return "", nil, nil, fmt.Errorf("ai-agent stopWhen: %w", evalErr)
+			return c, nil, fmt.Errorf("ai-agent stopWhen: %w", evalErr)
 		}
 		if stop {
 			// Idempotent: stopping a run that is not there is not an error, so a stop
 			// can be sent blind by a client that cannot know whether one is still going.
-			slog.Info("ai-agent stop requested", "block", a.name, "stopped", liveRuns.stop(id))
-			return id, nil, stopFlow(msg), nil
+			slog.Info("ai-agent stop requested", "block", a.name, "stopped", liveRuns.stop(c.key))
+			return c, stopFlow(msg), nil
 		}
 	}
 
-	mine := &agentRun{cancel: cancel}
 	text, err := a.openingTurn(msg)
 	if err != nil {
-		return "", nil, nil, err
+		return c, nil, err
 	}
-	if liveRuns.offerOrClaim(id, text, mine) {
-		slog.Info("ai-agent handed a message to the run already in flight", "block", a.name)
-		return id, nil, stopFlow(msg), nil
+	if liveRuns.offerOrClaim(c.key, text, c.run) {
+		slog.Info("ai-agent handed a message to the run already in flight",
+			"block", a.name, "thread", c.threadID)
+		return c, stopFlow(msg), nil
 	}
-	return id, mine, nil, nil
+	return c, nil, nil
+}
+
+// runClaim is what one invocation established before its first turn: which
+// conversation it belongs to, the registry entry it holds, and the handle other
+// invocations reach it through.
+//
+// A zero key means it claimed nothing — a stateless agent, or one whose thread
+// expression came up empty — and release then does nothing.
+type runClaim struct {
+	threadID string
+	key      string
+	run      *agentRun
 }
 
 // stopFlow ends the invocation with an empty body: whatever the answer is, it is
-// going to whoever is reading the run this message was handed to.
+// going to whoever is reading the run this message reached.
 func stopFlow(msg *types.Message) *types.Message {
 	if err := msg.SetBodyJSON([]byte(stoppedBody)); err != nil {
 		slog.Warn("ai-agent could not empty the body of a stopped flow", "error", err)

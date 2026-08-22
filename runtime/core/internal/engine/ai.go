@@ -515,10 +515,6 @@ type aiAgent struct {
 	// transcript after.
 	memoryThreadID   *expr.Program
 	memoryCompaction string
-	// signalID identifies this run while it is in flight, so a later invocation
-	// resolving the same id hands its message over instead of starting a second
-	// run. Nil leaves the run unreachable. See agentsignals.go.
-	signalID *expr.Program
 	// runScope namespaces this block's claims in the process-wide registry, so two
 	// agents whose signalId expressions agree do not hand each other messages.
 	runScope string
@@ -564,7 +560,7 @@ func validateAgentConfig(cfg types.BlockConfig) error {
 	return allowSlots(cfg, blockKindAIAgent,
 		"tools", "skills", "default", "connector", "prompt", "guardrail", "input", "answer",
 		"maxIterations", "memoryThreadId", "contextMaxTokens", "memoryCompaction",
-		"signalId", "stopWhen", "events", "emit", "stream")
+		"stopWhen", "events", "emit", "stream")
 }
 
 //nolint:ireturn // builders intentionally return the MessageProcessor interface
@@ -854,19 +850,21 @@ func (a *aiAgent) Process(ctx context.Context, msg *types.Message) (*types.Messa
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	// Before anything else: is this invocation meant to reach a run rather than be
-	// one? Both answers end the flow here, and neither calls a model.
-	runID, run, taken, err := a.joinOrClaim(msg, cancel)
+	// Which conversation is this, and is this invocation meant to reach a run
+	// rather than be one? Both of the latter answers end the flow here, and
+	// neither calls a model.
+	claim, taken, err := a.joinOrClaim(msg, cancel)
 	if err != nil {
 		return nil, err
 	}
 	if taken != nil {
 		return taken, nil
 	}
-	defer liveRuns.release(runID, run)
-	defer run.close()
+	defer liveRuns.release(claim.key, claim.run)
+	defer claim.run.close()
+	run, threadID := claim.run, claim.threadID
 
-	threadID, messages, meter, err := a.initConversation(ctx, msg)
+	messages, meter, err := a.initConversation(ctx, msg, threadID)
 	if err != nil {
 		return nil, err
 	}
@@ -1109,15 +1107,15 @@ func (a *aiAgent) halt(
 // resolved thread id (empty when memory is disabled) and a context meter carrying
 // whatever the last run measured for that transcript.
 func (a *aiAgent) initConversation(
-	ctx context.Context, msg *types.Message,
-) (threadID string, messages []core.LLMMessage, meter *contextMeter, err error) {
+	ctx context.Context, msg *types.Message, threadID string,
+) (messages []core.LLMMessage, meter *contextMeter, err error) {
 	opening, err := a.openingTurn(msg)
 	if err != nil {
-		return "", nil, nil, err
+		return nil, nil, err
 	}
-	threadID, stored, err := a.loadHistory(ctx, msg)
+	stored, err := a.loadHistory(ctx, threadID)
 	if err != nil {
-		return "", nil, nil, err
+		return nil, nil, err
 	}
 	messages = make([]core.LLMMessage, 0, len(stored.Messages)+1)
 	messages = append(messages, stored.Messages...)
@@ -1128,7 +1126,7 @@ func (a *aiAgent) initConversation(
 	// an answer: the first measured turn of this run replaces it.
 	meter = newContextMeter()
 	meter.seed(estimateTokens(stored.Messages), stored.Tokens)
-	return threadID, messages, meter, nil
+	return messages, meter, nil
 }
 
 // openingTurn is the text of the agent's first user message.
@@ -1163,19 +1161,38 @@ func (a *aiAgent) openingTurn(msg *types.Message) (string, error) {
 // loadHistory resolves the memory thread id and loads its stored state when
 // memory is enabled. It returns the resolved thread id (empty when disabled) and
 // the stored envelope (zero when disabled or the thread is new).
-func (a *aiAgent) loadHistory(ctx context.Context, msg *types.Message) (string, memoryEnvelope, error) {
-	if a.memoryThreadID == nil {
-		return "", memoryEnvelope{}, nil
-	}
-	threadID, err := a.memoryThreadID.EvalString(expr.MessageActivation(msg, a.env))
-	if err != nil {
-		return "", memoryEnvelope{}, fmt.Errorf("ai-agent memory threadId: %w", err)
+func (a *aiAgent) loadHistory(ctx context.Context, threadID string) (memoryEnvelope, error) {
+	if threadID == "" {
+		return memoryEnvelope{}, nil
 	}
 	stored, err := loadMemory(ctx, threadID)
 	if err != nil {
-		return "", memoryEnvelope{}, fmt.Errorf("ai-agent load memory: %w", err)
+		return memoryEnvelope{}, fmt.Errorf("ai-agent load memory: %w", err)
 	}
-	return threadID, stored, nil
+	return stored, nil
+}
+
+// resolveThread evaluates the conversation this message belongs to, or returns
+// empty for a stateless agent.
+//
+// It is the one identity an agent has, and it does two jobs: it is the key its
+// transcript is stored under, and it is what a run is claimed on so a second
+// message joins it rather than starting a rival. Those are the same fact — two
+// runs on one thread would overwrite each other's memory — so they are the same
+// expression.
+func (a *aiAgent) resolveThread(msg *types.Message) (string, error) {
+	if a.memoryThreadID == nil {
+		return "", nil
+	}
+	threadID, err := a.memoryThreadID.EvalString(expr.MessageActivation(msg, a.env))
+	if err != nil {
+		return "", fmt.Errorf("ai-agent memory threadId: %w", err)
+	}
+	if threadID == "" {
+		slog.Warn("ai-agent memoryThreadId resolved to nothing; the run is stateless and unreachable",
+			"block", a.name)
+	}
+	return threadID, nil
 }
 
 // persistMemory saves the accumulated transcript for the thread (best-effort,

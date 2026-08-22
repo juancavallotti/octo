@@ -1,8 +1,8 @@
 # Distributed Agent Runs
 
-An `ai-agent` with a `signalId` claims that id for the length of its run, so a
-later message on the same conversation is handed to the run already working on
-it rather than starting a second one. The claim is a map in the process
+An `ai-agent` with a `memoryThreadId` claims that conversation for the length of
+its run, so a later message on the same thread is handed to the run already
+working on it rather than starting a second one. The claim is a map in the process
 (`runRegistry`, `runtime/core/internal/engine/agentsignals.go`).
 
 This page is about what that costs across replicas, what a distributed claim
@@ -67,7 +67,7 @@ Two things fall out of that table.
 
 **Session affinity is the cheapest complete answer to the cross-replica half.**
 It costs nothing in the runtime — it is an ingress setting keyed on the same
-thread the `signalId` is — and it fixes (5), which a claim cannot, because
+thread `memoryThreadId` is — and it fixes (5), which a claim cannot, because
 rejoining a stream is about where the *connection* lands, not about who owns the
 conversation.
 
@@ -168,7 +168,7 @@ the caller type-asserts** — the `core.LogShipper` shape — and not a widening
 does not need one, which is exactly the test that page prescribes. The engine
 keeps the map as its default and asks the services module for a better one.
 
-Nothing in a flow changes either way. `signalId` and `stopWhen` mean the same
+Nothing in a flow changes either way. `memoryThreadId` and `stopWhen` mean the same
 thing whichever implementation is underneath.
 
 ## If you only do one thing

@@ -167,19 +167,11 @@ type BlockConfig struct {
 	// CEL expression resolved to the thread id whose transcript is loaded before
 	// the run and saved after. Empty disables memory.
 	MemoryThreadID string `yaml:"memoryThreadId,omitempty"`
-	// SignalID enables an "ai-agent"'s steering channel: a CEL expression resolved
-	// to the id other flows post additional context or a stop to while the run is
-	// in flight. Empty leaves the run unreachable.
-	//
-	// It is deliberately separate from MemoryThreadID. Memory is scoped to a
-	// conversation; steering is scoped to whoever is allowed to interrupt it,
-	// which is usually a conversation *and* a person. Defaulting one from the
-	// other would open a channel on every agent that happens to have memory.
-	SignalID string `yaml:"signalId,omitempty"`
-	// StopWhen is a boolean CEL condition that ends the run already working on
-	// SignalID instead of starting one — a header, a body field, whatever the
-	// caller uses to say "stop". It is meaningless without SignalID, since there
-	// would be no run to name. Empty offers no way to stop a run.
+	// StopWhen is a boolean CEL condition that ends the run already working on this
+	// message's conversation instead of starting one — a header, a body field,
+	// whatever the caller uses to say "stop". It is meaningless without
+	// MemoryThreadID, since that is what names the conversation. Empty offers no
+	// way to stop a run.
 	StopWhen string `yaml:"stopWhen,omitempty"`
 	// ContextMaxTokens is an "ai-agent"'s token budget for its whole prompt —
 	// system instructions, tool schemas and conversation together — measured from

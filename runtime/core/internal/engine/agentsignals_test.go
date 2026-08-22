@@ -8,17 +8,15 @@ import (
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
-const testSignalID = "u1:t1"
-
-// steerableAgentConfig builds an agent that can be reached while it runs, with
-// one tool the model can call.
+// steerableAgentConfig builds an agent that can be reached while it runs: one
+// with a conversation, since that is what a later message joins.
 func steerableAgentConfig() types.BlockConfig {
 	return types.BlockConfig{
 		Type: "ai-agent", Connector: "claude", Prompt: "work", Name: "worker",
-		Tools:         []types.ToolConfig{toolBranch("lookup", "looks things up", nil)},
-		SignalID:      `"` + testSignalID + `"`,
-		Input:         "body.message",
-		MaxIterations: 6,
+		Tools:          []types.ToolConfig{toolBranch("lookup", "looks things up", nil)},
+		MemoryThreadID: "body.threadId",
+		Input:          "body.message",
+		MaxIterations:  6,
 	}
 }
 
@@ -46,7 +44,7 @@ func steerMessage(t *testing.T, text string) *types.Message {
 	if err != nil {
 		t.Fatalf("new message: %v", err)
 	}
-	if err := msg.SetBodyJSON([]byte(`{"message":"` + text + `"}`)); err != nil {
+	if err := msg.SetBodyJSON([]byte(`{"threadId":"t1","message":"` + text + `"}`)); err != nil {
 		t.Fatalf("set body: %v", err)
 	}
 	return msg
@@ -120,7 +118,6 @@ func TestStopWhenEndsTheRunInFlight(t *testing.T) {
 
 	cfg := steerableAgentConfig()
 	cfg.StopWhen = "has(body.stop)"
-	cfg.MemoryThreadID = `"t1"`
 	fake := &scriptedLLM{repeat: toolCallResp("lookup", `{"q":"x"}`)}
 
 	var block core.MessageProcessor
@@ -135,7 +132,7 @@ func TestStopWhenEndsTheRunInFlight(t *testing.T) {
 			t.Error(err)
 			return
 		}
-		if err := msg.SetBodyJSON([]byte(`{"stop":true}`)); err != nil {
+		if err := msg.SetBodyJSON([]byte(`{"threadId":"t1","stop":true}`)); err != nil {
 			t.Error(err)
 			return
 		}
@@ -189,7 +186,7 @@ func TestStopWhenNothingIsRunningIsANoOp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new message: %v", err)
 	}
-	if err := msg.SetBodyJSON([]byte(`{"stop":true}`)); err != nil {
+	if err := msg.SetBodyJSON([]byte(`{"threadId":"t1","stop":true}`)); err != nil {
 		t.Fatalf("set body: %v", err)
 	}
 	out, err := mustBuildAI(t, agentRegistry(&seen), depsLLM(fake), cfg).Process(ctx, msg)
@@ -226,13 +223,13 @@ func TestARequestAfterTheRunEndsStartsItsOwn(t *testing.T) {
 	}
 }
 
-// An agent with no signalId claims nothing: being reachable is something a flow
-// asks for, not something every agent pays for.
-func TestAnAgentWithoutASignalIDClaimsNothing(t *testing.T) {
+// A stateless agent claims nothing. There is no conversation for a later
+// message to join, so every run of one is its own.
+func TestAStatelessAgentClaimsNothing(t *testing.T) {
 	ctx, _ := withFakeServices(context.Background())
 	var seen []any
 	cfg := steerableAgentConfig()
-	cfg.SignalID = ""
+	cfg.MemoryThreadID = ""
 
 	fake := &scriptedLLM{responses: []*core.LLMResponse{endTurnResp("done")}}
 	if _, err := mustBuildAI(t, agentRegistry(&seen), depsLLM(fake), cfg).
@@ -244,14 +241,14 @@ func TestAnAgentWithoutASignalIDClaimsNothing(t *testing.T) {
 	}
 }
 
-// stopWhen without a signalId names no run, so it is a build error rather than a
-// condition that silently never stops anything.
-func TestStopWhenRequiresASignalID(t *testing.T) {
+// stopWhen on a stateless agent names no conversation, so it is a build error
+// rather than a condition that silently never stops anything.
+func TestStopWhenRequiresAThread(t *testing.T) {
 	cfg := steerableAgentConfig()
-	cfg.SignalID = ""
+	cfg.MemoryThreadID = ""
 	cfg.StopWhen = "has(body.stop)"
 	if _, err := (&builder{reg: testRegistry(), deps: depsLLM(&scriptedLLM{})}).block(cfg); err == nil {
-		t.Error("expected an error for stopWhen without a signalId")
+		t.Error("expected an error for stopWhen without a memoryThreadId")
 	}
 }
 
@@ -352,17 +349,16 @@ func containsUserText(msgs []core.LLMMessage, text string) bool {
 	return false
 }
 
-// Two agents whose signalId expressions agree — body.threadId is the obvious way
-// for that to happen by accident — must not hand each other messages. A request
-// meant for one agent being answered by another, with the caller's flow stopped
-// on the strength of it, is the kind of wrong that looks like a delivery.
-func TestTwoAgentsSharingAnIDExpressionDoNotCollide(t *testing.T) {
+// Two agents on the same conversation expression — body.threadId is the obvious
+// way for that to happen by accident — must not hand each other messages. A
+// request meant for one agent being answered by another, with the caller's flow
+// stopped on the strength of it, is the kind of wrong that looks like a delivery.
+func TestTwoAgentsSharingAThreadExpressionDoNotCollide(t *testing.T) {
 	ctx, _ := withFakeServices(context.Background())
 	var seen []any
 	var otherOut *types.Message
 
 	cfg := steerableAgentConfig()
-	cfg.SignalID = "body.threadId"
 
 	// A second agent, identically keyed, standing in for another flow's.
 	otherFake := &scriptedLLM{repeat: endTurnResp("other answer")}
