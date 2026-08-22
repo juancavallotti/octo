@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 	"sort"
+	"time"
 
 	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/services"
@@ -44,6 +45,7 @@ func init() {
 // Services is the Kubernetes runtime-services provider.
 type Services struct {
 	le        *leaderElection
+	leases    *leases
 	kv        *httpStore
 	q         *natsQueues
 	t         *natsTopics
@@ -104,6 +106,7 @@ func New(_ context.Context, opts services.Options) (core.RuntimeServices, error)
 
 	return &Services{
 		le:      newLeaderElection(cs.CoordinationV1(), namespace, identity, deploymentID),
+		leases:  newLeases(cs.CoordinationV1(), namespace, identity, deploymentID, time.Now),
 		kv:      newHTTPStore(orchestrator, deploymentID, os.Getenv(envOrchestrToken)),
 		q:       newNATSQueues(conn, deploymentID),
 		t:       newNATSTopics(conn, deploymentID),
@@ -119,6 +122,13 @@ func New(_ context.Context, opts services.Options) (core.RuntimeServices, error)
 //
 //nolint:ireturn // satisfies core.RuntimeServices
 func (s *Services) LeaderElection() core.LeaderElection { return s.le }
+
+// Leases returns the fail-fast claims, backed by coordination Lease objects in
+// the deployment's namespace. It shares the API group with leader election above
+// and answers a different question — see core.Leases.
+//
+//nolint:ireturn // satisfies core.RuntimeServices
+func (s *Services) Leases() core.Leases { return s.leases }
 
 // KV returns the orchestrator-backed key/value store.
 //
