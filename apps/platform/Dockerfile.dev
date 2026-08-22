@@ -6,19 +6,50 @@
 # Build context must be the repo ROOT (same as the prod image) so it can reach
 # runtime/ to build the CLIs and the whole pnpm workspace.
 
-# --- Stage 1: build the octo and dolphin binaries -----------------------------
-FROM golang:1.25-alpine AS runtime-build
+# BIN_SOURCE picks where the two Go binaries come from:
+#   compile   (default) build them here from source. What Cloud Build and
+#             release CI use, and what makes this file work on its own.
+#   prebuilt  copy them from the `prebuilt` named build context, which
+#             task bins:linux fills:
+#               task bins:linux
+#               docker build --build-arg BIN_SOURCE=prebuilt \
+#                 --build-context prebuilt=dist/bin \
+#                 -t octo-platform-dev:dev -f apps/platform/Dockerfile.dev .
+ARG BIN_SOURCE=compile
+
+# --- Stage 1: the octo and dolphin binaries -----------------------------------
+FROM golang:1.25-alpine AS bin-compile
 RUN apk add --no-cache git
 WORKDIR /src
+# The Go module is rooted at the repo root; all its packages live under runtime/.
 COPY go.mod go.sum ./
 COPY runtime/ ./runtime/
-RUN CGO_ENABLED=0 go build \
-    -ldflags "-X main.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+# The cache mounts are what keep this arm bearable when it is taken: without them
+# every build recompiles the standard library and the whole dependency tree from
+# an empty GOCACHE. They are shared by both RUNs below, so dolphin pays only for
+# the packages octo did not already build.
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    CGO_ENABLED=0 go build \
+    -trimpath \
+    -ldflags "-s -w -X main.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     -o /out/octo ./runtime/octo
 # dolphin, the test runner the Testing tab drives — same module, same commit.
-RUN CGO_ENABLED=0 go build \
-    -ldflags "-X main.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    CGO_ENABLED=0 go build \
+    -trimpath \
+    -ldflags "-s -w -X main.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     -o /out/dolphin ./runtime/dolphin
+
+# Or copy the host-built pair. TARGETARCH keys the directory so one form serves a
+# native build and a --platform/multi-arch one alike.
+FROM scratch AS bin-prebuilt
+ARG TARGETARCH
+COPY --from=prebuilt linux_${TARGETARCH}/octo    /out/octo
+COPY --from=prebuilt linux_${TARGETARCH}/dolphin /out/dolphin
+
+FROM bin-${BIN_SOURCE} AS bin
 
 # --- Stage 2: platform dev server --------------------------------------------
 FROM node:22-alpine
@@ -41,8 +72,8 @@ COPY tsconfig.base.json ./
 COPY packages/ ./packages/
 COPY apps/platform/ ./apps/platform/
 # The CLIs live OUTSIDE /app so DevSpace's source-sync can't delete them.
-COPY --from=runtime-build /out/octo /usr/local/bin/octo
-COPY --from=runtime-build /out/dolphin /usr/local/bin/dolphin
+COPY --from=bin /out/octo /usr/local/bin/octo
+COPY --from=bin /out/dolphin /usr/local/bin/dolphin
 RUN mkdir -p /app/.octo-run
 WORKDIR /app/apps/platform
 EXPOSE 3000
