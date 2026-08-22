@@ -12,11 +12,16 @@ import { Brain, ChevronDown, ChevronRight } from "lucide-react";
  * question and the answer, and a model that is working is indistinguishable from
  * one that has hung.
  *
- * Open while it streams, closed once the answer starts. That ordering is the whole
- * design: the reasoning is worth watching when it is the only thing happening, and
- * is clutter the moment there is an answer to read instead.
+ * Open while it streams, closed once something follows it. That ordering is the
+ * whole design: the reasoning is worth watching when it is the only thing
+ * happening, and is clutter the moment there is a tool call or an answer to read
+ * instead.
+ *
+ * One of these per stretch of reasoning rather than one per turn: an agent that
+ * thinks, calls a tool and thinks again did two separate pieces of thinking, and
+ * the second is about what the first turned up.
  */
-export default function ThinkingPanel({
+export default function ThinkingSegment({
   text,
   streaming,
   answered,
@@ -24,7 +29,7 @@ export default function ThinkingPanel({
   text: string;
   /** The run is still going. */
   streaming: boolean;
-  /** The answer has begun, so the reasoning is no longer the main event. */
+  /** Something came after this, so the reasoning is no longer the main event. */
   answered: boolean;
 }) {
   // Derived rather than synchronised: until someone touches it the panel simply

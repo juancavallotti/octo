@@ -10,9 +10,9 @@ import {
   type NavigateEvent,
 } from "./events";
 import { ROUTE_CATALOGUE } from "./routes";
-import { reduce, type Turn } from "./turns";
+import { answerOf, newTurn, reduce, type Turn } from "./turns";
 
-export type { ToolRun, Turn } from "./turns";
+export type { Segment, ToolRun, Turn } from "./turns";
 
 export interface AgentChat {
   turns: Turn[];
@@ -102,7 +102,9 @@ export function useAgentChat(
   const setFinalAnswer = useCallback((turnId: string, answer: string) => {
     setTurns((current) =>
       current.map((turn) =>
-        turn.id === turnId && !turn.text ? { ...turn, text: answer } : turn,
+        turn.id === turnId && !answerOf(turn)
+          ? { ...turn, segments: [...turn.segments, { kind: "text", iter: 0, text: answer }] }
+          : turn,
       ),
     );
   }, []);
@@ -124,15 +126,8 @@ export function useAgentChat(
       const agentTurnId = randomId();
       setTurns((current) => [
         ...current,
-        {
-          id: randomId(),
-          role: "user",
-          text,
-          tools: [],
-          thinking: "",
-          streaming: false,
-        },
-        { id: agentTurnId, role: "agent", text: "", tools: [], thinking: "", streaming: true },
+        newTurn(randomId(), "user", text),
+        { ...newTurn(agentTurnId, "agent"), streaming: true },
       ]);
 
       void (async () => {

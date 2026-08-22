@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
 
 import { useAgentChat } from "./useAgentChat";
+import type { ToolRun, Turn } from "./turns";
 
 /** A fetch response whose body streams the given SSE text as one chunk. */
 function sseResponse(body: string): Response {
@@ -21,6 +22,30 @@ function frames(...events: unknown[]): string {
 }
 
 const fetchMock = vi.fn();
+
+/**
+ * Readers over the segment model, so the assertions below stay about behaviour.
+ * A turn is an ordered log now, and these pull the three things a test cares
+ * about back out of it.
+ */
+function answerOf(turn: Turn): string {
+  return textOf(turn, "text");
+}
+
+function thinkingOf(turn: Turn): string {
+  return textOf(turn, "thinking");
+}
+
+function textOf(turn: Turn, kind: "text" | "thinking"): string {
+  return turn.segments
+    .filter((s) => s.kind === kind)
+    .map((s) => (s as { text: string }).text)
+    .join("");
+}
+
+function toolsOf(turn: Turn): ToolRun[] {
+    return turn.segments.flatMap((s) => (s.kind === "tools" ? s.runs : []));
+}
 
 describe("useAgentChat", () => {
   beforeEach(() => {
@@ -42,7 +67,7 @@ describe("useAgentChat", () => {
     act(() => result.current.send("how many integrations"));
 
     await waitFor(() => expect(result.current.busy).toBe(false));
-    expect(result.current.turns.map((t) => [t.role, t.text])).toEqual([
+    expect(result.current.turns.map((t) => [t.role, answerOf(t)])).toEqual([
       ["user", "how many integrations"],
       ["agent", "You have three."],
     ]);
@@ -62,7 +87,7 @@ describe("useAgentChat", () => {
     act(() => result.current.send("list them"));
 
     await waitFor(() => expect(result.current.busy).toBe(false));
-    expect(result.current.turns[1].tools).toEqual([
+    expect(toolsOf(result.current.turns[1])).toEqual([
       { id: "c1", tool: "octo_api", done: true, failed: false },
     ]);
   });
@@ -81,7 +106,7 @@ describe("useAgentChat", () => {
     act(() => result.current.send("break something"));
 
     await waitFor(() => expect(result.current.busy).toBe(false));
-    expect(result.current.turns[1].tools[0].failed).toBe(true);
+    expect(toolsOf(result.current.turns[1])[0].failed).toBe(true);
   });
 
   it("routes a navigate frame to the callback", async () => {
@@ -129,7 +154,7 @@ describe("useAgentChat", () => {
     act(() => result.current.send("hi"));
 
     await waitFor(() => expect(result.current.busy).toBe(false));
-    expect(result.current.turns[1].text).toBe("Hello.");
+    expect(answerOf(result.current.turns[1])).toBe("Hello.");
   });
 
   // The reasons come from the runtime and can grow. One this build does not know is
@@ -190,7 +215,7 @@ describe("useAgentChat", () => {
     });
 
     await waitFor(() =>
-      expect(result.current.turns.at(-1)?.text).toBe("the second answer"),
+      expect(answerOf(result.current.turns.at(-1)!)).toBe("the second answer"),
     );
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(result.current.error).toBeNull();
@@ -214,7 +239,7 @@ describe("useAgentChat", () => {
     act(() => result.current.send("write me a poem"));
 
     await waitFor(() => expect(result.current.busy).toBe(false));
-    expect(result.current.turns[1].text).toBe("That one is outside my remit.");
+    expect(answerOf(result.current.turns[1])).toBe("That one is outside my remit.");
     // And the raw reason is not what the reader is shown.
     expect(result.current.turns[1].note).toBe("He declined this one.");
   });
@@ -237,8 +262,8 @@ describe("useAgentChat", () => {
     act(() => result.current.send("how many"));
 
     await waitFor(() => expect(result.current.busy).toBe(false));
-    expect(result.current.turns[1].thinking).toBe("They want the integrations.");
-    expect(result.current.turns[1].text).toBe("You have three.");
+    expect(thinkingOf(result.current.turns[1])).toBe("They want the integrations.");
+    expect(answerOf(result.current.turns[1])).toBe("You have three.");
   });
 
   // The chip shows them on expand, which for an agent with write access is the
@@ -267,7 +292,7 @@ describe("useAgentChat", () => {
     act(() => result.current.send("list them"));
 
     await waitFor(() => expect(result.current.busy).toBe(false));
-    expect(result.current.turns[1].tools[0]).toEqual({
+    expect(toolsOf(result.current.turns[1])[0]).toEqual({
       id: "c1",
       tool: "octo_api",
       done: true,
