@@ -82,14 +82,16 @@ never a change of key.
 </Tab>
 </Tabs>
 
-All three connectors take the same four settings:
+All four connectors take the same four settings:
 
 | Setting | Required | Description |
 |---|---|---|
 | `apiKey` | Yes | Authenticates with the provider. Source it from an environment variable; it is never logged. |
-| `model` | No | Model id. Defaults: `claude-sonnet-4-6` (Anthropic), `gpt-5.4` (OpenAI), `gemini-3.5-flash` (Gemini). |
-| `maxTokens` | No | Default response token cap; a block may override it per call. Anthropic defaults to `4096`; OpenAI and Gemini default to `0`, meaning the model's own default. |
+| `model` | No | Model id. Defaults: `claude-sonnet-4-6` (Anthropic), `gpt-5.4` (OpenAI), `gemini-3.5-flash` (Gemini), `anthropic/claude-sonnet-4.5` (OpenRouter). |
+| `maxTokens` | No | Default response token cap; a block may override it per call. Anthropic defaults to `4096`; the other three default to `0`, meaning the model's own default. |
 | `baseURL` | No | Overrides the API endpoint. |
+
+Each also takes settings of its own — reasoning and thinking effort, and for OpenRouter the two attribution headers. See the [connector reference](/reference/connectors/llm).
 
 A connector validates its settings at startup — a missing `apiKey` fails the
 service immediately rather than on the first request.

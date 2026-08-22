@@ -302,3 +302,56 @@ func toToolChoice(tc core.LLMToolChoice) (sdk.ChatCompletionToolChoiceOptionUnio
 		return sdk.ChatCompletionToolChoiceOptionUnionParam{}, false
 	}
 }
+
+// translateEmbedResponse reorders the SDK's index-tagged embeddings back into
+// request order and converts each to float32, carrying the model that served the
+// call and what it charged for it.
+func translateEmbedResponse(
+	resp *sdk.CreateEmbeddingResponse, want int, requestedModel string,
+) (*core.EmbedResponse, error) {
+	if resp == nil || len(resp.Data) != want {
+		return nil, fmt.Errorf("llm-openrouter embed: response had %d embeddings, want %d",
+			len(embeddings(resp)), want)
+	}
+	vectors := make([][]float32, want)
+	for _, d := range resp.Data {
+		if d.Index < 0 || int(d.Index) >= want {
+			return nil, fmt.Errorf("llm-openrouter embed: response embedding index %d out of range", d.Index)
+		}
+		vectors[d.Index] = toFloat32(d.Embedding)
+	}
+	return &core.EmbedResponse{
+		Vectors: vectors,
+		Usage:   translateEmbedUsage(resp.Usage),
+		Model:   servedBy(resp.Model, requestedModel),
+	}, nil
+}
+
+// embeddings is resp.Data with a nil response tolerated, so the error above can
+// report a count without dereferencing what it is complaining about.
+func embeddings(resp *sdk.CreateEmbeddingResponse) []sdk.Embedding {
+	if resp == nil {
+		return nil
+	}
+	return resp.Data
+}
+
+// translateEmbedUsage converts the reported token count, reporting nil when the
+// response carried none. Only the prompt total is taken: an embedding produces no
+// output, so the SDK's TotalTokens is the same number under another name.
+func translateEmbedUsage(u sdk.CreateEmbeddingResponseUsage) *core.EmbedUsage {
+	if u.PromptTokens == 0 {
+		return nil
+	}
+	return &core.EmbedUsage{InputTokens: int(u.PromptTokens)}
+}
+
+// toFloat32 narrows the SDK's float64 embedding values to the runtime's float32
+// vector representation.
+func toFloat32(in []float64) []float32 {
+	out := make([]float32, len(in))
+	for i, v := range in {
+		out[i] = float32(v)
+	}
+	return out
+}

@@ -81,12 +81,12 @@ Traced OpenRouter calls report the provider `OPENROUTER`, not the vendor behind 
 </Callout>
 
 <Callout>
-**No embeddings.** OpenRouter serves no embeddings endpoint, so an [ai-embed](/reference/blocks/ai#ai-embed) block naming an `llm-openrouter` connector fails at startup, exactly as one naming `llm-anthropic` does. Use `llm-openai` or `llm-gemini` for embeddings.
+**Embeddings work too.** OpenRouter serves an OpenAI-compatible embeddings endpoint, so an [ai-embed](/reference/blocks/ai#ai-embed) block may name an `llm-openrouter` connector. Embedding model ids are vendor-prefixed like every other model here — `openai/text-embedding-3-small`, `google/gemini-embedding-001`.
 </Callout>
 
 ## Streaming and thinking
 
-All three connectors stream, and an [ai-agent](/reference/blocks/ai#ai-agent) with
+All four connectors stream, and an [ai-agent](/reference/blocks/ai#ai-agent) with
 `stream: true` reports the model's output to its `events` path as it is produced.
 A streamed turn returns exactly what the same turn would have returned unstreamed
 — same text, tool calls, stop reason and usage — so turning streaming on changes
@@ -119,8 +119,11 @@ with a copy of the JSON body it had been handed.
 OpenAI returns reasoning as a **summary** rather than verbatim, and only when an
 effort other than `none` is set — the reasoning itself comes back encrypted and is
 echoed, unread, on the next turn so a tool loop keeps its train of thought. (On
-Chat Completions there was no reasoning content of any kind, so this column read
-*never*.) Gemini delivers a tool call's arguments complete
+*OpenAI's* Chat Completions there was no reasoning content of any kind, so this
+column read *never* before `llm-openai` moved to Responses. That was a limit of
+that endpoint, not of Chat Completions as a protocol: OpenRouter returns reasoning
+on its own Chat Completions surface, which is why `llm-openrouter` streams
+thinking without needing Responses.) Gemini delivers a tool call's arguments complete
 rather than in pieces; a path that concatenates `tool_input` fragments per call
 still ends up with the same JSON on all three.
 
@@ -174,5 +177,5 @@ flows:
 ```
 
 <Callout type="info">
-Keep API keys in the environment (`${OPENAI_API_KEY}`, `${ANTHROPIC_API_KEY}`, `${GEMINI_API_KEY}`), never inline — see [environment and config](/concepts/environment-and-config). For what the AI blocks can do with these connectors — agents, routing, mapping, and retries — start at [AI in Octo](/ai).
+Keep API keys in the environment (`${OPENAI_API_KEY}`, `${ANTHROPIC_API_KEY}`, `${GEMINI_API_KEY}`, `${OPENROUTER_API_KEY}`), never inline — see [environment and config](/concepts/environment-and-config). For what the AI blocks can do with these connectors — agents, routing, mapping, and retries — start at [AI in Octo](/ai).
 </Callout>

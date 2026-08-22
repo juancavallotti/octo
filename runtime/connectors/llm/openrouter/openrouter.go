@@ -118,6 +118,7 @@ var (
 	_ core.Connector       = (*Connector)(nil)
 	_ core.LLMClient       = (*Connector)(nil)
 	_ core.LLMStreamClient = (*Connector)(nil)
+	_ core.EmbedClient     = (*Connector)(nil)
 )
 
 // Start parses the settings, validates the API key, and builds the client so a
@@ -312,6 +313,33 @@ func reasoningField(effort string) (map[string]any, bool) {
 	default:
 		return map[string]any{"effort": effort}, true
 	}
+}
+
+// Embed embeds a batch of texts in one request, translating the SDK's
+// index-tagged results back into request order — the SDK documents input as an
+// array but doesn't promise the response preserves that order.
+//
+// Embedding model ids are vendor-prefixed here like every other model OpenRouter
+// serves (openai/text-embedding-3-small, google/gemini-embedding-001), and the
+// block names the model, so nothing here defaults one.
+func (c *Connector) Embed(ctx context.Context, req core.EmbedRequest) (*core.EmbedResponse, error) {
+	if len(req.Input) == 0 {
+		return nil, fmt.Errorf("llm-openrouter embed: input is required")
+	}
+
+	params := sdk.EmbeddingNewParams{
+		Input: sdk.EmbeddingNewParamsInputUnion{OfArrayOfStrings: req.Input},
+		Model: req.Model,
+	}
+	if req.Dimensions > 0 {
+		params.Dimensions = param.NewOpt(int64(req.Dimensions))
+	}
+
+	resp, err := c.client.Embeddings.New(ctx, params)
+	if err != nil {
+		return nil, fmt.Errorf("llm-openrouter embed: %w", err)
+	}
+	return translateEmbedResponse(resp, len(req.Input), req.Model)
 }
 
 // decodeExtra reads one of the fields OpenRouter adds beyond the OpenAI schema.

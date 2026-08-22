@@ -476,3 +476,109 @@ func TestStreamingParamsAskForUsage(t *testing.T) {
 		t.Error("a streamed request should ask for usage, or the turn comes back with none")
 	}
 }
+
+func TestEmbedEndToEnd(t *testing.T) {
+	const cannedResponse = `{
+		"object":"list","model":"openai/text-embedding-3-small",
+		"data":[
+			{"object":"embedding","index":1,"embedding":[0.4,0.5]},
+			{"object":"embedding","index":0,"embedding":[0.1,0.2]}
+		],
+		"usage":{"prompt_tokens":4,"total_tokens":4}
+	}`
+
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, cannedResponse)
+	}))
+	defer srv.Close()
+
+	c := &Connector{}
+	if err := c.Start(context.Background(), types.ConnectorConfig{
+		Name: "router", Settings: types.Settings{"apiKey": "sk-or-test", "baseURL": srv.URL},
+	}); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+
+	resp, err := c.Embed(context.Background(), core.EmbedRequest{
+		Model:      "openai/text-embedding-3-small",
+		Input:      []string{"first", "second"},
+		Dimensions: 2,
+	})
+	if err != nil {
+		t.Fatalf("embed: %v", err)
+	}
+
+	// The API documents input as an array but does not promise the response
+	// preserves that order, so the index is what puts them back.
+	if len(resp.Vectors) != 2 {
+		t.Fatalf("vectors = %d, want 2", len(resp.Vectors))
+	}
+	if resp.Vectors[0][0] != float32(0.1) || resp.Vectors[1][0] != float32(0.4) {
+		t.Errorf("vectors not reordered to request order: %+v", resp.Vectors)
+	}
+
+	// An embedding call is billed, so what it charged has to survive translation.
+	if resp.Usage == nil || resp.Usage.InputTokens != 4 {
+		t.Errorf("usage = %+v, want 4 input tokens", resp.Usage)
+	}
+	if resp.Model != "openai/text-embedding-3-small" {
+		t.Errorf("model = %q, want the one the provider reported", resp.Model)
+	}
+
+	if gotBody["model"] != "openai/text-embedding-3-small" {
+		t.Errorf("request model = %v", gotBody["model"])
+	}
+	if input, ok := gotBody["input"].([]any); !ok || len(input) != 2 {
+		t.Errorf("request input = %v, want a 2-element array", gotBody["input"])
+	}
+	if gotBody["dimensions"] != float64(2) {
+		t.Errorf("request dimensions = %v, want 2", gotBody["dimensions"])
+	}
+}
+
+func TestEmbedRequiresInput(t *testing.T) {
+	c := &Connector{}
+	if err := c.Start(context.Background(), types.ConnectorConfig{
+		Name: "router", Settings: types.Settings{"apiKey": "sk-or-test"},
+	}); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if _, err := c.Embed(context.Background(), core.EmbedRequest{Model: "openai/text-embedding-3-small"}); err == nil {
+		t.Fatal("expected an error for an empty input")
+	}
+}
+
+// A short response is refused rather than returned with holes in it: a caller
+// storing vectors by index would otherwise write nils into the result variable.
+func TestEmbedRejectsAShortResponse(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"object":"list","model":"m",
+			"data":[{"object":"embedding","index":0,"embedding":[0.1]}],
+			"usage":{"prompt_tokens":2,"total_tokens":2}}`)
+	}))
+	defer srv.Close()
+
+	c := &Connector{}
+	if err := c.Start(context.Background(), types.ConnectorConfig{
+		Name: "router", Settings: types.Settings{"apiKey": "sk-or-test", "baseURL": srv.URL},
+	}); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	_, err := c.Embed(context.Background(), core.EmbedRequest{
+		Model: "openai/text-embedding-3-small", Input: []string{"a", "b"},
+	})
+	if err == nil {
+		t.Fatal("expected an error when the response has fewer embeddings than the request")
+	}
+}
+
+// The whole point of the assertion ai-embed makes: this connector satisfies it,
+// so an ai-embed block may name it.
+func TestConnectorSatisfiesEmbedClient(t *testing.T) {
+	var _ core.EmbedClient = (*Connector)(nil)
+}

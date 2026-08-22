@@ -26,7 +26,10 @@ connectors:
 ```
 
 Swap `llm-anthropic` for `llm-openai`, `llm-gemini` or `llm-openrouter` and
-nothing else in the flow changes. See [LLM Providers](/ai/llm-providers).
+nothing else in the flow changes. That holds for every AI block except
+[ai-embed](/reference/blocks/ai#ai-embed), which needs a connector whose provider
+serves embeddings — the other three do; Anthropic does not. See
+[LLM Providers](/ai/llm-providers).
 
 ## AI capabilities are blocks
 
