@@ -105,20 +105,45 @@ a field of the request body. An id built from `body.userId` lets anyone who can
 guess a pair steer or stop someone else's run.
 </Callout>
 
-## One replica at a time
+## Known limits
 
 The registry of runs in flight is **per process**, as the http connector's
-registry of open SSE streams is. Across replicas, a follow-up that lands
+registry of open SSE streams is. Across replicas, a message that lands
 somewhere else finds nothing and starts its own run.
 
 The conversation is not lost when that happens — memory lives in the shared
-object store, so the second run has the whole thread. The costs are a second
-answer on a second stream, a stop that stops nothing, and two runs saving the
-same thread where the later save wins.
+object store, so the second run has the whole thread. What goes wrong is that
+two runs exist where there should be one:
+
+- a follow-up gets **its own answer on its own stream**, and both are billed;
+- a **stop stops nothing and reports success**, while the run it meant to end
+  carries on to completion;
+- both runs save the thread at the end, and the **later save wins entirely** —
+  the other's turns are gone.
+
+<Callout type="warn">
+The stop is the one to plan around, because it is the only one that looks like
+success. The others are visible to whoever is reading.
+</Callout>
 
 The straightforward fix is at the router rather than in the runtime: **session
 affinity** on the ingress, keyed on the same thread the `signalId` is, puts
-every message of a conversation on the replica already working on it.
+every message of a conversation on the replica already working on it. It also
+fixes something a cluster-wide claim could not — a client that reconnects lands
+back on the replica holding its stream.
+
+Two limits apply on a single replica too:
+
+- a **wedged run holds its id**. A tool branch with no timeout keeps the
+  conversation claimed, and every follow-up is handed to something that will
+  never answer. There is no maximum run age yet.
+- **follow-ups accepted near the iteration cap can be dropped**. They were
+  accepted, and their senders' flows stopped, and if `maxIterations` is reached
+  before the run gets to them the guardrail path runs instead.
+
+For the design work behind all of this — what a distributed claim would and
+would not fix, and what it would cost — see
+[`docs/distributed-agent-runs.md`](https://github.com/juancavallotti/octo/blob/main/docs/distributed-agent-runs.md).
 
 ## Watching it happen
 
