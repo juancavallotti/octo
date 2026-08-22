@@ -73,7 +73,10 @@ export async function POST(req: Request) {
     "Content-Type": "application/json",
     Accept: "text/event-stream",
   };
-  if (body.stop) headers["X-Agent-Stop"] = "1";
+  // Strictly true. The panel sends a boolean, and reading anything truthy would
+  // let "false" or 0.0 end a run — a stop is the one instruction here that
+  // destroys work, so it takes the value it was specified with and no other.
+  if (body.stop === true) headers["X-Agent-Stop"] = "1";
 
   let upstream: Response;
   try {

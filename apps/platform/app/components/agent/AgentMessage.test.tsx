@@ -158,6 +158,15 @@ describe("AgentMessage", () => {
     expect(screen.getByText(/ran out of steps before answering/)).toBeTruthy();
   });
 
+  // The text is what makes that actionable, and a frame without one must not
+  // render empty quotes at somebody who is trying to work out what they lost.
+  it("says a message went unanswered even when the frame carried no text", () => {
+    render(<AgentMessage turn={withSegments({ kind: "signal", iter: 8, signal: "unanswered" })} />);
+
+    const said = screen.getByText(/ran out of steps before answering/);
+    expect(said.textContent).not.toContain("“”");
+  });
+
   it("shows a note for a guardrail or an error", () => {
     render(<AgentMessage turn={agentTurn({ note: "Outside my remit." })} />);
 

@@ -62,6 +62,9 @@ function Rows({
   }, []);
 
   const pick = (row: ConversationRow) => {
+    // One at a time. Two reads in flight resolve in whatever order the network
+    // gives them, and the loser replaces the conversation the reader chose.
+    if (opening) return;
     setOpening(row.id);
     readConversation(row.id)
       .then((conversation) => {

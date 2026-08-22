@@ -46,7 +46,11 @@ export default function AgentDrawer({
   });
 
   const { ref: scroller, following, toBottom } = useStickToBottom(chat.turns);
-  const open = chat.turns.at(-1);
+  // The last *agent* turn, not the last turn. A message sent mid-answer is
+  // appended while the run continues, so the end of the array is a question the
+  // reader just typed — with no gauge on it and nothing for the status strip to
+  // report, which would blank both at the moment there is most to say.
+  const open = chat.turns.findLast((turn) => turn.role === "agent");
 
   const submit = () => {
     chat.send(draft);
