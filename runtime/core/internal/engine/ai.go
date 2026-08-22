@@ -937,6 +937,12 @@ func (a *aiAgent) Process(ctx context.Context, msg *types.Message) (*types.Messa
 // was accepted, and the invocation that sent it has already stopped its own flow
 // on the strength of that, so dropping it silently would lose a message between
 // two flows that each believed the other had it.
+//
+// The guardrail runs on the flow's context rather than the run's, unlike the
+// refusal path above. The run's context is what a stop cancels, and this is not a
+// stop: a run that has been stopped never reaches here — it halts where the stop
+// was noticed. What reaches here is a run that worked to its limit and owes its
+// caller an answer, and the guardrail is that answer.
 func (a *aiAgent) outOfTurns(
 	ctx, runCtx, saveCtx context.Context, threadID string,
 	current *types.Message, messages []core.LLMMessage, meter *contextMeter, run *agentRun,

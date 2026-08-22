@@ -69,9 +69,10 @@ it better.
 | | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | **Session affinity** (routing) | fixed | fixed | fixed | — | fixed | — | — | — |
-| **Lease claim + core NATS delivery** (built) | fixed | fixed | fixed | partly | — | worse* | — | — |
+| **Lease claim + core NATS delivery** (built) | fixed | fixed | fixed | partly | worse* | worse† | — | — |
 
-\* which is why the age bound shipped with it.
+\* which is why session affinity is still the recommendation, and
+† why the age bound shipped in the same change.
 
 Two things fall out of that table, and both are still true.
 
