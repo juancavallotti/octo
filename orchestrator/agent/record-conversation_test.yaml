@@ -33,7 +33,7 @@ env:
 # No case reaches a model. The title is the one model call this flow makes, and
 # mocking it here says so once.
 mocks:
-  record-conversation.name-it[then].write-title:
+  record-conversation.name-it[then].name-or-fall-back[process].write-title:
     default:
       body: { title: Listing the integrations }
 
@@ -74,3 +74,19 @@ cases:
         - 'vars.rows[0].id == "t-1"'
         - 'vars.rows[0].title == "Listing the integrations"'
         - 'vars.rows[0].updatedAt != ""'
+
+  # The name is the nice half of this flow; the record is the point. A provider
+  # having a bad minute must not cost the exchange — before the fallback it did,
+  # and the only trace was a warning.
+  - name: a conversation is still recorded when it cannot be named
+    input: an exchange
+    mocks:
+      # Overrides the suite's mock: this is the failure the fallback is for.
+      record-conversation.name-it[then].name-or-fall-back[process].write-title:
+        default:
+          error: the model is having a bad minute
+    expect:
+      that:
+        - 'vars.title == "list my integrations"'
+        - "size(vars.turns) == 2"
+        - 'vars.rows[0].title == "list my integrations"'

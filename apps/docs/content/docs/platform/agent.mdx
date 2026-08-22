@@ -74,6 +74,11 @@ That record is deliberately **not** his memory. Memory is compacted — a long c
 
 The record is written from a wire-tap: the exchange goes onto an internal queue and the answer returns, so naming a conversation (which is a small model call, once per conversation) never delays a reply. Both the list and the transcripts are keyed on the signed-in user, exactly as memory is.
 
+Two limits worth knowing:
+
+- **A message you send mid-answer is not in the replay.** It reaches the run — that is what steering is — and he takes it into account, but the record is written once per completed run and holds the question that started it. The answer reflects your follow-up; the transcript does not show you making it.
+- **Naming can fail, and the record does not.** A provider having a bad minute leaves the conversation named after its first question instead. A worse name, not a worse record.
+
 ## Update him
 
 His definition ships inside the orchestrator binary, so upgrading the platform can bring a newer one. When it does, the page reports **Update available**. Press **Roll out update** to publish the new bundle as a version and roll his deployment onto it.

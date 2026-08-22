@@ -229,6 +229,14 @@ cases:
       ANTHROPIC_BASE_URL: http://127.0.0.1:9
     expect:
       body: {}
+    spies:
+      # And nothing is recorded. A stop carries no question and produces no
+      # answer, so a record of one would be a row in somebody's list of past
+      # conversations with nothing in it. The stop request's flow ends at the
+      # agent block — RequestStop short-circuits the chain — which is what makes
+      # this hold; the assertion is here because it holds by consequence rather
+      # than by construction.
+      chat.record-exchange: { count: 0 }
 
   # The conversation record is written from a wire-tap, so what goes on the queue
   # is both halves of the exchange — the question the agent never sees again once

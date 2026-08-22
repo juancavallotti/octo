@@ -457,6 +457,48 @@ func TestSourceMethodsRestrictTheRoute(t *testing.T) {
 	}
 }
 
+// Two things about the refusal that come from the router rather than from this
+// connector, and that a flow author will meet: the 405 says what the route does
+// answer, and a route listing GET answers HEAD as well.
+//
+// The second is HTTP rather than a leak — a HEAD is a GET whose body is discarded
+// — but it does mean the flow runs, so it is pinned here rather than left to be
+// discovered.
+func TestSourceMethodRefusalFollowsTheRouter(t *testing.T) {
+	c, base := startConnector(t, nil)
+	out := newSource(t, c, map[string]any{"path": "/orders", "methods": []string{"GET"}})
+	go func() {
+		for msg := range out {
+			ev := types.FlowEvent{Kind: types.FlowEventCompleted, Result: msg}
+			ev.EventID = msg.EventID
+			ev.OccurredAt = time.Now()
+			core.DefaultEventBus().Publish(ev)
+		}
+	}()
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, base+"/orders", nil)
+	if err != nil {
+		t.Fatalf("building the request: %v", err)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	defer func() { _ = res.Body.Close() }()
+
+	if res.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("POST status = %d, want %d", res.StatusCode, http.StatusMethodNotAllowed)
+	}
+	if allow := res.Header.Get("Allow"); !strings.Contains(allow, http.MethodGet) {
+		t.Errorf("Allow = %q, want it to name the method the route does answer", allow)
+	}
+
+	if got := statusOf(t, http.MethodHead, base+"/orders", ""); got != http.StatusOK {
+		t.Errorf("HEAD status = %d, want %d: a GET route answers HEAD, and the flow runs for it",
+			got, http.StatusOK)
+	}
+}
+
 // statusOf makes one request and returns its status.
 func statusOf(t *testing.T, method, url, body string) int {
 	t.Helper()

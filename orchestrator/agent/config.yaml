@@ -330,8 +330,8 @@ flows:
 
         # A type left out of this list is never *built* — no event message, no
         # sub-flow run. On a token stream that is a real lever rather than a filter,
-        # which is why the turn boundaries are absent: nothing in the panel reads
-        # them.
+        # which is why turn_start, tool_input and custom are absent: they arrive per
+        # token or per turn and the panel reads none of them.
         #
         # `thinking` is here because leaving it out made the panel look broken. A
         # reasoning model spends most of its output on thinking — measured on the
@@ -1307,7 +1307,18 @@ flows:
       type: queue                        # implicit connector — no instance needed
       settings:
         subject: conversation-log
-        listeners: 4
+        # One listener, deliberately. Reading the record and writing it back are
+        # separate blocks, so two exchanges of one conversation handled at the same
+        # moment would both read the same turns and the later write would win — the
+        # same read-modify-write the facts tools carry and for the same reason.
+        # Serialising this replica's recording closes it here; a second replica
+        # could still race one, and the cost is a lost turn in a transcript rather
+        # than a lost answer.
+        #
+        # It costs nothing worth having. There is one record write per exchange and
+        # nobody is waiting on it, so the only thing a second listener would buy is
+        # the chance to lose a turn.
+        listeners: 1
     process:
       # The body is about to be replaced by the title call, so what the keys are
       # built from is taken out of it first.
@@ -1369,28 +1380,51 @@ flows:
             # call at the start of a conversation and nothing thereafter. It runs
             # here rather than in the chat flow precisely because it is a model
             # call: nobody is waiting on this worker.
-            - type: set-payload
-              name: title-input
-              settings:
-                value: '{"question": vars.exchange.question, "answer": vars.exchange.answer}'
-            - type: ai-mapping
-              name: write-title
-              settings:
-                connector: llm
-                prompt: >
-                  Name this conversation the way a person would name it in a list of
-                  their past conversations. Five words at most, no quotes, no
-                  trailing period, no "conversation about". Describe what was asked,
-                  not what was answered. Use the question's own language.
-                outputExample: '{"title": "Deploying the orders integration"}'
-                outputSchema: |
-                  {"type": "object", "required": ["title"],
-                   "properties": {"title": {"type": "string", "maxLength": 80}}}
-                maxTokens: 100
-            - type: set-variable
-              settings:
-                name: title
-                value: body.title
+            #
+            # And it is the one thing here that can fail on its own — a provider
+            # having a bad minute, a model that answers something the schema
+            # refuses. The name is the nice half of this flow and the record is the
+            # point, so a failure falls back to the question itself rather than
+            # taking the exchange down with it. A conversation named after what was
+            # asked is a worse name, not a worse record.
+            - type: handle-errors
+              name: name-or-fall-back
+              process:
+                - type: set-payload
+                  name: title-input
+                  settings:
+                    value: '{"question": vars.exchange.question, "answer": vars.exchange.answer}'
+                - type: ai-mapping
+                  name: write-title
+                  settings:
+                    connector: llm
+                    prompt: >
+                      Name this conversation the way a person would name it in a list
+                      of their past conversations. Five words at most, no quotes, no
+                      trailing period, no "conversation about". Describe what was
+                      asked, not what was answered. Use the question's own language.
+                    outputExample: '{"title": "Deploying the orders integration"}'
+                    outputSchema: |
+                      {"type": "object", "required": ["title"],
+                       "properties": {"title": {"type": "string", "maxLength": 80}}}
+                    maxTokens: 100
+                - type: set-variable
+                  settings:
+                    name: title
+                    value: body.title
+              error:
+                - type: log
+                  name: title-failed
+                  settings:
+                    level: warn
+                    message: '"could not name a conversation: " + vars.error.message'
+                - type: set-variable
+                  settings:
+                    name: title
+                    value: >-
+                      size(vars.exchange.question) > 60
+                        ? vars.exchange.question.substring(0, 60) + "…"
+                        : vars.exchange.question
         else:
           process:
             - type: set-variable

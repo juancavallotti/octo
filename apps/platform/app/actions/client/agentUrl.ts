@@ -16,6 +16,18 @@
 /** How long a resolved address is trusted. Short enough that an uninstall is noticed. */
 const TTL_MS = 30_000;
 
+/**
+ * How long the status lookup waits before giving up.
+ *
+ * fetch has no timeout of its own, and this call sits in front of everything that
+ * reaches the agent — the chat proxy, the status probe, the conversation list — so
+ * an orchestrator that accepts a connection and then says nothing would hold each
+ * of them open indefinitely. Five seconds is far longer than a request to a
+ * service in the same cluster takes and short enough to be a delay rather than a
+ * hang.
+ */
+const STATUS_TIMEOUT_MS = 5_000;
+
 interface Resolved {
   url: string;
   at: number;
@@ -46,7 +58,10 @@ export async function fetchAgentStatus(): Promise<AgentReachability | null> {
   const base = orchestratorUrl();
   if (!base) return null;
   try {
-    const res = await fetch(`${base}/settings/agent`, { cache: "no-store" });
+    const res = await fetch(`${base}/settings/agent`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(STATUS_TIMEOUT_MS),
+    });
     if (!res.ok) return null;
     return (await res.json()) as AgentReachability;
   } catch {
