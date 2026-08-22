@@ -252,7 +252,23 @@ export function useAgentChat(
     controller.abort();
     abort.current = null;
     setBusy(false);
-  }, [dropSteers]);
+
+    // And say so, rather than only hanging up. Closing the connection ends the run
+    // whose stream this connection holds, which is almost always the same run —
+    // but a stop addressed to the conversation ends it wherever it is, including
+    // through a proxy that has not noticed the socket go, and on a replica this
+    // browser never spoke to.
+    //
+    // Deliberately silent. The run is already over as far as this panel is
+    // concerned, and a failure here is not something a reader can act on.
+    void fetch("/api/agent/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ threadId: readThreadId(userKey), stop: true, message: "" }),
+    })
+      .then((res) => res.body?.cancel())
+      .catch(() => {});
+  }, [dropSteers, userKey]);
 
   /**
    * Start a fresh conversation. The thread id goes too — the agent keys its memory

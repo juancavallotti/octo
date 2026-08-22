@@ -16,6 +16,11 @@ import { resolveAgentUrl, forgetAgentUrl, orchestratorUrl } from "@/app/actions/
  *
  * The differences from that proxy: it is a POST with a JSON body, the response is
  * `text/event-stream`, and the target is resolved rather than configured.
+ *
+ * It carries one instruction besides the message. `{stop: true}` becomes the
+ * header the agent's `stopWhen` reads, which ends the run on whichever replica is
+ * holding the conversation — not only the one this connection reached. Hanging up
+ * ends a run too, but only the run whose stream this connection holds.
  */
 export async function POST(req: Request) {
   // Authorization first, before anything that would describe this installation to
@@ -60,11 +65,21 @@ export async function POST(req: Request) {
   // would let anyone read anyone's conversation by asking for it.
   const payload = { ...body, user };
 
+  // A stop travels as a header because that is what the agent's `stopWhen` reads,
+  // and it is set here rather than accepted from the browser for the same reason
+  // the identity is: what the client says is a request, and what reaches the agent
+  // is this route's decision.
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "text/event-stream",
+  };
+  if (body.stop) headers["X-Agent-Stop"] = "1";
+
   let upstream: Response;
   try {
     upstream = await fetch(`${agent.url}/chat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+      headers,
       body: JSON.stringify(payload),
       signal: req.signal,
       cache: "no-store",

@@ -226,6 +226,26 @@ describe("useAgentChat", () => {
     expect(signals[1]?.aborted).toBe(true);
   });
 
+  // Hanging up ends the run whose stream this connection holds. A stop addressed
+  // to the conversation ends it wherever it is — through a proxy that has not
+  // noticed the socket go, and on a replica this browser never spoke to.
+  it("tells the agent to stop as well as hanging up", async () => {
+    fetchMock.mockImplementation(() =>
+      Promise.resolve(sseResponse(frames({ type: "text", text: "ok" }))),
+    );
+    const { result } = renderHook(() => useAgentChat("u-1", "/platform", () => {}));
+
+    act(() => result.current.send("research this slowly"));
+    act(() => result.current.stop());
+
+    const body = JSON.parse((fetchMock.mock.calls[1][1] as RequestInit).body as string);
+    expect(body.stop).toBe(true);
+    // The same conversation the run is on, or it stops somebody else's.
+    expect(body.threadId).toBe(
+      JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string).threadId,
+    );
+  });
+
   // Stop releases the controller synchronously, so the next question is not refused
   // by the guard above. The first call rejects the way an aborted fetch really does,
   // so the abandoned reader unwinds *while* the second stream is live — which is the
@@ -240,7 +260,11 @@ describe("useAgentChat", () => {
             );
           }),
       )
-      .mockResolvedValueOnce(sseResponse(frames({ type: "text", text: "the second answer" })));
+      // A fresh response per call: a body can only be read once, and the stop
+      // notification below takes one of them.
+      .mockImplementation(() =>
+        Promise.resolve(sseResponse(frames({ type: "text", text: "the second answer" }))),
+      );
     const { result } = renderHook(() => useAgentChat("u-1", "/platform", () => {}));
 
     act(() => {
@@ -252,7 +276,8 @@ describe("useAgentChat", () => {
     await waitFor(() =>
       expect(answerOf(result.current.turns.at(-1)!)).toBe("the second answer"),
     );
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // Three: the first question, the stop that ends it, and the second question.
+    expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(result.current.error).toBeNull();
     // The abandoned run must not have switched off the live one's lights.
     await waitFor(() => expect(result.current.busy).toBe(false));
