@@ -1,9 +1,14 @@
 // Package cost prices the model calls a runtime reports.
 //
 // A trace record for an llm.turn or llm.embed carries the model that served the
-// call and the tokens the provider charged, but never any money: the runtime
-// deliberately knows no rate card, so pricing is the consumer's job. This package
-// is that rate card and the arithmetic over it.
+// call and the tokens the provider charged: the runtime deliberately knows no
+// rate card, so pricing is the consumer's job. This package is that rate card
+// and the arithmetic over it.
+//
+// One record in ten thousand carries money anyway, and it is not an exception to
+// that rule. Some providers report what they charged — OpenRouter does — and the
+// runtime relays the figure without computing it. Such a call is priced by
+// reportedCost in price.go and never reaches a table here at all.
 //
 // The rate card is keyed by patterns rather than model ids, because that is how
 // the upstream catalogues publish it: `claude-3-5-sonnet-20241022` under equals
@@ -13,6 +18,7 @@
 package cost
 
 import (
+	"math"
 	"sort"
 	"strings"
 )
@@ -96,9 +102,18 @@ func (r Rate) matches(model string) bool {
 // An empty pattern is rejected rather than kept, because under includes it
 // matches every model id there is: one such row in the feed would silently price
 // the entire catalogue at whatever it charges, and every total built on it would
-// be wrong in a way no arithmetic reveals.
+// be wrong in a way no arithmetic reveals. A rate whose figures are not prices
+// is rejected on the same grounds — see usablePrice.
+//
+// The two cache halves are deliberately not checked here. They are optional, and
+// a rate with a malformed cache price can still price its call correctly at
+// priced_partial, so refusing the whole entry would lose a model over the half
+// of it that was fine. A decoder that can produce one nils it instead.
 func (r Rate) usable() bool {
 	if r.Pattern == "" {
+		return false
+	}
+	if !usablePrice(r.InputPer1M) || !usablePrice(r.OutputPer1M) {
 		return false
 	}
 	switch r.Operator {
@@ -107,6 +122,24 @@ func (r Rate) usable() bool {
 	default:
 		return false
 	}
+}
+
+// usablePrice reports whether a figure is a price at all: a real, non-negative
+// quantity.
+//
+// Neither half of that is theoretical. A NaN or an infinity multiplies through
+// the arithmetic into cost_usd, where one poisoned row makes every SUM over it
+// meaningless — and unlike an unpriced call, nothing in the stored record says
+// so. A negative rate is the failure this package already refuses twice
+// elsewhere: reportedCost rejects a negative figure a provider reports, and
+// nonNegative floors a reported token count, both because a credit recorded as a
+// cost nets silently against real charges.
+//
+// It is a property of the number rather than of any one feed, which is why it
+// lives here rather than in a decoder: OpenRouter's "-1" for a variable price is
+// one instance of the rule, not a case in it.
+func usablePrice(per1M float64) bool {
+	return !math.IsNaN(per1M) && !math.IsInf(per1M, 0) && per1M >= 0
 }
 
 // normalize is how both sides of a match are spelled: lower-cased and trimmed, so

@@ -56,9 +56,10 @@ type LLMProvider interface {
 // enumerable from one place — and so the one that surprises people, Gemini's
 // vendor being GOOGLE, is written down once.
 const (
-	ProviderAnthropic = "ANTHROPIC"
-	ProviderOpenAI    = "OPENAI"
-	ProviderGoogle    = "GOOGLE"
+	ProviderAnthropic  = "ANTHROPIC"
+	ProviderOpenAI     = "OPENAI"
+	ProviderGoogle     = "GOOGLE"
+	ProviderOpenRouter = "OPENROUTER"
 )
 
 // LLMStreamClient is the optional streaming half of a provider. A connector that
@@ -244,6 +245,17 @@ type LLMUsage struct {
 	ThinkingTokens   int
 	CachedTokens     int
 	CacheWriteTokens int
+
+	// ReportedCostUSD is what the provider says it charged for this turn, and is
+	// nil for every provider that reports no such figure — which is all of them
+	// but OpenRouter, whose response carries the amount it billed.
+	//
+	// It is not a rate card and it does not make one: the runtime still knows no
+	// prices and still computes nothing. It relays a number a provider
+	// volunteered, which is a different fact from an estimate derived downstream
+	// — and a strictly better one, because it includes the per-request and
+	// per-image charges no token count can reconstruct.
+	ReportedCostUSD *float64
 }
 
 // LLMTool is a function the model may call. InputSchema is a JSON Schema object

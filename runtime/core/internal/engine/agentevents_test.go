@@ -349,3 +349,63 @@ func TestStoppedTranscriptKeepsMemoryReplayable(t *testing.T) {
 		}
 	})
 }
+
+// A provider-reported cost is carried only when a provider reported one. The
+// projection is shared by the trace record and the events path, so this pins the
+// shape both of them see.
+func TestUsageFieldsCarriesAReportedCostOnlyWhenThereIsOne(t *testing.T) {
+	cost := 0.0123
+
+	tests := []struct {
+		name  string
+		usage *core.LLMUsage
+		want  any
+		found bool
+	}{
+		{
+			name:  "reported",
+			usage: &core.LLMUsage{InputTokens: 10, OutputTokens: 2, ReportedCostUSD: &cost},
+			want:  cost,
+			found: true,
+		},
+		{
+			// Not zero: a provider that reports no cost has said nothing about
+			// what the call cost, which is not the same as saying it was free.
+			name:  "not reported",
+			usage: &core.LLMUsage{InputTokens: 10, OutputTokens: 2},
+			found: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := usageFields(tc.usage)["reportedCostUSD"]
+			if ok != tc.found {
+				t.Fatalf("reportedCostUSD present = %v, want %v (fields %+v)",
+					ok, tc.found, usageFields(tc.usage))
+			}
+			if tc.found && got != tc.want {
+				t.Errorf("reportedCostUSD = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// The token counts are unchanged by the field beside them: a record from any of
+// the three connectors that report no cost is byte-identical to what it was.
+func TestUsageFieldsKeepsTheTokenCounts(t *testing.T) {
+	got := usageFields(&core.LLMUsage{
+		InputTokens: 100, OutputTokens: 30, ThinkingTokens: 12,
+		CachedTokens: 80, CacheWriteTokens: 5,
+	})
+	want := map[string]any{
+		"inputTokens":      100,
+		"outputTokens":     30,
+		"thinkingTokens":   12,
+		"cachedTokens":     80,
+		"cacheWriteTokens": 5,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("usageFields() = %+v, want %+v", got, want)
+	}
+}

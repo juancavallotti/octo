@@ -155,15 +155,20 @@ const (
 	attrUsage    = "usage"
 )
 
-// usageWire is the token accounting nested under attrs.usage. Every field is a
-// pointer-free int because the runtime omits the whole object rather than
+// usageWire is the token accounting nested under attrs.usage. The counts are
+// pointer-free ints because the runtime omits the whole object rather than
 // individual counts when a provider reports nothing.
+//
+// The cost is the exception, and is a pointer for the opposite reason: the
+// runtime writes it only when a provider volunteered one, so absent and zero
+// have to stay apart all the way from the wire to the stored row.
 type usageWire struct {
-	InputTokens      int `json:"inputTokens"`
-	OutputTokens     int `json:"outputTokens"`
-	ThinkingTokens   int `json:"thinkingTokens"`
-	CachedTokens     int `json:"cachedTokens"`
-	CacheWriteTokens int `json:"cacheWriteTokens"`
+	InputTokens      int      `json:"inputTokens"`
+	OutputTokens     int      `json:"outputTokens"`
+	ThinkingTokens   int      `json:"thinkingTokens"`
+	CachedTokens     int      `json:"cachedTokens"`
+	CacheWriteTokens int      `json:"cacheWriteTokens"`
+	ReportedCostUSD  *float64 `json:"reportedCostUSD"`
 }
 
 // parseTraceRecord decodes one shipped record.
@@ -259,6 +264,7 @@ func parseModelCall(attrs json.RawMessage) (string, string, *cost.Usage) {
 		ThinkingTokens:   usage.ThinkingTokens,
 		CachedTokens:     usage.CachedTokens,
 		CacheWriteTokens: usage.CacheWriteTokens,
+		ReportedCostUSD:  usage.ReportedCostUSD,
 	}
 }
 

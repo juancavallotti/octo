@@ -33,7 +33,7 @@ env:
   # connector fails startup on an empty apiKey — so declaring all three would mean
   # two guaranteed failures. Substitution rewrites the parsed YAML before it is
   # decoded, so a connector's *type* can come from a variable like anything else.
-  - name: LLM_CONNECTOR_TYPE # llm-anthropic | llm-openai | llm-gemini
+  - name: LLM_CONNECTOR_TYPE # llm-anthropic | llm-openai | llm-gemini | llm-openrouter
     required: true
   - name: LLM_API_KEY
     required: true

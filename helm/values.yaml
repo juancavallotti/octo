@@ -220,12 +220,21 @@ logs:
   # once, at ingest, and the cost is stored frozen: refreshing a rate must never
   # restate what last month already cost.
   prices:
+    # Which catalogues to price against, most preferred first. Empty uses
+    # "openrouter,helicone": OpenRouter's card is priced per model by the
+    # platform that sells them and turns over daily, and Helicone's carries the
+    # patterns OpenRouter never publishes (Bedrock, Azure, vendor-hosted ids), so
+    # a model either one knows is priced. Name a single source to use only it.
+    sources: ""
     # Empty uses the service's own default, Helicone's public catalogue. Set it
     # to a mirror for a cluster without egress. A cluster that can reach neither
     # still serves whatever rates are already in llm_prices, and records what it
     # could not fetch in llm_price_syncs.
     url: ""
-    # How often the catalogue is re-read, as a Go duration. Empty uses the
+    # The same, for OpenRouter's public model list. It needs no API key -- the
+    # list is what a caller consults before deciding to buy anything.
+    openrouterUrl: ""
+    # How often the catalogues are re-read, as a Go duration. Empty uses the
     # service's default of 12h; published prices move on the order of months, so
     # this is about not drifting indefinitely rather than being current.
     refreshInterval: ""

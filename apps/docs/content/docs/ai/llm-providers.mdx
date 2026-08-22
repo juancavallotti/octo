@@ -1,19 +1,24 @@
 ---
 title: "LLM Providers"
-description: "Configure the OpenAI, Anthropic, and Gemini connectors."
+description: "Configure the OpenAI, Anthropic, Gemini, and OpenRouter connectors."
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
 
-Octo ships three LLM provider connectors — `llm-anthropic`, `llm-openai`,
-and `llm-gemini` — that all satisfy the same client interface. Every AI
-block references a provider by connector **name**, so switching providers is
-a connector-level change: the blocks stay untouched.
+Octo ships four LLM provider connectors — `llm-anthropic`, `llm-openai`,
+`llm-gemini`, and `llm-openrouter` — that all satisfy the same client
+interface. Every AI block references a provider by connector **name**, so
+switching providers is a connector-level change: the blocks stay untouched.
+
+The first three talk to one vendor each. `llm-openrouter` talks to
+[OpenRouter](https://openrouter.ai), which fronts hundreds of models from
+many vendors behind a single key — reach for it when you want to compare
+models without opening an account with each of them.
 
 ## Configuring a provider
 
-<Tabs items={['Anthropic', 'OpenAI', 'Gemini']}>
+<Tabs items={['Anthropic', 'OpenAI', 'Gemini', 'OpenRouter']}>
 <Tab value="Anthropic">
 
 ```yaml
@@ -56,16 +61,37 @@ connectors:
 ```
 
 </Tab>
+<Tab value="OpenRouter">
+
+```yaml
+connectors:
+  - name: router
+    type: llm-openrouter
+    settings:
+      apiKey: ${OPENROUTER_API_KEY}
+      # model: anthropic/claude-sonnet-4.5   # default; ids are vendor-prefixed
+      # maxTokens: 0                          # 0 = the model's default
+      # appName: Octo                         # attributes the traffic in OpenRouter
+      # siteURL: https://octo.example         # the same, as HTTP-Referer
+```
+
+Model ids here carry the vendor as a prefix — `openai/gpt-5.4`,
+`google/gemini-3.5-flash` — so switching models is a one-word change and
+never a change of key.
+
+</Tab>
 </Tabs>
 
-All three connectors take the same four settings:
+All four connectors take the same four settings:
 
 | Setting | Required | Description |
 |---|---|---|
 | `apiKey` | Yes | Authenticates with the provider. Source it from an environment variable; it is never logged. |
-| `model` | No | Model id. Defaults: `claude-sonnet-4-6` (Anthropic), `gpt-5.4` (OpenAI), `gemini-3.5-flash` (Gemini). |
-| `maxTokens` | No | Default response token cap; a block may override it per call. Anthropic defaults to `4096`; OpenAI and Gemini default to `0`, meaning the model's own default. |
+| `model` | No | Model id. Defaults: `claude-sonnet-4-6` (Anthropic), `gpt-5.4` (OpenAI), `gemini-3.5-flash` (Gemini), `anthropic/claude-sonnet-4.5` (OpenRouter). |
+| `maxTokens` | No | Default response token cap; a block may override it per call. Anthropic defaults to `4096`; the other three default to `0`, meaning the model's own default. |
 | `baseURL` | No | Overrides the API endpoint. |
+
+Each also takes settings of its own — reasoning and thinking effort, and for OpenRouter the two attribution headers. See the [connector reference](/reference/connectors/llm).
 
 A connector validates its settings at startup — a missing `apiKey` fails the
 service immediately rather than on the first request.
@@ -106,8 +132,8 @@ connectors:
 ```
 
 Every AI block then runs against the local model with no other changes. The
-`baseURL` on `llm-anthropic` and `llm-gemini` serves the same purpose for
-proxies and testing against their respective APIs.
+`baseURL` on `llm-anthropic`, `llm-gemini` and `llm-openrouter` serves the
+same purpose for proxies and testing against their respective APIs.
 
 ## Key hygiene
 

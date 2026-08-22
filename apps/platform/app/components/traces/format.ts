@@ -12,16 +12,61 @@
 
 import type { CostStatus } from "@/app/model/traces";
 
-const MINUTE_NS = 60_000_000_000;
+/**
+ * One step of a compact scale: what to divide by, what to call the result, and
+ * the figure at which it rolls over into the next step.
+ *
+ * The ceiling is per unit rather than a shared 1000 because seconds are not
+ * decimal — 60s is a minute, and naming it "60s" is the same mistake as naming
+ * 1000 thousands "1000k".
+ */
+interface Unit {
+  divisor: number;
+  suffix: string;
+  ceiling: number;
+}
+
+const DURATION_UNITS: readonly Unit[] = [
+  { divisor: 1_000, suffix: "µs", ceiling: 1_000 },
+  { divisor: 1_000_000, suffix: "ms", ceiling: 1_000 },
+  { divisor: 1_000_000_000, suffix: "s", ceiling: 60 },
+];
+
+const TOKEN_UNITS: readonly Unit[] = [
+  { divisor: 1_000, suffix: "k", ceiling: 1_000 },
+  { divisor: 1_000_000, suffix: "M", ceiling: 1_000 },
+  { divisor: 1_000_000_000, suffix: "B", ceiling: 1_000 },
+];
+
+/**
+ * A value in the smallest unit whose *rendered* figure still fits inside it, or
+ * null when it outgrows every unit offered.
+ *
+ * The unit is chosen from the rounded figure rather than the raw value, and that
+ * is the whole point of this function. `trim` rounds, and rounding can carry a
+ * value across the very boundary that picked its unit: 999,500 tokens is 999.5
+ * thousands, which rounds to 1000, and "1000k" names a quantity the reader
+ * already has a shorter name for. Choosing from the raw value asks the question
+ * before the answer exists.
+ */
+function scaled(value: number, units: readonly Unit[]): string | null {
+  for (const { divisor, suffix, ceiling } of units) {
+    const figure = trim(value / divisor);
+    if (Number(figure) < ceiling) return `${figure}${suffix}`;
+  }
+  return null;
+}
 
 /** A duration in nanoseconds, at a scale a reader can hold. */
 export function formatDuration(ns: number): string {
   if (!Number.isFinite(ns) || ns < 0) return "—";
   if (ns < 1_000) return `${Math.round(ns)}ns`;
-  if (ns < 1_000_000) return `${trim(ns / 1_000)}µs`;
-  if (ns < 1_000_000_000) return `${trim(ns / 1_000_000)}ms`;
-  if (ns < MINUTE_NS) return `${trim(ns / 1_000_000_000)}s`;
 
+  const compact = scaled(ns, DURATION_UNITS);
+  if (compact !== null) return compact;
+
+  // Past a minute the shape changes rather than the unit, so this is where the
+  // scale ends rather than another step on it.
   const totalSeconds = Math.round(ns / 1_000_000_000);
   const minutes = Math.floor(totalSeconds / 60);
   return `${minutes}m ${totalSeconds - minutes * 60}s`;
@@ -31,6 +76,23 @@ export function formatDuration(ns: number): string {
 function trim(value: number): string {
   const digits = value >= 100 ? 0 : value >= 10 ? 1 : 2;
   return String(Number(value.toFixed(digits)));
+}
+
+/**
+ * A token count, at a scale a reader can compare at a glance.
+ *
+ * Counts here run from a handful to millions, and the interesting comparison is
+ * almost always between two of them — input against output, this trace against
+ * the last. Grouping separators make that comparison work at four figures;
+ * beyond that the leading digits are the whole of what a reader takes in, so the
+ * tail is dropped rather than rendered.
+ */
+export function formatTokens(count: number): string {
+  if (!Number.isFinite(count) || count < 0) return "—";
+  if (count < 10_000) return count.toLocaleString("en-US");
+  // Nothing outgrows billions of tokens, but the fallback is the raw count
+  // rather than a figure in a unit it has overflowed.
+  return scaled(count, TOKEN_UNITS) ?? count.toLocaleString("en-US");
 }
 
 /**
@@ -44,7 +106,10 @@ export function formatCost(usd: number): string {
   if (!Number.isFinite(usd)) return "—";
   if (usd === 0) return "$0";
   if (usd < 0.0001) return "<$0.0001";
-  if (usd < 1) return `$${usd.toFixed(4)}`;
+  // Which side of a dollar the figure falls on is decided after rounding, not
+  // before: $0.99999 rounds to $1.0000, and four decimals on a whole dollar is
+  // the precision of a fraction spent on a number that no longer is one.
+  if (Number(usd.toFixed(4)) < 1) return `$${usd.toFixed(4)}`;
   return `$${usd.toFixed(2)}`;
 }
 
@@ -93,6 +158,12 @@ export function describeCost(
  */
 export function describeCostStatus(status: CostStatus): string {
   switch (status) {
+    case "reported":
+      return (
+        "What the provider charged for this call, as the provider reported it — " +
+        "not an estimate from a rate card. It includes any per-request or " +
+        "per-image charge a token count cannot reconstruct."
+      );
     case "priced":
       return "Priced from the published rate for this model.";
     case "priced_partial":

@@ -719,7 +719,7 @@ func TestInstallRefusesAnUnmappableProvider(t *testing.T) {
 }
 
 func TestConnectorTypeForCoversEveryProviderTheSettingsAccept(t *testing.T) {
-	for _, provider := range []string{llm.ProviderAnthropic, llm.ProviderOpenAI, llm.ProviderGoogle} {
+	for _, provider := range llm.Providers() {
 		got, ok := ConnectorTypeFor(provider)
 		if !ok {
 			t.Errorf("ConnectorTypeFor(%q) is unmapped; the LLM settings accept it", provider)

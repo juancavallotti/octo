@@ -71,14 +71,16 @@ Keep this internal. The orchestrator is ClusterIP in the chart and trusts its ca
 
 | Field | Notes |
 | --- | --- |
-| Provider | `Anthropic`, `OpenAI`, or `Google` — the three the runtime can talk to. |
+| Provider | `Anthropic`, `OpenAI`, `Google`, or `OpenRouter` — the four the runtime can talk to. |
 | Model | Free text, prefilled with that provider's default. Switching provider swaps the default in, but leaves a model you typed yourself alone. |
 | API key | Write-only, same handling as the email key. |
 
 Model is free text on purpose: model names turn over faster than releases of this app, and a fixed list would block you from pointing at something newer than the version you are running.
 
+**OpenRouter is the one to pick if you want to try several models.** It fronts hundreds of them behind a single key, so changing which model Dr. Octo reasons with is a change to the model field and nothing else. Its ids carry the vendor as a prefix — `anthropic/claude-sonnet-4.5`, `openai/gpt-5.4`, `google/gemini-3.5-flash` — and there is no bare model name. See the [connector reference](/reference/connectors/llm#llm-openrouter-connector) for what the runtime does with it.
+
 <Callout type="warn">
-This setting does **not** affect your integrations. The `llm-anthropic`, `llm-openai` and `llm-gemini` connectors continue to use the key configured on each connector. This one belongs to the installation, and the only thing that reads it is the platform's own agent — it is bound onto that deployment when the agent is installed.
+This setting does **not** affect your integrations. The `llm-anthropic`, `llm-openai`, `llm-gemini` and `llm-openrouter` connectors continue to use the key configured on each connector. This one belongs to the installation, and the only thing that reads it is the platform's own agent — it is bound onto that deployment when the agent is installed.
 </Callout>
 
 ## How a save handles the API key

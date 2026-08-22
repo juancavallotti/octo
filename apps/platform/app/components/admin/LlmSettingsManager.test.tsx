@@ -88,6 +88,17 @@ describe("LlmSettingsManager", () => {
     expect(modelInput().value).toBe("gpt-5.4");
   });
 
+  it("swaps in OpenRouter's vendor-prefixed default", async () => {
+    const user = userEvent.setup();
+    renderManager();
+    await waitFor(() => expect(screen.getByDisplayValue("claude-sonnet-4-6")).toBeTruthy());
+
+    await user.selectOptions(screen.getByRole("combobox"), "OPENROUTER");
+
+    // Ids here carry the vendor as a prefix; there is no bare model name.
+    expect(modelInput().value).toBe("anthropic/claude-sonnet-4.5");
+  });
+
   // A model the operator typed is theirs; switching provider must not discard it.
   it("keeps a custom model when the provider changes", async () => {
     const user = userEvent.setup();
@@ -173,7 +184,7 @@ describe("LlmSettingsManager", () => {
   it("renders the orchestrator's message when a save fails", async () => {
     const user = userEvent.setup();
     saveLlmSettings.mockRejectedValue(
-      new Error("invalid provider (expected ANTHROPIC, OPENAI or GOOGLE)"),
+      new Error("invalid provider (expected ANTHROPIC, OPENAI, GOOGLE or OPENROUTER)"),
     );
     renderManager();
     await waitFor(() => expect(screen.getByDisplayValue("claude-sonnet-4-6")).toBeTruthy());

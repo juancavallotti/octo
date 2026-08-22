@@ -94,13 +94,21 @@ func turnEndFields(resp *core.LLMResponse) map[string]any {
 // and the trace record so the two observers of one turn cannot report it
 // differently — and so a change to the shape lands in both at once.
 func usageFields(usage *core.LLMUsage) map[string]any {
-	return map[string]any{
+	fields := map[string]any{
 		"inputTokens":      usage.InputTokens,
 		"outputTokens":     usage.OutputTokens,
 		"thinkingTokens":   usage.ThinkingTokens,
 		"cachedTokens":     usage.CachedTokens,
 		"cacheWriteTokens": usage.CacheWriteTokens,
 	}
+	// Present only when a provider reported one. Writing it unconditionally would
+	// put a zero beside every Anthropic, OpenAI and Gemini turn, and a cost of
+	// zero is the one claim the whole accounting path exists never to make by
+	// accident.
+	if usage.ReportedCostUSD != nil {
+		fields["reportedCostUSD"] = *usage.ReportedCostUSD
+	}
+	return fields
 }
 
 // callFields describes a tool the model asked for.

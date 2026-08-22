@@ -946,8 +946,8 @@ func (s *Service) Uninstall(ctx context.Context, purge bool) error {
 //
 // The provider names mirror core.Provider* in runtime/core/llm.go and the connector
 // types mirror the connector packages, neither of which the orchestrator can import
-// — the runtime is a separate Go module. Taking on that dependency to share six
-// strings would be the wrong trade; if a fourth provider appears there, it is added
+// — the runtime is a separate Go module. Taking on that dependency to share eight
+// strings would be the wrong trade; if a fifth provider appears there, it is added
 // here too, and an unmapped one is refused rather than guessed at.
 func ConnectorTypeFor(provider string) (string, bool) {
 	switch provider {
@@ -957,6 +957,8 @@ func ConnectorTypeFor(provider string) (string, bool) {
 		return "llm-openai", true
 	case llm.ProviderGoogle:
 		return "llm-gemini", true
+	case llm.ProviderOpenRouter:
+		return "llm-openrouter", true
 	default:
 		return "", false
 	}

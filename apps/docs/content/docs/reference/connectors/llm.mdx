@@ -1,17 +1,20 @@
 ---
 title: "LLM Providers"
-description: "The OpenAI, Anthropic, and Gemini LLM connectors."
+description: "The OpenAI, Anthropic, Gemini, and OpenRouter LLM connectors."
 octo_types:
   - llm-openai
   - llm-anthropic
   - llm-gemini
+  - llm-openrouter
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-Octo ships three LLM provider connectors — `llm-openai`, `llm-anthropic`, and `llm-gemini`. All three register under the connector category `llm` and expose the same provider-agnostic completion capability, so the [AI blocks](/reference/blocks/ai) (`ai-agent`, `ai-router`, `ai-mapping`, `ai-retry`) reference **any** of them interchangeably through their `connector` setting.
+Octo ships four LLM provider connectors — `llm-openai`, `llm-anthropic`, `llm-gemini`, and `llm-openrouter`. All four register under the connector category `llm` and expose the same provider-agnostic completion capability, so the [AI blocks](/reference/blocks/ai) (`ai-agent`, `ai-router`, `ai-mapping`, `ai-retry`) reference **any** of them interchangeably through their `connector` setting.
 
-**Provides a source:** no — all three are service connectors. **Blocks that bind to them:** the AI blocks, which accept any connector in the `llm` category. See [AI in Octo](/ai) for usage.
+Three of them talk to one vendor each. `llm-openrouter` talks to [OpenRouter](https://openrouter.ai), which fronts hundreds of models from many vendors behind one key — so it is the one to reach for when you want to try several models without an account per vendor.
+
+**Provides a source:** no — all four are service connectors. **Blocks that bind to them:** the AI blocks, which accept any connector in the `llm` category. See [AI in Octo](/ai) for usage.
 
 Each connector concentrates provider policy — API key, model, and the default response token cap — and validates its configuration at startup, so a missing key fails fast rather than on first request. An AI block's own `maxTokens` overrides the connector default per request.
 
@@ -53,9 +56,37 @@ Each connector concentrates provider policy — API key, model, and the default 
 | `thinkingBudget` | int | No | — | Thinking token budget, used when `thinking: budgeted`. |
 | `baseURL` | string | No | Gemini API | Overrides the API endpoint (for proxies or testing). |
 
+## `llm-openrouter` connector
+
+**OpenRouter** — a configured [OpenRouter](https://openrouter.ai) client, speaking Chat Completions.
+
+Model ids here are vendor-prefixed as OpenRouter publishes them — `anthropic/claude-sonnet-4.5`, `openai/gpt-5.4`, `google/gemini-3.5-flash` — and a variant suffix (`:free`, `:thinking`) selects a routing variant. There is no bare model name.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `apiKey` | string | Yes | — | Authenticates with the OpenRouter API; source from `${OPENROUTER_API_KEY}`. Never logged. |
+| `model` | string | No | `anthropic/claude-sonnet-4.5` | Vendor-prefixed model id. |
+| `maxTokens` | int | No | model default | Default response token cap (0 = the model default); a request may override it. |
+| `reasoning` | enum `default` \| `none` \| `minimal` \| `low` \| `medium` \| `high` | No | `default` | How much reasoning effort a reasoning-capable model spends. `default` sends no reasoning field at all and lets the model choose; `none` switches reasoning off explicitly. |
+| `baseURL` | string | No | OpenRouter API | Overrides the API endpoint (for proxies or testing). |
+| `appName` | string | No | — | Sent as `X-Title`. How OpenRouter attributes this traffic in its dashboards. |
+| `siteURL` | string | No | — | Sent as `HTTP-Referer`, for the same purpose. |
+
+<Callout type="info">
+**Traced calls through OpenRouter report what they actually cost.** Every request asks for usage accounting, and OpenRouter answers with the amount it billed — including the per-request and per-image charges a token count cannot reconstruct. See [Traces](/platform/traces#pricing-model-calls) for how that reaches a trace.
+</Callout>
+
+<Callout type="warn">
+Traced OpenRouter calls report the provider `OPENROUTER`, not the vendor behind whichever model answered. That is deliberate: the vendor family names the *token accounting*, and OpenRouter reports an input count that already includes the tokens served from cache — the OpenAI-compatible convention — even when the model behind it is an Anthropic one that would have reported the uncached remainder on its own API. Pricing keys on that, so getting it wrong would mis-bill every cached call.
+</Callout>
+
+<Callout>
+**Embeddings work too.** OpenRouter serves an OpenAI-compatible embeddings endpoint, so an [ai-embed](/reference/blocks/ai#ai-embed) block may name an `llm-openrouter` connector. Embedding model ids are vendor-prefixed like every other model here — `openai/text-embedding-3-small`, `google/gemini-embedding-001`.
+</Callout>
+
 ## Streaming and thinking
 
-All three connectors stream, and an [ai-agent](/reference/blocks/ai#ai-agent) with
+All four connectors stream, and an [ai-agent](/reference/blocks/ai#ai-agent) with
 `stream: true` reports the model's output to its `events` path as it is produced.
 A streamed turn returns exactly what the same turn would have returned unstreamed
 — same text, tool calls, stop reason and usage — so turning streaming on changes
@@ -69,6 +100,7 @@ than pending:
 | `llm-anthropic` | fragments | fragments | fragments |
 | `llm-openai` | fragments | summary fragments | fragments |
 | `llm-gemini` | fragments | fragments | whole, in one event |
+| `llm-openrouter` | fragments | fragments | fragments |
 
 <Callout>
 Leave `reasoning` at `default` unless you want a specific effort. The field is
@@ -87,8 +119,11 @@ with a copy of the JSON body it had been handed.
 OpenAI returns reasoning as a **summary** rather than verbatim, and only when an
 effort other than `none` is set — the reasoning itself comes back encrypted and is
 echoed, unread, on the next turn so a tool loop keeps its train of thought. (On
-Chat Completions there was no reasoning content of any kind, so this column read
-*never*.) Gemini delivers a tool call's arguments complete
+*OpenAI's* Chat Completions there was no reasoning content of any kind, so this
+column read *never* before `llm-openai` moved to Responses. That was a limit of
+that endpoint, not of Chat Completions as a protocol: OpenRouter returns reasoning
+on its own Chat Completions surface, which is why `llm-openrouter` streams
+thinking without needing Responses.) Gemini delivers a tool call's arguments complete
 rather than in pieces; a path that concatenates `tool_input` fragments per call
 still ends up with the same JSON on all three.
 
@@ -142,5 +177,5 @@ flows:
 ```
 
 <Callout type="info">
-Keep API keys in the environment (`${OPENAI_API_KEY}`, `${ANTHROPIC_API_KEY}`, `${GEMINI_API_KEY}`), never inline — see [environment and config](/concepts/environment-and-config). For what the AI blocks can do with these connectors — agents, routing, mapping, and retries — start at [AI in Octo](/ai).
+Keep API keys in the environment (`${OPENAI_API_KEY}`, `${ANTHROPIC_API_KEY}`, `${GEMINI_API_KEY}`, `${OPENROUTER_API_KEY}`), never inline — see [environment and config](/concepts/environment-and-config). For what the AI blocks can do with these connectors — agents, routing, mapping, and retries — start at [AI in Octo](/ai).
 </Callout>

@@ -3,7 +3,8 @@ package core
 import "context"
 
 // EmbedClient is the provider-agnostic capability the ai-embed block depends on.
-// Only llm-openai and llm-gemini implement it — Anthropic has no embeddings API —
+// Every provider connector but llm-anthropic implements it — Anthropic has no
+// embeddings API —
 // so a connector that doesn't satisfy this interface fails ai-embed's type
 // assertion at flow-build time, the same way an unsupported provider fails any
 // other capability-by-interface binding in this codebase.

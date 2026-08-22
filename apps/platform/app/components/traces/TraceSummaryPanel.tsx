@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import type { TraceSummary } from "@/app/model/traces";
 import { workBreakdown } from "./blockClasses";
-import { describeCost, formatDuration } from "./format";
+import { describeCost, formatDuration, formatTokens } from "./format";
 import type { Waterfall } from "./types";
 import WorkSplit from "./WorkSplit";
 
@@ -78,16 +78,7 @@ export default function TraceSummaryPanel({
               {summary.llmCalls}
             </Stat>
 
-            <Stat
-              label="Tokens"
-              title={
-                `${summary.inputTokens} in · ${summary.outputTokens} out` +
-                (summary.cachedTokens > 0 ? ` · ${summary.cachedTokens} cache reads` : "") +
-                ". Output already includes any thinking tokens — the provider counts them there, so the two are never added."
-              }
-            >
-              {summary.inputTokens + summary.outputTokens}
-            </Stat>
+            <TokenStat summary={summary} />
 
             <Stat label="Cost" title={cost.title}>
               <span className={cost.partial ? "text-amber-600 dark:text-amber-400" : ""}>
@@ -114,19 +105,60 @@ export default function TraceSummaryPanel({
   );
 }
 
+/**
+ * The token split, shown rather than hidden.
+ *
+ * It used to be a `title` on the total, which is to say it was invisible on a
+ * touch device, absent from a screen reader, and undiscoverable everywhere else.
+ * The decomposition is the number people actually reason about — a trace that is
+ * mostly input is a prompt problem, one that is mostly output is a generation
+ * problem — so it is on the page.
+ *
+ * The total keeps the position it had, because the trace list and the app list
+ * still lead with a single figure and moving between them should not mean
+ * re-finding it.
+ */
+function TokenStat({ summary }: { summary: TraceSummary }) {
+  return (
+    <Stat
+      label="Tokens"
+      // The one fact the numbers cannot carry: they are not addends.
+      title="Output already includes any thinking tokens — the provider counts them there, so the two are never added."
+      detail={
+        <>
+          {formatTokens(summary.inputTokens)} in · {formatTokens(summary.outputTokens)} out
+          {summary.cachedTokens > 0 && <> · {formatTokens(summary.cachedTokens)} cached</>}
+        </>
+      }
+    >
+      {formatTokens(summary.inputTokens + summary.outputTokens)}
+    </Stat>
+  );
+}
+
 function Stat({
   label,
   title,
+  detail,
   children,
 }: {
   label: string;
   title?: string;
+  /**
+   * A second line under the value, for a breakdown the value alone cannot carry.
+   * It wraps rather than truncating: a decomposition cut off mid-way reads as a
+   * different, smaller number, which is worse than taking a second line.
+   */
+  detail?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <div className="min-w-0" title={title}>
       <dt className="text-[10px] uppercase tracking-wide text-zinc-400">{label}</dt>
       <dd className="truncate">{children}</dd>
+      {detail && (
+        <dd className="text-[11px] leading-tight text-zinc-500 dark:text-zinc-400">{detail}</dd>
+      )}
     </div>
   );
 }

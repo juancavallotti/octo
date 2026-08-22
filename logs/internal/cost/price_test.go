@@ -406,3 +406,94 @@ func TestPriceDoesNotDoubleChargeAnInclusiveProvidersCacheWrite(t *testing.T) {
 		t.Errorf("cost = %.12f, want %.12f", got, want)
 	}
 }
+
+// A cost the provider reported needs no rate and consults no card. It is what
+// was charged rather than what a card would estimate, so it outranks both.
+func TestReportedCostOutranksTheCard(t *testing.T) {
+	card := &Refresher{}
+	card.publish([]Rate{{
+		ID: "rate-1", Provider: "ANTHROPIC", Pattern: "claude-sonnet-4.5",
+		Operator: OpStartsWith, InputPer1M: 3, OutputPer1M: 15,
+	}})
+
+	got := NewPricer(card).Price(Call{
+		Model:    "anthropic/claude-sonnet-4.5",
+		Provider: "OPENROUTER",
+		Usage: &Usage{
+			InputTokens:     1_000_000,
+			OutputTokens:    0,
+			ReportedCostUSD: float64Ptr(0.42),
+		},
+	})
+
+	if got.Status != StatusReported {
+		t.Fatalf("status = %q, want reported", got.Status)
+	}
+	amount, known := got.CostUSD()
+	if !known || amount != 0.42 {
+		t.Errorf("cost = %v (known=%v), want the reported 0.42 rather than the card's 3", amount, known)
+	}
+	// No rate produced it, so there is nothing to point at.
+	if got.PriceID != "" {
+		t.Errorf("price id = %q, want it empty for a reported cost", got.PriceID)
+	}
+	// And the provider comes from the call, since no rate was matched to take it
+	// from.
+	if got.Provider != "OPENROUTER" {
+		t.Errorf("provider = %q, want the call's", got.Provider)
+	}
+}
+
+// A reported cost of zero is a real charge of nothing — a free model — and has to
+// survive as a known cost rather than fall through to a card.
+func TestReportedCostOfZeroIsStillAKnownCost(t *testing.T) {
+	got := NewPricer().Price(Call{
+		Model: "some/free-model",
+		Usage: &Usage{InputTokens: 10, OutputTokens: 2, ReportedCostUSD: float64Ptr(0)},
+	})
+	if got.Status != StatusReported {
+		t.Fatalf("status = %q, want reported", got.Status)
+	}
+	if amount, known := got.CostUSD(); !known || amount != 0 {
+		t.Errorf("cost = %v (known=%v), want a known zero", amount, known)
+	}
+}
+
+// A negative figure is something this accounting cannot mean. Storing it would
+// let a credit net against real charges in every total built on it, so the call
+// falls back to the card instead.
+func TestReportedCostRefusesANegativeFigure(t *testing.T) {
+	card := &Refresher{}
+	card.publish([]Rate{{
+		ID: "rate-1", Provider: "OPENAI", Pattern: "gpt-4o",
+		Operator: OpEquals, InputPer1M: 2.5, OutputPer1M: 10,
+	}})
+
+	got := NewPricer(card).Price(Call{
+		Model:    "gpt-4o",
+		Provider: "OPENAI",
+		Usage:    &Usage{InputTokens: 1_000_000, ReportedCostUSD: float64Ptr(-1)},
+	})
+	if got.Status != StatusPriced || got.PriceID != "rate-1" {
+		t.Errorf("priced = %+v, want it to fall back to the card", got)
+	}
+}
+
+// The ordinary case, and the one that must not change: a provider that reports
+// no cost is priced from the card exactly as before.
+func TestUsageWithoutAReportedCostIsPricedFromTheCard(t *testing.T) {
+	card := &Refresher{}
+	card.publish([]Rate{{
+		ID: "rate-1", Provider: "OPENAI", Pattern: "gpt-4o",
+		Operator: OpEquals, InputPer1M: 2.5, OutputPer1M: 10,
+	}})
+
+	got := NewPricer(card).Price(Call{
+		Model: "gpt-4o", Provider: "OPENAI", Usage: &Usage{InputTokens: 1_000_000},
+	})
+	if got.Status != StatusPriced || got.PriceID != "rate-1" {
+		t.Errorf("priced = %+v, want the card's rate", got)
+	}
+}
+
+func float64Ptr(v float64) *float64 { return &v }

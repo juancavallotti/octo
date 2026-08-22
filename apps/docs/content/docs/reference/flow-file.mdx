@@ -114,7 +114,7 @@ type can be instantiated several times with different settings.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `name` | string | yes | The instance name sources and blocks reference. |
-| `type` | string | yes | The connector type: `http`, `cron`, `database`, `http-client`, `logger`, `queue`, `events`, `notion`, `slack`, `llm-anthropic`, `llm-openai`, or `llm-gemini`. |
+| `type` | string | yes | The connector type: `http`, `cron`, `database`, `http-client`, `logger`, `queue`, `events`, `notion`, `slack`, `llm-anthropic`, `llm-openai`, `llm-gemini`, or `llm-openrouter`. |
 | `settings` | map | no | Type-specific settings; see the [connector reference](/reference). `${NAME}` substitution applies. |
 
 ```yaml

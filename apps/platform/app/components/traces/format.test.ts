@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { describeCost, formatAge, formatCost, formatDuration, formatWindow } from "./format";
+import {
+  describeCost,
+  describeCostStatus,
+  formatAge,
+  formatCost,
+  formatDuration,
+  formatTokens,
+  formatWindow,
+} from "./format";
 
 describe("formatDuration", () => {
   it("keeps a fast block visible instead of rounding it to nothing", () => {
@@ -15,9 +23,53 @@ describe("formatDuration", () => {
     expect(formatDuration(95_000_000_000)).toBe("1m 35s");
   });
 
+  // Rounding can carry a figure across the boundary that chose its unit, and the
+  // unit has to be chosen from the figure that will actually be shown. Before
+  // this, 999,999ns rendered as "1000µs" — a quantity with a shorter name.
+  it("promotes a figure that rounds up into the next unit", () => {
+    expect(formatDuration(999_499)).toBe("999µs");
+    expect(formatDuration(999_999)).toBe("1ms");
+    expect(formatDuration(999_999_999)).toBe("1s");
+    // Seconds roll over at 60, not at 1000, so this is the same bug on a
+    // non-decimal boundary: it used to read "60s".
+    expect(formatDuration(59_999_999_999)).toBe("1m 0s");
+  });
+
   it("says nothing rather than something wrong for a non-duration", () => {
     expect(formatDuration(-1)).toBe("—");
     expect(formatDuration(Number.NaN)).toBe("—");
+  });
+});
+
+describe("formatTokens", () => {
+  it("groups a four-figure count rather than abbreviating it", () => {
+    // The comparison a reader makes is between two counts, and at four figures
+    // the digits are still the fastest way to make it.
+    expect(formatTokens(0)).toBe("0");
+    expect(formatTokens(842)).toBe("842");
+    expect(formatTokens(1_800)).toBe("1,800");
+    expect(formatTokens(9_999)).toBe("9,999");
+  });
+
+  it("abbreviates once the tail stops carrying meaning", () => {
+    expect(formatTokens(10_000)).toBe("10k");
+    expect(formatTokens(128_400)).toBe("128k");
+    expect(formatTokens(2_450_000)).toBe("2.45M");
+  });
+
+  it("promotes a figure that rounds up into the next unit", () => {
+    expect(formatTokens(999_499)).toBe("999k");
+    // 999.5 thousands rounds to 1000, and "1000k" names a quantity the reader
+    // already has a shorter name for.
+    expect(formatTokens(999_500)).toBe("1M");
+    expect(formatTokens(999_999)).toBe("1M");
+    expect(formatTokens(1_000_000)).toBe("1M");
+    expect(formatTokens(999_999_999)).toBe("1B");
+  });
+
+  it("says nothing rather than something wrong for a non-count", () => {
+    expect(formatTokens(-1)).toBe("—");
+    expect(formatTokens(Number.NaN)).toBe("—");
   });
 });
 
@@ -36,6 +88,13 @@ describe("formatCost", () => {
   it("uses cents once there are cents", () => {
     expect(formatCost(1.239)).toBe("$1.24");
     expect(formatCost(0.5)).toBe("$0.5000");
+  });
+
+  // The same rule the units follow: which side of a dollar the figure falls on
+  // is decided after rounding. It used to read "$1.0000".
+  it("drops to cents for a fraction that rounds up to a dollar", () => {
+    expect(formatCost(0.99999)).toBe("$1.00");
+    expect(formatCost(0.99994)).toBe("$0.9999");
   });
 });
 
@@ -95,5 +154,20 @@ describe("formatWindow", () => {
   it("says nothing for a window that is not one", () => {
     expect(formatWindow("2026-08-09T12:00:00Z", "2026-08-09T12:00:00Z")).toBe("");
     expect(formatWindow("nope", "also nope")).toBe("");
+  });
+});
+
+describe("describeCostStatus", () => {
+  it("says a reported cost is the charge rather than an estimate", () => {
+    // The one status where the number is more certain than `priced`, not less.
+    expect(describeCostStatus("reported")).toMatch(/not an estimate from a rate card/);
+  });
+
+  it("never describes an unpriced call as free", () => {
+    expect(describeCostStatus("unpriced_model")).toMatch(/not the same as it being free/);
+  });
+
+  it("says nothing for a record that is not a model call", () => {
+    expect(describeCostStatus("")).toBe("");
   });
 });

@@ -2,7 +2,7 @@
 
 import { GitBranch, Sparkles } from "lucide-react";
 import type { TraceSummary } from "@/app/model/traces";
-import { describeCost, formatAge, formatDuration } from "./format";
+import { describeCost, formatAge, formatDuration, formatTokens } from "./format";
 
 /**
  * One app's traces, newest first.
@@ -122,15 +122,25 @@ function TraceRow({
           <span className="truncate">{trace.rootFlow}</span>
         )}
         {trace.llmCalls > 0 && (
-          <span
-            title={
-              trace.models.length > 0 ? trace.models.join(", ") : "Model calls in this trace"
-            }
-            className="inline-flex shrink-0 items-center gap-1 text-violet-600 dark:text-violet-400"
-          >
-            <Sparkles size={11} />
-            {trace.llmCalls}
-          </span>
+          <>
+            <span
+              title={
+                trace.models.length > 0 ? trace.models.join(", ") : "Model calls in this trace"
+              }
+              className="inline-flex shrink-0 items-center gap-1 text-violet-600 dark:text-violet-400"
+            >
+              <Sparkles size={11} />
+              {trace.llmCalls}
+            </span>
+            {/*
+              The split, not just the total. Which side of it a trace spends its
+              tokens on is the first thing anyone asks of a row, and it decides
+              whether to open the trace at all.
+            */}
+            <span className="shrink-0 tabular-nums">
+              {formatTokens(trace.inputTokens)} in · {formatTokens(trace.outputTokens)} out
+            </span>
+          </>
         )}
         <span
           title={cost.title}

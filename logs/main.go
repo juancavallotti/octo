@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -144,27 +145,86 @@ func run() error {
 // catalogue before consuming would price nothing while the feed was slow, and
 // nothing at all for as long as it was down. Rates already stored answer both.
 func startTraces(ctx context.Context, pool *pgxpool.Pool, conn *nats.Conn) (*ingest.Subscription, error) {
-	prices := cost.NewRefresher(
-		cost.NewStore(pool),
-		cost.NewCatalogue(os.Getenv("LLM_PRICES_URL"), nil),
-		cost.SourceHelicone,
-		priceRefreshInterval(),
-	)
-	if err := prices.Load(ctx); err != nil {
-		// Not fatal, because the failure is survivable and the alternative is not:
-		// a call this service cannot price is stored as unpriced, which is honest
-		// and fixable later, whereas refusing to consume would throw away the
-		// trace itself over a number that sits beside it.
-		slog.Error("could not load the stored rate card; model calls start unpriced", "error", err)
+	store := cost.NewStore(pool)
+	interval := priceRefreshInterval()
+
+	var sources []*cost.Refresher
+	for _, source := range priceSources() {
+		refresher := cost.NewRefresher(store, catalogueFor(source), source, interval)
+		if err := refresher.Load(ctx); err != nil {
+			// Not fatal, because the failure is survivable and the alternative is
+			// not: a call this service cannot price is stored as unpriced, which
+			// is honest and fixable later, whereas refusing to consume would
+			// throw away the trace itself over a number that sits beside it.
+			slog.Error("could not load a stored rate card; it starts empty",
+				"source", source, "error", err)
+		}
+		go refresher.Run(ctx)
+		sources = append(sources, refresher)
 	}
-	go prices.Run(ctx)
+	slog.Info("pricing model calls", "sources", priceSources())
 
 	consumer := ingest.NewTraceConsumer(
 		repo.NewTraces(pool),
 		ingest.NewIntegrationResolver(repo.NewDeployments(pool)),
-		prices,
+		cost.NewPricer(sources...),
 	)
 	return consumer.Start(ctx, conn)
+}
+
+// defaultPriceSources is the order a card is looked up in, most preferred first.
+//
+// OpenRouter leads because its card is priced per model by the platform that
+// sells them and turns over daily; helicone follows because it carries the
+// patterns OpenRouter never publishes — Bedrock, Azure, vendor-hosted ids. A
+// model either card knows is priced; only one neither knows is not.
+var defaultPriceSources = []string{cost.SourceOpenRouter, cost.SourceHelicone}
+
+// priceSources reads LLM_PRICES_SOURCES, a comma-separated list in preference
+// order. An unknown name is warned about and skipped rather than fatal, on the
+// same terms as an unparseable refresh interval: a typo in a tuning knob is no
+// reason to stop a service from starting. A value naming nothing usable falls
+// back to the default, because pricing nothing at all is never what was meant.
+func priceSources() []string {
+	raw := os.Getenv("LLM_PRICES_SOURCES")
+	if strings.TrimSpace(raw) == "" {
+		return defaultPriceSources
+	}
+
+	var sources []string
+	for _, name := range strings.Split(raw, ",") {
+		name = strings.ToLower(strings.TrimSpace(name))
+		switch name {
+		case "":
+		case cost.SourceOpenRouter, cost.SourceHelicone:
+			sources = append(sources, name)
+		default:
+			slog.Warn("unknown LLM_PRICES_SOURCES entry, skipping it",
+				"source", name, "known", defaultPriceSources)
+		}
+	}
+	if len(sources) == 0 {
+		slog.Warn("LLM_PRICES_SOURCES named no known source, using the default",
+			"value", raw, "default", defaultPriceSources)
+		return defaultPriceSources
+	}
+	return sources
+}
+
+// catalogue is the part of a published rate card this file uses. It is declared
+// here, where it is consumed, because the two readers are different types and
+// the only thing this needs from either is the fetch.
+type catalogue interface {
+	Fetch(ctx context.Context) (cost.Fetched, error)
+}
+
+// catalogueFor builds the reader for one source. Each takes its own URL
+// override, so a cluster without egress can mirror one, the other, or both.
+func catalogueFor(source string) catalogue {
+	if source == cost.SourceOpenRouter {
+		return cost.NewOpenRouterCatalogue(os.Getenv("LLM_PRICES_OPENROUTER_URL"), nil)
+	}
+	return cost.NewCatalogue(os.Getenv("LLM_PRICES_URL"), nil)
 }
 
 // priceRefreshInterval reads LLM_PRICES_REFRESH, falling back to the refresher's

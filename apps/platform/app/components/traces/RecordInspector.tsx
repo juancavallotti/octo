@@ -2,7 +2,7 @@
 
 import { X } from "lucide-react";
 import { classifySpan } from "./blockClasses";
-import { describeCost, describeCostStatus, formatDuration } from "./format";
+import { describeCost, describeCostStatus, formatDuration, formatTokens } from "./format";
 import Payload from "./Payload";
 import type { WaterfallNode } from "./types";
 import { useTraceRecord } from "./useTraceRecord";
@@ -142,14 +142,14 @@ function ModelCall({ record }: { record: NonNullable<WaterfallNode["record"]> })
 /** Token counts, naming the two rules that make them easy to add up wrongly. */
 function tokens(record: NonNullable<WaterfallNode["record"]>): string {
   const parts: string[] = [];
-  if (record.inputTokens !== null) parts.push(`${record.inputTokens} in`);
-  if (record.outputTokens !== null) parts.push(`${record.outputTokens} out`);
+  if (record.inputTokens !== null) parts.push(`${formatTokens(record.inputTokens)} in`);
+  if (record.outputTokens !== null) parts.push(`${formatTokens(record.outputTokens)} out`);
   // Already inside the output count — the provider reports it there, so the two
   // are never summed.
-  if (record.thinkingTokens) parts.push(`${record.thinkingTokens} of it thinking`);
-  if (record.cachedTokens) parts.push(`${record.cachedTokens} cache reads`);
+  if (record.thinkingTokens) parts.push(`${formatTokens(record.thinkingTokens)} of it thinking`);
+  if (record.cachedTokens) parts.push(`${formatTokens(record.cachedTokens)} cache reads`);
   // Beside the reads, not folded in with them: a write bills above the input
   // rate and a read below it, so one number for both would explain neither.
-  if (record.cacheWriteTokens) parts.push(`${record.cacheWriteTokens} cache writes`);
+  if (record.cacheWriteTokens) parts.push(`${formatTokens(record.cacheWriteTokens)} cache writes`);
   return parts.length > 0 ? parts.join(" · ") : "The provider reported no usage.";
 }

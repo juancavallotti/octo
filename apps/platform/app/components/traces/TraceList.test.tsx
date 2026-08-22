@@ -101,6 +101,20 @@ describe("TraceList", () => {
     expect(screen.getByTitle("claude-sonnet-4")).toHaveTextContent("3");
   });
 
+  it("shows the token split on the row, not only the call count", () => {
+    // Which side a trace spends its tokens on decides whether it is worth
+    // opening, so it belongs in the list rather than one click further in.
+    renderList([
+      { ...TRACE, llmCalls: 2, costUsd: 0.02, inputTokens: 12_400, outputTokens: 830 },
+    ]);
+    expect(screen.getByText(/12.4k in · 830 out/)).toBeInTheDocument();
+  });
+
+  it("shows no token split for a trace that called no model", () => {
+    renderList([TRACE]);
+    expect(screen.queryByText(/ in · /)).not.toBeInTheDocument();
+  });
+
   it("says when a trace crossed more than one deployment", () => {
     // The id rides on the message and survives a queue hop, so this is how a
     // reader learns the trace is not one app's story.

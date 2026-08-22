@@ -1,0 +1,137 @@
+{
+  "data": [
+    {
+      "id": "anthropic/claude-sonnet-4.5",
+      "canonical_slug": "anthropic/claude-sonnet-4.5",
+      "name": "Anthropic: Claude Sonnet 4.5",
+      "context_length": 1000000,
+      "pricing": {
+        "prompt": "0.000003",
+        "completion": "0.000015",
+        "request": "0",
+        "image": "0.0048",
+        "input_cache_read": "0.0000003",
+        "input_cache_write": "0.00000375"
+      }
+    },
+    {
+      "id": "openai/gpt-4o",
+      "name": "OpenAI: GPT-4o",
+      "pricing": {
+        "prompt": "0.0000025",
+        "completion": "0.00001",
+        "request": "0",
+        "image": "0.003613",
+        "input_cache_read": "0.00000125"
+      }
+    },
+    {
+      "id": "openai/gpt-4",
+      "name": "OpenAI: GPT-4",
+      "pricing": {
+        "prompt": "0.00003",
+        "completion": "0.00006",
+        "request": "0",
+        "image": "0"
+      }
+    },
+    {
+      "id": "google/gemini-2.5-flash",
+      "name": "Google: Gemini 2.5 Flash",
+      "pricing": {
+        "prompt": "0.0000003",
+        "completion": "0.0000025",
+        "request": "0",
+        "image": "0.0001238"
+      }
+    },
+    {
+      "id": "anthropic/claude-sonnet-4.5:thinking",
+      "name": "Anthropic: Claude Sonnet 4.5 (thinking)",
+      "pricing": {
+        "prompt": "0.000003",
+        "completion": "0.000015",
+        "input_cache_read": "0.0000003",
+        "input_cache_write": "0.00000375"
+      }
+    },
+    {
+      "id": "openrouter/auto",
+      "name": "Auto Router",
+      "pricing": {
+        "prompt": "-1",
+        "completion": "-1",
+        "request": "-1",
+        "image": "-1"
+      }
+    },
+    {
+      "id": "x-ai/grok-4",
+      "name": "xAI: Grok 4",
+      "pricing": {
+        "prompt": "0.000003",
+        "completion": "0.000015",
+        "request": "0",
+        "image": "0"
+      }
+    },
+    {
+      "id": "meta-llama/l3",
+      "name": "Meta: short slug, guards the prefix floor",
+      "pricing": {
+        "prompt": "0.0000001",
+        "completion": "0.0000002"
+      }
+    },
+    {
+      "id": "not-a-namespaced-id",
+      "name": "No vendor prefix at all",
+      "pricing": {
+        "prompt": "0.000001",
+        "completion": "0.000002"
+      }
+    },
+    {
+      "id": "",
+      "name": "No id at all",
+      "pricing": {
+        "prompt": "0.1",
+        "completion": "0.2"
+      }
+    },
+    {
+      "id": "badvendor/negative-price",
+      "name": "A price below zero, which a rate cannot be",
+      "pricing": {
+        "prompt": "-0.5",
+        "completion": "-1e-9"
+      }
+    },
+    {
+      "id": "badvendor/not-a-number",
+      "name": "NaN, which survives a zero-guard and poisons every SUM",
+      "pricing": {
+        "prompt": "NaN",
+        "completion": "NaN"
+      }
+    },
+    {
+      "id": "badvendor/infinite-price",
+      "name": "Infinity, published or reached by scaling",
+      "pricing": {
+        "prompt": "Inf",
+        "completion": "1e303"
+      }
+    },
+    {
+      "id": "badvendor/negative-cache-half",
+      "name": "Priceable, but one cache half is not a price",
+      "pricing": {
+        "prompt": "0.000001",
+        "completion": "0.000002",
+        "input_cache_read": "-0.5",
+        "input_cache_write": "NaN"
+      }
+    }
+  ]
+}

@@ -96,6 +96,43 @@ describe("RecordInspector", () => {
     expect(screen.queryByText("$0")).not.toBeInTheDocument();
   });
 
+  // The one status that means the number is more certain rather than less: the
+  // provider said what it charged, so nothing was estimated.
+  it("says when a cost is what the provider charged rather than an estimate", async () => {
+    const call = {
+      ...record({ kind: "llm.turn", path: "orders.agent" }),
+      model: "anthropic/claude-sonnet-4.5",
+      provider: "OPENROUTER",
+      costStatus: "reported" as const,
+      costUsd: 0.00423,
+    };
+    // The inspector re-fetches the record for its payloads and prefers what
+    // comes back, so the fetch has to answer with the same call.
+    getTraceRecord.mockResolvedValue(call);
+    show({ kind: "llm.turn", record: call });
+
+    await waitFor(() =>
+      expect(screen.getByText(/not an estimate from a rate card/)).toBeInTheDocument(),
+    );
+    expect(screen.getByText("$0.0042")).toBeInTheDocument();
+  });
+
+  // A reported cost is known, so the panel must not fall into the lower-bound
+  // rendering that a null cost triggers.
+  it("does not mark a reported cost as a lower bound", async () => {
+    const call = {
+      ...record({ kind: "llm.turn" }),
+      model: "openai/gpt-4o",
+      costStatus: "reported" as const,
+      costUsd: 0.5,
+    };
+    getTraceRecord.mockResolvedValue(call);
+    show({ kind: "llm.turn", record: call });
+
+    await waitFor(() => expect(screen.getByText("$0.5000")).toBeInTheDocument());
+    expect(screen.queryByText(/≥/)).not.toBeInTheDocument();
+  });
+
   it("does not add thinking tokens to the output count", async () => {
     const call = record({ kind: "llm.turn" });
     show({
@@ -127,7 +164,7 @@ describe("RecordInspector", () => {
       },
     });
     await waitFor(() =>
-      expect(screen.getByText(/128 cache reads · 4096 cache writes/)).toBeInTheDocument(),
+      expect(screen.getByText(/128 cache reads · 4,096 cache writes/)).toBeInTheDocument(),
     );
   });
 

@@ -23,11 +23,16 @@ export type TraceStatus = "ok" | "dropped" | "failed";
 
 /**
  * Why a model call's cost is what it is. `""` marks a record that is not a model
- * call at all; the rest say how far pricing got. Only `priced` means the number
- * beside it is complete.
+ * call at all; the rest say how far pricing got.
+ *
+ * `reported` is the certain one — the provider said what it charged, so no rate
+ * card was involved and nothing was estimated. `priced` is a complete figure
+ * from a published rate. The remaining three each mean the number beside them is
+ * partial, unknown, or absent.
  */
 export type CostStatus =
   | ""
+  | "reported"
   | "priced"
   | "priced_partial"
   | "unpriced_model"

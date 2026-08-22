@@ -2,10 +2,11 @@
  * The providers the runtime can talk to, and the model each one defaults to.
  *
  * Duplicated from the runtime connectors — runtime/core/llm.go for the provider
- * names, and the `defaultModel` in runtime/connectors/llm/{anthropic,openai,gemini}
- * for the models. There is no seam to share them through: the runtime is a separate
- * Go module from the orchestrator, which is a separate artifact again from this
- * bundle. If a provider or default changes there, it changes here.
+ * names, and the `defaultModel` in
+ * runtime/connectors/llm/{anthropic,openai,gemini,openrouter} for the models. There
+ * is no seam to share them through: the runtime is a separate Go module from the
+ * orchestrator, which is a separate artifact again from this bundle. If a provider
+ * or default changes there, it changes here.
  *
  * The model is a free-text field rather than a dropdown on purpose. Model names turn
  * over faster than releases of this app, and the connectors themselves treat it as a
@@ -40,6 +41,15 @@ export const LLM_PROVIDERS: LlmProvider[] = [
     label: "Google",
     defaultModel: "gemini-3.5-flash",
     keyPlaceholder: "AIza...",
+  },
+  {
+    // The one entry that is not a single vendor: OpenRouter fronts hundreds of
+    // models, so its ids carry the vendor as a prefix and switching model never
+    // means switching key.
+    id: "OPENROUTER",
+    label: "OpenRouter",
+    defaultModel: "anthropic/claude-sonnet-4.5",
+    keyPlaceholder: "sk-or-v1-...",
   },
 ];
 

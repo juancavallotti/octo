@@ -126,7 +126,7 @@ func (h *Handler) writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrInvalidProvider):
 		httpx.WriteError(w, http.StatusBadRequest,
-			"invalid provider (expected ANTHROPIC, OPENAI or GOOGLE)")
+			"invalid provider (expected ANTHROPIC, OPENAI, GOOGLE or OPENROUTER)")
 	case errors.Is(err, ErrInvalidModel):
 		httpx.WriteError(w, http.StatusBadRequest, "invalid model")
 	case errors.Is(err, ErrInvalidAPIKey):

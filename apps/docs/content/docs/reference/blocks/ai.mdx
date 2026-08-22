@@ -15,7 +15,7 @@ import { Callout } from 'fumadocs-ui/components/callout';
 
 Reference for the AI block family. For narrative guides see the [AI section](/ai) — [agents](/ai/agents), [routing](/ai/ai-router), [mapping](/ai/ai-mapping), [retry](/ai/ai-retry), [memory](/ai/agent-memory), and [MCP servers](/ai/mcp-server).
 
-`ai-agent`, `ai-router`, `ai-retry`, and `mcp-router` are **composites**: their keys sit at the top level of the block, not under `settings:`. `ai-mapping`, `ai-embed`, and `clear-agent-memory` are leaf blocks configured under `settings:`. The `connector` field on each LLM-driven block names a connector you configured — the instance name, like `claude` or `embeddings`, not the type — and it must be an [LLM provider connector](/reference/connectors/llm): one of type `llm-anthropic`, `llm-openai`, or `llm-gemini`. Any of the three works, **except for `ai-embed`, which needs one of type `llm-openai` or `llm-gemini`** — Anthropic has no embeddings API.
+`ai-agent`, `ai-router`, `ai-retry`, and `mcp-router` are **composites**: their keys sit at the top level of the block, not under `settings:`. `ai-mapping`, `ai-embed`, and `clear-agent-memory` are leaf blocks configured under `settings:`. The `connector` field on each LLM-driven block names a connector you configured — the instance name, like `claude` or `embeddings`, not the type — and it must be an [LLM provider connector](/reference/connectors/llm): one of type `llm-anthropic`, `llm-openai`, `llm-gemini`, or `llm-openrouter`. Any of the four works, **except for `ai-embed`, which needs one of type `llm-openai`, `llm-gemini` or `llm-openrouter`** — Anthropic has no embeddings API.
 
 ## ai-agent
 
@@ -251,7 +251,7 @@ Leaf block: turns text into one or more embedding vectors and stores them in a v
 
 | Setting | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `connector` | string | Yes | — | Name of the LLM connector to embed with. It must be an OpenAI- or Gemini-backed one (type `llm-openai` or `llm-gemini`); naming an `llm-anthropic` connector fails at startup. |
+| `connector` | string | Yes | — | Name of the LLM connector to embed with. Its provider must serve embeddings (type `llm-openai`, `llm-gemini` or `llm-openrouter`); naming an `llm-anthropic` connector fails at startup. |
 | `text` | `expression` (string or list of strings) | Yes | — | Text to embed. A string embeds singly; a list embeds as one batch call. The shape decides the result shape (below). |
 | `model` | string | Yes | — | Provider-specific embedding model id (e.g. `text-embedding-3-small`, `gemini-embedding-001`). |
 | `dimensions` | int | No | model default | Requests a shortened output embedding, on models that support it (OpenAI `text-embedding-3-*`, newer Gemini embedding models). |

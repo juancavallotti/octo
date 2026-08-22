@@ -494,3 +494,36 @@ func TestFoldChoosesTheSameRootFlowWhenSequencesTie(t *testing.T) {
 		t.Errorf("entry label = %q, want orders — same tie, same answer", got.EntryLabel)
 	}
 }
+
+// A cost the provider reported sums into the total and is not counted as
+// unpriced. It is the most certain figure in the table, so a rollup that treated
+// it as an unknown would understate a trace made entirely of such calls.
+func TestFoldSumsAReportedCostAndDoesNotCallItUnpriced(t *testing.T) {
+	reported := func(model string, usage *cost.Usage) func(*ingest.TraceRow) {
+		return func(r *ingest.TraceRow) {
+			r.Record.Model = model
+			r.Record.Usage = usage
+			r.Priced = cost.NewPricer().Price(cost.Call{
+				Model: model, Provider: "OPENROUTER", Usage: usage,
+			})
+		}
+	}
+	amount := func(v float64) *float64 { return &v }
+
+	got := foldEveryOrder(t, []ingest.TraceRow{
+		record(1, ingest.KindLLMTurn, reported("anthropic/claude-sonnet-4.5",
+			&cost.Usage{InputTokens: 1000, OutputTokens: 200, ReportedCostUSD: amount(0.004)})),
+		record(2, ingest.KindLLMTurn, reported("openai/gpt-4o",
+			&cost.Usage{InputTokens: 500, OutputTokens: 100, ReportedCostUSD: amount(0.001)})),
+	})
+
+	if got.UnpricedCalls != 0 {
+		t.Errorf("unpriced calls = %d, want 0 — a reported cost is known", got.UnpricedCalls)
+	}
+	if got.CostUSD < 0.0049 || got.CostUSD > 0.0051 {
+		t.Errorf("cost = %v, want the two reported costs summed to 0.005", got.CostUSD)
+	}
+	if got.InputTokens != 1500 || got.OutputTokens != 300 {
+		t.Errorf("tokens = %d/%d, want 1500/300", got.InputTokens, got.OutputTokens)
+	}
+}

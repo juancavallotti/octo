@@ -62,11 +62,38 @@ Every record carries the `app_name` and `app_version` stamped by the pod that em
 
 A trace id rides on the message and survives a queue or topic hop, so a flow that dispatches to another integration keeps the same trace. `deployment_id` on the summary is the deployment that *entered* the trace; `deployment_ids` accumulates every deployment that contributed records.
 
+## Reading tokens
+
+Every model call reports five counts, and three of them are shown wherever a trace is.
+
+A **trace list row** carries the model-call count and the split beside it — `12.4k in · 830 out` — because which side a trace spends its tokens on is what decides whether it is worth opening. A trace that is nearly all input is a prompt problem; one that is nearly all output is a generation problem.
+
+The **detail panel** shows the total and the same split under it, plus cache reads when there were any. The split used to live in a tooltip, which meant it did not exist on a touch device and was not read out by a screen reader.
+
+Open a model-call record for the rest: thinking tokens, cache reads and cache writes, per call.
+
+Two arithmetic rules the numbers obey, and neither is guessable from the figures:
+
+- **`output` already includes thinking tokens.** Adding them bills reasoning twice. The panel says so on hover, and the record inspector says "N of it thinking" rather than listing thinking as a peer of output.
+- **cache reads and cache writes are counted apart**, because they bill in opposite directions from ordinary input — a read below it, a write above it. One number for both would explain neither.
+
 ## Pricing model calls
 
-The runtime reports tokens and never money — it deliberately knows no rate card. Pricing is the aggregator's job, and it happens **once, at ingest**. The cost is stored frozen alongside the id of the rate that produced it, so a price change next month cannot restate what last month cost.
+Pricing happens **once, at ingest**. The cost is stored frozen alongside the id of the rate that produced it, so a price change next month cannot restate what last month cost.
 
-Rates come from a published catalogue (Helicone's, by default) and are kept as **history** in `llm_prices`: a changed price closes the old row and opens a new one, an unchanged price is a no-op, and a model that disappears from the feed is left open rather than closed — a missing catalogue entry must not retroactively unprice stored history. Every refresh, successful or not, is recorded in `llm_price_syncs`.
+The runtime still knows no rate card and computes no price. It does relay one number it is given: **some providers say what they charged.** OpenRouter returns the amount it billed on every completion, and a figure the seller reported is not an estimate — it includes the per-request and per-image charges a token count cannot reconstruct, which is exactly the portion a token-keyed rate card structurally misses. Such a call is stored with that cost and `cost_status = 'reported'`, and no rate is consulted. Everything else is priced from a card below.
+
+Rates come from **two published catalogues**, consulted in order. OpenRouter's model list leads: it is priced per model by the platform that sells them and turns over daily. Helicone's follows, because it carries the patterns OpenRouter never publishes — Bedrock, Azure, vendor-hosted ids. A call is priced by the first card that has a rate for its model, so a model *either* card knows is priced and only one *neither* knows is not.
+
+The fallthrough is narrow on purpose. Only "this card has never heard of this model" moves to the next one; a partial pricing is a real cost from a real rate and stays, and a call whose provider reported no tokens is not a question a second card can answer differently.
+
+Each card is stored and diffed under its own `source`, so the two never restate each other, and both are kept as **history** in `llm_prices`: a changed price closes the old row and opens a new one, an unchanged price is a no-op, and a model that disappears from the feed is left open rather than closed — a missing catalogue entry must not retroactively unprice stored history. Every refresh of every source, successful or not, is recorded in `llm_price_syncs`.
+
+<Callout type="info">
+Neither feed needs an API key. OpenRouter's model list is public — it is what a caller consults before deciding to buy anything — so pricing from it costs no credential and no chart secret.
+</Callout>
+
+One OpenRouter entry prices a model **twice over**: once under its full routed id (`anthropic/claude-sonnet-4.5`), and once as a prefix of the vendor's own id (`claude-sonnet-4-5-20250929`), because those are different namespaces for the same model. A model the feed prices as variable — the auto-router publishes `-1` for every field — is refused rather than stored at zero, since a zero rate would report every call it matched as free.
 
 The card is loaded from the database **before** anything is consumed and refreshed in the background afterwards. A service that waited on the catalogue would price nothing while the feed was slow, and nothing at all for as long as it was down.
 
@@ -77,10 +104,13 @@ This is the rule everything else here is arranged around. Every priced record ca
 | `cost_status` | Meaning |
 | --- | --- |
 | `''` | Not a model call. |
+| `reported` | The provider said what it charged. Not an estimate, and no rate produced it — `price_id` is `NULL`. The most certain of these, not the least. |
 | `priced` | Fully priced from a known rate. |
 | `priced_partial` | Priced, but the card published no cache rate, so cached tokens were charged at the input rate — an over-estimate that says so. |
 | `unpriced_model` | The model is in no rate card. The cost is **unknown, not zero**. |
 | `no_usage` | The provider reported no token usage. There is nothing to price, which is different from pricing it at nothing. |
+
+A reported cost is a **known** cost: it sums into every total and is never counted as unpriced.
 
 Aggregates carry the same pairing: `cost_usd` sums only what could be priced, and `unpriced_calls` counts what could not. **A total is a lower bound whenever `unpriced_calls` is non-zero**, and a reader holding only the total has no way to know that.
 
@@ -120,10 +150,14 @@ The aggregator needs `DATABASE_URL` and `NATS_URL`; without either it still serv
 
 | Variable | Helm value | Default |
 | --- | --- | --- |
+| `LLM_PRICES_SOURCES` | `logs.prices.sources` | `openrouter,helicone` |
 | `LLM_PRICES_URL` | `logs.prices.url` | Helicone's public catalogue |
+| `LLM_PRICES_OPENROUTER_URL` | `logs.prices.openrouterUrl` | OpenRouter's public model list |
 | `LLM_PRICES_REFRESH` | `logs.prices.refreshInterval` | `12h` |
 
-Point the URL at a mirror for a cluster without egress. A cluster that can reach neither still serves whatever rates are already stored and records the failure in `llm_price_syncs`.
+`LLM_PRICES_SOURCES` is a comma-separated list in preference order; name one source to use only it. An unknown name is warned about and skipped rather than fatal, and a value naming nothing usable falls back to the default — pricing nothing at all is never what was meant.
+
+Point either URL at a mirror for a cluster without egress. A cluster that can reach neither still serves whatever rates are already stored and records the failure in `llm_price_syncs`.
 
 ## Retention
 
