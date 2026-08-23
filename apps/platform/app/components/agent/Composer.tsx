@@ -2,6 +2,18 @@
 
 import { Send, Square } from "lucide-react";
 
+import { useAutoGrow } from "./useAutoGrow";
+
+/**
+ * How many lines the box grows to before it starts scrolling instead.
+ *
+ * Four rather than one is the whole change: a question worth asking this panel is
+ * usually longer than a line, and the box used to hide everything but the last of
+ * it. Four rather than more because the drawer's transcript pays for every line —
+ * the composer grows downward out of the reading area.
+ */
+const MAX_ROWS = 4;
+
 /**
  * The message box.
  *
@@ -28,6 +40,11 @@ export default function Composer({
     if (draft.trim()) onSubmit();
   };
 
+  // The height is owned by the hook, so there is no max-height class below: a
+  // class and a measured cap would be two answers to one question, and the one
+  // written inline is the one that would quietly stop matching.
+  const box = useAutoGrow(draft, MAX_ROWS);
+
   return (
     <form
       onSubmit={(e) => {
@@ -37,6 +54,7 @@ export default function Composer({
       className="flex items-end gap-2 border-t border-black/10 px-3 py-2 dark:border-white/10"
     >
       <textarea
+        ref={box}
         value={draft}
         rows={1}
         placeholder="Ask Dr. Octo…"
@@ -54,7 +72,7 @@ export default function Composer({
             submit();
           }
         }}
-        className="max-h-32 min-h-[2rem] flex-1 resize-none rounded-md border border-black/10 bg-transparent px-2 py-1.5 text-sm outline-none focus:border-black/30 dark:border-white/15 dark:focus:border-white/30"
+        className="min-h-[2rem] flex-1 resize-none rounded-md border border-black/10 bg-transparent px-2 py-1.5 text-sm outline-none focus:border-black/30 dark:border-white/15 dark:focus:border-white/30"
       />
       {busy && (
         <button
