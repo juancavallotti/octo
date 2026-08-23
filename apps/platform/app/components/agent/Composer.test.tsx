@@ -27,7 +27,15 @@ function measurable(content = () => LINE + PADDING) {
     },
   });
   return () => {
-    if (original) Object.defineProperty(proto, "scrollHeight", original);
+    // Deleted rather than left in place when there was nothing to restore: jsdom
+    // defines no scrollHeight on the prototype, so `original` is undefined and a
+    // conditional restore would leave this stub installed for every test that ran
+    // afterwards.
+    if (original) {
+      Object.defineProperty(proto, "scrollHeight", original);
+    } else {
+      Reflect.deleteProperty(proto, "scrollHeight");
+    }
   };
 }
 

@@ -138,8 +138,9 @@ He ships with a limit of **60**, which is enough for the work he is usually aske
 do — read the traces for a failing deployment, work out why, write a fix, prove it
 with a test suite. Raise it under **Admin → Platform agent** if the tasks you give
 him are longer than that, or lower it to cap what a stuck run can spend before the
-guardrail catches it. Leave the field empty to use the limit his definition ships
-with; clearing it is how you get back to that after setting a number.
+guardrail catches it. Anything from **1 to 200** is accepted. Leave the field empty
+to use the limit his definition ships with; clearing it is how you get back to that
+after setting a number.
 
 It is a ceiling and not a budget: an answer that takes four turns takes four. What a
 higher limit costs is the tail — a genuinely stuck run burns the whole allowance
