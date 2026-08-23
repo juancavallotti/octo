@@ -23,6 +23,9 @@ type kubeSecrets interface {
 	// no value ever leaves the cluster through this interface, which is what makes
 	// the reconciler below safe to run unattended.
 	ListSecretNames(ctx context.Context) ([]string, error)
+	// SecretStoreExists reports whether the shared Secret object exists at all,
+	// which is a different question from which keys it holds. See Reconcile.
+	SecretStoreExists(ctx context.Context) (bool, error)
 }
 
 // deploymentRefs reports whether a secret is still referenced by a deployment, so
@@ -106,6 +109,26 @@ func (s *Service) Delete(ctx context.Context, name string, force bool) error {
 // the case where the key is the thing worth saving.
 func (s *Service) Reconcile(ctx context.Context) (int, error) {
 	if s.kube == nil {
+		return 0, nil
+	}
+
+	// The shared Secret is created lazily by the first write, so "it is not there"
+	// is the ordinary state of an installation that has never stored a secret — and
+	// is also, briefly, what an externally managed Secret looks like between being
+	// deleted and recreated. ListSecretNames renders both as an empty list, and
+	// acting on that would drop every catalogue row in one pass.
+	//
+	// That is not a survivable mistake here. This sweep only ever removes names,
+	// never adds them back — deliberately, since re-adding would mean the catalogue
+	// following whatever the cluster happens to hold — so a catalogue wiped in a
+	// five-second window stays wiped, with the values still present and no longer
+	// reachable through the UI.
+	exists, err := s.kube.SecretStoreExists(ctx)
+	if err != nil {
+		return 0, err
+	}
+	if !exists {
+		slog.Debug("secret reconcile: the shared secret does not exist; nothing to compare against")
 		return 0, nil
 	}
 

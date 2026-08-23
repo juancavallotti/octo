@@ -91,6 +91,26 @@ func (c *Client) SecretKeyExists(ctx context.Context, name string) (bool, error)
 // ListSecretNames returns the sorted keys of the shared cluster-secrets Secret. It
 // reads only the keys, never the values, so it cannot leak a secret. A missing
 // Secret yields an empty list.
+// SecretStoreExists reports whether the shared Secret object is there at all.
+//
+// It is a different question from "which keys does it have", and the reconciler
+// needs both. The Secret is created lazily by the first SetSecret, so its absence
+// is the ordinary state of an installation that has never stored one — and is
+// also what an externally managed Secret looks like for the moment between being
+// deleted and being recreated. Neither is evidence that any particular name is
+// gone, which is what ListSecretNames returning an empty list would otherwise be
+// read as.
+func (c *Client) SecretStoreExists(ctx context.Context) (bool, error) {
+	_, err := c.clientset.CoreV1().Secrets(c.namespace).Get(ctx, secretsName, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("kube: get secret: %w", err)
+	}
+	return true, nil
+}
+
 func (c *Client) ListSecretNames(ctx context.Context) ([]string, error) {
 	sec, err := c.clientset.CoreV1().Secrets(c.namespace).Get(ctx, secretsName, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {

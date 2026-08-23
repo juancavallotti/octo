@@ -291,10 +291,15 @@ func (c *Client) Reachable(ctx context.Context) error {
 // out here rather than derived from it, because the two are read together and a
 // reader has to be able to see that they partition the namespace.
 //
-// The second return is false when the informer cache is not synced. A caller
-// acting on this list is deciding what to delete, and an empty list from a cache
-// that has not loaded yet is indistinguishable from an empty cluster — so the
-// question "can I trust this" is answered here rather than assumed there.
+// The second return says the list is authoritative, which is a stronger claim
+// than "it came back". It is false only when neither source could give a complete
+// answer; a caller deciding what to delete must not act on a list without it,
+// because an incomplete listing and an empty cluster are the same empty map.
+//
+// A cache that has not synced does not make the answer untrustworthy — it makes
+// this read fall back to the API server, which is authoritative by definition.
+// What the fallback costs is a full list rather than a cache read, and this runs
+// once every few minutes.
 func (c *Client) DeploymentIDs(ctx context.Context) (map[string]bool, bool, error) {
 	sel, err := managedDeploymentSelector()
 	if err != nil {
@@ -331,6 +336,35 @@ func (c *Client) DeploymentIDs(ctx context.Context) (map[string]bool, bool, erro
 		}
 	}
 	return out, true, nil
+}
+
+// DeploymentExists reports whether the workload for a deployment id is there,
+// asked by name rather than by label.
+//
+// It is the second opinion the reconciler takes before deleting a row, and the
+// difference between the two questions is the point. DeploymentIDs asks the
+// cluster "what do you have", which it answers from labels — metadata that any
+// principal with cluster access can edit, and that an admission controller can
+// rewrite. This asks about one object by the name derived from the row's own id,
+// which is the identity every other read here uses and the one thing about a
+// workload that cannot drift.
+//
+// Without it, a stripped label makes a live deployment invisible to the sweep,
+// which then deletes its row — irreversibly, taking the settings and env bindings
+// with it — while the workload keeps running and can never be collected either,
+// because it does not match the selector any more.
+func (c *Client) DeploymentExists(ctx context.Context, deploymentID string) (bool, error) {
+	// Deliberately not the lister: this is the confirmation step for a destructive
+	// action, and a cache is a copy of what was true a moment ago.
+	_, err := c.clientset.AppsV1().Deployments(c.namespace).Get(ctx,
+		resourceName(deploymentID), metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("kube: get deployment: %w", err)
+	}
+	return true, nil
 }
 
 // managedDeploymentSelector matches orchestrator-managed deployment workloads and

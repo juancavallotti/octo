@@ -142,13 +142,24 @@ both:
 | A stored platform-agent id pointing at a deleted row | The id is forgotten, so the admin page offers Deploy rather than a roll-out of nothing. |
 | A `cluster_secrets` entry with no key in the cluster | The catalogue entry is **dropped**. |
 
-Two things it will not do. A key in the cluster's Secret with **no** catalogue
+Three things it will not do. A key in the cluster's Secret with **no** catalogue
 entry is logged and **kept** — deleting key material because a database row is
 missing is not a trade worth making unattended, and a catalogue restored from an
-older backup is exactly when the key is the thing worth saving. And a row touched
-in the last five minutes is left alone whatever the cluster says: a deploy writes
-its row before it calls the API server, so there is a window in which a perfectly
-healthy deployment has no workload yet.
+older backup is exactly when the key is the thing worth saving. A row touched in
+the last five minutes is left alone whatever the cluster says: a deploy writes its
+row before it calls the API server, so there is a window in which a perfectly
+healthy deployment has no workload yet. And no row is deleted on the strength of
+the listing alone — the sweep asks again for that one workload **by name** first,
+because the listing matches on labels and a label is metadata anyone with cluster
+access can edit, while the name is derived from the row's own id and cannot drift.
+
+The secret sweep also does nothing at all while the shared `octo-secrets` Secret
+does not exist. It is created by the first secret you store, so its absence is the
+ordinary state of an installation that has never stored one — and, briefly, what
+an externally managed Secret looks like while it is being recreated. Reading
+either as "every name is gone" would empty the catalogue in one pass, and since
+the sweep only ever removes names it would stay empty with the values still
+present.
 
 <Callout type="warn">
 The sweep deletes rows, so it is arranged around never guessing. If the cluster

@@ -90,6 +90,24 @@ func (s *Service) Reconcile(ctx context.Context) (Reconciled, error) {
 			// called. Left for the next sweep, by which time it is one or the other.
 			continue
 		}
+
+		// Asked again, by name, before anything is deleted. The listing above
+		// answers from labels, and a label is metadata anyone with cluster access
+		// can edit; the name is derived from this row's own id and cannot drift.
+		// Deleting a row is irreversible and takes its settings and env bindings
+		// with it, so it is worth one Get on a path this rare.
+		exists, err := s.kube.DeploymentExists(ctx, row.ID)
+		if err != nil {
+			slog.Error("deployment reconcile: confirm workload is gone",
+				"deploymentId", row.ID, "error", err)
+			continue
+		}
+		if exists {
+			slog.Warn("deployment reconcile: a workload exists but the listing missed it; "+
+				"check its labels", "deploymentId", row.ID)
+			continue
+		}
+
 		if s.removeOrphanedRow(ctx, row) {
 			out.RowsDeleted++
 		}

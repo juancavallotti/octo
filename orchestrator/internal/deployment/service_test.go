@@ -180,6 +180,10 @@ type fakeKube struct {
 	liveErr     error
 	// deletedIDs is every workload the caller removed.
 	deletedIDs []string
+	// existsOverride makes the by-name check disagree with the label listing, and
+	// existsErr makes it fail. Both are states only the confirmation step can see.
+	existsOverride map[string]bool
+	existsErr      error
 }
 
 func (f *fakeKube) Apply(_ context.Context, spec kube.Spec) error {
@@ -226,6 +230,19 @@ func (f *fakeKube) Delete(_ context.Context, id string) error {
 
 func (f *fakeKube) DeploymentIDs(_ context.Context) (map[string]bool, bool, error) {
 	return f.liveIDs, f.liveTrusted, f.liveErr
+}
+
+// DeploymentExists answers from the same map DeploymentIDs does, so the two
+// cannot disagree unless a test makes them — which is the case the by-name
+// confirmation exists for, and existsOverride is how it is spelled.
+func (f *fakeKube) DeploymentExists(_ context.Context, id string) (bool, error) {
+	if f.existsErr != nil {
+		return false, f.existsErr
+	}
+	if f.existsOverride != nil {
+		return f.existsOverride[id], nil
+	}
+	return f.liveIDs[id], nil
 }
 
 func (f *fakeKube) InternalURL(slug string, port int) string {

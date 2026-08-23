@@ -77,8 +77,11 @@ type kubeClient interface {
 	ExternalURL(subdomain string) string
 	SecretKeyExists(ctx context.Context, name string) (bool, error)
 	// DeploymentIDs is the reconciler's view of the cluster: every deployment this
-	// orchestrator has a workload for, and whether the answer can be trusted.
+	// orchestrator has a workload for, and whether the answer is authoritative.
 	DeploymentIDs(ctx context.Context) (map[string]bool, bool, error)
+	// DeploymentExists asks about one workload by name, as the confirmation before
+	// deleting its row.
+	DeploymentExists(ctx context.Context, deploymentID string) (bool, error)
 }
 
 // storeCleaner removes a deployment's entries from a deployment-scoped store

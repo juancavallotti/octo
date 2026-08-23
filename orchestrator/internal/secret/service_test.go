@@ -54,6 +54,10 @@ type fakeKube struct {
 	// listErr is how a cluster that could not be asked is spelled, which is the
 	// case the reconciler must refuse to act on.
 	listErr error
+	// noStore stands for the shared Secret not existing at all — the state of an
+	// installation that has never written one, which must not read as "every
+	// catalogue name is gone".
+	noStore bool
 }
 
 func newFakeKube() *fakeKube { return &fakeKube{values: map[string]string{}} }
@@ -64,6 +68,16 @@ func (f *fakeKube) SetSecret(_ context.Context, name, value string) error {
 	}
 	f.values[name] = value
 	return nil
+}
+
+// SecretStoreExists mirrors the real client: the Secret is created by the first
+// write, so it exists once anything has been stored — unless a test says
+// otherwise.
+func (f *fakeKube) SecretStoreExists(_ context.Context) (bool, error) {
+	if f.listErr != nil {
+		return false, f.listErr
+	}
+	return !f.noStore && len(f.values) > 0, nil
 }
 
 // ListSecretNames answers from the same map SetSecret writes to, so a test does
@@ -234,6 +248,27 @@ func TestReconcileDropsCatalogueEntriesTheClusterDoesNotHave(t *testing.T) {
 	}
 	if _, gone := repo.names["KEPT"]; !gone {
 		t.Error("want the entry the cluster still has left alone")
+	}
+}
+
+// The shared Secret is created lazily, so its absence is the ordinary state of an
+// installation that has never stored one — and briefly what an externally managed
+// Secret looks like while being recreated. Reading either as "every name is gone"
+// would drop the whole catalogue, and this sweep never adds a name back.
+func TestReconcileDoesNothingWhenTheSharedSecretDoesNotExist(t *testing.T) {
+	repo, kube := newFakeRepo(), newFakeKube()
+	kube.noStore = true
+	repo.names["KEY_A"] = Secret{Name: "KEY_A"}
+	repo.names["KEY_B"] = Secret{Name: "KEY_B"}
+	svc := NewService(repo, kube, &fakeRefs{})
+
+	dropped, err := svc.Reconcile(context.Background())
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	if dropped != 0 || len(repo.deleted) != 0 {
+		t.Errorf("dropped %d / %v, want the catalogue untouched", dropped, repo.deleted)
 	}
 }
 

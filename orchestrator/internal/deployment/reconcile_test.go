@@ -201,3 +201,42 @@ func (f *fakeCleaner) DeleteByDeployment(_ context.Context, id string) error {
 	f.cleaned = id
 	return nil
 }
+
+// The listing answers from labels, which anyone with cluster access can edit.
+// Deleting a row is irreversible and takes its settings and env bindings with it,
+// so the sweep asks again by name — the identity derived from the row's own id,
+// which cannot drift — before removing anything.
+//
+// Without the second question a stripped label deletes the row of a running
+// deployment, and the workload can never be collected either: it no longer
+// matches the selector that would have found it.
+func TestReconcileConfirmsAWorkloadIsGoneBeforeDeletingItsRow(t *testing.T) {
+	svc, repo, k := reconciler([]Deployment{stale("dep-1", "int-1")}, map[string]bool{})
+	// The label listing missed it; the object is really there.
+	k.existsOverride = map[string]bool{"dep-1": true}
+
+	got, err := svc.Reconcile(context.Background())
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	if got.RowsDeleted != 0 || repo.deleted {
+		t.Error("want the row kept: the workload exists under its own name")
+	}
+}
+
+// A confirmation that could not be made is not a confirmation. Failing it must
+// leave the row alone rather than fall through to the delete.
+func TestReconcileKeepsARowItCouldNotConfirm(t *testing.T) {
+	svc, repo, k := reconciler([]Deployment{stale("dep-1", "int-1")}, map[string]bool{})
+	k.existsErr = errors.New("connection reset")
+
+	got, err := svc.Reconcile(context.Background())
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	if got.RowsDeleted != 0 || repo.deleted {
+		t.Error("want the row kept when its absence could not be confirmed")
+	}
+}
