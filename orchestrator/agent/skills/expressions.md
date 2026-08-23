@@ -38,6 +38,7 @@ A **source payload** expression runs before any message exists, so it sees only
 | `hmacSha1` | `hmacSha1(dyn, dyn) -> bytes` | The same with SHA-1, for legacy schemes only. |
 | `hexEncode` | `hexEncode(dyn) -> string` | Render bytes as lowercase hex. |
 | `secureCompare` | `secureCompare(dyn, dyn) -> bool` | Constant-time compare. Always use it for signatures — `==` leaks the match length via timing. |
+| `uuid` | `uuid() -> string` | A random v4 UUID: correlation ids, idempotency keys, a synthetic id for a record without one. Non-deterministic like `now`, so a trace replay does not reproduce it — and never for `memoryThreadId`, which is evaluated once per run, so a minted thread saves a transcript nobody will read. |
 
 ## Standard libraries available
 
