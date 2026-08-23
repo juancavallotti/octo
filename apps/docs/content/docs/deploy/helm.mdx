@@ -821,7 +821,10 @@ adopt. Destroying storage is the infrastructure layer's job.
 | `postgres.auth.existingSecret` / `.existingSecretPasswordKey` | `""` / `postgres-password` | Take the password from a Secret you already own instead. Preferred for anything long-lived — every value passed to Helm stays in the release history. |
 | `kv.encryptionKey` | `""` | Base64 32-byte AES-256 key encrypting KV secret namespaces at rest. Empty rejects secret-namespace writes; plain KV still works. See [KV and storage](/platform/kv-and-storage). |
 | `auth.oidc.enabled` | `false` | Gate the editor behind OIDC SSO (Auth.js). Disabled, the editor is open. |
-| `auth.oidc.issuer` / `.clientId` / `.clientSecret` | – | IdP details; the secret lands in the chart's auth Secret. |
+| `auth.oidc.issuer` / `.clientId` / `.clientSecret` | – | IdP details; the secret lands in the chart's auth Secret. Any OIDC provider works — register `{auth.url}/api/auth/callback/oidc` as its redirect URI. |
+| `auth.oidc.providerName` / `.providerLogo` | `""` | What the sign-in button calls the provider ("Sign in with …", default `OIDC`) and the mark beside it (default: the issuer's favicon). |
+| `auth.oidc.scopes` | `""` | Space-separated scopes; empty requests `openid profile email`. |
+| `auth.oidc.endpoints.*` | `""` | `authorization` / `token` / `userinfo` / `jwks` overrides, for providers whose discovery document is unusable. Leave empty against a compliant one. |
 | `auth.secret` | `""` | Auth.js session secret (`AUTH_SECRET`). |
 | `auth.writeRoles` / `.rolesClaim` | `""` | Roles allowed to mutate, and the ID-token claim carrying them. |
 | `orchestrator.devRuns.hashSecret` | `""` | **Required when dev runs are on.** Keys the derivation of every dev run's identity and hostname — see [Dev runs](#dev-runs), which explains why the chart will not generate one. |
