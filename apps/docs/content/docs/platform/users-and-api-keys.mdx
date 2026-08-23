@@ -11,9 +11,44 @@ The platform authenticates people with OIDC single sign-on and machines with per
 
 Authentication lives entirely in the platform app, built on Auth.js (NextAuth):
 
-- **One OIDC provider** using the authorization-code flow. The reference deployment uses eetr (`https://auth.eetr.app`); the issuer, client id, and client secret come from `AUTH_EETR_ISSUER`, `AUTH_EETR_CLIENT_ID`, and `AUTH_EETR_CLIENT_SECRET` (set by the Helm chart's `auth.oidc` values).
+- **One OIDC provider** using the authorization-code flow. Octo ships no identity provider and privileges none: bring any standards-compliant one — Auth0, Keycloak, Okta, Entra ID, Google, Authentik, Dex. The issuer, client id, and client secret come from `OIDC_ISSUER`, `OIDC_CLIENT_ID`, and `OIDC_CLIENT_SECRET` (set by the Helm chart's `auth.oidc` values).
 - **JWT sessions, no database adapter** — the session rides in a signed cookie (`AUTH_SECRET`), so the same config backs both route handlers and the edge request gate.
-- **Opt-in**: SSO is enforced only when `AUTH_EETR_ISSUER` and `AUTH_SECRET` are set. Local development without them runs open, with a synthetic local session.
+- **Opt-in**: SSO is enforced only when `OIDC_ISSUER` and `AUTH_SECRET` are set. Local development without them runs open, with a synthetic local session.
+
+### Configuration
+
+| Variable | Required | Default | Purpose |
+|---|---|---|---|
+| `OIDC_ISSUER` | yes | – | Issuer URL; its `.well-known/openid-configuration` supplies every endpoint |
+| `OIDC_CLIENT_ID` | yes | – | Client id (not a secret — it travels in the redirect) |
+| `OIDC_CLIENT_SECRET` | yes | – | Client secret |
+| `OIDC_PROVIDER_NAME` | no | `OIDC` | Name on the sign-in button: "Sign in with …" |
+| `OIDC_PROVIDER_LOGO` | no | the issuer's favicon | Mark on that button; renders without one if it 404s |
+| `OIDC_SCOPES` | no | `openid profile email` | Space-separated scopes requested at sign-in |
+| `OIDC_AUTHORIZATION_URL` | no | discovery | Endpoint override |
+| `OIDC_TOKEN_URL` | no | discovery | Endpoint override |
+| `OIDC_USERINFO_URL` | no | discovery | Endpoint override; also used by `/mcp` |
+| `OIDC_JWKS_URL` | no | discovery | Endpoint override; also used by `/mcp` |
+
+The endpoint overrides exist for providers whose discovery document is unreachable, incomplete, or wrong. Against a compliant provider, leave all four empty — discovery is the path that keeps working when the provider moves an endpoint.
+
+Register **`{AUTH_URL}/api/auth/callback/oidc`** as a redirect URI on the provider. The `oidc` in that path is the Auth.js provider id and is fixed, whatever you call the provider in `OIDC_PROVIDER_NAME`.
+
+### What your provider must support
+
+Editor sign-in asks little: the authorization-code flow, a discovery document (or the four endpoint overrides), and that redirect URI. **The MCP endpoint asks for more**, and it is worth checking before you settle on a provider:
+
+<Callout type="warn">
+  **MCP needs Dynamic Client Registration.** MCP clients (Claude Code, Codex, and the rest) read the platform's `/.well-known/oauth-protected-resource/mcp` document, follow it to your authorization server, and register themselves via [RFC 7591](https://datatracker.ietf.org/doc/html/rfc7591). Without DCR there is no "just connect": every user has to hand-register a client with your IdP and paste a client id and secret into their harness's MCP config. Several providers ship DCR disabled, or gate it behind a plan tier — check yours before committing.
+</Callout>
+
+Beyond DCR, `/mcp` requires the provider to:
+
+- **Honour resource indicators ([RFC 8707](https://datatracker.ietf.org/doc/html/rfc8707))** — the access token's `aud` must equal the MCP resource identifier (`{AUTH_URL}/mcp`, or `MCP_RESOURCE_URL`). A provider that ignores the `resource` parameter and mints tokens for its own default audience fails verification with a token that otherwise looks fine.
+- **Issue RS256-signed JWT access tokens** with a reachable JWKS. Opaque access tokens are not supported; there is no introspection path.
+- **Expose a userinfo endpoint** — email and name are read from it to provision the user row on first call.
+
+Where DCR is unavailable, [API keys](#api-keys) are the supported way to authenticate an MCP client. They need nothing from the identity provider.
 
 When SSO is on, the app-wide request gate redirects unauthenticated browser navigations to sign-in and answers unauthenticated `/api/*` calls with `401`. Exactly one path bypasses it, because it authenticates itself: `/mcp` (bearer tokens, below). Nothing else needs an exemption — a running integration is a pod with a hostname of its own, so a webhook callback never reaches the platform app to be redirected in the first place.
 

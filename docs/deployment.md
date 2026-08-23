@@ -262,12 +262,6 @@ Per-deploy values (`image_tag`, `chart_version`) come from the command line inst
 | `acme_email` | `juancavallotti@gmail.com` | Let's Encrypt account |
 | `enable_cloudbuild` | `false` | create the trigger (needs GitHub App connected first) |
 | `cloudbuild_auto_deploy` | `true` | also roll the cluster on a tag (`_DEPLOY=true` + deploy IAM) |
-| `oidc_enabled` | `false` | gate the editor behind eetr SSO (consumed by the `release` root) |
-| `oidc_client_id` | `""` | IdP client id (non-secret) |
-| `oidc_client_secret` | `""` | IdP client secret (kept in release state, not Secret Manager) |
-| `oidc_issuer` | `https://auth.eetr.app` | OIDC issuer |
-| `oidc_write_roles` | `""` | roles allowed to write; empty = any signed-in user |
-| `oidc_roles_claim` | `""` | id-token claim for roles (Auth.js default `roles`) |
 
 ### `release` root variables
 
@@ -277,21 +271,29 @@ Per-deploy values (`image_tag`, `chart_version`) come from the command line inst
 | `chart_version` | – (required) | must match the published `helm/Chart.yaml`; derived by Cloud Build / `task deploy` |
 | `cluster_issuer` | `letsencrypt-prod` | cert-manager issuer |
 | `kubeconfig` | `../infra/kubeconfig.yaml` | from `task deploy:kubeconfig` |
+| `oidc_enabled` | `false` | gate the editor behind OIDC SSO |
+| `oidc_client_id` | `""` | IdP client id (non-secret) |
+| `oidc_client_secret` | `""` | IdP client secret (kept in release state, not Secret Manager) |
+| `oidc_issuer` | `""` | OIDC issuer URL of your identity provider |
+| `oidc_provider_name` | `""` | name on the sign-in button; empty renders `OIDC` |
+| `oidc_write_roles` | `""` | roles allowed to write; empty = any signed-in user |
+| `oidc_roles_claim` | `""` | id-token claim for roles (Auth.js default `roles`) |
 
 ### Editor SSO (OIDC, optional)
 
-Set `oidc_enabled = true` plus `oidc_client_id` / `oidc_client_secret` in `release/terraform.tfvars`.
+Any OIDC provider that speaks the authorization-code flow will do — Octo ships none
+and privileges none. Set `oidc_enabled = true` plus `oidc_client_id` / `oidc_client_secret` in `release/terraform.tfvars`.
 The `release` root consumes these directly (this setup uses no Secret Manager — all
 generated credentials live in the bucket-backed release state) and generates the
 Auth.js session secret. The
 chart creates the `{release}-auth` Secret for the client secret + session secret, and
-the editor gets `AUTH_EETR_ISSUER`, `AUTH_EETR_CLIENT_ID` (plain), `AUTH_EETR_CLIENT_SECRET`,
+the editor gets `OIDC_ISSUER`, `OIDC_CLIENT_ID` (plain), `OIDC_CLIENT_SECRET`,
 `AUTH_SECRET` (from the Secret), plus `AUTH_URL` and `AUTH_TRUST_HOST`. Auth turns on
 automatically once those are present; with `oidc_enabled = false` the editor stays open.
 
 The client secret and session secret live in the release Terraform state (the GCS
 bucket), consistent with the Postgres password — keep the state bucket locked down.
-Register the redirect URI on the IdP: `https://{domain}/api/auth/callback/eetr`. The
+Register the redirect URI on the IdP: `https://{domain}/api/auth/callback/oidc`. The
 orchestrator stays in-cluster only and is reached solely through the editor's
 authenticated BFF (no separate token).
 

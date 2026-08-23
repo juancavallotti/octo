@@ -4,7 +4,7 @@
  * Two kinds of bearer token are accepted, chosen by prefix:
  *
  *  - **OAuth 2.1 access-token JWT** (the default for MCP clients like Claude and
- *    ChatGPT). Verified against eetr's JWKS with `iss`/`aud`/`exp` checks; the
+ *    ChatGPT). Verified against the provider's JWKS with `iss`/`aud`/`exp` checks; the
  *    `aud` must equal this server's RFC 8707 resource identifier so a token minted
  *    for another resource can't be replayed here (MCP's anti-passthrough rule).
  *  - **`octo_…` API key** — the legacy per-user bearer, kept for a future CLI.
@@ -14,8 +14,9 @@
  * {@link AuthInfo.extra} so tools can scope per-user work later; today it mirrors
  * the previous authentication-only boundary.
  *
- * The default export {@link verifyMcpToken} is wired to the real eetr JWKS and
- * orchestrator; {@link createMcpTokenVerifier} takes injectable deps for tests.
+ * The default export {@link verifyMcpToken} is wired to the configured provider's
+ * real JWKS and the orchestrator; {@link createMcpTokenVerifier} takes injectable
+ * deps for tests.
  */
 
 import {
@@ -26,6 +27,7 @@ import {
 } from "jose";
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import { bootstrapUser, verifyApiKey } from "@/app/actions/_client";
+import { OIDC_JWKS_URL, OIDC_USERINFO_URL, trimSlashes } from "@/oidc.config";
 import { MCP_ISSUER, MCP_RESOURCE } from "./oauth-config";
 
 /** Claims we read from the authorization server's userinfo to provision a user. */
@@ -36,11 +38,11 @@ interface UserinfoClaims {
 
 /** Injectable collaborators, so tests need no network or live JWKS. */
 export interface McpTokenVerifierDeps {
-  /** Expected token issuer (`iss`) — eetr's issuer URL. */
+  /** Expected token issuer (`iss`) — the provider's issuer URL. */
   issuer: string;
   /** Expected token audience (`aud`) — this server's resource identifier. */
   resource: string;
-  /** Resolve the signing key for a token; eetr's remote JWKS in production. */
+  /** Resolve the signing key for a token; the provider's remote JWKS in production. */
   getKey: JWTVerifyGetKey;
   /** Fetch email/name for the bearer's subject from the authorization server. */
   fetchUserinfo: (token: string) => Promise<UserinfoClaims>;
@@ -105,7 +107,7 @@ export function createMcpTokenVerifier(
       };
     }
 
-    // OAuth 2.1 access-token JWT from eetr. Any failure (bad signature, wrong
+    // OAuth 2.1 access-token JWT from the provider. Any failure (bad signature, wrong
     // issuer/audience, expiry) returns undefined; `withMcpAuth` then answers 401
     // with the `resource_metadata` pointer that starts the OAuth dance.
     let payload: JWTPayload;
@@ -137,7 +139,7 @@ export function createMcpTokenVerifier(
 
 // --- Production wiring -----------------------------------------------------
 
-/** The bits of eetr's OIDC discovery document we consume. */
+/** The bits of the provider's OIDC discovery document we consume. */
 interface Discovery {
   jwks_uri: string;
   userinfo_endpoint?: string;
@@ -147,8 +149,11 @@ interface Discovery {
 let discoveryPromise: Promise<Discovery> | null = null;
 function discovery(): Promise<Discovery> {
   if (!discoveryPromise) {
+    // trimSlashes here, not on the issuer itself: `iss` must be compared
+    // against the issuer exactly as configured, but appending a path to one
+    // that ends in a slash would ask for `//.well-known/…`.
     discoveryPromise = fetch(
-      `${MCP_ISSUER}/.well-known/openid-configuration`,
+      `${trimSlashes(MCP_ISSUER)}/.well-known/openid-configuration`,
     ).then((r) => {
       if (!r.ok) throw new Error(`OIDC discovery failed: ${r.status}`);
       return r.json() as Promise<Discovery>;
@@ -160,21 +165,28 @@ function discovery(): Promise<Discovery> {
   return discoveryPromise;
 }
 
-/** Lazily-built remote JWKS keyed off the discovered `jwks_uri`. */
+/**
+ * Lazily-built remote JWKS, keyed off `OIDC_JWKS_URL` when the operator pinned
+ * one and off the discovered `jwks_uri` otherwise.
+ */
 let remoteJwks: JWTVerifyGetKey | null = null;
 const defaultGetKey: JWTVerifyGetKey = async (header, input) => {
   if (!remoteJwks) {
-    const meta = await discovery();
-    remoteJwks = createRemoteJWKSet(new URL(meta.jwks_uri));
+    const jwksUrl = OIDC_JWKS_URL ?? (await discovery()).jwks_uri;
+    remoteJwks = createRemoteJWKSet(new URL(jwksUrl));
   }
   return remoteJwks(header, input);
 };
 
-/** Fetch email/name from eetr's userinfo endpoint with the caller's token. */
+/**
+ * Fetch email/name from the provider's userinfo endpoint with the caller's
+ * token. Skipped entirely when neither the override nor discovery names one —
+ * userinfo is optional, and a provider without it simply yields no claims.
+ */
 async function defaultFetchUserinfo(token: string): Promise<UserinfoClaims> {
-  const meta = await discovery();
-  if (!meta.userinfo_endpoint) return {};
-  const res = await fetch(meta.userinfo_endpoint, {
+  const endpoint = OIDC_USERINFO_URL ?? (await discovery()).userinfo_endpoint;
+  if (!endpoint) return {};
+  const res = await fetch(endpoint, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) return {};
@@ -185,7 +197,7 @@ async function defaultFetchUserinfo(token: string): Promise<UserinfoClaims> {
   };
 }
 
-/** The verifier the `/mcp` route uses, bound to eetr + the orchestrator. */
+/** The verifier the `/mcp` route uses, bound to the configured provider + the orchestrator. */
 export const verifyMcpToken: McpTokenVerifier = createMcpTokenVerifier({
   issuer: MCP_ISSUER,
   resource: MCP_RESOURCE,

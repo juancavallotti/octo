@@ -1,21 +1,33 @@
 import type { NextAuthConfig } from "next-auth";
 import { bootstrapUser } from "@/app/actions/_client";
+import {
+  OIDC_AUTHORIZATION_URL,
+  OIDC_CLIENT_ID,
+  OIDC_CLIENT_SECRET,
+  OIDC_ISSUER,
+  OIDC_JWKS_URL,
+  OIDC_PROVIDER_ID,
+  OIDC_PROVIDER_NAME,
+  OIDC_SCOPES,
+  OIDC_TOKEN_URL,
+  OIDC_USERINFO_URL,
+} from "@/oidc.config";
 
 /**
- * Edge-safe Auth.js configuration shared by the middleware and the full `auth.ts`.
+ * Edge-safe Auth.js configuration, shared with the full `auth.ts`.
  * SSO is opt-in: it is only wired up when the OIDC config is present (platform
  * deploys). Local `task dev` runs leave these env vars unset and stay
  * unauthenticated — see `authEnabled`.
  *
- * The identity provider is eetr (`auth.eetr.app`), a generic OIDC provider using
- * the authorization-code flow. Roles are read from a configurable id-token claim
- * (AUTH_ROLES_CLAIM, default "roles") and surfaced on the session for the
- * role-checker guard (app/auth/guard.ts).
+ * The identity provider is whatever OIDC provider the operator configured (see
+ * oidc.config.ts); Octo talks plain authorization-code OIDC and privileges none
+ * of them. Roles are read from a configurable id-token claim (AUTH_ROLES_CLAIM,
+ * default "roles") and surfaced on the session for the role-checker guard
+ * (app/auth/guard.ts).
  */
 
 /** True when OIDC SSO is configured and should be enforced. */
-export const authEnabled =
-  !!process.env.AUTH_EETR_ISSUER && !!process.env.AUTH_SECRET;
+export const authEnabled = !!OIDC_ISSUER && !!process.env.AUTH_SECRET;
 
 const rolesClaim = process.env.AUTH_ROLES_CLAIM || "roles";
 
@@ -39,15 +51,23 @@ export const authConfig: NextAuthConfig = {
   pages: { signIn: "/" },
   providers: [
     {
-      id: "eetr",
-      name: "eetr",
+      id: OIDC_PROVIDER_ID,
+      name: OIDC_PROVIDER_NAME,
       type: "oidc",
-      issuer: process.env.AUTH_EETR_ISSUER,
-      clientId: process.env.AUTH_EETR_CLIENT_ID,
-      clientSecret: process.env.AUTH_EETR_CLIENT_SECRET,
-      // Request the profile + email scopes so we receive the user's name and
-      // picture (mapped to session.user.name / session.user.image by Auth.js).
-      authorization: { params: { scope: "openid profile email" } },
+      issuer: OIDC_ISSUER,
+      clientId: OIDC_CLIENT_ID,
+      clientSecret: OIDC_CLIENT_SECRET,
+      // Everything below the scopes is an escape hatch for providers whose
+      // discovery document does not answer for them. The keys are spread in only
+      // when set: an explicit `undefined` reads as "no endpoint" to Auth.js
+      // rather than "discover it", which would break the compliant case.
+      authorization: {
+        ...(OIDC_AUTHORIZATION_URL ? { url: OIDC_AUTHORIZATION_URL } : {}),
+        params: { scope: OIDC_SCOPES },
+      },
+      ...(OIDC_TOKEN_URL ? { token: OIDC_TOKEN_URL } : {}),
+      ...(OIDC_USERINFO_URL ? { userinfo: OIDC_USERINFO_URL } : {}),
+      ...(OIDC_JWKS_URL ? { jwks_endpoint: OIDC_JWKS_URL } : {}),
     },
   ],
   callbacks: {

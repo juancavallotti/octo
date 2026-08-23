@@ -196,6 +196,7 @@ locals {
   oidc_enabled_eff       = local.oidc_provided ? var.oidc_enabled : try(local.oidc_stored.enabled, false)
   oidc_issuer_eff        = local.oidc_provided ? var.oidc_issuer : try(local.oidc_stored.issuer, var.oidc_issuer)
   oidc_client_id_eff     = local.oidc_provided ? var.oidc_client_id : try(local.oidc_stored.client_id, "")
+  oidc_provider_name_eff = local.oidc_provided ? var.oidc_provider_name : try(local.oidc_stored.provider_name, "")
   oidc_client_secret_eff = local.oidc_provided ? var.oidc_client_secret : try(local.oidc_stored.client_secret, "")
   oidc_write_roles_eff   = local.oidc_provided ? var.oidc_write_roles : try(local.oidc_stored.write_roles, "")
   oidc_roles_claim_eff   = local.oidc_provided ? var.oidc_roles_claim : try(local.oidc_stored.roles_claim, "")
@@ -214,6 +215,7 @@ resource "google_storage_bucket_object" "oidc" {
     enabled       = local.oidc_enabled_eff
     issuer        = local.oidc_issuer_eff
     client_id     = local.oidc_client_id_eff
+    provider_name = local.oidc_provider_name_eff
     client_secret = local.oidc_client_secret_eff
     write_roles   = local.oidc_write_roles_eff
     roles_claim   = local.oidc_roles_claim_eff
@@ -264,6 +266,7 @@ module "octo" {
   oidc_enabled       = local.oidc_enabled_eff
   oidc_issuer        = local.oidc_issuer_eff
   oidc_client_id     = local.oidc_client_id_eff
+  oidc_provider_name = local.oidc_provider_name_eff
   oidc_client_secret = local.oidc_client_secret_eff
   auth_secret        = local.oidc_enabled_eff ? random_password.auth_secret.result : ""
   oidc_write_roles   = local.oidc_write_roles_eff

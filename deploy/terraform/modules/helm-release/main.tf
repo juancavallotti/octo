@@ -215,7 +215,7 @@ resource "helm_release" "octo" {
 
   # --- OIDC SSO ---
   # When enabled the chart creates the auth Secret and the editor mounts
-  # AUTH_EETR_* / AUTH_SECRET. Sensitive values go through set_sensitive so they
+  # OIDC_* / AUTH_SECRET. Sensitive values go through set_sensitive so they
   # are not printed in plans/logs.
   set {
     name  = "auth.oidc.enabled"
@@ -228,6 +228,7 @@ resource "helm_release" "octo" {
         "auth.oidc.issuer"   = var.oidc_issuer
         "auth.oidc.clientId" = var.oidc_client_id
       },
+      var.oidc_provider_name != "" ? { "auth.oidc.providerName" = var.oidc_provider_name } : {},
       var.oidc_write_roles != "" ? { "auth.writeRoles" = var.oidc_write_roles } : {},
       var.oidc_roles_claim != "" ? { "auth.rolesClaim" = var.oidc_roles_claim } : {},
     ) : {}
