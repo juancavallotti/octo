@@ -1,5 +1,51 @@
 # Changelog
 
+## [0.8.6](https://github.com/juancavallotti/octo/compare/v0.8.5...v0.8.6) (2026-08-23)
+
+
+### Features
+
+* **agent:** give Dr. Octo 60 turns, an admin control for it, and a clearer persona ([bbd0cc0](https://github.com/juancavallotti/octo/commit/bbd0cc038cbb9514d4ecb79ee3e9ed9bff193ab1))
+* **deploy:** emit the generic OIDC env from the chart and Terraform ([e8fcda9](https://github.com/juancavallotti/octo/commit/e8fcda94184e9ba1de3e415a4999fc526960d387))
+* **helm:** bundle Redis, and report what this installation can reach ([69864a7](https://github.com/juancavallotti/octo/commit/69864a7a42ac59b81129c5bcc8dfbca5fa078ae6))
+* **logs:** fold a streaming block's per-frame trace records into one row ([7e4ff8c](https://github.com/juancavallotti/octo/commit/7e4ff8cf9bb327050f719678563bc3f857a188dc))
+* **logs:** fold a streaming block's per-frame trace records into one row ([67ecf89](https://github.com/juancavallotti/octo/commit/67ecf89f745b65b52c9eebae64d4d4f10caca70a))
+* **orchestrator:** reconcile deployments, agent settings and secrets with the cluster ([7b97238](https://github.com/juancavallotti/octo/commit/7b97238e4677191a0905b356cdeaeefe26af4f14))
+* **orchestrator:** reconcile deployments, secrets and the agent against the cluster ([eeaf9a1](https://github.com/juancavallotti/octo/commit/eeaf9a1aae28ce08e094c4f8a0f8acadd3cac09c))
+* **platform:** back the volatile KV tier with Redis, and report on both stores ([01c685a](https://github.com/juancavallotti/octo/commit/01c685ad898f9e2266c418001156f5ccde7be94c))
+* **platform:** back the volatile KV tier with Redis, and report on both stores ([1058b3f](https://github.com/juancavallotti/octo/commit/1058b3f754a0164a18e8d0e60c9e8e52537ee5da))
+* **platform:** grow the agent composer with the draft, up to four lines ([90f85b4](https://github.com/juancavallotti/octo/commit/90f85b4e5e747dec371b385d68a9ee03f3b17873))
+* **platform:** name the sign-in provider from configuration ([5122b04](https://github.com/juancavallotti/octo/commit/5122b04ff1bf02cba3b7c8b636cdde2e1325766f))
+* **platform:** serve a real page when a request reaches no integration ([700f181](https://github.com/juancavallotti/octo/commit/700f1815c6583209ffa325edc5fa0f506195faf3))
+* **platform:** serve a real page when a request reaches no integration ([1749d21](https://github.com/juancavallotti/octo/commit/1749d2150ce71ecaa661896ecc1507e98ec64324))
+* **runtime:** let objects choose a durability tier, and put the cache in the volatile one ([b465830](https://github.com/juancavallotti/octo/commit/b465830e339d852cbc7ba60049f92e451940fe5b))
+* **runtime:** serialize the standalone object store to disk ([5df04b8](https://github.com/juancavallotti/octo/commit/5df04b878e9e3abb50eb083c4dcd5a7081be0c9f))
+* support any OIDC provider, not just one ([0f7cc04](https://github.com/juancavallotti/octo/commit/0f7cc04ae52ce1c4928c9ae55788efcb78a6fb07))
+
+
+### Bug Fixes
+
+* **agent:** name a conversation with a connector that does not reason ([eb8730e](https://github.com/juancavallotti/octo/commit/eb8730e231b1fcf4fddf5d990c329b94a0d183a2))
+* **agent:** name a conversation with a connector that does not reason ([b21f01c](https://github.com/juancavallotti/octo/commit/b21f01c00505fdccf76c6a2e82f46bdf0f18f701))
+* **agent:** restore the scrollHeight stub, and state the turn-limit range ([75024a0](https://github.com/juancavallotti/octo/commit/75024a0aa189a3c6b513ea4635d47396e2b746b9))
+* **helm:** keep an external Redis password out of the workload, and report a Redis that is down ([3609a03](https://github.com/juancavallotti/octo/commit/3609a03574047ab48c001e0f7e15b8961b86b3ea))
+* **logs:** sweep finished folds on a timer of their own ([37fec74](https://github.com/juancavallotti/octo/commit/37fec74b1879578f18ba15bf8956a13cc7109560))
+* **orchestrator:** never delete on the strength of an absent listing alone ([564dad5](https://github.com/juancavallotti/octo/commit/564dad54a3ca8887015875c051e554bfe22b144b))
+* **orchestrator:** resolve a secret's existence and its keys in one read ([f93d387](https://github.com/juancavallotti/octo/commit/f93d3877c3af95c16b46e738fb816840c43e8c40))
+* **platform:** answer a webhook with JSON, not a 12 KB error page ([a1a3fa3](https://github.com/juancavallotti/octo/commit/a1a3fa38a8b81081a8f5de6b9c16bc39c9834d14))
+* **platform:** answer a webhook with JSON, not a 12 KB error page ([dda913e](https://github.com/juancavallotti/octo/commit/dda913ea2eba0c06963f2db58e03ee6bc7953a5a))
+
+
+### Refactoring
+
+* **platform:** read OIDC config from provider-neutral vars ([cf69045](https://github.com/juancavallotti/octo/commit/cf6904553709ddc1ef118c465f73e56759550ae3))
+
+
+### Documentation
+
+* **deploy:** the images require BuildKit, and why ([2edcd5d](https://github.com/juancavallotti/octo/commit/2edcd5dc46b0177b4ad6358baa253f513003929b))
+* document the generic OIDC surface, and what MCP asks of a provider ([aea562f](https://github.com/juancavallotti/octo/commit/aea562ffec3a1ca42490be3c0c19cc5bf32e68bc))
+
 ## [0.8.5](https://github.com/juancavallotti/octo/compare/v0.8.4...v0.8.5) (2026-08-23)
 
 
