@@ -117,3 +117,16 @@ dev:
       app.kubernetes.io/component: nats
     namespace: octo-dev
     logs: {}
+  # Redis, on the same terms as the two above: not hot-reloaded, here only to put
+  # its logs in the terminal beside everything else's.
+  #
+  # It needs no entry to be *deployed* — it comes from the chart like every other
+  # component — but leaving it out of this list is how a dependency ends up being
+  # the one thing you have to go and find with kubectl when a local run misbehaves.
+  redis:
+    labelSelector:
+      app.kubernetes.io/name: octo
+      app.kubernetes.io/instance: octo
+      app.kubernetes.io/component: redis
+    namespace: octo-dev
+    logs: {}
