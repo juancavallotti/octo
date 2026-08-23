@@ -4,8 +4,8 @@
  * Served at both `/.well-known/oauth-protected-resource/mcp` (path-scoped, what
  * the MCP spec has clients derive from the `<origin>/mcp` resource) and the root
  * `/.well-known/oauth-protected-resource` as a fallback. Both advertise the same
- * `resource` identifier and point at eetr as the authorization server, so an MCP
- * client can discover eetr's `registration_endpoint` and run the OAuth flow.
+ * `resource` identifier and point at the configured OIDC provider as the authorization
+ * server, so an MCP client can discover its `registration_endpoint` and run the flow.
  *
  * Returns 404 when OAuth isn't configured (local dev with SSO off), matching the
  * "no auth server to advertise" state.

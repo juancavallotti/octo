@@ -24,12 +24,12 @@ import { MCP_ORIGIN, RESOURCE_METADATA_PATH } from "./oauth-config";
  * GET/POST/DELETE /mcp — the platform's Model Context Protocol endpoint
  * (streamable HTTP). It mounts the same `@octo/mcp` handler the standalone app
  * does, but as an OAuth 2.1 *resource server*: every request must carry a valid
- * bearer access token. Tokens are OAuth JWTs minted by eetr (the authorization
- * server) for MCP clients like Claude and ChatGPT, or a legacy `octo_…` API key
- * (see verify-token.ts). `withMcpAuth` extracts the bearer, runs the verifier,
- * and — on a missing/invalid token — returns a spec-correct 401 whose
+ * bearer access token. Tokens are OAuth JWTs minted by the configured OIDC provider
+ * (the authorization server) for MCP clients like Claude and ChatGPT, or a legacy
+ * `octo_…` API key (see verify-token.ts). `withMcpAuth` extracts the bearer, runs
+ * the verifier, and — on a missing/invalid token — returns a spec-correct 401 whose
  * `WWW-Authenticate` points at the protected-resource metadata (RFC 9728), which
- * in turn advertises eetr so the client can register and obtain a token. The
+ * in turn advertises the provider so the client can register and obtain a token. The
  * OIDC proxy skips `/mcp` (see proxy.ts) precisely because this route owns its
  * own authentication.
  *

@@ -2,9 +2,9 @@
  * Shared OAuth 2.1 configuration for the `/mcp` resource server.
  *
  * The platform is an OAuth 2.1 *resource server*: it does not issue tokens. It
- * trusts eetr (`auth.eetr.app`) as the authorization server — the same OIDC
- * provider that gates the editor (see auth.config.ts) — and validates the bearer
- * access-token JWTs eetr mints for MCP clients (Claude, ChatGPT, …).
+ * trusts the operator's configured OIDC provider as the authorization server —
+ * the same one that gates the editor (see oidc.config.ts) — and validates the
+ * bearer access-token JWTs it mints for MCP clients (Claude, ChatGPT, …).
  *
  * These constants are consumed by:
  *  - the `/mcp` route's {@link ../mcp/verify-token} (issuer + resource → aud check),
@@ -15,17 +15,15 @@
  * pulls in, so the metadata routes stay light.
  */
 
-/** Trim any trailing slashes so we can safely append a path. */
-function trimSlashes(value: string): string {
-  return value.replace(/\/+$/, "");
-}
+import { OIDC_ISSUER, trimSlashes } from "@/oidc.config";
 
 /**
- * The authorization server we trust — eetr's issuer, reused from the editor's
- * OIDC config. Access tokens must carry `iss` equal to this. Empty when SSO is
- * unconfigured (local dev), in which case MCP OAuth is effectively disabled.
+ * The authorization server we trust — the provider's issuer, reused as-is from
+ * the editor's OIDC config so the two can never disagree. Access tokens must
+ * carry `iss` equal to this. Empty when SSO is unconfigured (local dev), in
+ * which case MCP OAuth is effectively disabled.
  */
-export const MCP_ISSUER = trimSlashes(process.env.AUTH_EETR_ISSUER ?? "");
+export const MCP_ISSUER = OIDC_ISSUER;
 
 /**
  * The public origin of this deployment (Auth.js's canonical var). Used as the
@@ -35,7 +33,7 @@ export const MCP_ORIGIN = trimSlashes(process.env.AUTH_URL ?? "");
 
 /**
  * The RFC 8707 resource identifier for this MCP server — the value clients pass
- * as `resource` and eetr stamps into the access token's `aud`. It is the public
+ * as `resource` and the provider stamps into the access token's `aud`. It is the public
  * `/mcp` URL. `MCP_RESOURCE_URL` overrides it for proxies/custom hosts.
  */
 export const MCP_RESOURCE =

@@ -8,7 +8,7 @@ import {
   type McpTokenVerifierDeps,
 } from "./verify-token";
 
-const ISSUER = "https://auth.eetr.app";
+const ISSUER = "https://idp.example.com";
 const RESOURCE = "https://platform.example/mcp";
 
 /** A fresh RS256 keypair per suite; `getKey` returns the matching public key. */
