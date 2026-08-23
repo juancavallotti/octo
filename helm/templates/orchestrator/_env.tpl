@@ -165,9 +165,25 @@
 - name: INGRESS_CLASS
   value: {{ .Values.orchestrator.ingressClass | quote }}
 {{- end }}
-{{- if .Values.orchestrator.ingressAnnotations }}
+{{- /* Extra annotations on every per-deployment Ingress the orchestrator creates.
+       errorPages.backendErrors adds two of them here rather than in a template of
+       its own, because branding a 502 means telling the controller serving THAT
+       deployment where to fetch its error page — there is no separate object to
+       hang it on. nginx-only: Traefik expresses the same thing as an errors
+       Middleware attached per router, and ALB does not express it at all. */}}
+{{- $ingressAnn := deepCopy (.Values.orchestrator.ingressAnnotations | default dict) }}
+{{- /* The resolved controller, not the class name — same reason catchall.yaml
+       uses it: a class named "internal-nginx" with errorPages.controller=nginx
+       would otherwise render the catch-all and silently skip these, leaving the
+       502/503/504 responses unbranded. */}}
+{{- if and .Values.errorPages.enabled .Values.errorPages.backendErrors
+          (eq (include "octo.errorPages.controller" .) "nginx") }}
+{{- $ingressAnn = set $ingressAnn "nginx.ingress.kubernetes.io/custom-http-errors" "502,503,504" }}
+{{- $ingressAnn = set $ingressAnn "nginx.ingress.kubernetes.io/default-backend" (include "octo.platform.serviceName" .) }}
+{{- end }}
+{{- with $ingressAnn }}
 - name: INGRESS_ANNOTATIONS
-  value: {{ .Values.orchestrator.ingressAnnotations | toJson | quote }}
+  value: {{ . | toJson | quote }}
 {{- end }}
 {{- end }}
 {{- end }}

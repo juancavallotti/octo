@@ -1,0 +1,157 @@
+{{- /*
+  The catch-all for the integrations wildcard: what answers when a request arrives
+  for a hostname no deployment is published at.
+
+  Without this, that request is answered by the ingress controller's own default —
+  a white page with "404 page not found" on it — because it never reaches anything
+  octo wrote. This points those requests at the platform, which serves a real page
+  explaining that nothing is deployed there (app/gateway-error).
+
+  THE THING TO GET RIGHT IS PRECEDENCE. This route matches every hostname under the
+  wildcard, including the ones deployments are actually published at, so it has to
+  lose to them every time. Each controller decides that differently, and each is
+  handled explicitly below rather than left to a default:
+
+    - Gateway API  — the spec orders by hostname specificity, so an exact hostname
+                     beats a wildcard by construction. Nothing to configure.
+
+  Which controller is in play comes from errorPages.controller, NOT from the
+  IngressClass name — see _controller.tpl for why that distinction matters here.
+    - ingress-nginx — nginx picks an exact server_name over a wildcard one; that is
+                     core nginx behaviour, not an ingress-nginx feature.
+    - Traefik      — routers are ordered by rule length by default, and a wildcard
+                     host becomes a long HostRegexp that would OUTRANK an exact
+                     Host. So the priority is pinned to 1 (the lowest) explicitly.
+                     Without that annotation this template would break every
+                     published endpoint, which is why it is not optional.
+    - ALB          — rules are evaluated in group.order, so the catch-all is given
+                     a high order and lands after every deployment's rule.
+
+  The platform refuses to serve anything but the error page on a hostname under
+  this wildcard (see apps/platform/proxy.ts), so a controller whose rewrite does
+  not take cannot expose the editor here.
+*/}}
+{{- if and .Values.errorPages.enabled .Values.orchestrator.baseDomain }}
+{{- $wildcard := printf "*.%s" .Values.orchestrator.baseDomain }}
+{{- $svc := include "octo.platform.serviceName" . }}
+{{- $port := int .Values.platform.service.port }}
+{{- $name := printf "%s-gateway-errors" (include "octo-common.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- $class := .Values.orchestrator.ingressClass | default "" }}
+{{- $controller := include "octo.errorPages.controller" . }}
+{{- /* An ingress-mode install whose controller cannot be identified gets no
+       catch-all at all, and the install carries on. Not a fail: an empty
+       ingressClass means "the cluster's default IngressClass", which is an
+       ordinary way to run, and refusing would turn "you don't get the nicer 404"
+       into "your deploy stopped working".
+
+       Skipping is the safe direction because the thing being avoided is not a
+       missing error page — it is a wildcard route whose precedence nobody can
+       vouch for outranking the endpoints it was meant to sit behind. Without a
+       catch-all you get the controller's own 404, which is exactly where you
+       started. NOTES.txt says so, with the value to set.
+
+       Gateway mode needs no controller: the spec orders by hostname specificity. */}}
+{{- if or (eq .Values.networking.mode "gateway") $controller }}
+{{- $section := .Values.networking.gateway.sectionName }}
+{{- if and (not $section) .Values.networking.gateway.create }}
+{{- $section = "integrations" }}
+{{- end }}
+{{- if eq .Values.networking.mode "gateway" }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "octo-common.componentLabels" (dict "root" $ "component" "platform") | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ include "octo-common.gateway.name" (dict "root" $ "gateway" .Values.networking.gateway) }}
+      namespace: {{ .Values.networking.gateway.namespace | default .Release.Namespace | quote }}
+      {{- /* Attach exactly where the per-deployment routes attach, or this
+             backstops a listener they are not on.
+
+             networking.gateway.sectionName wins, because on an attached-to
+             Gateway the listener is named by whoever owns it and "integrations"
+             is not a name the chart gets to assume. A chart-created Gateway does
+             name its wildcard listener that, so that is the fallback. With
+             neither — an existing Gateway and no sectionName — the field is
+             omitted and the route attaches to whichever listener matches the
+             hostname, which is what the per-deployment routes do (see
+             octo-common/_httproute.tpl). */}}
+      {{- with $section }}
+      sectionName: {{ . | quote }}
+      {{- end }}
+  hostnames:
+    - {{ $wildcard | quote }}
+  rules:
+    - filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplaceFullPath
+              {{- /* Every path on an unmatched hostname lands on the error page:
+                     the request was never going to be served, so the path it asked
+                     for does not select anything. */}}
+              replaceFullPath: /gateway-error
+      backendRefs:
+        - name: {{ $svc }}
+          port: {{ $port }}
+{{- else }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "octo-common.componentLabels" (dict "root" $ "component" "platform") | nindent 4 }}
+  {{- /* Controller-specific: the rewrite that pins every path to the error page,
+         and the precedence control that makes this lose to real deployments. See
+         the header comment for why each one is what it is. Built as a dict so an
+         install whose class matches none of them renders no annotations key at
+         all rather than an empty one. */}}
+  {{- $ann := dict }}
+  {{- if eq $controller "nginx" }}
+  {{- $ann = set $ann "nginx.ingress.kubernetes.io/rewrite-target" "/gateway-error" }}
+  {{- else if eq $controller "traefik" }}
+  {{- $ann = set $ann "traefik.ingress.kubernetes.io/router.priority" "1" }}
+  {{- /* Traefik addresses a Middleware as {namespace}-{name}@kubernetescrd; the
+         object itself is rendered by traefik-middleware.yaml, from this same
+         $name, so the two cannot drift. */}}
+  {{- $ann = set $ann "traefik.ingress.kubernetes.io/router.middlewares" (printf "%s-%s@kubernetescrd" .Release.Namespace $name) }}
+  {{- else if eq $controller "alb" }}
+  {{- $ann = set $ann "alb.ingress.kubernetes.io/group.order" (toString (int .Values.errorPages.albGroupOrder)) }}
+  {{- end }}
+  {{- /* The install's own Ingress annotations (ALB group membership, scheme, ...)
+         apply here too: this Ingress has to be reachable the same way the ones it
+         backstops are. Merged under the controller keys above, which are what make
+         this route behave. */}}
+  {{- $ann = merge $ann (deepCopy (.Values.orchestrator.ingressAnnotations | default dict)) }}
+  {{- with $ann }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with $class }}
+  ingressClassName: {{ . | quote }}
+  {{- end }}
+  {{- if .Values.wildcardTLS.enabled }}
+  tls:
+    - hosts:
+        - {{ $wildcard | quote }}
+      secretName: {{ .Values.wildcardTLS.secretName | quote }}
+  {{- end }}
+  rules:
+    - host: {{ $wildcard | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $svc }}
+                port:
+                  number: {{ $port }}
+{{- end }}
+{{- end }}
+{{- end }}

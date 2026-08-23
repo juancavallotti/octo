@@ -588,6 +588,60 @@ redis:
 # The whole connection is one string, because unlike the database none of it is
 # resolved from separate values: a redis:// or rediss:// URL. Which of the two
 # keys below it goes in depends on one thing — whether it contains a password.
+# What answers a request that never reaches an integration: a hostname nothing is
+# deployed at, or a deployment that is down.
+#
+# Without this the answer comes from the ingress controller itself — a white page
+# with "404 page not found" on it — because such a request never reaches anything
+# octo wrote. With it, those requests go to the platform, which serves a page that
+# says which of the two happened and shows the hostname that was asked for.
+#
+# It costs no extra workload: the page is a route in the platform the chart already
+# deploys. It does add one catch-all route for `*.{orchestrator.baseDomain}`, which
+# is written to lose to every real deployment — see the header comment in
+# templates/errorpages/catchall.yaml for how that is guaranteed per controller.
+#
+# Needs orchestrator.baseDomain; without one there is no wildcard to catch.
+errorPages:
+  enabled: true
+
+  # Which ingress controller serves the wildcard: nginx, traefik or alb.
+  #
+  # Empty reads it off orchestrator.ingressClass, which covers the ordinary names.
+  # The class is matched a segment at a time, so "traefik-public" and
+  # "nginx-internal" are recognised while "notraefik" is not. Set this explicitly
+  # when yours is named something the fallback cannot place: a class name is
+  # free-form, and the controller is what decides how the catch-all is pinned below
+  # your deployments' own routes.
+  #
+  # When no controller can be identified the catch-all is SKIPPED and the install
+  # proceeds — you get your controller's own 404, which is where you started, and
+  # NOTES.txt says so. Skipping rather than guessing because the failure being
+  # avoided is not a missing error page, it is a wildcard route that outranks the
+  # endpoints it was meant to sit behind. A value set here explicitly and not
+  # recognised does fail the render: that one was typed on purpose.
+  #
+  # Gateway API mode does not use this for routing — the spec orders by hostname
+  # specificity, so there is nothing to pin — but a value set here is still
+  # validated, and an unrecognised one fails the render in either mode.
+  controller: ""
+
+  # Brand the backend-down cases too (502/503/504), not just the unmatched
+  # hostname. This is off by default because it is the half that touches every
+  # deployment's own Ingress rather than adding one beside them: it works by
+  # telling the controller to fetch its error pages from the platform, via
+  # orchestrator.ingressAnnotations, and a wrong annotation there affects live
+  # endpoints. Turn it on once the 404 page is confirmed working.
+  #
+  # ingress-nginx only. Traefik expresses the same thing as an errors Middleware
+  # and ALB does not express it at all, so on those classes this does nothing.
+  backendErrors: false
+
+  # ALB only. Rules within an ALB group are evaluated in ascending group.order, so
+  # the catch-all is given a high one and lands after every deployment's rule.
+  # Raise it if you run other Ingresses in the "octo" group at a higher order.
+  albGroupOrder: 900
+
 externalRedis:
   # A URL with NO credential in it. It is rendered into the workload as a literal
   # environment value, which is right for an address and wrong for a secret: a

@@ -30,6 +30,32 @@
 - name: NATS_MONITOR_URL
   value: {{ include "octo.nats.monitorUrl" . | quote }}
 {{- end }}
+{{- with .Values.orchestrator.baseDomain }}
+# The wildcard integrations are published under. The editor serves nothing but the
+# gateway error page on a hostname beneath it — see apps/platform/proxy.ts — so a
+# controller whose catch-all rewrite does not take cannot publish the editor there.
+- name: BASE_DOMAIN
+  value: {{ . | quote }}
+{{- end }}
+{{- if and .Values.ingress.enabled .Values.ingress.host }}
+{{- /* tls normalized through `default dict`: `and` does not short-circuit a
+       lookup, so a values file that set `ingress.tls: null` would fail to render
+       here rather than fall back. */}}
+{{- $tls := .Values.ingress.tls | default dict }}
+{{- $scheme := ternary "https" "http" (and $tls.enabled (ne (toString ($tls.mode | default "")) "none")) }}
+# Where the gateway error page's way-out link points. From the chart rather than
+# from the request: a link built out of a Host header would let whoever sent the
+# request choose where that page sends people next.
+- name: PLATFORM_URL
+  value: {{ printf "%s://%s" $scheme .Values.ingress.host | quote }}
+{{- /* Every hostname the editor itself answers on. The guard above treats a host
+       under the wildcard as an integration host, and the editor may legitimately
+       BE under it — ingress.host=octo.apps.example.com with
+       baseDomain=apps.example.com is an ordinary layout. Without this list the
+       editor would serve the error page to itself. */}}
+- name: PLATFORM_HOSTS
+  value: {{ concat (list .Values.ingress.host) (.Values.ingress.extraHosts | default list) | join "," | quote }}
+{{- end }}
 # Log-aggregator query API. Both the /platform/logs and /platform/traces
 # views read from here directly — traces are stored by the same service,
 # so one URL serves both and neither needs the orchestrator in the path.
