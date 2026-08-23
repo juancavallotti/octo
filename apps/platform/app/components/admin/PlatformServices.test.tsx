@@ -92,3 +92,34 @@ describe("PlatformServices", () => {
     expect(screen.queryByText("Redis")).toBeNull();
   });
 });
+
+// A probe that answered in under half a millisecond rounds to 0, and reading that
+// as "no measurement" would hide the fastest results — which are the ones a
+// healthy in-cluster dependency actually produces.
+describe("PlatformServices latency", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+    vi.restoreAllMocks();
+  });
+
+  it("shows a zero-millisecond round trip", async () => {
+    getHealth.mockResolvedValue({
+      dependencies: [{ name: "redis", configured: true, reachable: true, latencyMs: 0 }],
+    });
+
+    render(<PlatformServices />);
+
+    await waitFor(() => expect(screen.getByText(/Reachable · 0ms/)).toBeTruthy());
+  });
+
+  // No measurement at all is a different fact, and says nothing rather than 0.
+  it("says nothing when no round trip was timed", async () => {
+    getHealth.mockResolvedValue({
+      dependencies: [{ name: "redis", configured: true, reachable: true }],
+    });
+
+    render(<PlatformServices />);
+
+    await waitFor(() => expect(screen.getByText("Reachable")).toBeTruthy());
+  });
+});

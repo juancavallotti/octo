@@ -56,8 +56,7 @@
 # Redis, shared with the aggregator. The orchestrator does not keep state here
 # yet — it connects so the admin section can report whether the cluster's Redis
 # is reachable, which is the question an operator asks before anything else.
-- name: REDIS_URL
-  value: {{ include "octo.redis.url" . | quote }}
+{{ include "octo.redis.env" . }}
 - name: RUNTIME_SERVICE_ACCOUNT
   value: {{ include "octo-common.serviceAccountName" (dict "root" . "component" "runtime") | quote }}
 {{- /* Pull secrets for the integration pods the orchestrator creates. Resolved

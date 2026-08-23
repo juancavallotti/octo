@@ -13,8 +13,7 @@
 # open. Not guarded by an `enabled` check, unlike NATS_URL above: the helper
 # resolves a managed Redis first and fails the render when there is neither, so
 # this variable is always set — and this service will not start without it.
-- name: REDIS_URL
-  value: {{ include "octo.redis.url" . | quote }}
+{{ include "octo.redis.env" . }}
 {{- with .Values.logs.prices.sources }}
 # Which rate cards price traced model calls, most preferred first. Unset uses
 # openrouter then helicone, so a model either card knows is priced and only one

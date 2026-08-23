@@ -576,15 +576,28 @@ redis:
   resources: {}
 
 # A Redis this chart does not run — a managed one (Memorystore, ElastiCache), or
-# one shared with something else in the cluster. Set it and redis.enabled=false.
+# one shared with something else in the cluster. Set one of these and
+# redis.enabled=false.
 #
-# The whole connection is one string because, unlike the database, none of it is
-# resolved from separate values: a redis:// or rediss:// URL, with credentials in
-# it if the server wants them. That is the caller's own string, so anything
-# needing escaping is already escaped by whoever wrote it — which is the reason
-# the database's password is kept OUT of its DSN and cannot be here.
+# The whole connection is one string, because unlike the database none of it is
+# resolved from separate values: a redis:// or rediss:// URL. Which of the two
+# keys below it goes in depends on one thing — whether it contains a password.
 externalRedis:
+  # A URL with NO credential in it. It is rendered into the workload as a literal
+  # environment value, which is right for an address and wrong for a secret: a
+  # rendered Deployment is readable by anyone who can read workloads, and that is
+  # a wider audience than anyone who can read Secrets.
   url: ""
+  # A Secret you created holding the whole URL, for the usual case where the
+  # server wants a password. It wins over `url` when both are set, and the
+  # variable is bound to it by reference so the credential never enters a
+  # workload template. Create it yourself — the chart will not put a password of
+  # yours into a manifest:
+  #
+  #   kubectl create secret generic octo-redis \
+  #     --from-literal=redis-url='rediss://default:pw@cache.example:6380'
+  existingSecret: ""
+  existingSecretKey: redis-url
 
 # OIDC single sign-on for the editor (Auth.js). Disabled by default so local and
 # bare deploys stay open; enable on the platform. When enabled the chart creates

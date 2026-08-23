@@ -112,15 +112,32 @@ func run() error {
 	// So a failure is reported rather than fatal: an orchestrator that would not
 	// start because a dependency it does not use is down would be a worse outage
 	// than the one it is describing.
+	//
+	// The client is built without connecting, and that is what makes the health
+	// page honest. go-redis dials on its first command and reconnects on its own,
+	// so a client built against a server that is down is still the right object to
+	// hold: the page reports Redis as *unreachable* rather than as unconfigured,
+	// and starts reporting it as reachable again when it comes back. Discarding the
+	// client on a failed startup PING would collapse those two states into one and
+	// then never leave it.
 	var redisClient *redis.Client
 	if url := os.Getenv("REDIS_URL"); url == "" {
 		slog.Warn("REDIS_URL is not set; the platform services page will report redis as unconfigured")
-	} else if c, err := redisx.Open(ctx, url); err != nil {
-		slog.Error("connect redis", "error", err)
+	} else if c, err := redisx.New(url); err != nil {
+		// A URL that does not parse is the one failure a client cannot represent, so
+		// this is the one case that really is unconfigured.
+		slog.Error("redis url", "error", err)
 	} else {
 		defer func() { _ = c.Close() }()
 		redisClient = c
-		slog.Info("connected to redis")
+		// Reported rather than required. The orchestrator keeps nothing here yet, so
+		// an unreachable Redis is something to say plainly at startup and to show on
+		// the page — not a reason to refuse to start.
+		if err := c.Ping(ctx).Err(); err != nil {
+			slog.Warn("redis is configured but not reachable", "error", err)
+		} else {
+			slog.Info("connected to redis")
+		}
 	}
 
 	kubeCfg, err := kubeConfig()
@@ -713,13 +730,11 @@ func databaseProbe(database *db.DB) func(context.Context) error {
 	return database.Pool().Ping
 }
 
-// redisProbe pings Redis, or is nil when the connection was never opened.
+// redisProbe pings Redis, or is nil when there is no client to ping.
 //
-// A nil client means REDIS_URL was unset, or the connection failed at startup and
-// was logged there. Both report as unconfigured, which understates the second — but
-// the alternative is holding a dead client so the page can say "down", and a
-// long-running orchestrator that reconnected would then keep reporting the failure
-// it had at boot.
+// Nil means REDIS_URL was unset or did not parse — genuinely unconfigured. A
+// server that is merely down still has a client, so it reports as unreachable and
+// recovers on its own once it answers again.
 func redisProbe(client *redis.Client) func(context.Context) error {
 	if client == nil {
 		return nil

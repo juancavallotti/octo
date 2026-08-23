@@ -104,19 +104,44 @@
 {{- end }}
 
 {{/*
-  Redis coordinates, resolved the way the database's are: the chart either runs
-  Redis itself (redis.enabled) or points at a managed one through
-  externalRedis.url.
+  REDIS_URL, as an env entry rather than a bare string.
 
-  Unlike NATS_URL this is NOT optional for its consumers, so a chart with neither
-  fails here rather than rendering a manifest that produces a pod which starts and
-  then exits. The aggregator refuses to run without it — see the note on
-  REDIS_URL in logs/main.go — because the alternative is an install that silently
-  stops folding trace records and grows the traces table until somebody notices.
+  It is a whole entry because the value does not always come from the same place.
+  The bundled server takes no credentials — it is reachable only inside the
+  namespace, exactly as NATS is — so its URL is a literal and there is nothing to
+  hide. A managed Redis usually needs a password, and a password belongs in a
+  Secret: written as a literal here it would be readable in the rendered
+  Deployment by anyone who can read workloads, which is a wider audience than
+  anyone who can read Secrets.
 
-  No credentials appear in the URL. The bundled server takes none, matching NATS;
-  a managed one that needs a password carries it in externalRedis.url, which is
-  the caller's own string and therefore already escaped by whoever wrote it.
+  So externalRedis.existingSecret names a Secret holding the whole URL, and the
+  variable is bound to it by reference. externalRedis.url stays for the case with
+  no credential in it — an internal address, or a server that authenticates some
+  other way — and the values file says which is which.
+
+  Unlike NATS_URL this is NOT optional for its consumers, so a chart with none of
+  the three fails here rather than rendering a manifest that produces a pod which
+  starts and then exits. The aggregator refuses to run without it — see the note
+  on REDIS_URL in logs/main.go — because the alternative is an install that
+  silently stops folding trace records and grows the traces table until somebody
+  notices.
+*/}}
+{{- define "octo.redis.env" -}}
+{{- if .Values.externalRedis.existingSecret -}}
+- name: REDIS_URL
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.externalRedis.existingSecret | quote }}
+      key: {{ .Values.externalRedis.existingSecretKey | default "redis-url" | quote }}
+{{- else -}}
+- name: REDIS_URL
+  value: {{ include "octo.redis.url" . | quote }}
+{{- end -}}
+{{- end }}
+
+{{/*
+  The in-cluster Redis URL, or a managed one given as a plain value. See
+  octo.redis.env for why a credentialled URL does not come through here.
 */}}
 {{- define "octo.redis.url" -}}
 {{- if .Values.externalRedis.url -}}
@@ -124,7 +149,7 @@
 {{- else if .Values.redis.enabled -}}
 {{- printf "redis://%s.%s:%d" (include "octo.redis.serviceName" .) .Release.Namespace (int .Values.redis.service.port) -}}
 {{- else -}}
-{{- fail "redis is required: set redis.enabled=true, or point externalRedis.url at a Redis the cluster can reach" -}}
+{{- fail "redis is required: set redis.enabled=true, or point externalRedis.url (or externalRedis.existingSecret) at a Redis the cluster can reach" -}}
 {{- end -}}
 {{- end }}
 

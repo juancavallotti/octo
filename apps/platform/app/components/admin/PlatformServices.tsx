@@ -50,7 +50,10 @@ function Badge({ dep }: { dep: Dependency }) {
   if (dep.reachable) {
     return (
       <span className="shrink-0 rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs text-emerald-600 dark:text-emerald-400">
-        Reachable{dep.latencyMs ? ` · ${dep.latencyMs}ms` : ""}
+        {/* Compared against undefined rather than truthiness: a probe that
+            answered in under half a millisecond rounds to 0, and reading that
+            as "no measurement" would hide the fastest results. */}
+        Reachable{dep.latencyMs !== undefined ? ` · ${dep.latencyMs}ms` : ""}
       </span>
     );
   }

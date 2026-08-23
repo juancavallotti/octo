@@ -839,6 +839,11 @@ tasks:
         # proves the helper prefers it over the in-cluster Service name.
         check external-redis \
           --set redis.enabled=false --set externalRedis.url=redis://cache.example:6379
+        # The same, with the URL in a Secret the caller owns — the path a managed
+        # Redis with a password takes. It renders a secretKeyRef where the others
+        # render a literal, and nothing else in the chart does that for Redis.
+        check external-redis-secret \
+          --set redis.enabled=false --set externalRedis.existingSecret=octo-redis
         # The bundled Redis with its ceiling written as a byte count rather than a
         # suffixed string, which is how a values file that wants an exact figure
         # would write it — and which renders an integer into an args list the API
@@ -940,6 +945,11 @@ tasks:
         # folding trace records.
         check_fails redis-missing     "redis is required" \
           --set redis.enabled=false
+        # A credentialled URL must never reach a workload template as a literal.
+        # The guard is the absence of the value, which no successful render proves.
+        check_absent redis-secret-not-literal "rediss://default:pw@" \
+          --set redis.enabled=false --set externalRedis.existingSecret=octo-redis \
+          --set externalRedis.url='rediss://default:pw@cache.example:6380'
         # Pointed at a managed Redis, the chart must not also run one. Rendering
         # successfully proves nothing here — the StatefulSet's absence is the
         # whole point, and only its component label distinguishes it from the two
