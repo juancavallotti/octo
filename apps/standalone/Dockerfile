@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # Self-contained public "try Octo" image: the standalone editor + the octo
 # runtime binary, with a local-disk flow store. No orchestrator, auth, or DB.
 #

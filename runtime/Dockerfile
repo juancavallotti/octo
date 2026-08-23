@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # Cluster runtime image (octo-runtime).
 #
 # A generic image that runs ANY integration: it carries only the compiled `octo`

@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # Agentic runner image (octo-agenticrunner).
 #
 # The runtime image an integration runs when its deployment asks for

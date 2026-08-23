@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # Dev image for `devspace dev` (task cluster:dev). Runs `next dev` so the app
 # hot-reloads as DevSpace syncs source from the host into /app/apps/platform.
 # Still bundles the octo and dolphin binaries so the RUN feature and the editor's

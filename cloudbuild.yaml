@@ -26,28 +26,51 @@ options:
 
 # Each image is tagged with both _TAG (the git tag) and 'latest' so the deployment can
 # default image_tag to "latest".
+#
+# Every docker build step below sets DOCKER_BUILDKIT=1, and it is REQUIRED, not a
+# speed knob. gcr.io/cloud-builders/docker still defaults to the legacy builder,
+# and the Dockerfiles need BuildKit for two separate reasons:
+#
+#   - `RUN --mount=type=cache` in the compile stages. The legacy builder rejects
+#     it outright: "the --mount option requires BuildKit".
+#   - BuildKit builds only the stages the target depends on. Each Dockerfile
+#     carries an alternative `bin-prebuilt` stage that copies from a named build
+#     context, and these steps never pass one — correctly, because a released
+#     image is built from source in-image (BIN_SOURCE defaults to compile). The
+#     legacy builder builds every stage regardless and dies on the unreachable
+#     one: "invalid from flag value prebuilt".
+#
+# The GitHub Actions release workflow is already on BuildKit (it uses buildx via
+# docker/build-push-action), and so is any local `docker build` on a current
+# Docker. This file was the last caller on the legacy builder.
 steps:
   # Platform build context is the repo root so its Dockerfile reaches runtime/ +
   # the pnpm workspace (apps/platform).
   - id: build-platform
     name: gcr.io/cloud-builders/docker
+    env: ["DOCKER_BUILDKIT=1"]
     args: ["build", "-t", "${_IMAGE_BASE}/octo-platform-paas:${_TAG}", "-t", "${_IMAGE_BASE}/octo-platform-paas:latest", "-f", "apps/platform/Dockerfile", "."]
   - id: build-orchestrator
     name: gcr.io/cloud-builders/docker
+    env: ["DOCKER_BUILDKIT=1"]
     args: ["build", "-t", "${_IMAGE_BASE}/octo-orchestrator-paas:${_TAG}", "-t", "${_IMAGE_BASE}/octo-orchestrator-paas:latest", "-f", "orchestrator/Dockerfile", "./orchestrator"]
   - id: build-logs
     name: gcr.io/cloud-builders/docker
+    env: ["DOCKER_BUILDKIT=1"]
     args: ["build", "-t", "${_IMAGE_BASE}/octo-logs-paas:${_TAG}", "-t", "${_IMAGE_BASE}/octo-logs-paas:latest", "-f", "logs/Dockerfile", "./logs"]
   - id: build-schema
     name: gcr.io/cloud-builders/docker
+    env: ["DOCKER_BUILDKIT=1"]
     args: ["build", "-t", "${_IMAGE_BASE}/octo-schema-paas:${_TAG}", "-t", "${_IMAGE_BASE}/octo-schema-paas:latest", "-f", "sql/Dockerfile", "./sql"]
   - id: build-runtime
     name: gcr.io/cloud-builders/docker
+    env: ["DOCKER_BUILDKIT=1"]
     args: ["build", "-t", "${_IMAGE_BASE}/octo-runtime-paas:${_TAG}", "-t", "${_IMAGE_BASE}/octo-runtime-paas:latest", "-f", "runtime/Dockerfile", "."]
   # The dev-run sidecar. Build context is the sidecars/ module dir, like the other
   # self-contained Go modules above.
   - id: build-devsidecar
     name: gcr.io/cloud-builders/docker
+    env: ["DOCKER_BUILDKIT=1"]
     args: ["build", "-t", "${_IMAGE_BASE}/octo-devsidecar-paas:${_TAG}", "-t", "${_IMAGE_BASE}/octo-devsidecar-paas:latest", "-f", "sidecars/dev/Dockerfile", "./sidecars"]
   # The runtime a dev run executes: the same Dockerfile as build-runtime with GOTAGS
   # empty, so it carries the STANDALONE services provider. An editor Run must not
@@ -55,12 +78,14 @@ steps:
   # without them — the two providers are mutually exclusive build tags.
   - id: build-devruntime
     name: gcr.io/cloud-builders/docker
+    env: ["DOCKER_BUILDKIT=1"]
     args: ["build", "--build-arg", "GOTAGS=", "-t", "${_IMAGE_BASE}/octo-devruntime-paas:${_TAG}", "-t", "${_IMAGE_BASE}/octo-devruntime-paas:latest", "-f", "runtime/Dockerfile", "."]
   # The agentic runner: the image a deployment runs when it asks for
   # `runner: agentic`. Its own Dockerfile, because it carries three binaries on a
   # base with a shell — a build arg could not express that.
   - id: build-agenticrunner
     name: gcr.io/cloud-builders/docker
+    env: ["DOCKER_BUILDKIT=1"]
     args: ["build", "-t", "${_IMAGE_BASE}/octo-agenticrunner-paas:${_TAG}", "-t", "${_IMAGE_BASE}/octo-agenticrunner-paas:latest", "-f", "runtime/Dockerfile.agentic", "."]
 
   # Push the images explicitly (not via the trailing `images:` block) so they are in

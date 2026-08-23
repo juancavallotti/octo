@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # Multi-stage build for the dev sidecar.
 # Build context is the sidecars/ dir (self-contained module, no workspace), so a
 # second sidecar builds from the same context with its own -f path.

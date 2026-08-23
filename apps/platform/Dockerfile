@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # Bundled platform app + runtime image (octo-editor image).
 #
 # apps/platform is a Next.js app that shells out to the `octo` runtime binary via
