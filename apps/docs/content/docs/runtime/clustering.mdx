@@ -95,7 +95,7 @@ The runtime does not load-balance HTTP itself. An `http` source binds a server i
 | --- | --- | --- |
 | Queues | In-process buffered channels | NATS queue groups, `octo.<id>.q.<subject>` |
 | Topics | In-process fan-out | NATS subscriptions, `octo.<id>.t.<subject>` |
-| KV / object store | Serialized to `--storage-dir`; volatile namespaces and secrets in memory | Orchestrator HTTP KV, deployment-scoped, versioned |
+| KV / object store | Serialized to `--storage-dir`; volatile namespaces and secrets in memory | Orchestrator HTTP KV (persistent, encrypted secrets); Redis, dialed directly, for volatile namespaces |
 | Leader election | Always leader | Kubernetes Lease per key |
 | Leases | Map under a mutex | Kubernetes Lease per name, `octo-claim-<id>-<hash>` |
 | Log shipping | None (stderr only) | NATS to the central log sink |

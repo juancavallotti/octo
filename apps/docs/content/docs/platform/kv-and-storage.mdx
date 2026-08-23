@@ -41,8 +41,20 @@ Volatile makes **no durability promise at all**. Your value may vanish on a rest
 Both tiers are versioned and compare-and-swap in exactly the same way, so you move code between them without changing it.
 
 <Callout type="info">
-Volatile namespaces fall back to Postgres whenever no Redis backs them — which today is always (the routing is not wired up yet), and afterwards whenever the platform has none configured (`redis.enabled: false` and no `externalRedis`). Nothing breaks either way; you simply pay persistent-tier cost for volatile data. Write against the guarantee rather than the backend: it is the guarantee that will not change.
+When the platform has no Redis configured (`redis.enabled: false` and no `externalRedis`), volatile namespaces fall back to Postgres. Nothing breaks; you simply pay persistent-tier cost for volatile data. Write against the guarantee rather than the backend — the guarantee is what will not change.
 </Callout>
+
+### How a pod reaches each tier
+
+Integration pods reach Redis **directly**, exactly as they reach NATS: the orchestrator injects `REDIS_URL` alongside `NATS_URL` at deploy time, and the runtime dials it itself. The volatile tier has no database and no encryption key, so routing it through the orchestrator would buy nothing and cost a round trip on the tier whose whole point is being cheap.
+
+That means Redis must be reachable from the integration pods, not only from the orchestrator. With the bundled Redis it is — same namespace, no credentials. With a managed one behind `externalRedis.existingSecret`, the orchestrator binds the pods' `REDIS_URL` to the same Secret by reference, so the password never enters a Deployment manifest.
+
+The persistent tier still goes through the orchestrator, because that is where the database and the encryption key are. Which is also why secrets are never volatile: a secret always takes the orchestrator path and is always encrypted at rest.
+
+### Watching the tiers
+
+The **Storage health** tab beside the object browser reports what a reachability check cannot: Redis memory against its ceiling, the hit rate, how many keys have been evicted, and on the database side how much of the connection pool is in use and how large `kv_store` has grown. Eviction counts are the answer to "my volatile object is not there" — it is the tier working as designed, not a fault.
 
 ### Standalone persistence
 
@@ -79,7 +91,8 @@ Secret namespaces are filtered out of the browser — their values are never lis
 - **Writes are transactional and serialized per key** (a row lock plus the CAS check), so a successful write is durable and its version unique. Losers of a concurrent race get a clean conflict.
 - **Cleanup on undeploy is best-effort.** Entries have no foreign key to the deployment; undeploying deletes them after the workload is gone, and a cleanup failure leaves harmless orphans rather than failing the undeploy. Data does not survive undeploy by contract — redeploying an integration creates a *new* deployment id and therefore an empty store.
 - **Durability follows your Postgres setup.** The store is exactly as durable as the platform database; see [Deploying with Helm](/deploy/helm) for storage configuration.
-- **The volatile tier guarantees you nothing**, by design. See [Durability tiers](#durability-tiers).
+- **The volatile tier guarantees you nothing**, by design. Redis runs with no on-disk persistence and an LRU eviction policy, so expect a volatile value to disappear while the process that wrote it is still running. See [Durability tiers](#durability-tiers).
+- **Undeploy sweeps both tiers.** A failure in either is logged and the other is still attempted, so an unreachable store leaves you harmless orphans rather than skipping the cleanup that would have worked.
 
 <Callout type="warn">
 The KV store is for coordination state and modest objects (1 MiB cap per value), not bulk data. Point flows at a real database or object storage for large payloads.

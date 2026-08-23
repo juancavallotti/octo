@@ -72,6 +72,7 @@ const (
 	envSnapshotID     = "OCTO_SNAPSHOT_ID"
 	envOrchestrator   = "ORCHESTRATOR_URL"
 	envNATSURL        = "NATS_URL"
+	envRedisURL       = "REDIS_URL"
 	envPodName        = "POD_NAME"
 	envPodNamespace   = "POD_NAMESPACE"
 
@@ -542,10 +543,11 @@ func without(env []corev1.EnvVar, name string) []corev1.EnvVar {
 
 // runtimeServicesEnv builds the env the runtime's k8s services module reads:
 // the selected backend, the deployment id and orchestrator KV URL, the NATS broker
-// URL backing the queues, plus POD_NAME/POD_NAMESPACE from the downward API. It is
-// empty unless a module is configured, so deployments stay unchanged until the
-// runtime-services env is wired in. NATS_URL is emitted only when set, so a deploy
-// without a broker injects nothing for it.
+// URL backing the queues, the Redis URL backing the volatile KV tier, plus
+// POD_NAME/POD_NAMESPACE from the downward API. It is empty unless a module is
+// configured, so deployments stay unchanged until the runtime-services env is wired
+// in. NATS_URL and REDIS_URL are emitted only when set, so a deploy without a
+// broker or without Redis injects nothing for them.
 func (c *Client) runtimeServicesEnv(spec Spec) []corev1.EnvVar {
 	if c.runtimeServices.Module == "" {
 		return nil
@@ -559,6 +561,13 @@ func (c *Client) runtimeServicesEnv(spec Spec) []corev1.EnvVar {
 	}
 	if c.runtimeServices.NATSURL != "" {
 		env = append(env, corev1.EnvVar{Name: envNATSURL, Value: c.runtimeServices.NATSURL})
+	}
+	// Redis, reached directly by the pod exactly as NATS is — the volatile KV tier
+	// has no database and no encryption key, so routing it through the orchestrator
+	// would buy nothing and cost a round trip on the one tier whose point is being
+	// cheap.
+	if redis := redisEnv(c.runtimeServices); redis != nil {
+		env = append(env, *redis)
 	}
 	// Deployment identity stamped onto shipped logs. Emitted only when set, so an
 	// untagged or unnamed deployment injects nothing rather than an empty var.
@@ -575,6 +584,28 @@ func (c *Client) runtimeServicesEnv(spec Spec) []corev1.EnvVar {
 		env = append(env, corev1.EnvVar{Name: envSnapshotID, Value: spec.SnapshotID})
 	}
 	return env
+}
+
+// redisEnv builds the REDIS_URL entry, or nil when the install has no Redis.
+//
+// A secret reference wins over a literal: a managed Redis URL carries a password,
+// and a literal in the rendered Deployment is readable by anyone who can read
+// workloads. The bundled in-namespace Redis takes no credentials, so its URL is a
+// literal and there is nothing to hide — the same split the chart's octo.redis.env
+// helper makes for the platform's own pods.
+func redisEnv(rs RuntimeServices) *corev1.EnvVar {
+	if rs.RedisSecret.set() {
+		return &corev1.EnvVar{Name: envRedisURL, ValueFrom: &corev1.EnvVarSource{
+			SecretKeyRef: &corev1.SecretKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{Name: rs.RedisSecret.Name},
+				Key:                  rs.RedisSecret.Key,
+			},
+		}}
+	}
+	if rs.RedisURL != "" {
+		return &corev1.EnvVar{Name: envRedisURL, Value: rs.RedisURL}
+	}
+	return nil
 }
 
 // fieldRef is a downward-API env source reading a pod field (e.g. metadata.name).

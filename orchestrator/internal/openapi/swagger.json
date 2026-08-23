@@ -1005,6 +1005,109 @@
                 },
                 "type": "object"
             },
+            "storagestats.DatabaseStats": {
+                "properties": {
+                    "acquiredConns": {
+                        "type": "integer"
+                    },
+                    "databaseBytes": {
+                        "type": "integer"
+                    },
+                    "emptyAcquireCount": {
+                        "description": "EmptyAcquireCount is how often a caller had to wait for a connection, which\nis the number that turns \"the platform feels slow\" into \"the pool is too\nsmall\".",
+                        "type": "integer"
+                    },
+                    "idleConns": {
+                        "type": "integer"
+                    },
+                    "kvRowCount": {
+                        "type": "integer"
+                    },
+                    "kvTableBytes": {
+                        "type": "integer"
+                    },
+                    "maxConns": {
+                        "type": "integer"
+                    },
+                    "totalConns": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "storagestats.RedisStats": {
+                "properties": {
+                    "blockedClients": {
+                        "type": "integer"
+                    },
+                    "connectedClients": {
+                        "type": "integer"
+                    },
+                    "evictedKeys": {
+                        "type": "integer"
+                    },
+                    "expiredKeys": {
+                        "type": "integer"
+                    },
+                    "hitRate": {
+                        "type": "number"
+                    },
+                    "keyCount": {
+                        "type": "integer"
+                    },
+                    "keyspaceHits": {
+                        "description": "Hits and Misses are cumulative since the server started. The ratio is what\nanyone actually reads, but both are reported because a high ratio over a tiny\nsample says nothing.",
+                        "type": "integer"
+                    },
+                    "keyspaceMisses": {
+                        "type": "integer"
+                    },
+                    "maxMemoryBytes": {
+                        "description": "MaxMemory 0 means no ceiling is configured, which is worth showing as such\nrather than as a usage of 100% or of 0%.",
+                        "type": "integer"
+                    },
+                    "maxMemoryPolicy": {
+                        "type": "string"
+                    },
+                    "opsPerSecond": {
+                        "type": "integer"
+                    },
+                    "peakMemoryBytes": {
+                        "type": "integer"
+                    },
+                    "totalCommands": {
+                        "type": "integer"
+                    },
+                    "uptimeSeconds": {
+                        "type": "integer"
+                    },
+                    "usedMemoryBytes": {
+                        "type": "integer"
+                    },
+                    "version": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "storagestats.Stats": {
+                "properties": {
+                    "database": {
+                        "$ref": "#/components/schemas/storagestats.DatabaseStats"
+                    },
+                    "databaseReason": {
+                        "type": "string"
+                    },
+                    "redis": {
+                        "$ref": "#/components/schemas/storagestats.RedisStats"
+                    },
+                    "redisReason": {
+                        "description": "RedisReason and DatabaseReason say why a half is absent, so the page can tell\n\"this installation has no Redis\" from \"Redis is down\".",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "user.bootstrapRequest": {
                 "properties": {
                     "email": {
@@ -4521,6 +4624,27 @@
                     }
                 },
                 "summary": "Save the site's LLM provider settings",
+                "tags": [
+                    "settings"
+                ]
+            }
+        },
+        "/settings/storage": {
+            "get": {
+                "description": "Memory against the ceiling, hit rate and evictions for Redis; connection\npool usage and the size of the KV table for Postgres. Either half is null\nwhen this installation does not have that store or cannot reach it, with\nthe reason alongside — an installation with no Redis is supported, and is\nnot the same as one whose Redis is down.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/storagestats.Stats"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    }
+                },
+                "summary": "How full the platform's two stores are",
                 "tags": [
                     "settings"
                 ]

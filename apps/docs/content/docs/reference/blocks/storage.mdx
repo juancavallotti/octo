@@ -21,12 +21,12 @@ Each of the three object blocks takes a `volatile` setting choosing which [durab
 | `volatile` | Platform | Standalone | Use it for |
 |---|---|---|---|
 | `false` (default) | Postgres | serialized to `--storage-dir` | anything that has to survive a restart |
-| `true` | Postgres today, Redis once the routing lands | process memory | values whose loss costs a recompute |
+| `true` | Redis | process memory | values whose loss costs a recompute |
 
-Volatile promises nothing: a volatile object may vanish on a restart, and once it is Redis-backed it may be evicted while the process is still running.
+Volatile is faster and cheaper — no database row, no transaction — but promises nothing: a volatile object may vanish on a restart, and on the platform it may be evicted while the process is still running.
 
 <Callout type="info">
-On the platform, volatile is currently a **weaker guarantee at the same cost** — the Redis routing is not wired up yet, so a volatile namespace still lands in Postgres with a row and a transaction apiece. Setting it today buys nothing but costs nothing either, and the flows that set it need no change when the routing lands. Standalone already keeps volatile objects in memory.
+An install with no Redis falls back to Postgres for volatile objects, so they cost the same as persistent ones while still offering the weaker guarantee. Write against the guarantee, not against the backend.
 </Callout>
 
 The two tiers are **separate keyspaces**, not two views of one. A read has to name the same tier the write used; reading the other one is a clean miss, not an error. The default is the persistent tier, so a flow written before this setting existed keeps the behavior it had.

@@ -17,4 +17,10 @@ var (
 	// silently honored. The handler maps it to 400: it is a malformed request, not
 	// a server condition.
 	ErrSecretNotVolatile = errors.New("kv namespace cannot be both secret and volatile")
+	// ErrInvalidNamespace is returned for a namespace the volatile tier's key layout
+	// cannot represent unambiguously — one containing the delimiter it separates
+	// segments with. Refused rather than escaped, because nothing legitimately needs
+	// a colon in a namespace and silently rewriting one would make the name a caller
+	// reads back differ from the one it wrote. The handler maps it to 400.
+	ErrInvalidNamespace = errors.New("kv namespace must not contain a colon")
 )

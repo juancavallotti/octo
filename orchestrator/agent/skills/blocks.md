@@ -77,7 +77,8 @@ To send a file, set `bodyType: multipart` and let `body` evaluate to a parts map
 The storage blocks operate in one of two tiers, chosen by `volatile` (default
 `false`). The persistent tier survives a restart — Postgres on the platform, a
 serialized file standalone. The volatile tier does not promise to: Redis on the
-platform, process memory standalone, and either may drop the value. Use volatile
+platform (with LRU eviction and no persistence), process memory standalone, and
+either may drop the value. Use volatile
 for state whose loss costs a recompute (a counter, a scratch value) and persistent
 for anything a flow relies on finding.
 

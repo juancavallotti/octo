@@ -7,15 +7,17 @@
 //
 // A namespace also names a durability tier. A "_volatile" suffix (user_volatile,
 // system_volatile) marks state whose loss is survivable — a memoized cache body
-// rather than an in-flight aggregation — and is where a caller says it does not
-// want a database row and a transaction for a value that expires in a minute.
-// Today every namespace lands in Postgres regardless; the suffix is recognized
-// here so the routing can move to Redis without the runtime, the routes or the
-// repo changing shape.
+// rather than an in-flight aggregation — and routes to Redis instead of Postgres,
+// so it costs neither a row nor a transaction and may be evicted under memory
+// pressure. Runtime pods write those keys straight to Redis; what reaches this
+// package for them is the object browser and undeploy cleanup. See redisrepo.go.
 package kv
 
 import (
 	"context"
+	"errors"
+	"log/slog"
+	"reflect"
 	"strings"
 
 	cryptox "github.com/juancavallotti/octo/orchestrator/internal/crypto"
@@ -44,18 +46,62 @@ type repository interface {
 	DeleteByDeployment(ctx context.Context, deploymentID string) error
 }
 
-// Service stores values, encrypting those in a secret namespace before they reach
-// the repo and decrypting them on read.
+// Service stores values, routing each namespace to its tier's repo and encrypting
+// those in a secret namespace before they reach it.
 type Service struct {
-	repo   repository
-	cipher *cryptox.Cipher // nil disables secrets (secret-namespace ops fail with ErrEncryptionDisabled)
+	repo     repository
+	volatile repository      // nil falls back to repo; see repoFor
+	cipher   *cryptox.Cipher // nil disables secrets (secret-namespace ops fail with ErrEncryptionDisabled)
 }
 
-// NewService returns a service backed by repo. cipher may be nil to run without
-// encryption configured, in which case writes/reads in a secret namespace fail with
-// ErrEncryptionDisabled while plain namespaces still work.
-func NewService(repo repository, cipher *cryptox.Cipher) *Service {
-	return &Service{repo: repo, cipher: cipher}
+// NewService returns a service backed by repo for persistent namespaces and
+// volatile for volatile ones.
+//
+// A nil volatile is not an error: volatile namespaces then land in repo alongside
+// persistent ones. That is a worse deal — a database row for a value that expires
+// in a minute — but not a broken one, and refusing writes because an optional
+// dependency is absent would take the platform down over the one tier whose whole
+// promise is that losing it is survivable. Pass NewRedisRepo(nil) for that.
+//
+// cipher may be nil to run without encryption configured, in which case reads and
+// writes in a secret namespace fail with ErrEncryptionDisabled while plain
+// namespaces still work.
+func NewService(repo repository, volatile repository, cipher *cryptox.Cipher) *Service {
+	if isNilRepo(volatile) {
+		// A typed nil (*RedisRepo)(nil) is not == nil, and would panic on first use
+		// rather than falling back. Normalize it here so callers can pass the result
+		// of NewRedisRepo straight through.
+		volatile = nil
+	}
+	return &Service{repo: repo, volatile: volatile, cipher: cipher}
+}
+
+// isNilRepo reports whether a repository value is nil, including a typed nil.
+//
+// The Kind check is not decoration: reflect's IsNil panics on a value whose kind
+// cannot be nil, so a repository implemented as a struct value rather than a
+// pointer would take the constructor down instead of being accepted.
+func isNilRepo(repo repository) bool {
+	if repo == nil {
+		return true
+	}
+	v := reflect.ValueOf(repo)
+	switch v.Kind() {
+	case reflect.Pointer, reflect.Interface, reflect.Map, reflect.Slice, reflect.Func, reflect.Chan:
+		return v.IsNil()
+	default:
+		return false
+	}
+}
+
+// repoFor picks the store a namespace lives in.
+//
+//nolint:ireturn // returns the repository interface both tiers satisfy
+func (s *Service) repoFor(namespace string) repository {
+	if s.volatile != nil && isVolatile(namespace) {
+		return s.volatile
+	}
+	return s.repo
 }
 
 // isSecret reports whether a namespace holds encrypted-at-rest values.
@@ -95,7 +141,7 @@ func (s *Service) Get(ctx context.Context, deploymentID, namespace, key string) 
 	if err := checkTiers(namespace); err != nil {
 		return nil, 0, false, err
 	}
-	value, version, ok, err := s.repo.Get(ctx, deploymentID, namespace, key)
+	value, version, ok, err := s.repoFor(namespace).Get(ctx, deploymentID, namespace, key)
 	if err != nil || !ok {
 		return nil, 0, ok, err
 	}
@@ -112,15 +158,46 @@ func (s *Service) Get(ctx context.Context, deploymentID, namespace, key string) 
 }
 
 // List returns metadata for every key in a namespace (see Repo.List). The object
-// browser uses it for the non-secret user namespace, so no decryption is involved.
+// browser uses it for the non-secret user namespaces, so no decryption is involved.
 func (s *Service) List(ctx context.Context, deploymentID, namespace string) ([]Entry, error) {
-	return s.repo.List(ctx, deploymentID, namespace)
+	return s.repoFor(namespace).List(ctx, deploymentID, namespace)
 }
 
-// ListNamespaces returns the distinct namespaces holding data for a deployment
-// (see Repo.ListNamespaces). The object browser filters secret namespaces out.
+// ListNamespaces returns the distinct namespaces holding data for a deployment,
+// across both tiers: a namespace lives in one store or the other, so the browser
+// would otherwise show only half of what a deployment has. Duplicates are collapsed
+// in case a namespace somehow holds data in both.
 func (s *Service) ListNamespaces(ctx context.Context, deploymentID string) ([]string, error) {
-	return s.repo.ListNamespaces(ctx, deploymentID)
+	persistent, err := s.repo.ListNamespaces(ctx, deploymentID)
+	if err != nil {
+		return nil, err
+	}
+	if s.volatile == nil {
+		return persistent, nil
+	}
+	volatile, err := s.volatile.ListNamespaces(ctx, deploymentID)
+	if err != nil {
+		// Degrade rather than fail. The volatile tier is the one whose loss is
+		// survivable, and a browser that showed nothing at all because Redis is down
+		// would hide the persistent namespaces too — which are exactly what someone
+		// wants to look at while a dependency is misbehaving. This matches how the
+		// rest of this file treats the tier: an absent one is accepted at
+		// construction, and undeploy carries on past a failure in either.
+		slog.Warn("kv: listing volatile namespaces failed; reporting the persistent tier only",
+			"deploymentId", deploymentID, "error", err)
+		return persistent, nil
+	}
+
+	seen := make(map[string]struct{}, len(persistent)+len(volatile))
+	out := make([]string, 0, len(persistent)+len(volatile))
+	for _, namespace := range append(persistent, volatile...) {
+		if _, dup := seen[namespace]; dup {
+			continue
+		}
+		seen[namespace] = struct{}{}
+		out = append(out, namespace)
+	}
+	return out, nil
 }
 
 // Set stores value, encrypting it first when the namespace is a secret namespace.
@@ -138,16 +215,24 @@ func (s *Service) Set(ctx context.Context, deploymentID, namespace, key string, 
 		}
 		value = ciphertext
 	}
-	return s.repo.Write(ctx, deploymentID, namespace, key, value, expectedVersion)
+	return s.repoFor(namespace).Write(ctx, deploymentID, namespace, key, value, expectedVersion)
 }
 
 // Delete removes a key (see Repo.Delete for the version semantics).
 func (s *Service) Delete(ctx context.Context, deploymentID, namespace, key string, expectedVersion int64) error {
-	return s.repo.Delete(ctx, deploymentID, namespace, key, expectedVersion)
+	return s.repoFor(namespace).Delete(ctx, deploymentID, namespace, key, expectedVersion)
 }
 
-// DeleteByDeployment removes every key for a deployment (both plain and secret
-// namespaces live in the one table), for cleanup on undeploy.
+// DeleteByDeployment removes every key for a deployment, from both tiers, for
+// cleanup on undeploy.
+//
+// Both are attempted even when the first fails, and the errors are joined: these
+// are two independent stores, and skipping the second because the first was
+// unreachable would leave orphans nothing later goes back for.
 func (s *Service) DeleteByDeployment(ctx context.Context, deploymentID string) error {
-	return s.repo.DeleteByDeployment(ctx, deploymentID)
+	err := s.repo.DeleteByDeployment(ctx, deploymentID)
+	if s.volatile != nil {
+		err = errors.Join(err, s.volatile.DeleteByDeployment(ctx, deploymentID))
+	}
+	return err
 }

@@ -3,14 +3,14 @@ import AppHeader from "@/app/components/AppHeader";
 import ManagementNav from "@/app/components/ManagementNav";
 import UserMenu from "@/app/components/UserMenu";
 import { ConfirmProvider } from "@/app/components/ConfirmDialog";
-import ObjectsManager from "@/app/components/objects/ObjectsManager";
+import ObjectsTabs from "@/app/components/objects/ObjectsTabs";
 
 /**
  * The object store route (`/platform/objects`): browse and manage the user-facing
- * objects each deployment holds, behind the shared header with the section nav. A
- * server component so it can hand the header the server-rendered account tile; the
- * manager fetches client-side and reads `?deployment`/`?key` from the URL, which
- * needs a Suspense boundary.
+ * objects each deployment holds, and read how full the two stores holding them are,
+ * behind the shared header with the section nav. A server component so it can hand
+ * the header the server-rendered account tile; the manager fetches client-side and
+ * reads `?deployment`/`?key` from the URL, which needs a Suspense boundary.
  */
 export default function ObjectsPage() {
   return (
@@ -20,7 +20,7 @@ export default function ObjectsPage() {
       </AppHeader>
       <ConfirmProvider>
         <Suspense>
-          <ObjectsManager />
+          <ObjectsTabs />
         </Suspense>
       </ConfirmProvider>
     </div>
