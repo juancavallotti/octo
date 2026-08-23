@@ -47,6 +47,10 @@
 {{- include "octo-common.componentName" (dict "root" . "component" "nats-headless") }}
 {{- end }}
 
+{{- define "octo.redis.serviceName" -}}
+{{- include "octo-common.componentName" (dict "root" . "component" "redis") }}
+{{- end }}
+
 {{- define "octo.platform.serviceName" -}}
 {{- include "octo-common.componentName" (dict "root" . "component" "platform") }}
 {{- end }}
@@ -97,6 +101,31 @@
 */}}
 {{- define "octo.nats.url" -}}
 {{- printf "nats://%s.%s:%d" (include "octo.nats.serviceName" .) .Release.Namespace (int .Values.nats.service.port) -}}
+{{- end }}
+
+{{/*
+  Redis coordinates, resolved the way the database's are: the chart either runs
+  Redis itself (redis.enabled) or points at a managed one through
+  externalRedis.url.
+
+  Unlike NATS_URL this is NOT optional for its consumers, so a chart with neither
+  fails here rather than rendering a manifest that produces a pod which starts and
+  then exits. The aggregator refuses to run without it — see the note on
+  REDIS_URL in logs/main.go — because the alternative is an install that silently
+  stops folding trace records and grows the traces table until somebody notices.
+
+  No credentials appear in the URL. The bundled server takes none, matching NATS;
+  a managed one that needs a password carries it in externalRedis.url, which is
+  the caller's own string and therefore already escaped by whoever wrote it.
+*/}}
+{{- define "octo.redis.url" -}}
+{{- if .Values.externalRedis.url -}}
+{{- .Values.externalRedis.url -}}
+{{- else if .Values.redis.enabled -}}
+{{- printf "redis://%s.%s:%d" (include "octo.redis.serviceName" .) .Release.Namespace (int .Values.redis.service.port) -}}
+{{- else -}}
+{{- fail "redis is required: set redis.enabled=true, or point externalRedis.url at a Redis the cluster can reach" -}}
+{{- end -}}
 {{- end }}
 
 {{/*

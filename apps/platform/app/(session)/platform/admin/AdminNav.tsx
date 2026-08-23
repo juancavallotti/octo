@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowLeft, Bot, Mail, Settings, Sparkles, Trash2 } from "lucide-react";
+import { Activity, ArrowLeft, Bot, Mail, Settings, Sparkles, Trash2 } from "lucide-react";
 
 /**
  * The admin section's own switcher, in the shared header's controls slot.
@@ -37,6 +37,12 @@ export const ADMIN_SECTIONS: readonly AdminSection[] = [
     href: "/platform/admin/retention",
     label: "Data retention",
     icon: Trash2,
+  },
+  {
+    key: "health",
+    href: "/platform/admin/health",
+    label: "Platform services",
+    icon: Activity,
   },
 ] as const;
 

@@ -30,6 +30,7 @@ import (
 	"github.com/juancavallotti/octo/logs/internal/db"
 	"github.com/juancavallotti/octo/logs/internal/ingest"
 	"github.com/juancavallotti/octo/logs/internal/openapi"
+	"github.com/juancavallotti/octo/logs/internal/redisx"
 	"github.com/juancavallotti/octo/logs/internal/repo"
 	"github.com/juancavallotti/octo/logs/internal/retention"
 )
@@ -66,6 +67,33 @@ func run() error {
 	// Root context cancelled on SIGINT/SIGTERM so pod termination drains cleanly.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	// Redis is the one dependency this service refuses to start without, and it is
+	// deliberately not treated like the two below it.
+	//
+	// A missing DATABASE_URL or NATS_URL degrades to "serving /healthz while the
+	// dependencies come up", which is right for both: they are reachable or they
+	// are not, and the consumers reconnect. Redis is different because what it
+	// holds is not a connection but a decision — the fold that collapses a
+	// streaming block's per-frame trace records into one row. An aggregator that
+	// started without it would look healthy, consume normally, and quietly store
+	// tens of thousands of rows per conversation again, which is the bug the fold
+	// exists to fix and is invisible until the table is large.
+	//
+	// So this fails loudly, at the one moment somebody is watching, naming the
+	// variable and the chart value that sets it.
+	redisURL := os.Getenv("REDIS_URL")
+	if redisURL == "" {
+		return errors.New("REDIS_URL is not set: the aggregator folds trace records in " +
+			"Redis and will not run without one — set redis.enabled=true, or point " +
+			"externalRedis.url at a Redis this cluster can reach")
+	}
+	rdb, err := redisx.Open(ctx, redisURL)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rdb.Close() }()
+	slog.Info("connected to redis")
 
 	var database *db.DB
 	if dsn == "" {

@@ -691,6 +691,39 @@
                 },
                 "type": "object"
             },
+            "health.dependencyResponse": {
+                "properties": {
+                    "configured": {
+                        "description": "Configured false means this installation does not have the dependency,\nwhich is not the same as it being down.",
+                        "type": "boolean"
+                    },
+                    "detail": {
+                        "type": "string"
+                    },
+                    "latencyMs": {
+                        "type": "integer"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "reachable": {
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "health.healthResponse": {
+                "properties": {
+                    "dependencies": {
+                        "items": {
+                            "$ref": "#/components/schemas/health.dependencyResponse"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
             "httpx.ErrorResponse": {
                 "properties": {
                     "error": {
@@ -4377,6 +4410,27 @@
                     }
                 },
                 "summary": "Send a test message",
+                "tags": [
+                    "settings"
+                ]
+            }
+        },
+        "/settings/health": {
+            "get": {
+                "description": "One round trip to each of Postgres, Redis, NATS and Kubernetes. It\nis deliberately shallow: a reachable dependency is one that answered,\nnot one that is healthy in any deeper sense. A dependency this\ninstallation never configured reports `configured: false` rather than\nas a failure — running without cluster access is supported.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/health.healthResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    }
+                },
+                "summary": "Whether this orchestrator can reach what it depends on",
                 "tags": [
                     "settings"
                 ]

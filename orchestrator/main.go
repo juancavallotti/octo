@@ -30,6 +30,7 @@ import (
 	"github.com/juancavallotti/octo/orchestrator/internal/devrun"
 	"github.com/juancavallotti/octo/orchestrator/internal/email"
 	"github.com/juancavallotti/octo/orchestrator/internal/folder"
+	"github.com/juancavallotti/octo/orchestrator/internal/health"
 	httpx "github.com/juancavallotti/octo/orchestrator/internal/http"
 	"github.com/juancavallotti/octo/orchestrator/internal/integration"
 	"github.com/juancavallotti/octo/orchestrator/internal/kube"
@@ -37,10 +38,12 @@ import (
 	"github.com/juancavallotti/octo/orchestrator/internal/llm"
 	"github.com/juancavallotti/octo/orchestrator/internal/mailer"
 	"github.com/juancavallotti/octo/orchestrator/internal/openapi"
+	"github.com/juancavallotti/octo/orchestrator/internal/redisx"
 	"github.com/juancavallotti/octo/orchestrator/internal/resource"
 	"github.com/juancavallotti/octo/orchestrator/internal/secret"
 	"github.com/juancavallotti/octo/orchestrator/internal/snapshot"
 	"github.com/juancavallotti/octo/orchestrator/internal/user"
+	"github.com/redis/go-redis/v9"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -99,12 +102,33 @@ func run() error {
 		slog.Info("connected to database pool")
 	}
 
+	// Redis, opened here so the connection lives as long as the process and its
+	// Close is deferred alongside the database's.
+	//
+	// Unlike the aggregator — which folds trace records in Redis and refuses to
+	// start without one — the orchestrator keeps nothing here yet. It connects so
+	// the admin section can answer whether the cluster's Redis is reachable, which
+	// is the question an operator asks before the ones about anything built on it.
+	// So a failure is reported rather than fatal: an orchestrator that would not
+	// start because a dependency it does not use is down would be a worse outage
+	// than the one it is describing.
+	var redisClient *redis.Client
+	if url := os.Getenv("REDIS_URL"); url == "" {
+		slog.Warn("REDIS_URL is not set; the platform services page will report redis as unconfigured")
+	} else if c, err := redisx.Open(ctx, url); err != nil {
+		slog.Error("connect redis", "error", err)
+	} else {
+		defer func() { _ = c.Close() }()
+		redisClient = c
+		slog.Info("connected to redis")
+	}
+
 	kubeCfg, err := kubeConfig()
 	if err != nil {
 		return err
 	}
 
-	srv, err := newServer(ctx, database, kubeCfg)
+	srv, err := newServer(ctx, database, redisClient, kubeCfg)
 	if err != nil {
 		return err
 	}
@@ -405,11 +429,12 @@ func dbVersion(database *db.DB) http.HandlerFunc {
 	}
 }
 
-// newServer wires the routes. database may be nil when DATABASE_URL is unset.
+// newServer wires the routes. database and redisClient may be nil when their URLs
+// are unset or unreachable, which the health report distinguishes from down.
 // kc configures deployment management, which is enabled only when both a
 // database and in-cluster Kubernetes access are present. ctx bounds the lifetime
 // of background work started here (the deployment status informers).
-func newServer(ctx context.Context, database *db.DB, kc kube.Config) (http.Handler, error) {
+func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, kc kube.Config) (http.Handler, error) {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /healthz", healthz)
@@ -423,6 +448,12 @@ func newServer(ctx context.Context, database *db.DB, kc kube.Config) (http.Handl
 		"endpoints", "GET /openapi.json, GET /openapi/operations")
 
 	mux.HandleFunc("GET /db-version", dbVersion(database))
+
+	// Collected as the wiring below proceeds rather than built up front, because the
+	// two that need a live handle are created inside the database gate. A probe left
+	// nil reports "not configured", which is a different answer from "did not
+	// respond" — an orchestrator with no cluster access is a supported way to run.
+	var kubeProbe, natsProbe func(context.Context) error
 
 	if database != nil {
 		// Kubernetes access is built first because of the one dependency cycle in this
@@ -570,6 +601,9 @@ func newServer(ctx context.Context, database *db.DB, kc kube.Config) (http.Handl
 			// Watch the cluster; on each change recompute the integration's snapshot
 			// (DB + live status) and publish it. The informers also back the status
 			// read path, so list reads hit a local cache rather than the API server.
+			kubeProbe = kubeClient.Reachable
+			natsProbe = func(context.Context) error { return publisher.Reachable() }
+
 			kubeClient.StartInformers(ctx, func(integrationID string) {
 				sctx, cancel := context.WithTimeout(ctx, deploymentSnapshotTimeout)
 				defer cancel()
@@ -656,7 +690,41 @@ func newServer(ctx context.Context, database *db.DB, kc kube.Config) (http.Handl
 		slog.Warn("DATABASE_URL not set; integration, folder and deployment routes disabled")
 	}
 
+	// Registered last and outside the database gate, for the same reason the agent's
+	// status route is: the page that reads this is the one somebody opens when the
+	// install is misbehaving, and a route that disappeared with its dependencies
+	// would answer 404 exactly when it was needed.
+	health.NewHandler(health.NewService(
+		databaseProbe(database),
+		redisProbe(redisClient),
+		natsProbe,
+		kubeProbe,
+	)).Register(mux)
+	slog.Info("health routes registered", "endpoints", "GET /settings/health")
+
 	return mux, nil
+}
+
+// databaseProbe pings the pool, or is nil when there is none.
+func databaseProbe(database *db.DB) func(context.Context) error {
+	if database == nil {
+		return nil
+	}
+	return database.Pool().Ping
+}
+
+// redisProbe pings Redis, or is nil when the connection was never opened.
+//
+// A nil client means REDIS_URL was unset, or the connection failed at startup and
+// was logged there. Both report as unconfigured, which understates the second — but
+// the alternative is holding a dead client so the page can say "down", and a
+// long-running orchestrator that reconnected would then keep reporting the failure
+// it had at boot.
+func redisProbe(client *redis.Client) func(context.Context) error {
+	if client == nil {
+		return nil
+	}
+	return func(ctx context.Context) error { return client.Ping(ctx).Err() }
 }
 
 // newKubeClient builds the Kubernetes client, or reports a nil one when this

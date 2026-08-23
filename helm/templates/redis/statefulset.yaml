@@ -1,0 +1,47 @@
+{{- if .Values.redis.enabled }}
+{{- /* Redis holds working state that is regenerated within seconds of being lost —
+       today the aggregator's trace folds — so persistence is off on both sides:
+       no volume, and `--save ""` plus `--appendonly no` so the server does not
+       write an RDB or an AOF into the container filesystem either. That is the
+       same trade core NATS makes next door, and it is why this is a StatefulSet
+       with nothing mounted: the stable identity is the useful half.
+
+       maxmemory is set with allkeys-lru rather than left unbounded. Unbounded,
+       a fold that never closes would grow until the pod was OOM-killed, taking
+       every other fold with it; bounded, Redis evicts the coldest keys and the
+       consumers carry on. Losing a fold loses the records in it, which is the
+       at-most-once contract the whole trace pipeline already ships with.
+
+       The readiness probe execs `redis-cli ping` rather than opening the port:
+       a listening socket says the process is up, not that it is answering, and
+       a Redis still loading or wedged does the first without the second. It also
+       has to exist at all, because octo-common's startup probe borrows the
+       readiness handler and the cloud profiles configure one.
+
+       maxmemory and its policy go through toString because args must be
+       strings: a values file written as `maxmemory: 268435456` would otherwise
+       render an integer into the list and the API server would reject the
+       pod. */}}
+{{- include "octo-common.statefulset" (dict
+      "root" $
+      "component" "redis"
+      "replicas" 1
+      "serviceName" (include "octo.redis.serviceName" .)
+      "containers" (include "octo-common.container" (dict
+        "root" $
+        "component" "redis"
+        "name" "redis"
+        "image" (include "octo-common.image" (dict "root" $ "component" "redis" "thirdParty" true))
+        "pullPolicy" (include "octo-common.imagePullPolicy" (dict "root" $ "component" "redis"))
+        "args" (list
+          "redis-server"
+          "--save" ""
+          "--appendonly" "no"
+          "--maxmemory" (toString .Values.redis.maxmemory)
+          "--maxmemory-policy" (toString .Values.redis.maxmemoryPolicy))
+        "ports" (list (dict "name" "redis" "containerPort" 6379))
+        "readinessProbe" (dict
+          "exec" (dict "command" (list "redis-cli" "ping"))
+          "initialDelaySeconds" 3
+          "periodSeconds" 10)))) }}
+{{- end }}

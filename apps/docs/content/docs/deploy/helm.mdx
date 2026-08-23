@@ -47,6 +47,7 @@ IngressClass, add `--set ingress.className=<yours>` as well — see
 | Log aggregator | Deployment | 8091 | Consumes NATS `internal.logs` into Postgres; serves the logs query API |
 | Postgres | StatefulSet + PVC | 5432 | Headless Service; credentials in a generated Secret. Skipped when `postgres.enabled=false` |
 | NATS | StatefulSet (no volume) | 4222 / 8222 | Core NATS pub-sub; disable with `nats.enabled=false` |
+| Redis | StatefulSet (no volume) | 6379 | Shared state between replicas of a component. Replace with a managed one via `externalRedis.url`; it cannot simply be turned off — see [Redis](#redis) |
 | Schema applier | Job (Helm hook) | – | Runs `psql -f schema.sql` on every install and upgrade |
 | Retention sweep | CronJob | – | Nightly `POST /retention/run` against the aggregator. Disable with `retention.enabled=false` |
 | Runtime RBAC | ServiceAccount + Role | – | Lease permissions for integration pods (leader election) |
@@ -148,9 +149,9 @@ ones that matter most:
 
 Components are `platform`, `orchestrator`, `logs`, `schema`, `runtime`,
 `agenticrunner`, `devsidecar` and `devruntime`.
-`postgres` and `nats` also take `image.*`, but deliberately do **not** inherit
-`image.registry` — that host holds the `octo-*` images only. Point their own
-`image.registry` at a mirror for clusters that cannot reach Docker Hub.
+`postgres`, `nats` and `redis` also take `image.*`, but deliberately do **not**
+inherit `image.registry` — that host holds the `octo-*` images only. Point their
+own `image.registry` at a mirror for clusters that cannot reach Docker Hub.
 
 Digest pinning is what the GCP release path uses: Cloud Build renders a values
 file naming the exact digest of every image it pushed, so a release deploys what
@@ -868,7 +869,54 @@ A CronJob that asks the aggregator, once a night, to delete stored logs and trac
 |---|---|---|
 | `platform.replicas` / `orchestrator.replicas` / `logs.replicas` | `1` | Replica counts. The log aggregator scales safely — its consumer joins a NATS queue group, so replicas compete for messages rather than each storing every one. A retention sweep takes a Postgres advisory lock, so extra replicas cannot sweep concurrently either. |
 | `nats.enabled` | `true` | Deploy the NATS broker; when off, live event streams fall back to polling. See [Event bus](/platform/event-bus). |
+| `redis.enabled` | `true` | Deploy Redis. Unlike NATS this cannot simply be turned off — see [Redis](#redis). |
+| `externalRedis.url` | – | A `redis://` or `rediss://` URL for a Redis this chart does not run. Required when `redis.enabled=false`. |
+| `redis.maxmemory` | `256mb` | The ceiling the server holds itself to. Keep it **below** any container memory limit, or the kernel gets there before Redis does and the eviction policy never runs. |
+| `redis.maxmemoryPolicy` | `allkeys-lru` | What it does on reaching the ceiling. Evicting the coldest keys costs the folds they held; growing without bound costs the pod. |
 | `runtime.servicesModule` | `k8s` | Runtime-services backend injected into integration pods: `k8s` (Lease leader election + orchestrator KV) or `standalone`. Cluster deploys want `k8s`. |
+
+## Redis
+
+Redis holds state that has to be shared between replicas of a component rather
+than kept in one process. Today that is one thing: the telemetry aggregator folds
+the run of trace records a streaming block emits — one `block.pre-invoke` and one
+`block.post-invoke` per streamed token — into a single row. The aggregator's
+consumers are a NATS queue group, so a single trace's records are already spread
+across whichever replicas are running, and a fold held in one process would
+quietly stop working the moment `logs.replicas` went above 1.
+
+**It is not optional the way NATS is.** `nats.enabled=false` degrades a feature —
+live event streams fall back to polling. Turning Redis off does not degrade
+anything: the aggregator refuses to start without one. So an install with neither
+the bundled server nor `externalRedis.url` **fails while rendering**, with a
+message naming both values. That is deliberate. The alternative is a component
+that comes up healthy and silently stops folding, which is invisible until the
+`traces` table is large.
+
+Nothing here is persisted, on either side: no volume, and the server runs with
+`--save ""` and `--appendonly no`. What lives in it is regenerated within seconds
+of being lost, and losing it costs at most the trace records in the folds that
+were open — the same at-most-once contract the rest of the trace pipeline ships
+with.
+
+To use a managed Redis instead:
+
+```yaml
+redis:
+  enabled: false
+externalRedis:
+  url: redis://cache.internal:6379
+```
+
+The whole connection is that one string, including credentials if the server
+wants them. That differs from the database, whose password is kept **out** of its
+DSN — see the note in `_helpers.tpl` — and it is safe here for the reason that
+note gives: this string is the caller's own, so anything needing escaping is
+already escaped by whoever wrote it.
+
+Whether the cluster's Redis is actually reachable is on the
+[Platform services](/platform/admin-settings) page, alongside Postgres, NATS and
+the Kubernetes API.
 
 ### What the chart does not create
 

@@ -215,3 +215,30 @@ func isTerminalWaiting(reason string) bool {
 		return false
 	}
 }
+
+// Reachable reports whether the Kubernetes API answers, or why not.
+//
+// It asks the API server for its version rather than listing anything in the
+// namespace: the version endpoint needs no RBAC beyond what any authenticated
+// client has, so a failure here means the connection is broken rather than that
+// this service account is missing a permission — which is a different problem
+// with a different fix, and one the admin page must not confuse it with.
+func (c *Client) Reachable(ctx context.Context) error {
+	// The discovery client takes no context, so the cancellation the caller set is
+	// honoured by racing it rather than by being passed down. Left unraced, a
+	// wedged API server would hold the health page past its own deadline.
+	done := make(chan error, 1)
+	go func() {
+		_, err := c.clientset.Discovery().ServerVersion()
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			return fmt.Errorf("kube: server version: %w", err)
+		}
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
