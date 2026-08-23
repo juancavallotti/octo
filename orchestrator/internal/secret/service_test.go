@@ -58,6 +58,9 @@ type fakeKube struct {
 	// installation that has never written one, which must not read as "every
 	// catalogue name is gone".
 	noStore bool
+	// reads counts trips to the cluster for the Secret, so a test can pin that the
+	// reconciler makes exactly one.
+	reads int
 }
 
 func newFakeKube() *fakeKube { return &fakeKube{values: map[string]string{}} }
@@ -70,27 +73,23 @@ func (f *fakeKube) SetSecret(_ context.Context, name, value string) error {
 	return nil
 }
 
-// SecretStoreExists mirrors the real client: the Secret is created by the first
-// write, so it exists once anything has been stored — unless a test says
-// otherwise.
-func (f *fakeKube) SecretStoreExists(_ context.Context) (bool, error) {
+// StoredSecretNames mirrors the real client: one read answering both questions,
+// from the same map SetSecret writes to, so a test does not have to keep two views
+// of the cluster in step. The Secret is created by the first write, so it exists
+// once anything has been stored — unless a test says otherwise.
+func (f *fakeKube) StoredSecretNames(_ context.Context) ([]string, bool, error) {
+	f.reads++
 	if f.listErr != nil {
-		return false, f.listErr
+		return nil, false, f.listErr
 	}
-	return !f.noStore && len(f.values) > 0, nil
-}
-
-// ListSecretNames answers from the same map SetSecret writes to, so a test does
-// not have to keep two views of the cluster in step.
-func (f *fakeKube) ListSecretNames(_ context.Context) ([]string, error) {
-	if f.listErr != nil {
-		return nil, f.listErr
+	if f.noStore || len(f.values) == 0 {
+		return nil, false, nil
 	}
 	out := make([]string, 0, len(f.values))
 	for name := range f.values {
 		out = append(out, name)
 	}
-	return out, nil
+	return out, true, nil
 }
 
 func (f *fakeKube) DeleteSecretKey(_ context.Context, name string) error {
@@ -311,6 +310,34 @@ func TestReconcileDeletesNothingWhenTheClusterCannotBeListed(t *testing.T) {
 }
 
 // Without cluster access there is no cluster to disagree with.
+// Existence and the key set must come from one read. Asking twice would reopen the
+// window the guard exists to close: an externally managed Secret can be deleted and
+// recreated between two calls, and a reconciler told "it exists" and then handed an
+// empty list would delete the whole catalogue — permanently, since this sweep only
+// ever removes names and never adds them back.
+//
+// The single-read interface makes that unrepresentable rather than merely unlikely.
+// This pins it, because the obvious refactor — a tidy Exists() beside a tidy List() —
+// reintroduces the bug while looking cleaner.
+func TestReconcileReadsTheClusterExactlyOnce(t *testing.T) {
+	repo, kube := newFakeRepo(), newFakeKube()
+	svc := NewService(repo, kube, &fakeRefs{})
+	ctx := context.Background()
+
+	if _, err := svc.Create(ctx, "KEPT", "v"); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	repo.names["GONE"] = Secret{Name: "GONE"}
+
+	kube.reads = 0 // count only the sweep's own reads, not Create's
+	if _, err := svc.Reconcile(ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if kube.reads != 1 {
+		t.Errorf("read the cluster %d times, want exactly 1 — two reads can disagree", kube.reads)
+	}
+}
+
 func TestReconcileIsANoOpWithoutACluster(t *testing.T) {
 	repo := newFakeRepo()
 	repo.names["SOMETHING"] = Secret{Name: "SOMETHING"}

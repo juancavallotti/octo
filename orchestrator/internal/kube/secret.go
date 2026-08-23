@@ -88,41 +88,39 @@ func (c *Client) SecretKeyExists(ctx context.Context, name string) (bool, error)
 	return ok, nil
 }
 
-// ListSecretNames returns the sorted keys of the shared cluster-secrets Secret. It
-// reads only the keys, never the values, so it cannot leak a secret. A missing
-// Secret yields an empty list.
-// SecretStoreExists reports whether the shared Secret object is there at all.
+// StoredSecretNames returns the sorted keys of the shared cluster-secrets Secret
+// and whether that Secret exists at all, from a single read. It reads only the
+// keys, never the values, so it cannot leak a secret.
 //
-// It is a different question from "which keys does it have", and the reconciler
-// needs both. The Secret is created lazily by the first SetSecret, so its absence
-// is the ordinary state of an installation that has never stored one — and is
-// also what an externally managed Secret looks like for the moment between being
-// deleted and being recreated. Neither is evidence that any particular name is
-// gone, which is what ListSecretNames returning an empty list would otherwise be
-// read as.
-func (c *Client) SecretStoreExists(ctx context.Context) (bool, error) {
-	_, err := c.clientset.CoreV1().Secrets(c.namespace).Get(ctx, secretsName, metav1.GetOptions{})
-	if apierrors.IsNotFound(err) {
-		return false, nil
-	}
-	if err != nil {
-		return false, fmt.Errorf("kube: get secret: %w", err)
-	}
-	return true, nil
-}
-
-func (c *Client) ListSecretNames(ctx context.Context) ([]string, error) {
+// The two answers come back together because the reconciler needs both and must
+// not see them disagree. The Secret is created lazily by the first SetSecret, so
+// its absence is the ordinary state of an installation that has never stored one —
+// and is also what an externally managed Secret looks like for the moment between
+// being deleted and being recreated. Neither is evidence that any particular name
+// is gone, so a caller that asked two separate times could observe the Secret
+// present, then find it missing, and read the resulting empty list as "every name
+// was removed". One Get cannot produce that pair.
+func (c *Client) StoredSecretNames(ctx context.Context) ([]string, bool, error) {
 	sec, err := c.clientset.CoreV1().Secrets(c.namespace).Get(ctx, secretsName, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
-		return nil, nil
+		return nil, false, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("kube: get secret: %w", err)
+		return nil, false, fmt.Errorf("kube: get secret: %w", err)
 	}
 	names := make([]string, 0, len(sec.Data))
 	for k := range sec.Data {
 		names = append(names, k)
 	}
 	sort.Strings(names)
-	return names, nil
+	return names, true, nil
+}
+
+// ListSecretNames returns the sorted keys of the shared cluster-secrets Secret,
+// for a caller that has no use for whether the Secret itself exists. A missing
+// Secret yields an empty list, which is why the reconciler uses StoredSecretNames
+// instead.
+func (c *Client) ListSecretNames(ctx context.Context) ([]string, error) {
+	names, _, err := c.StoredSecretNames(ctx)
+	return names, err
 }

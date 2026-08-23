@@ -19,13 +19,14 @@ type repository interface {
 type kubeSecrets interface {
 	SetSecret(ctx context.Context, name, value string) error
 	DeleteSecretKey(ctx context.Context, name string) error
-	// ListSecretNames returns the keys present in the shared Secret. Keys only —
-	// no value ever leaves the cluster through this interface, which is what makes
-	// the reconciler below safe to run unattended.
-	ListSecretNames(ctx context.Context) ([]string, error)
-	// SecretStoreExists reports whether the shared Secret object exists at all,
-	// which is a different question from which keys it holds. See Reconcile.
-	SecretStoreExists(ctx context.Context) (bool, error)
+	// StoredSecretNames returns the keys present in the shared Secret and whether
+	// that Secret exists at all, from one read. Keys only — never values, so this
+	// service never holds secret material it was not asked to write.
+	//
+	// One call rather than two, because the reconciler acts on the pair and a
+	// caller that asked separately could be told the Secret exists and then get an
+	// empty list from a Secret deleted in between.
+	StoredSecretNames(ctx context.Context) (names []string, exists bool, err error)
 }
 
 // deploymentRefs reports whether a secret is still referenced by a deployment, so
@@ -115,29 +116,29 @@ func (s *Service) Reconcile(ctx context.Context) (int, error) {
 	// The shared Secret is created lazily by the first write, so "it is not there"
 	// is the ordinary state of an installation that has never stored a secret — and
 	// is also, briefly, what an externally managed Secret looks like between being
-	// deleted and recreated. ListSecretNames renders both as an empty list, and
-	// acting on that would drop every catalogue row in one pass.
+	// deleted and recreated. An empty key list renders both the same way, and acting
+	// on that would drop every catalogue row in one pass.
 	//
 	// That is not a survivable mistake here. This sweep only ever removes names,
 	// never adds them back — deliberately, since re-adding would mean the catalogue
 	// following whatever the cluster happens to hold — so a catalogue wiped in a
 	// five-second window stays wiped, with the values still present and no longer
 	// reachable through the UI.
-	exists, err := s.kube.SecretStoreExists(ctx)
-	if err != nil {
-		return 0, err
-	}
-	if !exists {
-		slog.Debug("secret reconcile: the shared secret does not exist; nothing to compare against")
-		return 0, nil
-	}
-
-	names, err := s.kube.ListSecretNames(ctx)
+	//
+	// Which is why existence and the key set arrive from one read. Asking twice
+	// would reopen the very window this guard exists to close: the Secret present
+	// on the first call, deleted before the second, and the resulting empty list
+	// read as "every name was removed".
+	names, exists, err := s.kube.StoredSecretNames(ctx)
 	if err != nil {
 		// Reported rather than repaired, for the same reason the deployment sweep
 		// refuses to act on a failed listing: an empty answer from a cluster that was
 		// never successfully asked is an instruction to delete the whole catalogue.
 		return 0, err
+	}
+	if !exists {
+		slog.Debug("secret reconcile: the shared secret does not exist; nothing to compare against")
+		return 0, nil
 	}
 	inCluster := make(map[string]bool, len(names))
 	for _, name := range names {
