@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # Multi-stage build for the orchestrator API.
 # Build context is the orchestrator/ dir (self-contained module, no workspace).
 #

@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # Multi-stage build for the log-aggregator service.
 # Build context is the logs/ dir (self-contained module, no workspace).
 #
