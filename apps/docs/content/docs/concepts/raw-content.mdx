@@ -27,6 +27,11 @@ to serve it with. A raw-aware sink — today, the HTTP source's response writer 
 writes `rawData` verbatim with that `Content-Type` instead of JSON-encoding the
 body.
 
+A `multipart/form-data` payload carries a third key, `parts`, holding its decoded
+parts by name. It is added *alongside* `contentType` and `rawData`, which stay
+exactly what was received, so nothing that reads a raw body notices it is there.
+See [Multipart bodies](/reference/connectors/http#multipart-bodies).
+
 <Callout type="warn">
   Raw mode is a **flag on the message**, not a shape you can fake. Producing a
   plain object with `contentType` and `rawData` keys through an ordinary
@@ -98,6 +103,12 @@ process:
       value: 'fromFormData(body.rawData)'   # parse the raw string into JSON
 ```
 
+A `multipart/form-data` request is the one case that needs no setting: it is
+decoded whatever `rawBody` says, and its parts are reachable at `body.parts`
+while `rawData` keeps every byte. So verifying a signature over the raw body and
+reading an uploaded file are not a choice —
+see [Multipart bodies](/reference/connectors/http#multipart-bodies).
+
 To keep parsing JSON but also capture the exact bytes (for example to verify an
 HMAC signature over the raw request), use `rawBodyVar` instead of `rawBody` — it
 stores the untouched request string in a variable while `body` stays JSON. This
@@ -109,6 +120,11 @@ is how [`slack-verify-request`](/reference/connectors/slack) and
   payloads — HTML, XML, CSV, Markdown, JSON-as-text, form encodings. It survives
   cloning and cross-node hops intact because it is a string, so it works the same
   in a `fork` branch or across a queue.
+
+  This is exactly why a multipart file part is base64: the message is
+  JSON-encoded on a queue hop or into a trace, which would replace invalid UTF-8
+  with `U+FFFD`. The same rule is why the [file connector](/reference/connectors/file)
+  has `encoding: base64`.
 </Callout>
 
 ## Streaming

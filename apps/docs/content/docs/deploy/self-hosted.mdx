@@ -216,6 +216,67 @@ startup probe at it:
           value: '{"status": "ok"}'
 ```
 
+### Call other Cloud Run services
+
+An integration usually has to reach something else, and on Cloud Run that
+something else is normally private: it requires an OIDC identity token whose
+audience is the receiving service's URL, and the caller's service account needs
+`roles/run.invoker` on it.
+
+The `http-client` connector's `gcp` auth does this with no secret to manage. It
+asks the instance metadata server for a token minted for the service account the
+revision runs as, and the audience defaults to the connector's own `baseURL` —
+which is the receiving service:
+
+```yaml
+env:
+  - name: ORDERS_URL
+    required: true
+  - name: API_AUTH
+    default: ""              # empty locally; set to "gcp" on Cloud Run
+
+connectors:
+  - name: orders
+    type: http-client
+    settings:
+      baseURL: ${ORDERS_URL}
+      auth:
+        type: ${API_AUTH}
+```
+
+Name the service account the revision runs as, so there is something to grant the
+permission to. Cloud Run's default is the Compute Engine default account:
+
+```bash
+CALLER_SA="$(gcloud projects describe "$(gcloud config get-value project)" --format='value(projectNumber)')-compute@developer.gserviceaccount.com"
+```
+
+Deploy with that account and the variable set:
+
+```bash
+gcloud run deploy my-integration --region us-central1 --service-account "$CALLER_SA" --set-env-vars API_AUTH=gcp,ORDERS_URL=https://orders-abc123-uc.a.run.app
+```
+
+Then let it invoke the callee. The binding is scoped to that one service rather
+than granted project-wide, and `add-iam-policy-binding` needs the region:
+
+```bash
+gcloud run services add-iam-policy-binding orders --region us-central1 --member "serviceAccount:$CALLER_SA" --role roles/run.invoker
+```
+
+The callee itself is deployed with `--no-allow-unauthenticated`; that, plus this
+binding, is what the identity token is checked against.
+
+The same auth reaches Google APIs directly — set `gcpToken: access` and name the
+scopes. See [the http-client
+reference](/reference/connectors/http#gcp-workload-identity-type-gcp).
+
+<Callout type="info">
+  Driving `auth.type` from an environment variable is what lets the same config
+  run on a laptop, where no metadata server exists. Empty means no auth; the
+  scheme turns on only where it can work.
+</Callout>
+
 ### Shutdown
 
 Cloud Run sends `SIGTERM` and then waits before killing the container. The

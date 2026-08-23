@@ -60,7 +60,7 @@ Each `http` source binds one route pattern to a flow. The request becomes the fl
 | `responseHeaders` | string[] | No | — | Response header names to propagate from message variables of the same name after the flow completes. `Content-Type` is managed by the source. |
 | `correlationIdHeader` | string | No | — | Header to source the correlation ID from. |
 | `rawBodyVar` | string | No | — | Capture the exact request bytes into `vars.<name>` (e.g. to verify an HMAC signature over the raw body). |
-| `rawBody` | boolean | No | `false` | Source the request as raw content: skip the JSON check and store the body as `{contentType, rawData}` using the request's `Content-Type`, instead of parsing it. Lets non-JSON payloads (forms, XML, binary text) enter the flow. |
+| `rawBody` | boolean | No | `false` | Source the request as raw content: skip the JSON check and store the body as `{contentType, rawData}` using the request's `Content-Type`, instead of parsing it. Lets non-JSON payloads (forms, XML, binary text) enter the flow. A `multipart/form-data` request is decoded either way — see [Multipart bodies](#multipart-bodies). |
 | `timeout` | duration | No | connector's `requestTimeout` | Per-route wait for the flow. On an SSE route this bounds the wait for the *first frame* instead. |
 | `maxBodyBytes` | int | No | `1048576` | Request body size cap (via `http.MaxBytesReader`). Oversized requests get `413`. |
 | `sse` | object | No | — | Serve the route as a [server-sent event stream](#server-sent-events). Inert unless `sse.enabled`. |
@@ -71,7 +71,7 @@ Each `http` source binds one route pattern to a flow. The request becomes the fl
 - **Method** — `vars.method` holds the HTTP method, so a flow can route on `vars.method == "POST"`.
 - **Query string** — `vars.query` is a map of query parameters (first value of each key); it is always present, possibly empty.
 - **Headers** — each header listed in `headers` is copied into a variable of the same name, e.g. `vars["X-Tenant"]`.
-- **Body** — a JSON body becomes `body`. A malformed JSON body is rejected with `400` before the flow runs, unless `rawBody: true`, in which case the body enters the flow as raw content carrying the request's `Content-Type`. An empty body is valid (`body` stays null).
+- **Body** — a JSON body becomes `body`. A malformed JSON body is rejected with `400` before the flow runs, unless `rawBody: true`, in which case the body enters the flow as raw content carrying the request's `Content-Type`. A `multipart/form-data` body is decoded into `body.parts` regardless of `rawBody` — see [Multipart bodies](#multipart-bodies). An empty body is valid (`body` stays null).
 - **Raw bytes** — with `rawBodyVar` set, the exact request bytes are also stored in that variable as a string.
 
 #### How the response is written
@@ -82,6 +82,71 @@ Each `http` source binds one route pattern to a flow. The request becomes the fl
 - A **dropped** message (e.g. a filter matched nothing) responds `204 No Content`.
 - A **failed** flow responds `500` with a JSON `{"error": ...}` body — see [error handling](/concepts/error-handling).
 - A flow that exceeds the timeout responds `504`.
+
+#### Multipart bodies
+
+A request whose `Content-Type` is `multipart/form-data` is decoded automatically:
+its parts land on `body.parts`, reachable by name.
+
+```yaml
+source:
+  connector: api
+  type: http
+  settings:
+    path: /upload
+    methods: [POST]
+    maxBodyBytes: 10485760      # raise this for uploads; the default is 1 MiB
+```
+
+`curl -F 'username=ann' -F 'avatar=@photo.png' localhost:8080/upload` gives the
+flow a body of:
+
+```json
+{
+  "contentType": "multipart/form-data; boundary=------abc123",
+  "rawData": "--------abc123\r\nContent-Disposition: form-data; name=\"username\"...",
+  "parts": {
+    "username": { "name": "username", "filename": "", "contentType": "",
+                  "encoding": "text",   "size": 3,     "data": "ann", "headers": {} },
+    "avatar":   { "name": "avatar", "filename": "photo.png", "contentType": "image/png",
+                  "encoding": "base64", "size": 12345, "data": "iVBORw0K...", "headers": {} }
+  }
+}
+```
+
+There is no setting to enable this, and `rawBody` does not turn it off. `parts`
+is added *alongside* `contentType` and `rawData`, which stay exactly what was
+received — so a flow verifying an HMAC over the raw request body and a flow
+reading `body.parts.avatar` are the same flow, and neither has to choose.
+
+Each part carries its **own** `contentType`, which is what tells you an upload is
+a PNG rather than a CSV. A part with a `filename` always has `encoding: base64`;
+a plain form field is always `text`. The rule follows the request's *shape*, not
+its bytes, so an expression means the same thing on every request. Read binary
+data with [`base64.decode`](/reference/cel/libraries):
+
+```yaml
+- type: set-payload
+  settings:
+    value: 'base64.decode(body.parts.avatar.data)'
+```
+
+`size` is always the **decoded** byte length. A repeated part name becomes a
+list, so `body.parts.tag[0].data` reaches the first.
+
+A body that claims to be multipart but will not parse is rejected with `400`
+before the flow runs, the same way a malformed JSON body is.
+
+<Callout type="warn">
+  A decoded upload is held in memory twice: once as `rawData` and once as the
+  parts, where base64 costs about 4/3 of the original bytes. Set `maxBodyBytes`
+  deliberately — a 10 MiB upload occupies roughly 23 MiB per message, and more
+  again if the flow forks or crosses a queue.
+</Callout>
+
+To *send* a multipart body, see the [`rest` block](#rest-block)'s `bodyType`.
+The [multipart CEL functions](/reference/cel/octo-extensions#frommultipart) build
+and decode one anywhere else.
 
 The runtime reads the whole request into memory and writes the whole response at
 once. See [Raw Content and Streaming](/concepts/raw-content) for how to serve
@@ -278,7 +343,7 @@ The `http-client` connector (label: **HTTP Client**) owns a configured client fo
 
 | Setting | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `type` | enum: `bearer` \| `basic` \| `oauth2` | No | none | Authentication scheme. |
+| `type` | enum: `bearer` \| `basic` \| `oauth2` \| `gcp` | No | none | Authentication scheme. |
 | `token` | string | With `type: bearer` | — | Token sent as `Authorization: Bearer`. |
 | `username` | string | With `type: basic` | — | Basic auth username. |
 | `password` | string | No | — | Basic auth password. |
@@ -286,8 +351,41 @@ The `http-client` connector (label: **HTTP Client**) owns a configured client fo
 | `clientID` | string | With `type: oauth2` | — | OAuth2 client identifier. |
 | `clientSecret` | string | With `type: oauth2` | — | OAuth2 client secret. |
 | `scopes` | string[] | No | — | Requested OAuth2 scopes. |
+| `gcpToken` | enum: `identity` \| `access` | No | `identity` | Which token the GCP metadata server mints. |
+| `gcpAudience` | string | No | the connector's base URL (origin) | Audience for a GCP identity token. |
+| `gcpScopes` | string[] | No | the service account's own scopes | Scopes for a GCP access token. |
 
 For `oauth2`, the connector mints and refreshes a bearer token via the client-credentials grant and applies it to each request. A request that already carries an `Authorization` header is never overwritten.
+
+### GCP workload identity (`type: gcp`)
+
+For a runtime running on Cloud Run, GCE, or GKE, `type: gcp` authenticates as the
+service account the process runs as. The token comes from the instance metadata
+server, so nothing secret is configured and nothing is stored.
+
+Two kinds of token, for two different callees:
+
+- **`identity`** (the default) is an OIDC token stamped with an audience. It is
+  what one Cloud Run service presents to another, and what an IAP-protected
+  endpoint expects. `gcpAudience` defaults to the connector's `baseURL` — origin
+  only — which is what the receiving service validates against, so calling
+  another service usually needs no more than `type: gcp`.
+- **`access`** is an OAuth token carrying scopes, for calling a Google API
+  (Storage, Pub/Sub, BigQuery) directly. With no `gcpScopes` the metadata server
+  returns the service account's own, which on Cloud Run is `cloud-platform`.
+
+Tokens are cached until shortly before they expire and refreshed on demand.
+Nothing is written to the secret store: the metadata server is local and free,
+and a token minted for one instance's identity is not something to share between
+replicas.
+
+<Callout type="warn">
+  `type: gcp` only works where a metadata server exists. Off Google Cloud the
+  first request fails with an error saying so. Drive the scheme from an
+  environment variable — `type: ${API_AUTH}`, empty locally and `gcp` in
+  production — rather than expecting a local fallback; see
+  [Add authentication](/guides/call-external-apis#add-authentication).
+</Callout>
 
 ### Retry (`retry`)
 
@@ -334,9 +432,70 @@ Keep `maxResponseBytes` in mind when you size the pool: a connection returns to 
 | `path` | string | No | — | Path appended to the connector base URL. |
 | `query` | map of expression | No | — | Query params; each value is a CEL expression. |
 | `headers` | map of expression | No | — | Request headers; each value is a CEL expression. |
-| `body` | expression | No | — | CEL expression for the request body. A string result is sent verbatim; any other value is JSON-encoded (with `Content-Type: application/json` unless a header overrides it). |
+| `body` | expression | No | — | CEL expression for the request body. A string result is sent verbatim; any other value is JSON-encoded (with `Content-Type: application/json` unless a header overrides it). With `bodyType: multipart` it must evaluate to a parts map instead. |
+| `bodyType` | enum: `raw` \| `multipart` | No | `raw` | How the body is sent. `raw` sends the evaluated body as-is. `multipart` treats it as a parts map and renders a `multipart/form-data` body — see [Sending multipart](#sending-multipart). |
 | `failOnError` | boolean | No | `true` | Turn a 400+ status into a flow error. |
 | `statusVar` | string | No | `statusCode` | Variable to store the response status code in. |
+
+### Sending multipart
+
+Set `bodyType: multipart` and let `body` evaluate to a parts map — the same shape
+`body.parts` holds on an inbound upload, and the one
+[`multipart()` and `addPart`](/reference/cel/octo-extensions#multipart) build.
+
+```yaml
+- type: rest
+  settings:
+    connector: upstream
+    method: POST
+    path: /v1/media
+    bodyType: multipart
+    body: |
+      multipart()
+        .addPart("caption", body.caption)
+        .addPart("avatar", body.parts.avatar)
+```
+
+The block generates the boundary and sets `Content-Type` itself, so it is never
+written down twice. For that reason a `Content-Type` set in `headers` is
+**overridden** for a multipart body: the boundary is generated per request, so a
+header written by hand cannot describe the body being sent.
+
+A scalar part value is shorthand for a text field. An object gives full control
+and may name only the keys it needs; `encoding` defaults to `text`:
+
+```yaml
+    body: |
+      multipart().addPart("report", {
+        "data": vars.csv,
+        "filename": "report.csv",
+        "contentType": "text/csv"
+      })
+```
+
+Because a decoded part is already the shape `addPart` takes, forwarding an upload
+keeps its filename and content type — and because each call returns a value,
+parts can be added conditionally, which a static configuration map cannot express:
+
+Forward one untouched:
+
+```yaml
+    body: 'body.parts'
+```
+
+Or augment it on the way through:
+
+```yaml
+    body: 'body.parts.addPart("source", "octo")'
+```
+
+<Callout type="warn">
+  A part name, filename, or content type containing a carriage return or line
+  feed is rejected when the body is rendered. Those characters would end the
+  header line the value is written into and split one part into several, so a
+  flow forwarding names chosen by whoever uploaded them cannot be turned into a
+  way to smuggle parts into the upstream request.
+</Callout>
 
 ### Example
 
@@ -399,6 +558,7 @@ Query and headers differ in shape from `rest`. Each is a **single expression eva
 | `query` | expression | No | — | CEL expression evaluating to a map of query parameters. |
 | `headers` | expression | No | — | CEL expression evaluating to a map of request headers. |
 | `body` | expression | No | — | CEL expression for the request body, as in `rest`. |
+| `bodyType` | enum: `raw` \| `multipart` | No | `raw` | How the body is sent, as in `rest`. |
 | `allowMethods` | list of string | No | — | Methods this block may issue. Empty allows any of the standard set. |
 | `pathPrefix` | string | No | — | Path prefix this block may call under, matched on segment boundaries. Empty allows the whole base URL. |
 | `failOnError` | boolean | No | `true` | Turn a 400+ status into a flow error. |

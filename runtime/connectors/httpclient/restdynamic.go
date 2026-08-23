@@ -64,6 +64,11 @@ type restDynamicSettings struct {
 	Headers string `json:"headers" octo:"label=Headers,type=cel"`
 	// CEL expression for the request body.
 	Body string `json:"body" octo:"label=Body,type=cel"`
+	// How the body is sent. raw sends the evaluated body as-is: a string verbatim,
+	// anything else JSON-encoded. multipart treats it as a parts map -- what
+	// body.parts holds and multipart()/addPart() build -- and renders a
+	// multipart/form-data body, naming its own boundary in the Content-Type header.
+	BodyType string `json:"bodyType" octo:"label=Body type,type=enum,enum=raw|multipart,default=raw"`
 	// Methods this block may issue. Empty allows any of the standard set.
 	AllowMethods []string `json:"allowMethods" octo:"label=Allowed methods,type=string-list"`
 	// Path prefix this block may call under. Empty allows the whole base URL.
@@ -83,7 +88,8 @@ type dynamicProcessor struct {
 	query        *expr.Program // nil when no query expression is configured
 	headers      *expr.Program // nil when no header expression is configured
 	body         *expr.Program // nil when no body expression is configured
-	allowMethods []string      // empty allows any of allowedMethods
+	bodyType     string
+	allowMethods []string // empty allows any of allowedMethods
 	pathPrefix   string
 	failOnError  bool
 	statusVar    string
@@ -111,40 +117,26 @@ func newRESTDynamic(raw types.Settings, deps core.BlockDeps) (core.MessageProces
 		return nil, fmt.Errorf("rest-dynamic block: path is required")
 	}
 
-	compiled := map[string]**expr.Program{}
+	bodyType, err := resolveBodyType(cfg.BodyType)
+	if err != nil {
+		return nil, fmt.Errorf("rest-dynamic block: %w", err)
+	}
+
 	processor := &dynamicProcessor{
 		conn:        conn,
+		bodyType:    bodyType,
 		pathPrefix:  cfg.PathPrefix,
 		failOnError: true,
 		statusVar:   defaultStatusVar,
 		env:         expr.EnvActivation(deps.Env),
 	}
-	compiled["method"] = &processor.method
-	compiled["path"] = &processor.path
-	compiled["query"] = &processor.query
-	compiled["headers"] = &processor.headers
-	compiled["body"] = &processor.body
-
-	for name, source := range map[string]string{
-		"method": cfg.Method, "path": cfg.Path,
-		"query": cfg.Query, "headers": cfg.Headers, "body": cfg.Body,
-	} {
-		if source == "" {
-			continue
-		}
-		program, compileErr := expr.CompileMessage(deps.Resources, source)
-		if compileErr != nil {
-			return nil, fmt.Errorf("rest-dynamic block: compile %s: %w", name, compileErr)
-		}
-		*compiled[name] = program
+	if err := processor.compileExpressions(cfg, deps); err != nil {
+		return nil, err
 	}
 
-	for _, method := range cfg.AllowMethods {
-		normalized := strings.ToUpper(strings.TrimSpace(method))
-		if !slices.Contains(allowedMethods, normalized) {
-			return nil, fmt.Errorf("rest-dynamic block: allowMethods contains %q, which is not an HTTP method", method)
-		}
-		processor.allowMethods = append(processor.allowMethods, normalized)
+	processor.allowMethods, err = normalizeAllowMethods(cfg.AllowMethods)
+	if err != nil {
+		return nil, err
 	}
 	if cfg.StatusVar != "" {
 		processor.statusVar = cfg.StatusVar
@@ -153,6 +145,47 @@ func newRESTDynamic(raw types.Settings, deps core.BlockDeps) (core.MessageProces
 		processor.failOnError = *cfg.FailOnError
 	}
 	return processor, nil
+}
+
+// compileExpressions compiles every configured expression into the processor,
+// naming the setting in any error so a bad one says which it was. Compiling at
+// build time is what makes a malformed expression fail at startup rather than on
+// the message that first reaches it.
+func (p *dynamicProcessor) compileExpressions(cfg restDynamicSettings, deps core.BlockDeps) error {
+	targets := map[string]**expr.Program{
+		"method": &p.method, "path": &p.path,
+		"query": &p.query, "headers": &p.headers, "body": &p.body,
+	}
+	for name, source := range map[string]string{
+		"method": cfg.Method, "path": cfg.Path,
+		"query": cfg.Query, "headers": cfg.Headers, "body": cfg.Body,
+	} {
+		if source == "" {
+			continue
+		}
+		program, err := expr.CompileMessage(deps.Resources, source)
+		if err != nil {
+			return fmt.Errorf("rest-dynamic block: compile %s: %w", name, err)
+		}
+		*targets[name] = program
+	}
+	return nil
+}
+
+// normalizeAllowMethods upper-cases the configured methods and rejects anything
+// that is not an HTTP method, so a typo fails at startup rather than silently
+// forbidding every request the block was meant to allow.
+func normalizeAllowMethods(configured []string) ([]string, error) {
+	var normalized []string
+	for _, method := range configured {
+		upper := strings.ToUpper(strings.TrimSpace(method))
+		if !slices.Contains(allowedMethods, upper) {
+			return nil, fmt.Errorf(
+				"rest-dynamic block: allowMethods contains %q, which is not an HTTP method", method)
+		}
+		normalized = append(normalized, upper)
+	}
+	return normalized, nil
 }
 
 // Process renders the request, runs it, and folds the response into the message —
@@ -169,21 +202,19 @@ func (p *dynamicProcessor) Process(ctx context.Context, msg *types.Message) (*ty
 	if err != nil {
 		return nil, err
 	}
-	bodyReader, hasBody, err := buildBodyFrom(p.body, activation, "rest-dynamic")
+	body, err := buildBodyFrom(p.body, activation, "rest-dynamic", p.bodyType)
 	if err != nil {
 		return nil, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, target, bodyReader)
+	req, err := http.NewRequestWithContext(ctx, method, target, body.reader)
 	if err != nil {
 		return nil, fmt.Errorf("rest-dynamic build request: %w", err)
 	}
 	if err := p.applyHeaders(req, activation); err != nil {
 		return nil, err
 	}
-	if hasBody && req.Header.Get("Content-Type") == "" {
-		req.Header.Set("Content-Type", "application/json")
-	}
+	applyBodyContentType(req, body)
 
 	return exchange(p.conn, req, target, msg, responseOptions{
 		block: "rest-dynamic", statusVar: p.statusVar, failOnError: p.failOnError,

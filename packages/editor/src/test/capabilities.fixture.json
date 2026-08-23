@@ -2110,7 +2110,12 @@
               "label": "Type",
               "type": "enum",
               "required": false,
-              "enum": ["bearer", "basic", "oauth2"],
+              "enum": [
+                "bearer",
+                "basic",
+                "oauth2",
+                "gcp"
+              ],
               "description": "Authentication scheme."
             },
             {
@@ -2118,7 +2123,10 @@
               "label": "Bearer token",
               "type": "string",
               "required": false,
-              "showIf": { "field": "type", "equals": "bearer" },
+              "showIf": {
+                "field": "type",
+                "equals": "bearer"
+              },
               "description": "Token sent as 'Authorization: Bearer'."
             },
             {
@@ -2126,7 +2134,10 @@
               "label": "Username",
               "type": "string",
               "required": false,
-              "showIf": { "field": "type", "equals": "basic" },
+              "showIf": {
+                "field": "type",
+                "equals": "basic"
+              },
               "description": "Basic auth username."
             },
             {
@@ -2134,7 +2145,10 @@
               "label": "Password",
               "type": "string",
               "required": false,
-              "showIf": { "field": "type", "equals": "basic" },
+              "showIf": {
+                "field": "type",
+                "equals": "basic"
+              },
               "description": "Basic auth password."
             },
             {
@@ -2142,7 +2156,10 @@
               "label": "Token URL",
               "type": "string",
               "required": false,
-              "showIf": { "field": "type", "equals": "oauth2" },
+              "showIf": {
+                "field": "type",
+                "equals": "oauth2"
+              },
               "description": "OAuth2 token endpoint (client-credentials grant)."
             },
             {
@@ -2150,7 +2167,10 @@
               "label": "Client ID",
               "type": "string",
               "required": false,
-              "showIf": { "field": "type", "equals": "oauth2" },
+              "showIf": {
+                "field": "type",
+                "equals": "oauth2"
+              },
               "description": "OAuth2 client identifier."
             },
             {
@@ -2158,7 +2178,10 @@
               "label": "Client secret",
               "type": "string",
               "required": false,
-              "showIf": { "field": "type", "equals": "oauth2" },
+              "showIf": {
+                "field": "type",
+                "equals": "oauth2"
+              },
               "description": "OAuth2 client secret."
             },
             {
@@ -2166,8 +2189,49 @@
               "label": "Scopes",
               "type": "string-list",
               "required": false,
-              "showIf": { "field": "type", "equals": "oauth2" },
+              "showIf": {
+                "field": "type",
+                "equals": "oauth2"
+              },
               "description": "Requested OAuth2 scopes."
+            },
+            {
+              "name": "gcpToken",
+              "label": "Token",
+              "type": "enum",
+              "required": false,
+              "default": "identity",
+              "enum": [
+                "identity",
+                "access"
+              ],
+              "showIf": {
+                "field": "type",
+                "equals": "gcp"
+              },
+              "description": "Which token the GCP metadata server mints. identity is an OIDC token for calling another Cloud Run service or an IAP-protected endpoint; access is an OAuth token for calling Google APIs directly."
+            },
+            {
+              "name": "gcpAudience",
+              "label": "GCP audience",
+              "type": "string",
+              "required": false,
+              "showIf": {
+                "field": "type",
+                "equals": "gcp"
+              },
+              "description": "Audience for a GCP identity token. Defaults to the connector's base URL, which is what a Cloud Run service checks it against."
+            },
+            {
+              "name": "gcpScopes",
+              "label": "GCP scopes",
+              "type": "string-list",
+              "required": false,
+              "showIf": {
+                "field": "type",
+                "equals": "gcp"
+              },
+              "description": "Scopes for a GCP access token. Defaults to the service account's own scopes."
             }
           ]
         }

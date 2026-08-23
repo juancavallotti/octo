@@ -52,7 +52,7 @@ source:
 
 ## Functions
 
-Octo registers thirteen functions of its own. They are available in every message
+Octo registers seventeen functions of its own. They are available in every message
 expression, in every source payload, and inside a template's `{{ }}` spans —
 the three environments expose the same set, as do the [extension
 libraries](/reference/cel/libraries).
@@ -98,7 +98,8 @@ toFormData(dyn) -> string
 
 Encodes an object as an `application/x-www-form-urlencoded` string. Each field
 must be a scalar; a list field emits a repeated key. Keys are sorted, so the
-output is deterministic. Only urlencoded forms are supported, not multipart.
+output is deterministic. For `multipart/form-data`, see
+[`toMultipart`](#tomultipart).
 
 ```bash
 bin/octo eval --expr 'toFormData({"q": "hello world", "page": 2, "tags": ["a", "b"]})'
@@ -122,6 +123,135 @@ bin/octo eval --expr 'fromFormData("q=hello+world&page=2&tags=a&tags=b")'
 
 Note that parsed form values are always strings — compare with
 `int(body.page) > 1` or `body.page == "2"`.
+
+### fromMultipart
+
+```
+fromMultipart(dyn) -> dyn              # a raw-content body
+fromMultipart(string, string) -> dyn   # (rawData, contentType)
+```
+
+Decodes a `multipart/form-data` payload into the **parts map**: part name to
+decoded part, with a repeated name collecting into a list.
+
+You rarely need this for an HTTP request — the http source decodes multipart
+automatically and puts the result on `body.parts`. Reach for it when a multipart
+payload arrives some other way: off a queue, out of a file, or in a `rest`
+response.
+
+One decoded part looks like this:
+
+```json
+{
+  "name": "avatar",
+  "filename": "photo.png",
+  "contentType": "image/png",
+  "encoding": "base64",
+  "size": 12345,
+  "data": "iVBORw0K...",
+  "headers": {}
+}
+```
+
+Each part carries its **own** `contentType`, which is what tells you an upload is
+a PNG rather than a CSV — it is independent of the request's outer content type.
+`name` and `filename` come from the part's `Content-Disposition`; `headers` holds
+whatever else the part declared.
+
+A part with a `filename` is always `base64`; a plain form field is always `text`.
+The rule follows the payload's *shape*, not its bytes, so an expression means the
+same thing on every request. Decode binary data with
+[`base64.decode`](/reference/cel/libraries):
+
+```
+base64.decode(body.parts.avatar.data)
+```
+
+`size` is always the **decoded** byte length, whichever encoding the part uses.
+
+```bash
+bin/octo eval --data '{"contentType":"multipart/form-data; boundary=b","rawData":"--b\r\nContent-Disposition: form-data; name=\"who\"\r\n\r\nann\r\n--b--\r\n"}' \
+  --expr 'fromMultipart(body).who.data'
+# {"ok":true,"result":"ann"}
+```
+
+### multipart
+
+```
+multipart() -> dyn
+```
+
+Returns an empty parts map to build on. Pair it with `addPart`.
+
+### addPart
+
+```
+<parts>.addPart(string, dyn) -> dyn
+```
+
+Returns a **new** parts map with one part added — it never modifies the map it is
+called on, so an expression can branch without one path affecting the other.
+
+A scalar value is shorthand for a text field. An object gives full control, and
+may name only the keys it cares about; `encoding` defaults to `text`.
+
+```
+multipart()
+  .addPart("caption", body.caption)
+  .addPart("report", {"data": vars.csv, "filename": "r.csv", "contentType": "text/csv"})
+```
+
+Because a decoded part is already the shape `addPart` accepts, forwarding an
+upload keeps its filename and content type:
+
+```
+multipart().addPart("avatar", body.parts.avatar)
+```
+
+And because each call returns a value, parts can be added conditionally — which
+is the thing a static configuration map cannot express:
+
+```
+(has(body.caption) ? multipart().addPart("caption", body.caption) : multipart())
+  .addPart("avatar", body.parts.avatar)
+```
+
+```bash
+bin/octo eval --data '{}' --expr 'multipart().addPart("a", "1").a.data'
+# {"ok":true,"result":"1"}
+```
+
+### toMultipart
+
+```
+toMultipart(dyn) -> string
+toMultipart(dyn, string) -> string
+```
+
+Renders a parts map as a `multipart/form-data` body. Part names are written in
+sorted order, so the output is deterministic.
+
+The `rest` block builds multipart bodies itself — set `bodyType: multipart` and
+let it own the boundary. Use `toMultipart` when the body is going somewhere else,
+such as a file write or a queue publish.
+
+The second argument names the boundary. Without it the boundary is
+`octo-multipart`, which is fixed rather than random because `set-payload` takes
+its `contentType` as static configuration, so you have to be able to write the
+matching boundary yourself:
+
+```yaml
+- type: set-payload
+  settings:
+    rawBody: true
+    contentType: 'multipart/form-data; boundary=octo-multipart'
+    value: 'toMultipart(body.parts)'
+```
+
+```bash
+bin/octo eval --data '{}' --expr 'toMultipart(multipart().addPart("a", "1"), "b")'
+# {"ok":true,"result":"--b\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\n1\r\n--b--\r\n"}
+```
 
 ### toYaml
 

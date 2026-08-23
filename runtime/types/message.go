@@ -16,11 +16,21 @@ const eventIDBytes = 16
 // whose Body has not been set.
 var errEmptyBody = errors.New("message body is empty")
 
-// rawContentTypeKey and rawDataKey are the two keys a raw-content Body carries:
-// the payload's MIME type and the payload itself (a UTF-8 string).
+// The keys a raw-content Body carries: the payload's MIME type, the payload itself
+// (a UTF-8 string), and — for a multipart payload — its decoded parts.
+//
+// RawPartsKey is optional and purely additive: it rides alongside an untouched
+// rawData rather than replacing it, so a raw-aware sink serves the exact bytes it
+// always did and a signature computed over the body still verifies. Only a
+// multipart payload has it.
+//
+// They are exported because the raw-body shape is a contract shared with the
+// expression engine, which reads a body's payload to decode it. Two copies of
+// these names in two packages is one rename away from a silent mismatch.
 const (
-	rawContentTypeKey = "contentType"
-	rawDataKey        = "rawData"
+	RawContentTypeKey = "contentType"
+	RawDataKey        = "rawData"
+	RawPartsKey       = "parts"
 )
 
 // internalVarPrefix marks a Variables key as the runtime's own bookkeeping
@@ -65,7 +75,9 @@ const traceVar = internalVarPrefix + "octoTraceId"
 //
 // A message may opt out of that contract by setting RawContent: Body then holds
 // the raw-content shape {contentType, rawData}, letting raw-aware connectors
-// serve a typed non-JSON payload (see SetRawBody/RawBody).
+// serve a typed non-JSON payload (see SetRawBody/RawBody). A multipart payload
+// carries a third key, parts, holding the decoded parts by name
+// (see SetRawBodyParts).
 type Message struct {
 	// EventID uniquely identifies this message. It is generated at
 	// construction time and is stable for the life of the message.
@@ -94,9 +106,10 @@ type Message struct {
 	BodySchema json.RawMessage `json:"body_schema,omitempty"`
 
 	// RawContent marks Body as carrying a raw, non-JSON payload in the shape
-	// {contentType, rawData}. Raw-aware connectors (e.g. the http source) serve
-	// rawData with the given MIME type instead of JSON-encoding Body. Defaults
-	// to false; JSON remains the contract for every message that does not opt in.
+	// {contentType, rawData}, optionally with a third key, parts, when the payload
+	// is multipart. Raw-aware connectors (e.g. the http source) serve rawData with
+	// the given MIME type instead of JSON-encoding Body. Defaults to false; JSON
+	// remains the contract for every message that does not opt in.
 	RawContent bool `json:"raw_content,omitempty"`
 
 	// bodyShared reports that a copy-on-write of Body is still pending: another
@@ -114,10 +127,27 @@ type Message struct {
 // written verbatim by raw-aware sinks (e.g. the http source's response writer).
 func (m *Message) SetRawBody(contentType, rawData string) {
 	m.Body = map[string]any{
-		rawContentTypeKey: contentType,
-		rawDataKey:        rawData,
+		RawContentTypeKey: contentType,
+		RawDataKey:        rawData,
 	}
 	m.RawContent = true
+}
+
+// SetRawBodyParts puts the message into raw-content mode with the decoded parts of
+// a multipart payload alongside the raw payload itself, keyed by part name.
+//
+// rawData stays exactly what was received. That is the point of adding a key
+// rather than replacing the body: a flow verifying a signature over the raw bytes
+// and a flow reading body.parts.avatar are the same flow, and neither has to
+// choose. RawBody keeps working untouched, since it reads its two keys out of the
+// map and ignores anything else.
+func (m *Message) SetRawBodyParts(contentType, rawData string, parts map[string]any) {
+	m.SetRawBody(contentType, rawData)
+	body, ok := m.Body.(map[string]any)
+	if !ok {
+		return
+	}
+	body[RawPartsKey] = parts
 }
 
 // RawBody returns the contentType and rawData when the message is in raw-content
@@ -132,11 +162,11 @@ func (m *Message) RawBody() (contentType, rawData string, ok bool) {
 	if !ok {
 		return "", "", false
 	}
-	contentType, ok = fields[rawContentTypeKey].(string)
+	contentType, ok = fields[RawContentTypeKey].(string)
 	if !ok {
 		return "", "", false
 	}
-	rawData, ok = fields[rawDataKey].(string)
+	rawData, ok = fields[RawDataKey].(string)
 	if !ok {
 		return "", "", false
 	}

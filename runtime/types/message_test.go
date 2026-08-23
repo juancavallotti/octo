@@ -468,6 +468,81 @@ func TestRawBody(t *testing.T) {
 // flag is serialized into the invoke envelope, the queue's Octo-Raw-Content
 // header and trace records, so a message reporting raw content while carrying an
 // object is a thing someone has to stop and work out.
+func TestSetRawBodyParts(t *testing.T) {
+	const (
+		contentType = "multipart/form-data; boundary=abc"
+		rawData     = "--abc\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\nx\r\n--abc--\r\n"
+	)
+	parts := map[string]any{"a": map[string]any{"data": "x"}}
+
+	t.Run("parts ride alongside an untouched raw body", func(t *testing.T) {
+		msg := &Message{}
+		msg.SetRawBodyParts(contentType, rawData, parts)
+
+		if !msg.RawContent {
+			t.Error("SetRawBodyParts did not set RawContent")
+		}
+		// The whole point of adding a key rather than replacing the body: a sink
+		// serving rawData, and a signature computed over it, must not notice.
+		ct, data, ok := msg.RawBody()
+		if !ok {
+			t.Fatal("RawBody ok = false, want true")
+		}
+		if ct != contentType || data != rawData {
+			t.Errorf("RawBody = (%q, %q), want (%q, %q)", ct, data, contentType, rawData)
+		}
+
+		body, ok := msg.Body.(map[string]any)
+		if !ok {
+			t.Fatalf("Body is %T, want map[string]any", msg.Body)
+		}
+		if _, ok := body[RawPartsKey]; !ok {
+			t.Fatalf("Body carries no %q key", RawPartsKey)
+		}
+	})
+
+	t.Run("parts survive Clone", func(t *testing.T) {
+		msg := &Message{}
+		msg.SetRawBodyParts(contentType, rawData, parts)
+
+		clone := msg.Clone()
+		_, data, ok := clone.RawBody()
+		if !ok || data != rawData {
+			t.Errorf("clone RawBody = (%q, %v), want the original rawData", data, ok)
+		}
+		body, ok := clone.Body.(map[string]any)
+		if !ok {
+			t.Fatalf("clone Body is %T, want map[string]any", clone.Body)
+		}
+		cloned, ok := body[RawPartsKey].(map[string]any)
+		if !ok {
+			t.Fatalf("clone parts is %T, want map[string]any", body[RawPartsKey])
+		}
+		if _, ok := cloned["a"]; !ok {
+			t.Error("clone lost the part")
+		}
+		// copyBody deep-copies, so the clone must not share the parts map.
+		cloned["b"] = "added"
+		original, _ := msg.Body.(map[string]any)[RawPartsKey].(map[string]any)
+		if _, leaked := original["b"]; leaked {
+			t.Error("writing to the clone's parts reached the original")
+		}
+	})
+
+	t.Run("SetBody clears raw content and its parts", func(t *testing.T) {
+		msg := &Message{}
+		msg.SetRawBodyParts(contentType, rawData, parts)
+		msg.SetBody(map[string]any{"plain": true})
+
+		if msg.RawContent {
+			t.Error("SetBody left RawContent set")
+		}
+		if _, _, ok := msg.RawBody(); ok {
+			t.Error("RawBody ok = true after SetBody")
+		}
+	})
+}
+
 func TestSetBodyLeavesRawContent(t *testing.T) {
 	t.Run("SetBody", func(t *testing.T) {
 		msg := &Message{}

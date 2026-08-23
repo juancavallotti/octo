@@ -13,6 +13,9 @@
  *   - variables:                 runtime/core/expr/message.go (MessageVars)
  *   - toJson / fromJson:         runtime/core/expr/json.go
  *   - toFormData / fromFormData: runtime/core/expr/formdata.go
+ *   - multipart / addPart / fromMultipart / toMultipart:
+ *                                runtime/core/expr/multipart.go (addPart is a
+ *                                member function, so it lives in EXT_METHODS)
  *   - toYaml / fromYaml:         runtime/core/expr/yaml.go
  *   - toEnv / fromEnv:           runtime/core/expr/env.go
  *   - templateResource:          runtime/core/expr/template.go
@@ -118,7 +121,7 @@ export const OCTO_FUNCTIONS: CelEntry[] = [
     kind: "function",
     signature: "toFormData(dyn) -> string",
     summary:
-      "Encode an object as an application/x-www-form-urlencoded string (array fields emit repeated keys). Only urlencoded, not multipart.",
+      "Encode an object as an application/x-www-form-urlencoded string (array fields emit repeated keys). For multipart/form-data use toMultipart.",
     example: 'toFormData({"q": "hello", "page": 2})',
   },
   {
@@ -128,6 +131,30 @@ export const OCTO_FUNCTIONS: CelEntry[] = [
     summary:
       "Parse an application/x-www-form-urlencoded string into an object (repeated keys become a list) — e.g. decode a raw form POST body.",
     example: "fromFormData(body.rawData)",
+  },
+  {
+    name: "multipart",
+    kind: "function",
+    signature: "multipart() -> dyn",
+    summary:
+      "Start an empty multipart parts map, to build up with addPart.",
+    example: 'multipart().addPart("caption", body.caption)',
+  },
+  {
+    name: "fromMultipart",
+    kind: "function",
+    signature: "fromMultipart(dyn) -> dyn  |  fromMultipart(string, string) -> dyn",
+    summary:
+      "Decode a multipart/form-data payload into the parts map (name to part; a repeated name becomes a list). The http source does this automatically into body.parts, so use it for multipart arriving off a queue, a file, or a rest response.",
+    example: 'fromMultipart(body).avatar.filename',
+  },
+  {
+    name: "toMultipart",
+    kind: "function",
+    signature: "toMultipart(dyn) -> string  |  toMultipart(dyn, string) -> string",
+    summary:
+      "Render a parts map as a multipart/form-data body, part names sorted. The rest block does this itself via bodyType: multipart; use this for other sinks. The boundary defaults to octo-multipart.",
+    example: 'toMultipart(body.parts)',
   },
   {
     name: "toYaml",
@@ -209,8 +236,21 @@ export const OCTO_FUNCTIONS: CelEntry[] = [
  * (strings, lists, two-variable comprehensions, optional). Called on a value:
  * `body.name.upperAscii()`, `body.items.sortBy(i, i.qty)`. The namespaced members
  * of the same libraries live in {@link EXT_NAMESPACES}.
+ *
+ * Octo's own `addPart` is here too rather than in {@link OCTO_FUNCTIONS}: what
+ * decides the list is call position, not who registered it, and completing
+ * `addPart` at statement position would offer a call that cannot compile.
  */
 export const EXT_METHODS: CelEntry[] = [
+  // --- octo: multipart (runtime/core/expr/multipart.go) ---
+  {
+    name: "addPart",
+    kind: "function",
+    signature: "parts.addPart(string, dyn) -> dyn",
+    summary:
+      "Return a new parts map with one part added; never modifies the map it is called on. A scalar is a text field; an object may set data, encoding, filename and contentType.",
+    example: 'multipart().addPart("avatar", body.parts.avatar)',
+  },
   // --- strings ---
   {
     name: "upperAscii",

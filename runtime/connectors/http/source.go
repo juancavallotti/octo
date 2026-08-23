@@ -15,10 +15,17 @@ import (
 	"time"
 
 	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/core/expr"
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
 const defaultMaxBodyBytes int64 = 1 << 20 // 1 MiB
+
+// errBadMultipart marks a request whose Content-Type claims multipart but whose
+// body will not parse. It is the caller's cue to answer 400 rather than 500: an
+// undecodable payload is the client's mistake, the same way malformed JSON is,
+// and the JSON gate in readBody already rejects its equivalent before a flow runs.
+var errBadMultipart = errors.New("malformed multipart body")
 
 // sourceSettings configures one HTTP route bound to a flow.
 type sourceSettings struct {
@@ -223,6 +230,10 @@ func (s *source) handle(w http.ResponseWriter, r *http.Request) {
 	msg, err := s.buildMessage(r, body)
 	if err != nil {
 		s.releaseSend()
+		if errors.Is(err, errBadMultipart) {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "could not build message")
 		return
 	}
@@ -384,7 +395,8 @@ func (s *source) writeResult(w http.ResponseWriter, res result) {
 }
 
 // buildMessage constructs the message from the request: path params, method,
-// query, and configured headers land in Variables; the JSON body becomes Body.
+// query, and configured headers land in Variables; the body becomes Body (see
+// setBody for the three shapes it can take).
 func (s *source) buildMessage(r *http.Request, body []byte) (*types.Message, error) {
 	correlationID := ""
 	if s.corrIDHeader != "" {
@@ -417,13 +429,37 @@ func (s *source) buildMessage(r *http.Request, body []byte) (*types.Message, err
 	}
 
 	if len(body) > 0 {
-		if s.rawBody {
-			msg.SetRawBody(r.Header.Get("Content-Type"), string(body))
-		} else if err := msg.SetBodyJSON(body); err != nil {
+		if err := s.setBody(msg, r, body); err != nil {
 			return nil, err
 		}
 	}
 	return msg, nil
+}
+
+// setBody puts the request payload on the message, choosing between the three
+// shapes a body can take.
+//
+// Multipart is decided by the request's own Content-Type rather than by a
+// setting, and it runs whether or not rawBody is set. There is nothing to opt
+// into: a multipart request that is not decoded is a 400 today (it fails the JSON
+// gate), and one read as raw keeps every byte it had, since parts rides alongside
+// rawData rather than replacing it. A flow verifying a signature over the raw
+// body and a flow reading body.parts are the same flow, and neither has to choose.
+func (s *source) setBody(msg *types.Message, r *http.Request, body []byte) error {
+	contentType := r.Header.Get("Content-Type")
+	if expr.IsMultipart(contentType) {
+		parts, err := expr.DecodeMultipart(string(body), contentType)
+		if err != nil {
+			return fmt.Errorf("%w: %w", errBadMultipart, err)
+		}
+		msg.SetRawBodyParts(contentType, string(body), parts)
+		return nil
+	}
+	if s.rawBody {
+		msg.SetRawBody(contentType, string(body))
+		return nil
+	}
+	return msg.SetBodyJSON(body)
 }
 
 // readBody reads and size-limits the request body. It returns the raw bytes and,
@@ -444,10 +480,10 @@ func (s *source) readBody(w http.ResponseWriter, r *http.Request) ([]byte, int, 
 	if len(raw) == 0 {
 		return nil, 0, true
 	}
-	// In raw mode the body may be any content type, so skip the JSON gate.
-	// Otherwise validate it is JSON now, so a malformed body fails before the
-	// flow runs.
-	if !s.rawBody && !json.Valid(raw) {
+	// In raw mode the body may be any content type, and a multipart body never is
+	// JSON, so both skip the JSON gate. Otherwise validate it is JSON now, so a
+	// malformed body fails before the flow runs.
+	if !s.rawBody && !expr.IsMultipart(r.Header.Get("Content-Type")) && !json.Valid(raw) {
 		return nil, http.StatusBadRequest, false
 	}
 	return raw, 0, true

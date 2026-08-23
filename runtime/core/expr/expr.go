@@ -25,6 +25,7 @@ import (
 // at compile time, so it is listed rather than left to file names.
 func init() {
 	registerFormDataExtension()
+	registerMultipartExtension()
 	registerJSONExtension()
 	registerYAMLExtension()
 	registerEnvExtension()

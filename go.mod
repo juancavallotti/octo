@@ -3,6 +3,7 @@ module github.com/juancavallotti/octo
 go 1.25.0
 
 require (
+	cloud.google.com/go/compute/metadata v0.5.0
 	github.com/anthropics/anthropic-sdk-go v1.51.0
 	github.com/coreos/go-oidc/v3 v3.19.0
 	github.com/fsnotify/fsnotify v1.10.1
@@ -29,7 +30,6 @@ require (
 	cel.dev/expr v0.25.1 // indirect
 	cloud.google.com/go v0.116.0 // indirect
 	cloud.google.com/go/auth v0.9.3 // indirect
-	cloud.google.com/go/compute/metadata v0.5.0 // indirect
 	github.com/antithesishq/antithesis-sdk-go v0.7.0-default-no-op // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/apapsch/go-jsonmerge/v2 v2.0.0 // indirect
