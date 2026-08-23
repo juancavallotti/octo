@@ -58,6 +58,10 @@ const (
 	// deploymentSnapshotTimeout bounds the DB + cluster work to compute one
 	// deployment snapshot published from the informer callback.
 	deploymentSnapshotTimeout = 15 * time.Second
+	// reconcileTimeout bounds one pass of the drift sweep. Generous because it
+	// reads the whole deployments table and may delete a row and its cluster
+	// resources for each mismatch, and there is no hurry: nothing waits on it.
+	reconcileTimeout = 2 * time.Minute
 	// devRunReapInterval is how often idle dev runs are swept. A minute against an
 	// idle timeout measured in tens of minutes: the sweep is a cache read plus a
 	// comparison, so its cost is not what sets this, and a coarser tick would only
@@ -594,6 +598,15 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 		// options are collected here so the registration reads as one thing.
 		var agentOpts []agent.Option
 
+		// The drift sweep needs all three services, and the agent's is built after
+		// the Kubernetes block that builds the other two — so the two escape the
+		// block here and the sweep starts once all three exist.
+		var (
+			reconcileDeployments *deployment.Service
+			reconcileSecrets     *secret.Service
+			waitForCacheSync     func(context.Context) bool
+		)
+
 		// Deployment and dev-run management need both the database and in-cluster
 		// Kubernetes access. Outside a cluster (e.g. local `go run`) the client is nil
 		// and these routes stay disabled, mirroring how the DB-less case disables the
@@ -651,6 +664,8 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 			// secret a deployment still references).
 			secretSvc := secret.NewService(secret.NewRepo(database.Pool()), kubeClient, deploymentRepo)
 			secret.NewHandler(secretSvc).Register(mux)
+			reconcileDeployments, reconcileSecrets = deploymentSvc, secretSvc
+			waitForCacheSync = kubeClient.WaitForCacheSync
 			slog.Info("secret routes registered",
 				"endpoints", "GET /secrets, PUT/DELETE /secrets/{name}")
 
@@ -699,6 +714,15 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 			agentOpts...,
 		)
 		agent.NewHandler(agentSvc).Register(mux)
+
+		// The drift sweep, once every service it repairs exists. Only with a cluster:
+		// without one there is nothing to disagree with, and every row would look
+		// orphaned.
+		if reconcileDeployments != nil {
+			startReconciler(ctx, reconcileDeployments, agentSvc, reconcileSecrets, waitForCacheSync)
+			slog.Info("deployment reconciler started", "interval", deployment.ReconcileInterval())
+		}
+
 		slog.Info("agent routes registered",
 			"cluster", len(agentOpts) > 0,
 			"endpoints", "GET/DELETE /settings/agent, "+
@@ -827,6 +851,95 @@ func startDevRunReaper(ctx context.Context, svc *devrun.Service) {
 			}
 		}
 	}()
+}
+
+// startReconciler sweeps the database and the cluster back into agreement until
+// ctx ends.
+//
+// Once at startup and on a ticker after that. The startup pass is the one that
+// matters most and is the reason the whole thing exists: the state it repairs —
+// rows describing workloads a rebuilt cluster never had — is created while this
+// process is not running, so waiting a full interval to notice would mean the
+// deployments page is wrong for exactly as long as somebody is most likely to be
+// looking at it.
+//
+// It waits for the informer caches first. Reconcile refuses to act on an untrusted
+// cluster view, so starting before they sync would spend the startup pass doing
+// nothing.
+//
+// Every replica runs its own, and that needs no coordination for the same reason
+// the dev-run reaper does not: two replicas agreeing that a row is orphaned
+// produce one delete and one no-op.
+func startReconciler(
+	ctx context.Context,
+	deployments *deployment.Service,
+	agents *agent.Service,
+	secrets *secret.Service,
+	synced func(context.Context) bool,
+) {
+	go func() {
+		if !synced(ctx) {
+			slog.Warn("reconciler: informer caches did not sync; not sweeping")
+			return
+		}
+		reconcileOnce(ctx, deployments, agents, secrets)
+
+		ticker := time.NewTicker(deployment.ReconcileInterval())
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				reconcileOnce(ctx, deployments, agents, secrets)
+			}
+		}
+	}()
+}
+
+// reconcileOnce runs the three sweeps, in the order their results depend on each
+// other.
+//
+// Deployments first, because the other two are about pointers into what it just
+// decided: the agent's stored id may name a row this pass deleted, and a sweep
+// that ran before it would have found that row still present and left the pointer
+// alone for another interval.
+//
+// Each failure is logged and the next sweep still runs. They are independent
+// repairs — a cluster that cannot list Deployments may answer perfectly well about
+// Secrets — and skipping the rest would tie every repair to the least reliable one.
+func reconcileOnce(
+	ctx context.Context,
+	deployments *deployment.Service,
+	agents *agent.Service,
+	secrets *secret.Service,
+) {
+	sweep, cancel := context.WithTimeout(ctx, reconcileTimeout)
+	defer cancel()
+
+	repaired, err := deployments.Reconcile(sweep)
+	if err != nil {
+		slog.Error("reconcile deployments", "error", err)
+	} else if repaired.RowsDeleted > 0 || repaired.WorkloadsDeleted > 0 {
+		slog.Info("deployments reconciled",
+			"rowsDeleted", repaired.RowsDeleted, "workloadsDeleted", repaired.WorkloadsDeleted)
+	}
+
+	if agents != nil {
+		if fixed, err := agents.Repair(sweep); err != nil {
+			slog.Error("reconcile agent settings", "error", err)
+		} else if fixed {
+			slog.Info("agent settings reconciled: forgot a deployment that no longer exists")
+		}
+	}
+
+	if secrets != nil {
+		if dropped, err := secrets.Reconcile(sweep); err != nil {
+			slog.Error("reconcile secret catalogue", "error", err)
+		} else if dropped > 0 {
+			slog.Info("secret catalogue reconciled", "entriesDropped", dropped)
+		}
+	}
 }
 
 // newCipher builds the at-rest encryption cipher from a base64-encoded key. An empty

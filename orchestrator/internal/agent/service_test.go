@@ -1546,3 +1546,71 @@ func TestSetMaxIterationsRefusesWhenNothingIsInstalled(t *testing.T) {
 		t.Fatalf("error = %v, want ErrNotInstalled", err)
 	}
 }
+
+// Status already masks a deployment that is gone, but it never writes the
+// correction back — so every read rediscovers it. That was tolerable while
+// nothing else read the row; it is not once the reconciler is deleting the very
+// deployment rows this one points at.
+func TestRepairForgetsADeploymentThatIsGone(t *testing.T) {
+	h := newHarness(t, true)
+	ctx := context.Background()
+
+	if _, err := h.svc.Install(ctx, ""); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if h.repo.row.DeploymentID == "" {
+		t.Fatal("want an installed deployment to forget")
+	}
+	h.deployments.getErr = deployment.ErrNotFound
+
+	repaired, err := h.svc.Repair(ctx)
+	if err != nil {
+		t.Fatalf("Repair: %v", err)
+	}
+
+	if !repaired {
+		t.Error("want the repair reported")
+	}
+	if h.repo.row.DeploymentID != "" || h.repo.row.InternalURL != "" {
+		t.Errorf("row still points at %q / %q, want both cleared",
+			h.repo.row.DeploymentID, h.repo.row.InternalURL)
+	}
+}
+
+// An unreadable deployment is this orchestrator failing to look, not the
+// deployment being absent. Clearing on that would offer Deploy against an agent
+// that is running fine, and pressing it would build a second one.
+func TestRepairKeepsADeploymentItCouldNotRead(t *testing.T) {
+	h := newHarness(t, true)
+	ctx := context.Background()
+
+	if _, err := h.svc.Install(ctx, ""); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	installed := h.repo.row.DeploymentID
+	h.deployments.getErr = errors.New("connection refused")
+
+	repaired, err := h.svc.Repair(ctx)
+	if err != nil {
+		t.Fatalf("Repair: %v", err)
+	}
+
+	if repaired {
+		t.Error("want no repair from a deployment that could not be read")
+	}
+	if h.repo.row.DeploymentID != installed {
+		t.Errorf("deploymentId = %q, want it left as %q", h.repo.row.DeploymentID, installed)
+	}
+}
+
+func TestRepairIsANoOpWhenNothingIsDeployed(t *testing.T) {
+	h := newHarness(t, true)
+
+	repaired, err := h.svc.Repair(context.Background())
+	if err != nil {
+		t.Fatalf("Repair: %v", err)
+	}
+	if repaired {
+		t.Error("want nothing repaired when nothing is deployed")
+	}
+}

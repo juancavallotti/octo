@@ -1,6 +1,9 @@
 package secret
 
-import "context"
+import (
+	"context"
+	"log/slog"
+)
 
 // repository is the persistence surface the service needs. Declared in the
 // consumer (and unexported) so service tests can substitute a fake; *Repo
@@ -16,6 +19,10 @@ type repository interface {
 type kubeSecrets interface {
 	SetSecret(ctx context.Context, name, value string) error
 	DeleteSecretKey(ctx context.Context, name string) error
+	// ListSecretNames returns the keys present in the shared Secret. Keys only —
+	// no value ever leaves the cluster through this interface, which is what makes
+	// the reconciler below safe to run unattended.
+	ListSecretNames(ctx context.Context) ([]string, error)
 }
 
 // deploymentRefs reports whether a secret is still referenced by a deployment, so
@@ -81,4 +88,62 @@ func (s *Service) Delete(ctx context.Context, name string, force bool) error {
 		return err
 	}
 	return s.repo.Delete(ctx, name)
+}
+
+// Reconcile drops catalogue entries for secrets the cluster does not have, and
+// reports how many it dropped.
+//
+// The catalogue and the values are two writes to two systems — a row in
+// cluster_secrets and a key in the shared octo-secrets Secret — so a cluster
+// rebuilt from scratch leaves the platform listing secrets that are gone. A
+// deployment binding one of those fails to start with a message about a missing
+// key, while the secrets page insists it is there.
+//
+// **The other direction is deliberately left alone.** A key in the Secret with no
+// catalogue row is logged and kept: deleting key material on the strength of a
+// missing database row is not a trade worth making automatically, and the failure
+// that would justify it — a catalogue restored from an older backup — is exactly
+// the case where the key is the thing worth saving.
+func (s *Service) Reconcile(ctx context.Context) (int, error) {
+	if s.kube == nil {
+		return 0, nil
+	}
+
+	names, err := s.kube.ListSecretNames(ctx)
+	if err != nil {
+		// Reported rather than repaired, for the same reason the deployment sweep
+		// refuses to act on a failed listing: an empty answer from a cluster that was
+		// never successfully asked is an instruction to delete the whole catalogue.
+		return 0, err
+	}
+	inCluster := make(map[string]bool, len(names))
+	for _, name := range names {
+		inCluster[name] = true
+	}
+
+	rows, err := s.repo.List(ctx)
+	if err != nil {
+		return 0, err
+	}
+
+	dropped := 0
+	for _, row := range rows {
+		if inCluster[row.Name] {
+			delete(inCluster, row.Name)
+			continue
+		}
+		if err := s.repo.Delete(ctx, row.Name); err != nil {
+			slog.Error("secret reconcile: drop catalogue entry", "name", row.Name, "error", err)
+			continue
+		}
+		slog.Warn("secret reconcile: dropped a catalogue entry the cluster does not have",
+			"name", row.Name)
+		dropped++
+	}
+
+	for name := range inCluster {
+		slog.Warn("secret reconcile: the cluster holds a secret the catalogue does not list; "+
+			"it is being kept, not deleted", "name", name)
+	}
+	return dropped, nil
 }

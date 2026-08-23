@@ -30,6 +30,9 @@ type repository interface {
 	UpdateMetadata(ctx context.Context, id string, metadata json.RawMessage) error
 	UpdateMetadataAndSettings(ctx context.Context, id string, metadata, settings json.RawMessage) error
 	Delete(ctx context.Context, id string) error
+	// ListAll exists for the reconciler; nothing else here needs a read that is
+	// not scoped to an integration.
+	ListAll(ctx context.Context) ([]Deployment, error)
 }
 
 // integrationStore is the slice of the integration repository the service needs
@@ -73,6 +76,9 @@ type kubeClient interface {
 	RunnerEnabled(runner kube.Runner) bool
 	ExternalURL(subdomain string) string
 	SecretKeyExists(ctx context.Context, name string) (bool, error)
+	// DeploymentIDs is the reconciler's view of the cluster: every deployment this
+	// orchestrator has a workload for, and whether the answer can be trusted.
+	DeploymentIDs(ctx context.Context) (map[string]bool, bool, error)
 }
 
 // storeCleaner removes a deployment's entries from a deployment-scoped store
