@@ -34,6 +34,14 @@ export async function setAgentTracing(tracing: boolean): Promise<AgentStatus> {
   return unwrap(await actions.setAgentTracing(tracing));
 }
 
+/**
+ * Set the turn limit for one run, or 0 to go back to the definition's default.
+ * A rolling update, for the same reason tracing is: the runtime reads it at startup.
+ */
+export async function setAgentMaxIterations(maxIterations: number): Promise<AgentStatus> {
+  return unwrap(await actions.setAgentMaxIterations(maxIterations));
+}
+
 /** Undeploy the agent, and with `purge` delete its integration too. */
 export async function uninstallAgent(purge: boolean): Promise<void> {
   return unwrap(await actions.uninstallAgent(purge));

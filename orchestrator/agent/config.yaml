@@ -74,8 +74,24 @@ env:
   # verbatim either way.
   - name: AGENT_MEMORY_TOKENS
     default: "500000"
+  # How many tool-calling turns one run may take before the guardrail ends it.
+  #
+  # Sixty rather than twenty-four because twenty-four was not enough for the work
+  # he is actually asked to do. A single real request — read the traces for a
+  # failing deployment, work out why, write a fix and prove it with a test suite —
+  # spends a turn per tool call, and the loop above is docs, then API, then write,
+  # then run, then read, then fix. Twenty-four ran out mid-investigation often
+  # enough that "he ran out of steps" read as the agent being unable to do the job
+  # rather than as a limit set too low.
+  #
+  # It is a ceiling and not a budget: a run that finishes in four takes four. What
+  # it costs is the tail — a genuinely stuck run now burns sixty turns before the
+  # guardrail catches it, which is the trade being made deliberately.
+  #
+  # Overridable per installation from Admin, Platform agent; that binding, when
+  # set, replaces this default.
   - name: AGENT_MAX_ITERATIONS
-    default: "24"
+    default: "60"
 
   # Where his workspace is, and where the programs he runs live.
   #
@@ -376,14 +392,27 @@ flows:
                 ifClosed: stop
 
         prompt: >
-          You are Dr. Octo, the agent built into this Octo platform. You are named
-          after a certain bald doctor with a fondness for elaborate schemes, and you
-          have his flair without his ethics: you are genuinely helpful, you never
-          hold anything to ransom, and one MILLION dollars is not a running joke you
-          need to make unprompted. You are also, literally, an Octo App — a flow
-          definition with an ai-agent block, deployed by the orchestrator exactly
-          like the integrations you help build. Mention that only if someone asks;
-          it is a fact, not a personality.
+          You are Dr. Octo, the agent built into this Octo platform. You are a
+          parody of Dr. Evil from the Austin Powers films — bald, black Nehru
+          collar, steepled fingers, a fondness for calling perfectly ordinary work
+          a scheme — and you have all of his theatricality and none of his ethics
+          problem. You are genuinely helpful, you never hold anything to ransom,
+          and you do not do the one-MILLION-dollars bit unprompted.
+
+
+          The register: a dry aside now and then, an occasional pause for effect, a
+          routine deployment referred to as a plan coming together. That is
+          seasoning on competent work and never a substitute for it. If the choice
+          is between landing a joke and answering the question, answer the
+          question — an agent performing a character instead of doing the job is
+          the failure mode here, and it is worse than having no character at all.
+          Drop the register entirely when someone is stuck, something is broken in
+          production, or the answer is bad news.
+
+
+          You are also, literally, an Octo App — a flow definition with an ai-agent
+          block, deployed by the orchestrator exactly like the integrations you help
+          build. Mention that only if someone asks; it is a fact, not a personality.
 
 
           You are talking to a signed-in user of this platform. Their name arrives in
@@ -1242,12 +1271,22 @@ flows:
 
         default:
           process:
+            # The guardrail runs for every reason a run can end without an answer —
+            # a refusal, and now also a run that spent its whole turn budget — and
+            # the flow cannot tell which: the reason travels on the `guardrail`
+            # event, not in this body. So the line has to be true of all of them.
+            # It used to say "outside my remit", which is a refusal's answer and a
+            # wrong one for a run that worked to its limit and ran out.
+            #
+            # The panel names the actual reason underneath this, so being specific
+            # here would only be a second, less-informed guess at it.
             - type: set-payload
               settings:
                 value: >-
-                  {"answer": "That one is outside my remit. I am Dr. Octo — I run
-                  this Octo platform, and my schemes extend to integrations,
-                  deployments and the flows you are building. Ask me about those."}
+                  {"answer": "I have stopped short of an answer on that one — the
+                  scheme did not come together. I am Dr. Octo: integrations,
+                  deployments, flows, logs and traces are my remit. Narrow it down
+                  or point me at something concrete and I will have another go."}
 
       # ------------------------------------------------------------ the record
       #

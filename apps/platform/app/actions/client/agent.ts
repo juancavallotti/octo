@@ -1,6 +1,6 @@
 /**
  * The platform agent's install lifecycle: what is installed, what is running, and
- * the four things an operator can do about it.
+ * the handful of things an operator can do about it.
  *
  * The agent is an ordinary integration — the orchestrator installs it from a bundle
  * it ships, but everything after that is the same integration, snapshot and
@@ -38,6 +38,12 @@ export interface AgentStatus {
    */
   edited: boolean;
   tracing: boolean;
+  /**
+   * How many tool-calling turns one run may take, when an operator has set a limit.
+   * Absent means the agent's own definition decides, which is the default state and
+   * is why this is optional rather than a number that is sometimes meaningless.
+   */
+  maxIterations?: number;
   /** "" when nothing stands in the way; otherwise kubernetes | encryption | llm_key. */
   blocked?: string;
   /** The deployment's own phase, and its failure message when it has one. */
@@ -62,6 +68,17 @@ export function setAgentTracing(
   tracing: boolean,
 ): Promise<ActionResult<AgentStatus>> {
   return call<AgentStatus>("POST", "/settings/agent/tracing", { actorId, tracing });
+}
+
+/**
+ * Set how many turns one run may take. Zero clears the override and puts the
+ * definition's own default back in force — the only way back to the shipped value.
+ */
+export function setAgentMaxIterations(
+  actorId: string,
+  maxIterations: number,
+): Promise<ActionResult<AgentStatus>> {
+  return call<AgentStatus>("POST", "/settings/agent/max-iterations", { actorId, maxIterations });
 }
 
 /**

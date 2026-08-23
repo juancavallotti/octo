@@ -19,6 +19,11 @@ var (
 	// binding an empty one produces a pod that starts and then cannot work.
 	ErrNoOrchestratorURL = errors.New("agent: ORCHESTRATOR_URL is not configured")
 
+	// ErrInvalidIterations — the requested turn limit is outside what an operator is
+	// allowed to set. Its own error so the handler can answer 400 rather than 500:
+	// the number came from the caller, and the message says the range.
+	ErrInvalidIterations = errors.New("agent: turn limit out of range")
+
 	// ErrUnknownProvider — the site's LLM settings name a provider this orchestrator
 	// cannot map to a runtime connector. Its own error because the fix is in the LLM
 	// settings, not here.

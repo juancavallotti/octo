@@ -6,12 +6,14 @@ const getAgentStatus = vi.fn();
 const installAgent = vi.fn();
 const rolloutAgent = vi.fn();
 const setAgentTracing = vi.fn();
+const setAgentMaxIterations = vi.fn();
 const uninstallAgent = vi.fn();
 vi.mock("@/app/model/agent", () => ({
   getAgentStatus: () => getAgentStatus(),
   installAgent: () => installAgent(),
   rolloutAgent: () => rolloutAgent(),
   setAgentTracing: (on: boolean) => setAgentTracing(on),
+  setAgentMaxIterations: (n: number) => setAgentMaxIterations(n),
   uninstallAgent: (purge: boolean) => uninstallAgent(purge),
 }));
 
@@ -61,6 +63,7 @@ describe("AgentSettingsManager", () => {
     installAgent.mockResolvedValue(DEPLOYED);
     rolloutAgent.mockResolvedValue(DEPLOYED);
     setAgentTracing.mockResolvedValue({ ...DEPLOYED, tracing: true });
+    setAgentMaxIterations.mockResolvedValue({ ...DEPLOYED, maxIterations: 40 });
     uninstallAgent.mockResolvedValue(undefined);
   });
 
@@ -259,5 +262,86 @@ describe("AgentSettingsManager", () => {
 
     await waitFor(() => expect(screen.getByText("ImagePullBackOff")).toBeTruthy());
     expect(screen.getByRole("button", { name: "Redeploy" })).toBeTruthy();
+  });
+});
+
+/**
+ * The turn limit — the only edited setting on this page, and the one with a rule
+ * worth pinning: an empty field is not "unchanged", it is how the override is
+ * cleared.
+ */
+describe("AgentSettingsManager turn limit", () => {
+  beforeEach(() => {
+    getAgentStatus.mockResolvedValue(DEPLOYED);
+    setAgentMaxIterations.mockResolvedValue({ ...DEPLOYED, maxIterations: 40 });
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+    vi.restoreAllMocks();
+  });
+
+  /** The field, once the page has loaded a deployed agent. */
+  async function turnLimit() {
+    renderManager();
+    return waitFor(() => screen.getByLabelText("Turn limit") as HTMLInputElement);
+  }
+
+  // Nothing to configure when nothing is running: the setting reaches the runtime
+  // by replacing pods, and there are none.
+  it("is hidden until the agent is deployed", async () => {
+    getAgentStatus.mockResolvedValue(NOT_INSTALLED);
+    renderManager();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Install" })).toBeTruthy());
+    expect(screen.queryByLabelText("Turn limit")).toBeNull();
+  });
+
+  // Empty rather than a number, because no override is in force and showing the
+  // definition's own default here would claim one that does not exist.
+  it("starts empty when the definition's default is in force", async () => {
+    const field = await turnLimit();
+
+    expect(field.value).toBe("");
+    expect(screen.getByRole("button", { name: "Apply" }).hasAttribute("disabled")).toBe(true);
+  });
+
+  it("applies a limit that is in range", async () => {
+    const user = userEvent.setup();
+    const field = await turnLimit();
+
+    await user.type(field, "40");
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+
+    await waitFor(() => expect(setAgentMaxIterations).toHaveBeenCalledWith(40));
+  });
+
+  // Clearing the field is the only way back to the shipped default, so it has to
+  // reach the orchestrator as the zero that means "no override" rather than as a
+  // no-op the page quietly swallows.
+  it("clears the override by emptying the field", async () => {
+    const user = userEvent.setup();
+    getAgentStatus.mockResolvedValue({ ...DEPLOYED, maxIterations: 40 });
+    setAgentMaxIterations.mockResolvedValue(DEPLOYED);
+    const field = await turnLimit();
+    expect(field.value).toBe("40");
+
+    await user.clear(field);
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+
+    await waitFor(() => expect(setAgentMaxIterations).toHaveBeenCalledWith(0));
+  });
+
+  // Answered here rather than by the orchestrator, because the round trip that
+  // would answer it also replaces the agent's pods.
+  it("refuses a limit outside the range without asking the server", async () => {
+    const user = userEvent.setup();
+    const field = await turnLimit();
+
+    await user.type(field, "500");
+
+    expect(screen.getByText(/Between 1 and 200/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Apply" }).hasAttribute("disabled")).toBe(true);
+    expect(setAgentMaxIterations).not.toHaveBeenCalled();
   });
 });

@@ -127,6 +127,27 @@ Turn it off with the toggle if you would rather. That is a decision, and it stic
 
 Expect his pods to be replaced either way: the runtime reads the tracing setting when it starts, so it cannot be changed in place. Nothing else about the deployment changes — same version, same environment.
 
+## Give him more turns
+
+One answer is a loop: he calls a tool, reads what came back, and decides what to do
+next. Each pass through that loop is a **turn**, and there is a limit on how many one
+answer may take. Reaching it ends the run without an answer, and the panel says he
+ran out of steps.
+
+He ships with a limit of **60**, which is enough for the work he is usually asked to
+do — read the traces for a failing deployment, work out why, write a fix, prove it
+with a test suite. Raise it under **Admin → Platform agent** if the tasks you give
+him are longer than that, or lower it to cap what a stuck run can spend before the
+guardrail catches it. Leave the field empty to use the limit his definition ships
+with; clearing it is how you get back to that after setting a number.
+
+It is a ceiling and not a budget: an answer that takes four turns takes four. What a
+higher limit costs is the tail — a genuinely stuck run burns the whole allowance
+before it stops.
+
+Applying it replaces his pods, the same as tracing and for the same reason: the
+runtime reads the limit when it starts.
+
 ## Remove him
 
 Press **Remove** to undeploy him. The integration is **kept**, so any changes you made survive and installing again reuses them — this is the reversible half.
