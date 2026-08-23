@@ -2,9 +2,9 @@ apiVersion: v2
 name: octo
 description: >-
   octo enterprise-integration platform — the editor UI, the orchestrator API, the
-  log aggregator, a NATS broker and Postgres. Ships environment profiles for k3d,
-  kind, GKE (Autopilot and Standard) and EKS, and can run against a managed
-  database instead of the bundled Postgres.
+  log aggregator, a NATS broker, Redis and Postgres. Ships environment profiles
+  for k3d, kind, GKE (Autopilot and Standard) and EKS, and can run against a
+  managed database or Redis instead of the bundled ones.
 type: application
 # Three versions in this file, all the same string, each stamped by release-please
 # from the annotation on its own line. The annotations are load-bearing: this file

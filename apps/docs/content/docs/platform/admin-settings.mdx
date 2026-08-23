@@ -131,3 +131,32 @@ This is the one thing in the admin section that destroys data rather than config
 </Callout>
 
 Two behaviours worth knowing, both explained in [Traces](/platform/traces#retention): a trace is deleted whole rather than by record, and stored model prices are never deleted, because a traced call's cost points into that history.
+
+## Platform services
+
+`/platform/admin/health` is the one page in this section that reports rather than
+configures. It asks the orchestrator whether it can currently reach the four
+things this installation runs on:
+
+| Service | What stops working without it |
+| --- | --- |
+| Postgres | Everything. Integrations, deployments, stored logs and traces all live there. |
+| Redis | The fold that keeps streamed traces small. See [Redis](/deploy/helm#redis). |
+| NATS | Live updates — deployment status, and the telemetry runtimes ship to the aggregator. |
+| Kubernetes | Deploying anything. Without it the platform is an editor and a database. |
+
+Each check is **one round trip**, and the page says so. That is enough to prove a
+dependency answered and no more: Postgres answering says nothing about
+replication lag, and Redis answering says nothing about how full it is. A page
+that implied otherwise would be worse than this one, because it would be
+believed.
+
+Three results, not two. **Not configured** is neutral rather than a warning —
+running an orchestrator without cluster access is a supported way to run, and
+colouring it as a fault would send you looking for one that is not there.
+**Unreachable** shows the transport error verbatim, because that string is what
+you would otherwise go to the pod logs for.
+
+It checks on load and on **Check again**, and does not poll: the page is opened
+to answer a question, and a poll would keep probes running against a cluster that
+is already having a bad day.

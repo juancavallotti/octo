@@ -44,6 +44,19 @@ tasks:
 
   test:
     desc: 'Run the logs tests (pass go test flags after --, e.g. task logs:test -- -race)'
+    # The trace fold's store is two Lua scripts, and what they are for is
+    # atomicity — so they are tested against a real server or not at all. A fake
+    # would prove the Go around them compiles.
+    #
+    # Set REDIS_TEST_URL to run them; without it they skip, the same way the
+    # orchestrator's repository tests skip without TEST_DATABASE_URL. Spin one up
+    # with:
+    #
+    #   docker run --rm -d -p 63799:6379 redis:7-alpine
+    #   REDIS_TEST_URL=redis://127.0.0.1:63799 task logs:test
+    #
+    # The database is FLUSHED at the start of each case, so point it at a
+    # throwaway server and never at one holding anything.
     cmds:
       # CLI_ARGS lands before the package list so `-race` and friends are flags
       # rather than package names. CI passes -race; a local run defaults to plain.

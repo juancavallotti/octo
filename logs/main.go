@@ -24,12 +24,15 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nats-io/nats.go"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/juancavallotti/octo/logs/internal/api"
 	"github.com/juancavallotti/octo/logs/internal/cost"
 	"github.com/juancavallotti/octo/logs/internal/db"
+	"github.com/juancavallotti/octo/logs/internal/fold"
 	"github.com/juancavallotti/octo/logs/internal/ingest"
 	"github.com/juancavallotti/octo/logs/internal/openapi"
+	"github.com/juancavallotti/octo/logs/internal/redisx"
 	"github.com/juancavallotti/octo/logs/internal/repo"
 	"github.com/juancavallotti/octo/logs/internal/retention"
 )
@@ -44,6 +47,30 @@ const (
 	// readHeaderTimeout bounds time spent reading request headers, mitigating
 	// slow-header denial-of-service attempts.
 	readHeaderTimeout = 10 * time.Second
+
+	// How a run of near-identical trace records is collapsed into one.
+	//
+	// foldWindow is how long a run stays open with nothing arriving, and it is the
+	// only thing that ends a run that simply stopped. A second is comfortably longer
+	// than the gap between two frames of a stream — those arrive tens of times a
+	// second — and short enough that a block record in an ordinary flow, which folds
+	// nothing, is stored about as promptly as it was before. That delay is the price
+	// of folding at all, and it is affordable only because traces are read after the
+	// fact rather than watched live.
+	foldWindow = time.Second
+	// A backstop for nothing ever sweeping again — a replica that died holding open
+	// runs — rather than a second deadline. Well above the window so it never
+	// competes with it.
+	foldTTL = 10 * time.Minute
+	// The cap on a run's merged text. Generous, because the point of merging is to
+	// read a streamed answer back as prose and an answer cut off at the interesting
+	// part would leave the row honest and useless. Past it the fold is marked
+	// truncated — the same flag the runtime sets when it drops a payload of its own.
+	foldMaxBodyBytes = 32 * 1024
+	// The shortest run worth rewriting. Below this the attributes a fold adds cost
+	// more than the rows it saves, and a reader learns nothing from being told that
+	// a two-record span is two records.
+	foldMinRun = 4
 )
 
 func main() {
@@ -66,6 +93,33 @@ func run() error {
 	// Root context cancelled on SIGINT/SIGTERM so pod termination drains cleanly.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	// Redis is the one dependency this service refuses to start without, and it is
+	// deliberately not treated like the two below it.
+	//
+	// A missing DATABASE_URL or NATS_URL degrades to "serving /healthz while the
+	// dependencies come up", which is right for both: they are reachable or they
+	// are not, and the consumers reconnect. Redis is different because what it
+	// holds is not a connection but a decision — the fold that collapses a
+	// streaming block's per-frame trace records into one row. An aggregator that
+	// started without it would look healthy, consume normally, and quietly store
+	// tens of thousands of rows per conversation again, which is the bug the fold
+	// exists to fix and is invisible until the table is large.
+	//
+	// So this fails loudly, at the one moment somebody is watching, naming the
+	// variable and the chart value that sets it.
+	redisURL := os.Getenv("REDIS_URL")
+	if redisURL == "" {
+		return errors.New("REDIS_URL is not set: the aggregator folds trace records in " +
+			"Redis and will not run without one — set redis.enabled=true, or point " +
+			"externalRedis.url at a Redis this cluster can reach")
+	}
+	rdb, err := redisx.Open(ctx, redisURL)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rdb.Close() }()
+	slog.Info("connected to redis")
 
 	var database *db.DB
 	if dsn == "" {
@@ -105,7 +159,7 @@ func run() error {
 		defer func() { _ = logs.Close() }()
 		slog.Info("consuming logs", "subject", ingest.LogSubject, "nats", natsURL)
 
-		traces, err := startTraces(ctx, database.Pool(), conn)
+		traces, err := startTraces(ctx, database.Pool(), conn, rdb)
 		if err != nil {
 			return err
 		}
@@ -144,7 +198,7 @@ func run() error {
 // afterwards, never the other way round: a process that waited on the published
 // catalogue before consuming would price nothing while the feed was slow, and
 // nothing at all for as long as it was down. Rates already stored answer both.
-func startTraces(ctx context.Context, pool *pgxpool.Pool, conn *nats.Conn) (*ingest.Subscription, error) {
+func startTraces(ctx context.Context, pool *pgxpool.Pool, conn *nats.Conn, rdb *redis.Client) (*ingest.Subscription, error) {
 	store := cost.NewStore(pool)
 	interval := priceRefreshInterval()
 
@@ -168,6 +222,7 @@ func startTraces(ctx context.Context, pool *pgxpool.Pool, conn *nats.Conn) (*ing
 		repo.NewTraces(pool),
 		ingest.NewIntegrationResolver(repo.NewDeployments(pool)),
 		cost.NewPricer(sources...),
+		fold.NewStore(rdb, foldWindow, foldTTL, foldMaxBodyBytes, foldMinRun),
 	)
 	return consumer.Start(ctx, conn)
 }

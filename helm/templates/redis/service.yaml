@@ -1,0 +1,11 @@
+{{- if .Values.redis.enabled }}
+{{- /* Plain ClusterIP, and no headless companion. NATS has one so cluster routes
+       can find each replica and Postgres has one so its StatefulSet is governed
+       by stable per-pod DNS; a single unreplicated Redis needs neither, and a
+       second Service would only be a name nothing resolves. */}}
+{{- include "octo-common.service" (dict
+      "root" $
+      "component" "redis"
+      "ports" (list
+        (dict "name" "redis" "port" .Values.redis.service.port "targetPort" 6379))) }}
+{{- end }}

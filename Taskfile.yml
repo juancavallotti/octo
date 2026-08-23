@@ -834,6 +834,22 @@ tasks:
         check external-db \
           --set postgres.enabled=false --set externalDatabase.host=db.example.com \
           --set externalDatabase.existingSecret=db-creds --set externalDatabase.existingSecretPasswordKey=password
+        # A managed Redis instead of the bundled one. The URL is the whole
+        # connection here, unlike the database's, so this is the only render that
+        # proves the helper prefers it over the in-cluster Service name.
+        check external-redis \
+          --set redis.enabled=false --set externalRedis.url=redis://cache.example:6379
+        # The same, with the URL in a Secret the caller owns — the path a managed
+        # Redis with a password takes. It renders a secretKeyRef where the others
+        # render a literal, and nothing else in the chart does that for Redis.
+        check external-redis-secret \
+          --set redis.enabled=false --set externalRedis.existingSecret=octo-redis
+        # The bundled Redis with its ceiling written as a byte count rather than a
+        # suffixed string, which is how a values file that wants an exact figure
+        # would write it — and which renders an integer into an args list the API
+        # server requires strings in.
+        check redis-numeric-max \
+          --set redis.maxmemory=268435456
         # The bundled database with its password in a Secret the caller owns. The
         # empty --set clears the one $required supplies, so this also proves an
         # existing Secret is sufficient on its own.
@@ -923,6 +939,23 @@ tasks:
         check_absent wildcard-no-cert "kind: Certificate" \
           --set wildcardTLS.enabled=true --set wildcardTLS.clusterIssuer= \
           --set orchestrator.baseDomain=apps.example.com --set ingress.tls.mode=secret
+        # Redis is not optional the way NATS is: the aggregator will not start
+        # without one, so an install with neither the bundled server nor a managed
+        # URL has to fail while rendering rather than come up and quietly stop
+        # folding trace records.
+        check_fails redis-missing     "redis is required" \
+          --set redis.enabled=false
+        # A credentialled URL must never reach a workload template as a literal.
+        # The guard is the absence of the value, which no successful render proves.
+        check_absent redis-secret-not-literal "rediss://default:pw@" \
+          --set redis.enabled=false --set externalRedis.existingSecret=octo-redis \
+          --set externalRedis.url='rediss://default:pw@cache.example:6380'
+        # Pointed at a managed Redis, the chart must not also run one. Rendering
+        # successfully proves nothing here — the StatefulSet's absence is the
+        # whole point, and only its component label distinguishes it from the two
+        # StatefulSets that remain.
+        check_absent redis-not-bundled "app.kubernetes.io/component: redis" \
+          --set redis.enabled=false --set externalRedis.url=redis://cache.example:6379
         echo "✓ chart lints and renders valid manifests for every profile, and refuses every combination it should"
 
   helm:package:

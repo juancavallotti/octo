@@ -527,6 +527,78 @@ nats:
     monitorPort: 8222
   resources: {}
 
+# Redis, for state that has to be shared between replicas of a component rather
+# than held in one process. It is bundled the same way NATS is — a StatefulSet, a
+# ClusterIP Service, the public image, no authentication — because it sits behind
+# the same boundary: reachable only from inside the namespace, and holding nothing
+# that outlives a few seconds.
+#
+# Its first consumer is the telemetry aggregator, which folds the run of trace
+# records a streaming block emits into one row. The consumers are a NATS queue
+# group, so one trace's records are already spread across whichever replicas are
+# running, and a fold held in one process would quietly stop working the moment
+# `logs.replicas` went above 1.
+#
+# Unlike nats.enabled, turning this off is not simply "omit the component": the
+# aggregator refuses to start without a Redis to fold in, so an install with
+# neither this nor externalRedis.url fails while rendering, with a message saying
+# so. That is deliberate — the alternative is a component that comes up healthy
+# and silently stops doing the thing it was changed to do.
+#
+# There is no persistence and there is no volume. What lives here is regenerated
+# within seconds of being lost, and losing it loses at most the trace records in
+# the folds that were open — the same at-most-once contract the rest of the trace
+# pipeline ships with.
+redis:
+  enabled: true
+  image:
+    # Third-party image; same registry rules as postgres and nats above. Empty
+    # registry means Docker Hub, and it deliberately does NOT inherit the shared
+    # image.registry, which holds the octo-* images only.
+    registry: ""
+    repository: redis
+    tag: "7-alpine"
+    pullPolicy: IfNotPresent
+  service:
+    port: 6379
+  # The ceiling the server holds itself to, and what it does on reaching it.
+  #
+  # Bounded on purpose. Unbounded, one fold that never closes grows until the pod
+  # is OOM-killed and every other fold dies with it; bounded, Redis drops the
+  # coldest keys and everything else carries on. 256Mi is generous for the fold
+  # traffic a single installation produces — a fold is a few hundred bytes and
+  # lives for seconds — so reaching it means something is wrong rather than busy.
+  #
+  # Set this BELOW the container memory limit if you set one, or the kernel gets
+  # there before Redis does and the policy never runs.
+  maxmemory: 256mb
+  maxmemoryPolicy: allkeys-lru
+  resources: {}
+
+# A Redis this chart does not run — a managed one (Memorystore, ElastiCache), or
+# one shared with something else in the cluster. Set one of these and
+# redis.enabled=false.
+#
+# The whole connection is one string, because unlike the database none of it is
+# resolved from separate values: a redis:// or rediss:// URL. Which of the two
+# keys below it goes in depends on one thing — whether it contains a password.
+externalRedis:
+  # A URL with NO credential in it. It is rendered into the workload as a literal
+  # environment value, which is right for an address and wrong for a secret: a
+  # rendered Deployment is readable by anyone who can read workloads, and that is
+  # a wider audience than anyone who can read Secrets.
+  url: ""
+  # A Secret you created holding the whole URL, for the usual case where the
+  # server wants a password. It wins over `url` when both are set, and the
+  # variable is bound to it by reference so the credential never enters a
+  # workload template. Create it yourself — the chart will not put a password of
+  # yours into a manifest:
+  #
+  #   kubectl create secret generic octo-redis \
+  #     --from-literal=redis-url='rediss://default:pw@cache.example:6380'
+  existingSecret: ""
+  existingSecretKey: redis-url
+
 # OIDC single sign-on for the editor (Auth.js). Disabled by default so local and
 # bare deploys stay open; enable on the platform. When enabled the chart creates
 # an auth Secret and the editor mounts these as env vars (AUTH_EETR_*, AUTH_SECRET).

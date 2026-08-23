@@ -54,6 +54,53 @@ A record is stamped when the thing it describes **finished**, so it occupies `[t
 
 `seq` is gapless across a **process**, not within a trace, so one trace's records are normally non-consecutive. A gap in a trace's sequence numbers is never evidence of loss.
 
+### Folded runs
+
+A streaming block is an ordinary block, so the engine emits a `block.pre-invoke`
+and a `block.post-invoke` for **every frame it writes** — which, for an agent
+streaming an answer, is every token. One conversation with the platform agent
+produced a single trace of 26,508 records, and across the whole table those
+records were 93% of the bytes and none of the insight: nobody reads a waterfall
+that is thirty thousand spans of one word each.
+
+So the aggregator collapses a run of near-identical records into one row, and
+says so under `attrs.folded`:
+
+```json
+{ "folded": { "count": 1204, "firstSeq": 8801, "lastSeq": 11208 } }
+```
+
+The row keeps the **first** record's identity — its sequence, event id, block
+path and flow — so a folded span nests exactly where the unfolded ones did. Its
+interval covers the whole run: it begins where the first record began and ends at
+the last one's stamp, which is the same `[ts − duration_ns, ts]` rule everything
+else here follows. The waterfall names it `sse-event ×1204`.
+
+Where the payloads allow it, they are **joined back together**, so the body of a
+folded row is the streamed answer as prose rather than one word of it. That is
+the reason to fold rather than to sample: dropping the rows saves the space,
+getting the text back is what makes the trace worth opening. When the payload
+field is not one the aggregator recognises the row says `"bodies": "first"`, and
+the body is the first record's alone; past 32 KiB it stops merging and sets
+`truncated`, the same flag the runtime sets when it drops a payload of its own.
+
+A run ends when what is streaming changes — the fields beside the text are what
+say a stretch of thinking has become an answer — or when nothing has arrived for
+a second. Finished runs are collected twice a second, so a folded row reaches the
+table within about a second and a half of the stream going quiet. Runs shorter
+than four records are stored unfolded: the accounting would cost more than the
+rows it saved.
+
+Two consequences worth knowing. A `records` count on a summary is the number of
+rows the detail view will show, which after a fold is fewer than the number of
+things that happened — the count inside `attrs.folded` is the second number.
+And a block record is held for up to a second before it is stored, because a run
+cannot be recognised from its first record. Traces are read after the fact, so
+that is affordable.
+
+Folding is **only** applied to the two block kinds. Everything else is one record
+per event already, so holding it could add a delay and never a saving.
+
 ### Versions
 
 Every record carries the `app_name` and `app_version` stamped by the pod that emitted it. A trace keeps the version that produced it across a rollout, and the app list reports one row per `(deployment, name, version)` — so a cost belongs to the release that incurred it rather than to whichever release is current.
@@ -140,13 +187,17 @@ Served by the aggregator on the same port and `LOGS_URL` as the log query API. R
 
 **Paging** is keyset, and the cursor is a **pair** — `<rfc3339nano>|<traceId>`, returned as `next_before` and passed back as `?before=`. It is a pair because traces tie: a burst of requests starts many of them inside the same microsecond, and a cursor on the timestamp alone either skips the rows that tie across a page boundary or serves them twice.
 
-A trace's detail response is capped at 20 000 records with `truncated: true`. A trace that large is pathological — a runaway `foreach`, a loop nobody meant to write — and it is exactly the trace someone opens to find out why, so the cap is reported rather than silently applied: a waterfall drawn from a cut record set is wrong in a way nothing in the picture reveals.
+A trace's detail response is capped at 20 000 records with `truncated: true`. A trace that large is pathological — a runaway `foreach`, a loop nobody meant to write — and it is exactly the trace someone opens to find out why, so the cap is reported rather than silently applied: a waterfall drawn from a cut record set is wrong in a way nothing in the picture reveals. Streaming used to reach this cap on its own; [folded runs](#folded-runs) are why it no longer does.
 
 The summary in the detail response is the **stored** rollup, not one recomputed from the records beneath it, so the number in the list and the number in the detail panel cannot disagree.
 
 ## Configuration
 
-The aggregator needs `DATABASE_URL` and `NATS_URL`; without either it still serves `/healthz`. Two optional settings tune pricing:
+The aggregator needs `DATABASE_URL` and `NATS_URL`; without either it still serves `/healthz`.
+
+It also needs **`REDIS_URL`, and refuses to start without one** — that is where an open run is held while it is being folded. The chart supplies it (see [Redis](/deploy/helm#redis)) and fails while rendering if you turn Redis off without pointing `externalRedis.url` somewhere. The strictness is deliberate: degrading quietly would mean an aggregator that looks healthy while storing tens of thousands of rows per conversation again, which is invisible until the table is large.
+
+Two optional settings tune pricing:
 
 | Variable | Helm value | Default |
 | --- | --- | --- |

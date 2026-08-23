@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot, Mail, Sparkles, Trash2 } from "lucide-react";
+import { Activity, Bot, Mail, Sparkles, Trash2 } from "lucide-react";
 import { ShortcutTile } from "../DashboardTiles";
 
 /**
@@ -39,6 +39,12 @@ export const LIVE = [
     icon: Trash2,
     title: "Data retention",
     subtitle: "How long stored logs and traces are kept",
+  },
+  {
+    href: "/platform/admin/health",
+    icon: Activity,
+    title: "Platform services",
+    subtitle: "Whether Postgres, Redis, NATS and the cluster are reachable",
   },
 ] as const;
 

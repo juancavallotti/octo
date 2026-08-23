@@ -163,6 +163,27 @@ nats:
       cpu: 100m
       memory: 256Mi
 
+redis:
+  enabled: true
+  # The redis image's own user, verified against the image rather than guessed:
+  # uid 999, gid 1000, and /data owned by it. readOnlyRootFilesystem holds because
+  # persistence is off on both sides — `--save ""` and `--appendonly no` — so the
+  # server writes nothing but its log, and that goes to stdout.
+  securityContext:
+    runAsUser: 999
+    runAsGroup: 1000
+    readOnlyRootFilesystem: true
+  # Above redis.maxmemory (256mb) with room for the server's own overhead: if the
+  # limit were the lower of the two, the kernel would OOM-kill the pod before
+  # Redis ever ran its eviction policy, and the policy is the whole point.
+  resources:
+    requests:
+      cpu: 50m
+      memory: 320Mi
+    limits:
+      cpu: 50m
+      memory: 320Mi
+
 ingress:
   enabled: true
   className: nginx
