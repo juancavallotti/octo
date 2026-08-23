@@ -84,6 +84,9 @@ function resolveHost(req: NextRequest): string {
  * API client, and handing one an HTML document in place of the terse error it
  * expected makes a bad log line worse. ingress-nginx forwards the original Accept
  * in `X-Format` precisely so a backend can make this choice.
+ *
+ * Accept alone is not enough to make it, though: the header most machine callers
+ * send is the one that means "anything", so the request method breaks the tie.
  */
 function wantsJSON(req: NextRequest): boolean {
   const accept = (
@@ -91,9 +94,21 @@ function wantsJSON(req: NextRequest): boolean {
     req.headers.get("accept") ??
     ""
   ).toLowerCase();
+  // An explicit ask either way settles it.
   if (accept.includes("text/html")) return false;
-  return accept.includes("json") || accept.includes("*/*") === false;
+  if (accept.includes("json")) return true;
+  // Otherwise the method decides. A person reaching a dead address arrives by
+  // navigation, which is a GET; a POST or a PUT to one is a webhook or an API
+  // client, and handing those a 12 KB document on every retry helps nobody.
+  //
+  // This is the branch an accept-anything header lands in, which is what curl and
+  // most HTTP libraries send when nobody set one — so before this it was the
+  // *common* case for machine traffic, not an edge case.
+  return !SAFE_METHODS.has(req.method.toUpperCase());
 }
+
+/** Methods a browser navigates with, and so a person might be behind. */
+const SAFE_METHODS = new Set(["GET", "HEAD"]);
 
 function respond(req: NextRequest): NextResponse {
   const status = resolveStatus(req);
