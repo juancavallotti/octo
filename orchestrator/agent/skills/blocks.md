@@ -126,7 +126,12 @@ always volatile and have no setting for it.
   maxIterations: 8           # slot, default 8
   stream: true               # token-level streaming; needs an events path
   emit: [text, tool_call, tool_result, done]
-  memoryThreadId: body.threadId    # CEL — one conversation per thread
+  memoryThreadId: body.threadId    # CEL — one conversation per thread. A transcript
+                                   # is keyed by this and nothing else, so two agents
+                                   # resolving the same id share (and overwrite) one
+                                   # conversation. An ai-agent inside another one's
+                                   # tool slot sees the caller's variables, so give it
+                                   # its own suffix — or no memoryThreadId at all.
   memoryMaxTokens: 8000
   memoryCompaction: summarize      # or prune
   events:                    # slot: a sub-flow run once per agent event

@@ -76,6 +76,41 @@ Transcripts are stored in the runtime KV store under a dedicated
 `agent-memory/` prefix in the user namespace, so they never collide with
 `object-read`/`object-write` keys.
 
+### A thread id is the whole identity
+
+The thread is what a transcript is keyed by, and nothing else is. Two `ai-agent`
+blocks that resolve the same id therefore share one conversation: each loads what
+the other wrote, answers with it in context, and saves over it.
+
+That is easiest to write by accident with a **nested agent** — an `ai-agent`
+standing in another agent's tool slot. A tool branch runs on the agent's own
+message, so the nested one sees the caller's variables, and `vars.threadId` is the
+obvious expression in both blocks. Two ways out, and Dr. Octo takes the second:
+
+```yaml
+# Give the specialist a thread of its own, derived from the caller's.
+memoryThreadId: vars.threadKey + "/builder"
+```
+
+```yaml
+# Or leave it out entirely. A specialist that is handed a complete brief and
+# answers once has nothing to remember, and a stateless agent claims nothing.
+```
+
+The runtime does not invent a namespace for you here. It could key a transcript by
+the block's address as well as the thread — and then renaming that block, or moving
+it into an `if`, would silently lose every conversation it had, which is a worse
+failure than the one it prevents. What it does instead is **say so**: when a run
+claims a conversation another live run in the same process is already working, it
+logs a warning naming both blocks, the thread, and what to do about it.
+
+<Callout type="warn">
+A transcript also lives in the **deployment's** KV scope, so undeploying an
+integration erases the conversations it held — a reinstall starts everyone from
+nothing. A roll-out keeps them: it is the same deployment. See
+[#362](https://github.com/juancavallotti/octo/issues/362).
+</Callout>
+
 ### Token budget and compaction
 
 `contextMaxTokens` (default `16000`) caps the agent's **whole prompt** —
