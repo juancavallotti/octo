@@ -86,8 +86,10 @@ the body is the first record's alone; past 32 KiB it stops merging and sets
 
 A run ends when what is streaming changes — the fields beside the text are what
 say a stretch of thinking has become an answer — or when nothing has arrived for
-a second. Runs shorter than four records are stored unfolded: the accounting
-would cost more than the rows it saved.
+a second. Finished runs are collected twice a second, so a folded row reaches the
+table within about a second and a half of the stream going quiet. Runs shorter
+than four records are stored unfolded: the accounting would cost more than the
+rows it saved.
 
 Two consequences worth knowing. A `records` count on a summary is the number of
 rows the detail view will show, which after a fold is fewer than the number of

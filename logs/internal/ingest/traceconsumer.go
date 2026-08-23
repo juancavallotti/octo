@@ -38,13 +38,33 @@ const (
 	// shutdown over.
 	shutdownFlushTimeout = 5 * time.Second
 
-	// expireLimit is how many finished runs one sweep collects.
+	// expireLimit is how many finished runs one pop collects.
 	//
-	// It bounds the script rather than the sweep: a backlog is worked through over
-	// several ticks instead of in one script that holds Redis for the length of it,
-	// and since Redis runs a script with nothing interleaved, an unbounded pop
-	// would stall every other client for as long as it took.
+	// It bounds the script rather than the sweep: since Redis runs a script with
+	// nothing interleaved, an unbounded pop would stall every other client for as
+	// long as it took. A backlog is worked through by popping again — see sweep —
+	// rather than by one long script.
 	expireLimit = 200
+
+	// expirePasses bounds one sweep, so a backlog cannot hold the writer
+	// indefinitely and starve the records still arriving on the channel. What is
+	// left waits for the next tick, which is at most sweepInterval away.
+	expirePasses = 10
+
+	// sweepInterval is how often finished runs are collected.
+	//
+	// It has a timer of its own rather than riding the batch deadline, and that is
+	// a correctness matter rather than a tidiness one. The batch's timer is armed
+	// by adding a row — and a consumer whose records are all foldable adds none,
+	// because they are all being held. The deadline would never fire, the sweep
+	// would never run, and the runs would sit in Redis until their TTL deleted
+	// them unwritten. A trace made entirely of block records is not exotic: it is
+	// what the middle of any streamed answer looks like.
+	//
+	// Half a second against a one-second fold window, so a finished run is written
+	// within about a window and a half of going quiet. An idle tick is one
+	// ZRANGEBYSCORE against an empty set.
+	sweepInterval = 500 * time.Millisecond
 )
 
 // Folder holds runs of near-identical records and hands back the one record that
@@ -150,6 +170,15 @@ func (c *TraceConsumer) write(ctx context.Context, in <-chan *nats.Msg) {
 	batch := newTraceBatch(c.store)
 	defer batch.stop()
 
+	// A nil channel blocks forever in a select, which is exactly what a consumer
+	// with no folder wants: no ticker, and no case that can fire.
+	var sweeps <-chan time.Time
+	if c.folder != nil {
+		ticker := time.NewTicker(sweepInterval)
+		defer ticker.Stop()
+		sweeps = ticker.C
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -166,7 +195,16 @@ func (c *TraceConsumer) write(ctx context.Context, in <-chan *nats.Msg) {
 				c.drain(nil, in, batch)
 				return
 			}
+			batch.flush(ctx)
+		case <-sweeps:
+			if ctx.Err() != nil {
+				c.drain(nil, in, batch)
+				return
+			}
 			c.sweep(ctx, batch)
+			// Flushed here as well as on the batch's own deadline: a sweep may be the
+			// only thing that produced a row, and adding one arms a deadline that is
+			// then the only reason the batch would ever be written.
 			batch.flush(ctx)
 		}
 	}
@@ -249,20 +287,27 @@ func foldable(kind string) bool {
 
 // sweep collects the runs that have gone quiet and adds them to the batch.
 //
-// Driven from the batch's own deadline rather than a timer of its own: that tick
-// already fires whenever the consumer is idle or a batch has aged, which is
-// exactly when a finished run is waiting and nothing else is arriving to notice it.
+// It pops repeatedly while each pop comes back full, because a full pop means
+// there was more due than the script would take in one go — and waiting a whole
+// interval to collect the rest would let a backlog grow faster than it drains.
+// Bounded by expirePasses so a backlog cannot hold the writer while records are
+// still arriving.
 func (c *TraceConsumer) sweep(ctx context.Context, batch *traceBatch) {
 	if c.folder == nil {
 		return
 	}
-	done, err := c.folder.Expire(ctx, time.Now(), expireLimit)
-	if err != nil {
-		slog.Warn("ingest: sweep folded traces", "err", err)
-		return
-	}
-	for _, r := range done {
-		batch.add(ctx, r)
+	for range expirePasses {
+		done, err := c.folder.Expire(ctx, time.Now(), expireLimit)
+		if err != nil {
+			slog.Warn("ingest: sweep folded traces", "err", err)
+			return
+		}
+		for _, r := range done {
+			batch.add(ctx, r)
+		}
+		if len(done) < expireLimit {
+			return
+		}
 	}
 }
 
