@@ -181,7 +181,7 @@ func TestStopWhenEndsTheRunInFlight(t *testing.T) {
 	}
 
 	// The conversation is still saved, and saved replayably.
-	stored, err := loadMemory(ctx, "t1")
+	stored, err := loadMemory(ctx, core.NamespaceUser, "t1")
 	if err != nil {
 		t.Fatalf("loadMemory: %v", err)
 	}

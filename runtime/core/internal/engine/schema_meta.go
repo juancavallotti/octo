@@ -344,6 +344,10 @@ type aiAgentMeta struct {
 	// folds them into a running summary.
 	//nolint:lll // the enum tag (options + default) is inherently longer than 120 cols
 	MemoryCompaction string `json:"memoryCompaction" octo:"label=Memory compaction,type=enum,enum=prune|summarize,default=prune"`
+	// Keep transcripts in the volatile tier (Redis in a cluster) rather than the
+	// persistent one. For a conversation whose loss costs nothing — a specialist in
+	// another agent's tool slot — never for one somebody will ask to see again.
+	MemoryVolatile bool `json:"memoryVolatile" octo:"label=Volatile memory"`
 	// Drive the provider's streaming API so the model's output reaches the events
 	// path as it is produced. Requires an events path and a provider that streams.
 	Stream bool `json:"stream" octo:"label=Stream model output"`

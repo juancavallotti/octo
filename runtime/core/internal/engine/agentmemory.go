@@ -96,11 +96,11 @@ type memoryEnvelope struct {
 	Messages []core.LLMMessage `json:"messages"`
 }
 
-// loadMemory reads the stored state for a thread. A missing thread yields the
-// zero envelope (a fresh conversation).
-func loadMemory(ctx context.Context, threadID string) (memoryEnvelope, error) {
+// loadMemory reads the stored state for a thread from one KV namespace. A missing
+// thread yields the zero envelope (a fresh conversation).
+func loadMemory(ctx context.Context, namespace, threadID string) (memoryEnvelope, error) {
 	kv := core.RuntimeServicesFromContext(ctx).KV()
-	entry, ok, err := kv.Get(ctx, core.NamespaceUser, memoryKey(threadID))
+	entry, ok, err := kv.Get(ctx, namespace, memoryKey(threadID))
 	if err != nil {
 		return memoryEnvelope{}, err
 	}
@@ -136,7 +136,7 @@ func decodeMemory(raw []byte) (memoryEnvelope, error) {
 
 // saveMemory persists a thread's state using optimistic concurrency, re-reading
 // the current version and retrying on a conflict (as object-write does).
-func saveMemory(ctx context.Context, threadID string, env memoryEnvelope) error {
+func saveMemory(ctx context.Context, namespace, threadID string, env memoryEnvelope) error {
 	env.Version = memoryVersion
 	encoded, err := json.Marshal(env)
 	if err != nil {
@@ -145,11 +145,11 @@ func saveMemory(ctx context.Context, threadID string, env memoryEnvelope) error 
 	kv := core.RuntimeServicesFromContext(ctx).KV()
 	key := memoryKey(threadID)
 	for attempt := 0; attempt < memoryWriteAttempts; attempt++ {
-		entry, _, getErr := kv.Get(ctx, core.NamespaceUser, key)
+		entry, _, getErr := kv.Get(ctx, namespace, key)
 		if getErr != nil {
 			return getErr
 		}
-		if _, setErr := kv.Set(ctx, core.NamespaceUser, key, encoded, entry.Version); setErr != nil {
+		if _, setErr := kv.Set(ctx, namespace, key, encoded, entry.Version); setErr != nil {
 			if errors.Is(setErr, core.ErrVersionConflict) {
 				continue // a concurrent writer won; re-read and retry
 			}
@@ -381,8 +381,15 @@ func (p *clearAgentMemory) Process(ctx context.Context, msg *types.Message) (*ty
 		return nil, fmt.Errorf("clear-agent-memory threadId: %w", err)
 	}
 	kv := core.RuntimeServicesFromContext(ctx).KV()
-	if err := kv.Delete(ctx, core.NamespaceUser, memoryKey(threadID), 0); err != nil {
-		return nil, fmt.Errorf("clear-agent-memory %q: %w", threadID, err)
+	// Both tiers, without asking which one to look in. A thread lives in exactly
+	// one of them — whichever its agent declared — and a clear that missed because
+	// the block and the agent disagreed about memoryVolatile would report success
+	// while leaving the conversation intact, which is the one failure a "forget me"
+	// must not have.
+	for _, namespace := range []string{core.NamespaceUser, core.NamespaceUserVolatile} {
+		if err := kv.Delete(ctx, namespace, memoryKey(threadID), 0); err != nil {
+			return nil, fmt.Errorf("clear-agent-memory %q: %w", threadID, err)
+		}
 	}
 	return msg, nil
 }

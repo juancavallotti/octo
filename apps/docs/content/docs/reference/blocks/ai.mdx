@@ -33,6 +33,7 @@ Lets an LLM accomplish a task by calling flow branches as tools, one or more tim
 | `stopWhen` | `expression` (bool) | No | — | Ends the run already working on this message's conversation instead of starting one. Requires `memoryThreadId`, which is what names the conversation. A stop that finds nothing running is a no-op, so a client can send one blind. |
 | `contextMaxTokens` | int | No | `16000` | Token budget for the whole prompt — system, tools and conversation — measured from what the provider reports it read. The transcript is compacted when the prompt would exceed it, before the turn and again before saving. Applies with or without memory. |
 | `memoryCompaction` | enum `prune` \| `summarize` | No | `prune` | How memory over budget shrinks: `prune` drops the oldest turns; `summarize` folds them into a running summary (an extra model call). |
+| `memoryVolatile` | `bool` | No | `false` | Keep transcripts in the volatile KV tier (Redis in a cluster, process memory standalone) rather than the persistent one. For a conversation whose loss costs nothing — a specialist in another agent's tool slot working a [minted scope](#what-a-tool-branch-is-told) — never for one somebody will ask to see again. |
 | `tools` | list | Yes | — | Tool branches (below). At least one required. |
 | `skills` | list | No | — | Loadable instruction resources (below). |
 | `events` | flow | No | — | Observer path, run once per agent event with the event as the body (below). |
@@ -325,13 +326,27 @@ Protects a process chain with an LLM-driven retry loop. When the chain fails, th
         value: '{"status": "degraded", "reason": vars.error.message}'
 ```
 
+### What a tool branch is told
+
+A tool's branch runs on the agent's own message, so it sees the variables the run carries. Three of them describe the call it is inside:
+
+| Variable | What it is |
+|---|---|
+| `vars.toolScope` | A scope minted for this branch: stable for as long as the conversation the call belongs to (or the run, when the agent is stateless), and distinct per tool. Two calls to one tool in one conversation get the same scope; two tools never do. |
+| `vars.toolName` | The tool being run. |
+| `vars.toolCallId` | The provider's id for this one call — unique per call, and the same id the trace and the panel's tool chip carry. |
+
+Nothing here is about what a branch *contains*. An `object-write` keying its state, a [rest](/reference/blocks/integration#rest) call wanting an idempotency key, a `cli-run` naming a scratch file, and a nested `ai-agent` all read the same three variables and decide for themselves.
+
+That last one is why `toolScope` is composed rather than left to the author: an `ai-agent` in another agent's tool slot needs a conversation of its own, and the only identity otherwise available to it is the caller's — which is how two agents end up sharing one transcript. `memoryThreadId: vars.toolScope` with `memoryVolatile: true` gives a specialist a conversation that survives from one delegation to the next and costs nothing when it is lost, and neither block carries configuration for the case.
+
 ## clear-agent-memory
 
 Leaf block: erases an [ai-agent](#ai-agent) conversation thread's stored memory by its thread id. The clear is idempotent — a missing thread is not an error — and the message passes through unchanged.
 
 | Setting | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `threadId` | `expression` (string) | Yes | — | Evaluated to the thread id whose memory is cleared; matches the agent's `memoryThreadId` value. |
+| `threadId` | `expression` (string) | Yes | — | Evaluated to the thread id whose memory is cleared; matches the agent's `memoryThreadId` value. Both KV tiers are cleared, so a thread written by an agent with `memoryVolatile` is reached without saying so here. |
 
 ```yaml
 - name: forget

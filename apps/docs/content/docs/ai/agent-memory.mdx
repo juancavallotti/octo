@@ -85,17 +85,72 @@ the other wrote, answers with it in context, and saves over it.
 That is easiest to write by accident with a **nested agent** — an `ai-agent`
 standing in another agent's tool slot. A tool branch runs on the agent's own
 message, so the nested one sees the caller's variables, and `vars.threadId` is the
-obvious expression in both blocks. Two ways out, and Dr. Octo takes the second:
+obvious expression in both blocks.
+
+The runtime mints a scope for every tool branch, which is the answer:
 
 ```yaml
-# Give the specialist a thread of its own, derived from the caller's.
-memoryThreadId: vars.threadKey + "/builder"
+# A conversation of its own, kept out of the store that is backed up.
+memoryThreadId: vars.toolScope
+memoryVolatile: true
 ```
 
+`vars.toolScope` is stable for as long as the caller's conversation and distinct
+per tool, so a specialist called three times in one conversation is the same
+specialist each time, and two specialists never share. Nothing in the calling
+agent configures it: the runtime knows which call it is making and what
+conversation it is in, so it composes the two — see
+[what a tool branch is told](/reference/blocks/ai#what-a-tool-branch-is-told).
+
+Or leave `memoryThreadId` out. A specialist handed a complete brief that answers
+once has nothing to remember, and a stateless agent claims nothing — which is what
+Dr. Octo's two specialists do.
+
+<Callout type="info">
+`toolScope` is **derived** — from the conversation, the calling block and the tool
+— so it cannot be lost the way a stored id can. The cost of deriving it partly
+from where the block sits is that it moves when the block does: rename the agent,
+or move it into another branch, and its tools start again somewhere new. That is
+the right trade for scaffolding and the wrong one for history, which is why the
+recipe pairs it with `memoryVolatile` and why nothing durable is keyed this way.
+
+If you want one id shared by *several* tools in a conversation — which derivation
+cannot express, since it is distinct per tool — mint one and memoize it:
+
 ```yaml
-# Or leave it out entirely. A specialist that is handed a complete brief and
-# answers once has nothing to remember, and a stateless agent claims nothing.
+- type: set-variable                 # cache-scope caches the body, so stash the args
+  settings: { name: args, value: body }
+- type: cache-scope
+  key: vars.threadKey
+  ttl: "0"                           # the default 60s would re-mint mid-conversation
+  body:
+    process:
+      - type: set-payload
+        settings: { value: '{"id": uuid()}' }
+- type: set-variable
+  settings: { name: shared, value: body.id }
+- type: set-payload
+  settings: { value: vars.args }     # hand the tool its arguments back
 ```
+
+That id is stored rather than derived, so treat eviction as part of the design: a
+TTL, an `invalidate-cache` on the same key, or a wiped store mints a new one and
+whatever was keyed on it starts fresh.
+</Callout>
+
+### Volatile memory
+
+`memoryVolatile: true` puts an agent's transcripts in the volatile KV tier — Redis
+in a cluster, process memory standalone — instead of the persistent one.
+
+Use it for a conversation whose loss costs nothing. A specialist's working
+transcript is scaffolding, and one row per tool per conversation would otherwise
+accumulate in the store the platform backs up and reports on; the volatile tier is
+bounded and evicts under LRU, so scaffolding cleans up after itself.
+
+Never use it for a conversation somebody will ask to see again: the tier makes no
+durability promise and may drop a value on a restart. `clear-agent-memory` clears
+both tiers, so a "forget this" reaches either.
 
 The runtime does not invent a namespace for you here. It could key a transcript by
 the block's address as well as the thread — and then renaming that block, or moving
