@@ -18,7 +18,10 @@ flow: chat
 #
 #   - The whole config builds. Every tool's inputSchema parses, every skill resolves
 #     to a declared template resource, the events path and emit list are valid, and
-#     the block/slot shapes are right.
+#     the block/slot shapes are right. That now covers the two specialist agents in
+#     the coordinator's tool slots: a nested ai-agent is built like any other, so a
+#     broken prompt, tool schema, skill reference or allow list inside one fails
+#     here rather than on the first delegation in production.
 #   - ${LLM_CONNECTOR_TYPE} really does fill a connector's *type*. That is the one
 #     load-bearing trick in this app — three LLM connectors cannot be declared
 #     because each fails startup on an empty apiKey — and if substitution ever
