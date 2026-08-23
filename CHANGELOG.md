@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.8.5](https://github.com/juancavallotti/octo/compare/v0.8.4...v0.8.5) (2026-08-23)
+
+
+### Features
+
+* **cel:** decode and build multipart bodies ([f8fb362](https://github.com/juancavallotti/octo/commit/f8fb362e42f5f49823e3972f18b19fccf53ac93d))
+* **httpclient:** authenticate to GCP with the metadata server ([201caf4](https://github.com/juancavallotti/octo/commit/201caf49ba091765e8dce4a9fc6a3b1a4444b852))
+* **httpclient:** authenticate with the GCP metadata server ([48706f2](https://github.com/juancavallotti/octo/commit/48706f2eed9aa24b9a231dd3a1d7ffb9f56f4797))
+* **httpclient:** send multipart bodies from the rest block ([5f1c84c](https://github.com/juancavallotti/octo/commit/5f1c84c784d6e395921a31848ce4c00f8e0f32d3))
+* **http:** decode multipart requests in the http source ([b418280](https://github.com/juancavallotti/octo/commit/b41828049233e6d668442350a0cde5cc5f4a5104))
+* **types:** carry decoded multipart parts on a raw body ([9e2f3e1](https://github.com/juancavallotti/octo/commit/9e2f3e18cb35192cc35a3e55bc39b1fb68ac65b6))
+
+
+### Documentation
+
+* **cel:** document the multipart functions ([2aedc83](https://github.com/juancavallotti/octo/commit/2aedc8370550f58a9b0e7f36259a87cdafccf3a2))
+* **deploy:** where the binaries in an image come from ([4e5aee1](https://github.com/juancavallotti/octo/commit/4e5aee16b6584f4d0ec701d904425b00ea378ce8))
+* **httpclient:** document GCP metadata auth, and teach both features to the agent ([cad49c1](https://github.com/juancavallotti/octo/commit/cad49c1abd178de503d9a0ad5f205154e67a029c))
+* **http:** document multipart on the source and the rest block ([8866f82](https://github.com/juancavallotti/octo/commit/8866f823e9424f8ec9bc8aae277a585f149c8c6c))
+
 ## [0.8.4](https://github.com/juancavallotti/octo/compare/v0.8.3...v0.8.4) (2026-08-22)
 
 
