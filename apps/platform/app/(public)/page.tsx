@@ -3,7 +3,13 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowRight, BookOpen } from "lucide-react";
 import { auth, authEnabled, signIn } from "@/auth";
+import {
+  OIDC_PROVIDER_ID,
+  OIDC_PROVIDER_LOGO,
+  OIDC_PROVIDER_NAME,
+} from "@/oidc.config";
 import CopyCommand from "./CopyCommand";
+import ProviderLogo from "./ProviderLogo";
 
 const DOCS_URL = "https://juancavallotti.github.io/octo/";
 const STANDALONE_DOCKER = 'docker run -p 3000:3000 -v "$PWD:/work" juancavallotti/octo';
@@ -16,9 +22,10 @@ export const metadata = {
  * The public welcome page (`/`). Three states:
  *
  *  - SSO on + signed in  → bounce straight to the dashboard.
- *  - SSO on + signed out → branded landing with a "Sign in with eetr" action that
- *    starts the OIDC flow and returns to the dashboard (or the deep link the
- *    middleware captured as `callbackUrl`).
+ *  - SSO on + signed out → branded landing with a "Sign in with {provider}"
+ *    action that starts the OIDC flow and returns to the dashboard (or the deep
+ *    link the middleware captured as `callbackUrl`). The provider's name and mark
+ *    come from the operator's OIDC config, since Octo does not ship an IdP.
  *  - SSO off (local dev) → an "Open Octo" link straight into the platform, since
  *    there is no identity provider to sign in against.
  *
@@ -61,15 +68,18 @@ export default async function WelcomePage({
           <form
             action={async () => {
               "use server";
-              await signIn("eetr", { redirectTo: target });
+              await signIn(OIDC_PROVIDER_ID, { redirectTo: target });
             }}
             className="w-full"
           >
             <button
               type="submit"
-              className="w-full rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-zinc-700 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-zinc-700 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
             >
-              Sign in with eetr
+              {OIDC_PROVIDER_LOGO ? (
+                <ProviderLogo src={OIDC_PROVIDER_LOGO} alt="" />
+              ) : null}
+              Sign in with {OIDC_PROVIDER_NAME}
             </button>
           </form>
         ) : (
