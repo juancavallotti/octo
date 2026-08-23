@@ -166,6 +166,42 @@ connectors:
       model: ${LLM_MODEL}
       maxTokens: 8192
 
+  # The same provider, key and model as `llm` above, for the one call that wants
+  # none of its reasoning: naming a conversation in five words. `llm` cannot carry
+  # this setting, because the chat agent it serves reasons for a living.
+  #
+  # Reasoning tokens are spent before any answer and count against the same
+  # ceiling, so a reasoning model asked for a handful of tokens spends them all
+  # thinking and returns an empty body. That is not hypothetical — it is what the
+  # title call did in production against a reasoning model, surfacing as
+  # `ai-mapping: response is not valid JSON: unexpected end of JSON input`.
+  #
+  # Both spellings of the setting are set, because the type is chosen at deploy
+  # time by an environment variable and each provider names this differently.
+  # Settings decode through a plain json.Unmarshal, so whichever connector starts
+  # reads the key it knows and ignores the other; getting one of them wrong would
+  # be silent, which is why the pairing is written down here rather than inferred.
+  #
+  #   reasoning: none   llm-openrouter, llm-openai — genuinely suppresses it
+  #   thinking: off     llm-anthropic — sends no thinking field, and that API
+  #                     reasons only when asked, so not asking is off
+  #                     llm-gemini — also sends nothing, but a 2.5 model reasons
+  #                     by default and the connector cannot express a zero budget,
+  #                     so there the ceiling below is what saves the call
+  #
+  # 1024 rather than the 100 the title block used to ask for: enough that a model
+  # which reasons anyway still has room to emit the object, and small enough that
+  # a runaway costs nothing. See issue #344 for the general fix in the connectors.
+  - name: llm-fast
+    type: ${LLM_CONNECTOR_TYPE}
+    settings:
+      apiKey: ${LLM_API_KEY}
+      model: ${LLM_MODEL}
+      reasoning: none
+      # Quoted: bare off is a YAML 1.1 boolean, and this setting is a string.
+      thinking: "off"
+      maxTokens: 1024
+
   - name: api
     type: http
     settings:
@@ -1452,7 +1488,10 @@ flows:
                 - type: ai-mapping
                   name: write-title
                   settings:
-                    connector: llm
+                    # llm-fast, not llm: this is the one call on the agent that
+                    # wants no reasoning, and reasoning here costs the answer
+                    # rather than improving it. See the connector's own comment.
+                    connector: llm-fast
                     prompt: >
                       Name this conversation the way a person would name it in a list
                       of their past conversations. Five words at most, no quotes, no
@@ -1462,7 +1501,11 @@ flows:
                     outputSchema: |
                       {"type": "object", "required": ["title"],
                        "properties": {"title": {"type": "string", "maxLength": 80}}}
-                    maxTokens: 100
+                    # No per-block ceiling: llm-fast already sets one sized for a
+                    # model that reasons regardless. A tighter one here would be
+                    # the bug this fixed — a title needs a few tokens, but a
+                    # reasoning model needs room to reach them.
+
                 - type: set-variable
                   settings:
                     name: title
