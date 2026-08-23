@@ -83,6 +83,20 @@ build cache. `task bins:linux` compiles all six binaries once on the host, where
 the cache persists between runs; every binary is pure Go with `CGO_ENABLED=0`, so
 cross-compiling needs nothing but the Go toolchain.
 
+<Callout type="warn">
+  These Dockerfiles require **BuildKit**, and not only for the cache mounts. The
+  `prebuilt` stage is unreachable when `BIN_SOURCE=compile`, and BuildKit builds
+  only the stages the target depends on — the legacy builder builds every stage
+  and fails on it with `invalid from flag value prebuilt`. Each file therefore
+  opens with `# syntax=docker/dockerfile:1`, which also pins a frontend new
+  enough for named contexts (1.4+) no matter how old the daemon is.
+
+  Every caller is already on BuildKit: buildx in the release workflow, the
+  default on any current local Docker, and `DOCKER_BUILDKIT=1` on each
+  `cloudbuild.yaml` build step — that last one had to be set explicitly, because
+  `gcr.io/cloud-builders/docker` still defaults to the legacy builder.
+</Callout>
+
 <Callout type="info">
   The binaries reach the build through a **named build context**
   (`--build-context prebuilt=dist/bin`), not a path inside the ordinary one.
