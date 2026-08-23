@@ -8,7 +8,10 @@ service:
 # branch on a null body.
 #
 # The standalone store is in-process, so this one flow reads a key before and
-# after writing it to show both states in a single run.
+# after writing it to show both states in a single run. `octo invoke` keeps the
+# store in memory by default, so re-running this always shows the same miss-then-hit;
+# `octo run` serializes it to --storage-dir instead, and there the key would still
+# be there on the next start.
 #
 # Run it (standalone services module, in-process store):
 #   octo invoke --config samples/object-store.yaml --flow profile \

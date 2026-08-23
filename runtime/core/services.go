@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"errors"
+	"strings"
 )
 
 // ErrVersionConflict is returned by a KV write when the caller's expected version
@@ -53,6 +54,21 @@ const (
 	NamespaceSystemSecrets = "system_secrets"
 	// NamespaceUserSecrets holds user-owned secrets (encrypted at rest by the backend).
 	NamespaceUserSecrets = "user_secrets"
+	// NamespaceSystemVolatile holds internal state whose loss is survivable.
+	NamespaceSystemVolatile = "system_volatile"
+	// NamespaceUserVolatile holds user-owned state whose loss is survivable (e.g. a
+	// memoized cache body).
+	NamespaceUserVolatile = "user_volatile"
+)
+
+// SecretNamespaceSuffix marks the namespaces whose values the backend encrypts at
+// rest. VolatileNamespaceSuffix marks the namespaces a backend is allowed to drop.
+// Both are suffixes rather than a flag on the call because a namespace is already
+// the store's unit of partitioning: a backend routes on the name it was given, and
+// nothing else about the API has to change to gain a tier.
+const (
+	SecretNamespaceSuffix   = "_secrets"
+	VolatileNamespaceSuffix = "_volatile"
 )
 
 // Entry is a versioned KV value. Version is monotonic per key: a freshly created
@@ -68,9 +84,15 @@ type Entry struct {
 // internal component writes under its own namespace is invisible to a key read or
 // written under another. A component using the store is expected to confine itself
 // to a namespace it owns (e.g. a user-facing cache block writes under a "user"
-// namespace), keeping internal state out of reach. In the k8s module the store is
-// backed by the orchestrator API and scoped to the deployment; in the standalone
-// module it is an in-process map.
+// namespace), keeping internal state out of reach.
+//
+// A namespace also picks a durability tier. A persistent namespace is backed by
+// storage that survives a restart: the orchestrator's database in the k8s module, a
+// serialized file in the standalone one. A volatile namespace (see
+// VolatileNamespace) makes no durability promise at all — its values live in Redis
+// in the k8s module and in process memory in the standalone one, and either may
+// drop them on a restart or under memory pressure. So volatile is for state whose
+// loss costs a recompute, never for state whose loss costs correctness.
 //
 // Writes use optimistic concurrency: expectedVersion 0 creates the key (and fails
 // if it already exists), while a positive expectedVersion must equal the stored
@@ -93,6 +115,13 @@ type KV interface {
 // ordinary KV traffic pays no encryption cost, without a second table. The caller
 // passes the same logical namespaces it uses for KV (system/user); the store maps
 // them to their secret counterparts.
+//
+// A secret counterpart is never a volatile namespace — a volatile namespace must
+// not be handed to a SecretStore, because the volatile backends neither encrypt nor
+// promise to keep what they are given. How durable the secret counterpart actually
+// is remains the backend's decision, and the two differ: the k8s module encrypts
+// secrets into the orchestrator's database, while the standalone module keeps them
+// in process memory, having no key to encrypt them with.
 type SecretStore interface {
 	// Get returns the (decrypted) entry for key in namespace; ok is false when absent.
 	Get(ctx context.Context, namespace, key string) (entry Entry, ok bool, err error)
@@ -137,8 +166,37 @@ func secretNamespace(namespace string) string {
 	case NamespaceUser:
 		return NamespaceUserSecrets
 	default:
-		return namespace + "_secrets"
+		return namespace + SecretNamespaceSuffix
 	}
+}
+
+// IsSecretNamespace reports whether a namespace holds secrets. Backends need this
+// to decide what to encrypt — and, in the standalone module, what to keep out of a
+// file altogether.
+func IsSecretNamespace(namespace string) bool {
+	return strings.HasSuffix(namespace, SecretNamespaceSuffix)
+}
+
+// VolatileNamespace maps a logical namespace to its volatile counterpart, the way
+// secretNamespace maps it to its secret one. A caller that wants the volatile tier
+// names the namespace it gets back; nothing else about the call changes.
+//
+// It must never be composed with the secret store: a secret is exactly the kind of
+// value whose loss is not survivable, and the volatile backends do not encrypt.
+func VolatileNamespace(namespace string) string {
+	switch namespace {
+	case NamespaceSystem:
+		return NamespaceSystemVolatile
+	case NamespaceUser:
+		return NamespaceUserVolatile
+	default:
+		return namespace + VolatileNamespaceSuffix
+	}
+}
+
+// IsVolatileNamespace reports whether a namespace is one a backend may drop.
+func IsVolatileNamespace(namespace string) bool {
+	return strings.HasSuffix(namespace, VolatileNamespaceSuffix)
 }
 
 // RuntimeServices is the set of generally-available services wired into the runtime

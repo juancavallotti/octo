@@ -34,6 +34,12 @@ func runCommand(args []string) error {
 	fs.SetOutput(io.Discard) // suppress the default usage dump; we print our own
 	configPath := fs.String("config", "", "path to the runtime config (file or directory)")
 	watch := fs.Bool("watch", false, "reload the config when it changes")
+	// Where the standalone module serializes its persistent objects. Defaulted from
+	// the environment, like every other flag here, so a deployment sets the variable
+	// and a person passes the flag. Empty is meaningful: it keeps the store in
+	// memory, which is how a run leaves nothing on disk.
+	storageDir := fs.String("storage-dir", services.StorageDir(),
+		"directory the standalone object store is serialized into (empty keeps it in memory)")
 	// Hosted runtime services bring their own flags — they have no YAML to
 	// configure them — so they must register before the parse that would reject an
 	// unknown flag.
@@ -77,6 +83,7 @@ func runCommand(args []string) error {
 	// (the config directory) roots the standalone module's resource loader.
 	svc, err := services.New(ctx, services.Options{
 		ResourceRoot: configDir(*configPath),
+		StorageDir:   *storageDir,
 		// Where traces go is the module's choice — a file for standalone, a
 		// broker subject for k8s — so it builds the publisher along with its
 		// queues and its store, from the flags the hosted service resolved above.

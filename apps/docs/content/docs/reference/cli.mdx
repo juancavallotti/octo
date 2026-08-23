@@ -52,6 +52,7 @@ octo run --config samples/hello-world.yaml
 | --- | --- | --- | --- |
 | `--config` | path | (required) | Path to the runtime config — a YAML file or a directory. |
 | `--watch` | bool | `false` | Reload the runtime when the config changes. |
+| `--storage-dir` | path | `./octo-store` | Directory the [object store](/platform/kv-and-storage) is serialized into, so objects survive a restart. An empty value keeps the whole store in memory. Volatile and secret objects are never written there. |
 | `--observability` | bool | `true` | Serve liveness and readiness probes on the admin port. `--observability=false` binds nothing. |
 | `--observability-addr` | address | `:39999` | Admin listen address for the probes and metrics. An address already in use is logged and the run continues without them. |
 | `--metrics` | bool | `false` | Also serve Prometheus metrics at `/metrics` on the admin port. |
@@ -165,6 +166,7 @@ octo invoke --config orders.yaml --flow orders --data '{"orderId": 42}' | jq '.b
 | `--data` | JSON | stdin | JSON request body. When omitted, piped stdin is read instead. |
 | `--content-type` | MIME | (none) | Treat `--data` as a [raw body](/concepts/raw-content) of this type instead of JSON. See [Raw bodies](#raw-bodies). |
 | `--vars` | JSON | (none) | JSON object seeding the message [variables](/concepts/state-and-data). |
+| `--storage-dir` | path | (in memory) | Directory the [object store](/platform/kv-and-storage) is serialized into. Unlike `octo run` this defaults to an in-memory store, so repeated invokes are reproducible; pass it (or set `OCTO_STORAGE_DIR`) to read or seed the objects a run left behind. |
 | `--timeout` | duration | `30s` | Maximum time to wait for the flow (Go duration, e.g. `10s`, `2m`). |
 | `--break-at` | address | (none) | Run until this block, print the message it produced, and stop. See [Breakpoints](#breakpoints). |
 | `--spies` | addresses | (none) | Comma-separated blocks to record every message that crosses. See [Spies](#spies). |
@@ -806,6 +808,7 @@ the VCS commit time, and the suffix is omitted when neither exists.
 | --- | --- |
 | `LOG_LEVEL` | Log verbosity for the process logger: `debug`, `info` (default), `warn`, or `error`. An invalid value logs a warning and falls back to `info`. Logs are written to stderr. |
 | `OCTO_ENV_FILE` | Path to an extra `.env` file loaded in addition to `./.env`, overlaying it. See [Flow File — env](/reference/flow-file#env). |
+| `OCTO_STORAGE_DIR` | Default for `--storage-dir`: the directory the object store is serialized into. For `octo run` it defaults to `./octo-store`; for the one-shot `octo invoke` it defaults to an in-memory store, so a probe is reproducible. Set it to an empty value to keep `run`'s store in memory too. See [KV Store and Persistence](/platform/kv-and-storage). |
 | `OCTO_OBSERVABILITY` | Default for `--observability`. Accepts `true`/`false`, `1`/`0`, `on`/`off`, `yes`/`no` (case-insensitive). An unparseable value logs a warning and is ignored. |
 | `OCTO_OBSERVABILITY_ADDR` | Default for `--observability-addr`. |
 | `OCTO_METRICS` | Default for `--metrics`. Same accepted values as `OCTO_OBSERVABILITY`. |
@@ -818,7 +821,7 @@ the VCS commit time, and the suffix is omitted when neither exists.
 | `OCTO_TRACING_MAX_PAYLOAD` | Default for `--traces-max-payload`. |
 | `OCTO_TRACING_BUFFER` | Default for `--traces-buffer`. |
 
-The `OCTO_OBSERVABILITY*`, `OCTO_METRICS*`, and `OCTO_TRACING*` variables are read from the **process environment only**,
+The `OCTO_OBSERVABILITY*`, `OCTO_METRICS*`, `OCTO_TRACING*` and `OCTO_STORAGE_DIR` variables are read from the **process environment only**,
 not from a `.env` file: they are resolved when `octo run` parses its flags, which
 happens before any config — and therefore any `.env` — is loaded. Passing the flag
 always wins over the variable.

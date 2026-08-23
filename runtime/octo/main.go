@@ -85,6 +85,10 @@ Usage:
 Run flags:
   --config <path>   path to the runtime config (file or directory)
   --watch           reload the config when it changes
+  --storage-dir <path>
+                    directory the object store is serialized into
+                    (default ./octo-store, or $OCTO_STORAGE_DIR; empty keeps it in
+                    memory). Volatile and secret objects are never written there.
 
 Invoke flags:
   --config <path>    path to the runtime config (file or directory)
@@ -94,6 +98,10 @@ Invoke flags:
                      treat --data as a raw body of this MIME type instead of JSON
                      (e.g. application/xml), for flows fed by a raw-body source
   --vars <json>      JSON object seeding the message variables
+  --storage-dir <path>
+                     directory the object store is serialized into (default
+                     $OCTO_STORAGE_DIR, else in memory so an invoke is
+                     reproducible)
   --timeout <dur>    max time to wait for the flow (default 30s)
   --break-at <addr>  run until this block, then print the message and stop
   --spies <addrs>    comma-separated blocks to record every message that crosses them

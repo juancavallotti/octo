@@ -209,7 +209,7 @@ func TestLeaseTTLFallsBackToTheDefault(t *testing.T) {
 }
 
 func TestServicesCloseReleasesOutstandingLeases(t *testing.T) {
-	svc := New(t.TempDir(), core.TraceOptions{})
+	svc := New(t.TempDir(), "", core.TraceOptions{})
 
 	lease, ok, err := svc.Leases().Acquire(context.Background(), "orders")
 	if err != nil || !ok {

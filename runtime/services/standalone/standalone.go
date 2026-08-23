@@ -1,7 +1,7 @@
 // Package standalone implements the single-process runtime services module:
-// leader election always grants leadership (there is nothing to elect) and the KV
-// store lives in process memory. It is the default module and requires no external
-// infrastructure.
+// leader election always grants leadership (there is nothing to elect), queues and
+// topics are in-process, and the KV store is a map serialized to a directory. It is
+// the default module and requires no external infrastructure.
 package standalone
 
 import (
@@ -18,14 +18,15 @@ const Module = "standalone"
 
 func init() {
 	services.Register(Module, func(_ context.Context, opts services.Options) (core.RuntimeServices, error) {
-		return New(opts.ResourceRoot, opts.Tracing), nil
+		return New(opts.ResourceRoot, opts.StorageDir, opts.Tracing), nil
 	})
 }
 
-// Services is the standalone runtime-services module. One in-memory store backs
-// both KV and secrets: the secret store routes to dedicated namespaces, and a single
-// process has nothing to encrypt them against. Queues and topics are in-process,
-// and resources are read from the filesystem rooted at the config directory.
+// Services is the standalone runtime-services module. One store backs both KV and
+// secrets: the secret store routes to dedicated namespaces, which this module keeps
+// in memory because it has no key to encrypt them with. Queues and topics are
+// in-process, and resources are read from the filesystem rooted at the config
+// directory.
 type Services struct {
 	kv        *store
 	q         *queues
@@ -35,10 +36,13 @@ type Services struct {
 	traces    core.TracePublisher
 }
 
-// New returns a standalone services module with an empty in-memory store,
+// New returns a standalone services module with a store rooted at storageDir,
 // in-process queues and topics, a filesystem resource loader rooted at
 // resourceRoot (the config directory), and — when tracing asks for it — a trace
 // publisher writing to a file.
+//
+// An empty storageDir keeps the whole store in memory, which is the right default
+// for a one-shot invocation that should leave nothing behind.
 //
 // A trace file that cannot be opened is logged and the run continues untraced,
 // rather than failing startup. Tracing is something a runtime carries, not
@@ -46,7 +50,7 @@ type Services struct {
 // startable, and in a deployment it must not take the service down. The error is
 // logged at error level because the alternative — a silent no-op — is how someone
 // spends an afternoon wondering where their trace file went.
-func New(resourceRoot string, tracing core.TraceOptions) *Services {
+func New(resourceRoot, storageDir string, tracing core.TraceOptions) *Services {
 	traces, err := newTracePublisher(tracing, time.Now())
 	if err != nil {
 		slog.Error("standalone: tracing is enabled but its file could not be opened, "+
@@ -54,7 +58,7 @@ func New(resourceRoot string, tracing core.TraceOptions) *Services {
 		traces = core.NoopTracer()
 	}
 	return &Services{
-		kv:        newStore(),
+		kv:        newStore(storageDir),
 		q:         newQueues(),
 		t:         newTopics(),
 		leases:    newLeases(time.Now),
@@ -76,12 +80,14 @@ func (s *Services) LeaderElection() core.LeaderElection { return core.NoopLeader
 //nolint:ireturn // satisfies core.RuntimeServices
 func (s *Services) Leases() core.Leases { return s.leases }
 
-// KV returns the in-memory key/value store.
+// KV returns the key/value store: persistent namespaces are serialized to the
+// storage directory, volatile and secret ones stay in memory.
 //
 //nolint:ireturn // satisfies core.RuntimeServices
 func (s *Services) KV() core.KV { return s.kv }
 
-// Secrets returns the secret store layered over the in-memory KV.
+// Secrets returns the secret store layered over the KV. Its namespaces are the
+// ones the store deliberately never writes to disk.
 //
 //nolint:ireturn // satisfies core.RuntimeServices
 func (s *Services) Secrets() core.SecretStore { return core.NewSecretStore(s.kv) }
@@ -107,11 +113,13 @@ func (s *Services) Resources() core.ResourceLoader { return s.resources }
 //nolint:ireturn // satisfies core.RuntimeServices
 func (s *Services) Traces() core.TracePublisher { return s.traces }
 
-// Close releases resources: outstanding leases, so their renewal goroutines stop,
-// and the trace file, which is drained and closed here — so a graceful stop
-// leaves a complete file rather than one missing whatever was still queued.
+// Close releases resources: outstanding leases, so their renewal goroutines stop;
+// the store, which flushes whatever it had not yet written; and the trace file,
+// which is drained and closed here — so a graceful stop leaves a complete file
+// rather than one missing whatever was still queued.
 func (s *Services) Close() error {
 	s.leases.closeAll()
+	s.kv.close()
 	if closer, ok := s.traces.(interface{ Close() error }); ok {
 		return closer.Close()
 	}

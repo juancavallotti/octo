@@ -12,7 +12,7 @@ import (
 const ns = "test"
 
 func TestKVCreateAndGet(t *testing.T) {
-	kv := newStore()
+	kv := newStore("")
 	ctx := context.Background()
 
 	v, err := kv.Set(ctx, ns, "k", []byte("hello"), 0)
@@ -33,7 +33,7 @@ func TestKVCreateAndGet(t *testing.T) {
 }
 
 func TestKVGetMissing(t *testing.T) {
-	kv := newStore()
+	kv := newStore("")
 	_, ok, err := kv.Get(context.Background(), ns, "absent")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
@@ -44,7 +44,7 @@ func TestKVGetMissing(t *testing.T) {
 }
 
 func TestKVCreateOverExistingConflicts(t *testing.T) {
-	kv := newStore()
+	kv := newStore("")
 	ctx := context.Background()
 	if _, err := kv.Set(ctx, ns, "k", []byte("a"), 0); err != nil {
 		t.Fatalf("Set: %v", err)
@@ -56,7 +56,7 @@ func TestKVCreateOverExistingConflicts(t *testing.T) {
 }
 
 func TestKVOverwriteWithCurrentVersion(t *testing.T) {
-	kv := newStore()
+	kv := newStore("")
 	ctx := context.Background()
 	v1, _ := kv.Set(ctx, ns, "k", []byte("a"), 0)
 
@@ -75,7 +75,7 @@ func TestKVOverwriteWithCurrentVersion(t *testing.T) {
 }
 
 func TestKVStaleVersionConflicts(t *testing.T) {
-	kv := newStore()
+	kv := newStore("")
 	ctx := context.Background()
 	v1, _ := kv.Set(ctx, ns, "k", []byte("a"), 0)
 	if _, err := kv.Set(ctx, ns, "k", []byte("b"), v1); err != nil {
@@ -88,7 +88,7 @@ func TestKVStaleVersionConflicts(t *testing.T) {
 }
 
 func TestKVNamespacesAreIsolated(t *testing.T) {
-	kv := newStore()
+	kv := newStore("")
 	ctx := context.Background()
 
 	// The same key in two namespaces is two independent entries.
@@ -111,7 +111,7 @@ func TestKVNamespacesAreIsolated(t *testing.T) {
 }
 
 func TestKVAndSecretsDoNotCollide(t *testing.T) {
-	svc := New("", core.TraceOptions{})
+	svc := New("", "", core.TraceOptions{})
 	ctx := context.Background()
 
 	if _, err := svc.KV().Set(ctx, core.NamespaceUser, "k", []byte("kv-value"), 0); err != nil {
@@ -140,7 +140,7 @@ func TestKVAndSecretsDoNotCollide(t *testing.T) {
 }
 
 func TestKVDelete(t *testing.T) {
-	kv := newStore()
+	kv := newStore("")
 	ctx := context.Background()
 	v1, _ := kv.Set(ctx, ns, "k", []byte("a"), 0)
 
@@ -162,7 +162,7 @@ func TestKVDelete(t *testing.T) {
 }
 
 func TestKVUnconditionalDelete(t *testing.T) {
-	kv := newStore()
+	kv := newStore("")
 	ctx := context.Background()
 	_, _ = kv.Set(ctx, ns, "k", []byte("a"), 0)
 	// expectedVersion 0 deletes regardless of the current version.
@@ -175,7 +175,7 @@ func TestKVUnconditionalDelete(t *testing.T) {
 }
 
 func TestGetReturnsCopy(t *testing.T) {
-	kv := newStore()
+	kv := newStore("")
 	ctx := context.Background()
 	_, _ = kv.Set(ctx, ns, "k", []byte("abc"), 0)
 
@@ -189,7 +189,7 @@ func TestGetReturnsCopy(t *testing.T) {
 }
 
 func TestLeaderElectionAlwaysLeader(t *testing.T) {
-	svc := New("", core.TraceOptions{})
+	svc := New("", "", core.TraceOptions{})
 	lease, err := svc.LeaderElection().Acquire(context.Background(), "any-key")
 	if err != nil {
 		t.Fatalf("Acquire: %v", err)
