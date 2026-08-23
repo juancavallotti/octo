@@ -1,8 +1,9 @@
 // Package k8s implements the runtime services provider for a Kubernetes cluster:
 // leader election backed by coordination/v1 Leases (so work runs on one replica)
-// and a KV store backed by the orchestrator API (deployment-scoped, with encrypted
-// secrets). It self-registers as the "k8s" module; a binary blank-imports it to
-// make it selectable via RUNTIME_SERVICES_MODULE=k8s.
+// and a two-tier KV store — the orchestrator API for persistent and secret
+// namespaces (deployment-scoped, encrypted at rest), Redis for volatile ones. It
+// self-registers as the "k8s" module; a binary blank-imports it to make it
+// selectable via RUNTIME_SERVICES_MODULE=k8s.
 package k8s
 
 import (
@@ -36,6 +37,7 @@ const (
 	envOrchestrator   = "ORCHESTRATOR_URL"
 	envOrchestrToken  = "ORCHESTRATOR_TOKEN" // optional bearer token for the KV API
 	envNATSURL        = "NATS_URL"           // NATS broker URL backing the queues
+	envRedisURL       = "REDIS_URL"          // optional Redis backing the volatile KV tier
 )
 
 func init() {
@@ -46,7 +48,7 @@ func init() {
 type Services struct {
 	le        *leaderElection
 	leases    *leases
-	kv        *httpStore
+	kv        *tieredStore
 	q         *natsQueues
 	t         *natsTopics
 	conn      *nats.Conn
@@ -91,6 +93,8 @@ func New(_ context.Context, opts services.Options) (core.RuntimeServices, error)
 		return nil, fmt.Errorf("k8s: connect nats %q: %w", natsURL, err)
 	}
 
+	volatile := volatileStore(deploymentID)
+
 	// A tagged deploy carries the snapshot its definition and resources were frozen
 	// under; the resource loader fetches those frozen resources from the orchestrator.
 	// An untagged deploy has no snapshot, so resources stay no-op (nothing to load).
@@ -101,13 +105,16 @@ func New(_ context.Context, opts services.Options) (core.RuntimeServices, error)
 
 	slog.Info("k8s runtime services initialized",
 		"identity", identity, "namespace", namespace, "deployment", deploymentID,
-		"orchestrator", orchestrator, "nats", natsURL,
+		"orchestrator", orchestrator, "nats", natsURL, "volatileKV", volatile != nil,
 		"snapshot", os.Getenv(envSnapshotID) != "")
 
 	return &Services{
-		le:      newLeaderElection(cs.CoordinationV1(), namespace, identity, deploymentID),
-		leases:  newLeases(cs.CoordinationV1(), namespace, identity, deploymentID, time.Now),
-		kv:      newHTTPStore(orchestrator, deploymentID, os.Getenv(envOrchestrToken)),
+		le:     newLeaderElection(cs.CoordinationV1(), namespace, identity, deploymentID),
+		leases: newLeases(cs.CoordinationV1(), namespace, identity, deploymentID, time.Now),
+		kv: &tieredStore{
+			persistent: newHTTPStore(orchestrator, deploymentID, os.Getenv(envOrchestrToken)),
+			volatile:   volatile,
+		},
 		q:       newNATSQueues(conn, deploymentID),
 		t:       newNATSTopics(conn, deploymentID),
 		conn:    conn,
@@ -116,6 +123,30 @@ func New(_ context.Context, opts services.Options) (core.RuntimeServices, error)
 			os.Getenv(envDeploymentName), os.Getenv(envDeploymentVer)),
 		resources: resources,
 	}, nil
+}
+
+// volatileStore builds the Redis-backed volatile KV tier from REDIS_URL, or returns
+// nil when there is none to build.
+//
+// Optional, like NATS_URL and unlike the orchestrator URL: a pod without one still
+// runs, with volatile namespaces falling through to the orchestrator. A URL that
+// does not parse is worth saying loudly — it is a configuration mistake rather than
+// an absence — but it is not worth refusing to start over, for the same reason the
+// absence is not: this tier's entire promise is that losing it is survivable.
+func volatileStore(deploymentID string) *redisStore {
+	url := os.Getenv(envRedisURL)
+	if url == "" {
+		slog.Warn("k8s: no " + envRedisURL + " was injected; volatile objects will be stored " +
+			"in the orchestrator database like persistent ones")
+		return nil
+	}
+	store, err := newRedisStore(url, deploymentID)
+	if err != nil {
+		slog.Error("k8s: volatile KV is misconfigured, falling back to the orchestrator "+
+			"for volatile namespaces", "error", err)
+		return nil
+	}
+	return store
 }
 
 // LeaderElection returns the Lease-based leader election.
@@ -136,6 +167,9 @@ func (s *Services) Leases() core.Leases { return s.leases }
 func (s *Services) KV() core.KV { return s.kv }
 
 // Secrets routes through the same KV store to the encrypted secret namespaces.
+// Those are never volatile, so a secret always takes the orchestrator path and is
+// always encrypted at rest — the tiered store dispatches on the namespace, and a
+// secret namespace never names the volatile tier.
 //
 //nolint:ireturn // satisfies core.RuntimeServices
 func (s *Services) Secrets() core.SecretStore { return core.NewSecretStore(s.kv) }
@@ -175,7 +209,9 @@ func (s *Services) Traces() core.TracePublisher { return s.traces }
 // Leader-election campaigns are bound to the context passed to Acquire and stop
 // when the runtime stops.
 func (s *Services) Close() error {
-	s.kv.close()
+	if err := s.kv.close(); err != nil {
+		slog.Error("k8s: closing the KV store", "error", err)
+	}
 	if c, ok := s.resources.(interface{ close() }); ok {
 		c.close()
 	}

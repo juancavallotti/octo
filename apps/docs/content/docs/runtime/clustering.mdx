@@ -19,7 +19,7 @@ When you deploy an integration you choose a replica count. Each replica is a pod
 | Run-once work | Leader election (Kubernetes `coordination/v1` Lease objects) |
 | HTTP traffic | The Kubernetes Service in front of the pods |
 
-**Standalone collapses all of this.** Run the same definition with the default (standalone) build and there is exactly one process: queues and topics are in-process, the KV store is in-memory, and that process is always the leader. The flow YAML is identical — only the backends differ.
+**Standalone collapses all of this.** Run the same definition with the default (standalone) build and there is exactly one process: queues and topics are in-process, the KV store is a map serialized to a directory, and that process is always the leader. The flow YAML is identical — only the backends differ.
 
 ## Queues: competing consumers
 
@@ -59,7 +59,7 @@ Rule of thumb: scale-out **work** goes on a queue (one replica handles each mess
 Blocks that persist state (`object-read`, `object-write`, `object-delete`, `cache-scope`, and AI agent memory) go through the runtime's KV service, and its scope changes with the module:
 
 - **Clustered (k8s module):** the store is **deployment-scoped KV served by the orchestrator over HTTP**. All replicas of a deployment read and write the same keys; other deployments cannot see them. Every entry carries a version, and writes are **optimistically concurrent** — a write states the version it expects (0 to create) and fails with a conflict if another replica wrote first, rather than silently clobbering. The `object-write` block re-reads and retries on conflict, so read-modify-write patterns (counters) land correctly under concurrency. Secrets ride the same store in encrypted namespaces.
-- **Standalone:** the store is in-memory, in-process, and lost when the process exits.
+- **Standalone:** the store is in-process, serialized to `--storage-dir` (default `./octo-store`) so persistent objects survive a restart. [Volatile](/platform/kv-and-storage#durability-tiers) namespaces and secrets stay in memory and are lost when the process exits.
 
 There is no native TTL in the store; the `cache-scope` block layers expiry on top by stamping a deadline into the value. See [State and Data](/concepts/state-and-data) and [KV and Storage](/platform/kv-and-storage).
 
@@ -95,7 +95,7 @@ The runtime does not load-balance HTTP itself. An `http` source binds a server i
 | --- | --- | --- |
 | Queues | In-process buffered channels | NATS queue groups, `octo.<id>.q.<subject>` |
 | Topics | In-process fan-out | NATS subscriptions, `octo.<id>.t.<subject>` |
-| KV / object store | In-memory, per process | Orchestrator HTTP KV, deployment-scoped, versioned |
+| KV / object store | Serialized to `--storage-dir`; volatile namespaces and secrets in memory | Orchestrator HTTP KV (persistent, encrypted secrets); Redis, dialed directly, for volatile namespaces |
 | Leader election | Always leader | Kubernetes Lease per key |
 | Leases | Map under a mutex | Kubernetes Lease per name, `octo-claim-<id>-<hash>` |
 | Log shipping | None (stderr only) | NATS to the central log sink |

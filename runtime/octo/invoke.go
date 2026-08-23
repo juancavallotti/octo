@@ -46,7 +46,10 @@ func invokeCommand(args []string) error {
 
 	// Build services first: their resource loader (rooted at the config directory)
 	// is needed to load the config's env resources.
-	svc, err := services.New(ctx, services.Options{ResourceRoot: configDir(flags.configPath)})
+	svc, err := services.New(ctx, services.Options{
+		ResourceRoot: configDir(flags.configPath),
+		StorageDir:   flags.storageDir,
+	})
 	if err != nil {
 		return fmt.Errorf("init runtime services: %w", err)
 	}
@@ -206,6 +209,12 @@ type invokeFlags struct {
 	envelope bool
 	// envelopeOut writes the envelope to a file instead of stdout.
 	envelopeOut string
+	// storageDir points the object store at a directory. Unlike `octo run` this
+	// defaults to empty — an in-memory store — because an invoke is a probe, and a
+	// probe that reads whatever a previous invoke left behind is not reproducible.
+	// Passing the flag (or setting OCTO_STORAGE_DIR) opts into the run's store,
+	// which is how you inspect or seed state a run created.
+	storageDir string
 }
 
 // parseInvokeFlags parses and validates the invoke flags. It returns an error
@@ -221,6 +230,8 @@ func parseInvokeFlags(args []string) (invokeFlags, error) {
 	fs.StringVar(&flags.contentType, "content-type", "",
 		"treat --data as a raw body of this MIME type instead of JSON (e.g. application/xml)")
 	fs.StringVar(&flags.vars, "vars", "", "JSON object seeding the message variables")
+	fs.StringVar(&flags.storageDir, "storage-dir", services.EnvString(services.StorageDirEnvVar, ""),
+		"directory the object store is serialized into (default: in memory, so an invoke is reproducible)")
 	fs.StringVar(&flags.breakAt, "break-at", "",
 		"run until this block, then print the message and stop (<flow>.<block>[<branch>].<block>)")
 	fs.StringVar(&flags.spies, "spies", "",

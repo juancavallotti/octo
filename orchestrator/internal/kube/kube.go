@@ -49,11 +49,33 @@ type RuntimeServices struct {
 	OrchestratorURL string // in-cluster URL of the orchestrator KV API
 	ServiceAccount  string // pod serviceAccountName granting leases RBAC ("" = default SA)
 	NATSURL         string // in-cluster URL of the NATS broker backing the queues ("" = omit)
+	// RedisURL is the in-cluster Redis backing the volatile KV tier, injected as a
+	// literal. Empty omits it, and the runtime then stores volatile objects through
+	// the orchestrator like persistent ones.
+	RedisURL string
+	// RedisSecret names a Secret holding the Redis URL instead, for a managed Redis
+	// whose URL carries a password. A password written as a literal into every
+	// integration Deployment would be readable by anyone who can read workloads,
+	// which is a wider audience than anyone who can read Secrets — the same
+	// reasoning the chart's octo.redis.env helper spells out for the platform's own
+	// pods. When set it wins over RedisURL.
+	RedisSecret SecretKeyRef
 	// LogsURL is the log aggregator's query API. Unlike the others it is injected
 	// only into deployments that were granted the observability API, so an empty
 	// value here disables the grant everywhere rather than degrading every pod.
 	LogsURL string
 }
+
+// SecretKeyRef names one key in one Secret in the release namespace. Integration
+// pods run there too, so a reference the chart resolved for the orchestrator
+// resolves for them unchanged.
+type SecretKeyRef struct {
+	Name string
+	Key  string
+}
+
+// set reports whether the reference names something.
+func (s SecretKeyRef) set() bool { return s.Name != "" && s.Key != "" }
 
 // Client wraps a Kubernetes clientset scoped to one namespace and runtime image.
 type Client struct {

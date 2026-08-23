@@ -8,9 +8,28 @@ octo_types:
   - invalidate-cache
 ---
 
-The storage blocks read and write JSON objects in the runtime's key-value store. They need no connector: the store is a [runtime service](/concepts/runtime-services), scoped per deployment on the platform and in-process when running standalone, so a flow's objects are isolated from other deployments. All blocks confine themselves to the user namespace — user keys never collide with internal runtime state (agent memory, cache entries, secrets).
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The storage blocks read and write JSON objects in the runtime's key-value store. They need no connector: the store is a [runtime service](/concepts/runtime-services), scoped per deployment on the platform, so a flow's objects are isolated from other deployments. The object blocks confine themselves to the user namespaces — user keys never collide with internal runtime state (agent memory, cache entries, secrets). `invalidate-cache` is documented here too, but it targets cache entries rather than objects; see its section for how it differs.
 
 Key and value fields are [CEL expressions](/reference/cel) evaluated against the message (`body`, `vars`, `eventID`, `correlationID`, `env`, `now`), compiled once at startup.
+
+### Picking a tier
+
+Each of the three object blocks takes a `volatile` setting choosing which [durability tier](/platform/kv-and-storage#durability-tiers) it operates in (`invalidate-cache` does not — cache entries are always volatile):
+
+| `volatile` | Platform | Standalone | Use it for |
+|---|---|---|---|
+| `false` (default) | Postgres | serialized to `--storage-dir` | anything that has to survive a restart |
+| `true` | Redis | process memory | values whose loss costs a recompute |
+
+Volatile is faster and cheaper — no database row, no transaction — but promises nothing: a volatile object may vanish on a restart, and on the platform it may be evicted while the process is still running.
+
+<Callout type="info">
+An install with no Redis falls back to Postgres for volatile objects, so they cost the same as persistent ones while still offering the weaker guarantee. Write against the guarantee, not against the backend.
+</Callout>
+
+The two tiers are **separate keyspaces**, not two views of one. A read has to name the same tier the write used; reading the other one is a clean miss, not an error. The default is the persistent tier, so a flow written before this setting existed keeps the behavior it had.
 
 ## object-read
 
@@ -22,6 +41,7 @@ Reads an object from the store into the body or a variable. When the key is abse
 | `as` | string | No | — | Variable to store the object under; empty replaces the body. |
 | `default` | `expression` | No | — | Evaluated on a miss; its result is folded in like a hit (into the variable, or the body). |
 | `existsVar` | string | No | — | Names a variable the block writes a boolean into: `true` on a hit, `false` when the default/null path was taken. Use it to tell a default apart from a stored value. |
+| `volatile` | bool | No | `false` | Read from the [volatile tier](#picking-a-tier). Must match what the write used. |
 
 **Errors:** the block errors on a store failure, a key/default expression failure, or a stored value that cannot be decoded as JSON. A missing key is not an error.
 
@@ -43,8 +63,15 @@ Writes an object to the store under a key. The message passes through unchanged.
 |---|---|---|---|---|
 | `key` | `expression` (string) | Yes | — | Evaluated to the object key. |
 | `value` | `expression` | No | message body | Value to store (JSON-encoded). Empty stores the whole body. |
+| `volatile` | bool | No | `false` | Write to the [volatile tier](#picking-a-tier) instead of the persistent one. |
 
-Writes use optimistic concurrency: the block re-reads the current version and retries on a version conflict (up to 5 attempts) before erroring, so concurrent writers cannot silently lose updates.
+Writes use optimistic concurrency: the block re-reads the current version and retries on a version conflict (up to 5 attempts) before erroring, so a write can never land on a version it did not see.
+
+That detects a stale *version*; it does not refresh a stale *value*. The retry re-reads the version and writes the value your `value` expression already produced, from the message as it was — it does not re-evaluate the expression against whatever the other writer stored.
+
+<Callout type="warn">
+So **do not build a counter this way.** `object-read` then `object-write` is not an atomic increment: two runs that each read `4` will each write `5`, both will succeed, and one increment is lost. These blocks are for values that tolerate a lost update.
+</Callout>
 
 ```yaml
 - type: object-write
@@ -61,6 +88,7 @@ Deletes an object from the store by key. The delete is unconditional and idempot
 | Setting | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `key` | `expression` (string) | Yes | — | Evaluated to the object key to delete. |
+| `volatile` | bool | No | `false` | Delete from the [volatile tier](#picking-a-tier). Must match the tier the object was written to — a delete addresses one tier, not both. |
 
 ```yaml
 - type: object-delete
@@ -68,9 +96,26 @@ Deletes an object from the store by key. The delete is unconditional and idempot
     key: '"profile:" + body.id'
 ```
 
+A volatile round trip — a fetched exchange rate is exactly the kind of value that may be dropped without harm, because a miss just fetches it again:
+
+```yaml
+- type: object-read
+  settings:
+    key: '"rate:" + body.currency'
+    as: rate
+    existsVar: rateCached
+    volatile: true
+# ... fetch the rate when vars.rateCached is false ...
+- type: object-write
+  settings:
+    key: '"rate:" + body.currency'
+    value: "vars.rate"
+    volatile: true
+```
+
 ## invalidate-cache
 
-Evicts a [cache-scope](/reference/blocks/control-flow#cache-scope) entry by its key so the next run recomputes. The `key` expression must produce the same value as the cache-scope's `key` expression — cache entries are stored under a hash of the evaluated key, so matching expressions target the same entry. The message passes through unchanged.
+Evicts a [cache-scope](/reference/blocks/control-flow#cache-scope) entry by its key so the next run recomputes. Cache entries always live in the volatile tier, so this block has no `volatile` setting — a cache entry already carries its own expiry, and losing one costs a recompute rather than correctness, which is exactly the contract that tier offers. The `key` expression must produce the same value as the cache-scope's `key` expression — cache entries are stored under a hash of the evaluated key, so matching expressions target the same entry. The message passes through unchanged.
 
 | Setting | Type | Required | Default | Description |
 |---|---|---|---|---|

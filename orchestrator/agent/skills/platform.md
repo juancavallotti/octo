@@ -100,10 +100,22 @@ reach a deployment until a new tag is rolled out.
 
 ## Storage a deployment has
 
-- **KV / objects**, scoped to the deployment and served by the orchestrator:
+- **KV / objects**, scoped to the deployment. All replicas share it; other
+  deployments cannot see it. Browse it with
   `GET|PUT|DELETE /deployments/{id}/objects/{key}` and
-  `GET /deployments/{id}/objects` to list. The `object-*` blocks use this. All
-  replicas share it; other deployments cannot see it.
+  `GET /deployments/{id}/objects` to list, over either tier.
+
+  It has two tiers, chosen by a namespace suffix and by the `volatile` setting on
+  the `object-*` blocks. Persistent (`user`) is Postgres, served by the
+  orchestrator, and survives restarts. Volatile (`user_volatile`) is Redis, which
+  runtime pods reach directly, and may drop a value on a restart or under memory
+  pressure — cache entries always live there. An install with no Redis falls
+  volatile objects back to Postgres.
+
+  A volatile object that is missing is usually eviction, not a bug.
+  `GET /settings/storage` reports Redis memory, hit rate and eviction counts
+  alongside the database pool and `kv_store` size; the platform shows it as the
+  Storage health tab beside the object browser.
 - **Queues and topics** over the broker, scoped to the deployment.
 - **Cluster secrets**, shared across the install, referenced by name.
 

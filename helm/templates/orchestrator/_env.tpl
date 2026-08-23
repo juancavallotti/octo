@@ -53,10 +53,29 @@
 - name: NATS_URL
   value: {{ include "octo.nats.url" . | quote }}
 {{- end }}
-# Redis, shared with the aggregator. The orchestrator does not keep state here
-# yet — it connects so the admin section can report whether the cluster's Redis
-# is reachable, which is the question an operator asks before anything else.
+# Redis, shared with the aggregator. The orchestrator uses it for the volatile KV
+# tier — serving those objects to the browser, sweeping them on undeploy — and to
+# report whether the cluster's Redis is reachable, which is the question an
+# operator asks before anything else.
 {{ include "octo.redis.env" . }}
+{{- /* How integration pods should reach the same Redis. They connect directly,
+       exactly as they do to NATS: the volatile tier has no database and no
+       encryption key, so an orchestrator hop would buy nothing and cost a round
+       trip on the one tier whose point is being cheap.
+
+       The orchestrator builds those pods' env in Go, so it needs to know which
+       shape to emit — and a credentialled URL must stay a reference. It cannot
+       read that off its own REDIS_URL: by the time the variable reaches the
+       process the secret has already been resolved into a plain string, and
+       copying that string into every integration Deployment is precisely what
+       octo.redis.env exists to avoid. So the Secret's coordinates are passed
+       alongside it, and the orchestrator re-references rather than re-values. */}}
+{{- if .Values.externalRedis.existingSecret }}
+- name: REDIS_URL_SECRET_NAME
+  value: {{ .Values.externalRedis.existingSecret | quote }}
+- name: REDIS_URL_SECRET_KEY
+  value: {{ .Values.externalRedis.existingSecretKey | default "redis-url" | quote }}
+{{- end }}
 - name: RUNTIME_SERVICE_ACCOUNT
   value: {{ include "octo-common.serviceAccountName" (dict "root" . "component" "runtime") | quote }}
 {{- /* Pull secrets for the integration pods the orchestrator creates. Resolved

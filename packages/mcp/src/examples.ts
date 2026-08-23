@@ -849,7 +849,7 @@ const OBJECT_STORE: Example = {
   title:
     "object-store — object-write / object-read with default + objectExists",
   summary:
-    "Persists a value with object-write and reads it back with object-read. Setting existsVar makes object-read write a boolean (true on a hit), and its `default` CEL expression is folded in on a miss (into `as`, or the body) so the flow never handles a null. The in-process standalone store is per-run, so this flow reads the key before and after writing it to show both states.",
+    "Persists a value with object-write and reads it back with object-read. Setting existsVar makes object-read write a boolean (true on a hit), and its `default` CEL expression is folded in on a miss (into `as`, or the body) so the flow never handles a null. Both blocks default to the persistent tier; set `volatile: true` on each to use the volatile one instead (Redis on the platform, process memory standalone), which is faster but may drop the value. `octo invoke` keeps the store in memory, so this flow reads the key before and after writing it to show both states.",
   blocks: ["object-read", "object-write", "log"],
   definition: `service:
   name: object-store

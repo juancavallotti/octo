@@ -1,65 +1,14 @@
 "use client";
 
-import type { LucideIcon } from "lucide-react";
 import type { QueueConnection, QueueSubscriber } from "@/app/model/queues";
 
-/** Group digits for readability; counts and byte values can run large. */
-export function num(n: number): string {
-  return n.toLocaleString();
-}
-
-/** Humanize a byte count (1024-based) to a compact, readable string. */
-export function bytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  const units = ["KiB", "MiB", "GiB", "TiB"];
-  let v = n / 1024;
-  let i = 0;
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024;
-    i++;
-  }
-  return `${v.toFixed(v >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
-}
-
-/**
- * One headline counter tile.
- *
- * The icon carries the direction of the counter — in against out, live against
- * lifetime — which is the distinction a reader scanning eight near-identical tiles
- * has to make, and the one the labels alone make slowest.
- */
-export function Stat({
-  icon: Icon,
-  label,
-  value,
-  alert,
-}: {
-  icon: LucideIcon;
-  label: string;
-  value: string;
-  /** Render the value in the alert color (e.g. nonzero slow consumers). */
-  alert?: boolean;
-}) {
-  return (
-    <div className="rounded-xl border border-black/10 bg-white/40 p-4 dark:border-white/10 dark:bg-zinc-900/30">
-      <div className="flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
-        <Icon
-          size={13}
-          aria-hidden
-          className={`shrink-0 ${alert ? "text-red-500" : "text-zinc-400"}`}
-        />
-        <span className="truncate">{label}</span>
-      </div>
-      <div
-        className={`mt-1 text-lg font-semibold tabular-nums ${
-          alert ? "text-red-500" : ""
-        }`}
-      >
-        {value}
-      </div>
-    </div>
-  );
-}
+// The tile and its formatters live in components/stats now, shared with the
+// storage view: the two pages are read side by side when something is wrong, and a
+// tile that rounded bytes differently on one of them would make two readings of the
+// same install look like a discrepancy. Re-exported so existing importers of this
+// module keep working.
+export { Stat, bytes, num } from "@/app/components/stats/Stat";
+import { bytes, num } from "@/app/components/stats/Stat";
 
 const TH = "px-3 py-2 font-medium";
 const THR = `${TH} text-right`;

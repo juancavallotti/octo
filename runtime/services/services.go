@@ -41,6 +41,24 @@ const ModuleEnvVar = "RUNTIME_SERVICES_MODULE"
 // single-process, no-dependency default.
 const DefaultModule = "standalone"
 
+// StorageDirEnvVar names the environment variable pointing at the directory the
+// standalone module serializes its persistent objects into, and DefaultStorageDir
+// is where they go when it is unset: a directory beside whatever the runtime was
+// started from, so a `octo run` in a project keeps that project's objects with it.
+const (
+	StorageDirEnvVar  = "OCTO_STORAGE_DIR"
+	DefaultStorageDir = "./octo-store"
+)
+
+// StorageDir resolves the standalone module's storage directory from the
+// environment, for the long-running `octo run`: a runtime that stays up is exactly
+// the case where objects should outlive the process, so it defaults to a directory.
+//
+// One-shot commands deliberately do not use this. `octo invoke` defaults to an
+// in-memory store, because a probe that reads whatever the last probe left behind
+// is not reproducible; it reads the same variable, but its fallback is empty.
+func StorageDir() string { return EnvString(StorageDirEnvVar, DefaultStorageDir) }
+
 // Options carries construction inputs a provider may need beyond the context.
 // A provider reads what applies to it and ignores the rest.
 type Options struct {
@@ -48,6 +66,10 @@ type Options struct {
 	// config directory); providers that resolve resources elsewhere (k8s)
 	// ignore it.
 	ResourceRoot string
+	// StorageDir is where the standalone module serializes the persistent half of
+	// its KV store. Empty keeps the whole store in memory. Providers backed by
+	// external storage (k8s) ignore it.
+	StorageDir string
 	// Tracing configures the module's trace publisher. Disabled is the default,
 	// and a disabled module must not do setup with a side effect — notably it
 	// must not create an output file — so a run that asked for no traces leaves

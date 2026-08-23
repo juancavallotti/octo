@@ -32,3 +32,8 @@ node_modules
 # is vendored under helm/charts/, so the lock records nothing that isn't already
 # in the tree — and nothing bumps its version, so it would only ever go stale.
 helm/Chart.lock
+
+# The standalone object store. `octo run` serializes its persistent namespaces
+# here (see --storage-dir / OCTO_STORAGE_DIR), so running a sample from the repo
+# root leaves one behind. It is a runtime artifact, not source.
+octo-store/

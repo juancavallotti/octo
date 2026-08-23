@@ -546,9 +546,15 @@ nats:
 # and silently stops doing the thing it was changed to do.
 #
 # There is no persistence and there is no volume. What lives here is regenerated
-# within seconds of being lost, and losing it loses at most the trace records in
-# the folds that were open — the same at-most-once contract the rest of the trace
-# pipeline ships with.
+# within seconds of being lost: the trace records in the folds that were open — the
+# same at-most-once contract the rest of the trace pipeline ships with — and the
+# volatile half of the object store, whose entire contract is that losing it costs
+# a recompute. Anything that must survive a restart is in Postgres instead.
+#
+# Integration pods reach this directly, the way they reach NATS, so it has to be
+# reachable from them and not only from the orchestrator. With redis.enabled=false
+# and no externalRedis, volatile objects fall back to the database — slower and
+# more expensive, but not broken.
 redis:
   enabled: true
   image:

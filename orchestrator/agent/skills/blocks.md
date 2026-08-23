@@ -69,10 +69,22 @@ To send a file, set `bodyType: multipart` and let `body` evaluate to a parts map
 
 | Block | Key settings |
 | --- | --- |
-| `object-read` | Read from the runtime store into the body or a variable. |
-| `object-write` | Write an object under a key. |
-| `object-delete` | Delete by key. |
+| `object-read` | Read from the runtime store into the body or a variable. `volatile` picks the tier. |
+| `object-write` | Write an object under a key. `volatile` picks the tier. |
+| `object-delete` | Delete by key. `volatile` picks the tier. |
 | `invalidate-cache` | Evict a `cache-scope` entry by key. |
+
+The storage blocks operate in one of two tiers, chosen by `volatile` (default
+`false`). The persistent tier survives a restart — Postgres on the platform, a
+serialized file standalone. The volatile tier does not promise to: Redis on the
+platform (with LRU eviction and no persistence), process memory standalone, and
+either may drop the value. Use volatile
+for state whose loss costs a recompute (a counter, a scratch value) and persistent
+for anything a flow relies on finding.
+
+The tiers are separate keyspaces, so a read must name the same tier its write used;
+reading the other one is a clean miss. `cache-scope` and `invalidate-cache` are
+always volatile and have no setting for it.
 | `file-read` | `connector`, `path` (CEL), `encoding` (`text`\|`base64`), `contentType`, `resultVar`. Reads a file under the connector's root; a path that leaves the root, or an absolute one, is refused. |
 | `file-write` | `connector`, `path` (CEL), `content` (CEL; empty writes the body), `encoding`, `resultVar` → `{path, bytes}`. Creates parent directories when the connector sets `createDirs`. Passes the message through. |
 | `sql` | `connector`, the statement, and parameters — against a `database` connector. |

@@ -118,7 +118,7 @@ func TestCacheScopeExpiredEntryRecomputes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal envelope: %v", err)
 	}
-	if _, err = kv.Set(ctx, core.NamespaceUser, cacheKey("k"), raw, 0); err != nil {
+	if _, err = kv.Set(ctx, core.NamespaceUserVolatile, cacheKey("k"), raw, 0); err != nil {
 		t.Fatalf("seed kv: %v", err)
 	}
 
@@ -141,7 +141,7 @@ func TestCacheScopeTTLZeroNeverExpires(t *testing.T) {
 	if _, err := cs.Process(ctx, mustMessage(t)); err != nil {
 		t.Fatalf("Process: %v", err)
 	}
-	entry, ok, err := kv.Get(ctx, core.NamespaceUser, cacheKey("k"))
+	entry, ok, err := kv.Get(ctx, core.NamespaceUserVolatile, cacheKey("k"))
 	if err != nil || !ok {
 		t.Fatalf("Get: ok=%v err=%v", ok, err)
 	}
@@ -232,7 +232,7 @@ func TestCacheScopeDoesNotCacheStoppedBody(t *testing.T) {
 	if !out.StopRequested() {
 		t.Fatal("cache-scope must propagate the body's stop flag")
 	}
-	if _, stored, kvErr := kv.Get(ctx, core.NamespaceUser, cacheKey("k")); kvErr != nil {
+	if _, stored, kvErr := kv.Get(ctx, core.NamespaceUserVolatile, cacheKey("k")); kvErr != nil {
 		t.Fatalf("kv Get: %v", kvErr)
 	} else if stored {
 		t.Error("a stopped body must not be written to the cache")

@@ -81,6 +81,12 @@ CREATE TABLE IF NOT EXISTS cluster_secrets (
 -- so ordinary KV traffic pays no encryption cost. Rows are scoped by deployment_id
 -- with no foreign key — cleanup is best-effort on undeploy — and the primary key's
 -- leading deployment_id column lets a deployment's entries be dropped together.
+--
+-- Namespaces ending in _volatile normally live in Redis, not here. They appear in
+-- this table on an install with no Redis configured, where they fall back to it.
+-- That fallback is why this file does NOT sweep them: it is re-applied on every
+-- deploy, and a blanket delete would wipe live data out from under such an install
+-- every time the schema Job ran.
 CREATE TABLE IF NOT EXISTS kv_store (
     deployment_id uuid NOT NULL,
     namespace     varchar NOT NULL,

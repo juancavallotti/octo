@@ -11,4 +11,16 @@ var (
 	// configured. It lives here (not in the secret store) so the shared handler can
 	// map it to 503 without importing the secret package.
 	ErrEncryptionDisabled = errors.New("kv encryption disabled")
+	// ErrSecretNotVolatile is returned for a namespace that is both a secret and a
+	// volatile one. That combination asks the store to hold a credential somewhere
+	// it neither encrypts nor promises to keep, so it is refused rather than
+	// silently honored. The handler maps it to 400: it is a malformed request, not
+	// a server condition.
+	ErrSecretNotVolatile = errors.New("kv namespace cannot be both secret and volatile")
+	// ErrInvalidNamespace is returned for a namespace the volatile tier's key layout
+	// cannot represent unambiguously — one containing the delimiter it separates
+	// segments with. Refused rather than escaped, because nothing legitimately needs
+	// a colon in a namespace and silently rewriting one would make the name a caller
+	// reads back differ from the one it wrote. The handler maps it to 400.
+	ErrInvalidNamespace = errors.New("kv namespace must not contain a colon")
 )

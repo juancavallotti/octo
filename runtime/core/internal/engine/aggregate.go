@@ -5,7 +5,10 @@
 // elements of one body.
 //
 // Group state lives in core.KV under optimistic concurrency, so any replica can
-// fold into a group and two replicas can never each hold half of one. The one
+// fold into a group and two replicas can never each hold half of one. It uses the
+// persistent namespace: a half-built group is messages the flow has already
+// accepted and not yet emitted, so dropping one loses data rather than costing a
+// recompute — which is precisely the line the volatile tier does not cross. The one
 // condition that fires without a message arriving — the timeout — needs a timer
 // instead, and that timer is gated on core.LeaderElection so a group is reaped
 // once per cluster rather than once per replica. Both services behave correctly

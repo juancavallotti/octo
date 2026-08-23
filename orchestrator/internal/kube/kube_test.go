@@ -946,3 +946,86 @@ func TestApplyProbesOnEveryDeployment(t *testing.T) {
 		})
 	}
 }
+
+// envNamed returns the entry with this name, so a test can assert not just that
+// REDIS_URL is present but *how* it is bound — a literal and a secret reference are
+// very different things to write into every integration Deployment.
+func envNamed(env []corev1.EnvVar, name string) *corev1.EnvVar {
+	for i := range env {
+		if env[i].Name == name {
+			return &env[i]
+		}
+	}
+	return nil
+}
+
+// applyAndReadEnv applies a deployment under rs and returns its container env.
+func applyAndReadEnv(t *testing.T, rs RuntimeServices) []corev1.EnvVar {
+	t.Helper()
+	cfg := testConfig("")
+	cfg.RuntimeServices = rs
+	c := testClientFor(cfg)
+	ctx := context.Background()
+	if err := c.Apply(ctx, Spec{ID: "d1", IntegrationID: "int-1", Definition: "x: 1", Replicas: 1}); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	dep, err := c.clientset.AppsV1().Deployments(testNamespace).Get(ctx, resourceName("d1"), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	return dep.Spec.Template.Spec.Containers[0].Env
+}
+
+// The three shapes REDIS_URL can take in an integration pod. The secret-reference
+// one is the one that matters: a managed Redis URL carries a password, and a
+// literal in the rendered Deployment is readable by anyone who can read workloads.
+func TestRuntimeServicesEnvRedisShapes(t *testing.T) {
+	base := RuntimeServices{Module: "k8s", OrchestratorURL: "http://octo-orchestrator.octo-dev:8090"}
+
+	t.Run("omitted when unset", func(t *testing.T) {
+		if got := envNamed(applyAndReadEnv(t, base), envRedisURL); got != nil {
+			t.Fatalf("%s should be omitted when unset, got %+v", envRedisURL, got)
+		}
+	})
+
+	t.Run("literal", func(t *testing.T) {
+		rs := base
+		rs.RedisURL = "redis://octo-redis.octo-dev:6379"
+		got := envNamed(applyAndReadEnv(t, rs), envRedisURL)
+		if got == nil || got.Value != rs.RedisURL {
+			t.Fatalf("%s = %+v, want the literal url", envRedisURL, got)
+		}
+		if got.ValueFrom != nil {
+			t.Error("a literal must not also carry a value source")
+		}
+	})
+
+	t.Run("secret reference wins over a literal", func(t *testing.T) {
+		rs := base
+		rs.RedisURL = "redis://should-not-be-used:6379"
+		rs.RedisSecret = SecretKeyRef{Name: "octo-redis-url", Key: "redis-url"}
+		got := envNamed(applyAndReadEnv(t, rs), envRedisURL)
+		if got == nil || got.ValueFrom == nil || got.ValueFrom.SecretKeyRef == nil {
+			t.Fatalf("%s = %+v, want a secret reference", envRedisURL, got)
+		}
+		if got.Value != "" {
+			t.Errorf("the credential-bearing url leaked into the manifest as %q", got.Value)
+		}
+		if got.ValueFrom.SecretKeyRef.Name != "octo-redis-url" || got.ValueFrom.SecretKeyRef.Key != "redis-url" {
+			t.Errorf("secret reference = %+v", got.ValueFrom.SecretKeyRef)
+		}
+	})
+
+	// A half-filled reference is a misconfiguration, not a request for a partial
+	// binding: falling back to the literal is better than emitting a reference to a
+	// key that cannot resolve, which would leave the pod unable to start.
+	t.Run("incomplete secret reference falls back to the literal", func(t *testing.T) {
+		rs := base
+		rs.RedisURL = "redis://octo-redis.octo-dev:6379"
+		rs.RedisSecret = SecretKeyRef{Name: "octo-redis-url"} // no key
+		got := envNamed(applyAndReadEnv(t, rs), envRedisURL)
+		if got == nil || got.Value != rs.RedisURL {
+			t.Fatalf("%s = %+v, want the literal url", envRedisURL, got)
+		}
+	})
+}

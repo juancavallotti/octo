@@ -379,6 +379,11 @@ func joinPath(base, ref string) string {
 // configureOAuth2 builds the token source for client-credentials auth, capturing
 // the secret store from the context so refreshed tokens persist across restarts
 // where the store is durable.
+//
+// The secret store is always the persistent, encrypted tier — a volatile namespace
+// is never a secret namespace — so a deployed connector keeps its refresh token
+// across a rollout. A standalone run keeps secrets in memory (it has no encryption
+// key), so there a restart re-authenticates.
 func (c *Connector) configureOAuth2(ctx context.Context, name string, auth authSettings, timeout time.Duration) {
 	secrets := core.RuntimeServicesFromContext(ctx).Secrets()
 	c.tokens = newTokenSource(name, oauth2Config{

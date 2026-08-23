@@ -21,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/juancavallotti/octo/orchestrator/internal/agent"
 	"github.com/juancavallotti/octo/orchestrator/internal/apikey"
 	"github.com/juancavallotti/octo/orchestrator/internal/bus"
@@ -42,6 +43,7 @@ import (
 	"github.com/juancavallotti/octo/orchestrator/internal/resource"
 	"github.com/juancavallotti/octo/orchestrator/internal/secret"
 	"github.com/juancavallotti/octo/orchestrator/internal/snapshot"
+	"github.com/juancavallotti/octo/orchestrator/internal/storagestats"
 	"github.com/juancavallotti/octo/orchestrator/internal/user"
 	"github.com/redis/go-redis/v9"
 	corev1 "k8s.io/api/core/v1"
@@ -376,7 +378,8 @@ func devRunIdleTimeout() (time.Duration, error) {
 // runtime pods. The orchestrator URL is the linchpin: without it the runtime has
 // no KV endpoint, so an empty URL disables injection entirely (Module left empty)
 // and the runtime falls back to its standalone default. With a URL set, the module
-// defaults to k8s (Lease-based leader election + orchestrator KV).
+// defaults to k8s (Lease-based leader election + orchestrator KV for the persistent
+// tier, Redis for the volatile one).
 func runtimeServicesConfig() kube.RuntimeServices {
 	orchestratorURL := os.Getenv("ORCHESTRATOR_URL")
 	if orchestratorURL == "" {
@@ -387,6 +390,16 @@ func runtimeServicesConfig() kube.RuntimeServices {
 		OrchestratorURL: orchestratorURL,
 		ServiceAccount:  os.Getenv("RUNTIME_SERVICE_ACCOUNT"),
 		NATSURL:         os.Getenv("NATS_URL"),
+		// Redis, reached directly by the integration pod. Either a literal (the
+		// bundled server, which takes no credentials) or a reference to the Secret
+		// the chart bound this orchestrator's own REDIS_URL to — a managed Redis
+		// URL carries a password, and a password written into every integration
+		// Deployment would be readable by anyone who can read workloads.
+		RedisURL: os.Getenv("REDIS_URL"),
+		RedisSecret: kube.SecretKeyRef{
+			Name: os.Getenv("REDIS_URL_SECRET_NAME"),
+			Key:  os.Getenv("REDIS_URL_SECRET_KEY"),
+		},
 		// Only reaches the pods that were granted the observability API, so an
 		// orchestrator without it disables that grant rather than degrading anything.
 		LogsURL: os.Getenv("LOGS_URL"),
@@ -555,14 +568,21 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 		// Deployment-scoped KV store the runtime's k8s services module calls. Values
 		// in a secret namespace are encrypted with KV_ENCRYPTION_KEY; without the key,
 		// secrets are rejected but plain KV still works.
+		//
+		// Volatile namespaces go to Redis instead of the database. Runtime pods write
+		// those keys themselves, so what comes through here for them is the object
+		// browser and undeploy cleanup. A nil client (no REDIS_URL) means they land in
+		// the database like everything else — see kv.NewService.
 		cipher, cipherErr := newCipher(os.Getenv("KV_ENCRYPTION_KEY"))
 		if cipherErr != nil {
 			return nil, cipherErr
 		}
-		kvSvc := kv.NewService(kv.NewRepo(database.Pool()), cipher)
+		volatileRepo := kv.NewRedisRepo(redisClient)
+		kvSvc := kv.NewService(kv.NewRepo(database.Pool()), volatileRepo, cipher)
 		kv.NewHandler(kvSvc).Register(mux)
 		slog.Info("kv routes registered",
 			"encryption", cipher != nil,
+			"volatileTier", volatileRepo != nil,
 			"endpoints", "GET/PUT/DELETE /deployments/{id}/kv/{namespace}/{key}")
 
 		// The user-facing object browser the platform UI calls: a JSON facade over
@@ -743,7 +763,23 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 	)).Register(mux)
 	slog.Info("health routes registered", "endpoints", "GET /settings/health")
 
+	// The deeper half of the same question, registered next to it and under the same
+	// gate — which is to say none. Whether the stores are reachable and how full
+	// they are are read on the same page, and both are wanted most when the install
+	// is misbehaving.
+	storagestats.NewHandler(storagestats.NewService(redisClient, databasePool(database))).Register(mux)
+	slog.Info("storage routes registered", "endpoints", "GET /settings/storage")
+
 	return mux, nil
+}
+
+// databasePool returns the connection pool, or nil when this orchestrator is
+// running without a database.
+func databasePool(database *db.DB) *pgxpool.Pool {
+	if database == nil {
+		return nil
+	}
+	return database.Pool()
 }
 
 // databaseProbe pings the pool, or is nil when there is none.
