@@ -11,11 +11,17 @@ import (
 )
 
 // userNamespace is the default namespace the object browser serves when a request
-// names none. The handler serves any namespace named via ?namespace=, including the
+// names none, and userVolatileNamespace is its volatile counterpart. Both are
+// advertised by the namespaces route whether or not they hold anything yet, so the
+// browser's picker offers the two tiers a flow can write to rather than only the
+// ones something happens to have written already. The handler serves any namespace named via ?namespace=, including the
 // encrypted secret ones — but only their key metadata (list) and deletion (cleanup):
 // it never reads or writes a secret value, so plaintext/ciphertext never reaches the
 // platform's plain object API.
-const userNamespace = "user"
+const (
+	userNamespace         = "user"
+	userVolatileNamespace = userNamespace + volatileNamespaceSuffix
+)
 
 // ObjectHandler serves the object browser the platform UI calls: a JSON facade over
 // the KV store for inspecting and troubleshooting deployment state. It adds the
@@ -65,10 +71,10 @@ func (h *ObjectHandler) namespaces(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
-	// Always advertise the default namespace, even before anything is written to it.
-	out := []string{userNamespace}
+	// Always advertise the user namespaces, even before anything is written to them.
+	out := []string{userNamespace, userVolatileNamespace}
 	for _, ns := range all {
-		if ns != userNamespace {
+		if ns != userNamespace && ns != userVolatileNamespace {
 			out = append(out, ns)
 		}
 	}

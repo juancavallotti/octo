@@ -128,8 +128,9 @@ func TestObjectNamespaceParamRoutesAndListsNamespaces(t *testing.T) {
 		t.Fatal("key not stored under the system namespace")
 	}
 
-	// The namespaces endpoint advertises user (always) plus every populated one,
-	// including secret namespaces (the browser can list/clean them up).
+	// The namespaces endpoint advertises both user tiers (always, so the picker
+	// offers a tier before anything has been written to it) plus every populated
+	// one, including secret namespaces (the browser can list/clean them up).
 	store.rows["user_secrets/s"] = []byte("ciphertext")
 	list := do(t, http.MethodGet, ts.URL+"/deployments/dep-1/namespaces", "", "")
 	defer func() { _ = list.Body.Close() }()
@@ -139,9 +140,14 @@ func TestObjectNamespaceParamRoutesAndListsNamespaces(t *testing.T) {
 	if err := json.NewDecoder(list.Body).Decode(&listed); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(listed.Items) != 3 || listed.Items[0] != "user" ||
-		listed.Items[1] != "system" || listed.Items[2] != "user_secrets" {
-		t.Fatalf("namespaces = %v, want [user system user_secrets]", listed.Items)
+	want := []string{"user", "user_volatile", "system", "user_secrets"}
+	if len(listed.Items) != len(want) {
+		t.Fatalf("namespaces = %v, want %v", listed.Items, want)
+	}
+	for i, ns := range want {
+		if listed.Items[i] != ns {
+			t.Fatalf("namespaces = %v, want %v", listed.Items, want)
+		}
 	}
 }
 

@@ -343,3 +343,117 @@ func TestObjectBuildValidation(t *testing.T) {
 		})
 	}
 }
+
+// The volatile setting picks which namespace a block operates in, and the two are
+// separate keyspaces. These pin all three halves of that: the default is the
+// persistent tier (so every flow written before the setting keeps its behavior),
+// volatile lands somewhere else entirely, and a reader that disagrees with the
+// writer about the tier gets a clean miss rather than the other tier's value.
+
+func TestObjectWriteDefaultsToThePersistentNamespace(t *testing.T) {
+	ctx, kv := withFakeServices(context.Background())
+
+	writer, err := newObjectWrite(types.Settings{"key": `"k"`, "value": `"v"`}, core.BlockDeps{})
+	if err != nil {
+		t.Fatalf("newObjectWrite: %v", err)
+	}
+	if _, err = writer.Process(ctx, mustMessage(t)); err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+
+	if _, ok, _ := kv.Get(ctx, core.NamespaceUser, "k"); !ok {
+		t.Error("an object-write with no volatile setting must use the persistent namespace")
+	}
+	if _, ok, _ := kv.Get(ctx, core.NamespaceUserVolatile, "k"); ok {
+		t.Error("it must not also land in the volatile namespace")
+	}
+}
+
+func TestObjectWriteVolatileUsesTheVolatileNamespace(t *testing.T) {
+	ctx, kv := withFakeServices(context.Background())
+
+	writer, err := newObjectWrite(types.Settings{"key": `"k"`, "value": `"v"`, "volatile": true}, core.BlockDeps{})
+	if err != nil {
+		t.Fatalf("newObjectWrite: %v", err)
+	}
+	if _, err = writer.Process(ctx, mustMessage(t)); err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+
+	if _, ok, _ := kv.Get(ctx, core.NamespaceUserVolatile, "k"); !ok {
+		t.Error("a volatile object-write must use the volatile namespace")
+	}
+	if _, ok, _ := kv.Get(ctx, core.NamespaceUser, "k"); ok {
+		t.Error("it must not also land in the persistent namespace")
+	}
+}
+
+func TestObjectReadAndWriteAgreeOnTheTier(t *testing.T) {
+	for _, volatile := range []bool{false, true} {
+		ctx, _ := withFakeServices(context.Background())
+
+		writer, err := newObjectWrite(
+			types.Settings{"key": `"k"`, "value": `"stored"`, "volatile": volatile}, core.BlockDeps{})
+		if err != nil {
+			t.Fatalf("newObjectWrite: %v", err)
+		}
+		if _, err = writer.Process(ctx, mustMessage(t)); err != nil {
+			t.Fatalf("write Process: %v", err)
+		}
+
+		// A reader on the same tier finds it.
+		same, err := newObjectRead(
+			types.Settings{"key": `"k"`, "as": "got", "existsVar": "found", "volatile": volatile}, core.BlockDeps{})
+		if err != nil {
+			t.Fatalf("newObjectRead: %v", err)
+		}
+		out, err := same.Process(ctx, mustMessage(t))
+		if err != nil {
+			t.Fatalf("read Process: %v", err)
+		}
+		if found, ok := out.Variables.Bool("found"); !ok || !found {
+			t.Errorf("volatile=%v: a reader on the same tier missed the value", volatile)
+		}
+
+		// A reader on the other tier misses: the tiers are separate keyspaces, not
+		// two views of one.
+		other, err := newObjectRead(
+			types.Settings{"key": `"k"`, "as": "got", "existsVar": "found", "volatile": !volatile}, core.BlockDeps{})
+		if err != nil {
+			t.Fatalf("newObjectRead: %v", err)
+		}
+		out, err = other.Process(ctx, mustMessage(t))
+		if err != nil {
+			t.Fatalf("read Process: %v", err)
+		}
+		if found, ok := out.Variables.Bool("found"); !ok || found {
+			t.Errorf("volatile=%v: a reader on the other tier should miss, got a hit", volatile)
+		}
+	}
+}
+
+func TestObjectDeleteHonoursTheTier(t *testing.T) {
+	ctx, kv := withFakeServices(context.Background())
+
+	if _, err := kv.Set(ctx, core.NamespaceUser, "k", []byte(`"persistent"`), 0); err != nil {
+		t.Fatalf("seed persistent: %v", err)
+	}
+	if _, err := kv.Set(ctx, core.NamespaceUserVolatile, "k", []byte(`"volatile"`), 0); err != nil {
+		t.Fatalf("seed volatile: %v", err)
+	}
+
+	deleter, err := newObjectDelete(types.Settings{"key": `"k"`, "volatile": true}, core.BlockDeps{})
+	if err != nil {
+		t.Fatalf("newObjectDelete: %v", err)
+	}
+	if _, err = deleter.Process(ctx, mustMessage(t)); err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+
+	if _, ok, _ := kv.Get(ctx, core.NamespaceUserVolatile, "k"); ok {
+		t.Error("a volatile object-delete did not remove the volatile key")
+	}
+	if _, ok, _ := kv.Get(ctx, core.NamespaceUser, "k"); !ok {
+		t.Error("a volatile object-delete must not touch the persistent key")
+	}
+}

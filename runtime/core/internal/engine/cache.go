@@ -1,8 +1,14 @@
 // Caching built on the runtime KV store: the cache-scope composite memoizes the
 // body its wrapped flow produces, and the invalidate-cache leaf evicts an entry.
-// Both key the user namespace (core.NamespaceUser) by the SHA-256 of an evaluated
-// CEL key, so an invalidate-cache with the same key expression targets the same
-// entry a cache-scope wrote.
+// Both key the volatile user namespace (core.NamespaceUserVolatile) by the SHA-256
+// of an evaluated CEL key, so an invalidate-cache with the same key expression
+// targets the same entry a cache-scope wrote.
+//
+// Volatile is the whole point of a cache and so is not configurable here. A cache
+// entry already carries its own expiry, and losing one costs a recompute rather
+// than correctness — which is exactly the contract the volatile tier offers. It is
+// also what keeps memoized bodies out of the platform database, where they would be
+// a row and a transaction apiece for a value that expires in a minute.
 //
 // The KV store has no native TTL, so cache-scope encodes the expiry inside the
 // stored value (cacheEnvelope) and checks it on read; an expired entry is treated
@@ -123,7 +129,7 @@ func (c *cacheScope) Process(ctx context.Context, msg *types.Message) (*types.Me
 	key := cacheKey(keyValue)
 	kv := core.RuntimeServicesFromContext(ctx).KV()
 
-	entry, ok, err := kv.Get(ctx, core.NamespaceUser, key)
+	entry, ok, err := kv.Get(ctx, core.NamespaceUserVolatile, key)
 	if err == nil && ok {
 		if cached, hit := decodeFreshEnvelope(entry.Value); hit {
 			if setErr := msg.SetBodyJSON(cached); setErr == nil {
@@ -178,7 +184,7 @@ func (c *cacheScope) store(ctx context.Context, kv core.KV, key string, expected
 	if err != nil {
 		return
 	}
-	_, _ = kv.Set(ctx, core.NamespaceUser, key, encoded, expectedVersion)
+	_, _ = kv.Set(ctx, core.NamespaceUserVolatile, key, encoded, expectedVersion)
 }
 
 // invalidateCacheSettings configures the invalidate-cache leaf.
@@ -218,7 +224,7 @@ func (p *invalidateCache) Process(ctx context.Context, msg *types.Message) (*typ
 		return nil, fmt.Errorf("invalidate-cache key: %w", err)
 	}
 	kv := core.RuntimeServicesFromContext(ctx).KV()
-	if delErr := kv.Delete(ctx, core.NamespaceUser, cacheKey(keyValue), 0); delErr != nil {
+	if delErr := kv.Delete(ctx, core.NamespaceUserVolatile, cacheKey(keyValue), 0); delErr != nil {
 		return nil, fmt.Errorf("invalidate-cache %q: %w", keyValue, delErr)
 	}
 	return msg, nil

@@ -41,7 +41,7 @@ Volatile makes **no durability promise at all**. Your value may vanish on a rest
 Both tiers are versioned and compare-and-swap in exactly the same way, so you move code between them without changing it.
 
 <Callout type="info">
-When the platform has no Redis configured (`redis.enabled: false` and no `externalRedis`), volatile namespaces quietly fall back to Postgres. Nothing breaks; you simply pay persistent-tier cost for volatile data.
+Volatile namespaces fall back to Postgres whenever no Redis backs them — which today is always (the routing is not wired up yet), and afterwards whenever the platform has none configured (`redis.enabled: false` and no `externalRedis`). Nothing breaks either way; you simply pay persistent-tier cost for volatile data. Write against the guarantee rather than the backend: it is the guarantee that will not change.
 </Callout>
 
 ### Standalone persistence

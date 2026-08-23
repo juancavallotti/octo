@@ -4,6 +4,12 @@
 // compacting it when it grows past its token budget. The clear-agent-memory leaf
 // block wipes a thread. All memory objects live in the user namespace under a
 // dedicated prefix so they never collide with object-read/write keys.
+//
+// The persistent namespace, deliberately: a thread is a conversation somebody is
+// having, and a restart that silently forgot what was said would not read as a
+// dropped cache entry — it would read as the agent losing the plot mid-sentence.
+// There is no volatile option here for the same reason there is no option to
+// forget on purpose.
 package engine
 
 import (

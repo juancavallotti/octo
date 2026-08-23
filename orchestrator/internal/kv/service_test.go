@@ -99,3 +99,49 @@ func TestServiceConflictPassthrough(t *testing.T) {
 		t.Fatalf("err = %v, want ErrVersionConflict", err)
 	}
 }
+
+func TestNamespaceTierClassification(t *testing.T) {
+	cases := []struct {
+		namespace string
+		secret    bool
+		volatile  bool
+	}{
+		{"user", false, false},
+		{"system", false, false},
+		{"user_secrets", true, false},
+		{"system_secrets", true, false},
+		{"user_volatile", false, true},
+		{"system_volatile", false, true},
+	}
+	for _, tc := range cases {
+		if got := isSecret(tc.namespace); got != tc.secret {
+			t.Errorf("isSecret(%q) = %v, want %v", tc.namespace, got, tc.secret)
+		}
+		if got := isVolatile(tc.namespace); got != tc.volatile {
+			t.Errorf("isVolatile(%q) = %v, want %v", tc.namespace, got, tc.volatile)
+		}
+		if err := checkTiers(tc.namespace); err != nil {
+			t.Errorf("checkTiers(%q) = %v, want nil", tc.namespace, err)
+		}
+	}
+}
+
+// A namespace that is both secret and volatile asks the store to hold a credential
+// somewhere it neither encrypts nor promises to keep. Nothing in the runtime
+// composes the two; this is what stops a hand-written API call from doing it.
+func TestServiceRefusesASecretVolatileNamespace(t *testing.T) {
+	svc := NewService(&fakeRepo{}, testCipher(t))
+	ctx := context.Background()
+
+	// Both composition orders, because only one suffix can be last: neither
+	// "user_secrets_volatile" nor "user_volatile_secrets" is caught by looking at
+	// the trailing suffix alone.
+	for _, namespace := range []string{"user_secrets_volatile", "user_volatile_secrets"} {
+		if _, err := svc.Set(ctx, "dep-1", namespace, "k", []byte("v"), 0); !errors.Is(err, ErrSecretNotVolatile) {
+			t.Errorf("Set(%q) = %v, want ErrSecretNotVolatile", namespace, err)
+		}
+		if _, _, _, err := svc.Get(ctx, "dep-1", namespace, "k"); !errors.Is(err, ErrSecretNotVolatile) {
+			t.Errorf("Get(%q) = %v, want ErrSecretNotVolatile", namespace, err)
+		}
+	}
+}

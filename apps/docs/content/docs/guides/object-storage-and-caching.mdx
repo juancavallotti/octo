@@ -178,12 +178,19 @@ pattern, see [An AI Web App End to End](/guides/ai-web-app).
 Both the object store and the cache ride on the runtime's KV service, so the
 same YAML runs everywhere:
 
-- **Standalone** (`octo run`, `octo invoke`): the store is in-process and
-  per-run — great for development, gone when the process exits.
+- **Standalone**: `octo run` serializes objects to `--storage-dir` (default
+  `./octo-store`), so they survive a restart; `octo invoke` keeps them in memory
+  so a probe is reproducible.
 - **Platform**: the store is durable and scoped to your deployment, shared by
   all replicas. Cache hits and object reads work across the whole cluster. See
   [KV and Storage](/platform/kv-and-storage) for scoping, quotas, and
   inspection.
+
+Either way a namespace picks a
+[durability tier](/platform/kv-and-storage#durability-tiers). Cache entries are
+always volatile — losing one costs a recompute, which is the whole bargain — while
+objects default to persistent and take a `volatile` setting when you want the
+cheaper tier for a value you can afford to lose.
 
 ## Where to go next
 

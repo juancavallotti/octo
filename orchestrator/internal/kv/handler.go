@@ -181,6 +181,8 @@ func writeStoreError(w http.ResponseWriter, err error) {
 		httpx.WriteError(w, http.StatusConflict, "version conflict")
 	case errors.Is(err, ErrEncryptionDisabled):
 		httpx.WriteError(w, http.StatusServiceUnavailable, "secret storage is not configured")
+	case errors.Is(err, ErrSecretNotVolatile):
+		httpx.WriteError(w, http.StatusBadRequest, "a namespace cannot be both secret and volatile")
 	default:
 		slog.Error("kv handler", "error", err)
 		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
