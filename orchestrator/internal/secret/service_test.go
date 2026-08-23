@@ -51,6 +51,16 @@ type fakeKube struct {
 	values  map[string]string
 	deleted []string
 	setErr  error
+	// listErr is how a cluster that could not be asked is spelled, which is the
+	// case the reconciler must refuse to act on.
+	listErr error
+	// noStore stands for the shared Secret not existing at all — the state of an
+	// installation that has never written one, which must not read as "every
+	// catalogue name is gone".
+	noStore bool
+	// reads counts trips to the cluster for the Secret, so a test can pin that the
+	// reconciler makes exactly one.
+	reads int
 }
 
 func newFakeKube() *fakeKube { return &fakeKube{values: map[string]string{}} }
@@ -61,6 +71,25 @@ func (f *fakeKube) SetSecret(_ context.Context, name, value string) error {
 	}
 	f.values[name] = value
 	return nil
+}
+
+// StoredSecretNames mirrors the real client: one read answering both questions,
+// from the same map SetSecret writes to, so a test does not have to keep two views
+// of the cluster in step. The Secret is created by the first write, so it exists
+// once anything has been stored — unless a test says otherwise.
+func (f *fakeKube) StoredSecretNames(_ context.Context) ([]string, bool, error) {
+	f.reads++
+	if f.listErr != nil {
+		return nil, false, f.listErr
+	}
+	if f.noStore || len(f.values) == 0 {
+		return nil, false, nil
+	}
+	out := make([]string, 0, len(f.values))
+	for name := range f.values {
+		out = append(out, name)
+	}
+	return out, true, nil
 }
 
 func (f *fakeKube) DeleteSecretKey(_ context.Context, name string) error {
@@ -187,5 +216,138 @@ func TestValidName(t *testing.T) {
 		if ValidName(n) {
 			t.Errorf("ValidName(%q) = true, want false", n)
 		}
+	}
+}
+
+// The catalogue and the values are two writes to two systems, so a cluster
+// rebuilt from scratch leaves the platform listing secrets that are gone — and a
+// deployment binding one fails to start while the secrets page insists it is
+// there.
+func TestReconcileDropsCatalogueEntriesTheClusterDoesNotHave(t *testing.T) {
+	repo, kube := newFakeRepo(), newFakeKube()
+	svc := NewService(repo, kube, &fakeRefs{})
+	ctx := context.Background()
+
+	if _, err := svc.Create(ctx, "KEPT", "v"); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	// A catalogue row with no key behind it — what a rebuilt cluster leaves.
+	repo.names["GONE"] = Secret{Name: "GONE"}
+
+	dropped, err := svc.Reconcile(ctx)
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	if dropped != 1 {
+		t.Errorf("dropped = %d, want 1", dropped)
+	}
+	if _, still := repo.names["GONE"]; still {
+		t.Error("want the entry with no key removed")
+	}
+	if _, gone := repo.names["KEPT"]; !gone {
+		t.Error("want the entry the cluster still has left alone")
+	}
+}
+
+// The shared Secret is created lazily, so its absence is the ordinary state of an
+// installation that has never stored one — and briefly what an externally managed
+// Secret looks like while being recreated. Reading either as "every name is gone"
+// would drop the whole catalogue, and this sweep never adds a name back.
+func TestReconcileDoesNothingWhenTheSharedSecretDoesNotExist(t *testing.T) {
+	repo, kube := newFakeRepo(), newFakeKube()
+	kube.noStore = true
+	repo.names["KEY_A"] = Secret{Name: "KEY_A"}
+	repo.names["KEY_B"] = Secret{Name: "KEY_B"}
+	svc := NewService(repo, kube, &fakeRefs{})
+
+	dropped, err := svc.Reconcile(context.Background())
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	if dropped != 0 || len(repo.deleted) != 0 {
+		t.Errorf("dropped %d / %v, want the catalogue untouched", dropped, repo.deleted)
+	}
+}
+
+// The asymmetry is the point: deleting key material because a database row is
+// missing is not a trade worth making unattended, and a catalogue restored from
+// an older backup is exactly when the key is the thing worth keeping.
+func TestReconcileNeverDeletesAKeyTheCatalogueDoesNotList(t *testing.T) {
+	repo, kube := newFakeRepo(), newFakeKube()
+	svc := NewService(repo, kube, &fakeRefs{})
+	kube.values["ORPHANED_KEY"] = "value"
+
+	if _, err := svc.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	if _, still := kube.values["ORPHANED_KEY"]; !still {
+		t.Error("want a key with no catalogue row kept")
+	}
+	if len(kube.deleted) != 0 {
+		t.Errorf("deleted %v from the cluster, want nothing", kube.deleted)
+	}
+}
+
+// An empty answer from a cluster that was never successfully asked is an
+// instruction to delete the whole catalogue.
+func TestReconcileDeletesNothingWhenTheClusterCannotBeListed(t *testing.T) {
+	repo, kube := newFakeRepo(), newFakeKube()
+	kube.listErr = errors.New("connection refused")
+	repo.names["SOMETHING"] = Secret{Name: "SOMETHING"}
+	svc := NewService(repo, kube, &fakeRefs{})
+
+	dropped, err := svc.Reconcile(context.Background())
+
+	if err == nil {
+		t.Error("want the listing failure reported")
+	}
+	if dropped != 0 || len(repo.deleted) != 0 {
+		t.Errorf("dropped %d / %v, want nothing", dropped, repo.deleted)
+	}
+}
+
+// Without cluster access there is no cluster to disagree with.
+// Existence and the key set must come from one read. Asking twice would reopen the
+// window the guard exists to close: an externally managed Secret can be deleted and
+// recreated between two calls, and a reconciler told "it exists" and then handed an
+// empty list would delete the whole catalogue — permanently, since this sweep only
+// ever removes names and never adds them back.
+//
+// The single-read interface makes that unrepresentable rather than merely unlikely.
+// This pins it, because the obvious refactor — a tidy Exists() beside a tidy List() —
+// reintroduces the bug while looking cleaner.
+func TestReconcileReadsTheClusterExactlyOnce(t *testing.T) {
+	repo, kube := newFakeRepo(), newFakeKube()
+	svc := NewService(repo, kube, &fakeRefs{})
+	ctx := context.Background()
+
+	if _, err := svc.Create(ctx, "KEPT", "v"); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	repo.names["GONE"] = Secret{Name: "GONE"}
+
+	kube.reads = 0 // count only the sweep's own reads, not Create's
+	if _, err := svc.Reconcile(ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if kube.reads != 1 {
+		t.Errorf("read the cluster %d times, want exactly 1 — two reads can disagree", kube.reads)
+	}
+}
+
+func TestReconcileIsANoOpWithoutACluster(t *testing.T) {
+	repo := newFakeRepo()
+	repo.names["SOMETHING"] = Secret{Name: "SOMETHING"}
+	svc := NewService(repo, nil, &fakeRefs{})
+
+	dropped, err := svc.Reconcile(context.Background())
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if dropped != 0 || len(repo.deleted) != 0 {
+		t.Error("want no cluster access to mean no opinion")
 	}
 }

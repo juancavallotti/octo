@@ -116,6 +116,62 @@ Deployment status is computed live from the cluster through Kubernetes informers
 
 Each status change is published to NATS and streamed to the browser as SSE (see [Event Bus](/platform/event-bus)), with a polling fallback when no broker is configured. Individual pod logs stream from `GET /deployments/{id}/pods/{pod}/logs` (with follow/tail); aggregated, searchable logs across deployments live in the logs view — see [Monitoring](/runtime/monitoring).
 
+## When the cluster and the database disagree
+
+A deployment is two things: a row in `integration_deployments` and a set of
+Kubernetes objects named from that row's id. Almost everything keeps them in
+step, but two situations do not.
+
+**A cluster that went away and came back** leaves rows describing workloads it
+has never had. Status is refreshed on read and falls back to the *cached* value
+whenever the cluster read fails — which is right for a transient blip and wrong
+forever — so those rows keep saying `running` and the deployments page keeps
+listing them.
+
+**A deploy whose rollback failed** leaves the opposite: a Deployment running with
+no row to describe it. Until now nothing in the platform could even see one,
+because nothing ever listed the workloads the orchestrator manages.
+
+A sweep runs **once at startup and every five minutes** after that, and repairs
+both:
+
+| Found | Done |
+| --- | --- |
+| A row whose workload is gone | The row is **deleted**, along with the internal Service and the deployment's KV entries — the same cleanup Undeploy does. |
+| A workload with no row | The workload is **deleted**. |
+| A stored platform-agent id pointing at a deleted row | The id is forgotten, so the admin page offers Deploy rather than a roll-out of nothing. |
+| A `cluster_secrets` entry with no key in the cluster | The catalogue entry is **dropped**. |
+
+Three things it will not do. A key in the cluster's Secret with **no** catalogue
+entry is logged and **kept** — deleting key material because a database row is
+missing is not a trade worth making unattended, and a catalogue restored from an
+older backup is exactly when the key is the thing worth saving. A row touched in
+the last five minutes is left alone whatever the cluster says: a deploy writes its
+row before it calls the API server, so there is a window in which a perfectly
+healthy deployment has no workload yet. And no row is deleted on the strength of
+the listing alone — the sweep asks again for that one workload **by name** first,
+because the listing matches on labels and a label is metadata anyone with cluster
+access can edit, while the name is derived from the row's own id and cannot drift.
+
+The secret sweep also does nothing at all while the shared `octo-secrets` Secret
+does not exist. It is created by the first secret you store, so its absence is the
+ordinary state of an installation that has never stored one — and, briefly, what
+an externally managed Secret looks like while it is being recreated. Reading
+either as "every name is gone" would empty the catalogue in one pass, and since
+the sweep only ever removes names it would stay empty with the values still
+present.
+
+<Callout type="warn">
+The sweep deletes rows, so it is arranged around never guessing. If the cluster
+cannot be listed — an error, or informer caches that have not loaded — it does
+**nothing at all**, because "I could not see the cluster" and "the cluster is
+empty" are the same empty answer and one of them is an instruction to delete
+every deployment you have. An orchestrator with no cluster access never sweeps.
+</Callout>
+
+Deleting a row is not recoverable: its settings and env bindings go with it.
+Redeploy from the integration's version list, which still has the tag.
+
 ## Day-2 operations
 
 | Operation | Endpoint | What it does |

@@ -11,6 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/tools/cache"
 )
@@ -26,6 +27,10 @@ const (
 // informerResync is the periodic full relist interval; it backstops any missed
 // watch events without making the cache stale in normal operation.
 const informerResync = 5 * time.Minute
+
+// cacheSyncPoll is how often WaitForCacheSync checks. It runs once at startup, so
+// the granularity is about not busy-waiting rather than about latency.
+const cacheSyncPoll = 200 * time.Millisecond
 
 // PodStatus is the live state of one runtime pod.
 type PodStatus struct {
@@ -169,6 +174,37 @@ func (c *Client) StartInformers(ctx context.Context, onChange func(integrationID
 	}
 }
 
+// WaitForCacheSync blocks until the informer caches have loaded, or ctx ends.
+//
+// It exists for callers that must not act on an empty cache — the reconciler
+// decides what to delete, and an unloaded cache and an empty cluster look
+// identical. Everything else here treats an unsynced cache as a reason to read
+// the API server directly, which is fine when the question is about one named
+// object and not fine when it is "what is there".
+//
+// False means the caches never synced: informers were not started, or ctx ended
+// first. Both mean the same thing to a caller — do not act.
+func (c *Client) WaitForCacheSync(ctx context.Context) bool {
+	if c.synced == nil {
+		return false
+	}
+	// A short poll rather than cache.WaitForCacheSync, which takes a stop channel
+	// and would need one derived from ctx. The wait happens once, at startup, and
+	// half a second of latency on it costs nothing.
+	ticker := time.NewTicker(cacheSyncPoll)
+	defer ticker.Stop()
+	for {
+		if c.synced() {
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-ticker.C:
+		}
+	}
+}
+
 // notifyIntegration extracts the integration-id label from a changed object (or
 // the wrapped object of a delete tombstone) and reports it.
 //
@@ -241,4 +277,107 @@ func (c *Client) Reachable(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+// DeploymentIDs returns the id of every deployment this orchestrator has a
+// workload for, and whether the answer can be trusted.
+//
+// The selector is the load-bearing part and it has three clauses, not one.
+// Managed by us, carrying a deployment id, and — the one that matters —
+// explicitly NOT carrying a dev-run id. A dev run wears the same managed-by
+// label and an integration id, so a selector that stopped at the first two would
+// report every running dev run as an orphaned deployment, and the reconciler
+// would delete them. It is the inverse of devRunSelector, deliberately spelled
+// out here rather than derived from it, because the two are read together and a
+// reader has to be able to see that they partition the namespace.
+//
+// The second return says the list is authoritative, which is a stronger claim
+// than "it came back". It is false only when neither source could give a complete
+// answer; a caller deciding what to delete must not act on a list without it,
+// because an incomplete listing and an empty cluster are the same empty map.
+//
+// A cache that has not synced does not make the answer untrustworthy — it makes
+// this read fall back to the API server, which is authoritative by definition.
+// What the fallback costs is a full list rather than a cache read, and this runs
+// once every few minutes.
+func (c *Client) DeploymentIDs(ctx context.Context) (map[string]bool, bool, error) {
+	sel, err := managedDeploymentSelector()
+	if err != nil {
+		return nil, false, err
+	}
+
+	var deployments []*appsv1.Deployment
+	if c.synced != nil && c.synced() {
+		deployments, err = c.depLister.List(sel)
+		if err != nil {
+			return nil, false, fmt.Errorf("kube: lister list deployments: %w", err)
+		}
+	} else {
+		// A direct read rather than a refusal. The cache is unsynced for a few
+		// seconds after start and forever when informers were never started at all
+		// (a test, a one-shot); in both cases the API server can still answer, and
+		// answering from it is more useful than reporting the whole namespace
+		// unknowable.
+		list, lerr := c.clientset.AppsV1().Deployments(c.namespace).List(ctx,
+			metav1.ListOptions{LabelSelector: sel.String()})
+		if lerr != nil {
+			return nil, false, fmt.Errorf("kube: list deployments: %w", lerr)
+		}
+		deployments = make([]*appsv1.Deployment, len(list.Items))
+		for i := range list.Items {
+			deployments[i] = &list.Items[i]
+		}
+	}
+
+	out := make(map[string]bool, len(deployments))
+	for _, dep := range deployments {
+		if id := dep.Labels[labelDeploymentID]; id != "" {
+			out[id] = true
+		}
+	}
+	return out, true, nil
+}
+
+// DeploymentExists reports whether the workload for a deployment id is there,
+// asked by name rather than by label.
+//
+// It is the second opinion the reconciler takes before deleting a row, and the
+// difference between the two questions is the point. DeploymentIDs asks the
+// cluster "what do you have", which it answers from labels — metadata that any
+// principal with cluster access can edit, and that an admission controller can
+// rewrite. This asks about one object by the name derived from the row's own id,
+// which is the identity every other read here uses and the one thing about a
+// workload that cannot drift.
+//
+// Without it, a stripped label makes a live deployment invisible to the sweep,
+// which then deletes its row — irreversibly, taking the settings and env bindings
+// with it — while the workload keeps running and can never be collected either,
+// because it does not match the selector any more.
+func (c *Client) DeploymentExists(ctx context.Context, deploymentID string) (bool, error) {
+	// Deliberately not the lister: this is the confirmation step for a destructive
+	// action, and a cache is a copy of what was true a moment ago.
+	_, err := c.clientset.AppsV1().Deployments(c.namespace).Get(ctx,
+		resourceName(deploymentID), metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("kube: get deployment: %w", err)
+	}
+	return true, nil
+}
+
+// managedDeploymentSelector matches orchestrator-managed deployment workloads and
+// nothing else. See DeploymentIDs for why each clause is there.
+func managedDeploymentSelector() (labels.Selector, error) {
+	hasDeployment, err := labels.NewRequirement(labelDeploymentID, selection.Exists, nil)
+	if err != nil {
+		return nil, fmt.Errorf("kube: deployment selector: %w", err)
+	}
+	notDevRun, err := labels.NewRequirement(labelDevRunID, selection.DoesNotExist, nil)
+	if err != nil {
+		return nil, fmt.Errorf("kube: deployment selector: %w", err)
+	}
+	return labels.SelectorFromSet(labels.Set{labelManagedBy: managedByValue}).
+		Add(*hasDeployment, *notDevRun), nil
 }

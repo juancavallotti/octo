@@ -949,6 +949,54 @@ func (s *Service) SetMaxIterations(ctx context.Context, iterations int) (Status,
 	return s.Status(ctx)
 }
 
+// Repair clears a stored deployment id whose deployment no longer exists, and
+// reports whether it had to.
+//
+// Status already masks this case — it blanks the id and the address in what it
+// returns — but it never writes the correction back, so every read rediscovers
+// the same gone deployment and logs the same warning. That was tolerable while
+// nothing else looked at the row; it is not once the reconciler is deleting the
+// deployment rows this one points at, because the pointer would outlive them
+// indefinitely.
+//
+// The refusals are the interesting half. A missing id is nothing to repair, and
+// an unreadable deployment is this orchestrator failing to look rather than the
+// deployment being absent — clearing on that would offer Deploy against an agent
+// that is running fine, and pressing it would build a second one.
+func (s *Service) Repair(ctx context.Context) (bool, error) {
+	if s.deployments == nil {
+		return false, nil
+	}
+
+	repaired := false
+	err := s.repo.Mutate(ctx, func(cur stored) (stored, error) {
+		repaired = false
+		if cur.DeploymentID == "" {
+			return cur, nil
+		}
+		_, err := s.deployments.Get(ctx, cur.DeploymentID)
+		if err == nil {
+			return cur, nil
+		}
+		if !errors.Is(err, deployment.ErrNotFound) {
+			return cur, nil
+		}
+
+		slog.Warn("agent repair: forgetting a deployment that no longer exists",
+			"deploymentId", cur.DeploymentID)
+		next := cur
+		next.DeploymentID = ""
+		next.InternalURL = ""
+		next.UpdatedAt = time.Now().UTC()
+		repaired = true
+		return next, nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return repaired, nil
+}
+
 // Uninstall removes the deployment, and with purge the integration too.
 //
 // The default keeps the integration: it holds the agent's definition, which a user

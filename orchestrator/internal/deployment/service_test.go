@@ -37,6 +37,11 @@ type fakeRepo struct {
 	// deployment claiming a subdomain ("" means "not found").
 	takenSlugs     map[string]string
 	subdomainOwner string
+	// allRet is what ListAll returns, and deletedIDs records every row the caller
+	// removed — the two the reconciler is written against.
+	allRet     []Deployment
+	allErr     error
+	deletedIDs []string
 }
 
 func (f *fakeRepo) Create(_ context.Context, integrationID, status string, settings, md json.RawMessage) (Deployment, error) {
@@ -97,9 +102,17 @@ func (f *fakeRepo) UpdateMetadataAndSettings(
 	return nil
 }
 
-func (f *fakeRepo) Delete(_ context.Context, _ string) error {
+func (f *fakeRepo) Delete(_ context.Context, id string) error {
 	f.deleted = true
-	return f.deleteErr
+	if f.deleteErr != nil {
+		return f.deleteErr
+	}
+	f.deletedIDs = append(f.deletedIDs, id)
+	return nil
+}
+
+func (f *fakeRepo) ListAll(_ context.Context) ([]Deployment, error) {
+	return f.allRet, f.allErr
 }
 
 // fakeIntegrations returns a preset integration or error.
@@ -160,6 +173,17 @@ type fakeKube struct {
 	// present; secretChecks records the keys it was asked about.
 	existingSecrets map[string]bool
 	secretChecks    []string
+	// liveIDs is the cluster as the reconciler sees it; liveTrusted and liveErr are
+	// the two ways of saying "do not act on this".
+	liveIDs     map[string]bool
+	liveTrusted bool
+	liveErr     error
+	// deletedIDs is every workload the caller removed.
+	deletedIDs []string
+	// existsOverride makes the by-name check disagree with the label listing, and
+	// existsErr makes it fail. Both are states only the confirmation step can see.
+	existsOverride map[string]bool
+	existsErr      error
 }
 
 func (f *fakeKube) Apply(_ context.Context, spec kube.Spec) error {
@@ -195,9 +219,30 @@ func (f *fakeKube) Scale(_ context.Context, _ string, replicas int32) error {
 	return f.scaleErr
 }
 
-func (f *fakeKube) Delete(_ context.Context, _ string) error {
+func (f *fakeKube) Delete(_ context.Context, id string) error {
 	f.deleted = true
-	return f.deleteErr
+	if f.deleteErr != nil {
+		return f.deleteErr
+	}
+	f.deletedIDs = append(f.deletedIDs, id)
+	return nil
+}
+
+func (f *fakeKube) DeploymentIDs(_ context.Context) (map[string]bool, bool, error) {
+	return f.liveIDs, f.liveTrusted, f.liveErr
+}
+
+// DeploymentExists answers from the same map DeploymentIDs does, so the two
+// cannot disagree unless a test makes them — which is the case the by-name
+// confirmation exists for, and existsOverride is how it is spelled.
+func (f *fakeKube) DeploymentExists(_ context.Context, id string) (bool, error) {
+	if f.existsErr != nil {
+		return false, f.existsErr
+	}
+	if f.existsOverride != nil {
+		return f.existsOverride[id], nil
+	}
+	return f.liveIDs[id], nil
 }
 
 func (f *fakeKube) InternalURL(slug string, port int) string {
