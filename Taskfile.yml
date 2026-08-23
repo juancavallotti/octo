@@ -788,6 +788,29 @@ tasks:
           fi
           echo "absent as expected"
         }
+        # The mirror of check_absent, for a guard whose point is that a resource
+        # IS rendered and carries the right value. Rendering successfully proves
+        # nothing when the interesting part is one annotation inside it.
+        check_contains() {
+          name="$1"; shift
+          wants=""
+          while [ "$1" != "--" ]; do wants="$wants|$1"; shift; done
+          shift
+          printf '  %-22s ' "$name"
+          required="--set ingress.host=octo.example.com --set postgres.auth.password=rendertest --set orchestrator.devRuns.hashSecret=rendertest"
+          if ! render="$(helm template octo helm --namespace octo $required "$@" 2>&1)"; then
+            echo "FAILED (did not render)"; echo "$render" | tail -3; return 1
+          fi
+          old_ifs="$IFS"; IFS='|'
+          for want in $wants; do
+            [ -n "$want" ] || continue
+            if ! printf '%s' "$render" | grep -qF "$want"; then
+              IFS="$old_ifs"; echo "FAILED (missing: $want)"; return 1
+            fi
+          done
+          IFS="$old_ifs"
+          echo "present as expected"
+        }
         # The profiles as shipped. "defaults" is values.yaml alone — what an
         # install straight from OCI gets with no -f at all.
         check defaults
@@ -956,6 +979,101 @@ tasks:
         # StatefulSets that remain.
         check_absent redis-not-bundled "app.kubernetes.io/component: redis" \
           --set redis.enabled=false --set externalRedis.url=redis://cache.example:6379
+
+        # The gateway error pages. The catch-all matches every hostname under the
+        # wildcard, so its precedence controls are the whole safety story — a
+        # Traefik router with no explicit priority outranks the exact-Host routers
+        # it was meant to sit behind, and every published endpoint stops working.
+        # These pin the annotation per controller, and that the Traefik Middleware
+        # the Ingress addresses is actually rendered under that name.
+        check_contains errorpages-nginx \
+          "nginx.ingress.kubernetes.io/rewrite-target: /gateway-error" \
+          'host: "*.apps.example.com"' -- \
+          --set orchestrator.baseDomain=apps.example.com --set orchestrator.ingressClass=nginx
+        check_contains errorpages-traefik \
+          'traefik.ingress.kubernetes.io/router.priority: "1"' \
+          "traefik.ingress.kubernetes.io/router.middlewares: octo-octo-gateway-errors@kubernetescrd" \
+          "kind: Middleware" \
+          "name: octo-gateway-errors" \
+          "path: /gateway-error" -- \
+          --set orchestrator.baseDomain=apps.example.com --set orchestrator.ingressClass=traefik
+        check_contains errorpages-alb \
+          'alb.ingress.kubernetes.io/group.order: "900"' -- \
+          --set orchestrator.baseDomain=apps.example.com --set orchestrator.ingressClass=alb
+        # A class name is free-form, so the controller is read from the name only
+        # as a convenience; "traefik-public" must still get Traefik's pinning.
+        check_contains errorpages-odd-class \
+          'traefik.ingress.kubernetes.io/router.priority: "1"' -- \
+          --set orchestrator.baseDomain=apps.example.com --set orchestrator.ingressClass=traefik-public
+        # And a name nothing can be inferred from renders NO catch-all rather than
+        # one whose precedence nobody can vouch for.
+        check_absent errorpages-unknown-class "octo-gateway-errors" \
+          --set orchestrator.baseDomain=apps.example.com --set orchestrator.ingressClass=acme-lb
+        # The other direction of the same hazard: a substring test would read
+        # "notraefik" as Traefik and hang Traefik's annotations on something that
+        # is not Traefik. Segments are matched whole, so it falls through instead.
+        check_absent errorpages-substring-class "octo-gateway-errors" \
+          --set orchestrator.baseDomain=apps.example.com --set orchestrator.ingressClass=notraefik
+        check_contains errorpages-prefixed-class \
+          "nginx.ingress.kubernetes.io/rewrite-target: /gateway-error" -- \
+          --set orchestrator.baseDomain=apps.example.com --set orchestrator.ingressClass=internal-nginx
+        check_contains errorpages-explicit-controller \
+          'traefik.ingress.kubernetes.io/router.priority: "1"' -- \
+          --set orchestrator.baseDomain=apps.example.com --set orchestrator.ingressClass=acme-lb \
+          --set errorPages.controller=traefik
+        # A typo'd controller is the one error-page case worth failing over: the
+        # value was typed on purpose, and rendering an unpinned wildcard instead
+        # would be worse than either alternative.
+        check_fails errorpages-bad-controller "expected one of nginx, traefik, alb" \
+          --set orchestrator.baseDomain=apps.example.com --set orchestrator.ingressClass=nginx \
+          --set errorPages.controller=traefik2
+        check_absent errorpages-disabled "octo-gateway-errors" \
+          --set orchestrator.baseDomain=apps.example.com --set orchestrator.ingressClass=nginx \
+          --set errorPages.enabled=false
+        # Gateway mode needs no controller: the spec orders by hostname
+        # specificity, so the catch-all loses to exact hostnames by construction.
+        check_contains errorpages-gateway \
+          "kind: HTTPRoute" "replaceFullPath: /gateway-error" "sectionName: \"integrations\"" -- \
+          --set orchestrator.baseDomain=apps.example.com --set networking.mode=gateway \
+          --set networking.gateway.create=true --set networking.gateway.className=envoy-gateway
+        # backendErrors is the half that touches every deployment's own Ingress,
+        # so it stays off until asked for.
+        check_absent errorpages-backend-off "custom-http-errors" \
+          --set orchestrator.baseDomain=apps.example.com --set orchestrator.ingressClass=nginx
+        check_contains errorpages-backend-on \
+          "custom-http-errors" "default-backend" -- \
+          --set orchestrator.baseDomain=apps.example.com --set orchestrator.ingressClass=nginx \
+          --set errorPages.backendErrors=true
+        # The backend-error annotations read the RESOLVED controller, like the
+        # catch-all does. Keyed off the class name they would silently skip a class
+        # named "internal-nginx" while still rendering the catch-all, leaving 502s
+        # unbranded with nothing to show for it.
+        check_contains errorpages-backend-odd-class \
+          "custom-http-errors" -- \
+          --set orchestrator.baseDomain=apps.example.com --set orchestrator.ingressClass=internal-nginx \
+          --set errorPages.backendErrors=true
+        # The editor may legitimately live UNDER the integrations wildcard. Its own
+        # hostnames go to the proxy so the guard does not serve the error page to
+        # the editor itself and lock everyone out.
+        check_contains errorpages-platform-hosts \
+          "PLATFORM_HOSTS" "octo.apps.example.com" -- \
+          --set ingress.host=octo.apps.example.com --set orchestrator.baseDomain=apps.example.com \
+          --set orchestrator.ingressClass=nginx
+        check_contains errorpages-platform-extra-hosts \
+          "octo.apps.example.com,alias.apps.example.com" -- \
+          --set ingress.host=octo.apps.example.com --set orchestrator.baseDomain=apps.example.com \
+          --set orchestrator.ingressClass=nginx \
+          --set ingress.extraHosts[0]=alias.apps.example.com
+        # The way-out link's scheme follows the editor's own TLS, so a plaintext
+        # install does not hand out an https link that goes nowhere.
+        check_contains errorpages-plaintext-url \
+          'value: "http://octo.example.com"' -- \
+          --set orchestrator.baseDomain=apps.example.com --set orchestrator.ingressClass=nginx \
+          --set ingress.tls.enabled=false
+        # No published editor endpoint, so no URL to point the way-out link at.
+        check_absent errorpages-no-ingress "PLATFORM_URL" \
+          --set orchestrator.baseDomain=apps.example.com --set orchestrator.ingressClass=nginx \
+          --set ingress.enabled=false
         echo "✓ chart lints and renders valid manifests for every profile, and refuses every combination it should"
 
   helm:package:

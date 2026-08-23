@@ -167,3 +167,19 @@ They get no TLS of their own: set wildcardTLS.enabled, or orchestrator.clusterIs
 to issue one certificate per subdomain.
 {{- end }}
 {{- end }}
+
+{{- /* The catch-all is the one part of the wildcard that quietly does nothing when
+       the controller cannot be identified, so it is the one worth saying out loud
+       — otherwise the only symptom is that the nicer 404 never appeared. */}}
+{{- if and .Values.orchestrator.baseDomain .Values.errorPages.enabled
+          (ne .Values.networking.mode "gateway")
+          (not (include "octo.errorPages.controller" .)) }}
+
+NOTE: requests to a hostname under *.{{ .Values.orchestrator.baseDomain }} that nothing is deployed at
+will get your ingress controller's own 404, not Octo's page explaining what happened.
+The catch-all route was skipped because the controller could not be identified from
+orchestrator.ingressClass ({{ .Values.orchestrator.ingressClass | default "unset" | quote }}) — it has to be pinned below every
+deployment's own route, and how that is done differs per controller.
+
+Set errorPages.controller to nginx, traefik or alb to turn the page on.
+{{- end }}

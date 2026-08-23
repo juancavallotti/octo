@@ -294,6 +294,53 @@ The wildcard is what makes per-integration endpoints scale: one certificate
 covers every subdomain, so deploying an integration issues nothing and waits for
 nothing.
 
+### What answers an address nothing is deployed at
+
+Set a `baseDomain` and every subdomain under it resolves, whether or not anything
+is published there. Without help, a request to one that is not gets your ingress
+controller's own answer — a white page with `404 page not found` on it — because
+it never reaches anything octo runs.
+
+`errorPages.enabled` (on by default) points those requests at the platform, which
+serves a page naming what happened and showing the hostname that was asked for. It
+adds no workload: the page is a route in the editor you already deploy.
+
+It works by adding one catch-all route for `*.{baseDomain}`, written to lose to
+every real deployment — exact hostnames win over the wildcard, and the chart pins
+the precedence explicitly for each controller.
+
+Which controller you run is read from `orchestrator.ingressClass`, matched a
+segment at a time, so `traefik-public` and `internal-nginx` are recognised. If
+yours is named something the fallback cannot place, name it directly — otherwise
+the catch-all is **skipped** and you keep your controller's own 404 (the install
+still succeeds, and `NOTES.txt` tells you):
+
+```yaml
+errorPages:
+  controller: traefik   # nginx | traefik | alb
+```
+
+Turn the whole thing off if you would rather front the wildcard yourself:
+
+```yaml
+errorPages:
+  enabled: false
+```
+
+To brand the backend-down cases too — a deployment restarting or failing to start,
+which your controller answers with a bare 502 or 503 — also set:
+
+```yaml
+errorPages:
+  backendErrors: true
+```
+
+That one is off by default because it works by adding annotations to **every**
+deployment's own Ingress rather than adding a route beside them. Turn it on once
+you have seen the 404 page working. It applies to ingress-nginx only: Traefik
+expresses the same thing as an errors Middleware and ALB does not express it at
+all, so on those classes it does nothing.
+
 </Tab>
 <Tab value="GKE">
 

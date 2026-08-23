@@ -1,0 +1,30 @@
+{{- /*
+  Traefik's half of the catch-all: the path rewrite.
+
+  Traefik has no rewrite annotation — a path rewrite is a Middleware object the
+  Ingress then references, which is why this file exists and the nginx equivalent
+  is one annotation. ReplacePath rather than ReplacePathRegex: every path on an
+  unmatched hostname goes to the same place, so there is nothing to capture.
+
+  Its name is the one catchall.yaml addresses as {namespace}-{name}@kubernetescrd;
+  both derive it from the same expression, so they cannot drift apart.
+
+  Guarded on the controller being Traefik because Middleware is a Traefik CRD.
+  Rendering it against a cluster without that CRD would fail the install over a
+  feature the cluster cannot use — and this is the chart's local profile, so it
+  would fail exactly where somebody is trying things out.
+*/}}
+{{- if and .Values.errorPages.enabled .Values.orchestrator.baseDomain
+          (ne .Values.networking.mode "gateway")
+          (eq (include "octo.errorPages.controller" .) "traefik") }}
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ printf "%s-gateway-errors" (include "octo-common.fullname" .) | trunc 63 | trimSuffix "-" }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "octo-common.componentLabels" (dict "root" $ "component" "platform") | nindent 4 }}
+spec:
+  replacePath:
+    path: /gateway-error
+{{- end }}
