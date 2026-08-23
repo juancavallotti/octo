@@ -109,6 +109,7 @@ module "cloudbuild" {
   # Let the build roll the cluster after publishing (grants the deploy IAM + sets
   # the _DEPLOY substitution).
   enable_deploy            = var.cloudbuild_auto_deploy
+  oidc_provider_name       = var.oidc_provider_name
   instance_name            = var.instance_name
   zone                     = var.zone
   domain                   = var.domain

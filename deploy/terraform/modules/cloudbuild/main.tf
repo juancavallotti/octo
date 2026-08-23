@@ -55,6 +55,10 @@ resource "google_cloudbuild_trigger" "publish" {
     _ZONE        = var.zone
     _DOMAIN      = var.domain
     _APPS_DOMAIN = var.apps_domain
+    # Display only, and the one piece of OIDC config a build may carry: the rest
+    # is read back from release/oidc.json in the state bucket precisely because
+    # it holds a client secret.
+    _OIDC_PROVIDER_NAME = var.oidc_provider_name
   }
 
   depends_on = [google_project_service.cloudbuild]

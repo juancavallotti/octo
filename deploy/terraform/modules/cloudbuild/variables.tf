@@ -77,6 +77,12 @@ variable "apps_domain" {
   default     = ""
 }
 
+variable "oidc_provider_name" {
+  type        = string
+  description = "How the sign-in button names your identity provider (\"Sign in with …\"), passed to the release apply as -var oidc_provider_name (_OIDC_PROVIDER_NAME). Display only — it carries no secret, which is why it travels as a substitution while the rest of the OIDC config is read back from the state bucket. Empty leaves whatever the last local apply stored, and the app's own default (\"OIDC\") behind that."
+  default     = ""
+}
+
 variable "state_bucket" {
   type        = string
   description = "GCS bucket backing the release Terraform state (objectAdmin granted to the build SA). Required when enable_deploy = true."

@@ -196,6 +196,21 @@ substitutions and reads the OIDC creds back from `release/oidc.json` in the stat
 bucket. That file is written by a local `task deploy`, so **run `task deploy` once
 after changing any `oidc_*` value** to reseed it before relying on the automated build.
 
+One exception: `oidc_provider_name`, the label on the sign-in button. It is display
+only and carries no secret, so the trigger passes it as `_OIDC_PROVIDER_NAME` and a
+build-run deploy sets it without the local tfvars. Set it in `infra/terraform.tfvars`
+and re-apply `infra` — the value is baked into the trigger's substitutions, so an
+infra apply is what moves it. To try one without that, override the substitution on a
+manual run:
+
+```bash
+gcloud builds submit --config cloudbuild.yaml \
+  --substitutions=_IMAGE_BASE=…,_TAG=vX.Y.Z,_DEPLOY=true,_OIDC_PROVIDER_NAME="eetr auth"
+```
+
+Whatever a deploy sets is written back into `release/oidc.json`, so it sticks for
+subsequent builds. Empty keeps what is already stored.
+
 Verify:
 
 ```sh

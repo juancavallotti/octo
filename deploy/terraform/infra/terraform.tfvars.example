@@ -28,6 +28,11 @@ acme_email = "you@example.com" # Let's Encrypt account (expiry notices)
 # github_owner           = "juancavallotti"
 # github_repo            = "octo"
 # cloudbuild_auto_deploy = true
+# The sign-in button's label on a build-run deploy ("Sign in with eetr auth").
+# Display only — the issuer, client id and secret stay in release/oidc.json,
+# seeded by a local `task deploy`. Changing this needs an infra apply: it is
+# baked into the trigger's substitutions.
+# oidc_provider_name     = "eetr auth"
 
 # --- Optional overrides (defaults shown) ---
 # region        = "us-west1"

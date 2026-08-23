@@ -150,6 +150,12 @@ variable "cloudbuild_auto_deploy" {
   default     = true
 }
 
+variable "oidc_provider_name" {
+  type        = string
+  description = "How the sign-in button names your identity provider (\"Sign in with …\") on a deploy the Cloud Build trigger runs. Display only, so unlike the issuer, client id and secret — which the release apply reads back from the state bucket — it can travel as a build substitution. Empty keeps whatever a local `task deploy` last stored."
+  default     = ""
+}
+
 variable "state_bucket" {
   type        = string
   description = "GCS bucket backing the release Terraform state (created by `task state:bucket`). Empty -> octo-tfstate-{project_id}. Used to scope the build SA's storage access."
