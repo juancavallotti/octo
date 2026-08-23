@@ -1,19 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
-import { Activity, Pencil, Trash2 } from "lucide-react";
 import { useConfirm } from "@/app/components/ConfirmDialog";
 import {
   getAgentStatus,
   installAgent,
   rolloutAgent,
+  setAgentMaxIterations,
   setAgentTracing,
   uninstallAgent,
   type AgentStatus,
 } from "@/app/model/agent";
+import AgentActions from "./AgentActions";
 import AgentStatusCard from "./AgentStatusCard";
-import { IconAction, PrimaryAction, SecondaryButton } from "./fields";
+import AgentTurnLimit from "./AgentTurnLimit";
+import { SecondaryButton } from "./fields";
 
 /**
  * Install, update, trace and remove the platform agent.
@@ -21,7 +22,12 @@ import { IconAction, PrimaryAction, SecondaryButton } from "./fields";
  * The agent is deployed as an ordinary integration, so most of what an operator
  * might want here already exists elsewhere: logs and scaling are on the deployment,
  * the definition is in the editor. What is left is the lifecycle, which is this
- * page, and the one setting that is not a deployment setting — tracing.
+ * page, and the two settings that are not deployment settings — tracing, and how
+ * many turns one of his runs may take.
+ *
+ * The buttons live in AgentActions and the turn limit in AgentTurnLimit: this file
+ * is the state machine — load, run, refresh, confirm — and reading it used to mean
+ * scrolling past a screenful of JSX to find it.
  */
 export default function AgentSettingsManager() {
   const confirm = useConfirm();
@@ -88,7 +94,6 @@ export default function AgentSettingsManager() {
   // not yet know would be a guess.
   const canAct = status !== null && !busy;
   const blocked = Boolean(status?.blocked);
-  const installed = Boolean(status?.integrationId);
   const deployed = Boolean(status?.deploymentId);
 
   const install = () => canAct && !blocked && run(() => installAgent());
@@ -113,6 +118,11 @@ export default function AgentSettingsManager() {
   const toggleTracing = () => {
     if (!canAct || !deployed) return;
     run(() => setAgentTracing(!status?.tracing));
+  };
+
+  const applyTurns = (limit: number) => {
+    if (!canAct || !deployed) return;
+    run(() => setAgentMaxIterations(limit));
   };
 
   const remove = async () => {
@@ -151,75 +161,14 @@ export default function AgentSettingsManager() {
             <AgentStatusCard
               status={status}
               actions={
-                <>
-                  {/* One primary action per state, in the sky the platform uses
-                      for Deploy everywhere else. */}
-                  {!installed && (
-                    <PrimaryAction onClick={install} disabled={!canAct || blocked}>
-                      Install
-                    </PrimaryAction>
-                  )}
-                  {installed && !deployed && (
-                    <PrimaryAction onClick={install} disabled={!canAct || blocked}>
-                      Deploy
-                    </PrimaryAction>
-                  )}
-                  {/* One button, three names. All three call the same roll-out —
-                      republish the shipped bundle and replace the pods — so making
-                      them separate controls would only invite the question of which
-                      one to press. It is always offered once something is deployed:
-                      before, an agent edited into a state you wanted to undo had no
-                      way back, because the shipped digest had not moved and the
-                      button that would have fixed it was hidden for that reason. */}
-                  {installed && deployed && (
-                    <PrimaryAction onClick={rollout} disabled={!canAct || blocked}>
-                      {status.updateAvailable
-                        ? "Roll out update"
-                        : status.state === "failed"
-                          ? "Redeploy"
-                          : "Reinstall from stock"}
-                    </PrimaryAction>
-                  )}
-
-                  {deployed && (
-                    <IconAction
-                      onClick={toggleTracing}
-                      disabled={!canAct}
-                      label={status.tracing ? "Turn tracing off" : "Turn tracing on"}
-                      // Lit when on, so the toggle's state is legible without
-                      // reading the badge beside it.
-                      className={
-                        status.tracing
-                          ? "text-violet-500 hover:bg-violet-500/10"
-                          : undefined
-                      }
-                    >
-                      <Activity size={16} />
-                    </IconAction>
-                  )}
-
-                  {status.integrationId && (
-                    <Link
-                      href={`/platform/i/${status.integrationId}`}
-                      aria-label="Open the agent in the editor"
-                      title="Open in the editor"
-                      className="rounded-md p-1.5 text-zinc-400 transition-colors hover:bg-black/[0.06] hover:text-zinc-700 dark:hover:bg-white/10 dark:hover:text-zinc-200"
-                    >
-                      <Pencil size={16} />
-                    </Link>
-                  )}
-
-                  {installed && (
-                    <IconAction
-                      onClick={remove}
-                      disabled={!canAct}
-                      label="Remove the agent"
-                      className="hover:bg-red-500/10 hover:text-red-500"
-                    >
-                      <Trash2 size={16} />
-                    </IconAction>
-                  )}
-                </>
+                <AgentActions
+                  status={status}
+                  canAct={canAct}
+                  onInstall={install}
+                  onRollout={rollout}
+                  onToggleTracing={toggleTracing}
+                  onRemove={remove}
+                />
               }
             />
 
@@ -229,6 +178,18 @@ export default function AgentSettingsManager() {
                 reads the setting when it starts, so it cannot be changed in place.
                 Traces then appear under Traces like any other integration&rsquo;s.
               </p>
+            )}
+
+            {/* Keyed on what is in force so a successful apply remounts the field
+                seeded from what came back, rather than syncing it in an effect
+                that would fight anyone typing mid-roll-out. */}
+            {deployed && (
+              <AgentTurnLimit
+                key={status.maxIterations ?? "default"}
+                value={status.maxIterations}
+                disabled={!canAct}
+                onApply={applyTurns}
+              />
             )}
           </>
         )}

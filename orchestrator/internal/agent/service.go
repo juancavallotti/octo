@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -161,6 +162,7 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 		InstalledDigest: cur.InstalledDigest,
 		BundleDigest:    digest,
 		Tracing:         cur.Tracing,
+		MaxIterations:   cur.MaxIterations,
 		Blocked:         s.blocked(ctx),
 	}
 	if cur.IntegrationID == "" {
@@ -446,7 +448,7 @@ func (s *Service) install(ctx context.Context, cur stored, actorID string) (stor
 	next.InstalledTag = snap.Tag
 	next.InstalledDigest = digest
 
-	bindings, err := s.envBindings(ctx)
+	bindings, err := s.envBindings(ctx, next)
 	if err != nil {
 		return cur, err
 	}
@@ -645,12 +647,13 @@ func (s *Service) ensureTag(ctx context.Context, integrationID, tag string) (sna
 	return s.snapshots.Create(ctx, integrationID, tag)
 }
 
-// envBindings resolves the site's LLM settings into the deployment's environment.
+// envBindings resolves the site's LLM settings, and the operator's own settings,
+// into the deployment's environment.
 //
 // The key goes to a cluster secret and the binding carries only its name, so the
 // key never enters the deployment record — the same contract every other secret
 // binding has.
-func (s *Service) envBindings(ctx context.Context) (map[string]deployment.EnvBinding, error) {
+func (s *Service) envBindings(ctx context.Context, cur stored) (map[string]deployment.EnvBinding, error) {
 	creds, err := s.credentials.Reveal(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("read the site's llm settings: %w", err)
@@ -673,12 +676,20 @@ func (s *Service) envBindings(ctx context.Context) (map[string]deployment.EnvBin
 		return nil, fmt.Errorf("store the provider key as platform secret %s: %w", llmKeySecret, err)
 	}
 
-	return map[string]deployment.EnvBinding{
+	bindings := map[string]deployment.EnvBinding{
 		envConnectorType: {Value: connectorType},
 		envModel:         {Value: creds.Model},
 		envAPIKey:        {Secret: llmKeySecret},
 		envOrchestrator:  {Value: s.orchestratorURL},
-	}, nil
+	}
+
+	// Bound only when an operator set one. Left out, the definition's own default
+	// applies — which keeps the number in one place, and means raising the shipped
+	// default reaches every installation that never touched this.
+	if cur.MaxIterations > 0 {
+		bindings[envMaxIterations] = deployment.EnvBinding{Value: strconv.Itoa(cur.MaxIterations)}
+	}
+	return bindings, nil
 }
 
 // Rollout publishes the bundle this binary carries and rolls the deployment onto
@@ -820,7 +831,7 @@ func (s *Service) rollout(ctx context.Context, cur stored, actorID string) (stor
 		return cur, err
 	}
 
-	bindings, err := s.envBindings(ctx)
+	bindings, err := s.envBindings(ctx, cur)
 	if err != nil {
 		return cur, err
 	}
@@ -875,6 +886,61 @@ func (s *Service) SetTracing(ctx context.Context, on bool) (Status, error) {
 		}
 		next := cur
 		next.Tracing = on
+		next.UpdatedAt = time.Now().UTC()
+		return next, nil
+	}); err != nil {
+		return Status{}, err
+	}
+	return s.Status(ctx)
+}
+
+// SetMaxIterations overrides how many tool-calling turns one of the agent's runs
+// may take, or clears the override with zero.
+//
+// It is a roll-out for the same reason SetTracing is: the value reaches the
+// runtime as an environment variable read at startup, so it only takes effect by
+// replacing the pods. Unlike SetTracing it also travels in the env bindings, which
+// is why this passes them and the tracing toggle passes nil.
+//
+// Zero is not "no turns" — it is "no override", and the definition's own default
+// applies again. That is the only way back to the shipped value once one has been
+// set, so it has to be expressible.
+func (s *Service) SetMaxIterations(ctx context.Context, iterations int) (Status, error) {
+	if s.deployments == nil {
+		return Status{}, ErrClusterUnavailable
+	}
+	if iterations != 0 && (iterations < MinIterations || iterations > MaxIterationsCeiling) {
+		return Status{}, fmt.Errorf("%w: %d is outside %d..%d",
+			ErrInvalidIterations, iterations, MinIterations, MaxIterationsCeiling)
+	}
+
+	if err := s.repo.Mutate(ctx, func(cur stored) (stored, error) {
+		if cur.IntegrationID == "" {
+			return cur, ErrNotInstalled
+		}
+		if cur.DeploymentID == "" {
+			return cur, ErrNotDeployed
+		}
+
+		next := cur
+		next.MaxIterations = iterations
+
+		// Resolved from next, so the roll-out carries the new value. Clearing an
+		// override drops the binding entirely rather than sending a zero, which the
+		// runtime would read as "unset" anyway — but only after the deployment had
+		// stored a variable that means nothing.
+		bindings, err := s.envBindings(ctx, next)
+		if err != nil {
+			return cur, err
+		}
+		// The runner is stated for the same reason Rollout states it: an installation
+		// older than runners has nothing in its row, and preserving that would move
+		// the agent onto an image his flow cannot even load from.
+		runner := agenticRunner
+		if _, err := s.deployments.Rollout(ctx, cur.DeploymentID, cur.SnapshotID, bindings, nil, &runner); err != nil {
+			return cur, err
+		}
+
 		next.UpdatedAt = time.Now().UTC()
 		return next, nil
 	}); err != nil {

@@ -146,6 +146,21 @@ Two things to know before turning thinking on:
   requests without thinking while `ai-agent` is unaffected — and a per-block
   `maxTokens` too small to hold `thinkingBudget`, which startup validation cannot
   see because it only knows the connector's own default.
+- **`off` and `default` mean *do not ask*, not *turn off*.** Every provider here
+  omits the field entirely for those values, leaving the model on its own default.
+  On a model that reasons by default — Gemini 2.5, and many of the reasoning
+  models OpenRouter fronts — a connector that reads `thinking: off` still reasons
+  on every call. `reasoning: none` on `llm-openrouter` and `llm-openai` is the one
+  value that switches it off explicitly; `llm-anthropic` needs no equivalent
+  because that API reasons only when asked. `llm-gemini` currently has no way to
+  express a zero budget.
+
+  This matters most where a **block sets a small `maxTokens`**. Reasoning is spent
+  before any answer and counts against the same ceiling, so a reasoning model asked
+  for a hundred tokens can spend them all thinking and return an empty body — which
+  surfaces downstream as a parse failure, not as a token error. Until
+  [#344](https://github.com/juancavallotti/octo/issues/344) lands, pair a small
+  ceiling with a connector that asks for no reasoning.
 
 ## Example
 

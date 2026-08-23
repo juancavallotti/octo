@@ -28,6 +28,26 @@ func TestSettingsDecodeWrongType(t *testing.T) {
 	}
 }
 
+// A key the target struct does not declare is ignored rather than rejected, and
+// components depend on that: one settings block can carry the keys of several
+// component types and let each read its own. The agent's llm-fast connector is
+// the case in hand — it sets both `reasoning` and `thinking` because the type it
+// starts as is chosen at deploy time, and each LLM connector names this setting
+// differently. Turning this into an error would break that block silently.
+func TestSettingsDecodeIgnoresUnknownKeys(t *testing.T) {
+	type config struct {
+		Reasoning string `json:"reasoning"`
+	}
+
+	var got config
+	if err := (Settings{"reasoning": "none", "thinking": "off"}).Decode(&got); err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if got.Reasoning != "none" {
+		t.Errorf("Reasoning = %q, want none", got.Reasoning)
+	}
+}
+
 func TestSettingsAccessors(t *testing.T) {
 	settings := Settings{"name": "orders", "workers": 4, "enabled": true}
 

@@ -32,6 +32,12 @@ export async function setAgentTracing(
   return withWriteUser((userId) => client.setAgentTracing(userId, tracing));
 }
 
+export async function setAgentMaxIterations(
+  maxIterations: number,
+): Promise<ActionResult<AgentStatus>> {
+  return withWriteUser((userId) => client.setAgentMaxIterations(userId, maxIterations));
+}
+
 /**
  * The actor is resolved and then not sent, because the route has nowhere to put it:
  * uninstall undeploys and optionally deletes the integration, and neither of those

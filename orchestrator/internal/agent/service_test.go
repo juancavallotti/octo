@@ -1425,3 +1425,124 @@ func TestBoundEnvironmentNamesAreValid(t *testing.T) {
 		}
 	}
 }
+
+// The turn limit reaches the runtime as an environment variable read at startup, so
+// setting one has to roll the pods AND send the bindings — unlike the tracing
+// toggle, which passes nil to preserve them.
+func TestSetMaxIterationsRollsWithTheBindingApplied(t *testing.T) {
+	h := newHarness(t, true)
+	ctx := context.Background()
+
+	if _, err := h.svc.Install(ctx, ""); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	got, err := h.svc.SetMaxIterations(ctx, 40)
+	if err != nil {
+		t.Fatalf("SetMaxIterations: %v", err)
+	}
+
+	if len(h.deployments.rollouts) != 1 {
+		t.Fatalf("rollouts = %d, want 1", len(h.deployments.rollouts))
+	}
+	call := h.deployments.rollouts[0]
+	if call.env == nil {
+		t.Fatal("want the env sent, since the limit travels in it")
+	}
+	if binding := call.env[envMaxIterations]; binding.Value != "40" {
+		t.Errorf("%s = %q, want \"40\"", envMaxIterations, binding.Value)
+	}
+	if call.tracing != nil {
+		t.Error("want a nil tracing so the deployment's own setting stands")
+	}
+	// An installation older than runners has nothing in its row, and the bundle
+	// cannot run anywhere but the agentic image — so this roll-out has to state it
+	// for the same reason Rollout does.
+	if call.runner == nil || *call.runner != agenticRunner {
+		t.Errorf("runner = %v, want %q", call.runner, agenticRunner)
+	}
+	if got.MaxIterations != 40 {
+		t.Errorf("status maxIterations = %d, want 40", got.MaxIterations)
+	}
+}
+
+// Zero is not "no turns" — it is "no override", and dropping the binding is what
+// puts the definition's own default back in force. Sending a zero instead would
+// leave a variable on the deployment that means nothing.
+func TestSetMaxIterationsZeroClearsTheBinding(t *testing.T) {
+	h := newHarness(t, true)
+	ctx := context.Background()
+
+	if _, err := h.svc.Install(ctx, ""); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if _, err := h.svc.SetMaxIterations(ctx, 40); err != nil {
+		t.Fatalf("SetMaxIterations: %v", err)
+	}
+
+	got, err := h.svc.SetMaxIterations(ctx, 0)
+	if err != nil {
+		t.Fatalf("SetMaxIterations(0): %v", err)
+	}
+
+	call := h.deployments.rollouts[len(h.deployments.rollouts)-1]
+	if _, bound := call.env[envMaxIterations]; bound {
+		t.Errorf("want %s absent from the env, got %v", envMaxIterations, call.env[envMaxIterations])
+	}
+	if got.MaxIterations != 0 {
+		t.Errorf("status maxIterations = %d, want 0", got.MaxIterations)
+	}
+}
+
+// A limit set once has to survive a roll-out, or every update would silently undo
+// it — the same property the tracing toggle is held to.
+func TestRolloutKeepsTheTurnLimit(t *testing.T) {
+	h := newHarness(t, true)
+	ctx := context.Background()
+
+	if _, err := h.svc.Install(ctx, ""); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if _, err := h.svc.SetMaxIterations(ctx, 40); err != nil {
+		t.Fatalf("SetMaxIterations: %v", err)
+	}
+
+	if _, err := h.svc.Rollout(ctx, ""); err != nil {
+		t.Fatalf("Rollout: %v", err)
+	}
+
+	call := h.deployments.rollouts[len(h.deployments.rollouts)-1]
+	if binding := call.env[envMaxIterations]; binding.Value != "40" {
+		t.Errorf("%s = %q after a roll-out, want it preserved as \"40\"", envMaxIterations, binding.Value)
+	}
+}
+
+// Refused before anything is rolled, because the round trip that would answer it
+// also replaces the agent's pods.
+func TestSetMaxIterationsRefusesOutOfRange(t *testing.T) {
+	h := newHarness(t, true)
+	ctx := context.Background()
+
+	if _, err := h.svc.Install(ctx, ""); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	rolloutsBefore := len(h.deployments.rollouts)
+
+	for _, n := range []int{-1, MaxIterationsCeiling + 1} {
+		if _, err := h.svc.SetMaxIterations(ctx, n); !errors.Is(err, ErrInvalidIterations) {
+			t.Errorf("SetMaxIterations(%d) error = %v, want ErrInvalidIterations", n, err)
+		}
+	}
+	if len(h.deployments.rollouts) != rolloutsBefore {
+		t.Error("want no roll-out for a refused limit")
+	}
+}
+
+func TestSetMaxIterationsRefusesWhenNothingIsInstalled(t *testing.T) {
+	h := newHarness(t, true)
+
+	_, err := h.svc.SetMaxIterations(context.Background(), 40)
+	if !errors.Is(err, ErrNotInstalled) {
+		t.Fatalf("error = %v, want ErrNotInstalled", err)
+	}
+}

@@ -74,8 +74,24 @@ env:
   # verbatim either way.
   - name: AGENT_MEMORY_TOKENS
     default: "500000"
+  # How many tool-calling turns one run may take before the guardrail ends it.
+  #
+  # Sixty rather than twenty-four because twenty-four was not enough for the work
+  # he is actually asked to do. A single real request — read the traces for a
+  # failing deployment, work out why, write a fix and prove it with a test suite —
+  # spends a turn per tool call, and the loop above is docs, then API, then write,
+  # then run, then read, then fix. Twenty-four ran out mid-investigation often
+  # enough that "he ran out of steps" read as the agent being unable to do the job
+  # rather than as a limit set too low.
+  #
+  # It is a ceiling and not a budget: a run that finishes in four takes four. What
+  # it costs is the tail — a genuinely stuck run now burns sixty turns before the
+  # guardrail catches it, which is the trade being made deliberately.
+  #
+  # Overridable per installation from Admin, Platform agent; that binding, when
+  # set, replaces this default.
   - name: AGENT_MAX_ITERATIONS
-    default: "24"
+    default: "60"
 
   # Where his workspace is, and where the programs he runs live.
   #
@@ -149,6 +165,42 @@ connectors:
       apiKey: ${LLM_API_KEY}
       model: ${LLM_MODEL}
       maxTokens: 8192
+
+  # The same provider, key and model as `llm` above, for the one call that wants
+  # none of its reasoning: naming a conversation in five words. `llm` cannot carry
+  # this setting, because the chat agent it serves reasons for a living.
+  #
+  # Reasoning tokens are spent before any answer and count against the same
+  # ceiling, so a reasoning model asked for a handful of tokens spends them all
+  # thinking and returns an empty body. That is not hypothetical — it is what the
+  # title call did in production against a reasoning model, surfacing as
+  # `ai-mapping: response is not valid JSON: unexpected end of JSON input`.
+  #
+  # Both spellings of the setting are set, because the type is chosen at deploy
+  # time by an environment variable and each provider names this differently.
+  # Settings decode through a plain json.Unmarshal, so whichever connector starts
+  # reads the key it knows and ignores the other; getting one of them wrong would
+  # be silent, which is why the pairing is written down here rather than inferred.
+  #
+  #   reasoning: none   llm-openrouter, llm-openai — genuinely suppresses it
+  #   thinking: off     llm-anthropic — sends no thinking field, and that API
+  #                     reasons only when asked, so not asking is off
+  #                     llm-gemini — also sends nothing, but a 2.5 model reasons
+  #                     by default and the connector cannot express a zero budget,
+  #                     so there the ceiling below is what saves the call
+  #
+  # 1024 rather than the 100 the title block used to ask for: enough that a model
+  # which reasons anyway still has room to emit the object, and small enough that
+  # a runaway costs nothing. See issue #344 for the general fix in the connectors.
+  - name: llm-fast
+    type: ${LLM_CONNECTOR_TYPE}
+    settings:
+      apiKey: ${LLM_API_KEY}
+      model: ${LLM_MODEL}
+      reasoning: none
+      # Quoted: bare off is a YAML 1.1 boolean, and this setting is a string.
+      thinking: "off"
+      maxTokens: 1024
 
   - name: api
     type: http
@@ -376,14 +428,27 @@ flows:
                 ifClosed: stop
 
         prompt: >
-          You are Dr. Octo, the agent built into this Octo platform. You are named
-          after a certain bald doctor with a fondness for elaborate schemes, and you
-          have his flair without his ethics: you are genuinely helpful, you never
-          hold anything to ransom, and one MILLION dollars is not a running joke you
-          need to make unprompted. You are also, literally, an Octo App — a flow
-          definition with an ai-agent block, deployed by the orchestrator exactly
-          like the integrations you help build. Mention that only if someone asks;
-          it is a fact, not a personality.
+          You are Dr. Octo, the agent built into this Octo platform. You are a
+          parody of Dr. Evil from the Austin Powers films — bald, black Nehru
+          collar, steepled fingers, a fondness for calling perfectly ordinary work
+          a scheme — and you have all of his theatricality and none of his ethics
+          problem. You are genuinely helpful, you never hold anything to ransom,
+          and you do not do the one-MILLION-dollars bit unprompted.
+
+
+          The register: a dry aside now and then, an occasional pause for effect, a
+          routine deployment referred to as a plan coming together. That is
+          seasoning on competent work and never a substitute for it. If the choice
+          is between landing a joke and answering the question, answer the
+          question — an agent performing a character instead of doing the job is
+          the failure mode here, and it is worse than having no character at all.
+          Drop the register entirely when someone is stuck, something is broken in
+          production, or the answer is bad news.
+
+
+          You are also, literally, an Octo App — a flow definition with an ai-agent
+          block, deployed by the orchestrator exactly like the integrations you help
+          build. Mention that only if someone asks; it is a fact, not a personality.
 
 
           You are talking to a signed-in user of this platform. Their name arrives in
@@ -1242,12 +1307,22 @@ flows:
 
         default:
           process:
+            # The guardrail runs for every reason a run can end without an answer —
+            # a refusal, and now also a run that spent its whole turn budget — and
+            # the flow cannot tell which: the reason travels on the `guardrail`
+            # event, not in this body. So the line has to be true of all of them.
+            # It used to say "outside my remit", which is a refusal's answer and a
+            # wrong one for a run that worked to its limit and ran out.
+            #
+            # The panel names the actual reason underneath this, so being specific
+            # here would only be a second, less-informed guess at it.
             - type: set-payload
               settings:
                 value: >-
-                  {"answer": "That one is outside my remit. I am Dr. Octo — I run
-                  this Octo platform, and my schemes extend to integrations,
-                  deployments and the flows you are building. Ask me about those."}
+                  {"answer": "I have stopped short of an answer on that one — the
+                  scheme did not come together. I am Dr. Octo: integrations,
+                  deployments, flows, logs and traces are my remit. Narrow it down
+                  or point me at something concrete and I will have another go."}
 
       # ------------------------------------------------------------ the record
       #
@@ -1413,7 +1488,10 @@ flows:
                 - type: ai-mapping
                   name: write-title
                   settings:
-                    connector: llm
+                    # llm-fast, not llm: this is the one call on the agent that
+                    # wants no reasoning, and reasoning here costs the answer
+                    # rather than improving it. See the connector's own comment.
+                    connector: llm-fast
                     prompt: >
                       Name this conversation the way a person would name it in a list
                       of their past conversations. Five words at most, no quotes, no
@@ -1423,7 +1501,11 @@ flows:
                     outputSchema: |
                       {"type": "object", "required": ["title"],
                        "properties": {"title": {"type": "string", "maxLength": 80}}}
-                    maxTokens: 100
+                    # No per-block ceiling: llm-fast already sets one sized for a
+                    # model that reasons regardless. A tighter one here would be
+                    # the bug this fixed — a title needs a few tokens, but a
+                    # reasoning model needs room to reach them.
+
                 - type: set-variable
                   settings:
                     name: title

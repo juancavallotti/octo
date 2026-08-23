@@ -85,7 +85,7 @@ export interface Turn {
 const GUARDRAIL_NOTES: Record<string, string> = {
   "model refused": "He declined this one.",
   "exceeded max iterations":
-    "He ran out of steps before finishing. Try narrowing the question, or raise AGENT_MAX_ITERATIONS on his deployment.",
+    "He ran out of steps before finishing. Try narrowing the question, or raise the turn limit under Admin, Platform agent.",
 };
 
 /**

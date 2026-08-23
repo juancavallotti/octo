@@ -34,6 +34,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /settings/agent/install", h.install)
 	mux.HandleFunc("POST /settings/agent/rollout", h.rollout)
 	mux.HandleFunc("POST /settings/agent/tracing", h.tracing)
+	mux.HandleFunc("POST /settings/agent/max-iterations", h.maxIterations)
 	mux.HandleFunc("DELETE /settings/agent", h.uninstall)
 }
 
@@ -48,6 +49,10 @@ type statusResponse struct {
 	UpdateAvailable bool   `json:"updateAvailable"`
 	Edited          bool   `json:"edited"`
 	Tracing         bool   `json:"tracing"`
+	// MaxIterations is the operator's override, omitted when the definition's own
+	// default is in force. Omitted rather than zero because zero is not a limit
+	// anyone set — it is the absence of one.
+	MaxIterations int `json:"maxIterations,omitempty"`
 	// Blocked is empty, or names what stands in the way: kubernetes, encryption or
 	// llm_key.
 	Blocked          string `json:"blocked,omitempty"`
@@ -67,6 +72,13 @@ type tracingRequest struct {
 	Tracing bool   `json:"tracing"`
 }
 
+// maxIterationsRequest is the body of the turn-limit setting. Zero clears the
+// override and puts the definition's own default back in force.
+type maxIterationsRequest struct {
+	ActorID       string `json:"actorId"`
+	MaxIterations int    `json:"maxIterations"`
+}
+
 func toResponse(s Status) statusResponse {
 	return statusResponse{
 		State:            s.State,
@@ -77,6 +89,7 @@ func toResponse(s Status) statusResponse {
 		UpdateAvailable:  s.UpdateAvailable,
 		Edited:           s.Edited,
 		Tracing:          s.Tracing,
+		MaxIterations:    s.MaxIterations,
 		Blocked:          s.Blocked,
 		DeploymentStatus: s.DeploymentStatus,
 		Reason:           s.Reason,
@@ -184,6 +197,39 @@ func (h *Handler) tracing(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, toResponse(status))
 }
 
+// maxIterations godoc
+//
+//	@Summary		Set how many turns one of the agent's runs may take
+//	@Description	Rolls the pods, because the runtime reads the limit at startup. Zero
+//	@Description	clears the override and restores the definition's own default, which
+//	@Description	is the only way back to the shipped value.
+//	@Tags			agent
+//	@Accept			json
+//	@Produce		json
+//	@Param			body	body		maxIterationsRequest	true	"The turn limit, or 0 for the default"
+//	@Success		200		{object}	statusResponse
+//	@Failure		400		{object}	httpx.ErrorResponse	"out of range"
+//	@Failure		409		{object}	httpx.ErrorResponse	"not installed, or not deployed"
+//	@Failure		503		{object}	httpx.ErrorResponse	"no cluster access"
+//	@Router			/settings/agent/max-iterations [post]
+func (h *Handler) maxIterations(w http.ResponseWriter, r *http.Request) {
+	var req maxIterationsRequest
+	if err := httpx.DecodeJSON(w, r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+
+	status, err := h.svc.SetMaxIterations(ctx, req.MaxIterations)
+	if err != nil {
+		h.writeError(w, "change the turn limit on", err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, toResponse(status))
+}
+
 // uninstall godoc
 //
 //	@Summary		Remove the agent
@@ -252,6 +298,8 @@ func (h *Handler) writeError(w http.ResponseWriter, op string, err error) {
 	case errors.Is(err, ErrNoOrchestratorURL):
 		httpx.WriteError(w, http.StatusServiceUnavailable,
 			"the agent needs ORCHESTRATOR_URL set on the orchestrator to call back to it")
+	case errors.Is(err, ErrInvalidIterations):
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, ErrUnknownProvider):
 		httpx.WriteError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, ErrNotInstalled):

@@ -9,6 +9,17 @@
                 },
                 "type": "object"
             },
+            "agent.maxIterationsRequest": {
+                "properties": {
+                    "actorId": {
+                        "type": "string"
+                    },
+                    "maxIterations": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
             "agent.statusResponse": {
                 "properties": {
                     "blocked": {
@@ -32,6 +43,10 @@
                     },
                     "internalUrl": {
                         "type": "string"
+                    },
+                    "maxIterations": {
+                        "description": "MaxIterations is the operator's override, omitted when the definition's own\ndefault is in force. Omitted rather than zero because zero is not a limit\nanyone set — it is the absence of one.",
+                        "type": "integer"
                     },
                     "reason": {
                         "type": "string"
@@ -3999,6 +4014,77 @@
                     }
                 },
                 "summary": "Install the platform agent",
+                "tags": [
+                    "agent"
+                ]
+            }
+        },
+        "/settings/agent/max-iterations": {
+            "post": {
+                "description": "Rolls the pods, because the runtime reads the limit at startup. Zero\nclears the override and restores the definition's own default, which\nis the only way back to the shipped value.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/agent.maxIterationsRequest",
+                                        "summary": "body",
+                                        "description": "The turn limit, or 0 for the default"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The turn limit, or 0 for the default",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/agent.statusResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "out of range"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "not installed, or not deployed"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no cluster access"
+                    }
+                },
+                "summary": "Set how many turns one of the agent's runs may take",
                 "tags": [
                     "agent"
                 ]

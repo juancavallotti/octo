@@ -78,6 +78,19 @@ const (
 	envModel         = "LLM_MODEL"
 	envAPIKey        = "LLM_API_KEY"
 	envOrchestrator  = "ORCHESTRATOR_URL"
+	envMaxIterations = "AGENT_MAX_ITERATIONS"
+)
+
+// The bounds on how many tool-calling turns the agent may take.
+//
+// Unset means the definition's own default applies, which is why the binding is
+// omitted rather than sent as a zero: the value lives in one place until an
+// operator overrides it. MaxIterationsCeiling is a guard on the input, not a
+// recommendation — a run that has not finished in two hundred turns is stuck, and
+// every one of them is billed.
+const (
+	MinIterations        = 1
+	MaxIterationsCeiling = 200
 )
 
 // stored is the jsonb shape in site_settings.value: what the orchestrator knows
@@ -99,6 +112,12 @@ type stored struct {
 	// as on the deployment so the admin page can render the toggle without a cluster
 	// round trip, and so it survives a redeploy.
 	Tracing bool `json:"tracing,omitempty"`
+
+	// MaxIterations is the operator's override for how many tool-calling turns one
+	// run may take, or zero to leave the definition's own default in force. Kept
+	// here for the same reasons Tracing is: the admin page renders it without asking
+	// the cluster, and a redeploy carries it forward.
+	MaxIterations int `json:"maxIterations,omitempty"`
 
 	InstalledAt time.Time `json:"installedAt,omitzero"`
 	UpdatedAt   time.Time `json:"updatedAt,omitzero"`
@@ -126,6 +145,12 @@ type Status struct {
 	Edited bool
 
 	Tracing bool
+
+	// MaxIterations is the operator's override, or zero when the definition's own
+	// default is in force. Zero is a real answer rather than a missing one — the
+	// page says "default" for it rather than showing a number the agent is not
+	// actually running under.
+	MaxIterations int
 
 	// Blocked names what prevents installing or rolling out, or is empty.
 	Blocked string
