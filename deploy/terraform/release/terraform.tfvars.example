@@ -20,17 +20,18 @@ apps_domain = "apps.example.com"
 # Gate the editor behind single sign-on. The client secret is kept in this root's
 # Terraform state (the state bucket), and the Auth.js session secret is generated
 # automatically — no Secret Manager. Register the redirect URI
-# https://{domain}/api/auth/callback/eetr on the IdP.
+# https://{domain}/api/auth/callback/oidc on the IdP.
 #
 # A local `task deploy` also seeds these into release/oidc.json in the state bucket
 # so the Cloud Build deploy step (which never sees this gitignored file) reads them
 # back; re-run `task deploy` once after changing any oidc_* value.
 # oidc_enabled       = true
-# oidc_client_id     = "eetr_xxxxxxxxxxxxxxxxxxxxxxxx"
+# oidc_client_id     = "xxxxxxxxxxxxxxxxxxxxxxxx"
 # oidc_client_secret = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-# oidc_issuer        = "https://auth.eetr.app" # default
-# oidc_write_roles   = ""                       # e.g. "admin,operator"; empty = any signed-in user
-# oidc_roles_claim   = ""                       # override if the IdP uses a non-"roles" claim
+# oidc_issuer        = "https://idp.example.com" # your OIDC provider
+# oidc_provider_name = "Keycloak"                # sign-in button label; empty = "OIDC"
+# oidc_write_roles   = ""                        # e.g. "admin,operator"; empty = any signed-in user
+# oidc_roles_claim   = ""                        # override if the IdP uses a non-"roles" claim
 
 # --- Optional overrides (defaults shown) ---
 # region        = "us-west1"

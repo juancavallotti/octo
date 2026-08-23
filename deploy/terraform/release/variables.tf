@@ -93,8 +93,8 @@ variable "oidc_enabled" {
 
 variable "oidc_issuer" {
   type        = string
-  description = "OIDC issuer URL (the eetr identity provider)."
-  default     = "https://auth.eetr.app"
+  description = "OIDC issuer URL of your identity provider (OIDC_ISSUER) — the base its .well-known/openid-configuration hangs off. Any OIDC provider works."
+  default     = ""
 }
 
 variable "oidc_write_roles" {
@@ -112,6 +112,12 @@ variable "oidc_roles_claim" {
 variable "oidc_client_id" {
   type        = string
   description = "OIDC client id from the IdP (non-secret); passed to the chart."
+  default     = ""
+}
+
+variable "oidc_provider_name" {
+  type        = string
+  description = "How the sign-in button names your identity provider (\"Sign in with …\"). Empty renders the app default, \"OIDC\". The remaining display knobs (logo, scopes, endpoint overrides) are chart values rather than Terraform variables."
   default     = ""
 }
 

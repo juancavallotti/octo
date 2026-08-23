@@ -42,7 +42,7 @@ apps_domain      = "gke.octopaas.dev"       # {slug}.{apps_domain}; wildcard cer
 
 # --- Editor sign-in ---
 # Off by default, which means the editor is reachable by anyone who can resolve the
-# hostname above. Register https://{domain}/api/auth/callback/eetr as the redirect
+# hostname above. Register https://{domain}/api/auth/callback/oidc as the redirect
 # URI with the IdP before turning this on, or the sign-in round trip fails at the
 # callback.
 #
@@ -50,11 +50,12 @@ apps_domain      = "gke.octopaas.dev"       # {slug}.{apps_domain}; wildcard cer
 # here — Terraform mints both per cluster and holds them in state, so secret KV
 # namespaces work on a fresh cluster with nothing to configure.
 # oidc_enabled       = true
-# oidc_client_id     = "eetr_xxxxxxxxxxxxxxxxxxxxxxxx"
+# oidc_client_id     = "xxxxxxxxxxxxxxxxxxxxxxxx"
 # oidc_client_secret = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-# oidc_issuer        = "https://auth.eetr.app" # default
-# oidc_write_roles   = ""                      # e.g. "admin,operator"; empty = any signed-in user
-# oidc_roles_claim   = ""                      # override if the IdP uses a non-"roles" claim
+# oidc_issuer        = "https://idp.example.com" # your OIDC provider
+# oidc_provider_name = "Keycloak"                # sign-in button label; empty = "OIDC"
+# oidc_write_roles   = ""                        # e.g. "admin,operator"; empty = any signed-in user
+# oidc_roles_claim   = ""                        # override if the IdP uses a non-"roles" claim
 
 # --- Cost / production toggles (defaults are the cheap, disposable choices) ---
 # machine_type        = "e2-standard-2"

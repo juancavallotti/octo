@@ -45,6 +45,7 @@ module "octo_gke" {
   oidc_enabled       = var.oidc_enabled
   oidc_issuer        = var.oidc_issuer
   oidc_client_id     = var.oidc_client_id
+  oidc_provider_name = var.oidc_provider_name
   oidc_client_secret = var.oidc_client_secret
   oidc_write_roles   = var.oidc_write_roles
   oidc_roles_claim   = var.oidc_roles_claim

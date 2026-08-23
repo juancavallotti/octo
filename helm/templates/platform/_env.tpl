@@ -62,18 +62,53 @@
 - name: LOGS_URL
   value: {{ include "octo.logs.url" . | quote }}
 {{- if .Values.auth.oidc.enabled }}
-# OIDC SSO (Auth.js). The presence of AUTH_EETR_ISSUER + AUTH_SECRET
-# turns auth on in the editor. Issuer and client id are non-secret plain
-# values; the client secret and session secret come from the auth Secret.
-- name: AUTH_EETR_ISSUER
+# OIDC SSO (Auth.js). The presence of OIDC_ISSUER + AUTH_SECRET turns auth
+# on in the editor. Any OIDC provider works — the chart names none. Issuer
+# and client id are non-secret plain values; the client secret and session
+# secret come from the auth Secret.
+- name: OIDC_ISSUER
   value: {{ .Values.auth.oidc.issuer | quote }}
-- name: AUTH_EETR_CLIENT_ID
+- name: OIDC_CLIENT_ID
   value: {{ .Values.auth.oidc.clientId | quote }}
-- name: AUTH_EETR_CLIENT_SECRET
+- name: OIDC_CLIENT_SECRET
   valueFrom:
     secretKeyRef:
       name: {{ include "octo.auth.secretName" . }}
       key: oidc-client-secret
+{{- with .Values.auth.oidc.providerName }}
+# What the sign-in button calls the provider ("Sign in with …"); defaults to "OIDC".
+- name: OIDC_PROVIDER_NAME
+  value: {{ . | quote }}
+{{- end }}
+{{- with .Values.auth.oidc.providerLogo }}
+# Mark shown on that button. Unset falls back to the issuer's favicon, and the
+# button simply renders without one if that 404s.
+- name: OIDC_PROVIDER_LOGO
+  value: {{ . | quote }}
+{{- end }}
+{{- with .Values.auth.oidc.scopes }}
+- name: OIDC_SCOPES
+  value: {{ . | quote }}
+{{- end }}
+{{- /* Endpoint overrides. Only for providers whose discovery document is
+       unreachable, incomplete, or wrong — a compliant provider needs none of
+       these, and setting them wrong breaks sign-in in ways discovery would not. */}}
+{{- with (.Values.auth.oidc.endpoints | default dict).authorization }}
+- name: OIDC_AUTHORIZATION_URL
+  value: {{ . | quote }}
+{{- end }}
+{{- with (.Values.auth.oidc.endpoints | default dict).token }}
+- name: OIDC_TOKEN_URL
+  value: {{ . | quote }}
+{{- end }}
+{{- with (.Values.auth.oidc.endpoints | default dict).userinfo }}
+- name: OIDC_USERINFO_URL
+  value: {{ . | quote }}
+{{- end }}
+{{- with (.Values.auth.oidc.endpoints | default dict).jwks }}
+- name: OIDC_JWKS_URL
+  value: {{ . | quote }}
+{{- end }}
 - name: AUTH_SECRET
   valueFrom:
     secretKeyRef:
