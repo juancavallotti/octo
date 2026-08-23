@@ -21,7 +21,7 @@
 
 import type { TraceRecord } from "@/app/model/traces";
 import { attachInputs, type PreInvoke } from "./blockInputs";
-import { blockLabel } from "./blockPath";
+import { spanLabel } from "./folded";
 import { nest } from "./nesting";
 import {
   compareInstants,
@@ -135,7 +135,7 @@ function spanOf(record: TraceRecord, start: number, end: number): WaterfallNode 
   return {
     id: record.id,
     kind: record.kind,
-    label: labelOf(record),
+    label: spanLabel(record),
     path: record.path,
     eventId: record.eventId,
     start,
@@ -150,19 +150,6 @@ function spanOf(record: TraceRecord, start: number, end: number): WaterfallNode 
     depth: 0,
     children: [],
   };
-}
-
-/** How a row is named: the block's own label, the route a request came in on,
- * or the flow — whichever this record actually knows. */
-function labelOf(record: TraceRecord): string {
-  if (record.path !== "") return blockLabel(record.path);
-  if (record.kind === "source.respond") {
-    const method = String(record.attrs.method ?? "");
-    const route = String(record.attrs.route ?? "");
-    const label = [method, route].filter(Boolean).join(" ");
-    if (label !== "") return label;
-  }
-  return record.flow || record.kind;
 }
 
 /**

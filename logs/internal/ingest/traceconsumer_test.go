@@ -116,8 +116,12 @@ func testCard() *cost.Table {
 	}})
 }
 
+// testConsumer builds a consumer with no folder, which is what every case here
+// wants: these tests are about batching, shedding and the shutdown drain, and a
+// folder would hold the very records they assert on. The folding path has its own
+// tests below and in internal/fold.
 func testConsumer(store TraceStore, resolver integrations) *TraceConsumer {
-	return NewTraceConsumer(store, resolver, testCard())
+	return NewTraceConsumer(store, resolver, testCard(), nil)
 }
 
 // traceMsg renders one record on the wire.

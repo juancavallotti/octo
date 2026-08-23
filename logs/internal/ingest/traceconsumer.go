@@ -37,7 +37,30 @@ const (
 	// be redelivered, so they are worth waiting for — but not worth hanging a
 	// shutdown over.
 	shutdownFlushTimeout = 5 * time.Second
+
+	// expireLimit is how many finished runs one sweep collects.
+	//
+	// It bounds the script rather than the sweep: a backlog is worked through over
+	// several ticks instead of in one script that holds Redis for the length of it,
+	// and since Redis runs a script with nothing interleaved, an unbounded pop
+	// would stall every other client for as long as it took.
+	expireLimit = 200
 )
+
+// Folder holds runs of near-identical records and hands back the one record that
+// stands for each finished run. fold.Store implements it.
+//
+// The contract is the sharp edge here: a record given to Append is NOT stored by
+// the caller. It reaches the database only through what Append or Expire returns —
+// folded into its run's record, or handed back unchanged when the run was too
+// short to be worth folding.
+// Stated in terms of TraceRow rather than fold's own alias for it, which is what
+// keeps the dependency one-way: fold reads this package's type, and this package
+// knows only the shape of something that folds.
+type Folder interface {
+	Append(ctx context.Context, r TraceRow, now time.Time) ([]TraceRow, error)
+	Expire(ctx context.Context, now time.Time, limit int) ([]TraceRow, error)
+}
 
 // TraceStore persists a batch of decoded records. The repo implements it; the
 // consumer depends on the interface so batching can be tested without a database.
@@ -70,16 +93,18 @@ type TraceConsumer struct {
 	store        TraceStore
 	integrations integrations
 	prices       pricer
+	folder       Folder
 }
 
 // NewTraceConsumer returns a consumer that resolves and prices each record before
-// handing batches of them to store.
-func NewTraceConsumer(store TraceStore, resolver integrations, prices pricer) *TraceConsumer {
+// handing batches of them to store, folding runs of block records through folder.
+func NewTraceConsumer(store TraceStore, resolver integrations, prices pricer, folder Folder) *TraceConsumer {
 	return &TraceConsumer{
 		shedder:      shedder{what: "trace"},
 		store:        store,
 		integrations: resolver,
 		prices:       prices,
+		folder:       folder,
 	}
 }
 
@@ -141,6 +166,7 @@ func (c *TraceConsumer) write(ctx context.Context, in <-chan *nats.Msg) {
 				c.drain(nil, in, batch)
 				return
 			}
+			c.sweep(ctx, batch)
 			batch.flush(ctx)
 		}
 	}
@@ -165,6 +191,12 @@ func (c *TraceConsumer) drain(first *nats.Msg, in <-chan *nats.Msg, batch *trace
 		case m := <-in:
 			c.take(ctx, m, batch)
 		default:
+			// One last sweep before the flush. Runs still open here belong to
+			// whichever replica sweeps next — the state is in Redis, not in this
+			// process — but a single-replica install has no next replica, so
+			// collecting what is already due is the difference between those records
+			// being written and being dropped on every restart.
+			c.sweep(ctx, batch)
 			batch.flush(ctx)
 			return
 		}
@@ -173,8 +205,64 @@ func (c *TraceConsumer) drain(first *nats.Msg, in <-chan *nats.Msg, batch *trace
 
 // take decodes one delivered message into the batch, dropping what cannot be read.
 func (c *TraceConsumer) take(ctx context.Context, m *nats.Msg, batch *traceBatch) {
-	if row, ok := c.row(ctx, m); ok {
-		batch.add(ctx, row)
+	row, ok := c.row(ctx, m)
+	if !ok {
+		return
+	}
+	for _, r := range c.fold(ctx, row) {
+		batch.add(ctx, r)
+	}
+}
+
+// fold routes a record through the folder, returning whatever is ready to store.
+//
+// Only block records go through it, and that is a deliberate limit rather than a
+// first step. They are where the volume is — a streaming block emits a pre-invoke
+// and a post-invoke per frame, which for an agent is per token — and everything
+// else is one record per event, so folding it could only add a round trip and a
+// delay to something that was already one row.
+//
+// The delay is the cost worth naming: a block record is held for as long as the
+// fold window before it is stored, because a run cannot be recognised from its
+// first record. Traces are read after the fact, so that is affordable; it would
+// not be if anything watched them live.
+//
+// A folder error stores the record as it stands rather than dropping it. Redis
+// being unreachable should cost the folding, not the trace.
+func (c *TraceConsumer) fold(ctx context.Context, row TraceRow) []TraceRow {
+	if c.folder == nil || !foldable(row.Record.Kind) {
+		return []TraceRow{row}
+	}
+	out, err := c.folder.Append(ctx, row, time.Now())
+	if err != nil {
+		slog.Warn("ingest: fold trace record", "kind", row.Record.Kind, "err", err)
+		return []TraceRow{row}
+	}
+	return out
+}
+
+// foldable reports whether a kind is worth holding. See fold above for why the
+// answer is the two block kinds and nothing else.
+func foldable(kind string) bool {
+	return kind == KindBlockPreInvoke || kind == KindBlockPostInvoke
+}
+
+// sweep collects the runs that have gone quiet and adds them to the batch.
+//
+// Driven from the batch's own deadline rather than a timer of its own: that tick
+// already fires whenever the consumer is idle or a batch has aged, which is
+// exactly when a finished run is waiting and nothing else is arriving to notice it.
+func (c *TraceConsumer) sweep(ctx context.Context, batch *traceBatch) {
+	if c.folder == nil {
+		return
+	}
+	done, err := c.folder.Expire(ctx, time.Now(), expireLimit)
+	if err != nil {
+		slog.Warn("ingest: sweep folded traces", "err", err)
+		return
+	}
+	for _, r := range done {
+		batch.add(ctx, r)
 	}
 }
 

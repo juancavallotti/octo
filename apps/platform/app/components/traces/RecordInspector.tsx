@@ -1,6 +1,7 @@
 "use client";
 
 import { X } from "lucide-react";
+import { bodyIsFirstOnly, foldedCount } from "./folded";
 import { classifySpan } from "./blockClasses";
 import { describeCost, describeCostStatus, formatDuration, formatTokens } from "./format";
 import Payload from "./Payload";
@@ -67,6 +68,17 @@ export default function RecordInspector({
         {record?.error && (
           <p className="rounded-md border border-red-500/20 bg-red-500/5 px-3 py-2 text-xs text-red-500">
             {record.error}
+          </p>
+        )}
+
+        {record && foldedCount(record) > 0 && (
+          <p className="rounded-md border border-sky-500/20 bg-sky-500/5 px-3 py-2 text-xs text-sky-600 dark:text-sky-400">
+            This row is {foldedCount(record)} records the aggregator collapsed into
+            one — a streaming block emits a pair per frame, and an agent&rsquo;s
+            answer is one frame per token.{" "}
+            {bodyIsFirstOnly(record)
+              ? "Their payloads could not be merged, so the body below is the first one alone."
+              : "The body below is their payloads joined back together, in order."}
           </p>
         )}
 
