@@ -578,9 +578,14 @@ flows:
           # that one GET would have answered. It is also why the SSE route's
           # maxDuration is 30m: one turn here can be a whole loop somewhere else.
           #
-          # A nested tool may not reuse an outer tool's name — tool branches share
-          # one namespace — which is why the builder's two borrowed tools carry a
-          # builder_ prefix.
+          # The builder's two borrowed tools carry a builder_ prefix, and that is a
+          # readability choice rather than a requirement: the runtime keeps tool
+          # branches apart by address, so `check_expression` in both levels loads
+          # fine. It is the trace and the panel's tool chips that show a bare name
+          # and nothing else — two `octo_read` chips in one answer say nothing
+          # about which agent made the call. (It also keeps this app loading on an
+          # installation whose validator reads tool branches as one flat
+          # namespace and refuses the repeat.)
 
           - name: integration_builder
             description: >
@@ -607,14 +612,25 @@ flows:
                 name: builder
                 connector: llm
                 answer: text
+                # A conversation of its own, and a disposable one.
+                #
+                # vars.toolScope is minted by the coordinator's tool call: stable
+                # for as long as the conversation it belongs to, distinct per
+                # tool. So a second delegation in the same chat reaches the same
+                # builder — it still has the definition it drafted a moment ago,
+                # and does not have to be told it twice. A third conversation
+                # gets a fresh one.
+                #
+                # Volatile because a specialist's transcript is scaffolding. It
+                # belongs in the tier that evicts rather than the one the
+                # platform backs up, and losing it costs a re-read of a brief.
+                memoryThreadId: vars.toolScope
+                memoryVolatile: true
                 # Its own ceiling, deliberately not the coordinator's: a delegated
                 # job is a whole loop of its own, and a specialist that runs out of
                 # turns mid-fix hands back half an answer the coordinator then has
                 # to relay as if it were one.
                 maxIterations: 40
-                # No memoryThreadId. Each delegation is a fresh run with no
-                # transcript of its own — the brief is the context, which is what
-                # makes the coordinator responsible for writing a complete one.
                 input: >-
                   body.task + (has(body.context) && body.context != ""
                     ? "\n\n---\nContext you cannot see, from the conversation:\n" + body.context
@@ -638,10 +654,16 @@ flows:
                   definition to. You write octo flow definitions and you prove them
                   before you answer.
 
-                  You are one call, not a conversation. You cannot see the chat you
-                  were called from, who the user is, or what was said before. The
-                  brief you were given is everything you know, and your reply is
-                  everything that comes back — so it has to stand on its own.
+                  You cannot see the chat you were called from, who the user is, or
+                  what was said in it. The brief you were given is what you know,
+                  and your reply is everything that comes back — so it has to stand
+                  on its own.
+
+                  You do remember your own work. A second job in the same
+                  conversation reaches you with your earlier ones still in front of
+                  you: the definition you drafted, the tests you ran, what failed.
+                  Use that rather than starting from nothing — and say when you are
+                  building on it, because the coordinator cannot see it.
 
                   THE LOOP, and it is not optional:
 
@@ -1041,10 +1063,13 @@ flows:
                 name: operator
                 connector: llm
                 answer: text
+                # Its own conversation, on the same terms as the builder's: the
+                # coordinator mints the scope, and the transcript is scaffolding
+                # rather than history. An investigation that takes two
+                # delegations remembers what the first one found.
+                memoryThreadId: vars.toolScope
+                memoryVolatile: true
                 maxIterations: 32
-                # No memoryThreadId. Each delegation is a fresh run — the brief is
-                # the context, which is what makes the coordinator responsible for
-                # writing a complete one.
                 input: >-
                   body.task + (has(body.context) && body.context != ""
                     ? "\n\n---\nContext you cannot see, from the conversation:\n" + body.context
@@ -1062,9 +1087,13 @@ flows:
                   tag, deploy, roll out, scale, undeploy — and you read the stored
                   logs and traces that say what already happened.
 
-                  You are one call, not a conversation. You cannot see the chat you
-                  were called from or who is asking. The brief is everything you
-                  know; your reply is everything that comes back.
+                  You cannot see the chat you were called from or who is asking. The
+                  brief is what you know; your reply is everything that comes back.
+
+                  You do remember your own work: a second job in the same
+                  conversation reaches you with the earlier ones still in front of
+                  you — the ids you read, what the platform answered, what you
+                  changed. Use it, and say when you are building on it.
 
                   THE MAP. These are the routes, so you do not have to rediscover
                   them from the OpenAPI on every call. It is a map and not a

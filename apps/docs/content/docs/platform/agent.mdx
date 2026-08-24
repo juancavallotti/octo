@@ -242,20 +242,28 @@ Read this before you change him. The whole file is in the editor.
 
 ### The two specialists
 
-The coordinator holds five tools and delegates the rest to two `ai-agent` blocks standing in its tool slots — a subagent here is just that: a tool whose process chain happens to be another agent, with its own prompt, its own tools and its own loop. It writes a brief, the specialist works, and one report comes back as the tool result.
+The coordinator keeps the cheap things — a read-only API call, a CEL check, navigation, the three facts tools, and the mail tool — and delegates the work to two `ai-agent` blocks standing in its tool slots — a subagent here is just that: a tool whose process chain happens to be another agent, with its own prompt, its own tools and its own loop. It writes a brief, the specialist works, and one report comes back as the tool result.
 
 | Specialist | Holds | For |
 | --- | --- | --- |
 | `integration_builder` | `read_workspace_file`, `write_workspace_file`, `list_workspace`, `invoke_flow`, `run_flow_tests`, `builder_check_expression`, `run_command`, `builder_octo_read` | Writing and **proving** a definition: draft into the [workspace](#his-workspace), run the [dolphin](/testing) suite, read the report, fix, run again. Its API tool is GET-only, so nothing it produces is saved |
 | `platform_operator` | `list_api_operations`, `read_api_docs`, `octo_api`, `list_logs_operations`, `read_logs_docs`, `logs_api`, `http_fetch`, `refresh_platform_ui` | Changing and inspecting the installation: saving a definition, version tags, deploys, rollouts, scaling, secrets — and every question about stored logs and traces. Its prompt carries a map of the API's routes, so it does not rediscover them from the OpenAPI on every call |
 
-Three things this buys, none of which a single twenty-tool agent could have:
+Each specialist keeps its own conversation while yours is going on:
+`memoryThreadId: vars.toolScope` with `memoryVolatile: true`, which is the
+[scope the runtime mints](/reference/blocks/ai#what-a-tool-branch-is-told) for a
+tool branch. So a second delegation in the same chat reaches the same builder,
+with the definition it drafted a moment ago still in front of it — and none of it
+touches the conversation you are having, or the store that is backed up. It is
+scaffolding, and it evicts.
+
+Three things the split buys, none of which a single twenty-tool agent could have:
 
 - **A prompt each.** "How to write a definition and prove it" and "how this installation is deployed and diagnosed" want different instructions, and a single prompt carrying both is mostly irrelevant on any given turn.
 - **A working context each.** A builder's loop fills a transcript with YAML drafts and test reports; an operator's fills with API responses. Kept apart, neither pays to re-read the other, and the conversation you are having stays short — what comes back to it is one report, not forty tool results.
 - **A boundary.** There is exactly one unrestricted `octo_api` in the file and it is inside the operator, so a write to the platform is always a deliberate delegation.
 
-What it costs: a delegation is a whole model run, and the panel is quiet while it works — which is why the SSE route's `maxDuration` is 30 minutes, and why the coordinator is told to answer from `octo_read` when that is the whole answer. The specialists are stateless and cannot see your conversation, so a thin brief comes back as a specialist guessing confidently. Both facts are in the coordinator's prompt because both are how this arrangement fails.
+What it costs: a delegation is a whole model run, and the panel is quiet while it works — which is why the SSE route's `maxDuration` is 30 minutes, and why the coordinator is told to answer from `octo_read` when that is the whole answer. The specialists cannot see your conversation — only their own work on it — so a thin brief comes back as a specialist guessing confidently. Both facts are in the coordinator's prompt because both are how this arrangement fails.
 
 Each specialist emits its `tool_call` and `tool_result` events to the same stream the coordinator's go to, so the panel shows what it is doing rather than one chip sitting open for two minutes.
 
