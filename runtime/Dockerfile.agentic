@@ -40,7 +40,7 @@ ARG BIN_SOURCE=compile
 # pair would have the agent testing a flow against a runtime that is not the one
 # the platform would run it on. The prebuilt arm below keeps that guarantee for
 # the same reason: task bins:linux builds all three from one tree in one pass.
-FROM golang:1.25-alpine AS bin-compile
+FROM golang:1.27-alpine AS bin-compile
 RUN apk add --no-cache git
 WORKDIR /src
 # The module manifest lives at the repo root; every Go package lives under runtime/.

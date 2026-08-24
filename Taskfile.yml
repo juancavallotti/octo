@@ -246,9 +246,9 @@ tasks:
         out="{{.OUT}}"
         mkdir -p "$out"
         # Uncomment to compile with the same toolchain the images use
-        # (golang:1.25-alpine) instead of whatever `go` is on PATH. Go downloads
+        # (golang:1.27-alpine) instead of whatever `go` is on PATH. Go downloads
         # and caches it once. Off by default so this matches `task build`.
-        # export GOTOOLCHAIN=go1.25.0
+        # export GOTOOLCHAIN=go1.27.0
         export CGO_ENABLED=0 GOOS=linux GOARCH="{{.ARCH}}"
         # Stamp the build date the same way every Dockerfile and goreleaser does,
         # so `octo --version` reads the same wherever the binary came from.

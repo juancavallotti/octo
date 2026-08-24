@@ -62,7 +62,7 @@ Every Dockerfile that carries a Go binary can get it two ways, chosen by the
 `BIN_SOURCE` build argument:
 
 - **`compile`** (the default) — the Dockerfile builds the binary itself, in a
-  `golang:1.25-alpine` stage. Nothing extra has to be passed, and the file works
+  `golang:1.27-alpine` stage. Nothing extra has to be passed, and the file works
   on its own. This is what Cloud Build and the release workflow use, so a
   published image is always built from source inside the image.
 - **`prebuilt`** — the binary is copied in from `dist/bin/linux_<arch>/`, filled

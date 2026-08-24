@@ -18,7 +18,7 @@
 ARG BIN_SOURCE=compile
 
 # --- Binary source: compile from the module -----------------------------------
-FROM golang:1.25-alpine AS bin-compile
+FROM golang:1.27-alpine AS bin-compile
 WORKDIR /src
 
 # No go.sum, because the module has no dependencies — deliberately. This process
