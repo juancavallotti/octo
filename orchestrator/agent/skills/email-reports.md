@@ -42,7 +42,10 @@ So:
 - **Inline every style.** `style="…"` on the element, no stylesheet, no classes.
 - **Lay out with tables.** `<table role="presentation" cellpadding="0"
   cellspacing="0" border="0">`, `width="100%"`, and a fixed inner width of
-  600px. No divs for structure.
+  600px. No divs for structure. `role="presentation"` goes on the tables doing
+  LAYOUT only — a table of rows and columns is data, keeps its semantics, and
+  gives its headers `scope="col"`, or a screen reader reads it as a flat run of
+  text.
 - **No JavaScript, no external CSS, no web fonts, no remote images.** They are
   blocked, and a layout that depends on one arrives broken.
 - **Colour is decoration, never meaning.** Put the word "failed" next to the red,
@@ -51,6 +54,28 @@ So:
   sans-serif`, 14–15px, `line-height: 1.5`, dark grey (`#1f2328`) on white.
 - Dark mode inverts unpredictably: keep a light background and avoid near-black
   text on near-black panels.
+
+### Values you did not write
+
+Every row in a report is somebody else's text — a log message, a trace's error, an
+integration's name, a URL out of a definition. It arrives as data and it is about
+to become markup, so:
+
+- **Escape before you insert.** `&` → `&amp;`, `<` → `&lt;`, `>` → `&gt;`,
+  `"` → `&quot;`. A log line containing `<b>` or `</td>` otherwise reformats the
+  report; one containing `<a href=…>` puts a link you did not write into
+  somebody's inbox, over text that says something else.
+- **Never put a captured value in an attribute.** `href`, `src` and `style` take
+  URLs you built yourself from a platform path and an id, and nothing else. If a
+  URL came out of a definition or a trace, write it as escaped **text** in a cell
+  — visible, not clickable.
+- **Link only `http://` and `https://`.** Anything else — `javascript:`, `data:`,
+  a bare string that looks like a host — is text.
+- **Show the URL, do not hide it.** A link whose text is "click here" over an
+  address the reader cannot see is the shape of a phishing mail, and a report from
+  an automated sender is already halfway there.
+- The plain-text twin needs no escaping, and needs the same restraint: no markup,
+  no invented links.
 
 ### The skeleton
 
@@ -79,13 +104,18 @@ So:
 
 ### A data table inside it
 
+`role="presentation"` belongs on the layout tables above and **not** on this one.
+This one carries header cells, and stripping the semantics leaves a screen reader
+reading the rows as a flat run of text with nothing tying a number to its column.
+Give the headers a `scope` instead.
+
 ```html
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+<table width="100%" cellpadding="0" cellspacing="0" border="0"
        style="border-collapse:collapse;font-size:13px;">
   <tr style="background:#f5f6f7;">
-    <th align="left" style="padding:8px 10px;border-bottom:1px solid #e3e5e8;">Integration</th>
-    <th align="left" style="padding:8px 10px;border-bottom:1px solid #e3e5e8;">Status</th>
-    <th align="right" style="padding:8px 10px;border-bottom:1px solid #e3e5e8;">Restarts</th>
+    <th scope="col" align="left" style="padding:8px 10px;border-bottom:1px solid #e3e5e8;">Integration</th>
+    <th scope="col" align="left" style="padding:8px 10px;border-bottom:1px solid #e3e5e8;">Status</th>
+    <th scope="col" align="right" style="padding:8px 10px;border-bottom:1px solid #e3e5e8;">Restarts</th>
   </tr>
   <tr>
     <td style="padding:8px 10px;border-bottom:1px solid #eef0f2;">orders-api</td>
