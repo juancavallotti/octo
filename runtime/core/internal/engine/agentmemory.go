@@ -37,16 +37,29 @@ const (
 // defaultContextMaxTokens is the prompt budget applied when an ai-agent does not
 // set one.
 //
-// It is double the transcript-only budget it replaces, which keeps roughly the
-// same room for conversation now that the figure also covers the system prompt
-// and the tool schemas — a few thousand tokens for an agent with a handful of
-// tools. Holding the old number against the wider meaning would have quietly
-// halved every existing conversation's memory.
-const defaultContextMaxTokens = 16000
+// Two hundred thousand, sized to the models this actually runs against: a
+// million-token window is now ordinary, and a default an order of magnitude
+// under the smallest of them is not caution but a cap nobody asked for. It is
+// still a long way short of the window, deliberately — this is what the model is
+// billed to re-read on every turn, so the default buys room to work rather than
+// all the room there is.
+//
+// The figure it replaces was sized for "an agent with a handful of tools" and
+// was wrong for the ones that matter. An agent that reads flow definitions,
+// docs and traces is handed tens of thousands of tokens in a single turn: at
+// 16000 every turn exceeded the budget, compaction pruned the transcript to
+// nothing on each one, and the run looped until something else killed it. That
+// is the shape of the bug this number caused, not a hypothetical.
+const defaultContextMaxTokens = 200000
 
 // memorySaveTimeout bounds saving a transcript. It is generous because the save
 // path may summarize, which is a real model call; it exists to stop a wedged
 // store holding a flow worker forever, not to keep the save quick.
+//
+// The clock starts in persistMemory, once per save. Started any earlier it would
+// bound the run as well as the save — and a run that spends longer than this in
+// its turn loop, which an interactive agent's runs routinely do, would reach the
+// save with nothing left on the clock and persist nothing at all.
 const memorySaveTimeout = 2 * time.Minute
 
 // memoryKeyPrefix namespaces agent-memory objects in the user KV namespace so
