@@ -19,7 +19,7 @@
 ARG BIN_SOURCE=compile
 
 # --- Stage 1: the octo and dolphin binaries -----------------------------------
-FROM golang:1.25-alpine AS bin-compile
+FROM golang:1.27-alpine AS bin-compile
 RUN apk add --no-cache git
 WORKDIR /src
 # The Go module is rooted at the repo root; all its packages live under runtime/.

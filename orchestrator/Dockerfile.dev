@@ -2,7 +2,7 @@
 # from source that DevSpace syncs in from the host. On each change DevSpace
 # restarts the container (devspace.yaml dev.orchestrator.sync.onUpload.
 # restartContainer), so `go run` recompiles — i.e. hot reload.
-FROM golang:1.25-alpine
+FROM golang:1.27-alpine
 RUN apk add --no-cache git
 WORKDIR /src
 # Pre-download modules into the image cache so restarts only recompile our code.

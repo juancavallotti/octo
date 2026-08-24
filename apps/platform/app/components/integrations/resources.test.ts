@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { fromFrozen, fromLive, guessKind } from "./resources";
 
+const TS = "2026-08-09T10:00:00Z";
+
 describe("guessKind", () => {
   it("treats the .env convention as env and everything else as a template", () => {
     expect(guessKind(".env")).toBe("env");
@@ -24,7 +26,7 @@ describe("guessKind", () => {
 
 describe("display shapes", () => {
   it("keeps a live resource's id, which is what makes it deletable", () => {
-    expect(fromLive({ id: "r1", kind: "env", name: ".env", content: "" })).toEqual({
+    expect(fromLive({ id: "r1", integrationId: "i1", kind: "env", name: ".env", content: "", createdAt: TS, lastUpdated: TS })).toEqual({
       key: "r1",
       id: "r1",
       kind: "env",

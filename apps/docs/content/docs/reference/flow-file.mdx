@@ -454,7 +454,7 @@ result.
 | `default` | sub-flow | no | — | The guardrail path. |
 | `maxIterations` | int | no | `8` | Tool-calling turns before falling back to the guardrail. |
 | `memoryThreadId` | expression | no | disabled | Resolved per message to the conversation-memory thread id. |
-| `contextMaxTokens` | int | no | `16000` | Token budget for the whole prompt (system, tools and conversation), measured from the provider's reported usage. |
+| `contextMaxTokens` | int | no | `200000` | Token budget for the whole prompt (system, tools and conversation), measured from the provider's reported usage. |
 | `memoryCompaction` | string | no | `"prune"` | How memory over budget shrinks: `prune` (drop oldest) or `summarize`. |
 
 See [AI Agents](/ai/agents) for a guided treatment.

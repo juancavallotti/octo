@@ -38,7 +38,7 @@
 ARG BIN_SOURCE=compile
 
 # --- Binary source: compile from the Go module --------------------------------
-FROM golang:1.25-alpine AS bin-compile
+FROM golang:1.27-alpine AS bin-compile
 # GOTAGS selects the runtime-services provider compiled in (k8s for this image).
 ARG GOTAGS=k8s
 RUN apk add --no-cache git

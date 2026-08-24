@@ -18,8 +18,13 @@ import { listConversations, readConversation } from "./conversations";
 
 const ada = { id: "u-1", name: "Ada" };
 
+// The signature is declared rather than inferred: the assertions below read
+// `mock.calls[0]`, and a mock inferred from a zero-argument implementation
+// types that as the empty tuple.
 function respondWith(status: number, body: unknown) {
-  return vi.fn(async () => new Response(JSON.stringify(body), { status }));
+  return vi.fn<(url: string, init: RequestInit) => Promise<Response>>(
+    async () => new Response(JSON.stringify(body), { status }),
+  );
 }
 
 beforeEach(() => {
@@ -42,7 +47,7 @@ describe("listConversations", () => {
       ok: true,
       data: [{ id: "t-1", title: "Deploying", updatedAt: "2026-08-01T00:00:00Z" }],
     });
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe("http://agent/conversations");
     expect(JSON.parse(init.body as string)).toEqual({ user: ada });
   });
@@ -77,7 +82,7 @@ describe("readConversation", () => {
 
     await readConversation(ada, "t 1");
 
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [url, init] = fetchMock.mock.calls[0];
     // Encoded, because a thread id is whatever the browser generated and lands in
     // a path segment.
     expect(url).toBe("http://agent/conversations/t%201");

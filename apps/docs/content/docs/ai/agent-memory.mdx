@@ -168,7 +168,7 @@ nothing. A roll-out keeps them: it is the same deployment. See
 
 ### Token budget and compaction
 
-`contextMaxTokens` (default `16000`) caps the agent's **whole prompt** —
+`contextMaxTokens` (default `200000`) caps the agent's **whole prompt** —
 system instructions, tool schemas and conversation together — not the stored
 transcript alone. The figure comes from the provider: every turn reports how
 many tokens it actually read, so the budget is measured rather than guessed,

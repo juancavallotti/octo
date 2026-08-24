@@ -94,6 +94,7 @@ const UNPRICED: RawRecord = {
   output_tokens: 120,
   thinking_tokens: 40,
   cached_tokens: null,
+  cache_write_tokens: null,
   cost_usd: null,
   cost_status: "unpriced_model",
   price_id: "",

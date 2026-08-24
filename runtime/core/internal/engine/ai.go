@@ -888,12 +888,13 @@ func (a *aiAgent) Process(ctx context.Context, msg *types.Message) (*types.Messa
 	// Everything that has to outlive a stop runs on this one: by the time the run
 	// is saving its memory, runCtx is already cancelled.
 	//
-	// Bounded, though. WithoutCancel alone would leave a hung store able to hold a
-	// flow worker for the life of the process, and the deadline has to be generous
-	// rather than snappy because saving may include a summarize — a real model call
-	// on the way out.
-	saveCtx, endSave := context.WithTimeout(context.WithoutCancel(ctx), memorySaveTimeout)
-	defer endSave()
+	// Detached here and bounded later. A hung store must not hold a flow worker for
+	// the life of the process, but that deadline belongs to the save and is taken
+	// in persistMemory: started here it would bound the turn loop too, and every
+	// run longer than memorySaveTimeout — which is most of a tool-calling agent's
+	// runs — would arrive at its save with the clock already expired and store
+	// nothing, losing the conversation to a single warning line.
+	saveCtx := context.WithoutCancel(ctx)
 
 	current := msg
 	for iter := 0; iter < a.maxIterations; iter++ {
@@ -1244,6 +1245,11 @@ func (a *aiAgent) persistMemory(
 	if a.memoryThreadID == nil {
 		return
 	}
+	// The clock starts here, so it bounds this save — the store, and the summarize
+	// a save may include — rather than the run that led to it. See
+	// memorySaveTimeout.
+	ctx, done := context.WithTimeout(ctx, memorySaveTimeout)
+	defer done()
 	compacted := compactMemory(ctx, a.caller, msg, transcript, a.contextMaxTokens, strategy, meter)
 	// The size stored is the conversation's own, without this run's overhead: the
 	// next run's system prompt and tool set are not necessarily this one's.

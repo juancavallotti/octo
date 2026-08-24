@@ -1,10 +1,11 @@
 package expr
 
 import (
+	"uuid"
+
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
-	"github.com/google/uuid"
 )
 
 // A random identifier, for the places a message needs one and nothing upstream
@@ -42,21 +43,22 @@ func uuidOptions() []cel.EnvOption {
 
 // uuidBinding renders a version 4 UUID.
 //
-// google/uuid rather than sixteen bytes and a format string: it is already in this
-// module's graph (the pinecone connector's client depends on it), so this promotes
-// an indirect dependency rather than adding one — and the version and variant
-// nibbles RFC 9562 wants are exactly the detail not worth hand-stamping.
+// The standard library's uuid, which is where this belongs: the version and
+// variant nibbles RFC 9562 wants are not worth hand-stamping, and a language
+// that ships them makes a dependency for it hard to justify. It replaces
+// google/uuid, which this reached for only because the runtime predated go1.27
+// and the module already had it in its graph.
 //
-// NewRandom's error is the entropy source failing, and it is returned as a CEL
-// error rather than swallowed into a zero value: an id that is silently not unique
-// is worse than an expression that fails, because the failure is visible and the
-// collision is not.
+// NewV4 rather than New: New is documented as "equivalent to NewV4 at this
+// time", which is an equivalence that may be withdrawn, and what an expression
+// language promises its users is a specific thing rather than a current one.
+//
+// There is no error to handle. google/uuid returned the entropy source's failure
+// and this returned it as a CEL error; the standard library treats a failing
+// system CSPRNG as unrecoverable and does not offer the choice, so the binding
+// is the one line it looks like.
 //
 //nolint:ireturn // a CEL function binding returns the ref.Val interface by contract
 func uuidBinding(_ ...ref.Val) ref.Val {
-	id, err := uuid.NewRandom()
-	if err != nil {
-		return types.NewErr("uuid: %v", err)
-	}
-	return types.String(id.String())
+	return types.String(uuid.NewV4().String())
 }

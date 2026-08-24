@@ -339,7 +339,7 @@ type aiAgentMeta struct {
 	// transcript is compacted when the prompt would exceed it. Applies with or
 	// without memory: a run can talk itself past the model's window on its own.
 	//nolint:lll // the tag carries a label and a default and is longer than 120 cols
-	ContextMaxTokens int `json:"contextMaxTokens" octo:"label=Context max tokens,default=16000"`
+	ContextMaxTokens int `json:"contextMaxTokens" octo:"label=Context max tokens,default=200000"`
 	// How to shrink memory over budget: prune drops the oldest turns; summarize
 	// folds them into a running summary.
 	//nolint:lll // the enum tag (options + default) is inherently longer than 120 cols
