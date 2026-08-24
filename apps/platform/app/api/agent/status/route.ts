@@ -2,7 +2,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { currentWriteUserId } from "@/app/actions/_auth";
-import { fetchAgentStatus } from "@/app/actions/client/agentUrl";
+import { fetchAgentStatus, type AgentReachability } from "@/app/actions/client/agentUrl";
 
 /**
  * GET /api/agent/status — whether the chat launcher should render at all.
@@ -28,6 +28,27 @@ export async function GET() {
   }
 
   const status = await fetchAgentStatus();
-  const available = Boolean(status && status.state === "deployed" && status.internalUrl);
-  return Response.json({ available });
+  return Response.json({ available: canChat(status) });
+}
+
+/**
+ * Whether there is a running agent to talk to.
+ *
+ * The question is liveness, and `state` answers two things at once: whether a
+ * deployment is running, and whether the binary ships a newer bundle than the one
+ * rolled out. Gating on `deployed` alone conflated them — upgrading the platform
+ * changes the shipped bundle's digest, so a perfectly healthy agent reports
+ * `update_available` and the launcher vanished from every page until somebody
+ * happened to visit Admin and press Roll out. The chat proxy never agreed with
+ * that: it resolves the same status and only ever needed the address, so the panel
+ * that was hidden would have worked.
+ *
+ * So: an address means a deployment the orchestrator could see (Status clears it
+ * when the deployment is gone), and `failed` is the one state where the workload
+ * is known not to serve. A rollout in progress is deliberately still available —
+ * the previous pods are answering until the new ones are ready.
+ */
+function canChat(status: AgentReachability | null): boolean {
+  if (!status || !status.internalUrl) return false;
+  return status.state === "deployed" || status.state === "update_available";
 }
