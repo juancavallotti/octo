@@ -181,7 +181,7 @@ func TestStopWhenEndsTheRunInFlight(t *testing.T) {
 	}
 
 	// The conversation is still saved, and saved replayably.
-	stored, err := loadMemory(ctx, "t1")
+	stored, err := loadMemory(ctx, core.NamespaceUser, "t1")
 	if err != nil {
 		t.Fatalf("loadMemory: %v", err)
 	}
@@ -532,4 +532,51 @@ func eventsRecordingRegistry(
 		}), nil
 	})
 	return reg
+}
+
+// Two agents on one thread share one stored transcript, because a transcript is
+// keyed by the thread and nothing else. The runtime does not invent a second
+// namespace to prevent that — anything derived from where the block sits would
+// lose a conversation the moment the block was renamed or moved — so what it owes
+// is a clear report that it is happening.
+func TestSharingAThreadIsReported(t *testing.T) {
+	runs := &runRegistry{runs: make(map[string]*agentRun)}
+	mine := "orders.support\x00t1"
+	runs.take(mine, &agentRun{})
+
+	if _, shared := runs.sharingThread(mine); shared {
+		t.Error("an agent reported sharing a thread with itself")
+	}
+
+	// The nested case: a specialist claiming the caller's thread from inside the
+	// caller's own tool slot, while that run is live.
+	nested := "orders.support[delegate].specialist\x00t1"
+	runs.take(nested, &agentRun{})
+	other, shared := runs.sharingThread(nested)
+	if !shared {
+		t.Fatal("a nested agent on the caller's thread was not reported")
+	}
+	if other != "orders.support" {
+		t.Errorf("reported %q as the other agent, want the caller's address", other)
+	}
+
+	// A different thread is a different conversation and no business of this one.
+	elsewhere := "orders.other\x00t2"
+	runs.take(elsewhere, &agentRun{})
+	if other, shared := runs.sharingThread(elsewhere); shared {
+		t.Errorf("an agent on its own thread was reported as sharing with %q", other)
+	}
+}
+
+// A run that has ended is not somebody to share with: the report is about two
+// agents working one conversation at the same time.
+func TestAFinishedRunIsNotReportedAsSharing(t *testing.T) {
+	runs := &runRegistry{runs: make(map[string]*agentRun)}
+	caller := &agentRun{}
+	runs.take("orders.support\x00t1", caller)
+	runs.release("orders.support\x00t1", caller)
+
+	if other, shared := runs.sharingThread("orders.support[delegate].specialist\x00t1"); shared {
+		t.Errorf("reported %q, but that run had already finished", other)
+	}
 }

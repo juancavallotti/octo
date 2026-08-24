@@ -142,6 +142,43 @@ func (r *runRegistry) take(key string, mine *agentRun) {
 	r.runs[key] = mine
 }
 
+// sharingThread names another agent already working the thread key belongs to,
+// when one exists in this process.
+//
+// A claim key is `<block address>\x00<thread id>`, so two keys that differ only
+// in the address are two agents on one conversation — and one stored transcript,
+// since a transcript is keyed by the thread alone. That is not a corner case: a
+// tool branch runs on the agent's own message, so an ai-agent standing in another
+// one's tool slot sees the caller's variables, and `vars.threadId` in both is the
+// obvious thing to write in both.
+//
+// It is reported and not prevented, deliberately. Prevention would mean the
+// runtime inventing a second namespace out of where the block sits, and then a
+// rename or a move — an edit that changes nothing about the conversation — would
+// silently lose it. The thread expression is the identity; this says when two
+// agents have picked the same one, so it can be fixed in the file rather than
+// discovered in a transcript.
+//
+// Only this process is visible, which is enough for the case worth catching: a
+// nested agent runs inside its caller's own run, on the same replica.
+func (r *runRegistry) sharingThread(key string) (string, bool) {
+	_, thread, ok := strings.Cut(key, "\x00")
+	if !ok {
+		return "", false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for other := range r.runs {
+		if other == key {
+			continue
+		}
+		if scope, otherThread, split := strings.Cut(other, "\x00"); split && otherThread == thread {
+			return scope, true
+		}
+	}
+	return "", false
+}
+
 // stop asks whoever is working on key to end, and reports whether one was there.
 //
 // Not finding a run is an answer rather than a failure — a stop can be sent by a
@@ -444,6 +481,15 @@ func (a *aiAgent) joinOrClaim(
 		return c, stopFlow(msg), nil
 	}
 	c.held = held
+	if other, shared := liveRuns.sharingThread(c.key); shared {
+		// Warn rather than fail: it is a definition that wants fixing, not a run
+		// that cannot proceed, and failing here would take down a conversation that
+		// is otherwise working.
+		slog.Warn("ai-agent shares a stored transcript with another agent on this thread",
+			"block", a.name, "at", a.runScope, "thread", c.threadID, "other", other,
+			"consequence", "each will load and overwrite the other's conversation",
+			"fix", "give one of them a thread id of its own, or leave it stateless")
+	}
 	c.bound = boundRunAge(c.run, a.name, c.threadID, maxRunAge)
 	watchClaim(held, c.run, a.name, c.threadID)
 	return c, nil, nil

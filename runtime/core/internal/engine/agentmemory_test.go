@@ -41,7 +41,7 @@ func TestAIAgentMemoryRoundTrips(t *testing.T) {
 		Process(ctx, aiMessage(t)); err != nil {
 		t.Fatalf("run 1: %v", err)
 	}
-	stored, err := loadMemory(ctx, "t1")
+	stored, err := loadMemory(ctx, core.NamespaceUser, "t1")
 	if err != nil {
 		t.Fatalf("loadMemory: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestAIAgentMemoryRejectsBadCompaction(t *testing.T) {
 func TestClearAgentMemory(t *testing.T) {
 	ctx, _ := withFakeServices(context.Background())
 	seed := memoryEnvelope{Messages: []core.LLMMessage{{Role: core.LLMRoleUser, Text: "hi"}}}
-	if err := saveMemory(ctx, "t1", seed); err != nil {
+	if err := saveMemory(ctx, core.NamespaceUser, "t1", seed); err != nil {
 		t.Fatalf("seed memory: %v", err)
 	}
 
@@ -122,7 +122,7 @@ func TestClearAgentMemory(t *testing.T) {
 	if _, err := clearBlock.Process(ctx, mustMessage(t)); err != nil {
 		t.Fatalf("clear Process: %v", err)
 	}
-	if got, _ := loadMemory(ctx, "t1"); got.Messages != nil {
+	if got, _ := loadMemory(ctx, core.NamespaceUser, "t1"); got.Messages != nil {
 		t.Errorf("memory not cleared: %+v", got)
 	}
 	// Idempotent: clearing a missing thread is not an error.
@@ -228,10 +228,10 @@ func TestMemoryEnvelopeRoundTrips(t *testing.T) {
 		Tokens:   4242,
 		Messages: []core.LLMMessage{{Role: core.LLMRoleUser, Text: "hi"}},
 	}
-	if err := saveMemory(ctx, "t1", want); err != nil {
+	if err := saveMemory(ctx, core.NamespaceUser, "t1", want); err != nil {
 		t.Fatalf("saveMemory: %v", err)
 	}
-	got, err := loadMemory(ctx, "t1")
+	got, err := loadMemory(ctx, core.NamespaceUser, "t1")
 	if err != nil {
 		t.Fatalf("loadMemory: %v", err)
 	}
@@ -259,7 +259,7 @@ func TestLoadMemoryAcceptsALegacyBareArray(t *testing.T) {
 		t.Fatalf("seed legacy memory: %v", err)
 	}
 
-	got, err := loadMemory(ctx, "t1")
+	got, err := loadMemory(ctx, core.NamespaceUser, "t1")
 	if err != nil {
 		t.Fatalf("loadMemory: %v", err)
 	}
@@ -298,7 +298,7 @@ func TestAgentStoresTheMeasuredSize(t *testing.T) {
 		t.Fatalf("process: %v", err)
 	}
 
-	stored, err := loadMemory(ctx, "t1")
+	stored, err := loadMemory(ctx, core.NamespaceUser, "t1")
 	if err != nil {
 		t.Fatalf("loadMemory: %v", err)
 	}
@@ -369,5 +369,315 @@ func TestAgentRejectsTheOldMemoryMaxTokensKey(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "contextMaxTokens") {
 		t.Errorf("error = %q, want it to name the replacement", err)
+	}
+}
+
+// runScopeOf is the address an agent was built at, which is half of what its tool
+// scopes are composed from. Read off the built block rather than spelled out,
+// because the builder mints it and a literal here would drift.
+func runScopeOf(t *testing.T, p core.MessageProcessor) string {
+	t.Helper()
+	agent, ok := p.(*aiAgent)
+	if !ok {
+		t.Fatalf("not an ai-agent: %T", p)
+	}
+	return agent.runScope
+}
+
+// captureVars is a leaf that answers with the caller-minted variables its branch
+// was handed. The agent test registry has no set-payload, and a canned result
+// would not show what the runtime put on the message.
+func captureVars(seen *[]any) *core.BlockRegistry {
+	reg := agentRegistry(seen)
+	reg.MustRegister("capture-vars", func(_ types.Settings, _ core.BlockDeps) (core.MessageProcessor, error) {
+		return processorFunc(func(_ context.Context, msg *types.Message) (*types.Message, error) {
+			out := map[string]any{}
+			for _, name := range []string{varToolScope, varToolName, varToolCallID} {
+				if v, ok := msg.Variables.String(name); ok {
+					out[name] = v
+				}
+			}
+			msg.SetBody(out)
+			return msg, nil
+		}), nil
+	})
+	return reg
+}
+
+// toolResultFor digs the content a tool branch returned out of the transcript the
+// model was sent next.
+//
+// The LAST match, not the first. A transcript can open with turns loaded from
+// memory — and when two agents share a thread it can open with ANOTHER agent's,
+// which is the behaviour agent-memory.mdx warns about — so the first match is not
+// necessarily from the run under test.
+func toolResultFor(calls []core.LLMRequest, tool string) string {
+	latest := ""
+	for _, call := range calls {
+		for _, m := range call.Messages {
+			for _, res := range m.ToolResults {
+				if res.Tool == tool {
+					latest = res.Content
+				}
+			}
+		}
+	}
+	return latest
+}
+
+// What a tool branch is told about the call it is running inside. Nothing here
+// knows what a branch contains — an object-write, a rest call wanting an
+// idempotency key, or another ai-agent all read the same three variables.
+func TestAToolBranchIsToldAboutItsCall(t *testing.T) {
+	ctx, _ := withFakeServices(context.Background())
+	var seen []any
+
+	cfg := memoryAgentConfig(`"t1"`)
+	cfg.Tools = []types.ToolConfig{{
+		Name: "delegate", Description: "hand it over",
+		Process: []types.BlockConfig{{Type: "capture-vars"}},
+	}}
+
+	fake := &scriptedLLM{responses: []*core.LLMResponse{
+		toolCallResp("delegate", `{}`),
+		endTurnResp("done"),
+	}}
+	if _, err := mustBuildAI(t, captureVars(&seen), depsLLM(fake), cfg).
+		Process(ctx, aiMessage(t)); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	got := toolResultFor(fake.calls, "delegate")
+	for _, want := range []string{`"toolName":"delegate"`, `"toolCallId":"call_delegate"`} {
+		if !strings.Contains(strings.ReplaceAll(got, " ", ""), want) {
+			t.Errorf("tool branch saw %s, want it to carry %s", got, want)
+		}
+	}
+	// The scope opens with the conversation and ends with the tool, with the
+	// calling block between them.
+	compact := strings.ReplaceAll(got, " ", "")
+	if !strings.Contains(compact, `"toolScope":"t1/`) || !strings.Contains(compact, `/delegate"`) {
+		t.Errorf("tool branch saw %s, want a scope of the conversation, the caller and the tool", got)
+	}
+}
+
+// A stateless caller has no conversation to mint from and mints a per-run id
+// instead, so a branch's state is still its own and still lasts the run.
+func TestAStatelessCallerStillMintsAScope(t *testing.T) {
+	ctx, _ := withFakeServices(context.Background())
+	var seen []any
+
+	cfg := memoryAgentConfig("") // no memoryThreadId
+	cfg.Tools = []types.ToolConfig{{
+		Name: "delegate", Description: "hand it over",
+		Process: []types.BlockConfig{{Type: "capture-vars"}},
+	}}
+	fake := &scriptedLLM{responses: []*core.LLMResponse{
+		toolCallResp("delegate", `{}`),
+		endTurnResp("done"),
+	}}
+	if _, err := mustBuildAI(t, captureVars(&seen), depsLLM(fake), cfg).
+		Process(ctx, aiMessage(t)); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	got := toolResultFor(fake.calls, "delegate")
+	// A stateless caller still mints a scope — from a per-run id rather than a
+	// conversation — so a branch always has somewhere of its own.
+	if !strings.Contains(got, `"toolScope":"run-`) {
+		t.Errorf("tool branch saw %s, want a minted per-run scope", got)
+	}
+	if !strings.Contains(strings.ReplaceAll(got, " ", ""), `"toolName":"delegate"`) {
+		t.Errorf("tool branch saw %s, want the tool name regardless", got)
+	}
+}
+
+// The flag picks the tier and nothing else: same key, different store, and the
+// persistent one is left untouched so the two cannot be confused for each other.
+func TestVolatileMemoryStaysOutOfThePersistentTier(t *testing.T) {
+	ctx, _ := withFakeServices(context.Background())
+	var seen []any
+
+	cfg := memoryAgentConfig(`"t1"`)
+	cfg.MemoryVolatile = true
+	fake := &scriptedLLM{responses: []*core.LLMResponse{endTurnResp("scaffolding")}}
+	if _, err := mustBuildAI(t, agentRegistry(&seen), depsLLM(fake), cfg).
+		Process(ctx, aiMessage(t)); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	volatile, err := loadMemory(ctx, core.NamespaceUserVolatile, "t1")
+	if err != nil {
+		t.Fatalf("loadMemory (volatile): %v", err)
+	}
+	if !hasAssistantText(volatile.Messages, "scaffolding") {
+		t.Errorf("the transcript is not in the volatile tier: %+v", volatile.Messages)
+	}
+	persistent, err := loadMemory(ctx, core.NamespaceUser, "t1")
+	if err != nil {
+		t.Fatalf("loadMemory (persistent): %v", err)
+	}
+	if len(persistent.Messages) != 0 {
+		t.Errorf("a volatile agent wrote into the persistent tier: %+v", persistent.Messages)
+	}
+}
+
+// A clear reaches both tiers. An author who flipped memoryVolatile should not
+// have to say so twice, and a clear that missed would report success while
+// leaving the conversation intact.
+func TestClearAgentMemoryReachesTheVolatileTier(t *testing.T) {
+	ctx, _ := withFakeServices(context.Background())
+	seed := memoryEnvelope{Messages: []core.LLMMessage{{Role: core.LLMRoleUser, Text: "hi"}}}
+	for _, ns := range []string{core.NamespaceUser, core.NamespaceUserVolatile} {
+		if err := saveMemory(ctx, ns, "t1", seed); err != nil {
+			t.Fatalf("seed %s: %v", ns, err)
+		}
+	}
+
+	clearBlock, err := newClearAgentMemory(types.Settings{"threadId": `"t1"`}, core.BlockDeps{})
+	if err != nil {
+		t.Fatalf("newClearAgentMemory: %v", err)
+	}
+	if _, err := clearBlock.Process(ctx, mustMessage(t)); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+	for _, ns := range []string{core.NamespaceUser, core.NamespaceUserVolatile} {
+		if got, _ := loadMemory(ctx, ns, "t1"); got.Messages != nil {
+			t.Errorf("%s still holds a transcript: %+v", ns, got.Messages)
+		}
+	}
+}
+
+// The whole point, end to end: a coordinator delegates twice in one conversation
+// and the specialist it delegates to remembers the first delegation when it
+// answers the second — while the coordinator's own transcript stays its own.
+//
+// Neither block carries anything for the case beyond the specialist saying where
+// its memory lives: `memoryThreadId: vars.toolScope` is the scope the runtime
+// minted for that branch, and memoryVolatile keeps a transcript that is
+// scaffolding out of the store the platform backs up.
+func TestASpecialistKeepsItsOwnConversationAcrossDelegations(t *testing.T) {
+	ctx, _ := withFakeServices(context.Background())
+	var seen []any
+
+	specialist := types.BlockConfig{
+		Type: "ai-agent", Name: "specialist", Connector: "claude", Answer: "text",
+		Prompt:         "one job",
+		MemoryThreadID: "vars.toolScope",
+		MemoryVolatile: true,
+		Tools:          []types.ToolConfig{toolBranch("noop", "does nothing", nil)},
+	}
+	coordinator := types.BlockConfig{
+		Type: "ai-agent", Name: "coordinator", Connector: "claude",
+		Prompt: "delegate", MemoryThreadID: `"t1"`,
+		Tools: []types.ToolConfig{{
+			Name: "delegate", Description: "hand it over",
+			Process: []types.BlockConfig{specialist},
+		}},
+	}
+
+	// Two delegations, then the coordinator answers. The specialist's two runs sit
+	// inside the coordinator's one.
+	fake := &scriptedLLM{responses: []*core.LLMResponse{
+		toolCallResp("delegate", `{"task":"first"}`),
+		endTurnResp("specialist first"),
+		toolCallResp("delegate", `{"task":"second"}`),
+		endTurnResp("specialist second"),
+		endTurnResp("coordinator answer"),
+	}}
+
+	block := mustBuildAIAt(t, agentRegistry(&seen), depsLLM(fake), coordinator, "chat")
+	if _, err := block.Process(ctx, aiMessage(t)); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	// The specialist's second run opened with its own first exchange already in
+	// the transcript — the delegation before it, not the coordinator's turns.
+	// containsUserText compares whole turns, and an opening turn is the model's
+	// arguments wrapped in a sentence, so the match is on the substring.
+	var sawFirst bool
+	for _, call := range fake.calls {
+		if !hasAssistantText(call.Messages, "specialist first") {
+			continue
+		}
+		for _, m := range call.Messages {
+			if m.Role == core.LLMRoleUser && strings.Contains(m.Text, `"task":"second"`) {
+				sawFirst = true
+			}
+		}
+	}
+	if !sawFirst {
+		t.Error("the specialist did not remember its first delegation on the second")
+	}
+
+	// And it is the specialist's conversation, not the coordinator's: a volatile
+	// transcript under the minted scope, with nothing of the coordinator's in it.
+	// The scope is composed by the runtime, so the test asks it rather than
+	// spelling out a key that would drift the moment the composition changed.
+	scope := branchScopeBase("t1", runScopeOf(t, block)) + "/delegate"
+	nested, err := loadMemory(ctx, core.NamespaceUserVolatile, scope)
+	if err != nil {
+		t.Fatalf("loadMemory (specialist): %v", err)
+	}
+	if !hasAssistantText(nested.Messages, "specialist first") ||
+		!hasAssistantText(nested.Messages, "specialist second") {
+		t.Errorf("the specialist's transcript is missing its own turns: %+v", nested.Messages)
+	}
+	if hasAssistantText(nested.Messages, "coordinator answer") {
+		t.Error("the coordinator's answer reached the specialist's transcript")
+	}
+
+	// The coordinator's own conversation is persistent, under its own thread, and
+	// carries none of the specialist's turns.
+	caller, err := loadMemory(ctx, core.NamespaceUser, "t1")
+	if err != nil {
+		t.Fatalf("loadMemory (coordinator): %v", err)
+	}
+	if !hasAssistantText(caller.Messages, "coordinator answer") {
+		t.Errorf("the coordinator lost its own conversation: %+v", caller.Messages)
+	}
+	if hasAssistantText(caller.Messages, "specialist first") {
+		t.Error("the specialist wrote into the conversation a person is having")
+	}
+	// Nothing of the specialist's landed in the persistent tier at all.
+	if stray, _ := loadMemory(ctx, core.NamespaceUser, scope); len(stray.Messages) != 0 {
+		t.Errorf("a volatile specialist wrote into the persistent tier: %+v", stray.Messages)
+	}
+}
+
+// Two agents on one thread is a misconfiguration the runtime warns about, and it
+// must not quietly become a second one: identically-named tools on each of them
+// would otherwise be handed the same scope, and two specialists keyed on it would
+// share a transcript.
+func TestTwoAgentsOnOneThreadGiveTheirToolsDifferentScopes(t *testing.T) {
+	ctx, _ := withFakeServices(context.Background())
+	var seen []any
+
+	cfg := memoryAgentConfig(`"t1"`)
+	cfg.Tools = []types.ToolConfig{{
+		Name: "delegate", Description: "hand it over",
+		Process: []types.BlockConfig{{Type: "capture-vars"}},
+	}}
+
+	scopeFrom := func(path string) string {
+		fake := &scriptedLLM{responses: []*core.LLMResponse{
+			toolCallResp("delegate", `{}`),
+			endTurnResp("done"),
+		}}
+		block := mustBuildAIAt(t, captureVars(&seen), depsLLM(fake), cfg, path)
+		if _, err := block.Process(ctx, aiMessage(t)); err != nil {
+			t.Fatalf("run at %s: %v", path, err)
+		}
+		return toolResultFor(fake.calls, "delegate")
+	}
+
+	first, second := scopeFrom("orders.support"), scopeFrom("orders.sales")
+	if first == second {
+		t.Errorf("two agents sharing thread t1 handed their delegate tool the same scope: %s", first)
+	}
+	for _, got := range []string{first, second} {
+		if !strings.Contains(strings.ReplaceAll(got, " ", ""), `"toolScope":"t1/`) {
+			t.Errorf("scope %s does not open with the conversation", got)
+		}
 	}
 }

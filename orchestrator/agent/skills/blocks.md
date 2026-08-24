@@ -126,14 +126,26 @@ always volatile and have no setting for it.
   maxIterations: 8           # slot, default 8
   stream: true               # token-level streaming; needs an events path
   emit: [text, tool_call, tool_result, done]
-  memoryThreadId: body.threadId    # CEL — one conversation per thread
-  memoryMaxTokens: 8000
+  memoryThreadId: body.threadId    # CEL — one conversation per thread. A transcript is
+                                   # keyed by this and nothing else, so two agents
+                                   # resolving the same id share (and overwrite) one
+                                   # conversation. An ai-agent inside another one's tool
+                                   # slot should use `vars.toolScope` — the scope the
+                                   # runtime mints for that branch — or no memory at all.
+  memoryVolatile: true             # transcripts in the volatile tier (Redis), for a
+                                   # conversation whose loss costs nothing. Pairs with
+                                   # vars.toolScope for a nested agent.
+  contextMaxTokens: 8000           # the whole prompt's budget. memoryMaxTokens is the
+                                   # name this replaced and is REJECTED at build time.
   memoryCompaction: summarize      # or prune
   events:                    # slot: a sub-flow run once per agent event
     process:
       - type: sse-event
         settings: { event: agent, ifClosed: stop }
-  tools:                     # slot: each tool is a sub-flow
+  tools:                     # slot: each tool is a sub-flow. A branch runs on the
+                             # agent's message and is told about its call:
+                             # vars.toolScope (stable per tool per conversation),
+                             # vars.toolName, vars.toolCallId (unique per call).
     - name: lookup_order
       description: Look up an order by id.
       inputSchema: |

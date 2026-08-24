@@ -186,7 +186,7 @@ definition does not load without it.
 
 ## Restrict what he can do
 
-Because he is an integration you can edit, set the limit on what he may do in his own definition rather than with a flag on the orchestrator. Open him in the editor, find the `octo_api` tool — a [`rest-dynamic`](/reference/connectors/http) block — and add either setting:
+Because he is an integration you can edit, set the limit on what he may do in his own definition rather than with a flag on the orchestrator. Open him in the editor, find the `octo_api` tool — a [`rest-dynamic`](/reference/connectors/http) block, inside the `platform_operator` specialist, and the only unrestricted one in the file — and add either setting:
 
 ```yaml
 - type: rest-dynamic
@@ -228,23 +228,44 @@ Read this before you change him. The whole file is in the editor.
 | Piece | What it does |
 | --- | --- |
 | `chat` flow | An HTTP source on `/chat` with [server-sent events](/reference/connectors/http) enabled, so answers stream a token at a time |
-| `ai-agent` block | Streaming, with memory keyed to the signed-in user and the conversation, a 500k-token window and summarising compaction. `stopWhen` reads the `X-Agent-Stop` header, which is how the panel's Stop reaches a run [it is not connected to](/ai/agent-signals) |
+| `ai-agent` block | The coordinator: streaming, with memory keyed to the signed-in user and the conversation, a 500k-token window and summarising compaction. `stopWhen` reads the `X-Agent-Stop` header, which is how the panel's Stop reaches a run [it is not connected to](/ai/agent-signals). Two more `ai-agent` blocks sit in its tool slots — see [the two specialists](#the-two-specialists) |
 | `record-conversation` flow | Consumes the wire-tap: appends the exchange to the conversation's record and, on the first message only, asks the model for a name for it |
 | `list-conversations`, `read-conversation` flows | The two read endpoints the panel lists and replays past conversations from |
-| `list_api_operations`, `read_api_docs` | Read the orchestrator's own [API description](/platform/api-reference) — the cheap index first, then one tag's detail |
-| `octo_api` | Calls the API, with the method and path decided per call |
-| `list_logs_operations`, `read_logs_docs` | The same two, against the [observability API](/platform/logs-api-reference) |
-| `logs_api` | Queries stored logs and traces. Read-only — `allowMethods: [GET]` from the start, because every route it serves is a GET |
-| `refresh_platform_ui` | Publishes to the platform's [event bus](/platform/event-bus) so an editor with that integration open offers to reload |
+| `octo_read` | Reads the orchestrator's [API](/platform/api-reference) — `allowMethods: [GET]`, so the coordinator can answer a question but not change anything |
+| `integration_builder` | The first specialist (see [below](#the-two-specialists)): writes a definition and proves it |
+| `platform_operator` | The second specialist: everything that changes the installation, and everything about what already happened |
+| `send_email_report` | Sends an HTML report through the platform's own [email settings](/platform/admin-settings); the sender identity is the installation's, never the model's |
 | `navigate_to` | Moves your browser to a page, when the answer to a question is a page |
-| `read_workspace_file`, `write_workspace_file`, `list_workspace` | His [workspace](#his-workspace) — where a definition he is drafting goes |
-| `invoke_flow` | Runs one flow from the workspace, once, and reads back its outcome envelope |
-| `run_flow_tests` | Runs the [dolphin](/testing) suite for a workspace directory |
 | `check_expression` | Evaluates one [CEL](/reference/cel) expression, so he can prove one rather than assert it |
-| `http_fetch` | Fetches any `http(s)` URL this pod can reach |
-| `run_command` | Runs `octo`, `dolphin`, `curl`, `find` or `jq` directly, for the case the tools above do not fit |
 | `recall_facts`, `remember_fact`, `forget_fact` | What he remembers about you between conversations |
-| Skills | Six documents on flow files, blocks, connectors, expressions, testing and the platform, loaded on demand rather than sitting in every prompt |
+| Skills | Seven documents on flow files, blocks, connectors, expressions, testing, the platform and email reports, loaded on demand rather than sitting in every prompt |
+
+### The two specialists
+
+The coordinator keeps the cheap things — a read-only API call, a CEL check, navigation, the three facts tools, and the mail tool — and delegates the work to two `ai-agent` blocks standing in its tool slots — a subagent here is just that: a tool whose process chain happens to be another agent, with its own prompt, its own tools and its own loop. It writes a brief, the specialist works, and one report comes back as the tool result.
+
+| Specialist | Holds | For |
+| --- | --- | --- |
+| `integration_builder` | `read_workspace_file`, `write_workspace_file`, `list_workspace`, `invoke_flow`, `run_flow_tests`, `builder_check_expression`, `run_command`, `builder_octo_read` | Writing and **proving** a definition: draft into the [workspace](#his-workspace), run the [dolphin](/testing) suite, read the report, fix, run again. Its API tool is GET-only, so nothing it produces is saved |
+| `platform_operator` | `list_api_operations`, `read_api_docs`, `octo_api`, `list_logs_operations`, `read_logs_docs`, `logs_api`, `http_fetch`, `refresh_platform_ui` | Changing and inspecting the installation: saving a definition, version tags, deploys, rollouts, scaling, secrets — and every question about stored logs and traces. Its prompt carries a map of the API's routes, so it does not rediscover them from the OpenAPI on every call |
+
+Each specialist keeps its own conversation while yours is going on:
+`memoryThreadId: vars.toolScope` with `memoryVolatile: true`, which is the
+[scope the runtime mints](/reference/blocks/ai#what-a-tool-branch-is-told) for a
+tool branch. So a second delegation in the same chat reaches the same builder,
+with the definition it drafted a moment ago still in front of it — and none of it
+touches the conversation you are having, or the store that is backed up. It is
+scaffolding, and it evicts.
+
+Three things the split buys, none of which a single twenty-tool agent could have:
+
+- **A prompt each.** "How to write a definition and prove it" and "how this installation is deployed and diagnosed" want different instructions, and a single prompt carrying both is mostly irrelevant on any given turn.
+- **A working context each.** A builder's loop fills a transcript with YAML drafts and test reports; an operator's fills with API responses. Kept apart, neither pays to re-read the other, and the conversation you are having stays short — what comes back to it is one report, not forty tool results.
+- **A boundary.** There is exactly one unrestricted `octo_api` in the file and it is inside the operator, so a write to the platform is always a deliberate delegation.
+
+What it costs: a delegation is a whole model run, and the panel is quiet while it works — which is why the SSE route's `maxDuration` is 30 minutes, and why the coordinator is told to answer from `octo_read` when that is the whole answer. The specialists cannot see your conversation — only their own work on it — so a thin brief comes back as a specialist guessing confidently. Both facts are in the coordinator's prompt because both are how this arrangement fails.
+
+Each specialist emits its `tool_call` and `tool_result` events to the same stream the coordinator's go to, so the panel shows what it is doing rather than one chip sitting open for two minutes.
 
 His memory rides the deployment's [KV store](/platform/kv-and-storage), which in a cluster is the orchestrator's own — so conversations survive a pod restart with nothing configured for it.
 

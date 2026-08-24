@@ -2,6 +2,9 @@ package engine
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -515,6 +518,9 @@ type aiAgent struct {
 	// transcript after.
 	memoryThreadID   *expr.Program
 	memoryCompaction string
+	// memoryNamespace is the KV namespace this agent's transcripts live in: the
+	// persistent user namespace, or the volatile one when memoryVolatile is set.
+	memoryNamespace string
 	// runScope namespaces this block's claims in the process-wide registry, so two
 	// agents whose signalId expressions agree do not hand each other messages.
 	runScope string
@@ -680,6 +686,10 @@ func (b *builder) configureAgentMemory(block *aiAgent, cfg types.BlockConfig) er
 		return err
 	}
 	block.memoryThreadID = threadID
+	block.memoryNamespace = core.NamespaceUser
+	if cfg.MemoryVolatile {
+		block.memoryNamespace = core.NamespaceUserVolatile
+	}
 	return nil
 }
 
@@ -869,6 +879,7 @@ func (a *aiAgent) Process(ctx context.Context, msg *types.Message) (*types.Messa
 	defer claim.run.close()
 	defer claim.bound()
 	run, threadID := claim.run, claim.threadID
+	branchBase := branchScopeBase(threadID, a.runScope)
 
 	messages, meter, err := a.initConversation(ctx, msg, threadID)
 	if err != nil {
@@ -912,7 +923,7 @@ func (a *aiAgent) Process(ctx context.Context, msg *types.Message) (*types.Messa
 			return out, nil
 		}
 
-		results, stopped := a.runTools(runCtx, iter, resp.ToolCalls, &current)
+		results, stopped := a.runTools(runCtx, iter, resp.ToolCalls, &current, branchBase)
 		messages = append(messages, core.LLMMessage{Role: core.LLMRoleTool, ToolResults: results})
 
 		// Halt rather than start another iteration, which would call the model again
@@ -1083,14 +1094,14 @@ func (a *aiAgent) completeTurn(
 // runTools dispatches one turn's tool calls, reporting each call and its result,
 // and says whether the events path asked to stop.
 func (a *aiAgent) runTools(
-	ctx context.Context, iter int, calls []core.LLMToolCall, current **types.Message,
+	ctx context.Context, iter int, calls []core.LLMToolCall, current **types.Message, branchBase string,
 ) ([]core.LLMToolResult, bool) {
 	results := make([]core.LLMToolResult, 0, len(calls))
 	stopped := false
 	for _, call := range calls {
 		stopped = a.report(ctx, *current, iter, eventToolCall, callFields(call)) || stopped
 		var res core.LLMToolResult
-		res, *current = a.runTool(ctx, call, *current)
+		res, *current = a.runTool(ctx, call, *current, branchBase)
 		results = append(results, res)
 		stopped = a.report(ctx, *current, iter, eventToolResult, resultFields(call, res)) || stopped
 	}
@@ -1193,7 +1204,7 @@ func (a *aiAgent) loadHistory(ctx context.Context, threadID string) (memoryEnvel
 	if threadID == "" {
 		return memoryEnvelope{}, nil
 	}
-	stored, err := loadMemory(ctx, threadID)
+	stored, err := loadMemory(ctx, a.memoryNamespace, threadID)
 	if err != nil {
 		return memoryEnvelope{}, fmt.Errorf("ai-agent load memory: %w", err)
 	}
@@ -1237,7 +1248,7 @@ func (a *aiAgent) persistMemory(
 	// The size stored is the conversation's own, without this run's overhead: the
 	// next run's system prompt and tool set are not necessarily this one's.
 	env := memoryEnvelope{Messages: compacted, Tokens: meter.sizeOfMessages(compacted)}
-	if err := saveMemory(ctx, threadID, env); err != nil {
+	if err := saveMemory(ctx, a.memoryNamespace, threadID, env); err != nil {
 		slog.Warn("ai-agent failed to save memory", "block", a.name, "thread", threadID, "error", err)
 	}
 }
@@ -1248,7 +1259,7 @@ func (a *aiAgent) persistMemory(
 // aborting the agent. It returns the (possibly updated) current message so shared
 // state carries forward.
 func (a *aiAgent) runTool(
-	ctx context.Context, call core.LLMToolCall, current *types.Message,
+	ctx context.Context, call core.LLMToolCall, current *types.Message, branchBase string,
 ) (core.LLMToolResult, *types.Message) {
 	slog.Info("ai-agent tool call", "block", a.name, "tool", call.Name)
 	slog.Debug("ai-agent tool input", "block", a.name, "tool", call.Name, "input", truncForLog(string(call.Input)))
@@ -1259,6 +1270,13 @@ func (a *aiAgent) runTool(
 	if !ok {
 		return errorResult(call, fmt.Sprintf("unknown tool %q", call.Name)), current
 	}
+	// Overwritten per call rather than cleared afterwards: a branch reads them
+	// while it runs, and the next call sets them again before anything else looks.
+	if branchBase != "" {
+		current.Variables.Set(varToolScope, branchBase+"/"+call.Name)
+	}
+	current.Variables.Set(varToolName, call.Name)
+	current.Variables.Set(varToolCallID, call.ID)
 	content, out, errMsg := dispatchToolBranch(ctx, flow, call.Input, current)
 	if errMsg != "" {
 		return errorResult(call, errMsg), out
@@ -1272,6 +1290,90 @@ func (a *aiAgent) runTool(
 // forward, and a non-empty errMsg describing any failure to surface. It is the
 // single seam both the ai-agent (runTool) and the mcp-router use to route a tool
 // call to a flow.
+// branchScopeIDLen is how many random bytes a minted scope carries. Sixteen is a
+// uuid's worth of entropy, which is far past what distinguishing the concurrent
+// runs of one process needs.
+const branchScopeIDLen = 16
+
+// branchScopeBlockLen is how much of the owning block's address hash rides in a
+// scope. Eight bytes is far past a collision between the agents of one
+// deployment, and keeps the scope short enough to read in a key.
+const branchScopeBlockLen = 16
+
+// branchScopeBase is what this run mints its tool branches' scopes from.
+//
+// Three things go in, and each is load-bearing:
+//
+//   - The run's own conversation, so a branch's state lasts as long as the
+//     conversation does. A random id when there is none: a stateless run still
+//     has branches, and they should still have somewhere of their own.
+//   - WHICH agent is calling, as a hash of its address. Two agents that resolve
+//     the same thread id — which is a misconfiguration the runtime already
+//     warns about, but happens — would otherwise hand identically-named tools
+//     the same scope, and two specialists would share a transcript through it.
+//   - The tool's name, added by the caller (see runTool), so two tools of one
+//     agent never share.
+//
+// The block's address means a scope moves when the block does: rename the agent,
+// or move it into another branch, and its tools start again somewhere new. That
+// is the trade this makes deliberately, and it is why the docs pair a scope with
+// memoryVolatile and describe it as somewhere for state whose loss is cheap. A
+// conversation a person will ask to see again is named by memoryThreadId, which
+// is the author's to write and nothing derives.
+//
+// Minting rather than asking for configuration is the point. Nothing in a
+// definition should have to anticipate what a tool branch will want to keep —
+// the runtime knows which call it is making, from where, and in what
+// conversation, so composing the three is its job.
+func branchScopeBase(threadID, runScope string) string {
+	if threadID == "" {
+		buf := make([]byte, branchScopeIDLen)
+		if _, err := rand.Read(buf); err != nil {
+			// Only a broken entropy source gets here. Falling back to a constant would
+			// silently share one scope between every stateless run in the process, so
+			// the branches get none at all instead and an expression built on one
+			// fails loudly.
+			slog.Warn("ai-agent could not mint a scope for its tool branches", "error", err)
+			return ""
+		}
+		// A random id per run already distinguishes the caller; hashing the block
+		// in beside it would say the same thing twice.
+		return "run-" + hex.EncodeToString(buf)
+	}
+	sum := sha256.Sum256([]byte(runScope))
+	return threadID + "/" + hex.EncodeToString(sum[:])[:branchScopeBlockLen]
+}
+
+// What a tool branch is told about the call it is running inside.
+//
+// Variables rather than body fields because the body is the model's arguments —
+// what the model asked for — while these are what the RUNTIME knows: which tool,
+// which call, and a scope the branch can key its own state on.
+//
+// None of this is about what a branch contains. The block knows it is running a
+// tool, which it always did; a branch that happens to hold an object-write, a
+// rest call wanting an idempotency key, a cli-run writing a scratch file, or
+// another ai-agent all read the same three variables and decide for themselves
+// what to do with them. That is the point: an agent should not need a concept of
+// "subagent", and nothing here has one.
+const (
+	// varToolScope is a scope minted for this branch: stable for as long as the
+	// conversation the call belongs to, and distinct per calling agent and per
+	// tool. Two calls to one tool in one conversation get the same scope; two
+	// tools never do, and neither do two agents that happen to share a thread.
+	//
+	// Derived, so it cannot be lost the way a stored id can — and derived partly
+	// from where the block sits, so it moves when the block does. Somewhere for
+	// state whose loss is cheap; see memoryVolatile.
+	varToolScope = "toolScope"
+	// varToolName is the tool being run.
+	varToolName = "toolName"
+	// varToolCallID is the provider's id for this one call — unique per call, and
+	// the same id the trace and the panel's tool chip carry, so state keyed on it
+	// can be matched back to the call that wrote it.
+	varToolCallID = "toolCallId"
+)
+
 func dispatchToolBranch(
 	ctx context.Context, flow *Flow, args json.RawMessage, current *types.Message,
 ) (content string, out *types.Message, errMsg string) {

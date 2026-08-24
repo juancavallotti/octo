@@ -186,6 +186,18 @@ type BlockConfig struct {
 	// MemoryCompaction is how an "ai-agent" shrinks memory over budget: "prune"
 	// (drop oldest, the default) or "summarize" (fold the oldest turns into a summary).
 	MemoryCompaction string `yaml:"memoryCompaction,omitempty"`
+	// MemoryVolatile stores this agent's transcripts in the volatile KV tier — Redis
+	// in a cluster, process memory standalone — instead of the persistent one.
+	//
+	// It is for a conversation whose loss costs nothing: a specialist in another
+	// agent's tool slot, working a thread its caller minted for it, has a
+	// transcript that is scaffolding rather than history. Volatile keeps it out of
+	// the store the platform backs up and reports on, and lets it be evicted
+	// (allkeys-lru) instead of accumulating a row per delegation forever.
+	//
+	// Never for a conversation somebody will ask to see again: the tier makes no
+	// durability promise at all and may drop a value on a restart.
+	MemoryVolatile bool `yaml:"memoryVolatile,omitempty"`
 	// Events is the observer sub-flow a block runs once per event it reports, with
 	// the event as the message body. Its result is discarded: the sub-flow
 	// reports, it does not take part in the run. An "ai-agent" reports on its own
