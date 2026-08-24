@@ -19,6 +19,11 @@ substitutions:
   _ZONE: us-west1-a
   _DOMAIN: octopaas.dev
   _APPS_DOMAIN: apps.octopaas.dev
+  # How the sign-in button names the identity provider ("Sign in with …"). Display
+  # only, which is why this one travels as a substitution while the issuer, client
+  # id and secret are read back from release/oidc.json in the state bucket. Empty
+  # keeps whatever a local `task deploy` last stored.
+  _OIDC_PROVIDER_NAME: ""
 
 options:
   machineType: E2_HIGHCPU_8
@@ -182,6 +187,12 @@ steps:
     name: gcr.io/cloud-builders/gcloud
     entrypoint: bash
     waitFor: ["push-images", "render-image-values", "push-helm-chart"]
+    # The provider name travels as an environment variable rather than being
+    # interpolated into the script below. A substitution is pasted into the shell
+    # source before bash ever sees it, so a name carrying a quote or a $( would be
+    # read as syntax — an operator setting a display string should not be writing
+    # shell by accident. As an env value it is data, and the script quotes it.
+    env: ["OIDC_PROVIDER_NAME=${_OIDC_PROVIDER_NAME}"]
     args:
       - -c
       - |
@@ -226,8 +237,10 @@ steps:
         # release/terraform.tfvars is gitignored, so it is absent in the build
         # checkout. Pass the config via -var from substitutions ($PROJECT_ID is a
         # Cloud Build built-in); repository_id/namespace/wildcard_tls/cluster_issuer
-        # /postgres_host_path use their (correct) defaults, and OIDC is read back
-        # from oidc.json in the state bucket.
+        # /postgres_host_path use their (correct) defaults, and the OIDC issuer,
+        # client id and secret are read back from oidc.json in the state bucket —
+        # they are credentials and have no business in a build substitution. The
+        # provider's display name is the exception: it is a label on a button.
         CHART_VERSION="$(awk '/^version:/ {print $$2}' helm/Chart.yaml)"
         # Keep the exact coordinates this release deployed, so a rollback can
         # reproduce them without re-deriving digests from a tag that has since moved.
@@ -248,4 +261,5 @@ steps:
           -var image_tag="${_TAG}" \
           -var image_values_file=/workspace/dist/values.images.yaml \
           -var chart_version="$${CHART_VERSION}" \
+          -var oidc_provider_name="$${OIDC_PROVIDER_NAME}" \
           -var kubeconfig=/workspace/kubeconfig.yaml

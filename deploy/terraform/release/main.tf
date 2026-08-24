@@ -193,10 +193,17 @@ locals {
   oidc_read   = !local.oidc_provided && local.oidc_exists
   oidc_stored = local.oidc_read ? jsondecode(data.google_storage_bucket_object_content.oidc[0].content) : null
 
-  oidc_enabled_eff       = local.oidc_provided ? var.oidc_enabled : try(local.oidc_stored.enabled, false)
-  oidc_issuer_eff        = local.oidc_provided ? var.oidc_issuer : try(local.oidc_stored.issuer, var.oidc_issuer)
-  oidc_client_id_eff     = local.oidc_provided ? var.oidc_client_id : try(local.oidc_stored.client_id, "")
-  oidc_provider_name_eff = local.oidc_provided ? var.oidc_provider_name : try(local.oidc_stored.provider_name, "")
+  oidc_enabled_eff   = local.oidc_provided ? var.oidc_enabled : try(local.oidc_stored.enabled, false)
+  oidc_issuer_eff    = local.oidc_provided ? var.oidc_issuer : try(local.oidc_stored.issuer, var.oidc_issuer)
+  oidc_client_id_eff = local.oidc_provided ? var.oidc_client_id : try(local.oidc_stored.client_id, "")
+  # The one field that can be set on its own. It is a label on a button, not a
+  # credential, so a Cloud Build deploy passes it as a substitution while the
+  # issuer, client id and secret stay in the state bucket — and for that build
+  # oidc_provided is false, so reading it through the same ternary as the others
+  # would drop it on the floor. Supplied wins; empty falls back exactly as before.
+  oidc_provider_name_eff = (var.oidc_provider_name != ""
+    ? var.oidc_provider_name
+  : (local.oidc_provided ? "" : try(local.oidc_stored.provider_name, "")))
   oidc_client_secret_eff = local.oidc_provided ? var.oidc_client_secret : try(local.oidc_stored.client_secret, "")
   oidc_write_roles_eff   = local.oidc_provided ? var.oidc_write_roles : try(local.oidc_stored.write_roles, "")
   oidc_roles_claim_eff   = local.oidc_provided ? var.oidc_roles_claim : try(local.oidc_stored.roles_claim, "")

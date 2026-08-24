@@ -275,7 +275,7 @@ Per-deploy values (`image_tag`, `chart_version`) come from the command line inst
 | `oidc_client_id` | `""` | IdP client id (non-secret) |
 | `oidc_client_secret` | `""` | IdP client secret (kept in release state, not Secret Manager) |
 | `oidc_issuer` | `""` | OIDC issuer URL of your identity provider |
-| `oidc_provider_name` | `""` | name on the sign-in button; empty renders `OIDC` |
+| `oidc_provider_name` | `""` | name on the sign-in button; empty renders `OIDC`. The one OIDC value a Cloud Build deploy can set on its own (`_OIDC_PROVIDER_NAME`), since it is a label rather than a credential |
 | `oidc_write_roles` | `""` | roles allowed to write; empty = any signed-in user |
 | `oidc_roles_claim` | `""` | id-token claim for roles (Auth.js default `roles`) |
 
