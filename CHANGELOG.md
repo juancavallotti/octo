@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.8.7](https://github.com/juancavallotti/octo/compare/v0.8.6...v0.8.7) (2026-08-24)
+
+
+### Features
+
+* **agent:** give each specialist its own conversation ([6143846](https://github.com/juancavallotti/octo/commit/61438465e266535df0fdf58d9d42dc9f1f1840f0))
+* **agent:** split Dr. Octo into a coordinator and two specialists ([cba88a8](https://github.com/juancavallotti/octo/commit/cba88a8419072eb5aec5516c763e086d40f622dc))
+* **agent:** split Dr. Octo into a coordinator and two specialists ([835f172](https://github.com/juancavallotti/octo/commit/835f17284aabca3fbc92cbda242290a1499f6935))
+* **deploy:** let a Cloud Build deploy set the sign-in button's provider name ([0573039](https://github.com/juancavallotti/octo/commit/0573039d7c683388d9f09d6903e40d44fb3095d9))
+* **deploy:** let a Cloud Build deploy set the sign-in button's provider name ([31944e3](https://github.com/juancavallotti/octo/commit/31944e3f15423efbfbae927d917bed9f891d58c0))
+* **engine:** tell a tool branch about its call, and let memory be volatile ([417a65e](https://github.com/juancavallotti/octo/commit/417a65efee919b87c1918a346f7e1b4b8f3b8ff7))
+* **expr:** add uuid() to the expression language ([3c3f158](https://github.com/juancavallotti/octo/commit/3c3f158b15308377ab485f721c28cd9a98341bb5))
+* **expr:** add uuid() to the expression language ([a906f2f](https://github.com/juancavallotti/octo/commit/a906f2f79316f43f33ee3683da1fcb0b8948a5ae))
+
+
+### Bug Fixes
+
+* **engine:** report two agents sharing one conversation ([78e76fe](https://github.com/juancavallotti/octo/commit/78e76feb05e3458c4f018b44c97e484649ce8e60))
+* **platform:** keep the agent panel visible when a newer bundle ships ([3be04ea](https://github.com/juancavallotti/octo/commit/3be04ea7bf7b00001043e38bd853d1f21ae09058))
+* **platform:** keep the agent panel when a newer bundle ships ([ae00742](https://github.com/juancavallotti/octo/commit/ae007427c01d264213e746d1e4cba320062e0e68))
+* **platform:** three test fixtures that never type-checked ([81e1f55](https://github.com/juancavallotti/octo/commit/81e1f557d863ae33a75d7f409cb4567f514230b0))
+* **runtime:** start the memory save clock at the save, not at the run ([4e280e2](https://github.com/juancavallotti/octo/commit/4e280e2023ee90914a8695c4fb593daa15f65db1))
+
+
+### Refactoring
+
+* **runtime:** mint CEL uuid() from the standard library ([c486856](https://github.com/juancavallotti/octo/commit/c4868566db14a19e3c88987f90c157ea7e5e6698))
+* **runtime:** mint CEL uuid() from the standard library ([b3b4703](https://github.com/juancavallotti/octo/commit/b3b4703e0c0eb9dddb0c0359b87fbe71ec3a3744)), closes [#368](https://github.com/juancavallotti/octo/issues/368)
+
+
+### Documentation
+
+* **agent:** escape what goes into a report, and keep its tables readable ([0798d14](https://github.com/juancavallotti/octo/commit/0798d1499872f3bfd49b28b63d1cdf2d90fd226d))
+
 ## [0.8.6](https://github.com/juancavallotti/octo/compare/v0.8.5...v0.8.6) (2026-08-23)
 
 
