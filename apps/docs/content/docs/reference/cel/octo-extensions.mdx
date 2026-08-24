@@ -52,7 +52,7 @@ source:
 
 ## Functions
 
-Octo registers seventeen functions of its own. They are available in every message
+Octo registers eighteen functions of its own. They are available in every message
 expression, in every source payload, and inside a template's `{{ }}` spans —
 the three environments expose the same set, as do the [extension
 libraries](/reference/cel/libraries).
@@ -415,6 +415,41 @@ hexEncode(dyn) -> string
 Renders bytes as lowercase hex, the form most providers put in their signature
 header. For the ones that use base64, `base64.encode` from the
 [encoder library](/reference/cel/libraries) already applies.
+
+### uuid
+
+```
+uuid() -> string
+```
+
+A random version 4 UUID, for the places a message needs an identifier and nothing
+upstream supplied one: a correlation id on an outbound request, an idempotency
+key, a synthetic id for a record that arrived without one.
+
+```yaml
+- type: rest
+  settings:
+    connector: payments
+    method: POST
+    path: /charges
+    headers:
+      Idempotency-Key: uuid()
+    body: '{"amount": body.amount}'
+```
+
+<Callout type="warn">
+  `uuid()` is the second non-deterministic thing in the language, after `now`. An
+  expression containing it evaluates to something different every time — so a
+  replayed trace does not reproduce, a `validate` rule written on it cannot be
+  reasoned about, and a cache key built from it never hits. Use it where a fresh
+  value is the point.
+</Callout>
+
+It is the wrong tool for naming a conversation: an [ai-agent](/reference/blocks/ai#ai-agent)'s
+`memoryThreadId` is evaluated once per run, so a minted thread loads a transcript
+nobody wrote and saves one nobody will read — which is what leaving the field out
+already does, without the writes. A tool branch that wants a scope of its own is
+handed [`vars.toolScope`](/reference/blocks/ai#what-a-tool-branch-is-told).
 
 ### secureCompare
 

@@ -30,6 +30,7 @@ func init() {
 	registerYAMLExtension()
 	registerEnvExtension()
 	registerCryptoExtension()
+	registerUUIDExtension()
 	registerTemplateResourceExtension()
 	registerStandardExtensions()
 }
