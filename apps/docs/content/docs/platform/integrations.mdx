@@ -38,6 +38,60 @@ Deleting an integration cascades: its folder membership, snapshots (and their fr
 Editing the working copy never changes what is running. Deployments ship an immutable [version tag](/platform/snapshots); to run new edits you create a tag and deploy or roll it out.
 </Callout>
 
+## Bundles
+
+A **bundle** is an integration as one portable file: a zip carrying its definition and every [resource](/platform/resources-and-secrets) it owns. It is how an integration leaves the platform and comes back — a backup, a hand-off, or a move between installs — without exporting the definition and each resource one at a time.
+
+| Operation | Endpoint |
+| --- | --- |
+| Download the working copy | `GET /integrations/{id}/bundle` |
+| Download a [version tag](/platform/snapshots) | `GET /snapshots/{id}/bundle` |
+| Import as a new integration | `POST /integrations/bundle` |
+| Replace an integration's contents | `PUT /integrations/{id}/bundle` |
+
+Both uploads take the zip as the raw request body (`Content-Type: application/zip`) and answer with the created or updated integration.
+
+### What is in the archive
+
+The layout is the one the runtime already expects on disk, so **unzipping a bundle produces a directory a local `octo` can run**:
+
+```
+order-sync.yaml           # the definition, named after the integration
+.env.dev                  # each resource at its own path-like name
+templates/welcome.tmpl
+octo-bundle.json          # the manifest
+```
+
+`octo-bundle.json` carries what the file layout cannot — the integration's display name, the tag an export was taken from, which entry is the definition, and each resource's `kind`:
+
+```json
+{
+  "version": 1,
+  "name": "Order Sync",
+  "definition": "order-sync.yaml",
+  "resources": [
+    { "name": ".env.dev", "kind": "env" },
+    { "name": "templates/welcome.tmpl", "kind": "template" }
+  ]
+}
+```
+
+`octo-bundle.json` is reserved: a resource named exactly that cannot be exported (it would produce an archive whose manifest is a resource), and an archive carrying the same entry name twice is refused rather than read with one entry shadowing the other.
+
+A hand-made zip without a manifest still imports: the single `.yaml` at the archive root is taken as the definition, every other file becomes a resource, and its kind follows the filename convention (`.env*` is `env`, anything else is `template`). Zero or several root-level YAML files is ambiguous and is rejected rather than guessed at. Pass `?name=` on the import to name an integration the archive does not name.
+
+### Import and replace
+
+**Import** (`POST`) always creates a new integration. It takes the name from the manifest, falling back to the `name` query parameter; a name already in use is suffixed (`Order Sync (2)`) rather than rejected, since importing a copy of something already here is the normal case. If a resource fails to store, the whole import is rolled back — a half-imported integration looks complete and is not.
+
+**Replace** (`PUT`) overwrites the addressed integration's definition and resource set while keeping its identity: its id, name, folder, version tags and deployments all stay. Resources are reconciled by name — shared names are updated in place, new ones added, and any the bundle no longer carries are deleted. The bundle's own name is ignored, because a replace is not a rename.
+
+<Callout type="warn">
+Replacing is destructive to the working copy: resources the bundle does not carry are deleted. Existing version tags are untouched, so anything already deployed keeps running its frozen copy.
+</Callout>
+
+Entry names are validated on the way in and out — absolute paths, `..` segments and backslashes are refused — and both the upload and what it decompresses to are size-bounded.
+
 ## Folders
 
 Integrations are organized in a folder tree. Folders nest arbitrarily (each folder has an optional parent), and an integration lives in **at most one folder** — adding it to another folder moves it. Both folders among their siblings and integrations within a folder keep a manual order: new entries are appended, and reorder operations persist the position.

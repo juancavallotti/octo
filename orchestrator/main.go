@@ -24,6 +24,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/juancavallotti/octo/orchestrator/internal/agent"
 	"github.com/juancavallotti/octo/orchestrator/internal/apikey"
+	"github.com/juancavallotti/octo/orchestrator/internal/bundle"
 	"github.com/juancavallotti/octo/orchestrator/internal/bus"
 	cryptox "github.com/juancavallotti/octo/orchestrator/internal/crypto"
 	"github.com/juancavallotti/octo/orchestrator/internal/db"
@@ -552,6 +553,14 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 			"reloadsDevRuns", devrunSvc.Enabled(),
 			"endpoints", "POST/GET /integrations/{id}/resources, "+
 				"GET/PUT/DELETE /integrations/{id}/resources/{resourceId}")
+
+		// Whole-integration import/export. It owns no storage: a bundle is a view over
+		// the integration, resource and snapshot modules, so it is registered after all
+		// three and holds their services rather than a repository of its own.
+		bundle.NewHandler(bundle.NewService(integrationSvc, resourceSvc, snapshotSvc)).Register(mux)
+		slog.Info("bundle routes registered",
+			"endpoints", "GET /integrations/{id}/bundle, GET /snapshots/{id}/bundle, "+
+				"POST /integrations/bundle, PUT /integrations/{id}/bundle")
 
 		// Users and their API keys need only the database (identity comes from the
 		// platform's OIDC layer, which bootstraps a user on first sign-in). Registered
