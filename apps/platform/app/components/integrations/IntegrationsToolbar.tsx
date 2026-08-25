@@ -5,8 +5,10 @@ import type { RefObject } from "react";
 import { Plus, Upload } from "lucide-react";
 
 /**
- * The manager's two top-right actions: import a .yaml, or start a new
- * integration.
+ * The manager's two top-right actions: import an integration from a file, or
+ * start a new one. Either shape imports — a bare `.yaml` definition, or a `.zip`
+ * bundle carrying the definition and every resource it owns — and both create a
+ * new integration.
  *
  * The hidden file input travels with the button that clicks it — it exists only
  * to be triggered by it, and separating the two leaves a stray input in the tree
@@ -26,7 +28,7 @@ export default function IntegrationsToolbar({
       <input
         ref={importInput}
         type="file"
-        accept=".yaml,.yml"
+        accept=".yaml,.yml,.zip"
         className="hidden"
         onChange={(e) => {
           const file = e.target.files?.[0];

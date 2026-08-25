@@ -51,6 +51,14 @@ A **bundle** is an integration as one portable file: a zip carrying its definiti
 
 Both uploads take the zip as the raw request body (`Content-Type: application/zip`) and answer with the created or updated integration.
 
+### In the integrations manager
+
+The detail pane's **Download** menu offers the active version either way: the definition on its own, or the whole bundle. Switch versions with the picker beside it and the menu follows — a tag downloads its frozen contents, `Current` downloads the working copy.
+
+**Import** in the top-right toolbar takes either shape: a `.yaml` definition or a `.zip` bundle, both creating a new integration. The upload button next to the Download menu replaces the selected integration's contents from a bundle instead (working copy only — a tag is immutable, so the button is hidden on one), confirming first because it deletes resources the bundle does not carry.
+
+Individual resources download from the Resources panel, frozen ones included.
+
 ### What is in the archive
 
 The layout is the one the runtime already expects on disk, so **unzipping a bundle produces a directory a local `octo` can run**:

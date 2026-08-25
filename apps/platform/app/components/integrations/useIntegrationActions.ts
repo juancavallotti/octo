@@ -5,14 +5,24 @@ import { fromDefinitionYaml } from "@octo/editor";
 import {
   createIntegration,
   deleteIntegration,
+  exportBundle,
+  exportSnapshotBundle,
+  importBundle,
+  replaceBundle,
   updateIntegration,
   type Integration,
 } from "@/app/model/orchestrator";
-import { nameFromFilename } from "./yamlFile";
+import {
+  downloadBundle,
+  isBundleFile,
+  nameFromFilename,
+  readFileBytes,
+} from "./files";
 
 /**
- * The four things you can do to an integration itself: import one from a file,
- * duplicate the selected one, rename it, delete it.
+ * The things you can do to an integration itself: import one from a file,
+ * download it as a bundle, replace its contents from one, duplicate the selected
+ * one, rename it, delete it.
  *
  * Separate from the folder tree's own mutations because these all turn on
  * `selected` and none of them touches the tree's shape. `renameSelected` is the
@@ -42,14 +52,30 @@ export function useIntegrationActions({
   setBusy: (busy: boolean) => void;
   setError: (message: string | null) => void;
 }) {
-  // Hidden file input backing the "Import" button. Importing a .yaml always
-  // creates a new integration (name from the filename); the file's contents are
-  // the runtime definition, validated before the create so malformed YAML fails
-  // fast with an inline error instead of a broken record.
+  // Hidden file input backing the "Import" button, and the hidden one backing
+  // "Replace from bundle". Importing either shape — a bare .yaml definition or a
+  // .zip bundle — always creates a new integration.
   const importInput = useRef<HTMLInputElement>(null);
+  const replaceInput = useRef<HTMLInputElement>(null);
 
   const onImportFile = async (file: File) => {
     setError(null);
+    if (isBundleFile(file)) {
+      // A bundle is read by the orchestrator, which is the only thing that knows
+      // the archive format; the filename only names an archive whose manifest
+      // doesn't. Everything else — validity, naming conflicts — comes back as an
+      // error result and lands in the inline banner.
+      run(async () => {
+        const created = await importBundle(
+          await readFileBytes(file),
+          nameFromFilename(file.name),
+        );
+        selectIntegration(created.id);
+      });
+      return;
+    }
+    // A .yaml is the definition itself, validated here before the create so
+    // malformed YAML fails fast with an inline error instead of a broken record.
     const text = await file.text();
     try {
       fromDefinitionYaml(text);
@@ -63,6 +89,42 @@ export function useIntegrationActions({
         definition: text,
       });
       selectIntegration(created.id);
+    });
+  };
+
+  // Download the selected integration and every resource it owns as one archive.
+  // `snapshot` is the active version: a tag exports its frozen contents, and null
+  // (Current) exports the working copy.
+  const downloadSelectedBundle = (
+    snapshot: { id: string; tag: string } | null,
+  ) => {
+    if (!selected) return;
+    run(async () => {
+      const archive = snapshot
+        ? await exportSnapshotBundle(snapshot.id)
+        : await exportBundle(selected.id);
+      downloadBundle(selected.name, archive, snapshot?.tag);
+    });
+  };
+
+  // Overwrite the selected integration's definition and resource set from a
+  // bundle. Destructive to the working copy — resources the bundle doesn't carry
+  // are deleted — so it confirms first, naming what stays behind.
+  const replaceSelectedFromBundle = async (file: File) => {
+    if (!selected) return;
+    setError(null);
+    const ok = await confirm({
+      title: `Replace "${selected.name}" from ${file.name}?`,
+      body:
+        "Its definition and resources are overwritten with the bundle's, and " +
+        "resources the bundle doesn't carry are deleted. Version tags and " +
+        "anything already deployed are untouched.",
+      confirmLabel: "Replace",
+      danger: true,
+    });
+    if (!ok) return;
+    run(async () => {
+      await replaceBundle(selected.id, await readFileBytes(file));
     });
   };
 
@@ -117,7 +179,10 @@ export function useIntegrationActions({
 
   return {
     importInput,
+    replaceInput,
     onImportFile,
+    downloadSelectedBundle,
+    replaceSelectedFromBundle,
     copySelected,
     renameSelected,
     removeSelected,

@@ -16,6 +16,10 @@ export interface DisplayResource {
   name: string;
   /** Present only for live resources; frozen ones can't be deleted. */
   id?: string;
+  /** The content, for a live resource — the list already carries it, so
+   * downloading one costs nothing. A frozen resource is metadata only and its
+   * content is fetched on demand. */
+  content?: string;
 }
 
 export const KINDS = ["env", "template"] as const;
@@ -35,7 +39,13 @@ export function guessKind(name: string): Kind {
 
 /** A live working-copy resource: it has an id, so it can be deleted. */
 export function fromLive(r: Resource): DisplayResource {
-  return { key: r.id, id: r.id, kind: r.kind, name: r.name };
+  return {
+    key: r.id,
+    id: r.id,
+    kind: r.kind,
+    name: r.name,
+    content: r.content,
+  };
 }
 
 /**
