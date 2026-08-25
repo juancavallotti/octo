@@ -22,9 +22,7 @@ export function listIntegrations(): Promise<ActionResult<Integration[]>> {
   return call<Integration[]>("GET", "/integrations");
 }
 
-export function getIntegration(
-  id: string,
-): Promise<ActionResult<Integration>> {
+export function getIntegration(id: string): Promise<ActionResult<Integration>> {
   return call<Integration>("GET", `/integrations/${enc(id)}`);
 }
 
@@ -122,16 +120,23 @@ export function reorderFolderIntegrations(
 export function listSnapshots(
   integrationId: string,
 ): Promise<ActionResult<Snapshot[]>> {
-  return call<Snapshot[]>("GET", `/integrations/${enc(integrationId)}/snapshots`);
+  return call<Snapshot[]>(
+    "GET",
+    `/integrations/${enc(integrationId)}/snapshots`,
+  );
 }
 
 export function createSnapshot(
   integrationId: string,
   tag: string,
 ): Promise<ActionResult<Snapshot>> {
-  return call<Snapshot>("POST", `/integrations/${enc(integrationId)}/snapshots`, {
-    tag,
-  });
+  return call<Snapshot>(
+    "POST",
+    `/integrations/${enc(integrationId)}/snapshots`,
+    {
+      tag,
+    },
+  );
 }
 
 export function deleteSnapshot(id: string): Promise<ActionResult<void>> {
@@ -156,7 +161,10 @@ export function listSnapshotResources(
 export function listResources(
   integrationId: string,
 ): Promise<ActionResult<Resource[]>> {
-  return call<Resource[]>("GET", `/integrations/${enc(integrationId)}/resources`);
+  return call<Resource[]>(
+    "GET",
+    `/integrations/${enc(integrationId)}/resources`,
+  );
 }
 
 export function getResource(
