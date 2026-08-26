@@ -25,12 +25,23 @@ describe("guessKind", () => {
 });
 
 describe("display shapes", () => {
-  it("keeps a live resource's id, which is what makes it deletable", () => {
-    expect(fromLive({ id: "r1", integrationId: "i1", kind: "env", name: ".env", content: "", createdAt: TS, lastUpdated: TS })).toEqual({
+  it("keeps a live resource's id, which is what makes it deletable, and its content", () => {
+    expect(
+      fromLive({
+        id: "r1",
+        integrationId: "i1",
+        kind: "env",
+        name: ".env",
+        content: "A=1\n",
+        createdAt: TS,
+        lastUpdated: TS,
+      }),
+    ).toEqual({
       key: "r1",
       id: "r1",
       kind: "env",
       name: ".env",
+      content: "A=1\n",
     });
   });
 
@@ -38,8 +49,15 @@ describe("display shapes", () => {
   // absent id is precisely what the list reads to hide the delete control, so it
   // must stay absent rather than become an empty string.
   it("gives a frozen resource no id", () => {
-    const row = fromFrozen({ kind: "template", name: "prompt.md", createdAt: "" });
+    const row = fromFrozen({
+      kind: "template",
+      name: "prompt.md",
+      createdAt: "",
+    });
     expect(row.id).toBeUndefined();
     expect(row.key).toBe("template:prompt.md");
+    // Nor its content: a frozen resource is listed as metadata and its bytes are
+    // fetched on demand, so the row carries nothing to download directly.
+    expect(row.content).toBeUndefined();
   });
 });

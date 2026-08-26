@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { requestJson, requestOk } from "./request";
+import { requestBytes, requestJson, requestOk, sendBytes } from "./request";
 
 /** A fetch stub returning the given response shape. `json` rejects when `body` is
  * the sentinel NON_JSON, to model a non-JSON (e.g. plain-text) response. */
@@ -110,5 +110,83 @@ describe("requestOk", () => {
       throw new Error("ECONNREFUSED");
     }) as unknown as typeof fetch;
     await expect(requestOk("GET", "http://x/healthz")).resolves.toBe(false);
+  });
+});
+
+describe("requestBytes", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  /** A fetch stub whose response body is bytes rather than JSON. */
+  function stubBytes(res: {
+    ok?: boolean;
+    status?: number;
+    bytes?: Uint8Array;
+    errorBody?: unknown;
+  }) {
+    const fn = vi.fn(async () => ({
+      ok: res.ok ?? true,
+      status: res.status ?? 200,
+      arrayBuffer: async () => (res.bytes ?? new Uint8Array()).buffer,
+      json: async () => res.errorBody ?? null,
+    })) as unknown as typeof fetch;
+    global.fetch = fn;
+    return fn;
+  }
+
+  it("returns the body as bytes", async () => {
+    stubBytes({ bytes: new Uint8Array([80, 75, 3, 4]) });
+    const res = await requestBytes("GET", "http://x/bundle");
+    expect(res).toEqual({ ok: true, data: new Uint8Array([80, 75, 3, 4]) });
+  });
+
+  it("unwraps the { error } envelope on failure", async () => {
+    stubBytes({ ok: false, status: 404, errorBody: { error: "integration not found" } });
+    const res = await requestBytes("GET", "http://x/bundle");
+    expect(res).toEqual({ ok: false, error: "integration not found" });
+  });
+
+  it("turns a network error into an error result", async () => {
+    global.fetch = vi.fn(async () => {
+      throw new Error("ECONNREFUSED");
+    }) as unknown as typeof fetch;
+    await expect(requestBytes("GET", "http://x/bundle")).resolves.toEqual({
+      ok: false,
+      error: "request failed: ECONNREFUSED",
+    });
+  });
+});
+
+describe("sendBytes", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("sends the bytes under the given content type and parses the JSON reply", async () => {
+    const fetchFn = stubFetch({ status: 201, body: { id: "i1" } });
+    const res = await sendBytes<{ id: string }>(
+      "POST",
+      "http://x/bundle",
+      new Uint8Array([1, 2, 3]),
+      "application/zip",
+    );
+    expect(res).toEqual({ ok: true, data: { id: "i1" } });
+    const [, init] = (fetchFn as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(init.method).toBe("POST");
+    expect(init.headers).toEqual({ "Content-Type": "application/zip" });
+    expect(new Uint8Array(init.body)).toEqual(new Uint8Array([1, 2, 3]));
+  });
+
+  // Node's Buffer is a view over a larger pooled ArrayBuffer; sending that buffer
+  // whole would leak whatever else happens to be pooled beside it.
+  it("sends only the caller's bytes when handed a view over a larger buffer", async () => {
+    const fetchFn = stubFetch({ status: 201, body: {} });
+    const pooled = new Uint8Array([9, 9, 1, 2, 3, 9]).subarray(2, 5);
+    await sendBytes("POST", "http://x/bundle", pooled, "application/zip");
+    const [, init] = (fetchFn as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(new Uint8Array(init.body)).toEqual(new Uint8Array([1, 2, 3]));
+  });
+
+  it("unwraps the { error } envelope on failure", async () => {
+    stubFetch({ ok: false, status: 400, body: { error: "bundle invalid" } });
+    const res = await sendBytes("POST", "http://x/bundle", new Uint8Array(), "application/zip");
+    expect(res).toEqual({ ok: false, error: "bundle invalid" });
   });
 });

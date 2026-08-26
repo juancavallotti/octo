@@ -105,7 +105,10 @@ export function useIntegrationTree({
 
   const {
     importInput,
+    replaceInput,
     onImportFile,
+    downloadSelectedBundle,
+    replaceSelectedFromBundle,
     copySelected,
     renameSelected,
     removeSelected,
@@ -133,7 +136,8 @@ export function useIntegrationTree({
       danger: true,
     });
     if (!ok) return;
-    if (typeof bucket === "object" && bucket.folder === f.id) selectBucket("all");
+    if (typeof bucket === "object" && bucket.folder === f.id)
+      selectBucket("all");
     run(() => deleteFolder(f.id));
   };
 
@@ -151,7 +155,6 @@ export function useIntegrationTree({
     run(() => reorderFolderIntegrations(folderId, next));
   };
 
-
   // Persist a new order for the folders sharing a parent. Folders live in the tree
   // (not a flat order map), so a refresh — not an optimistic edit — reflects it;
   // the sortable animation covers the brief gap.
@@ -168,8 +171,6 @@ export function useIntegrationTree({
     if (from === -1 || to === -1 || from === to) return;
     run(() => reorderFolders(parentId, arrayMove(siblings, from, to)));
   };
-
-
 
   /** Carry out a resolved drop. Paired with resolveDrag, which decides it. */
   const applyDrag = (outcome: DragOutcome) => {
@@ -217,7 +218,10 @@ export function useIntegrationTree({
     renameFolderTo,
     removeFolder,
     importInput,
+    replaceInput,
     onImportFile,
+    downloadSelectedBundle,
+    replaceSelectedFromBundle,
     copySelected,
     renameSelected,
     removeSelected,

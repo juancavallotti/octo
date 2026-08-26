@@ -9,6 +9,7 @@
  */
 
 import type { Snapshot, SnapshotResource } from "@/app/model/orchestrator";
+import { toBase64 } from "@/app/model/base64";
 import { withRead, withWrite } from "./_auth";
 import * as client from "./_client";
 import type { ActionResult } from "./_client";
@@ -34,4 +35,20 @@ export async function listSnapshotResources(
   snapshotId: string,
 ): Promise<ActionResult<SnapshotResource[]>> {
   return withRead(() => client.listSnapshotResources(snapshotId));
+}
+
+/**
+ * One frozen resource's raw bytes, base64-encoded for the trip across the action
+ * boundary (see `bundles.ts` for why bytes travel as text). The model layer
+ * decodes; nothing above it sees the encoding.
+ */
+export async function snapshotResourceContent(
+  snapshotId: string,
+  kind: string,
+  name: string,
+): Promise<ActionResult<string>> {
+  return withRead(async () => {
+    const res = await client.snapshotResourceContent(snapshotId, kind, name);
+    return res.ok ? { ok: true, data: toBase64(res.data) } : res;
+  });
 }

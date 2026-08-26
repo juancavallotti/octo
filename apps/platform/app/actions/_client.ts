@@ -17,6 +17,7 @@ export type { ActionResult } from "@octo/http";
 
 export * from "./client/identity";
 export * from "./client/integrations";
+export * from "./client/bundles";
 export * from "./client/deployments";
 export * from "./client/settings";
 export * from "./client/agent";

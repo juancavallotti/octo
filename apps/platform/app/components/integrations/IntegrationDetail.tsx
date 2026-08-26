@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type RefObject,
+} from "react";
 import {
   listSnapshots,
   type Deployment,
@@ -14,6 +20,7 @@ import PodLogPanel from "./PodLogPanel";
 import ResourcesSection from "./ResourcesSection";
 import VersionPills from "./VersionPills";
 import { Row, Section } from "./DetailLayout";
+import { folderPathOf, type FlatFolder } from "./managerViews";
 import IntegrationHeader from "./IntegrationHeader";
 
 /**
@@ -23,12 +30,6 @@ import IntegrationHeader from "./IntegrationHeader";
  * added later as additional sections without reworking the layout.
  */
 
-interface FlatFolder {
-  id: string;
-  name: string;
-  parentId: string | null;
-}
-
 interface Props {
   integration: Integration;
   /** Flattened folders, used to render the current folder's path. */
@@ -36,6 +37,13 @@ interface Props {
   /** The folder the integration currently belongs to, or null when unfiled. */
   folderId: string | null;
   busy: boolean;
+  /** Hidden file input backing the header's "Replace from bundle". */
+  replaceInput: RefObject<HTMLInputElement | null>;
+  /** Download the active version — a tag's frozen contents, or the working copy —
+   * as a bundle archive. */
+  onDownloadBundle: (snapshot: { id: string; tag: string } | null) => void;
+  /** Overwrite this integration's definition and resources from a bundle. */
+  onReplaceFromBundle: (file: File) => void;
   onDelete: () => void;
   /** Duplicate this integration into a new "Copy of …" record. */
   onCopy: () => void;
@@ -47,12 +55,14 @@ interface Props {
   onRename: (name: string) => Promise<boolean>;
 }
 
-
 export default function IntegrationDetail({
   integration,
   folders,
   folderId,
   busy,
+  replaceInput,
+  onDownloadBundle,
+  onReplaceFromBundle,
   onDelete,
   onCopy,
   onRename,
@@ -90,9 +100,7 @@ export default function IntegrationDetail({
   const onDeploymentsChange = useCallback((deployments: Deployment[]) => {
     setDeployedTags(
       new Set(
-        deployments
-          .map((d) => d.tag)
-          .filter((t): t is string => Boolean(t)),
+        deployments.map((d) => d.tag).filter((t): t is string => Boolean(t)),
       ),
     );
   }, []);
@@ -115,17 +123,10 @@ export default function IntegrationDetail({
 
   // The folder path ("Parent / Child"), or "No folder" when unfiled. Moving is done
   // by drag & drop in the tree, so this is read-only.
-  const folderPath = useMemo(() => {
-    if (!folderId) return "No folder";
-    const byId = new Map(folders.map((f) => [f.id, f]));
-    const parts: string[] = [];
-    let cur: FlatFolder | undefined = byId.get(folderId);
-    while (cur) {
-      parts.unshift(cur.name);
-      cur = cur.parentId ? byId.get(cur.parentId) : undefined;
-    }
-    return parts.join(" / ") || "No folder";
-  }, [folders, folderId]);
+  const folderPath = useMemo(
+    () => folderPathOf(folders, folderId),
+    [folders, folderId],
+  );
 
   const updated = new Date(integration.lastUpdated);
   const updatedLabel = Number.isNaN(updated.getTime())
@@ -145,11 +146,15 @@ export default function IntegrationDetail({
       <IntegrationHeader
         integration={integration}
         snapshots={snapshots}
+        activeSnapshot={selectedSnapshot}
         deployedTags={deployedTags}
         busy={busy}
         effectiveTag={effectiveTag}
+        replaceInput={replaceInput}
         onSelectTag={setSelectedTag}
         onRename={onRename}
+        onDownloadBundle={onDownloadBundle}
+        onReplaceFromBundle={onReplaceFromBundle}
         onDeploy={() => setDeployOpen(true)}
         onCopy={onCopy}
         onDelete={onDelete}
@@ -179,7 +184,9 @@ export default function IntegrationDetail({
             <Row label="Updated by" value={updatedByLabel} />
             <Row
               label="ID"
-              value={<span className="font-mono text-xs">{integration.id}</span>}
+              value={
+                <span className="font-mono text-xs">{integration.id}</span>
+              }
             />
             {/* Definition stats folded in at the bottom rather than a card of their
                 own — scoped to the active version (a tag's frozen definition, or the
@@ -190,7 +197,9 @@ export default function IntegrationDetail({
               </h4>
               <DefinitionSection
                 key={selectedSnapshot?.id ?? integration.id}
-                definition={selectedSnapshot?.definition ?? integration.definition}
+                definition={
+                  selectedSnapshot?.definition ?? integration.definition
+                }
               />
             </div>
           </Section>

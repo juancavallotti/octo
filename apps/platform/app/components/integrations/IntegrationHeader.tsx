@@ -1,11 +1,12 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, type RefObject } from "react";
 import Link from "next/link";
-import { Copy, Download, Pencil, Rocket, Trash2 } from "lucide-react";
+import { Copy, Pencil, Rocket, Trash2, Upload } from "lucide-react";
 import type { Integration, Snapshot } from "@/app/model/orchestrator";
+import DownloadMenu from "./DownloadMenu";
 import VersionMenu from "./VersionMenu";
-import { downloadDefinition } from "./yamlFile";
+import { downloadDefinition } from "./files";
 
 /**
  * The detail pane's header: the integration's name, edited in place, and the
@@ -19,24 +20,39 @@ import { downloadDefinition } from "./yamlFile";
 export default function IntegrationHeader({
   integration,
   snapshots,
+  activeSnapshot,
   deployedTags,
   busy,
   effectiveTag,
+  replaceInput,
   onSelectTag,
   onRename,
+  onDownloadBundle,
+  onReplaceFromBundle,
   onDeploy,
   onCopy,
   onDelete,
 }: {
   integration: Integration;
   snapshots: Snapshot[];
+  /** The tag the pane is scoped to, or null for the working copy. Its frozen
+   * definition is what the definition download offers. */
+  activeSnapshot: Snapshot | null;
   deployedTags: ReadonlySet<string>;
   busy: boolean;
   /** The version the pane is scoped to; null is the working copy. */
   effectiveTag: string | null;
+  /** Hidden file input backing "Replace from bundle", owned by the manager so the
+   * upload runs through the same busy/error plumbing as every other mutation. */
+  replaceInput: RefObject<HTMLInputElement | null>;
   onSelectTag: (tag: string | null) => void;
   /** Returns whether the rename was accepted; false keeps the field open. */
   onRename: (name: string) => Promise<boolean>;
+  /** Download a version as a bundle archive: the active tag's frozen contents,
+   * or the working copy when it is null. */
+  onDownloadBundle: (snapshot: { id: string; tag: string } | null) => void;
+  /** Overwrite this integration's contents from a picked bundle. */
+  onReplaceFromBundle: (file: File) => void;
   onDeploy: () => void;
   onCopy: () => void;
   onDelete: () => void;
@@ -147,17 +163,55 @@ export default function IntegrationHeader({
       >
         <Copy size={16} />
       </button>
-      <button
-        type="button"
-        onClick={() =>
-          downloadDefinition(integration.name, integration.definition)
+      {/* Export, scoped to the active version: the definition alone, or the whole
+          integration (definition + every resource) as a bundle. A tag exports its
+          frozen definition, not the working copy's. */}
+      <DownloadMenu
+        versionLabel={effectiveTag ?? "Current"}
+        busy={busy}
+        onDownloadDefinition={() =>
+          downloadDefinition(
+            integration.name,
+            activeSnapshot?.definition ?? integration.definition,
+          )
         }
-        aria-label="Download integration YAML"
-        title="Download YAML"
-        className="rounded-md p-1.5 text-zinc-400 transition-colors hover:bg-black/[0.06] hover:text-zinc-700 dark:hover:bg-white/10 dark:hover:text-zinc-200"
-      >
-        <Download size={16} />
-      </button>
+        onDownloadBundle={() =>
+          onDownloadBundle(
+            activeSnapshot && effectiveTag
+              ? { id: activeSnapshot.id, tag: effectiveTag }
+              : null,
+          )
+        }
+      />
+      {/* Import the other way: overwrite this integration from a bundle. Only for
+          the working copy — a tag is immutable — and hidden rather than disabled
+          on one, since there is nothing to switch back to but Current. */}
+      {effectiveTag === null && (
+        <>
+          <input
+            ref={replaceInput}
+            type="file"
+            accept=".zip,application/zip"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              // Cleared first: picking the same file twice must fire onChange again.
+              e.target.value = "";
+              if (file) onReplaceFromBundle(file);
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => replaceInput.current?.click()}
+            disabled={busy}
+            aria-label="Replace from bundle"
+            title="Replace from bundle"
+            className="rounded-md p-1.5 text-zinc-400 transition-colors hover:bg-black/[0.06] hover:text-zinc-700 disabled:opacity-50 dark:hover:bg-white/10 dark:hover:text-zinc-200"
+          >
+            <Upload size={16} />
+          </button>
+        </>
+      )}
       <button
         type="button"
         onClick={onDelete}

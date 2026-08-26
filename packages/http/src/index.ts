@@ -10,4 +10,10 @@
  */
 
 export type { ActionResult } from "./result";
-export { requestJson, requestOk, requestStream } from "./request";
+export {
+  requestBytes,
+  requestJson,
+  requestOk,
+  requestStream,
+  sendBytes,
+} from "./request";

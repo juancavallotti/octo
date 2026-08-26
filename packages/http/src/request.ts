@@ -108,3 +108,75 @@ export async function requestOk(method: string, url: string): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * Perform `method url` and return the response body as bytes.
+ *
+ * For a binary or opaque document — a zip download, a resource's raw contents —
+ * where {@link requestJson} would fail trying to parse it. The whole body is
+ * buffered: these are documents, not streams (a zip's index is at its end, so it
+ * cannot be used before it is complete anyway). Use {@link requestStream} for a
+ * live stream.
+ *
+ * Never throws, like the rest of this module: a network error or a non-2xx becomes
+ * an error result, with the usual `{ error }` envelope unwrapped when the failure
+ * body carries one.
+ */
+export async function requestBytes(
+  method: string,
+  url: string,
+): Promise<ActionResult<Uint8Array>> {
+  let res: Response;
+  try {
+    res = await fetch(url, { method });
+  } catch (err) {
+    return { ok: false, error: `request failed: ${(err as Error).message}` };
+  }
+
+  if (!res.ok) {
+    const errorBody: unknown = await res.json().catch(() => null);
+    return { ok: false, error: errorMessage(errorBody, res.status) };
+  }
+  try {
+    return { ok: true, data: new Uint8Array(await res.arrayBuffer()) };
+  } catch (err) {
+    return { ok: false, error: `request failed: ${(err as Error).message}` };
+  }
+}
+
+/**
+ * Perform `method url` with `body` as the raw request body under `contentType`,
+ * and adapt the JSON response to an {@link ActionResult} — the upload counterpart
+ * of {@link requestBytes}, for an endpoint whose request is a document (an
+ * uploaded archive) and whose reply is ordinary JSON.
+ */
+export async function sendBytes<T>(
+  method: string,
+  url: string,
+  body: Uint8Array,
+  contentType: string,
+): Promise<ActionResult<T>> {
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method,
+      headers: { "Content-Type": contentType },
+      // A fresh ArrayBuffer, so a view over a larger pooled buffer (which is what
+      // Node's Buffer hands out) cannot send bytes that are not the caller's.
+      body: body.slice().buffer as ArrayBuffer,
+    });
+  } catch (err) {
+    return { ok: false, error: `request failed: ${(err as Error).message}` };
+  }
+
+  if (!res.ok) {
+    const errorBody: unknown = await res.json().catch(() => null);
+    return { ok: false, error: errorMessage(errorBody, res.status) };
+  }
+  if (res.status === 204) return { ok: true, data: undefined as T };
+  try {
+    return { ok: true, data: (await res.json()) as T };
+  } catch {
+    return { ok: false, error: `invalid JSON response (${res.status})` };
+  }
+}

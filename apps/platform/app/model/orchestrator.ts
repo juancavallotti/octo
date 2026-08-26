@@ -8,7 +8,6 @@
 import * as deploymentActions from "@/app/actions/deployments";
 import * as folderActions from "@/app/actions/folders";
 import * as integrationActions from "@/app/actions/integrations";
-import * as resourceActions from "@/app/actions/resources";
 import * as snapshotActions from "@/app/actions/snapshots";
 import { unwrap } from "./bff";
 
@@ -16,6 +15,12 @@ import { unwrap } from "./bff";
 // `@/app/model/orchestrator` import keeps working and callers need not care
 // which half a name comes from.
 export * from "./orchestratorTypes";
+// Bundles (and the frozen-resource read) live next door: they are the calls whose
+// payload is bytes rather than JSON, and they carry the base64 hop that goes with it.
+export * from "./bundles";
+// Resource CRUD is its own module for the same reason the file split exists at
+// all: one nameable concern per file.
+export * from "./resources";
 import type {
   DeployOptions,
   Deployment,
@@ -24,11 +29,9 @@ import type {
   Folder,
   Integration,
   IntegrationInput,
-  Resource,
   Snapshot,
   SnapshotResource,
 } from "./orchestratorTypes";
-
 
 // --- Integrations ---------------------------------------------------------
 // Backed by server actions in `app/actions/integrations.ts`; these wrappers unwrap
@@ -71,7 +74,9 @@ export async function listDeployments(
 }
 
 /** A deployment paired with the display name of the integration it belongs to. */
-export type DeploymentWithIntegration = Deployment & { integrationName: string };
+export type DeploymentWithIntegration = Deployment & {
+  integrationName: string;
+};
 
 /**
  * Aggregate every deployment across every integration into one flat, named list.
@@ -79,7 +84,9 @@ export type DeploymentWithIntegration = Deployment & { integrationName: string }
  * call, so one unreachable integration can't blank the view. Shared by the
  * dashboard, the deployments page, and the object browser's deployment picker.
  */
-export async function listAllDeployments(): Promise<DeploymentWithIntegration[]> {
+export async function listAllDeployments(): Promise<
+  DeploymentWithIntegration[]
+> {
   const integrations = await listIntegrations();
   const lists = await Promise.all(
     integrations.map((i) =>
@@ -240,36 +247,6 @@ export async function listSnapshotResources(
   snapshotId: string,
 ): Promise<SnapshotResource[]> {
   return unwrap(await snapshotActions.listSnapshotResources(snapshotId));
-}
-
-// --- Resources ------------------------------------------------------------
-// Backed by server actions in `app/actions/resources.ts`.
-
-/** List an integration's resources (env files, templates). */
-export async function listResources(
-  integrationId: string,
-): Promise<Resource[]> {
-  return unwrap(await resourceActions.listResources(integrationId));
-}
-
-/** Create a resource under an integration. */
-export async function createResource(
-  integrationId: string,
-  kind: string,
-  name: string,
-  content: string,
-): Promise<Resource> {
-  return unwrap(
-    await resourceActions.createResource(integrationId, kind, name, content),
-  );
-}
-
-/** Delete an integration's resource. */
-export async function deleteResource(
-  integrationId: string,
-  id: string,
-): Promise<void> {
-  return unwrap(await resourceActions.deleteResource(integrationId, id));
 }
 
 /** Collect every folder id in the tree, depth-first. */

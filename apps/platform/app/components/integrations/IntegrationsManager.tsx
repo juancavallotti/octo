@@ -97,7 +97,10 @@ export default function IntegrationsManager({
     renameFolderTo,
     removeFolder,
     importInput,
+    replaceInput,
     onImportFile,
+    downloadSelectedBundle,
+    replaceSelectedFromBundle,
     copySelected,
     renameSelected,
     removeSelected,
@@ -188,6 +191,9 @@ export default function IntegrationsManager({
                 folders={flat}
                 folderId={selectedFolderId}
                 busy={busy}
+                replaceInput={replaceInput}
+                onDownloadBundle={downloadSelectedBundle}
+                onReplaceFromBundle={replaceSelectedFromBundle}
                 onDelete={removeSelected}
                 onCopy={copySelected}
                 onRename={renameSelected}
