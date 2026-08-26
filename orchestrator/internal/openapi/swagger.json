@@ -162,6 +162,23 @@
                 },
                 "type": "object"
             },
+            "bundle.integrationResponse": {
+                "properties": {
+                    "definition": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "lastUpdated": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "deployment.EnvBinding": {
                 "properties": {
                     "secret": {
@@ -3002,6 +3019,95 @@
                 ]
             }
         },
+        "/integrations/bundle": {
+            "post": {
+                "description": "The request body is the zip itself. A bundle written by this API names the integration\nthrough its manifest; for one without a manifest, the `name` query parameter names the\nimport (the caller usually passes the uploaded filename's stem). A name already in use\nis suffixed rather than rejected.",
+                "parameters": [
+                    {
+                        "description": "Name for an archive that carries no manifest",
+                        "in": "query",
+                        "name": "name",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Acting user id, forwarded by the BFF",
+                        "in": "query",
+                        "name": "actorId",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/zip": {
+                            "schema": {
+                                "format": "binary",
+                                "type": "string"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/bundle.integrationResponse"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the archive is not a readable bundle"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no free name could be found for the import"
+                    },
+                    "413": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the upload is too large"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Import a bundle as a new integration",
+                "tags": [
+                    "bundles"
+                ]
+            }
+        },
         "/integrations/{id}": {
             "delete": {
                 "parameters": [
@@ -3152,6 +3258,142 @@
                 "summary": "Replace an integration",
                 "tags": [
                     "integrations"
+                ]
+            }
+        },
+        "/integrations/{id}/bundle": {
+            "get": {
+                "description": "A zip holding the integration's definition and every resource it owns, laid out the\nway the runtime reads them from disk: the definition at the root, each resource at its\nown path-like name, plus an `octo-bundle.json` manifest carrying the display name and\neach resource's kind.",
+                "parameters": [
+                    {
+                        "description": "Integration id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/zip": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "description": "the bundle archive"
+                    },
+                    "404": {
+                        "description": "no such integration"
+                    },
+                    "500": {
+                        "description": "internal error"
+                    }
+                },
+                "summary": "Download an integration as a bundle",
+                "tags": [
+                    "bundles"
+                ]
+            },
+            "put": {
+                "description": "Overwrites the addressed integration's definition and resource set with the archive's,\nkeeping its id, name, folder, version tags and deployments. Resources are reconciled by\nname: shared names are updated in place, new ones added, and any the bundle no longer\ncarries are deleted. The bundle's own name is ignored — a replace is not a rename.",
+                "parameters": [
+                    {
+                        "description": "Integration id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Acting user id, forwarded by the BFF",
+                        "in": "query",
+                        "name": "actorId",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/zip": {
+                            "schema": {
+                                "format": "binary",
+                                "type": "string"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/bundle.integrationResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the archive is not a readable bundle"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no such integration"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "a resource name in the bundle conflicts"
+                    },
+                    "413": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the upload is too large"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Replace an integration from a bundle",
+                "tags": [
+                    "bundles"
                 ]
             }
         },
@@ -4692,6 +4934,44 @@
                 "summary": "Delete a version tag",
                 "tags": [
                     "snapshots"
+                ]
+            }
+        },
+        "/snapshots/{id}/bundle": {
+            "get": {
+                "description": "The same archive as an integration's bundle, built from the tag's frozen definition and\nfrozen resources rather than the working copy.",
+                "parameters": [
+                    {
+                        "description": "Snapshot id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/zip": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "description": "the bundle archive"
+                    },
+                    "404": {
+                        "description": "no such snapshot"
+                    },
+                    "500": {
+                        "description": "internal error"
+                    }
+                },
+                "summary": "Download a version tag as a bundle",
+                "tags": [
+                    "bundles"
                 ]
             }
         },
