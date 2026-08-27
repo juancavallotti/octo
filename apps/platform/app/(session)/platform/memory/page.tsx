@@ -15,6 +15,10 @@ import AgentMemoryManager from "@/app/components/memory/AgentMemoryManager";
  *
  * ConfirmProvider is here because everything destructive on it asks first: erasing
  * a conversation and forgetting a fact are both irreversible.
+ *
+ * The manager fills the width and the height, the way the object browser does. What
+ * it shows is prose — transcripts, search hits, remembered facts — and a centred
+ * column turned every line of somebody's conversation into four wrapped ones.
  */
 export default function MemoryPage() {
   return (
@@ -23,7 +27,7 @@ export default function MemoryPage() {
         <ManagementNav />
       </AppHeader>
       <ConfirmProvider>
-        <div className="min-h-0 flex-1">
+        <div className="flex min-h-0 flex-1 flex-col">
           <AgentMemoryManager />
         </div>
       </ConfirmProvider>

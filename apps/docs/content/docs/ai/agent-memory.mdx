@@ -270,7 +270,7 @@ instead:
 | | What it is | Compacted? |
 | --- | --- | --- |
 | **Working memory** | The transcript the model re-reads, checkpointed during the run so an interrupted agent resumes where it was | Yes — `contextMaxTokens` and `memoryCompaction` govern it |
-| **Conversation history** | The turn-level record a *person* reads, and the platform lists and replays | **Never** |
+| **Conversation history** | The turn-level record a *person* reads, and the platform lists and replays. What it keeps as the question is [`question`](/reference/blocks/ai#what-gets-recorded), which defaults to `input` | **Never** |
 | **User memory** | Curated facts the agent chose to keep about someone, carried into later conversations | n/a — the agent writes and deletes these deliberately |
 
 <Callout type="warn">
@@ -285,6 +285,25 @@ ignored.
 
 Two blocks declaring the same `agentId` share one memory. That is what replicas
 of one logical agent want, and what two different agents almost never do.
+
+### What the record keeps
+
+By default, history records the agent's opening turn — the text the model was
+handed. For an agent whose input **is** the question, that is exactly right.
+
+A conversational agent's input is usually not. It carries the page the person is
+on, the routes it may send them to, a catalogue the model needs to answer with;
+none of it was said, and all of it lands in the transcript, in the title, and in
+the embedding. `question` says which part of it a person actually asked:
+
+```yaml
+        input: >-
+          body.message + "\n\n---\nContext, not part of the question: " + body.page
+        question: body.message
+```
+
+The model still gets the whole thing. See
+[What gets recorded](/reference/blocks/ai#what-gets-recorded).
 
 ### Naming a conversation
 

@@ -34,12 +34,17 @@ vi.mock("@/app/components/ConfirmDialog", () => ({ useConfirm: () => confirm }))
 
 import AgentMemoryManager from "./AgentMemoryManager";
 
+/** Move to one of the three views. */
+async function openTab(name: RegExp | string) {
+  await userEvent.click(screen.getByRole("tab", { name }));
+}
+
 /** Pick the integration and agent, which everything else is gated behind. */
 async function choose() {
   render(<AgentMemoryManager />);
-  const integration = await screen.findByLabelText(/^Integration/);
+  const integration = await screen.findByLabelText("Integration");
   await userEvent.selectOptions(integration, "int-1");
-  const agent = await screen.findByLabelText(/^Agent/);
+  const agent = await screen.findByLabelText("Agent");
   await waitFor(() => expect(screen.getByRole("option", { name: /dr-octo/ })).toBeTruthy());
   await userEvent.selectOptions(agent, "dr-octo");
 }
@@ -126,6 +131,7 @@ describe("AgentMemoryManager", () => {
   it("shows what the agent still carries beside what it said", async () => {
     await choose();
     await userEvent.click(await screen.findByText("Deploying"));
+    await openTab("Working memory");
 
     const live = await screen.findByRole("region", { name: "Working memory" });
     await waitFor(() => expect(within(live).getByText("how do I deploy?")).toBeTruthy());
@@ -147,14 +153,25 @@ describe("AgentMemoryManager", () => {
     });
     await choose();
     await userEvent.click(await screen.findByText("Deploying"));
+    await openTab("Working memory");
 
     const live = await screen.findByRole("region", { name: "Working memory" });
     await waitFor(() => expect(within(live).getByText(/no live context/)).toBeTruthy());
   });
 
-  it("shows what the agent remembers about the person in the conversation", async () => {
+  /**
+   * Facts are addressed by person rather than by conversation.
+   *
+   * They used to appear only under an open conversation, which made sense — a
+   * conversation names the person — and answered the wrong question: "what does
+   * this agent know about u-1" is not about any one conversation, and finding out
+   * meant opening conversations until one of theirs turned up.
+   */
+  it("shows what the agent remembers about a person", async () => {
     await choose();
-    await userEvent.click(await screen.findByText("Deploying"));
+    await openTab("Facts");
+    await userEvent.selectOptions(await screen.findByLabelText("Person"), "u-1");
+
     await screen.findByText("Prefers Go examples.");
     expect(screen.getByText(/Remembered about u-1/)).toBeTruthy();
   });
@@ -163,7 +180,8 @@ describe("AgentMemoryManager", () => {
   // somebody, with no audit trail, should be asked for explicitly.
   it("offers no way to edit a remembered fact", async () => {
     await choose();
-    await userEvent.click(await screen.findByText("Deploying"));
+    await openTab("Facts");
+    await userEvent.selectOptions(await screen.findByLabelText("Person"), "u-1");
     await screen.findByText("Prefers Go examples.");
     expect(screen.queryByRole("button", { name: /edit/i })).toBeNull();
     expect(screen.getByRole("button", { name: /forget prefers-go/i })).toBeTruthy();
@@ -194,11 +212,22 @@ describe("AgentMemoryManager", () => {
       { kind: "user", name: "prefers-go", text: "Prefers Go examples.", score: 0.7 },
     ]);
     await choose();
+    await openTab("Search");
     await userEvent.type(await screen.findByLabelText("Search agent memory"), "deploy");
     await userEvent.click(screen.getByRole("button", { name: /^search$/i }));
 
     await screen.findByText("conversation");
     expect(screen.getByText(/remembered · prefers-go/)).toBeTruthy();
+  });
+
+  // Nothing asked, nothing shown. A results frame reading "no matches" under an
+  // untouched box says the search failed rather than that none was run.
+  it("shows an empty panel until something is searched for", async () => {
+    await choose();
+    await openTab("Search");
+
+    expect(screen.queryByText(/Nothing stored matches that/)).toBeNull();
+    expect(screen.getByText(/Search this agent/)).toBeTruthy();
   });
 
   it("says so when an agent has recorded nothing", async () => {
@@ -229,14 +258,14 @@ describe("AgentMemoryManager, when the selection changes mid-request", () => {
 
     await choose();
     await userEvent.click(await screen.findByText("Deploying"));
-    await userEvent.selectOptions(screen.getByLabelText(/^Agent/), "other");
+    await userEvent.selectOptions(screen.getByLabelText("Agent"), "other");
 
     release({
       thread: { threadKey: "t-1", title: "Deploying", userId: "u-1" },
       turns: [{ seq: 1, role: "user", text: "belongs to dr-octo", createdAt: "2026-08-01T00:00:00Z" }],
     });
 
-    await waitFor(() => expect(screen.getByLabelText(/^Agent/)).toHaveValue("other"));
+    await waitFor(() => expect(screen.getByLabelText("Agent")).toHaveValue("other"));
     expect(screen.queryByText("belongs to dr-octo")).toBeNull();
   });
 });

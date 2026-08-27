@@ -66,7 +66,7 @@ export function WorkingMemoryPanel({ working }: { working: WorkingMemory | null 
           there is nothing to show here. The counts above still describe it.
         </p>
       ) : messages ? (
-        <ol className="flex max-h-[28rem] flex-col gap-3 overflow-y-auto p-4">
+        <ol className="flex flex-col gap-3 p-4">
           {messages.map((m, i) => (
             <li key={i} className="text-sm">
               <span className="mb-0.5 flex flex-wrap items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
@@ -96,7 +96,7 @@ export function WorkingMemoryPanel({ working }: { working: WorkingMemory | null 
           )}
         </ol>
       ) : (
-        <pre className="max-h-[28rem] overflow-auto p-4 font-mono text-xs break-words whitespace-pre-wrap">
+        <pre className="overflow-x-auto p-4 font-mono text-xs break-words whitespace-pre-wrap">
           {working.payload}
         </pre>
       )}

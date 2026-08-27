@@ -37,7 +37,10 @@ export function ThreadList({
     );
   }
   return (
-    <ul className="flex max-h-[32rem] flex-col overflow-y-auto rounded-lg border border-black/10 dark:border-white/10">
+    // No height cap and no scroll of its own: the column it sits in scrolls, and a
+    // list that stopped at 32rem inside one that did not was a second place to be
+    // stuck for an agent with more conversations than that.
+    <ul className="flex flex-col rounded-lg border border-black/10 dark:border-white/10">
       {threads.map((t) => {
         const active = t.threadKey === selected;
         return (

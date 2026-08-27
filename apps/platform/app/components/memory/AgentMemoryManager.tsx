@@ -1,7 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { MessagesSquare, Search, UserRound } from "lucide-react";
 import { useConfirm } from "@/app/components/ConfirmDialog";
+import { TabStrip, tabPanelProps, type TabDef } from "@/app/components/TabStrip";
 import {
   deleteAgentUserMemory,
   deleteMemoryThread,
@@ -20,20 +22,18 @@ import {
   type WorkingMemory,
 } from "@/app/model/agentMemory";
 import type { Integration } from "@/app/model/orchestrator";
+import { ConversationDetail } from "./ConversationDetail";
+import { FactsPanel } from "./FactsPanel";
 import { MemoryPickers } from "./MemoryPickers";
-import { MemorySearch } from "./MemorySearch";
-import { SearchRanking } from "./SearchRanking";
+import { SearchPanel } from "./SearchPanel";
 import { ThreadList } from "./ThreadList";
-import { ThreadTranscript } from "./ThreadTranscript";
-import { WorkingMemoryPanel } from "./WorkingMemoryPanel";
-import { UserMemoryList } from "./UserMemoryList";
 
 /**
  * What an agent remembers, for an operator.
  *
  * Read and delete only. There is no way to edit a remembered fact here, and that
- * is deliberate: an operator rewriting what an agent believes about a person,
- * with no audit trail and nothing in the conversation explaining the change, is a
+ * is deliberate: an operator rewriting what an agent believes about a person, with
+ * no audit trail and nothing in the conversation explaining the change, is a
  * feature that should be asked for explicitly.
  *
  * It is a top-level platform section rather than a page under an integration
@@ -42,9 +42,29 @@ import { UserMemoryList } from "./UserMemoryList";
  * is an optional catch-all that a nested page would collide with. It is not under
  * Admin either: admin is settings that belong to the installation, and this is
  * data that belongs to integrations, read the way logs and traces are.
+ *
+ * The shape is the object store's, and for the same reasons: the pickers that
+ * scope everything sit in one compact row above the tabs, and the page fills the
+ * width rather than sitting in a column. What is on this page is transcripts and
+ * search hits — lines of prose, not fields — and a narrow column turned every one
+ * of them into four wrapped lines.
+ *
+ * Three tabs, because there are three questions and only one of them is about a
+ * particular conversation: what was said, what is remembered about somebody, and
+ * where is that thing I remember. Search used to sit above the list, where having
+ * results pushed the conversation out of view.
  */
+type Tab = "conversations" | "facts" | "search";
+
+const TABS: readonly TabDef<Tab>[] = [
+  { id: "conversations", label: "Conversations", icon: MessagesSquare },
+  { id: "facts", label: "Facts", icon: UserRound },
+  { id: "search", label: "Search", icon: Search },
+];
+
 export default function AgentMemoryManager() {
   const confirm = useConfirm();
+  const [tab, setTab] = useState<Tab>("conversations");
   const [integrations, setIntegrations] = useState<Integration[]>([]);
   const [integrationId, setIntegrationId] = useState("");
   const [agents, setAgents] = useState<MemoryAgent[]>([]);
@@ -52,6 +72,7 @@ export default function AgentMemoryManager() {
   const [threads, setThreads] = useState<MemoryThread[]>([]);
   const [selected, setSelected] = useState<MemoryTranscript | null>(null);
   const [working, setWorking] = useState<WorkingMemory | null>(null);
+  const [userId, setUserId] = useState("");
   const [memories, setMemories] = useState<UserMemory[]>([]);
   const [hits, setHits] = useState<MemoryHit[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -73,6 +94,19 @@ export default function AgentMemoryManager() {
   const integrationRef = useRef(integrationId);
   const agentRef = useRef(agentId);
 
+  /**
+   * Who this agent has talked to, taken from the conversations on hand.
+   *
+   * Derived rather than fetched because there is no route that enumerates an
+   * agent's people, and adding one to populate a dropdown would be a route whose
+   * answer is already in a response this page has. The cost is that it covers the
+   * page of conversations loaded rather than all of them, which the picker says.
+   */
+  const people = useMemo(
+    () => [...new Set(threads.map((t) => t.userId).filter((u): u is string => !!u))].sort(),
+    [threads],
+  );
+
   const loadThreads = useCallback(
     (integration: string, agent: string) => {
       if (!integration || !agent) {
@@ -86,6 +120,16 @@ export default function AgentMemoryManager() {
     },
     [fail],
   );
+
+  /** Everything below the agent, cleared together. */
+  const clearAgentScope = () => {
+    setThreads([]);
+    setSelected(null);
+    setWorking(null);
+    setUserId("");
+    setMemories([]);
+    setHits(null);
+  };
 
   /**
    * Choosing an integration clears everything below it and reloads the agents.
@@ -106,11 +150,7 @@ export default function AgentMemoryManager() {
     setIntegrationId(next);
     setAgentId("");
     setAgents([]);
-    setThreads([]);
-    setSelected(null);
-    setWorking(null);
-    setMemories([]);
-    setHits(null);
+    clearAgentScope();
     if (next) listMemoryAgents(next).then(setAgents, fail);
   };
 
@@ -118,37 +158,47 @@ export default function AgentMemoryManager() {
   const changeAgent = (next: string) => {
     agentRef.current = next;
     setAgentId(next);
-    setSelected(null);
-    setWorking(null);
-    setMemories([]);
-    setHits(null);
+    clearAgentScope();
     loadThreads(integrationId, next);
   };
 
+  /** Read what this agent has kept about one person. */
+  const changeUser = async (next: string) => {
+    setUserId(next);
+    setMemories([]);
+    if (!next) return;
+    try {
+      setMemories(await listAgentUserMemories(integrationId, agentId, next));
+    } catch (e) {
+      fail(e);
+    }
+  };
+
   /**
-   * Read one conversation, and what the agent remembers about the person in it.
+   * Read one conversation: the durable record and the live context together.
    *
    * The selection is captured before the first await and checked after each one.
    * Without that, switching agent while a read is in flight lets the late
    * response overwrite the cleared state — and the viewer then shows one agent's
-   * conversation and one person's remembered facts under a different agent's
-   * name, which is the worst kind of wrong for a tool whose whole job is telling
-   * you what a particular agent knows.
+   * conversation under a different agent's name, which is the worst kind of wrong
+   * for a tool whose whole job is telling you what a particular agent knows.
    */
   const openThread = async (threadKey: string) => {
     const forIntegration = integrationId;
     const forAgent = agentId;
     const stale = () => forIntegration !== integrationRef.current || forAgent !== agentRef.current;
 
+    // Opening from a search hit means leaving the results, which is what somebody
+    // clicking one is asking for.
+    setTab("conversations");
     setBusy(true);
     setError(null);
     setWorking(null);
     try {
-      // The transcript and the live context are read together and shown together,
-      // because the interesting fact is the DIFFERENCE between them: one is
-      // uncompacted and the other is whatever survived compaction. In parallel,
-      // since neither read depends on the other and this is a page someone is
-      // waiting on.
+      // Read together and shown together, because the interesting fact is the
+      // DIFFERENCE between them: one is uncompacted and the other is whatever
+      // survived compaction. In parallel, since neither read depends on the other
+      // and this is a page someone is waiting on.
       const [transcript, live] = await Promise.all([
         readMemoryThread(forIntegration, forAgent, threadKey),
         readMemoryWorking(forIntegration, forAgent, threadKey),
@@ -156,16 +206,6 @@ export default function AgentMemoryManager() {
       if (stale()) return;
       setSelected(transcript);
       setWorking(live);
-      // A conversation names the person it was with, which is the only handle the
-      // curated memories are addressed by — so they can only be loaded once one is
-      // open. An agent that serves nobody in particular has none.
-      if (transcript.thread.userId) {
-        const next = await listAgentUserMemories(forIntegration, forAgent, transcript.thread.userId);
-        if (stale()) return;
-        setMemories(next);
-      } else {
-        setMemories([]);
-      }
     } catch (e) {
       if (!stale()) fail(e);
     } finally {
@@ -185,7 +225,10 @@ export default function AgentMemoryManager() {
     if (!ok) return;
     try {
       await deleteMemoryThread(integrationId, agentId, threadKey);
-      if (selected?.thread.threadKey === threadKey) setSelected(null);
+      if (selected?.thread.threadKey === threadKey) {
+        setSelected(null);
+        setWorking(null);
+      }
       loadThreads(integrationId, agentId);
     } catch (e) {
       fail(e);
@@ -193,7 +236,6 @@ export default function AgentMemoryManager() {
   };
 
   const forget = async (name: string) => {
-    const userId = selected?.thread.userId;
     if (!userId) return;
     const ok = await confirm({
       title: `Forget “${name}”?`,
@@ -227,52 +269,82 @@ export default function AgentMemoryManager() {
   };
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto px-6 py-5">
-      <div className="mx-auto w-full max-w-4xl">
-        <h1 className="text-lg font-semibold">Agent memory</h1>
-        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-          What an agent has recorded: the conversations it has had, and the facts it chose
-          to keep about the people in them. Conversations are stored uncompacted, so this
-          is what was actually said — not the shortened version the model still carries.
+    <div className="flex min-h-0 flex-1 flex-col">
+      <MemoryPickers
+        integrations={integrations}
+        integrationId={integrationId}
+        onIntegrationChange={changeIntegration}
+        agents={agents}
+        agentId={agentId}
+        onAgentChange={changeAgent}
+      />
+
+      {error && (
+        <p className="shrink-0 border-b border-black/10 px-4 py-2 text-sm text-red-500 dark:border-white/10">
+          {error}
         </p>
-        <SearchRanking />
+      )}
 
-        {error && <p className="mt-3 text-sm text-red-500">{error}</p>}
+      {!agentId ? (
+        <div className="flex min-h-0 flex-1 items-center justify-center p-8">
+          <p className="max-w-md text-center text-sm text-zinc-500 dark:text-zinc-400">
+            Choose an integration and an agent to read what it has recorded: the
+            conversations it has had, and the facts it kept about the people in them.
+            Conversations are stored uncompacted, so this is what was actually said —
+            not the shortened version the model still carries.
+          </p>
+        </div>
+      ) : (
+        <>
+          <TabStrip
+            tabs={TABS}
+            selected={tab}
+            onSelect={setTab}
+            label="Agent memory views"
+            idPrefix="memory"
+          />
 
-        <MemoryPickers
-          integrations={integrations}
-          integrationId={integrationId}
-          onIntegrationChange={changeIntegration}
-          agents={agents}
-          agentId={agentId}
-          onAgentChange={changeAgent}
-        />
-
-        {agentId && (
-          <>
-            <MemorySearch onSearch={search} hits={hits} onOpen={openThread} />
-            <div className="mt-4 grid gap-4 lg:grid-cols-[20rem_1fr]">
+          {/* Every panel stays mounted: switching tabs must not drop the open
+              conversation, the chosen person, or a set of search results somebody
+              is working through. */}
+          <div
+            {...tabPanelProps("memory", "conversations", tab === "conversations")}
+            className={
+              tab === "conversations" ? "flex min-h-0 flex-1 overflow-hidden" : "hidden"
+            }
+          >
+            <div className="w-80 shrink-0 overflow-y-auto border-r border-black/10 p-3 dark:border-white/10">
               <ThreadList
                 threads={threads}
                 selected={selected?.thread.threadKey ?? null}
                 onOpen={openThread}
                 onDelete={removeThread}
               />
-              <div className="flex flex-col gap-4">
-                <ThreadTranscript transcript={selected} busy={busy} />
-                {!busy && <WorkingMemoryPanel working={working} />}
-                {selected?.thread.userId && (
-                  <UserMemoryList
-                    userId={selected.thread.userId}
-                    memories={memories}
-                    onForget={forget}
-                  />
-                )}
-              </div>
             </div>
-          </>
-        )}
-      </div>
+            <ConversationDetail transcript={selected} working={working} busy={busy} />
+          </div>
+
+          <div
+            {...tabPanelProps("memory", "facts", tab === "facts")}
+            className={tab === "facts" ? "flex min-h-0 flex-1 flex-col" : "hidden"}
+          >
+            <FactsPanel
+              people={people}
+              userId={userId}
+              onUserChange={changeUser}
+              memories={memories}
+              onForget={forget}
+            />
+          </div>
+
+          <div
+            {...tabPanelProps("memory", "search", tab === "search")}
+            className={tab === "search" ? "flex min-h-0 flex-1 flex-col" : "hidden"}
+          >
+            <SearchPanel onSearch={search} hits={hits} onOpen={openThread} />
+          </div>
+        </>
+      )}
     </div>
   );
 }
