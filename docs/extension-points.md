@@ -80,6 +80,24 @@ build tag decides which packages are compiled in. Among the providers compiled i
 `RUNTIME_SERVICES_MODULE` then selects the one that is active; hosted services have
 no such selection and every one compiled in runs.
 
+## Before any of that: is it yours to add?
+
+This page answers *where* a shared capability goes. It does not license adding
+one.
+
+**Every layer owns the problem it creates**, and a problem created higher up the
+stack is never solved lower down. Before reaching for anything on this page, ask
+which component fabricated the thing being fixed. If a flow's own expression built
+it, that flow's own surfaces undo it — the runtime, the stores and the platform UI
+are shared by every integration and must not learn any single one's shape.
+
+The tell that you are about to get this wrong is needing **new shared vocabulary**
+— a block setting, a store field, a generic flag — to describe one caller's quirk.
+That is not a missing extension point. That is a fix at the wrong altitude.
+
+Promoting something into a shared layer is the repository owner's call. Propose it;
+do not land it unasked. See the layering policy in [AGENTS.md](../AGENTS.md).
+
 ## `services` — what the runtime is
 
 A runtime service supplies the platform the flows run on. It has two facets, and a
