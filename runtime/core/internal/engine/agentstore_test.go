@@ -41,6 +41,8 @@ func runStoreAgent(
 
 // buildStoreAgent builds an agent and returns the build error, for the cases
 // where refusing to build IS the behaviour under test.
+//
+//nolint:ireturn // builders intentionally return the MessageProcessor interface
 func buildStoreAgent(t *testing.T, cfg types.BlockConfig) (core.MessageProcessor, error) {
 	t.Helper()
 	var seen []any

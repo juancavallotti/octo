@@ -252,7 +252,7 @@ func (m *fakeMemory) turnsFor(agentID, thread string) []core.Turn { //nolint:unp
 }
 
 // titleFor returns a thread's stored title, for assertions.
-func (m *fakeMemory) titleOf(agentID, thread string) string {
+func (m *fakeMemory) titleOf(agentID, thread string) string { //nolint:unparam // agentID is the addressing, not a knob
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if t, ok := m.threads[agentID+"\x00"+thread]; ok {
