@@ -1,26 +1,29 @@
 import { ConfirmProvider } from "@/app/components/ConfirmDialog";
 import AgentSettingsManager from "@/app/components/admin/AgentSettingsManager";
-import EmbeddingStatusPanel from "@/app/components/admin/EmbeddingStatusPanel";
 import LlmSettingsManager from "@/app/components/admin/LlmSettingsManager";
 
 /**
  * The platform agent (`/platform/admin/agent`), whole.
  *
- * These were three tabs — LLM provider, Embeddings, Platform agent — and they were
- * three descriptions of one task. Nothing else configures an LLM provider here, and
- * nothing else reads the embedding model: both exist so that Dr. Octo can reason
- * and so that what he remembers can be searched by meaning. Splitting them made the
- * one requirement invisible, since the page that refuses to install him was not the
+ * These were separate tabs — LLM provider and Platform agent — and they were two
+ * descriptions of one task. Nothing else on this installation configures an LLM
+ * provider; it exists so that Dr. Octo can reason. Splitting them made the one
+ * requirement invisible, since the page that refuses to install him was not the
  * page holding the key he is refused for.
  *
- * So: models first, deployment second, in the order they are needed. The install
- * button is disabled until the LLM provider is configured — the orchestrator
- * decides that, not this page — and its reason now links to a section a scroll
- * away rather than to somewhere else entirely.
+ * So: the provider first, the deployment second, in the order they are needed. The
+ * install button is disabled until the LLM provider is configured — the
+ * orchestrator decides that, not this page — and its reason now links to a section
+ * a scroll away rather than to somewhere else entirely.
  *
- * ConfirmProvider wraps the lot because all three ask before something
- * irreversible: removing a stored key, changing the embedding model once anything
- * is embedded, and removing or rolling out the agent.
+ * Embeddings are NOT here, and were briefly. They configure how agent memory is
+ * searched, not how the agent reasons, and they are not configured on this
+ * platform at all — they are chart values on the embedding server. What was left
+ * was a read-only report about search, which belongs on the page where someone
+ * searches: see SearchRanking on /platform/memory.
+ *
+ * ConfirmProvider wraps both because each asks before something irreversible:
+ * removing a stored key, and removing or rolling out the agent.
  */
 export default function AdminAgentPage() {
   return (
@@ -33,13 +36,7 @@ export default function AdminAgentPage() {
             integrations. What he reasons with is configured here, and so is he.
           </p>
 
-          <section aria-labelledby="models-heading" className="mt-6">
-            <h2 id="models-heading" className="text-base font-semibold">
-              Models
-            </h2>
-            <LlmSettingsManager />
-            <EmbeddingStatusPanel />
-          </section>
+          <LlmSettingsManager />
 
           <AgentSettingsManager />
         </div>

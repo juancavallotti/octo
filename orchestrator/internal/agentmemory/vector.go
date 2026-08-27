@@ -23,19 +23,27 @@ type Pending struct {
 	Text string
 }
 
-// EmbeddingCounts reports how much of the store has a vector and how much does
-// not, which is what the admin page shows while a backfill drains.
-func (r *Repo) EmbeddingCounts(ctx context.Context) (embedded, pending int, err error) {
+// PendingCount reports how many stored items are still waiting for a vector.
+//
+// Only the pending half is counted, and that is a deliberate omission rather than
+// a missing feature. "How many are embedded" cannot be answered from an index —
+// `embedding IS NOT NULL` matches most of the table, so Postgres reads all of it —
+// and the earlier version of this asked for both halves of both tables in one
+// statement, which EXPLAIN showed as four sequential scans on every load of the
+// memory page. What it bought was a progress bar.
+//
+// This is two counts against the partial indexes that already exist for the
+// backfill sweep, so it stays cheap as the store grows: the rows it touches are
+// exactly the rows still queued, which trend towards none.
+func (r *Repo) PendingCount(ctx context.Context) (int, error) {
+	var pending int
 	row := r.pool.QueryRow(ctx,
-		`SELECT
-		     (SELECT count(*) FROM agent_turns WHERE embedding IS NOT NULL)
-		   + (SELECT count(*) FROM agent_user_memories WHERE embedding IS NOT NULL),
-		     (SELECT count(*) FROM agent_turns WHERE embedding IS NULL)
-		   + (SELECT count(*) FROM agent_user_memories WHERE embedding IS NULL)`)
-	if err := row.Scan(&embedded, &pending); err != nil {
-		return 0, 0, fmt.Errorf("agent memory: embedding counts: %w", err)
+		`SELECT (SELECT count(*) FROM agent_turns WHERE embedding IS NULL)
+		      + (SELECT count(*) FROM agent_user_memories WHERE embedding IS NULL)`)
+	if err := row.Scan(&pending); err != nil {
+		return 0, fmt.Errorf("agent memory: pending embeddings count: %w", err)
 	}
-	return embedded, pending, nil
+	return pending, nil
 }
 
 // PendingEmbeddings returns up to limit rows that have no vector yet, newest

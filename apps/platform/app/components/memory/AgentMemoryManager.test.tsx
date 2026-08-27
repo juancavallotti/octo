@@ -23,6 +23,12 @@ const model = vi.hoisted(() => ({
 const confirm = vi.hoisted(() => vi.fn());
 
 vi.mock("@/app/model/agentMemory", () => model);
+// The ranking line asks the orchestrator whether search is semantic. Mocked
+// rather than left to resolve: the real module reaches a server action, and
+// under jsdom that pulls next-auth in and the suite never gets as far as a test.
+vi.mock("@/app/model/siteSettings", () => ({
+  getEmbeddingStatus: () => Promise.resolve({ configured: false, reachable: false, pending: 0 }),
+}));
 vi.mock("@/app/components/ConfirmDialog", () => ({ useConfirm: () => confirm }));
 
 import AgentMemoryManager from "./AgentMemoryManager";

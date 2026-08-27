@@ -28,31 +28,40 @@ vi.mock("@/app/model/siteSettings", () => ({
       encryptionAvailable: true,
     }),
   saveLlmSettings: () => Promise.resolve(),
-  getEmbeddingStatus: () =>
-    Promise.resolve({ configured: false, reachable: false, embedded: 0, pending: 0 }),
 }));
 
 import AdminAgentPage from "./page";
 
 /**
- * These were three tabs for one task, and this is what holds them together now.
+ * These were two tabs for one task, and this is what holds them together now.
  *
  * The assertions are about *composition* rather than behaviour — each manager has
  * its own suite for that. What can regress here is somebody moving one back out to
  * its own route, which would restore the exact split this page exists to undo: the
  * page that refuses to install the agent would once again not be the page holding
  * the key he is refused for.
+ *
+ * The absence of an embedding section is asserted too, because it was here once and
+ * putting it back is the tempting mistake. Nothing on this platform configures
+ * embeddings — the provider, model and key are chart values on the embedding server
+ * — so what would land here is a status report about searching agent memory, which
+ * belongs on the page that searches it.
  */
 describe("the platform agent page", () => {
-  it("carries the models and the deployment on one page", async () => {
+  it("carries the provider and the deployment on one page", async () => {
     render(<AdminAgentPage />);
 
     expect(screen.getByRole("heading", { name: "Platform agent" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Models" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "LLM provider" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: /Embeddings/ })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Deployment" })).toBeTruthy();
     await waitFor(() => expect(screen.getByRole("button", { name: "Install" })).toBeTruthy());
+  });
+
+  it("says nothing about embeddings, which are not configured here", () => {
+    render(<AdminAgentPage />);
+
+    expect(screen.queryByRole("heading", { name: /Embeddings/ })).toBeNull();
+    expect(screen.queryByRole("progressbar")).toBeNull();
   });
 
   // The whole point of the merge: the requirement and the field it names are now

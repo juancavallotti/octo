@@ -152,31 +152,33 @@ func TestCorrectingAMemoryClearsItsVector(t *testing.T) {
 	}
 }
 
-// TestEmbeddingCountsReportBothHalves checks what the admin page shows while a
-// backfill drains: "configured" and "search is semantic" are not the same
-// statement, and the counts are how an operator can tell.
-func TestEmbeddingCountsReportBothHalves(t *testing.T) {
+// TestPendingCountFallsAsTheSweepDrains checks what the memory page shows while a
+// backfill runs: "configured" and "search is semantic" are not the same statement,
+// and what is left to do is how an operator can tell the difference.
+func TestPendingCountFallsAsTheSweepDrains(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
 	ref := testRef(t, r, "support", "thread-1", "alice")
 
-	before, _, err := r.EmbeddingCounts(ctx)
-	if err != nil {
-		t.Fatalf("counts: %v", err)
-	}
 	if _, err := r.AppendTurns(ctx, ref, []Turn{{Role: "user", Text: "a turn"}}); err != nil {
 		t.Fatalf("seed: %v", err)
+	}
+	// Counted after the write rather than before it, because this repo is shared
+	// with every other test in the package: only the delta belongs to this one.
+	before, err := r.PendingCount(ctx)
+	if err != nil {
+		t.Fatalf("count: %v", err)
 	}
 	pending := pendingFor(t, r, ctx, "a turn")
 	if err := r.SaveEmbeddings(ctx, pending, [][]float32{fakeVector(0)}); err != nil {
 		t.Fatalf("embed: %v", err)
 	}
-	after, _, err := r.EmbeddingCounts(ctx)
+	after, err := r.PendingCount(ctx)
 	if err != nil {
-		t.Fatalf("counts: %v", err)
+		t.Fatalf("count: %v", err)
 	}
-	if after != before+1 {
-		t.Errorf("the embedded count should have risen by one, %d then %d", before, after)
+	if after != before-1 {
+		t.Errorf("embedding one row should leave one fewer pending, %d then %d", before, after)
 	}
 }
 
