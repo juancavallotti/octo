@@ -61,12 +61,40 @@ export async function listConversations(user: Asker): Promise<ActionResult<Conve
   if (!result.ok) return result;
   return {
     ok: true,
-    data: result.data.threads.map((t) => ({
-      id: t.threadKey,
-      title: t.title || t.threadKey,
-      updatedAt: t.lastActivityAt,
-    })),
+    data: result.data.threads.map((t) => {
+      const id = threadIdOf(t.threadKey, user.id);
+      return { id, title: t.title || id, updatedAt: t.lastActivityAt };
+    }),
   };
+}
+
+/**
+ * How Dr. Octo composes a conversation's key, and how to take it apart again.
+ *
+ * He keys a conversation on the authenticated user AND the thread — see
+ * `resolve-request` in his definition — so that a stolen thread id names a
+ * conversation that does not exist. That is a deliberate property and this does
+ * not undo it: the composition still happens agent-side, and only a request
+ * carrying the right user reaches the right conversation.
+ *
+ * What it undoes is a double application. The panel addresses a conversation by
+ * the id it minted and puts that in `threadId`, which the agent then prefixes.
+ * Handing the panel the STORED key meant the next message was composed out of an
+ * already-composed key — `{user}/{user}/{thread}` — so resuming a conversation
+ * silently started a new one beside it. Everything looked right: the transcript
+ * loaded, the reply arrived, and none of it was in the conversation on screen.
+ *
+ * This is the one place that knows both halves, which is why the mapping lives
+ * here rather than in the panel or in the agent.
+ */
+function threadIdOf(threadKey: string, userId: string): string {
+  const prefix = `${userId}/`;
+  return threadKey.startsWith(prefix) ? threadKey.slice(prefix.length) : threadKey;
+}
+
+/** The stored key for a conversation the panel addresses by thread id. */
+function threadKeyOf(threadId: string, userId: string): string {
+  return `${userId}/${threadId}`;
 }
 
 /** One past conversation, to replay into the panel. */
@@ -82,7 +110,11 @@ export async function readConversation(
   // read as its default and there was no way to tell "no such conversation" from
   // "a conversation with nothing in it". The panel only opens rows from a listing
   // it has just fetched, so the case is one that genuinely went wrong.
-  const result = await readThread(integration.id, DR_OCTO_AGENT_ID, threadId);
+  const result = await readThread(
+    integration.id,
+    DR_OCTO_AGENT_ID,
+    threadKeyOf(threadId, user.id),
+  );
   if (!result.ok) return result;
 
   // Scoped to the asker here rather than in the query, because the route is
