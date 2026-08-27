@@ -42,8 +42,29 @@ put everything under `settings`.
 
 | Block | Key settings |
 | --- | --- |
-| `rest` | `connector`, `method`, `path` (both **static**), `query`/`headers` (maps of CEL), `body` (CEL), `bodyType` (`raw`\|`multipart`), `failOnError`, `statusVar`. |
+| `rest` | `connector`, `method`, `path` (both **static**), `query`/`headers` (maps of CEL), `body` (CEL), `bodyType` (`raw`\|`multipart`), `auth` (CEL), `failOnError`, `statusVar`. |
 | `rest-dynamic` | Same, but `method`, `path`, `query`, `headers`, `body` are **all** CEL, and `query`/`headers` are one expression evaluating to a whole map. Use when the endpoint itself is data. Also takes `allowMethods` and `pathPrefix`. |
+| `flow-ref` | `flow`, `oneWay` — invoke another flow by name. |
+| `cli-run` | `program` (CEL, absolute path), `args` (CEL list), `allow` (absolute paths; required when `program` depends on the message), `env`, `workDir`, `timeout`, `onExit`, `events`/`emit` (stdout/stderr/exit). Runs a local program; no shell, argv only. |
+| `jwt-validate` | Filter: verify a bearer JWT against an OIDC provider; claims land in `vars.jwt`. |
+| `sse-event` | `event`, `data`, `close`, `ifClosed` — write one frame to the caller's open stream. Requires an SSE route. |
+| `publish-event` | `subject` (CEL), `value` — broadcast to a topic. |
+| `queue-dispatch` | `subject` — send to a queue for competing consumers. |
+
+`auth` forwards a credential the flow obtained at runtime -- a token relayed from
+the inbound request, or one an earlier block minted. It is a CEL expression sent
+**verbatim** as the `Authorization` header (scheme included), and it works only
+through a connector whose own `auth` is disabled; an empty result sends no header.
+Never set `Authorization` through `headers` -- both blocks refuse it.
+
+```yaml
+# route declares `headers: [Authorization]`, so the token is in vars
+- type: rest
+  settings:
+    connector: upstream          # no auth of its own
+    path: /v1/me
+    auth: 'vars["Authorization"]'
+```
 
 To send a file, set `bodyType: multipart` and let `body` evaluate to a parts map -- the same shape `body.parts` holds inbound, so forwarding an upload is `body: 'body.parts'`. Build one with `multipart()` and `.addPart(name, value)`; a scalar is a text field, an object may set `data`, `encoding`, `filename`, `contentType`. The block generates the boundary and sets `Content-Type` itself, so do **not** set that header:
 
@@ -58,12 +79,6 @@ To send a file, set `bodyType: multipart` and let `body` evaluate to a parts map
         .addPart("caption", body.caption)
         .addPart("avatar", body.parts.avatar)
 ```
-| `flow-ref` | `flow`, `oneWay` — invoke another flow by name. |
-| `cli-run` | `program` (CEL, absolute path), `args` (CEL list), `allow` (absolute paths; required when `program` depends on the message), `env`, `workDir`, `timeout`, `onExit`, `events`/`emit` (stdout/stderr/exit). Runs a local program; no shell, argv only. |
-| `jwt-validate` | Filter: verify a bearer JWT against an OIDC provider; claims land in `vars.jwt`. |
-| `sse-event` | `event`, `data`, `close`, `ifClosed` — write one frame to the caller's open stream. Requires an SSE route. |
-| `publish-event` | `subject` (CEL), `value` — broadcast to a topic. |
-| `queue-dispatch` | `subject` — send to a queue for competing consumers. |
 
 ## Storage
 
