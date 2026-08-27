@@ -72,11 +72,15 @@ type WorkingMemory struct {
 // whatever the engine wants to remember about the turn that is not its text —
 // the iteration count it took, whether it was ever answered.
 type Turn struct {
-	Seq       int64
-	Role      LLMRole
-	Text      string
-	Tokens    int
-	Attrs     []byte
+	Seq    int64
+	Role   LLMRole
+	Text   string
+	Tokens int
+	Attrs  []byte
+	// CreatedAt is set by the store when a turn is appended, and IGNORED on the way
+	// in. A turn is recorded at the moment it completes, so the append is the event
+	// and the store is the only thing that knows when it happened — which keeps the
+	// two implementations agreeing without a clock travelling over the wire.
 	CreatedAt time.Time
 }
 

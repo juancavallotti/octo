@@ -487,35 +487,76 @@ func TestSearchTextKeepsQuotedPhrases(t *testing.T) {
 	}
 }
 
-// TestSearchTextKeepsNegationsRequired is the bug the OR rewrite introduced and
-// this pins shut.
+// TestSearchTextKeepsNegationsRequired is the bug rewriting the serialized
+// tsquery introduced, and this pins it shut from both sides.
 //
-// A negation renders as `& !'march'`, so turning every & into | made
-// "refund -march" mean 'refund' OR NOT 'march' — which matches every document
-// that does not say march, i.e. almost all of them. An exclusion has to stay a
-// requirement even though the joins between positive terms relax.
+// The first version turned every `&` into `|` in the parsed query's text, so
+// "refund -march" — which parses to `'refund' & !'march'` — became "says refund
+// OR does not say march", matching almost every document in the store. A
+// lookahead was added to guard `& !`, and it only guarded the negation on the
+// RIGHT of the operator: writing the exclusion first parses to
+// `!'march' & 'refund'`, where the operator is followed by a quote, so it relaxed
+// again and inverted again.
+//
+// Both orderings are checked here because a fix that handles one and not the
+// other is exactly what was shipped.
 func TestSearchTextKeepsNegationsRequired(t *testing.T) {
-	r := newTestRepo(t)
-	ctx := context.Background()
-	ref := testRef(t, r, "support", "thread-1", "")
+	for _, query := range []string{"refund -march", "-march refund"} {
+		t.Run(query, func(t *testing.T) {
+			r := newTestRepo(t)
+			ctx := context.Background()
+			ref := testRef(t, r, "support", "thread-"+query, "")
 
-	if _, err := r.AppendTurns(ctx, ref, []Turn{
-		{Role: "user", Text: "a refund in march"},
-		{Role: "user", Text: "a refund in april"},
-		{Role: "assistant", Text: "nothing to do with money at all"},
-	}); err != nil {
-		t.Fatalf("seed: %v", err)
+			if _, err := r.AppendTurns(ctx, ref, []Turn{
+				{Role: "user", Text: "a refund in march"},
+				{Role: "user", Text: "a refund in april"},
+				{Role: "assistant", Text: "nothing to do with money at all"},
+			}); err != nil {
+				t.Fatalf("seed: %v", err)
+			}
+			hits, err := r.SearchText(ctx, ref.IntegrationID, Query{
+				AgentID: "support", Text: query,
+			})
+			if err != nil {
+				t.Fatalf("search: %v", err)
+			}
+			if len(hits) != 1 {
+				t.Fatalf("want only the april refund, got %d hits: %+v", len(hits), hits)
+			}
+			if !strings.Contains(hits[0].Text, "april") {
+				t.Errorf("the excluded term should still exclude, got %q", hits[0].Text)
+			}
+		})
 	}
-	hits, err := r.SearchText(ctx, ref.IntegrationID, Query{
-		AgentID: "support", Text: "refund -march",
-	})
-	if err != nil {
-		t.Fatalf("search: %v", err)
+}
+
+// TestSplitSearchTermsSeparatesExclusions covers the splitting on its own, since
+// the queries above need a database and this does not.
+func TestSplitSearchTermsSeparatesExclusions(t *testing.T) {
+	cases := []struct {
+		text     string
+		positive string
+		negative string
+	}{
+		{"refund deploy", "refund OR deploy", ""},
+		{"refund -march", "refund", "-march"},
+		{"-march refund", "refund", "-march"},
+		{"-march -april", "", "-march -april"},
+		// The quotes stay on, so websearch still reads a phrase rather than two
+		// words that happen to be adjacent.
+		{`"roll out" deploy`, `"roll out" OR deploy`, ""},
+		{`-"roll out" deploy`, "deploy", `-"roll out"`},
+		// Someone typing OR gets what they meant rather than a doubled operator.
+		{"refund OR deploy", "refund OR deploy", ""},
+		// A stray dash excludes nothing and must not become a literal term.
+		{"refund - deploy", "refund OR deploy", ""},
+		{"", "", ""},
 	}
-	if len(hits) != 1 {
-		t.Fatalf("want only the april refund, got %d hits: %+v", len(hits), hits)
-	}
-	if !strings.Contains(hits[0].Text, "april") {
-		t.Errorf("the excluded term should still exclude, got %q", hits[0].Text)
+	for _, c := range cases {
+		positive, negative := splitSearchTerms(c.text)
+		if positive != c.positive || negative != c.negative {
+			t.Errorf("%q → (%q, %q), want (%q, %q)",
+				c.text, positive, negative, c.positive, c.negative)
+		}
 	}
 }

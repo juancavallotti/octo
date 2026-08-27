@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
+	"unicode"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -530,6 +532,71 @@ func (r *Repo) DeleteForIntegration(ctx context.Context, integrationID string) e
 	return nil
 }
 
+// splitSearchTerms divides a search box's text into the terms that must be found
+// and the terms that must not.
+//
+// Both halves stay in websearch syntax and are handed back to
+// websearch_to_tsquery separately, so quoting, stemming and stop words behave
+// exactly as they would have — this only decides which terms end up on which side
+// of the `&&`. Positive terms are joined with websearch's own OR, because the
+// point of the split is that a turn matching any of them is worth ranking.
+//
+// A leading `-` marks an exclusion, which is websearch's own syntax; it is kept
+// on the term so that the negative half parses as a negation rather than as a
+// requirement. `-"roll out"` is one exclusion, not a stray dash and a phrase, so
+// quotes are tracked while scanning.
+func splitSearchTerms(text string) (positive, negative string) {
+	var pos, neg []string
+	for _, term := range searchTerms(text) {
+		// A bare "-" excludes nothing and would parse as a literal; drop it rather
+		// than emitting a negative half that means something else.
+		if term == "-" {
+			continue
+		}
+		if strings.HasPrefix(term, "-") {
+			neg = append(neg, term)
+			continue
+		}
+		// websearch's own OR, typed by the person searching. It is already what
+		// this function produces, so passing it through would double it up.
+		if term == "OR" {
+			continue
+		}
+		pos = append(pos, term)
+	}
+	return strings.Join(pos, " OR "), strings.Join(neg, " ")
+}
+
+// searchTerms splits on whitespace, treating a double-quoted run as one term and
+// keeping the quotes so websearch still reads it as a phrase.
+//
+// An unterminated quote takes the rest of the string, which is what someone
+// half-way through typing a phrase means by it.
+func searchTerms(text string) []string {
+	var terms []string
+	var cur strings.Builder
+	quoted := false
+	flush := func() {
+		if cur.Len() > 0 {
+			terms = append(terms, cur.String())
+			cur.Reset()
+		}
+	}
+	for _, r := range text {
+		switch {
+		case r == '"':
+			quoted = !quoted
+			cur.WriteRune(r)
+		case !quoted && unicode.IsSpace(r):
+			flush()
+		default:
+			cur.WriteRune(r)
+		}
+	}
+	flush()
+	return terms
+}
+
 // SearchText is the fallback every deployment gets: Postgres full-text over
 // turns and curated memories, ranked by ts_rank.
 //
@@ -549,20 +616,23 @@ func (r *Repo) SearchText(ctx context.Context, integrationID string, q Query) ([
 	// contains all three. Verified on a live store — that exact query matched two
 	// obviously relevant turns and returned neither.
 	//
-	// Rewriting the operator rather than switching parser keeps what websearch is
-	// good at: a quoted "roll out" stays a phrase, and a leading - stays a negation.
-	// It only relaxes the joins between terms, which is the part that was a cliff.
+	// Relaxing the joins is done by splitting the QUERY TEXT and letting Postgres
+	// combine two tsqueries with `&&`, rather than by rewriting the serialized
+	// tsquery. Rewriting it is what the first version did, and it inverted
+	// negations: `-march refund` parses to `!'march' & 'refund'`, so turning `&`
+	// into `|` produced "does not say march OR says refund" — which matches almost
+	// every document in the store. A lookahead guarded the mirror case and missed
+	// this one, which is the tell that the operator text was the wrong thing to be
+	// editing.
 	//
-	// The lookahead is load-bearing, and a naive replace gets it catastrophically
-	// wrong: a negation renders as `& !'march'`, so turning every & into |
-	// makes "refund -march" mean 'refund' OR NOT 'march' — which matches every
-	// document that does not say march, i.e. almost all of them. Only the joins
-	// BETWEEN positive terms relax; an exclusion stays a requirement.
+	// So: positive terms are OR'd against each other, exclusions stay AND'd against
+	// the lot, and `&&` does the parenthesising. Quoted phrases survive because each
+	// half still goes through websearch_to_tsquery intact.
+	positive, negative := splitSearchTerms(q.Text)
 	rows, err := r.pool.Query(ctx,
 		`WITH q AS (
-		     SELECT regexp_replace(
-		         websearch_to_tsquery('simple', $4)::text, '& (?!!)', '| ', 'g'
-		     )::tsquery AS tsq
+		     SELECT websearch_to_tsquery('simple', $4)
+		            && websearch_to_tsquery('simple', $8) AS tsq
 		 )
 		 SELECT kind, thread_key, name, text, seq, score FROM (
 		     SELECT 'turn'::varchar AS kind, t.thread_key, ''::varchar AS name,
@@ -586,7 +656,7 @@ func (r *Repo) SearchText(ctx context.Context, integrationID string, q Query) ([
 		 ) hits
 		 ORDER BY score DESC
 		 LIMIT $7`,
-		integrationID, q.AgentID, q.UserID, q.Text, q.Scope, q.ThreadKey, limit,
+		integrationID, q.AgentID, q.UserID, positive, q.Scope, q.ThreadKey, limit, negative,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("agent memory: search: %w", err)
