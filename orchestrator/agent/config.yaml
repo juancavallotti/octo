@@ -344,16 +344,6 @@ flows:
         contextMaxTokens: ${AGENT_MEMORY_TOKENS}
         memoryCompaction: summarize
 
-        # Named, which is what opts him into the runtime's first-class memory:
-        # conversations recorded uncompacted and kept per integration, so they
-        # survive a reinstall rather than being purged with the deployment.
-        #
-        # Stated and never derived. A name taken from the block's position would
-        # make renaming this block, or moving it into another branch, silently
-        # destroy every conversation anyone has had with him.
-        agentId: dr-octo
-        userId: vars.userKey
-
         stopWhen: '"X-Agent-Stop" in vars && vars["X-Agent-Stop"] != ""'
 
         emit: [thinking, text, tool_call, tool_result, turn_end,
@@ -636,12 +626,6 @@ flows:
                 # platform backs up, and losing it costs a re-read of a brief.
                 memoryThreadId: vars.toolScope
                 memoryVolatile: true
-                # Not recorded. A specialist works a thread its caller minted for
-                # it, so recording those would mint a conversation row per
-                # delegation forever — which is the accumulation the volatile tier
-                # exists to avoid. (memoryVolatile implies this; it is written out
-                # because the implication is easy to miss when reading.)
-                history: off
                 # Its own ceiling, deliberately not the coordinator's: a delegated
                 # job is a whole loop of its own, and a specialist that runs out of
                 # turns mid-fix hands back half an answer the coordinator then has
@@ -1085,12 +1069,6 @@ flows:
                 # delegations remembers what the first one found.
                 memoryThreadId: vars.toolScope
                 memoryVolatile: true
-                # Not recorded. A specialist works a thread its caller minted for
-                # it, so recording those would mint a conversation row per
-                # delegation forever — which is the accumulation the volatile tier
-                # exists to avoid. (memoryVolatile implies this; it is written out
-                # because the implication is easy to miss when reading.)
-                history: off
                 maxIterations: 32
                 input: >-
                   body.task + (has(body.context) && body.context != ""

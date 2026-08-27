@@ -381,3 +381,48 @@ func TestRepoListAgentsSummarizes(t *testing.T) {
 		t.Errorf("agent summary is wrong: %+v", counts)
 	}
 }
+
+// TestRepoWorkingConflictsAfterErasure is the case a bare upsert gets wrong: a
+// run holding version 5 for working memory that has since been erased must be
+// told its write is stale, not silently given a fresh row at version 1.
+func TestRepoWorkingConflictsAfterErasure(t *testing.T) {
+	r := newTestRepo(t)
+	ctx := context.Background()
+	ref := testRef(t, r, "support", "thread-1", "")
+
+	if _, err := r.SaveWorking(ctx, ref, Working{Payload: []byte("a")}); err != nil {
+		t.Fatalf("first save: %v", err)
+	}
+	if err := r.DeleteThread(ctx, ref); err != nil {
+		t.Fatalf("erase: %v", err)
+	}
+	if _, err := r.SaveWorking(ctx, ref, Working{Version: 1, Payload: []byte("b")}); !errors.Is(err, ErrVersionConflict) {
+		t.Fatalf("a write against an erased object should conflict, got %v", err)
+	}
+	// Creating afresh is still allowed, which is how the run recovers.
+	if _, err := r.SaveWorking(ctx, ref, Working{Version: 0, Payload: []byte("b")}); err != nil {
+		t.Fatalf("creating afresh after an erasure: %v", err)
+	}
+}
+
+// TestRepoMemoryConflictsAfterForgetting is the user-memory twin of the erasure
+// case: a correction stating a version that was forgotten in between is stale,
+// not a fresh memory.
+func TestRepoMemoryConflictsAfterForgetting(t *testing.T) {
+	r := newTestRepo(t)
+	ctx := context.Background()
+	ref := testRef(t, r, "support", "", "alice")
+
+	if _, err := r.PutMemory(ctx, ref, "lang", "Prefers Go.", 0); err != nil {
+		t.Fatalf("put: %v", err)
+	}
+	if err := r.DeleteMemory(ctx, ref, "lang"); err != nil {
+		t.Fatalf("forget: %v", err)
+	}
+	if _, err := r.PutMemory(ctx, ref, "lang", "Prefers Rust.", 1); !errors.Is(err, ErrVersionConflict) {
+		t.Fatalf("correcting a forgotten memory should conflict, got %v", err)
+	}
+	if _, err := r.PutMemory(ctx, ref, "lang", "Prefers Rust.", 0); err != nil {
+		t.Fatalf("storing it afresh should work: %v", err)
+	}
+}
