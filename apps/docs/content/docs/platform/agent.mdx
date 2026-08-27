@@ -266,19 +266,25 @@ What it costs: a delegation is a whole model run, and the panel is quiet while i
 
 Each specialist emits its `tool_call` and `tool_result` events to the same stream the coordinator's go to, so the panel shows what it is doing rather than one chip sitting open for two minutes.
 
-His memory rides the deployment's [KV store](/platform/kv-and-storage), which in a cluster is the orchestrator's own — so conversations survive a pod restart with nothing configured for it.
-
 ### What he remembers
 
-Memory holds a conversation; **facts** hold what outlives one — how you like flows written, which integration is yours, what to call you. Tell him something worth keeping and he stores it; ask him to forget it and he does.
+He uses the runtime's [agent memory](/ai/agent-memory) — `agentId: dr-octo`, with `userMemory` on — so none of this is written in his definition any more. Three things are stored, and they are not the same thing:
+
+| | What it is |
+| --- | --- |
+| **Working memory** | The transcript he re-reads. Compacted as it grows: `memoryCompaction: summarize` folds the early turns into a summary of them |
+| **Conversation history** | What you can come back to. **Never compacted**, so it is what was actually said rather than the shortened version he still carries |
+| **Facts** | What outlives a conversation — how you like flows written, which integration is yours, what to call you |
+
+All three live in the orchestrator's own tables, keyed on the **integration**. That is what makes them survive a redeploy — and a reinstall, which used to destroy every conversation on the installation because the store was scoped to the deployment.
 
 Expect three things of it:
 
-- **Facts are yours.** They are keyed on the user the platform authenticated, which he can neither see nor set — he names a fact, the flow decides whose. Another person's conversation cannot reach them however he is asked.
-- **He keeps the last 200.** Nothing else bounds the list, since he decides what is worth keeping.
-- **Two conversations remembering at once can lose one fact.** The read and the write are separate steps. Say it again if it matters; the cost is a forgotten preference, not a wrong one.
+- **Facts are yours.** They are keyed on the user the platform authenticated, which he can neither see nor set — `userId` is resolved by the flow from an identity the chat route writes server-side. Another person's conversation cannot reach them however he is asked.
+- **He does not have to look them up.** What he has already remembered is placed in every request, so there is no recall tool to call and no turn where he forgets to. Past a bound the rest stay reachable through `search_memory`.
+- **Correcting a fact replaces it.** Remembering under a name that already exists overwrites it, so telling him something has changed works the way saying it does.
 
-Tell him to forget something and he will, but treat that as housekeeping rather than a privacy control: what he already said in a conversation is in that conversation's memory, and a fact he was told not to keep may still be in the transcript. Purging the agent removes both.
+Tell him to forget something and he will, but treat that as housekeeping rather than a privacy control: what he already said in a conversation is in that conversation, and a fact he was told not to keep may still be in the transcript. Erasing the conversation from [the memory viewer](/platform/admin-settings#agent-memory) removes both, and so does purging the agent.
 
 ## Run him yourself
 
