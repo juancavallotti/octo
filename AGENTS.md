@@ -19,13 +19,13 @@ Required reading:
 ## Workflow rules (always apply)
 
 - Break every implementation plan down into a sequence of small, logical commits.
-- **Always stop before committing.** Do not run `git commit` or `git push` until the
-  human has reviewed the staged increment and explicitly approved it. Present each
-  increment (what changed, why, test coverage) and wait. This applies even to trivial
-  changes. See [docs/commit-and-review-policy.md](docs/commit-and-review-policy.md).
+- **Two gates: the plan is approved before the work starts, and `git push` /
+  opening a pull request is approved.** In between, chain the agreed sequence. A
+  commit that changes an architectural contract, or one you are not confident
+  about, still stops. See
+  [docs/commit-and-review-policy.md](docs/commit-and-review-policy.md) — which is
+  the policy; this is a pointer to it, not a second copy.
 - Use Conventional Commit messages — release automation depends on them.
-
-The initial baseline is expected to be committed directly, not through a pull request.
 
 ## Documentation policy
 

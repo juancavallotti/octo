@@ -46,13 +46,20 @@ cannot follow a rule, document the reason in the code or the pull request.
   the function name should carry that explanation instead.
 - Keep nesting shallow. Prefer early returns (guard clauses) over deep `if`/`else`
   pyramids.
-- Keep functions short enough to read without scrolling. If a function spans more
-  than roughly 50 lines, look for a natural split.
+- Keep functions short enough to read without scrolling. `funlen` in
+  `runtime/.golangci.yml` draws the line at **60 lines / 45 statements** — cited
+  rather than restated, so there is one number with one owner.
 
 ## File size and organization
 
-- No monstrous files. Keep files focused on a single concern; split a file once it
-  grows past roughly 300–400 lines or starts covering unrelated responsibilities.
+**A split that leaves the code harder to follow is worse than the file being
+long.** That governs everything below, and it is why the Go side gives no line
+count: nothing enforces one, 38 of 355 files exceed the number that used to be
+written here, and a rule the repository does not hold teaches you to read the
+rest as aspirational too.
+
+- No monstrous files. Split a file when it starts covering unrelated
+  responsibilities — not when it hits a length.
 - One primary type or concern per file where practical. File names should describe
   their contents.
 - Keep packages small and purpose-driven.
@@ -133,25 +140,6 @@ impossible, and say so in a comment on the `init()` and on its allowlist entry.
 
 ## Frontend (TypeScript / React)
 
-The Go rules above are about Go. Two apply to the TypeScript in `apps/` as well,
-and one is machine-checked.
-
-**Keep a file under 200 lines** of code — blank lines and comments do not count.
-`max-lines` enforces it in both Next apps and CI fails on a warning, so the cap is
-a real bound rather than a suggestion.
-
-It is a proxy, not the goal. A file goes over because it is doing more than one
-thing, and the fix is to find the seam, not to hit the number. Two shapes recur
-and split cleanly:
-
-- **A data lifecycle pulled out of a component into a hook** — fetching, polling,
-  the state it drives and the mutations that change it — leaving the component
-  with rendering. See `components/logs/useLogStream.ts` or
-  `components/integrations/useDeployments.ts`.
-- **Pure helpers in their own module**, so they can be tested without React. See
-  `components/integrations/dragDrop.ts` or `components/traces/query.ts`. Every
-  extracted pure module gets a colocated `*.test.ts`.
-
-**A split that leaves the code harder to follow is worse than the warning.** When
-a file genuinely wants to be long, say so on the pull request; see
-`docs/linting-policy.md` for the escape hatch and what it costs.
+See [editor-coding-standards.md](editor-coding-standards.md). The TypeScript rules
+lived here as well for a while, in different words, which is two places to change
+and two places to disagree.

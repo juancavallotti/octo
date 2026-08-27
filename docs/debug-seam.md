@@ -383,8 +383,8 @@ Then, for each consumer:
 12. **MCP's suite tools** (`packages/mcp/src/tools/suite.ts`): the field on the case
     schema, structurally, with whatever zod cannot express in its description.
 13. Docs: the [CLI guide](../apps/docs/content/docs/guides/debugging-flows.mdx), the
-    [testing guide](../apps/docs/content/docs/guides/testing-flows.mdx), the
+    [test file reference](../apps/docs/content/docs/testing/test-file.mdx), the
+    [first test guide](../apps/docs/content/docs/testing/first-test.mdx), the
     [CLI reference](../apps/docs/content/docs/reference/cli.mdx), the
     [editor debugging guide](../apps/docs/content/docs/editor/debugging-flows.mdx),
-    the [editor testing guide](../apps/docs/content/docs/editor/testing-flows.mdx),
     and the [MCP reference](../apps/docs/content/docs/ai/platform-mcp.mdx).

@@ -9,7 +9,6 @@
 
 ## Expectations
 
-- Add or update tests when behavior changes.
 - Keep exported identifiers documented when they are part of the public surface.
 - Keep lint configuration checked into the repository.
 
