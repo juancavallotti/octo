@@ -1,26 +1,26 @@
 /**
- * The conversations client: what it sends, and what it does when the agent is not
- * there. Both halves are load-bearing — the identity it sends is the only thing
- * scoping the record, and a stale address is the ordinary failure after a redeploy.
+ * The conversations client: where a person's history is read from, and how it is
+ * scoped.
+ *
+ * Both halves are load-bearing. The listing is scoped to the asker, because the
+ * record is per person and a client that could choose the id could read anyone's
+ * conversations. And the reads go to the orchestrator rather than to the agent's
+ * own pod, which is what makes history survive a reinstall.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const resolveAgentUrl = vi.fn();
-const forgetAgentUrl = vi.fn();
+const fetchAgentStatus = vi.hoisted(() => vi.fn());
 
-vi.mock("./agentUrl", () => ({
-  resolveAgentUrl: () => resolveAgentUrl(),
-  forgetAgentUrl: () => forgetAgentUrl(),
-}));
+vi.mock("./agentUrl", () => ({ fetchAgentStatus }));
 
-import { listConversations, readConversation } from "./conversations";
+import { listConversations, readConversation, DR_OCTO_AGENT_ID } from "./conversations";
 
 const ada = { id: "u-1", name: "Ada" };
 
 // The signature is declared rather than inferred: the assertions below read
-// `mock.calls[0]`, and a mock inferred from a zero-argument implementation
-// types that as the empty tuple.
+// `mock.calls[0]`, and a mock inferred from a zero-argument implementation types
+// that as the empty tuple.
 function respondWith(status: number, body: unknown) {
   return vi.fn<(url: string, init: RequestInit) => Promise<Response>>(
     async () => new Response(JSON.stringify(body), { status }),
@@ -28,64 +28,129 @@ function respondWith(status: number, body: unknown) {
 }
 
 beforeEach(() => {
-  resolveAgentUrl.mockResolvedValue({ ok: true, url: "http://agent" });
-  forgetAgentUrl.mockClear();
+  process.env.ORCHESTRATOR_URL = "http://orchestrator";
+  fetchAgentStatus.mockResolvedValue({ state: "deployed", integrationId: "int-1" });
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  fetchAgentStatus.mockReset();
 });
 
 describe("listConversations", () => {
-  it("sends the asker and nothing else, because the record is keyed on them", async () => {
-    const fetchMock = respondWith(200, { items: [{ id: "t-1", title: "Deploying", updatedAt: "2026-08-01T00:00:00Z" }] });
+  it("reads the orchestrator's threads for this agent and this person", async () => {
+    const fetchMock = respondWith(200, {
+      threads: [
+        {
+          agentId: DR_OCTO_AGENT_ID,
+          threadKey: "t-1",
+          title: "Deploying",
+          version: 2,
+          turnCount: 4,
+          createdAt: "2026-08-01T00:00:00Z",
+          lastActivityAt: "2026-08-02T00:00:00Z",
+        },
+      ],
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await listConversations(ada);
 
     expect(result).toEqual({
       ok: true,
-      data: [{ id: "t-1", title: "Deploying", updatedAt: "2026-08-01T00:00:00Z" }],
+      data: [{ id: "t-1", title: "Deploying", updatedAt: "2026-08-02T00:00:00Z" }],
     });
-    const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe("http://agent/conversations");
-    expect(JSON.parse(init.body as string)).toEqual({ user: ada });
+    const [url] = fetchMock.mock.calls[0];
+    expect(url).toBe(
+      `http://orchestrator/integrations/int-1/agent-memory/${DR_OCTO_AGENT_ID}/threads?userId=u-1`,
+    );
   });
 
-  // A brand new user has no index object at all, and a panel that read `.items`
-  // off nothing would break on somebody's first visit.
-  it("reads a missing list as an empty one", async () => {
-    vi.stubGlobal("fetch", respondWith(200, {}));
+  // A brand new person has no conversations, and a panel that read a list off
+  // nothing would break on somebody's first visit.
+  it("reads an empty listing as an empty list", async () => {
+    vi.stubGlobal("fetch", respondWith(200, { threads: [] }));
     await expect(listConversations(ada)).resolves.toEqual({ ok: true, data: [] });
   });
 
-  it("reports the agent not being deployed rather than throwing", async () => {
-    resolveAgentUrl.mockResolvedValue({ ok: false, error: "not deployed", status: 503 });
-    const result = await listConversations(ada);
-    expect(result).toEqual({ ok: false, error: "not deployed" });
-  });
-
-  // The address is cached, so a pod replaced by a redeploy answers nothing for the
-  // whole TTL unless the failure drops it.
-  it("forgets a cached address that did not answer", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("connect ECONNREFUSED"); }));
+  // The record is keyed on the integration, so without an installed agent there is
+  // nothing to address — and saying so beats a request to a URL with an empty
+  // segment in it.
+  it("reports an uninstalled agent rather than guessing an integration", async () => {
+    fetchAgentStatus.mockResolvedValue({ state: "not_installed" });
     const result = await listConversations(ada);
     expect(result.ok).toBe(false);
-    expect(forgetAgentUrl).toHaveBeenCalled();
+  });
+
+  // A title is what a list shows. A conversation the runtime opened but nothing
+  // has named yet still has to be pickable.
+  it("falls back to the thread key when nothing has named the conversation", async () => {
+    vi.stubGlobal(
+      "fetch",
+      respondWith(200, {
+        threads: [{ threadKey: "t-9", title: "", lastActivityAt: "2026-08-02T00:00:00Z" }],
+      }),
+    );
+    const result = await listConversations(ada);
+    expect(result).toEqual({
+      ok: true,
+      data: [{ id: "t-9", title: "t-9", updatedAt: "2026-08-02T00:00:00Z" }],
+    });
   });
 });
 
 describe("readConversation", () => {
-  it("addresses the thread in the path and the person in the body", async () => {
-    const fetchMock = respondWith(200, { threadId: "t 1", title: "Deploying", turns: [] });
+  it("maps stored turns onto the two roles the panel renders", async () => {
+    const fetchMock = respondWith(200, {
+      thread: { threadKey: "t-1", title: "Deploying", userId: "u-1" },
+      turns: [
+        { seq: 1, role: "user", text: "how do I deploy?", createdAt: "2026-08-01T00:00:00Z" },
+        { seq: 2, role: "assistant", text: "roll it out", createdAt: "2026-08-01T00:00:01Z" },
+      ],
+    });
     vi.stubGlobal("fetch", fetchMock);
 
-    await readConversation(ada, "t 1");
+    const result = await readConversation(ada, "t-1");
 
-    const [url, init] = fetchMock.mock.calls[0];
-    // Encoded, because a thread id is whatever the browser generated and lands in
-    // a path segment.
-    expect(url).toBe("http://agent/conversations/t%201");
-    expect(JSON.parse(init.body as string)).toEqual({ user: ada });
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        threadId: "t-1",
+        title: "Deploying",
+        turns: [
+          { role: "user", text: "how do I deploy?" },
+          { role: "agent", text: "roll it out" },
+        ],
+      },
+    });
+    const [url] = fetchMock.mock.calls[0];
+    expect(url).toBe(
+      `http://orchestrator/integrations/int-1/agent-memory/${DR_OCTO_AGENT_ID}/threads/t-1`,
+    );
+  });
+
+  // The route is addressed by thread, so the scoping the listing does by query has
+  // to be done again here — otherwise a thread key is enough to read somebody
+  // else's conversation.
+  it("reads another person's conversation as an empty one", async () => {
+    vi.stubGlobal(
+      "fetch",
+      respondWith(200, {
+        thread: { threadKey: "t-1", title: "Theirs", userId: "u-2" },
+        turns: [{ seq: 1, role: "user", text: "private", createdAt: "2026-08-01T00:00:00Z" }],
+      }),
+    );
+    const result = await readConversation(ada, "t-1");
+    expect(result).toEqual({ ok: true, data: { threadId: "t-1", title: "", turns: [] } });
+  });
+
+  it("escapes a thread key that would otherwise span path segments", async () => {
+    const fetchMock = respondWith(200, { thread: { threadKey: "a/b" }, turns: [] });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await readConversation(ada, "a/b");
+
+    const [url] = fetchMock.mock.calls[0];
+    expect(url).toContain("/threads/a%2Fb");
   });
 });

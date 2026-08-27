@@ -1760,6 +1760,64 @@
                 "tags": [
                     "agent-memory"
                 ]
+            },
+            "get": {
+                "description": "Metadata only — the title, the turn count, when it was last active. The transcript\nis not served here: a pod knows a deployment rather than an integration, and a\nroute that handed it whole conversations would be one every pod could read every\nconversation through. This exists so a flow can tell an unnamed conversation from a\nnamed one without paying a model call to name it twice.",
+                "parameters": [
+                    {
+                        "description": "Deployment id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Agent id",
+                        "in": "path",
+                        "name": "agentId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Conversation thread key",
+                        "in": "path",
+                        "name": "threadKey",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/agentmemory.Thread"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no such conversation"
+                    }
+                },
+                "summary": "Read a conversation's metadata (runtime)",
+                "tags": [
+                    "agent-memory"
+                ]
             }
         },
         "/deployments/{id}/agent-memory/{agentId}/threads/{threadKey}/title": {

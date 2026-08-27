@@ -228,21 +228,20 @@ Read this before you change him. The whole file is in the editor.
 | Piece | What it does |
 | --- | --- |
 | `chat` flow | An HTTP source on `/chat` with [server-sent events](/reference/connectors/http) enabled, so answers stream a token at a time |
-| `ai-agent` block | The coordinator: streaming, with memory keyed to the signed-in user and the conversation, a 500k-token window and summarising compaction. `stopWhen` reads the `X-Agent-Stop` header, which is how the panel's Stop reaches a run [it is not connected to](/ai/agent-signals). Two more `ai-agent` blocks sit in its tool slots — see [the two specialists](#the-two-specialists) |
-| `record-conversation` flow | Consumes the wire-tap: appends the exchange to the conversation's record and, on the first message only, asks the model for a name for it |
-| `list-conversations`, `read-conversation` flows | The two read endpoints the panel lists and replays past conversations from |
+| `ai-agent` block | The coordinator: streaming, `agentId: dr-octo`, memory keyed to the signed-in user and the conversation, a 500k-token window and summarising compaction, and `userMemory` on. `stopWhen` reads the `X-Agent-Stop` header, which is how the panel's Stop reaches a run [it is not connected to](/ai/agent-signals). Two more `ai-agent` blocks sit in its tool slots — see [the two specialists](#the-two-specialists) |
+| `name-conversation` flow | Consumes the wire-tap and does the one thing the runtime cannot: on the first exchange only, asks the model for a name for the conversation. The record itself is the runtime's now |
 | `octo_read` | Reads the orchestrator's [API](/platform/api-reference) — `allowMethods: [GET]`, so the coordinator can answer a question but not change anything |
 | `integration_builder` | The first specialist (see [below](#the-two-specialists)): writes a definition and proves it |
 | `platform_operator` | The second specialist: everything that changes the installation, and everything about what already happened |
 | `send_email_report` | Sends an HTML report through the platform's own [email settings](/platform/admin-settings); the sender identity is the installation's, never the model's |
 | `navigate_to` | Moves your browser to a page, when the answer to a question is a page |
 | `check_expression` | Evaluates one [CEL](/reference/cel) expression, so he can prove one rather than assert it |
-| `recall_facts`, `remember_fact`, `forget_fact` | What he remembers about you between conversations |
+| `remember`, `forget`, `search_memory` | Built into the runtime rather than written here. What he has already remembered about you is placed in every request, so there is no tool to call to recall it |
 | Skills | Seven documents on flow files, blocks, connectors, expressions, testing, the platform and email reports, loaded on demand rather than sitting in every prompt |
 
 ### The two specialists
 
-The coordinator keeps the cheap things — a read-only API call, a CEL check, navigation, the three facts tools, and the mail tool — and delegates the work to two `ai-agent` blocks standing in its tool slots — a subagent here is just that: a tool whose process chain happens to be another agent, with its own prompt, its own tools and its own loop. It writes a brief, the specialist works, and one report comes back as the tool result.
+The coordinator keeps the cheap things — a read-only API call, a CEL check, navigation, the built-in memory tools, and the mail tool — and delegates the work to two `ai-agent` blocks standing in its tool slots — a subagent here is just that: a tool whose process chain happens to be another agent, with its own prompt, its own tools and its own loop. It writes a brief, the specialist works, and one report comes back as the tool result.
 
 | Specialist | Holds | For |
 | --- | --- | --- |

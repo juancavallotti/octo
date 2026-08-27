@@ -1006,6 +1006,9 @@ flows:
         name: assistant
         connector: claude
         memoryThreadId: body.threadId   # CEL: the conversation thread id
+        agentId: support-agent          # opts into durable, listable history
+        userId: body.userId             # CEL: who is on the other side
+        userMemory: true                # remember/forget/search_memory tools
         contextMaxTokens: 8000
         memoryCompaction: summarize
         prompt: >

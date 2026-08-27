@@ -365,10 +365,15 @@ a readable copy.
 ## The second layer: durable facts
 
 <Callout>
-This section predates `userMemory` above, which does the same job as a built-in.
-It is kept because the pattern is still a good worked example of flow-backed
-tools, and because deployments running it should be able to read how it works.
-New agents should use `userMemory`.
+This section predates `userMemory` above, which does the same job as a built-in —
+and did it worse, which is why it is a built-in now. The three tools below cost a
+round trip the model had to remember to make, and kept every fact in one KV object
+capped at 200 items because `core.KV` cannot list. It is kept here because the
+pattern is still a good worked example of flow-backed tools, and because
+deployments running it should be able to read how it works.
+
+**Dr. Octo used to be the reference implementation of this.** He is not any more:
+he sets `userMemory: true` and the three flows are gone.
 </Callout>
 
 Conversation memory is a transcript with a budget — it fades as it is

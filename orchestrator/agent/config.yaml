@@ -70,6 +70,11 @@ env:
   # a million: this is what the model is billed to re-read on every turn of a long
   # thread, and the compaction is a summary, so the tail of the conversation stays
   # verbatim either way.
+  # Injected into every runtime pod by the orchestrator. Declared here so CEL can
+  # read it: the naming flow addresses agent memory by this deployment, and the
+  # orchestrator resolves the integration the conversation actually belongs to.
+  - name: OCTO_DEPLOYMENT_ID
+    default: ""
   - name: AGENT_MEMORY_TOKENS
     default: "500000"
 
@@ -344,6 +349,18 @@ flows:
         contextMaxTokens: ${AGENT_MEMORY_TOKENS}
         memoryCompaction: summarize
 
+        # Named, which is what opts him into the runtime's first-class memory:
+        # conversations recorded uncompacted, kept per integration so they survive
+        # a reinstall, and remember/forget/search_memory instead of the three
+        # hand-rolled fact tools this replaced.
+        #
+        # Stated and never derived. A name taken from the block's position would
+        # make renaming this block, or moving it into another branch, silently
+        # destroy every conversation anyone has had with him.
+        agentId: dr-octo
+        userId: vars.userKey
+        userMemory: true
+
         stopWhen: '"X-Agent-Stop" in vars && vars["X-Agent-Stop"] != ""'
 
         emit: [thinking, text, tool_call, tool_result, turn_end,
@@ -460,14 +477,17 @@ flows:
           so and say what you would try next; do not fill the gap yourself.
 
 
-          You remember people between conversations. Call recall_facts when the
-          answer might depend on how someone works, and remember_fact — with both
-          a short stable name and the fact itself — when they tell you something
-          worth keeping: how they like flows written, which integration is theirs,
-          what to call them. Remember preferences and context, not the contents of
-          a conversation, and never a credential. If they tell you something has
-          changed, update the fact under the same name; if they ask you to forget
-          something, forget it without arguing.
+          You remember people between conversations. What you have already chosen
+          to remember about someone is given to you at the start of every run — you
+          do not have to ask for it. Call remember, with a short stable name and
+          the fact itself, when they tell you something worth keeping: how they
+          like flows written, which integration is theirs, what to call them.
+          Remember preferences and context, not the contents of a conversation, and
+          never a credential. If something has changed, remember it again under the
+          same name and the new version replaces the old; if they ask you to forget
+          something, call forget without arguing. Call search_memory when the answer
+          depends on something said in an earlier conversation you can no longer
+          see.
 
 
           Write in Markdown — the panel renders it. Fenced code blocks with a language
@@ -626,6 +646,12 @@ flows:
                 # platform backs up, and losing it costs a re-read of a brief.
                 memoryThreadId: vars.toolScope
                 memoryVolatile: true
+                # Not recorded. A specialist works a thread its caller minted for
+                # it, so recording those would mint a conversation row per
+                # delegation forever — the accumulation the volatile tier exists to
+                # avoid. (memoryVolatile implies this; written out because the
+                # implication is easy to miss when reading.)
+                history: off
                 # Its own ceiling, deliberately not the coordinator's: a delegated
                 # job is a whole loop of its own, and a specialist that runs out of
                 # turns mid-fix hands back half an answer the coordinator then has
@@ -1069,6 +1095,12 @@ flows:
                 # delegations remembers what the first one found.
                 memoryThreadId: vars.toolScope
                 memoryVolatile: true
+                # Not recorded. A specialist works a thread its caller minted for
+                # it, so recording those would mint a conversation row per
+                # delegation forever — the accumulation the volatile tier exists to
+                # avoid. (memoryVolatile implies this; written out because the
+                # implication is easy to miss when reading.)
+                history: off
                 maxIterations: 32
                 input: >-
                   body.task + (has(body.context) && body.context != ""
@@ -1544,104 +1576,6 @@ flows:
                 settings:
                   value: '{"navigated": true}'
 
-          # ---------------------------------------------------------------- facts
-          #
-          # What Dr. Octo remembers about a person between conversations. Memory
-          # holds a *conversation*; this holds what outlives one.
-          #
-          # All three keep every fact for a user in a single object at
-          # facts/{userKey}, because core.KV has get, set and delete but no list.
-          # The key is built from vars.userKey, which the model cannot see or set:
-          # it names a fact; the flow decides whose.
-
-          - name: recall_facts
-            description: >
-              Everything you have been told to remember about this user. Read it
-              early when the answer might depend on how they work — do not ask them
-              to repeat something you were already told.
-            inputSchema: |
-              { "type": "object", "properties": {} }
-            process:
-              - type: object-read
-                settings:
-                  key: '"facts/" + vars.userKey'
-                  as: userFacts
-                  default: '{"items": []}'
-              - type: set-payload
-                settings:
-                  value: '{"facts": vars.userFacts.items}'
-
-          - name: remember_fact
-            description: >
-              Remember something about this user for later conversations. Use a
-              short stable name so the same fact can be updated rather than
-              duplicated — "preferred-model", "main-integration". Remember what
-              they tell you about themselves and how they work, not the contents of
-              this conversation, and not anything secret.
-            inputSchema: |
-              {
-                "type": "object",
-                "required": ["name", "value"],
-                "properties": {
-                  "name":  { "type": "string", "description": "Short stable identifier for the fact." },
-                  "value": { "type": "string", "description": "The fact, in a sentence." }
-                }
-              }
-            process:
-              - type: object-read
-                settings:
-                  key: '"facts/" + vars.userKey'
-                  as: userFacts
-                  default: '{"items": []}'
-              # Filter-then-append is what makes this an upsert.
-              - type: set-variable
-                name: merge-facts
-                settings:
-                  name: mergedFacts
-                  value: >-
-                    vars.userFacts.items.filter(f, f.name != body.name)
-                    + [{"name": body.name, "value": body.value}]
-
-              # Capped, oldest first: nothing else bounds this list, and it is read
-              # back in full on every recall_facts.
-              - type: object-write
-                settings:
-                  key: '"facts/" + vars.userKey'
-                  value: >-
-                    {"items": size(vars.mergedFacts) > 200
-                      ? vars.mergedFacts.slice(size(vars.mergedFacts) - 200, size(vars.mergedFacts))
-                      : vars.mergedFacts}
-
-              - type: set-payload
-                settings:
-                  value: '{"remembered": body.name}'
-
-          - name: forget_fact
-            description: >
-              Forget a fact by name. Use this when the user says something is no
-              longer true, and when they ask you to forget something.
-            inputSchema: |
-              {
-                "type": "object",
-                "required": ["name"],
-                "properties": {
-                  "name": { "type": "string", "description": "The fact's name, as given to remember_fact." }
-                }
-              }
-            process:
-              - type: object-read
-                settings:
-                  key: '"facts/" + vars.userKey'
-                  as: userFacts
-                  default: '{"items": []}'
-              - type: object-write
-                settings:
-                  key: '"facts/" + vars.userKey'
-                  value: '{"items": vars.userFacts.items.filter(f, f.name != body.name)}'
-              - type: set-payload
-                settings:
-                  value: '{"forgotten": body.name}'
-
         skills:
           - name: flow-file
             description: >
@@ -1698,24 +1632,24 @@ flows:
                   deployments, flows, logs and traces are my remit. Narrow it down
                   or point me at something concrete and I will have another go."}
 
-      # ------------------------------------------------------------ the record
+      # ------------------------------------------------------ naming the chat
       #
-      # A wire-tap. The exchange goes onto a queue and this flow returns; the
-      # conversation record is written by the flow below, on a worker nobody is
-      # waiting on. That separation is the point: naming a conversation takes a
-      # model call, and a person watching their answer finish should not be
-      # watching it be filed as well.
+      # All that is left of what used to be a whole recording pipeline. The
+      # runtime records the conversation itself now — uncompacted, per
+      # integration, listable — so the only thing this agent still has to do is
+      # give it a name, because naming a conversation is a judgement about what it
+      # was about, and that is a model call the runtime has no business making.
       #
-      # It is a record and not the agent's memory. Memory is compacted — summarize
-      # replaces the early turns with a summary of them — so what the engine stores
-      # is the model's working set, not the conversation a person had.
+      # Still a wire-tap onto a queue, and still for the original reason: the model
+      # call belongs on a worker nobody is waiting on, not in front of a person
+      # watching their answer finish.
       #
       # fork gives the branch its own clone, so the payload it builds for the queue
       # never reaches the body this flow returns — which is the answer, and which
-      # the SSE route sends as its closing frame. handle-errors keeps a broker that
-      # is having a bad day from failing a chat that already succeeded.
+      # the SSE route sends as its closing frame. handle-errors keeps a broker
+      # having a bad day from failing a chat that already succeeded.
       - type: handle-errors
-        name: record-exchange
+        name: name-exchange
         process:
           - type: fork
             name: tap
@@ -1726,12 +1660,12 @@ flows:
                   # not always: the agent decodes a final answer that happens to
                   # parse as JSON whatever the format setting says, so an answer of
                   # "42", or one the model fenced, arrives here as a number or a
-                  # map. Rendering it back is what keeps a record of it either way.
+                  # map. Rendering it back is what lets the namer read it either way.
                   - type: set-payload
                     name: build-record
                     settings:
                       value: >-
-                        {"userKey": vars.userKey, "threadId": vars.threadId,
+                        {"threadId": vars.threadId,
                          "question": vars.question,
                          "answer": type(body) == string ? body : toJson(body)}
                   - type: queue-dispatch
@@ -1740,114 +1674,78 @@ flows:
                       subject: '"conversation-log"'
         error:
           - type: log
-            name: record-failed
+            name: naming-failed
             settings:
               level: warn
-              message: '"could not record the conversation: " + vars.error.message'
+              message: '"could not queue a conversation for naming: " + vars.error.message'
 
-  # ============================================================ the record ====
+
+  # ========================================================== naming ========
   #
-  # What a person can come back to. Two objects per user, and neither is the
-  # agent's memory:
+  # What is left of the record. The runtime stores the conversation; the platform
+  # lists and replays it from the orchestrator's own tables. Neither of them can
+  # decide what a conversation should be CALLED — that is a judgement about what
+  # was asked, which is a model call, and a model call belongs to the flow willing
+  # to pay for it rather than to the runtime.
   #
-  #   agent-chat/{userKey}/{threadId}   the conversation as it was had
-  #   agent-threads/{userKey}           one row per conversation, for the list
-  #
-  # The index exists because core.KV has get, set and delete but no list — the
-  # same reason facts live in one object — and because a listing could not carry
-  # a title even if it did. Its rows are what the panel renders before anyone
-  # opens anything.
-  #
-  # Both keys are built from the userKey the chat route authenticated, so a
-  # guessed thread id names a conversation that does not exist. The queue message
-  # carries that key rather than re-deriving it, and nothing outside this
-  # deployment can put a message on the subject.
-  - name: record-conversation
+  # So this is the whole remnant of what used to be three flows and two hand-kept
+  # KV objects: read one exchange off a queue, name it if it has no name yet, and
+  # write the name back.
+  - name: name-conversation
     source:
       type: queue                        # implicit connector — no instance needed
       settings:
         subject: conversation-log
-        # One listener, deliberately. Reading the record and writing it back are
-        # separate blocks, so two exchanges of one conversation handled at the same
-        # moment would both read the same turns and the later write would win — the
-        # same read-modify-write the facts tools carry and for the same reason.
-        # Serialising this replica's recording closes it here; a second replica
-        # could still race one, and the cost is a lost turn in a transcript rather
-        # than a lost answer.
-        #
-        # It costs nothing worth having. There is one record write per exchange and
-        # nobody is waiting on it, so the only thing a second listener would buy is
-        # the chance to lose a turn.
-        listeners: 1
+        workers: 1
     process:
-      # The body is about to be replaced by the title call, so what the keys are
-      # built from is taken out of it first.
       - type: set-variable
-        name: hold-user
-        settings:
-          name: userKey
-          value: body.userKey
-      - type: set-variable
-        name: hold-thread
-        settings:
-          name: threadId
-          value: body.threadId
-      - type: set-variable
-        name: hold-exchange
+        name: exchange
         settings:
           name: exchange
-          value: '{"question": body.question, "answer": body.answer}'
+          value: body
 
-      - type: object-read
-        name: read-record
+      # Only the first exchange of a conversation is named. A later one would cost
+      # a model call to replace a name with a name for the same conversation, and
+      # the first question is what someone recognises it by anyway.
+      # Deployment-scoped, not integration-scoped: a pod knows its deployment and
+      # the orchestrator resolves the rest. It is also the only shape that needs no
+      # new binding — every runtime pod is given OCTO_DEPLOYMENT_ID already.
+      #
+      # failOnError is off because a conversation with no row yet answers 404, and
+      # that is an answer: it has no name, so it needs one.
+      - type: rest-dynamic
+        name: read-thread
         settings:
-          key: '"agent-chat/" + vars.userKey + "/" + vars.threadId'
-          as: record
-          # Whether the object was there is what "this conversation is new" means,
-          # and it is the only thing that decides whether a model is asked for a
-          # title. Everything after the first exchange keeps the one it has.
-          existsVar: recordExists
-          default: '{"title": "", "turns": []}'
-
+          connector: octo
+          method: '"GET"'
+          path: >-
+            "/deployments/" + env.OCTO_DEPLOYMENT_ID + "/agent-memory/dr-octo/threads/"
+              + vars.exchange.threadId
+          allowMethods: [GET]
+          failOnError: false
       - type: set-variable
-        name: append-turns
+        name: keep-thread
         settings:
-          name: turns
-          value: >-
-            vars.record.turns
-              + [{"role": "user", "text": vars.exchange.question},
-                 {"role": "agent", "text": vars.exchange.answer}]
-
-      # Capped oldest-first, like facts and for the same reason: nothing else
-      # bounds this, it is read back in full on every exchange, and a value that
-      # grows without limit eventually will not write. Two hundred turns is a very
-      # long conversation and a very small object.
-      - type: set-variable
-        name: cap-turns
-        settings:
-          name: turns
-          value: >-
-            size(vars.turns) > 200
-              ? vars.turns.slice(size(vars.turns) - 200, size(vars.turns))
-              : vars.turns
-
+          name: thread
+          value: body
       - type: if
-        name: name-it
-        condition: '!vars.recordExists'
+        name: needs-a-name
+        # The runtime labels a new conversation with the first line of its opening
+        # turn, so "unnamed" means "still wearing that label" rather than "empty".
+        # Naming it again on every exchange would be a model call to replace a name
+        # with a name for the same conversation.
+        condition: >-
+          !has(vars.thread) || !has(vars.thread.title)
+            || vars.thread.title == ""
+            || vars.thread.title == vars.thread.threadKey
         then:
           process:
-            # A name a person recognises in a list, which is worth one small model
-            # call at the start of a conversation and nothing thereafter. It runs
-            # here rather than in the chat flow precisely because it is a model
-            # call: nobody is waiting on this worker.
-            #
-            # And it is the one thing here that can fail on its own — a provider
-            # having a bad minute, a model that answers something the schema
-            # refuses. The name is the nice half of this flow and the record is the
-            # point, so a failure falls back to the question itself rather than
-            # taking the exchange down with it.
+            # The one thing that can fail on its own here — a provider having a bad
+            # minute, a model answering something the schema refuses. A conversation
+            # with the runtime's own fallback name is a small loss; a worker that
+            # dies over a title is not.
             - type: handle-errors
-              name: name-or-fall-back
+              name: name-or-give-up
               process:
                 - type: set-payload
                   name: title-input
@@ -1873,118 +1771,20 @@ flows:
                     # model that reasons regardless. A tighter one here would be
                     # the bug this fixed — a title needs a few tokens, but a
                     # reasoning model needs room to reach them.
-                - type: set-variable
+                - type: rest-dynamic
+                  name: save-title
                   settings:
-                    name: title
-                    value: body.title
+                    connector: octo
+                    method: '"PUT"'
+                    path: >-
+                      "/deployments/" + env.OCTO_DEPLOYMENT_ID
+                        + "/agent-memory/dr-octo/threads/"
+                        + vars.exchange.threadId + "/title"
+                    allowMethods: [PUT]
+                    body: 'toJson({"title": body.title})'
               error:
                 - type: log
                   name: title-failed
                   settings:
                     level: warn
                     message: '"could not name a conversation: " + vars.error.message'
-                - type: set-variable
-                  settings:
-                    name: title
-                    value: >-
-                      size(vars.exchange.question) > 60
-                        ? vars.exchange.question.substring(0, 60) + "…"
-                        : vars.exchange.question
-        else:
-          process:
-            - type: set-variable
-              settings:
-                name: title
-                value: vars.record.title
-
-      - type: object-write
-        name: write-record
-        settings:
-          key: '"agent-chat/" + vars.userKey + "/" + vars.threadId'
-          value: '{"title": vars.title, "turns": vars.turns}'
-
-      # The index carries the moment as well as the name. The object store records
-      # when a value was last written, but only the route that lists every key in
-      # the namespace can read it, and that route cannot return a title — so the
-      # row that has the title carries the timestamp too.
-      - type: object-read
-        name: read-index
-        settings:
-          key: '"agent-threads/" + vars.userKey'
-          as: index
-          default: '{"items": []}'
-      # Filter-then-append is what makes this an upsert: a conversation already in
-      # the list moves to the end with a fresh timestamp rather than appearing
-      # twice.
-      - type: set-variable
-        name: merge-index
-        settings:
-          name: rows
-          value: >-
-            vars.index.items.filter(i, i.id != vars.threadId)
-              + [{"id": vars.threadId, "title": vars.title, "updatedAt": string(now)}]
-      - type: object-write
-        name: write-index
-        settings:
-          key: '"agent-threads/" + vars.userKey'
-          value: >-
-            {"items": size(vars.rows) > 200
-              ? vars.rows.slice(size(vars.rows) - 200, size(vars.rows))
-              : vars.rows}
-
-  # A user's past conversations, most recently written last — the panel sorts. The
-  # user block is written server-side by the chat route, exactly as it is for /chat,
-  # so this reads one person's list and cannot be asked for anyone else's.
-  - name: list-conversations
-    source:
-      connector: api
-      type: http
-      settings:
-        path: /conversations
-        methods: [POST]
-        timeout: 10s
-    process:
-      - type: set-variable
-        name: user-key
-        settings:
-          name: userKey
-          value: >-
-            has(body.user) && has(body.user.id) && body.user.id != ""
-              ? body.user.id : "anonymous"
-      - type: object-read
-        name: read-index
-        settings:
-          key: '"agent-threads/" + vars.userKey'
-          as: index
-          default: '{"items": []}'
-      - type: set-payload
-        settings:
-          value: '{"items": vars.index.items}'
-
-  # One past conversation, as it was had. Not the agent's memory: that is
-  # compacted, so its early turns have been replaced by a summary of them.
-  - name: read-conversation
-    source:
-      connector: api
-      type: http
-      settings:
-        path: /conversations/{threadId}
-        methods: [POST]
-        timeout: 10s
-    process:
-      - type: set-variable
-        name: user-key
-        settings:
-          name: userKey
-          value: >-
-            has(body.user) && has(body.user.id) && body.user.id != ""
-              ? body.user.id : "anonymous"
-      - type: object-read
-        name: read-record
-        settings:
-          key: '"agent-chat/" + vars.userKey + "/" + vars.threadId'
-          as: record
-          default: '{"title": "", "turns": []}'
-      - type: set-payload
-        settings:
-          value: '{"threadId": vars.threadId, "title": vars.record.title, "turns": vars.record.turns}'

@@ -55,6 +55,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /deployments/{id}/agent-memory/{agentId}/threads/{threadKey}/working", h.getWorking)
 	mux.HandleFunc("PUT /deployments/{id}/agent-memory/{agentId}/threads/{threadKey}/working", h.putWorking)
 	mux.HandleFunc("POST /deployments/{id}/agent-memory/{agentId}/threads/{threadKey}/turns", h.postTurns)
+	mux.HandleFunc("GET /deployments/{id}/agent-memory/{agentId}/threads/{threadKey}", h.getRuntimeThread)
 	mux.HandleFunc("PUT /deployments/{id}/agent-memory/{agentId}/threads/{threadKey}/title", h.putRuntimeTitle)
 	mux.HandleFunc("DELETE /deployments/{id}/agent-memory/{agentId}/threads/{threadKey}", h.deleteRuntimeThread)
 	mux.HandleFunc("GET /deployments/{id}/agent-memory/{agentId}/users/{userId}/memories", h.getRuntimeMemories)
@@ -250,6 +251,39 @@ func (h *Handler) postTurns(w http.ResponseWriter, r *http.Request) {
 // titleRequest is the body of a rename.
 type titleRequest struct {
 	Title string `json:"title"`
+}
+
+// getRuntimeThread godoc
+//
+//	@Summary		Read a conversation's metadata (runtime)
+//	@Description	Metadata only — the title, the turn count, when it was last active. The transcript
+//	@Description	is not served here: a pod knows a deployment rather than an integration, and a
+//	@Description	route that handed it whole conversations would be one every pod could read every
+//	@Description	conversation through. This exists so a flow can tell an unnamed conversation from a
+//	@Description	named one without paying a model call to name it twice.
+//	@Tags			agent-memory
+//	@Produce		json
+//	@Param			id			path		string	true	"Deployment id"
+//	@Param			agentId		path		string	true	"Agent id"
+//	@Param			threadKey	path		string	true	"Conversation thread key"
+//	@Success		200			{object}	Thread
+//	@Failure		404			{object}	httpx.ErrorResponse	"no such conversation"
+//	@Router			/deployments/{id}/agent-memory/{agentId}/threads/{threadKey} [get]
+func (h *Handler) getRuntimeThread(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+
+	ref, ok := h.runtimeRef(w, r, ctx)
+	if !ok {
+		return
+	}
+	// A zero-limit page: the thread row is wanted and the turns are not.
+	transcript, err := h.svc.ReadThread(ctx, ref, Page{Limit: 1})
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, transcript.Thread)
 }
 
 // putRuntimeTitle godoc
