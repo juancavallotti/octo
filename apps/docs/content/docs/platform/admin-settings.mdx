@@ -83,6 +83,44 @@ Model is free text on purpose: model names turn over faster than releases of thi
 This setting does **not** affect your integrations. The `llm-anthropic`, `llm-openai`, `llm-gemini` and `llm-openrouter` connectors continue to use the key configured on each connector. This one belongs to the installation, and the only thing that reads it is the platform's own agent — it is bound onto that deployment when the agent is installed.
 </Callout>
 
+## Embeddings
+
+`/platform/admin/embedding` decides whether searching agent memory ranks by **meaning** or by **words**.
+
+Leave it unconfigured and search works — it matches text, using Postgres full-text. Configure a provider and the same search ranks by embedding similarity instead. Nothing else changes: the same query, the same results shape, and no flow or block has to be edited.
+
+| Field | Notes |
+| --- | --- |
+| Provider | `OpenAI`, `Google`, or `OpenRouter`. **Anthropic is absent because it has no embeddings API** — this is not the same list as the LLM one above. |
+| Model | Free text, prefilled with that provider's default. It must produce 1536-dimension vectors. |
+| API key | Write-only, same handling as the other keys. |
+
+<Callout type="warn">
+**Changing the model once anything is embedded is a one-way door.** Stored vectors carry no record of which model produced them, so a store holding two models' vectors cannot be searched coherently — and the platform does **not** re-embed for you. The page asks before letting you do it, and tells you how much is already vectorized. If you want a clean switch, turn embeddings off, clear the store's vectors yourself, then configure the new model.
+</Callout>
+
+### The backfill
+
+Configuring a provider does not make search semantic — it makes it *become* semantic. Everything written before that moment has no vector, so a background sweep works through it, oldest requests last: the most recent conversations are vectorized first, because those are the ones anyone is about to search.
+
+The page shows how far it has got. While it is running, a search may be answered by either index — the vector one when it has something to match, the text one when it does not — and you cannot tell from the results, deliberately.
+
+The sweep is rate-limited on purpose. A large installation turning this on has a history of hundreds of thousands of items, and an unpaced backfill would send all of it to a paid API in one burst.
+
+Turning embeddings off leaves the stored vectors alone. They cost nothing where they are, and turning the *same* model back on then costs nothing either.
+
+## Agent memory
+
+`/platform/admin/memory` reads what agents have actually recorded: the conversations they have had, and the facts they chose to keep about the people in them.
+
+Pick an integration, then an agent. The agent list is what has **stored** something, not what a definition declares — an agent appears once it has recorded a conversation.
+
+Conversations here are **uncompacted**. That is the difference between this and what the agent still carries: working memory is pruned or summarized to fit the model's context window, and this record is not touched again once written. A question the agent never got back to is badged rather than hidden.
+
+You can read, search, erase a conversation, and forget one remembered fact. You cannot **edit** a remembered fact, and that is deliberate: an operator rewriting what an agent believes about a person, with no audit trail and nothing in the conversation explaining the change, is a capability that should be asked for explicitly rather than fall out of a viewer.
+
+Erasing reaches everything — the transcript, the working state the agent would have resumed from, and the conversation itself. See [Agent Memory](/ai/agent-memory) for what an agent has to declare for any of this to be recorded.
+
 ## How a save handles the API key
 
 Worth knowing, because it explains a behaviour that would otherwise look odd. Leaving the key field blank does **not** clear the stored key — it keeps it. The three cases:
@@ -101,7 +139,9 @@ Both forms submit every field on every save, so any other design would mean edit
 
 ## Storage
 
-Both features are rows in the `site_settings` table — `key = 'email'` and `key = 'llm'`, each a jsonb document. Adding a setting costs a key, not a migration, which is how data retention below was added without one.
+The email, LLM and embedding settings are rows in the `site_settings` table — `key = 'email'`, `'llm'` and `'embedding'`, each a jsonb document. Adding a setting costs a key, not a migration, which is how data retention below was added without one.
+
+Agent memory is the exception: it has real tables (`agent_threads`, `agent_working_memory`, `agent_turns`, `agent_user_memories`), because it is data rather than configuration and has to be queried, paged and searched. They are keyed on the **integration** rather than the deployment, so a conversation survives a redeploy.
 
 ## Platform agent
 

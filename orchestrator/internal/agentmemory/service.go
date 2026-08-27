@@ -59,6 +59,11 @@ type Service struct {
 
 	mu     sync.Mutex
 	cached map[string]cachedIntegration
+
+	// The optional vector half, nil until an embedding provider is wired. See
+	// embedder.go: everything the service does works without it.
+	embedder Embedder
+	sweeper  Sweeper
 }
 
 type cachedIntegration struct {
@@ -301,10 +306,11 @@ func (s *Service) forgetIntegration(integrationID string) {
 
 // Search returns the memory most relevant to a query.
 //
-// Full-text today, for every deployment. Semantic ranking arrives when an
-// embedding provider is configured and replaces the ranking, not the surface —
-// callers do not branch on it, which is why Capabilities is a fact about the
-// store rather than two different methods.
+// Semantic when an embedding provider is configured and has something to match
+// against, full-text otherwise, and the caller cannot tell which ran. That is why
+// Capabilities is a fact about the store rather than two different methods: the
+// question a caller asks is the same either way, and mid-backfill the answer can
+// come from either index for two searches a second apart.
 func (s *Service) Search(ctx context.Context, integrationID string, q Query) ([]Hit, error) {
 	if err := validIdentifier("agentId", q.AgentID, true); err != nil {
 		return nil, err
@@ -319,6 +325,9 @@ func (s *Service) Search(ctx context.Context, integrationID string, q Query) ([]
 	}
 	if strings.TrimSpace(q.Text) == "" {
 		return []Hit{}, nil
+	}
+	if hits, ok := s.searchSemantic(ctx, integrationID, q); ok {
+		return hits, nil
 	}
 	hits, err := s.store.SearchText(ctx, integrationID, q)
 	if err != nil {

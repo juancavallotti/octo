@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, Bot, Mail, Sparkles, Trash2 } from "lucide-react";
+import { Activity, Bot, BrainCircuit, Mail, Sparkles, Trash2, Waypoints } from "lucide-react";
 import { ShortcutTile } from "../DashboardTiles";
 
 /**
@@ -27,6 +27,18 @@ export const LIVE = [
     icon: Sparkles,
     title: "LLM provider",
     subtitle: "Provider, model and API key for the platform agent",
+  },
+  {
+    href: "/platform/admin/memory",
+    icon: BrainCircuit,
+    title: "Agent memory",
+    subtitle: "Read the conversations agents recorded and what they remember about people",
+  },
+  {
+    href: "/platform/admin/embedding",
+    icon: Waypoints,
+    title: "Embeddings",
+    subtitle: "Rank agent memory by meaning instead of by words",
   },
   {
     href: "/platform/admin/agent",

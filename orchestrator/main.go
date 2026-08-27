@@ -32,6 +32,7 @@ import (
 	"github.com/juancavallotti/octo/orchestrator/internal/deployment"
 	"github.com/juancavallotti/octo/orchestrator/internal/devrun"
 	"github.com/juancavallotti/octo/orchestrator/internal/email"
+	"github.com/juancavallotti/octo/orchestrator/internal/embedding"
 	"github.com/juancavallotti/octo/orchestrator/internal/folder"
 	"github.com/juancavallotti/octo/orchestrator/internal/health"
 	httpx "github.com/juancavallotti/octo/orchestrator/internal/http"
@@ -526,8 +527,9 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 		// Built before the integration service so deleting an integration can sweep
 		// what its agents remembered. The sweep is explicit rather than a cascade,
 		// matching logs, traces and kv_store — see WithAgentMemoryCleaner.
+		agentMemoryRepo := agentmemory.NewRepo(database.Pool())
 		agentMemorySvc := agentmemory.NewService(
-			agentmemory.NewRepo(database.Pool()),
+			agentMemoryRepo,
 			agentmemory.NewDeploymentLookup(database.Pool()),
 		)
 		integrationOpts = append(integrationOpts, integration.WithAgentMemoryCleaner(agentMemorySvc))
@@ -616,6 +618,17 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 		// a pod has, and the platform names an integration, because that is what an
 		// operator is looking at and what the memory belongs to.
 		agentmemory.NewHandler(agentMemorySvc).Register(mux)
+
+		// The optional vector half. Everything above works without it; this only
+		// changes how a search ranks. The credential is read per call rather than
+		// held, because an operator turns embeddings on and off without restarting.
+		embeddingSvc := embedding.NewService(
+			embedding.NewRepo(database.Pool()), cipher, agentMemoryRepo)
+		embedding.NewHandler(embeddingSvc).Register(mux)
+		agentMemorySvc.WithEmbedder(embedding.NewAdapter(embeddingSvc), agentMemoryRepo)
+		agentMemorySvc.StartBackfill(ctx)
+		slog.Info("embedding routes registered", "endpoints", "GET/PUT/DELETE /settings/embedding")
+
 		slog.Info("agent memory routes registered",
 			"endpoints", "GET/PUT /deployments/{id}/agent-memory/..., "+
 				"GET /integrations/{id}/agent-memory/...")
