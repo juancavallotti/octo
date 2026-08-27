@@ -229,7 +229,7 @@ Read this before you change him. The whole file is in the editor.
 | --- | --- |
 | `chat` flow | An HTTP source on `/chat` with [server-sent events](/reference/connectors/http) enabled, so answers stream a token at a time |
 | `ai-agent` block | The coordinator: streaming, `agentId: dr-octo`, memory keyed to the signed-in user and the conversation, a 500k-token window and summarising compaction, and `userMemory` on. `stopWhen` reads the `X-Agent-Stop` header, which is how the panel's Stop reaches a run [it is not connected to](/ai/agent-signals). Two more `ai-agent` blocks sit in its tool slots — see [the two specialists](#the-two-specialists) |
-| `name-conversation` flow | Consumes the wire-tap and does the one thing the runtime cannot: on the first exchange only, asks the model for a name for the conversation. The record itself is the runtime's now |
+| `nameThread` slot | On the coordinator, and all that is left of the recording pipeline: on the opening exchange only, asks `llm-fast` for a name for the conversation. The engine writes it — see [Naming a conversation](/reference/blocks/ai#naming-a-conversation). The record itself is the runtime's |
 | `octo_read` | Reads the orchestrator's [API](/platform/api-reference) — `allowMethods: [GET]`, so the coordinator can answer a question but not change anything |
 | `integration_builder` | The first specialist (see [below](#the-two-specialists)): writes a definition and proves it |
 | `platform_operator` | The second specialist: everything that changes the installation, and everything about what already happened |
