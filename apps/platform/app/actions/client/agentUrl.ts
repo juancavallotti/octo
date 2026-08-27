@@ -10,7 +10,9 @@
  * It lives in the client layer rather than beside the routes because it is a
  * client-layer concern — a base URL, resolved — and because it now has three
  * callers rather than two: the chat proxy, the status probe, and the server
- * actions that read a person's past conversations.
+ * actions that read a person's past conversations — which use the status for the
+ * integration id rather than the address, since conversations live in the
+ * orchestrator now.
  */
 
 /** How long a resolved address is trusted. Short enough that an uninstall is noticed. */
@@ -44,6 +46,12 @@ export function orchestratorUrl(): string {
 export interface AgentReachability {
   state: string;
   internalUrl?: string;
+  /**
+   * The integration the agent is installed as. Conversations are keyed on it —
+   * they belong to the integration and survive a redeploy — so reading somebody's
+   * history needs this rather than the address.
+   */
+  integrationId?: string;
 }
 
 export type ResolveResult =

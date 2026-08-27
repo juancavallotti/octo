@@ -134,7 +134,7 @@ postgres:
 #   existingSecretPasswordKey: password
 
 schema:
-  # Same postgres:16-alpine uid; the Job only runs psql.
+  # Same postgres uid as the server image; the Job only runs psql.
   securityContext:
     runAsUser: 70
     runAsGroup: 70

@@ -288,7 +288,9 @@ tasks:
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-platform:dev -f apps/platform/Dockerfile .
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-orchestrator:dev -f orchestrator/Dockerfile ./orchestrator
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-logs:dev -f logs/Dockerfile ./logs
-      # No binary in this one — it is postgres:16-alpine plus schema.sql.
+      # No binary in this one — it is a psql client image plus schema.sql. It stays
+      # on postgres:16-alpine: the Job only runs psql, so it does not need the
+      # pgvector server image the chart deploys.
       - docker build -t octo-schema:dev -f sql/Dockerfile ./sql
       # Generic runtime image the orchestrator deploys per integration (build
       # context is the repo root, where the Go module is rooted).

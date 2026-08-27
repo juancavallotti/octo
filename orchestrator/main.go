@@ -23,6 +23,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/juancavallotti/octo/orchestrator/internal/agent"
+	"github.com/juancavallotti/octo/orchestrator/internal/agentmemory"
 	"github.com/juancavallotti/octo/orchestrator/internal/apikey"
 	"github.com/juancavallotti/octo/orchestrator/internal/bundle"
 	"github.com/juancavallotti/octo/orchestrator/internal/bus"
@@ -522,6 +523,14 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 			resourceOpts = append(resourceOpts, resource.WithReloadNotifier(devrunSvc))
 		}
 
+		// Built before the integration service so deleting an integration can sweep
+		// what its agents remembered. The sweep is explicit rather than a cascade,
+		// matching logs, traces and kv_store — see WithAgentMemoryCleaner.
+		agentMemorySvc := agentmemory.NewService(
+			agentmemory.NewRepo(database.Pool()),
+			agentmemory.NewDeploymentLookup(database.Pool()),
+		)
+		integrationOpts = append(integrationOpts, integration.WithAgentMemoryCleaner(agentMemorySvc))
 		integrationSvc := integration.NewService(integrationRepo, integrationOpts...)
 		integration.NewHandler(integrationSvc).Register(mux)
 		slog.Info("integration routes registered",
@@ -600,6 +609,16 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 		kv.NewObjectHandler(kvSvc).Register(mux)
 		slog.Info("object routes registered",
 			"endpoints", "GET /deployments/{id}/objects, GET/PUT/DELETE /deployments/{id}/objects/{key}")
+
+		// Agent memory, keyed by the integration rather than the deployment — which
+		// is the whole reason it is not kv_store. Two route families over one
+		// service: the runtime names a deployment, because that is the only identity
+		// a pod has, and the platform names an integration, because that is what an
+		// operator is looking at and what the memory belongs to.
+		agentmemory.NewHandler(agentMemorySvc).Register(mux)
+		slog.Info("agent memory routes registered",
+			"endpoints", "GET/PUT /deployments/{id}/agent-memory/..., "+
+				"GET /integrations/{id}/agent-memory/...")
 
 		// Site-wide settings: the email provider the platform sends through, and the
 		// LLM provider its agent reasons with. Both keep their API key encrypted with

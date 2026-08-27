@@ -425,9 +425,28 @@ postgres:
     # Third-party image: it deliberately does NOT inherit the shared
     # image.registry, which holds the octo-* images only. Empty means Docker
     # Hub; point it at a mirror for clusters that can't reach Docker Hub.
+    #
+    # pgvector's own image rather than plain postgres, because agent memory
+    # stores embeddings and `CREATE EXTENSION vector` needs the extension
+    # present in the server image. It is Debian-based and so larger than the
+    # alpine tag it replaces (~150MB vs ~80MB) — which is a StatefulSet pulled
+    # once, so the trade is not close.
+    #
+    # Staying on alpine was checked, not assumed. Alpine's postgresql-pgvector
+    # package builds against Alpine's OWN postgresql18 and installs to
+    # /usr/lib/postgresql18/, while postgres:16-alpine ships its own PG16 under
+    # /usr/local/: installing it pulls in a second PostgreSQL, makes 18 the
+    # default, and puts vector.so where PG16 never looks. The only alpine route
+    # is compiling pgvector in a builder stage, which would make this project
+    # the publisher and CVE-owner of a Postgres SERVER image to save ~70MB.
+    #
+    # Major version stays at 16: pg18 exists, but a major bump will not start
+    # against an existing PGDATA volume without pg_upgrade or dump/restore, and
+    # deploy/terraform/modules/cloudsql pins POSTGRES_16. That is its own change
+    # with its own upgrade path, and it has nothing to do with agent memory.
     registry: ""
-    repository: postgres
-    tag: "16-alpine"
+    repository: pgvector/pgvector
+    tag: "pg16"
     pullPolicy: IfNotPresent
   auth:
     username: octo

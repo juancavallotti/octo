@@ -21,7 +21,7 @@ variable "network_id" {
 
 variable "database_version" {
   type        = string
-  description = "Cloud SQL Postgres version. Matches the bundled postgres:16-alpine the chart otherwise runs."
+  description = "Cloud SQL Postgres version. Matches the bundled pgvector/pgvector:pg16 the chart otherwise runs. Cloud SQL supports `CREATE EXTENSION vector` on 16, which agent memory needs."
   default     = "POSTGRES_16"
 }
 
