@@ -22,7 +22,8 @@ apps_domain      = "gke.octopaas.dev"       # {slug}.{apps_domain}; wildcard cer
 # apply away. "oci" installs the published chart from ghcr.io, which is what
 # verifies a real release artifact (set chart_version too).
 # chart_source  = "local"
-# chart_version = "0.6.4"
+# chart_version = "0.8.7"  # REQUIRED when chart_source = "oci";
+#                          # must match helm/Chart.yaml at that release
 #
 # Which images to run. Leave empty and the chart uses its own public Docker Hub
 # defaults at its appVersion — correct ONLY when the chart and the published images
@@ -78,3 +79,39 @@ apps_domain      = "gke.octopaas.dev"       # {slug}.{apps_domain}; wildcard cer
 # repeated create/destroy cycles burn through. Staging certs are untrusted by
 # browsers but effectively unlimited:
 # acme_server = "https://acme-staging-v02.api.letsencrypt.org/directory"
+
+# --- Naming and placement (defaults shown) ---
+# name      = "octo-gke-std"  # cluster name; also prefixes the derived resources
+# region    = "us-west1"
+# zone      = "us-west1-a"    # used when regional = false
+# namespace = "octo"          # Kubernetes namespace the release installs into
+#
+# How long Terraform waits for the Helm release to become ready, in seconds. The
+# first apply pulls every image onto fresh nodes, which is the slow one.
+# helm_timeout = 900
+
+# --- Embeddings (optional) ---
+# Deploy the embedding server and searching agent memory ranks by MEANING rather
+# than by words. Leave it out and search still works — it matches text, which is a
+# supported way to run rather than a degraded one.
+#
+# The server is a small octo app that holds the provider API key, so that no
+# integration pod has to. Every deployment pod is given only its URL, which is safe
+# to hand out: an embedding reads nothing, writes nothing, and grants access to
+# nothing more expensive than itself.
+#
+# CHANGING THE MODEL LATER IS NOT A SETTING CHANGE. Vectors carry no record of
+# which model produced them, so a store holding two models' cannot be ranked
+# coherently. Changing embeddings_model on an installation that has embedded
+# anything discards every stored vector and re-embeds the store. Search falls back
+# to matching text while that runs; nothing is lost but the vectors.
+# embeddings_enabled        = false          # true also requires embeddings_api_key
+# embeddings_api_key        = ""             # "sk-..."
+# embeddings_connector_type = "llm-openai"   # or llm-gemini, llm-openrouter. NOT
+#                                            # llm-anthropic: no embeddings API, and
+#                                            # the server refuses to start rather
+#                                            # than failing on the first call.
+# embeddings_model          = "text-embedding-3-small"
+# embeddings_dimensions     = 1536           # must match the vector(N) columns in
+#                                            # sql/schema.sql, which are indexed and
+#                                            # so fixed at schema time

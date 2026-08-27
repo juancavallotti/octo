@@ -47,6 +47,12 @@ module "octo_gke" {
   external_database = var.external_database
   cloudsql_tier     = var.cloudsql_tier
 
+  embeddings_enabled        = var.embeddings_enabled
+  embeddings_connector_type = var.embeddings_connector_type
+  embeddings_model          = var.embeddings_model
+  embeddings_dimensions     = var.embeddings_dimensions
+  embeddings_api_key        = var.embeddings_api_key
+
   oidc_enabled       = var.oidc_enabled
   oidc_issuer        = var.oidc_issuer
   oidc_client_id     = var.oidc_client_id

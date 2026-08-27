@@ -13,8 +13,9 @@
 locals {
   image_base = "${var.region}-docker.pkg.dev/${var.project_id}/${var.repository_id}"
   kubeconfig = var.kubeconfig != "" ? var.kubeconfig : "${path.module}/../infra/kubeconfig.yaml"
-  # The release state bucket (matches the literal in backend.tf). Also holds oidc.json
-  # so the Cloud Build deploy step can read the OIDC creds without the local tfvars.
+  # The release state bucket (matches the literal in backend.tf). Also holds
+  # oidc.json and embeddings.json so the Cloud Build deploy step can read those
+  # credentials back without the local tfvars.
   state_bucket = "octo-tfstate-${var.project_id}"
   # The domain per-integration subdomains + the wildcard cert actually use. Falls
   # back to `domain` for the original single-domain setup.
@@ -229,6 +230,57 @@ resource "google_storage_bucket_object" "oidc" {
   })
 }
 
+# --- The embedding server -------------------------------------------------
+#
+# Same mechanism as the OIDC credentials above, and for the same reason: a Cloud
+# Build deploy has no terraform.tfvars, so a key supplied once by a local apply
+# has to be readable back on every subsequent CI apply. Without this, every
+# automated deploy would tear the embedding server down.
+locals {
+  # The key is what marks these as "supplied locally", the same way oidc_client_id
+  # does above. That is also the off-switch's one wrinkle, inherited from the same
+  # mechanism: turning embeddings off means setting embeddings_enabled = false
+  # while KEEPING the key in tfvars, so this stays true and the false is read from
+  # the variable. Dropping the key instead falls back to the stored object, which
+  # still says enabled — the server would stay up. (Or delete
+  # release/embeddings.json from the state bucket, which is the blunt version.)
+  embeddings_provided = var.embeddings_api_key != ""
+  embeddings_exists = contains(
+    [for o in data.google_storage_bucket_objects.state.bucket_objects : o.name],
+    "release/embeddings.json",
+  )
+  embeddings_read   = !local.embeddings_provided && local.embeddings_exists
+  embeddings_stored = local.embeddings_read ? jsondecode(data.google_storage_bucket_object_content.embeddings[0].content) : null
+
+  embeddings_enabled_eff        = local.embeddings_provided ? var.embeddings_enabled : try(local.embeddings_stored.enabled, false)
+  embeddings_connector_type_eff = local.embeddings_provided ? var.embeddings_connector_type : try(local.embeddings_stored.connector_type, var.embeddings_connector_type)
+  embeddings_model_eff          = local.embeddings_provided ? var.embeddings_model : try(local.embeddings_stored.model, var.embeddings_model)
+  embeddings_dimensions_eff     = local.embeddings_provided ? var.embeddings_dimensions : try(local.embeddings_stored.dimensions, var.embeddings_dimensions)
+  embeddings_api_key_eff        = local.embeddings_provided ? var.embeddings_api_key : try(local.embeddings_stored.api_key, "")
+}
+
+# Gated on embeddings_enabled_eff rather than on _provided, so a CI apply that
+# resolved the key from this very object rewrites identical content instead of
+# destroying it. Removed only when embeddings are genuinely turned off.
+resource "google_storage_bucket_object" "embeddings" {
+  count  = local.embeddings_enabled_eff ? 1 : 0
+  bucket = local.state_bucket
+  name   = "release/embeddings.json"
+  content = jsonencode({
+    enabled        = local.embeddings_enabled_eff
+    connector_type = local.embeddings_connector_type_eff
+    model          = local.embeddings_model_eff
+    dimensions     = local.embeddings_dimensions_eff
+    api_key        = local.embeddings_api_key_eff
+  })
+}
+
+data "google_storage_bucket_object_content" "embeddings" {
+  count  = local.embeddings_read ? 1 : 0
+  bucket = local.state_bucket
+  name   = "release/embeddings.json"
+}
+
 data "google_storage_bucket_object_content" "oidc" {
   count  = local.oidc_read ? 1 : 0
   bucket = local.state_bucket
@@ -248,6 +300,12 @@ module "octo" {
   chart_version     = var.chart_version
   registry_username = "oauth2accesstoken"
   registry_password = data.google_client_config.current.access_token
+
+  embeddings_enabled        = local.embeddings_enabled_eff
+  embeddings_connector_type = local.embeddings_connector_type_eff
+  embeddings_model          = local.embeddings_model_eff
+  embeddings_dimensions     = local.embeddings_dimensions_eff
+  embeddings_api_key        = local.embeddings_api_key_eff
 
   image_registry     = local.image_base
   image_tag          = var.image_tag

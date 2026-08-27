@@ -16,6 +16,46 @@ name: octo
 # :dev tags with imagePullPolicy: IfNotPresent, so DevSpace only has to install
 # the chart.
 
+# The one local setting that cannot live in a committed values file, because it
+# is a credential.
+#
+# Set EMBEDDINGS_API_KEY in your shell and the embedding server comes up with the
+# cluster, so searching agent memory ranks by meaning. Leave it unset and there is
+# no embedding server and search matches text — a supported way to run locally,
+# and the default precisely because there is no sensible default for somebody
+# else's API key.
+#
+# A devspace var rather than another values file: an optional values file that is
+# gitignored is one DevSpace refuses to deploy without, and a committed one is a
+# key in the repository.
+vars:
+  EMBEDDINGS_API_KEY:
+    source: env
+    default: ""
+  # The provider and model travel the same way as the key, and they have to: the
+  # key alone is not enough to reach anything. An OpenRouter key (sk-or-v1-…)
+  # against the llm-openai default authenticates nowhere, and the failure arrives
+  # as a 401 from a provider you did not choose rather than as a configuration
+  # mistake. One place to set all three, or none of them is honest.
+  #
+  # The defaults match helm/values.yaml, so a .env that sets only the key still
+  # gets a coherent OpenAI setup.
+  EMBEDDINGS_CONNECTOR_TYPE:
+    source: env
+    default: llm-openai
+  EMBEDDINGS_MODEL:
+    source: env
+    default: text-embedding-3-small
+  EMBEDDINGS_DIMENSIONS:
+    source: env
+    default: "1536"
+  # Derived from the key rather than set on its own, so there is one knob and no
+  # way to hold it wrong — "enabled with no key" renders a chart the secret
+  # template refuses, and "a key that does nothing" is worse than either.
+  EMBEDDINGS_ENABLED:
+    command: sh
+    args: ["-c", 'test -n "$EMBEDDINGS_API_KEY" && echo true || echo false']
+
 deployments:
   octo:
     # Explicit, and it must match: `task cluster:deploy` passes
@@ -34,6 +74,16 @@ deployments:
         name: ./helm
       valuesFiles:
         - ./helm/values-k3d.yaml
+      # Layered over the file above, so the key never has to be written into it.
+      # An empty key leaves embeddings.enabled false and the chart renders no
+      # embedding server at all.
+      values:
+        embeddings:
+          enabled: ${EMBEDDINGS_ENABLED}
+          apiKey: "${EMBEDDINGS_API_KEY}"
+          connectorType: "${EMBEDDINGS_CONNECTOR_TYPE}"
+          model: "${EMBEDDINGS_MODEL}"
+          dimensions: ${EMBEDDINGS_DIMENSIONS}
 
 # `devspace dev` mode (task cluster:dev): swaps the editor/orchestrator/logs pods
 # for their dev images, live-syncs source for hot reload, and tails all three

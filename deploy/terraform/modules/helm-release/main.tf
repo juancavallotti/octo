@@ -252,6 +252,35 @@ resource "helm_release" "octo" {
     }
   }
 
+  # --- The embedding server ---
+  # Enabled only when a key was supplied: the chart refuses to render the
+  # component without one, and an installation with no embeddings is an ordinary
+  # one rather than a broken one.
+  set {
+    name  = "embeddings.enabled"
+    value = var.embeddings_enabled && var.embeddings_api_key != ""
+  }
+
+  dynamic "set" {
+    for_each = nonsensitive(var.embeddings_enabled && var.embeddings_api_key != "") ? {
+      "embeddings.connectorType" = var.embeddings_connector_type
+      "embeddings.model"         = var.embeddings_model
+      "embeddings.dimensions"    = tostring(var.embeddings_dimensions)
+    } : {}
+    content {
+      name  = set.key
+      value = set.value
+    }
+  }
+
+  dynamic "set_sensitive" {
+    for_each = nonsensitive(var.embeddings_enabled && var.embeddings_api_key != "") ? toset(["embeddings.apiKey"]) : toset([])
+    content {
+      name  = set_sensitive.value
+      value = var.embeddings_api_key
+    }
+  }
+
   # KV secret-namespace encryption key. Supplied only when set so a key-less install
   # leaves encryption disabled (plain KV still works). set_sensitive keeps it out of
   # plans/logs.
