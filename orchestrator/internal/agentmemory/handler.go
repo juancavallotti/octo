@@ -77,12 +77,33 @@ func (h *Handler) Register(mux *http.ServeMux) {
 // response itself and reporting whether the caller should carry on.
 func (h *Handler) runtimeRef(w http.ResponseWriter, r *http.Request, ctx context.Context) (Ref, bool) {
 	ref, err := h.svc.RefForDeployment(ctx,
-		r.PathValue("id"), r.PathValue("agentId"), r.PathValue("threadKey"), r.PathValue("userId"))
+		r.PathValue("id"), r.PathValue("agentId"), r.PathValue("threadKey"), runtimeUser(r))
 	if err != nil {
 		h.writeError(w, err)
 		return Ref{}, false
 	}
 	return ref, true
+}
+
+// runtimeUser reads who a runtime write is on behalf of.
+//
+// The user-memory routes address a person in the path, because there the person
+// IS the resource. The thread routes do not: a conversation is addressed by its
+// thread key, and putting the user in the path too would give one conversation
+// two URLs and let a second write under a different user mint a duplicate of it.
+// So on those routes the user arrives as a query parameter — an attribute of the
+// write rather than part of the address — and the path value wins wherever there
+// is one.
+//
+// It has to arrive somehow. Without it every conversation was stored attributed
+// to nobody, and the platform lists a person's conversations BY that attribution,
+// so an agent recorded a full history that its own chat panel then showed as
+// empty.
+func runtimeUser(r *http.Request) string {
+	if user := r.PathValue("userId"); user != "" {
+		return user
+	}
+	return r.URL.Query().Get("userId")
 }
 
 // platformRef builds a Ref from an integration-scoped path.
@@ -200,6 +221,7 @@ type turnsRequest struct {
 //	@Param			id			path	string			true	"Deployment id"
 //	@Param			agentId		path	string			true	"Agent id"
 //	@Param			threadKey	path	string			true	"Conversation thread key"
+//	@Param			userId		query	string			false	"Who the conversation is with; attributed on first write"
 //	@Param			body		body	turnsRequest	true	"The turns to append"
 //	@Success		200			{object}	map[string]int64	"the conversation's new version"
 //	@Router			/deployments/{id}/agent-memory/{agentId}/threads/{threadKey}/turns [post]

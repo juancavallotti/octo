@@ -102,13 +102,28 @@ func (c *agentMemory) markUnavailable() {
 }
 
 // threadURL builds the URL for one conversation's sub-resource.
+//
+// The user rides along as a query parameter on the writes rather than in the path.
+// A conversation is addressed by its thread key alone — that is what makes it the
+// same conversation on every write — and a user segment would give it a second
+// address that a write with a different user could mint a duplicate under.
+//
+// It has to be sent, though, and for a while it was not: the orchestrator records
+// who a conversation is with on the first write that names one, and the platform
+// lists a person's conversations by exactly that attribution. Omitting it stored
+// every conversation attributed to nobody, so an agent kept a complete history
+// that its own chat panel then showed as empty.
 func (c *agentMemory) threadURL(ref core.MemoryRef, suffix string) string {
-	return fmt.Sprintf("%s/deployments/%s/agent-memory/%s/threads/%s%s",
+	u := fmt.Sprintf("%s/deployments/%s/agent-memory/%s/threads/%s%s",
 		c.baseURL,
 		url.PathEscape(c.deploymentID),
 		url.PathEscape(ref.AgentID),
 		url.PathEscape(ref.ThreadKey),
 		suffix)
+	if ref.UserID != "" {
+		u += "?userId=" + url.QueryEscape(ref.UserID)
+	}
+	return u
 }
 
 // userURL builds the URL for one person's memories under an agent.
