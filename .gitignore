@@ -37,3 +37,6 @@ helm/Chart.lock
 # here (see --storage-dir / OCTO_STORAGE_DIR), so running a sample from the repo
 # root leaves one behind. It is a runtime artifact, not source.
 octo-store/
+
+# Local task environment (see .env.example). Credentials, never committed.
+.env

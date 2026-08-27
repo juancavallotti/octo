@@ -33,6 +33,14 @@ acme_email = "you@example.com" # Let's Encrypt account (expiry notices)
 # seeded by a local `task deploy`. Changing this needs an infra apply: it is
 # baked into the trigger's substitutions.
 # oidc_provider_name     = "eetr auth"
+# The GCS bucket holding the release root's Terraform state, created by
+# `task state:bucket`. Empty derives octo-tfstate-{project_id}, which is what that
+# task makes, so this only needs setting if you named the bucket yourself. It is
+# here rather than in the release root because what reads it is the build service
+# account's storage grant: the Cloud Build deploy reads release/oidc.json and
+# release/embeddings.json out of this bucket, and cannot if the grant names the
+# wrong one.
+# state_bucket           = "octo-tfstate-your-gcp-project-id"
 
 # --- Optional overrides (defaults shown) ---
 # region        = "us-west1"
@@ -41,8 +49,18 @@ acme_email = "you@example.com" # Let's Encrypt account (expiry notices)
 # repository_id = "octo"
 # machine_type  = "e2-standard-2"
 #
-# ssh_source_ranges      = ["203.0.113.4/32"] # keep 35.235.240.0/20 for IAP/Cloud Build
-# kube_api_source_ranges = ["203.0.113.4/32"] # null = reuse ssh_source_ranges
+# WHO CAN REACH THE VM. Both DEFAULT TO OPEN, which is worth saying plainly
+# because the lines below look like the setting and are in fact the fix:
+# ssh_source_ranges defaults to ["0.0.0.0/0"], so leaving it commented publishes
+# SSH to the internet. kube_api_source_ranges defaults to null, which reuses
+# ssh_source_ranges — so the k3s API follows it, open included.
+#
+# Restrict both to your own address. Keep 35.235.240.0/20 in the list if you use
+# IAP tunnelling or Cloud Build deploys, and remember whatever runs
+# `terraform apply` must be able to reach 6443 or the apply fails at the first
+# helm resource with the VM already built.
+# ssh_source_ranges      = ["203.0.113.4/32", "35.235.240.0/20"]
+# kube_api_source_ranges = ["203.0.113.4/32", "35.235.240.0/20"]
 #
 # --- Disks ---
 # The boot disk holds the OS, k3s and its image cache. The DATABASE lives on a
@@ -55,3 +73,8 @@ acme_email = "you@example.com" # Let's Encrypt account (expiry notices)
 # data_disk_type                    = "pd-balanced" # pd-ssd for write-heavy installs
 # data_disk_mount_path              = "/mnt/octo-data"
 # data_disk_snapshot_retention_days = 7             # 0 disables daily snapshots
+# What the disk is attached AS, which is how the guest finds it: the startup
+# script mounts /dev/disk/by-id/google-{this}. Changing it on a live instance
+# means the script looks for a device that is not there, so the VM boots with no
+# data disk and Postgres lands on the boot disk instead.
+# data_disk_device_name             = "octo-data"
