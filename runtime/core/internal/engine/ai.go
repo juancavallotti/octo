@@ -551,6 +551,11 @@ type aiAgent struct {
 	// accepts when the connector has a streaming half to do it with.
 	events    *emitter
 	streaming bool
+	// namer is the chain that names a conversation, nil when the block declares
+	// none. It runs at most once per conversation — on the exchange that opened
+	// it — and what it returns is a title, not a message: the engine writes it
+	// through the store and discards everything else.
+	namer *Flow
 }
 
 // validateAgentConfig rejects an ai-agent block that cannot be built, before any
@@ -582,7 +587,7 @@ func validateAgentConfig(cfg types.BlockConfig) error {
 		"tools", "skills", "default", "connector", "prompt", "guardrail", "input", "answer",
 		"maxIterations", "memoryThreadId", "contextMaxTokens", "memoryCompaction",
 		"stopWhen", "events", "emit", "stream",
-		"agentId", "userId", "history", "userMemory")
+		"agentId", "userId", "history", "userMemory", "nameThread")
 }
 
 //nolint:ireturn // builders intentionally return the MessageProcessor interface
@@ -641,6 +646,7 @@ func (b *builder) aiAgent(cfg types.BlockConfig) (core.MessageProcessor, error) 
 		b.configureAgentStore,
 		b.configureAgentSignals,
 		b.configureAgentEvents,
+		b.configureAgentNamer,
 		b.configureAgentGuardrail,
 	} {
 		if err := configure(block, cfg); err != nil {
@@ -713,6 +719,28 @@ func (b *builder) configureAgentMemory(block *aiAgent, cfg types.BlockConfig) er
 	if cfg.MemoryVolatile {
 		block.memoryNamespace = core.NamespaceUserVolatile
 	}
+	return nil
+}
+
+// configureAgentNamer wires the chain that names a conversation.
+//
+// Refused without an agentId, and that is the same rule history and user memory
+// already follow: without one there is no first-class store, so there is nothing
+// a title could be written to. Failing here names the fix; failing at the end of
+// the first conversation would name nothing.
+func (b *builder) configureAgentNamer(block *aiAgent, cfg types.BlockConfig) error {
+	if cfg.NameThread == nil {
+		return nil
+	}
+	if strings.TrimSpace(cfg.AgentID) == "" {
+		return errors.New("ai-agent nameThread requires an agentId: " +
+			"without one the agent has no durable conversation to name")
+	}
+	flow, err := b.branch(core.BranchNameThread).subFlow(*cfg.NameThread)
+	if err != nil {
+		return fmt.Errorf("ai-agent nameThread: %w", err)
+	}
+	block.namer = flow
 	return nil
 }
 
@@ -951,7 +979,7 @@ func (a *aiAgent) Process(ctx context.Context, msg *types.Message) (*types.Messa
 		messages = append(messages, resp.Raw)
 
 		if resp.StopReason == core.LLMStopRefusal {
-			sess.recordTurn(saveCtx, "", iter+1, "refused")
+			sess.recordTurn(saveCtx, msg, "", iter+1, "refused")
 			a.persistMemory(saveCtx, current, sess, messages, meter, a.memoryCompaction)
 			return a.fallback(runCtx, current, iter, "model refused")
 		}
@@ -1029,7 +1057,7 @@ func (a *aiAgent) outOfTurns(
 ) (*types.Message, error) {
 	last := a.maxIterations - 1
 	a.reportUnanswered(runCtx, current, run, last)
-	sess.recordTurn(saveCtx, "", a.maxIterations, "max iterations")
+	sess.recordTurn(saveCtx, current, "", a.maxIterations, "max iterations")
 	a.persistMemory(saveCtx, current, sess, messages, meter, a.memoryCompaction)
 	return a.fallback(ctx, current, last, "exceeded max iterations")
 }
@@ -1053,7 +1081,7 @@ func (a *aiAgent) tryFinish(
 	slog.Info("ai-agent finished", "block", a.name, "iterations", iter+1)
 	out := foldResult(current, resp.Text)
 	a.report(runCtx, out, iter, eventDone, map[string]any{fieldText: resp.Text})
-	sess.recordTurn(saveCtx, resp.Text, iter+1, "")
+	sess.recordTurn(saveCtx, current, resp.Text, iter+1, "")
 	a.persistMemory(saveCtx, current, sess, messages, meter, a.memoryCompaction)
 	return out
 }
@@ -1207,7 +1235,7 @@ func (a *aiAgent) halt(
 	current.RequestStop()
 	// The question is recorded even though it was never answered. Somebody asked it,
 	// and a history that shows only the exchanges that went well is not a history.
-	sess.recordTurn(ctx, "", iter+1, reason)
+	sess.recordTurn(ctx, current, "", iter+1, reason)
 	// Pruned rather than summarized, whatever the block configured. Every path
 	// through here is a run ending early because nobody is waiting for it any
 	// more — a closed connection, a tool branch bailing out, a person pressing

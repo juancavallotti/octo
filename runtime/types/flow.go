@@ -232,6 +232,17 @@ type BlockConfig struct {
 	// Never for a conversation somebody will ask to see again: the tier makes no
 	// durability promise at all and may drop a value on a restart.
 	MemoryVolatile bool `yaml:"memoryVolatile,omitempty"`
+	// NameThread is the sub-flow an "ai-agent" runs to name a conversation, once,
+	// on the exchange that opened it. Whatever it returns as a string becomes the
+	// title; an empty result names nothing, which is the right outcome when the
+	// exchange is too thin to name or the model declined.
+	//
+	// It exists because naming is a model call and the engine has no business
+	// choosing the prompt — but the WRITE is the engine's, because it holds the
+	// conversation's reference and the store knows how to record a title on
+	// whichever tier it is. Standalone renames the thread on disk; the platform
+	// calls the orchestrator. Neither is the flow author's problem.
+	NameThread *FlowConfig `yaml:"nameThread,omitempty"`
 	// Events is the observer sub-flow a block runs once per event it reports, with
 	// the event as the message body. Its result is discarded: the sub-flow
 	// reports, it does not take part in the run. An "ai-agent" reports on its own

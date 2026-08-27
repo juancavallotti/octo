@@ -346,7 +346,9 @@ func (s *memorySession) dropLegacy(ctx context.Context) {
 // refused. The question is still recorded in that case, marked unanswered:
 // somebody asked it, and a history that shows only the exchanges that went well
 // is not a history.
-func (s *memorySession) recordTurn(ctx context.Context, answered string, iterations int, stopReason string) {
+func (s *memorySession) recordTurn(
+	ctx context.Context, msg *types.Message, answered string, iterations int, stopReason string,
+) {
 	if !s.recording() || s.recorded {
 		return
 	}
@@ -371,14 +373,7 @@ func (s *memorySession) recordTurn(ctx context.Context, answered string, iterati
 		return
 	}
 	if s.fresh {
-		// The only moment the engine names a conversation: it has just opened one, and
-		// a list needs something to show. A better title is a judgement about what the
-		// exchange was about, which is a model call — so it belongs to the flow that
-		// wants to pay for it, through the platform's title route, not to the runtime.
-		if err := s.store.SetTitle(ctx, s.ref, titleFor(s.opening)); err != nil {
-			slog.Debug("ai-agent could not title the new conversation",
-				"block", s.agent.name, "thread", s.thread, "error", err)
-		}
+		s.nameThread(ctx, msg, answered)
 		s.fresh = false
 	}
 	if _, err := s.store.AppendTurns(ctx, s.ref, turns); err != nil {
@@ -388,6 +383,121 @@ func (s *memorySession) recordTurn(ctx context.Context, answered string, iterati
 		slog.Warn("ai-agent could not record the conversation turn",
 			"block", s.agent.name, "agent", s.ref.AgentID, "thread", s.thread, "error", err)
 	}
+}
+
+// nameThread names the conversation this run just opened.
+//
+// The name comes from the block's nameThread chain when it declares one, and
+// from the opening question otherwise. Which is which matters: a chain is a model
+// call, and what to ask it — which model, what prompt, how long a name — is the
+// flow author's decision, not the runtime's. The fallback is a truncation, which
+// is not a judgement about anything and is only there so a list has something to
+// show.
+//
+// The WRITE is the engine's either way, and that is the whole point of the slot
+// being a slot. The engine is holding the conversation's reference; the store
+// knows how to record a title on whichever tier it is — standalone renames it on
+// disk, the platform calls the orchestrator. A chain that had to do the writing
+// would need the reference handed to it, would have to reassemble a key it never
+// composed, and would be addressing the store the engine is already inside.
+//
+// Failure names nothing and says so quietly. A conversation without a title is
+// listed by its key, which is worse to read and no worse to use — and taking the
+// run down over a label, after the person already has their answer, would be a
+// poor trade.
+func (s *memorySession) nameThread(ctx context.Context, msg *types.Message, answered string) {
+	title := titleFor(s.opening)
+	if s.agent.namer != nil {
+		named, err := s.askForName(ctx, msg, answered)
+		if err != nil {
+			// A chain that blew up has said nothing, so the fallback stands. This is
+			// the one case where the truncation survives a declared chain.
+			slog.Warn("ai-agent could not name the new conversation",
+				"block", s.agent.name, "thread", s.thread, "error", err)
+		} else {
+			// Otherwise the chain's answer IS the title, empty included. An empty
+			// answer is a decision — this exchange is not worth naming — and falling
+			// back to the first line of the question would be overruling it.
+			title = named
+		}
+	}
+	if title == "" {
+		// Nothing to record. A conversation with no title is listed by its key,
+		// which is worse to read and no worse to use.
+		return
+	}
+	if err := s.store.SetTitle(ctx, s.ref, title); err != nil {
+		slog.Debug("ai-agent could not title the new conversation",
+			"block", s.agent.name, "thread", s.thread, "error", err)
+	}
+}
+
+// askForName runs the naming chain over the exchange and returns what it made of
+// it, trimmed to the same ceiling a fallback title gets.
+//
+// The chain is given a message of its own rather than the run's: it is not part
+// of the conversation, and a chain that set a variable on the live message would
+// be writing into a transcript it was only asked to describe.
+func (s *memorySession) askForName(
+	ctx context.Context, msg *types.Message, answered string,
+) (string, error) {
+	// Correlated with the run and carrying its variables, exactly as the events
+	// path builds its own message: a naming call that appeared in a trace with no
+	// relation to the conversation it named would be the harder thing to read.
+	named, err := types.NewMessage(correlationOf(msg))
+	if err != nil {
+		return "", err
+	}
+	if msg != nil {
+		for name, v := range msg.Variables {
+			named.Variables.Set(name, v)
+		}
+	}
+	named.SetBody(map[string]any{
+		"threadKey": s.thread,
+		"agentId":   s.ref.AgentID,
+		"userId":    s.ref.UserID,
+		"question":  s.opening,
+		"answer":    answered,
+	})
+	out, err := s.agent.namer.Process(ctx, named)
+	if err != nil {
+		return "", err
+	}
+	if out == nil {
+		// The chain filtered its own message out, which is a way of declining.
+		return "", nil
+	}
+	return clipRunes(strings.TrimSpace(nameFromBody(out.Body)), titleMaxLen), nil
+}
+
+// correlationOf is the run's correlation id, or empty when there is no message to
+// take one from — which only happens in tests that drive a session directly.
+func correlationOf(msg *types.Message) string {
+	if msg == nil {
+		return ""
+	}
+	return msg.CorrelationID
+}
+
+// nameFromBody reads a title out of whatever the chain answered with.
+//
+// A string is the expected shape and an ai-mapping produces one. A map is
+// accepted for the `{"title": "..."}` an author will reasonably write, because
+// discovering that only prose works — after paying for the model call — is a
+// worse lesson than accepting both.
+func nameFromBody(body any) string {
+	switch v := body.(type) {
+	case string:
+		return v
+	case map[string]any:
+		for _, key := range []string{"title", "name"} {
+			if s, ok := v[key].(string); ok {
+				return s
+			}
+		}
+	}
+	return ""
 }
 
 // memoryPreamble is what the agent has been told to remember about this person,
