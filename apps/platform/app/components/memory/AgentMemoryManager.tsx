@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useConfirm } from "@/app/components/ConfirmDialog";
 import {
   deleteAgentUserMemory,
@@ -56,13 +56,26 @@ export default function AgentMemoryManager() {
     listMemoryIntegrations().then(setIntegrations, fail);
   }, [fail]);
 
+  // The current selection, readable from a callback that started before it
+  // changed. State alone cannot serve that: a closure captures the value it was
+  // created with, which is exactly the stale value a late response has to be
+  // compared against.
+  // Written by the two change handlers, beside the state they mirror, rather than
+  // during render — React reserves render for producing output, and a ref written
+  // there is a side effect the linter is right to refuse.
+  const integrationRef = useRef(integrationId);
+  const agentRef = useRef(agentId);
+
   const loadThreads = useCallback(
     (integration: string, agent: string) => {
       if (!integration || !agent) {
         setThreads([]);
         return;
       }
-      listMemoryThreads(integration, agent).then((page) => setThreads(page.threads), fail);
+      listMemoryThreads(integration, agent).then((page) => {
+        if (integration !== integrationRef.current || agent !== agentRef.current) return;
+        setThreads(page.threads);
+      }, fail);
     },
     [fail],
   );
@@ -81,6 +94,8 @@ export default function AgentMemoryManager() {
    * there is anything to look at.
    */
   const changeIntegration = (next: string) => {
+    integrationRef.current = next;
+    agentRef.current = "";
     setIntegrationId(next);
     setAgentId("");
     setAgents([]);
@@ -93,6 +108,7 @@ export default function AgentMemoryManager() {
 
   /** Choosing an agent clears what belonged to the last one and loads its threads. */
   const changeAgent = (next: string) => {
+    agentRef.current = next;
     setAgentId(next);
     setSelected(null);
     setMemories([]);
@@ -100,24 +116,41 @@ export default function AgentMemoryManager() {
     loadThreads(integrationId, next);
   };
 
+  /**
+   * Read one conversation, and what the agent remembers about the person in it.
+   *
+   * The selection is captured before the first await and checked after each one.
+   * Without that, switching agent while a read is in flight lets the late
+   * response overwrite the cleared state — and the viewer then shows one agent's
+   * conversation and one person's remembered facts under a different agent's
+   * name, which is the worst kind of wrong for a tool whose whole job is telling
+   * you what a particular agent knows.
+   */
   const openThread = async (threadKey: string) => {
+    const forIntegration = integrationId;
+    const forAgent = agentId;
+    const stale = () => forIntegration !== integrationRef.current || forAgent !== agentRef.current;
+
     setBusy(true);
     setError(null);
     try {
-      const transcript = await readMemoryThread(integrationId, agentId, threadKey);
+      const transcript = await readMemoryThread(forIntegration, forAgent, threadKey);
+      if (stale()) return;
       setSelected(transcript);
       // A conversation names the person it was with, which is the only handle the
       // curated memories are addressed by — so they can only be loaded once one is
       // open. An agent that serves nobody in particular has none.
       if (transcript.thread.userId) {
-        setMemories(await listAgentUserMemories(integrationId, agentId, transcript.thread.userId));
+        const next = await listAgentUserMemories(forIntegration, forAgent, transcript.thread.userId);
+        if (stale()) return;
+        setMemories(next);
       } else {
         setMemories([]);
       }
     } catch (e) {
-      fail(e);
+      if (!stale()) fail(e);
     } finally {
-      setBusy(false);
+      if (!stale()) setBusy(false);
     }
   };
 
@@ -163,8 +196,12 @@ export default function AgentMemoryManager() {
       setHits(null);
       return;
     }
+    const forIntegration = integrationId;
+    const forAgent = agentId;
     try {
-      setHits(await searchAgentMemory(integrationId, agentId, text));
+      const found = await searchAgentMemory(forIntegration, forAgent, text);
+      if (forIntegration !== integrationRef.current || forAgent !== agentRef.current) return;
+      setHits(found);
     } catch (e) {
       fail(e);
     }

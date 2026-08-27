@@ -47,18 +47,25 @@ func (r *Repo) EmbeddingCounts(ctx context.Context) (embedded, pending int, err 
 // where search stays useless for as long as the backlog takes. Both partial
 // indexes exist to make this query cheap regardless of how much is already done.
 func (r *Repo) PendingEmbeddings(ctx context.Context, limit int) ([]Pending, error) {
+	// The outer LIMIT is the one that matters. A LIMIT inside each arm of a UNION
+	// bounds that arm alone, so with both tables pending — the ordinary state the
+	// moment an operator turns embeddings on — this returned twice the batch and
+	// the sweep spent at twice the rate it documents.
 	rows, err := r.pool.Query(ctx,
-		`(SELECT 'turn'::varchar AS kind, id::text, text
-		    FROM agent_turns
-		   WHERE embedding IS NULL AND text <> ''
-		   ORDER BY created_at DESC
-		   LIMIT $1)
-		 UNION ALL
-		 (SELECT 'user'::varchar, id::text, value
-		    FROM agent_user_memories
-		   WHERE embedding IS NULL AND value <> ''
-		   ORDER BY updated_at DESC
-		   LIMIT $1)`, limit)
+		`SELECT kind, id, text FROM (
+		     (SELECT 'turn'::varchar AS kind, id::text AS id, text
+		        FROM agent_turns
+		       WHERE embedding IS NULL AND text <> ''
+		       ORDER BY created_at DESC
+		       LIMIT $1)
+		     UNION ALL
+		     (SELECT 'user'::varchar AS kind, id::text AS id, value AS text
+		        FROM agent_user_memories
+		       WHERE embedding IS NULL AND value <> ''
+		       ORDER BY updated_at DESC
+		       LIMIT $1)
+		 ) pending
+		 LIMIT $1`, limit)
 	if err != nil {
 		return nil, fmt.Errorf("agent memory: pending embeddings: %w", err)
 	}
@@ -190,4 +197,35 @@ func (r *Repo) SearchVector(
 		out = append(out, h)
 	}
 	return out, rows.Err()
+}
+
+// ClearEmbeddings discards every stored vector.
+//
+// It is what a change of embedding space costs. Vectors carry no record of which
+// model produced them — deliberately, because a store holding two models' vectors
+// is not searchable either way and ranking only the matching subset would silently
+// halve the results rather than fail — so the only way to keep the store coherent
+// across a model change is to have exactly one space in it at a time.
+//
+// The rows are not deleted, only their vectors: the text is still there, still
+// searchable by keyword, and the sweep rebuilds the vectors from it.
+func (r *Repo) ClearEmbeddings(ctx context.Context) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("agent memory: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx,
+		`UPDATE agent_turns SET embedding = NULL WHERE embedding IS NOT NULL`); err != nil {
+		return fmt.Errorf("agent memory: clear turn embeddings: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE agent_user_memories SET embedding = NULL WHERE embedding IS NOT NULL`); err != nil {
+		return fmt.Errorf("agent memory: clear memory embeddings: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("agent memory: commit: %w", err)
+	}
+	return nil
 }

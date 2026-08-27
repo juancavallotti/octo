@@ -129,18 +129,26 @@ func TestUpdateWithoutEncryptionRefusesAKey(t *testing.T) {
 	}
 }
 
-// fakeCounter reports fixed backfill counts.
-type fakeCounter struct{ embedded, pending int }
+// fakeVectors reports fixed backfill counts and records a discard.
+type fakeVectors struct {
+	embedded, pending int
+	cleared           int
+}
 
-func (f fakeCounter) EmbeddingCounts(context.Context) (int, int, error) {
+func (f *fakeVectors) EmbeddingCounts(context.Context) (int, int, error) {
 	return f.embedded, f.pending, nil
+}
+
+func (f *fakeVectors) ClearEmbeddings(context.Context) error {
+	f.cleared++
+	return nil
 }
 
 // TestStatusReportsTheBackfill covers the distinction the admin page exists to
 // show: configured and "search is semantic" are not the same statement while a
 // backlog is draining.
 func TestStatusReportsTheBackfill(t *testing.T) {
-	svc := NewService(&fakeRepo{}, testCipher(t), fakeCounter{embedded: 40, pending: 60})
+	svc := NewService(&fakeRepo{}, testCipher(t), &fakeVectors{embedded: 40, pending: 60})
 	status, err := svc.Status(context.Background())
 	if err != nil {
 		t.Fatalf("status: %v", err)
@@ -168,5 +176,79 @@ func TestRevealIsQuietWhenNothingIsConfigured(t *testing.T) {
 	}
 	if creds.Configured() {
 		t.Error("nothing is configured, so the credentials should not claim to be")
+	}
+}
+
+// TestChangingTheModelDiscardsTheVectors is what keeps "there is no per-row model"
+// a simplification rather than a latent corruption.
+//
+// A store holding two models' vectors is not searchable either way, and nothing
+// records which model made which. So the only safe invariant is one embedding
+// space at a time, and a change of space costs the vectors — not the rows, which
+// still carry their text and are still searched by keyword while the sweep
+// rebuilds.
+func TestChangingTheModelDiscardsTheVectors(t *testing.T) {
+	vec := &fakeVectors{embedded: 500}
+	svc := NewService(&fakeRepo{}, testCipher(t), vec)
+	ctx := context.Background()
+
+	if _, err := svc.Update(ctx, Update{
+		Provider: ProviderOpenAI, Model: "text-embedding-3-small", APIKey: ptr("sk-secret-key"),
+	}); err != nil {
+		t.Fatalf("first save: %v", err)
+	}
+	if vec.cleared != 0 {
+		t.Error("a first configuration has nothing to be inconsistent with, so nothing to discard")
+	}
+
+	if _, err := svc.Update(ctx, Update{
+		Provider: ProviderOpenAI, Model: "text-embedding-3-large",
+	}); err != nil {
+		t.Fatalf("change model: %v", err)
+	}
+	if vec.cleared != 1 {
+		t.Errorf("changing the model should discard the vectors, cleared=%d", vec.cleared)
+	}
+}
+
+// TestSavingTheSameSettingsKeepsTheVectors checks the discard is triggered by a
+// change of space and not by any save — pressing Save twice must not cost a
+// re-embed of the whole store.
+func TestSavingTheSameSettingsKeepsTheVectors(t *testing.T) {
+	vec := &fakeVectors{embedded: 500}
+	svc := NewService(&fakeRepo{}, testCipher(t), vec)
+	ctx := context.Background()
+
+	settings := Update{Provider: ProviderOpenAI, Model: "text-embedding-3-small", APIKey: ptr("sk-secret-key")}
+	if _, err := svc.Update(ctx, settings); err != nil {
+		t.Fatalf("first save: %v", err)
+	}
+	if _, err := svc.Update(ctx, Update{Provider: ProviderOpenAI, Model: "text-embedding-3-small"}); err != nil {
+		t.Fatalf("second save: %v", err)
+	}
+	if vec.cleared != 0 {
+		t.Errorf("saving unchanged settings should not discard anything, cleared=%d", vec.cleared)
+	}
+}
+
+// TestClearDiscardsTheVectors covers the toggle. Once the settings are gone,
+// nothing records which model made the stored vectors — so keeping them would
+// mean the next configuration could be a different model over a store that
+// silently holds two spaces.
+func TestClearDiscardsTheVectors(t *testing.T) {
+	vec := &fakeVectors{embedded: 500}
+	svc := NewService(&fakeRepo{}, testCipher(t), vec)
+	ctx := context.Background()
+
+	if _, err := svc.Update(ctx, Update{
+		Provider: ProviderOpenAI, Model: "text-embedding-3-small", APIKey: ptr("sk-secret-key"),
+	}); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if err := svc.Clear(ctx); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+	if vec.cleared != 1 {
+		t.Errorf("turning embeddings off should discard the vectors, cleared=%d", vec.cleared)
 	}
 }

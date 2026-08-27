@@ -9,6 +9,7 @@ import {
   type EmbeddingStatus,
 } from "@/app/model/siteSettings";
 import { ApiKeyField, EncryptionWarning, Field, INPUT, PrimaryButton } from "./fields";
+import { BackfillProgress } from "./BackfillProgress";
 import {
   EMBEDDING_DIMENSIONS,
   EMBEDDING_PROVIDERS,
@@ -89,12 +90,15 @@ export default function EmbeddingSettingsManager() {
   const encryptionAvailable = status?.encryptionAvailable ?? true;
 
   /**
-   * Changing the model is the one setting here that a second change cannot undo.
+   * Changing the embedding space discards every stored vector.
    *
-   * Stored vectors carry no record of which model produced them, so a table
-   * holding two models' vectors is not searchable either way. The platform does
-   * not re-embed, so the honest thing is to say what will happen before it does —
-   * and only when there is something to lose.
+   * It has to. Vectors carry no record of which model produced them, so a store
+   * holding two models' is not searchable either way — keeping one space at a time
+   * is what makes that simplification safe rather than a corruption waiting for
+   * someone to change a setting. The text is untouched and search keeps working on
+   * it while the sweep rebuilds, so what this actually costs is the re-embedding.
+   *
+   * Said before it happens, and only when there is something to lose.
    */
   const confirmModelChange = async (): Promise<boolean> => {
     const changingModel = status !== null && status.settings.model !== "" &&
@@ -105,12 +109,13 @@ export default function EmbeddingSettingsManager() {
     return confirm({
       title: "Change the embedding model?",
       body:
-        `${embedded.toLocaleString()} stored ${embedded === 1 ? "item" : "items"} were ` +
-        "vectorized with the current model. Vectors from two different models cannot be " +
-        "compared, so semantic search will return unreliable results until everything is " +
-        "re-embedded — which the platform does not do for you. Clear the settings first " +
-        "if you want a clean backfill.",
-      confirmLabel: "Change anyway",
+        `${embedded.toLocaleString()} stored ${embedded === 1 ? "item" : "items"} ` +
+        `${embedded === 1 ? "was" : "were"} vectorized with the current model, and will be ` +
+        "discarded — vectors from two models cannot be compared, so the store keeps one " +
+        "at a time. Nothing is lost but the vectors: search falls back to matching text " +
+        "while the backfill rebuilds them, which costs whatever your provider charges " +
+        "for the whole store again.",
+      confirmLabel: "Change and re-embed",
       danger: true,
     });
   };
@@ -133,9 +138,10 @@ export default function EmbeddingSettingsManager() {
     const ok = await confirm({
       title: "Turn embeddings off?",
       body:
-        "Search falls back to full-text matching immediately. Stored vectors are left " +
-        "where they are, so turning the same model back on does not mean re-embedding " +
-        "everything.",
+        "Search falls back to matching text immediately, and the stored vectors are " +
+        "discarded — with no configuration there is nothing recording which model made " +
+        "them, so keeping them would risk a different model being configured over the " +
+        "top. Turning embeddings back on re-embeds the store.",
       confirmLabel: "Turn off",
       danger: true,
     });
@@ -213,41 +219,6 @@ export default function EmbeddingSettingsManager() {
         </div>
 
         <BackfillProgress embedded={embedded} pending={pending} />
-      </div>
-    </div>
-  );
-}
-
-/**
- * How much of the store has a vector.
- *
- * It is on the page because turning embeddings on does not make search semantic
- * — it makes it become semantic, over however long the backlog takes. Without
- * this an operator who configures a provider and searches immediately finds the
- * same results as before and reasonably concludes it did not work.
- */
-function BackfillProgress({ embedded, pending }: { embedded: number; pending: number }) {
-  const total = embedded + pending;
-  if (total === 0) return null;
-  const done = Math.round((embedded / total) * 100);
-  return (
-    <div className="mt-4 rounded-lg border border-black/10 p-4 dark:border-white/10">
-      <h2 className="text-sm font-medium">Backfill</h2>
-      <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-        {pending === 0
-          ? `All ${embedded.toLocaleString()} stored items are vectorized.`
-          : `${embedded.toLocaleString()} of ${total.toLocaleString()} vectorized. ` +
-            "The rest are searched by text until the sweep reaches them."}
-      </p>
-      <div
-        className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-black/10 dark:bg-white/10"
-        role="progressbar"
-        aria-valuenow={done}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-label="Embedding backfill progress"
-      >
-        <div className="h-full bg-emerald-500" style={{ width: `${done}%` }} />
       </div>
     </div>
   );
