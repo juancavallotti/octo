@@ -282,34 +282,32 @@ flows:
       # stolen thread id names a conversation that does not exist. The user block is
       # injected server-side by the chat route and overwritten there, so a forged one
       # in the request never reaches this expression.
-      - type: set-variable
-        name: user-key
+      # Everything the flow needs to know about the request, resolved once.
+      #
+      # One multi-transform rather than four set-variables in a row: that is what
+      # this block is for, and a chain of them is the shape it exists to replace.
+      # The transforms run in order, so threadKey can read the two above it.
+      - type: multi-transform
+        name: resolve-request
         settings:
-          name: userKey
-          value: >-
-            has(body.user) && has(body.user.id) && body.user.id != ""
-              ? body.user.id : "anonymous"
-
-      - type: set-variable
-        name: thread-id
-        settings:
-          name: threadId
-          value: 'has(body.threadId) && body.threadId != "" ? body.threadId : "default"'
-
-      - type: set-variable
-        name: thread-key
-        settings:
-          name: threadKey
-          value: vars.userKey + "/" + vars.threadId
-
-      # The question, kept before the agent replaces the body with its answer. The
-      # conversation record needs both halves and can only see one of them at a
-      # time.
-      - type: set-variable
-        name: keep-question
-        settings:
-          name: question
-          value: 'has(body.message) ? body.message : ""'
+          transforms:
+            # The key is the user the platform authenticated, plus the thread — so
+            # a stolen thread id names a conversation that does not exist. The user
+            # block is injected server-side by the chat route and overwritten
+            # there, so a forged one in the request never reaches this expression.
+            - setVar: userKey
+              value: >-
+                has(body.user) && has(body.user.id) && body.user.id != ""
+                  ? body.user.id : "anonymous"
+            - setVar: threadId
+              value: 'has(body.threadId) && body.threadId != "" ? body.threadId : "default"'
+            - setVar: threadKey
+              value: vars.userKey + "/" + vars.threadId
+            # The question, kept before the agent replaces the body with its
+            # answer. The conversation record needs both halves and can only see
+            # one of them at a time.
+            - setVar: question
+              value: 'has(body.message) ? body.message : ""'
 
       # The agent's input, stated rather than inherited. The email is dropped — it
       # identifies a real person to an external provider and nothing in the prompt
@@ -834,7 +832,7 @@ flows:
                     name: build-record
                     settings:
                       value: >-
-                        {"threadId": vars.threadId,
+                        {"threadKey": vars.threadKey,
                          "question": vars.question,
                          "answer": type(body) == string ? body : toJson(body)}
                   - type: queue-dispatch
@@ -882,6 +880,12 @@ flows:
       #
       # failOnError is off because a conversation with no row yet answers 404, and
       # that is an answer: it has no name, so it needs one.
+      # The key is escaped because it CONTAINS a slash: it is userKey/threadId,
+      # and {threadKey} in the route is a single-segment wildcard. Sent raw it
+      # would read as two segments, match no route, and 404 — which is how this
+      # flow spent its first outing titling a thread nobody wrote to. The runtime's
+      # own client does the same thing with url.PathEscape; the server decodes it
+      # back, so what arrives is the key as written.
       - type: rest-dynamic
         name: read-thread
         settings:
@@ -889,7 +893,7 @@ flows:
           method: '"GET"'
           path: >-
             "/deployments/" + env.OCTO_DEPLOYMENT_ID + "/agent-memory/dr-octo/threads/"
-              + vars.exchange.threadId
+              + vars.exchange.threadKey.replace("/", "%2F")
           allowMethods: [GET]
           failOnError: false
       - type: set-variable
@@ -948,7 +952,7 @@ flows:
                     path: >-
                       "/deployments/" + env.OCTO_DEPLOYMENT_ID
                         + "/agent-memory/dr-octo/threads/"
-                        + vars.exchange.threadId + "/title"
+                        + vars.exchange.threadKey.replace("/", "%2F") + "/title"
                     allowMethods: [PUT]
                     body: 'toJson({"title": body.title})'
               error:

@@ -32,7 +32,7 @@ env:
 mocks:
   name-conversation.read-thread:
     default:
-      body: { threadKey: t-1, title: "", turnCount: 2 }
+      body: { threadKey: u-1/t-1, title: "", turnCount: 2 }
   name-conversation.needs-a-name[then].name-or-give-up[process].write-title:
     default:
       body: { title: Listing the integrations }
@@ -43,7 +43,7 @@ mocks:
 inputs:
   an exchange:
     data:
-      threadId: t-1
+      threadKey: u-1/t-1
       question: list my integrations
       answer: You have three.
 
@@ -64,7 +64,7 @@ cases:
     mocks:
       name-conversation.read-thread:
         default:
-          body: { threadKey: t-1, title: Deploying the orders integration, turnCount: 4 }
+          body: { threadKey: u-1/t-1, title: Deploying the orders integration, turnCount: 4 }
     spies:
       name-conversation.needs-a-name[then].name-or-give-up[process].write-title:
         count: 0
@@ -76,7 +76,7 @@ cases:
     mocks:
       name-conversation.read-thread:
         default:
-          body: { threadKey: t-1, title: t-1, turnCount: 2 }
+          body: { threadKey: u-1/t-1, title: u-1/t-1, turnCount: 2 }
     spies:
       name-conversation.needs-a-name[then].name-or-give-up[process].write-title:
         count: 1

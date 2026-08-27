@@ -289,7 +289,13 @@ cases:
         records:
           - input:
               that:
-                - 'body.threadId == "t-1"'
+                # The COMPOSITE key, not the bare thread id, and that is the
+                # point of the assertion. The agent writes its memory under
+                # vars.threadKey; a namer handed the bare id addressed a
+                # different thread, created it by titling it, and left the real
+                # conversation nameless beside an empty one wearing its title.
+                - 'body.threadKey == "u-1/t-1"'
+                - '!has(body.threadId)'
                 - 'body.question == "list my integrations"'
                 - 'body.answer == "You have three integrations."'
 
