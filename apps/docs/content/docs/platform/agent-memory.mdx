@@ -1,20 +1,42 @@
 ---
 title: "Agent Memory"
-description: "Read what agents have recorded: their conversations, and the facts they keep about people."
+description: "Read what agents have recorded: their conversations, what they still carry, and the facts they keep about people."
 ---
 
-`/platform/memory` reads what agents have actually recorded: the conversations they have had, and the facts they chose to keep about the people in them.
+`/platform/memory` reads what agents have actually recorded: the conversations they have had, what they are still carrying from them, and the facts they chose to keep about the people in them.
 
-It is a platform section rather than an admin page, and the distinction is worth stating: nothing here configures anything. This is **data that belongs to integrations**, read the same way [logs](/platform/logs-api-reference), [traces](/platform/traces) and [stored objects](/platform/kv-and-storage) are. What an agent has to declare before any of it is recorded is in [Agent Memory](/ai/agent-memory); what the embedding server changes about searching it is in [Admin settings](/platform/admin-settings).
+It sits beside the [Object Store](/platform/kv-and-storage) rather than under Admin, and the placement is the argument: nothing on this page configures anything. This is **data that belongs to integrations**, read the same way [logs](/platform/logs-api-reference), [traces](/platform/traces) and stored objects are. What an agent has to declare before any of it is recorded is in [Agent Memory](/ai/agent-memory).
 
-Pick an integration, then an agent. The agent list is what has **stored** something, not what a definition declares — an agent appears once it has recorded a conversation.
+Pick an integration, then an agent. The agent list is what has **stored** something, not what a definition declares — an agent appears here once it has recorded a conversation.
 
-Conversations here are **uncompacted**. That is the difference between this and what the agent still carries: working memory is pruned or summarized to fit the model's context window, and this record is not touched again once written. A question the agent never got back to is badged rather than hidden.
+## The transcript and the live context
 
-You can read, search, erase a conversation, and forget one remembered fact. You cannot **edit** a remembered fact, and that is deliberate: an operator rewriting what an agent believes about a person, with no audit trail and nothing in the conversation explaining the change, is a capability that should be asked for explicitly rather than fall out of a viewer.
+Opening a conversation shows two panels, and the interesting fact is usually the difference between them.
 
-Erasing reaches everything — the transcript, the working state the agent would have resumed from, and the conversation itself.
+**Transcript** is the durable record: what was asked and what was answered, in order, and **never compacted**. Once a turn is written it is not touched again. A question the agent never got back to is badged rather than hidden.
+
+**Working memory** is what the agent still carries into its next turn — the same conversation after pruning or summarizing to fit the model's context window. It reports how many tokens it holds, how large it is, which iteration it was checkpointed at, and its version.
+
+Reading them side by side is how you answer *"why doesn't it remember what I told it?"*. A conversation whose transcript runs to forty turns and whose working memory holds six is one where the model genuinely no longer knows how it started, and the panels say so plainly. Before they sat together there was no way to tell that from a bug.
+
+The working-memory payload is the **runtime's** serialized form. The orchestrator stores it without parsing it — deliberately, so the engine can change the format without a schema migration — so the viewer decodes it best-effort: the shape it recognizes renders as messages, and anything else falls back to the raw text with the counts still shown.
+
+A conversation that ended cleanly often has no working memory at all. That is ordinary, and the panel says so rather than showing an empty box.
+
+## What you can and cannot do
+
+You can read, search, erase a conversation, and forget one remembered fact.
+
+You cannot **edit** a remembered fact, and that is deliberate: an operator rewriting what an agent believes about a person, with no audit trail and nothing in the conversation explaining the change, is a capability that should be asked for explicitly rather than fall out of a viewer.
+
+Erasing reaches everything — the transcript, the working memory, and the conversation itself. A delete that reached only one of them would report success over a copy that is still readable.
+
+## Searching
+
+Search covers an agent's recorded turns and the facts it keeps. It ranks by **meaning** when the [embedding server](/platform/admin-settings) is deployed and by **words** when it is not; the line under the page heading says which, and neither is a degraded mode. It also reports how much is still waiting for a vector, because turning embeddings on does not make search semantic so much as make it *become* semantic — and a search run during that backfill is matched by text.
 
 ## Where it is stored
 
-Agent memory has real tables — `agent_threads`, `agent_working_memory`, `agent_turns`, `agent_user_memories` — rather than rows in `site_settings`, because it is data rather than configuration and has to be queried, paged and searched. They are keyed on the **integration** rather than the deployment, so a conversation survives a redeploy.
+Agent memory has real tables — `agent_threads`, `agent_working_memory`, `agent_turns`, `agent_user_memories` — rather than rows in `site_settings`, because it is data rather than configuration and has to be queried, paged and searched.
+
+They are keyed on the **integration** rather than the deployment, which is what makes a conversation survive a redeploy. A conversation is also attributed to the person it was with, recorded on the first write that names one and never reassigned by a later write that does not — that attribution is what lets the chat panel list your own conversations and nobody else's.

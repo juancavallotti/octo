@@ -271,6 +271,39 @@
                 },
                 "type": "object"
             },
+            "agentmemory.workingResponse": {
+                "properties": {
+                    "bytes": {
+                        "description": "Bytes is the payload's real size, which is meaningful even when the payload\nitself is not served.",
+                        "type": "integer"
+                    },
+                    "found": {
+                        "description": "Found distinguishes \"this conversation carries no live context\" from \"there\nis one and here it is\". A conversation that ended cleanly has its transcript\nand nothing to resume from, which is ordinary rather than an error — so this\nroute answers 200 either way and says which, rather than making every caller\ntreat a 404 as a success it has to recognize.",
+                        "type": "boolean"
+                    },
+                    "iteration": {
+                        "type": "integer"
+                    },
+                    "payload": {
+                        "description": "Payload is the runtime's transcript verbatim. Empty when it is not text.",
+                        "type": "string"
+                    },
+                    "readable": {
+                        "description": "Readable says which of those two happened, so a viewer can tell an empty\nworking memory from one it was not given.",
+                        "type": "boolean"
+                    },
+                    "tokens": {
+                        "type": "integer"
+                    },
+                    "updatedAt": {
+                        "type": "string"
+                    },
+                    "version": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
             "apikey.apiKeyResponse": {
                 "properties": {
                     "createdAt": {
@@ -842,15 +875,12 @@
                     "dimensions": {
                         "type": "integer"
                     },
-                    "embedded": {
-                        "description": "Embedded and Pending are the backfill's progress. Configuring a provider\ndoes not make search semantic; it makes it become semantic, and these are\nhow far that has got.",
-                        "type": "integer"
-                    },
                     "model": {
                         "description": "Model and Dimensions are what it reports about itself, so a mismatch with\nthe stored vector width is diagnosable from one request.",
                         "type": "string"
                     },
                     "pending": {
+                        "description": "Pending is what is left of the backfill. Configuring a provider does not\nmake search semantic; it makes it become semantic, and this is how much is\nstill waiting. Zero is the ordinary answer and says nothing is outstanding.\n\nDeliberately not paired with an \"embedded\" total: counting rows that HAVE a\nvector cannot use an index, so it read both tables end to end on every load\nto draw a progress bar.",
                         "type": "integer"
                     },
                     "reachable": {
@@ -4431,6 +4461,56 @@
                 ]
             }
         },
+        "/integrations/{id}/agent-memory/{agentId}/threads/{threadKey}/working": {
+            "get": {
+                "description": "The live context an interrupted run would resume from — the compacted, pruned\nworking copy, as opposed to the durable transcript this conversation's turns hold.\nThe payload is the runtime's own serialized form and is served as-is: the\norchestrator stores it without parsing it, so that the engine can change the format\nwithout a schema migration.\nAnswers 200 whether or not there is one: a conversation that ended cleanly has its\ntranscript and no live context, which is ordinary. Check `found`.",
+                "parameters": [
+                    {
+                        "description": "Integration id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Agent id",
+                        "in": "path",
+                        "name": "agentId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Conversation thread key",
+                        "in": "path",
+                        "name": "threadKey",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/agentmemory.workingResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    }
+                },
+                "summary": "Read a conversation's working memory",
+                "tags": [
+                    "agent-memory"
+                ]
+            }
+        },
         "/integrations/{id}/agent-memory/{agentId}/users/{userId}/memories": {
             "get": {
                 "parameters": [
@@ -6036,7 +6116,7 @@
         },
         "/settings/embedding": {
             "get": {
-                "description": "Whether this installation has an embedding server, what it is configured to use, and how much of agent memory has been vectorized. Read only: the provider, model and key are deploy-time chart values, because changing the model discards every stored vector.",
+                "description": "Whether this installation has an embedding server, what it is configured to use, and how much of agent memory is still waiting to be vectorized. Read only: the provider, model and key are deploy-time chart values, because changing the model discards every stored vector.",
                 "responses": {
                     "200": {
                         "content": {

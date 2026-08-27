@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"unicode/utf8"
 	"time"
 
 	httpx "github.com/juancavallotti/octo/orchestrator/internal/http"
@@ -66,6 +67,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /integrations/{id}/agent-memory/agents", h.listAgents)
 	mux.HandleFunc("GET /integrations/{id}/agent-memory/{agentId}/threads", h.listThreads)
 	mux.HandleFunc("GET /integrations/{id}/agent-memory/{agentId}/threads/{threadKey}", h.readThread)
+	mux.HandleFunc("GET /integrations/{id}/agent-memory/{agentId}/threads/{threadKey}/working", h.readWorking)
 	mux.HandleFunc("PUT /integrations/{id}/agent-memory/{agentId}/threads/{threadKey}/title", h.putTitle)
 	mux.HandleFunc("DELETE /integrations/{id}/agent-memory/{agentId}/threads/{threadKey}", h.deleteThread)
 	mux.HandleFunc("GET /integrations/{id}/agent-memory/{agentId}/users/{userId}/memories", h.listMemories)
@@ -518,6 +520,80 @@ func (h *Handler) readThread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, transcript)
+}
+
+// workingResponse is the live context, described rather than handed over raw.
+//
+// The payload is the RUNTIME's serialized transcript and this package has never
+// parsed it — Working.Payload is []byte on purpose, so the engine can change the
+// format without a migration here. So the wire type says what the store knows
+// (how big, how far in, how many tokens, when) and passes the bytes along as text
+// for a viewer to make what it can of.
+//
+// Text and not base64: in practice the runtime writes JSON, and a viewer whose
+// whole job is showing an operator what the agent is carrying should not have to
+// decode a wrapper to do it. Non-UTF-8 payloads are described and withheld rather
+// than mangled, which is the honest answer for a format this route does not own.
+type workingResponse struct {
+	Working
+	// Found distinguishes "this conversation carries no live context" from "there
+	// is one and here it is". A conversation that ended cleanly has its transcript
+	// and nothing to resume from, which is ordinary rather than an error — so this
+	// route answers 200 either way and says which, rather than making every caller
+	// treat a 404 as a success it has to recognize.
+	Found bool `json:"found"`
+	// Bytes is the payload's real size, which is meaningful even when the payload
+	// itself is not served.
+	Bytes int `json:"bytes"`
+	// Payload is the runtime's transcript verbatim. Empty when it is not text.
+	Payload string `json:"payload,omitempty"`
+	// Readable says which of those two happened, so a viewer can tell an empty
+	// working memory from one it was not given.
+	Readable bool `json:"readable"`
+}
+
+// readWorking godoc
+//
+//	@Summary		Read a conversation's working memory
+//	@Description	The live context an interrupted run would resume from — the compacted, pruned
+//	@Description	working copy, as opposed to the durable transcript this conversation's turns hold.
+//	@Description	The payload is the runtime's own serialized form and is served as-is: the
+//	@Description	orchestrator stores it without parsing it, so that the engine can change the format
+//	@Description	without a schema migration.
+//	@Tags			agent-memory
+//	@Produce		json
+//	@Param			id			path		string	true	"Integration id"
+//	@Param			agentId		path		string	true	"Agent id"
+//	@Param			threadKey	path		string	true	"Conversation thread key"
+//	@Description	Answers 200 whether or not there is one: a conversation that ended cleanly has its
+//	@Description	transcript and no live context, which is ordinary. Check `found`.
+//	@Success		200			{object}	workingResponse
+//	@Router			/integrations/{id}/agent-memory/{agentId}/threads/{threadKey}/working [get]
+func (h *Handler) readWorking(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+
+	ref, ok := h.platformRef(w, r)
+	if !ok {
+		return
+	}
+	working, found, err := h.svc.LoadWorking(ctx, ref)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	if !found {
+		httpx.WriteJSON(w, http.StatusOK, workingResponse{})
+		return
+	}
+	out := workingResponse{Working: working, Found: true, Bytes: len(working.Payload)}
+	if utf8.Valid(working.Payload) {
+		out.Payload, out.Readable = string(working.Payload), true
+	}
+	// The bytes are in the wire type now; sending them twice would double a
+	// payload that is measured in hundreds of kilobytes.
+	out.Working.Payload = nil
+	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
 // putTitle godoc

@@ -15,6 +15,7 @@ export type {
   MemoryTranscript,
   MemoryTurn,
   UserMemory,
+  WorkingMemory,
 } from "@/app/actions/client/agentMemory";
 
 import type {
@@ -23,6 +24,7 @@ import type {
   MemoryThreadPage,
   MemoryTranscript,
   UserMemory,
+  WorkingMemory,
 } from "@/app/actions/client/agentMemory";
 import type { Integration } from "@/app/model/orchestrator";
 
@@ -52,6 +54,18 @@ export async function readMemoryThread(
   threadKey: string,
 ): Promise<MemoryTranscript> {
   return unwrap(await actions.readMemoryThread(integrationId, agentId, threadKey));
+}
+
+/**
+ * A conversation's working memory: what the agent still carries, as opposed to
+ * what it said. `found` is false when there is none, which is not a failure.
+ */
+export async function readMemoryWorking(
+  integrationId: string,
+  agentId: string,
+  threadKey: string,
+): Promise<WorkingMemory> {
+  return unwrap(await actions.readMemoryWorking(integrationId, agentId, threadKey));
 }
 
 /** Erase a conversation: its working memory, its turns and the conversation itself. */

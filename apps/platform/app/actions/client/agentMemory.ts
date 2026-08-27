@@ -49,6 +49,30 @@ export interface MemoryTranscript {
   next?: string;
 }
 
+/**
+ * The live context an interrupted run would resume from.
+ *
+ * Distinct from the transcript above, and the distinction is the whole point of
+ * the feature: turns are kept uncompacted forever, while THIS is what the model
+ * actually still carries — pruned or summarized to stay inside the context
+ * window. Comparing the two is how you see what an agent has forgotten.
+ *
+ * `payload` is the runtime's own serialized form. The orchestrator stores it
+ * without parsing it, so the engine can change the format without a migration,
+ * and `readable` says whether it came back as text at all.
+ */
+export interface WorkingMemory {
+  /** False when the conversation carries no live context, which is ordinary. */
+  found: boolean;
+  version: number;
+  iteration: number;
+  tokens: number;
+  updatedAt: string;
+  bytes: number;
+  payload?: string;
+  readable: boolean;
+}
+
 /** One curated fact an agent kept about a person. */
 export interface UserMemory {
   name: string;
@@ -113,6 +137,21 @@ export function readThread(
   if (query.limit) params.set("limit", String(query.limit));
   const suffix = params.size > 0 ? `?${params}` : "";
   return call("GET", `${threadBase(integrationId, agentId, threadKey)}${suffix}`);
+}
+
+/**
+ * A conversation's working memory.
+ *
+ * Having none is ordinary rather than exceptional — a conversation that ended
+ * cleanly has its transcript and nothing live to resume from — so the route
+ * answers 200 with `found: false` and this stays a plain read.
+ */
+export function readWorkingMemory(
+  integrationId: string,
+  agentId: string,
+  threadKey: string,
+): Promise<ActionResult<WorkingMemory>> {
+  return call("GET", `${threadBase(integrationId, agentId, threadKey)}/working`);
 }
 
 /** Name a conversation. */
