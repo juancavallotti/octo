@@ -62,7 +62,10 @@ func (s *fakeKV) Delete(_ context.Context, namespace, key string, expectedVersio
 }
 
 // fakeServices wires a fakeKV into the RuntimeServices contract.
-type fakeServices struct{ kv *fakeKV }
+type fakeServices struct {
+	kv     *fakeKV
+	memory core.AgentMemory
+}
 
 //nolint:ireturn // satisfies the RuntimeServices interface
 func (f fakeServices) LeaderElection() core.LeaderElection { return core.NoopLeaderElection() }
@@ -88,6 +91,14 @@ func (f fakeServices) Resources() core.ResourceLoader { return core.NoopResource
 //nolint:ireturn // implements core.RuntimeServices
 func (f fakeServices) Traces() core.TracePublisher { return core.NoopTracer() }
 
+//nolint:ireturn // implements core.RuntimeServices
+func (f fakeServices) AgentMemory() core.AgentMemory {
+	if f.memory == nil {
+		return core.NoopAgentMemory()
+	}
+	return f.memory
+}
+
 func (f fakeServices) Close() error { return nil }
 
 // withFakeServices returns a context carrying fresh in-memory services along with
@@ -95,4 +106,14 @@ func (f fakeServices) Close() error { return nil }
 func withFakeServices(ctx context.Context) (context.Context, *fakeKV) {
 	svc := fakeServices{kv: newFakeKV()}
 	return core.ContextWithRuntimeServices(ctx, svc), svc.kv
+}
+
+// withFakeMemory returns a context whose agent-memory store is a real in-memory
+// one rather than the no-op, so a test can exercise the first-class path and read
+// back what the run stored. The KV is real too, so the legacy fallback and the
+// migration off it can be exercised in the same context.
+func withFakeMemory(ctx context.Context) (context.Context, *fakeMemory, *fakeKV) {
+	mem, kv := newFakeMemory(), newFakeKV()
+	svc := fakeServices{kv: kv, memory: mem}
+	return core.ContextWithRuntimeServices(ctx, svc), mem, kv
 }

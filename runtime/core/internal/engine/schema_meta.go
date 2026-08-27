@@ -329,6 +329,25 @@ type aiAgentMeta struct {
 	// thread's prior transcript before its run and saves it after; empty disables
 	// memory.
 	MemoryThreadID string `json:"memoryThreadId" octo:"label=Memory thread ID,type=cel"`
+	// Stable name for the logical agent. Setting it opts the block into the
+	// runtime's first-class memory: durable conversation history the platform can
+	// list and replay, working memory checkpointed during the run, and — with user
+	// memory on — curated facts about a person. It is stated rather than derived
+	// because a derived name is a position in a file, and renaming the block would
+	// destroy the conversations stored under it.
+	AgentID string `json:"agentId" octo:"label=Agent ID"`
+	// CEL expression for the person the agent is talking to. Scopes user memory and
+	// labels stored conversations so the platform can list one person's threads.
+	UserID string `json:"userId" octo:"label=User ID,type=cel"`
+	// Whether completed turns are recorded to durable conversation history. Unlike
+	// working memory this record is never compacted, so it stays readable after the
+	// agent has summarized its own context away. Requires an agent ID.
+	//nolint:lll // the enum tag (options + default) is inherently longer than 120 cols
+	History string `json:"history" octo:"label=Conversation history,type=enum,enum=record|off,default=record"`
+	// Give the agent remember/forget/search_memory tools so it can keep curated
+	// facts about the person it is talking to and carry them into later
+	// conversations. Requires an agent ID and a user ID.
+	UserMemory bool `json:"userMemory" octo:"label=User memory"`
 	// Boolean CEL condition that ends the run already working on this message's
 	// conversation instead of starting one — a header, a body field, whatever the
 	// caller uses to say stop. Requires a memory thread ID, since that is what

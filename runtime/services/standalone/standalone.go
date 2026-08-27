@@ -113,6 +113,11 @@ func (s *Services) Resources() core.ResourceLoader { return s.resources }
 //nolint:ireturn // satisfies core.RuntimeServices
 func (s *Services) Traces() core.TracePublisher { return s.traces }
 
+// AgentMemory returns the module's agent-memory store.
+//
+//nolint:ireturn // satisfies the RuntimeServices interface
+func (s *Services) AgentMemory() core.AgentMemory { return core.NoopAgentMemory() }
+
 // Close releases resources: outstanding leases, so their renewal goroutines stop;
 // the store, which flushes whatever it had not yet written; and the trace file,
 // which is drained and closed here — so a graceful stop leaves a complete file
