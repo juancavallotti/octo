@@ -25,6 +25,9 @@ import { listThreads, readThread, type MemoryTurn } from "./agentMemory";
  */
 export const DR_OCTO_AGENT_ID = "dr-octo";
 
+/** Shown for a conversation the agent chose not to name. */
+const UNTITLED = "Untitled conversation";
+
 /** One past conversation, as a list shows it. */
 export interface ConversationRow {
   id: string;
@@ -62,8 +65,12 @@ export async function listConversations(user: Asker): Promise<ActionResult<Conve
   return {
     ok: true,
     data: result.data.threads.map((t) => {
+      // A conversation with no name is one the agent decided was not worth
+      // naming — a greeting, a test message. Falling back to the thread id put a
+      // raw UUID in the list, which tells a reader nothing and looks like the
+      // name failed rather than like there was nothing to name.
       const id = threadIdOf(t.threadKey, user.id);
-      return { id, title: t.title || id, updatedAt: t.lastActivityAt };
+      return { id, title: t.title || UNTITLED, updatedAt: t.lastActivityAt };
     }),
   };
 }

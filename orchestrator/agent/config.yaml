@@ -396,10 +396,16 @@ flows:
                   the orders integration", not "The user asked how to roll out an
                   integration". No quotes, no trailing period, no preamble.
 
-                  If there is nothing to name — a greeting, a test message, small
-                  talk that went nowhere — return an empty title. An empty title
-                  leaves the conversation unnamed, which is the right outcome; do
-                  not invent a topic to avoid it.
+                  Name it whenever there is a subject: a question asked, a fact
+                  stated, a task started. An exchange whose reply is short is
+                  still about something — "note that my deploy target is
+                  blueberry" is a conversation about a deploy target.
+
+                  Return an empty title ONLY when there is genuinely no subject:
+                  a bare greeting, a test message, a thanks. An empty title
+                  leaves the conversation unnamed and listed as untitled, so
+                  prefer a plain name over declining — but do not invent a topic
+                  that was never discussed.
                 # The shape is enforced rather than asked for. Without it this block
                 # returned the model's prose, ai-mapping refused to parse it as
                 # JSON, and every conversation fell back to being named after the
