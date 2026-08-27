@@ -123,9 +123,12 @@ describe("readConversation", () => {
         ],
       },
     });
+    // Composed back into the key the agent stores under: the panel addresses a
+    // conversation by the thread id it minted, and the agent keys it on the user
+    // plus that id.
     const [url] = fetchMock.mock.calls[0];
     expect(url).toBe(
-      `http://orchestrator/integrations/int-1/agent-memory/${DR_OCTO_AGENT_ID}/threads/t-1`,
+      `http://orchestrator/integrations/int-1/agent-memory/${DR_OCTO_AGENT_ID}/threads/u-1%2Ft-1`,
     );
   });
 
@@ -150,7 +153,58 @@ describe("readConversation", () => {
 
     await readConversation(ada, "a/b");
 
+    // Every slash escaped, the composed one included — the key is one path
+    // segment however many separators it contains.
     const [url] = fetchMock.mock.calls[0];
-    expect(url).toContain("/threads/a%2Fb");
+    expect(url).toContain("/threads/u-1%2Fa%2Fb");
+  });
+
+  /**
+   * The round trip, which is the whole point of the mapping.
+   *
+   * The id a listing gives the panel is the id the panel hands back — to read a
+   * conversation, and to address the next message in it. When the listing handed
+   * back the STORED key instead, the agent composed a key out of an
+   * already-composed one and resuming a conversation quietly started a new one
+   * beside it: the transcript loaded, the reply arrived, and none of it went to
+   * the conversation on screen.
+   */
+  it("reads back a conversation by the id the listing gave for it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      respondWith(200, {
+        threads: [
+          { threadKey: "u-1/abc-123", title: "Deploying", lastActivityAt: "2026-08-02T00:00:00Z" },
+        ],
+      }),
+    );
+    const listed = await listConversations(ada);
+    if (!listed.ok) throw new Error(listed.error);
+    expect(listed.data[0].id).toBe("abc-123");
+
+    const fetchMock = respondWith(200, {
+      thread: { threadKey: "u-1/abc-123", title: "Deploying", userId: "u-1" },
+      turns: [],
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await readConversation(ada, listed.data[0].id);
+
+    const [url] = fetchMock.mock.calls[0];
+    expect(url).toContain("/threads/u-1%2Fabc-123");
+  });
+
+  // A conversation stored without the prefix — an older row, or an agent that
+  // keys on the thread alone — is addressed by exactly what is stored rather than
+  // having a prefix stripped that was never there.
+  it("leaves a key that does not carry the user alone", async () => {
+    vi.stubGlobal(
+      "fetch",
+      respondWith(200, {
+        threads: [{ threadKey: "bare-key", title: "", lastActivityAt: "2026-08-02T00:00:00Z" }],
+      }),
+    );
+    const listed = await listConversations(ada);
+    if (!listed.ok) throw new Error(listed.error);
+    expect(listed.data[0].id).toBe("bare-key");
   });
 });
