@@ -7,11 +7,19 @@ description: "Read what agents have recorded: their conversations, what they sti
 
 It sits beside the [Object Store](/platform/kv-and-storage) rather than under Admin, and the placement is the argument: nothing on this page configures anything. This is **data that belongs to integrations**, read the same way [logs](/platform/logs-api-reference), [traces](/platform/traces) and stored objects are. What an agent has to declare before any of it is recorded is in [Agent Memory](/ai/agent-memory).
 
-Pick an integration, then an agent. The agent list is what has **stored** something, not what a definition declares — an agent appears here once it has recorded a conversation.
+Pick an integration, then an agent in the row above the tabs, the way you pick a deployment and a namespace in the object store. The agent list is what has **stored** something, not what a definition declares — an agent appears here once it has recorded a conversation.
+
+Three tabs, because there are three questions and only one of them is about a particular conversation:
+
+| Tab | Answers |
+| --- | --- |
+| **Conversations** | What was said, and what the agent still carries from it |
+| **Facts** | What this agent has kept about one person |
+| **Search** | Where is that thing I remember |
 
 ## The transcript and the live context
 
-Opening a conversation shows two panels, and the interesting fact is usually the difference between them.
+Open a conversation and its two forms sit behind tabs of their own, because they are two versions of the same conversation and the question is always which one you are reading.
 
 **Transcript** is the durable record: what was asked and what was answered, in order, and **never compacted**. Once a turn is written it is not touched again. A question the agent never got back to is badged rather than hidden.
 
@@ -25,6 +33,8 @@ A conversation that ended cleanly often has no working memory at all. That is or
 
 ## What you can and cannot do
 
+Facts are addressed by **person** rather than by conversation. The people offered are those on the conversations currently loaded — a page of them rather than everyone the agent has ever spoken to — which is why the picker says so.
+
 You can read, search, erase a conversation, and forget one remembered fact.
 
 You cannot **edit** a remembered fact, and that is deliberate: an operator rewriting what an agent believes about a person, with no audit trail and nothing in the conversation explaining the change, is a capability that should be asked for explicitly rather than fall out of a viewer.
@@ -33,7 +43,9 @@ Erasing reaches everything — the transcript, the working memory, and the conve
 
 ## Searching
 
-Search covers an agent's recorded turns and the facts it keeps. It ranks by **meaning** when the [embedding server](/platform/admin-settings) is deployed and by **words** when it is not; the line under the page heading says which, and neither is a degraded mode. It also reports how much is still waiting for a vector, because turning embeddings on does not make search semantic so much as make it *become* semantic — and a search run during that backfill is matched by text.
+Search covers an agent's recorded turns and the facts it keeps, and has a tab to itself — results are lines of somebody's conversation and deserve the width, and a search box above the list meant that finding something pushed everything else off the page. Opening a hit takes you back to the conversation it came from.
+
+It ranks by **meaning** when the [embedding server](/platform/admin-settings) is deployed and by **words** when it is not; the line under the search box says which, and neither is a degraded mode. It also reports how much is still waiting for a vector, because turning embeddings on does not make search semantic so much as make it *become* semantic — and a search run during that backfill is matched by text.
 
 ## Where it is stored
 

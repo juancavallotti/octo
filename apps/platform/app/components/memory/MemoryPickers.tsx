@@ -1,12 +1,17 @@
 "use client";
 
+import { BrainCircuit } from "lucide-react";
 import type { MemoryAgent } from "@/app/model/agentMemory";
 import type { Integration } from "@/app/model/orchestrator";
-import { Field, INPUT } from "@/app/components/admin/fields";
 
 /**
  * What to look at: an integration, then one of the agents that has stored
  * something under it.
+ *
+ * A single compact row rather than a pair of labelled fields, matching the object
+ * store's toolbar — these two pickers scope everything on the page, so they belong
+ * above the tabs and out of the way, not in a form-shaped block that reads as
+ * something to fill in.
  *
  * The agent list is not read from any definition. An agent appears here once it
  * has actually recorded something, which is precisely when there is anything to
@@ -29,44 +34,46 @@ export function MemoryPickers({
   onAgentChange: (id: string) => void;
 }) {
   return (
-    <div className="mt-4 grid gap-3 sm:grid-cols-2">
-      <Field label="Integration">
-        <select
-          value={integrationId}
-          onChange={(e) => onIntegrationChange(e.target.value)}
-          className={`${INPUT} w-full`}
-        >
-          <option value="">Choose an integration…</option>
-          {integrations.map((i) => (
-            <option key={i.id} value={i.id}>
-              {i.name}
-            </option>
-          ))}
-        </select>
-      </Field>
-
-      <Field
-        label="Agent"
-        hint={
-          integrationId && agents.length === 0
-            ? "No agent under this integration has stored anything yet."
-            : "The id the ai-agent block declares."
-        }
+    <div className="flex flex-wrap items-center gap-2 border-b border-black/10 px-4 py-2.5 dark:border-white/10">
+      <BrainCircuit size={15} className="shrink-0 text-zinc-400" aria-hidden />
+      <select
+        value={integrationId}
+        onChange={(e) => onIntegrationChange(e.target.value)}
+        aria-label="Integration"
+        className="min-w-0 max-w-md flex-1 rounded-md border border-black/10 bg-transparent px-2 py-1 text-sm dark:border-white/15"
       >
-        <select
-          value={agentId}
-          disabled={agents.length === 0}
-          onChange={(e) => onAgentChange(e.target.value)}
-          className={`${INPUT} w-full`}
-        >
-          <option value="">Choose an agent…</option>
-          {agents.map((a) => (
-            <option key={a.agentId} value={a.agentId}>
-              {a.agentId} ({a.threadCount})
-            </option>
-          ))}
-        </select>
-      </Field>
+        <option value="">Select an integration…</option>
+        {integrations.map((i) => (
+          <option key={i.id} value={i.id}>
+            {i.name}
+          </option>
+        ))}
+      </select>
+
+      {integrationId && (
+        <>
+          <span className="shrink-0 text-xs font-medium text-zinc-400">agent</span>
+          <select
+            value={agentId}
+            disabled={agents.length === 0}
+            onChange={(e) => onAgentChange(e.target.value)}
+            aria-label="Agent"
+            className="shrink-0 rounded-md border border-black/10 bg-transparent px-2 py-1 text-sm disabled:opacity-50 dark:border-white/15"
+          >
+            <option value="">Select an agent…</option>
+            {agents.map((a) => (
+              <option key={a.agentId} value={a.agentId}>
+                {a.agentId} ({a.threadCount})
+              </option>
+            ))}
+          </select>
+          {agents.length === 0 && (
+            <span className="shrink-0 text-xs text-zinc-500 dark:text-zinc-400">
+              Nothing stored under this integration yet.
+            </span>
+          )}
+        </>
+      )}
     </div>
   );
 }

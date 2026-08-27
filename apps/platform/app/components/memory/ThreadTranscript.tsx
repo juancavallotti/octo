@@ -45,7 +45,9 @@ export function ThreadTranscript({
           {transcript.thread.threadKey}
         </p>
       </div>
-      <ol className="flex max-h-[28rem] flex-col gap-3 overflow-y-auto p-4">
+      {/* No scroll container of its own: the tab panel around it scrolls, and a box
+          that scrolled inside a box that scrolls is two places to be lost in. */}
+      <ol className="flex flex-col gap-3 p-4">
         {transcript.turns.map((turn) => {
           // A question the run never got back to. Worth badging rather than
           // hiding: somebody asked it, and an agent that stops answering is the
