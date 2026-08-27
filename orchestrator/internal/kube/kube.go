@@ -64,6 +64,16 @@ type RuntimeServices struct {
 	// only into deployments that were granted the observability API, so an empty
 	// value here disables the grant everywhere rather than degrading every pod.
 	LogsURL string
+	// EmbeddingsURL is the embedding server: text in, vectors out. Empty omits it,
+	// which is what an installation with no embedding server has.
+	//
+	// Injected into EVERY pod, unlike LogsURL beside it, and the difference is the
+	// point. LOGS_URL is a grant because stored telemetry is other integrations'
+	// data and handing it out would cross a boundary. An embedding crosses none: it
+	// reads nothing, writes nothing, and costs a fraction of a cent. Giving every
+	// pod the URL is what makes it unnecessary to give any pod the provider API
+	// key, which is the trade this server exists to make.
+	EmbeddingsURL string
 }
 
 // SecretKeyRef names one key in one Secret in the release namespace. Integration
