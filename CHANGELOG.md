@@ -1,5 +1,76 @@
 # Changelog
 
+## [0.8.8](https://github.com/juancavallotti/octo/compare/v0.8.7...v0.8.8) (2026-08-27)
+
+
+### Features
+
+* **agent:** Dr. Octo drops his own memory layer for the runtime's ([c8dc6a9](https://github.com/juancavallotti/octo/commit/c8dc6a920e87d59348a5143f1fe47ac22606e5a9))
+* **agent:** Dr. Octo drops his own memory layer for the runtime's ([285a7e3](https://github.com/juancavallotti/octo/commit/285a7e3a0fdc9a7dcd026a9749d3f3f063977dc0)), closes [#362](https://github.com/juancavallotti/octo/issues/362)
+* **deploy:** configure the embedding server from the deployment ([28b6770](https://github.com/juancavallotti/octo/commit/28b677017db0be8cfff0ba59252ef5af9f79d82a))
+* **embeddings:** an embedding server, so the key lives in one pod ([18d49cf](https://github.com/juancavallotti/octo/commit/18d49cf2a83403d653d2061ff9ce6750ea94fb5c))
+* **http:** add byte-oriented request primitives ([9073f44](https://github.com/juancavallotti/octo/commit/9073f44e37e61ad56c2ef5902e8cd9c564cbb1e7))
+* **http:** forward a runtime credential from the rest blocks ([d0a9cb6](https://github.com/juancavallotti/octo/commit/d0a9cb63046da388d2bbc46bc6ba2f0f73f3ed50))
+* **http:** let a rest block send the caller's credential ([47ac6e7](https://github.com/juancavallotti/octo/commit/47ac6e7a11061e981f91619ab54dc2a6a75331b2))
+* **http:** let a rest block send the caller's credential ([9ad5c7c](https://github.com/juancavallotti/octo/commit/9ad5c7cb9dae74b0d485f77abea42eec64b8a315)), closes [#378](https://github.com/juancavallotti/octo/issues/378)
+* **http:** let the rest blocks send a per-message credential ([de50ea4](https://github.com/juancavallotti/octo/commit/de50ea4eb7095f9bbb5c2008d2b714297dbf645c))
+* **orchestrator:** add the integration bundle archive format ([896a743](https://github.com/juancavallotti/octo/commit/896a743033b62ff13bf4be504ba01268f5156b95))
+* **orchestrator:** export, import and replace integrations as bundles ([21678dc](https://github.com/juancavallotti/octo/commit/21678dcb10e03e55bb52c9fd226310a2410e4c1c))
+* **orchestrator:** import and export integrations as bundles ([d1f168a](https://github.com/juancavallotti/octo/commit/d1f168a5bc6f70e47334d5e6d714d45f68aae011))
+* **orchestrator:** serve the bundle import/export routes ([5ed5eec](https://github.com/juancavallotti/octo/commit/5ed5eeced5d2c01f6337abc934ccf3658d31637a))
+* **platform:** configure embeddings, and read what agents remember ([594e4f0](https://github.com/juancavallotti/octo/commit/594e4f0ef79f4f02a4b8b8fdeacbfe770513c5c3))
+* **platform:** download and upload integrations and resources in the manager ([e9c3e3f](https://github.com/juancavallotti/octo/commit/e9c3e3fc8355576c9eece2a1b95c8f5a288c41f0))
+* **platform:** download and upload integrations as bundles in the manager ([4bfc799](https://github.com/juancavallotti/octo/commit/4bfc799a2390c787ce5803d88ac784c902982abb))
+* **platform:** reach the orchestrator's bundle routes from the BFF ([3c46dd0](https://github.com/juancavallotti/octo/commit/3c46dd0db74b7a60f281fe84f6f9349cbe9c813f))
+* **platform:** show what the agent still carries, beside what it said ([5fef9cf](https://github.com/juancavallotti/octo/commit/5fef9cff24b6d00bf32d18d65363d675dd6aab71))
+* **platform:** store agent memory in the orchestrator database ([9f89f68](https://github.com/juancavallotti/octo/commit/9f89f68ac4e8ee14696e6d255dbbdd69e4973b2b)), closes [#362](https://github.com/juancavallotti/octo/issues/362)
+* **runtime:** first-class agent memory as a runtime service ([8118db8](https://github.com/juancavallotti/octo/commit/8118db825d667ef3363b33a299ad6535191b419e))
+* **runtime:** let an agent name its own conversations ([27cc3c9](https://github.com/juancavallotti/octo/commit/27cc3c935e408e16d0a5cedfee5c502f46b47c1b))
+* **standalone:** store agent memory on disk ([969a965](https://github.com/juancavallotti/octo/commit/969a965dcec592543c4626f04caff5901e70a1c8))
+
+
+### Bug Fixes
+
+* **agent:** make Dr. Octo's naming chain actually answer ([2e708b0](https://github.com/juancavallotti/octo/commit/2e708b097a80eec0d298a3932e339b9168a41c08))
+* **agent:** name conversations that have a subject, and label the rest ([9b6719c](https://github.com/juancavallotti/octo/commit/9b6719c479d88246560d7e13734d379099fc0b4d))
+* **agent:** name the conversation the agent actually wrote ([f81c5ce](https://github.com/juancavallotti/octo/commit/f81c5ce870da16f94de35ac673a2269acf4efe01))
+* **agent:** the chat panel drops the context it caused to be there ([d0c2be1](https://github.com/juancavallotti/octo/commit/d0c2be15e31e264dc714a478f77dd1c6973d4998))
+* **http:** guard the forwarded credential before trimming it ([dc43245](https://github.com/juancavallotti/octo/commit/dc43245410e1acd49ae77fda84912aa33b5af822))
+* **k8s:** clear the linter on the memory client ([1903363](https://github.com/juancavallotti/octo/commit/19033635bc19beb1e88441faa91ba1b7291a6d5a))
+* **orchestrator:** keep exclusions excluding in the OR'd search ([2304e6a](https://github.com/juancavallotti/octo/commit/2304e6a99cdf4d12bc24ab3cc580e127f4317f71))
+* **orchestrator:** keep exclusions excluding, whichever side they are on ([8d41697](https://github.com/juancavallotti/octo/commit/8d416975c6546d1e1c9cb54b0171f3e3bd45a14d))
+* **orchestrator:** OR the terms in the fallback search ([b1acfa2](https://github.com/juancavallotti/octo/commit/b1acfa225d7b7b1ed1545bd70894c0d6658c1253))
+* **orchestrator:** refuse a stale write to erased memory, and sweep atomically ([6c308df](https://github.com/juancavallotti/octo/commit/6c308df7834f810a4fd9420a0f7ffb7415a8de90))
+* **platform:** keep one embedding space, and one selection, at a time ([7e370cd](https://github.com/juancavallotti/octo/commit/7e370cdec2505f64287787a0b5740394edeb8a49))
+* **platform:** record who a conversation is with ([4905dd9](https://github.com/juancavallotti/octo/commit/4905dd92b1d3c1fba71e14f02b6d4f6f4ad9d564))
+* **platform:** resuming a conversation continues it, rather than forking one ([b8c850e](https://github.com/juancavallotti/octo/commit/b8c850e9b4281f2c69c781e7e65f522365e63acd))
+* **runtime:** act on CodeRabbit's review of the memory seam ([1b9216c](https://github.com/juancavallotti/octo/commit/1b9216cbc443b2fb13637eb20748955c85cc6d01))
+* **runtime:** bound the memory preamble and stop it evading the context budget ([9fe3a0e](https://github.com/juancavallotti/octo/commit/9fe3a0e464ebc644089edbefa3b51ca21ad2023c))
+* **runtime:** clear the linter on the memory seam ([cd993bd](https://github.com/juancavallotti/octo/commit/cd993bd7c0a0fe90377a768b62166ab91ab12f4d))
+* **standalone:** clear the linter on the disk store ([c75e4fb](https://github.com/juancavallotti/octo/commit/c75e4fb607ce2ee6bd5035dd1177a107a503cc94))
+* **standalone:** search every conversation, and end a listing on a stale cursor ([918ca31](https://github.com/juancavallotti/octo/commit/918ca31ca2d3fe855cb902bb7279218787b36671))
+
+
+### Refactoring
+
+* **agent:** Dr. Octo names conversations through the slot, not a queue ([94ba940](https://github.com/juancavallotti/octo/commit/94ba9402fd2194cf581c79405e9b28516ebbca32))
+* **agent:** the specialists become flows, so they can be tested ([4fe8548](https://github.com/juancavallotti/octo/commit/4fe8548c69052202881124c6ab8d1e85c5480a7d))
+* **orchestrator:** reach the embedding server, hold no provider code ([d72229f](https://github.com/juancavallotti/octo/commit/d72229ffb77c89a44d629d89d837ec94c2a6afa2))
+* **platform:** lift the memory viewer's state into a hook ([ad0f63b](https://github.com/juancavallotti/octo/commit/ad0f63bb2569647f8970414379f0821ea38795de))
+* **platform:** one page for the platform agent, and memory where it belongs ([cbe58bf](https://github.com/juancavallotti/octo/commit/cbe58bfe10020bbae1ba954e2ea7c5eab9badb71))
+* **platform:** the embedding report moves to the page that searches ([039d598](https://github.com/juancavallotti/octo/commit/039d598e874d48d9069e5852459852b6a82d074b))
+* **platform:** the memory viewer gets the width, and three tabs ([6b06bfd](https://github.com/juancavallotti/octo/commit/6b06bfd5e8c6e3d9a8d0e50dd99a958ae1e4cc02))
+
+
+### Documentation
+
+* **agent:** describe the memory he actually has ([1b89adb](https://github.com/juancavallotti/octo/commit/1b89adb716e58e59ee3606eef648d6bb281daf26))
+* **ai:** correct the naming example, which did not work ([15ffb5f](https://github.com/juancavallotti/octo/commit/15ffb5f6180f66b6551590596ed47789eafaa5ea))
+* **ai:** say that history keeps the opening turn verbatim ([c1754f8](https://github.com/juancavallotti/octo/commit/c1754f8c131206ed85b411b8b47ebac87a072d3b))
+* **platform:** describe the naming that exists, not the one that did ([de6a7f1](https://github.com/juancavallotti/octo/commit/de6a7f143fbb2f08c93d2f5c62662fdef11d7487))
+* **platform:** move embeddings off the agent page here too ([84e45d5](https://github.com/juancavallotti/octo/commit/84e45d52d666466fb7cbe8f40e927f5d7892a167))
+* **platform:** say that working memory carries the tool traffic ([21d2785](https://github.com/juancavallotti/octo/commit/21d2785dd65ab43a333c48db0c1014e06e103f4f))
+
 ## [0.8.7](https://github.com/juancavallotti/octo/compare/v0.8.6...v0.8.7) (2026-08-24)
 
 

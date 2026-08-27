@@ -9,7 +9,7 @@ import (
 // as octo — one tag, one version — so this const tracks octo's, and release-please
 // keeps it in sync via the extra-files updater in release-please-config.json (the
 // trailing annotation marks the line it rewrites).
-const Version = "0.8.7" // x-release-please-version
+const Version = "0.8.8" // x-release-please-version
 
 // BuildDate is the binary's build timestamp, stamped at link time via
 // -ldflags "-X main.BuildDate=...". The build task and the release set it; when
