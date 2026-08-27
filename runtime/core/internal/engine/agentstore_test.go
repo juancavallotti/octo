@@ -3,8 +3,10 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/core/internal/pool"
@@ -451,4 +453,72 @@ func requestMentions(msgs []core.LLMMessage, text string) bool {
 		}
 	}
 	return false
+}
+
+// TestAgentMemoryToolNamesAreNotClaimedWhenOff checks that an agent which never
+// asked for user memory keeps its own tool of the same name. The builder only
+// rejects that collision when userMemory is on, so a flow declaring a "remember"
+// branch and no user memory builds — and must still reach its branch.
+func TestAgentMemoryToolNamesAreNotClaimedWhenOff(t *testing.T) {
+	cfg := storeAgentConfig("support", `"thread-1"`)
+	cfg.Tools = []types.ToolConfig{toolBranch(rememberToolName, "the flow's own tool", nil)}
+
+	var seen []any
+	conn := &scriptedLLM{responses: []*core.LLMResponse{
+		toolCallResp(rememberToolName, `{"anything":true}`),
+		endTurnResp("done"),
+	}}
+	block := mustBuildAI(t, agentRegistry(&seen), depsLLM(conn), cfg)
+	ctx, _, _ := withFakeMemory(context.Background())
+	if _, err := block.Process(ctx, aiMessage(t)); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	if len(seen) == 0 {
+		t.Error("the flow's own remember tool should have run, not the built-in")
+	}
+}
+
+// TestAgentMemoryPreambleIsBounded checks that what rides in front of every
+// request is capped. Unbounded it is spent on every turn of every run, and an
+// agent with a long history with somebody would reach the provider's window
+// before reading a word of the conversation.
+func TestAgentMemoryPreambleIsBounded(t *testing.T) {
+	cfg := storeAgentConfig("support", `"thread-1"`)
+	cfg.UserID = `"alice"`
+	cfg.UserMemory = true
+
+	ctx, mem, _ := withFakeMemory(context.Background())
+	ref := core.MemoryRef{AgentID: "support", UserID: "alice"}
+	for i := 0; i < preambleMaxMemories+20; i++ {
+		if _, err := mem.PutMemory(ctx, ref, fmt.Sprintf("fact-%03d", i), "something worth keeping", 0); err != nil {
+			t.Fatalf("seed memory %d: %v", i, err)
+		}
+	}
+
+	var seen []any
+	conn := &scriptedLLM{responses: []*core.LLMResponse{endTurnResp("ok")}}
+	block := mustBuildAI(t, agentRegistry(&seen), depsLLM(conn), cfg)
+	if _, err := block.Process(ctx, aiMessage(t)); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+
+	if len(conn.calls) == 0 {
+		t.Fatal("want a model call")
+	}
+	preamble := conn.calls[0].Messages[0].Text
+	if strings.Count(preamble, "\n- ") > preambleMaxMemories {
+		t.Errorf("the preamble should render at most %d memories", preambleMaxMemories)
+	}
+	if !strings.Contains(preamble, searchMemoryToolName) {
+		t.Error("the preamble should say the rest are reachable, not drop them silently")
+	}
+}
+
+// TestTitleForTrimsOnARuneBoundary checks that a long non-ASCII opening turn is
+// not cut mid-rune, which would store an invalid UTF-8 sequence.
+func TestTitleForTrimsOnARuneBoundary(t *testing.T) {
+	got := titleFor(strings.Repeat("é", titleMaxLen))
+	if !utf8.ValidString(got) {
+		t.Errorf("title should stay valid UTF-8, got %q", got)
+	}
 }
